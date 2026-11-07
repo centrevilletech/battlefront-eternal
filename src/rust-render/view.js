@@ -1,12 +1,17 @@
-// Rust owns every first-person draw, including blended sights and muzzle flashes.
-// Three compiles the material programs; view.rs submits the ordered draws.
+// The view pass (view.rs): the first-person view scene (graphics.viewScene,
+// drawn after a depth clear with graphics.viewCamera): the arms' rig and the
+// weapon in their hand (firstperson.js), each part a rigid mesh written as a
+// record the renderer draws instanced, read with the view camera's frame
+// block (VIEW_FIRST_PERSON). Material shells carry values and owned program
+// keys. The browser never compiles an actor material.
+import { actorProgram, actorFailure, claimActor, isActorMaterial, actorMap, refreshActorMap } from "./actors.js";
 import * as THREE from "three";
 import { compileFor, unbuilt } from "./instances.js";
 import { ownedEffectProgram } from "./effect-material.js";
 import { ownsEffectSource } from "./programs.js";
 import { arcBatches } from "../arc-lightning.js";
 import { plainProgram, writeUniform } from "./post.js";
-import { blendOf, programForSide, sidesOf, stateOf } from "./transparent.js";
+import { blendOf, sidesOf, stateOf } from "./transparent.js";
 
 // instances.rs's kinds: a rigid part, and one that blends (its draw its own:
 // view.rs, from its row).
@@ -26,22 +31,13 @@ const transparentOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder 
 const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, EXTRA: 76, BLEND: 96 };
 const MAX_RECORDS = 256;
 const flagsOf = (m) => m.side | (m.alphaToCoverage ? 4 : 0) | (m.depthWrite ? 8 : 0);
-// What a part's program may read besides the frame block (as instances.js
-// gives the guns'): its textures, its row's matrices, look and point
-// lights, and lamp lighting's, read only while lamps are off.
-const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
-const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount"];
-const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
-// lamps: each part's lamps (a view model's, local-lights.js) go in its row
-// (the record's EXTRA + 13 count, + 16..19 lamp table indices).
-const POLICY = { uniforms: new Set(["map", "farMap", ...INSTANCE, ...LAMPS]), material: LOOK, lamps: true };
 
 class ViewPass {
   constructor(core) {
     this.core = core;
     this.name = "view";
     this.phase = "view";
-    this.parts = new WeakMap(); // mesh -> its record, or null (unregistered)
+    this.parts = new WeakMap(); // mesh -> registered record
     this.records = [];
     // Whether the last phase drew everything three would have of the scene.
     this.complete = false;
@@ -78,7 +74,7 @@ class ViewPass {
     if (object.isGroup) groupOrder = object.renderOrder;
     if (object.layers.test(camera.layers)) {
       if (object.isMesh) this.part(object, ctx, groupOrder);
-      else if (object.isSprite || object.isPoints || object.isLine || object.isLOD) this.complete = false;
+      else if (object.isSprite || object.isPoints || object.isLine || object.isLOD) this.core.skip(object, object.material, "view object no pass owns");
     }
     const children = object.children;
     for (let i = 0; i < children.length; i++) this.visit(children[i], camera, ctx, groupOrder);
@@ -86,10 +82,11 @@ class ViewPass {
 
   part(mesh, ctx, groupOrder) {
     let record = this.parts.get(mesh);
-    if (record === undefined || record && (mesh.material !== record.material || record.version !== mesh.material.version)) {
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      if (!materials.every(material => ownsEffectSource(material)) && unbuilt(this.core.renderer, materials)) compileFor(this.core.renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
-      record = this.registerPart(mesh);
+    if(record && mesh.material!==record.material && !isActorMaterial(mesh.material) && !ownsEffectSource(mesh.material))return this.core.skip(mesh, mesh.material, "view part whose material no descriptor covers");
+    if(record===undefined || record===null && isActorMaterial(mesh.material) || record && (mesh.material!==record.material || record.version!==mesh.material.version)) {
+      if(!isActorMaterial(mesh.material) && ![].concat(mesh.material).every(ownsEffectSource) && unbuilt(this.core.renderer,mesh.material))compileFor(this.core.renderer,[[mesh,mesh.material]],ctx.camera,ctx.scene);
+      const previous=record;record=claimActor(this.core, mesh, () => this.registerPart(mesh));
+      if(previous){const at=this.records.indexOf(previous);if(at>=0)this.records.splice(at,1);}
     }
     if (record && mesh.material === record.material) {
       if (record.rigid) {
@@ -98,17 +95,16 @@ class ViewPass {
       }
       else if (record.blended) this.blend(record, groupOrder);
       else this.write(record, ctx);
-    } else if (record) this.core.fail(new Error("Cannot register changed view material"));
-    else if ([].concat(mesh.material).some((m) => m?.visible)) { this.complete = false; this.stopped = mesh; }
+    } else if (record) this.core.skip(mesh, mesh.material, "view part whose material no descriptor covers");
+    else if ([].concat(mesh.material).some((m) => m?.visible)) this.core.skip(mesh, mesh.material, "view mesh no pass owns");
   }
 
   // A rigid part with a zero material that does not blend (instances.js
-  // registerMesh's rule for a gun), or a basic material that blends (the
-  // muzzle flash).
+  // registerMesh's rule for a gun), or a source-owned blended muzzle flash.
   registerPart(mesh) {
     const core = this.core;
     let record = null;
-    const material = mesh.material, threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
+    const material = mesh.material;
     if (material?.userData?.bfeProgram === "effects/glow-basic") return this.registerBlended(mesh);
     if (material?.userData?.bfeProgram === "effects/arc" && arcBatches.has(mesh)) {
       const batch = core.byName.effects.viewBatch(mesh);
@@ -116,39 +112,33 @@ class ViewPass {
       this.parts.set(mesh, record); this.records.push(record);
       return record;
     }
-    // A zero material the instanced parts can't take (unlit, its texture
-    // scrolling: the rifle's glowing sights): drawn as three compiled it.
-    if (threeProgram && material.isShaderMaterial && !material.transparent && !("DYNAMIC" in (material.defines || {})) && "UNLIT" in (material.defines || {})) return this.registerBlended(mesh);
-    // A zero material that blends (a gun's glass): its lights and lamps per
-    // instance, so a record of its own kind (registerRigidBlend).
-    if (threeProgram && material.isShaderMaterial && material.transparent && "DYNAMIC" in (material.defines || {}) && !mesh.geometry.groups.length && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
-      const record = this.registerRigidBlend(mesh);
+    // A zero material: an actor part with an owned rigid program.
+    // View effects retain their own family/pass; they are not actor variants.
+    if (!material.userData.actorShader) {
+      this.parts.set(mesh,null);return null;
+    }
+    if (mesh.geometry.groups.length || mesh.isSkinnedMesh || mesh.isInstancedMesh) throw actorFailure(`Unsupported view geometry: ${mesh.name || mesh.type}`);
+    if (material.transparent) {
+      record = this.registerRigidBlend(mesh);
       this.parts.set(mesh, record);
       return record;
     }
-    if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {}) && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
-      const program = core.program(threeProgram, RIGID, material, POLICY);
-      const geometry = program && core.geometry(mesh.geometry, program);
-      const texture = core.texture(material.uniforms.map?.value);
-      if (geometry !== null && geometry !== undefined && texture >= 0) {
-        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
-        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { version: material.version, mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
-        material.visible = false;
-        this.records.push(record);
-      }
+    const program = actorProgram(core, material, RIGID, true);
+    const geometry = core.geometry(mesh.geometry, program);
+    const texture = actorMap(core,material);
+    if (geometry === null || geometry === undefined)throw actorFailure(`View actor resources: ${mesh.name}`);
+    {
+      if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      record = { version: material.version, mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
+      material.visible = false;
+      this.records.push(record);
     }
-    // Three has not drawn it yet: asked again next frame.
-    if (threeProgram || record) this.parts.set(mesh, record);
+    this.parts.set(mesh, record);
     return record;
   }
 
-  // A mesh drawn with three's program as it is (no shader hooks), in one
-  // geometry range: a basic material that blends (the muzzle flash), or an
-  // unlit zero material (opaque).
-  // Blended view parts still need their authored pass/side order and material
-  // values. A plain program is not permission for a native overlay draw.
-  // Registration errors stop this view rather than leaving a hole in the gun.
+  // A source-owned per-object program for a blended muzzle flash.
   registerBlended(mesh) {
     const core = this.core, material = mesh.material, geometry = mesh.geometry;
     let record = null;
@@ -160,36 +150,35 @@ class ViewPass {
     const why = !program ? "program" : program.uniforms.length > MAX_DRAW_UNIFORMS ? `${program.uniforms.length} uniforms` : !blend || !state ? "state"
       : material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile ? "shader hook" : !geometry.index || geometry.groups.length ? "geometry"
       : mesh.isSkinnedMesh || mesh.isInstancedMesh ? "kind" : null;
-    if (why && ownsEffectSource(material)) throw Error(`Owned view effect ${material.userData.bfeProgram}: ${why}`);
-    if (why) core.errors.push(`view ${material.name || material.type}: ${why}`);
+    if (why) throw actorFailure(`view ${material.name || material.type}: ${why}`);
     else {
       const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
-      if (g !== null && g !== undefined) {
+      if (g === null || g === undefined)throw actorFailure(`View flash geometry: ${mesh.name}`);
+      {
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
         record = { version: material.version, blended: true, mesh, material, program, geometry: g, blend, state, sides };
         material.visible = false;
         this.records.push(record);
       }
-      else if (ownsEffectSource(material)) throw Error(`Owned view effect ${material.userData.bfeProgram}: geometry`);
     }
     this.parts.set(mesh, record);
     return record;
   }
 
   // A rigid part whose zero material blends: a record drawn from its row
-  // (instances.rs KIND_BLENDED_RIGID) with three's program for each side
+  // (instances.rs KIND_BLENDED_RIGID) with an owned program for each side
   // three draws it with, its blending and depth as three sets them, at its
   // place in three's transparent order among what the view blends (view.rs).
-  // Null when the renderer can't draw it.
+  // Unsupported owned resources stop registration.
   registerRigidBlend(mesh) {
-    const core = this.core, renderer = core.renderer, material = mesh.material;
+    const core = this.core, material = mesh.material;
     const how = blendOf(material), state = stateOf(material), sides = sidesOf(material);
-    if (!how || !state) return null;
-    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, RIGID, material, POLICY); });
-    if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+    if (!how || !state)throw actorFailure(`View actor blend state: ${mesh.name}`);
+    const programs = sides.map(() => actorProgram(core, material, RIGID, true));
+    if (programs.some((p) => p.attributes.join() !== programs[0].attributes.join()))throw actorFailure(`View actor attribute layout: ${mesh.name}`);
     const geometry = core.geometry(mesh.geometry, programs[0]);
-    const texture = core.texture(material.uniforms.map?.value);
-    if (geometry === null || geometry === undefined || texture < 0) return null;
+    const texture = actorMap(core,material);
+    if (geometry === null || geometry === undefined)throw actorFailure(`View actor blend resources: ${mesh.name}`);
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
     const blend = core.rust.inst_add_blend(new Uint32Array(how), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
@@ -204,10 +193,7 @@ class ViewPass {
   blend(record, groupOrder) {
     const mesh = record.mesh;
     if (mesh.frustumCulled && !frustum.intersectsObject(mesh)) return;
-    if (this.blends.length + this.opaques.length >= MAX_DRAWS) {
-      if (ownsEffectSource(record.material)) throw Error("Owned view effects exceed the draw capacity");
-      this.complete = false; record.material.visible = true; return;
-    }
+    if (this.blends.length + this.opaques.length >= MAX_DRAWS)return this.core.skip(mesh, record.material, "view draw capacity exceeded");
     point.copy(mesh.geometry.boundingSphere.center).applyMatrix4(mesh.matrixWorld).applyMatrix4(viewProjection);
     (record.material.transparent ? this.blends : this.opaques).push({ record, groupOrder, renderOrder: mesh.renderOrder, material: record.material.id, z: point.z, id: mesh.id });
   }
@@ -267,11 +253,7 @@ class ViewPass {
       }
       let failed = null;
       for (let k = 0; k < program.uniforms.length && !failed; k++) if (!writeUniform(core, input, o + D.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera)) failed = program.uniforms[k].name;
-      if (failed) {
-        if (ownsEffectSource(material)) throw Error(`Owned view effect ${material.userData.bfeProgram}: no value for ${failed}`);
-        if (!record.failed) { record.failed = true; core.errors.push(`view ${material.name || material.type}: no value for ${failed}`); }
-        this.complete = false; material.visible = true; continue;
-      }
+      if (failed) { core.skip(record.mesh, material, `no value for ${failed}`); continue; }
       n++;
     }
     input[0] = n;
@@ -280,9 +262,10 @@ class ViewPass {
   }
 
   write(record, at) {
-    if (at.records >= MAX_RECORDS) { this.complete = false; record.material.visible = true; return; }
+    if (at.records >= MAX_RECORDS)return this.core.skip(record.mesh, record.material, "view instance capacity exceeded");
     const core = this.core;
     core.views();
+    refreshActorMap(core,record);core.views();
     const { mesh, material } = record, input = core.input, geometry = mesh.geometry;
     const o = core.recordsAt + at.records * core.stride;
     input[o + R.KIND] = record.rigid ? BLENDED_RIGID : RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
@@ -299,8 +282,11 @@ class ViewPass {
     const u = material.uniforms;
     input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value;
     input[o + R.FLAGS] = flagsOf(material);
+    for (let k = 0; k < 20; k++) input[o + R.EXTRA + k] = 0;
+    input[o + R.EXTRA] = u.scroll?.value.x || 0;
+    input[o + R.EXTRA + 1] = u.scroll?.value.y || 0;
     if (record.lamps) {
-      // As the part's material's onBeforeRender selects them (a view model's).
+      // The view model's lamps, selected for this part.
       const lamps = core.lamps(mesh, true);
       input[o + R.EXTRA + 13] = lamps.count;
       for (let k = 0; k < 4; k++) input[o + R.EXTRA + 16 + k] = lamps.indices[k];

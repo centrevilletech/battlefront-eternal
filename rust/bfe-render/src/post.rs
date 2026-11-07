@@ -204,6 +204,7 @@ impl<C: HasContext> PostPass<C> {
             gl.bind_vertex_array(Some(vao));
             let buffer = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, crate::core::bytes(&TRIANGLE), glow::STATIC_DRAW);
             gl.enable_vertex_attrib_array(POSITION);
             gl.vertex_attrib_pointer_f32(POSITION, 3, glow::FLOAT, false, 0, 0);

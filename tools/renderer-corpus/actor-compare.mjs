@@ -1,0 +1,57 @@
+// The repeat reference defines an amplitude envelope at each channel. A noisy
+// control never grants a blanket differing-pixel allowance to the candidate.
+import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
+// Pixel-exact difference of candidate b from reference a, with the repeat
+// reference c as the noise floor: `residual` counts pixels where b is further
+// from a than c is, `stableResidual` those where c itself equals a. Channels are
+// compared as integers (or half-float bits), never through a tolerance.
+export function compare(a,b,c) {
+  if(a.length!==b.length || a.length!==c.length || a.length%4)throw Error('Incompatible stage buffers');
+  let differing=0,control=0,residual=0,stableResidual=0,maxDelta=0,maxExcess=0;
+  for(let i=0;i<a.length;i+=4){let d=0,n=0,e=0;
+    for(let j=0;j<4;j++){const delta=Math.abs(a[i+j]-b[i+j]),noise=Math.abs(a[i+j]-c[i+j]);d=Math.max(d,delta);n=Math.max(n,noise);e=Math.max(e,delta-noise);}
+    if(d)differing++;if(n)control++;if(e>0){residual++;if(!n)stableResidual++;maxExcess=Math.max(maxExcess,e);}maxDelta=Math.max(maxDelta,d);
+  }
+  return {pixels:a.length/4,differing,control,residual,stableResidual,maxDelta,maxExcess};
+}
+// One case's three roles: every stage of every point, then the replay pairs.
+// A case passes only when it is complete (four valid points), the replay record
+// layouts of all three roles agree, and every replay pair is exact.
+export function compareCase(out,id) {
+  const roles=['reference','candidate','control'];
+  const runs=Object.fromEntries(roles.map(role=>[role,JSON.parse(fs.readFileSync(`${out}/${id}-${role}/capture.json`))]));
+  const report={id,valid:roles.every(r=>runs[r].valid),complete:roles.every(r=>runs[r].points.length===4),points:[],runs,shaderPrograms:runs.candidate.shaderPrograms || []};
+  // The same capture point in all three roles must be the same simulation tick.
+  for(let k=0;k<runs.reference.points.length;k++){
+    const points=roles.map(r=>runs[r].points[k]);
+    const point={k,valid:points.every(Boolean) && points.every(p=>p.tick===points[0].tick),stages:{}};
+    for(const name of Object.keys(points[0].stages)){
+      const stages=points.map(p=>p?.stages[name]);
+      if(stages.some(s=>!s) || stages.some(s=>s.w!==stages[0].w || s.h!==stages[0].h || s.bytes!==stages[0].bytes)){point.valid=false;point.stages[name]={error:'stage layout differs'};continue;}
+      // Half-float stages are read as 16-bit words so NaN payloads and signed zeros count.
+      const buffers=roles.map((r,i)=>{const buf=fs.readFileSync(stages[i].file);return stages[i].bytes===2?new Uint16Array(buf.buffer,buf.byteOffset,buf.length/2):buf;});
+      point.stages[name]=compare(...buffers);
+    }
+    report.points.push(point);
+  }
+  report.valid &&= report.points.every(p=>p.valid);
+  // frameExact: whole frames equal across separate applications (not required; dynamic content
+  // differs between sessions). baselinePass: nothing the candidate does beyond the repeat reference's own noise.
+  report.frameExact=report.valid && report.points.every(p=>Object.values(p.stages).every(s=>s.differing===0));
+  report.baselinePass=report.valid && report.complete && report.points.every(p=>Object.values(p.stages).every(s=>s.residual===0));
+  report.pairs=runs.candidate.points.flatMap(p=>p.replay || []);
+  report.controlPairs=runs.control.points.flatMap(p=>p.replay || []);
+  report.selfPairs=runs.reference.points.flatMap(p=>p.selfReplay || []);
+  report.replayLayout = report.pairs.every((p,i)=>[report.selfPairs[i],report.controlPairs[i]].every(other=>other && p.key===other.key && p.pixels===other.pixels && JSON.stringify(p.variants || [])===JSON.stringify(other.variants || [])));
+  report.pass=report.valid && report.complete && report.replayLayout && report.pairs.length>0 && report.pairs.length===report.selfPairs.length && report.controlPairs.length===report.selfPairs.length && [...report.pairs,...report.selfPairs,...report.controlPairs].every(p=>p.differing===0);
+  // The pass verdict is the replay pairs, which redraw frozen inputs and so isolate the program.
+  fs.writeFileSync(`${out}/${id}.json`,JSON.stringify(report,null,2));
+  // Retail-derived buffers are transient; keep only compact metrics.
+  for(const role of roles)for(const point of runs[role].points){
+    for(const stage of Object.values(point.stages))fs.unlinkSync(stage.file);
+    if(point.replayFile){const payload=JSON.parse(fs.readFileSync(point.replayFile));for(const blob of Object.values(payload.blobs))fs.unlinkSync(blob.file);fs.unlinkSync(point.replayFile);}
+  }
+  return report;
+}
+if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){const report=compareCase(process.argv[2],process.argv[3]);console.log(JSON.stringify({id:report.id,valid:report.valid,frameExact:report.frameExact,pass:report.pass}));process.exitCode=report.pass?0:3;}

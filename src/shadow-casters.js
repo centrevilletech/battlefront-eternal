@@ -142,6 +142,8 @@ export function mergeStaticShadows(meshes, layer, cellSize = 48) {
     material.shadowSide = side;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `static-shadows:${side}`;
+    // Only the shadow cameras see its layer: the loader's compile (compileUnowned) must not hand its plain material to three.
+    mesh.userData.shadowOnly = true;
     mesh.layers.set(layer);
     mesh.matrixAutoUpdate = false;
     mesh.receiveShadow = false;

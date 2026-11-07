@@ -1,10 +1,10 @@
-// Rust draws soldiers, held guns, vehicle and prop rigs, and flying pieces.
-// New programs are compiled before registration. Dissolves, shock overlays and
-// blended rigid parts publish their values and ordered transparent records.
+// Rust draws bodies, held parts, skinned rigs and flying models through
+// source-owned descriptors. Material changes publish new instance records.
+import { actorProgram, actorFailure, claimActor, isActorMaterial, actorMap, trackActorMaps, refreshActorMaps, refreshActorMap } from "./actors.js";
 import * as THREE from "three";
 import { ownedEffectProgram } from "./effect-material.js";
 import { ownsEffectSource } from "./programs.js";
-import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
+import { blendOf, stateOf, sidesOf } from "./transparent.js";
 
 function hasEffectSource(materials) {
   if (!Array.isArray(materials)) return ownsEffectSource(materials);
@@ -22,37 +22,6 @@ const MAX_RECORDS = 256;
 // A record's state flags (instances.rs REC_FLAGS): its material's side, then
 // alpha to coverage and depth write.
 const flagsOf = (m) => m.side | (m.alphaToCoverage ? 4 : 0) | (m.depthWrite ? 8 : 0);
-// The material values these programs read, each instance's from its row
-// (writeBody, writeMesh).
-const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
-// Uniforms each kind of program may read besides the frame block: its
-// textures, what the renderer gives each instance from its row (matrices,
-// look, point lights), and lamp lighting's, read only while lamps are off
-// (each soldier's four nearest lamps would be per instance otherwise).
-// A material's own values an instance gives from its row (shader.rs
-// EXTRAS): a scrolling texture's speed, a heated copy's (destruction-
-// debris.js heatMaterial), and the arc caster's shock glow's (arc-
-// lightning.js shockMaterial: in the heated values' place, an overlay being
-// never heated).
-const SHOCK = ["shockTime", "intensity", "seed", "inflate", "color"];
-const EXTRAS = ["scroll", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve", ...SHOCK];
-const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount", ...EXTRAS];
-const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
-// shadows, lamps: this pass gives its draws their receiveShadow and lamps
-// from their rows (writeExtras), and reveals what it hides to three's
-// shadow pass (reveal), so programs reading them are its (core.program).
-const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK, shadows: true, lamps: true });
-const POLICIES = { [SKINNED]: policy(["map", "farMap", "boneTexture"]), [RIGID]: policy(["map", "farMap"]) };
-// A material's map as the renderer's texture: -1 for none (the renderer
-// binds what three's empty texture gives), undefined while it isn't
-// uploaded yet.
-function mapOf(core, material) {
-  const map = material?.uniforms?.map?.value ?? null;
-  if (!map) return -1;
-  const id = core.texture(map);
-  return id >= 0 ? id : undefined;
-}
-
 // The render order of the nearest Group above an object, as three's
 // projectObject passes it down (0 without one).
 function groupOrderOf(object) {
@@ -67,12 +36,12 @@ function sameMaterials(a, b) {
 }
 
 // A heated material's values for an object without a heat of its own, as
-// destruction-debris.js heatMaterial's onBeforeRender gives them.
+// the source-owned heat material uses them.
 const NO_HEAT = { heat: 0, tear: new THREE.Vector4(0, 0, 0, 0.3), soot: 0, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
 
 // A record's material values from its row's ROW_EXTRA (shader.rs EXTRAS):
 // its scroll, then a heated body's heat, base, scale and soot, its tear,
-// its dissolve (heatMaterial's onBeforeRender's values from the object).
+// its dissolve, from the object's presentation values.
 function writeExtras(input, o, uniforms, heated, object, lamps) {
   const e = o + R.EXTRA, scroll = uniforms?.scroll?.value;
   input[e] = scroll ? scroll.x : 0; input[e + 1] = scroll ? scroll.y : 0; input[e + 2] = 0; input[e + 3] = 0;
@@ -134,12 +103,13 @@ export function compileFor(renderer, entries, camera, scene) {
 
 // Whether three has no program for a material (or for one of a mesh's) yet.
 export function unbuilt(renderer, material) {
-  return [].concat(material).some((m) => { const p=m && renderer.properties.get(m); return p && (!p.currentProgram || p.__version !== undefined && p.__version !== m.version); });
+  return [].concat(material).some(m => {
+    if(!m || isActorMaterial(m) || m.userData.bfeFamily)return false;
+    const p=renderer.properties.get(m);return !p.currentProgram || p.__version!==undefined && p.__version!==m.version;
+  });
 }
 
-export function materialVersion(materials) {
-  let version=0; for(const m of materials)version+=m.version; return version;
-}
+export function materialVersion(materials) { let version=0;for(const material of materials)version+=material.version;return version; }
 
 class InstancePass {
   constructor(core) {
@@ -150,6 +120,19 @@ class InstancePass {
     this.heated = new WeakMap(); // a dissolving body -> its heated record, or null
     this.meshes = new WeakMap(); // a gun's mesh -> its record, or null
     this.rigList = null;
+    // Scene additions must reach mirrors and the main view immediately.
+    // Source-owned rigs cannot wait for a browser draw or the periodic scan.
+    this.collectRig = object => {
+      if (this.rigList && object.isSkinnedMesh && !object.userData.shadowOnly && !object.userData.poseSphere && object.name !== "body-shadow" && object.name !== "arc-shock-warm" && !Array.isArray(object.material) && !this.rigList.includes(object)) this.rigList.push(object);
+      if(object.userData.flying)this.flyingPending?.add(object);
+    };
+    this.forgetFlying = object => {
+      this.flyingPending?.delete(object);
+      const record=this.flyingByMesh?.get(object);
+      if(!record)return;
+      object.layers.mask=record.layers;this.flyingByMesh.delete(object);
+      const index=this.flyingRecords.indexOf(record);if(index>=0)this.flyingRecords.splice(index,1);
+    };
     this.bodyRecords = [];
     this.meshRecords = [];
     this.frames = 0;
@@ -158,35 +141,23 @@ class InstancePass {
     this.projScreen = new THREE.Matrix4();
     // The count three's render listed the scene at (writeBody).
     this.listed = -1;
-    // What beforeSort found new this frame.
-    this.fresh = [];
+    this.registerNewPart=object=>{claimActor(this.core, object, () => object.isSkinnedMesh ? this.registerBody(object) : this.registerMesh(object));};
   }
 
   // Before three lists the frame's own render of the near scene (the core's
   // watchScene): the soldiers' bodies and guns, the rigs and the flying parts
   // not seen yet, registered now and so hidden from three before it lists
-  // them (the renderer draws them from their first frame), their materials'
-  // programs built by three first where it has none yet (compileFor).
+  // them from their first frame. Registration links only owned descriptors.
   beforeSort(renderer, scene, camera, target, added) {
-    const graphics = this.core.graphics;
-    const mainFrame=camera === graphics.camera && target === graphics.sceneTarget;
-    if (scene !== graphics.scene || !mainFrame && camera.userData?.mirror !== true) return;
-    try {
-      this.standIn(renderer, scene, camera, added, mainFrame);
-      const fresh = this.fresh, roots = graphics.playerRoot ? [...graphics.cullRoots, graphics.playerRoot] : graphics.cullRoots;
-      fresh.length = 0;
-      const add = (mesh, materials) => { if (!hasEffectSource(materials) && unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
-      for (const root of roots) this.newParts(root, (o) => add(o, o.isSkinnedMesh ? this.usedOf(o) : o.material));
-      if (this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) add(mesh, mesh.material);
-      if (this.flyingPending?.size) for (const group of this.flyingPending) group.traverse((o) => { if (o.isMesh && !this.flyingByMesh.has(o)) add(o, o.material); });
-      if (fresh.length) compileFor(renderer, fresh, camera, scene);
-      fresh.length = 0;
-      for (const root of roots) this.newParts(root, (o) => { if (o.isSkinnedMesh) this.registerBody(o); else this.registerMesh(o); });
-      if (this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) this.registerRig(mesh);
-      if (this.flyingRecords) this.registerPending();
-    } catch (error) {
-      this.core.fail(error);
-    }
+    const graphics=this.core.graphics;
+    const mainFrame=camera===graphics.camera && target===graphics.sceneTarget;
+    if(scene!==graphics.scene || !mainFrame && camera.userData?.mirror!==true)return;
+    // The arc caster's shock stand-in (effects-owned) is prepared here too.
+    this.standIn(renderer, scene, camera, added, mainFrame);
+    for(const root of graphics.cullRoots)this.newParts(root,this.registerNewPart);
+    if(graphics.playerRoot)this.newParts(graphics.playerRoot,this.registerNewPart);
+    if(this.rigList)for(const mesh of this.rigList)if(!this.bodies.has(mesh))claimActor(this.core, mesh, () => this.registerRig(mesh));
+    if(this.flyingRecords)this.registerPending();
   }
 
   // The arc caster's stand-in for a shock's glow (arc-lightning.js
@@ -203,24 +174,17 @@ class InstancePass {
     for (const root of added || []) root.traverse((o) => { if (o.isSkinnedMesh && o.name === "arc-shock-warm") this.warm = o; });
     const warm = this.warm;
     if (!warm) return;
-    if (!warm.parent || !warm.visible) { if (warm.material && !ownsEffectSource(warm.material)) warm.material.visible = true; this.warm = null; return; }
+    if (!warm.parent || !warm.visible) { this.warm = null; return; }
     const material = warm.material;
     if (!this.warmProgram) {
-      if (!ownsEffectSource(material) && unbuilt(renderer, material)) compileFor(renderer, [[warm, material]], camera, scene);
-      const programs = sidesOf(material).map((side) => { if (ownsEffectSource(material)) return ownedEffectProgram(this.core, material, SKINNED, side); const p = programForSide(renderer, material, side); return p && this.core.program(p, SKINNED, material, POLICIES[SKINNED]); });
+      // The glow's program is the effects family's own: linked now, never by three.
+      const programs = ownsEffectSource(material) ? sidesOf(material).map((side) => ownedEffectProgram(this.core, material, SKINNED, side)) : [];
       this.warmProgram = programs.length > 0 && programs.every(Boolean);
       if (!this.warmProgram) this.core.fail(new Error("Cannot prepare arc shock program"));
     }
     material.visible = false;
     // Register for reflected views too; retire the stand-in on main frames.
     if (advance) warm.onBeforeRender(renderer, scene, camera, warm.geometry, material, null);
-  }
-
-  // The materials a body's groups draw with (its groups merged as the
-  // renderer draws them).
-  usedOf(body) {
-    const all = [].concat(body.material), merged = this.core.groups(body.geometry);
-    return [...new Set(merged.length ? merged.map((g) => all[g.materialIndex]) : [all[0]])];
   }
 
   // A shown soldier's body and guns not registered yet (as soldier() would
@@ -268,17 +232,14 @@ class InstancePass {
     if (!parts || !root.visible) return at;
     const { body, hand } = parts;
     let record = this.bodies.get(body);
-    if (record === undefined || record && record.version !== materialVersion(record.used)) record = this.registerBody(body);
+    if (record === undefined || record && record.version !== materialVersion(record.used)) record = claimActor(this.core, body, () => this.registerBody(body));
     if (record && body.material !== record.materials) {
-      // Dissolving (units.js dissolve): register the heated material before
-      // emitting the changed body's Rust record.
-      let heated = body.userData.heated ? this.heated.get(body) : this.registerBody(body);
-      if (heated !== null && (heated === undefined || !sameMaterials(heated.materials, body.material))) {
-        heated = this.registerBody(body, true);
-        if (heated !== undefined) this.heated.set(body, heated);
+      if(!body.userData.heated)record=claimActor(this.core, body, () => this.registerBody(body));
+      else {
+        let heated=this.heated.get(body);
+        if(!heated || !sameMaterials(heated.materials,body.material)){heated=claimActor(this.core, body, () => this.registerBody(body,true));this.heated.set(body,heated);}
+        record=heated;
       }
-      if (heated) record = heated;
-      else this.core.fail(new Error("Cannot register changed body material"));
     }
     if (record && body.visible && camera.layers.test(body.layers) && this.inView(body)) at = this.writeBody(record, at);
     for (const group of hand?.children || []) {
@@ -286,10 +247,10 @@ class InstancePass {
       for (const mesh of group.children) {
         if (!mesh.isMesh || !mesh.visible || !camera.layers.test(mesh.layers)) continue;
         let rec = this.meshes.get(mesh);
-        if (rec === undefined || rec && (mesh.material !== rec.material || rec.version !== mesh.material.version)) rec = this.registerMesh(mesh);
+        if (rec === undefined || (rec && mesh.material!==rec.material && isActorMaterial(mesh.material))) rec = claimActor(this.core, mesh, () => this.registerMesh(mesh));
         if (rec && mesh.material === rec.material) {
           if (this.inView(mesh)) at = this.writeMesh(rec, at);
-        } else if (rec) this.core.fail(new Error("Cannot register changed rigid material"));
+        } else if (rec) this.core.skip(mesh, mesh.material, "held part whose material no descriptor covers");
       }
     }
     return at;
@@ -299,46 +260,37 @@ class InstancePass {
   // materials it dissolves in), or null when the renderer can't draw it;
   // undefined while three has not drawn it as it is yet.
   registerBody(body, heated = false) {
-    const core = this.core;
-    let record = null;
-    // The materials its groups draw with: the array is the actor's own
-    // (actor.js), to which combat.js adds the guns' materials too.
-    const all = [].concat(body.material);
-    const merged = core.groups(body.geometry);
-    const used = [...new Set(merged.length ? merged.map((g) => all[g.materialIndex]) : [all[0]])];
-    if (unbuilt(core.renderer, used)) compileFor(core.renderer, [[body, used]], core.graphics.camera, core.graphics.scene);
-    const programs = used.map((m) => m && core.renderer.properties.get(m).currentProgram);
-    const why = !programs[0] ? "" : !programs.every((p) => p === programs[0]) ? "programs differ" : merged.length > 4 ? "groups" : !("RIGID_SKIN" in (used[0].defines || {})) ? "not rigid" : null;
-    if (why) core.errors.push(`body: ${why}`);
-    if (programs[0] && why === null) {
-      const program = core.program(programs[0], SKINNED, used[0], POLICIES[SKINNED]);
-      const geometry = program && core.geometry(body.geometry, program);
-      if (geometry !== null && geometry !== undefined) {
-        const groups = merged.length ? merged : [{ materialIndex: 0 }];
-        const textures = groups.map((g) => mapOf(core, all[g.materialIndex]));
-        if (textures.some((t) => t === undefined)) return undefined; // its textures first
-        record = { version: materialVersion(used), body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms, heated, lamps: Boolean(program.lamps) };
-        for (const m of used) m.visible = false;
-        this.bodyRecords.push(record);
-      }
+    const core=this.core,all=[].concat(body.material),merged=core.groups(body.geometry);
+    const used=[...new Set(merged.length?merged.map(g=>all[g.materialIndex]):[all[0]])];
+    if(merged.length>4 || !used.every(isActorMaterial) || !('RIGID_SKIN' in used[0].defines))throw actorFailure(`Unsupported actor body ${body.name}`);
+    const programs=used.map(m=>actorProgram(core,m,SKINNED));
+    if(!programs.every(p=>p.id===programs[0].id))throw actorFailure(`Actor body programs differ: ${body.name}`);
+    const program=programs[0],geometry=core.geometry(body.geometry,program);
+    if(geometry===null || geometry===undefined)throw actorFailure(`Actor body geometry: ${body.name}`);
+    const groups=merged.length?merged:[{materialIndex:0}],textures=groups.map(g=>actorMap(core,all[g.materialIndex]));
+    const record={version:materialVersion(used),body,materials:body.material,used,program:program.id,geometry,textures,whole:!merged.length,look:used[0].uniforms,heated:heated || 'HEATED' in used[0].defines,lamps:Boolean(program.lamps)};
+    trackActorMaps(record,groups.map(g=>all[g.materialIndex]));
+    for(const material of used)material.visible=false;
+    this.bodyRecords.push(record);
+    if(!heated){
+      const previous=this.bodies.get(body),index=this.bodyRecords.indexOf(previous);
+      if(index>=0)this.bodyRecords.splice(index,1);
+      this.bodies.set(body,record);
     }
-    if (heated) return programs[0] || record ? record : undefined;
-    if (programs[0] || record) this.bodies.set(body, record);
     return record;
   }
 
-  // The scene's other skinned meshes (vehicle-rig.js: hulls, walkers,
-  // animated props), looked for again now and then; soldiers' bodies are
-  // found through their roots.
-  // Shadow-only crowd/body parts are not colour rigs. Asking the colour policy
-  // to bind their diffuse uniform produced the per-session diagnostic even when
-  // no visible object was missing. Their caster registration stays independent.
-  // Keep filtering by role before compiling colour programs for these parts.
+  noteAdded(root) {
+    if(this.rigList || this.flyingPending)root.traverse(this.collectRig);
+  }
+
+  noteRemoved(root) {
+    if(this.flyingRecords)root.traverse(this.forgetFlying);
+  }
+
   findRigs() {
     const found = [];
-    // Shadow-only meshes belong to the shadow pass, not colour rigs. The
-    // arc caster's warm-up stand-in has its own program-registration path.
-    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && o.name !== "crowd-shadows" && o.name !== "arc-shock-warm" && !Array.isArray(o.material)) found.push(o); });
+    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.shadowOnly && !o.userData.poseSphere && o.name !== "body-shadow" && o.name !== "arc-shock-warm" && !Array.isArray(o.material)) found.push(o); });
     this.rigList = found;
   }
 
@@ -347,9 +299,13 @@ class InstancePass {
     if (!this.rigList || this.frames % 120 === 0) this.findRigs();
     for (const mesh of this.rigList) {
       let rec = this.bodies.get(mesh);
-      if (rec === undefined || rec && (mesh.material !== rec.materials || rec.version !== materialVersion(rec.used))) rec = this.registerRig(mesh);
+      if (rec === undefined || rec && (mesh.material !== rec.materials || rec.version !== materialVersion(rec.used))) rec = claimActor(this.core, mesh, () => this.registerRig(mesh));
       if (!rec) continue;
-      if (mesh.material !== rec.materials) this.core.fail(new Error("Cannot register changed rig material"));
+      if (mesh.material !== rec.materials) {
+        if(isActorMaterial(mesh.material) || ownsEffectSource(mesh.material))rec=claimActor(this.core, mesh, () => this.registerRig(mesh));
+        else this.core.skip(mesh, mesh.material, "rig whose material no descriptor covers");
+        if(!rec)continue;
+      }
       if (!camera.layers.test(mesh.layers)) continue;
       // It and its parents shown, up to the scene (the walk ends there).
       let shown = true, o = mesh;
@@ -360,84 +316,79 @@ class InstancePass {
   }
 
   registerRig(mesh) {
-    const core = this.core;
-    let record = null;
-    const material = mesh.material;
-    if (!ownsEffectSource(material) && unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
-    const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if ((threeProgram || ownsEffectSource(material)) && material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
-      record = this.registerBlended(mesh);
-      if (record === undefined) return undefined;
-    } else if (threeProgram && !material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
-      const program = core.program(threeProgram, SKINNED, material, POLICIES[SKINNED]);
-      const geometry = program && core.geometry(mesh.geometry, program);
-      const texture = mapOf(core, material);
-      if (texture === undefined) return undefined; // its texture first
-      if (geometry !== null && geometry !== undefined) {
-        record = { version: material.version, body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms, lamps: Boolean(program.lamps) };
-        material.visible = false;
-        this.bodyRecords.push(record);
-      }
+    const core=this.core,material=mesh.material;
+    // A shock glow over a struck body is the effects family's (arc-lightning.js):
+    // a blended rig drawn with its owned program.
+    const effect=ownsEffectSource(material);
+    if(!effect && (!isActorMaterial(material) || mesh.geometry.groups.length || !mesh.skeleton))throw actorFailure(`Unsupported actor rig ${mesh.name}`);
+    let record;
+    if(effect || material.transparent)record=this.registerBlended(mesh);
+    else {
+      const program=actorProgram(core,material,SKINNED),geometry=core.geometry(mesh.geometry,program),texture=actorMap(core,material);
+      if(geometry===null || geometry===undefined || texture===undefined)throw actorFailure(`Actor rig resources: ${mesh.name}`);
+      record={version:material.version,body:mesh,materials:material,used:[material],program:program.id,geometry,textures:[texture],whole:true,look:material.uniforms,heated:'HEATED' in material.defines,lamps:Boolean(program.lamps)};
+      trackActorMaps(record,[material]);
+      material.visible=false;this.bodyRecords.push(record);
     }
-    if (threeProgram || record) this.bodies.set(mesh, record);
-    return record;
+    if(!record)throw actorFailure(`Cannot register actor rig ${mesh.name}`);
+    const previous=this.bodies.get(mesh),index=this.bodyRecords.indexOf(previous);
+    if(index>=0)this.bodyRecords.splice(index,1);
+    this.bodies.set(mesh,record);return record;
   }
 
   // A rig whose material blends: an item of the transparent list
-  // (instances.rs KIND_BLENDED), drawn with three's program for each side
+  // (instances.rs KIND_BLENDED), drawn with its owned program for each side
   // three draws it with (back faces, then front, for a double-sided one),
   // its blending and depth as three sets them. Null when the renderer
   // can't draw it; undefined while its texture isn't uploaded yet.
   registerBlended(mesh) {
-    const core = this.core, renderer = core.renderer, material = mesh.material;
+    const core = this.core, material = mesh.material;
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
     if (!blend || !state) return null;
-    const programs = sides.map((side) => { if (ownsEffectSource(material)) return ownedEffectProgram(core, material, SKINNED, side); const p = programForSide(renderer, material, side); return p && core.program(p, SKINNED, material, POLICIES[SKINNED]); });
-    if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
-    const texture = mapOf(core, material);
-    if (texture === undefined) return undefined;
+    const programs = sides.map((side) => ownsEffectSource(material) ? ownedEffectProgram(core, material, SKINNED, side) : actorProgram(core,material,SKINNED));
+    if (programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+    const texture = actorMap(core, material);
     const geometry = core.geometry(mesh.geometry, programs[0]);
     if (geometry === null || geometry === undefined) return null;
     const blendId = core.rust.inst_add_blend(new Uint32Array(blend), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
-    const record = { version: material.version, body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId,
+    const record = { version: material.version, body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, heated: "HEATED" in material.defines, blend: blendId,
       lamps: programs.some((p) => p.lamps) };
+    trackActorMaps(record,[material]);
     material.visible = false;
     this.bodyRecords.push(record);
     return record;
   }
 
   registerMesh(mesh) {
-    const core = this.core;
-    let record = null;
-    const material = mesh.material;
-    if (unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
-    const threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
-    if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {})) {
-      const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
-      const geometry = program && core.geometry(mesh.geometry, program);
-      const texture = mapOf(core, material);
-      if (texture === undefined) return undefined; // its texture first
-      if (geometry !== null && geometry !== undefined) {
-        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
-        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { version: material.version, mesh, material, program: program.id, geometry, texture, lamps: Boolean(program.lamps) };
-        material.visible = false;
-        this.meshRecords.push(record);
-      }
+    if(isActorMaterial(mesh.material)) {
+      const record=this.rigidRecord(mesh);
+      if(!record)throw actorFailure(`Cannot register actor part ${mesh.name || mesh.material.name}`);
+      mesh.material.visible=false;
+      const previous=this.meshes.get(mesh),index=this.meshRecords.indexOf(previous);
+      if(index>=0)this.meshRecords.splice(index,1);
+      this.meshes.set(mesh,record);this.meshRecords.push(record);return record;
     }
-    if (threeProgram || record) this.meshes.set(mesh, record);
-    return record;
+    throw actorFailure(`Unowned held actor material: ${mesh.name}`);
+  }
+
+
+  // A body past the pass's record capacity is skipped and reported once, never a stop of the frame (a battle
+  // with more actors in view than the pass holds draws the first ones).
+  full(object, material, at, why) {
+    this.core.skip(object, material, why);
+    return at;
   }
 
   writeBody(record, at) {
-    if (at.records >= MAX_RECORDS) this.core.fail(new Error("Too many instance records"));
+    if (at.records >= MAX_RECORDS)return this.full(record.body, record.used[0], at, "actor instance capacity exceeded");
     const core = this.core;
     core.views();
+    refreshActorMaps(core,record);core.views();
     const { body } = record, input = core.input, skeleton = body.skeleton;
     const bones = skeleton.bones.length;
     let boneAt = at.skeletons.get(skeleton);
     if (boneAt === undefined) {
-      if (at.bones + bones > core.bones.length / 16) core.fail(new Error("Too many instance bones"));
+      if (at.bones + bones > core.bones.length / 16)return this.full(body, record.used[0], at, "actor bone capacity exceeded");
       // Its bones as three worked them out in this render: as it listed the
       // body (at the count before this one) or drew a shadow (at this one).
       stamp(skeleton, core.renderer.info);
@@ -472,9 +423,10 @@ class InstancePass {
   }
 
   writeMesh(record, at) {
-    if (at.records >= MAX_RECORDS) this.core.fail(new Error("Too many instance records"));
+    if (at.records >= MAX_RECORDS)return this.full(record.mesh, record.material, at, "actor instance capacity exceeded");
     const core = this.core;
     core.views();
+    refreshActorMap(core,record);core.views();
     const { mesh, material } = record, input = core.input, geometry = mesh.geometry;
     const o = core.recordsAt + at.records * core.stride;
     input[o + R.KIND] = record.blend === undefined ? RIGID : BLENDED_RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
@@ -495,16 +447,29 @@ class InstancePass {
     return at;
   }
 
-
   // Reveal resource objects for the Rust shadow/motion ownership walks,
   // then hide them from the colour walk again.
   reveal(on) {
 
     for (const record of this.bodyRecords) for (const m of record.used) if (m) m.visible = on;
     for (const record of this.meshRecords) if (record.material) record.material.visible = on;
+    for (const record of this.flyingRecords || []) record.material.visible=on;
     this.revealFlying(!on);
   }
 
+  // Flying models (game.js flyingModel: rounds, grenades, droids' pieces,
+  // items), groups the game adds to the scene tagged userData.flying, their
+  // parts drawn as rigid records, dynamic (lit) and unlit zero materials
+  // alike: an unlit part's program reads no look values, so its record's go
+  // unread. A part shares its material with every copy of its model, which
+  // the renderer may not draw (one not yet registered, one inside another
+  // object), so a part it draws is hidden from three by its layers (on
+  // FLYING_LAYER), not by its material; its own layers stay in its record,
+  // tested against the camera's as three would test them. A part whose
+  // material blends is an item of the transparent list (registerFlying). A
+  // part made with a heated material (the destruction's burning pieces)
+  // takes its heat and look from the object. A part three gives another
+  // material (destruction.js heats a wreck's) registers that material anew.
   flying(camera, at) {
     if (!this.flyingRecords) this.watchFlying();
     this.registerPending();
@@ -514,9 +479,9 @@ class InstancePass {
       if (mesh.material !== record.material || record.version !== mesh.material.version) {
         mesh.layers.mask = record.layers;
         this.flyingRecords.splice(i--, 1);
-        const replacement=this.registerFlying(mesh);
-        if (!replacement) this.core.fail(new Error(`Unregistered flying material: ${mesh.name}`));
-        this.flyingByMesh.set(mesh,replacement);
+        if(isActorMaterial(mesh.material)) {
+          this.flyingByMesh.set(mesh,claimActor(this.core, mesh, () => this.registerFlying(mesh)));
+        }else this.core.skip(mesh, mesh.material, "flying part whose material no descriptor covers");
         continue;
       }
       if (!(record.layers & mask)) continue;
@@ -527,50 +492,42 @@ class InstancePass {
     return at;
   }
 
+  // The flying groups added and not all registered yet: their parts
+  // registered before their first visible frame.
   registerPending() {
     for (const group of this.flyingPending) {
-      let waiting = false;
       group.traverse((o) => {
         if (!o.isMesh || this.flyingByMesh.has(o)) return;
-        const record = this.registerFlying(o);
-        if (record === undefined) waiting = true;
-        else this.flyingByMesh.set(o, record);
+        this.flyingByMesh.set(o, claimActor(this.core, o, () => this.registerFlying(o)));
       });
-      if (!waiting) this.flyingPending.delete(group);
+      this.flyingPending.delete(group);
     }
   }
 
+  // The scene's flying groups, now and as the game adds and removes them: a
+  // group taken out of the scene releases its records and original layers.
   watchFlying() {
     const scene = this.core.graphics.scene;
     this.flyingRecords = [];
-    this.flyingByMesh = new WeakMap(); // part -> its record, or null (unregistered)
-    this.flyingBlends = new WeakMap(); // a blending part's material -> its blend (inst_add_blend) and programs
-    this.flyingPending = new Set(scene.children.filter((o) => o.userData?.flying));
-    scene.addEventListener("childadded", ({ child }) => { if (child.userData?.flying) this.flyingPending.add(child); });
-    scene.addEventListener("childremoved", ({ child }) => {
-      if (!child.userData?.flying) return;
-      this.flyingPending.delete(child);
-      child.traverse((o) => {
-        const record = this.flyingByMesh.get(o);
-        if (!record) return;
-        o.layers.mask = record.layers;
-        this.flyingByMesh.delete(o);
-        const i = this.flyingRecords.indexOf(record);
-        if (i >= 0) this.flyingRecords.splice(i, 1);
-      });
-    });
+    this.flyingByMesh = new WeakMap(); // part -> its owned record
+    this.flyingBlends ||= new WeakMap(); // a blending part's material -> its blend (inst_add_blend) and programs
+    this.flyingPending = new Set();
+    scene.traverse(this.collectRig);
   }
 
-  // A flying part's rigid record, or null when the renderer can't draw it;
-  // undefined while three has drawn no copy of its model yet.
+  // A flying part uses a source-owned rigid record from its first frame.
   registerFlying(mesh) {
-    const core = this.core, material = mesh.material;
-    if (mesh.isSkinnedMesh || mesh.isInstancedMesh || Array.isArray(material) || !material?.isShaderMaterial) return null;
-    if (unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
-    const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (!threeProgram) return undefined;
-    const defines = material.defines || {};
-    if (mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
+    const record=this.rigidRecord(mesh);
+    if(!record)throw actorFailure(`Cannot register actor debris ${mesh.name}`);
+    mesh.layers.set(FLYING_LAYER);this.flyingRecords.push(record);
+    return record;
+  }
+
+  // Held parts and flying pieces share the same rigid input contract.
+  rigidRecord(mesh) {
+    const core=this.core,material=mesh.material;
+    const defines=material?.defines || {};
+    if(mesh.isSkinnedMesh || mesh.isInstancedMesh || Array.isArray(material) || !isActorMaterial(material) || mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines))throw actorFailure(`Unsupported lit model part ${mesh.name}`);
     // One that blends: drawn with three's program for each side three draws
     // it with, its blending and depth as three sets them (one blend for all
     // the copies of a part, which share its material).
@@ -578,29 +535,27 @@ class InstancePass {
     if (material.transparent) {
       const sides = sidesOf(material), state = stateOf(material), how = blendOf(material);
       if (!how || !state) return null;
-      programs = sides.map((side) => { const p = programForSide(core.renderer, material, side); return p && core.program(p, RIGID, material, POLICIES[RIGID]); });
-      if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+      programs = sides.map(() => actorProgram(core,material,RIGID));
+      if (programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
       const key = programs.map((p, i) => `${p.id}:${sides[i]}`).join();
+      this.flyingBlends ||= new WeakMap();
       let held = this.flyingBlends.get(material);
       if (!held || held.key !== key) {
         held = { key, blend: core.rust.inst_add_blend(new Uint32Array(how), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]]))) };
         this.flyingBlends.set(material, held);
       }
       blend = held.blend;
-    } else programs = [core.program(threeProgram, RIGID, material, POLICIES[RIGID])];
+    } else programs = [actorProgram(core,material,RIGID)];
     const program = programs[programs.length - 1];
     const geometry = program && core.geometry(mesh.geometry, programs[0]);
-    const texture = mapOf(core, material);
-    if (texture === undefined) return undefined; // its texture first
+    const texture = actorMap(core, material);
     if (geometry === null || geometry === undefined) return null;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
     // A heated copy of a part's material (destruction-debris.js
     // heatMaterial: the destruction's burning pieces) takes its heat and
     // look from the object, as its onBeforeRender sets them.
-    const record = { version: material.version, mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines, lamps: programs.some((p) => p?.lamps) };
-    mesh.layers.set(FLYING_LAYER);
-    this.flyingRecords.push(record);
+    const record = { version: material.version, mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines, lamps: programs.some((p) => p.lamps) };
     return record;
   }
 
@@ -612,7 +567,6 @@ class InstancePass {
     }
   }
 
-  // Everything three may draw again, for good: the flying parts' layers.
 
 }
 

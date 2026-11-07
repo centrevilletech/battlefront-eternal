@@ -117,8 +117,9 @@ export class CrowdShadows {
     }
     // Front faces into the depth map, as the bodies' materials cast
     // (three's default for a plain material is the back faces).
-    const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.FrontSide, shadowSide: THREE.FrontSide }));
+    const mesh = new THREE.SkinnedMesh(geometry, Object.assign(new THREE.Material(), { side: THREE.FrontSide, shadowSide: THREE.FrontSide }));
     mesh.name = "crowd-shadows";
+    mesh.userData.shadowOnly = true;
     mesh.frustumCulled = false;
     mesh.receiveShadow = false;
     mesh.layers.set(this.graphics.hiddenLayer ?? 1);

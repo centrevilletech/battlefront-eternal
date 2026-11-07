@@ -1193,8 +1193,7 @@ into that cascade's cache; every frame the cache's depth is copied into the
 live map in place of three's clear, and the moving casters (soldiers, the
 crowd mesh, vehicles, held guns, debris, banners) are drawn over it. The
 last cascade's moving casters (31 cm texels, 100 m and further) are redrawn
-every other frame. `graphics.cacheShadows = false` draws everything each
-frame, for comparisons; `diagnostics().shadowPasses` counts static and
+every other frame. `diagnostics().shadowPasses` counts static and
 dynamic passes.
 
 On Theed at High, 600 driven frames: shadow draws 181 to 46 a frame and

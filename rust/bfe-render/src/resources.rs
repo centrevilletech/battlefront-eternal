@@ -526,6 +526,7 @@ impl GpuResources {
                     for pixel in decoded.rgba.chunks_exact_mut(4){let alpha=pixel[3] as u32;for channel in &mut pixel[..3]{*channel=((*channel as u32*alpha+127)/255) as u8;}}
                     gl.pixel_storei(Gl::UNPACK_PREMULTIPLY_ALPHA_WEBGL,0);
                 }
+                crate::core::spare_view_slot();
                 Some(unsafe{js_sys::Uint8Array::view(&decoded.rgba)}.into())
             },
             _ => None,
@@ -533,14 +534,24 @@ impl GpuResources {
         if let Pixels::Blocks(bytes,mips) = &source.pixels {
             for (level,mip) in mips.iter().enumerate() {
                 let bytes = bytes.get(mip.offset..mip.offset+mip.length).ok_or_else(|| error("Invalid mip byte range"))?;
-                let raw = unsafe { js_sys::Uint8Array::view(bytes) };
                 // WebGL validates the typed view against the scalar type even
-                // though all views address the same retained source bytes.
-                let view: js_sys::Object = match ty {
-                    Gl::FLOAT => js_sys::Float32Array::new_with_byte_offset_and_length(&raw.buffer(),raw.byte_offset(),raw.length()/4).into(),
-                    Gl::HALF_FLOAT | Gl::UNSIGNED_SHORT => js_sys::Uint16Array::new_with_byte_offset_and_length(&raw.buffer(),raw.byte_offset(),raw.length()/2).into(),
-                    _ => raw.into(),
+                // though all views address the same retained source bytes. The
+                // views are of WebAssembly memory: made with free externref
+                // slots (core.rs spare_view_slots), and remade once if the
+                // memory still moved under them, so a mip never arrives empty.
+                let make = || -> js_sys::Object {
+                    crate::core::spare_view_slots(3);
+                    let raw = unsafe { js_sys::Uint8Array::view(bytes) };
+                    match ty {
+                        Gl::FLOAT => js_sys::Float32Array::new_with_byte_offset_and_length(&raw.buffer(),raw.byte_offset(),raw.length()/4).into(),
+                        Gl::HALF_FLOAT | Gl::UNSIGNED_SHORT => js_sys::Uint16Array::new_with_byte_offset_and_length(&raw.buffer(),raw.byte_offset(),raw.length()/2).into(),
+                        _ => raw.into(),
+                    }
                 };
+                let live = |view: &js_sys::Object| view.unchecked_ref::<js_sys::Uint8Array>().byte_length() as usize == bytes.len();
+                let mut view = make();
+                if !live(&view) { view = make(); }
+                if !live(&view) { return Err(error("Mip upload view detached")); }
                 if d.format > 30000 { gl.compressed_tex_sub_image_2d_with_array_buffer_view(d.target,level as i32,0,0,mip.width,mip.height,base,&view); }
                 else { gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_array_buffer_view(d.target,level as i32,0,0,mip.width,mip.height,base,ty,Some(&view))?; }
             }

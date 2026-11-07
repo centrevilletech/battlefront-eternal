@@ -228,12 +228,14 @@ impl<C: HasContext> InstancePass<C> {
         self.blended.truncate(used - self.draws.len());
         unsafe {
             state.bind_texture(gl, stats, UNIT_INSTANCES, Some(self.instance_texture));
+            crate::core::spare_view_slot();
             gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, ROW_TEXELS as i32, used as i32, glow::RGBA, glow::FLOAT,
                 glow::PixelUnpackData::Slice(Some(bytes(&self.rows[..used * ROW_TEXELS * 4]))));
             stats.gl_calls += 1;
             if bone_cursor > 0 {
                 state.bind_texture(gl, stats, UNIT_BONES, Some(self.bone_texture));
                 let rows = (bone_cursor * 4 + BONE_TEXELS - 1) / BONE_TEXELS;
+                crate::core::spare_view_slot();
                 gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, BONE_TEXELS as i32, rows as i32, glow::RGBA, glow::FLOAT,
                     glow::PixelUnpackData::Slice(Some(bytes(&self.bone_upload[..rows * BONE_TEXELS * 4]))));
                 stats.gl_calls += 1;
@@ -250,6 +252,8 @@ impl<C: HasContext> InstancePass<C> {
                 state.use_program(gl, stats, program.program);
                 gl.uniform_1_i32(program.instance_base.as_ref(), i as i32);
                 let geo = &geometries[g];
+                // A geometry whose upload came up short draws nothing (core.rs buffer_upload).
+                if geo.short { i = j; continue; }
                 state.bind_texture(gl, stats, UNIT_MAP, Some(textures.get(key[3] as usize).copied().unwrap_or(self.empty)));
                 state.set_state(gl, stats, key[4] & 3, key[4] & 4 != 0, key[4] & 8 != 0);
                 // Mirrored objects' faces wind the other way (three's frontFaceCW).
@@ -306,6 +310,7 @@ impl<C: HasContext> InstancePass<C> {
         {
             let Some(b) = self.blended.get(k) else { return };
             let (Some(blend), Some(geo)) = (self.blends.get(b.blend), geometries.get(b.geometry)) else { return };
+            if geo.short { return; }
             state.bind_texture(gl, stats, UNIT_MAP, Some(textures.get(b.texture as usize).copied().unwrap_or(self.empty)));
             let f = &blend.blend;
             state.blend(gl, stats, f[0] != 0);

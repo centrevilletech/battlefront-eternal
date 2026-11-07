@@ -62,15 +62,17 @@ sorted catalog. Regenerate after merging; do not merge generated output by hand.
 A manifest row declares `vertex`, `fragment`, `attributes` pairs and `uniforms`.
 Use the post-hud manifest as the concrete schema example.
 
-Manifest rows accept `kind: "Plain"` (the default), `"World"`, `"Effect"`, `"Motion"` or `"Skinned"`.
+Registration dispatches explicitly by descriptor kind. Actor receivers use
+Skinned or Rigid; casters and per-object flashes use Plain (a caster's matrices
+and bones are its own uniforms, so it needs no rewrite).
+Manifest rows accept `Plain` (the default), `World`, `Skinned`, `Rigid`, `Effect` and `Motion` kinds.
 World uses the existing frame/shadow block rewrite and may declare `lamps: true`
 for the lamp-table rewrite. `source: "expanded"` supplies complete GLSL ES 3.00
 sources, including the version and precision declarations; the default `body`
 uses the post/HUD compatibility prefix. Expanded arithmetic is preserved before
 kind-specific input rewrites. Reflection validates standalone inputs against the
-manifest; block members belong to the shared frame/shadow layout. Families
-needing instance rewrites must extend the descriptor explicitly; do not route
-instanced programs through Plain. Shader registration does not alter
+manifest; block members belong to the shared frame/shadow layout.
+Shader registration does not alter
 `core.rs`, `post.rs` or `hud.rs` phase records: context-local resource handles,
 f64 phase inputs, five view blocks and BfeFrame/BfeShadow layouts remain their
 own contracts.
@@ -220,6 +222,74 @@ on the default path. `BFE_SHADER_CACHE_PROBE=1` repeats all registered keys to
 measure context-local ID reuse separately. Compare fresh applications against a
 frozen reference in interleaved local rounds, recording driver-cache state. Farm
 timings are correctness diagnostics, not slow-PC performance measurements.
+
+Manifest rows may declare a `kind` (listed above), `source` (`body` or `expanded`), and boolean
+`lamps`. Defaults preserve the post/HUD body format and Plain kind. Every other
+kind requires expanded GLSL ES 3.00, including its version and precision header;
+no prefix is added. The compiler applies the selected kind's existing input
+rewrite. Skinned and
+rigid receivers use their instance rows and shadow blocks. Source hashes include
+these compiler options. Individual material-uniform validation excludes block
+members, whose layout belongs to the frame/shadow schema.
+
+A source path may also be an ordered array of paths. Rust concatenates those
+parts before compilation; the generator hashes the same complete GLSL text.
+Shared chunks therefore occupy one copy in the module without depending on
+three's chunk registry or putting source text in browser metadata. Actor source
+parts retain the expanded shader's expression and declaration order. The actor
+chunks are derived files: `python3 tools/actor-shader-chunks.py --join DIR`
+writes each program's complete sources for reading or editing, `--factor DIR`
+rewrites the chunks and the manifest's lists from them, and `--check` (run by
+`tests/actor-chunks.test.js`) fails unless factoring the joined sources gives the
+checked-in chunks back.
+
+An object no Rust pass can claim (the near and mirror walks, a shadow cascade's
+casters) is not drawn for that frame and is reported once, with its name, type
+and material key, through the renderer's error list and the console
+(`RustRender.skip`). An actor material no program variant covers is skipped the
+same way and reported once per variant (`core.missingVariants` counts the
+objects); the census tests keep that unreachable. A program the GPU rejects and
+an incomplete configuration remain fatal.
+
+Actor, rig and model-part material shells carry flags and uniform values. Their closed selector uses
+skin mode, material defines, cascade count and lamp mode. Unknown combinations
+name the selector in that report; no three program is compiled for an actor shell.
+First-person flashes and shock overlays are the effects family's (below).
+Bodies, rigs and the remaining view parts use Skinned or Rigid programs.
+Caster descriptors (the `actors/depth-*` keys) preserve per-caster matrices, cutout sampling and bones.
+
+The actor corpus can be selected with
+`node tools/renderer-actor-corpus.mjs`. Its runner invokes `actor-capture.mjs`
+and `actor-compare.mjs` in `tools/renderer-corpus/`. It crosses all maps and
+quality presets with every shadow setting, and adds droideka, dark trooper and
+AI hero views, heated station wrecks and skinned shock overlays. First-person
+flash cases invoke the real presentation envelope. Hero cases use eligible player
+classes and observe the real AI hero. The census tool records expanded sources and reflection for every linked
+program, including warm-up programs that are subsequently disposed.
+
+Actor replay freezes geometry, poses, frame blocks, material records, sampler
+levels and sampler state. Receiver variants draw separately into an isolated
+actor target using the regular frame or view API; world draws are excluded.
+Mirror replay retains the mirror frame and its far image. Per-object view draws
+and live cascade casters have separate replay records. Each caster variant also
+replays into its own cleared depth target, so other casters cannot hide its output.
+Reports distinguish registration, replay and visible-pixel coverage. A synthetic
+skinned caster with a half-transparent mask isolates the skinned cutout depth
+program on maps whose character textures are opaque. Reference self-replay,
+candidate replay and repeat-reference replay must all match exact RGBA values
+and the same record layouts. Depth packing is lossless and verifies the complete
+RGBA channel pattern before retaining one channel. These actor-stage checks do
+not establish whole-frame equality across independent applications.
+
+Dissolve cases apply the real droideka death-presentation method to a live
+battle model and retain its resulting material and heat inputs. They exercise
+shader behavior while the seeded simulation continues. They do not test combat
+death scheduling. The same cases spawn real debris models for each heated
+material flag set, with the factory supplying their heat records. Startup stops the worker before lockstep and synchronizes the
+page with an authoritative entity publication; a missed throttled publication
+requests full snapshots on bounded ordinary startup ticks, with the same control
+envelope as normal lockstep. The absolute warm-up tick
+and all capture ticks remain fixed.
 
 # Effects programs
 

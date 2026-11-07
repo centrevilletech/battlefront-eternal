@@ -53,7 +53,9 @@ const SUBSCREENS = ['general', 'video', 'sound', 'controls'];
 async function captureShell(c) {
   result.loaded = await loadBattle(c, { settings: testCase.settings, query: SHELL_BATTLE, warm: 0, extraSrc: READY_SRC });
   writeSettings(testCase.settings);
-  await c.psend('Page.addScriptToEvaluateOnNewDocument', { source: `${SEED_SRC}${CONTEXT_SRC}const raf=requestAnimationFrame.bind(window);window.requestAnimationFrame=f=>f.name==='draw'?0:raf(f);` });
+  // The front end's frame loop is held by its mark (minified builds rename it); a reference built before the
+  // mark is matched by its unminified name.
+  await c.psend('Page.addScriptToEvaluateOnNewDocument', { source: `${SEED_SRC}${CONTEXT_SRC}const raf=requestAnimationFrame.bind(window);window.requestAnimationFrame=f=>f.bfeFrameLoop||f.name==='draw'?0:raf(f);` });
   await c.psend('Page.navigate', { url: `${process.env.BFE_APP_URL || 'app://bfe/'}?shell=1&menus=classic&screen=main&sound=0` });
   for (let i = 0; i < 300 && !(await c.ev('Boolean(window.__shell?.surface&&__shell.stack)').catch(() => false)); i++) await sleep(100);
   if (!(await c.ev('Boolean(window.__shell?.surface&&__shell.stack)'))) throw Error('The front end did not come up');

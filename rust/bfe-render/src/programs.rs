@@ -15,8 +15,10 @@ pub struct Spec {
     // Line (vertex, fragment) at which a shadowed twin inserts the shadow defines
     // into the unshadowed source it shares; None for a program with its own text.
     pub shadow_at: Option<(usize, usize)>,
-    pub vertex: &'static str,
-    pub fragment: &'static str,
+    // Each stage's text as ordered parts, concatenated before compiling (the
+    // actor family's shared chunks; one part for every other family).
+    pub vertex: &'static [&'static str],
+    pub fragment: &'static [&'static str],
     pub attributes: &'static [(&'static str, u32)],
     pub uniforms: &'static [(&'static str, u32)],
     pub uniform_sizes: &'static [(&'static str, u32)],
@@ -46,8 +48,8 @@ fn with_shadow(text: &str, line: Option<usize>) -> String {
 }
 
 pub fn sources(s: &Spec) -> (String, String) {
-    let vertex = with_shadow(s.vertex, s.shadow_at.map(|a| a.0));
-    let fragment = with_shadow(s.fragment, s.shadow_at.map(|a| a.1));
+    let vertex = with_shadow(&s.vertex.concat(), s.shadow_at.map(|a| a.0));
+    let fragment = with_shadow(&s.fragment.concat(), s.shadow_at.map(|a| a.1));
     if s.expanded { return (format!("{}{}", s.vertex_prefix, vertex), format!("{}{}", s.fragment_prefix, fragment)); }
     // Interface model and projector variants use the same finite prefixes as
     // expanded world sources. Apply them to body sources before their text;
@@ -82,7 +84,7 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
             let mut members = vec![false; count as usize];
             for block in 0..gl.get_program_parameter_i32(program, glow::ACTIVE_UNIFORM_BLOCKS) as u32 {
                 let name = gl.get_active_uniform_block_name(program, block);
-                if !matches!(s.kind, Kind::World | Kind::Effect | Kind::Skinned) || !matches!(name.as_str(), "BfeFrame" | "BfeShadow") {
+                if !matches!(s.kind, Kind::World | Kind::Skinned | Kind::Rigid | Kind::Effect | Kind::Motion) || !matches!(name.as_str(), "BfeFrame" | "BfeShadow") {
                     return Err(format!("{key}: undeclared uniform block {name}"));
                 }
                 let count = gl.get_active_uniform_block_parameter_i32(program, block, glow::UNIFORM_BLOCK_ACTIVE_UNIFORMS);
@@ -98,6 +100,19 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
                         || ["bfeLightCount", "bfeFramePad", "bfePointLights[0]"].contains(&u.name.as_str())) { continue; }
                 if matches!(s.kind, Kind::Motion | Kind::Skinned) && ((u.name == "bfeInstances" && u.utype == glow::SAMPLER_2D)
                     || (u.name == "bfeInstanceBase" && u.utype == glow::INT)) { continue; }
+                // An instanced actor program gets four inputs from the rewrite itself
+                // (shader.rs): the row base, the row and lamp tables, and the
+                // cascade depth samplers (three's single shadow-map array becomes
+                // up to four comparison samplers). They are not material values, so
+                // a manifest does not declare them; each is exempt only at its exact
+                // name, type and size.
+                let instanced = matches!(s.kind, Kind::Skinned | Kind::Rigid);
+                if instanced && u.size == 1 && ((u.name == "bfeInstanceBase" && u.utype == glow::INT) || (matches!(u.name.as_str(), "bfeInstances" | "bfeLamps") && u.utype == glow::SAMPLER_2D)) { continue; }
+                if instanced && u.name == "cascadeMaps[0]" && u.size <= 4 && u.utype == glow::SAMPLER_2D_SHADOW { continue; }
+                // Without the lamp table the soldier's four local lights stay the
+                // ordinary uniform arrays three's source declares; with it the
+                // rewrite removes them, so only then are they undeclared.
+                if instanced && !s.lamps && u.size == 4 && ((u.name == "localLightPositions[0]" && u.utype == glow::FLOAT_VEC4) || (u.name == "localLightColors[0]" && u.utype == glow::FLOAT_VEC3)) { continue; }
                 let name = u.name.strip_suffix("[0]").unwrap_or(&u.name);
                 let size = s.uniform_sizes.iter().find(|(n, _)| *n == name).map_or(1, |(_, size)| *size);
                 if u.size != size as i32 || !s.uniforms.iter().any(|(n, t)| *n == name && *t == uniform_type(u.utype)) {
@@ -106,7 +121,8 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
             }
             for i in 0..gl.get_active_attributes(program) {
                 let a = gl.get_active_attribute(program, i).ok_or("missing active attribute")?;
-                // Drivers can enumerate built-in inputs without an attribute location.
+                // Drivers can enumerate built-in inputs (gl_InstanceID, which the
+                // instanced rewrite reads) without an attribute location.
                 if a.name.starts_with("gl_") && gl.get_attrib_location(program, &a.name).is_none() { continue; }
                 if !s.attributes.iter().any(|(n, l)| *n == a.name && gl.get_attrib_location(program, n) == Some(*l)) {
                     return Err(format!("{key}: undeclared attribute {}", a.name));
@@ -147,15 +163,46 @@ mod tests {
     #[test]
     fn expanded_world_sources_keep_their_vocabulary_and_use_frame_rewrite() {
         let s = Spec { key: "world/test", vertex_prefix: "", fragment_prefix: "", kind: Kind::World, expanded: true, lamps: false, shadow_at: None,
-            vertex: "#version 300 es\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 position;\nvoid main() { gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }\n",
-            fragment: "#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1.0); }\n",
+            vertex: &["#version 300 es\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 position;\nvoid main() { gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }\n"],
+            fragment: &["#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1.0); }\n"],
             attributes: &[("position", 0)], uniforms: &[], uniform_sizes: &[] };
         let (v, f) = sources(&s);
-        assert_eq!(v, s.vertex);
-        assert_eq!(f, s.fragment);
+        assert_eq!(v, s.vertex.concat());
+        assert_eq!(f, s.fragment.concat());
         let rewritten = crate::shader::rewrite_lamps(&v, crate::shader::Stage::Vertex, s.kind, s.lamps).unwrap();
         assert!(rewritten.contains("uniform BfeFrame"));
         assert!(rewritten.contains("projectionMatrix * viewMatrix * vec4(position, 1.0)"));
+    }
+    // The registry's own rewrite, over every actor variant: each must go through
+    // its kind's input rewrite (and its lamp-table option) without error, and
+    // leave nothing for three's chunk expansion. A bad selector or a source the
+    // rewrite cannot place fails here, with no GPU.
+    #[test]
+    fn every_actor_variant_rewrites_for_its_kind() {
+        use crate::shader::{rewrite_lamps, Stage};
+        let mut seen = 0;
+        for s in catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("actors/")) {
+            let (v, f) = sources(s);
+            for (stage, text) in [(Stage::Vertex, v), (Stage::Fragment, f)] {
+                let out = rewrite_lamps(&text, stage, s.kind, s.lamps).unwrap_or_else(|e| panic!("{}: {e}", s.key));
+                assert!(!out.contains("#include"), "{}", s.key);
+                if matches!(s.kind, Kind::Skinned | Kind::Rigid) { assert!(out.contains("bfeInstances") || stage == Stage::Fragment, "{}", s.key); }
+            }
+            seen += 1;
+        }
+        assert!(seen >= 100, "the actor family has {seen} variants");
+    }
+    #[test]
+    fn expanded_actor_kinds_preserve_the_captured_parts() {
+        for kind in [Kind::Skinned, Kind::Rigid] {
+            let s = Spec { key: "actors/test", kind, expanded: true, lamps: false, shadow_at: None,
+                vertex_prefix: "", fragment_prefix: "",
+                vertex: &["#version 300 es\n", "void main() {}\n"],
+                fragment: &["#version 300 es\n", "void main() {}\n"],
+                attributes: &[], uniforms: &[], uniform_sizes: &[] };
+            let (v, f) = sources(&s);
+            assert_eq!(v, s.vertex.concat()); assert_eq!(f, s.fragment.concat());
+        }
     }
     #[test]
     fn registry_is_closed_and_sources_need_no_three_expansion() {

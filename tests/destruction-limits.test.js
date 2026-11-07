@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Destruction } from '../src/destruction.js';
 import { Dst } from '../src/environment/layout.js';
 import { loadEnvironment } from '../src/environment/module.js';
-import { zeroMaterial } from '../src/materials.js';
+import { actorMaterial } from '../src/materials.js';
 import { listenSounds } from '../src/audio/events.js';
 
 await loadEnvironment();
@@ -24,7 +24,7 @@ const FLOOR = {
     return out;
   },
 };
-const material = zeroMaterial('dynamic', {});
+const material = actorMaterial('dynamic', {});
 const model = () => () => {
   const group = new THREE.Group();
   group.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.12).translate(0.15, 0, 0), material));

@@ -1,0 +1,2 @@
+#define BLENDED
+#define HEATED

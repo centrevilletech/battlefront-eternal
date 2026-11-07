@@ -129,7 +129,9 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
     window.addEventListener('blur',event=>{__gateFocus.blur++;event.stopImmediatePropagation();},true);
     document.addEventListener('visibilitychange',event=>{__gateFocus.visibilitychange++;event.stopImmediatePropagation();},true);
     const raf = requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = f => f.name === 'loop' ? 0 : raf(f);
+    // The game's own loop is held (frames come from lockstep) by its mark, not its name: minified builds rename
+    // it. Frozen references built before the mark are matched by their unminified name.
+    window.requestAnimationFrame = f => f.bfeFrameLoop || f.name === 'loop' ? 0 : raf(f);
     localStorage.setItem('battlefront-eternal.settings', ${JSON.stringify(JSON.stringify(settings))});
     ${extraSrc}` });
   const workers = [];
@@ -155,7 +157,7 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
   for (let i = 0; i < 600; i++) {
     await sleep(500);
     try {
-      const state = await c.ev(`window.__bf?.frame ? 'ready' : (document.body?.innerText || '').startsWith('Failed to load game') ? document.body.innerText.slice(0, 200) : null`);
+      const state = await c.ev(`window.__bf?.frame ? 'ready' : (document.body?.innerText || '').includes('Failed to load game') ? document.body.innerText.slice(0, 200) : null`);
       if (state === 'ready') break;
       if (state) { failed = state; break; }
     } catch {}

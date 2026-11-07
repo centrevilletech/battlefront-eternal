@@ -45,6 +45,7 @@ impl<C: HasContext> CanopiesPass<C> {
     pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
         if let Some(mesh) = &self.mesh { for &(buffer, size, at) in &mesh.attributes { unsafe {
             core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+            crate::core::spare_view_slot();
             core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.leaves[at..at + mesh.max * size]));
         }}}
         unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
@@ -94,6 +95,7 @@ impl<C: HasContext> CanopiesPass<C> {
             for &(buffer, size, at) in &mesh.attributes {
                 unsafe {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (first * size * 4) as i32, bytes(&self.leaves[at + first * size..at + end * size]));
                 }
                 core.stats.gl_calls += 2;

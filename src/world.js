@@ -1,6 +1,6 @@
 import { ownWorldMaterial } from "./rust-render/world-programs.js";
 import * as THREE from "three";
-import { describe, lighting, zeroMaterial, worldMaterial } from "./materials.js";
+import { describe, lighting, skyMaterial, worldMaterial } from "./materials.js";
 import { cullColorOnly } from "./shadow-casters.js";
 import { TerrainPatches } from "./terrain-patches.js";
 import { addFabricWind } from "./fabric.js";
@@ -137,11 +137,8 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
         graphics.farScene.add(far);
       }
     } else {
-      material = (look.kind === "sky" ? zeroMaterial : worldMaterial)(look.kind, {
-        ...look,
-        map: map0,
-        bumpMap: record.bump ? textureFor(record.bump) : null,
-      });
+      const options = { ...look, map: map0, bumpMap: record.bump ? textureFor(record.bump) : null };
+      material = look.kind === "sky" ? skyMaterial(options) : worldMaterial(look.kind, options);
     }
     let mesh;
     if (patches) {

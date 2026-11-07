@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RasterHudAssets } from '../src/raster-hud.js';
 import { installResources } from '../src/render-resources.js';
 import { addFabricWind } from '../src/fabric.js';
-import { zeroMaterial, worldMaterial, lighting } from '../src/materials.js';
+import { worldMaterial, lighting } from '../src/materials.js';
 import { Graphics } from '../src/graphics.js';
 import { Settings } from '../src/settings.js';
 import { PlayerCombat } from '../src/combat.js';
@@ -55,7 +55,7 @@ export async function checkWeaponShadows() {
   await g.rustReady;
   g.setMap({ lighting: { sunDirection: [0.4, -1, 0.3], ambient: [70,70,70], sunColor: [180,180,180] }, distance: { nearScene: [40,40,80,80] } });
   const white = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1); white.needsUpdate = true;
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), zeroMaterial('lit', { map: white }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), worldMaterial('lit', { map: white }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; g.scene.add(floor);
   const hand = new THREE.Group(); hand.position.y = 1.5; g.scene.add(hand);
   const combat = new PlayerCombat({

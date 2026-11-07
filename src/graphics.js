@@ -1,3 +1,4 @@
+import { prepareActors, warmActorPrograms } from "./rust-render/actors.js";
 import { compileUnowned, prewarmWorldPrograms } from "./rust-render/world-programs.js";
 import { requireRustDraws } from "./rust-render/draw-guard.js";
 import { requireLinkedPrograms } from "./rust-render/failure.js";
@@ -82,34 +83,6 @@ installPointLights();
 // the alpha test, and nothing else. Three's own writes a packed depth colour
 // and samples every caster's texture; the hardware depth attachment is all
 // the receivers read.
-const depthVertexShader = /* glsl */ `
-  #include <common>
-  #include <skinning_pars_vertex>
-  #ifdef CUTOUT
-    varying vec2 vUv;
-  #endif
-  void main() {
-    #ifdef CUTOUT
-      vUv = uv;
-    #endif
-    #include <skinbase_vertex>
-    #include <begin_vertex>
-    #include <skinning_vertex>
-    #include <project_vertex>
-  }
-`;
-const depthFragmentShader = /* glsl */ `
-  #ifdef CUTOUT
-    uniform sampler2D map;
-    uniform float cut;
-    varying vec2 vUv;
-  #endif
-  void main() {
-    #ifdef CUTOUT
-      if (texture2D(map, vUv).a < cut) discard;
-    #endif
-  }
-`;
 const lightUp = new THREE.Vector3(0, 1, 0);
 
 export class Graphics {
@@ -175,8 +148,6 @@ export class Graphics {
     this.shadowCaches = [];
     this.shadowMaps = [];
     this.shadowPasses = { static: 0, dynamic: 0 };
-    // For comparisons: false draws every caster into every cascade each frame.
-    this.cacheShadows = true;
     this.lightOrientation = new THREE.Matrix4();
     this.lightOrientationInverse = new THREE.Matrix4();
     this.cameraToLight = new THREE.Matrix4();
@@ -416,6 +387,7 @@ export class Graphics {
   // which ends it and finds the rest made.
   async warmupPaced(settle, batch = 1) {
     await this.rustReady;
+    await warmActorPrograms(this.rust, settle);
     await warmEffectPrograms(this.rust, settle);
     const { renderer } = this;
     const count = () => renderer.info.programs?.length ?? 0;
@@ -488,9 +460,8 @@ export class Graphics {
   // first frame, and any later frame that meets something new (a material
   // coming into view, a first bolt), stalls on shader compilation; on
   // Windows/ANGLE each one costs tens of milliseconds. compile() also visits
-  // hidden objects (pooled soldiers, effects not playing yet). Shadow depth
-  // programs never come from compile(), so one depth proxy of each variant
-  // the casters use is compiled as well.
+  // hidden objects (pooled soldiers, effects not playing yet). Actor and
+  // depth variants register directly from their owned catalog.
   warmup() {
     const { renderer } = this;
     const before = renderer.info.programs?.length ?? 0, started = performance.now();
@@ -507,34 +478,12 @@ export class Graphics {
     });
     try {
       renderer.setRenderTarget(this.sceneTarget);
+      prepareActors(this.rust);
       compileUnowned(renderer, this.scene, this.camera);
       compileUnowned(renderer, this.viewScene, this.viewCamera);
       renderer.setRenderTarget(this.farTarget);
       compileUnowned(renderer, this.farScene, this.farCamera);
-      if (this.csm) {
-        const stage = new THREE.Scene(), variants = new Set(), shadowSide = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
-        const plain = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-        this.scene.traverse((object) => {
-          if (!object.isMesh || !object.castShadow) return;
-          for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-            if (!material) continue;
-            const cut = material.alphaTest > 0 && (material.map || material.alphaMap);
-            const side = material.shadowSide ?? shadowSide[material.side];
-            // A material per variant: the side is part of the program key.
-            const depth = (object.customDepthMaterial || plain).clone();
-            if (cut && !object.customDepthMaterial) Object.assign(depth, { map: material.map, alphaMap: material.alphaMap, alphaTest: material.alphaTest });
-            const key = `${object.isSkinnedMesh}:${object.isInstancedMesh}:${Boolean(cut)}:${side}:${object.customDepthMaterial?.uuid}`;
-            if (variants.has(key)) continue;
-            variants.add(key);
-            const proxy = object.isSkinnedMesh ? new THREE.SkinnedMesh(object.geometry, depth) : object.isInstancedMesh ? new THREE.InstancedMesh(object.geometry, depth, 1) : new THREE.Mesh(object.geometry, depth);
-            if (object.isSkinnedMesh) proxy.bind(object.skeleton, object.bindMatrix);
-            depth.side = side;
-            stage.add(proxy);
-          }
-        });
-        renderer.setRenderTarget(this.csm.lights[0]?.shadow.map ?? this.sceneTarget);
-        renderer.compile(stage, this.camera);
-      }
+      if (this.csm) this.rust.byName.shadow.prepare();
     } finally {
       for (const [object, material] of owned) object.material = material;
       renderer.setRenderTarget(target);
@@ -542,10 +491,8 @@ export class Graphics {
     return { programs: (renderer.info.programs?.length ?? 0) - before, ms: performance.now() - started };
   }
 
-  // Every caster draws into the cascades with a depth material of its own
-  // kind (depthVertexShader): three's shared one re-derives its program
-  // whenever a skinned or instanced caster follows an ordinary one, and
-  // writes a packed depth colour the hardware depth map makes redundant.
+  // Every caster names a source-owned depth variant. The hardware depth
+  // attachment is the only output its receivers read.
   // Alpha-cut materials keep one each, with their own texture.
   depthMaterial(mesh) {
     if (!mesh.isMesh || mesh.customDepthMaterial) return;
@@ -555,14 +502,12 @@ export class Graphics {
     const key = `${kind}:${cut ? source.uuid : "solid"}`;
     let depth = this.depthMaterials.get(key);
     if (!depth) {
-      depth = new THREE.ShaderMaterial({
-        name: `depth:${key}`,
-        defines: cut ? { CUTOUT: "" } : {},
-        uniforms: cut ? { map: { value: source.alphaMap || source.map }, cut: { value: source.alphaTest } } : {},
-        vertexShader: depthVertexShader,
-        fragmentShader: depthFragmentShader,
-        colorWrite: false,
-      });
+      depth = new THREE.Material();
+      depth.name = `depth:${key}`;
+      depth.uniforms = cut ? { map: { value: source.alphaMap || source.map }, cut: { value: source.alphaTest } } : {};
+      depth.colorWrite = false;
+      depth.userData.bfeProgram = `actors/depth-${mesh.isSkinnedMesh ? "skinned" : "solid"}${cut ? "-cutout" : ""}`;
+      if (cut && !mesh.isSkinnedMesh) depth.userData.bfeProgram = "actors/depth-cutout";
       this.depthMaterials.set(key, depth);
     }
     mesh.customDepthMaterial = depth;
@@ -797,13 +742,6 @@ export class Graphics {
     dynamicCamera.layers.enable(this.hiddenLayer);
     staticCamera.copy(camera);
     staticCamera.layers.set(this.staticLayer);
-    if (!this.cacheShadows) {
-      dynamicCamera.layers.enable(this.staticLayer);
-      for (const window of this.cascadeWindows) { window.dirty = true; window.moved = false; }
-      for (const light of csm.lights) this.rust.coverShadow(renderer, light, scene, dynamicCamera, null);
-      for (let i = 0; i < csm.lights.length; i++) lighting.cascadePlanes.value[i].setFromMatrix4(csm.lights[i].shadow.matrix).invert().transpose();
-      return;
-    }
     for (let i = 0; i < csm.lights.length; i++) {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
       if (plan[i].static) {

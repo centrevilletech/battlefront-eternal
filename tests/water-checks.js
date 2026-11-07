@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {Graphics} from '../src/graphics.js';
 import {Water} from '../src/water.js';
 import {Settings} from '../src/settings.js';
-import {zeroMaterial} from '../src/materials.js';
+import {worldMaterial} from '../src/materials.js';
 import {ParticleRenderer, BILLBOARD} from '../src/particles.js';
 
 export async function checkWaterRendering() {
@@ -23,9 +23,9 @@ export async function checkWaterRendering() {
     return g.texture(t);
   };
   const white = texture(2,()=>[255,255,255,255]);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20,20), zeroMaterial('lit',{map:white}));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20,20), worldMaterial('lit',{map:white}));
   floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; g.scene.add(floor);
-  const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), zeroMaterial('lit',{map:white}));
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), worldMaterial('lit',{map:white}));
   box.position.y=.5; box.receiveShadow=true; g.caster(box); g.scene.add(box);
   g.camera.position.set(3,4,6); g.camera.lookAt(0,0,0);
   const gl = g.renderer.getContext();

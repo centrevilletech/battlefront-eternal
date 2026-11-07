@@ -118,6 +118,9 @@ pub(crate) struct Geometry<C: HasContext> {
     pub(crate) first: i32,
     pub(crate) indexed: bool,
     pub(crate) line_width: f32,
+    // An upload the driver did not take in full (buffer_upload): the geometry
+    // draws nothing rather than reading past a buffer.
+    pub(crate) short: bool,
 }
 
 // What a phase counts. The first five are what the page has always read
@@ -396,6 +399,45 @@ pub(crate) fn upload_texture<C: HasContext>(gl: &C, width: i32, height: i32) -> 
     }
 }
 
+// glow hands every upload to WebGL as a typed-array view of WebAssembly memory.
+// Making that view a JS value takes an externref slot, and when the slot table
+// is full its allocator grows WebAssembly memory, which detaches the view
+// before the GL call reads it: the upload arrives empty (an empty element
+// buffer, then "insufficient buffer size" on that geometry's first draw; an
+// instance or bone texture that keeps its old rows). Taking a slot and giving
+// it back first leaves a free one for the view, so the table cannot grow
+// between the view and its use. Call it right before each slice upload.
+#[inline]
+pub(crate) fn spare_view_slot() {
+    spare_view_slots(1);
+}
+
+// The same for an upload that makes several JS values around its view (a typed
+// array over the view's buffer): one free slot each, taken together.
+#[inline]
+pub(crate) fn spare_view_slots(n: usize) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let held: [Option<wasm_bindgen::JsValue>; 4] = std::array::from_fn(|k| (k < n).then(|| wasm_bindgen::JsValue::from_f64(0.0)));
+        drop(held);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = n;
+}
+
+// A new buffer's contents, checked: the driver's size must be the data's. A
+// short one is sent once more, and when it is still short the caller's
+// geometry is marked to draw nothing (a missing object for a frame, never a
+// GL error on its draw). Load-time only: geometries are made once.
+pub(crate) unsafe fn buffer_upload<C: HasContext>(gl: &C, target: u32, data: &[u8]) -> bool {
+    for _ in 0..2 {
+        spare_view_slot();
+        gl.buffer_data_u8_slice(target, data, glow::STATIC_DRAW);
+        if gl.get_buffer_parameter_i32(target, glow::BUFFER_SIZE) as usize == data.len() { return true; }
+    }
+    false
+}
+
 pub(crate) fn bytes<T>(v: &[T]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) }
 }
@@ -545,7 +587,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     pub fn add_geometry(&mut self) -> u32 {
         unsafe {
             let vao = self.gl.create_vertex_array().unwrap();
-            self.geometries.push(Geometry { vao, buffers: vec![], index_type: glow::UNSIGNED_INT, index_bytes: 4, index_count: 0, groups: vec![], primitive: glow::TRIANGLES, first: 0, indexed: true, line_width: 1.0 });
+            self.geometries.push(Geometry { vao, buffers: vec![], index_type: glow::UNSIGNED_INT, index_bytes: 4, index_count: 0, groups: vec![], primitive: glow::TRIANGLES, first: 0, indexed: true, line_width: 1.0, short: false });
         }
         (self.geometries.len() - 1) as u32
     }
@@ -568,7 +610,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         unsafe {
             let b = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, data, glow::STATIC_DRAW);
+            if !buffer_upload(gl, glow::ARRAY_BUFFER, data) { geo.short = true; }
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             geo.buffers.push(b);
         }
@@ -596,13 +638,13 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl.bind_vertex_array(Some(geo.vao));
             let b = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(b));
-            gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, data, glow::STATIC_DRAW);
+            if !buffer_upload(gl, glow::ELEMENT_ARRAY_BUFFER, data) { geo.short = true; }
             gl.bind_vertex_array(None);
             geo.buffers.push(b);
         }
         geo.index_type = ty;
         geo.index_bytes = if ty == glow::UNSIGNED_SHORT { 2 } else { 4 };
-        geo.index_count = data.len() as i32 / geo.index_bytes;
+        geo.index_count = if geo.short { 0 } else { data.len() as i32 / geo.index_bytes };
     }
 
     // A geometry's vertex buffer (its slot) or index given new contents, for
@@ -614,6 +656,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         unsafe {
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[slot as usize]));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, data, glow::DYNAMIC_DRAW);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
         }
@@ -628,6 +671,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         unsafe {
             gl.bind_vertex_array(Some(geo.vao));
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, data, glow::DYNAMIC_DRAW);
             gl.bind_vertex_array(None);
         }
@@ -644,6 +688,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         unsafe {
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[slot as usize]));
+            crate::core::spare_view_slot();
             gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, offset, data);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
         }
@@ -657,6 +702,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         unsafe {
             gl.bind_vertex_array(Some(geo.vao));
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            crate::core::spare_view_slot();
             gl.buffer_sub_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, offset, data);
             gl.bind_vertex_array(None);
         }
@@ -683,6 +729,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let ubo = self.frame_ubos[view];
         unsafe {
             self.gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            crate::core::spare_view_slot();
             self.gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, bytes(&self.frame));
             self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(ubo));
         }
@@ -760,6 +807,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         }
         unsafe {
             self.gl.bind_buffer(glow::UNIFORM_BUFFER, Some(self.shadow_ubo));
+            crate::core::spare_view_slot();
             self.gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, bytes(&self.shadow));
         }
         self.stats.gl_calls += 2;
@@ -808,6 +856,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
                 self.gl.pixel_store_bool(0x9241, false); // UNPACK_PREMULTIPLY_ALPHA_WEBGL
 
                 self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
+                crate::core::spare_view_slot();
                 self.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA32F as i32, LAMP_TABLE_WIDTH as i32, rows as i32, 0, glow::RGBA, glow::FLOAT,
                     glow::PixelUnpackData::Slice(Some(bytes(&data))));
             }

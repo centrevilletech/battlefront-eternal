@@ -223,6 +223,9 @@ export async function createShell({ query = location.search, parent = document.b
     }
     frame = requestAnimationFrame(draw);
   };
+  // The capture tools hold the front end's frame loop by this mark, not by
+  // its name (minified builds rename it).
+  draw.bfeFrameLoop = true;
   frame = requestAnimationFrame(draw);
   shell.dispose = () => {
     cancelAnimationFrame(frame);

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { blendingOf, zeroMaterial } from "./materials.js";
+import { blendingOf, actorMaterial } from "./materials.js";
 
 // Small static models as tools/extract.py packs them (write_meshes): each
 // vertex is position, normal, uv (8 floats), and each model is a list of
@@ -49,7 +49,7 @@ export function modelPack(records, buffer, indexBuffer) {
 // double sided, scrolling.
 export function partMaterial(part, texture) {
   const flags = part.flags ?? 1;
-  return zeroMaterial(flags & 0x1 ? "dynamic" : "unlit", {
+  return actorMaterial(flags & 0x1 ? "dynamic" : "unlit", {
     map: texture(part.texture),
     alphaTest: Boolean(flags & 0x2),
     blending: blendingOf(flags),

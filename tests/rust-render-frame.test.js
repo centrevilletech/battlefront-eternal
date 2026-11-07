@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { actorMaterial } from "../src/materials.js";
 import { ownedEffectMaterial, ownedBasicEffect, ownedEffectProgram } from "../src/rust-render/effect-material.js";
 
 // The bridge reads its flags from the page's query.
@@ -52,10 +53,9 @@ function partGeometry() {
 }
 
 // A zero material's stand-in: a rigid part (DYNAMIC) with its look.
-function partMaterial(props) {
-  const material = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: {
-    map: { value: new THREE.Texture() }, sunScale: { value: 0.5 }, ambientPull: { value: new THREE.Vector2(0.1, 0.2) }, brightness: { value: 0.9 } } });
-  props.get(material).currentProgram = program([["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["sunScale", GL.FLOAT]], ["position", "normal", "uv"]);
+function partMaterial() {
+  const material=actorMaterial('dynamic',{map:new THREE.Texture()});
+  material.uniforms.sunScale.value=0.5;material.uniforms.ambientPull.value.set(0.1,0.2);material.uniforms.brightness.value=0.9;
   return material;
 }
 
@@ -170,21 +170,22 @@ test("the view scene: three's start of a render, the phase, and three left out w
   assert.ok(calls.some(c=>c[0]==="resolveTarget"),"the Rust resource owner resolves the target");
 });
 
-test("the view scene: a part the renderer can't draw leaves three to render the scene, without the parts it drew", () => {
-  const { core, calls, renderer, properties } = bridge();
-  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
-  const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
-  const flash = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
-  properties.get(flash.material).currentProgram = program([["map", GL.SAMPLER_2D]]);
-  viewScene.add(part, flash);
-  assert.throws(() => core.cover("view", renderer, viewScene, view), /Incomplete Rust/);
-  assert.equal(part.material.visible, false);
-  assert.equal(flash.material.visible, true);
-  assert.equal(calls.filter((c) => c[0] === "blitFramebuffer").length, 0, "three's render resolves the target");
-  // Hidden objects, and their subtrees, are not three's to draw.
-  flash.visible = false;
-  assert.equal(core.cover("view", renderer, viewScene, view), true);
-  });
+test("the view scene retains ownership when an actor material changes", () => {
+  const {core,renderer}=bridge(),scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();
+  const mesh=new THREE.Mesh(partGeometry(),partMaterial());scene.add(mesh);
+  assert.equal(core.cover('view',renderer,scene,camera),true);
+  mesh.material=new THREE.MeshBasicMaterial();
+  core.byName.view.draw({scene,camera,renderer,records:0});
+  assert.match(core.errors.join("\n"),/view part whose material no descriptor covers/);assert.equal(core.failure,undefined);
+});
+
+test("an unclaimed view object is skipped and reported, the owned parts drawn, owned materials still hidden",()=>{
+ const {core,renderer}=bridge(),scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();
+ const actor=new THREE.Mesh(partGeometry(),partMaterial()),effect=new THREE.Mesh(partGeometry(),new THREE.ShaderMaterial({transparent:true}));scene.add(actor,effect);
+ assert.equal(core.cover('view',renderer,scene,camera),true);
+ assert.equal(actor.material.visible,false);assert.equal(effect.material.visible,true);
+ assert.match(core.errors.join("\n"),/Not drawn: .* Mesh material ShaderMaterial: view mesh no pass owns/);assert.equal(core.failure,undefined);
+});
 
 test("post uses declared Rust programs and initializes targets without a three draw", () => {
   const { core, calls, renderer, graphics, properties } = bridge();
@@ -468,44 +469,32 @@ test("the view scene's muzzle flash: a blended basic draw after the parts, in th
 
 });
 
-test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as three compiled it, opaque, before what blends", () => {
+test("the view scene: an unlit part (a sight whose texture scrolls) uses an owned rigid row before the blended flash", () => {
   const { core, renderer, properties } = bridge();
   const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
   view.updateMatrixWorld(true);
-  const sight = new THREE.ShaderMaterial({ defines: { UNLIT: "", SCROLL: "" }, uniforms: { map: { value: new THREE.Texture() }, scroll: { value: new THREE.Vector2(0.5, 0) }, time: { value: 3 } } });
-  properties.get(sight).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["scroll", GL.FLOAT_VEC2], ["time", GL.FLOAT]], ["position", "uv"]);
+  const sight = actorMaterial('unlit',{map:new THREE.Texture(),scroll:[0.5,0]});
+  sight.uniforms.time.value=3;
   const flash = ownedBasicEffect("glow-basic", { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending });
   viewScene.add(new THREE.Mesh(partGeometry(), flash), new THREE.Mesh(partGeometry(), sight), new THREE.Mesh(partGeometry(), partMaterial(properties)));
   viewScene.updateMatrixWorld(true);
   assert.equal(core.cover("view", renderer, viewScene, view), true);
   assert.equal(sight.visible, false);
-  const input = core.viewInput, DRAW = 17 + 32 * 18;
-  assert.equal(input[0], 2);
-  assert.deepEqual([input[1 + 2], input[1 + 10], input[1 + 11], input[1 + 12]], [0, 1 | 2 | 4, 1, 0], "the sight first: no blending, depth tested and written, front faces");
-  assert.deepEqual([...input.subarray(1 + 17 + 3 * 18, 1 + 17 + 3 * 18 + 4)], [3, 2, 0.5, 0], "its scroll");
-  assert.deepEqual([...input.subarray(1 + 17 + 4 * 18, 1 + 17 + 4 * 18 + 3)], [4, 1, 3], "the material's own time");
-  assert.equal(input[1 + DRAW + 2], 1, "then the flash, blended");
+  assert.equal(core.viewInput[0],1,'only the flash uses a per-object blended draw');
+  assert.equal(core.input[core.recordsAt],2,'the sight uses an instanced rigid row');
+  assert.deepEqual(Array.from(core.input.subarray(core.recordsAt+76,core.recordsAt+78)),[0.5,0],'scroll from its instance row');
+  assert.ok(core.ownedPrograms.size>=3);
+
 });
 
-test("the view scene: an unlit part's point lights, which it reads for nothing it draws, are left at zero", () => {
-  const { core, calls, renderer, properties } = bridge();
-  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
-  view.updateMatrixWorld(true);
-  const sight = new THREE.ShaderMaterial({ defines: { UNLIT: "" }, uniforms: { map: { value: new THREE.Texture() }, zeroLights: { value: new Float32Array(8) }, zeroLightCount: { value: 1 } } });
-  const zeroLights = program([["modelViewMatrix", GL.FLOAT_MAT4], ["normalMatrix", GL.FLOAT_MAT3], ["map", GL.SAMPLER_2D], ["zeroLights", GL.FLOAT_VEC4], ["zeroLightCount", GL.INT]], ["position", "uv"]);
-  // An array: three's active uniform for it reports its length.
-  const getActiveUniform = renderer.getContext().getActiveUniform;
-  renderer.getContext().getActiveUniform = (p, i) => ({ ...getActiveUniform(p, i), size: p.uniforms[i][0] === "zeroLights" ? 32 : 1 });
-  properties.get(sight).currentProgram = zeroLights;
-  const mesh = new THREE.Mesh(partGeometry(), sight);
-  viewScene.add(mesh);
-  viewScene.updateMatrixWorld(true);
-  assert.equal(core.cover("view", renderer, viewScene, view), true, "drawn by the renderer");
-  const added = calls.find((c) => c[0] === "add_program" && c[1] === 3);
-  assert.equal(added[5], "modelViewMatrix,normalMatrix,map", "the lights are not among the uniforms it sets");
-  const input = core.viewInput;
-  assert.equal(input[1 + 16], 3);
-  assert.deepEqual([...input.subarray(1 + 17 + 18, 1 + 17 + 18 + 2)], [1, 9], "three's normal matrix of the part");
+test("the view scene registers an unlit sight as an owned rigid program", () => {
+  const { core, calls, renderer } = bridge();
+  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();
+  scene.add(new THREE.Mesh(partGeometry(),actorMaterial('unlit',{map:new THREE.Texture(),scroll:[0.1,0]})));
+  assert.equal(core.cover('view',renderer,scene,camera),true);
+  assert.ok(calls.some(c=>c[0]==='add_owned_program' && c[1].startsWith('actors/rigid-')));
+  assert.ok(!calls.some(c=>c[0]==='add_program'));
+  assert.equal(core.input[core.recordsAt],2);
 });
 
 test("an owned basic mesh registers from its catalog program, with a program of its own apart from another pass's", () => {
@@ -575,20 +564,45 @@ test("the near scene: Rust draws every registered item", () => {
   assert.equal(core.stale, true);
 });
 
-test("the near scene: an unregistered item fails the required Rust draw", () => {
+test("the near scene: an item no pass claims is skipped and reported once, the frame still drawn", () => {
   const { core, calls, renderer, scene, camera, properties } = nearBridge();
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  wall.name = "stray-wall";
   properties.get(wall.material).currentProgram = program([], ["position"]);
   wall.position.set(0, 0, -5);
   scene.add(wall);
   scene.updateMatrixWorld(true);
-  assert.throws(() => core.coverNear(renderer, scene, camera), /Incomplete Rust/);
-  assert.equal(core.byName.near.stopped, wall);
-  assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "nothing drawn: three renders the scene");
-  // Nor when three is to draw the scene for another camera or target.
-  wall.material.visible = false;
-  assert.throws(() => core.coverNear(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust/);
   assert.equal(core.coverNear(renderer, scene, camera), true);
+  assert.equal(core.byName.near.stopped, wall);
+  assert.ok(calls.some((c) => c[0] === "near_begin"), "everything owned is still drawn");
+  assert.equal(core.failure, undefined, "no sticky failure: later frames still render");
+  assert.equal(core.errors.length, 1);
+  assert.match(core.errors[0], /Not drawn: stray-wall Mesh material MeshBasicMaterial/);
+  // The same object on the next frames is not reported again.
+  for (let i = 0; i < 3; i++) assert.equal(core.coverNear(renderer, scene, camera), true);
+  assert.equal(core.errors.length, 1, "reported once");
+  // A configuration the pass cannot draw (another camera, three's render) is still refused.
+  assert.equal(core.byName.near.cover(renderer, scene, new THREE.PerspectiveCamera()), false);
+});
+
+test("the near scene: hero blades (additive planes with a camera-facing hook) are claimed, not skipped", async () => {
+  const { attachBlade } = await import("../src/heroes.js");
+  const { core, renderer, scene, camera, properties } = nearBridge();
+  const held = new THREE.Group();
+  held.position.set(0, 0, -3);
+  scene.add(held);
+  const blade = attachBlade(held, [0, 0, 0], { Texture: "blade" }, () => new THREE.Texture());
+  const uniforms = [["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT]];
+  // Double-sided: three links a program for each side, the back one flipped.
+  const front = program(uniforms), back = program(uniforms), gl = renderer.getContext();
+  gl.getAttachedShaders = (p) => [{ type: GL.VERTEX_SHADER, source: p === back.program ? "#define FLIP_SIDED\nvs" : "vs" }, { type: GL.FRAGMENT_SHADER, source: "fs" }];
+  gl.getShaderSource = (shader) => shader.source;
+  for (const mesh of blade.children) Object.assign(properties.get(mesh.material), { currentProgram: front, programs: new Map([[0, front], [1, back]]), __version: mesh.material.version });
+  scene.updateMatrixWorld(true);
+  // The first frame registers each plane; the next draws them.
+  for (let i = 0; i < 2; i++) assert.equal(core.coverNear(renderer, scene, camera), true);
+  assert.deepEqual(core.errors, [], "neither plane was refused");
+  assert.equal(core.transparentObjects[0], blade.children.length, "both planes are items of the transparent pass");
 });
 
 test("phases drawn between three's renders reset three's state once, when three is next used", () => {
@@ -665,9 +679,10 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   scene.add(wall);
   scene.updateMatrixWorld(true);
   calls.length = 0;
-  assert.throws(() => core.coverMirror(renderer, scene, mirror), /Incomplete Rust/);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
   assert.equal(core.byName.mirrorCover.stopped, wall);
-  assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "three renders it");
+  assert.ok(calls.some((c) => c[0] === "mirror_frame"), "the reflection still draws what is owned");
+  assert.match(core.errors.join("\n"), /Not drawn: \(unnamed\) Mesh material MeshBasicMaterial/, "the stray object is reported, not fatal");
   // Switched off alone: three's.
   wall.material.visible = false;
   });
@@ -678,7 +693,7 @@ test("the view scene: a gun's part whose zero material blends is a record of its
   view.updateMatrixWorld(true);
   const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
   // The glass: a zero material that blends (BLENDED, DYNAMIC), its lights and lamps per instance.
-  const glassMaterial = partMaterial(properties);
+  const glassMaterial = actorMaterial('unlit',{map:new THREE.Texture(),scroll:[0.1,0],blended:true});
   glassMaterial.transparent = true;
   glassMaterial.depthWrite = false;
   glassMaterial.defines.BLENDED = "";
@@ -696,11 +711,46 @@ test("the view scene: a gun's part whose zero material blends is a record of its
   const input = core.viewInput, D = 1, DRAW = 17 + 32 * 18;
   assert.equal(input[0], 2, "two draws that blend");
   assert.deepEqual([input[D], input[D + 1]], [-1, 0], "the farther, the glass: the first record that blends");
-  assert.ok(input[D + DRAW] >= 0, "then the flash, three's program");
+  assert.ok(input[D + DRAW] >= 0, "then the flash, its owned program");
   const records = calls.filter((c) => c[0] === "view_frame").pop()[1];
   assert.equal(records, 2, "the part and the glass written");
   const o = core.recordsAt + core.stride;
   assert.equal(core.input[o], 4, "the glass's record of its own kind");
+});
+
+test('owned view resource failures throw without exposing an actor material',()=>{
+ const {core}=bridge();core.geometry=()=>null;
+ for(const material of [partMaterial(),actorMaterial('unlit',{map:new THREE.Texture(),scroll:[.1,0],blending:'normal'})]){
+  const mesh=new THREE.Mesh(partGeometry(),material);
+  assert.throws(()=>core.byName.view.registerPart(mesh),/View (actor|flash).*resources|View flash geometry/);
+  assert.equal(material.visible,false);
+ }
+});
+
+test("scene discovery leaves source-free actor and caster materials to their Rust owners", () => {
+  const { core, scene, camera, renderer } = bridge();
+  const caster = new THREE.Mesh(partGeometry(), new THREE.Material());
+  caster.userData.shadowOnly = true;
+  const actor = new THREE.Mesh(partGeometry(), actorMaterial("dynamic"));
+  actor.material.visible = true; // The shadow/motion walk can reveal its shell.
+  const browser = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  scene.add(caster, actor, browser);
+  const compiled = [];
+  renderer.compile = root => root.traverse(mesh => compiled.push(mesh));
+  core.byName.effects.listed = () => {};
+  core.registerItems(renderer, scene, camera, [scene]);
+  assert.deepEqual(compiled, [browser]);
+});
+
+test("view geometry cannot borrow a linked Basic program instead of an owned descriptor", () => {
+  const { core, renderer, properties } = bridge();
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const material = new THREE.MeshBasicMaterial({ transparent: true });
+  properties.get(material).currentProgram = program([["modelViewMatrix", GL.FLOAT_MAT4]], ["position"]);
+  scene.add(new THREE.Mesh(partGeometry(), material));
+  // Skipped and reported, never drawn through the linked program.
+  assert.equal(core.cover("view", renderer, scene, camera), true);
+  assert.match(core.errors.join("\n"), /view mesh no pass owns/);
 });
 
 test("first-person arcs publish their instanced data as a sorted owned view draw", async () => {

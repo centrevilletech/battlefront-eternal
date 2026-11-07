@@ -1,26 +1,4 @@
 import * as THREE from "three";
-import { lighting } from "./materials.js";
-
-const DECLARATIONS = /* glsl */ `
-  uniform float fabricTime;
-  attribute vec2 fabricAnchor;
-  float fabricOffset(vec3 p) {
-    float loose = clamp((fabricAnchor.x - p.y) / fabricAnchor.y, 0.0, 1.0);
-    float wave = sin(p.y * 1.7 + p.x * 0.23 + p.z * 0.19 - fabricTime * 2.1);
-    wave += 0.3 * sin(p.y * 3.9 + p.x * 0.41 - fabricTime * 3.7);
-    return 0.13 * loose * loose * wave;
-  }
-  vec3 fabricGradient(vec3 p) {
-    const float e = 0.01;
-    return vec3(
-      fabricOffset(p + vec3(e,0,0)) - fabricOffset(p - vec3(e,0,0)),
-      fabricOffset(p + vec3(0,e,0)) - fabricOffset(p - vec3(0,e,0)),
-      fabricOffset(p + vec3(0,0,e)) - fabricOffset(p - vec3(0,0,e))
-    ) / (2.0 * e);
-  }
-`;
-const DIRECTION = "vec3(0.91, 0.0, 0.41)";
-
 // Discover separate hanging pieces inside the importer's material bucket.
 // Weld only for connectivity: UV/normal seams stay intact in the draw data.
 export function fabricGeometry(source) {
@@ -74,24 +52,17 @@ export function fabricGeometry(source) {
   return geometry;
 }
 
-function patchDepth(material) {
-  const previous = material.onBeforeCompile;
-  material.onBeforeCompile = function(shader, renderer) {
-    previous.call(this, shader, renderer);
-    shader.uniforms.fabricTime = lighting.time;
-    shader.vertexShader = DECLARATIONS + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>\ntransformed += ${DIRECTION} * fabricOffset(position);`);
-  };
-  material.customProgramCacheKey = () => "fabric-v1-false";
-  material.needsUpdate = true;
-}
-
 export function addFabricWind(mesh) {
   const original = mesh.geometry;
   mesh.geometry = fabricGeometry(original);
   original.dispose();
-  mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest, side: mesh.material.side });
-  patchDepth(mesh.customDepthMaterial);
+  const depth = new THREE.Material();
+  depth.name = "depth:fabric";
+  depth.map = mesh.material.map;
+  depth.alphaTest = mesh.material.alphaTest;
+  depth.side = mesh.material.side;
+  depth.userData.bfeProgram = depth.alphaTest>0 ? "actors/depth-fabric-cutout" : "actors/depth-fabric";
+  mesh.customDepthMaterial = depth;
   mesh.userData.fabricWind = true;
   return mesh;
 }

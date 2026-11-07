@@ -38,7 +38,7 @@ test('an uncensused feature combination fails instead of selecting a near match'
 });
 
 test('loader compilation excludes world shells and restores them even on failure',()=>{
-  const material={userData:{bfeFamily:'world'}},object={material};
+  const material={userData:{bfeFamily:'world'}},object={material,userData:{}};
   const scene={traverse(fn){fn(object);}};
   const renderer={compile(){assert.equal(object.material,null);throw Error('fixture failure');}};
   assert.throws(()=>compileUnowned(renderer,scene,{}),/fixture failure/);

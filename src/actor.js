@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { zeroMaterial } from "./materials.js";
+import { actorMaterial } from "./materials.js";
 import { motionVectors } from "./motion-vectors.js";
 
 const IDENTITY = new THREE.Matrix4();
@@ -97,7 +97,7 @@ export function buildActor(actor, actorBuf, actorIndexBuf, textureFor, graphics,
     cached.set(key, { geometry, materialTextures });
   }
   const materials = materialTextures.map(([texture, fallback]) =>
-    zeroMaterial("dynamic", { map: textureFor(texture) || textureFor(fallback) }));
+    actorMaterial("dynamic", { map: textureFor(texture) || textureFor(fallback) }));
 
   const body = new THREE.SkinnedMesh(geometry, materials);
   // A fixed sphere around the soldier (feet at the origin) that any pose stays

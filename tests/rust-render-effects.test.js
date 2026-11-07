@@ -3,6 +3,7 @@ import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { actorMaterial } from "../src/materials.js";
 import { Draw as D, Effect as E } from "../src/presentation/layout.js";
 
 // The bridge reads its flags from the page's query.
@@ -664,144 +665,25 @@ test("the fountains' jets: batches on bases of their own after three's copy of t
   assert.equal(renderer.getRenderTarget().name, "scene");
 });
 
-test("a dissolving body's heated record, an untextured gun and a scrolling rig: what was left to three, drawn with their own values", async () => {
-  const { heatMaterial } = await import("../src/destruction-debris.js");
-  const { lighting } = await import("../src/materials.js");
-  const { core, calls, scene, camera, renderer, drawn } = bridge();
-  renderer.info = { render: { frame: 0 } };
-  const inst = core.byName.instances;
-  const R = { TEXTURES: 4, LOOK: 52, EXTRA: 76 }, at = (r) => core.recordsAt + r * core.stride;
-  const look = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 }, scroll: { value: new THREE.Vector2() } });
-  const shaders = { vertexShader: "#include <common>\nvoid main() {\n#include <begin_vertex>\n}", fragmentShader: "void main() { vec4 color = vec4(1.0); gl_FragColor = color; }" };
-  const skinnedGeometry = () => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-    g.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
-    g.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
-    g.setIndex([0, 1, 2]);
-    return g;
-  };
-  const skinned = (material) => {
-    const mesh = new THREE.SkinnedMesh(skinnedGeometry(), material), bone = new THREE.Bone();
-    mesh.add(bone);
-    mesh.bind(new THREE.Skeleton([bone]));
-    mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
-    return mesh;
-  };
-  const SKINNED = ["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"];
-  // A droideka's body, a gun without a map in its hand, and a rig with a scrolling texture.
-  const own = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" }, uniforms: look(), ...shaders });
-  drawn(own, program(SKINNED, ["position", "skinIndex", "skinWeight"]));
-  const body = skinned(own), root = new THREE.Group(), hand = new THREE.Group(), gun = new THREE.Group();
-  body.userData.poseSphere = true; // a soldier's (actor.js): not a rig
-  const gunMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: { ...look(), map: { value: null } } });
-  drawn(gunMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]));
-  const gunGeometry = new THREE.BufferGeometry();
-  gunGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  gunGeometry.setIndex([0, 1, 2]);
-  gun.add(new THREE.Mesh(gunGeometry, gunMaterial));
-  hand.add(gun);
-  root.add(body, hand);
-  root.position.z = -5;
-  root.userData.parts = { body, hand };
-  scene.add(root);
-  core.graphics.cullRoots.push(root);
-  const scrolling = new THREE.ShaderMaterial({ defines: { UNLIT: "", SCROLL: "" }, uniforms: { ...look(), time: lighting.time } });
-  scrolling.uniforms.scroll.value.set(0.25, -0.5);
-  drawn(scrolling, program([...SKINNED, "scroll", "time"], ["position", "skinIndex", "skinWeight"]));
-  const rig = skinned(scrolling);
-  rig.position.set(2, 0, -6);
-  scene.add(rig);
-  const near = () => { scene.updateMatrixWorld(true); renderer.info.render.frame++; core.phase("near", renderer, scene, camera); };
-  const records = () => calls.filter((c) => c[0] === "frame").pop()[1];
-  near();
-  assert.equal(records(), 3, "the body, the gun and the rig");
-  assert.equal(core.input[at(1) + R.TEXTURES], -1, "the gun: no texture (the renderer binds an empty one)");
-  assert.deepEqual([...core.input.subarray(at(2) + R.EXTRA, at(2) + R.EXTRA + 2)], [0.25, -0.5], "the rig's scroll, its row's");
-  // The droideka goes up: heated copies of its materials, its look and heat its own.
-  const hot = heatMaterial(own);
-  body.material = hot;
-  body.userData.heated = { heat: 0.5, tear: new THREE.Vector4(1, 2, 3, 0.6), base: 0.3, scale: 0.6, soot: 1, dissolve: 0.25, sun: 0.9, brightness: 1.1, darken: 0.1, lighten: 0.2 };
-  renderer.compile = () => drawn(hot, program([...SKINNED, "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position", "skinIndex", "skinWeight"]));
-  near();
-  assert.equal(records(), 3, "the heated material compiles and draws on its first frame");
-  assert.equal(hot.visible, false);
-  drawn(hot, program([...SKINNED, "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position", "skinIndex", "skinWeight"]));
-  near();
-  assert.equal(records(), 3, "then the renderer, as its own record");
-  assert.equal(hot.visible, false);
-  assert.deepEqual([...core.input.subarray(at(0) + R.LOOK, at(0) + R.LOOK + 4)].map((v) => +v.toFixed(3)), [0.9, 0.1, 0.2, 1.1], "its look as heatMaterial sets it");
-  assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.5, 0.3, 0.6, 1, 1, 2, 3, 0.6, 0.25], "its heat, base, scale, soot, tear and dissolve");
-  // Its own materials back: its own record again.
-  body.material = own;
-  delete body.userData.heated;
-  near();
-  assert.equal(records(), 3);
-  assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
-});
-
-
-
-test("a rig that blends: a record of its own kind, its blending and passes registered, three's key for the transparent list", () => {
-  const { core, calls, scene, camera, renderer, drawn } = bridge();
-  renderer.info = { render: { frame: 0 } };
-  const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
-  const uniforms = ["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"];
-  // A double-sided ShaderMaterial: one pass, both sides (three forces one).
-  drawn(material, program(uniforms, ["position", "skinIndex", "skinWeight"], "#define DOUBLE_SIDED\nvertex"));
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
-  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
-  geometry.setIndex([0, 1, 2]);
-  const rig = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), fighter = new THREE.Group();
-  rig.add(bone);
-  rig.bind(new THREE.Skeleton([bone]));
-  rig.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
-  rig.renderOrder = 3;
-  fighter.renderOrder = 7;
-  fighter.add(rig);
-  fighter.position.z = -10;
-  scene.add(fighter);
-  scene.updateMatrixWorld(true);
-  renderer.info.render.frame++;
-  core.phase("near", renderer, scene, camera);
-  const blend = calls.find((c) => c[0] === "inst_add_blend");
-  assert.ok(blend, "its material's state registered");
-  assert.deepEqual([...blend[1]], [1, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303], "normal blending");
-  assert.deepEqual(blend.slice(2, 4), [1, 0x0203], "depth tested, not written");
-  assert.deepEqual([...blend[4]], [0, 2], "one pass, both sides, with three's program for it");
-  assert.equal(material.visible, false, "hidden from three");
-  const at = core.recordsAt;
-  assert.equal(core.input[at], 3, "a blending rig's record");
-  assert.deepEqual([...core.input.subarray(at + 97, at + 100)], [7, 3, rig.id], "three's key: its group's order, its own, its id");
-});
-
 test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
-  const zero = (kind) => new THREE.ShaderMaterial({ name: `zero:${kind}`, defines: { [kind === "dynamic" ? "DYNAMIC" : "UNLIT"]: "" },
-    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
-  const lit = zero("dynamic"), unlit = zero("unlit");
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setIndex([0, 1, 2]);
+  const zero=kind=>actorMaterial(kind,{map:new THREE.Texture(),...(kind==='unlit'?{scroll:[0,0]}:{})});
+  const lit=zero('dynamic'),unlit=zero('unlit');
+  const geometry=new THREE.PlaneGeometry(1,1);
   // In front of the camera (it looks down -z), or behind it.
   const piece = (material, z = -5) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, material)); group.userData.flying = true; group.position.z = z; return group; };
   const a = piece(lit), b = piece(unlit), held = piece(lit);
   scene.add(a);
-  // Not drawn by three yet: three's.
-  const near = () => { scene.updateMatrixWorld(true); core.phase("near", renderer, scene, camera); };
-  near();
-  assert.equal(a.children[0].layers.mask, 1);
-  const rigid = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]);
-  drawn(lit, rigid); drawn(unlit, rigid);
+  // Ownership does not wait for a browser program or first draw.
+  const near = () => { scene.updateMatrixWorld(true);scene.onBeforeRender(renderer,scene,camera,core.graphics.sceneTarget);core.phase("near",renderer,scene,camera); };
+  near();assert.equal(a.children[0].layers.mask,1<<30);
   scene.add(b);
   near();
   assert.equal(a.children[0].layers.mask, 1 << 30, "hidden from three by its layers");
   assert.equal(b.children[0].layers.mask, 1 << 30, "an unlit part too");
-  assert.equal(lit.visible, true, "its material, shared with other copies, untouched");
-  assert.equal(calls.find((c) => c[0] === "add_program")[1], 2, "a rigid program");
+  assert.equal(lit.visible,false,"source-owned shells stay out of browser draws");
+  assert.equal(calls.filter(c=>c[0]==='add_owned_program').length,2);
+  assert.equal(calls.filter(c=>c[0]==='add_program').length,0);
   near();
   assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
   // Behind the camera: the renderer's, but not written (three's render would cull it).
@@ -811,28 +693,26 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(behind.children[0].layers.mask, 1 << 30);
   assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "culled as three culls it");
   scene.remove(behind);
-  // A copy inside another object is not the renderer's: three draws it.
+  // Nested copies are owned too.
   const holder = new THREE.Group(); holder.add(held); scene.add(holder);
   near();
-  assert.equal(held.children[0].layers.mask, 1);
+  assert.equal(held.children[0].layers.mask,1<<30);
   // Hidden: not drawn; taken out of the scene: three's again.
   b.visible = false;
   near();
-  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 1);
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1],2);
   scene.remove(a);
   assert.equal(a.children[0].layers.mask, 1);
-  });
+  core.byName.instances.reveal(true);assert.equal(lit.visible,true,"native caster traversal sees the material");
+  core.byName.instances.reveal(false);assert.equal(lit.visible,false);
+
+});
 
 test("a burning piece: a flying part made with a heated material, its heat and look its object's", async () => {
   const { heatMaterial } = await import("../src/destruction-debris.js");
   const { core, scene, camera, renderer, drawn } = bridge();
-  const source = new THREE.ShaderMaterial({ name: "zero:dynamic", defines: { DYNAMIC: "" }, fragmentShader: "void main() { vec4 color = vec4(1.0); gl_FragColor = color; }",
-    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
-  const hot = heatMaterial(source);
-  drawn(hot, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position"]));
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setIndex([0, 1, 2]);
+  const source=actorMaterial('dynamic',{map:new THREE.Texture()});
+  const hot=heatMaterial(source),geometry=new THREE.PlaneGeometry(1,1);
   const group = new THREE.Group(), piece = new THREE.Mesh(geometry, hot);
   group.add(piece); group.userData.flying = true; group.position.z = -5;
   piece.userData.heated = { heat: 0.75, tear: new THREE.Vector4(1, 2, 3, 0.5), base: 0.2, scale: 0.8, soot: 0.5, dissolve: 0.125, sun: 0.8, brightness: 1.2, darken: 0.3, lighten: 0.4 };
@@ -859,7 +739,7 @@ test("the arc caster's shock glow: a rig of the struck body's buffers and skelet
   geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
   geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
   geometry.setIndex([0, 1, 2]);
-  const bodyMaterial = new THREE.ShaderMaterial();
+  const bodyMaterial = actorMaterial('dynamic', { map: new THREE.Texture() });
   const body = new THREE.SkinnedMesh(geometry, bodyMaterial), bone = new THREE.Bone(), root = new THREE.Group();
   body.add(bone); body.bind(new THREE.Skeleton([bone]));
   body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
@@ -885,30 +765,23 @@ test("the arc caster's shock glow: a rig of the struck body's buffers and skelet
 
 test("a flying part that blends: a rigid record of its own kind, one blend for every copy, three's key for the transparent list", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
-  const glow = new THREE.ShaderMaterial({ name: "zero:unlit", defines: { UNLIT: "", SCROLL: "", BLENDED: "" }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending, forceSinglePass: false,
-    uniforms: { map: { value: new THREE.Texture() }, scroll: { value: new THREE.Vector2(0.5, 0) }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setIndex([0, 1, 2]);
+  const glow=actorMaterial('unlit',{map:new THREE.Texture(),scroll:[.5,0],blending:'normal',doubleSided:true});
+  glow.forceSinglePass=false;
+  const geometry=new THREE.PlaneGeometry(1,1);
   const piece = (z) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, glow)); group.userData.flying = true; group.position.z = z; group.renderOrder = 2; return group; };
-  // three draws a double-sided material that blends back faces, then front: a program for each.
-  const uniforms = ["projectionMatrix", "modelViewMatrix", "map", "scroll"];
-  const back = program(uniforms, ["position"], "#define FLIP_SIDED\nvertex"), front = program(uniforms, ["position"], "vertex");
-  drawn(glow, front, [back, front]);
   const a = piece(-5), b = piece(-8);
   scene.add(a, b);
   scene.updateMatrixWorld(true);
   core.phase("near", renderer, scene, camera);
   assert.equal(a.children[0].layers.mask, 1 << 30, "hidden from three by its layers");
-  assert.equal(glow.visible, true, "its material, shared with other copies, untouched");
+  assert.equal(glow.visible,false);
   const blends = calls.filter((c) => c[0] === "inst_add_blend");
   assert.equal(blends.length, 1, "one blend for the copies of a part");
-  assert.deepEqual([...blends[0][1]], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "additive");
+  assert.deepEqual([...blends[0][1]], [1, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303], "normal alpha");
   assert.deepEqual(blends[0].slice(2, 4), [1, 0x0203], "depth tested, not written");
-  const programs = calls.filter((c) => c[0] === "add_program");
-  assert.deepEqual(programs.map((c) => c[1]), [2, 2], "rigid programs, one a side");
-  assert.deepEqual([...blends[0][4]], [0, 1, 1, 0], "back faces, then front, each with three's program for it");
+  const programs = calls.filter((c) => c[0] === "add_owned_program");
+  assert.equal(programs.length,1,"one owned rigid program");
+  assert.deepEqual([...blends[0][4]],[0,1,0,0],"the unlit program serves both sides");
   scene.updateMatrixWorld(true);
   core.phase("near", renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
@@ -916,150 +789,6 @@ test("a flying part that blends: a rigid record of its own kind, one blend for e
   assert.equal(core.input[at(0)], 4, "a blending part's record");
   assert.deepEqual([...core.input.subarray(at(0) + 97, at(0) + 100)], [2, 0, a.children[0].id], "three's key: its group's order, its own, its id");
   assert.deepEqual([...core.input.subarray(at(0) + 76, at(0) + 78)], [0.5, 0], "its scroll in its row");
-});
-
-test("reveal: what the instance pass took shown to three for a render of three's own, then taken again", () => {
-  const { core, scene, camera, renderer, drawn } = bridge();
-  renderer.info = { render: { frame: 0 } };
-  const inst = core.byName.instances;
-  const uniforms = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } });
-  // A rig and a flying part, both registered.
-  const rigMaterial = new THREE.ShaderMaterial({ uniforms: uniforms() });
-  drawn(rigMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"], ["position", "skinIndex", "skinWeight"]));
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
-  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
-  geometry.setIndex([0, 1, 2]);
-  const rig = new THREE.SkinnedMesh(geometry, rigMaterial), bone = new THREE.Bone();
-  rig.add(bone); rig.bind(new THREE.Skeleton([bone]));
-  rig.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
-  rig.position.z = -10;
-  scene.add(rig);
-  const partMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: uniforms() });
-  drawn(partMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]));
-  const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, partMaterial)); group.userData.flying = true; group.position.z = -5;
-  scene.add(group);
-  scene.updateMatrixWorld(true);
-  renderer.info.render.frame++;
-  core.phase("near", renderer, scene, camera);
-  const part = group.children[0];
-  assert.equal(rigMaterial.visible, false);
-  assert.equal(part.layers.mask, 1 << 30);
-  inst.reveal(true);
-  assert.equal(rigMaterial.visible, true, "the rig shown");
-  assert.equal(part.layers.mask, 1, "the part on its own layers");
-  assert.equal(partMaterial.visible, true, "a part's material, shared with every copy, never touched");
-  inst.reveal(false);
-  assert.equal(rigMaterial.visible, false);
-  assert.equal(part.layers.mask, 1 << 30);
-  // The renderer off: three has it all already, and reveal leaves it so.
-  });
-
-test("lamps and shadows: a soldier's lamps and whether he receives shadows in his row, for a program that reads them", () => {
-  const { core, scene, camera, renderer, drawn } = bridge();
-  renderer.info = { render: { frame: 0 } };
-  // Lamp lighting on: a DYNAMIC program reading the lamps is the pass's, its lamps the core's (core.lamps).
-  core.graphics.settings = { get: (key) => key === "lampLighting" };
-  const asked = [];
-  core.lamps = (object, viewModel) => { asked.push([object, viewModel]); return { count: 2, indices: [3, 7, -1, -1] }; };
-  const material = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "", DYNAMIC: "" },
-    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
-  drawn(material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness",
-    "localLightPositions", "localLightColors", "localLightCount"], ["position", "skinIndex", "skinWeight"]));
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
-  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
-  geometry.setIndex([0, 1, 2]);
-  const body = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), root = new THREE.Group();
-  body.add(bone); body.bind(new THREE.Skeleton([bone]));
-  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
-  body.userData.poseSphere = true;
-  body.receiveShadow = true;
-  root.add(body); root.position.z = -5;
-  root.userData.parts = { body, hand: null };
-  scene.add(root);
-  core.graphics.cullRoots.push(root);
-  scene.updateMatrixWorld(true);
-  renderer.info.render.frame++;
-  core.phase("near", renderer, scene, camera);
-  const e = core.recordsAt + 76;
-  assert.deepEqual(asked, [[body, false]], "his lamps, as three's onBeforeRender selects them");
-  assert.equal(core.input[e + 13], 2, "the lamps' count");
-  assert.equal(core.input[e + 14], 1, "he receives shadows");
-  assert.deepEqual([...core.input.subarray(e + 16, e + 20)], [3, 7, -1, -1], "the lamp table's indices");
-});
-
-test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
-  const { core, calls, scene, camera, renderer, drawn } = bridge();
-  renderer.info = { render: { frame: 0 } };
-  const material = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" },
-    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
-  const skinned = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"],
-    ["position", "skinIndex", "skinWeight"]);
-  drawn(material, skinned);
-  const soldier = (z) => {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-    geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
-    geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
-    geometry.setIndex([0, 1, 2]);
-    const body = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), root = new THREE.Group();
-    body.add(bone);
-    body.bind(new THREE.Skeleton([bone]));
-    body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
-    body.userData.poseSphere = true; // a soldier's (actor.js): not a rig
-    root.add(body);
-    root.position.z = z;
-    root.userData.parts = { body, hand: null };
-    scene.add(root);
-    core.graphics.cullRoots.push(root);
-    return { body, bone, skeleton: body.skeleton };
-  };
-  // Every update of a skeleton's bones, whoever asks.
-  const update = THREE.Skeleton.prototype.update;
-  let updates = 0;
-  THREE.Skeleton.prototype.update = function () { updates++; return update.call(this); };
-  try {
-    const front = soldier(-5), back = soldier(5);
-    const records = () => calls.filter((c) => c[0] === "frame").pop()[1];
-    // three's render: it lists the scene at a count (and works out the bones
-    // of the skinned meshes it lists, at most once a count), then counts on.
-    const render = (listed = []) => {
-      scene.updateMatrixWorld(true);
-      for (const s of listed) s.skeleton.update();
-      renderer.info.render.frame++;
-      core.phase("near", renderer, scene, camera);
-    };
-    render();
-    assert.equal(records(), 1, "the soldier behind the camera: not written");
-    assert.equal(updates, 1, "his bones not worked out; the other's worked out here, three not having done it");
-    // three listed the one in view: his bones as three worked them out.
-    front.bone.position.x = 1;
-    renderer.info.render.frame = 10;
-    render([front]);
-    assert.equal(updates, 2, "three's update only");
-    assert.deepEqual([...core.bones.subarray(0, 16)], [...front.skeleton.boneMatrices], "three's bones written");
-    assert.equal(core.bones[12], 1);
-    // Worked out as three drew his shadow, after listing the scene (at the
-    // count it counted on to): the same.
-    scene.updateMatrixWorld(true);
-    renderer.info.render.frame++;
-    front.skeleton.update();
-    const shadowed = updates;
-    core.phase("near", renderer, scene, camera);
-    assert.equal(updates, shadowed);
-    // Not listed by three in this render: worked out here.
-    renderer.info.render.frame = 20;
-    front.bone.position.x = 2;
-    render([]);
-    assert.equal(updates, shadowed + 1);
-    assert.equal(core.bones[12], 2);
-    assert.equal(back.skeleton.boneMatrices[12], 0, "never worked out for the renderer");
-  } finally {
-    THREE.Skeleton.prototype.update = update;
-  }
 });
 
 test("the Enhanced sniper's trace: two batches, their instances written interleaved as the trace keeps them", async () => {
@@ -1410,74 +1139,6 @@ test("the scene's depth: asked for as three starts the render, before the first 
 });
 
 
-test("new this frame: a soldier, his gun and a particle batch registered as three starts its render, their programs built without a draw", () => {
-  const { core, calls, scene, camera, renderer, frame, drawn } = bridge();
-  renderer.info = { render: { frame: 0 } };
-  const target = core.graphics.sceneTarget;
-  // three's compile: programs for what it is given (as a first draw would give them), no draw.
-  const compiled = [];
-  const skinned = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"],
-    ["position", "skinIndex", "skinWeight"]);
-  const rigid = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]);
-  renderer.compile = (list, cam, s) => {
-    assert.equal(cam, camera); assert.equal(s, scene);
-    list.traverse((o) => { compiled.push([o.name, [].concat(o.material).length]); for (const m of [].concat(o.material)) drawn(m, o.isSkinnedMesh ? skinned : m.isShaderMaterial && m.defines?.DYNAMIC !== undefined ? rigid : CPU_PROGRAM); });
-  };
-  const look = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } });
-  const bodyMaterial = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" }, uniforms: look() });
-  const gunMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: look() });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
-  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
-  geometry.setIndex([0, 1, 2]);
-  // The actor's array: his body's material, then (combat.js) his gun's, never drawn on the body.
-  const body = new THREE.SkinnedMesh(geometry, [bodyMaterial, gunMaterial]), bone = new THREE.Bone(), root = new THREE.Group(), hand = new THREE.Group(), gunGroup = new THREE.Group();
-  body.name = "body";
-  body.add(bone);
-  body.bind(new THREE.Skeleton([bone]));
-  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
-  body.userData.poseSphere = true;
-  const gunGeometry = new THREE.BufferGeometry();
-  gunGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  gunGeometry.setIndex([0, 1, 2]);
-  const gun = new THREE.Mesh(gunGeometry, gunMaterial);
-  gun.name = "gun";
-  gunGroup.add(gun); hand.add(gunGroup); root.add(body, hand);
-  root.position.z = -5;
-  root.userData.parts = { body, hand };
-  scene.add(root);
-  core.graphics.cullRoots.push(root);
-  const particles = new ParticleRenderer(scene);
-  const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
-  batch.mesh.name = "batch";
-  particles.begin(); batch.push(0, 0, -5, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end();
-  assert.equal(batch.mesh.visible, true);
-  // three starts its render of the near scene (another render's start does nothing).
-  scene.onBeforeRender(renderer, scene, new THREE.PerspectiveCamera(), target);
-  assert.equal(compiled.length, 0, "a mirror's or another camera's render: nothing");
-  scene.updateMatrixWorld(true);
-  scene.onBeforeRender(renderer, scene, camera, target);
-  assert.deepEqual(compiled.map(([name]) => name).sort(), ["body", "gun"]);
-  assert.deepEqual(compiled.find(([name]) => name === "body")[1], 1, "the body compiled with the materials it draws with, not the gun's");
-  assert.equal(body.material.length, 2, "its own array kept");
-  assert.equal(bodyMaterial.visible, false, "hidden from three before three lists it");
-  assert.equal(gunMaterial.visible, false);
-  assert.equal(batch.external, true);
-  assert.equal(batch.mesh.visible, false);
-  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 1);
-  // The same frame's phases: drawn by the renderer from this frame.
-  renderer.info.render.frame++;
-  core.phase("near", renderer, scene, camera);
-  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "the body and the gun written");
-  frame();
-  assert.equal(core.fxInput[0], 1, "the batch drawn");
-  // Nothing new: nothing compiled again.
-  compiled.length = 0;
-  scene.onBeforeRender(renderer, scene, camera, target);
-  assert.equal(compiled.length, 0);
-});
-
 test("the steam's volumes: their own pass drawn into their target by the renderer, its program built without a draw, the composite over the frame", async () => {
   const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
   const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
@@ -1548,44 +1209,6 @@ test("a glow model added to the scene (a side's logo as it takes a post): regist
   assert.equal(material.visible, false, "hidden from three before three lists it");
   frame();
   assert.equal(core.fxInput[0], 1, "drawn by the renderer this frame");
-});
-
-test("the arc caster's stand-in for a shock's glow: its program built without a draw and the renderer's made from it, the stand-in kept from three, its frames counted", () => {
-  const { core, calls, scene, camera, renderer, drawn } = bridge();
-  const target = core.graphics.sceneTarget;
-  const shock = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "boneTexture", "bindMatrix", "bindMatrixInverse", "shockTime", "intensity"], ["position", "normal", "skinIndex", "skinWeight"]);
-  const compiled = [];
-  renderer.compile = (list) => { list.traverse((o) => { compiled.push(o); drawn(o.material, shock); }); };
-  // As arc-lightning.js warmShock makes it: one bone, its onBeforeRender counting down, then taking itself away.
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Uint16Array(12), 4));
-  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(new Float32Array(12), 4));
-  const material = new THREE.ShaderMaterial({ name: "arc-shock", transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { shockTime: { value: 0 }, intensity: { value: 0 } } });
-  const warm = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone();
-  warm.add(bone);
-  warm.bind(new THREE.Skeleton([bone]));
-  warm.name = "arc-shock-warm";
-  let warming = 3;
-  warm.onBeforeRender = () => { if (--warming > 0) return; warm.visible = false; };
-  scene.add(warm);
-  const programsBefore = calls.filter((c) => c[0] === "add_program").length;
-  const mirror=camera.clone();mirror.userData.mirror=true;
-  scene.onBeforeRender(renderer,scene,mirror,{name:"reflection"});
-  assert.equal(warming,3,"reflection registration does not advance a main-frame warmup");
-  assert.equal(material.visible,false,"the stand-in is hidden before a reflection walk");
-  scene.onBeforeRender(renderer, scene, camera, target);
-  assert.deepEqual(compiled, [warm], "its program built by three, no draw");
-  assert.equal(calls.filter((c) => c[0] === "add_program").length, programsBefore + 1, "the renderer's made from it now");
-  assert.equal(material.visible, false, "kept from three");
-  assert.equal(warming, 2, "a frame counted");
-  scene.onBeforeRender(renderer, scene, camera, target);
-  scene.onBeforeRender(renderer, scene, camera, target);
-  assert.equal(warming, 0);
-  assert.equal(warm.visible, false, "it took itself away");
-  scene.onBeforeRender(renderer, scene, camera, target);
-  assert.equal(compiled.length, 1);
 });
 
 test("the fountains' water: every mesh drawn with its material a shader model at once, its own copy of the frame so far bound as a texture of its own", async () => {

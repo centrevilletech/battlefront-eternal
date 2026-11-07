@@ -1,0 +1,4526 @@
+{
+  "version": 2,
+  "captures": 4,
+  "gap": 30,
+  "historyFrames": 4,
+  "cases": [
+    {
+      "id": "classic-bes1",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-nab1",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic",
+      "actorFlash": true
+    },
+    {
+      "id": "classic-rhn1",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-tat1",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-tat2",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "balanced-bes1",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-nab1",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "actorFlash": true
+    },
+    {
+      "id": "balanced-rhn1",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-tat1",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-tat2",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "high-bes1",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-nab1",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "actorFlash": true,
+      "actorSkinnedCutout": true
+    },
+    {
+      "id": "high-rhn1",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-tat1",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-tat2",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "mirror-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "ocean",
+        "mirror"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      }
+    },
+    {
+      "id": "mirror-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "ocean",
+        "mirror"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      },
+      "camera": "water"
+    },
+    {
+      "id": "mirror-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "ocean",
+        "mirror"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      }
+    },
+    {
+      "id": "bilinear-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "bilinear"
+      ],
+      "preset": "classic",
+      "settings": {
+        "renderScale": 0.75,
+        "upscaler": "bilinear"
+      }
+    },
+    {
+      "id": "spatial-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "spatial"
+      ],
+      "preset": "classic",
+      "settings": {
+        "renderScale": 0.75,
+        "upscaler": "spatial"
+      }
+    },
+    {
+      "id": "fxaa-fast-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "fxaa-fast"
+      ],
+      "preset": "classic",
+      "settings": {
+        "renderScale": 0.75,
+        "antialiasing": "fxaa-fast",
+        "upscaler": "bilinear"
+      }
+    },
+    {
+      "id": "classic-bes1-shadows-low",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-bes1-shadows-medium",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-bes1-shadows-high",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-bes1-shadows-ultra",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-bes2-shadows-low",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-bes2-shadows-medium",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-bes2-shadows-high",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-bes2-shadows-ultra",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-end1-shadows-low",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-end1-shadows-medium",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-end1-shadows-high",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-end1-shadows-ultra",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-geo1-shadows-low",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-geo1-shadows-medium",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-geo1-shadows-high",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-geo1-shadows-ultra",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-hot1-shadows-low",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-hot1-shadows-medium",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-hot1-shadows-high",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-hot1-shadows-ultra",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-kam1-shadows-low",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-kam1-shadows-medium",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-kam1-shadows-high",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-kam1-shadows-ultra",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-kas1-shadows-low",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-kas1-shadows-medium",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-kas1-shadows-high",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-kas1-shadows-ultra",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-kas2-shadows-low",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-kas2-shadows-medium",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-kas2-shadows-high",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-kas2-shadows-ultra",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-nab1-shadows-low",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-nab1-shadows-medium",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-nab1-shadows-high",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-nab1-shadows-ultra",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-nab2-shadows-low",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorSkinnedCutout": true
+    },
+    {
+      "id": "classic-nab2-shadows-medium",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-nab2-shadows-high",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-nab2-shadows-ultra",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-rhn1-shadows-low",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-rhn1-shadows-medium",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-rhn1-shadows-high",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-rhn1-shadows-ultra",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-rhn2-shadows-low",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-rhn2-shadows-medium",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-rhn2-shadows-high",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-rhn2-shadows-ultra",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-tat1-shadows-low",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-tat1-shadows-medium",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-tat1-shadows-high",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-tat1-shadows-ultra",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-tat2-shadows-low",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-tat2-shadows-medium",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-tat2-shadows-high",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-tat2-shadows-ultra",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-tat3-shadows-low",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-tat3-shadows-medium",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-tat3-shadows-high",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-tat3-shadows-ultra",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-yav1-shadows-low",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-yav1-shadows-medium",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-yav1-shadows-high",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-yav1-shadows-ultra",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-yav2-shadows-low",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "classic-yav2-shadows-medium",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "classic-yav2-shadows-high",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "classic-yav2-shadows-ultra",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "shadow-configuration"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-bes1-shadows-off",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-bes1-shadows-medium",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-bes1-shadows-high",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-bes1-shadows-ultra",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-bes2-shadows-off",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-bes2-shadows-medium",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-bes2-shadows-high",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-bes2-shadows-ultra",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-end1-shadows-off",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-end1-shadows-medium",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-end1-shadows-high",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-end1-shadows-ultra",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-geo1-shadows-off",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-geo1-shadows-medium",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-geo1-shadows-high",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-geo1-shadows-ultra",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-hot1-shadows-off",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-hot1-shadows-medium",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-hot1-shadows-high",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-hot1-shadows-ultra",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-kam1-shadows-off",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-kam1-shadows-medium",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-kam1-shadows-high",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-kam1-shadows-ultra",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-kas1-shadows-off",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-kas1-shadows-medium",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-kas1-shadows-high",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-kas1-shadows-ultra",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-kas2-shadows-off",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-kas2-shadows-medium",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-kas2-shadows-high",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-kas2-shadows-ultra",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-nab1-shadows-off",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-nab1-shadows-medium",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-nab1-shadows-high",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-nab1-shadows-ultra",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-nab2-shadows-off",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-nab2-shadows-medium",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorSkinnedCutout": true
+    },
+    {
+      "id": "balanced-nab2-shadows-high",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-nab2-shadows-ultra",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-rhn1-shadows-off",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-rhn1-shadows-medium",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-rhn1-shadows-high",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-rhn1-shadows-ultra",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-rhn2-shadows-off",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-rhn2-shadows-medium",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-rhn2-shadows-high",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-rhn2-shadows-ultra",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-tat1-shadows-off",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-tat1-shadows-medium",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-tat1-shadows-high",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-tat1-shadows-ultra",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-tat2-shadows-off",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-tat2-shadows-medium",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-tat2-shadows-high",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-tat2-shadows-ultra",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-tat3-shadows-off",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-tat3-shadows-medium",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-tat3-shadows-high",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-tat3-shadows-ultra",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-yav1-shadows-off",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-yav1-shadows-medium",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-yav1-shadows-high",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-yav1-shadows-ultra",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "balanced-yav2-shadows-off",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "balanced-yav2-shadows-medium",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "balanced-yav2-shadows-high",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      }
+    },
+    {
+      "id": "balanced-yav2-shadows-ultra",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-bes1-shadows-off",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-bes1-shadows-low",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-bes1-shadows-medium",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-bes1-shadows-ultra",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-bes2-shadows-off",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-bes2-shadows-low",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-bes2-shadows-medium",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-bes2-shadows-ultra",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-end1-shadows-off",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-end1-shadows-low",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-end1-shadows-medium",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-end1-shadows-ultra",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-geo1-shadows-off",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-geo1-shadows-low",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-geo1-shadows-medium",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-geo1-shadows-ultra",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-hot1-shadows-off",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-hot1-shadows-low",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-hot1-shadows-medium",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-hot1-shadows-ultra",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-kam1-shadows-off",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-kam1-shadows-low",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-kam1-shadows-medium",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-kam1-shadows-ultra",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-kas1-shadows-off",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-kas1-shadows-low",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-kas1-shadows-medium",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-kas1-shadows-ultra",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-kas2-shadows-off",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-kas2-shadows-low",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-kas2-shadows-medium",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-kas2-shadows-ultra",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-nab1-shadows-off",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-nab1-shadows-low",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-nab1-shadows-medium",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-nab1-shadows-ultra",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-nab2-shadows-off",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-nab2-shadows-low",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-nab2-shadows-medium",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-nab2-shadows-ultra",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-rhn1-shadows-off",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-rhn1-shadows-low",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-rhn1-shadows-medium",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-rhn1-shadows-ultra",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-rhn2-shadows-off",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-rhn2-shadows-low",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-rhn2-shadows-medium",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-rhn2-shadows-ultra",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-tat1-shadows-off",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-tat1-shadows-low",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-tat1-shadows-medium",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-tat1-shadows-ultra",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-tat2-shadows-off",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-tat2-shadows-low",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-tat2-shadows-medium",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-tat2-shadows-ultra",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-tat3-shadows-off",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-tat3-shadows-low",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-tat3-shadows-medium",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-tat3-shadows-ultra",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-yav1-shadows-off",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-yav1-shadows-low",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-yav1-shadows-medium",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-yav1-shadows-ultra",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "high-yav2-shadows-off",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      }
+    },
+    {
+      "id": "high-yav2-shadows-low",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      }
+    },
+    {
+      "id": "high-yav2-shadows-medium",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      }
+    },
+    {
+      "id": "high-yav2-shadows-ultra",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "shadow-configuration"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      }
+    },
+    {
+      "id": "classic-nab2-cis_inf_droideka",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "actor-class"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-end1-imp_inf_dark_trooper",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "actor-class"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-nab2-rep_inf_macewindu",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "classic",
+      "actorFocus": "rep_inf_macewindu"
+    },
+    {
+      "id": "classic-nab2-cis_inf_countdooku",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "classic",
+      "actorFocus": "cis_inf_countdooku"
+    },
+    {
+      "id": "classic-end1-imp_inf_darthvader",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "classic",
+      "actorFocus": "imp_inf_darthvader"
+    },
+    {
+      "id": "classic-end1-all_inf_lukeskywalker",
+      "query": "map=end1&side=all&era=gcw&unit=all_inf_soldierjungle&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "classic",
+      "actorFocus": "all_inf_lukeskywalker"
+    },
+    {
+      "id": "balanced-nab2-cis_inf_droideka",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "actor-class"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-end1-imp_inf_dark_trooper",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "actor-class"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-nab2-rep_inf_macewindu",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "balanced",
+      "actorFocus": "rep_inf_macewindu"
+    },
+    {
+      "id": "balanced-nab2-cis_inf_countdooku",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "balanced",
+      "actorFocus": "cis_inf_countdooku"
+    },
+    {
+      "id": "balanced-end1-imp_inf_darthvader",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "balanced",
+      "actorFocus": "imp_inf_darthvader"
+    },
+    {
+      "id": "balanced-end1-all_inf_lukeskywalker",
+      "query": "map=end1&side=all&era=gcw&unit=all_inf_soldierjungle&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "balanced",
+      "actorFocus": "all_inf_lukeskywalker"
+    },
+    {
+      "id": "high-nab2-cis_inf_droideka",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "actor-class"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-end1-imp_inf_dark_trooper",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "actor-class"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-nab2-rep_inf_macewindu",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "high",
+      "actorFocus": "rep_inf_macewindu"
+    },
+    {
+      "id": "high-nab2-cis_inf_countdooku",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "high",
+      "actorFocus": "cis_inf_countdooku"
+    },
+    {
+      "id": "high-end1-imp_inf_darthvader",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "high",
+      "actorFocus": "imp_inf_darthvader"
+    },
+    {
+      "id": "high-end1-all_inf_lukeskywalker",
+      "query": "map=end1&side=all&era=gcw&unit=all_inf_soldierjungle&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "hero"
+      ],
+      "preset": "high",
+      "actorFocus": "all_inf_lukeskywalker"
+    },
+    {
+      "id": "classic-nab2-dissolve-shadows-off",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "off"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "classic-nab2-dissolve-shadows-low",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "classic-nab2-dissolve-shadows-medium",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "classic-nab2-dissolve-shadows-high",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "classic-nab2-dissolve-shadows-ultra",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "balanced-nab2-dissolve-shadows-off",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "balanced-nab2-dissolve-shadows-low",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "balanced-nab2-dissolve-shadows-medium",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "balanced-nab2-dissolve-shadows-high",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "balanced-nab2-dissolve-shadows-ultra",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "high-nab2-dissolve-shadows-off",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "high-nab2-dissolve-shadows-low",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "high-nab2-dissolve-shadows-medium",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "high-nab2-dissolve-shadows-high",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "high"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "high-nab2-dissolve-shadows-ultra",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "actor-class",
+        "dissolve"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      },
+      "actorDissolve": true,
+      "actorPieces": true
+    },
+    {
+      "id": "classic-nab2-wreck-shadows-off",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "prop-wreck"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "off"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "classic-nab2-wreck-shadows-low",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "prop-wreck"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "classic-nab2-wreck-shadows-medium",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "prop-wreck"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "classic-nab2-wreck-shadows-high",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "prop-wreck"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "high"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "classic-nab2-wreck-shadows-ultra",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "prop-wreck"
+      ],
+      "preset": "classic",
+      "settings": {
+        "shadows": "ultra"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "balanced-nab2-wreck-shadows-off",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "off"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "balanced-nab2-wreck-shadows-low",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "balanced-nab2-wreck-shadows-medium",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "balanced-nab2-wreck-shadows-high",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "high"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "balanced-nab2-wreck-shadows-ultra",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "shadows": "ultra"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "high-nab2-wreck-shadows-off",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "off"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "high-nab2-wreck-shadows-low",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "low"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "high-nab2-wreck-shadows-medium",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "high-nab2-wreck-shadows-high",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "high"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "high-nab2-wreck-shadows-ultra",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "prop-wreck"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "ultra"
+      },
+      "actorWreck": true
+    },
+    {
+      "id": "classic-nab2-shock",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "classic",
+        "shock"
+      ],
+      "preset": "classic",
+      "actorShock": true
+    },
+    {
+      "id": "balanced-nab2-shock",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "shock"
+      ],
+      "preset": "balanced",
+      "actorShock": true
+    },
+    {
+      "id": "high-nab2-shock",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=1&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "hud",
+        "shadows",
+        "shock"
+      ],
+      "preset": "high",
+      "actorShock": true
+    }
+  ],
+  "presets": {
+    "classic": {
+      "physicsRate": "60",
+      "performancePreset": "custom",
+      "frameLimit": "60",
+      "dynamicResolution": "off",
+      "renderScale": 1,
+      "upscaler": "off",
+      "upscaleSharpness": 0.4,
+      "textureCompression": false,
+      "antialiasing": "2x",
+      "shadows": "off",
+      "anisotropy": 1,
+      "bumpMapping": true,
+      "softFocus": false,
+      "bloom": false,
+      "vehicleMotionBlur": false,
+      "softParticles": false,
+      "lampLighting": false,
+      "waterQuality": "low",
+      "treeDetail": "original",
+      "droidekaEffects": "classic",
+      "destructionEffects": "classic",
+      "jetpackEffects": "classic",
+      "environmentEffects": "classic",
+      "rainEffects": "classic",
+      "oceanEffects": "classic",
+      "boltEffects": "classic",
+      "arcCasterEffects": "classic",
+      "sniperEffects": "classic",
+      "terrainDetail": "original",
+      "deathCamera": "enhanced",
+      "flightSensitivity": 1,
+      "flightInvertY": false,
+      "flightResponseCurve": 1.35,
+      "flightFirstPerson": false,
+      "keyBindings": {},
+      "flightBindings": {},
+      "viewDistance": "original",
+      "farTerrain": "reduced",
+      "mouseSensitivity": 5,
+      "invertMouse": false,
+      "showStats": false,
+      "menuTheme": "eternal",
+      "friendlyFire": true,
+      "aiMode": "classic",
+      "aiDifficulty": "medium",
+      "aiHeroes": false,
+      "battleSize": "full",
+      "audioQuality": "original",
+      "audioOutput": "7.1.4",
+      "audioDynamics": "normal",
+      "audioMono": false,
+      "audioClarity": true,
+      "masterVolume": 0.05,
+      "effectsVolume": 1,
+      "musicVolume": 1,
+      "voiceVolume": 1,
+      "ambienceVolume": 1,
+      "interfaceVolume": 1
+    },
+    "balanced": {
+      "physicsRate": "60",
+      "performancePreset": "balanced",
+      "frameLimit": "60",
+      "dynamicResolution": "off",
+      "renderScale": 1,
+      "upscaler": "temporal",
+      "upscaleSharpness": 0.4,
+      "textureCompression": false,
+      "antialiasing": "2x",
+      "shadows": "low",
+      "anisotropy": 8,
+      "bumpMapping": true,
+      "softFocus": true,
+      "bloom": true,
+      "vehicleMotionBlur": false,
+      "softParticles": true,
+      "lampLighting": true,
+      "waterQuality": "low",
+      "treeDetail": "original",
+      "droidekaEffects": "enhanced",
+      "destructionEffects": "enhanced",
+      "jetpackEffects": "enhanced",
+      "environmentEffects": "classic",
+      "rainEffects": "classic",
+      "oceanEffects": "classic",
+      "boltEffects": "enhanced",
+      "arcCasterEffects": "enhanced",
+      "sniperEffects": "enhanced",
+      "terrainDetail": "enhanced",
+      "deathCamera": "enhanced",
+      "flightSensitivity": 1,
+      "flightInvertY": false,
+      "flightResponseCurve": 1.35,
+      "flightFirstPerson": false,
+      "keyBindings": {},
+      "flightBindings": {},
+      "viewDistance": "original",
+      "farTerrain": "full",
+      "mouseSensitivity": 5,
+      "invertMouse": false,
+      "showStats": false,
+      "menuTheme": "eternal",
+      "friendlyFire": true,
+      "aiMode": "classic",
+      "aiDifficulty": "medium",
+      "aiHeroes": false,
+      "battleSize": "full",
+      "audioQuality": "original",
+      "audioOutput": "7.1.4",
+      "audioDynamics": "normal",
+      "audioMono": false,
+      "audioClarity": true,
+      "masterVolume": 0.05,
+      "effectsVolume": 1,
+      "musicVolume": 1,
+      "voiceVolume": 1,
+      "ambienceVolume": 1,
+      "interfaceVolume": 1
+    },
+    "high": {
+      "physicsRate": "60",
+      "performancePreset": "quality",
+      "frameLimit": "60",
+      "dynamicResolution": "off",
+      "renderScale": 1,
+      "upscaler": "temporal",
+      "upscaleSharpness": 0.4,
+      "textureCompression": false,
+      "antialiasing": "2x",
+      "shadows": "high",
+      "anisotropy": 16,
+      "bumpMapping": true,
+      "softFocus": true,
+      "bloom": true,
+      "vehicleMotionBlur": true,
+      "softParticles": true,
+      "lampLighting": true,
+      "waterQuality": "high",
+      "treeDetail": "enhanced",
+      "droidekaEffects": "enhanced",
+      "destructionEffects": "enhanced",
+      "jetpackEffects": "enhanced",
+      "environmentEffects": "enhanced",
+      "rainEffects": "enhanced",
+      "oceanEffects": "enhanced",
+      "boltEffects": "enhanced",
+      "arcCasterEffects": "enhanced",
+      "sniperEffects": "enhanced",
+      "terrainDetail": "enhanced",
+      "deathCamera": "enhanced",
+      "flightSensitivity": 1,
+      "flightInvertY": false,
+      "flightResponseCurve": 1.35,
+      "flightFirstPerson": false,
+      "keyBindings": {},
+      "flightBindings": {},
+      "viewDistance": "original",
+      "farTerrain": "full",
+      "mouseSensitivity": 5,
+      "invertMouse": false,
+      "showStats": false,
+      "menuTheme": "eternal",
+      "friendlyFire": true,
+      "aiMode": "classic",
+      "aiDifficulty": "medium",
+      "aiHeroes": false,
+      "battleSize": "full",
+      "audioQuality": "original",
+      "audioOutput": "7.1.4",
+      "audioDynamics": "normal",
+      "audioMono": false,
+      "audioClarity": true,
+      "masterVolume": 0.05,
+      "effectsVolume": 1,
+      "musicVolume": 1,
+      "voiceVolume": 1,
+      "ambienceVolume": 1,
+      "interfaceVolume": 1
+    }
+  },
+  "programs": [
+    "actors/depth-solid",
+    "actors/depth-cutout",
+    "actors/depth-skinned",
+    "actors/depth-skinned-cutout",
+    "actors/skinned-79cf23ae5247",
+    "actors/skinned-79cf23ae5247-lamps",
+    "actors/skinned-7d12fe07cb9d",
+    "actors/skinned-7d12fe07cb9d-lamps",
+    "actors/rigid-28f75613fa67",
+    "actors/rigid-28f75613fa67-lamps",
+    "actors/skinned-b7fa24f3b49f",
+    "actors/skinned-b7fa24f3b49f-lamps",
+    "actors/skinned-68efe6d1ab54",
+    "actors/skinned-0e6e3b738af4",
+    "actors/rigid-01451434abd4",
+    "actors/rigid-01451434abd4-lamps",
+    "actors/rigid-4aa17185a76e",
+    "actors/rigid-4aa17185a76e-lamps",
+    "actors/rigid-135f19a73817",
+    "actors/rigid-135f19a73817-lamps",
+    "actors/rigid-6218fef797b6",
+    "actors/rigid-24d01066b815",
+    "actors/rigid-24d01066b815-lamps",
+    "actors/rigid-226504ea4093",
+    "actors/skinned-893a094b98c5",
+    "actors/skinned-893a094b98c5-lamps",
+    "actors/skinned-32e0027f5df3",
+    "actors/skinned-32e0027f5df3-lamps",
+    "actors/rigid-7bd6abdf245d",
+    "actors/rigid-7bd6abdf245d-lamps",
+    "actors/skinned-abf26ee65353",
+    "actors/rigid-a8aa0532ba45",
+    "actors/rigid-a8aa0532ba45-lamps",
+    "actors/rigid-d7107aaf4331",
+    "actors/rigid-d7107aaf4331-lamps",
+    "actors/rigid-b3d2077b74d2",
+    "actors/skinned-a5f764e16b54",
+    "actors/skinned-a5f764e16b54-lamps",
+    "actors/skinned-d936cd2f4a41",
+    "actors/skinned-d936cd2f4a41-lamps",
+    "actors/rigid-3abcc5891b64",
+    "actors/rigid-3abcc5891b64-lamps",
+    "actors/skinned-b16217dba5c8",
+    "actors/skinned-4c4e840f2273",
+    "actors/skinned-a86b37c123d0",
+    "actors/skinned-1b4b7500fa54",
+    "actors/skinned-1b4b7500fa54-lamps",
+    "actors/skinned-db6d678d0ea2",
+    "actors/skinned-db6d678d0ea2-lamps",
+    "actors/rigid-9fcf4d04588a",
+    "actors/rigid-9fcf4d04588a-lamps",
+    "actors/rigid-0a248a8dad61",
+    "actors/rigid-0a248a8dad61-lamps",
+    "actors/rigid-a32d06e42b4f",
+    "actors/rigid-d170da6505c3",
+    "actors/rigid-97c14a6ebcdf",
+    "actors/skinned-f31f273d045c",
+    "actors/skinned-656f4e569c54",
+    "actors/skinned-656f4e569c54-lamps",
+    "actors/skinned-29e9c9c8d045",
+    "actors/skinned-29e9c9c8d045-lamps",
+    "actors/skinned-f8a5245ca0e6",
+    "actors/skinned-f8a5245ca0e6-lamps",
+    "actors/skinned-185329e73bd2",
+    "actors/rigid-9beb9288d938",
+    "actors/skinned-6bb09753059d",
+    "actors/rigid-80679371e349",
+    "actors/rigid-99a085c5384a",
+    "actors/depth-fabric",
+    "actors/skinned-afc40e7dcb31",
+    "actors/skinned-afc40e7dcb31-lamps",
+    "actors/rigid-3f58afa81016",
+    "actors/rigid-3f58afa81016-lamps",
+    "actors/skinned-f7e0c8dec778",
+    "actors/skinned-f7e0c8dec778-lamps",
+    "actors/skinned-abe5807cf027",
+    "actors/skinned-89578006551d",
+    "actors/skinned-89578006551d-lamps",
+    "actors/rigid-9b4b1571d03a",
+    "actors/rigid-9b4b1571d03a-lamps",
+    "actors/rigid-793dd1b9daac",
+    "actors/rigid-793dd1b9daac-lamps",
+    "actors/rigid-c585bd561935",
+    "actors/skinned-bdc3076d948d",
+    "actors/skinned-bdc3076d948d-lamps",
+    "actors/skinned-fc8acbb432c2",
+    "actors/skinned-8f9141bbccea",
+    "actors/skinned-6e06ce7a3267",
+    "actors/skinned-6e06ce7a3267-lamps",
+    "actors/rigid-e27cf5d513d3",
+    "actors/rigid-5e193a645486",
+    "actors/skinned-4eec6920380e",
+    "actors/skinned-4eec6920380e-lamps",
+    "actors/skinned-790c9e2a5509",
+    "actors/skinned-790c9e2a5509-lamps",
+    "actors/skinned-269931a69cdd",
+    "actors/skinned-269931a69cdd-lamps",
+    "actors/skinned-3ccb9010785c",
+    "actors/skinned-3ccb9010785c-lamps",
+    "actors/skinned-f03a84080e10",
+    "actors/skinned-f03a84080e10-lamps",
+    "actors/skinned-858e1cccdfcc",
+    "actors/skinned-858e1cccdfcc-lamps",
+    "actors/skinned-569a32ace08d",
+    "actors/skinned-569a32ace08d-lamps",
+    "actors/depth-fabric-cutout",
+    "post-hud/bloom-extract",
+    "post-hud/bloom-blur",
+    "post-hud/copy",
+    "post-hud/composite",
+    "post-hud/motion",
+    "post-hud/resolve",
+    "post-hud/sharpen",
+    "post-hud/bilinear",
+    "post-hud/spatial",
+    "post-hud/fxaa",
+    "post-hud/fxaa-fast",
+    "post-hud/hud"
+  ],
+  "settleFrames": 2,
+  "family": "actors"
+}

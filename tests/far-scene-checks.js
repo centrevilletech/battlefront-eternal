@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Graphics } from '../src/graphics.js';
 import { Settings } from '../src/settings.js';
 import { Water } from '../src/water.js';
-import { zeroMaterial } from '../src/materials.js';
+import { worldMaterial } from '../src/materials.js';
 
 // The far scene's fog and water, drawn: generated fixtures, no retail assets
 // (tests/far-scene-browser.mjs runs it).
@@ -23,7 +23,7 @@ export async function checkFarScene() {
   const white = new THREE.DataTexture(data, 1, 1);
   white.needsUpdate = true;
   // A far-scene wall 600 m out, past the near scene's 200 m.
-  const wall = new THREE.Mesh(new THREE.PlaneGeometry(2000, 1000), zeroMaterial('lit', { map: g.texture(white), far: true }));
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(2000, 1000), worldMaterial('lit', { map: g.texture(white), far: true }));
   wall.position.set(0, 0, -600);
   wall.updateMatrixWorld();
   g.farScene.add(wall);
@@ -62,7 +62,7 @@ export async function checkFarScene() {
   // one edge of its grid (so a flat layer, not a sea for the Enhanced ocean),
   // seen 400 m out, past the near scene's 200 m.
   g.setMap(map(null));
-  const bed = new THREE.Mesh(new THREE.PlaneGeometry(2048, 2048), zeroMaterial('lit', { map: g.texture(white), far: true }));
+  const bed = new THREE.Mesh(new THREE.PlaneGeometry(2048, 2048), worldMaterial('lit', { map: g.texture(white), far: true }));
   bed.rotation.x = -Math.PI / 2;
   bed.position.y = -5;
   bed.updateMatrixWorld();
@@ -124,7 +124,7 @@ export async function checkFarScene() {
   // under the surface, where the mirror's oblique near plane would cut them.
   const blue = new THREE.DataTexture(new Uint8Array([20, 60, 230, 255]), 1, 1);
   blue.needsUpdate = true;
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(4.4, 16, 8), zeroMaterial('sky', { map: g.texture(blue), doubleSided: true }));
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(4.4, 16, 8), worldMaterial('sky', { map: g.texture(blue), doubleSided: true }));
   dome.renderOrder = -1e9;
   dome.frustumCulled = false;
   g.farScene.add(dome);

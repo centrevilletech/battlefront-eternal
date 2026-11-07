@@ -2783,6 +2783,10 @@ async function start() {
     }
     requestAnimationFrame(loop);
   }
+  // The capture tools hold the game's own frame loop (and drive frames in
+  // lockstep) by this mark: a minified build renames the function, so they
+  // must not find it by name.
+  loop.bfeFrameLoop = true;
   // The worker client's stats: the worker's health from its packets (its
   // tick cost, its speed over the last quarter second, debt and dropped
   // ticks), then this page's side (apply cost, the playout delay, the input

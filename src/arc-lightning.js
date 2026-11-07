@@ -236,6 +236,9 @@ export class ArcBatch {
 function shockMaterial() {
   return ownedEffectMaterial('effects/shock', {
     name: "arc-shock",
+    defines: {},
+    forceSinglePass: true,
+    fog: false,
     uniforms: { shockTime: { value: 0 }, intensity: { value: 0 }, seed: { value: 0 }, color: { value: new THREE.Color() }, inflate: { value: 0.012 } },
 
 
@@ -243,6 +246,9 @@ function shockMaterial() {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
+  material.userData.actorShader = "shock";
+  material.visible = false;
+  return material;
 }
 
 // A path's points, reused frame to frame.
@@ -279,14 +285,15 @@ export class ArcLightning {
       this.viewBatch.mesh.name = "arc-lightning-view";
       viewScene.add(this.viewBatch.mesh);
     }
-    // Both programs are built while the battle loads (graphics.warmup()
-    // builds what is shown, and so does the first draw), not at the first
-    // bolt: the batch is shown empty, and a stand-in for a shock's glow (one
-    // bone, nothing drawn) is kept, for the first frames drawn.
+    // The effect batch stays shown empty during preparation. Shock programs
+    // register from the actor catalog and need no temporary skinned mesh.
     this.batch.mesh.visible = true;
     this.warming = 90;
-    this.warm = this.warmShock();
-    scene.add(this.warm);
+    const beforeWarm=this.batch.mesh.onBeforeRender;
+    this.batch.mesh.onBeforeRender=(renderer,scene,camera,geometry,material,group)=>{
+      if(this.warming>0)this.warming--;
+      beforeWarm(renderer,scene,camera,geometry,material,group);
+    };
     this.bolts = [];
     this.shocks = new Map(); // unit -> its shock
     this.shields = new Map(); // unit -> the shock on his shield
@@ -455,35 +462,6 @@ export class ArcLightning {
     }
     this.batch.end(this.warming > 0);
     this.viewBatch?.end();
-  }
-
-  // A shock glow's program, on a body of one bone: one small triangle at
-  // intensity 0 (adding nothing), a real draw so the driver's pipeline is
-  // built now and not at the first struck soldier; gone once it has been
-  // drawn for `warming` frames.
-  warmShock() {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array([0, 0, 0, 0.01, 0, 0, 0, 0.01, 0]), 3));
-    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
-    geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Uint16Array(12), 4));
-    geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), 4));
-    const mesh = new THREE.SkinnedMesh(geometry, shockMaterial());
-    const bone = new THREE.Bone();
-    mesh.add(bone);
-    mesh.bind(new THREE.Skeleton([bone]));
-    mesh.name = "arc-shock-warm";
-    mesh.frustumCulled = false;
-    mesh.onBeforeRender = () => {
-      if (--this.warming > 0) return;
-      mesh.visible = false;
-      queueMicrotask(() => {
-        mesh.removeFromParent();
-        mesh.geometry.dispose();
-        mesh.material.dispose();
-        mesh.skeleton.dispose();
-      });
-    };
-    return mesh;
   }
 
   // Classic is on: nothing of this look stays on show.

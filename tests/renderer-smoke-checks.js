@@ -8,13 +8,14 @@ import { motionVectors } from '../src/motion-vectors.js';
 import { Batch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
 import { Settings } from '../src/settings.js';
-import { zeroMaterial, worldMaterial, lighting } from '../src/materials.js';
+import { actorMaterial, worldMaterial, lighting } from '../src/materials.js';
 import { plainProgram } from '../src/rust-render/post.js';
 import { writeScreenStep } from '../src/rust-render/screen.js';
 import { ownWorldMaterial } from '../src/rust-render/world-programs.js';
 import { ownedBasicEffect, ownedEffectMaterial } from '../src/rust-render/effect-material.js';
 import { programLayouts } from '../src/render-programs.js';
 import { interfaceFixture, shellInterfaceFixture } from './renderer-interface-checks.js';
+import { checkOwnedActorDraws } from './actor-program-checks.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
 // This is a Rust-only driver test, not a parity comparison with Three.
@@ -117,6 +118,23 @@ export async function checkRenderer(backend, manifests) {
     }
     g.rust.stale=true;
     assert('All manifest families were checked',shaderFamilies.length>0);
+    // Every WebGL upload goes through a typed-array view of WebAssembly memory. When the externref table
+    // is full, making that view's JS value grows memory and detaches the view, and the GL call reads an
+    // empty buffer (core.rs spare_view_slot). Register enough geometries for the table (each holds a
+    // vertex array and buffers) to grow several times, and check that every buffer arrived whole.
+    {
+      const P=WebGL2RenderingContext.prototype,bufferData=P.bufferData,short=[];let uploads=0;
+      P.bufferData=function(target,data,...rest){if(typeof data!=='number'){uploads++;if(!data || data.byteLength===0)short.push(target);}return bufferData.call(this,target,data,...rest);};
+      try {
+        const program={id:g.rust.rust.add_owned_program('actors/depth-solid'),attributes:[['position',0]]};
+        for(let i=0;i<4000;i++){
+          const geometry=new THREE.BufferGeometry();
+          geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(9+(i%7)*3),3));geometry.setIndex([0,1,2]);
+          if(g.rust.geometry(geometry,program)==null)short.push('geometry '+i);
+        }
+      } finally { P.bufferData=bufferData; }
+      assert('Uploads arrive whole while the externref table grows',uploads>=8000 && short.length===0,{uploads,short:short.slice(0,5)});
+    }
     if(shaderFamilies.some(f=>f.variants.some(v=>!v.accepted)))return {ok:false,backend,renderer,results,shaderFamilies,compiledShaders};
 
     // One-pixel textures provide known output colours without decoding assets.
@@ -155,7 +173,7 @@ export async function checkRenderer(backend, manifests) {
     const skinGeometry = new THREE.PlaneGeometry(.7, .7);
     skinGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(16),4));
     skinGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],4));
-    const skinMaterial = zeroMaterial('dynamic', { map: white }); skinMaterial.defines.RIGID_SKIN = '';
+    const skinMaterial = actorMaterial('dynamic', { map: white }); skinMaterial.defines.RIGID_SKIN = '';
     const body = new THREE.SkinnedMesh(skinGeometry, skinMaterial), bone = new THREE.Bone();
     body.add(bone); body.bind(new THREE.Skeleton([bone])); body.position.set(1.5,1,0); body.frustumCulled = false;
     const root = new THREE.Group(); root.userData.parts = { body }; root.add(body); g.scene.add(root); g.cullRoots.push(root);
@@ -165,7 +183,7 @@ export async function checkRenderer(backend, manifests) {
     // blended world surfaces, which this scene has none of.
     const transparent = new THREE.Mesh(new THREE.PlaneGeometry(.7, .7), ownedBasicEffect('basic', { color: 0x2277aa, map: white, transparent: true, opacity: .5 }));
     transparent.position.set(0, 1, 1); g.scene.add(transparent);
-    const view = new THREE.Mesh(new THREE.PlaneGeometry(.12, .12), zeroMaterial('dynamic', { map: white }));
+    const view = new THREE.Mesh(new THREE.PlaneGeometry(.12, .12), actorMaterial('dynamic', { map: white }));
     view.position.set(.2, -.15, -1); g.viewScene.add(view);
     // Three terrain cells: the invisible middle one splits visible runs,
     // requiring multi-draw rather than one contiguous range.
@@ -553,6 +571,8 @@ export async function checkRenderer(backend, manifests) {
     // stand in for backend coverage even when another pass produced visible pixels.
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
     await shellInterfaceFixture(assert);
+    const actorDraws = await checkOwnedActorDraws();
+    assert('Owned actor bodies, rigs, held and view parts, shock and dissolve draw', actorDraws.ok, actorDraws);
 // Return all family and phase evidence, including the backend/draw mode,
 // so CI cannot confuse a successful subset with full driver coverage.
     return { ok: results.every(r => r.ok), backend, fallback, multiAvailable, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };

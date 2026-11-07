@@ -270,8 +270,7 @@ itself, or `BASE` names a server for another tree); `tools/pixel-diff.mjs`
 compares two of its `.rgba` captures. Environment: `BASE`, `LABEL`,
 `FRAMES`, `WARM`, `W`, `H`, `OUT`, `SETTINGS` (JSON merged over the
 defaults), `PRE` (an expression evaluated in the page after warm-up, for
-experiments such as forcing `TERRAIN_LAYERS` or
-`__bf.graphics.cacheShadows = false`). For a before/after pair, copy `src/`,
+experiments such as forcing `TERRAIN_LAYERS`). For a before/after pair, copy `src/`,
 `index.html` and `vite.config.js` of the before tree somewhere, link its
 `public/` and `node_modules/`, serve it on another port, and run both at
 once so they share the host's load. The unit tests of the pure logic:

@@ -250,10 +250,9 @@ export class Destruction {
     return at;
   }
 
-  // Power-up droids to watch for wrecking (LiveObjects). Each wreck's glowing
-  // materials are made now, on a hidden stand-in, so graphics.warmup()
-  // compiles them before play. (The phase watches as many as it has room for:
-  // 64, where the most any map has is 30.)
+  // Power-up droids to watch for wrecking (LiveObjects). Their material
+  // variants are prewarmed with the source-owned actor catalog. (The phase
+  // watches as many as it has room for: 64, where the most any map has is 30.)
   watch(live) {
     this.stations = (live?.stations || []).slice(0, Dst.STATIONS);
     const h = this.host, box = new THREE.Box3(), centre = new THREE.Vector3();
@@ -267,9 +266,6 @@ export class Destruction {
       h.stationConfig.set(box.max.toArray(), at + STATION.MAX);
       h.stationConfig.set(centre.toArray(), at + STATION.CENTER);
       h.stationState[i * STATION_STATE.STRIDE + STATION_STATE.DESTROYED] = station.state === "destroyed" ? 1 : 0;
-      look?.root?.traverse((mesh) => {
-        if (mesh.isMesh) for (const material of [mesh.material].flat()) this.warm(mesh.geometry, heatMaterial(material));
-      });
     });
     h.watch(this.stations.length);
     this.sites.length = 0;
@@ -283,18 +279,6 @@ export class Destruction {
       for (const chunk of def.chunks) if (chunk.ChunkGeometryName) this.pieces.shape(chunk.ChunkGeometryName);
       for (const weapon of def.weapons || []) if (weapon.GeometryName) this.pieces.shape(weapon.GeometryName);
     }
-  }
-
-  // A hidden mesh drawing with `material`, one for each kind of program.
-  warm(geometry, material) {
-    this.warmed ||= new Map();
-    const key = `${JSON.stringify(material.defines)}:${Boolean(material.map)}:${material.alphaTest}:${material.side}:${material.transparent}`;
-    if (this.warmed.has(key)) return;
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.visible = false;
-    mesh.frustumCulled = false;
-    this.scene.add(mesh);
-    this.warmed.set(key, mesh);
   }
 
   // The unit's carrying bones' queries, kept for the page's bodies. (They
@@ -644,8 +628,6 @@ export class Destruction {
     this.pieces.dispose();
     this.fx.dispose();
     for (const site of [...this.sites]) this.cool(site.station);
-    for (const mesh of this.warmed?.values() || []) mesh.removeFromParent();
-    this.warmed?.clear();
   }
 
   // What is out now, for tests and the stats overlay.

@@ -230,6 +230,7 @@ impl<C: HasContext> FarPass<C> {
             let buffer = core.geometries[item.geometry].buffers[slot];
             unsafe {
                 core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                crate::core::spare_view_slot();
                 core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, crate::core::bytes(&self.vertices[at..at + floats]));
             }
         }}
@@ -440,6 +441,7 @@ impl<C: HasContext> FarPass<C> {
             gl.bind_vertex_array(Some(vao));
             let b = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(b));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, crate::core::bytes(index), glow::STATIC_DRAW);
             gl.bind_vertex_array(None);
             b
@@ -518,6 +520,7 @@ impl<C: HasContext> FarPass<C> {
         }
         unsafe {
             gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            crate::core::spare_view_slot();
             gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, crate::core::bytes(&core.frame));
             gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(ubo));
         }
@@ -573,6 +576,7 @@ impl<C: HasContext> FarPass<C> {
                 if let Some(&b) = geo.buffers.get(buffer) {
                     unsafe {
                         core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
+                        crate::core::spare_view_slot();
                         core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, crate::core::bytes(&self.vertices[at..at + floats]));
                     }
                     core.stats.gl_calls += 2;
@@ -695,6 +699,7 @@ impl<C: HasContext> FarPass<C> {
                 inst.data.extend(input[at..at + instances * floats].iter().map(|&v| v as f32));
                 unsafe {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, crate::core::bytes(&inst.data));
                 }
                 stats.gl_calls += 2;

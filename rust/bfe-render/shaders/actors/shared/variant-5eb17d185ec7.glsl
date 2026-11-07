@@ -1,0 +1,29 @@
+#define OPAQUE
+vec4 LinearTransferOETF( in vec4 value ) {
+	return value;
+}
+vec4 sRGBTransferEOTF( in vec4 value ) {
+	return vec4( mix( pow( value.rgb * 0.9478672986 + vec3( 0.0521327014 ), vec3( 2.4 ) ), value.rgb * 0.0773993808, vec3( lessThanEqual( value.rgb, vec3( 0.04045 ) ) ) ), value.a );
+}
+vec4 sRGBTransferOETF( in vec4 value ) {
+	return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92, vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
+}
+vec4 linearToOutputTexel( vec4 value ) {
+	return LinearTransferOETF( vec4( value.rgb * mat3( 1.0000,-0.0000,-0.0000,-0.0000,1.0000,0.0000,0.0000,0.0000,1.0000 ), value.a ) );
+}
+float luminance( const in vec3 rgb ) {
+	const vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
+	return dot( weights, rgb );
+}
+
+
+  #ifdef CUTOUT
+    uniform sampler2D map;
+    uniform float cut;
+    varying vec2 vUv;
+  #endif
+  void main() {
+    #ifdef CUTOUT
+      if (texture2D(map, vUv).a < cut) discard;
+    #endif
+  }

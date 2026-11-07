@@ -48,7 +48,7 @@ await send('Page.addScriptToEvaluateOnNewDocument', { source: `
   // object counts never shift the battle.
   { const mk = (seed) => { let st = seed >>> 0; return () => { st = (Math.imul(st ^ (st >>> 15), 0x2c1b3c6d) + 0x1b873593) >>> 0; st ^= st >>> 13; st = Math.imul(st, 0x5bd1e995) >>> 0; return ((st ^ (st >>> 16)) >>> 0) / 4294967296; }; };
     const game = mk(0x9e3779b9), uuid = mk(12345); Math.random = () => { const e = {}; Error.captureStackTrace(e, Math.random); return (e.stack || '').includes('generateUUID') ? uuid() : game(); }; }
-  ${mode === 'det' ? `const raf = requestAnimationFrame.bind(window); window.requestAnimationFrame = f => f.name === 'loop' ? 0 : raf(f);` : ''}
+  ${mode === 'det' ? `const raf = requestAnimationFrame.bind(window); window.requestAnimationFrame = f => f.bfeFrameLoop ? 0 : raf(f);` : ''}
   window.__gl = { counts: Object.create(null) };
   const count = (name) => { window.__gl.counts[name] = (window.__gl.counts[name] || 0) + 1; };
   const names = ['bufferSubData','bufferData','texSubImage2D','texImage2D','texSubImage3D','drawElements','drawArrays','drawElementsInstanced','drawArraysInstanced','useProgram','bindTexture','bindBuffer','bindVertexArray','bindFramebuffer','uniformMatrix4fv','uniformMatrix3fv','uniform1f','uniform1i','uniform2f','uniform3f','uniform4f','uniform1fv','uniform2fv','uniform3fv','uniform4fv','uniform1iv','clear','getParameter','getError','readPixels','blitFramebuffer','compressedTexSubImage2D','compressedTexImage2D','texStorage2D','clientWaitSync','fenceSync'];

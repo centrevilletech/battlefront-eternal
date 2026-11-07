@@ -2,6 +2,7 @@
 // and CPU descriptors. Rust owns texture storage and targets. This core
 // registers those resources, publishes frame
 // inputs, and treats incomplete coverage or a failed program as a fatal error.
+import { actorFailure, isActorMaterial } from "./actors.js";
 import { rendererFailure } from "./failure.js";
 import { rendererModule } from "./load.js";
 import { installResources } from "../render-resources.js";
@@ -171,6 +172,9 @@ export class RustRender {
     this.phaseMs = {};
 
     this.errors = [];
+    // Scene objects no pass claims, by name, type and material key: each is
+    // skipped for the frame and reported once (skip()).
+    this.skipped = new Set();
     // The cascades' maps last given to the renderer.
     this.shadowMaps = "";
     this.shadowView = false;
@@ -354,6 +358,7 @@ export class RustRender {
   // lamps are on only when its pass feeds them (policy.lamps). Anything else
   // fails registration.
   program(threeProgram, kind, material, policy, cache = this.programs) {
+    if (isActorMaterial(material)) throw actorFailure("Actor materials require an owned descriptor");
     const lampsOn = Boolean(this.graphics.settings.get("lampLighting"));
     // A pass that gives its draws their lamps: its programs read them from the
     // lamp table (add_program_lamps), kept apart from three's same programs.
@@ -555,8 +560,9 @@ export class RustRender {
   watchScene(scene) {
     const previous = scene.onBeforeRender, watched = new WeakSet();
     let added = null;
-    const onAdded = ({ child }) => { added?.push(child); };
-    const watch = (root) => root.traverse((o) => { if (!watched.has(o)) { watched.add(o); o.addEventListener("childadded", onAdded); } });
+    const onAdded = ({ child }) => { added?.push(child); this.byName.instances?.noteAdded(child); };
+    const onRemoved=({child})=>this.byName.instances?.noteRemoved(child);
+    const watch = (root) => root.traverse((o) => { if (!watched.has(o)) { watched.add(o); o.addEventListener("childadded", onAdded); o.addEventListener("childremoved", onRemoved); } });
     scene.onBeforeRender = (...args) => {
       previous?.apply(scene, args);
       if (this.contextLost) return;
@@ -584,6 +590,9 @@ export class RustRender {
       known.add(object);
       const material = object.material;
       if (!material || Array.isArray(material) || !material.visible) return;
+      // Caster proxies and source-owned actors have no browser program to
+      // discover. Their passes register the declared descriptor directly.
+      if (object.userData.shadowOnly || isActorMaterial(material)) return;
       if (material.userData.bfeFamily !== "world" && !ownsEffectSource(material) && !renderer.properties.get(material).currentProgram) fresh.push([object, material]);
       if (material.transparent) list.transparent.push({ object, material, geometry: object.geometry, group: null });
     });
@@ -702,6 +711,21 @@ export class RustRender {
     } catch (error) {
       this.fail(error, renderer);
     }
+  }
+
+  // An object no Rust pass can claim is not drawn this frame and is reported
+  // once (name, type, material key) through the error list and the console.
+  // Nothing else draws it and the frame goes on: a missing shader variant or
+  // a rejected program stays a hard failure (fail()), a scene object that
+  // nobody owns does not stop the picture and HUD for the rest of the battle.
+  skip(object, material, why) {
+    const material0 = Array.isArray(material) ? material[0] : material;
+    const key = material0?.userData?.bfeProgram || material0?.type || "none";
+    const text = `Not drawn: ${object.name || "(unnamed)"} ${object.type} material ${key}: ${why}`;
+    if (this.skipped.has(text)) return;
+    this.skipped.add(text);
+    this.errors.push(text);
+    console.error(text);
   }
 
   // Keep the failure visible and stop this battle. No other drawer takes over.

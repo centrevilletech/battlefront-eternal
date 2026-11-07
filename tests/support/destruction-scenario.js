@@ -8,7 +8,7 @@
 // them, the lights asked for, the sounds made and what the page was told to
 // do with the units.
 import * as THREE from 'three';
-import { zeroMaterial } from '../../src/materials.js';
+import { actorMaterial } from '../../src/materials.js';
 import { listenSounds } from '../../src/audio/events.js';
 import { digest } from './fx-digest.js';
 
@@ -35,7 +35,7 @@ const WORLD = {
   },
 };
 
-const material = zeroMaterial('dynamic', {});
+const material = actorMaterial('dynamic', {});
 const SIZES = { torso: [0.5, 0.4, 0.3], arm: [0.3, 0.12, 0.12], leg: [0.2, 0.5, 0.2], rifle: [0.6, 0.08, 0.1] };
 const model = (name) => {
   const s = SIZES[name];
@@ -100,7 +100,7 @@ function sharedGeometry() {
 
 function station(centre) {
   const root = new THREE.Group();
-  root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), zeroMaterial('dynamic', {})));
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), actorMaterial('dynamic', {})));
   return {
     state: 'built', health: 80, maxHealth: 80,
     looks: { destroyed: { root, model: { box: [[-0.5, 0, -0.5], [0.5, 1.2, 0.5]] } } },

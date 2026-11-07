@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { DebrisPieces, heatMaterial, pieceShape } from '../src/destruction-debris.js';
 import { DstPiece as PIECE } from '../src/environment/layout.js';
-import { zeroMaterial } from '../src/materials.js';
+import { actorMaterial } from '../src/materials.js';
 
 test('a piece shape is its box centre, half size and extreme vertices', () => {
   const group = new THREE.Group();
@@ -22,7 +23,7 @@ test('a piece shape is its box centre, half size and extreme vertices', () => {
 
 // The pieces' bodies are the Rust phase's; the shell keeps their models.
 function model() {
-  const material = zeroMaterial('dynamic', {});
+  const material = actorMaterial('dynamic', {});
   return () => {
     const group = new THREE.Group();
     group.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.3), material));
@@ -31,13 +32,13 @@ function model() {
 }
 
 test('heated pieces keep the stock material and add heat, charring and crumbling', () => {
-  const source = zeroMaterial('dynamic', {});
+  const source = actorMaterial('dynamic', {});
   const heated = heatMaterial(source);
   assert.notEqual(heated, source);
   assert.equal(heatMaterial(source), heated, 'made once per material');
-  assert.ok(!source.fragmentShader.includes('heated('), 'the stock material is unchanged');
-  assert.ok(heated.fragmentShader.includes('color.rgb = heated(color.rgb);'));
-  assert.ok(heated.vertexShader.includes('vHeatLocal = transformed;'));
+  assert.equal(source.fragmentShader,undefined);
+  assert.equal(heated.fragmentShader,undefined);
+  assert.equal(heated.onBeforeRender,THREE.Material.prototype.onBeforeRender);
   assert.equal(heated.defines.DYNAMIC, '');
   assert.equal(heated.defines.HEATED, '');
   // The map's light uniforms are shared, not copied.
@@ -46,8 +47,10 @@ test('heated pieces keep the stock material and add heat, charring and crumbling
 });
 
 test('heat is applied before a piece dissolves into the far scene, so it fades out at range', () => {
-  const heated = heatMaterial(zeroMaterial('dynamic', {}));
-  const shader = heated.fragmentShader;
+  const root=new URL('../rust/bfe-render/shaders/actors/',import.meta.url);
+  const manifest=JSON.parse(readFileSync(new URL('manifest.json',root)));
+  const row=manifest.programs.find(p=>p.kind==='Rigid'&&p.selector?.cascades===0&&!p.lamps&&p.selector.defines.some(([n])=>n==='HEATED'));
+  const shader=[].concat(row.fragment).map(file=>readFileSync(new URL(file,root),'utf8')).join('');
   const heat = shader.indexOf('color.rgb = heated(color.rgb);');
   const fade = shader.indexOf('// Linear fog by depth');
   const near = shader.indexOf('float near = clamp((fade.y - vDepth)');

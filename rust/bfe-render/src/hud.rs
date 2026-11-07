@@ -56,6 +56,7 @@ impl<C: HasContext> HudPass<C> {
         for (k, data) in [&self.position, &self.uv, &self.mask_uv, &self.tint].iter().enumerate() {
             if let Some(buffer) = self.buffers.get(k) { unsafe {
                 core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buffer));
+                crate::core::spare_view_slot();
                 core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(data));
             }}
         }
@@ -95,6 +96,7 @@ impl<C: HasContext> HudPass<C> {
             }
             let ib = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ib));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -118,6 +120,7 @@ impl<C: HasContext> HudPass<C> {
                 let size = SIZES[k];
                 unsafe {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.buffers[k]));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (start * size * 4) as i32, bytes(&data[start * size..end * size]));
                 }
                 core.stats.gl_calls += 2;

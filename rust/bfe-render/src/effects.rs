@@ -313,10 +313,17 @@ impl<C: HasContext> EffectsPass<C> {
         let (quad, quad_index) = unsafe {
             let quad = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(quad));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(&QUAD), glow::STATIC_DRAW);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
+            // The element-array binding belongs to the bound vertex array: with
+            // another renderer's (or three's) left bound, binding and clearing
+            // it here would take that geometry's index away, and its next draw
+            // would fail for an empty element buffer. Bind none first.
+            gl.bind_vertex_array(None);
             let index = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(&QUAD_INDEX), glow::STATIC_DRAW);
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
             (quad, index)
@@ -411,6 +418,7 @@ impl<C: HasContext> EffectsPass<C> {
             gl.bind_vertex_array(Some(b.vao));
             let vbo = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(&interleaved), glow::STATIC_DRAW);
             let mut offset = 0;
             for a in attributes.chunks(2) {
@@ -420,6 +428,7 @@ impl<C: HasContext> EffectsPass<C> {
             }
             let ebo = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -774,9 +783,11 @@ impl<C: HasContext> EffectsPass<C> {
             if from < count && b.stride > 0 {
                 let n = count - from;
                 if b.interleaved {
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.data[at..at + n * b.stride]));
                 } else {
                     interleave(&mut self.staging, &self.data, at, n, &b.sizes, b.stride);
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
                 }
                 stats.gl_calls += 1;
@@ -864,6 +875,7 @@ impl<C: HasContext> EffectsPass<C> {
                 gl.buffer_data_size(glow::ARRAY_BUFFER, (m.vertex_capacity * m.stride * 4) as i32, glow::DYNAMIC_DRAW);
                 stats.gl_calls += 1;
             }
+            crate::core::spare_view_slot();
             gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.staging));
             // The indices through the first pass's vertex array, whose
             // element buffer they are.
@@ -873,6 +885,7 @@ impl<C: HasContext> EffectsPass<C> {
                 gl.buffer_data_size(glow::ELEMENT_ARRAY_BUFFER, (m.index_capacity * 4) as i32, glow::DYNAMIC_DRAW);
                 stats.gl_calls += 1;
             }
+            crate::core::spare_view_slot();
             gl.buffer_sub_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, 0, bytes(&self.data[index_at..index_at + indices]));
             stats.gl_calls += 4;
             for pass in &m.passes {
@@ -997,6 +1010,7 @@ impl<C: HasContext> EffectsPass<C> {
                     gl.pixel_store_bool(UNPACK_FLIP_Y_WEBGL, false);
                     gl.pixel_store_bool(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
                     gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
+                    crate::core::spare_view_slot();
                     gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, 3, written as i32, glow::RGBA, glow::FLOAT,
                         glow::PixelUnpackData::Slice(Some(bytes(&self.data[at..at + written * EMITTER_FLOATS]))));
                     stats.gl_calls += 4;

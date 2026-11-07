@@ -13,7 +13,7 @@
 //   node tools/render-bench-cdp.mjs            # serves the working tree itself
 //   BASE=http://127.0.0.1:18475 LABEL=before node tools/render-bench-cdp.mjs
 //   FRAMES=600 WARM=20 W=640 H=400 SETTINGS='{"shadows":"low"}' OUT=/tmp/bf-bench
-//   PRE='__bf.graphics.cacheShadows = false' (evaluated in the page after warm-up)
+//   PRE='__bf.graphics.settings.set("shadows", "low")' (any expression, evaluated in the page after warm-up)
 //   CHROME=/path/to/chrome (the Chromium binary; /usr/bin/chromium by default)
 //   Q='map=nab2&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1'
 import { spawn } from 'node:child_process';
@@ -53,7 +53,7 @@ await send('Page.addScriptToEvaluateOnNewDocument', { source: `
   // Seeded Math.random: flower beds and other build-time randomness repeat run to run.
   let seed = 0x9e3779b9; Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const raf = requestAnimationFrame.bind(window);
-  window.requestAnimationFrame = f => f.name === 'loop' ? 0 : raf(f);
+  window.requestAnimationFrame = f => f.bfeFrameLoop ? 0 : raf(f);
 ` }, page);
 const GLWRAP = "  window.__gl = { counts: Object.create(null), on: false };\n  for (const name of Object.getOwnPropertyNames(WebGL2RenderingContext.prototype)) {\n    const d = Object.getOwnPropertyDescriptor(WebGL2RenderingContext.prototype, name);\n    if (!d || typeof d.value !== `function` || name === `constructor`) continue;\n    const original = d.value;\n    WebGL2RenderingContext.prototype[name] = function (...args) { if (window.__gl.on) window.__gl.counts[name] = (window.__gl.counts[name] || 0) + 1; return original.apply(this, args); };\n  }\n";
 const ev = async (expr) => { const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true, timeout: 1800000 }, page); if (r.exceptionDetails) throw new Error('page: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text)); return r.result.value; };

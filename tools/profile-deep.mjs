@@ -44,7 +44,7 @@ async function open(countGl) {
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.addInitScript(({ countGl, settings }) => {
     const raf = requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = f => f.name === 'loop' ? 0 : raf(f);
+    window.requestAnimationFrame = f => f.bfeFrameLoop ? 0 : raf(f);
     localStorage.setItem('battlefront-eternal.settings', JSON.stringify(settings));
     if (countGl) {
       // Count every WebGL call per frame (wrapping costs time; separate run).

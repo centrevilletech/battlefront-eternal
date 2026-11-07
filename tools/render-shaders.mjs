@@ -14,20 +14,25 @@ export function generate(check = false) {
     const entries = new Map(manifest.programs.map(q => [q.key, q]));
     for (const p of manifest.programs) {
       if (!p.key.startsWith(family + '/') || sources[p.key]) throw Error('Invalid shader key ' + p.key);
+      // A source path may be an ordered array of chunk files (the actor family's
+      // shared chunks, tools/actor-shader-chunks.py), concatenated in order.
+      const parts = path => Array.isArray(path) ? path : [path];
+      const read = path => parts(path).map(file => readFileSync(base + family + '/' + file, 'utf8')).join('');
       // A shadowed twin stores no source of its own: it is its unshadowed base with
       // the two shadow defines inserted at the recorded line, as three emits them.
       const twin = p.shadowOf, own = twin ? entries.get(twin.key) : p;
       if (!own?.vertex || own.shadowOf) throw Error('Invalid shadow base for ' + p.key);
       const withShadow = (text, line) => twin ? text.split('\n').toSpliced(line, 0, '#define USE_SHADOWMAP', '#define SHADOWMAP_TYPE_PCF_SOFT').join('\n') : text;
-      const vertex = (p.vertexPrefix || '') + withShadow(readFileSync(base + family + '/' + own.vertex, 'utf8'), twin?.vertexLine);
-      const fragment = (p.fragmentPrefix || '') + withShadow(readFileSync(base + family + '/' + own.fragment, 'utf8'), twin?.fragmentLine);
+      const vertex = (p.vertexPrefix || '') + withShadow(read(own.vertex), twin?.vertexLine);
+      const fragment = (p.fragmentPrefix || '') + withShadow(read(own.fragment), twin?.fragmentLine);
       const kind = p.kind ?? 'Plain';
       const source = p.source ?? 'body';
       const lamps = p.lamps ?? false;
-      if (!['Plain', 'World', 'Effect', 'Motion', 'Skinned'].includes(kind)) throw Error('Unsupported shader kind ' + kind);
+      if (!['Plain', 'World', 'Skinned', 'Rigid', 'Effect', 'Motion'].includes(kind)) throw Error('Unsupported shader kind ' + kind);
       if (!['body', 'expanded'].includes(source)) throw Error('Unsupported shader source ' + source);
-      if (typeof lamps !== 'boolean' || (lamps && kind !== 'World')) throw Error('Invalid lamp mode');
+      if (typeof lamps !== 'boolean' || (lamps && !['World', 'Skinned', 'Rigid'].includes(kind))) throw Error('Invalid lamp mode');
       if (/#[ \t]*include/.test(vertex + fragment)) throw Error('Source must be self contained');
+      if (source === 'body' && kind !== 'Plain') throw Error('Rewritten programs require expanded source');
       if (source === 'body' && /#[ \t]*version/.test(vertex + fragment)) throw Error('Body declares version');
       if (source === 'expanded' && ![vertex, fragment].every(s => s.startsWith('#version 300 es\n'))) throw Error('Expanded source must declare GLSL ES 3.00');
       const attributes = Object.entries(p.attributes);
@@ -40,9 +45,10 @@ export function generate(check = false) {
       const hash = createHash('sha256').update(JSON.stringify({ vertex, fragment, attributes, uniforms, kind, source, lamps })).digest('hex');
       // The page picks a shadowed program through its base's shadowTwin, never by name.
       if (twin) twins.push([twin.key, p.key]);
-      sources[p.key] = { attributes, uniforms, hash, kind, source, lamps, ...(twin ? { shadowOf: twin.key } : {}), ...(p.material ? {material:p.material} : {}), ...(p.selector ? { selector: p.selector, inputs: p.inputs } : {}) };
+      sources[p.key] = { attributes, uniforms, hash, kind, source, lamps, ...(p.derived ? { derived: true } : {}), ...(twin ? { shadowOf: twin.key } : {}), ...(p.material ? {material:p.material} : {}), ...(p.selector ? { selector: p.selector, inputs: p.inputs } : {}) };
       const pairs = (xs) => xs.map(([n,v]) => `(${JSON.stringify(n)}, ${v})`).join(', ');
-      rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: include_str!("../shaders/${family}/${own.vertex}"), fragment: include_str!("../shaders/${family}/${own.fragment}"), vertex_prefix: ${JSON.stringify(p.vertexPrefix || "")}, fragment_prefix: ${JSON.stringify(p.fragmentPrefix || "")}, kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, shadow_at: ${twin ? `Some((${twin.vertexLine}, ${twin.fragmentLine}))` : 'None'}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(uniforms.map(u => [u.name, u.type]))}], uniform_sizes: &[${pairs(uniforms.filter(u => u.size > 1).map(u => [u.name, u.size]))}] },`);
+      const files = (path) => `&[${parts(path).map(file => `include_str!("../shaders/${family}/${file}")`).join(", ")}]`;
+      rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: ${files(own.vertex)}, fragment: ${files(own.fragment)}, vertex_prefix: ${JSON.stringify(p.vertexPrefix || "")}, fragment_prefix: ${JSON.stringify(p.fragmentPrefix || "")}, kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, shadow_at: ${twin ? `Some((${twin.vertexLine}, ${twin.fragmentLine}))` : 'None'}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(uniforms.map(u => [u.name, u.type]))}], uniform_sizes: &[${pairs(uniforms.filter(u => u.size > 1).map(u => [u.name, u.size]))}] },`);
     }
   }
   for (const [from, key] of twins) {

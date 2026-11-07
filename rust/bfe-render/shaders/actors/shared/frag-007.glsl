@@ -1,0 +1,2 @@
+#define USE_SHADOWMAP
+#define SHADOWMAP_TYPE_PCF_SOFT

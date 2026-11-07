@@ -30,7 +30,6 @@ export class NearPass {
     this.items = [];
     this.stopped = null;
     this.drawn = 0;
-    this.left = 0;
     this.early = 0;
   }
 
@@ -67,7 +66,7 @@ export class NearPass {
       }
       this.items.length = 0;
       this.stopped = null;
-      if (!this.walk(scene, camera, 0)) { this.left++; return left(); }
+      this.walk(scene, camera, 0);
       renderer.info.render.frame++;
       if (renderer.info.autoReset) renderer.info.reset();
       core.phase("begin", renderer, scene, camera, true);
@@ -91,42 +90,51 @@ export class NearPass {
 
   // projectObject's walk: a hidden object hides its subtree; one on other
   // layers is not listed, but its children may be; a group's render order
-  // orders what is listed below it; an LOD picks its level. False at the
-  // first item three would list that the renderer doesn't draw.
+  // orders what is listed below it; an LOD picks its level. An item three
+  // would list that no pass claims is skipped and reported once (the core's
+  // skip()), so the frame still draws everything that is owned.
   // Match projectObject's visibility, layer and Group render-order rules.
   // Claimed world/instance/effect/line objects already have retained Rust records;
   // only remaining blended mesh/sprite objects need transient sort items.
   // Hidden subtrees stay hidden even if a child retains an old registration.
+  // The walk is always true: only the pass's configuration (cover) can stop it.
   walk(object, camera, groupOrder) {
     if (object.visible === false) return true;
     if (object.layers.test(camera.layers)) {
       if (object.isGroup) groupOrder = object.renderOrder;
       else if (object.isLOD) { if (object.autoUpdate === true) object.update(camera); }
       else if (object.isSprite) {
-        if (object.material.visible && (!object.frustumCulled || this.frustum.intersectsSprite(object)) && !this.item(object, object.material, groupOrder)) return false;
+        if (object.material.visible && (!object.frustumCulled || this.frustum.intersectsSprite(object))) this.item(object, object.material, groupOrder);
       } else if (object.isMesh || object.isLine || object.isPoints) {
         const material = object.material;
         if (Array.isArray(material)) {
           // Each group with a shown material is an item of three's own.
           for (const group of object.geometry.groups) {
             const m = material[group.materialIndex];
-            if (m && m.visible && (!object.frustumCulled || this.frustum.intersectsObject(object))) { this.stopped = object; return false; }
+            if (m && m.visible && (!object.frustumCulled || this.frustum.intersectsObject(object))) { this.unclaimed(object, m, "multi-material mesh"); break; }
           }
-        } else if (material.visible && (!object.frustumCulled || this.frustum.intersectsObject(object)) && !this.item(object, material, groupOrder)) return false;
+        } else if (material.visible && (!object.frustumCulled || this.frustum.intersectsObject(object))) this.item(object, material, groupOrder);
       }
     }
     const children = object.children;
-    for (let i = 0; i < children.length; i++) if (!this.walk(children[i], camera, groupOrder)) return false;
+    for (let i = 0; i < children.length; i++) this.walk(children[i], camera, groupOrder);
     return true;
+  }
+
+  // One unclaimed object: remembered for the measurement tools and reported
+  // once by the core.
+  unclaimed(object, material, why) {
+    this.stopped = object;
+    this.core.skip(object, material, why);
   }
 
   item(object, material, groupOrder) {
     if (object === this.core.graphics.background) return true;
     if (object.isLine) {
       if (this.core.byName.lines.owns(object)) return true;
-      this.stopped=object;return false;
+      this.unclaimed(object, material, "line no pass owns"); return false;
     }
-    if (!material.transparent || material.transmission > 0 || this.items.length >= MAX_ITEMS) { this.stopped = object; return false; }
+    if (!material.transparent || material.transmission > 0 || this.items.length >= MAX_ITEMS) { this.unclaimed(object, material, material.transparent ? "no free transparent record" : "opaque object no pass owns"); return false; }
     // z as projectObject takes it: a sprite's position, else the centre of
     // its bounding sphere (the object's own, where it has one), through its
     // world matrix, then the camera's projection and view (no divide).
@@ -142,7 +150,7 @@ export class NearPass {
     const item = this.pool[this.items.length] ??= {};
     item.object = object; item.material = material; item.geometry = object.geometry; item.group = null;
     item.groupOrder = groupOrder; item.renderOrder = object.renderOrder; item.z = point.z; item.id = object.id;
-    if (!this.core.byName.transparent.takes(item)) { this.stopped = object; return false; }
+    if (!this.core.byName.transparent.takes(item)) { this.unclaimed(object, material, "the transparent pass cannot take it"); return false; }
     this.items.push(item);
     return true;
   }

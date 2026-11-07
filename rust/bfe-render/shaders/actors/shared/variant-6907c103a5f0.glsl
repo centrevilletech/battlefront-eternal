@@ -1,0 +1,1 @@
+#define RIGID_SKIN

@@ -1,10 +1,20 @@
-// Rust draws every cascade: cached static depth, followed by moving casters.
-// The scene walk respects camera layers, frusta, groups and custom depth
-// materials. Three compiles those materials; Rust owns their depth targets.
+// The shadow pass (shadow.rs): the sun's shadow cascades drawn by the renderer
+// in place of three's shadow pass. graphics.js renderCascades offers it each
+// cascade's pass (cover): the static cache the frame its window lands (its
+// casters on the static layer), and every frame (the last cascade every other
+// one) the live map: the cache's depth copied in, then the moving casters.
+// A pass refuses any caster without a complete source-owned descriptor;
+// graphics.js reports the refusal instead of issuing browser shadow draws.
+//
+// The scene walk follows WebGLShadowMap's visibility, layer and frustum
+// rules. Custom depth shells name Rust programs and carry material values.
+// onBeforeShadow still supplies merged static meshes and alpha-cut proxies
+// with their cell ranges. Skeleton bones and geometry buffers retain their
+// existing upload contracts; no browser shader compilation is needed.
 import * as THREE from "three";
-import { compileFor } from "./instances.js";
+import { ownedProgram } from "./programs.js";
 import { lighting } from "../materials.js";
-import { plainProgram, writeUniform } from "./post.js";
+import { writeUniform } from "./post.js";
 
 const SHADOW_SIDE = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
 // An attribute's buffer source (an interleaved one's shared buffer).
@@ -76,6 +86,17 @@ class ShadowPass {
     this.drawn = 0;
     this.left = 0;
     this.why = null;
+  }
+
+  // Compile source-owned depth variants before the battle's first cascade.
+  prepare() {
+    const graphics = this.core.graphics;
+    for (const target of [...graphics.shadowMaps, ...graphics.shadowCaches]) this.core.renderer.initRenderTarget(target);
+    const depths = new Set(this.core.graphics.depthMaterials.values());
+    graphics.scene.traverse(object => { if (object.customDepthMaterial) depths.add(object.customDepthMaterial); });
+    for (const depth of depths) {
+      if (depth.userData.bfeProgram) ownedProgram(this.core, depth.userData.bfeProgram, null);
+    }
   }
 
   // graphics.js renderCascades: one cascade's pass (light: the cascade's; its
@@ -152,10 +173,11 @@ class ShadowPass {
   // three's renderObject, for one cascade: each caster the pass camera's
   // layers see (candidates) in the cascade's frustum, in scene order.
   walk(scene, camera, shadowCamera, frustum, renderer) {
+    const core = this.core;
     for (const object of this.candidates(scene, camera, renderer)) {
       if (this.why) return;
       if (object.frustumCulled && !frustum.intersectsObject(object)) continue;
-      if (!object.isMesh) { this.why = "a line or points caster"; return; }
+      if (!object.isMesh) { core.skip(object, object.material, "a line or points caster"); continue; }
       object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object.matrixWorld);
       if (object.isSkinnedMesh) this.bones(object, renderer);
       const material = object.material, geometry = object.geometry;
@@ -197,38 +219,32 @@ class ShadowPass {
   add(object, geometry, material, group, camera, shadowCamera, renderer) {
     if (this.why) return;
     const depth = object.customDepthMaterial;
-    if (!depth) { this.why = `${object.name || object.type}: three's own depth material`; return; }
+    if (!depth) { this.core.skip(object, material, "no custom depth material"); return; }
     depth.visible = material.visible;
     depth.wireframe = material.wireframe;
     depth.side = material.shadowSide ?? SHADOW_SIDE[material.side];
     depth.alphaMap = material.alphaMap;
     depth.alphaTest = material.alphaTest;
+    if(object.userData.fabricWind)depth.userData.bfeProgram=depth.alphaTest>0 ? "actors/depth-fabric-cutout" : "actors/depth-fabric";
     depth.map = material.map;
-    if (object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || depth.wireframe) { this.why = `${object.name || object.type}: kind`; return; }
+    if (object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || depth.wireframe) { this.core.skip(object, material, "caster kind no pass draws"); return; }
     object.onBeforeShadow(renderer, object, camera, shadowCamera, geometry, depth, group);
-    const sides = this.compiledSides ??= new WeakMap();
-    if (!renderer.properties.get(depth).currentProgram || (sides.has(depth) && sides.get(depth) !== depth.side)) {
-      compileFor(renderer, [[object, depth]], shadowCamera, this.core.graphics.scene);
-      this.core.stale = true;
-    }
-    sides.set(depth, depth.side);
-    const program = plainProgram(this.core, depth, null);
-    if (!program) { this.why = `${depth.name || depth.type}: ${program === undefined ? "not compiled yet" : "program"}`; return; }
-    // Cutout casters can be encountered before their colour pass, especially
-    // during preparation. Register depth-material maps here rather than
-    // assuming another pass already published their logical sampler ids.
+    const program = ownedProgram(this.core, depth.userData.bfeProgram, null);
+    // Cutout casters can be met before their colour pass, especially during
+    // preparation: register the depth material's maps here rather than
+    // assuming another pass already published their sampler ids.
     for (const uniform of program.uniforms) if (uniform.type === SAMPLER && uniform.name !== "boneTexture") {
       const texture = depth.uniforms?.[uniform.name]?.value ?? depth[uniform.name];
       if (texture?.isTexture) this.core.texture(texture);
     }
     // renderBufferDirect's range: the draw range within the group, the index.
     const index = geometry.index;
-    if (!index) { this.why = `${object.name || object.type}: no index`; return; }
+    if (!index) { this.core.skip(object, material, "no index"); return; }
     let start = geometry.drawRange.start, end = geometry.drawRange.start + geometry.drawRange.count;
     if (group) { start = Math.max(start, group.start); end = Math.min(end, group.start + group.count); }
     start = Math.max(start, 0); end = Math.min(end, index.count);
     const g = this.geometry(geometry, program, end > start ? end : 0);
-    if (g === null) { this.why = `${object.name || object.type}: geometry`; return; }
+    if (g === null) { this.core.skip(object, material, "geometry the renderer cannot hold"); return; }
     if (end - start > 0 && end - start !== Infinity) {
       this.draws.push({ program, geometry: g, start, count: end - start, side: depth.side, mirrored: object.matrixWorld.determinant() < 0, object, depth });
     }

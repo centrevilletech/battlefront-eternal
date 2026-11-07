@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Destruction } from '../src/destruction.js';
 import { loadEnvironment } from '../src/environment/module.js';
 import { DEFAULTS, PERFORMANCE_PRESETS, Settings } from '../src/settings.js';
-import { zeroMaterial } from '../src/materials.js';
+import { actorMaterial } from '../src/materials.js';
 import { listenSounds } from '../src/audio/events.js';
 import { RandomStreams } from '../src/ai/random.js';
 
@@ -41,7 +41,7 @@ function settings(mode = 'enhanced') {
   };
 }
 
-const material = zeroMaterial('dynamic', {});
+const material = actorMaterial('dynamic', {});
 const model = () => () => {
   const group = new THREE.Group();
   group.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.12).translate(0.15, 0, 0), material));
@@ -221,7 +221,7 @@ test('switching to classic clears what enhanced drew', () => {
 
 function station() {
   const root = new THREE.Group();
-  const original = zeroMaterial('dynamic', {});
+  const original = actorMaterial('dynamic', {});
   root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), original));
   return {
     state: 'built', health: 80, maxHealth: 80, original,

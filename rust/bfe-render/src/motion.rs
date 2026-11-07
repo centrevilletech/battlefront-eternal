@@ -216,6 +216,7 @@ impl<C: HasContext> MotionPass<C> {
             for &(buffer, floats) in &extra.attributes {
                 unsafe {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.extra_values[at..at + instances * floats]));
                 }
                 at += instances * floats;
@@ -321,6 +322,7 @@ impl<C: HasContext> MotionPass<C> {
         let (state, stats) = (&mut core.state, &mut core.stats);
         unsafe {
             state.bind_texture(gl, stats, UNIT_INSTANCES, Some(self.rows_texture));
+            crate::core::spare_view_slot();
             gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, ROW_TEXELS as i32, records as i32, glow::RGBA, glow::FLOAT,
                 glow::PixelUnpackData::Slice(Some(bytes(&self.rows[..records * ROW_TEXELS * 4]))));
             stats.gl_calls += 1;
@@ -328,6 +330,7 @@ impl<C: HasContext> MotionPass<C> {
                 state.bind_texture(gl, stats, unit, Some(texture));
                 if n > 0 {
                     let rows = (n * 4 + BONE_TEXELS - 1) / BONE_TEXELS;
+                    crate::core::spare_view_slot();
                     gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, BONE_TEXELS as i32, rows as i32, glow::RGBA, glow::FLOAT,
                         glow::PixelUnpackData::Slice(Some(bytes(&data[..rows * BONE_TEXELS * 4]))));
                     stats.gl_calls += 1;

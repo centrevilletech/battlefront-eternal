@@ -2,7 +2,7 @@ import { PageUnits } from "./presentation/units.js";
 import { loadClips } from "./anim.js";
 import { PlayerCombat } from "./combat.js";
 import { ShieldBubble } from "./droideka.js";
-import { zeroMaterial } from "./materials.js";
+import { actorMaterial } from "./materials.js";
 import { modelGroup, modelPack } from "./models.js";
 import { motionVectors } from "./motion-vectors.js";
 import { SoldierPresentation, HeadlessSoldierPresentation } from "./soldier-presentation.js";
@@ -280,7 +280,7 @@ export class PlayerBodies {
       const parts = primary && c.weaponModels.get(primary.def.GeometryName);
       if (parts && actor.hand) {
         actor.hand.add(modelGroup(parts, (part) => {
-          const material = zeroMaterial("dynamic", { map: c.anyTexture(part.texture) });
+          const material = actorMaterial("dynamic", { map: c.anyTexture(part.texture) });
           actor.materials.push(material);
           return material;
         }));

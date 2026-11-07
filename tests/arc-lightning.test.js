@@ -364,10 +364,11 @@ test("while warming, an empty batch draws one dark capsule, so the driver builds
   batch.end(false);
   assert.equal(batch.geometry.instanceCount, 0, "warmed: empty draws nothing");
   assert.equal(batch.mesh.visible, false);
-  const lightning = new ArcLightning(new THREE.Scene());
-  const warm = lightning.warm;
-  assert.ok(warm.geometry.attributes.position.array.some((x) => x !== 0), "the shock stand-in is a real triangle");
-  assert.equal(warm.material.uniforms.intensity.value, 0, "adding nothing");
+  const scene=new THREE.Scene(),lightning = new ArcLightning(scene);
+  assert.equal(scene.children.some(o=>o.isSkinnedMesh),false,"owned shocks need no temporary skinned geometry");
+  const before=lightning.warming;
+  lightning.batch.mesh.onBeforeRender(null,scene,new THREE.PerspectiveCamera());
+  assert.equal(lightning.warming,before-1,"the effect batch counts its own preparation draws");
 });
 
 test("a line is written into the batch as push() lays a segment out, joints and taper included", () => {

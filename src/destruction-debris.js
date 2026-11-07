@@ -1,7 +1,5 @@
 import * as THREE from "three";
-import { localLighting } from "./local-lights.js";
 import { motionVectors } from "./motion-vectors.js";
-import { selectLights } from "./materials.js";
 import { Dst, DstPiece as PIECE } from "./environment/layout.js";
 
 // The pieces of a droid blown apart, for the Enhanced destruction effects
@@ -66,104 +64,38 @@ export function pieceShape(object) {
   return { center, half, points, radius, inverseInertia: new THREE.Vector3(1 / inertia.x, 1 / inertia.y, 1 / inertia.z) };
 }
 
-// A copy of one of the game's materials (materials.js zeroMaterial) that
-// glows where hot and chars: the same lighting, shadows and fog, plus heat.
-// Per-piece values ride on the drawn object (object.userData.heated).
-const HEAT_PARS = /* glsl */ `
-  #ifdef HEATED
-    uniform float heat;
-    uniform vec4 heatTear; // where it tore away (its own frame), and how far the heat spreads
-    uniform float heatBase; // heat everywhere, besides the tear's
-    uniform float heatScale; // the hot patches' size: 1 for pieces, less for bigger patches
-    uniform float soot;
-    uniform float dissolve;
-    varying vec3 vHeatLocal;
-    float hHash(vec3 p) {
-      p = fract(p * 0.3183099 + 0.1);
-      p *= 17.0;
-      return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-    }
-    float hNoise(vec3 x) {
-      vec3 i = floor(x), f = fract(x);
-      f = f * f * (3.0 - 2.0 * f);
-      return mix(mix(mix(hHash(i), hHash(i + vec3(1, 0, 0)), f.x), mix(hHash(i + vec3(0, 1, 0)), hHash(i + vec3(1, 1, 0)), f.x), f.y),
-                 mix(mix(hHash(i + vec3(0, 0, 1)), hHash(i + vec3(1, 0, 1)), f.x), mix(hHash(i + vec3(0, 1, 1)), hHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-    }
-    vec3 heated(vec3 color) {
-      float n = hNoise(vHeatLocal * 13.0 * heatScale) * 0.62 + hNoise(vHeatLocal * 34.0 * heatScale + 5.0) * 0.38;
-      if (n < dissolve) discard;
-      float tear = max(exp(-distance(vHeatLocal, heatTear.xyz) / max(heatTear.w, 0.01)), heatBase);
-      float scorch = clamp(tear * 1.25 + (n - 0.45) * 0.9, 0.0, 1.0);
-      color *= 1.0 - soot * (0.18 + 0.55 * scorch);
-      // Ragged hot patches, densest where it tore; white at the hottest.
-      float glow = smoothstep(0.52, 0.92, tear * 0.8 + n * 0.55) * heat;
-      vec3 hot = mix(vec3(0.7, 0.07, 0.01), vec3(1.9, 0.7, 0.16), smoothstep(0.2, 0.7, heat));
-      hot = mix(hot, vec3(2.4, 1.85, 1.15), smoothstep(0.75, 1.0, heat) * smoothstep(0.55, 0.9, glow));
-      return color + hot * glow;
-    }
-  #endif
-`;
-
-// The stock fragment shader with heat: declared after its common chunk, and
-// applied to the lit colour before the near scene dissolves into the far
-// one, so a hot or sooted piece fades out with everything else at range.
-// Without that block (a shader of another shape) it goes last instead.
-const FAR_FADE = /#ifdef FAR(\s*)\/\/ Linear fog by depth/;
-const APPLY_HEAT = "#ifdef HEATED\n        color.rgb = heated(color.rgb);\n      #endif\n      ";
-function heatedFragment(source) {
-  const shader = source.replace("#include <common>", `#include <common>\n${HEAT_PARS}`);
-  if (FAR_FADE.test(shader)) return shader.replace(FAR_FADE, (fade) => APPLY_HEAT + fade);
-  return shader.replace("gl_FragColor = color;", `${APPLY_HEAT}gl_FragColor = color;`);
-}
-
+// A lit model keeps its material values while its instance row supplies
+// heat, charring and dissolve from object.userData.heated.
 const heatMaterials = new WeakMap();
-const NO_HEAT = { heat: 0, tear: new THREE.Vector4(0, 0, 0, 0.3), soot: 0, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
 
 export function heatMaterial(source) {
   let material = heatMaterials.get(source);
   if (material) return material;
-  if (!source?.isShaderMaterial || !source.fragmentShader.includes("gl_FragColor = color;")) return source;
+  if (!source) return source; // (a body with no material of its own: nothing to heat)
+  if (!source.userData?.actorShader) throw Error("Heat requires an owned model material");
   const uniforms = {
     ...source.uniforms,
     sunScale: { value: 1 }, brightness: { value: 1 }, ambientPull: { value: new THREE.Vector2() },
-    heat: { value: 0 }, heatTear: { value: new THREE.Vector4(0, 0, 0, 0.3) }, heatBase: { value: 0 }, heatScale: { value: 1 }, soot: { value: 0 }, dissolve: { value: 0 },
   };
-  material = new THREE.ShaderMaterial({
+  const values = {
     name: `${source.name}:heated`,
     defines: { ...source.defines, HEATED: "" },
     uniforms,
-    vertexShader: source.vertexShader
-      .replace("#include <common>", "#include <common>\n#ifdef HEATED\n  varying vec3 vHeatLocal;\n#endif")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\n    #ifdef HEATED\n      vHeatLocal = transformed;\n    #endif"),
-    fragmentShader: heatedFragment(source.fragmentShader),
-    lights: source.lights,
+    forceSinglePass: true,
+    fog: false,
     transparent: source.transparent,
     depthWrite: source.depthWrite,
     depthTest: source.depthTest,
     blending: source.blending,
     side: source.side,
     alphaToCoverage: source.alphaToCoverage,
-  });
+  };
+  material = Object.assign(new THREE.Material(), values);
+  material.userData.actorShader = source.userData.actorShader;
+  material.visible = false;
   material.map = source.map;
   material.alphaTest = source.alphaTest;
   material.shadowSide = source.shadowSide;
-  const dynamic = source.defines?.DYNAMIC !== undefined;
-  material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
-    // The point lights this draw reads, as its source's draws choose them.
-    if (source.userData.pointLit) selectLights(material, object, geometry, scene, camera);
-    const look = object.userData.heated || NO_HEAT;
-    uniforms.heat.value = look.heat;
-    uniforms.heatTear.value.copy(look.tear);
-    uniforms.heatBase.value = look.base || 0;
-    uniforms.heatScale.value = look.scale || 1;
-    uniforms.soot.value = look.soot;
-    uniforms.dissolve.value = look.dissolve;
-    uniforms.sunScale.value = look.sun;
-    uniforms.brightness.value = look.brightness;
-    uniforms.ambientPull.value.set(look.darken, look.lighten);
-    if (dynamic) localLighting.select(object, scene.userData.isViewScene);
-    material.uniformsNeedUpdate = true;
-  };
   heatMaterials.set(source, material);
   return material;
 }

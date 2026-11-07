@@ -3,7 +3,7 @@ import { Graphics } from '../src/graphics.js';
 import { Water } from '../src/water.js';
 import { CommandPosts } from '../src/commandposts.js';
 import { Settings } from '../src/settings.js';
-import { describe, zeroMaterial } from '../src/materials.js';
+import { describe, worldMaterial } from '../src/materials.js';
 import { ParticleRenderer, BILLBOARD, FLAT } from '../src/particles.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -28,9 +28,9 @@ export async function checkRendering() {
     return g.texture(t);
   };
   const white = texture(2,()=>[255,255,255,255]);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20,20), zeroMaterial('lit',{map:white}));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20,20), worldMaterial('lit',{map:white}));
   floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; g.scene.add(floor);
-  const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), zeroMaterial('lit',{map:white}));
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), worldMaterial('lit',{map:white}));
   box.position.y=.5; box.receiveShadow=true; g.caster(box); g.scene.add(box);
   g.camera.position.set(3,4,6); g.camera.lookAt(0,0,0);
   const gl = g.renderer.getContext();
@@ -111,7 +111,7 @@ export async function checkRendering() {
   // A hidden cutout card must cast its alpha silhouette, not a solid quad.
   box.visible=false;
   const mask=texture(64,(x,y)=>[255,30,20,Math.hypot(x-32,y-32)<20?255:0]);
-  const card=new THREE.Mesh(new THREE.PlaneGeometry(3,3),zeroMaterial('lit',{map:mask,alphaTest:true,doubleSided:true}));
+  const card=new THREE.Mesh(new THREE.PlaneGeometry(3,3),worldMaterial('lit',{map:mask,alphaTest:true,doubleSided:true}));
   card.rotation.x=-Math.PI/2;card.position.y=1;card.layers.set(g.hiddenLayer);g.caster(card);g.scene.add(card);
   settings.set('shadows','low');const cutShadow=capture();
   card.material.alphaTest=0;const solidShadow=capture();
@@ -124,7 +124,7 @@ export async function checkRendering() {
   card.visible=false;box.visible=true;settings.set('antialiasing','off');
 
   const originalMaterial=box.material;
-  box.material=zeroMaterial('dynamic',{map:white});
+  box.material=worldMaterial('dynamic',{map:white});
   g.setEnvironment({sunColor:[0,0,0],ambient:[0,0,0],top:[0,0,0],bottom:[0,0,0]});
   const lamp=g.localLights.add([0,2,1],[1,.6,.2],6);
   settings.set('lampLighting',false);const noLamp=capture();settings.set('lampLighting',true);const withLamp=capture();
@@ -134,7 +134,7 @@ export async function checkRendering() {
   g.localLights.collision=null;g.localLights.sources.length=0;
   box.material=originalMaterial;
   floor.visible=false;box.visible=false;
-  const panel=new THREE.Mesh(new THREE.PlaneGeometry(4,4),zeroMaterial('dynamic',{map:white}));g.scene.add(panel);
+  const panel=new THREE.Mesh(new THREE.PlaneGeometry(4,4),worldMaterial('dynamic',{map:white}));g.scene.add(panel);
   const pointLight=new THREE.PointLight(0xffffff,1,1);pointLight.position.set(0,0,.3);g.scene.add(pointLight);
   g.camera.position.set(0,0,5);g.camera.lookAt(0,0,0);const pixelPoint=capture();
   pointLight.intensity=0;const noPoint=capture();
@@ -154,7 +154,7 @@ export async function checkRendering() {
   bumpGeometry.setAttribute('binormal',new THREE.Float32BufferAttribute(Array.from({length:count},()=>[0,1,0]).flat(),3));
   bumpGeometry.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(new Uint16Array(count*4),4));
   bumpGeometry.setAttribute('skinWeight',new THREE.Float32BufferAttribute(Array.from({length:count},()=>[1,0,0,0]).flat(),4));
-  const bumpMaterial=zeroMaterial('dynamic',{map:white,bumpMap:normalMap});
+  const bumpMaterial=worldMaterial('dynamic',{map:white,bumpMap:normalMap});
   const bumpSkin=new THREE.SkinnedMesh(bumpGeometry,bumpMaterial),bumpBone=new THREE.Bone();
   bumpSkin.add(bumpBone);bumpSkin.bind(new THREE.Skeleton([bumpBone]));bumpBone.rotation.z=.8;
   g.setEnvironment({sunDirection:[-.8,-.3,-.5],sunColor:[180,180,180]});
@@ -218,7 +218,7 @@ export async function checkRendering() {
   // soft particles.
   const thatchLook=describe({texture:'kas2_bldg_hut_walls',flags:7});
   const holes=texture(64,(x)=>[150,110,60,x<32?255:0]);
-  const thatch=new THREE.Mesh(new THREE.PlaneGeometry(4,4),zeroMaterial(thatchLook.kind,{...thatchLook,map:holes}));
+  const thatch=new THREE.Mesh(new THREE.PlaneGeometry(4,4),worldMaterial(thatchLook.kind,{...thatchLook,map:holes}));
   thatch.position.z=1;g.scene.add(thatch);
   const behind=pr.batch(white,'normal');
   pr.begin();behind.push(0,0,-1,0,.3,1,1,6);pr.end();
@@ -230,7 +230,7 @@ export async function checkRendering() {
     assert(`Hard-edged thatch hides a particle behind it (${aa}, soft particles ${soft})`,!blue(solid)&&blue(hole),{solid,hole});
   }
   // Read as blended without depth writes, the same card lets it through.
-  const cutout=thatch.material,blended=zeroMaterial(thatchLook.kind,{...thatchLook,blending:'normal',map:holes});
+  const cutout=thatch.material,blended=worldMaterial(thatchLook.kind,{...thatchLook,blending:'normal',map:holes});
   thatch.material=blended;settings.set('antialiasing','off');settings.set('softParticles',false);
   const leaked=column(capture(),.4);
   assert('A blended thatch fixture lets the particle through',blue(leaked),{leaked});
@@ -238,7 +238,7 @@ export async function checkRendering() {
   // As an opaque cutout it now casts shadows: its silhouette, not a quad.
   floor.visible=true;settings.set('shadows','low');g.camera.position.set(3,4,6);g.camera.lookAt(0,0,0);
   const shade=(look)=>{
-    const card=new THREE.Mesh(new THREE.PlaneGeometry(3,3),zeroMaterial(look.kind,{...look,map:holes}));
+    const card=new THREE.Mesh(new THREE.PlaneGeometry(3,3),worldMaterial(look.kind,{...look,map:holes}));
     card.rotation.x=-Math.PI/2;card.position.y=1;card.layers.set(g.hiddenLayer);g.caster(card);g.scene.add(card);
     const frame=capture();g.scene.remove(card);g.casters.delete(card);card.material.dispose();return frame;
   };
@@ -330,7 +330,7 @@ export async function checkRendering() {
   // Upscalers: the 3D frame at half resolution, rebuilt at the canvas's.
   // The reference is 2x supersampled (a box filter down to the canvas).
   const fineChecker=texture(64,(x,y)=>((x>>1)+(y>>1))&1?[235,235,235,255]:[40,40,40,255]);
-  const plane=new THREE.Mesh(new THREE.PlaneGeometry(20,20),zeroMaterial('lit',{map:fineChecker}));
+  const plane=new THREE.Mesh(new THREE.PlaneGeometry(20,20),worldMaterial('lit',{map:fineChecker}));
   plane.rotation.x=-Math.PI/2;plane.receiveShadow=true;g.scene.add(plane);floor.visible=false;
   g.camera.position.set(3,4,6);g.camera.lookAt(0,0,0);
   const canvas=()=>{g.render(0);const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight,p=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,p);return {w,h,p};};

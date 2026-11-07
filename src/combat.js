@@ -4,7 +4,7 @@ import { weaponMuzzle } from "./muzzles.js";
 
 import * as THREE from "three";
 import { prepareMelee, attachBlade } from "./heroes.js";
-import { zeroMaterial } from "./materials.js";
+import { actorMaterial } from "./materials.js";
 import { modelGroup } from "./models.js";
 import { motionVectors } from "./motion-vectors.js";
 import { HEALTH_SCALES } from "./ordnance.js";
@@ -114,7 +114,7 @@ export class PlayerCombat {
       const name = weapon.def.GeometryName;
       if (!name || this.held.has(name) || !weaponModels.has(name)) continue;
       const group = modelGroup(weaponModels.get(name), (part) => {
-        const material = zeroMaterial("dynamic", { map: texture(part.texture) });
+        const material = actorMaterial("dynamic", { map: texture(part.texture) });
         actor.materials.push(material);
         return material;
       });

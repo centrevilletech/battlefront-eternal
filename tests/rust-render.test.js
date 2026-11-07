@@ -94,7 +94,7 @@ test("every other phase calls its own renderer entry and binds back the target i
   assert.deepEqual(calls, [["far_frame"], ["resetState"], ["setRenderTarget", target]]);
   for (const [name, entry] of [["transparent", "transparent_frame"], ["view", "view_frame"], ["post", "post_frame"]]) {
     calls.length = 0;
-    core.phase(name, renderer, scene, camera);
+    core.phase(name, renderer, name==="view"?new THREE.Scene():scene, camera);
     assert.equal(calls.filter((c) => c[0].endsWith("frame"))[0][0], entry);
     assert.equal(core.phaseStats[name], STATS);
   }

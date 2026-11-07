@@ -188,6 +188,7 @@ impl<C: HasContext> FoliagePass<C> {
             gl.bind_vertex_array(Some(vao));
             let vertex_buffer = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vertex_buffer));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(vertices), glow::STATIC_DRAW);
             let mut offset = 0;
             for (k, size) in VERTEX_PARTS.iter().enumerate() {
@@ -215,6 +216,7 @@ impl<C: HasContext> FoliagePass<C> {
             }
             let index_buffer = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index_buffer));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -372,6 +374,7 @@ impl<C: HasContext> FoliagePass<C> {
                 gl.bind_vertex_array(Some(class.vao));
                 if class.dirty {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(class.rows_buffer));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&class.upload));
                     gl.bind_buffer(glow::ARRAY_BUFFER, None);
                     class.dirty = false;

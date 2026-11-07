@@ -107,6 +107,7 @@ impl<C: HasContext> WaterPass<C> {
         for (k, data) in [&self.rings_position, &self.rings_uv, &self.rings_alpha].iter().enumerate() {
             if let Some(buffer) = self.ring_buffers.get(k) { unsafe {
                 core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buffer));
+                crate::core::spare_view_slot();
                 core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(data));
             }}
         }
@@ -150,6 +151,7 @@ impl<C: HasContext> WaterPass<C> {
             }
             let ib = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ib));
+            crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -227,6 +229,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for WaterPass<C> {
                 let size = RING_SIZES[k];
                 unsafe {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.ring_buffers[k]));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (start * size * 4) as i32, bytes(&data[start * size..end * size]));
                 }
                 core.stats.gl_calls += 2;
@@ -251,6 +254,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for WaterPass<C> {
             for &(buffer, size, from) in &set.attributes {
                 unsafe {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                    crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.instances[from..from + count * size]));
                 }
                 core.stats.gl_calls += 2;
