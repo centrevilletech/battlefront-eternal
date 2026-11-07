@@ -13,6 +13,9 @@
 //! ECMAScript rules. The differential harness in `tools/` checks
 //! all of it against V8 on tens of millions of bit patterns.
 
+mod buffered;
+pub use buffered::{json_number_into, fixed_four_number};
+
 /// The shortest digits of a finite positive double: a digit string
 /// with no point and no leading or trailing zeros (except "0"
 /// itself), and the exponent `n` of the spec's form

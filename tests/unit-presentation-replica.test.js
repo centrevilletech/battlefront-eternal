@@ -2,7 +2,7 @@ import { f3World } from './fixtures/f3-world.js';
 import './fixtures/native-anim.js';
 import { contentPath } from './helpers/content.js';
 import {presentUnit} from './helpers/presentation.js';
-import {EntityWorldCapture} from '../src/runtime/network-entity-capture.js';
+import {captureEntitySoldier} from '../src/runtime/network-entity-capture.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -70,11 +70,10 @@ function toggle(world,unit) {
 
 function link(world,page) {
   const registry={classes:new Map([[1,'deka']]),weapons:new Map([[1,'repeater'],[2,'shield']])};
-  const capture=new EntityWorldCapture(world,registry);
   const adapter=Object.create(EntityGameState.prototype);
   Object.assign(adapter,{game:page,registry,presentation:{bind(){}}});
   let tick=0;
-  return ()=>{for(const r of capture.capture(++tick))if(r.kind==='droideka')adapter.droideka(r);};
+  return ()=>{for(const unit of world.units.all())if(unit.walker)adapter.droideka(captureEntitySoldier(unit,{tick:++tick,classId:1,weaponId:1}));};
 }
 
 test('a page keeps what it draws a body with when the world it shows is replicated onto it', async() => {

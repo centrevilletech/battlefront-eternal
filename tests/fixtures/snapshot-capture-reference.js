@@ -1,100 +1,12 @@
-// Frozen reference: the snapshot host's capture as it was before capture
-// stopped building what a snapshot does not take (engine 4ffa3a3). Copied
-// unchanged: the entity records (network-entity-capture.js,
-// network-entity-items.js), their conversion to entries and the world-field
-// stagger (snapshot-records.js), the station and tow records
-// (entity-world-state.js), and the host's capture sequence (snapshot-host.js
-// captureSnapshot, here a factory over the state it closed over). Capture
-// must keep producing exactly these snapshots, entry for entry and field for
-// field in the same order; tests/snapshot-capture-identity.test.js compares
-// them. Never edit this copy to follow a capture change: a deliberate change
-// to what snapshots hold replaces the identity test instead.
+// Frozen protocol entry/stagger helpers from engine 4ffa3a3. Their algorithms
+// are unchanged; obsolete authoritative world walks have been removed.
+// Canonical production now has recorded byte and native-store fixtures.
 import { SNAPSHOT_SLOT_COUNT, DEFAULT_SNAPSHOT_BOUNDS, emptySnapshot, worldFieldKey, quantizePosition, quantizeVelocity, dequantizeVelocity,
   quantizeYaw, quantizePitch, quantizeQuaternion } from '../../src/runtime/snapshot-codec.js';
 import { TURRET_STATES, ENTITY_POSTURES, ENTITY_SOLDIER_STATES, encodeEntityRecord } from '../../src/runtime/network-entity-codec.js';
-import { EntityRemoteCapture } from '../../src/runtime/network-entity-remotes.js';
-import { captureEntityMount, captureEntityTurret, ENTITY_VEHICLE_STATES } from '../../src/runtime/network-entity-capture.js';
+import { ENTITY_VEHICLE_STATES } from '../../src/runtime/network-entity-capture.js';
 import { CREATURE_STATE_SCHEMA, CREATURE_STATE_ID, TRAP_STATE_SCHEMA, TRAP_STATE_ID } from '../../src/runtime/entity-world-state.js';
-import { captureUnitState, UNIT_STATE_ID } from '../../src/runtime/entity-unit-state.js';
-import { captureBattleSummary, capturePostSummary, captureRosterSummaries, captureRecordSummaries } from '../../src/runtime/network-entity-summary.js';
-import { chargeStep } from '../../src/weapons.js';
 
-// network-entity-items.js
-// Slots survive removal; only their generation changes when reused. The total
-// high-water history is bounded by the mission's actual item pools.
-export class EntityItemCapture {
- constructor(items,registry,{capacity=(items.pools?.mine??50)+(items.pools?.powerupitem??25)}={}){
-  if(!Number.isSafeInteger(capacity)||capacity<1||capacity>256)throw Error('unsupported item pool capacity');
-  this.items=items;this.registry=registry;this.slots=Array.from({length:capacity},()=>({generation:0,object:null,record:null,bytes:null}));this.objects=new Map();
- }
- capture(tick){
-  const live=new Set(this.items.items.filter(item=>!item.gone));
-  for(const[item,index]of this.objects)if(!live.has(item)){const slot=this.slots[index];slot.object=null;slot.record={kind:'item',id:index,generation:slot.generation,tick,active:false};slot.bytes=null;this.objects.delete(item);}
-  for(const item of live){let index=this.objects.get(item);if(index===undefined){index=this.slots.findIndex(slot=>!slot.object);if(index<0)throw Error('item capture capacity exceeded');const slot=this.slots[index];if(slot.generation===0xffffffff)throw Error('item slot generation exhausted');slot.generation++;slot.object=item;this.objects.set(item,index);}
-   const slot=this.slots[index],raw=[item.position.x,item.position.y,item.position.z,item.velocity.x,item.velocity.y,item.velocity.z,item.yaw,item.up.x,item.up.y,item.up.z];
-   if(slot.record?.active&&slot.record.generation===slot.generation&&slot.raw&&raw.every((n,i)=>n===slot.raw[i]))continue;
-   slot.raw=raw;const record={kind:'item',id:index,generation:slot.generation,tick,active:true,definitionId:this.registry.definitionId(item.def),position:item.position.toArray(),velocity:item.velocity.toArray(),yaw:item.yaw,up:item.up.toArray()},bytes=encodeEntityRecord(record);
-   if(slot.bytes&&bytes.length===slot.bytes.length&&bytes.every((value,i)=>i>=9&&i<=12||value===slot.bytes[i]))continue;
-   slot.record=record;slot.bytes=bytes;
-  }
-  return this.slots.flatMap(slot=>slot.record?[slot.record]:[]);
- }
-}
-
-// A page's items online, flown here by the world's own rules (Items.fly:
-// gravity, the ray against this page's collision, bounce and settle) one
-// 60 Hz tick at a time as the playout clock crosses ticks, and drawn between
-// the last two at the clock's fraction, so a thrown item falls smoothly
-// however its records bunch. When the clock reaches a record, a copy further
-// off than the records' rounding takes the world's state behind a short
-// fading offset; a closer one is nudged halfway, so the rounding averages
-// out. The wire has no landed bit: a record at rest (no velocity) lands the
-// copy where the world says, so a resting item never drifts or falls through
-// ground this page lacks. An item appears when the clock reaches its first
-// record and goes when it reaches its removal. This is presentation only:
-// no update(), watch(), offer(), damage or grant runs here; the world alone
-// network-entity-capture.js
-const enumerate=(values,name)=>{const index=values.indexOf(name);if(index<0)throw Error(`unsupported entity state ${name}`);return index;};
-const reverse=map=>{const result=new Map();for(const[id,name]of map){if(result.has(name))throw Error('ambiguous entity registry');result.set(name,id);}return result;};
-const boundedHealth=value=>{if(!Number.isFinite(value))throw Error('entity health is not a number');return Math.round(Math.min(65535,Math.max(0,value)));};
-const required=(map,name)=>{const id=map.get(name);if(id===undefined)throw Error(`entity registry missing ${name}`);return id;};
-export function captureEntitySoldier(unit,{tick,classId,weaponId=0,fireCounter=0}){
- const s=unit.soldier,state=unit.dead?(s.air==='thrown'?'thrownDead':'dead'):s.dive?(s.dive>0?'diveRight':'diveLeft'):s.air||'ground';
- return {kind:'soldier',id:unit.id,generation:unit.generation,tick,classId,team:unit.team,position:s.position.toArray(),velocity:s.velocity.toArray(),yaw:s.aimYaw,pitch:s.aimPitch,health:boundedHealth(unit.combat.health),posture:enumerate(ENTITY_POSTURES,s.posture),state:enumerate(ENTITY_SOLDIER_STATES,state),weapon:weaponId,fireCounter,charge:unit.dead?0:chargeStep(unit.combat.arsenal?.current(0))};
-}
-export function captureEntityVehicle(vehicle,{tick,classId}){
- return {kind:'vehicle',id:vehicle.aiTarget.id,generation:vehicle.aiTarget.generation,tick,classId,team:vehicle.team,position:vehicle.position.toArray(),velocity:vehicle.velocity.toArray(),quaternion:vehicle.quaternion.toArray(),health:boundedHealth(vehicle.health),state:enumerate(ENTITY_VEHICLE_STATES,vehicle.dying>0?'Dying':vehicle.flightState||'Ground'),
-  power:vehicle.dying>0?Math.min(65535,Math.ceil(vehicle.dying*1000)):Math.round(vehicle.power||0)};
-}
-// Fixed actor roster capture. World summaries use network-entity-summary.js;
-// projectile/effect lifecycle coverage remains separate work.
-export class EntityWorldCapture {
- constructor(game,registry,{maxEntities=256,fireCounter=()=>0}={}){this.game=game;this.classes=reverse(registry.classes);this.weapons=reverse(registry.weapons);this.maxEntities=maxEntities;this.fireCounter=fireCounter;this.known=new Map();this.seats=new Map();this.leaseSerial=0;this.unsupported=[];this.items=game.items?new EntityItemCapture(game.items,registry.combat):null;this.remotes=new EntityRemoteCapture(game,registry.combat);}
- capture(tick){
-  const live=new Map(),records=[...(this.items?.capture(tick)??[]),...this.remotes.capture(tick)];this.unsupported=[];
-  for(const unit of this.game.units.all()){
-   if(!unit.soldier||!unit.combat||unit.removed)continue;
-   const weapon=unit.combat.arsenal.current(0),record=captureEntitySoldier(unit,{tick,classId:required(this.classes,unit.className),weaponId:weapon?required(this.weapons,weapon.name):0,fireCounter:this.fireCounter(unit)});
-   if(unit.walker){const d=unit.soldier;Object.assign(record,{kind:'droideka',mode:d.mode,reverse:d.reverse,dead:d.dead,shieldOn:!!d.shield?.on,shield:d.shield?.value||0,time:d.time,roll:d.roll,lean:d.lean,legs:d.legs});}
-   live.set(unit.id,record);records.push(record);
-   // A seat names its mount by registry id: a hull or a stationary turret.
-   // The same lease record covers both; the client resolves the id.
-   const lease=unit.seat,mount=(lease?.vehicle||lease?.turret)?.aiTarget||null;
-   const signature=`${unit.generation}:${mount?.id||0}:${mount?.generation||0}:${lease?.index||0}`,old=this.seats.get(unit.id);
-   if(mount||old){if(old?.signature!==signature)this.seats.set(unit.id,{signature,record:{kind:'seat',id:unit.id,generation:unit.generation,tick,vehicleId:mount?.id||0,vehicleGeneration:mount?.generation||0,seatIndex:lease?.index||0,leaseVersion:++this.leaseSerial}});records.push(this.seats.get(unit.id).record);}
-  }
-  const system=this.game.vehicles;
-  // A dying walker stays (its record says so); its crew pose has nothing to say.
-  for(const vehicle of system?.vehicles||[]){if(!vehicle.alive&&!(vehicle.dying>0))continue;const record=captureEntityVehicle(vehicle,{tick,classId:required(this.classes,vehicle.name)});live.set(record.id,record);records.push(record);if(vehicle.alive)records.push(captureEntityMount(vehicle,{tick,slot:system.slots?.indexOf(vehicle.slot)??-1}));}
-  for(const turret of this.game.turretSeats?.turrets||[]){const record=captureEntityTurret(turret,{tick,building:this.game.live?.buildings?.indexOf(turret)??-1});if(record)records.push(record);}
-  for(const[id,old]of this.known)if(!live.has(id)){
-   const tombstone=old.kind==='tombstone'?old:{kind:'tombstone',id,generation:old.generation,tick};records.push(tombstone);live.set(id,tombstone);
-  }
-  if(live.size>this.maxEntities)throw Error('semantic fixed-roster capacity exceeded');
-  this.known=live;for(const id of this.seats.keys())if(!live.has(id)||live.get(id).kind==='tombstone')this.seats.delete(id);return records;
- }
-}
-// snapshot-records.js
 const angleCode = value => Math.max(-32767, Math.min(32767, Math.round(value * 32767 / Math.PI)));
 export class SnapshotSlotTable {
   constructor() { this.byKey = new Map(); this.byUnitId = new Map(); this.free = []; this.next = 0; }
@@ -323,54 +235,3 @@ const COMMON_WORLD_SCHEMAS = new Set([1, 2, 4, 5]), BATTLE_COMPLETE_SCHEMAS = [1
 const ROSTER_WORLD_SCHEMAS = new Set([4]);
 const RECORD_WORLD_SCHEMAS = new Set([5]);
 const PRESENTATION_WORLD_SCHEMAS = [7, 8, 9, 10];
-// The players attached, by Character, with the link the session reports
-// (network-entity-summary.js captureWorldSummaries builds the same map).
-function attachedPlayers(world) {
-  const players = new Map();
-  for (const p of world.players?.values?.() || []) if (p.character) players.set(p.character, { link: p.link || null });
-  return players;
-}
-// captureSnapshot as the host ran it, over the state it closed over (the
-// host's ring and encode cache aside). fireCounter is the host's
-// EntityShotCounters.counter.
-export function referenceCapture({ game, world, registry, epoch = 1, fireCounter }) {
-  const capture = new EntityWorldCapture(game, registry, { fireCounter });
-  const slots = new SnapshotSlotTable(), stagger = new WorldFieldStagger();
-  let lastSnapshot = null, rosterLength = -1;
-  function captureSnapshot(tick) {
-    const characters = game.battle.characters;
-    for (const [slot, c] of characters.entries()) c.rosterSlot = slot;
-    const records = capture.capture(tick);
-    // The fields captureWorldSummaries produces for everyone. Skipping the
-    // roster when none of its chunks is due and its chunk count (set by the
-    // character count) is unchanged publishes exactly what capturing it would.
-    const captureBattle = stagger.anyDue(tick, COMMON_WORLD_SCHEMAS);
-    const captureRoster = captureBattle && (characters.length !== rosterLength || stagger.schemaDue(tick, ROSTER_WORLD_SCHEMAS));
-    const captureRecords = captureBattle && stagger.schemaDue(tick, RECORD_WORLD_SCHEMAS);
-    const complete = new Set(PRESENTATION_WORLD_SCHEMAS), common = [];
-    if (captureBattle) {
-      common.push(captureBattleSummary(game.battle, { tick, epoch }), ...game.posts.posts.map(post => capturePostSummary(post, { tick, epoch, registry })));
-      for (const schema of BATTLE_COMPLETE_SCHEMAS) complete.add(schema);
-    }
-    if (captureRoster) {
-      common.push(...captureRosterSummaries(game.battle, attachedPlayers(world), { tick, epoch }));
-      complete.add(4); rosterLength = characters.length;
-    }
-    // Everyone's records (battle-stats.js), for DETAILS from Tab's table in
-    // whole seconds, and exact once the scores stop (they no longer
-    // change) for the end table's DETAILS and AWARDS.
-    if (captureRecords) {
-      common.push(...captureRecordSummaries(game.battle, registry, { tick, epoch, quantum: game.battle.gameOver ? 1 : 1000 }));
-      complete.add(5);
-    }
-    const worldRecords = stagger.update(tick, [
-      ...common,
-      ...[...game.units.all()].filter(u => u.soldier && u.combat && !u.removed && stagger.isDue(tick, `6:${UNIT_STATE_ID + u.id}`)).map(u => captureUnitState(u, registry, tick)),
-      ...captureWorldPresentation(game, tick, epoch),
-    ], complete);
-    const snapshot = snapshotFromRecords({ tick, epoch, records, worldRecords, slots, previous: lastSnapshot });
-    lastSnapshot = snapshot;
-    return snapshot;
-  }
-  return captureSnapshot;
-}

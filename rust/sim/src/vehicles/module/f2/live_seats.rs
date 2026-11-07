@@ -976,6 +976,46 @@ pub(crate) fn exposed(lease: &SeatLease) -> bool {
 pub(crate) fn turret_body(r: Ref<Turret>) -> Option<Ref<Body>> {
     state().owner.crews.turrets.iter().find(|t| t.turret == r).and_then(|t| t.desc.body)
 }
+
+pub(crate) fn wire_turret_count() -> usize {
+    unsafe { (&*addr_of_mut!(STATE)).as_ref().map_or(0, |s| s.owner.crews.turrets.len()) }
+}
+/// captureMountedControl keeps the stationary gun's aim rates and barrel
+/// beside its canonical weapon. No turret publication or pose work runs here.
+pub(crate) fn wire_own_turret(store: &Store, reference: Ref<Turret>, own: &mut crate::wire::store_own::Capture,
+    defs: &crate::combat::defs::WeaponDefs) -> Result<(), &'static str> {
+    let st = unsafe { (&*addr_of_mut!(STATE)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
+    let t = st.owner.crews.turrets.iter().find(|t| t.turret == reference).ok_or("mounted control lease prerequisite missing")?;
+    let (_, member, frame, _) = crate::units::f3_props::wire_turret(reference).ok_or("mounted control lease prerequisite missing")?;
+    let aim = [t.yaw, t.pitch, t.yaw_vel, t.pitch_vel, t.gun_yaw, t.gun_pitch];
+    let id = crate::units::registry::target_id(member) as f64;
+    let life = frame.target_generation.unwrap_or(0.);
+    if !t.lease.and_then(|r| store.seat_lease.get(r)).is_some_and(|l| l.turret == Some(reference) && !l.released) {
+        return Err("mounted control lease prerequisite missing");
+    }
+    if let Some(weapon) = st.weapons.get(t.index).and_then(Option::as_ref) {
+        own.mount(3, id, life, 0., &aim, 0, &[(&weapon.state, t.barrel)], defs)
+    } else { own.mount(3, id, life, 0., &aim, 0, &[], defs) }
+}
+/// Borrow completed crew angles beside the health owner's scalar sample.
+/// No posed barrel, collision or lazy rider-shape reader runs here.
+pub(crate) fn wire_turret(index: usize, store: &Store, states: [crate::store::StrId; 3])
+    -> Option<crate::wire::store_capture::Turret> {
+    let st = unsafe { (&*addr_of_mut!(STATE)).as_ref()? };
+    let t = st.owner.crews.turrets.get(index)?;
+    let (building, member, frame, team) = crate::units::f3_props::wire_turret(t.turret)?;
+    let state = match frame.state {
+        crate::battle::props::State::Unbuilt => states[0],
+        crate::battle::props::State::Built => states[1],
+        crate::battle::props::State::Destroyed => states[2],
+    };
+    Some(crate::wire::store_capture::Turret {
+        reference: t.turret, id: crate::units::registry::target_id(member) as f64,
+        life: frame.target_generation.unwrap_or(0.), building: building as f64, state,
+        team: t.lease.and_then(|r| store.seat_lease.get(r)).map_or(team, |lease| lease.team),
+        health: frame.health, yaw: t.yaw, pitch: t.pitch, gun_yaw: t.gun_yaw, gun_pitch: t.gun_pitch,
+    })
+}
 /// leaveKilled vacates the live occupancy before Character death bookkeeping.
 /// The explicit service borrow lets an exposed gunner's hit stay native.
 // PlayerCombat death releases the canonical occupancy immediately.
@@ -1227,6 +1267,7 @@ impl World<'_> {
             let Some(member) = crate::units::f3_props::member(RepairTarget::Turret(reference)) else { crate::units::f3::fail(); return; };
             crate::units::f3_fleet::mounted_sample(owner.map_or(OrdnanceOwner::Null, |u| OrdnanceOwner::Unit(unit_ref(u))),member)
         } else { F3MountedSample::default() };
+        if kind == F2TurretEventKind::Fired && self.services.is_some() { crate::units::f3_fleet::wire_shot(&sample); }
         self.turret_event(F2TurretEvent {
             kind, turret: reference, owner: owner.map(unit_ref), origin: v3(origin), direction: v3(direction),
             yaw, pitch, charge, target_id, target_generation, sample, ..Default::default()

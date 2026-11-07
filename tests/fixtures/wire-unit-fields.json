@@ -1,0 +1,129 @@
+[
+  {
+    "tick": 1,
+    "fields": []
+  },
+  {
+    "tick": 2,
+    "fields": []
+  },
+  {
+    "tick": 4,
+    "fields": []
+  },
+  {
+    "tick": 30,
+    "fields": [
+      {
+        "id": 100001,
+        "schema": 6,
+        "generation": 1,
+        "payload": "010000000700000000dedddd3e250000000000000e7265706169723ae99baaf09f9880"
+      },
+      {
+        "id": 100002,
+        "schema": 6,
+        "generation": 1,
+        "payload": "020000000c0000003fdedddd3e2600000000000000"
+      },
+      {
+        "id": 100003,
+        "schema": 6,
+        "generation": 1,
+        "payload": "030000000200000000dedddd3e2700000000000000"
+      }
+    ]
+  },
+  {
+    "tick": 31,
+    "fields": [
+      {
+        "id": 100001,
+        "schema": 6,
+        "generation": 1,
+        "payload": "010000000700000000dedddd3e250000000000000e7265706169723ae99baaf09f9880"
+      },
+      {
+        "id": 100002,
+        "schema": 6,
+        "generation": 1,
+        "payload": "020000000c0000003fdedddd3e2600000000000000"
+      },
+      {
+        "id": 100003,
+        "schema": 6,
+        "generation": 1,
+        "payload": "030000000200000000dedddd3e2700000000000000"
+      }
+    ]
+  },
+  {
+    "tick": 32,
+    "fields": [
+      {
+        "id": 100001,
+        "schema": 6,
+        "generation": 1,
+        "payload": "010000000700000000dedddd3e250000000000000e7265706169723ae99baaf09f9880"
+      },
+      {
+        "id": 100002,
+        "schema": 6,
+        "generation": 1,
+        "payload": "020000000c0000003fdedddd3e2600000000000000"
+      },
+      {
+        "id": 100003,
+        "schema": 6,
+        "generation": 1,
+        "payload": "030000000200000000dedddd3e2700000000000000"
+      }
+    ]
+  },
+  {
+    "tick": 61,
+    "fields": [
+      {
+        "id": 100001,
+        "schema": 6,
+        "generation": 2,
+        "payload": "0100000007000000003333733f250000000000000e7265706169723ae99baaf09f9880"
+      },
+      {
+        "id": 100002,
+        "schema": 6,
+        "generation": 2,
+        "payload": "020000000c2222823f3333733f2600000000000000"
+      },
+      {
+        "id": 100003,
+        "schema": 6,
+        "generation": 1,
+        "payload": "030000000200000000dedddd3e2700000000000000"
+      }
+    ]
+  },
+  {
+    "tick": 95,
+    "fields": [
+      {
+        "id": 100001,
+        "schema": 6,
+        "generation": 2,
+        "payload": "0100000007000000002222c23f2500000000000000"
+      },
+      {
+        "id": 100002,
+        "schema": 6,
+        "generation": 2,
+        "payload": "020000000cabaaca3f2222c23f2600000000000000"
+      },
+      {
+        "id": 100003,
+        "schema": 6,
+        "generation": 2,
+        "payload": "0300000002000000002222c23f2700000000000000"
+      }
+    ]
+  }
+]

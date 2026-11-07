@@ -1,9 +1,10 @@
+import { CombatCapture } from './fixtures/projectile-capture-reference.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
-import { CombatCapture, attachCombatCapture } from '../src/runtime/network-entity-combat.js';
+import { attachCombatCapture } from '../src/runtime/network-entity-combat.js';
 import { SimEvents } from '../src/sim-events.js';
 
 const explosion = {class:'body-blast',Damage:1000,DamageRadiusInner:6,DamageRadiusOuter:7,Push:0};

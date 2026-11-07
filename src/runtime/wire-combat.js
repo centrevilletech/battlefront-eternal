@@ -15,11 +15,14 @@ export class WireCombat {
     this.bridge = bridge; this.handle = bridge.x.wire_combat_create();
     this.input = { put: putWbCall, words: bridge.x.wire_combat_words(0) };
     this.encoding = { put: putWbEncode, words: bridge.x.wire_combat_words(1) };
+    // These exchanges remain private; records copy their payload and queue
+    // keys before another callback or operation can overwrite either mirror.
+    this.exchange = new WbResultMirror(); this.encoded = new WireOutputMirror();
   }
-  run(op, args = {}) {
+  run(op, args = {}, into = null) {
     if (!this.handle) throw Error('combat runtime disposed');
     this.bridge.callArgs(this.input, { op, tick: 0, capacity: 0, key: 0, id: 0, schema: 0, expiryTick: 0, text: '', ...args });
-    return this.bridge.callResult(output, this.bridge.x.wire_combat_run(this.handle));
+    return this.bridge.callResult(output, this.bridge.x.wire_combat_run(this.handle), into);
   }
   encode(op, args) {
     if (!this.handle) throw Error('combat runtime disposed');
@@ -28,7 +31,7 @@ export class WireCombat {
       position: [], direction: [], offset: [], velocity: [], quaternion: [], end: [], positionArray: false, directionArray: false, offsetArray: false,
       speed: 0, life: 0, merge: 0, surface: 0, targetId: 0, targetGeneration: 0, attackerId: 0, attackerGeneration: 0,
       team: 0, attackerTeam: 0, source: [], hasSource: false, wet: false, terminal: false, type: 0, ...args });
-    const out = this.bridge.callResult(bytesOutput, this.bridge.x.wire_combat_encode());
+    const out = this.bridge.callResult(bytesOutput, this.bridge.x.wire_combat_encode(), this.encoded);
     if (out.error !== null) throw Error(out.error);
     return Uint8Array.from(out.parts[0].bytes);
   }
@@ -65,20 +68,20 @@ export class WireCombat {
     return record(r, r.terminal ? 7 : 6, payload);
   }
   emit(capture, record, decode) {
-    const tick = capture.tick(), out = this.run(0, { tick, capacity: capture.maxRecords, id: record.id, schema: record.schema });
+    const tick = capture.tick(), out = this.run(0, { tick, capacity: capture.maxRecords, id: record.id, schema: record.schema }, this.exchange);
     for (const id of out.ids) capture.pending.delete(id);
     capture.prunedTick = tick;
     if (out.error !== null) throw Error(out.error);
-    const view = decode(record);
-    this.run(1, { key: out.key, schema: record.schema, expiryTick: view.expiryTick });
-    capture.pending.set(out.key, { record, view, expiresTick: view.expiryTick, retention: [3, 4, 5, 8].includes(record.schema) ? 'cosmetic' : 'projectile' });
+    const key = out.key, view = decode(record);
+    this.run(1, { key, schema: record.schema, expiryTick: view.expiryTick }, this.exchange);
+    capture.pending.set(key, { record, view, expiresTick: view.expiryTick, retention: [3, 4, 5, 8].includes(record.schema) ? 'cosmetic' : 'projectile' });
   }
   drain(capture) {
     const records = this.run(2).ids.map(id => capture.pending.get(id));
     capture.pending.clear(); return records;
   }
-  get nextId() { return this.run(4).nextId; }
-  set nextId(id) { this.run(5, { id }); }
+  get nextId() { if (!this.handle) throw Error('combat runtime disposed'); return this.bridge.x.wire_combat_next_id(this.handle); }
+  set nextId(id) { if (!this.handle) throw Error('combat runtime disposed'); this.bridge.x.wire_combat_set_next_id(this.handle, id); }
   fault(error) { this.run(6, { text: String(error?.message ?? error) }); }
   drainFaults() { return this.run(7).faults; }
   get faults() { return this.run(8).faults; }

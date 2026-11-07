@@ -159,6 +159,13 @@ pub struct WireMount {
 
 impl WireMount {
     pub const WORDS: usize = 8;
+    pub const SLOT: usize = 0;
+    pub const TILT: usize = 2;
+    pub const ROLL: usize = 3;
+    pub const WALK_PHASE: usize = 4;
+    pub const WALK_BLEND: usize = 5;
+    pub const SEATS: usize = 6;
+    pub fn seats_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[6] as usize; let length = row[7] as usize; heap[start..start + length * 2].chunks_exact(2) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
@@ -221,6 +228,38 @@ pub struct WireEntry {
 
 impl WireEntry {
     pub const WORDS: usize = 49;
+    pub const CLS: usize = 0;
+    pub const ENTITY_ID: usize = 1;
+    pub const GENERATION: usize = 2;
+    pub const CLASS_ID: usize = 3;
+    pub const TEAM: usize = 4;
+    pub const DISC: usize = 5;
+    pub const POS: usize = 6;
+    pub const VEL: usize = 9;
+    pub const YAW: usize = 13;
+    pub const PITCH: usize = 14;
+    pub const HEALTH: usize = 15;
+    pub const POSTURE: usize = 16;
+    pub const CHARGE: usize = 17;
+    pub const STATE: usize = 18;
+    pub const WEAPON: usize = 19;
+    pub const SEAT_SLOT: usize = 20;
+    pub const SEAT_INDEX: usize = 21;
+    pub const FIRE_COUNTER: usize = 22;
+    pub const MODE: usize = 23;
+    pub const REVERSE: usize = 24;
+    pub const DEAD: usize = 25;
+    pub const SHIELD_ON: usize = 26;
+    pub const ANIM: usize = 27;
+    pub const QUAT: usize = 29;
+    pub const POWER: usize = 33;
+    pub const MOUNT: usize = 34;
+    pub const GUN_YAW: usize = 42;
+    pub const GUN_PITCH: usize = 43;
+    pub const ACTIVE: usize = 44;
+    pub const DEFINITION_ID: usize = 45;
+    pub const UP: usize = 46;
+    pub fn anim_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[27] as usize; let length = row[28] as usize; heap[start..start + length * 1].chunks_exact(1) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 49] = (&mut row[..49]).try_into().unwrap();
@@ -304,6 +343,8 @@ pub struct WireSlot {
 
 impl WireSlot {
     pub const WORDS: usize = 50;
+    pub const SLOT: usize = 0;
+    pub const ENTRY: usize = 1;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 50] = (&mut row[..50]).try_into().unwrap();
@@ -331,6 +372,11 @@ pub struct WireField {
 
 impl WireField {
     pub const WORDS: usize = 5;
+    pub const ID: usize = 0;
+    pub const SCHEMA: usize = 1;
+    pub const GENERATION: usize = 2;
+    pub const PAYLOAD: usize = 3;
+    pub fn payload_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[3] as usize; let length = row[4] as usize; heap[start..start + length * 1].chunks_exact(1) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
@@ -418,6 +464,8 @@ pub struct WireBytes {
 
 impl WireBytes {
     pub const WORDS: usize = 2;
+    pub const BYTES: usize = 0;
+    pub fn bytes_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 1].chunks_exact(1) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
@@ -441,6 +489,9 @@ pub struct WireOutput {
 
 impl WireOutput {
     pub const WORDS: usize = 4;
+    pub const ERROR: usize = 0;
+    pub const PARTS: usize = 2;
+    pub fn parts_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[2] as usize; let length = row[3] as usize; heap[start..start + length * 2].chunks_exact(2) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();

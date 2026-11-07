@@ -9,6 +9,7 @@ fn javascript_snapshot_bytes() {
     let data = std::fs::read(path).unwrap();
     let mut at = 0;
     let mut count = 0;
+    let mut encoder = bfe_sim::wire::buffered::Encoder::new(1024);
     fn u32(data: &[u8], at: &mut usize) -> usize {
         let n = u32::from_le_bytes(data[*at..*at + 4].try_into().unwrap()) as usize;
         *at += 4;
@@ -27,7 +28,10 @@ fn javascript_snapshot_bytes() {
         let actual = match op {
             0 => {
                 let a = WireEncode::take(row, heap);
-                codec::encode_entities(&a.current, a.baseline.as_ref(), a.interval).unwrap()
+                let legacy = codec::encode_entities(&a.current, a.baseline.as_ref(), a.interval).unwrap();
+                assert_eq!(encoder.encode(&a.current, a.baseline.as_ref(), a.interval).unwrap(), legacy,
+                    "retained encoder case {count}");
+                legacy
             }
             1 => {
                 let a = WireDelta::take(row, heap);

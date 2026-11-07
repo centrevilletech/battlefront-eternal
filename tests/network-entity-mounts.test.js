@@ -10,7 +10,7 @@ import { Unit } from '../src/units.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { EntitySeats } from '../src/runtime/entity-seats.js';
 import { EntityGameState } from '../src/runtime/network-entity-game.js';
-import { EntityWorldCapture, captureEntityVehicle, captureEntityMount, captureEntityTurret, captureEntitySoldier, tryCapturePlayerCorrection, EntityCaptureUnsupported, ENTITY_VEHICLE_STATES } from '../src/runtime/network-entity-capture.js';
+import { captureEntityVehicle, captureEntityMount, captureEntityTurret, captureEntitySoldier, tryCapturePlayerCorrection, EntityCaptureUnsupported, ENTITY_VEHICLE_STATES } from '../src/runtime/network-entity-capture.js';
 import { encodeEntityPacket, decodeEntityPacket, encodeEntityRecord } from '../src/runtime/network-entity-codec.js';
 import { mountFixture } from './mount-fixture.js';
 import { createSnapshotSender } from './snapshot-send.js';
@@ -102,7 +102,9 @@ test('capture: a real hull yields a crew pose with every seat aim, lean and slot
   v.aiTarget.id = 40;
   v.seats[0].aimYaw = -1.1; v.seats[1].aimYaw = .7; v.seats[1].pitch = .2; v.tilt = .1; v.roll = -.05;
   const game = { units: registryUnits(gunner), vehicles: system, turretSeats: { turrets: [] }, live: { buildings: [] } };
-  const records = new EntityWorldCapture(game, registry).capture(10);
+  const records = [captureEntitySoldier(gunner,{tick:10,classId:1,weaponId:1}),
+    {kind:'seat',id:2,generation:gunner.generation,tick:10,vehicleId:40,vehicleGeneration:v.aiTarget.generation,seatIndex:1,leaseVersion:1},
+    captureEntityVehicle(v,{tick:10,classId:2}),captureEntityMount(v,{tick:10,slot:0})];
   const seat = records.find(r => r.kind === 'seat' && r.id === 2), mount = records.find(r => r.kind === 'mount');
   assert.equal(seat.vehicleId, 40); assert.equal(seat.seatIndex, 1);
   assert.equal(mount.id, 40); assert.equal(mount.slot, 0); assert.equal(mount.seats.length, 2);
@@ -120,9 +122,6 @@ test('capture: a real hull yields a crew pose with every seat aim, lean and slot
   const record = captureEntityTurret(turret, { tick: 10, building: 4 });
   assert.equal(record.health, 65535); assert.equal(record.building, 4); assert.equal(record.id, 9);
   assert.equal(captureEntityTurret({ ...turret, aiTarget: null }, { tick: 10, building: 4 }), null);
-  const turretSeat = new EntityWorldCapture({ units: registryUnits(body(3)), vehicles: { vehicles: [] }, turretSeats: { turrets: [] } }, registry);
-  const occupant = turretSeat.game.units.byId(3); occupant.seat = { turret: { aiTarget: turret.aiTarget }, index: 0 };
-  assert.equal(turretSeat.capture(11).find(r => r.kind === 'seat').vehicleId, 9);
   assert.throws(() => encodeEntityRecord({ kind: 'turret', id: 1, generation: 1, tick: 1, building: 1, state: 'melted', team: 1, health: 1, yaw: 0, pitch: 0, gunYaw: 0, gunPitch: 0 }), /turret state/);
 });
 
@@ -185,12 +184,12 @@ test('a dying walker stays in the roster, and on a client it is dead but drawn, 
   const c = client(), server = mountFixture({ authority: true }); const hull = server.v;
   const remote = body(2); server.system.board(remote, hull, 0); hull.aiTarget.id = 40;
   const game = { units: registryUnits(remote), vehicles: server.system, turretSeats: { turrets: [] }, live: { buildings: [] } };
-  const capture = new EntityWorldCapture(game, registry);
-  send(c, 10, capture.capture(10));
+  const vehicle = tick => captureEntityVehicle(hull,{tick,classId:2});
+  send(c, 10, [vehicle(10),captureEntityMount(hull,{tick:10,slot:0})]);
   assert.equal(c.v.aiTarget.id, 40); assert.equal(c.v.alive, true);
   // Destroyed on the server: a walker plays out its death animation (Vehicle.setHealth leaves it so).
   hull.alive = false; hull.health = 0; hull.dying = 2.5;
-  const records = capture.capture(20);
+  const records = [vehicle(20)];
   const dying = records.find(r => r.kind === 'vehicle' && r.id === 40);
   assert.equal(ENTITY_VEHICLE_STATES[dying.state], 'Dying'); assert.equal(dying.power, 2500, 'the time it has left, in ms');
   assert.ok(!records.some(r => r.kind === 'tombstone' || r.kind === 'mount' && r.id === 40), 'no tombstone, no crew pose');
@@ -200,11 +199,11 @@ test('a dying walker stays in the roster, and on a client it is dead but drawn, 
   assert.equal(c.v.dying, 2.5); assert.equal(c.v.root.visible, true, 'still drawn');
   assert.equal(c.v.present(1), true, 'Vehicle.present poses it');
   hull.dying = 1.25;
-  send(c, 30, capture.capture(30));
+  send(c, 30, [vehicle(30)]);
   assert.equal(c.v.dying, 1.25);
   // Gone on the server: the tombstone hides it.
   hull.dying = 0;
-  const gone = capture.capture(40);
+  const gone = [{kind:'tombstone',id:40,generation:hull.aiTarget.generation,tick:40}];
   assert.ok(gone.some(r => r.kind === 'tombstone' && r.id === 40));
   send(c, 40, gone);
   assert.equal(c.v.root.visible, false); assert.equal(c.v.dying, 0); assert.equal(c.v.present(1), false);

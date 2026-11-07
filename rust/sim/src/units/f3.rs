@@ -1256,6 +1256,17 @@ fn weapon_view_with_defs(w: &Weapon,defs:&crate::combat::defs::WeaponDefs) -> F3
     }
 }
 
+/// captureUnitState observes the same authoritative visibility that the F3
+/// mirror publishes. Missing rider nodes and destroyed hidden crew remain
+/// invisible after vacating; no presentation object needs to be imported.
+pub(crate) fn wire_visible(reference: Ref<Unit>, unit: &Unit) -> bool {
+    let mut visible = !unit.removed && !(unit.dead && unit.combat.blow_apart)
+        && !matches!(&unit.soldier, UnitBody::Droideka(d) if d.mode == 4.);
+    if let Some(shown) = crate::vehicles::module::f2::live_seats::visible(unit) { visible &= shown; }
+    if unit.dead && state().hidden_crew.get(reference.slot as usize).copied().flatten() == Some((reference, unit.generation)) { visible = false; }
+    visible
+}
+
 // Build the narrow publication from native values, never from a JS mirror.
 // Immutable class/loadout data stays in the construction tables. Dynamic
 // correction fields remain here because network capture reads their timers.

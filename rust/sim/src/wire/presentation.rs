@@ -57,6 +57,13 @@ fn text(strings: &Strings, id: f64) -> Result<&[u16]> {
 /// weapon is id, level, flags, seven nullable-defaulted numbers, target and
 /// generation. Registry lookups and field reads happen before this call.
 pub fn unit_payload(words: &[f64], strings: &Strings) -> Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(617); let mut repair = Vec::with_capacity(512);
+    unit_payload_into(words, strings, &mut out, &mut repair)?; Ok(out)
+}
+/// captureUnitState writes into the field owner's retained payload. Repair
+/// identities are UTF-16 content strings; encode directly without a String or
+/// a temporary TextEncoder result on each due unit publication.
+pub fn unit_payload_into(words: &[f64], strings: &Strings, out: &mut Vec<u8>, repair: &mut Vec<u8>) -> Result<()> {
     if words.len() < UNIT_HEADER {
         return Err(Error::Shape);
     }
@@ -70,28 +77,34 @@ pub fn unit_payload(words: &[f64], strings: &Strings) -> Result<Vec<u8>> {
     {
         return Err(Error::Shape);
     }
-    let repair = jsrt::text::text_encode(text(strings, words[7])?);
+    repair.clear();
+    for ch in char::decode_utf16(text(strings, words[7])?.iter().copied()) {
+        let ch = ch.unwrap_or(char::REPLACEMENT_CHARACTER); let mut bytes = [0; 4];
+        let bytes = ch.encode_utf8(&mut bytes).as_bytes();
+        if repair.len() + bytes.len() > 128 { return Err(Error::RepairLength); }
+        repair.extend_from_slice(bytes);
+    }
     if repair.len() > 128 {
         return Err(Error::RepairLength);
     }
-    let mut out = Vec::with_capacity(21 + repair.len() + count as usize * 39);
-    u32(&mut out, words[0]);
-    u8(&mut out, words[1]);
-    f32(&mut out, words[2])?;
-    f32(&mut out, words[3])?;
-    u16(&mut out, words[4]);
-    u16(&mut out, words[5]);
-    u16(&mut out, words[6]);
-    u8(&mut out, count);
-    u8(&mut out, repair.len() as f64);
-    out.extend_from_slice(&repair);
+    out.clear();
+    u32(out, words[0]);
+    u8(out, words[1]);
+    f32(out, words[2])?;
+    f32(out, words[3])?;
+    u16(out, words[4]);
+    u16(out, words[5]);
+    u16(out, words[6]);
+    u8(out, count);
+    u8(out, repair.len() as f64);
+    out.extend_from_slice(repair);
     for w in words[UNIT_HEADER..].chunks_exact(WEAPON_WORDS) {
         if w[0] == 0.0 || w[0].is_nan() {
             return Err(Error::Weapon);
         }
-        u16(&mut out, w[0]);
-        u8(&mut out, w[1]);
-        u8(&mut out, w[2]);
+        u16(out, w[0]);
+        u8(out, w[1]);
+        u8(out, w[2]);
         let mut mask = 0u8;
         for (i, default) in UNIT_NUMBERS.iter().enumerate() {
             if w[i + 3] != *default {
@@ -104,15 +117,15 @@ pub fn unit_payload(words: &[f64], strings: &Strings) -> Result<Vec<u8>> {
         out.push(mask);
         for i in 0..7 {
             if mask & (1 << i) != 0 {
-                f32(&mut out, w[i + 3])?;
+                f32(out, w[i + 3])?;
             }
         }
         if mask & 128 != 0 {
-            u32(&mut out, w[10]);
-            u16(&mut out, w[11]);
+            u32(out, w[10]);
+            u16(out, w[11]);
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 fn escaped_unit(out: &mut Vec<u8>, unit: u16) {
@@ -158,6 +171,31 @@ fn quoted(out: &mut Vec<u8>, units: &[u16]) {
     out.push(b'"');
 }
 
+// A world record must fit its protocol bound even when a foreign heading or
+// native string is malformed. Count escaped UTF-8 first, stopping at the
+// bound; quoted() can then append without growing the prepared byte buffer.
+fn quoted_length(units: &[u16]) -> usize {
+    let mut size = 2; let mut at = 0;
+    while at < units.len() && size <= 900 {
+        let unit = units[at];
+        size += match unit {
+            0x22 | 0x5c | 8 | 9 | 10 | 12 | 13 => 2,
+            0..=31 => 6,
+            _ => {
+                let cp = jsrt::text::code_point_at(units, at).unwrap();
+                if (0xd800..=0xdfff).contains(&cp) { 6 }
+                else { if cp >= 0x10000 { at += 1; } char::from_u32(cp).unwrap().len_utf8() }
+            }
+        };
+        at += 1;
+    }
+    size
+}
+fn world_raw(out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
+    if out.len() + bytes.len() > 900 { return Err(Error::WorldLength); }
+    out.extend_from_slice(bytes); Ok(())
+}
+
 struct Tokens<'a> {
     words: &'a [f64],
     at: usize,
@@ -174,16 +212,18 @@ impl Tokens<'_> {
             return Err(Error::Shape);
         }
         match self.next()? {
-            0.0 => out.extend_from_slice(b"null"),
-            1.0 => out.extend_from_slice(jsrt::numfmt::json_number(self.next()?).as_bytes()),
-            2.0 => out.extend_from_slice(if self.next()? == 0.0 {
-                b"false"
-            } else {
-                b"true"
-            }),
+            0.0 => world_raw(out, b"null")?,
+            1.0 => {
+                let mut bytes = [0; 32];
+                let count = jsrt::numfmt::json_number_into(self.next()?, &mut bytes).ok_or(Error::Number)?;
+                world_raw(out, &bytes[..count])?;
+            },
+            2.0 => world_raw(out, if self.next()? == 0.0 { b"false" } else { b"true" })?,
             3.0 => {
                 let id = self.next()?;
-                quoted(out, text(self.strings, id)?);
+                let units = text(self.strings, id)?;
+                if out.len() + quoted_length(units) > 900 { return Err(Error::WorldLength); }
+                quoted(out, units);
             }
             4.0 => {
                 let count = self.next()?;
@@ -194,14 +234,14 @@ impl Tokens<'_> {
                 {
                     return Err(Error::Shape);
                 }
-                out.push(b'[');
+                world_raw(out, b"[")?;
                 for i in 0..count as usize {
                     if i != 0 {
-                        out.push(b',');
+                        world_raw(out, b",")?;
                     }
                     self.value(out, depth + 1)?;
                 }
-                out.push(b']');
+                world_raw(out, b"]")?;
             }
             _ => return Err(Error::Shape),
         }
@@ -213,34 +253,40 @@ impl Tokens<'_> {
 /// number=1,value, bool=2,value, string=3,id, array=4,length,children.
 /// Undefined array members use the null token, as JSON.stringify does.
 pub fn world_payload(words: &[f64], strings: &Strings) -> Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(900); world_payload_into(words, strings, &mut out)?; Ok(out)
+}
+/// captureWorldPresentation reuses its one JSON buffer. Fixed numeric text
+/// and string escaping append directly; the stagger owns retained field bytes.
+pub fn world_payload_into(words: &[f64], strings: &Strings, out: &mut Vec<u8>) -> Result<()> {
     let mut input = Tokens {
         words,
         at: 0,
         strings,
     };
-    let mut out = Vec::new();
-    input.value(&mut out, 0)?;
+    out.clear();
+    input.value(out, 0)?;
     if input.at != words.len() {
         return Err(Error::Shape);
     }
     if out.len() > 900 {
         return Err(Error::WorldLength);
     }
-    Ok(out)
+    Ok(())
 }
 
-enum EventValue {
+#[derive(Clone, Copy)]
+enum EventValue<'a> {
     Null,
     Number(f64),
     Bool(bool),
     String(f64),
-    Array(usize, Vec<EventValue>),
+    Array(usize, &'a [f64]),
     Invalid,
     Undefined,
     Hole,
 }
-impl Tokens<'_> {
-    fn event_value(&mut self) -> Result<EventValue> {
+impl<'a> Tokens<'a> {
+    fn event_value(&mut self) -> Result<EventValue<'a>> {
         Ok(match self.next()? {
             0. => EventValue::Null,
             1. => EventValue::Number(self.next()?),
@@ -251,11 +297,12 @@ impl Tokens<'_> {
                 if !n.is_finite() || n < 0. || n.fract() != 0. || n > 4294967295. {
                     return Err(Error::Shape);
                 }
-                let mut values = Vec::new();
-                for _ in 0..(n as usize).min(3) {
-                    values.push(self.event_value()?);
-                }
-                EventValue::Array(n as usize, values)
+                // Retain token slices instead of allocating a vector per event field.
+                // Parse children now so malformed later fields still precede
+                // semantic validation, as presentationRecord requires.
+                let start = self.at;
+                for _ in 0..(n as usize).min(3) { self.event_value()?; }
+                EventValue::Array(n as usize, &self.words[start..self.at])
             }
             5. => EventValue::Invalid,
             6. => EventValue::Undefined,
@@ -270,26 +317,31 @@ fn named(units: &[u16], value: &str) -> bool {
 fn one_of(units: &[u16], values: &[&str]) -> bool {
     values.iter().any(|s| named(units, s))
 }
-fn event_number(value: &EventValue) -> Option<f64> {
+fn event_number(value: &EventValue<'_>) -> Option<f64> {
     if let EventValue::Number(n) = value {
         Some(*n)
     } else {
         None
     }
 }
-fn event_json(value: &EventValue, out: &mut Vec<u8>, strings: &Strings) -> Result<()> {
+fn event_json(value: &EventValue<'_>, out: &mut Vec<u8>, strings: &Strings) -> Result<()> {
     match value {
         EventValue::Null | EventValue::Hole => out.extend_from_slice(b"null"),
-        EventValue::Number(n) => out.extend_from_slice(jsrt::numfmt::json_number(*n).as_bytes()),
+        EventValue::Number(n) => {
+            let mut bytes = [0; 32]; let count = jsrt::numfmt::json_number_into(*n, &mut bytes).ok_or(Error::EventNumber)?;
+            out.extend_from_slice(&bytes[..count]);
+        },
         EventValue::Bool(b) => out.extend_from_slice(if *b { b"true" } else { b"false" }),
         EventValue::String(id) => quoted(out, text(strings, *id)?),
-        EventValue::Array(_, values) => {
+        EventValue::Array(n, values) => {
             out.push(b'[');
-            for (i, child) in values.iter().enumerate() {
+            let mut input = Tokens { words: values, at: 0, strings };
+            for i in 0..(*n).min(3) {
+                let child = input.event_value()?;
                 if i > 0 {
                     out.push(b',');
                 }
-                event_json(child, out, strings)?;
+                event_json(&child, out, strings)?;
             }
             out.push(b']');
         }
@@ -301,151 +353,155 @@ fn event_json(value: &EventValue, out: &mut Vec<u8>, strings: &Strings) -> Resul
 /// A raw kind, its numeric damage coercion, and Object.entries in source
 /// order. Array holes are distinct from explicit undefined: Array.every
 /// skips holes when validating a vector, while JSON writes them as null.
-pub fn event_payload(
-    words: &[f64],
-    strings: &Strings,
-) -> std::result::Result<Vec<u8>, (Error, u32)> {
-    let mut input = Tokens {
-        words,
-        at: 0,
-        strings,
+pub fn event_payload(words: &[f64], strings: &Strings) -> std::result::Result<Vec<u8>, (Error, u32)> {
+    let mut out = Vec::with_capacity(2048);
+    event_payload_into(words, strings, &mut out)?; Ok(out)
+}
+fn event_field(key: &[u16], value: &EventValue<'_>, strings: &Strings) -> Option<Error> {
+    let error = if one_of(
+        key,
+        &[
+            "kind", "name", "action", "bank", "posture", "hitKind", "line", "reason", "label",
+            "property",
+        ],
+    ) {
+        if matches!(value, EventValue::Null)
+            || matches!(value, EventValue::String(id) if text(strings,*id).is_ok_and(|s| s.len() <= 128))
+        {
+            None
+        } else {
+            Some(Error::EventText)
+        }
+    } else if one_of(key, &["position", "normal", "from", "to", "source"]) {
+        let valid = matches!(value, EventValue::Null)
+            || matches!(value, EventValue::Array(3, values) if {
+                let mut input = Tokens { words: values, at: 0, strings };
+                (0..3).all(|_| input.event_value().is_ok_and(|v| matches!(v, EventValue::Hole) || event_number(&v).is_some_and(f64::is_finite)))
+            });
+        if valid {
+            None
+        } else {
+            Some(Error::EventVector)
+        }
+    } else if named(key, "channel") {
+        if event_number(value).is_some_and(|n| n == 0. || n == 1.) {
+            None
+        } else {
+            Some(Error::EventChannel)
+        }
+    } else if one_of(
+        key,
+        &[
+            "ownerId",
+            "ownerGeneration",
+            "mountId",
+            "mountGeneration",
+            "seat",
+            "fireId",
+            "definitionId",
+            "weaponId",
+            "building",
+            "team",
+        ],
+    ) {
+        if event_number(value)
+            .is_some_and(|n| n.is_finite() && n >= 0. && n <= 4294967295. && n.fract() == 0.)
+        {
+            None
+        } else {
+            Some(Error::EventIdentity)
+        }
+    } else if one_of(key, &["amount", "charge", "swing"]) {
+        if event_number(value).is_some_and(f64::is_finite) {
+            None
+        } else {
+            Some(Error::EventNumber)
+        }
+    } else if one_of(
+        key,
+        &["end", "prepare", "repair", "human", "melee", "positional"],
+    ) {
+        if matches!(value, EventValue::Bool(_)) {
+            None
+        } else {
+            Some(Error::EventFlag)
+        }
+    } else {
+        Some(Error::EventField)
     };
+    error
+}
+/// presentationRecord parses the complete exchange before validating fields.
+/// Borrow names and vector tokens, then replay the small input for validation
+/// and JSON. This avoids one UTF-16 allocation per key plus entry/vector lists.
+/// The admitted output bank holds 2048 bytes: after each field the 900-byte
+/// protocol limit is checked, and a single valid field fits the spare bank.
+pub fn event_payload_into(words: &[f64], strings: &Strings, out: &mut Vec<u8>) -> std::result::Result<(), (Error, u32)> {
+    out.clear();
+    let mut input = Tokens { words, at: 0, strings };
     let raw_kind = input.event_value().map_err(|e| (e, 0))?;
     let amount = input.next().map_err(|e| (e, 0))?;
     let count = input.next().map_err(|e| (e, 0))?;
-    if !count.is_finite() || count < 0. || count.fract() != 0. || count > words.len() as f64 {
-        return Err((Error::Shape, 0));
-    }
-    let mut entries = Vec::new();
-    for _ in 0..count as usize {
-        let id = input.next().map_err(|e| (e, 0))?;
-        let key = text(strings, id).map_err(|e| (e, 0))?.to_vec();
-        let value = input.event_value().map_err(|e| (e, 0))?;
-        entries.push((id, key, value));
-    }
-    if input.at != words.len() {
-        return Err((Error::Shape, 0));
-    }
+    if !count.is_finite() || count < 0. || count.fract() != 0. || count > words.len() as f64 { return Err((Error::Shape, 0)); }
+    let entries_at = input.at;
     let blow = matches!(&raw_kind, EventValue::String(id) if text(strings, *id).is_ok_and(|s| named(s, "blowApart")));
-    let kind = if blow {
-        entries
-            .iter()
-            .find(|(_, key, _)| named(key, "kind"))
-            .map(|(_, _, v)| v)
-            .unwrap_or(&EventValue::Undefined)
-    } else {
-        &raw_kind
-    };
-    let valid_kind = matches!(kind, EventValue::String(id) if text(strings, *id).is_ok_and(|s| one_of(s, &["weaponAction","endWeaponAction","shot","remoteShot","shieldHit","deathBlast","blowApart","remoteBlast","effect","lightning","vo","bounce","pickup","serve","towAttach","towRelease","squad"])));
-    if !valid_kind {
-        return Err((Error::EventKind, 0));
+    let mut kind = if blow { EventValue::Undefined } else { raw_kind };
+    let mut kind_seen = false; let mut amount_at = None;
+    for index in 0..count as usize {
+        let id = input.next().map_err(|e| (e, 0))?;
+        let key = text(strings, id).map_err(|e| (e, 0))?;
+        let value = input.event_value().map_err(|e| (e, 0))?;
+        if blow && !kind_seen && named(key, "kind") { kind = value; kind_seen = true; }
+        if amount_at.is_none() && named(key, "amount") { amount_at = Some(index); }
     }
-    let amount_key: Vec<u16> = "amount".encode_utf16().collect();
-    if blow {
-        let value = EventValue::Number(jsrt::js_max(-50., amount));
-        if let Some((_, _, old)) = entries.iter_mut().find(|(_, key, _)| named(key, "amount")) {
-            *old = value;
-        } else {
-            entries.push((0., amount_key, value));
-        }
+    if input.at != words.len() { return Err((Error::Shape, 0)); }
+    let valid_kind = matches!(&kind, EventValue::String(id) if text(strings, *id).is_ok_and(|s| one_of(s, &["weaponAction","endWeaponAction","shot","remoteShot","shieldHit","deathBlast","blowApart","remoteBlast","effect","lightning","vo","bounce","pickup","serve","towAttach","towRelease","squad"])));
+    if !valid_kind { return Err((Error::EventKind, 0)); }
+    let clamped = EventValue::Number(jsrt::js_max(-50., amount));
+    // Blow-apart replaces only the first amount entry. A missing amount is
+    // appended after the original entries; duplicate-key diagnostics retain
+    // their old order even though ordinary Object.entries has unique keys.
+    input.at = entries_at;
+    for index in 0..count as usize {
+        let id = input.next().map_err(|e| (e, 0))?;
+        let key = text(strings, id).map_err(|e| (e, 0))?;
+        let parsed = input.event_value().map_err(|e| (e, 0))?;
+        let value = if blow && amount_at == Some(index) { clamped } else { parsed };
+        if let Some(error) = event_field(key, &value, strings) { return Err((error, jsrt::to_uint32(id))); }
     }
-    for (id, key, value) in &entries {
-        let error = if one_of(
-            key,
-            &[
-                "kind", "name", "action", "bank", "posture", "hitKind", "line", "reason", "label",
-                "property",
-            ],
-        ) {
-            if matches!(value, EventValue::Null)
-                || matches!(value, EventValue::String(id) if text(strings,*id).is_ok_and(|s| s.len() <= 128))
-            {
-                None
-            } else {
-                Some(Error::EventText)
-            }
-        } else if one_of(key, &["position", "normal", "from", "to", "source"]) {
-            let valid = matches!(value, EventValue::Null)
-                || matches!(value, EventValue::Array(3, values) if values.iter().all(|v| matches!(v, EventValue::Hole) || event_number(v).is_some_and(f64::is_finite)));
-            if valid {
-                None
-            } else {
-                Some(Error::EventVector)
-            }
-        } else if named(key, "channel") {
-            if event_number(value).is_some_and(|n| n == 0. || n == 1.) {
-                None
-            } else {
-                Some(Error::EventChannel)
-            }
-        } else if one_of(
-            key,
-            &[
-                "ownerId",
-                "ownerGeneration",
-                "mountId",
-                "mountGeneration",
-                "seat",
-                "fireId",
-                "definitionId",
-                "weaponId",
-                "building",
-                "team",
-            ],
-        ) {
-            if event_number(value)
-                .is_some_and(|n| n.is_finite() && n >= 0. && n <= 4294967295. && n.fract() == 0.)
-            {
-                None
-            } else {
-                Some(Error::EventIdentity)
-            }
-        } else if one_of(key, &["amount", "charge", "swing"]) {
-            if event_number(value).is_some_and(f64::is_finite) {
-                None
-            } else {
-                Some(Error::EventNumber)
-            }
-        } else if one_of(
-            key,
-            &["end", "prepare", "repair", "human", "melee", "positional"],
-        ) {
-            if matches!(value, EventValue::Bool(_)) {
-                None
-            } else {
-                Some(Error::EventFlag)
-            }
-        } else {
-            Some(Error::EventField)
-        };
-        if let Some(error) = error {
-            return Err((error, jsrt::to_uint32(*id)));
-        }
+    if blow && amount_at.is_none() && !event_number(&clamped).is_some_and(f64::is_finite) { return Err((Error::EventNumber, 0)); }
+    out.push(b'{'); input.at = entries_at;
+    for index in 0..count as usize {
+        let id = input.next().map_err(|e| (e, 0))?;
+        let key = text(strings, id).map_err(|e| (e, 0))?;
+        let parsed = input.event_value().map_err(|e| (e, 0))?;
+        let value = if blow && amount_at == Some(index) { clamped } else { parsed };
+        if index > 0 { out.push(b','); }
+        quoted(out, key); out.push(b':');
+        event_json(&value, out, strings).map_err(|e| (e, 0))?;
+        if out.len() > 900 { return Err((Error::EventLength, 0)); }
     }
-    let mut out = vec![b'{'];
-    for (i, (_, key, value)) in entries.iter().enumerate() {
-        if i > 0 {
-            out.push(b',');
-        }
-        quoted(&mut out, key);
-        out.push(b':');
-        event_json(value, &mut out, strings).map_err(|e| (e, 0))?;
+    if blow && amount_at.is_none() {
+        if count > 0. { out.push(b','); }
+        out.extend_from_slice(b"\"amount\":");
+        event_json(&clamped, out, strings).map_err(|e| (e, 0))?;
     }
     out.push(b'}');
-    if out.len() > 900 {
-        return Err((Error::EventLength, 0));
-    }
-    Ok(out)
+    if out.len() > 900 { return Err((Error::EventLength, 0)); }
+    Ok(())
 }
 
 /// One host's exchange. Its pointers never escape a synchronous adapter
 /// call, and each host explicitly frees its buffers on disposal.
-#[derive(Default)]
 pub struct Presentation {
     input: Vec<f64>,
     output: Vec<u8>,
+    repair: Vec<u8>,
     error: u32,
     error_field: u32,
+}
+impl Default for Presentation {
+    fn default() -> Self { Self { input: Vec::with_capacity(512), output: Vec::with_capacity(2048), repair: Vec::with_capacity(512), error: 0, error_field: 0 } }
 }
 #[no_mangle]
 pub extern "C" fn wire_presentation_create() -> *mut Presentation {
@@ -469,17 +525,16 @@ pub unsafe extern "C" fn wire_presentation_run(p: *mut Presentation, op: u32) ->
     let p = &mut *p;
     p.error_field = 0;
     let result = match op {
-        0 => unit_payload(&p.input, &crate::abi::sim().strings),
-        1 => world_payload(&p.input, &crate::abi::sim().strings),
-        2 => event_payload(&p.input, &crate::abi::sim().strings).map_err(|(error, field)| {
+        0 => unit_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output, &mut p.repair),
+        1 => world_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output),
+        2 => event_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output).map_err(|(error, field)| {
             p.error_field = field;
             error
         }),
         _ => Err(Error::Shape),
     };
     match result {
-        Ok(bytes) => {
-            p.output = bytes;
+        Ok(()) => {
             p.error = 0;
         }
         Err(error) => {

@@ -27,6 +27,13 @@ pub(crate) fn mounted_sample(owner: OrdnanceOwner, mount: Member) -> F3MountedSa
         mount: F3LifeRef { id: registry::target_id(mount) as f64, generation: life(mount) },
     }
 }
+// Game.mountedShot's counter belongs to the source Unit, not its hull. A
+// frozen ordnance owner can name an earlier life; do not count it for reuse.
+pub(crate) fn wire_shot(sample: &F3MountedSample) {
+    if !sample.has_source { return; }
+    let life = sim().store.unit.at(sample.source.id as u32).map_or(f64::NAN, |(_, unit)| unit.generation);
+    crate::wire::shots::native_observe(sample.source.id, sample.source.generation, life);
+}
 // Unit.aimPoint observes its lazy sphere. Hull and prop aim points instead
 // follow their current matrix or prepared foreign fact, without a JS rig read.
 pub(crate) fn aim(member: Member) -> Vector3 {

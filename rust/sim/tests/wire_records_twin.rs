@@ -35,6 +35,7 @@ fn native_records_quantizers_and_rings_match_javascript_bytes() {
     let mut ring = SnapshotRing::new(7).unwrap();
     let mut snapshots: Vec<WireSnapshot> = Vec::new();
     let mut counts = [0usize; 3];
+    let mut encoder = bfe_sim::wire::buffered::Encoder::new(1024);
     for (line, source) in trace.lines().enumerate() {
         let op = json::parse(source).unwrap();
         match text(get(&op, "kind")) {
@@ -90,6 +91,8 @@ fn native_records_quantizers_and_rings_match_javascript_bytes() {
                 let parts = codec::encode_entities(&snapshot, baseline, number(get(&op, "interval"))).unwrap();
                 let expected: Vec<Vec<u8>> = array(get(&op, "parts")).iter().map(bytes).collect();
                 assert_eq!(parts, expected, "capture {} tick {} published bytes", counts[2], snapshot.tick);
+                assert_eq!(encoder.encode(&snapshot, baseline, number(get(&op, "interval"))).unwrap(), expected,
+                    "retained capture {} tick {}", counts[2], snapshot.tick);
                 assert_eq!(snapshot.slots.iter().map(|s| s.slot as i64).collect::<Vec<_>>(), integers(get(&op, "order")), "capture slot insertion order");
                 snapshots.push(snapshot);
             },

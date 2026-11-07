@@ -244,6 +244,42 @@ pub struct Authority {
     changed_contexts: Vec<Ref<ReconContext>>,
 }
 impl Authority {
+    /// Snapshot capture borrows the admission table, never the owner lists or
+    /// the generated slab's unrelated free order (EntityRemoteCapture).
+    pub(crate) fn wire_slots(&self) -> usize { self.slots.len() }
+    pub(crate) fn wire_slot(&self, index: usize) -> Option<(u32, Ref<ReconDroid>)> {
+        let slot = self.slots.get(index)?;
+        slot.droid.map(|droid| (slot.generation, droid))
+    }
+    /// captureRemoteReplay follows the connection's current qualified owner,
+    /// while the wire identity still belongs to its admitted launch slot.
+    pub(crate) fn wire_own(&self, store: &Store, owner: &F3UnitKey, capture: &mut crate::wire::store_own::Capture,
+        aspect: f64) -> Result<Option<(u32, u32, u32)>, &'static str> {
+        let Some(context) = self.order.iter().filter_map(|&r| store.recon_context.get(r))
+            .find(|c| !c.retired && same(&c.owner, owner)) else { return Ok(None) };
+        let Some(reference) = context.piloted else { return Ok(None) };
+        let droid = store.recon_droid.get(reference).ok_or("recon identity prerequisite missing")?;
+        let (slot, identity) = self.slots.iter().enumerate().find(|(_, s)| s.droid == Some(reference))
+            .ok_or("recon identity prerequisite missing")?;
+        let mut salvo = None;
+        if let Some(s) = &droid.salvo {
+            // strikeLevels resolves each destruct level in authored order;
+            // the first matching inventory weapon wins when content shares it.
+            'weapons: for (index, weapon) in droid.weapons.iter().enumerate() {
+                let Some(levels) = self.defs.levels.get(weapon.def.0 as usize) else { continue };
+                for (level, def) in levels.iter().enumerate() {
+                    if def.strike == Some(s.strike) {
+                        let class = self.defs.weapons.classes.get(weapon.def.0 as usize).and_then(Option::as_ref)
+                            .and_then(|c| c.levels.get(level)).ok_or("recon salvo definition missing")?;
+                        let maximum = jsrt::js_max(1., jsrt::num_or(class.get(crate::combat::defs::K::SalvoCount).num(), 1.).floor());
+                        salvo = Some((index as u32, level as u32, maximum)); break 'weapons;
+                    }
+                }
+            }
+        }
+        capture.recon(droid, context, &self.defs.weapons, aspect, salvo)?;
+        Ok(Some((slot as u32, identity.generation, droid.class)))
+    }
     /// Recon admission uses the server's player limit, supplied before
     /// its first context. Reserve that bound here, outside every live phase.
     // RemoteDroids owner admission is bounded by the connection limit.

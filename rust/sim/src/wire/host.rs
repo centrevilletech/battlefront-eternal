@@ -64,7 +64,6 @@ pub struct Own {
     pub payload: Option<Vec<u8>>,
     pub summaries: Vec<WireField>,
 }
-#[derive(Clone)]
 pub struct Client {
     pub id: u32,
     pub started: bool,
@@ -72,6 +71,7 @@ pub struct Client {
     pub acked: Vec<f64>,
     pub baseline: f64,
     pub own: SnapshotRing<Own>,
+    pub publication: Option<super::publisher::Personal>,
     pub sent: Vec<(f64, f64)>,
     pub sent_bytes: f64,
     pub own_sent_at: f64,
@@ -86,10 +86,11 @@ impl Client {
             id,
             started: false,
             ready: false,
-            acked: Vec::new(),
+            acked: Vec::with_capacity(9),
             baseline: 0.,
             own: SnapshotRing::default(),
-            sent: Vec::new(),
+            publication: None,
+            sent: Vec::with_capacity(2048),
             sent_bytes: 0.,
             own_sent_at: f64::NEG_INFINITY,
             heard_at: at,
@@ -110,9 +111,21 @@ impl Client {
         self.sent_bytes
     }
     pub fn charge(&mut self, at: f64, bytes: f64) {
-        self.sent.push((at, bytes));
-        self.sent_bytes += bytes;
+        charge(&mut self.sent, &mut self.sent_bytes, at, bytes);
     }
+}
+/// A publication uses one clock sample for all packet charges. Coalescing
+/// those charges preserves budgetUsed's window while bounding catch-up work.
+pub fn charge(sent: &mut Vec<(f64, f64)>, used: &mut f64, at: f64, bytes: f64) {
+    if let Some(last) = sent.last_mut().filter(|last| last.0 == at) { last.1 += bytes; }
+    else {
+        // An invalid clock can submit arbitrarily many distinct instants
+        // inside a second. Merge oldest debt conservatively if it fills the
+        // reserved window; packets remain owed rather than growing a frame.
+        if sent.len() == sent.capacity() { let old = sent.remove(0); if let Some(next) = sent.first_mut() { next.1 += old.1; } }
+        sent.push((at, bytes));
+    }
+    *used += bytes;
 }
 pub struct Host {
     pub local: bool,
@@ -134,7 +147,7 @@ impl Host {
             epoch,
             captured_tick: -1.,
             ring: SnapshotRing::default(),
-            clients: Vec::new(),
+            clients: Vec::with_capacity(256),
         }
     }
     pub fn client(&self, id: u32) -> &Client {
@@ -185,10 +198,12 @@ impl Host {
             return false;
         }
         let c = self.client_mut(id);
-        if tick > c.baseline && c.own.has(tick as i64, Some(epoch as u32)) {
+        let held = c.publication.as_ref().map_or_else(|| c.own.has(tick as i64, Some(epoch as u32)), |p| p.ring.has(tick, epoch));
+        if tick > c.baseline && held {
             c.acked.insert(0, tick);
             c.acked.truncate(8);
             c.baseline = tick;
+            if let Some(p) = &mut c.publication { p.outbox.acknowledge(tick); }
             true
         } else {
             false
@@ -209,6 +224,7 @@ impl Host {
         let c = self.client_mut(id);
         c.acked.clear();
         c.baseline = 0.;
+        if let Some(p) = &mut c.publication { p.outbox.resend(); }
     }
     pub fn eligible(&mut self, id: u32, at: f64, snapshot: bool) -> bool {
         let stale = self.stale_after;

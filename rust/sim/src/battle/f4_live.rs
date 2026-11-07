@@ -102,6 +102,28 @@ pub extern "C" fn f4_animated_birth() -> *const f64 {
     metadata_mut().animations.push(Animation { handle: handle.clone(), original: input.prop, flag, index });
     return_handle(handle)
 }
+/// AnimatedProp.state's scalar publication. The body key retained by the
+/// native holder is the Unit id, even after that body changes gameplay life.
+pub(crate) fn wire_animation_count() -> usize { metadata().animations.len() }
+pub(crate) fn wire_animation(index: usize) -> Option<[f64; 7]> {
+    let info = metadata().animations.get(index)?;
+    let handle = f4::live().animated.current(&info.handle)?;
+    let prop = f4::live().animated.get(&handle)?;
+    if prop.settings.grabs.is_empty() || prop.state.slot < 0 { return None; }
+    let value = &prop.state;
+    let (id, life, grab, since) = value.victim.as_ref().map_or((0., 0., -1., 0.),
+        |v| (v.unit as f64, v.generation, v.grab as f64, v.since));
+    Some([value.slot as f64, value.started, value.start_time, id, life, grab, since])
+}
+/// LogTrap.stateRecord refreshes on any phase/start/direction change, with
+/// the authored trap order independent of its position in buildings.
+pub(crate) fn wire_trap_count() -> usize { state().traps.len() }
+pub(crate) fn wire_trap(index: usize) -> Option<[f64; 3]> {
+    let (_, handle) = state().traps.get(index)?; let value = f4::trap(handle)?;
+    let phase = match value.phase { traps::Phase::Down => 0., traps::Phase::Reset => 1., traps::Phase::Armed => 2., traps::Phase::Swing => 3. };
+    Some([phase, value.started.unwrap_or(value.tick), u8::from(value.sprung) as f64])
+}
+
 pub(crate) fn descriptor() -> *const f64 {
     let phase = F4Phase { version: io().version, live_input: io().live.as_ptr() as u32, tail_input: io().tail.as_ptr() as u32,
         input_capacity: F4LiveInput::WORDS.max(F4TailInput::WORDS) as u32,

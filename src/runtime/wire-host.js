@@ -45,6 +45,7 @@ export function createWireHostBridge(bridge, { local = false, budget = Infinity,
     });
   }
   return {
+    get nativeHandle() { alive(); return handle; },
     get interval() { alive(); return x.wire_host_get(handle, 0, 0); },
     setLocalInterval(ticks) { alive(); x.wire_host_set(handle, 0, 0, ticks); },
     add(id, at) {
@@ -109,7 +110,8 @@ export function createWireStaggerBridge(bridge, cadence) {
       });
       bridge.callArgs(inputs[0], { tick, records: values, complete: [...completeSchemas] });
       const ids = bridge.callResult(listOutput, x.wire_stagger_take(handle)).values;
-      held = new Map(ids.map(id => [id, refs.get(id)]));
+      held = new Map();
+      for (const id of ids) if (refs.has(id)) held.set(id, refs.get(id));
     },
     update(tick, records, complete) { api.take(tick, records, complete); return api.values(); },
     values() { alive(); return [...held.values()].map(value => value.record); },

@@ -2,7 +2,9 @@ import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { chooseSharedBaselines } from '../src/runtime/snapshot-host.js';
+import { loadSim } from '../src/sim/module.js';
+import { bridgeFor } from '../src/sim/runtime.js';
+import { createWireHostBridge } from '../src/runtime/wire-host.js';
 import { feedbackRecord, decodeFeedback, feedbackConcerns } from '../src/runtime/network-combat-feedback.js';
 
 // Snapshot publication policy: shared baseline choice, the per-client state
@@ -11,7 +13,9 @@ import { feedbackRecord, decodeFeedback, feedbackConcerns } from '../src/runtime
 const content = contentPath();
 const owned = { skip: !existsSync(`${content}/maps/nab2/map.json`) };
 
-test('shared baselines: at most three, newest first, each one acknowledged by its clients', () => {
+test('shared baselines: at most three, newest first, each one acknowledged by its clients', async () => {
+  const host = createWireHostBridge(bridgeFor(await loadSim()));
+  const chooseSharedBaselines = (...args) => host.chooseSharedBaselines(...args);
   // Fewer distinct acknowledgements than the limit: every client keeps its own newest.
   assert.deepEqual(chooseSharedBaselines(100, [[98, 96], [96, 94], [98]]), [98, 96, 94]);
   // Many clients on staggered acknowledgements: three shared baselines, and
@@ -31,7 +35,7 @@ test('shared baselines: at most three, newest first, each one acknowledged by it
   const groups = chooseSharedBaselines(300, [[298], [298], [296], [294], [292]]);
   assert.equal(groups.length, 3);
   assert.ok(groups.includes(298));
-  assert.deepEqual(chooseSharedBaselines(10, []), []);
+  assert.deepEqual(chooseSharedBaselines(10, []), []); host.dispose();
 });
 
 test('damage feedback concerns only the attacker and target; deaths concern everyone', () => {

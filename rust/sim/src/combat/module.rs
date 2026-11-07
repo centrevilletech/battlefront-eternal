@@ -740,6 +740,7 @@ impl CombatWorld for JsWorld<'_> {
     fn fired(&mut self, shot: &Shot, unit: &mut Unit, combat: &mut Combat) {
         // instrument.onFired is a pure notice. Capture its origin and life
         // now; later separation or reuse must not change the journal row.
+        crate::wire::shots::native_observe(self.r.slot as f64, unit.generation, unit.generation);
         F3ShotNotice {
             key: F3UnitKey::of(self.r, unit),
             shot: self.shot(shot),

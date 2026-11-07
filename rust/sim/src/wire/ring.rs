@@ -1,5 +1,4 @@
 //! Tick-stamped snapshot retention, following runtime/snapshot-ring.js.
-use std::collections::BTreeMap;
 
 const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
@@ -14,7 +13,7 @@ struct Stamped<T> {
 #[derive(Clone, Debug)]
 pub struct SnapshotRing<T> {
     capacity: usize,
-    entries: BTreeMap<i64, Stamped<T>>,
+    entries: Vec<Stamped<T>>,
     ticks: Vec<i64>,
     newest_tick: i64,
 }
@@ -24,7 +23,11 @@ impl<T> SnapshotRing<T> {
         if capacity == 0 || capacity as u64 > MAX_SAFE_INTEGER as u64 {
             return Err("invalid snapshot ring capacity");
         }
-        Ok(Self { capacity, entries: BTreeMap::new(), ticks: Vec::new(), newest_tick: -1 })
+        // SnapshotRing's common 128 positions are reserved at attachment.
+        // Keep values aligned with sorted ticks: a BTree node per captured
+        // tick was an allocator request even for rings of scalar policy data.
+        let reserve = capacity.min(4096);
+        Ok(Self { capacity, entries: Vec::with_capacity(reserve), ticks: Vec::with_capacity(reserve), newest_tick: -1 })
     }
 
     pub fn capacity(&self) -> usize { self.capacity }
@@ -46,21 +49,20 @@ impl<T> SnapshotRing<T> {
         if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&tick) {
             return Err("invalid snapshot ring tick");
         }
-        if let Some(entry) = self.entries.get_mut(&tick) {
-            entry.epoch = epoch;
-            entry.value = value;
+        if let Ok(at) = self.ticks.binary_search(&tick) {
+            self.entries[at] = Stamped { epoch, value };
             return Ok(true);
         }
         if self.ticks.len() >= self.capacity {
             if tick < self.ticks[0] { return Ok(false); }
-            let oldest = self.ticks.remove(0);
-            let evicted = self.entries.remove(&oldest).expect("held snapshot tick");
+            self.ticks.remove(0);
+            let evicted = self.entries.remove(0);
             on_evict(evicted.value, self);
         }
         let mut at = self.ticks.len();
         while at > 0 && self.ticks[at - 1] > tick { at -= 1; }
         self.ticks.insert(at, tick);
-        self.entries.insert(tick, Stamped { epoch, value });
+        self.entries.insert(at, Stamped { epoch, value });
         if tick > self.newest_tick { self.newest_tick = tick; }
         Ok(true)
     }
@@ -70,7 +72,8 @@ impl<T> SnapshotRing<T> {
     }
 
     pub fn get(&self, tick: i64, epoch: Option<u32>) -> Option<&T> {
-        self.entries.get(&tick).filter(|entry| epoch.is_none_or(|e| e == entry.epoch)).map(|entry| &entry.value)
+        self.ticks.binary_search(&tick).ok().and_then(|at| self.entries.get(at))
+            .filter(|entry| epoch.is_none_or(|e| e == entry.epoch)).map(|entry| &entry.value)
     }
 
     pub fn has(&self, tick: i64, epoch: Option<u32>) -> bool { self.get(tick, epoch).is_some() }

@@ -705,6 +705,15 @@ impl<T> Default for SortScratch<T> {
     fn default() -> Self { Self { tmp: Vec::new(), runs: Vec::new() } }
 }
 impl<T> SortScratch<T> {
+    /// Release retained values without releasing the reserved merge storage.
+    pub fn clear(&mut self) { self.tmp.clear(); self.runs.clear(); }
+    /// Fallible preparation for an exceptional publication backlog. Stable
+    /// sorting still reuses the same merge banks on all subsequent packets.
+    pub fn try_reserve(&mut self, count: usize) -> Result<(), std::collections::TryReserveError> {
+        self.tmp.try_reserve(count.saturating_sub(self.tmp.len()))?;
+        self.runs.try_reserve(K_MAX_MERGE_PENDING.saturating_sub(self.runs.len()))?;
+        Ok(())
+    }
     pub fn reserve(&mut self, count: usize) {
         self.tmp.reserve(count.saturating_sub(self.tmp.len()));
         self.runs.reserve(K_MAX_MERGE_PENDING.saturating_sub(self.runs.len()));

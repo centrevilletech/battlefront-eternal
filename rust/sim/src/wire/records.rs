@@ -50,31 +50,69 @@ pub fn quantize_quaternion(q: [f64; 4]) -> WireQuaternion {
     WireQuaternion { index: index as f64, v }
 }
 
-fn mount_entry(mount: Option<&WireRecord>) -> WireMount {
-    match mount {
-        Some(m) => WireMount {
-            slot: m.slot, tilt: angle_code(m.tilt), roll: angle_code(m.roll),
-            walk_phase: js_round(js_max(0.0, js_min(65.535, num_or(m.walk_phase, 0.0))) * 1000.0),
-            walk_blend: js_round(js_max(0.0, js_min(1.0, num_or(m.walk_blend, 0.0))) * 255.0),
-            seats: m.seats.as_deref().unwrap_or(&[]).iter().map(|s| [angle_code(s.yaw), angle_code(s.pitch)]).collect(),
-        },
-        None => WireMount::default(),
+fn mount_entry_into(mount: Option<&WireRecord>, out: &mut WireMount) -> Result<(), &'static str> {
+    out.seats.clear();
+    if let Some(m) = mount {
+        let seats = m.seats.as_deref().unwrap_or(&[]);
+        if seats.len() > out.seats.capacity() { return Err("snapshot mount capacity exceeded"); }
+        out.slot = m.slot; out.tilt = angle_code(m.tilt); out.roll = angle_code(m.roll);
+        out.walk_phase = js_round(js_max(0.0, js_min(65.535, num_or(m.walk_phase, 0.0))) * 1000.0);
+        out.walk_blend = js_round(js_max(0.0, js_min(1.0, num_or(m.walk_blend, 0.0))) * 255.0);
+        out.seats.extend(seats.iter().map(|s| [angle_code(s.yaw), angle_code(s.pitch)]));
+    } else { out.slot = None; out.tilt = 0.; out.roll = 0.; out.walk_phase = 0.; out.walk_blend = 0.; }
+    Ok(())
+}
+// Snapshot entry reuse preserves all raw bits, including scalar signed zeros.
+// Moving a retained slot between frames must not clone its nested allocations.
+fn copy_entry_into(source: &WireEntry, out: &mut WireEntry) -> Result<(), &'static str> {
+    if source.anim.len() > out.anim.capacity() || source.mount.seats.len() > out.mount.seats.capacity() {
+        return Err("snapshot entry capacity exceeded");
     }
+    macro_rules! scalar { ($($field:ident),*) => { $(out.$field = source.$field;)* } }
+    scalar!(cls, entity_id, generation, class_id, team, disc, pos, yaw, pitch, health, posture, charge, state,
+        weapon, seat_slot, seat_index, fire_counter, mode, reverse, dead, shield_on, power, gun_yaw, gun_pitch, active, definition_id, up);
+    out.vel = source.vel.clone(); out.quat = source.quat.clone();
+    out.anim.clear(); out.anim.extend_from_slice(&source.anim);
+    copy_mount_into(&source.mount, &mut out.mount); Ok(())
+}
+fn copy_mount_into(source: &WireMount, out: &mut WireMount) {
+    out.slot = source.slot; out.tilt = source.tilt; out.roll = source.roll;
+    out.walk_phase = source.walk_phase; out.walk_blend = source.walk_blend;
+    out.seats.clear(); out.seats.extend_from_slice(&source.seats);
 }
 
 /// Wire slots are recycled LIFO. Exhaustion consumes `next`, like the JS
 /// post-increment, but never inserts a key that did not receive a slot.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
+enum SlotKey { Text(String), Entity(u8, f64) }
+impl SlotKey {
+    fn matches(&self, key: &str) -> bool {
+        match self {
+            Self::Text(text) => text == key,
+            Self::Entity(kind, id) => {
+                let prefix = match kind { 0 => "unit:", 1 => "item:", _ => "remote:" };
+                key.strip_prefix(prefix).and_then(|n| n.parse::<f64>().ok()).is_some_and(|n| same_value_zero(n, *id))
+            }
+        }
+    }
+}
+#[derive(Clone, Debug)]
 pub struct SnapshotSlotTable {
-    by_key: Vec<(String, f64)>,
+    by_key: Vec<(SlotKey, f64)>,
     by_unit_id: Vec<(f64, f64)>,
     free: Vec<f64>,
     next: f64,
 }
-
+impl Default for SnapshotSlotTable {
+    fn default() -> Self {
+        // SnapshotSlotTable's full protocol domain is fixed. Birth, retirement
+        // and item reuse must not grow a map or format an identity at capture.
+        Self { by_key: Vec::with_capacity(SLOT_COUNT), by_unit_id: Vec::with_capacity(SLOT_COUNT),
+            free: Vec::with_capacity(SLOT_COUNT), next: 0. }
+    }
+}
 impl SnapshotSlotTable {
-    pub fn assign(&mut self, key: String, unit_id: Option<f64>) -> Result<f64, &'static str> {
-        if let Some((_, slot)) = self.by_key.iter().find(|(k, _)| k == &key) { return Ok(*slot); }
+    fn insert(&mut self, key: SlotKey, unit_id: Option<f64>) -> Result<f64, &'static str> {
         let slot = self.free.pop().unwrap_or_else(|| { let slot = self.next; self.next += 1.0; slot });
         if slot >= SLOT_COUNT as f64 { return Err("snapshot slot table full"); }
         self.by_key.push((key, slot));
@@ -84,29 +122,35 @@ impl SnapshotSlotTable {
         }
         Ok(slot)
     }
+    pub fn assign(&mut self, key: String, unit_id: Option<f64>) -> Result<f64, &'static str> {
+        if let Some((_, slot)) = self.by_key.iter().find(|(k, _)| k.matches(&key)) { return Ok(*slot); }
+        self.insert(SlotKey::Text(key), unit_id)
+    }
+    pub fn assign_entity(&mut self, kind: u8, id: f64) -> Result<f64, &'static str> {
+        if let Some((_, slot)) = self.by_key.iter().find(|(key, _)| matches!(key, SlotKey::Entity(k, n) if *k == kind && same_value_zero(*n, id))) { return Ok(*slot); }
+        self.insert(SlotKey::Entity(kind, id), (kind == 0).then_some(id))
+    }
     pub fn assign_unit(&mut self, id: f64) -> Result<f64, &'static str> {
         let existing = self.slot_for_unit(id);
-        if existing >= 0.0 { Ok(existing) } else { self.assign(format!("unit:{}", jsrt::numfmt::number_to_string(id)), Some(id)) }
+        if existing >= 0.0 { Ok(existing) } else { self.assign_entity(0, id) }
     }
     pub fn slot_for(&self, key: &str) -> f64 {
-        self.by_key.iter().find(|(k, _)| k == key).map(|(_, slot)| *slot).unwrap_or(-1.0)
+        self.by_key.iter().find(|(k, _)| k.matches(key)).map(|(_, slot)| *slot).unwrap_or(-1.0)
     }
     pub fn slot_for_unit(&self, id: f64) -> f64 {
         self.by_unit_id.iter().find(|(key, _)| same_value_zero(*key, id)).map(|(_, slot)| *slot).unwrap_or(-1.0)
     }
+    fn release_at(&mut self, at: usize) {
+        let (_, slot) = self.by_key.remove(at);
+        self.free.push(slot);
+        self.by_unit_id.retain(|(_, value)| *value != slot);
+    }
     pub fn release(&mut self, key: &str) {
-        if let Some(at) = self.by_key.iter().position(|(k, _)| k == key) {
-            let (_, slot) = self.by_key.remove(at);
-            self.free.push(slot);
-            self.by_unit_id.retain(|(_, value)| *value != slot);
-        }
+        if let Some(at) = self.by_key.iter().position(|(k, _)| k.matches(key)) { self.release_at(at); }
     }
     pub fn release_unit(&mut self, id: f64) {
         let slot = self.slot_for_unit(id);
-        if slot < 0.0 { return; }
-        if let Some((key, _)) = self.by_key.iter().find(|(_, value)| *value == slot) {
-            let key = key.clone(); self.release(&key);
-        }
+        if slot >= 0.0 { if let Some(at) = self.by_key.iter().position(|(_, value)| *value == slot) { self.release_at(at); } }
     }
 }
 
@@ -151,12 +195,14 @@ fn same_entry(a: &WireEntry, b: &WireEntry) -> bool {
     }
 }
 
-fn build_entry(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
-    seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<(WireEntry, bool), &'static str> {
+pub(crate) fn build_entry_into(entry: &mut WireEntry, record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
+    seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<bool, &'static str> {
     let cls = record_class(record.kind)?;
-    let mut entry = WireEntry { cls, entity_id: record.id, generation: record.generation,
+    let mut anim = std::mem::take(&mut entry.anim); anim.clear();
+    let mut seats = std::mem::take(&mut entry.mount.seats); seats.clear();
+    *entry = WireEntry { cls, entity_id: record.id, generation: record.generation,
         class_id: record.class_id.unwrap_or(0.0), team: record.team.unwrap_or(0.0), seat_slot: -1.0,
-        ..WireEntry::default() };
+        anim, mount: WireMount { seats, ..Default::default() }, ..WireEntry::default() };
     if cls == WireClass::Turret {
         entry.class_id = record.building;
         entry.health = record.health.unwrap_or(f64::NAN);
@@ -190,13 +236,14 @@ fn build_entry(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireReco
                 entry.seat_index = seat_index;
                 if cls == WireClass::Soldier { entry.charge = record.charge.unwrap_or(0.0); }
                 else {
-                    entry.anim = vec![record.time, record.roll, record.lean, record.legs, record.shield];
+                    if entry.anim.capacity() < 5 { return Err("snapshot animation capacity exceeded"); }
+                    entry.anim.extend_from_slice(&[record.time, record.roll, record.lean, record.legs, record.shield]);
                     entry.mode = record.mode; entry.reverse = record.reverse; entry.dead = record.dead; entry.shield_on = record.shield_on;
                 }
             },
             WireClass::Vehicle => {
                 entry.quat = quantize_quaternion(record.quaternion.ok_or("snapshot vehicle quaternion missing")?);
-                entry.mount = mount_entry(mount);
+                mount_entry_into(mount, &mut entry.mount)?;
                 entry.health = record.health.unwrap_or(f64::NAN);
                 entry.state = state_number(&record.state);
                 entry.power = record.power;
@@ -225,18 +272,46 @@ fn build_entry(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireReco
         }
         if cls == WireClass::Vehicle {
             if entry.quat == before.quat { entry.quat = before.quat.clone(); }
-            if entry.mount == before.mount { entry.mount = before.mount.clone(); }
+            if entry.mount == before.mount { copy_mount_into(&before.mount, &mut entry.mount); }
         }
-        if cls == WireClass::Droideka && entry.anim == before.anim { entry.anim = before.anim.clone(); }
+        if cls == WireClass::Droideka && entry.anim == before.anim { entry.anim.clear(); entry.anim.extend_from_slice(&before.anim); }
         if cls == WireClass::Item && entry.up == before.up { entry.up = before.up; }
-        if same_entry(&entry, before) { return Ok((before.clone(), true)); }
+        if same_entry(entry, before) { copy_entry_into(before, entry)?; return Ok(true); }
     }
-    Ok((entry, false))
+    Ok(false)
+}
+
+fn build_entry(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
+    seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<(WireEntry, bool), &'static str> {
+    // Standalone semantic fixtures own their returned entry. The live ring
+    // calls build_entry_into with cold-reserved slots instead of this wrapper.
+    let mut entry = WireEntry { anim: Vec::with_capacity(5), mount: WireMount {
+        seats: Vec::with_capacity(mount.and_then(|m| m.seats.as_ref()).map_or(0, Vec::len)), ..Default::default() }, ..Default::default() };
+    let reused = build_entry_into(&mut entry, record, bounds, mount, seat_slot, seat_index, previous, strings)?;
+    Ok((entry, reused))
 }
 
 pub fn entry_from_record(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
     seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<WireEntry, &'static str> {
     build_entry(record, bounds, mount, seat_slot, seat_index, previous, strings).map(|(entry, _)| entry)
+}
+
+pub(crate) fn discontinuity(entry: &mut WireEntry, before: Option<&WireEntry>, reused: bool, tick: f64,
+    previous_tick: f64, bounds: &WireBounds) {
+    if let Some(before) = before.filter(|before| !reused && before.generation == entry.generation && before.cls == entry.cls) {
+        if matches!(entry.cls, WireClass::Soldier | WireClass::Droideka) && before.seat_slot != entry.seat_slot { entry.disc = true; }
+        if entry.cls != WireClass::Turret {
+            let gap = js_max(1.0 / 60.0, (tick - previous_tick) / 60.0);
+            let v = entry.vel.v;
+            let speed = if entry.vel.wide { v8math::hypot3(v[0] / 32.0, v[1] / 32.0, v[2] / 32.0) }
+                else { v8math::hypot3(v[0] * 0.25, v[1] * 0.25, v[2] * 0.25) };
+            let allowance = 3.0 + js_max(if entry.cls == WireClass::Vehicle { 60.0 } else { 12.0 }, speed) * gap;
+            let dx = (entry.pos[0] - before.pos[0]) * bounds.x_extent / 65535.0;
+            let dy = (entry.pos[1] - before.pos[1]) * bounds.y_extent / 65535.0;
+            let dz = (entry.pos[2] - before.pos[2]) * bounds.z_extent / 65535.0;
+            entry.disc = entry.disc || v8math::hypot3(dx, dy, dz) > allowance;
+        }
+    }
 }
 
 fn put_slot(slots: &mut Vec<WireSlot>, slot: f64, entry: WireEntry) {
@@ -270,25 +345,12 @@ pub fn snapshot_from_records(tick: f64, epoch: f64, records: &[WireRecord], worl
                 let before = previous.and_then(|s| s.slots.iter().find(|r| same_value_zero(r.slot, slot))).map(|s| &s.entry);
                 let (mut entry, reused) = build_entry(r, bounds, mount, if seat_slot >= 0.0 { seat_slot } else { -1.0 },
                     seat.and_then(|s| s.seat_index).unwrap_or(0.0), before, strings)?;
-                if let Some(before) = before.filter(|before| !reused && before.generation == entry.generation && before.cls == entry.cls) {
-                    if matches!(entry.cls, WireClass::Soldier | WireClass::Droideka) && before.seat_slot != entry.seat_slot { entry.disc = true; }
-                    if entry.cls != WireClass::Turret {
-                        let gap = js_max(1.0 / 60.0, (tick - previous.expect("previous entry").tick) / 60.0);
-                        let v = entry.vel.v;
-                        let speed = if entry.vel.wide { v8math::hypot3(v[0] / 32.0, v[1] / 32.0, v[2] / 32.0) }
-                            else { v8math::hypot3(v[0] * 0.25, v[1] * 0.25, v[2] * 0.25) };
-                        let allowance = 3.0 + js_max(if entry.cls == WireClass::Vehicle { 60.0 } else { 12.0 }, speed) * gap;
-                        let dx = (entry.pos[0] - before.pos[0]) * bounds.x_extent / 65535.0;
-                        let dy = (entry.pos[1] - before.pos[1]) * bounds.y_extent / 65535.0;
-                        let dz = (entry.pos[2] - before.pos[2]) * bounds.z_extent / 65535.0;
-                        entry.disc = entry.disc || v8math::hypot3(dx, dy, dz) > allowance;
-                    }
-                }
+                discontinuity(&mut entry, before, reused, tick, previous.map_or(tick, |p| p.tick), bounds);
                 put_slot(&mut snapshot.slots, slot, entry);
             },
             WireRecordKind::Item | WireRecordKind::Remote => {
-                let prefix = if r.kind == WireRecordKind::Item { "item" } else { "remote" };
-                let slot = slots.assign(format!("{prefix}:{}", jsrt::numfmt::number_to_string(r.id)), None)?;
+                let kind = if r.kind == WireRecordKind::Item { 1 } else { 2 };
+                let slot = slots.assign_entity(kind, r.id)?;
                 let before = previous.and_then(|s| s.slots.iter().find(|r| same_value_zero(r.slot, slot))).map(|s| &s.entry);
                 put_slot(&mut snapshot.slots, slot, build_entry(r, bounds, None, -1.0, 0.0, before, strings)?.0);
             },

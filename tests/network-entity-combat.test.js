@@ -1,10 +1,11 @@
+import { CombatCapture } from './fixtures/projectile-capture-reference.js';
 import { nativeCombat } from './fixtures/native-combat.js';
 import { KIND_GRENADE } from '../src/sim/gen/index.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {DataTexture,Object3D,Scene,Vector3} from 'three';
 const THREE_={Object3D};
-import {CombatCapture,CombatPresentation,decodeCombat} from '../src/runtime/network-entity-combat.js';
+import {CombatPresentation,decodeCombat} from '../src/runtime/network-entity-combat.js';
 import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 import {PredictedShots} from '../src/runtime/predicted-shots.js';
 import {presentEntityEvent,presentationRecord} from '../src/runtime/entity-presentation-events.js';

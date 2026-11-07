@@ -1,7 +1,9 @@
 import { Vector3, Quaternion } from 'three';
+import { KIND_GRENADE, KIND_ROUND, KIND_BEAM } from '../sim/gen/index.js';
 import { networkShotFor } from './network-shot-aim.js';
 import { NetFlag as NET_FLAG } from '../presentation/ordnance-layout.js';
 const TYPES=['grenade','round','beam'];
+const KINDS=[KIND_GRENADE,KIND_ROUND,KIND_BEAM];
 const u32=n=>{if(!Number.isSafeInteger(n)||n<0||n>0xffffffff)throw Error('invalid projectile integer');return n;};
 export function projectileRecord({id,generation,tick,definitionId,type,ownerId=0,ownerGeneration=0,fireId=0,channel=0,launchTick=tick,position,velocity=[0,0,0],quaternion=[0,0,0,1],end=position,life=0,terminal=false,native=null}){
  if(native)return native.projectile({id,generation,tick,definitionId,type,ownerId,ownerGeneration,fireId,channel,launchTick,position,velocity,quaternion,end,life,terminal});
@@ -22,7 +24,7 @@ export function decodeProjectile(record){
 
 // Samples only; the authoritative Ordnance owns flight, bounces and collisions.
 export class ProjectileCapture {
- constructor(capture,ordnance){this.capture=capture;this.ordnance=ordnance;this.active=new Map();}
+ constructor(capture,ordnance){this.capture=capture;this.ordnance=ordnance;this.active=new Map();this.byId=new Map();this.pending=new Map();}
  launch(projectile,type,sample=null){
   if(this.active.has(projectile))return;
   const c=this.capture;if(this.active.size>=c.maxRecords)throw Error('dynamic projectile capture capacity exceeded');
@@ -31,22 +33,28 @@ export class ProjectileCapture {
   const owner=projectile.owner;
   const channel=sample?sample.channel:projectile.networkFireChannel??0;
   const shot=sample?null:networkShotFor(owner,channel);
-  this.active.set(projectile,{
+  const entry={
    id:c.nextId++,generation:c.generation,type,launchTick:c.tick(),
    definitionId:c.definitionId(sample?sample.def:projectile.def),
    ownerId:sample?sample.ownerId:typeof owner==='object'?owner?.id??0:0,
    ownerGeneration:sample?sample.ownerGeneration:typeof owner==='object'?owner?.generation??0:0,
    fireId:sample?sample.fireId:shot?.id??0,channel,
-  });
+  };
+  if(c.native){entry.slot=projectile.simSlot;entry.refGeneration=projectile.simGen;entry.nativeType=TYPES.indexOf(type);this.byId.set(entry.id,projectile);}
+  this.active.set(projectile,entry);this.pending.set(entry.id,entry);
  }
- sample(){
-  const c=this.capture,tick=c.tick(),live=new Set();
-  for(const[type,list]of[['grenade',this.ordnance.grenades],['round',this.ordnance.rounds],['beam',this.ordnance.beams]])for(const p of list){
-   if(p.gone||type==='beam'&&p.life<=0)continue;live.add(p);this.launch(p,type);const entry=this.active.get(p);if(entry.terminal)continue;
-   c.emit(projectileRecord({...entry,tick,position:p.position.toArray(),velocity:p.velocity?.toArray()??[0,0,0],quaternion:(p.quaternion??p.mesh?.quaternion)?.toArray()??[0,0,0,1],end:p.end?.toArray()??p.position.toArray(),life:Math.max(0,p.life??p.fuse??0),native:c.native}));
+ retire(ids){for(const id of ids){const projectile=this.byId.get(id);if(projectile)this.active.delete(projectile);this.byId.delete(id);this.pending.delete(id);}}
+ // A native first sample can discover a body that predates host admission.
+ // Retain its identity for later impact callbacks; poses stay native.
+ adopt(facts,bridge){
+  for(const fact of facts){
+   const type=TYPES[fact.type],projectile=bridge.refs[KINDS[fact.type]]?.at(fact.slot,fact.refGeneration);
+   if(!projectile)continue;
+   const entry={...fact,type,nativeType:fact.type};
+   this.active.set(projectile,entry);this.byId.set(fact.id,projectile);
   }
-  for(const[p,entry]of this.active)if(!live.has(p)){if(!entry.terminal)c.emit(projectileRecord({...entry,tick,terminal:true,native:c.native}));this.active.delete(p);}
  }
+
 }
 
 // Replicated rounds as the page shows them: grenades, rockets, shells,

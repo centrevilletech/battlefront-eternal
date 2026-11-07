@@ -470,7 +470,7 @@ cleanup after the gates pass, so some are still in the tree.
 - `network-entity-importance.js`, and `EntityBudget` in
   `network-entity-budget.js` (`readStateBudget`, which the snapshot host
   uses, stays)
-- forced-correction and refund logic in `entity-host.js`
+- the superseded record scheduler and its forced-correction/refund policy
 - `network-entity-timeline.js`'s coast, brake, jump inference and segments
 - `EntityPresentation.smooth`'s late-bracket offsets and `clampCoast`
 - retained-latest and `pendingSeats`/`pendingState`/`pendingCorrection`

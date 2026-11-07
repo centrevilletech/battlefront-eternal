@@ -64,6 +64,25 @@ fn state() -> &'static mut State {
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
         cables: Vec::with_capacity(128), phase: [0.0; FfPhase::WORDS], supply_result: Calls::default(), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), retow: sim().strings.intern_str("retow"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
 }
+/// captureMountedControl reads both exact weapon clocks and their next
+/// barrels. The pose owns barrel rotation; the firing slab owns Weapon state.
+pub(crate) fn wire_weapons<T>(hull: Ref<Vehicle>, life: f64, seat: usize,
+    capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> {
+    let st = unsafe { (&*addr_of_mut!(STATE)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
+    let craft = st.crafts.get(hull.slot as usize).and_then(Option::as_ref)
+        .filter(|c| c.id == hull && c.life == life).ok_or("mounted control lease prerequisite missing")?;
+    let refs = craft.seats.get(seat).ok_or("mounted control lease prerequisite missing")?;
+    if refs.len() > 2 { return Err("mounted weapon count exceeds correction budget"); }
+    let posed = poses().get(hull.slot as usize).and_then(Option::as_ref)
+        .and_then(|p| p.pose.seats.get(seat)).ok_or("mounted control lease prerequisite missing")?;
+    let unused = Weapon::default(); let mut values = [(&unused, 0.); 2];
+    for (i, &reference) in refs.iter().enumerate() {
+        let weapon = st.weapons.get(reference).ok_or("mounted weapon content prerequisite missing")?;
+        let pose = posed.weapons.get(i).ok_or("mounted weapon content prerequisite missing")?;
+        values[i] = (&weapon.state, pose.barrel);
+    }
+    capture(&values[..refs.len()])
+}
 fn node(n: f64) -> Option<three::NodeId> { (n >= 0.0).then_some(n as three::NodeId) }
 
 #[no_mangle]
@@ -548,6 +567,7 @@ fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64,
     let sample = if f3::active() {
         crate::units::f3_fleet::mounted_sample(owner,crate::units::f3_hulls::member(r))
     } else { F3MountedSample::default() };
+    if f3::active() { crate::units::f3_fleet::wire_shot(&sample); }
     let event = FfShot {
         state: state().weapons.get(wr).unwrap().state.clone(), hull: r, life,
         seat: seat as u32, weapon: weapon as u32, owner, yaw, pitch, charge,

@@ -1,0 +1,1035 @@
+[
+  {
+    "tick": 1,
+    "facts": [
+      {
+        "slot": 0,
+        "refGeneration": 1,
+        "type": 0,
+        "id": 1,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 12,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 1,
+        "refGeneration": 1,
+        "type": 1,
+        "id": 2,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 2,
+        "refGeneration": 1,
+        "type": 2,
+        "id": 3,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 14,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      }
+    ],
+    "samples": [
+      {
+        "type": 0,
+        "slot": 0,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "life": 0.23,
+        "gone": false
+      },
+      {
+        "type": 1,
+        "slot": 1,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "life": 0.19,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          5.6
+        ],
+        "life": 0.19,
+        "gone": false
+      }
+    ],
+    "retired": [],
+    "records": [
+      {
+        "id": 1,
+        "schema": 6,
+        "payload": "130000000c000000000700000002000000000000000100000052069e3f0000008000000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f52069e3f00000080000008421f856b3e00"
+      },
+      {
+        "id": 2,
+        "schema": 6,
+        "payload": "130000000d000000010700000002000000000000000100000052069e3f0000008000000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f52069e3f00000080000008425c8f423e00"
+      },
+      {
+        "id": 3,
+        "schema": 6,
+        "payload": "130000000e000000020700000002000000000000000100000052069e3f00000080000008420000000000000000000000000000000000000000000000000000803fcdcc4cbe9a9959403333b3405c8f423e00"
+      }
+    ]
+  },
+  {
+    "tick": 2,
+    "facts": [
+      {
+        "slot": 0,
+        "refGeneration": 1,
+        "type": 0,
+        "id": 1,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 12,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 1,
+        "refGeneration": 1,
+        "type": 1,
+        "id": 2,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 2,
+        "refGeneration": 1,
+        "type": 2,
+        "id": 3,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 14,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      }
+    ],
+    "samples": [
+      {
+        "type": 0,
+        "slot": 0,
+        "generation": 1,
+        "position": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "life": 0.23,
+        "gone": false
+      },
+      {
+        "type": 1,
+        "slot": 1,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          0.2,
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          0.2,
+          34
+        ],
+        "life": 0.19,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0.19,
+        "gone": false
+      }
+    ],
+    "retired": [],
+    "records": [
+      {
+        "id": 1,
+        "schema": 6,
+        "payload": "140000000c000000000700000002000000000000000100000017279e3f0000008000000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f17279e3f00000080000008421f856b3e00"
+      },
+      {
+        "id": 2,
+        "schema": 6,
+        "payload": "140000000d000000010700000002000000000000000100000052069e3fcdcc4c3e00000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f52069e3fcdcc4c3e000008425c8f423e00"
+      },
+      {
+        "id": 3,
+        "schema": 6,
+        "payload": "140000000e000000020700000002000000000000000100000052069e3f00000080000008420000000000000000000000000000000000000000000000000000803fcdcc4cbe9a9959407b1412415c8f423e00"
+      }
+    ]
+  },
+  {
+    "tick": 3,
+    "facts": [
+      {
+        "slot": 0,
+        "refGeneration": 1,
+        "type": 0,
+        "id": 1,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 12,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 1,
+        "refGeneration": 1,
+        "type": 1,
+        "id": 2,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 2,
+        "refGeneration": 1,
+        "type": 2,
+        "id": 3,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 14,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      }
+    ],
+    "samples": [
+      {
+        "type": 0,
+        "slot": 0,
+        "generation": 1,
+        "position": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "life": 0.23,
+        "gone": true
+      },
+      {
+        "type": 1,
+        "slot": 1,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          0.2,
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          0.2,
+          34
+        ],
+        "life": 0.19,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0.19,
+        "gone": false
+      }
+    ],
+    "retired": [
+      1
+    ],
+    "records": [
+      {
+        "id": 2,
+        "schema": 6,
+        "payload": "150000000d000000010700000002000000000000000100000052069e3fcdcc4c3e00000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f52069e3fcdcc4c3e000008425c8f423e00"
+      },
+      {
+        "id": 3,
+        "schema": 6,
+        "payload": "150000000e000000020700000002000000000000000100000052069e3f00000080000008420000000000000000000000000000000000000000000000000000803fcdcc4cbe9a9959407b1412415c8f423e00"
+      },
+      {
+        "id": 1,
+        "schema": 7,
+        "payload": "15000000"
+      }
+    ]
+  },
+  {
+    "tick": 4,
+    "facts": [
+      {
+        "slot": 1,
+        "refGeneration": 1,
+        "type": 1,
+        "id": 2,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 2,
+        "refGeneration": 1,
+        "type": 2,
+        "id": 3,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 14,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 1,
+        "refGeneration": 2,
+        "type": 1,
+        "id": 4,
+        "generation": 3,
+        "launchTick": 4,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      }
+    ],
+    "samples": [
+      {
+        "type": 0,
+        "slot": 0,
+        "generation": 1,
+        "position": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "life": 0.23,
+        "gone": true
+      },
+      {
+        "type": 1,
+        "slot": 1,
+        "generation": 2,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "life": 0.19,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0.19,
+        "gone": false
+      }
+    ],
+    "retired": [
+      2
+    ],
+    "records": [
+      {
+        "id": 4,
+        "schema": 6,
+        "payload": "160000000d000000010700000002000000000000000400000052069e3f0000008000000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f52069e3f00000080000008425c8f423e00"
+      },
+      {
+        "id": 3,
+        "schema": 6,
+        "payload": "160000000e000000020700000002000000000000000100000052069e3f00000080000008420000000000000000000000000000000000000000000000000000803fcdcc4cbe9a9959407b1412415c8f423e00"
+      },
+      {
+        "id": 2,
+        "schema": 7,
+        "payload": "16000000"
+      }
+    ]
+  },
+  {
+    "tick": 5,
+    "facts": [
+      {
+        "slot": 2,
+        "refGeneration": 1,
+        "type": 2,
+        "id": 3,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 14,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 1,
+        "refGeneration": 2,
+        "type": 1,
+        "id": 4,
+        "generation": 3,
+        "launchTick": 4,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": true
+      }
+    ],
+    "samples": [
+      {
+        "type": 0,
+        "slot": 0,
+        "generation": 1,
+        "position": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "life": 0.23,
+        "gone": true
+      },
+      {
+        "type": 1,
+        "slot": 1,
+        "generation": 2,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "life": 0.19,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0.19,
+        "gone": false
+      }
+    ],
+    "retired": [],
+    "records": [
+      {
+        "id": 3,
+        "schema": 6,
+        "payload": "170000000e000000020700000002000000000000000100000052069e3f00000080000008420000000000000000000000000000000000000000000000000000803fcdcc4cbe9a9959407b1412415c8f423e00"
+      }
+    ]
+  },
+  {
+    "tick": 6,
+    "facts": [
+      {
+        "slot": 2,
+        "refGeneration": 1,
+        "type": 2,
+        "id": 3,
+        "generation": 3,
+        "launchTick": 1,
+        "definitionId": 14,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      },
+      {
+        "slot": 1,
+        "refGeneration": 2,
+        "type": 1,
+        "id": 4,
+        "generation": 3,
+        "launchTick": 4,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": true
+      }
+    ],
+    "samples": [
+      {
+        "type": 1,
+        "slot": 1,
+        "generation": 2,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "life": 0.19,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0,
+        "gone": false
+      }
+    ],
+    "retired": [
+      3
+    ],
+    "records": [
+      {
+        "id": 3,
+        "schema": 7,
+        "payload": "18000000"
+      }
+    ]
+  },
+  {
+    "tick": 7,
+    "facts": [
+      {
+        "slot": 1,
+        "refGeneration": 2,
+        "type": 1,
+        "id": 4,
+        "generation": 3,
+        "launchTick": 4,
+        "definitionId": 13,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": true
+      }
+    ],
+    "samples": [
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0,
+        "gone": false
+      }
+    ],
+    "retired": [
+      4
+    ],
+    "records": []
+  },
+  {
+    "tick": 8,
+    "facts": [
+      {
+        "slot": 0,
+        "refGeneration": 2,
+        "type": 0,
+        "id": 5,
+        "generation": 3,
+        "launchTick": 8,
+        "definitionId": 12,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      }
+    ],
+    "samples": [
+      {
+        "type": 0,
+        "slot": 0,
+        "generation": 2,
+        "position": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0.1,
+          -0.2,
+          0.3
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          1.2355678899999998,
+          "-0",
+          34
+        ],
+        "life": 0,
+        "gone": false
+      },
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0,
+        "gone": false
+      }
+    ],
+    "retired": [],
+    "records": [
+      {
+        "id": 5,
+        "schema": 6,
+        "payload": "1a0000000c000000000700000002000000000000000800000017279e3f0000008000000842cdcccc3dcdcc4cbe9a99993e0000000000000000000000000000803f17279e3f00000080000008420000000000"
+      }
+    ]
+  },
+  {
+    "tick": 9,
+    "facts": [
+      {
+        "slot": 0,
+        "refGeneration": 2,
+        "type": 0,
+        "id": 5,
+        "generation": 3,
+        "launchTick": 8,
+        "definitionId": 12,
+        "ownerId": 7,
+        "ownerGeneration": 2,
+        "fireId": 0,
+        "channel": 0,
+        "terminal": false
+      }
+    ],
+    "samples": [
+      {
+        "type": 2,
+        "slot": 2,
+        "generation": 1,
+        "position": [
+          1.23456789,
+          "-0",
+          34
+        ],
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "end": [
+          -0.2,
+          3.4,
+          9.13
+        ],
+        "life": 0,
+        "gone": false
+      }
+    ],
+    "retired": [
+      5
+    ],
+    "records": [
+      {
+        "id": 5,
+        "schema": 7,
+        "payload": "1b000000"
+      }
+    ]
+  }
+]

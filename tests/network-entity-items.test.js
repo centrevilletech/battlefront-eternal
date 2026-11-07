@@ -89,9 +89,9 @@ test('item IDs cannot revoke an unrelated actor seat with the same numeric ID',(
  const receiver=new EntityReceiver();receiver.apply(encodeEntityPacket({epoch:1,packetId:++serial,tick:1,records:[seat,item]}));assert.equal(receiver.seatOwner(10,1,1).id,0);
 });
 
-test('world capture includes actual item pools and new epoch removes old visual instances',async()=>{
- const {EntityWorldCapture}=await import('../src/runtime/network-entity-capture.js');const f=fixture();spawn(f);
- const registry={classes:new Map(),weapons:new Map(),combat:f.capture.registry};const capture=new EntityWorldCapture({items:f.authority,units:{all:()=>[]},vehicles:{vehicles:[]}},registry);
+test('an item record in a new epoch removes old visual instances',async()=>{
+ const f=fixture();spawn(f);
+ const capture=f.capture;
  const record=capture.capture(1)[0];assert.equal(record.kind,'item');assert.equal(encodeEntityPacket({epoch:1,packetId:1,tick:1,records:[record]}).length,74);
  f.presentation.receive(transfer(record),1);f.presentation.present(1);const mesh=f.presentation.slots.get(record.id).view.mesh;f.presentation.reset(2);assert.equal(mesh.parent,null);assert.equal(f.presentation.slots.size,0);f.presentation.receive(transfer(record),1);f.presentation.present(3);assert.equal(f.client.views.size,0,'a record of the old epoch is dropped');
 });

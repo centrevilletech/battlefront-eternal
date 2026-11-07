@@ -47,16 +47,40 @@ impl Counters {
         self.overflow = 0.;
     }
 }
+// EntityShotCounters.listen is replaced for canonical worlds by these native
+// sinks. Registration is cold, and each battle module owns its own fixed bank.
+// No sink can outlive wire_shots_drop; capture never calls a gameplay callback.
+struct Sinks { rows: [*mut Counters; 16], len: usize }
+static mut SINKS: Sinks = Sinks { rows: [std::ptr::null_mut(); 16], len: 0 };
+pub(crate) fn native_observe(id: f64, generation: f64, live: f64) {
+    let sinks = unsafe { &mut *std::ptr::addr_of_mut!(SINKS) };
+    for &counter in &sinks.rows[..sinks.len] {
+        if !counter.is_null() { unsafe { (&mut *counter).observe(id, generation, live); } }
+    }
+}
+/// Attach once, after a canonical source is admitted. Standalone codec users
+/// keep explicit observe(); there is no alternate gameplay authority here.
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_attach(counter: *mut Counters) -> u32 {
+    if counter.is_null() { return 0; }
+    let sinks = &mut *std::ptr::addr_of_mut!(SINKS);
+    if sinks.rows[..sinks.len].contains(&counter) { return 1; }
+    if let Some(at) = sinks.rows.iter().position(|p| p.is_null()) {
+        sinks.rows[at] = counter; sinks.len = sinks.len.max(at + 1); 1
+    } else { 0 }
+}
+
 #[no_mangle]
 pub extern "C" fn wire_shots_create(capacity: f64) -> *mut Counters {
-    Box::into_raw(Box::new(Counters {
-        capacity,
-        ..Counters::default()
-    }))
+    if !integer(capacity) || capacity < 1. || capacity > 65536. { return std::ptr::null_mut(); }
+    Box::into_raw(Box::new(Counters { capacity, units: Vec::with_capacity(capacity as usize), ..Default::default() }))
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_shots_drop(p: *mut Counters) {
     if !p.is_null() {
+        let sinks = &mut *std::ptr::addr_of_mut!(SINKS);
+        for row in &mut sinks.rows[..sinks.len] { if *row == p { *row = std::ptr::null_mut(); } }
+        while sinks.len > 0 && sinks.rows[sinks.len - 1].is_null() { sinks.len -= 1; }
         drop(Box::from_raw(p));
     }
 }

@@ -56,7 +56,7 @@ test('decoder accepts subarray views and preserves selected muzzle',()=>{
 
 import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { Unit } from '../src/units.js';
-import { EntityWorldCapture } from '../src/runtime/network-entity-capture.js';
+import { captureEntitySoldier } from '../src/runtime/network-entity-capture.js';
 import { EntityGameState } from '../src/runtime/network-entity-game.js';
 import { encodeEntityPacket, decodeEntityPacket, encodeEntityRecord } from '../src/runtime/network-entity-codec.js';
 import { createSnapshotSender } from './snapshot-send.js';
@@ -70,7 +70,7 @@ function remoteFixture() {
   return {d,unit,game,registry};
 }
 test('Droideka capture, real shared presentation, lifecycle and stale packets use mandatory entity transport',()=>{
-  const authority=remoteFixture(),client=remoteFixture(),captureWorld=new EntityWorldCapture(authority.game,authority.registry);
+  const authority=remoteFixture(),client=remoteFixture(),captureWorld={unsupported:[],capture:tick=>[authority.unit.removed?{kind:'tombstone',id:authority.unit.id,generation:authority.unit.generation,tick}:captureEntitySoldier(authority.unit,{tick,classId:1,weaponId:0})]};
   const adapter=new EntityGameState(client.game,client.registry);adapter.baseline();
   const sender=createSnapshotSender(adapter);
   const send=(tick,id)=>{const records=captureWorld.capture(tick);assert.equal(captureWorld.unsupported.length,0);return sender.send(tick,records);};
@@ -88,7 +88,7 @@ test('Droideka capture, real shared presentation, lifecycle and stale packets us
   assert.equal(presentUnit(client.unit,0,1).roll,0,'new life cannot interpolate old shell rotation');
 });
 test('Droideka wire rejects malformed pose before applying a packet',()=>{
-  const f=remoteFixture(),record=new EntityWorldCapture(f.game,f.registry).capture(1)[0];
+  const f=remoteFixture(),record=captureEntitySoldier(f.unit,{tick:1,classId:1,weaponId:0});
   for(const changes of [{mode:14},{roll:NaN},{time:Infinity},{shield:-1},{reverse:1}])assert.throws(()=>encodeEntityRecord({...record,...changes}));
   const bytes=encodeEntityPacket({epoch:1,packetId:1,tick:1,records:[record]});
   for(let n=0;n<bytes.length;n++)assert.throws(()=>decodeEntityPacket(bytes.subarray(0,n)));
@@ -117,7 +117,7 @@ test('unseen remote Droideka is built once and death notification fires once per
   client.game.units.byIdMap.clear();client.game.presentEvent=(event,unit)=>events.push([event,unit.id]);
   client.game.factory.build=className=>{assert.equal(className,'droideka');built++;client.unit.id=99;client.game.units.byIdMap.set(99,client.unit);return client.unit;};
   const adapter=new EntityGameState(client.game,client.registry);adapter.baseline();
-  const captureWorld=new EntityWorldCapture(authority.game,authority.registry);
+  const captureWorld={unsupported:[],capture:tick=>[authority.unit.removed?{kind:'tombstone',id:authority.unit.id,generation:authority.unit.generation,tick}:captureEntitySoldier(authority.unit,{tick,classId:1,weaponId:0})]};
   const sender=createSnapshotSender(adapter);
   const send=tick=>sender.send(tick,captureWorld.capture(tick));
   send(1);assert.equal(built,1);assert.ok(client.game.units.byId(2)===client.unit);
@@ -132,7 +132,7 @@ test('a droideka terminal record latches its dissolve through repeated records a
   const source = remoteFixture(), client = remoteFixture();
   const adapter = new EntityGameState(client.game, client.registry); adapter.baseline();
   const sender = createSnapshotSender(adapter);
-  const capture = new EntityWorldCapture(source.game, source.registry);
+  const capture = {capture:tick=>[captureEntitySoldier(source.unit,{tick,classId:1,weaponId:0})]};
   client.unit.undraw = function () { this.actor.root.visible = false; };
   source.d.dead = true; source.d.mode = 4; source.unit.alive = false;
   sender.send(10, capture.capture(10));

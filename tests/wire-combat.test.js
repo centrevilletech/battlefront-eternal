@@ -1,10 +1,11 @@
+import { CombatCapture } from './fixtures/projectile-capture-reference.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3, Quaternion } from 'three';
 import { loadSim } from '../src/sim/module.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { WireCombat } from '../src/runtime/wire-combat.js';
-import { CombatCapture, attachCombatCapture, combatRecord } from '../src/runtime/network-entity-combat.js';
+import { attachCombatCapture, combatRecord } from '../src/runtime/network-entity-combat.js';
 import { presentationRecord } from '../src/runtime/entity-presentation-events.js';
 import { SimEvents } from '../src/sim-events.js';
 import { createWireBridge } from '../src/runtime/wire-sim.js';

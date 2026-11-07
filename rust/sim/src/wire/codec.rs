@@ -6,7 +6,7 @@ use crate::gen::{
 
 pub type Result<T> = std::result::Result<T, &'static str>;
 pub const MAX_DATAGRAM: usize = 1100;
-const ENTITIES: u32 = 0x31534e42;
+pub(crate) const ENTITIES: u32 = 0x31534e42;
 const OWN: u32 = 0x314f4e42;
 
 #[derive(Default)]
@@ -55,7 +55,7 @@ impl Writer {
         self.0.extend_from_slice(v);
     }
 }
-fn header(
+pub(crate) fn header(
     w: &mut Writer,
     magic: u32,
     epoch: f64,
@@ -281,6 +281,14 @@ fn write_group(w: &mut Writer, e: &Entry, base: Option<&Entry>, group: usize) ->
     Ok(())
 }
 fn record(e: &Entry, baseline: Option<&Entry>) -> Result<Vec<u8>> {
+    let mut w = Writer::default();
+    record_into(&mut w, e, baseline)?;
+    Ok(w.0)
+}
+/// The host retains one writer per protocol slot. Pure codec callers still
+/// return an owned Vec, using the same group ordering and validation above.
+pub(crate) fn record_into(w: &mut Writer, e: &Entry, baseline: Option<&Entry>) -> Result<()> {
+    w.0.clear();
     let groups = group_count(e.cls);
     let new = baseline.is_none_or(|b| {
         b.cls != e.cls
@@ -289,7 +297,6 @@ fn record(e: &Entry, baseline: Option<&Entry>) -> Result<Vec<u8>> {
             || b.entity_id != e.entity_id
             || e.cls != Class::Turret && b.team != e.team
     });
-    let mut w = Writer::default();
     w.u8(0.)?;
     if new {
         w.0[0] = 1 | (((1 << groups) - 1) << 2);
@@ -299,7 +306,7 @@ fn record(e: &Entry, baseline: Option<&Entry>) -> Result<Vec<u8>> {
         w.u16(e.class_id)?;
         w.u8(e.team)?;
         for g in 0..groups {
-            write_group(&mut w, e, None, g)?;
+            write_group(w, e, None, g)?;
         }
     } else {
         let base = baseline.unwrap();
@@ -307,15 +314,16 @@ fn record(e: &Entry, baseline: Option<&Entry>) -> Result<Vec<u8>> {
         for g in 0..groups {
             if !same_group(e, base, g) {
                 mask |= 1 << g;
-                write_group(&mut w, e, Some(base), g)?;
+                write_group(w, e, Some(base), g)?;
             }
         }
         if mask == 0 {
-            return Ok(Vec::new());
+            w.0.clear();
+            return Ok(());
         }
         w.0[0] = mask << 2;
     }
-    Ok(w.0)
+    Ok(())
 }
 fn changed_words(current: &[u8], base: Option<&[u8]>) -> Option<usize> {
     let base = base.filter(|b| b.len() == current.len())?;
@@ -348,16 +356,24 @@ fn changed_delta(w: &mut Writer, current: &[u8], base: &[u8]) -> Result<()> {
 }
 pub fn word_delta(current: &[u8], base: Option<&[u8]>) -> Result<Vec<u8>> {
     let mut w = Writer::default();
+    word_delta_into(&mut w, current, base)?; Ok(w.0)
+}
+/// prepareOwn reuses the delta writer, including its final partial word.
+/// Equal length alone does not select delta encoding; it must save bytes.
+pub fn word_delta_into(w: &mut Writer, current: &[u8], base: Option<&[u8]>) -> Result<()> {
+    w.0.clear(); word_delta_append(w, current, base)
+}
+fn word_delta_append(w: &mut Writer, current: &[u8], base: Option<&[u8]>) -> Result<()> {
     if delta_wins(current.len(), changed_words(current, base)) {
-        changed_delta(&mut w, current, base.unwrap())?;
+        changed_delta(w, current, base.unwrap())?;
     } else {
         w.u8(0.)?;
         w.u16(current.len() as f64)?;
         w.raw(current);
     }
-    Ok(w.0)
+    Ok(())
 }
-fn field(w: &mut Writer, f: &Field, removed: bool, base: Option<&Field>) -> Result<()> {
+pub(crate) fn field(w: &mut Writer, f: &Field, removed: bool, base: Option<&Field>) -> Result<()> {
     w.u32(f.id)?;
     w.u16(f.schema)?;
     w.u32(f.generation)?;
@@ -400,13 +416,25 @@ fn world_entries(current: &[Field], baseline: &[Field]) -> Result<Vec<Vec<u8>>> 
     Ok(out)
 }
 pub fn world_section(current: &[Field], baseline: &[Field]) -> Result<Vec<u8>> {
-    let entries = world_entries(current, baseline)?;
     let mut w = Writer::default();
-    w.varint(entries.len());
-    for e in entries {
-        w.raw(&e);
+    world_section_into(&mut w, current, baseline)?; Ok(w.0)
+}
+/// Own fields have a small, bounded set. Count changed entries first, then
+/// write them in Map order without allocating a separate writer per field.
+pub fn world_section_into(w: &mut Writer, current: &[Field], baseline: &[Field]) -> Result<()> {
+    w.0.clear(); let mut count = 0;
+    for f in current {
+        if !baseline.iter().find(|b| b.id == f.id && b.schema == f.schema).is_some_and(|b| b.generation == f.generation && b.payload == f.payload) { count += 1; }
     }
-    Ok(w.0)
+    count += baseline.iter().filter(|f| !current.iter().any(|c| c.id == f.id && c.schema == f.schema)).count();
+    w.varint(count);
+    for f in current {
+        let base = baseline.iter().find(|b| b.id == f.id && b.schema == f.schema);
+        if base.is_some_and(|b| b.generation == f.generation && b.payload == f.payload) { continue; }
+        field(w, f, false, base)?;
+    }
+    for f in baseline { if !current.iter().any(|c| c.id == f.id && c.schema == f.schema) { field(w, f, true, None)?; } }
+    Ok(())
 }
 #[derive(Default)]
 struct Part {
@@ -566,71 +594,58 @@ pub fn encode_entities(
     }
     Ok(out)
 }
-fn slot(v: f64) -> Result<usize> {
+pub(crate) fn slot(v: f64) -> Result<usize> {
     if !v.is_finite() || v.fract() != 0. || !(0. ..512.).contains(&v) {
         Err("snapshot slot out of range")
     } else {
         Ok(v as usize)
     }
 }
+/// Header and already encoded sections borrowed by the publication owner.
+/// Each section remains in retained scratch until this datagram is copied
+/// into its publication arena; no generated record or byte clone intervenes.
+pub struct OwnParts<'a> {
+    pub epoch: f64, pub tick: f64, pub interval: f64, pub baseline: f64, pub ack: f64,
+    pub second: bool, pub count: f64, pub correction: Option<&'a [u8]>,
+    pub summaries: Option<&'a [u8]>, pub cosmetics: Option<&'a [u8]>,
+}
+fn own_header(w: &mut Writer, epoch: f64, tick: f64, interval: f64, baseline: f64, ack: f64, second: bool, count: f64) -> Result<()> {
+    w.0.clear();
+    if count.fract() != 0. || count < 1. || count > 2. { return Err("invalid snapshot parts"); }
+    header(w, OWN, epoch, tick, interval, baseline, second as usize, count as usize, ack)
+}
+fn own_sections(w: &mut Writer, second: bool, correction: Option<&[u8]>, summaries: Option<&[u8]>, cosmetics: Option<&[u8]>) -> Result<()> {
+    let cosmetics = cosmetics.filter(|b| !b.is_empty());
+    let flags = (if second { 8 } else { 0 }) | u8::from(correction.is_some()) | u8::from(summaries.is_some()) << 1 | u8::from(cosmetics.is_some()) << 2;
+    w.u8(flags as f64)?;
+    for section in [correction, summaries, cosmetics].into_iter().flatten() {
+        // Validate before the length prefix too: a second section must
+        // not grow a full retained packet on the error path.
+        if section.len() > u16::MAX as usize { return Err("snapshot integer out of range"); }
+        if section.len().saturating_add(2) > MAX_DATAGRAM.saturating_sub(w.0.len()) { return Err("own datagram exceeds budget"); }
+        w.u16(section.len() as f64)?; w.raw(section);
+    }
+    Ok(())
+}
+pub fn own_correction_into(w: &mut Writer, id: f64, generation: f64, schema: f64, payload: &[u8], base: Option<&[u8]>) -> Result<()> {
+    w.0.clear(); w.u32(id)?; w.u32(generation)?; w.u16(schema)?; word_delta_append(w, payload, base)
+}
+pub fn own_datagram_into(w: &mut Writer, parts: OwnParts<'_>) -> Result<()> {
+    own_header(w, parts.epoch, parts.tick, parts.interval, parts.baseline, parts.ack, parts.second, parts.count)?;
+    own_sections(w, parts.second, parts.correction, parts.summaries, parts.cosmetics)
+}
 pub fn own_datagram(args: &WireOwn) -> Result<Vec<u8>> {
     let mut w = Writer::default();
-    if args.own_parts.fract() != 0. || args.own_parts < 1. || args.own_parts > 2. {
-        return Err("invalid snapshot parts");
+    own_header(&mut w, args.epoch, args.tick, args.interval, args.baseline_tick, args.ack_input, args.second, args.own_parts)?;
+    let mut correction = Writer::default();
+    if let Some(c) = &args.correction {
+        correction.u32(c.id)?; correction.u32(c.generation)?; correction.u16(c.schema)?;
+        if let Some(delta) = &args.correction_delta { correction.raw(delta); }
+        else { word_delta_append(&mut correction, &c.payload, args.baseline_payload.as_deref())?; }
     }
-    header(
-        &mut w,
-        OWN,
-        args.epoch,
-        args.tick,
-        args.interval,
-        args.baseline_tick,
-        args.second as usize,
-        args.own_parts as usize,
-        args.ack_input,
-    )?;
-    let mut flags = if args.second { 8 } else { 0 };
-    let correction = if let Some(c) = &args.correction {
-        flags |= 1;
-        let mut s = Writer::default();
-        s.u32(c.id)?;
-        s.u32(c.generation)?;
-        s.u16(c.schema)?;
-        let delta = match &args.correction_delta {
-            Some(d) => d.clone(),
-            None => word_delta(&c.payload, args.baseline_payload.as_deref())?,
-        };
-        s.raw(&delta);
-        Some(s.0)
-    } else {
-        None
-    };
-    let summaries = if let Some(s) = &args.summaries_section {
-        flags |= 2;
-        Some(s.clone())
-    } else if let Some(s) = &args.summaries {
-        flags |= 2;
-        Some(world_section(
-            s,
-            args.baseline_summaries.as_deref().unwrap_or(&[]),
-        )?)
-    } else {
-        None
-    };
-    let cosmetics = args.cosmetic_bytes.as_ref().filter(|b| !b.is_empty());
-    if cosmetics.is_some() {
-        flags |= 4;
-    }
-    w.u8(flags as f64)?;
-    for section in [correction.as_ref(), summaries.as_ref(), cosmetics]
-        .into_iter()
-        .flatten()
-    {
-        w.u16(section.len() as f64)?;
-        w.raw(section);
-    }
-    if w.0.len() > MAX_DATAGRAM {
-        return Err("own datagram exceeds budget");
-    }
+    let generated = if args.summaries_section.is_none() { args.summaries.as_ref()
+        .map(|s| world_section(s, args.baseline_summaries.as_deref().unwrap_or(&[]))).transpose()? } else { None };
+    let summaries = args.summaries_section.as_deref().or(generated.as_deref());
+    own_sections(&mut w, args.second, args.correction.as_ref().map(|_| correction.0.as_slice()), summaries, args.cosmetic_bytes.as_deref())?;
     Ok(w.0)
 }

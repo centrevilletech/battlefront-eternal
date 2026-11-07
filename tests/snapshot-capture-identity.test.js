@@ -1,13 +1,10 @@
-import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { encodeEntities } from '../src/runtime/snapshot-codec.js';
 import { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger, EntrySpare } from '../src/runtime/snapshot-records.js';
 import { SnapshotRing } from '../src/runtime/snapshot-ring.js';
 import { captureWorldPresentation } from '../src/runtime/entity-world-state.js';
 import * as reference from './fixtures/snapshot-capture-reference.js';
-import * as ownReference from './fixtures/own-checkpoint-reference.js';
 import { checkPayloadRecordFits, encodeEntityRecord } from '../src/runtime/network-entity-codec.js';
 
 // Capture builds less than it did (no record for a station or tow the
@@ -259,78 +256,5 @@ test('a payload record is checked as encoding it checks it, without encoding it'
   }
 });
 
-const content = contentPath();
-const owned = { skip: !existsSync(`${content}/maps/nab2/map.json`) };
-// A real battle: the host publishes as usual while the reference capture
-// takes the same world state each tick; every shared part the host sends
-// must be what the reference snapshot encodes to against the same baseline,
-// and every player's own checkpoint the reference's.
-async function realBattle(query, { ticks, local, clients }) {
-  process.env.BFE_CONTENT_DIR ||= content;
-  const { headlessGame } = await import('../tools/headless-world.mjs');
-  const { createMultiplayerWorld } = await import('../src/runtime/multiplayer-world.js');
-  const { createSnapshotHost } = await import('../src/runtime/snapshot-host.js');
-  const { EntityShotCounters } = await import('../src/runtime/network-entity-shots.js');
-  const { SnapshotClient } = await import('../src/runtime/snapshot-client.js');
-  const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-  const { publicationBuffersFor } = await import('../src/runtime/snapshot-host.js');
-  const { capturePlayerCorrection } = await import('../src/runtime/network-entity-capture.js');
-  const own = capture => { try { return [...capture().payload]; } catch (error) { return error.message; } };
-  const game = await headlessGame(query);
-  await game.factory.prepareSoldiers();
-  const world = createMultiplayerWorld(game, local ? { maxPlayers: 1, armySize: null } : { armySize: 16 });
-  const clock = { ms: 0 };
-  const host = createSnapshotHost({ game, world, local, now: () => clock.ms });
-  for (const id of clients) {
-    await world.addPlayer(id, { reliableFire: true, separateActions: true });
-    world.players.get(id).autoRespawn = true;
-    host.addClient(id); host.setStarted(id, true); host.setReady(id);
-  }
-  const shots = new EntityShotCounters(game.simEvents);
-  const capture = reference.referenceCapture({ game, world, registry: host.registry, fireCounter: unit => shots.counter(unit) });
-  const receivers = new Map(clients.map(id => [id, new SnapshotClient()])), acks = new Map(clients.map(id => [id, []]));
-  const ring = new Map();
-  let compared = 0, entities = 0;
-  const interval = local ? 1 : 2;
-  for (let frame = 0; frame < ticks; frame++) {
-    world.step(); clock.ms += 1000 / 60;
-    const out = host.publish({}), tick = game.worldClock.tick;
-    assert.deepEqual(out.faults, []);
-    // Every snapshot the host captured went out, so the reference captures
-    // on exactly the host's ticks.
-    if (tick % interval) { assert.equal(out.shared.length, 0); continue; }
-    assert.ok(out.shared.length && out.shared.every(group => group.tick === tick), `tick ${tick} published`);
-    const expected = capture(tick);
-    ring.set(tick, expected); ring.delete(tick - 200);
-    for (const group of out.shared) {
-      const parts = encodeEntities(expected, group.baselineTick ? ring.get(group.baselineTick) : null, { interval });
-      assert.deepEqual(group.parts.map(p => Buffer.from(p).toString('hex')), parts.map(p => Buffer.from(p).toString('hex')), `${query} tick ${tick} against ${group.baselineTick}`);
-      compared++;
-    }
-    entities = Math.max(entities, expected.slots.size);
-    for (const id of clients) {
-      const options = { registry: host.registry, bindingProfileId: 0, epoch: 1 };
-      assert.deepEqual(own(() => capturePlayerCorrection(game, world, id, options)), own(() => ownReference.capturePlayerCorrection(game, world, id, options)), `${query} tick ${tick}: ${id}'s checkpoint`);
-    }
-    // Each client acknowledges a couple of publications late, as a page does.
-    for (const id of clients) {
-      for (const buffer of publicationBuffersFor(out, id)) receivers.get(id).receive(new Uint8Array(buffer));
-      const queue = acks.get(id); queue.push(receivers.get(id).snapshotAck.tick);
-      while (queue.length > 2) { const ack = queue.shift(); if (ack) host.input(id, encodeSnapshotAckKeepalive({ epoch: 1, tick: ack })); }
-    }
-  }
-  host.dispose(); shots.dispose();
-  return { compared, entities };
-}
-
-test('a real battle publishes exactly the reference capture\'s snapshots (local host)', { ...owned, timeout: 300000 }, async () => {
-  const { compared, entities } = await realBattle('?map=nab2&side=rep&ai=classic&seed=1', { ticks: 1500, local: true, clients: ['local'] });
-  assert.ok(compared > 1400, `compared ${compared} publications`);
-  assert.ok(entities > 40, `the bots were out (${entities} entities)`);
-});
-
-test('a real battle publishes exactly the reference capture\'s snapshots (online host, traps and tows)', { skip: owned.skip || !existsSync(`${content}/maps/end1/map.json`), timeout: 300000 }, async () => {
-  const { compared, entities } = await realBattle('?map=end1&side=all&ai=classic&seed=1', { ticks: 1500, local: false, clients: ['a', 'b'] });
-  assert.ok(compared > 700, `compared ${compared} publications`);
-  assert.ok(entities > 20, `the bots were out (${entities} entities)`);
-});
+// Canonical publication is checked against recorded complete transcripts
+// and native frozen store fixtures; no live JS world producer is retained.

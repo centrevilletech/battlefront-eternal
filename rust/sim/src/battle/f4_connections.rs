@@ -24,6 +24,21 @@ pub extern "C" fn f4_connections_init(capacity:u32) {
     unsafe{*addr_of_mut!(STATE)=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
     drop(outer);
 }
+/// attachedPlayers qualifies the connection, not merely a recycled roster
+/// index. A released Character's old link facts cannot mark its bot reuse as
+/// a human while the next transport publication is still queued.
+pub(crate) fn wire_character(store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> {
+    let reference = super::f4_core::resolve(store, handle)?;
+    let rows = state(); let entry = rows.rows.get(reference.slot as usize)?.as_ref()?;
+    (entry.handle == *handle).then_some(reference)
+}
+/// The connection owns its retained dead/unspawned body and spawn phase.
+/// A Character's current bot body is not a substitute after disconnection.
+pub(crate) fn wire_view(store: &Store, handle: &F4Handle) -> Option<&'static F4ConnectionView> {
+    let reference = wire_character(store, handle)?;
+    Some(&state().rows.get(reference.slot as usize)?.as_ref()?.view)
+}
+
 fn spawn(entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
     if sim().store.battle.game_over {return false;}
     if entry.view.unit.and_then(|r|sim().store.unit.get(r)).is_some_and(|u|!u.alive && u.dead_time+1e-6<4.) {return false;}

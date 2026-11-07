@@ -1,9 +1,16 @@
-// The event subscription is foreign; generation-aware counts are native.
+// Canonical worlds attach directly to native fired notices. Standalone
+// protocol counters can still consume explicitly supplied event facts.
 export function createWireShotCounters(bridge, events, maxEntities) {
   const x = bridge.x; let handle = x.wire_shots_create(maxEntities);
+  if (!handle) throw Error('invalid shot counter capacity');
   const numeric = value => typeof value === 'number' ? value : NaN;
   const api = {
     maxEntities,
+    bindCanonical() {
+      if (!handle || !x.wire_shots_attach(handle)) throw Error('canonical shot counter capacity exceeded');
+      unlisten?.(); unlisten = null;
+    },
+    get nativeHandle() { if (!handle) throw Error('shot counters disposed'); return handle; },
     get overflow() { return handle ? x.wire_shots_overflow(handle) : 0; },
     observe(event) {
       if (!handle || event.kind !== 'shot') return;

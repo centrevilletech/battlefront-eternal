@@ -20,6 +20,29 @@ pub fn output(result: codec::Result<Vec<Vec<u8>>>) -> *const f64 {
         .result(WireOutput::WORDS, |row, heap| out.put(row, heap));
     s.calls.block.ptr()
 }
+/// wire_held consumes Encoder's retained datagrams directly into the generated
+/// result layout. It must not clone each packet merely to serialize the list.
+fn output_retained(result: codec::Result<&[Vec<u8>]>) -> *const f64 {
+    let s = sim();
+    let (parts, error) = match result {
+        Ok(parts) => (parts, None),
+        Err(error) => (&[][..], Some(s.strings.intern_str(error))),
+    };
+    s.calls.result(WireOutput::WORDS, |row, heap| {
+        row[WireOutput::ERROR] = if error.is_some() { 0. } else { 1. };
+        row[WireOutput::ERROR + 1] = error.map_or(0., |id| id.0 as f64);
+        row[WireOutput::PARTS] = 0.; row[WireOutput::PARTS + 1] = parts.len() as f64;
+        heap.resize(parts.len() * WireBytes::WORDS, 0.);
+        for (index, bytes) in parts.iter().enumerate() {
+            let row = index * WireBytes::WORDS;
+            heap[row + WireBytes::BYTES] = heap.len() as f64;
+            heap[row + WireBytes::BYTES + 1] = bytes.len() as f64;
+            heap.extend(bytes.iter().map(|byte| *byte as f64));
+        }
+    });
+    s.calls.block.ptr()
+}
+
 #[no_mangle]
 pub extern "C" fn wire_words(op: u32) -> u32 {
     (match op {
@@ -58,11 +81,18 @@ pub extern "C" fn wire_encode(op: u32) -> *const f64 {
 
 /// A host owns a separate runtime inside its battle's module. Its snapshots
 /// never alias the generated call block or another host's baseline ring.
-#[derive(Default)]
 pub struct Runtime {
     pub ring: super::ring::SnapshotRing<WireSnapshot>,
     pub slots: super::records::SnapshotSlotTable,
     pub previous: Option<WireSnapshot>,
+    encoder: super::buffered::Encoder,
+    retained: Option<super::retained::Ring>,
+}
+impl Default for Runtime {
+    fn default() -> Self {
+        Self { ring: Default::default(), slots: Default::default(), previous: None,
+            encoder: super::buffered::Encoder::new(1024), retained: None }
+    }
 }
 impl Runtime {
     pub fn capture(
@@ -70,53 +100,73 @@ impl Runtime {
         input: WireCapture,
         strings: &crate::store::Strings,
     ) -> codec::Result<()> {
-        if !input.tick.is_finite()
-            || input.tick.fract() != 0.
-            || input.tick.abs() > 9007199254740991.
+        self.capture_records(input.tick, input.epoch, &input.records, input.world, &input.bounds, strings)
+    }
+    fn capture_records(&mut self, tick: f64, epoch: f64, records: &[WireRecord], world: Vec<WireField>,
+        bounds: &WireBounds, strings: &crate::store::Strings) -> codec::Result<()> {
+        if !tick.is_finite()
+            || tick.fract() != 0.
+            || tick.abs() > 9007199254740991.
         {
             return Err("invalid snapshot ring tick");
         }
         let snapshot = super::records::snapshot_from_records(
-            input.tick,
-            input.epoch,
-            &input.records,
-            input.world,
+            tick,
+            epoch,
+            records,
+            world,
             &mut self.slots,
-            &input.bounds,
+            bounds,
             self.previous.as_ref(),
             strings,
         )?;
         self.ring
-            .set(input.tick as i64, input.epoch as u32, snapshot.clone())?;
+            .set(tick as i64, epoch as u32, snapshot.clone())?;
         self.previous = Some(snapshot);
         Ok(())
     }
+    /// Reserve a canonical host's complete retention window at attachment.
+    pub fn reserve_world(&mut self, seats: usize, fields: usize) -> codec::Result<()> {
+        if self.retained.is_none() { self.retained = Some(super::retained::Ring::new(seats, fields, 128)?); } Ok(())
+    }
+    pub fn capture_canonical<'a>(&mut self, tick: f64, epoch: f64, records: &[WireRecord], fields: impl Iterator<Item = &'a WireField>, strings: &crate::store::Strings) -> codec::Result<()> {
+        self.retained.as_mut().ok_or("canonical snapshot ring not attached")?.capture(tick, epoch, records, fields,
+            &mut self.slots, &super::records::default_bounds(), strings)
+    }
+    pub fn latest(&self) -> Option<&WireSnapshot> { self.retained.as_ref().and_then(|r| r.latest()).or(self.previous.as_ref()) }
     pub fn encode(
-        &self,
+        &mut self,
         tick: f64,
         epoch: f64,
         baseline: f64,
         interval: f64,
-    ) -> codec::Result<Vec<Vec<u8>>> {
-        let current = self
-            .ring
-            .get(tick as i64, Some(epoch as u32))
-            .ok_or("snapshot not held")?;
-        let base = if baseline == 0. {
-            None
+    ) -> codec::Result<&[Vec<u8>]> {
+        let (current, base) = if let Some(ring) = &mut self.retained {
+            ring.pair(tick, epoch, (baseline != 0.).then_some(baseline))?
         } else {
-            Some(
-                self.ring
-                    .get(baseline as i64, Some(epoch as u32))
-                    .ok_or("chosen snapshot baseline not held")?,
-            )
+            let current = self.ring.get(tick as i64, Some(epoch as u32)).ok_or("snapshot not held")?;
+            let base = if baseline == 0. { None } else { Some(self.ring.get(baseline as i64, Some(epoch as u32)).ok_or("chosen snapshot baseline not held")?) };
+            (current, base)
         };
-        codec::encode_entities(current, base, interval)
+        self.encoder.encode(current, base, interval)
     }
 }
 #[no_mangle]
 pub extern "C" fn wire_create() -> *mut Runtime {
     Box::into_raw(Box::new(Runtime::default()))
+}
+/// Bind the canonical producer before its first publication. Ring banks
+/// reserve the loaded content's maximum crew size at this cold boundary.
+/// # Safety
+/// Both allocations belong to this simulation instance and remain live.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::store_source::Source) -> u32 {
+    if runtime.is_null() || source.is_null() { return 0; }
+    let runtime = &mut *runtime;
+    if runtime.retained.is_some() { return 1; }
+    let Ok(ring) = super::retained::Ring::new((&*source).capture.seat_capacity(), 1024, 128) else { return 0 };
+    runtime.retained = Some(ring); 1
 }
 /// # Safety
 /// The pointer must be a live wire_create allocation, dropped exactly once.
@@ -143,32 +193,11 @@ pub unsafe extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 {
 /// The pointer must belong to this module and remain live through the call.
 #[no_mangle]
 pub unsafe extern "C" fn wire_held(
-    runtime: *const Runtime,
+    runtime: *mut Runtime,
     tick: f64,
     epoch: f64,
     baseline: f64,
     interval: f64,
 ) -> *const f64 {
-    output((*runtime).encode(tick, epoch, baseline, interval))
-}
-
-/// Transfer already captured semantic records and staggered world fields
-/// without exposing them to JavaScript between the two native owners.
-/// No callback runs while any of these distinct session boxes is borrowed.
-#[no_mangle]
-pub unsafe extern "C" fn wire_capture_produced(
-    runtime: *mut Runtime,
-    source: *const super::capture::Capture,
-    world: *const super::stagger::Stagger,
-) -> *const f64 {
-    let mut input = {
-        let (row, heap) = sim().calls.args();
-        WireCapture::take(row, heap)
-    };
-    input.records = (&*source).held_records();
-    input.world = (&*world).world();
-    let result = (&mut *runtime)
-        .capture(input, &sim().strings)
-        .map(|_| Vec::new());
-    output(result)
+    output_retained((*runtime).encode(tick, epoch, baseline, interval))
 }

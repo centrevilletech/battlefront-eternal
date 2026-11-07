@@ -208,11 +208,20 @@ impl Default for Capture {
             pending: vec![],
             pruned_tick: None,
             next_id: 1.,
-            faults: vec![],
+            faults: Vec::with_capacity(9),
         }
     }
 }
 impl Capture {
+    // ProjectileCapture.launch shares this namespace with callbacks emitted
+    // earlier in the tick. A late host admission consumes the next id here.
+    pub(crate) fn allocate_id(&mut self) -> f64 { let id = self.next_id; self.next_id += 1.; id }
+    /// The batch publisher consumed the same journal; no ID-list materialization.
+    pub(crate) fn clear(&mut self) { self.pending.clear(); }
+    pub(crate) fn sampled(&mut self, tick: f64, error: Option<StrId>) {
+        self.pruned_tick = Some(tick);
+        if let Some(error) = error { self.faults.push(error); if self.faults.len() > 8 { self.faults.remove(0); } }
+    }
     pub fn run(&mut self, c: WbCall, strings: &mut Strings) -> WbResult {
         let mut out = WbResult::default();
         match jsrt::to_uint32(c.op) {
@@ -305,6 +314,22 @@ pub extern "C" fn wire_combat_encode() -> *const f64 {
 pub extern "C" fn wire_combat_create() -> *mut Capture {
     Box::into_raw(Box::new(Capture::default()))
 }
+/// CombatCapture.nextId is a scalar journal cursor. Its getter and setter
+/// preserve separate observations around synchronous callback work without
+/// serializing a complete queue result for each half of a postfix increment.
+/// # Safety
+/// The handle belongs to this module instance and remains live for the call.
+#[no_mangle]
+pub unsafe extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 {
+    (*handle).next_id
+}
+/// # Safety
+/// The live handle is exclusive for this operation. Keep the supplied IEEE
+/// value: validation still belongs to the subsequent record encoder.
+#[no_mangle]
+pub unsafe extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) {
+    (*handle).next_id = id;
+}
 /// # Safety
 /// The handle belongs to this module instance and is released once.
 #[no_mangle]
@@ -332,6 +357,18 @@ pub unsafe extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scalar_cursor_keeps_the_queue_operations_ieee_values() {
+        let mut c = Capture::default();
+        let mut strings = Strings::default();
+        for value in [-0., 1., 4294967295., 4294967296., f64::INFINITY, f64::NAN] {
+            unsafe { wire_combat_set_next_id(&mut c, value); }
+            let old = c.run(WbCall { op: 4., ..Default::default() }, &mut strings);
+            assert_eq!(unsafe { wire_combat_next_id(&c) }.to_bits(), old.next_id.to_bits());
+            c.run(WbCall { op: 5., id: value, ..Default::default() }, &mut strings);
+            assert_eq!(unsafe { wire_combat_next_id(&c) }.to_bits(), value.to_bits());
+        }
+    }
     #[test]
     fn terminal_queues_beside_launch_and_capacity_precedes_decode() {
         let mut c = Capture::default();

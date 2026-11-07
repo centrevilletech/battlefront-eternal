@@ -1,0 +1,12 @@
+// Read-only diagnostics bracket the complete publication, including encoding
+// and boundary serialization. They never select a networking implementation.
+export default {
+  records: {
+    WireLoad: { $layout: true, slots: 'u32', fields: 'u32', fieldBytes: 'u32', maxFieldBytes: 'u32', seats: 'u32',
+      ownBytes: 'u32', ownFields: 'u32', ownFieldBytes: 'u32', maxOwnBytes: 'u32', maxOwnFieldBytes: 'u32',
+      clients: 'u32', queuedEvents: 'u32', maxQueuedEvents: 'u32', receipts: 'u32', maxReceipts: 'u32', histories: 'u32', maxHistories: 'u32',
+      events: 'u32', eventBytes: 'u32', maxEventBytes: 'u32', gameplay: 'u32', poolBusy: 'u32', poolSize: 'u32',
+      outputWords: 'u32', outputBytes: 'u32', parts: 'u32' },
+    WireCensus: { $layout: true, allocations: 'f64', reallocations: 'f64', allocationBytes: 'f64' },
+  },
+};

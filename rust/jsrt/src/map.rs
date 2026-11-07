@@ -199,6 +199,32 @@ impl<K: JsKey, V> JsMap<K, V> {
         if self.buckets.len() < buckets { self.rehash(buckets); }
     }
 
+    /// Reserve at a publication boundary without turning memory pressure into
+    /// a panic. The live keys and their insertion order survive failure.
+    pub fn try_reserve(&mut self, entries: usize) -> Result<(), std::collections::TryReserveError> {
+        self.slots.try_reserve(entries.saturating_sub(self.live))?;
+        let buckets = entries.max(self.live).saturating_mul(4).div_ceil(3).max(16).next_power_of_two();
+        if self.buckets.len() < buckets {
+            self.buckets.try_reserve(buckets - self.buckets.len())?;
+            self.rehash(buckets);
+        }
+        Ok(())
+    }
+
+    /// Reclaim iterator tombstones without replacing reserved storage.
+    /// Call only between operations: moving live slots invalidates cursors.
+    pub fn compact_in_place(&mut self) {
+        self.slots.retain(|slot| slot.live);
+        self.buckets.fill(0); self.filled = 0;
+        if self.buckets.is_empty() { return; }
+        let mask = self.buckets.len() - 1;
+        for (index, slot) in self.slots.iter().enumerate() {
+            let mut at = slot.key.svz_hash() as usize & mask;
+            while self.buckets[at] != 0 { at = (at + 1) & mask; }
+            self.buckets[at] = index + 1; self.filled += 1;
+        }
+    }
+
     /// `map.size`.
     pub fn size(&self) -> usize {
         self.live

@@ -126,6 +126,10 @@ export function exportWireQuaternion(o, cx) {
   return v;
 }
 
+export const WireMountLayout = Object.freeze({ words: 8, slot: 0, tilt: 2, roll: 3, walkPhase: 4, walkBlend: 5, seats: 6, seatsLength: 7 });
+export const WIRE_MOUNT_WORDS = WireMountLayout.words;
+export const WIRE_MOUNT_OFFSETS = WireMountLayout;
+
 export class WireMountMirror {
   constructor() {
     this.slot = null;
@@ -179,6 +183,10 @@ export function exportWireMount(o, cx) {
   v.seats = o.seats.map((x) => [...x]);
   return v;
 }
+
+export const WireEntryLayout = Object.freeze({ words: 49, cls: 0, entityId: 1, generation: 2, classId: 3, team: 4, disc: 5, pos: 6, vel: 9, yaw: 13, pitch: 14, health: 15, posture: 16, charge: 17, state: 18, weapon: 19, seatSlot: 20, seatIndex: 21, fireCounter: 22, mode: 23, reverse: 24, dead: 25, shieldOn: 26, anim: 27, animLength: 28, quat: 29, power: 33, mount: 34, gunYaw: 42, gunPitch: 43, active: 44, definitionId: 45, up: 46 });
+export const WIRE_ENTRY_WORDS = WireEntryLayout.words;
+export const WIRE_ENTRY_OFFSETS = WireEntryLayout;
 
 export class WireEntryMirror {
   constructor() {
@@ -359,6 +367,10 @@ export function exportWireEntry(o, cx) {
   return v;
 }
 
+export const WireSlotLayout = Object.freeze({ words: 50, slot: 0, entry: 1 });
+export const WIRE_SLOT_WORDS = WireSlotLayout.words;
+export const WIRE_SLOT_OFFSETS = WireSlotLayout;
+
 export class WireSlotMirror {
   constructor() {
     this.slot = NaN;
@@ -392,6 +404,10 @@ export function exportWireSlot(o, cx) {
   v.entry = exportWireEntry(o.entry, cx);
   return v;
 }
+
+export const WireFieldLayout = Object.freeze({ words: 5, id: 0, schema: 1, generation: 2, payload: 3, payloadLength: 4 });
+export const WIRE_FIELD_WORDS = WireFieldLayout.words;
+export const WIRE_FIELD_OFFSETS = WireFieldLayout;
 
 export class WireFieldMirror {
   constructor() {
@@ -520,6 +536,10 @@ export function exportWireEncode(o, cx) {
   return v;
 }
 
+export const WireBytesLayout = Object.freeze({ words: 2, bytes: 0, bytesLength: 1 });
+export const WIRE_BYTES_WORDS = WireBytesLayout.words;
+export const WIRE_BYTES_OFFSETS = WireBytesLayout;
+
 export class WireBytesMirror {
   constructor() {
     this.bytes = [];
@@ -548,6 +568,10 @@ export function exportWireBytes(o, cx) {
   v.bytes = o.bytes.map((x) => x);
   return v;
 }
+
+export const WireOutputLayout = Object.freeze({ words: 4, error: 0, parts: 2, partsLength: 3 });
+export const WIRE_OUTPUT_WORDS = WireOutputLayout.words;
+export const WIRE_OUTPUT_OFFSETS = WireOutputLayout;
 
 export class WireOutputMirror {
   constructor() {

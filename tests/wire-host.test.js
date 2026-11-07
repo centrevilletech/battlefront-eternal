@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loadSim } from '../src/sim/module.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { createWireHostBridge, createWireStaggerBridge } from '../src/runtime/wire-host.js';
-import { chooseSharedBaselines } from '../src/runtime/snapshot-host.js';
+import { readFileSync } from 'node:fs';
 import { WorldFieldStagger } from '../src/runtime/snapshot-records.js';
 import { EntityBudget } from '../src/runtime/network-entity-budget.js';
 import { encodeWordDelta, encodeWorldSection } from '../src/runtime/snapshot-codec.js';
@@ -12,15 +12,10 @@ function random(seed) { return () => { seed ^= seed << 13; seed ^= seed >>> 17; 
 const field = (schema, id, payload) => ({ kind: 'summary', generation: 1, schema, id, payload: new TextEncoder().encode(payload) });
 
 test('native shared baseline choices preserve greedy costs and tie order', async () => {
-  const host = createWireHostBridge(bridgeFor(await loadSim())), r = random(712);
-  for (let n = 0; n < 3000; n++) {
-    const tick = 200 + Math.floor(r() * 500), acks = [];
-    for (let i = 0, count = Math.floor(r() * 80); i < count; i++) {
-      const held = []; for (let j = 0, size = Math.floor(r() * 10); j < size; j++) held.push(tick - 1 - Math.floor(r() * 100));
-      acks.push(held);
-    }
-    const max = [0, 1, 2, 3, 7, 1.5, NaN][n % 7];
-    assert.deepEqual(host.chooseSharedBaselines(tick, acks, max), chooseSharedBaselines(tick, acks, max), `baseline ${n}`);
+  const host = createWireHostBridge(bridgeFor(await loadSim()));
+  const cases = JSON.parse(readFileSync(new URL('./fixtures/wire-baselines.json', import.meta.url), 'utf8'));
+  for (const [n, { tick, acks, max, expected }] of cases.entries()) {
+    assert.deepEqual(host.chooseSharedBaselines(tick, acks, max === 'NaN' ? NaN : max), expected, `frozen baseline ${n}`);
   }
   host.dispose();
 });

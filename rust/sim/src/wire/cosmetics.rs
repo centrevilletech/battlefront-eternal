@@ -120,6 +120,11 @@ fn u8(w: &mut Writer, v: f64) -> Result<()> {
 /// Only the launch/impact source is decoded by the compact encoder. Other
 /// payloads pass through unchanged, including their original validation.
 pub fn decode_compact(record: &Record) -> Result<Compact> {
+    let mut out = Compact::default(); decode_compact_into(record, &mut out)?; Ok(out)
+}
+/// The publication owner reserves the three launch-offset values once.
+/// Decoding malformed content never replaces that retained vector.
+pub fn decode_compact_into(record: &Record, e: &mut Compact) -> Result<()> {
     if !record.combat
         || ![1.0, 2.0].contains(&record.schema)
         || record.payload.len() != if record.schema == 1.0 { 130 } else { 82 }
@@ -153,11 +158,8 @@ pub fn decode_compact(record: &Record) -> Result<Compact> {
         bytes: &record.payload,
         at: 0,
     };
-    let mut e = Compact {
-        expiry_tick: r.u32(),
-        definition: r.u32(),
-        ..Compact::default()
-    };
+    e.offset.clear(); e.view = View::default(); e.view.schema = record.schema;
+    e.expiry_tick = r.u32(); e.definition = r.u32();
     e.view.schema = record.schema;
     e.view.owner = Owner::number(r.u32());
     e.owner_generation = r.u32();
@@ -168,7 +170,7 @@ pub fn decode_compact(record: &Record) -> Result<Compact> {
     e.surface = r.bytes[r.at] as f64;
     r.at += 1;
     if record.schema == 1.0 {
-        e.offset = r.vec()?.to_vec();
+        e.offset.extend_from_slice(&r.vec()?);
         e.view.speed = r.f64()?;
         e.view.life = r.f64()?;
         e.merge = r.f64()?;
@@ -191,7 +193,7 @@ pub fn decode_compact(record: &Record) -> Result<Compact> {
     {
         return Err("invalid combat lifetime");
     }
-    Ok(e)
+    Ok(())
 }
 fn compact(e: &Compact, b: &WireBounds) -> bool {
     let Some(p) = e.view.position else {
@@ -209,7 +211,11 @@ pub fn encode_cosmetic_event(
     bounds: &WireBounds,
     view: Option<&Compact>,
 ) -> Result<Vec<u8>> {
-    let mut w = Writer::default();
+    let mut w = Writer::default(); encode_cosmetic_event_into(record, bounds, view, &mut w)?; Ok(w.0)
+}
+/// Encoded bytes stay in the publisher's event bank through all client offers.
+pub fn encode_cosmetic_event_into(record: &Record, bounds: &WireBounds, view: Option<&Compact>, target: &mut Writer) -> Result<()> {
+    target.0.clear(); let mut w = target;
     u32(&mut w, record.id)?;
     u32(&mut w, record.generation)?;
     u32(&mut w, record.tick)?;
@@ -268,7 +274,7 @@ pub fn encode_cosmetic_event(
         u16(&mut w, record.payload.len() as f64)?;
         w.raw(&record.payload);
     }
-    Ok(w.0)
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

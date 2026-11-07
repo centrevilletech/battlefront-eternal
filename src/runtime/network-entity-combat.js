@@ -85,12 +85,12 @@ export class CombatCapture {
       speed:view.speed,life:view.life,merge:view.merge,native:this.native,
     }));
   }
-  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic)dynamic.terminal=true;this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
+  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic){dynamic.terminal=true;this.dynamic.pending.set(dynamic.id,dynamic); }this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
   explosion(definition,position,{wet=false}={}){if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(explosionRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet,native:this.native}));}
   event(event){if(!['damage','death'].includes(event.kind))return;if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(feedbackRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),event,native:this.native}));}
   fault(error){if(this.native)return this.native.fault(error);this.faults.push(String(error?.message??error).slice(0,160));if(this.faults.length>8)this.faults.shift();}
   drainFaults(){return this.native?this.native.drainFaults():this.faults.splice(0);}
-  drain(){try{this.dynamic?.sample();}catch(error){this.fault(error);}if(this.native)return this.native.drain(this);const records=[...this.pending.values()];this.pending.clear();return records;}
+  drain(){if(this.native)return this.native.drain(this);const records=[...this.pending.values()];this.pending.clear();return records;}
   dispose(){this.native?.dispose();}
 }
 

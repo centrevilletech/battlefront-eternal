@@ -29,6 +29,11 @@ pub(crate) fn reset() {
         *addr_of_mut!(STATE) = None;
     }
 }
+/// captureWorldSummaries reads the same prepared human roster without
+/// running a spawn choice, advancing a queue or consuming a random draw.
+pub(crate) fn wire_roster(team: usize) -> &'static [StrId] {
+    state().human.human.prepared.rosters.get(team).map_or(&[], Vec::as_slice)
+}
 // The pre-AI boundary also replaces CommandPosts.all's former JS refresh.
 // State is lent out inside a tail; its World refreshes before its own hooks.
 pub(crate) fn refresh_mobile_views(){

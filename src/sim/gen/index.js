@@ -78,11 +78,13 @@ export * from "./traps.js";
 export * from "./units.js";
 export * from "./vehicle-firing.js";
 export * from "./vehicles.js";
-export * from "./wire-capture.js";
+export * from "./wire-census.js";
 export * from "./wire-combat.js";
 export * from "./wire-edges.js";
 export * from "./wire-host.js";
+export * from "./wire-publish.js";
 export * from "./wire-registry.js";
+export * from "./wire-store.js";
 export * from "./wire.js";
 export * from "./world.js";
 

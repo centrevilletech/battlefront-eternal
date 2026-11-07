@@ -37,6 +37,21 @@ impl Entry {
     fn put_attacker(&self, attacker: Attacker) { f4::set_attacker(&self.owner, attacker); }
     fn put_trap(&self, trap: traps::Trap) { f4::put_trap(&self.owner, trap); }
 }
+/// captureWorldPresentation reads F4's canonical frame and cold affiliation.
+/// Only Turret defines facing/yaw in LiveObjects.buildings; that class has its
+/// own entity record. Other buildings preserve the original absent-to-0 fields.
+pub(crate) fn wire_building(index: usize) -> Option<crate::wire::store_world::Building> {
+    use crate::wire::store_world::{Building, Station};
+    let entry = f3::props().entries.get(index)?; let frame = entry.frame();
+    let station = if entry.owner.kind == F4ObjectKind::Trap { None }
+        else { let (value, _, supply) = f4::station(&entry.owner);
+            supply.map(|_| Station { active_mode: value.active_mode, active: value.active, pulse: value.pulse,
+                served_health: value.served_health, served_ammo: value.served_ammo }) };
+    Some(Building { turret: matches!(entry.target, RepairTarget::Turret(_)),
+        state: match frame.state { props::State::Unbuilt => 0, props::State::Built => 1, props::State::Destroyed => 2 },
+        health: frame.health, team: entry.team, facing: 0., yaw: 0., station })
+}
+
 // Prepared order and reverse lookups never grow during a phase. Buildings
 // absent from the mixed registry still participate in repair, blast and melee.
 pub(crate) struct Props {
@@ -77,6 +92,15 @@ impl Props {
 pub(crate) fn member(target: RepairTarget) -> Option<Member> {
     let props = f3::props();
     props.index(target).and_then(|index| props.entries.get(index)).and_then(|entry| entry.member)
+}
+
+/// EntityWorldCapture.turret reads authored building order and canonical
+/// health/life. A turret with no mixed registry target has no wire identity.
+pub(crate) fn wire_turret(reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)> {
+    let all = f3::props();
+    let index = all.index(RepairTarget::Turret(reference))?;
+    let entry = &all.entries[index];
+    Some((index, entry.member?, entry.frame(), entry.target_team))
 }
 
 // LiveObjects construction gives each collision look its own body identity.

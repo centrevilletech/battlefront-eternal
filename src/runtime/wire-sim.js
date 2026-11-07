@@ -44,18 +44,15 @@ export function createWireBridge(bridge, { trace = null } = {}) {
     },
     // State is allocated only for a host, not for users of the pure codec.
     start() { if (!handle) handle = x.wire_create(); },
+    get nativeHandle() { if (!handle) throw Error('snapshot runtime disposed'); return handle; },
+    bindStore(source) {
+      alive();
+      if (source.bridge !== bridge || !x.wire_bind_store(handle, source.nativeHandle)) throw Error('canonical snapshot ring attachment failed');
+    },
     capture({ tick, epoch = 1, records, world, bounds = DEFAULT_SNAPSHOT_BOUNDS }) {
       alive();
       bridge.callArgs(inputs[4], { tick, epoch, records: records.filter(r => recordKinds.has(r.kind)), world: fields(world) ?? [], bounds });
       read(x.wire_capture(handle));
-      return { tick, epoch };
-    },
-    captureProduced({ tick, epoch = 1, source, world, bounds = DEFAULT_SNAPSHOT_BOUNDS }) {
-      alive();
-      if (source.bridge !== bridge || world.bridge !== bridge) throw Error('snapshot producers require the same simulation bridge');
-      const sourceHandle = source.nativeHandle, worldHandle = world.nativeHandle;
-      bridge.callArgs(inputs[4], { tick, epoch, records: [], world: [], bounds });
-      read(x.wire_capture_produced(handle, sourceHandle, worldHandle));
       return { tick, epoch };
     },
     encodeHeld(current, baseline, { interval = 2 } = {}) {

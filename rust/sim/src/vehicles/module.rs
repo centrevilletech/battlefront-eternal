@@ -118,6 +118,19 @@ fn poses() -> &'static mut Vec<Option<Posed>> {
     unsafe { &mut *addr_of_mut!(POSES) }
 }
 
+/// EntityWorldCapture's mount sample reads the retained walk clocks without
+/// updating a rig or publishing a geometry row back through JavaScript.
+pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) {
+    unsafe { (&*addr_of_mut!(POSES)).get(reference.slot as usize).and_then(Option::as_ref)
+        .map_or((0., 0.), |row| (row.pose.walk_phase, row.pose.walk_blend)) }
+}
+/// captureGroundCorrection observes aim history after the completed pose
+/// pass. Reading it must not call aimSeats or sample the rig a second time.
+pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> {
+    let row = unsafe { (&*addr_of_mut!(POSES)).get(reference.slot as usize)?.as_ref()? };
+    let seat = row.pose.seats.get(index)?; Some((seat.yaw_rate, seat.last_yaw))
+}
+
 /// The hull classes' keys the phase has been given (`veh_class`), by name.
 fn classes() -> &'static mut HashMap<String, HullClass> {
     // SAFETY: one thread; nothing holds a reference across a call out.
