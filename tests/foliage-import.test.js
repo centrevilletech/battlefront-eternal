@@ -1,3 +1,4 @@
+import { SurfaceOwner } from './helpers/surfaces.js';
 import { loadEnvironment } from '../src/environment/module.js';
 await loadEnvironment();
 // Asset construction must register the required Rust foliage classes without
@@ -9,7 +10,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Foliage } from '../src/foliage.js';
 function build(def, instances) {
-  return new Foliage(new THREE.Scene(), {classes:{plant:def},instances:instances.map(i=>({class:'plant',...i}))}, {drawer:{select(){}},texture:()=>null,nearEnd:()=>100});
+  return new Foliage(new THREE.Scene(), {classes:{plant:def},instances:instances.map(i=>({class:'plant',...i}))}, {surfaceOwner:new SurfaceOwner(),drawer:{select(){}},texture:()=>null,nearEnd:()=>100});
 }
 const matrix=(x=0,y=0,z=-10)=>new THREE.Matrix4().makeTranslation(x,y,z).toArray();
 

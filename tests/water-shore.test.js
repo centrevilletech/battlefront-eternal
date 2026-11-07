@@ -1,3 +1,4 @@
+import { SurfaceHost, SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -8,7 +9,7 @@ await loadEnvironment();
 
 function fixture(walls=true,dry=true) {
   let quality='high',gathers=0;
-  const water={height:0,group:new THREE.Group(),over:()=>true};
+  const water={host:new SurfaceHost(new SurfaceOwner(undefined,true)),height:0,group:new THREE.Group(),over:()=>true};
   const a=new THREE.Triangle(new THREE.Vector3(0,-2,-20),new THREE.Vector3(0,2,-20),new THREE.Vector3(0,2,20));
   const b=new THREE.Triangle(new THREE.Vector3(0,-2,-20),new THREE.Vector3(0,2,20),new THREE.Vector3(0,-2,20));
   const polygons=[{triangles:[a,b]}];
@@ -19,15 +20,15 @@ function fixture(walls=true,dry=true) {
 }
 test('native shore records publish exposed wall patches, cache tiles, and dispose their resources',()=>{
   const f=fixture();
-  for(let i=0;i<60;i++)f.shore.update(1/60,f.camera);
+  for(let i=0;i<60;i++)stepSurface(f.shore,1/60,f.camera);
   assert.ok(f.shore.count>0&&f.shore.count<=192);
   const points=f.shore.shore.array;
   for(let i=0;i<f.shore.count;i++){assert.equal(points[i*4],0);assert.ok(points[i*4+2]>.99);}
-  const before=f.gathers();for(let i=0;i<60;i++)f.shore.update(1/60,f.camera);assert.equal(f.gathers(),before);
-  f.setQuality('low');f.shore.update(1/60,f.camera);assert.equal(f.shore.group.visible,false);assert.equal(f.gathers(),before);
-  f.setQuality('ultra');for(let i=0;i<100;i++){f.camera.position.x+=8;f.shore.update(1/60,f.camera);}
+  const before=f.gathers();for(let i=0;i<60;i++)stepSurface(f.shore,1/60,f.camera);assert.equal(f.gathers(),before);
+  f.setQuality('low');stepSurface(f.shore,1/60,f.camera);assert.equal(f.shore.group.visible,false);assert.equal(f.gathers(),before);
+  f.setQuality('ultra');for(let i=0;i<100;i++){f.camera.position.x+=8;stepSurface(f.shore,1/60,f.camera);}
   assert.ok(f.shore.host.result[RESULT.SHORE_TILES]<=169);f.shore.dispose();assert.equal(f.water.group.children.length,0);
 });
 test('native shore phase produces no patches without a wall or exposed water',()=>{
-  for(const f of [fixture(false),fixture(true,false)]){for(let i=0;i<60;i++)f.shore.update(1/60,f.camera);assert.equal(f.shore.count,0);f.shore.dispose();}
+  for(const f of [fixture(false),fixture(true,false)]){for(let i=0;i<60;i++)stepSurface(f.shore,1/60,f.camera);assert.equal(f.shore.count,0);f.shore.dispose();}
 });

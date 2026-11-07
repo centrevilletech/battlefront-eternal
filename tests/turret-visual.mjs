@@ -21,7 +21,7 @@ try{for(const map of ['nab2','bes2'])for(const side of ['rep','cis']){
   const b=__bf,g=b.graphics;b.keys.add('Mouse0');
   for(let i=0;i<12;i++)await b.lockstep(.02,false);
   b.keys.delete('Mouse0');await b.lockstep(1/60,true);
-  const gl=b.renderer.getContext(),capture=()=>{b.water?.reflect(b.camera);g.render(0);const pixels=new Uint8Array(g.sceneTarget.width*g.sceneTarget.height*4);gl.readPixels(0,0,g.sceneTarget.width,g.sceneTarget.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return pixels};
+  const gl=b.renderer.getContext(),capture=()=>{g.render(0);const pixels=new Uint8Array(g.sceneTarget.width*g.sceneTarget.height*4);gl.readPixels(0,0,g.sceneTarget.width,g.sceneTarget.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return pixels};
   const visible=capture(),image=b.renderer.domElement.toDataURL();for(const batch of b.ordnance.renderer.batches.values())batch.mesh.visible=false;const hidden=capture();let changed=0,red=0;for(let i=0;i<visible.length;i+=4){if(visible[i]-hidden[i]>8){changed++;if(visible[i]>visible[i+1]*1.2)red++;}}
   return {first,manned:b.gunner.active,image,changed,red,camera:b.camera.position.toArray(),projected:b.ordnance.bolts.map(x=>x.position.clone().project(b.camera).toArray()),glError:gl.getError()};
  },{first});

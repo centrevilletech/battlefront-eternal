@@ -2,7 +2,7 @@ import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
-import { SnowHost, loaded } from './environment/module.js';
+import { SnowHost } from './environment/module.js';
 import { Snow as LIMITS, SnowConfig as CONFIG, SnowResult as RESULT, View as VIEW } from './environment/layout.js';
 
 const BOX = LIMITS.BOX;
@@ -41,7 +41,7 @@ const floatTexture = (data, width, height) => {
 };
 
 export class Snow {
-  constructor({ data, scene, collision, water, texture, surfaceOwner = null }) {
+  constructor({ data, scene, collision, water, texture, surfaceOwner }) {
     const p = data.precipitation;
     const get = (key, fallback) => p[key]?.[0] ?? fallback;
     // The flakes of one box: how many, and how they fall and ease.
@@ -58,7 +58,7 @@ export class Snow {
       if (water?.over(x, z)) height = Math.max(height, water.level);
       return height;
     };
-    this.host = new SnowHost(loaded(), cover, surfaceOwner);
+    this.host = new SnowHost(surfaceOwner, cover);
     const config = this.host.config;
     config[CONFIG.COUNT] = count;
     config[CONFIG.FALL] = get('Velocity', 10); config[CONFIG.WANDER] = get('VelocityRange', 1);
@@ -133,11 +133,7 @@ export class Snow {
     this.mesh.visible = r[RESULT.COVERED] === 1 && boxes > 0;
     this.stats.boxes = boxes; this.stats.flakes = r[RESULT.INSTANCES];
   }
-  // Standalone resource fixtures use the identical native state owner.
-  update(dt, camera) {
-    camera.updateMatrixWorld();
-    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame();
-  }
+
   dispose() {
     this.mesh.removeFromParent(); this.geometry.dispose(); this.material.dispose();
     this.flakeData.dispose(); this.boxData.dispose(); this.cover.texture.dispose();

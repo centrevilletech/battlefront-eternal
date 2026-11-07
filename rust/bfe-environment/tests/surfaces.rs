@@ -33,7 +33,7 @@ fn intersections_retain_endpoints_and_ignore_coplanar_triangles() {
 }
 #[test]
 fn whole_surface_phase_caches_shore_and_does_not_allocate() {
-    let mut phase = Phase::new(); let mut wall = Wall { casts:0,gathers:0,dry:true,excess:false };
+    let mut phase = Phase::new(true); let mut wall = Wall { casts:0,gathers:0,dry:true,excess:false };
     phase.frame[frame::DT] = 1.0/60.0; phase.frame[frame::SHORE_QUALITY] = 1.0;
     phase.frame[frame::EYE] = 2.0; phase.frame[frame::EYE+1] = 3.0;
     phase.config[cfg::BOBBING] = 1.0;
@@ -53,7 +53,7 @@ fn whole_surface_phase_caches_shore_and_does_not_allocate() {
 }
 #[test]
 fn paused_bursts_clamp_commands_replace_old_rings_and_never_panic() {
-    let mut phase = Phase::new(); let mut wall = Wall { casts:0,gathers:0,dry:true,excess:true };
+    let mut phase = Phase::new(true); let mut wall = Wall { casts:0,gathers:0,dry:true,excess:true };
     phase.frame[frame::COMMANDS] = (lim::COMMANDS+1000) as f64;
     for i in 0..lim::COMMANDS {
         let at=i*cmd::STRIDE;

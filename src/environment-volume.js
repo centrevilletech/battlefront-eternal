@@ -2,17 +2,14 @@ import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
 
-import { VisibilityHost, loaded } from './environment/module.js';
 import { Wakes as LIMITS, WakeFrame as FRAME, WakeActor as ACTOR, WakeResult as RESULT } from './environment/layout.js';
 
 export const WAKE_COUNT = LIMITS.COUNT;
 // EnvironmentWakes is now only a uniform shell around native wake records.
-// The placed-effects phase owns advancement; isolated resource fixtures use
-// the same owner through update, without a second motion implementation.
+// The shared surface frame advances placed effects and their wake records.
 export class EnvironmentWakes {
-  constructor(host = null) {
-    this.host = host || new VisibilityHost(loaded(), 0);
-    if (!host) this.host.start();
+  constructor(host) {
+    this.host = host;
     this.points = Array.from({length: WAKE_COUNT}, () => new THREE.Vector4());
     this.motion = Array.from({length: WAKE_COUNT}, () => new THREE.Vector4());
     this.ids = new WeakMap(); this.nextId = 0;
@@ -42,13 +39,6 @@ export class EnvironmentWakes {
     f[FRAME.POSITION]=position.x;f[FRAME.POSITION+1]=position.y;f[FRAME.POSITION+2]=position.z;
     f[FRAME.VELOCITY]=velocity.x;f[FRAME.VELOCITY+1]=velocity.y;f[FRAME.VELOCITY+2]=velocity.z;
     this.host.x.vis_wake_apply();this.synced();
-  }
-  update(dt,actors,relevant) {
-    this.prepare(actors);this.host.wakeFrame[FRAME.DT]=dt;
-    // Standalone resource callers supply relevance as a collision/visibility
-    // fact. The live phase computes it natively from placed source positions.
-    for(let i=0;i<actors.length&&i<LIMITS.ACTORS;i++)this.host.wakeActors[i*ACTOR.STRIDE+ACTOR.RELEVANT]=relevant(actors[i].position)?1:0;
-    this.host.x.vis_wake_update();this.synced();
   }
   clear() { this.host.wakeFrame[FRAME.CLEAR]=1;this.host.x.vis_wake_apply();this.synced(); }
 }

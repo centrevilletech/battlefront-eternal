@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // A scripted walk through a map's placed effects (torches, steam vents,
 // pipes, fountains) for the Rust visibility phase to be held to: a camera that
 // moves, turns and jumps, frames of every length, and the environment effects
@@ -25,7 +26,7 @@ export const DATA = {
 export function runEnvironment(EnvironmentEffects, presentationLoaded) {
   let mode = 'enhanced';
   const scene = new THREE.Scene();
-  const e = new EnvironmentEffects({ presentationLoaded, graphics: { scene }, settings: { get: () => mode }, data: DATA, texture: () => null, model: () => null });
+  const e = new EnvironmentEffects({surfaceOwner:new SurfaceOwner(), presentationLoaded, graphics: { scene }, settings: { get: () => mode }, data: DATA, texture: () => null, model: () => null });
   const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 400);
   // The module's memory must never move: the views the page took stay good.
   const memory = e.host?.x.memory.buffer;
@@ -38,7 +39,7 @@ export function runEnvironment(EnvironmentEffects, presentationLoaded) {
     t += dt;
     camera.position.set(Math.sin(t * 0.2) * 70 + (frame % 120 === 119 ? 500 : 0), 4 + Math.sin(t), 30 + t * 2);
     camera.rotation.set(0, Math.sin(t * 0.3) * 1.5, 0, 'YXZ');
-    e.update(dt, camera, []);
+    stepSurface(e,dt, camera, []);
     const index = (list, key) => Array.from({length:list.length},(_,i)=>list[i]).map((v) => e.instances.findIndex((i) => i[key] === v));
     rows.push([e.stats.activeSources, e.stats.volumes, e.visibleFountains.length,
       ...index(e.visibleVolumes, 'volume'), -1, ...Array.from({length:e.visibleFountains.length},(_,i)=>e.instances.indexOf(e.visibleFountains[i])), -1,

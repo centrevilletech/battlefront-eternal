@@ -16,12 +16,13 @@ try{
   });
   await page.goto(`${process.env.RENDER_TEST_URL||'http://127.0.0.1:18457'}/?map=${map}&side=rep&unit=rep_inf_clone_trooper&spawn=CP3`,{waitUntil:"domcontentloaded",timeout:120000});
   await page.waitForFunction(()=>window.__bf,null,{timeout:120000});
+  await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
   await page.evaluate(async map=>{
    const b=__bf;b.pause();await b.ready;await b.lockstep(0,false);
    let effectSeed=713;Math.random=()=>((effectSeed=Math.imul(effectSeed,1664525)+1013904223>>>0)/4294967296);
    for(const [key,value] of Object.entries({shadows:'off',antialiasing:'off',softFocus:false,bloom:true,renderScale:1,environmentEffects:'classic'}))b.settings.set(key,value);
    if(map==='nab2'){b.camera.position.set(-25,-44,123);b.camera.lookAt(-36,-46.8,111);}else{b.camera.position.set(-167,-59,-9);b.camera.lookAt(-178,-63,-20);}
-   b.camera.updateMatrixWorld();b.environment.update(0,b.camera,[]);
+   b.camera.updateMatrixWorld();stepBattleSurfaces(b,0,b.camera,[]);
   },map);
   const cases=(process.env.ENV_BENCH_MODES||'missing,classic,enhanced').split(',').flatMap(mode=>
     mode==='enhanced'?(process.env.ENV_VOLUME_SCALES||'default').split(',').map(scale=>({mode,scale})):[{mode,scale:'default'}]);
@@ -30,13 +31,13 @@ try{
    if(scale!=='default')await page.evaluate(scale=>{__bf.environment.volume.scale=scale;},Number(scale));
    const result=await page.evaluate(({mode,frames})=>{
     const b=__bf,e=b.environment,g=b.graphics,r=b.renderer,gl=r.getContext(),pixel=new Uint8Array(4);
-    b.settings.set('environmentEffects',mode==='enhanced'?'enhanced':'classic');e.update(0,b.camera,[]);
+    b.settings.set('environmentEffects',mode==='enhanced'?'enhanced':'classic');stepBattleSurfaces(b,0,b.camera,[]);
     e.group.visible=mode!=='missing';e.water?.setEnabled(mode==='enhanced');
-    if(mode!=='missing')for(let i=0;i<100;i++)e.update(.05,b.camera,[]);
+    if(mode!=='missing')for(let i=0;i<100;i++)stepBattleSurfaces(b,.05,b.camera,[]);
     const complete=[],cpu=[],updates=[],draws=[],reflectionDraws=[];
     function frame(record){
-     const start=performance.now();if(mode!=='missing')e.update(1/60,b.camera,[]);const updated=performance.now();
-     b.water?.reflect(b.camera);const calls=r.info.render.calls;
+     const start=performance.now();if(mode!=='missing')stepBattleSurfaces(b,1/60,b.camera,[]);const updated=performance.now();
+     const calls=r.info.render.calls;
      if(mode!=='missing')e.reflect(b.camera,b.water);const reflected=r.info.render.calls-calls;
      g.render(6);const submitted=performance.now();gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
      if(record){complete.push(performance.now()-start);cpu.push(submitted-start);updates.push(updated-start);draws.push(g.frameInfo.calls+reflected);reflectionDraws.push(reflected);}
@@ -52,7 +53,7 @@ try{
    results.push({map,...result});console.log(JSON.stringify({map,...result}));
   }
   // Turning away must cull emission and enhanced volume work completely.
-  const culled=await page.evaluate(()=>{const b=__bf;b.camera.position.set(1000,1000,1000);b.environment.update(.1,b.camera,[]);return{...b.environment.stats};});
+  const culled=await page.evaluate(()=>{const b=__bf;b.camera.position.set(1000,1000,1000);stepBattleSurfaces(b,.1,b.camera,[]);return{...b.environment.stats};});
   if(culled.activeSources||culled.volumes||culled.classicParticles)throw Error(`Culling failure ${JSON.stringify(culled)}`);
   if(errors.length)throw Error(errors.join('\n'));await page.close();
  }

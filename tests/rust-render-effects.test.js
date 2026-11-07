@@ -1,3 +1,4 @@
+import { SurfaceOwner, wakeFixture , stepSurface } from './helpers/surfaces.js';
 import { ownedBasicEffect } from '../src/rust-render/effect-material.js';
 import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
@@ -413,17 +414,17 @@ test("the atmosphere's squares: a batch with values of its own after its instanc
   const { Atmosphere, squareBatches } = await import("../src/atmosphere.js");
   const { core, calls, scene, camera, frame, drawn, entry } = bridge();
   const fog = { texture: "fog", color: [255, 128, 64], range: [5, 40], velocity: [0, 0], rotation: 0, height: 1, size: 20, density: 30, cell: 64 };
-  const atmosphere = new Atmosphere({ data: { fogCloud: fog }, scene, collision: { ground: (x, z, top, out) => { out.height = 0; return out; } }, texture: () => new THREE.Texture() });
+  const atmosphere = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: { fogCloud: fog }, scene, collision: { ground: (x, z, top, out) => { out.height = 0; return out; } }, texture: () => new THREE.Texture() });
   const [batch] = squareBatches.get(scene);
   assert.equal(batch, atmosphere.batches[0]);
-  atmosphere.update(1 / 60, camera);
+  stepSurface(atmosphere,1 / 60, camera);
   const n = batch.geometry.instanceCount;
   assert.ok(n > 1 && batch.mesh.visible);
   drawn(batch.material, program(["projectionMatrix", "viewMatrix", "map", "tint", "axisU", "axisV", "fade", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "center", "spin"]));
   frame();
   assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["tint:4:0,axisU:3:0,axisV:3:0"]);
   assert.equal(batch.external, true);
-  atmosphere.update(1 / 60, camera);
+  stepSurface(atmosphere,1 / 60, camera);
   assert.equal(batch.mesh.visible, false, "hidden from three");
   frame();
   const e = entry(0), data = core.fxData;
@@ -437,9 +438,9 @@ test("the atmosphere's squares: a batch with values of its own after its instanc
 test("the snow: no instances of its own, its flakes and boxes in data textures on units of their own, an int value", async () => {
   const { Snow } = await import("../src/snow.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
-  const snow = new Snow({ data: { precipitation: { ParticleDensity: [4], Range: [10] } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
+  const snow = new Snow({surfaceOwner:new SurfaceOwner(), data: { precipitation: { ParticleDensity: [4], Range: [10] } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
   camera.position.set(0, 2, 0); camera.updateMatrixWorld(true);
-  snow.update(1 / 60, camera);
+  stepSurface(snow,1 / 60, camera);
   const mesh = snow.mesh;
   assert.ok(mesh.visible && mesh.geometry.instanceCount > 0);
   list.transparent.push({ object: mesh, material: mesh.material, group: null });
@@ -451,7 +452,7 @@ test("the snow: no instances of its own, its flakes and boxes in data textures o
   assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_sampler").map((c) => c.slice(2, 4)), [["flakes", 7], ["boxes", 8], ["cover", 9]]);
   assert.equal(mesh.material.visible, false, "hidden by its material");
   list.transparent.length = 0;
-  snow.update(1 / 60, camera);
+  stepSurface(snow,1 / 60, camera);
   frame();
   const e = entry(0);
   assert.deepEqual(e.slice(0, 5), [0, 0, mesh.geometry.instanceCount, 0, 0]);
@@ -485,8 +486,8 @@ test("the rain: fixed seeds uploaded once on a streak plane of its own, its cloc
   const { Weather } = await import("../src/weather.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
   const settings = { get: () => "classic", onChange: () => () => {} };
-  const weather = new Weather({ data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
-  weather.update(1 / 60, camera);
+  const weather = new Weather({surfaceOwner:new SurfaceOwner(), data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
+  stepSurface(weather,1 / 60, camera);
   const mesh = weather.mesh;
   assert.ok(mesh.visible);
   assert.equal(mesh.material.uniforms.rainTime.value, 1 / 60, "its own clock");
@@ -513,8 +514,8 @@ test("the Enhanced rain: its mist the rain's own batch, its splashes uploaded as
   const { particleDepth } = await import("../src/particle-depth.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
   const settings = { get: () => "enhanced", onChange: () => () => {} };
-  const weather = new Weather({ data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
-  weather.update(1 / 60, camera);
+  const weather = new Weather({surfaceOwner:new SurfaceOwner(), data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
+  stepSurface(weather,1 / 60, camera);
   const mist = weather.mist, impacts = weather.impacts, sheets = weather.sheets.mesh;
   assert.ok(mist.visible && impacts.mesh.visible && sheets.visible);
   for (const object of [mist, impacts.mesh, sheets]) list.transparent.push({ object, material: object.material, group: null });
@@ -529,7 +530,7 @@ test("the Enhanced rain: its mist the rain's own batch, its splashes uploaded as
   assert.deepEqual(batches[1][5], [3, 4, 4, 3, 5, 1], "the splashes' impact, surface normal and kind, per instance");
   assert.equal(mist.material.visible, false, "the mist hidden by its material");
   assert.equal(impacts.external, true, "the splashes by their own flag");
-  weather.update(1 / 60, camera);
+  stepSurface(weather,1 / 60, camera);
   assert.equal(impacts.mesh.visible, false, "and so kept from three");
   const model = calls.find((c) => c[0] === "fx_add_model");
   assert.ok(model, `the sheets registered (${core.errors.join("; ")})`);
@@ -557,10 +558,10 @@ test("the Enhanced rain: its mist the rain's own batch, its splashes uploaded as
 test("the steam's wisps and the wake splashes: single-sided batches of fixed seeds; the steam's volumes a model over the screen", async () => {
   const { SteamWisps } = await import("../src/steam-wisps.js");
   const { FountainSpray } = await import("../src/fountain-spray.js");
-  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { EnvironmentVolume } = await import("../src/environment-volume.js");
   const { particleDepth } = await import("../src/particle-depth.js");
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
-  const wakes = new EnvironmentWakes();
+  const wakes = wakeFixture();
   const wisps = new SteamWisps(scene, wakes, new THREE.Texture()), spray = new FountainSpray(scene, wakes), volume = new EnvironmentVolume(scene, 2, wakes);
   const vent = { position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 };
   wisps.update(1, [vent]); spray.update(1, [{ slot: 0, position: new THREE.Vector3(0, 0, -6) }]); volume.update(1, [vent]);
@@ -598,9 +599,8 @@ test("the steam's wisps and the wake splashes: single-sided batches of fixed see
 test("fountain spray registration initializes its cold frame-copy target once", async () => {
   const { FountainJets } = await import("../src/fountain-jets.js");
   const { FountainSpray } = await import("../src/fountain-spray.js");
-  const { EnvironmentWakes } = await import("../src/environment-volume.js");
   const { core, calls, scene, camera, drawn, renderer, fx } = bridge();
-  const jets = new FountainJets(scene, new FountainSpray(new THREE.Group(), new EnvironmentWakes()), core.graphics);
+  const jets = new FountainJets(scene, new FountainSpray(new THREE.Group(), wakeFixture()), core.graphics);
   delete renderer.properties.get(jets.behind.texture).__webglTexture;
   let initialized = 0;
   renderer.initRenderTarget = target => {
@@ -628,9 +628,8 @@ test("fountain spray registration initializes its cold frame-copy target once", 
 test("the fountains' jets: batches on bases of their own after three's copy of the frame so far; their spray halves composited", async () => {
   const { FountainJets } = await import("../src/fountain-jets.js");
   const { FountainSpray } = await import("../src/fountain-spray.js");
-  const { EnvironmentWakes } = await import("../src/environment-volume.js");
   const { core, calls, scene, list, frame, drawn, renderer } = bridge();
-  const spray = new FountainSpray(new THREE.Group(), new EnvironmentWakes());
+  const spray = new FountainSpray(new THREE.Group(), wakeFixture());
   const jets = new FountainJets(scene, spray, core.graphics, { foam: new THREE.Texture(), tier: true });
   jets.capture = () => { calls.push(["fountain_copy"]); return true; };
   jets.update(1, [{ slot: 0, position: new THREE.Vector3(0, 0, -8), level: 0.8, low: 0 }]);
@@ -1058,7 +1057,7 @@ test("an effects pass error stops the required renderer", () => {
 
 test("the scene's depth: asked for as three starts the render, before the first draw whose onBeforeRender would take it, and taken there", async () => {
   const { JetpackVolume } = await import("../src/jetpack-volume.js");
-  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { EnvironmentVolume } = await import("../src/environment-volume.js");
   const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
   const { core, scene, camera, renderer, list, frame, drawn, fx } = bridge();
   core.shadowsOn = () => true;
@@ -1118,7 +1117,7 @@ test("the scene's depth: asked for as three starts the render, before the first 
     particleDepth.sortedCopy(renderer, camera);
     assert.equal(depth.copies, 1);
     // A volume rendering with the depth at once (its own pass): a copy of its own as the phase starts; the copier's still taken.
-    const wakes = new EnvironmentWakes(), steam = new EnvironmentVolume(scene, 2, wakes);
+    const wakes = wakeFixture(), steam = new EnvironmentVolume(scene, 2, wakes);
     steam.update(1, [{ position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 }]);
     list.transparent.push({ object: steam.mesh, material: steam.mesh.material, group: null });
     drawn(steam.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
@@ -1141,7 +1140,7 @@ test("the scene's depth: asked for as three starts the render, before the first 
 
 
 test("the steam's volumes: their own pass drawn into their target by the renderer, its program built without a draw, the composite over the frame", async () => {
-  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { EnvironmentVolume } = await import("../src/environment-volume.js");
   const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
   const { core, calls, scene, camera, renderer, list, frame, drawn, fx } = bridge();
   const saved = { ...particleDepth }, map = particleDepth.map.value;
@@ -1154,7 +1153,7 @@ test("the steam's volumes: their own pass drawn into their target by the rendere
       "volumeTime", "hasDepth", "hasReflection", "wakes[0]", "motion[0]"], ["position", "origin", "direction", "extent", "kind"]);
     const compiled = [];
     renderer.compile = (list, cam, s) => { list.traverse((o) => { compiled.push([o, s]); drawn(o.material, volumeProgram); }); };
-    const steam = new EnvironmentVolume(scene, 2, new EnvironmentWakes());
+    const steam = new EnvironmentVolume(scene, 2, wakeFixture());
     steam.update(1, [{ position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 }]);
     list.transparent.push({ object: steam.mesh, material: steam.mesh.material, group: null });
     drawn(steam.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
@@ -1214,7 +1213,6 @@ test("a glow model added to the scene (a side's logo as it takes a post): regist
 
 test("the fountains' water: every mesh drawn with its material a shader model at once, its own copy of the frame so far bound as a texture of its own", async () => {
   const { FountainWater } = await import("../src/fountain-water.js");
-  const { EnvironmentWakes } = await import("../src/environment-volume.js");
   const { TIER } = await import("../src/fountain-jets.js");
   const { core, calls, scene, list, frame, drawn, renderer } = bridge();
   // Its onBeforeRender copies the frame so far (fountain-water.js capture): three's blit, stood in.
@@ -1225,7 +1223,7 @@ test("the fountains' water: every mesh drawn with its material a shader model at
   const basin = new THREE.Mesh(basinGeometry, new THREE.MeshBasicMaterial());
   basin.name = "nab2_prop_fountain_water";
   scene.add(basin);
-  const water = new FountainWater(core.graphics, [{ texture: "nab2_prop_fountain_water", center: [0, 0, -6], radius: 2 }], new EnvironmentWakes(), new THREE.Texture(), TIER);
+  const water = new FountainWater(core.graphics, [{ texture: "nab2_prop_fountain_water", center: [0, 0, -6], radius: 2 }], wakeFixture(), new THREE.Texture(), TIER);
   water.setEnabled(true);
   water.update(1.5);
   const material = water.material;

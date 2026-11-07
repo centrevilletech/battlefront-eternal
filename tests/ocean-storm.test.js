@@ -1,3 +1,4 @@
+import { SurfaceHost, SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import { loadEnvironment } from '../src/environment/module.js';
 await loadEnvironment();
 import test from 'node:test';
@@ -29,7 +30,7 @@ function fixture(){
  graphics.farScene.add(graphics.sky);frameHost(graphics);
  const texture=new THREE.Texture();
  const data={grid:4,cell:160,height:-8,offset:[320,320],cells:[[2,2]],look:{MainTexture:['sea'],WindSpeed:[25]}};
- const ocean=new OceanSurface({data,texture:()=>texture,graphics,weather:RAIN});
+ const ocean=new OceanSurface({surfaceHost:new SurfaceHost(new SurfaceOwner(undefined,true)),data,texture:()=>texture,graphics,weather:RAIN});
  return {ocean,graphics,setMode:m=>{mode=m;listener('oceanEffects');},getListener:()=>listener};
 }
 
@@ -52,16 +53,16 @@ test('enhanced ocean switches without reallocating resources and restores origin
  const f=fixture(),{ocean,graphics}=f,camera=new THREE.PerspectiveCamera();camera.position.set(25,50,100);
  const waves=ocean.waves,geometry=ocean.geometry,sky=waves.storm;
  const ambient=lighting.ambient.value.clone();
- ocean.update(6.06,camera); // First flash begins when the scheduled strike starts.
- ocean.update(.06,camera);
+ stepSurface(ocean,6.06,camera); // First flash begins when the scheduled strike starts.
+ stepSurface(ocean,.06,camera);
  assert.ok(sky.uniforms.lightningFlash.value>.9);assert.ok(sky.bolt.visible);
  assert.ok(graphics.rust.cameras.flashValue>.9);assert.equal(graphics.sky.visible,false);
  assert.ok(sky.boltGeometry.drawRange.count>300&&sky.boltGeometry.drawRange.count<=1536);
- assert.ok(sky.positions.slice(0,sky.boltGeometry.drawRange.count*3).every(Number.isFinite));
+ assert.ok(sky.boltGeometry.attributes.position.array.slice(0,sky.boltGeometry.drawRange.count*3).every(Number.isFinite));
  assert.equal(waves.spray.geometry.instanceCount,384);assert.ok('STORM' in waves.material.defines);
  f.setMode('classic');assert.equal(graphics.sky.visible,true);assert.ok(lighting.ambient.value.equals(ambient));assert.equal(sky.bolt.visible,false);
  assert.equal(waves.spray.visible,false);assert.equal(sky.sky.visible,false);
- f.setMode('enhanced');ocean.update(.6,camera);
+ f.setMode('enhanced');stepSurface(ocean,.6,camera);
  assert.equal(ocean.geometry,geometry);assert.equal(ocean.waves,waves);assert.equal(sky.bolt.visible,false);
  assert.ok(lighting.ambient.value.equals(ambient));
  ocean.dispose();assert.equal(f.getListener(),null);assert.equal(graphics.scene.children.length,0);
@@ -86,7 +87,7 @@ function stormSky(){
  buildWorld(graphics,{name:'kam1',meshes},new Float32Array(verts).buffer,new Uint32Array(indices).buffer,()=>texture);
  const imported=graphics.skyLayers.map(({mesh})=>mesh.material);frameHost(graphics);
  const data={grid:4,cell:160,height:-8,offset:[320,320],cells:[[2,2]],look:{MainTexture:['sea'],WindSpeed:[25]}};
- const ocean=new OceanSurface({data,texture:()=>texture,graphics,weather:RAIN});
+ const ocean=new OceanSurface({surfaceHost:new SurfaceHost(new SurfaceOwner(undefined,true)),data,texture:()=>texture,graphics,weather:RAIN});
  return {ocean,graphics,imported,setMode:m=>{mode=m;listener('oceanEffects');}};
 }
 
@@ -121,7 +122,7 @@ test('the storm replaces only the dome: the models on its horizon draw over the 
  assert.ok('ADDITIVE' in glow.defines);assert.equal(glow.blendDst,THREE.OneFactor);
  // A strike lights them: the flash reaches their uniforms.
  const camera=new THREE.PerspectiveCamera();camera.position.set(-12,47,166);
- ocean.update(6.06,camera);ocean.update(.06,camera);
+ stepSurface(ocean,6.06,camera);stepSurface(ocean,.06,camera);
  assert.ok(city.uniforms.lightningFlash.value>.9);
  // Classic: the dome and the horizon models' own materials come back.
  setMode('classic');
@@ -174,7 +175,7 @@ function calmSea(){
  const imported=graphics.skyLayers.map(({mesh})=>mesh.material);frameHost(graphics);
  const data={grid:8,cell:256,height:-45,offset:[1024,1024],cells:[[0,0],[7,7],[0,7],[7,0]],
    look:{MainTexture:['kas1_water'],RefractionColor:[45,53,74,255],ReflectionColor:[191,191,191,191],OceanEnable:[0],WindSpeed:[0]}};
- const ocean=new OceanSurface({data,texture:()=>texture,graphics,weather:null});
+ const ocean=new OceanSurface({surfaceHost:new SurfaceHost(new SurfaceOwner(undefined,true)),data,texture:()=>texture,graphics,weather:null});
  return {ocean,graphics,imported,setMode:m=>{mode=m;listener('oceanEffects');}};
 }
 
@@ -199,7 +200,7 @@ test('a sea under a dry sky takes the waves alone and keeps the map sky as it is
  assert.ok(waves.probe.camera.children.every(face=>face.layers.mask===1<<PROBE_LAYER));
  // The map's own light: nothing flashes.
  const ambient=lighting.ambient.value.clone(),camera=new THREE.PerspectiveCamera();camera.position.set(167,-22,147);
- ocean.update(20,camera);assert.ok(lighting.ambient.value.equals(ambient));
+ stepSurface(ocean,20,camera);assert.ok(lighting.ambient.value.equals(ambient));
  // Classic and back: the same waves, the probe idle in Classic.
  setMode('classic');assert.equal(ocean.material,ocean.classicMaterial);assert.equal(waves.spray.visible,false);assert.equal(waves.probe.enabled,false);
  assert.ok(graphics.skyLayers.every(({mesh},i)=>mesh.visible&&mesh.material===imported[i]));
@@ -230,7 +231,7 @@ test('native capture decisions publish six sky-only probe views with the authore
    target(target,face=0,level=0){targets.push([target,face,level]);}};
  core.frame=frame;graphics.rust=core;
  const camera=new THREE.PerspectiveCamera();camera.position.set(167,-22,147);
- ocean.update(0,camera);
+ stepSurface(ocean,0,camera);
  assert.equal(probe.captures,1);assert.equal(drawn.length,6);
  const sky=graphics.skyLayers.map(({mesh})=>mesh.name).join();
  assert.ok(drawn.every(face=>face.seen.join()===sky));
@@ -242,12 +243,12 @@ test('native capture decisions publish six sky-only probe views with the authore
  assert.equal(renderer.autoClear,false);assert.equal(renderer.shadowMap.autoUpdate,true);
  assert.deepEqual(probe.camera.position.toArray(),[167,-22,147]);
  assert.deepEqual(graphics.skyLayers[1].mesh.position.toArray(),[2,3,5],'native sky publication is copied unchanged');
- selected=false;ocean.update(.5,camera);
+ selected=false;stepSurface(ocean,.5,camera);
  assert.equal(probe.captures,1);assert.equal(drawn.length,6,'held native answer prepares no faces');
  assert.equal(core.frameFacts[F.PROBE_TIME],.5,'held views still publish current facts');
- selected=true;camera.position.y+=5;ocean.update(0,camera);
+ selected=true;camera.position.y+=5;stepSurface(ocean,0,camera);
  assert.equal(probe.captures,2);assert.deepEqual(probe.camera.position.toArray(),[167,-17,147]);
- setMode('classic');ocean.update(5,camera);assert.equal(probe.captures,2,'Classic has no enhanced probe request');
+ setMode('classic');stepSurface(ocean,5,camera);assert.equal(probe.captures,2,'Classic has no enhanced probe request');
  ocean.dispose();
 });
 

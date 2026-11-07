@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import { ROLE as FRAME_ROLE, STATS as FRAME_STATS, STATE as FRAME_STATE, UI as FRAME_UI } from "../src/rust-render/frame-layout.js";
 import { STATE, FACTS, MODE } from "../src/rust-render/post-layout.js";
 import { checkResources } from "./renderer-resource-checks.js";
@@ -445,9 +446,9 @@ export async function checkRenderer(backend, manifests) {
     // The small generated pool supplies the actual Water and underwater paths.
     // Its data is intentionally sufficient for reflection and fog construction,
     // so this checks the battle renderer integration rather than an isolated shader.
-    const water = new Water({ data: { height:-2,cell:12,offset:[6,6],grid:2,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
+    const water = new Water({surfaceOwner:new SurfaceOwner(undefined,true), data: { height:-2,cell:12,offset:[6,6],grid:2,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
     g.scene.userData.water = water;
-    water.update(0,g.camera);
+    stepSurface(water,0,g.camera);
     compare('water surface');
     const cameraAt=g.camera.position.clone(),cameraRotation=g.camera.quaternion.clone();
     const basin=water.cellBounds[0].getCenter(new THREE.Vector3());
@@ -458,18 +459,18 @@ export async function checkRenderer(backend, manifests) {
     lateGlow.position.set(basin.x,water.level+1,basin.z);lateGlow.frustumCulled=false;
     settings.set('waterQuality','ultra');
     g.camera.position.set(basin.x,water.level+3,basin.z+6);g.camera.lookAt(basin.x,water.level+1,basin.z);g.camera.updateMatrixWorld(true);
-    water.update(0,g.camera);const mirrors=g.rust.byName.mirrorCover.drawn;water.reflect(g.camera);
+    stepSurface(water,0,g.camera);const mirrors=g.rust.byName.mirrorCover.drawn;
+    compare('Ultra reflection with a new glow');
     assert('Ultra reflection discovers a new glow before the main view',Boolean(g.rust.byName.effects.glows.get(lateGlow)));
     assert('Ultra reflection draws the complete near scene',g.rust.byName.mirrorCover.drawn>mirrors);
-    compare('Ultra reflection with a new glow');
     settings.set('waterQuality','high');
     g.camera.position.set(basin.x,water.level-1,basin.z);
     g.camera.lookAt(basin.x+1,water.level-1,basin.z);g.camera.updateMatrixWorld(true);
-    water.update(0,g.camera);water.reflect(g.camera);
+    stepSurface(water,0,g.camera);
     compare('High underwater composite');
     assert('High underwater fog issues a Rust composite',g.rust.frameStats[(FRAME_ROLE.FOG+1)*FRAME_STATS.LEN-1]>0);
     settings.set('waterQuality','low');
-    g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);water.update(0,g.camera);water.reflect(g.camera);
+    g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);stepSurface(water,0,g.camera);
 
     // After readiness changes, all retained draws must still sample the same id.
     // Reallocating the logical id would leave previously registered program rows

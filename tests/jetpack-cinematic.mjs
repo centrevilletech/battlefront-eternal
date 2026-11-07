@@ -38,7 +38,8 @@ try{
  if(mode!=='actual'){
   const page=await pageFor();await page.route('**/__jetpack-cinematic__',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><body style="margin:0">'}));
   await page.goto(`${url}/__jetpack-cinematic__`,{waitUntil:'domcontentloaded'});
-  const data=await page.evaluate(async()=>{
+  const data=await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
+  await page.evaluate(async()=>{
    const T=await import('/node_modules/three/build/three.module.js');
    const {JetpackEffects}=await import('/src/jetpack-effects.js');
    const renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setSize(640,480);renderer.setPixelRatio(1);document.body.append(renderer.domElement);
@@ -117,7 +118,7 @@ try{
     const origin=anchors.frames[0].rimCenter.clone().add(anchors.frames[1].rimCenter).multiplyScalar(.5),direction=anchors.frames[0].direction,look=origin.clone().addScaledVector(direction,.25);
      const offset=view==='rear'?new T.Vector3(0,.14,-1.65):view==='side'?new T.Vector3(1.65,.14,.05):direction.clone().multiplyScalar(1.45);
      if(view!=='end')offset.applyAxisAngle(new T.Vector3(0,1,0),s.aimYaw);
-     b.camera.fov=48;b.camera.near=.04;b.camera.updateProjectionMatrix();b.camera.position.copy(origin).add(offset);b.camera.up.set(0,1,0);if(view==='end')b.camera.up.set(0,0,1);b.camera.lookAt(look);b.camera.updateMatrixWorld();b.foliage?.update(0,b.camera);b.water?.reflect(b.camera);b.graphics.render(time);
+     b.camera.fov=48;b.camera.near=.04;b.camera.updateProjectionMatrix();b.camera.position.copy(origin).add(offset);b.camera.up.set(0,1,0);if(view==='end')b.camera.up.set(0,0,1);b.camera.lookAt(look);b.camera.updateMatrixWorld();stepBattleSurfaces(b,0,b.camera);b.graphics.render(time);
      return b.renderer.domElement.toDataURL();
    },stats(){b.keys.clear();return {samples,maximumAnchorError,maximumActiveEmitterError,maximumCutoffEmitterError,volumePremultiplied:e.flame.material.premultipliedAlpha,glError:b.renderer.getContext().getError()};}};
   });

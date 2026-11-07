@@ -286,9 +286,9 @@ mod exports {
         std::hint::black_box(&mut reserve);
     }
     #[no_mangle]
-    pub extern "C" fn surface_new() {
+    pub extern "C" fn surface_new(water: u32) {
         // SAFETY: called once during owner construction, before publication.
-        unsafe { let mut phase = surfaces::Phase::new(); phase.prepare_math::<surface_math::Page>();
+        unsafe { let mut phase = surfaces::Phase::new(water != 0); phase.prepare_math::<surface_math::Page>();
             *addr_of_mut!(SURFACES) = Some(phase);
             *addr_of_mut!(SHORE_INPUT) = vec![0.0; layout::surface::SHORE_TRIANGLES * layout::shore_triangle::STRIDE]; }
     }
@@ -318,8 +318,7 @@ mod exports {
         // SAFETY: this separate block is written only during host_shore_tile.
         unsafe { (&mut *addr_of_mut!(SHORE_INPUT)).as_mut_ptr() }
     }
-    #[no_mangle]
-    pub extern "C" fn surface_update() { surfaces().update::<surface_math::Page, _>(&mut ShoreQueries); }
+    fn surface_update() { surfaces().update::<surface_math::Page, _>(&mut ShoreQueries); }
 
     /// The complete world-surface state phase, independent of renderer passes.
     /// All installed owners consume their already written blocks in page order.
@@ -502,8 +501,7 @@ mod exports {
         let batch = &atmosphere().atmosphere.as_ref().expect("atm_start first").batches[batch as usize];
         if kind == 0 { batch.center.as_ptr() } else { batch.spin.as_ptr() }
     }
-    #[no_mangle]
-    pub extern "C" fn atm_update() {
+    fn atm_update() {
         // SAFETY: the host import is a pure query of the page's terrain.
         atmosphere().update(&mut |x, z| unsafe { host_ground(x, z) })
     }
@@ -542,8 +540,7 @@ mod exports {
     }
     #[no_mangle]
     pub extern "C" fn snow_cover_cell() -> f64 { snow().snow.as_ref().expect("snow_start first").cover.cell }
-    #[no_mangle]
-    pub extern "C" fn snow_update() {
+    fn snow_update() {
         // SAFETY: the host import is a pure query of the page's collision world.
         snow().update(&mut |x, y, z| unsafe { host_cover(x, y, z) })
     }
@@ -620,8 +617,7 @@ mod exports {
     pub extern "C" fn weather_streaks_len() -> u32 { rain().streaks.len() as u32 }
     #[no_mangle]
     pub extern "C" fn weather_cover_cell() -> f64 { rain().weather.cover.cell }
-    #[no_mangle]
-    pub extern "C" fn weather_update() {
+    fn weather_update() {
         // SAFETY: the host imports are pure queries of the page's collision world.
         rain().update(
             &mut |x, y, z| unsafe { host_cover(x, y, z) },
@@ -671,9 +667,6 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn vis_wake_apply() { placed().wakes.apply(); }
     #[no_mangle]
-    pub extern "C" fn vis_wake_update() { placed().wakes.update(|_| true); }
-    #[no_mangle]
     pub extern "C" fn vis_start() { placed().start() }
-    #[no_mangle]
-    pub extern "C" fn vis_update() { placed().update() }
+    fn vis_update() { placed().update() }
 }

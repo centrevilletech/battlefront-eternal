@@ -12,14 +12,15 @@ try {
  const results=await page.evaluate(async()=>{
   const T=await import('/node_modules/three/build/three.module.js');
   const {Graphics}=await import('/src/graphics.js'),{Settings}=await import('/src/settings.js');
-  const {EnvironmentVolume,EnvironmentWakes}=await import('/src/environment-volume.js');
+  const {EnvironmentVolume}=await import('/src/environment-volume.js');
+  const {wakeFixture}=await import('/tests/helpers/surfaces.js');
   const {FountainWater}=await import('/src/fountain-water.js');
   const {SteamWisps}=await import('/src/steam-wisps.js');
   const {FountainSpray}=await import('/src/fountain-spray.js'),{FountainJets}=await import('/src/fountain-jets.js');
   const settings=new Settings({shadows:'off',antialiasing:'off',bloom:false,softFocus:false,softParticles:false,renderScale:1,upscaler:'off'});
   const g=new Graphics(document.body,settings),c=g.camera,gl=g.renderer.getContext();
   c.near=.1;c.far=30;c.position.set(0,2,7);c.lookAt(0,2,0);c.updateProjectionMatrix();
-  const wakes=new EnvironmentWakes(),volume=new EnvironmentVolume(g.scene,1,wakes);
+  const wakes=wakeFixture(),volume=new EnvironmentVolume(g.scene,1,wakes);
   const source={position:new T.Vector3(),direction:new T.Vector3(0,1,0),extent:new T.Vector3(4,4,4),kind:0};
   const wall=new T.Mesh(new T.PlaneGeometry(20,20),new T.MeshBasicMaterial({color:0}));g.scene.add(wall);wall.visible=false;
   function draw(){g.render(1);const p=new Uint8Array(320*240*4);gl.readPixels(0,0,320,240,gl.RGBA,gl.UNSIGNED_BYTE,p);if(gl.getError())throw Error('WebGL error');return p;}

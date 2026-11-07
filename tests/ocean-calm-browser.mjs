@@ -14,38 +14,39 @@ try{
  await page.addInitScript(()=>{const raf=requestAnimationFrame.bind(window);window.requestAnimationFrame=cb=>cb.name==='loop'?0:raf(cb)});
  await page.goto(`${process.env.WEATHER_TEST_URL||'http://127.0.0.1:18449'}/?map=kas1&side=rep&unit=rep_inf_clone_trooper&shadows=off`);
  await page.waitForFunction(()=>window.__bf,null,{timeout:120000});
- const result=await page.evaluate(async()=>{
+ const result=await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
+ await page.evaluate(async()=>{
   const b=__bf;await b.ready;b.pause();b.actor.root.visible=false;b.settings.set('softFocus',false);b.settings.set('bloom',false);
   // Pixel for pixel: no temporal jitter.
   b.settings.set('upscaler','off');
   // From the landing zone, east over the sea to the mountains on the horizon.
   const c=b.camera;c.fov=55;c.updateProjectionMatrix();c.position.set(167,-22,147);c.lookAt(700,-30,160);c.updateMatrixWorld();
   const gl=b.renderer.getContext(),size=b.renderer.getDrawingBufferSize(new b.THREE.Vector2());
-  const render=()=>{b.water.reflect(c);b.graphics.render(0);const pixels=new Uint8Array(size.x*size.y*4);gl.readPixels(0,0,size.x,size.y,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return pixels};
+  const render=()=>{b.graphics.render(0);const pixels=new Uint8Array(size.x*size.y*4);gl.readPixels(0,0,size.x,size.y,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return pixels};
   // Rows are read bottom up; `rows` picks the share of the frame from its top.
   const diff=(a,z,from=0,to=1)=>{let pixels=0,energy=0;const first=Math.floor(size.y*(1-to))*size.x*4,last=Math.floor(size.y*(1-from))*size.x*4;
    for(let i=first;i<last;i+=4){const d=Math.abs(a[i]-z[i])+Math.abs(a[i+1]-z[i+1])+Math.abs(a[i+2]-z[i+2]);if(d>9)pixels++;energy+=d;}return {pixels,energy}};
   const captures=[],capture=name=>captures.push({name,image:b.renderer.domElement.toDataURL()});
   // The horizon's row: where the eye's level line crosses the screen.
   const level=new b.THREE.Vector3(700,c.position.y,160).project(c),horizon=(1-level.y)/2;
-  b.settings.set('oceanEffects','classic');b.water.update(0,c);const classic=render();capture('classic');
-  b.settings.set('oceanEffects','enhanced');b.water.update(1,c);const enhanced=render();capture('enhanced');
+  b.settings.set('oceanEffects','classic');stepBattleSurfaces(b,0,c);const classic=render();capture('classic');
+  b.settings.set('oceanEffects','enhanced');stepBattleSurfaces(b,1,c);const enhanced=render();capture('enhanced');
   const o=b.water.ocean,w=o.waves,far=b.graphics.farScene;
   const stormMeshes=['storm-volume-clouds','storm-lightning','ocean-horizon-haze'].filter(name=>far.getObjectByName(name));
   const skyShown=b.graphics.skyLayers.every(({mesh})=>mesh.visible&&mesh.material.name==='zero:sky');
   // Above the horizon nothing changes; below it the sea does.
   const sky=diff(classic,enhanced,0,horizon-.02),sea=diff(classic,enhanced,horizon+.02,1);
-  b.water.update(2,c);const moved=render();const motion=diff(enhanced,moved,horizon+.02,1);
+  stepBattleSurfaces(b,2,c);const moved=render();const motion=diff(enhanced,moved,horizon+.02,1);
   // What it reflects is the probe's sky: without it the sea changes.
   const amount=w.uniforms.reflectAmount.value;w.uniforms.reflectAmount.value=0;const unreflected=render();w.uniforms.reflectAmount.value=amount;
   const reflection=diff(moved,unreflected,horizon+.02,1);
   // The Classic layer's animated normal and bump frames upload when first
   // drawn: one switch at this time first, then the count must hold.
-  b.settings.set('oceanEffects','classic');b.water.update(0,c);render();b.settings.set('oceanEffects','enhanced');b.water.update(0,c);render();
+  b.settings.set('oceanEffects','classic');stepBattleSurfaces(b,0,c);render();b.settings.set('oceanEffects','enhanced');stepBattleSurfaces(b,0,c);render();
   const memory={...b.renderer.info.memory};
-  for(let i=0;i<4;i++){b.settings.set('oceanEffects','classic');b.water.update(0,c);render();b.settings.set('oceanEffects','enhanced');b.water.update(0,c);render();}
+  for(let i=0;i<4;i++){b.settings.set('oceanEffects','classic');stepBattleSurfaces(b,0,c);render();b.settings.set('oceanEffects','enhanced');stepBattleSurfaces(b,0,c);render();}
   const finalMemory={...b.renderer.info.memory};
-  c.position.set(0,30,0);c.lookAt(800,-20,300);c.updateMatrixWorld();b.water.update(0,c);render();capture('overview');
+  c.position.set(0,30,0);c.lookAt(800,-20,300);c.updateMatrixWorld();stepBattleSurfaces(b,0,c);render();capture('overview');
   return {captures,horizon,stormMeshes,skyShown,stormy:o.stormy,storm:Boolean(w.storm),haze:Boolean(w.haze),captured:w.probe.captures,
    defines:Object.keys(w.material.defines),sky,sea,motion,reflection,memory,finalMemory,gl:gl.getError()};
  });

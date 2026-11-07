@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // A scripted sky for the Rust flyers phase to be held to: three classes of
 // ships (Geonosis's), Enhanced and Classic switched live, frames of every
 // length (none, short, 0.5 s), a camera that moves and turns, and a frame
@@ -39,7 +40,7 @@ export function runSky(SkyFlyers) {
   };
   const graphics = { farCamera: { far: 500 }, renderer: null, settings };
   const motion = { frame: 0, addExtra() {}, removeExtra() {} };
-  const flyers = new SkyFlyers({ data, mission: 'm', buffer, indexBuffer, scene: new THREE.Scene(), graphics, motion, seed: 9, texture: () => null });
+  const flyers = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'm', buffer, indexBuffer, scene: new THREE.Scene(), graphics, motion, seed: 9, texture: () => null });
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 2, 200);
   // The module's memory must never move: the views the page took stay good.
   const memory = flyers.host?.x.memory.buffer;
@@ -51,7 +52,7 @@ export function runSky(SkyFlyers) {
     const dt = frame % 97 === 0 ? 0 : frame % 53 === 0 ? 0.5 : frame % 3 ? 1 / 60 : 1 / 30;
     t += dt;
     camera.position.set(Math.sin(t * 0.1) * 50, 40 + Math.sin(t) * 5, t);
-    flyers.update(dt, frame % 211 === 5 ? null : camera);
+    stepSurface(flyers,dt, frame % 211 === 5 ? null : camera);
     const row = [flyers.count];
     for (const kind of flyers.classes) {
       const n1 = kind.draws[0].count, n2 = kind.fades[0].count, n = kind.def.count;

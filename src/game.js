@@ -469,7 +469,7 @@ async function start() {
   onProgress?.("world");
   // Scene updates require the Rust foliage selector before their first frame.
   if (!headless) await graphics.rustReady;
-  const surfaceOwner = headless ? null : new SurfaceOwner();
+  const surfaceOwner = headless ? null : new SurfaceOwner(undefined, !!world.water);
   // Theed's flower beds and creepers.
   const foliage = !headless && world.foliage ? new Foliage(scene, world.foliage, { texture: mapTexture, nearEnd: () => lighting.fade.value.y, drawer: graphics.rust.byName.foliage, surfaceOwner }) : null;
   // The terrain's water, where the map has some.

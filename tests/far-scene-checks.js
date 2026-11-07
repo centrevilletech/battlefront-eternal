@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import * as THREE from 'three';
 import { Graphics } from '../src/graphics.js';
 import { Settings } from '../src/settings.js';
@@ -71,9 +72,9 @@ export async function checkFarScene() {
   for (let j = 0; j < 8; j++) for (let i = 0; i < 7; i++) cells.push([i, j]);
   const look = { PatchDivisions: [4], RefractionColor: [45, 53, 74, 255], ReflectionColor: [191, 191, 191, 191], FresnelMinMax: [0.2, 0.6],
     FarSceneRange: [1500] };
-  const water = new Water({ data: { height: 0, cell: 256, offset: [1024, 1024], grid: 8, cells, look }, texture: () => null, graphics: g });
+  const water = new Water({surfaceOwner:new SurfaceOwner(undefined,true), data: { height: 0, cell: 256, offset: [1024, 1024], grid: 8, cells, look }, texture: () => null, graphics: g });
   const view = (at) => { g.camera.position.set(0, 10, 0); g.camera.lookAt(0, 0, -at); g.camera.updateMatrixWorld(); };
-  const drawn = () => { water.update(0, g.camera); water.reflect(g.camera); return centre(); };
+  const drawn = () => { stepSurface(water,0, g.camera);  return centre(); };
   const shown = water.farGroup.visible;
   view(400);
   settings.set('waterQuality', 'low');
@@ -100,8 +101,8 @@ export async function checkFarScene() {
   // Inside the near scene the near water draws; the far copy leaves it.
   view(40);
   settings.set('waterQuality', 'low');
-  water.update(0, g.camera);
-  water.reflect(g.camera);
+  stepSurface(water,0, g.camera);
+
   water.group.visible = false;
   const nearOnlyBed = centre();
   water.farGroup.visible = false;
@@ -111,11 +112,11 @@ export async function checkFarScene() {
   // scene's end (Yavin 4: Temple), there is none.
   g.camera.position.set(0, -2, 0);
   g.camera.lookAt(0, -2, -400);
-  water.reflect(g.camera);
+
   assert('No far water from under the surface', !water.farGroup.visible);
   view(400);
   g.setMap({ ...map(null), distance: { nearScene: [60, 150, 90, 200], farScene: [10, 20] } });
-  water.reflect(g.camera);
+
   assert('No far water when the far scene stops short of the near scene', !water.farGroup.visible, water.farSpan());
   g.setMap(map(null));
   assert('The far water spans the near scene\'s end to the look\'s reach', water.farSpan().join() === '200,1500', water.farSpan());
@@ -133,8 +134,9 @@ export async function checkFarScene() {
   settings.set('waterQuality', 'high');
   view(400);
   const skyInMirror = () => {
-    water.update(0, g.camera);
-    water.reflect(g.camera);
+    stepSurface(water,0, g.camera);
+
+    g.render(0);
     const t = water.target, pixels = new Uint8Array(t.width * t.height * 4);
     g.renderer.readRenderTargetPixels(t, 0, 0, t.width, t.height, pixels);
     let sky = 0;

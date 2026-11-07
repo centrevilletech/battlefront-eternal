@@ -33,17 +33,18 @@ try{
  // Under the baseline camera, below the floor; a tick shows him there.
  await world.evaluate(()=>self.__bf.soldier.position.set(-25,-70,123));
  await battle.frame(1/60);
+ await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
  await page.evaluate(()=>{
   const b=__bf;
   for(const [key,value] of Object.entries({shadows:'off',antialiasing:'4x',softFocus:false,bloom:true}))b.settings.set(key,value);
   document.querySelectorAll('body > :not(canvas)').forEach(e=>{if(!e.querySelector('canvas'))e.style.display='none'});
   // One displayed frame: environment, basin capture and the full pipeline.
-  window.fountainFrame=(dt)=>{const c=b.camera;c.updateMatrixWorld();b.environment.update(dt,c,[]);b.environment.reflect(c,b.water);b.graphics.render(b.environment.time);};
+  window.fountainFrame=(dt)=>{const c=b.camera;c.updateMatrixWorld();stepBattleSurfaces(b,dt,c,[]);b.environment.reflect(c,b.water);b.graphics.render(b.environment.time);};
   window.fountainView=(view)=>{const c=b.camera;c.position.fromArray(view.position);c.lookAt(...view.target);c.updateMatrixWorld();};
  });
  for(const mode of modes){
   await page.evaluate(mode=>{const b=__bf;b.settings.set('environmentEffects',mode);fountainView({position:[-25,-44,123],target:[-36,-46.8,111]});
-   for(let i=0;i<100;i++)b.environment.update(.05,b.camera,[]);},mode);
+   for(let i=0;i<100;i++)stepBattleSurfaces(b,.05,b.camera,[]);},mode);
   // The canvas is read in the same task as its last frame, before it is presented and cleared.
   const save=async(name,png)=>{await fs.writeFile(`${dir}/${prefix}${name}_${mode}.png`,Buffer.from(png.split(',')[1],'base64'));console.log(`${prefix}${name}_${mode}`);};
   for(const name of wanted){
@@ -52,7 +53,7 @@ try{
     for(let i=0;i<sequence.frames;i++){
      // Advance to the next sample time, drawing the last few 30 Hz frames.
      await save(`seq${i}`,await page.evaluate(step=>{const n=Math.round(step*30);
-      for(let k=0;k<n;k++){if(k<n-3)__bf.environment.update(1/30,__bf.camera,[]);else fountainFrame(1/30);}return __bf.renderer.domElement.toDataURL();},i?sequence.step:1/30));
+      for(let k=0;k<n;k++){if(k<n-3)stepBattleSurfaces(__bf,1/30,__bf.camera,[]);else fountainFrame(1/30);}return __bf.renderer.domElement.toDataURL();},i?sequence.step:1/30));
     }
     continue;
    }

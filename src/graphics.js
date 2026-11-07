@@ -792,7 +792,9 @@ export class Graphics {
   statsText() {
     const gpu = pageGpu();
     const warning = gpu.software ? "  SOFTWARE GPU" : gpu.softwareCompositing || gpu.readback ? "  SOFTWARE COMPOSITING" : "";
-    return `3D ${this.renderSize.x}x${this.renderSize.y}${warning}`;
+    const shadow = this.rust?.byName.shadow;
+    const clipped = shadow ? shadow.clipped + this.rust.rust.static_depth_clipped() : 0;
+    return `3D ${this.renderSize.x}x${this.renderSize.y}${warning}${clipped ? `  SHADOW CLIPPED ${clipped}` : ""}`;
   }
 
   diagnostics() {
@@ -817,6 +819,9 @@ export class Graphics {
       frame: this.frameInfo,
       shadows: this.shadowInfo,
       shadowPasses: { ...this.shadowPasses },
+      // Lifetime counters distinguish dropped pass submissions from source
+      // admission limits. Neither condition interrupts a displayed frame.
+      shadowClipped: { draws: this.rust.byName.shadow.clipped, sources: this.rust.rust.static_depth_clipped() },
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },
       // Native geometry counters remain; texture/target storage belongs to Rust.

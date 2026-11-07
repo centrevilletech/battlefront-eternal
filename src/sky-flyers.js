@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { ownedEffectMaterial } from "./rust-render/effect-material.js";
-import { SkyHost, loaded } from "./environment/module.js";
+import { SkyHost } from "./environment/module.js";
 import { SkyClass as SKY_CLASS, SkyConfig as SKY_CONFIG, SkyFrame as SKY_FRAME, SkyResult as SKY_RESULT } from "./environment/layout.js";
 import { lighting } from "./materials.js";
 import { modelPack } from "./models.js";
@@ -138,7 +138,7 @@ export class SkyFlyers {
   // and settings; seed: the ships' random draws (the engine's generator,
   // src/atmosphere.js); motion: the temporal upscaler's motion pass.
   constructor({ data, mission, buffer, indexBuffer, texture = () => null, scene = null, seed = 1,
-    graphics = null, settings = graphics?.settings ?? null, motion = motionVectors, surfaceOwner = null }) {
+    graphics = null, settings = graphics?.settings ?? null, motion = motionVectors, surfaceOwner }) {
     this.graphics = graphics;
     this.settings = settings;
     this.motion = motion;
@@ -161,7 +161,7 @@ export class SkyFlyers {
       kept.push({ def, parts, modes: { classic: classic.has(def), enhanced: enhanced.has(def) } });
     }
     // Rust keeps the ships; the page's draws are built over its records.
-    this.host = new SkyHost(loaded(), kept.length, surfaceOwner);
+    this.host = new SkyHost(surfaceOwner, kept.length);
     const config = this.host.config;
     config[SKY_CONFIG.SEED] = seed;
     config[SKY_CONFIG.CLASSES] = kept.length;
@@ -258,10 +258,6 @@ export class SkyFlyers {
     return this.classes.reduce((sum, kind) => sum + (this.active(kind) ? kind.def.count : 0), 0);
   }
 
-  // A frame of flight, then the draws: far to near from the eye.
-  update(dt, camera = null) {
-    this.prepareFrame(dt, camera); this.host.x.sky_update(); this.publishFrame();
-  }
   prepareFrame(dt, camera = null) {
     if (dt > 0) this.stepped = true;
     this.frameCamera = camera;
@@ -280,9 +276,9 @@ export class SkyFlyers {
   // Enhanced: the sky behind the ships (sky-probe.js), for their haze.
   // The phase's frame (flight over dt, then the layout of the draws from
   // the eye, none without one), and the meshes set from what it left.
-  place(eye, dt = 0) {
+  place(eye) {
     this.frameCamera = null;
-    this.writeFrame(eye, dt); this.host.x.sky_update(); this.publishFrame();
+    this.writeFrame(eye, 0); this.host.x.sky_update(); this.publishFrame();
   }
   writeFrame(eye, dt = 0) {
     const frame = this.host.frame;

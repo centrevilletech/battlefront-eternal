@@ -8,7 +8,7 @@ import { FountainWater } from './fountain-water.js';
 import { FountainSpray } from './fountain-spray.js';
 import { FountainJets, TIER } from './fountain-jets.js';
 import { SteamWisps } from './steam-wisps.js';
-import { VisibilityHost, loaded } from './environment/module.js';
+import { VisibilityHost } from './environment/module.js';
 import { EnvironmentFrame as FRAME, EnvironmentInstance as INSTANCE, EnvironmentResult as RESULT, View as VIEW } from './environment/layout.js';
 
 // Renderer resources consume a bounded indexed list. Keeping its numeric
@@ -25,7 +25,7 @@ const UP=new THREE.Vector3(0,1,0),FORWARD=new THREE.Vector3(0,0,1);
 // the near scene's end.
 const ENHANCED=new Set(['waterfountain','prop_steamgrate','prop_steampipe']);
 export class EnvironmentEffects {
-  static async load({map,graphics,settings,loadTexture,presentationLoaded,surfaceOwner=null}) {
+  static async load({map,graphics,settings,loadTexture,presentationLoaded,surfaceOwner}) {
     // Maps whose objects carry no effects have no file (a dev server answers
     // a missing one with its page, which isn't JSON).
     const dir=`/maps/${map}/environment`,response=await fetch(`${dir}/effects.json`).catch(()=>null);
@@ -44,7 +44,7 @@ export class EnvironmentEffects {
     if(environment.volume)graphics.renderer.initTexture(environment.volume.noise);
     return environment;
   }
-  constructor({graphics,settings,data,texture,model,presentationLoaded,surfaceOwner=null}) {
+  constructor({graphics,settings,data,texture,model,presentationLoaded,surfaceOwner}) {
     this.graphics=graphics;this.settings=settings;this.data=data;this.time=0;this.mode=null;
     this.group=new THREE.Group();this.group.name='map-environment-effects';graphics.scene.add(this.group);
     this.classic=new PageEffects(this.group,data.effects,{texture,model},presentationLoaded);this.classic.preload();
@@ -70,7 +70,7 @@ export class EnvironmentEffects {
     this.visibleVolumes=new ResourceList(this.instances.length);this.visibleFountains=new ResourceList(this.instances.length);
     // Which placed effects are in view is the Rust phase's: each instance's sphere
     // (where it plays), its position and what kind it is.
-    this.host=new VisibilityHost(loaded(),this.instances.length,surfaceOwner);
+    this.host=new VisibilityHost(surfaceOwner,this.instances.length);
     this.instances.forEach((i,k)=>{
       const c=this.host.config,at=k*INSTANCE.STRIDE;
       c[at+INSTANCE.SPHERE]=i.sphere.center.x;c[at+INSTANCE.SPHERE+1]=i.sphere.center.y;c[at+INSTANCE.SPHERE+2]=i.sphere.center.z;c[at+INSTANCE.SPHERE+3]=i.sphere.radius;
@@ -129,10 +129,7 @@ export class EnvironmentEffects {
     this.stats.volumes=this.visibleVolumes.length;
     this.stats.classicParticles=this.classic.particleCount;
   }
-  update(dt,camera,actors=EMPTY_ACTORS) {
-    camera.updateMatrixWorld();
-    this.prepareFrame(dt,camera,actors);this.host.update();this.publishFrame();
-  }
+
   reflect(camera,terrainWater){this.water?.reflect(camera,[this.volume?.mesh,terrainWater?.group,terrainWater?.rings]);}
   dispose(){
     this.classic.gpu?.dispose();

@@ -453,7 +453,7 @@ pub mod surface {
     pub const WADERS: usize = 1024;
     pub const COMMANDS: usize = 4096;
     pub const SHORE_TILES: usize = 169;
-    pub const SHORE_POINTS: usize = 2048;
+    pub const SHORE_POINTS: usize = 289;
     pub const SHORE_TRIANGLES: usize = 16384;
     pub const SHORE_PATCHES: usize = 384;
     pub const STORM_VERTICES: usize = 1536;

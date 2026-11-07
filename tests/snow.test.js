@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,10 +35,10 @@ const ground = { cast(from, down, range, hit) { hit.point.set(from.x, 0, from.z)
 
 test('snow builds one bounded instanced draw from the imported weather', () => {
   const scene = new THREE.Scene();
-  const snow = new Snow({ data: HOTH, scene, collision: ground, texture: () => texture });
+  const snow = new Snow({surfaceOwner:new SurfaceOwner(), data: HOTH, scene, collision: ground, texture: () => texture });
   assert.deepEqual(scene.children.map(m => m.name), ['map-snow']);
   const c = camera();
-  snow.update(1 / 60, c);
+  stepSurface(snow,1 / 60, c);
   assert.ok(snow.mesh.visible);
   assert.equal(snow.geometry.instanceCount, snow.stats.boxes * 100);
   assert.ok(snow.stats.flakes <= 32768);
@@ -52,8 +53,8 @@ const hoth = contentURL('maps/hot1/map.json');
 test('hot1: its imported precipitation is snow and builds', { skip: !fs.existsSync(hoth) }, () => {
   const data = JSON.parse(fs.readFileSync(hoth)).weather;
   assert.equal(data.precipitation.Type[0], 'Quads');
-  const scene = new THREE.Scene(), snow = new Snow({ data, scene, collision: ground, texture: () => texture });
-  snow.update(1 / 60, camera());
+  const scene = new THREE.Scene(), snow = new Snow({surfaceOwner:new SurfaceOwner(), data, scene, collision: ground, texture: () => texture });
+  stepSurface(snow,1 / 60, camera());
   assert.ok(snow.stats.boxes > 0);
   snow.dispose();
 });

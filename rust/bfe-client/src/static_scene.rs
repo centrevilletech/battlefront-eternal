@@ -626,7 +626,7 @@ pub fn water(
         sun,
         sun_from: frame("sunDirection").unwrap().0,
         ocean: if classic_ocean {
-            let mut phase = bfe_environment::surfaces::Phase::new();
+            let mut phase = bfe_environment::surfaces::Phase::new(false);
             phase.frame[bfe_environment::layout::surface_frame::OCEAN] = 1.;
             Some((
                 phase,

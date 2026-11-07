@@ -3,7 +3,6 @@ import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from "./render-resources.js";
 import { WaterState } from "./runtime/water-state.js";
 import * as THREE from "three";
 import { lighting } from "./materials.js";
-import { particleDepth } from "./particle-depth.js";
 import { WATER_QUALITIES } from "./settings.js";
 import { OceanSurface } from "./ocean-surface.js";
 import { SurfaceHost } from "./environment/surfaces.js";
@@ -34,8 +33,6 @@ const RIPPLE_MAX = LIMITS.RIPPLES;
 const RIPPLE_SEGMENTS = LIMITS.SEGMENTS;
 const DISTORT = 0.03;
 const REFLECTION_SIZE = [512, 256];
-// The layer the mirror draws the sky's models on, alone (reflect()).
-const MIRROR_SKY_LAYER = 5;
 const rgba = (c, fallback = [255, 255, 255, 255]) => {
   const [r, g, b, a = 255] = c || fallback;
   return [r / 255, g / 255, b / 255, a / 255];
@@ -86,12 +83,12 @@ export class Water extends WaterState {
   // data: the map's water (tools/zero_water.py); texture(name) gives a map
   // texture; graphics draws the scene; weather is the map's (an Enhanced
   // ocean storms only where it rains, ocean-surface.js).
-  constructor({ data, texture, graphics, weather = null, surfaceOwner = null }) {
+  constructor({ data, texture, graphics, weather = null, surfaceOwner }) {
     super(data);
     this.data = data;
     this.graphics = graphics;
     const look = data.look;
-    this.host = surfaceOwner ? new SurfaceHost(surfaceOwner) : new SurfaceHost();
+    this.host = new SurfaceHost(surfaceOwner);
     this.host.config[CONFIG.HEIGHT] = data.height;
     this.host.config[CONFIG.BOBBING] = (look.OscillationEnable?.[0] ?? 1) > 0 ? 1 : 0;
     // The original draws an ocean where the look asks (OceanEnable). A sea
@@ -315,19 +312,8 @@ export class Water extends WaterState {
     this.frustum = new THREE.Frustum();
     this.matrix = new THREE.Matrix4();
     this.forward = new THREE.Vector3();
-    this.up = new THREE.Vector3();
-    this.at = new THREE.Vector3();
-    this.plane = new THREE.Plane();
-    this.clip = new THREE.Vector4();
-    this.q = new THREE.Vector4();
     this.reflectionFar = null;
     this.surfaceBuffer = null;
-    // Where the far reflection was last drawn from (held every other frame).
-    this.reflectedEye = new THREE.Vector3();
-    this.reflectedForward = new THREE.Vector3();
-    this.reflectedSize = new THREE.Vector2();
-    this.reflectedLevel = NaN;
-    this.reflectFrames = 0;
     this.tintPass.onBeforeRender = (renderer, scene, camera) => this.captureSurface(renderer, camera);
     this.oceanSurface = ocean ? new OceanSurface({ data, texture, graphics, weather, surfaceHost: this.host }) : null;
     this.oceanAlways = oceanLook;
@@ -510,9 +496,9 @@ export class Water extends WaterState {
   ringMesh(map) {
     const quads = RIPPLE_MAX * RIPPLE_SEGMENTS;
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(this.host.positions, 3).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("uv", new THREE.BufferAttribute(this.host.uvs, 2).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("alpha", new THREE.BufferAttribute(this.host.alpha, 1).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("position", this.host.bind(new THREE.BufferAttribute(this.host.positions, 3).setUsage(THREE.DynamicDrawUsage), "positions"));
+    geometry.setAttribute("uv", this.host.bind(new THREE.BufferAttribute(this.host.uvs, 2).setUsage(THREE.DynamicDrawUsage), "uvs"));
+    geometry.setAttribute("alpha", this.host.bind(new THREE.BufferAttribute(this.host.alpha, 1).setUsage(THREE.DynamicDrawUsage), "alpha"));
     const index = new Uint32Array(quads * 6);
     for (let q = 0; q < quads; q++) index.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4 + 2, q * 4 + 1, q * 4 + 3], q * 6);
     geometry.setIndex(new THREE.BufferAttribute(index, 1));
@@ -561,6 +547,7 @@ export class Water extends WaterState {
   // Only resource publication remains from Water.update and updateRings.
   // Texture indices, mixing, sun/yaw, contacts and vertices are native outputs.
   publishFrame(camera) {
+    this.host.refresh();
     const r = this.host.result;
     this.time = r[RESULT.TIME]; this.wave = r[RESULT.WAVE];
     this.group.position.y = this.farGroup.position.y = this.wave;
@@ -591,180 +578,5 @@ export class Water extends WaterState {
     attribute.surfaceRange.count = quads * 4 * attribute.itemSize;
     attribute.updateRanges[0] = attribute.surfaceRange; attribute.updateRanges.length = 1; attribute.needsUpdate = true;
   }
-  update(dt, camera) {
-    camera.updateMatrixWorld();
-    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame(camera);
-  }
 
-  // Render the mirror image into the reflection target: the far scene from
-  // the camera mirrored in the surface, cut at the surface. Skipped when no
-  // water is in view or the camera is under it.
-  reflect(camera) {
-    this.farGroup.visible = false;
-    if (this.ocean) { this.group.visible = false; this.underwaterFog.visible = false; return; }
-    camera.updateMatrixWorld();
-    this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    this.frustum.setFromProjectionMatrix(this.matrix);
-    const level = this.level;
-    this.tintPass.material.uniforms.cameraRange.value.set(camera.near, camera.far);
-    let visible = false;
-    if (this.frustum.intersectsBox(this.bounds)) for (const box of this.cellBounds) if (this.frustum.intersectsBox(box)) { visible = true; break; }
-    const below = camera.position.y < level;
-    this.underwaterFog.visible = Boolean(this.quality.scale && below && this.over(camera.position.x, camera.position.z));
-    this.tintPass.material.uniforms.underwater.value = below ? 1 : 0;
-    this.group.visible = visible;
-    // The far scene's water, seen from above (it takes the same mirror).
-    const farVisible = !below && this.farInView(camera);
-    this.farGroup.visible = farVisible;
-    // A mirror camera on/below the plane has no valid above-water reflection.
-    // In particular, do not draw yesterday's texture/projective matrix here.
-    this.mirrorPass.visible = this.farMirror.visible = false;
-    if (!(visible || farVisible) || this.lowPass?.visible || camera.position.y - level < 0.03) return;
-    const graphics = this.graphics;
-    const renderer = graphics.renderer;
-    const far = graphics.farCamera;
-    const mirror = this.mirror;
-    // The far scene's mirror image (High, or the textureless fallback) is held every other frame
-    // while the eye stays within 0.3 m and 2 degrees of where it was drawn
-    // from: the sky and the far buildings are 100 m and more away, so a
-    // frame's parallax is a fraction of a texel, and at rest the image is
-    // the same one. Ultra mirrors the near scene (soldiers) every frame.
-    this.resizeReflection();
-    camera.getWorldDirection(this.forward);
-    const planarNear = Boolean(this.reflectionFar && this.quality.planarNear);
-    const held = !planarNear && this.reflectFrames++ % 2 === 1 && this.reflectedLevel === level
-      && this.reflectedSize.x === this.target.width && this.reflectedSize.y === this.target.height
-      && this.reflectedEye.distanceToSquared(camera.position) < 0.09 && this.reflectedForward.dot(this.forward) > 0.9994;
-    if (held) { this.mirrorPass.visible = this.farMirror.visible = true; return; }
-    mirror.fov = camera.fov;
-    mirror.aspect = camera.aspect;
-    mirror.near = this.reflectionFar ? camera.near : far.near || 2;
-    mirror.far = far.far || camera.far;
-    mirror.updateProjectionMatrix();
-    mirror.position.copy(camera.position);
-    mirror.position.y = 2 * level - camera.position.y;
-    camera.getWorldDirection(this.forward);
-    this.forward.y = -this.forward.y;
-    this.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
-    this.up.y = -this.up.y;
-    mirror.up.copy(this.up);
-    mirror.lookAt(this.at.copy(mirror.position).add(this.forward));
-    mirror.updateMatrixWorld();
-    // The sky is drawn through this one (below).
-    this.plainProjection.copy(mirror.projectionMatrix);
-
-    // Clip at the surface by tilting the near plane onto it.
-    this.plane.set(new THREE.Vector3(0, 1, 0), -level).applyMatrix4(mirror.matrixWorldInverse);
-    this.clip.set(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z, this.plane.constant);
-    const p = mirror.projectionMatrix;
-    const e = p.elements;
-    this.q.set((Math.sign(this.clip.x) + e[8]) / e[0], (Math.sign(this.clip.y) + e[9]) / e[5], -1, (1 + e[10]) / e[14]);
-    const clipDenominator = this.clip.dot(this.q);
-    if (Math.abs(clipDenominator) < 1e-6 || !Number.isFinite(clipDenominator)) return;
-    this.clip.multiplyScalar(2 / clipDenominator);
-    e[2] = this.clip.x;
-    e[6] = this.clip.y;
-    e[10] = this.clip.z + 1;
-    e[14] = this.clip.w;
-
-    // World point -> the target's 0..1 square.
-    this.reflectionMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
-    this.reflectionMatrix.multiply(p).multiply(mirror.matrixWorldInverse);
-
-    this.reflectedEye.copy(camera.position);
-    camera.getWorldDirection(this.reflectedForward);
-    this.reflectedSize.set(this.target.width, this.target.height);
-    this.reflectedLevel = level;
-    const previous = renderer.getRenderTarget();
-    const sky = graphics.sky;
-    const skyAt = sky ? sky.position.clone() : null;
-    // The sky's other models (graphics.skyLayers) are mirrored with it.
-    const layersAt = (graphics.skyLayers || []).map(({ mesh }) => mesh.position.clone());
-    const clearColor = renderer.getClearColor(new THREE.Color());
-    const clearAlpha = renderer.getClearAlpha();
-    const autoClear = renderer.autoClear;
-    const autoShadows = renderer.shadowMap.autoUpdate;
-    const backgroundMap = graphics.background.material.uniforms.map.value;
-    const farMap = lighting.farMap.value;
-    const resolution = lighting.resolution.value.clone();
-    const softParticles = particleDepth.enabled.value;
-    const ringsVisible = this.rings.visible;
-    try {
-      if (sky) sky.position.copy(mirror.position);
-      for (const { mesh } of graphics.skyLayers || []) if (mesh !== sky) mesh.position.copy(mirror.position);
-      renderer.autoClear = true;
-      renderer.shadowMap.autoUpdate = false;
-      const near = Boolean(this.reflectionFar && this.quality.planarNear);
-      renderer.setRenderTarget(near ? this.reflectionFar : this.target);
-      renderer.setClearColor(0x000000, 0);
-      // The sky first, through the plain mirror: its models stand around the
-      // mirrored eye, under the surface, where the oblique near plane cut
-      // every one of them away and left the mirror black above the horizon.
-      // Then the rest of the far scene over it (the sky writes no depth).
-      const skyMeshes = (graphics.skyLayers || []).map(({ mesh }) => mesh).filter((mesh) => mesh.visible);
-      const oblique = this.obliqueProjection.copy(mirror.projectionMatrix);
-      // Rust's farMirror phase draws both reflected far-scene views.
-      const drawFar = () => { graphics.rust.cover("farMirror", renderer, graphics.farScene, mirror); };
-      try {
-        if (skyMeshes.length) {
-          mirror.projectionMatrix.copy(this.plainProjection);
-          mirror.layers.set(MIRROR_SKY_LAYER);
-          for (const mesh of skyMeshes) mesh.layers.enable(MIRROR_SKY_LAYER);
-          drawFar();
-          for (const mesh of skyMeshes) mesh.visible = false;
-          mirror.layers.set(0);
-          mirror.projectionMatrix.copy(oblique);
-          renderer.autoClear = false;
-        }
-        drawFar();
-      } finally {
-        for (const mesh of skyMeshes) { mesh.layers.disable(MIRROR_SKY_LAYER); mesh.visible = true; }
-        mirror.layers.set(0);
-        mirror.projectionMatrix.copy(oblique);
-        renderer.autoClear = true;
-      }
-      if (near) {
-        // Full detail architecture and characters share the same mirrored
-        // camera. Hide the water to avoid sampling its own render target.
-        this.group.visible = false;
-        this.rings.visible = false;
-        particleDepth.enabled.value = 0;
-        lighting.resolution.value.set(this.target.width, this.target.height);
-        lighting.farMap.value = this.reflectionFar.texture;
-        graphics.background.material.uniforms.map.value = this.reflectionFar.texture;
-        // The near scene's matrices, once a frame (Graphics.updateScene):
-        // only this mirror draws it before render() does.
-        graphics.updateScene?.();
-        renderer.setRenderTarget(this.target);
-        // Rust draws the complete reflected near scene.
-        graphics.rust.coverMirror(renderer, graphics.scene, mirror);
-      }
-    } finally {
-      this.group.visible = visible;
-      this.mirrorPass.visible = this.farMirror.visible = true;
-      this.rings.visible = ringsVisible;
-      lighting.farMap.value = farMap;
-      lighting.resolution.value.copy(resolution);
-      particleDepth.enabled.value = softParticles;
-      graphics.background.material.uniforms.map.value = backgroundMap;
-      renderer.shadowMap.autoUpdate = autoShadows;
-      renderer.autoClear = autoClear;
-      renderer.setClearColor(clearColor, clearAlpha);
-      renderer.setRenderTarget(previous);
-      if (sky) sky.position.copy(skyAt);
-      (graphics.skyLayers || []).forEach(({ mesh }, i) => mesh.position.copy(layersAt[i]));
-    }
-  }
-
-  // The screen's tint with the eye under the surface over water (the Rust
-  // renderer's underwater phase where it draws it: src/rust-render).
-  drawUnderwater(renderer, camera) {
-    if (this.quality.scale) return;
-    if (camera.position.y >= this.level || !this.over(camera.position.x, camera.position.z)) return;
-    const autoClear = renderer.autoClear;
-    renderer.autoClear = false;
-    renderer.setRenderTarget(null);
-    this.graphics.rust.cover("underwater", renderer, this.underwaterScene, this.passCamera);
-    renderer.autoClear = autoClear;
-  }
 }

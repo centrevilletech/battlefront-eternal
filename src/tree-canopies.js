@@ -22,12 +22,10 @@ export class TreeCanopies {
     this.states = new Float32Array(data.instances.length * 4);
     this.stateVersion = 0;
     this.stateMap = null;
-    this.maskMaterials = [];
     // Native source/sampler policy is installed after the asynchronous renderer
     // exists. Authored state rows have their own CPU owner during cold loading.
     graphics.rustReady?.then(core => {
       this.stateMap = core.resources.gpu.canopy_state(this.groups.length, this.states);
-      for (const material of this.maskMaterials) material.uniforms.treeStates.value = this.stateMap;
     });
     this.active = [];
     this.candidates = [];
@@ -172,42 +170,4 @@ export class TreeCanopies {
     return range;
   }
 
-  adapt(mesh, record) {
-    const tree = /treebillboard/i.test(record.texture || "");
-    const bush = /bush/i.test(record.texture || "");
-    if (!tree && !bush) return;
-    const geometry = mesh.geometry, position = geometry.attributes.position;
-    const parent = Array.from({ length: position.count }, (_, i) => i);
-    const root = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-    const index = geometry.index.array;
-    for (let i=0;i<index.length;i+=3) { parent[root(index[i])] = root(index[i+1]); parent[root(index[i+1])] = root(index[i+2]); }
-    const pieces = new Map();
-    for (let i=0;i<position.count;i++) { const id=root(i); if(!pieces.has(id))pieces.set(id,[]); pieces.get(id).push(i); }
-    const ids = new Float32Array(position.count).fill(-1);
-    const box = new THREE.Box3(), center = new THREE.Vector3(), size = new THREE.Vector3(), point = new THREE.Vector3();
-    let assigned = 0;
-    for (const vertices of pieces.values()) {
-      box.makeEmpty();for(const i of vertices)box.expandByPoint(point.fromBufferAttribute(position,i));
-      box.getCenter(center);box.getSize(size);
-      if (bush && Math.max(size.x,size.y,size.z) < 5.5) continue;
-      let best=null, distance=Infinity;
-      for(const group of this.groups) {
-        point.copy(center).applyMatrix4(group.inverse);
-        if(!group.local.containsPoint(point))continue;
-        const d=center.distanceToSquared(group.sphere.center);
-        if(d<distance){best=group;distance=d;}
-      }
-      if(!best)continue;
-      for(const i of vertices)ids[i]=best.index;
-      assigned++;
-    }
-    if(!assigned)return;
-    geometry.setAttribute("treeGroup",new THREE.BufferAttribute(ids,1));
-    const material=mesh.material;
-    material.uniforms.treeStates={value:this.stateMap};
-    this.maskMaterials.push(material);
-    material.uniforms.treeStateCount={value:this.groups.length};
-    material.needsUpdate=true;
-    mesh.userData.treeCanopyPieces=assigned;
-  }
 }

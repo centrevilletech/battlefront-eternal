@@ -9,7 +9,7 @@ import { Surface as LIMITS, SurfaceCommand as COMMAND, SurfaceConfig as CONFIG, 
 
 await loadEnvironment();
 const file=process.argv[2];if(!file)throw Error('surface-replay.mjs CAPTURE');
-const host=new SurfaceHost(new SurfaceOwner()),camera=new THREE.PerspectiveCamera(63,1.6,.5,250);
+const host=new SurfaceHost(new SurfaceOwner(undefined, true)),camera=new THREE.PerspectiveCamera(63,1.6,.5,250);
 const chunks=[];
 const u32=value=>{const b=Buffer.alloc(4);b.writeUInt32LE(value);chunks.push(b);};
 const doubles=values=>{const b=Buffer.alloc(values.length*8);for(let i=0;i<values.length;i++)b.writeDoubleLE(values[i],i*8);chunks.push(b);};
@@ -38,7 +38,7 @@ for(let i=0;i<frames;i++) {
   host.frame[FRAME.SUN]=.25;host.frame[FRAME.SUN+1]=-.75;host.frame[FRAME.SUN+2]=1;
   host.frame[FRAME.OCEAN]=i<180?1:0;host.frame[FRAME.STORM]=1;host.frame[FRAME.SHORE_QUALITY]=i<160?2:i<180?0:1;
   doubles(host.frame);for(let j=0;j<host.frame[FRAME.COMMANDS];j++){const at=((host.frame[FRAME.COMMAND_START]+j)%LIMITS.COMMANDS)*COMMAND.STRIDE;doubles(host.commands.subarray(at,at+COMMAND.STRIDE));}
-  host.update();
+  host.owner.update();
   u32(tiles.length);for(const tile of tiles){u32(tile.length/9);doubles(tile);}
   u32(probes.length);for(const probe of probes)u32(probe?1:0);
   doubles(host.result);

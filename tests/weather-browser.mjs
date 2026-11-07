@@ -9,13 +9,14 @@ try {
  await page.addInitScript(()=>{const raf=requestAnimationFrame.bind(window);window.requestAnimationFrame=callback=>callback.name==='loop'?0:raf(callback)});
  await page.goto(`${process.env.WEATHER_TEST_URL||'http://127.0.0.1:18449'}/?map=kam1&unit=rep_inf_jet_trooper&shadows=off`);
  await page.waitForFunction(()=>window.__bf,null,{timeout:120000});
- const result=await page.evaluate(async()=>{
+ const result=await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
+ await page.evaluate(async()=>{
   const b=__bf;await b.ready;b.pause();b.settings.set('rainEffects','classic');b.settings.set('oceanEffects','classic');b.settings.set('softFocus',false);b.settings.set('antialiasing','off');b.actor.root.visible=false;
   const world=await fetch('/maps/kam1/map.json').then(r=>r.json());const {makeHit}=await import('/src/collision.js');
   const hit=makeHit(),origin=new b.THREE.Vector3(),down=new b.THREE.Vector3(0,-1,0);let supported=0,total=0;
   for(const points of Object.values(world.spawns))for(const p of points){origin.set(p[0],p[1]+1,p[2]);total++;if(b.collision.cast(origin,down,5,hit))supported++;}
   const camera=b.camera;camera.position.set(-12,47,166);camera.lookAt(-55,20,90);camera.updateMatrixWorld();
-  b.water.update(.2,camera);b.water.reflect(camera);b.weather.update(.2,camera);
+  stepBattleSurfaces(b,.2,camera);
   const gl=b.renderer.getContext(),size=b.renderer.getDrawingBufferSize(new b.THREE.Vector2());
   const pixels=()=>{const a=new Uint8Array(size.x*size.y*4);gl.readPixels(0,0,size.x,size.y,gl.RGBA,gl.UNSIGNED_BYTE,a);return a};
   const render=()=>{b.graphics.render(0);return pixels()};
@@ -25,12 +26,12 @@ try {
   b.water.ocean.near.visible=b.water.ocean.far.visible=false;const noSea=render();
   const oceanPixels=difference(rainy,noSea);b.water.ocean.near.visible=b.water.ocean.far.visible=true;
   const rainPixels=difference(dry,rainy);
-  b.weather.update(.3,camera);const animated=render();const movingPixels=difference(rainy,animated);
+  stepBattleSurfaces(b,.3,camera);const animated=render();const movingPixels=difference(rainy,animated);
   // Cover the whole precipitation volume: no rain may survive below a roof.
   b.weather.cover.heights.fill(camera.position.y+40);b.weather.cover.texture.needsUpdate=true;
   const sheltered=render();b.weather.mesh.visible=false;const shelteredDry=render();const indoorRainPixels=difference(sheltered,shelteredDry);
   // The texture-based ocean must survive every water-quality choice.
-  const quality=[];for(const value of ['low','high','ultra']){b.settings.set('waterQuality',value);b.water.reflect(camera);render();quality.push({value,visible:b.water.ocean.near.visible,error:gl.getError()})}
+  const quality=[];for(const value of ['low','high','ultra']){b.settings.set('waterQuality',value);render();quality.push({value,visible:b.water.ocean.near.visible,error:gl.getError()})}
   return {terrainMeshes:world.meshes.filter(m=>m.terrain).length,total,supported,rainPixels,oceanPixels,movingPixels,indoorRainPixels,quality,rainCount:b.weather.count,oceanTriangles:b.water.ocean.geometry.index.count/3,drawCalls:b.graphics.frameInfo.calls,image};
  });
  const {image,...metrics}=result;console.log(JSON.stringify({metrics,errors}));

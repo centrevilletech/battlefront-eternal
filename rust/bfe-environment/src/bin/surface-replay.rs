@@ -18,7 +18,7 @@ impl Queries for Tape {
 }
 fn main() {
     let mut input=Reader {bytes:fs::read(env::args().nth(1).expect("surface-replay CAPTURE")).unwrap(),at:0};
-    assert_eq!(input.u32(),0x31434653);let frames=input.u32();let mut phase=Phase::new();input.doubles(&mut phase.config);
+    assert_eq!(input.u32(),0x31434653);let frames=input.u32();let mut phase=Phase::new(true);input.doubles(&mut phase.config);
     for index in 0..frames {
         input.doubles(&mut phase.frame);
         let commands=(phase.frame[frame::COMMANDS] as usize).min(phase.commands.len()/command::STRIDE);

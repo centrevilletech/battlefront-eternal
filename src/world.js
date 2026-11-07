@@ -125,7 +125,6 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = record.texture;
     mesh.userData.worldOrder = worldOrder;
-    canopies?.adapt(mesh, record);
     // Lamps by name, and any other self-lit surface (ceiling panels and light
     // strips painted into building atlases); its texels decide what glows.
     const lamp = /lamp|light/i.test(record.texture) && (look.kind === "unlit" || /interior_light/i.test(record.texture));

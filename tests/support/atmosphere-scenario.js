@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // A scripted flight through the map's haze for the Rust atmosphere phase to
 // be held to: a FogCloud and two dusteffect classes over a terrain with a
 // hole in it, a camera that moves, turns and changes its field of view, and
@@ -44,7 +45,7 @@ function hash(h, array, n) {
 
 export function runAtmosphere(Atmosphere) {
   const scene = new THREE.Scene();
-  const atmosphere = new Atmosphere({ data: ATMOSPHERE, scene, collision, texture: (name) => ({ name }) });
+  const atmosphere = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: ATMOSPHERE, scene, collision, texture: (name) => ({ name }) });
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 2000);
   // The module's memory must never move: the views the page took stay good.
   const memory = atmosphere.host.x.memory.buffer;
@@ -59,7 +60,7 @@ export function runAtmosphere(Atmosphere) {
     camera.aspect = frame < 300 ? 16 / 9 : 4 / 3;
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
-    atmosphere.update(dt, camera);
+    stepSurface(atmosphere,dt, camera);
     const row = [atmosphere.stats.fog, atmosphere.stats.dust, atmosphere.stats.objects];
     for (const batch of atmosphere.batches) {
       const n = batch.geometry.instanceCount;

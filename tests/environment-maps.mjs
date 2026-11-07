@@ -16,13 +16,14 @@ for(const map of ['nab2','bes2']){
  // Under the camera, below the floor; a tick shows him there.
  await world.evaluate(([x,z])=>self.__bf.soldier.position.set(x,-70,z),[view.position[0],view.position[2]]);
  await battle.frame(1/60);
- const stats=await page.evaluate(view=>{
+ const stats=await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
+ await page.evaluate(view=>{
   const b=__bf;b.settings.set('shadows','off');b.settings.set('antialiasing','4x');b.settings.set('softFocus',false);
   document.querySelectorAll('body > :not(canvas)').forEach(e=>{if(!e.querySelector('canvas'))e.style.display='none'});
   const c=b.camera;c.position.fromArray(view.position);c.lookAt(...view.target);c.updateMatrixWorld();
   const out=[];
   for(const mode of ['classic','enhanced']){
-   b.settings.set('environmentEffects',mode);for(let i=0;i<100;i++)b.environment.update(.05,c,[]);
+   b.settings.set('environmentEffects',mode);for(let i=0;i<100;i++)stepBattleSurfaces(b,.05,c,[]);
    b.environment.reflect(c,b.water);b.graphics.render(b.environment.time);
    const gl=b.renderer.getContext(),pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
    out.push({mode,stats:{...b.environment.stats},calls:b.graphics.frameInfo.calls,error:gl.getError(),waterMeshes:b.environment.water?.original.length});

@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -92,7 +93,7 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   assert.deepEqual(battleFlyers(null, 'geo1r'), []);
   const asked = [];
   const scene = new THREE.Scene(), motion = motionPass();
-  const flyers = new SkyFlyers({ data, mission: 'geo1r', buffer, indexBuffer, scene, seed: 3, motion, texture: (name) => { asked.push(name); return null; } });
+  const flyers = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'geo1r', buffer, indexBuffer, scene, seed: 3, motion, texture: (name) => { asked.push(name); return null; } });
   assert.equal(scene.children.length, 1);
   assert.equal(flyers.count, 30);
   assert.equal(flyers.enhanced, false, 'Classic without the setting');
@@ -106,7 +107,7 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   // Ships fade in together from the start.
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(0, 100, 0);
-  flyers.update(2, camera);
+  stepSurface(flyers,2, camera);
   const gunships = flyers.classes[1], looks = solids[1].geometry.getAttribute('look');
   for (let i = 0; i < 20; i++) assert.ok(near(looks.array[i * 4], 2 * FADE_RATE, 1e-6));
   // Drawn far to near.
@@ -122,22 +123,22 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   const same = (matrix, array, at) => matrix.elements.every((v, k) => Math.abs(v - array[at + k]) <= 1e-4 * Math.max(1, Math.abs(v)));
   assert.ok(Array.from({ length: 20 }, (_, i) => i).every((i) => !same({ elements: Array.from(moving.matrices.array.subarray(i * 16, i * 16 + 16)) }, moving.previous.array, i * 16)));
   // They go on flying, and come back: never more ships than NumObjects.
-  for (let i = 0; i < 60 * 60; i++) flyers.update(1 / 60, camera);
+  for (let i = 0; i < 60 * 60; i++) stepSurface(flyers,1 / 60, camera);
   assert.equal(gunships.def.count, 20);
   // Those not fading out are inside the range, give a frame's flight.
   for (let i = 0; i < 20; i++) assert.ok(shipAt(gunships, i).every(Number.isFinite), 'every ship has a place');
   // The same seed flies the same ships.
-  const twin = new SkyFlyers({ data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 3, motion: motionPass() });
-  const other = new SkyFlyers({ data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 4, motion: motionPass() });
-  for (let i = 0; i < 600; i++) { twin.update(1 / 60, camera); other.update(1 / 60, camera); }
-  const flock = new SkyFlyers({ data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 3, motion: motionPass() });
-  for (let i = 0; i < 600; i++) flock.update(1 / 60, camera);
+  const twin = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 3, motion: motionPass() });
+  const other = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 4, motion: motionPass() });
+  for (let i = 0; i < 600; i++) { stepSurface(twin,1 / 60, camera); stepSurface(other,1 / 60, camera); }
+  const flock = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 3, motion: motionPass() });
+  for (let i = 0; i < 600; i++) stepSurface(flock,1 / 60, camera);
   const at20 = (f) => Array.from({ length: 20 }, (_, i) => shipAt(f.classes[1], i));
   assert.deepEqual(at20(flock), at20(twin));
   assert.notDeepEqual(at20(other), at20(twin));
   // Paused (no time), nothing moves, and the motion pass shows none.
   const still = Array.from({ length: 20 }, (_, i) => shipAt(gunships, i));
-  flyers.update(0, camera);
+  stepSurface(flyers,0, camera);
   assert.deepEqual(Array.from({ length: 20 }, (_, i) => shipAt(gunships, i)), still);
   const motionDraw = [...motion.extras][0];
   motion.frame = 5; motionDraw.onBeforeRender();
@@ -148,10 +149,10 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   assert.equal(scene.children.length, 0);
   assert.equal(motion.extras.size, 0);
   // A battle without flyers, or a map without the file, draws nothing.
-  const none = new SkyFlyers({ data, mission: 'other', buffer, indexBuffer, scene, motion: motionPass() });
+  const none = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'other', buffer, indexBuffer, scene, motion: motionPass() });
   assert.equal(none.count, 0);
-  none.update(1 / 60, camera);
-  assert.equal(new SkyFlyers({ data: null, mission: 'geo1r', scene, motion: motionPass() }).count, 0);
+  stepSurface(none,1 / 60, camera);
+  assert.equal(new SkyFlyers({surfaceOwner:new SurfaceOwner(), data: null, mission: 'geo1r', scene, motion: motionPass() }).count, 0);
 });
 
 test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, ships past the far plane drawn, switched live', () => {
@@ -164,7 +165,7 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   assert.equal(enhancedSky(settings), true);
   const graphics = { farCamera: { far: 500 }, renderer: null, settings };
   const scene = new THREE.Scene(), motion = motionPass();
-  const flyers = new SkyFlyers({ data, mission: 'bes2r', ...pack([ASSAULT.model, FEDLANDER.model, GUNSHIP.model]), scene, graphics, motion, seed: 5 });
+  const flyers = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission: 'bes2r', ...pack([ASSAULT.model, FEDLANDER.model, GUNSHIP.model]), scene, graphics, motion, seed: 5 });
   assert.equal(flyers.enhanced, true);
   assert.deepEqual(flyers.classes.map(kind => [kind.def.model, kind.classic, kind.enhanced]),
     [[ASSAULT.model, true, true], [FEDLANDER.model, false, true]]);
@@ -172,12 +173,12 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   const camera = new THREE.PerspectiveCamera(60, 1, 2, 200);
   camera.position.set(0, 50, 0);
   // At first every ship is fading in: the fading draws, which write no depth.
-  flyers.update(1 / 60, camera);
+  stepSurface(flyers,1 / 60, camera);
   const [assault] = flyers.classes;
   assert.equal(assault.draws[0].visible, false);
   assert.ok(assault.fades[0].visible && assault.fades[0].count === 2 && assault.fades[0].material.depthWrite === false);
   // Solid once faded in: the solid draws.
-  for (let i = 0; i < Math.ceil(PRE_ROLL * 60) + 2; i++) flyers.update(1 / 60, camera);
+  for (let i = 0; i < Math.ceil(PRE_ROLL * 60) + 2; i++) stepSurface(flyers,1 / 60, camera);
   assert.ok(assault.draws[0].visible && assault.draws[0].count === 2);
   assert.equal(assault.fades[0].visible, false);
   // 1500 m out, past the 500 m far plane: drawn scaled toward the eye,
@@ -195,7 +196,7 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   assert.equal(flyers.enhanced, false);
   assert.equal(flyers.count, 2);
   assert.deepEqual(shipAt(assault, 0), position, 'kept its course');
-  flyers.update(1 / 60, camera);
+  stepSurface(flyers,1 / 60, camera);
   assert.equal(flyers.classes[1].draws[0].visible, false, 'the Enhanced-only class is gone');
   assert.equal(looks[2], 0, 'Classic: cut off by the far plane');
   assert.ok(new THREE.Vector3().setFromMatrixPosition((assault.draws[0].getMatrixAt(0, matrix), matrix)).distanceTo(camera.position) > 1000);
@@ -205,7 +206,7 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   assert.ok([0, 1].every((i) => flyers.classes[1].motion.shown.array[i] === 0), 'its ships start afresh, faded out');
   flyers.dispose();
   // Without its Enhanced lists, a map prepared before them draws the original's.
-  const old = new SkyFlyers({ data: { ...data, enhanced: undefined }, mission: 'bes2r', ...pack([ASSAULT.model, FEDLANDER.model, GUNSHIP.model]), graphics, motion: motionPass() });
+  const old = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data: { ...data, enhanced: undefined }, mission: 'bes2r', ...pack([ASSAULT.model, FEDLANDER.model, GUNSHIP.model]), graphics, motion: motionPass() });
   assert.equal(old.count, 2);
   old.dispose();
 });
@@ -244,9 +245,9 @@ for (const [map, battles] of Object.entries(BATTLES)) {
     for (const mission of Object.keys(battles)) {
       for (const mode of ['classic', 'enhanced']) {
         const graphics = { farCamera: { far: 1000 }, renderer: null, settings: settingsWith(mode) };
-        const flyers = new SkyFlyers({ data, mission, buffer: slice(buffer), indexBuffer: slice(indexBuffer), graphics, motion: motionPass() });
+        const flyers = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data, mission, buffer: slice(buffer), indexBuffer: slice(indexBuffer), graphics, motion: motionPass() });
         assert.equal(flyers.count, battleFlyers(data, mission, mode === 'enhanced').reduce((sum, f) => sum + f.count, 0));
-        flyers.update(1 / 60, new THREE.PerspectiveCamera());
+        stepSurface(flyers,1 / 60, new THREE.PerspectiveCamera());
         flyers.dispose();
       }
     }

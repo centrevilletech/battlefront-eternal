@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,14 +32,14 @@ test('the terrain is asked once per grid corner, however many frames use it', ()
   let asked = 0;
   const collision = { ground(x, z, top, out) { asked++; out.height = x * 0.01; return out; } };
   const scene = new THREE.Scene();
-  const atmosphere = new Atmosphere({ data: { fogCloud: FOG }, scene, collision, texture: () => texture });
+  const atmosphere = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: { fogCloud: FOG }, scene, collision, texture: () => texture });
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.5, 2000);
   camera.position.set(0, 2, 0);
   camera.lookAt(100, 2, 0);
-  atmosphere.update(1 / 60, camera);
+  stepSurface(atmosphere,1 / 60, camera);
   const first = asked;
   assert.ok(first > 0);
-  atmosphere.update(0, camera);
+  stepSurface(atmosphere,0, camera);
   assert.equal(asked, first, 'a frame in the same place asks nothing new');
   atmosphere.dispose();
 });
@@ -52,11 +53,11 @@ const flatCollision = { ground(x, z, top, out) { out.height = 0; return out; } }
 
 test('the map haze builds one bounded draw per texture and fills it from the camera', () => {
   const scene = new THREE.Scene();
-  const atmosphere = new Atmosphere({ data: geonosis, scene, collision: flatCollision, texture: () => texture });
+  const atmosphere = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: geonosis, scene, collision: flatCollision, texture: () => texture });
   assert.deepEqual(scene.children.map(m => m.name), ['map-fog-cloud', 'map-dust-geo_prop_dust']);
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.5, 2000);
   camera.position.set(0, 2, 0); camera.lookAt(100, 2, 0);
-  for (let i = 0; i < 30; i++) atmosphere.update(1 / 30, camera);
+  for (let i = 0; i < 30; i++) stepSurface(atmosphere,1 / 30, camera);
   const [fog, dust] = atmosphere.batches;
   assert.ok(fog.geometry.instanceCount > 0 && fog.mesh.visible);
   assert.equal(atmosphere.stats.objects, 1, 'the far copy is past its MaxDistance');
@@ -71,7 +72,7 @@ test('the map haze builds one bounded draw per texture and fills it from the cam
   assert.ok(Math.abs(dust.material.uniforms.axisU.value.y + 0.2) < 1e-6, 'the square is squashed vertically');
   // The band goes with the camera; the copies stay put.
   camera.position.set(0, 2, 3000); camera.lookAt(100, 2, 3000);
-  atmosphere.update(1 / 30, camera);
+  stepSurface(atmosphere,1 / 30, camera);
   assert.ok(fog.geometry.instanceCount > 0);
   assert.equal(atmosphere.stats.objects, 0);
   assert.equal(dust.geometry.instanceCount, 0);
@@ -82,12 +83,12 @@ test('the map haze builds one bounded draw per texture and fills it from the cam
 
 test('a map without haze, or with a texture missing, draws nothing and costs nothing', () => {
   const scene = new THREE.Scene();
-  const none = new Atmosphere({ data: null, scene, collision: flatCollision, texture: () => texture });
-  none.update(1 / 60, new THREE.PerspectiveCamera());
+  const none = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: null, scene, collision: flatCollision, texture: () => texture });
+  stepSurface(none,1 / 60, new THREE.PerspectiveCamera());
   assert.equal(scene.children.length, 0);
-  const missing = new Atmosphere({ data: geonosis, scene, collision: flatCollision, texture: () => null });
+  const missing = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: geonosis, scene, collision: flatCollision, texture: () => null });
   assert.equal(scene.children.length, 0);
-  missing.update(1 / 60, new THREE.PerspectiveCamera());
+  stepSurface(missing,1 / 60, new THREE.PerspectiveCamera());
   missing.dispose(); none.dispose();
 });
 
@@ -115,7 +116,7 @@ for (const [map, expected] of Object.entries(HAZE)) {
     for (const name of [expected.fog, ...Object.values(data.atmosphere.dust?.classes || {}).map(c => c.texture)].filter(Boolean))
       assert.ok(data.textures[name], `${name} exported`);
     const scene = new THREE.Scene();
-    const atmosphere = new Atmosphere({ data: data.atmosphere, scene, collision: flatCollision, texture: () => texture });
+    const atmosphere = new Atmosphere({surfaceOwner:new SurfaceOwner(), data: data.atmosphere, scene, collision: flatCollision, texture: () => texture });
     assert.equal(scene.children.length, (expected.fog ? 1 : 0) + Object.keys(expected.dust).length);
     atmosphere.dispose();
   });

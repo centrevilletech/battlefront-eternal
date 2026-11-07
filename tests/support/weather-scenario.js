@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // A scripted storm for the Rust weather phase to be held to: rain over roofed
 // and open ground with a pond, a camera that walks, turns and now and then
 // jumps, frames of every length, and the rain effects switched Classic and
@@ -25,7 +26,7 @@ export function runWeather(Weather) {
   };
   const water = { over: (x, z) => x > 3 && x < 12 && z > -5 && z < 20, level: 1.5 };
   const data = { precipitation: { ParticleDensity: [256], Range: [12.5], Velocity: [9], VelocityRange: [1] }, wind: [2, 1] };
-  const weather = new Weather({ data, scene: new THREE.Scene(), collision, water, settings });
+  const weather = new Weather({surfaceOwner:new SurfaceOwner(), data, scene: new THREE.Scene(), collision, water, settings });
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 500);
   // The module's memory must never move: the views the page took stay good.
   const memory = weather.host?.x.memory.buffer;
@@ -38,7 +39,7 @@ export function runWeather(Weather) {
     t += dt;
     camera.position.set(Math.sin(t * 0.4) * 9 + (frame % 150 === 149 ? 300 : 0), 2 + Math.sin(t) * 0.5, t * 1.5);
     camera.updateMatrixWorld();
-    weather.update(dt, camera);
+    stepSurface(weather,dt, camera);
     const u = weather.material.uniforms;
     rows.push([u.rainTime.value, ...u.eye.value.toArray(), ...u.cameraMotion.value.toArray(), u.enhanced.value, u.range.value,
       weather.mesh.visible ? 1 : 0, weather.mist.visible ? 1 : 0, weather.sheets.mesh.visible ? 1 : 0, weather.impacts.mesh.visible ? 1 : 0,

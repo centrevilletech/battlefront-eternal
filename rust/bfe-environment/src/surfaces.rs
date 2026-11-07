@@ -33,18 +33,18 @@ pub struct Phase {
     circle_sin: [f64; lim::SEGMENTS + 1],
     circle_cos: [f64; lim::SEGMENTS + 1],
 }
-impl Default for Phase { fn default() -> Self { Self::new() } }
+impl Default for Phase { fn default() -> Self { Self::new(false) } }
 impl Phase {
     // Water.ringMesh allocated for 100 rings of 40 segments. The native owner
     // keeps that exact bound and replaces the oldest birth when it is full.
     // Waders are paired by stable contact id, never by a transient list index.
-    pub fn new() -> Self {
+    pub fn new(water: bool) -> Self {
         let vertices = lim::RIPPLES * lim::SEGMENTS * 4;
         let mut phase = Self {
             config: vec![0.0; cfg::STRIDE], frame: vec![0.0; frame::STRIDE],
             commands: vec![0.0; lim::COMMANDS * cmd::STRIDE], result: vec![0.0; out::STRIDE],
             positions: vec![0.0; vertices * 3], uvs: vec![0.0; vertices * 2], alpha: vec![0.0; vertices],
-            storm: crate::storm::Storm::new(), shore: Shore::new(), ripples: [Ripple::default(); lim::RIPPLES], ripple_count: 0,
+            storm: crate::storm::Storm::new(), shore: Shore::new(water), ripples: [Ripple::default(); lim::RIPPLES], ripple_count: 0,
             waders: vec![Wader::default(); lim::WADERS], wader_count: 0, order: vec![0; lim::WADERS],
             time: 0.0, ocean_time: 0.0, foliage_time: 0.0, overflow: 0,
             circle_sin: [0.0; lim::SEGMENTS + 1], circle_cos: [0.0; lim::SEGMENTS + 1],

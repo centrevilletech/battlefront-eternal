@@ -1,20 +1,33 @@
 // The world surface's numeric boundary. Water, shore and foliage keep their
 // renderer resources; this binding publishes facts and borrows native arrays.
-import { SurfaceOwner } from './module.js';
 import { Surface as LIMITS, SurfaceConfig as CONFIG, SurfaceFrame as FRAME,
   SurfaceCommand as COMMAND, SurfaceCommandKind as KIND, SurfaceResult as RESULT,
   ShoreTriangle as TRIANGLE } from './layout.js';
 
 export class SurfaceHost {
-  constructor(owner = new SurfaceOwner()) {
+  constructor(owner) {
     this.owner = owner;
-    const x = owner.x, buffer = x.memory.buffer;
+    this.bindings = []; this.buffer = null; this.refresh();
+    // Contacts acquire an id only at first observation. The WeakMap retains
+    // no object after its page owner dies; native rows expire independently.
+    // This map carries identity, never wave or animation state.
+    this.contacts = new WeakMap();
+    this.nextContact = 0;
+    this.commandCount = 0;
+    this.firstCommand = 0; this.droppedCommands = 0;
+  }
+  // Linear-memory growth detaches every old view, even when each native
+  // address stays fixed. Refresh only at publication and command boundaries.
+  refresh() {
+    const x = this.owner.x, buffer = x.memory.buffer;
+    if (this.buffer === buffer) return false;
+    this.buffer = buffer;
     this.config = new Float64Array(buffer, x.surface_config_ptr(), CONFIG.STRIDE);
     this.frame = new Float64Array(buffer, x.surface_frame_ptr(), FRAME.STRIDE);
     this.commands = new Float64Array(buffer, x.surface_commands_ptr(), LIMITS.COMMANDS * COMMAND.STRIDE);
     this.result = new Float64Array(buffer, x.surface_result_ptr(), RESULT.STRIDE);
     // Draw buffers are borrowed directly. Only their active prefixes upload;
-    // the maximum allocation and addresses stay fixed for the owner's life.
+    // the native addresses stay fixed while growth can replace their buffer.
     // Shore collision scratch is separate from its draw and cache storage.
     const vertices = LIMITS.RIPPLES * LIMITS.SEGMENTS * 4;
     this.positions = new Float32Array(buffer, x.surface_ring_ptr(0), vertices * 3);
@@ -28,17 +41,23 @@ export class SurfaceHost {
     this.stormEdges = new Float32Array(buffer, x.surface_storm_ptr(2), LIMITS.STORM_VERTICES);
     this.stormWidths = new Float32Array(buffer, x.surface_storm_ptr(3), LIMITS.STORM_VERTICES);
     this.stormEnergies = new Float32Array(buffer, x.surface_storm_ptr(4), LIMITS.STORM_VERTICES);
-    // Contacts acquire an id only at first observation. The WeakMap retains
-    // no object after its page owner dies; native rows expire independently.
-    // This map carries identity, never wave or animation state.
-    this.contacts = new WeakMap();
-    this.nextContact = 0;
-    this.commandCount = 0;
-    this.firstCommand = 0; this.droppedCommands = 0;
+    for (let i = 0; i < this.bindings.length; i++) {
+      const { attribute, name } = this.bindings[i];
+      attribute.array = this[name]; attribute.count = attribute.array.length / attribute.itemSize;
+      attribute.needsUpdate = true;
+    }
+    return true;
+  }
+  // Renderer shells retain attributes rather than detached typed arrays.
+  // Register these cold bindings once; growth replaces their borrowed storage.
+  bind(attribute, name) {
+    this.refresh(); attribute.array = this[name]; attribute.count = attribute.array.length / attribute.itemSize;
+    this.bindings.push({ attribute, name }); return attribute;
   }
   // Births are bounded while loading or paused. Water.ripple formerly shifted
   // at 100 births; native application preserves that newest-ring policy.
   command(kind) {
+    this.refresh();
     if (this.commandCount === LIMITS.COMMANDS) {
       this.firstCommand = (this.firstCommand + 1) % LIMITS.COMMANDS;
       this.commandCount--; this.droppedCommands++;
@@ -69,8 +88,8 @@ export class SurfaceHost {
   }
   // Camera matrices are already native outputs on the battle page. Reading
   // their forward column avoids getWorldDirection's second matrix update.
-  // The isolated fixture methods update their camera before entering here.
   prepare(dt, camera) {
+    this.refresh();
     const f = this.frame, m = camera.matrixWorld.elements;
     f[FRAME.DT] = dt;
     f[FRAME.EYE] = camera.position.x; f[FRAME.EYE + 1] = camera.position.y; f[FRAME.EYE + 2] = camera.position.z;
@@ -79,5 +98,4 @@ export class SurfaceHost {
     f[FRAME.COMMAND_START] = this.firstCommand; f[FRAME.COMMAND_DROPPED] = this.droppedCommands;
     this.commandCount = 0; this.firstCommand = 0; this.droppedCommands = 0;
   }
-  update() { this.owner.x.surface_update(); }
 }

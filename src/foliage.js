@@ -186,9 +186,9 @@ function buildLeaves(def) {
 export class Foliage {
   // data: map.json's foliage; texture(name) a texture; nearEnd() the near
   // scene's far end (leaves are drawn that far).
-  constructor(scene, data, { texture, nearEnd, drawer, surfaceOwner = null }) {
+  constructor(scene, data, { texture, nearEnd, drawer, surfaceOwner }) {
     this.nearEnd = nearEnd;
-    this.surfaceHost = surfaceOwner ? new SurfaceHost(surfaceOwner) : new SurfaceHost();
+    this.surfaceHost = new SurfaceHost(surfaceOwner);
     this.kinds = new Map();
     this.time = 0;
     for (const [name, def] of Object.entries(data.classes || {})) {
@@ -245,10 +245,6 @@ export class Foliage {
     this.time = result[RESULT.FOLIAGE_TIME];
     this.drawer.select(this, camera);
   }
-  update(dt, camera) {
-    camera.updateMatrixWorld();
-    this.surfaceHost.prepare(dt, camera); this.surfaceHost.update();
-    this.publishFrame(this.surfaceHost.result, camera);
-  }
+
 
 }

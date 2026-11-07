@@ -37,14 +37,16 @@ pub struct Shore {
     pub dirty: bool,
     pub overflow: u64,
 }
-impl Default for Shore { fn default() -> Self { Self::new() } }
+impl Default for Shore { fn default() -> Self { Self::new(false) } }
 impl Shore {
-    pub fn new() -> Self {
-        Self { tiles: (0..lim::SHORE_TILES).map(|_| Tile { x: 0.0, z: 0.0, count: 0,
+    pub fn new(water: bool) -> Self {
+        // An 8 m tile has 17 closed half-metre keys on each axis: 289
+        // possible entries. Dry maps never gather tiles or need their cache.
+        Self { tiles: (0..if water { lim::SHORE_TILES } else { 0 }).map(|_| Tile { x: 0.0, z: 0.0, count: 0,
                 points: vec![Point::default(); lim::SHORE_POINTS] }).collect(), tile_count: 0,
             pending: [Pending::default(); 121], pending_count: 0, pending_next: 0,
             tile: [f64::NAN; 2], draw_tile: [f64::NAN; 2], quality: 0,
-            triangles: vec![0.0; lim::SHORE_TRIANGLES * tri::STRIDE],
+            triangles: vec![0.0; if water { lim::SHORE_TRIANGLES * tri::STRIDE } else { 0 }],
             selected: [Candidate::default(); lim::SHORE_PATCHES], points: vec![0.0; lim::SHORE_PATCHES * point::STRIDE],
             phases: vec![0.0; lim::SHORE_PATCHES], time: 0.0, count: 0, dirty: false, overflow: 0 }
     }
@@ -54,7 +56,7 @@ impl Shore {
     // Camera tiles use floor, including the negative side of the world origin.
     pub fn update<M: Math, Q: Queries>(&mut self, dt: f64, eye_x: f64, eye_z: f64, height: f64, quality: usize, queries: &mut Q) {
         self.dirty = false;
-        if quality == 0 || !eye_x.is_finite() || !eye_z.is_finite() { return; }
+        if self.tiles.is_empty() || quality == 0 || !eye_x.is_finite() || !eye_z.is_finite() { return; }
         self.time += dt;
         let (tx, tz) = ((eye_x / 8.0).floor(), (eye_z / 8.0).floor());
         if self.tile != [tx, tz] {
@@ -191,3 +193,42 @@ pub fn waterline_segment(vertices: &[[f64;3];3], height: f64) -> Option<[[f64;3]
     if count == 2 && distance(&points[0],&points[1]) > 0.01 { Some([points[0],points[1]]) } else { None }
 }
 fn distance(a: &[f64;3], b: &[f64;3]) -> f64 { let (x,y,z) = (a[0]-b[0],a[1]-b[1],a[2]-b[2]); x*x+y*y+z*z }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Water;
+    impl Queries for Water {
+        fn triangles(&mut self, _: f64, _: f64, _: f64, _: &mut [f64]) -> usize { panic!("dry shore queried collision") }
+        fn exposed(&mut self, x: f64, _: f64, _: f64) -> bool { x >= 0.0 }
+    }
+    #[test]
+    fn dry_maps_reserve_no_tile_cache_or_collision_scratch() {
+        let mut shore = Shore::new(false);
+        assert_eq!(shore.tiles.capacity(), 0);
+        assert_eq!(shore.triangles.capacity(), 0);
+        // Even a malformed host quality cannot turn a dry map into a query.
+        shore.update::<crate::surface_math::V8, _>(1.0, 0.0, 0.0, 0.0, usize::MAX, &mut Water);
+        assert_eq!((shore.tiles(), shore.count, shore.time), (0, 0, 0.0));
+    }
+    #[test]
+    fn a_full_closed_key_grid_keeps_replacing_points_without_growth() {
+        let mut shore = Shore::new(true);
+        let bytes: usize = shore.tiles.iter().map(|t| t.points.capacity() * std::mem::size_of::<Point>()).sum();
+        assert_eq!(bytes, 2_344_368);
+        let tile = &mut shore.tiles[0];
+        // Populate every key in the closed 8 m square. Later triangles must
+        // replace normals in place even when every possible key is occupied.
+        for z in 0..=16 { for x in 0..=16 {
+            tile.points[tile.count] = Point { p: [x as f64 / 2.0, z as f64 / 2.0, 0.0, 0.0], key: [x as f64, z as f64] };
+            tile.count += 1;
+        }}
+        let ptr = tile.points.as_ptr();
+        let mut overflow = 0;
+        Shore::sample(&[[0.0,-1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,8.0]], 0.0, tile, &mut Water, &mut overflow);
+        assert_eq!(tile.count, 289);
+        assert_eq!(tile.points.as_ptr(), ptr);
+        assert_eq!(overflow, 0);
+        assert!(tile.points.iter().any(|p| p.p[2] != 0.0));
+    }
+}

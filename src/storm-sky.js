@@ -44,10 +44,8 @@ export class StormSky {
    this.horizonMaterials=new Map();this.replaced=[];
    this.sky.onBeforeRender=(renderer,scene,camera)=>{uniforms.viewRotation.value.copy(camera.matrixWorld);uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);};
    this.boltGeometry=new THREE.BufferGeometry();
-   this.positions=surfaceHost.stormPositions;this.tangents=surfaceHost.stormTangents;
-   this.edges=surfaceHost.stormEdges;this.widths=surfaceHost.stormWidths;this.energies=surfaceHost.stormEnergies;
-   for(const [name,array,itemSize] of [['position',this.positions,3],['tangent',this.tangents,3],['edge',this.edges,1],['width',this.widths,1],['energy',this.energies,1]])
-     this.boltGeometry.setAttribute(name,new THREE.BufferAttribute(array,itemSize).setUsage(THREE.DynamicDrawUsage));
+   for(const [name,source,itemSize] of [['position','stormPositions',3],['tangent','stormTangents',3],['edge','stormEdges',1],['width','stormWidths',1],['energy','stormEnergies',1]])
+     this.boltGeometry.setAttribute(name,surfaceHost.bind(new THREE.BufferAttribute(surfaceHost[source],itemSize).setUsage(THREE.DynamicDrawUsage),source));
    this.boltGeometry.setDrawRange(0,0);
    this.bolt=new THREE.Mesh(this.boltGeometry,ownedEffectMaterial('effects/storm-lightning', {uniforms,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,forceSinglePass:true}));
    this.bolt.name='storm-lightning';this.bolt.frustumCulled=false;this.bolt.renderOrder=8;

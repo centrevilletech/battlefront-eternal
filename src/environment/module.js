@@ -89,9 +89,9 @@ export class DestructionHost {
 // the batches of squares it leaves. `ground(x, z)` answers the terrain's
 // height under a point (NaN for none).
 export class AtmosphereHost {
-  constructor(module, classes, instances, fog, ground, owner = null) {
-    const x = owner ? owner.attach({ host_ground: ground }) : new WebAssembly.Instance(module, imports({ host_ground: ground })).exports;
-    this.x = x;
+  constructor(owner, classes, instances, fog, ground) {
+    const x = owner.attach({ host_ground: ground });
+    this.owner = owner; this.x = x;
     x.atm_new(classes, instances, fog ? 1 : 0);
     const buffer = x.memory.buffer;
     this.config = new Float64Array(buffer, x.atm_config_ptr(), x.atm_config_len());
@@ -116,20 +116,16 @@ export class AtmosphereHost {
       spin: new Float32Array(buffer, x.atm_batch_ptr(b, 1), Squares.CAPACITY * 2),
     }));
   }
-
-  update() {
-    this.x.atm_update();
-  }
 }
 
-// An instance for the snow (rust/bfe-environment snow.rs): the flakes, the
+// The shared owner binding for the snow (rust/bfe-environment snow.rs): the flakes, the
 // wind and the boxes in view, with the cover cache's heights. `cast(x, y, z)`
 // answers a cover cell (the height of the first roof or floor below the
 // point, or of open water over it).
 export class SnowHost {
-  constructor(module, cast, owner = null) {
-    const x = owner ? owner.attach({ host_cover: cast }) : new WebAssembly.Instance(module, imports({ host_cover: cast })).exports;
-    this.x = x;
+  constructor(owner, cast) {
+    const x = owner.attach({ host_cover: cast });
+    this.owner = owner; this.x = x;
     x.snow_new();
     this.config = new Float64Array(x.memory.buffer, x.snow_config_ptr(), SnowConfig.STRIDE);
   }
@@ -147,18 +143,14 @@ export class SnowHost {
     this.heights = new Float32Array(buffer, x.snow_data_ptr(2), x.snow_data_len(2));
     this.cell = x.snow_cover_cell();
   }
-
-  update() {
-    this.x.snow_update();
-  }
 }
 
-// An instance for the sky's flyers (rust/bfe-environment sky.rs): the
+// The shared owner binding for the sky's flyers (rust/bfe-environment sky.rs): the
 // configuration is written, then `start` builds the ships.
 export class SkyHost {
-  constructor(module, classes, owner = null) {
-    const x = owner ? owner.x : new WebAssembly.Instance(module, imports()).exports;
-    this.x = x;
+  constructor(owner, classes) {
+    const x = owner.x;
+    this.owner = owner; this.x = x;
     x.sky_new(classes);
     this.classes = classes;
     this.config = new Float64Array(x.memory.buffer, x.sky_config_ptr(), x.sky_config_len());
@@ -188,10 +180,10 @@ export class SkyHost {
 // splash's cast, returning the height it ends at and leaving its normal and
 // whether it is water in `normal` (x, y, z, water).
 export class WeatherHost {
-  constructor(module, capacity, enhanced, range, size, cover, impact, normal, owner = null) {
+  constructor(owner, capacity, enhanced, range, size, cover, impact, normal) {
     const callbacks = { host_cover: cover, host_impact: impact, host_impact_normal: (i) => normal[i] };
-    const x = owner ? owner.attach(callbacks) : new WebAssembly.Instance(module, imports(callbacks)).exports;
-    this.x = x;
+    const x = owner.attach(callbacks);
+    this.owner = owner; this.x = x;
     x.weather_new(capacity, enhanced ? 1 : 0, range, size);
     const buffer = x.memory.buffer;
     this.frame = new Float64Array(buffer, x.weather_frame_ptr(), WeatherFrame.STRIDE);
@@ -213,20 +205,16 @@ export class WeatherHost {
     this.cell = this.x.weather_cover_cell();
     this.cover = new Float32Array(this.x.memory.buffer, this.x.weather_data_ptr(0), this.x.weather_data_len(0));
   }
-
-  update() {
-    this.x.weather_update();
-  }
 }
 
-// An instance for the placed effects' visibility (rust/bfe-environment
+// The shared owner binding for the placed effects' visibility (rust/bfe-environment
 // environment.rs): each instance's sphere, position and kind are written,
 // then `start`; each frame the camera, the reach and the mode go in and the
 // instances in view come out.
 export class VisibilityHost {
-  constructor(module, count, owner = null) {
-    const x = owner ? owner.x : new WebAssembly.Instance(module, imports()).exports;
-    this.x = x;
+  constructor(owner, count) {
+    const x = owner.x;
+    this.owner = owner; this.x = x;
     x.vis_new(count);
     this.count = count;
     this.config = new Float64Array(x.memory.buffer, x.vis_config_ptr(), x.vis_config_len());
@@ -246,17 +234,13 @@ export class VisibilityHost {
     this.wakePoints = new Float64Array(buffer, x.vis_wake_points_ptr(), Wakes.COUNT * 4);
     this.wakeMotion = new Float64Array(buffer, x.vis_wake_motion_ptr(), Wakes.COUNT * 4);
   }
-
-  update() {
-    this.x.vis_update();
-  }
 }
 
 // All surface owners on a battle share this module and its fixed heap. Their
 // constructors install collision queries before any frame can run. A shared
 // owner advances every installed native system with one surface_frame call.
 export class SurfaceOwner {
-  constructor(module = loaded()) {
+  constructor(module = loaded(), water = false) {
     this.callbacks = Object.create(null);
     const env = {
       host_ground: (x, z) => this.callbacks.host_ground(x, z),
@@ -268,7 +252,7 @@ export class SurfaceOwner {
     };
     this.x = new WebAssembly.Instance(module, imports(env)).exports;
     this.x.surface_reserve();
-    this.x.surface_new();
+    this.x.surface_new(water ? 1 : 0);
   }
   attach(callbacks) { Object.assign(this.callbacks, callbacks); return this.x; }
   update() { this.x.surface_frame(); }

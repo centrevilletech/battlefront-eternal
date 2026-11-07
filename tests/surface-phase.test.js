@@ -23,7 +23,7 @@ for (const snowing of [false,true]) test(`one surface call advances shared ${sno
   const snow=snowing?new Snow({data,scene,collision,texture:()=>texture,surfaceOwner:owner}):null;
   const atmosphere=new Atmosphere({data:{},scene,collision,texture:()=>null,surfaceOwner:owner});
   const foliage=new Foliage(scene,{},{texture:()=>texture,nearEnd:()=>200,drawer:{select:()=>selections++},surfaceOwner:owner});
-  for(const system of [weather,snow,atmosphere])if(system)system.host.update=()=>{throw Error('individual update called');};
+  for(const system of [weather,snow,atmosphere])if(system){assert.equal(system.update,undefined);assert.equal(system.host.update,undefined);}
   const phase=new SurfaceFrame(owner,foliage,null,null,weather,snow,atmosphere,null,null);
   for(let i=0;i<120;i++){phase.update(1/60,camera,null);phase.publishEnvironment();}
   assert.equal(calls,120);assert.equal(selections,120);assert.equal(foliage.time,phase.host.result[RESULT.TIME]);

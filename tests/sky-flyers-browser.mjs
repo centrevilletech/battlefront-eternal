@@ -55,7 +55,7 @@ function pageHelpers() {
     },
     // Fly the ships on (the world stays where it is), `seconds` in 1/30 s.
     fly(seconds) {
-      for (let t = 0; t < seconds; t += 1 / 30) __bf.skyFlyers.update(1 / 30, __bf.camera);
+      for (let t = 0; t < seconds; t += 1 / 30) stepBattleSurfaces(__bf,1 / 30, __bf.camera);
     },
     // Where the camera may stand: the battle's camera shots, its posts, and
     // 40 m over the highest post at the posts' middle (Cloud City's posts
@@ -99,7 +99,7 @@ function pageHelpers() {
       camera.position.set(...eye);
       camera.lookAt(at[0], at[1] - 0.25 * Math.hypot(at[0] - eye[0], at[2] - eye[2]) * Math.tan(fov * Math.PI / 360), at[2]);
       camera.updateMatrixWorld();
-      skyFlyers.update(0, camera);
+      stepBattleSurfaces(__bf,0, camera);
       const gl = renderer.getContext();
       const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
       const grab = () => {
@@ -152,6 +152,7 @@ try {
       opened = await openBattle(browser, { base: URL, query: `${battle.query}&seed=7`, viewport: { width: WIDTH, height: HEIGHT },
         settings: { ...LOW_SETTINGS, upscaler: 'off', viewDistance: 'original' }, timeout: 600000 });
       const { page } = opened;
+      await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
       await page.evaluate(pageHelpers);
       const built = await page.evaluate(() => __sky.built());
       assert.deepEqual(Object.fromEntries(Object.entries(built).map(([model, b]) => [model, b.ships])), battle.counts, `${battle.name}: classes`);

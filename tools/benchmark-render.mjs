@@ -33,6 +33,7 @@ try {
       await page.goto(`${url}/?map=${map}&side=rep&unit=rep_inf_clone_trooper&shadows=low&spawn=CP3`);
       await page.waitForFunction(()=>window.__bf,null,{timeout:120000});
       console.error('Waiting for textures');
+      await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
       await page.evaluate(async()=>{__bf.pause();await Promise.race([__bf.ready,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Texture readiness timeout')),30000))]);});
       console.error('Warming render passes');
       await page.evaluate(async()=>{
@@ -52,9 +53,9 @@ try {
           const cpu=[],complete=[];
           for(let i=0;i<frames;i++) {
             b.camera.rotation.y=camera.rotation.y+Math.sin(i/frames*Math.PI*2)*.65;
-            b.camera.updateMatrixWorld();b.foliage?.update(0,b.camera);
+            b.camera.updateMatrixWorld();stepBattleSurfaces(b,0,b.camera);
             const start=performance.now();
-            b.water?.reflect(b.camera);g.render(0);b.water?.drawUnderwater(b.renderer,b.camera);b.hud.render();
+            g.render(0);b.hud.render();
             cpu.push(performance.now()-start);
             // A one-pixel readback forces the browser/GPU-process round trip;
             // gl.finish alone can still leave work queued in Chromium.

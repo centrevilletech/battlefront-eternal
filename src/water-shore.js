@@ -2,8 +2,7 @@ import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 
-import { SurfaceHost } from './environment/surfaces.js';
-import { Surface as LIMITS, SurfaceConfig as CONFIG, SurfaceFrame as FRAME, SurfaceResult as RESULT, ShoreTriangle as TRIANGLE } from './environment/layout.js';
+import { Surface as LIMITS, SurfaceFrame as FRAME, SurfaceResult as RESULT, ShoreTriangle as TRIANGLE } from './environment/layout.js';
 
 const TILE = 8;
 const MAX_PATCHES = LIMITS.SHORE_PATCHES;
@@ -14,7 +13,7 @@ export class WaterShore {
     this.water = water;
     this.collision = collision;
     this.graphics = graphics;
-    this.host = water.host || new SurfaceHost();
+    this.host = water.host;
     this.count = 0;
     this.time = 0;
     this.origin = new THREE.Vector3();
@@ -41,8 +40,8 @@ export class WaterShore {
     this.geometry.index = plane.index;
     this.geometry.attributes.position = plane.attributes.position;
     this.geometry.attributes.uv = plane.attributes.uv;
-    this.shore = new THREE.InstancedBufferAttribute(this.host.shore, 4).setUsage(THREE.DynamicDrawUsage);
-    this.phase = new THREE.InstancedBufferAttribute(this.host.phases, 1).setUsage(THREE.DynamicDrawUsage);
+    this.shore = this.host.bind(new THREE.InstancedBufferAttribute(this.host.shore, 4).setUsage(THREE.DynamicDrawUsage), "shore");
+    this.phase = this.host.bind(new THREE.InstancedBufferAttribute(this.host.phases, 1).setUsage(THREE.DynamicDrawUsage), "phases");
     this.geometry.setAttribute("shore", this.shore);
     this.geometry.setAttribute("phase", this.phase);
     this.geometry.instanceCount = 0;
@@ -92,6 +91,7 @@ export class WaterShore {
     this.host.frame[FRAME.SHORE_QUALITY] = quality === 'ultra' ? 2 : quality === 'high' ? 1 : 0;
   }
   publishFrame() {
+    this.host.refresh();
     if (!this.group.visible) return;
     const result = this.host.result;
     this.time = result[RESULT.SHORE_TIME];
@@ -99,10 +99,6 @@ export class WaterShore {
     if (!result[RESULT.SHORE_DIRTY]) return;
     this.count = result[RESULT.SHORE_COUNT]; this.geometry.instanceCount = this.count;
     this.shore.needsUpdate = this.phase.needsUpdate = true;
-  }
-  update(dt, camera) {
-    this.host.config[CONFIG.HEIGHT] = this.water.height;
-    this.host.prepare(dt, camera); this.prepareFrame(); this.host.update(); this.publishFrame();
   }
 
   dispose() {

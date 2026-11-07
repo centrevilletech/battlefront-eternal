@@ -1,7 +1,7 @@
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { makeGround } from './collision.js';
-import { AtmosphereHost, loaded } from './environment/module.js';
+import { AtmosphereHost } from './environment/module.js';
 import { AtmosphereConfig as ATMOSPHERE, AtmosphereStats as STATS, DustConfig as DUST, SquareBatch as SQUARE, View as VIEW } from './environment/layout.js';
 import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
@@ -87,7 +87,7 @@ class SquareBatch {
 }
 
 export class Atmosphere {
-  constructor({ data, scene, collision, texture, surfaceOwner = null }) {
+  constructor({ data, scene, collision, texture, surfaceOwner }) {
     this.batches = [];
     const fog = data?.fogCloud;
     const fogMap = fog && texture(fog.texture);
@@ -104,8 +104,8 @@ export class Atmosphere {
     // The terrain's height under a grid corner, asked of the collision world
     // by the phase the first time it needs it.
     const ground = makeGround();
-    this.host = new AtmosphereHost(loaded(), classes.length, classes.reduce((n, c) => n + c.instances.length, 0), Boolean(fogMap),
-      (x, z) => { const hit = collision?.ground(x, z, 100000, ground); return hit ? hit.height : NaN; }, surfaceOwner);
+    this.host = new AtmosphereHost(surfaceOwner, classes.length, classes.reduce((n, c) => n + c.instances.length, 0), Boolean(fogMap),
+      (x, z) => { const hit = collision?.ground(x, z, 100000, ground); return hit ? hit.height : NaN; });
     const config = this.host.config;
     if (fogMap) {
       config[ATMOSPHERE.HAS_FOG] = 1;
@@ -164,10 +164,6 @@ export class Atmosphere {
       this.batches[k].synced(r[at + SQUARE.COUNT], r, at);
     }
   }
-  // Standalone resource fixtures use the identical native state owner.
-  update(dt, camera) {
-    camera.updateMatrixWorld();
-    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame();
-  }
+
   dispose() { for (const batch of this.batches) batch.dispose(); this.batches.length = 0; }
 }

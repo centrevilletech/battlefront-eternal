@@ -112,3 +112,42 @@ pub fn trees(g:&mut Geometry, record:&Record)->Result<(), &'static str> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Disconnected cards share an authored stream. Only the large card in
+    // a canopy footprint should acquire a mask; small and distant ones stay.
+    fn cards(texture: &str) -> (Record, Vec<f32>, Vec<u32>) {
+        let mut vertices = vec![];
+        let mut index = vec![];
+        for (x, y, z, width, height) in [(0.,0.,-30.,7.,8.), (0.,1.,-29.,1.,1.), (40.,0.,-30.,8.,8.)] {
+            let n = (vertices.len()/3) as u32;
+            vertices.extend_from_slice(&[x-width/2.,y,z,x+width/2.,y,z,x-width/2.,y+height,z,x+width/2.,y+height,z]);
+            index.extend_from_slice(&[n,n+1,n+2,n+2,n+1,n+3]);
+        }
+        let tree = Tree { matrix: Matrix4::default().elements, bounds: [[-4.,0.,-34.],[4.,12.,-26.]] };
+        let record = Record { texture: texture.into(), vertex_count: 12, stride: 3,
+            attributes: vec!["position".into()], tree_canopies: Some(Trees { instances: vec![tree.clone(),tree] }), ..Record::default() };
+        (record,vertices,index)
+    }
+
+    #[test]
+    fn connected_tree_masks_preserve_small_bushes_and_authored_streams() {
+        let (record,vertices,index) = cards("jungle_bush");
+        let geometry = Geometry::new(&record,&vertices,&index).unwrap();
+        assert_eq!(geometry.vertices,vertices);
+        assert_eq!(geometry.index,index);
+        // Equal-distance overlaps select the first authored canopy.
+        assert_eq!(geometry.tree_groups.unwrap(),[0.,0.,0.,0.,-1.,-1.,-1.,-1.,-1.,-1.,-1.,-1.]);
+    }
+
+    #[test]
+    fn ordinary_materials_keep_their_original_layout() {
+        let (record,vertices,index) = cards("stone_wall");
+        let geometry = Geometry::new(&record,&vertices,&index).unwrap();
+        assert!(geometry.tree_groups.is_none());
+        assert_eq!(geometry.attributes.len(),1);
+    }
+}

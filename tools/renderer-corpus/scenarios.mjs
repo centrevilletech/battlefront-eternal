@@ -18,7 +18,7 @@ export async function installScenario(scenario) {
     if(g.rust.frame){const mirror=g.rust.frame.mirror;g.rust.frame.mirror=function(...args){aim();return mirror.apply(this,args);};}
     else{const reflect=water.reflect;water.reflect=function(...args){aim();return reflect.apply(this,args);};}
     const name=g.prepareFrame?'prepareFrame':'render',render=g[name];g[name]=function(...args){aim();return render.apply(this,args);};
-    if(scenario==='fountain'){const update=b.environment.update;b.environment.update=function(...args){aim();return update.apply(this,args);};}
+    if(scenario==='fountain'){const prepare=b.environment.prepareFrame;b.environment.prepareFrame=function(...args){aim();return prepare.apply(this,args);};}
   } else if (scenario === 'blade') {
     // Heroes cannot join the local server's infantry roster. Build the real
     // blade through the existing presentation factory in a valid battle.

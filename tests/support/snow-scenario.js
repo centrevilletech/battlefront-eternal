@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // A scripted walk through falling snow for the Rust snow phase to be held to:
 // Hoth's precipitation and gusting wind over a roofed and open ground, a
 // camera that moves, turns and changes its lens, and frames of every length.
@@ -33,7 +34,7 @@ function hash(h, array, n) {
 }
 
 export function runSnow(Snow) {
-  const snow = new Snow({ data: HOTH, scene: new THREE.Scene(), collision, texture: () => ({}) });
+  const snow = new Snow({surfaceOwner:new SurfaceOwner(), data: HOTH, scene: new THREE.Scene(), collision, texture: () => ({}) });
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.5, 300);
   // The module's memory must never move: the views the page took stay good.
   const memory = snow.host.x.memory.buffer;
@@ -49,7 +50,7 @@ export function runSnow(Snow) {
     camera.aspect = frame < 220 ? 16 / 9 : 1;
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
-    snow.update(dt, camera);
+    stepSurface(snow,dt, camera);
     const u = snow.material.uniforms;
     const n = snow.flakes?.count ?? snow.flakeCount;
     const row = [snow.geometry.instanceCount, snow.mesh.visible ? 1 : 0, snow.stats.boxes, snow.stats.flakes,

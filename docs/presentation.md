@@ -360,7 +360,10 @@ replays GPU recipes against stable source ids, including ordered variant and
 depth replacements. Shadow traversal supplies native descriptor ids and one
 projection/view/time block per cascade; it preserves the existing pass order.
 Depth admission retains at most 4,094 source references plus two merged sides;
-excess sources clip in admission order with a counter. Cascade range selection
+excess sources clip in admission order with a counter. Renderer diagnostics
+expose lifetime `shadowClipped.draws` (pass submissions) and
+`shadowClipped.sources` (static admissions); the stats line shows their total
+when nonzero. Cascade range selection
 uses retained Morton cells and allocates no memory.
 
 Standalone native fixtures freeze the replaced JavaScript constructors' vertex,

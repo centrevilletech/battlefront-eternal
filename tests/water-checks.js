@@ -1,3 +1,4 @@
+import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
 import * as THREE from 'three';
 import {Graphics} from '../src/graphics.js';
 import {Water} from '../src/water.js';
@@ -48,7 +49,7 @@ export async function checkWaterRendering() {
   const particle=()=>{pr.begin();batch.push(0,0,.1,1,.4,.1,1,1,0,BILLBOARD,0,[1,0,0],[0,1,0]);pr.end();};
   const reflected=new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshBasicMaterial({color:0xe53010}));
   reflected.position.set(0,2,-1);g.scene.add(reflected);
-  const water=new Water({data:{height:0,cell:12,offset:[6,6],grid:1,cells:[[0,0]],look:{PatchDivisions:[2]}},texture:()=>null,graphics:g});
+  const water=new Water({surfaceOwner:new SurfaceOwner(undefined,true),data:{height:0,cell:12,offset:[6,6],grid:1,cells:[[0,0]],look:{PatchDivisions:[2]}},texture:()=>null,graphics:g});
   g.camera.position.set(4,4,6);g.camera.lookAt(0,0,0);
   const readReflection=()=>{
     const pixels=new Uint8Array(water.target.width*water.target.height*4);
@@ -56,55 +57,55 @@ export async function checkWaterRendering() {
     let reds=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]>100&&pixels[i]>pixels[i+1]*2)reds++;
     return reds;
   };
-  settings.set('waterQuality','low');water.update(0,g.camera);water.reflect(g.camera);const lowWater=capture();
+  settings.set('waterQuality','low');stepSurface(water,0,g.camera);const lowWater=capture();
   const lowRed=readReflection();
   const originalFar=g.background.material.uniforms.map.value;
-  settings.set('waterQuality','ultra');water.reflect(g.camera);capture();
+  settings.set('waterQuality','ultra');capture();
   const ultraRed=readReflection();
   assert('Ultra water mirrors nearby geometry absent from the far scene',lowRed===0&&ultraRed>30,{lowRed,ultraRed});
-  settings.set('waterQuality','high');water.reflect(g.camera);const highWater=capture();
+  settings.set('waterQuality','high');const highWater=capture();
   // High reflects the near scene in screen space, without a mirrored render.
-  const ssr=water.mirrorPass.material.uniforms.screenSpace;ssr.value=0;water.reflect(g.camera);const planarOnly=capture();ssr.value=1;
+  const ssr=water.mirrorPass.material.uniforms.screenSpace;ssr.value=0;const planarOnly=capture();ssr.value=1;
   assert('High water reflects nearby geometry in screen space',difference(highWater,planarOnly).changed>30&&readReflection()===0,difference(highWater,planarOnly));
   assert('Reflection restores main-scene resources',g.background.material.uniforms.map.value===originalFar&&water.group.visible);
   assert('High reflection adapts to drawing-buffer resolution',water.target.width===Math.round(innerWidth*.5));
   assert('Enhanced water resolves opaque color and depth at scene resolution',water.surfaceBuffer.width===g.sceneTarget.width&&water.surfaceBuffer.height===g.sceneTarget.height);
-  water.update(1,g.camera);water.reflect(g.camera);const movingWater=capture();
+  stepSurface(water,1,g.camera);const movingWater=capture();
   assert('Enhanced water normals move even without flipbook assets',difference(highWater,movingWater).changed>30,difference(highWater,movingWater));
   settings.set("softParticles",true);particle(BILLBOARD);
   settings.set('antialiasing','off');
-  for(let i=0;i<3;i++){water.reflect(g.camera);capture();}
+  for(let i=0;i<3;i++){capture();}
   assert('Repeated unmultisampled water copies stay valid',gl.getError()===gl.NO_ERROR);
   assert('Water and soft particles can copy depth in one frame',g.particleDepth.copies===1);
   pr.begin();pr.end();
   settings.set('antialiasing','4x');
-  settings.set('waterQuality','ultra');water.reflect(g.camera);capture();
+  settings.set('waterQuality','ultra');capture();
   assert('Ultra reflection uses full viewport resolution',water.target.width===innerWidth);
-  settings.set('waterQuality','low');water.reflect(g.camera);capture();
+  settings.set('waterQuality','low');capture();
   assert('Low water releases the detailed reflection target',water.reflectionFar===null&&water.surfaceBuffer===null&&water.target.width===512);
-  g.camera.position.set(0,-.5,3);g.camera.lookAt(0,1,0);water.reflect(g.camera);capture();
+  g.camera.position.set(0,-.5,3);g.camera.lookAt(0,1,0);capture();
   assert('Underwater low mode never projects a stale reflection',!water.mirrorPass.visible);
-  settings.set('waterQuality','high');water.reflect(g.camera);capture();
+  settings.set('waterQuality','high');capture();
   assert('Enhanced underside transmits above-water view without a stale mirror',!water.mirrorPass.visible&&water.tintPass.material.uniforms.underwater.value===1);
-  g.camera.position.y=water.level+.01;water.reflect(g.camera);capture();
+  g.camera.position.y=water.level+.01;capture();
   assert('Crossing the reflection plane avoids a degenerate mirror',!water.mirrorPass.visible);
   settings.set('waterQuality','low');water.tintPass.material.uniforms.tint.value.set(.1,.3,.2);
   floor.material=new THREE.MeshBasicMaterial({color:0xffffff});floor.position.y=-1;floor.visible=true;
-  g.camera.lookAt(0,water.level,0);water.reflect(g.camera);const nearSurface=capture();
+  g.camera.lookAt(0,water.level,0);const nearSurface=capture();
   const foreground=(20*g.sceneTarget.width+Math.floor(g.sceneTarget.width/2))*4;
   assert('Water covers the foreground inside the camera near plane',nearSurface[foreground]<100&&nearSurface[foreground+1]>nearSurface[foreground],Array.from(nearSurface.slice(foreground,foreground+3)));
   floor.visible=false;
-  g.camera.position.y=2;g.camera.lookAt(0,0,0);water.reflect(g.camera);capture();
+  g.camera.position.y=2;g.camera.lookAt(0,0,0);capture();
   assert('Reflection resumes when the eye emerges',water.mirrorPass.visible);
   settings.set('waterQuality','high');reflected.visible=false;
   g.camera.position.set(0,-1,3);g.camera.lookAt(0,-1,0);
   const underwaterPanel=new THREE.Mesh(new THREE.PlaneGeometry(4,4),new THREE.MeshBasicMaterial({color:0xffffff}));
   underwaterPanel.position.set(0,-1,0);g.scene.add(underwaterPanel);
-  water.reflect(g.camera);const nearUnderwater=capture();
-  underwaterPanel.position.z=-20;underwaterPanel.scale.setScalar(10);water.reflect(g.camera);const farUnderwater=capture();
+  const nearUnderwater=capture();
+  underwaterPanel.position.z=-20;underwaterPanel.scale.setScalar(10);const farUnderwater=capture();
   const center=(Math.floor(g.sceneTarget.height/2)*g.sceneTarget.width+Math.floor(g.sceneTarget.width/2))*4;
   assert('Underwater visibility depends on actual scene depth',nearUnderwater[center]>farUnderwater[center]+30,{near:Array.from(nearUnderwater.slice(center,center+3)),far:Array.from(farUnderwater.slice(center,center+3))});
-  g.camera.lookAt(0,-10,0);water.reflect(g.camera);capture();
+  g.camera.lookAt(0,-10,0);capture();
   assert('Underwater fog stays current while looking away from the surface',water.underwaterFog.visible);
   g.scene.remove(underwaterPanel);
   g.scene.remove(water.group,water.rings,water.underwaterFog,reflected);
@@ -113,24 +114,24 @@ export async function checkWaterRendering() {
   // a reflection, and switch cleanly back to the detailed water passes.
   settings.set('waterQuality','low');
   const waterTexture=texture(16,(x,y)=>[x<8?35:130,y<8?90:170,90,210]);
-  const nativeWater=new Water({data:{height:0,cell:12,offset:[6,6],grid:1,cells:[[0,0]],scale:2,
+  const nativeWater=new Water({surfaceOwner:new SurfaceOwner(undefined,true),data:{height:0,cell:12,offset:[6,6],grid:1,cells:[[0,0]],scale:2,
     look:{PatchDivisions:[2,3],MainTexture:['native-water'],Velocity:[.5,.25],Tile:[1,2],
       SpecularMaskTextures:['mask',2,4],RefractionColor:[100,180,150,200]}},
     texture:name=>name==='native-water'?waterTexture:white,graphics:g});
   g.camera.position.set(4,4,6);g.camera.lookAt(0,0,0);
-  nativeWater.update(0,g.camera);
+  stepSurface(nativeWater,0,g.camera);
   let reflectionDraws=0;const draw=g.renderer.render;
   g.renderer.render=function(...args){reflectionDraws++;return draw.apply(this,args);};
-  try{nativeWater.reflect(g.camera);}finally{g.renderer.render=draw;}
+  try{g.render(0);}finally{g.renderer.render=draw;}
   const nativeStill=capture();
-  nativeWater.step(.7);nativeWater.update(.7,g.camera);nativeWater.reflect(g.camera);const nativeMoving=capture();
+  nativeWater.step(.7);stepSurface(nativeWater,.7,g.camera);const nativeMoving=capture();
   assert('Native low water uses scrolling authored texture without mirror draws',
     nativeWater.lowPass.visible&&!nativeWater.tintPass.visible&&!nativeWater.mirrorPass.visible&&reflectionDraws===0&&difference(nativeStill,nativeMoving).changed>30,
     {reflectionDraws,...difference(nativeStill,nativeMoving)});
   assert('Water import scale applies to tile and inverse scroll speed',
     nativeWater.lowPass.material.uniforms.tile.value.equals(new THREE.Vector2(2,4))&&
     nativeWater.lowPass.material.uniforms.velocity.value.equals(new THREE.Vector2(.25,.125)));
-  settings.set('waterQuality','high');nativeWater.reflect(g.camera);capture();
+  settings.set('waterQuality','high');capture();
   assert('Native water switches back to reflective quality',!nativeWater.lowPass.visible&&nativeWater.tintPass.visible&&nativeWater.mirrorPass.visible);
   assert('Imported water modes compile without WebGL errors',gl.getError()===gl.NO_ERROR);
   g.scene.remove(nativeWater.group,nativeWater.rings,nativeWater.underwaterFog);

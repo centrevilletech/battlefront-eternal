@@ -5,7 +5,7 @@ import { particleDepth } from './particle-depth.js';
 import { RainImpacts } from './rain-impacts.js';
 import { RainSheets } from './rain-sheets.js';
 import { lighting } from './materials.js';
-import { WeatherHost, loaded } from './environment/module.js';
+import { WeatherHost } from './environment/module.js';
 import { WeatherFrame as WEATHER_FRAME, WeatherResult as RESULT } from './environment/layout.js';
 
 // The instanced quads the drops are drawn as, their seeds the Rust phase's.
@@ -19,7 +19,7 @@ function geometry(count,seeds){
 // weather.rs); the page keeps the meshes, materials and uniforms, and answers
 // the phase's two queries of its collision world.
 export class Weather {
-  constructor({data, scene, collision, water, settings, surfaceOwner = null}) {
+  constructor({data, scene, collision, water, settings, surfaceOwner}) {
     // The rain's authored numbers: its range (drops fall within this of the eye) and
     // how many drops the classic rain has; the Enhanced rain uses up to 32 times
     // as many (the geometry's capacity), within 8192.
@@ -50,7 +50,7 @@ export class Weather {
     };
     // The rain's clock, camera motion, cover cache and splashes are Rust's; this
     // keeps the meshes, materials and uniforms the shaders read.
-    this.host=new WeatherHost(loaded(),this.capacity,enhanced,this.rangeFor(enhanced),enhanced?32:16,height,impact,normal,surfaceOwner);
+    this.host=new WeatherHost(surfaceOwner,this.capacity,enhanced,this.rangeFor(enhanced),enhanced?32:16,height,impact,normal);
     // The shader's values: where the eye is, how it moves, the wind, the drops'
     // look, and the cover texture its drops are clipped against.
     const c=p.Color||[216,220,228];
@@ -115,10 +115,6 @@ export class Weather {
     this.sheets.mesh.visible=r[RESULT.SHEETS_VISIBLE]===1;
     this.impacts.synced(r[RESULT.IMPACT_TIME],r[RESULT.IMPACTS_SHOWN]===1,r[RESULT.IMPACTS_CHANGED]===1,r[RESULT.IMPACTS_NEXT],r[RESULT.IMPACTS_QUERIES]);
   }
-  // Standalone resource fixtures use the identical native state owner.
-  update(dt, camera) {
-    camera.updateMatrixWorld();
-    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame();
-  }
+
   dispose(){this.unsubscribe?.();for(const mesh of [this.mesh,this.mist]){mesh.removeFromParent();mesh.geometry.dispose();mesh.material.dispose();}this.impacts.dispose();this.sheets.dispose();this.cover.texture.dispose();}
 }

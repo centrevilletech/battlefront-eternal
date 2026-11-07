@@ -25,11 +25,12 @@ try{
     viewport:{width,height},settings:null,beforeLoad:page=>{page.setDefaultNavigationTimeout(120000);
      return page.addInitScript(()=>{let a=917,b=17;Math.random=()=>new Error().stack.includes('generateUUID')?((b=Math.imul(b,1664525)+1013904223>>>0)/4294967296):((a=Math.imul(a,1664525)+1013904223>>>0)/4294967296);});}});
    const {page,errors}=battle;
+   await page.evaluate(async()=>{globalThis.stepBattleSurfaces=(await import('/tests/helpers/surfaces.js')).stepBattleSurfaces;});
    await page.evaluate(async map=>{
     const b=__bf;if(b.lockstep)await b.lockstep(0,false);else b.frame(0,false);
     for(const [key,value] of Object.entries({environmentEffects:'enhanced',shadows:'off',antialiasing:'4x',softFocus:false,bloom:true}))b.settings.set(key,value);
     const c=b.camera;if(map==='nab2'){c.position.set(-25,-44,123);c.lookAt(-36,-46.8,111);}else{c.position.set(-167,-59,-9);c.lookAt(-178,-63,-20);}c.updateMatrixWorld();
-    for(let j=0;j<60;j++)b.environment.update(.05,c,[]);
+    for(let j=0;j<60;j++)stepBattleSurfaces(b,.05,c,[]);
     if(map==='bes2'){const hit={point:new b.THREE.Vector3(),normal:new b.THREE.Vector3()};
      window.reviewFloor=b.collision.cast(new b.THREE.Vector3(-178,-56,-16),new b.THREE.Vector3(0,-1,0),30,hit)?.point.y;console.log('Review chamber floor',window.reviewFloor);}
     b.actor.root.visible=true;b.actor.body.visible=true;b.actor.body.layers.set(0);
@@ -46,8 +47,8 @@ try{
      if(review.map==='nab2')b.soldier.position.set(-38+progress*4,-49.8+jump,112);
      else b.soldier.position.set(-180.5+progress*4,(window.reviewFloor??-61.8)+jump,-19.5);
      b.actor.root.position.copy(b.soldier.position);b.actor.root.rotation.y=Math.PI*.5;b.actor.root.updateMatrixWorld(true);
-     const start=performance.now();e.update(1/12,b.camera,[b.soldier]);const update=performance.now()-start;
-     b.water?.reflect(b.camera);const calls=b.renderer.info.render.calls;e.reflect(b.camera,b.water);const mirror=b.renderer.info.render.calls-calls;
+     const start=performance.now();stepBattleSurfaces(b,1/12,b.camera,[b.soldier]);const update=performance.now()-start;
+     const calls=b.renderer.info.render.calls;e.reflect(b.camera,b.water);const mirror=b.renderer.info.render.calls-calls;
      b.graphics.render(e.time);review.gl.readPixels(0,0,1,1,review.gl.RGBA,review.gl.UNSIGNED_BYTE,review.pixel);
      const completed=performance.now()-start,error=review.gl.getError();
      return{update,completed,draws:b.graphics.frameInfo.calls+mirror,error,png:b.renderer.domElement.toDataURL()};

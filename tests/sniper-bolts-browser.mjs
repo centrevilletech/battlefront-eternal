@@ -80,7 +80,7 @@ try {
         const pixels = () => { const p = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, p); return p; };
         // The light added over the same frame without the bolt batches.
         const capture = () => {
-          b.water?.reflect(b.camera); g.render(0); const shown = pixels(), image = keep ? b.renderer.domElement.toDataURL() : null;
+           g.render(0); const shown = pixels(), image = keep ? b.renderer.domElement.toDataURL() : null;
           const batches = [...b.ordnance.renderer.batches.values()], visible = batches.map((x) => x.mesh.visible);
           for (const x of batches) x.mesh.visible = false;
           g.render(0); const hidden = pixels();

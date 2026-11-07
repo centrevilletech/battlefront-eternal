@@ -420,7 +420,7 @@
       "waders": 1024,
       "commands": 4096,
       "shoreTiles": 169,
-      "shorePoints": 2048,
+      "shorePoints": 289,
       "shoreTriangles": 16384,
       "shorePatches": 384,
       "stormVertices": 1536

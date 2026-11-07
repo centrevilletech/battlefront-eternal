@@ -28,6 +28,8 @@ export class SurfaceFrame {
     // Installed systems share memory; this call crosses the state boundary
     // once, rather than calling the weather/sky exports from their JS shells.
     this.owner.update();
+    // A collision callback can grow memory during the native call.
+    this.host.refresh();
     if(this.foliage)this.foliage.publishFrame(this.host.result,camera);
     if(this.host.result[RESULT.OVERFLOW]&&!this.warned) {
       this.warned=true;console.warn('Surface capacity reached; excess records were skipped');
