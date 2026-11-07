@@ -123,10 +123,10 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null, 
         if(!v?.alive||!__bf.playerUnit.alive)return {invalid:true,actorAlive:__bf.playerUnit.alive,hullAlive:v?.alive};
         const p=__bf.playerUnit.position,dx=v.position.x-p.x,dz=v.position.z-p.z;
         const yaw=Math.atan2(dx,dz),difference=Math.atan2(Math.sin(yaw-__bf.soldier.aimYaw),Math.cos(yaw-__bf.soldier.aimYaw));
-        // Derive counts from the shared look method without mutating the body.
+        // Derive counts from the shared look phase without mutating the body.
         // Soldier yaw decreases with mouse X and its rate is class-dependent.
-        const preview=Object.create(__bf.soldier);preview.aimYaw=__bf.soldier.aimYaw;preview.aimPitch=__bf.soldier.aimPitch;
-        preview.lookRaw(1,0,__bf.settings.mouseScale,false);
+        const preview=__bf.bodyPreview;preview.begin(__bf.soldier);
+        preview.append([[1,0]],1,__bf.settings.mouseScale,false);preview.run();
         const rate=preview.aimYaw-__bf.soldier.aimYaw;
         if(Math.abs(rate)>1e-9)__bf.controls.looks.push([Math.max(-10000,Math.min(10000,difference/rate)),0]);
         const saved=__bf.client.saved,view=saved&&new DataView(saved.buffer,saved.byteOffset,saved.byteLength);

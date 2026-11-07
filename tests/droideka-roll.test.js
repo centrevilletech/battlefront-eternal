@@ -6,7 +6,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import * as THREE from 'three';
 import {buildActor} from '../src/actor.js';
 import {loadClips} from '../src/anim.js';
-import {Droideka} from '../src/droideka.js';
+import {Droideka} from './helpers/droideka.js';
 const base=contentPath('sides/cis/actors/cis_walk_droideka');
 const available=existsSync(base+'.json');
 function buffer(path){const b=readFileSync(path);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);}

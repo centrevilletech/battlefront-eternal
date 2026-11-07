@@ -47,11 +47,11 @@ export class EffectResources {
 
   // Start an effect at a point, its up axis along `normal`, or turned by
   // `quaternion` when given.
-  play(name, position, normal = UP, velocity = null, quaternion = null) {
+  play(name, position, normal = UP, velocity = null, quaternion = null, seed = null) {
     const defs = this.library[name];
     if (!defs) return null;
     const turn = quaternion ? quaternion.clone() : new THREE.Quaternion().setFromUnitVectors(UP, normal || UP);
-    return this.start(defs, position, turn, velocity);
+    return this.start(defs, position, turn, velocity, seed);
   }
 
   // An emitter definition's texture, resolved once: the name lookup lowercases

@@ -16,14 +16,8 @@ import { CombatWorld } from "./combat-world.js";
 // held weapons, charge glows, muzzle flashes and HUD. The native owner
 // advances weapons, targeting, damage and blasts before publishing mirrors.
 
-// The aim pivot and gun origin per posture: x is the soldier's left (the
-// model's +x), y up, z forward.
-const PIVOT = { stand: [0.06, 1.7, 0], crouch: [-0.1, 1.2, 0], prone: [0.06, 0.6, 0.4] };
-const GUN = { stand: [-0.12, -0.1, 0.25], crouch: [-0.12, -0.05, 0.25], prone: [-0.12, -0.2, 0.15] };
-const AIM_REACH = 60; // m
-const EYE_BACK = 0.3; // m behind the gun origin in first person
-const EYE_BACK_ZOOMED = 0.6;
-const PRONE_EYE = -0.12; // m along the soldier's left from the prone pivot
+const AIM_REACH = 60; // m: the existing crosshair collision query
+const ZOOM_LEVELS=new WeakMap();
 const FLASH_SCALE = 0.6;
 // The soldier a blast measures to, by stance (the original game's soldier
 // sphere): its centre above the feet and its radius, and the point above the
@@ -106,6 +100,9 @@ export class PlayerCombat {
     this.view = null; // the first-person view, when there is one
     this.deferMuzzles = false;
     this.arsenal = prepareMelee(new Arsenal(def.weapons || [], { player }));
+    // Zoom levels are immutable class data. Resolve every charge level while
+    // cold so a displayed frame never builds the zoom array on first use.
+    for(const weapon of this.arsenal.weapons)for(const level of weapon.levels)PlayerCombat.zooms(level);
 
     // The weapons in the hand, one model each, with the muzzle flash at its
     // fire point pointing down the barrel.
@@ -161,6 +158,11 @@ export class PlayerCombat {
     this.pivot = new THREE.Vector3();
     this.from = new THREE.Vector3();
     this.eyePoint = new THREE.Vector3();
+    // Unit presentation publishes this displayed basis alongside its pose.
+    // Gameplay origins retain their separate tick/predicted-shot clock.
+    this.viewAim={origin:new THREE.Vector3(),pivot:new THREE.Vector3(),left:new THREE.Vector3(),up:new THREE.Vector3(),aimDir:new THREE.Vector3(),eyePoint:new THREE.Vector3()};
+    this.crosshairUnit={unit:null,distance:0,point:new THREE.Vector3(),normal:new THREE.Vector3(),part:null};
+    this.crosshairFilter=unit=>unit.combat!==this&&unit.alive;
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     this.at = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), scale: new THREE.Vector3() };
     this.gunPoint = new THREE.Vector3();
@@ -186,9 +188,11 @@ export class PlayerCombat {
 
   // A weapon's zoom factors, from none.
   static zooms(def) {
-    const out = [1];
+    let out=ZOOM_LEVELS.get(def);
+    if(out)return out;
+    out = [1];
     for (const zoom of [def.ZoomMin || 1, def.ZoomRate ? 0 : def.ZoomMax || 1]) if (zoom > out[out.length - 1]) out.push(zoom);
-    return out;
+    ZOOM_LEVELS.set(def,out);return out;
   }
 
   get zoomed() {
@@ -224,51 +228,16 @@ export class PlayerCombat {
     // old life's selection over spawned the soldier holding his pistol
     // forever after the first time an empty rifle auto-switched to it.
     this.arsenal = prepareMelee(new Arsenal(this.def.weapons || [], { player: this.player }));
+    for(const weapon of this.arsenal.weapons)for(const level of weapon.levels)PlayerCombat.zooms(level);
     this.updateHeld();
   }
 
-  // The pose's local aiming frame, without collision queries or gameplay.
-  aimBasis(yaw = this.soldier.aimYaw, pitch = this.soldier.aimPitch) {
-    const s = this.soldier;
-    const posture = s.air ? "stand" : s.posture;
-    const forward = this.aimDir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    this.left.set(Math.cos(yaw), 0, -Math.sin(yaw));
-    this.up.crossVectors(forward, this.left);
-    const [px, py, pz] = PIVOT[posture] || PIVOT.stand;
-    this.pivot.set(
-      s.position.x + this.left.x * px + Math.sin(yaw) * pz,
-      s.position.y + py,
-      s.position.z + this.left.z * px + Math.cos(yaw) * pz,
-    );
-    const [gx, gy, gz] = GUN[posture] || GUN.stand;
-    this.origin.copy(this.pivot).addScaledVector(forward, gz).addScaledVector(this.left, gx).addScaledVector(this.up, gy);
-  }
-
-  // The shot direction for a network fire edge, as yaw/pitch: in third
-  // person the converged direction from the gun origin to the crosshair
-  // ray's target, for the given (preview) body aim. The server has no
-  // camera, so sending body aim instead made every round, predicted and
-  // authoritative alike, fly parallel to the crosshair line, offset by
-  // the gun-to-camera parallax. First person and the droideka's own eye
-  // already shoot along the body aim.
-  convergedAim(yaw, pitch) {
-    // On the page this.camera is the simulation clone, stepped only in the
-    // worker; the live render camera (hudCamera) is where the crosshair
-    // actually is. In the worker there is no hudCamera and this is unused.
-    const view = this.hudCamera || this.camera;
-    if (!view || this.usesEyeView || this.soldier.aim) return { aimYaw: yaw, aimPitch: pitch };
-    this.aimBasis(yaw, pitch);
-    const forward = this.aimDir, posture = this.soldier.air ? "stand" : this.soldier.posture;
-    const camera = view.position;
-    const behind = this.from.subVectors(camera, this.pivot).dot(forward);
-    this.from.copy(camera).addScaledVector(forward, -behind);
-    const section = this.def.cameras?.[posture.toUpperCase()] || this.def.cameras?.STAND;
-    const ahead = (section?.TrackOffset?.[2] ?? 3.5) + 2;
-    this.from.addScaledVector(forward, ahead);
-    const dir = this.from.addScaledVector(forward, this.crosshairReach(this.from, forward)).sub(this.origin).normalize();
-    const angles = { aimYaw: Math.atan2(dir.x, dir.z), aimPitch: Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1)) };
-    this.aimBasis(); // restore the tick's basis from the soldier's own aim
-    return angles;
+  // commandBodyAim has already previewed the complete pending look block.
+  // Only the existing world/unit collision query crosses back here; the
+  // native resume resolves gun-to-crosshair parallax and its final angles.
+  convergedAim(preview) {
+    if(!preview.needsReach)return preview.angles;
+    return preview.resolve(this.crosshairReach(preview.from,preview.direction));
   }
 
   // How far the crosshair ray reaches (60 m, mask 0x4e): the
@@ -286,32 +255,6 @@ export class PlayerCombat {
     this.crosshairFilter ||= (unit) => unit.combat !== this && unit.alive;
     const unit = this.world.raycastUnits(from, forward, reach, this.crosshairUnit, this.crosshairFilter);
     return unit ? unit.distance : reach;
-  }
-
-  // The first-person eye for the soldier's feet at `feet` (aim() first).
-  eye(feet, out) {
-    const s = this.soldier;
-    if (s.eye) return s.eye(feet, out);
-    if (!s.air && s.posture === "prone") out.copy(this.pivot).addScaledVector(this.left, PRONE_EYE);
-    else out.copy(this.origin);
-    out.sub(s.position).add(feet);
-    return out.addScaledVector(this.aimDir, this.zoom > 1 ? -EYE_BACK_ZOOMED : -EYE_BACK);
-  }
-
-  // Prediction moves the rendered body ahead of the worker. Its eye and
-  // reticle use that pose, not the last packet's origin and aim vectors.
-  viewBasis(pose) {
-    if (!this.viewAim) {
-      this.viewAim = Object.create(this);
-      for (const key of ['origin', 'pivot', 'aimDir', 'left', 'up']) this.viewAim[key] = new THREE.Vector3();
-    }
-    this.viewAim.soldier = pose;
-    if (pose.eye) {
-      pose.eye(pose.position, this.viewAim.origin);
-      const yaw = pose.aimYaw, pitch = pose.aimPitch;
-      this.viewAim.aimDir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    } else this.viewAim.aimBasis();
-    return this.viewAim;
   }
 
   // Which weapon is in the hand: a grenade for the whole throw (its model
@@ -398,7 +341,7 @@ export class PlayerCombat {
   drawnGunOrigin(out) {
     const pose = this.owner?.presentation?.state;
     if (!pose || this.dead || this.mounted) return null;
-    return out.copy(this.viewBasis(pose).origin);
+    return out.copy(this.viewAim.origin);
   }
 
   // Shared local/replicated projectile presentation. It deliberately contains
@@ -473,16 +416,6 @@ export class PlayerCombat {
     held.light = this.lights.flash(this.worldPoint, color01(d.FlashLightColor), d.FlashLightRadius || 0, d.FlashLightDuration || 0);
   }
 
-  updateFlashes(dt) {
-    for (const held of this.held.values()) {
-      if (!held.flash) continue;
-      held.flashLeft -= dt;
-      const t = held.flashLeft / Math.max(held.flashLength, 1e-3);
-      held.flash.visible = held.flashLeft > 0 && held.group.visible;
-      held.flash.userData.material.opacity = held.flashAlpha * Math.min(2 * Math.max(t, 0), 1);
-    }
-  }
-
   // The HUD while flying a droid: its weapons and health, its reticle, and
   // the blaster's scope zoomed in first person.
   droidHud(droid) {
@@ -551,10 +484,10 @@ export class PlayerCombat {
     const far = this.worldPoint;
     if (turret) far.copy((this.hudCamera || this.camera).position).addScaledVector((aimPreview?.reticleDirection?.(this.side) ?? aimPreview?.viewDirection(this.side) ?? turret.viewDirection(this.side)), RETICLE_REACH);
     else {
-      const aim = pose ? this.viewBasis(pose) : this;
+      const aim = pose ? this.viewAim : this;
       // Eye-view sights follow the eye ray, including the prone eye offset.
       // Projecting a parallel ray from the gun leaves a visible scope offset.
-      if (this.usesEyeView) aim.eye(aim.soldier.position, far);
+      if (this.usesEyeView) far.copy(aim.eyePoint);
       else far.copy(aim.origin);
       far.addScaledVector(aim.aimDir, RETICLE_REACH);
     }

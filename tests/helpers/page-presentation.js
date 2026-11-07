@@ -34,6 +34,18 @@ export function attachPage(system) {
   return page;
 }
 
+// A small presentation-only hull still registers a real native source rig.
+// Its tests move root facts; native vehicle posing owns the saddle matrices.
+export function fixtureVehicle(v){
+  if(v.system)return v;
+  v.system={world:{clock:()=>0,castRays(){}}};
+  v.def={fx:{}};v.bones=[];v.bindPositions=[];v.bindQuaternions=[];v.byName={};v.clips=new Map();v.wheels=[];
+  v.position=v.root.position.clone();v.previous=v.position.clone();v.visual=v.position.clone();v.quaternion=v.root.quaternion.clone();
+  v.size=new THREE.Vector3(1,2,1);v.walkPhase=v.walkBlend=v.previousYaw=v.previousTilt=v.previousRoll=v.tilt=v.roll=0;
+  v.held=()=>true;v.crewed=()=>true;
+  for(const seat of v.seats){seat.weapons=[];seat.view.up=new THREE.Vector3(0,1,0);seat.view.yawFactor=1;seat.view.pitchFactor=0;}
+  attachPage(v.system);return v;
+}
 // A world fixture's hull drawn by the page's hull phase in its render pose
 // (between its last two ticks at alpha, no time, the seats render() poses),
 // so a test reads its bones and seat frames. The world's own pose is native.
@@ -45,8 +57,12 @@ export function drawHull(v, alpha = 1) {
 
 // The page's prop phase over `animated` props and `traps`, their bones as
 // they stand now; feet() and bodies() as LiveObjects' providers give them.
+const propPhases=new WeakMap();
+export function propPhase(prop){return propPhases.get(prop);}
 export function pageProps({ animated = [], traps = [], turrets = [] }, { feet = () => {}, bodies = () => [] } = {}) {
-  return new PageProps(presentationModule(), { animated, traps, turrets }, { feet, bodies });
+  const phase=new PageProps(presentationModule(), { animated, traps, turrets }, { feet, bodies });
+  for(const prop of [...animated,...turrets])propPhases.set(prop,phase);
+  return phase;
 }
 
 // A node's own transform as drawn: its fields, or once a phase publishes
@@ -61,8 +77,9 @@ export function local(node) {
 
 // Synthetic turret fixtures run the same coarse prop phase as the page.
 const turretPhases = new WeakMap();
-export function presentTurret(turret) {
-  let phase = turretPhases.get(turret);
+export function turretPhase(turret) {
+  let phase = turretPhases.get(turret)||propPhases.get(turret);
   if (!phase) { phase = pageProps({turrets:[turret]}); turretPhases.set(turret,phase); }
-  phase.present(0,0);
+  return phase;
 }
+export function presentTurret(turret) {const phase=turretPhase(turret);phase.present(0,0);return phase;}

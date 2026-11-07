@@ -1,6 +1,6 @@
 // Synthetic geometry, real movement/collision code. No retail data or renderer.
 import { CollisionWorld } from '../../src/collision.js';
-import { Soldier } from '../../src/soldier.js';
+import { Soldier } from '../../tests/helpers/body.js';
 
 export function movementFixture() {
   const world = new CollisionWorld(

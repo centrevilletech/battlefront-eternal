@@ -1,7 +1,7 @@
 import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Soldier} from '../src/soldier.js';
+import {Soldier} from './helpers/body.js';
 import {fixture} from './flight-fixture.js';
 // Review tripwire: classify additions before deciding whether the correction
 // must carry them. These lists deliberately include excluded state so a new
@@ -19,7 +19,7 @@ test('every Soldier field has an explicit replay ownership classification',()=>{
   overwritten:'lookX lookY tickLength collisionDamage contactCount contactMean forwardAxis rightAxis left facing pull motion center closest point contactNormal surfaceNormal pushDir clipDir push before origin hit groundHit stepBlocked stepStart stepTarget stepVelocity stepResolved',
   presentation:'previous groundAdjustment',
   aiOnly:'avoidance',
-  deadBody:'passThrough',
+  deadBody:'passThrough dead',
   machineLocal:'gatherCaches mover',
  };
  assert.deepEqual(Object.keys(new Soldier({},{})).sort(),classified(groups),'Classify new fields in docs/network-replay-contract.md and add a shared-simulation continuation case');

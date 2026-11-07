@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as THREE from 'three';
 import { CollisionWorld, makeHit } from '../src/collision.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from '../tests/helpers/body.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const reference = process.env.PERF_REFERENCE_COLLISION;

@@ -308,6 +308,8 @@ class F3 {
     unit.spawn = (x, y, z, yaw) => this.spawn(binding.unit, x, y, z, yaw);
     unit.remove = () => this.remove(binding.unit);
     unit.letGo = () => this.letGo(binding.unit);
+    // Body replacement preserves the facade; resolve its current native binding.
+    Object.defineProperty(unit,'sphere',{configurable:true,get(){return this.f3.registry.bounds(this);}});
     unit.updateSpheres = (boundsOnly = false) => boundsOnly ? this.registry.bounds(binding.unit) : this.registry.shapes(binding.unit);
     unit.hitShapes = () => {
       if (binding.shapesTick !== binding.unit.tickCount) this.registry.shapes(binding.unit);

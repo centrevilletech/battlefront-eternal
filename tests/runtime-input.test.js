@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Soldier} from '../src/soldier.js';
+import {Soldier} from './helpers/body.js';
 
 test('raw infantry displacement is independent of batching and previous tick length',()=>{
  const states=[];

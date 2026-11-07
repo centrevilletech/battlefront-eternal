@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { makeHit } from "./collision.js";
+import {registerBody,spawnDroideka} from "./presentation/body.js";
 import { DROIDEKA_COLLISION, collisionRule } from "./collision-damage.js";
 import { Pose } from "./anim.js";
 import { barrelTips } from "./muzzles.js";
@@ -9,7 +9,6 @@ import { barrelTips } from "./muzzles.js";
 // Clip/mode helpers remain for the spawn preview and drawn death poses.
 
 const UP = new THREE.Vector3(0, 1, 0);
-const DOWN = new THREE.Vector3(0, -1, 0);
 const CLIPS = [
   "idle", "turnl", "turnr", "death01", null, "idle_to_leftfoot", null,
   "walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot", "leftfoot_to_idle", "rightfoot_to_idle", "fold", "roll", "unfold",
@@ -29,8 +28,9 @@ export function goneUp(state) {
 }
 
 export class Droideka {
-  constructor(world, def, clips, actor) {
+  constructor(world, def, clips, actor, native=world.rays.x) {
     this.world = world;
+    registerBody(this,native);
     // Set later (collision, water, firing), undefined till then as before:
     // here so every droideka keeps one shape (Unit's constructor).
     this.waterClock = undefined;
@@ -79,14 +79,12 @@ export class Droideka {
     this.blastClock = 0;
     this.lookX = 0;
     this.lookY = 0;
-    this.hit = makeHit();
     // Near-horizontal building and prop contacts since a bot's path executor
     // last read them (as Soldier.avoidance).
     this.avoidance = new THREE.Vector3();
     // Landing too hard hurts (src/collision-damage.js), as a soldier's does.
     this.collisionRule = collisionRule(def, DROIDEKA_COLLISION);
     this.collisionDamage = 0;
-    this.spawnOrigin = new THREE.Vector3();
     this.rootIndex = actor.bones.findIndex((bone) => bone.name.toLowerCase() === "dummyroot");
     this.animator = new DroidekaAnimator(this, actor, clips);
   }
@@ -168,39 +166,12 @@ export class Droideka {
     return out.setFromMatrixPosition(bone.matrixWorld);
   }
 
-  // Where it sees from: EyePointOffset over its origin (in first person
-  // too, with no pull-back).
-  eye(feet, out) {
-    return out.set(feet.x, feet.y + (this.rolled ? 1.0 : this.eyeHeight), feet.z);
-  }
-
   pitchRange() {
     return this.pitchLimits;
   }
 
-  spawn(x, y, z, yaw) {
-    this.position.set(x, y, z);
-    const from = this.spawnOrigin.set(x, y + 1.5, z);
-    const hit = this.world.cast(from, DOWN, 50, this.hit);
-    if (hit) this.position.y = hit.point.y;
-    this.velocity.set(0, 0, 0);
-    this.aimYaw = yaw;
-    this.aimPitch = 0;
-    this.legs = 0;
-    this.spin = 0;
-    this.dead = false;
-    // Each life's shield starts full and down, whatever the body's last life
-    // (a pooled bot's, the player's kept body) left it.
-    if (this.shield) {
-      this.shield.on = false;
-      this.shield.value = this.shield.max;
-    }
-    this.enter(0);
-    this.previous.copy(this.position);
-    this.settled.copy(this.position);
-    this.animator.reset(yaw);
-    this.muzzleAnimator?.reset(yaw);
-  }
+  // Cold placement shares the native unit reset, including its shield.
+  spawn(x,y,z,yaw){spawnDroideka(this,x,y,z,yaw);}
 
   // Mouse look: turning and pitching at MaxTurnSpeed per 2048 counts.
   look(dx, dy, sensitivity = 1, invert = false) {

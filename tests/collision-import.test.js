@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { makeGround, makeHit } from '../src/collision.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const CONTENT = contentPath();

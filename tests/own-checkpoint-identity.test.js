@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 import { PlayerCombat } from '../src/combat.js';
 import { Arsenal } from '../src/weapons.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';

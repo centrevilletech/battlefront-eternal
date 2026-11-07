@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { AnimatedProp } from '../src/props.js';
 import { loadClips } from '../src/anim.js';
 import { pageProps } from './helpers/page-presentation.js';
+import {unitHost} from './helpers/presentation.js';
 
 const DT = 1 / 60;
 
@@ -74,6 +75,8 @@ function creature(at = new THREE.Vector3()) {
 function victim(x, y = 0, z = 0) {
   const unit = soldier(x, y, z);
   unit.animator = body();
+  const root=new THREE.Group();root.add(unit.animator.bones[0]);
+  unit.actor={root,bones:unit.animator.bones};unitHost(unit);
   unit.rootScale = 1;
   unit.combat = { mounted: false };
   unit.letGo = () => { unit.held = null; unit.combat.mounted = false; };

@@ -66,6 +66,10 @@ impl PageUnits {
             inner: crate::units::Units::new(),
         }
     }
+    /// Body display keeps native references to the already-retained sources.
+    pub fn bind_sources(&mut self,vehicles:&PageVehicles,props:&PageProps){
+        self.inner.rider_sources.bind(&vehicles.inner.sources,&props.inner.sources);
+    }
     pub fn preview() -> PageUnits {
         Self {
             inner: crate::units::Units::preview(),
@@ -161,8 +165,16 @@ impl PageUnits {
     pub fn network_states_ptr(&self)->*const f64{self.inner.network.states_ptr()}
     pub fn network_states_len(&self)->usize{self.inner.network.states_len()}
     pub fn unbind_network(&mut self,actor:usize){self.inner.network.unbind(actor);}
+    pub fn collision_input_ptr(&self)->*const f64{self.inner.collision.input.as_ptr()}
+    pub fn collision_input_len(&self)->usize{self.inner.collision.input.len()}
+    pub fn collision_output_ptr(&self)->*const f64{self.inner.collision.output.as_ptr()}
+    pub fn collision_output_len(&self)->usize{self.inner.collision.output.len()}
+    pub fn collision_shapes_ptr(&self)->*const f64{self.inner.collision.shapes.as_ptr()}
+    pub fn collision_shapes_len(&self)->usize{self.inner.collision.shapes.len()}
+    pub fn collide_units(&mut self){self.inner.collision_frame();}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
+        self.inner.collision_frame();
     }
     pub fn present_first_person(&mut self) {
         self.inner.attachment_frame();
@@ -199,6 +211,9 @@ impl PageProps {
     pub fn add_trap(&mut self, data: &str) -> Result<usize, JsValue> {
         let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(self.inner.add_trap(input))
+    }
+    pub fn add_unit_rider(&mut self, units:&PageUnits, actor:usize)->i32 {
+        units.inner.rider_source(actor).map_or(-1,|(source,rig)|self.inner.add_unit_rider(source,rig) as i32)
     }
     pub fn add_rider(&mut self, data: &str) -> Result<usize, JsValue> {
         let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -582,4 +597,47 @@ impl PageInterfaceBatch {
     pub fn tint_ptr(&self) -> *const f32 { self.inner.tint.as_ptr() }
     pub fn dirty_ptr(&self) -> *const u8 { self.inner.dirty.as_ptr() }
     pub fn step(&mut self) { self.inner.step(); }
+}
+
+// Footfalls shares audio's detector but retains its visual lifetime. Resource
+// registration and cold samples are separate from the one displayed phase.
+#[wasm_bindgen]
+pub struct PageFeet {inner:crate::feet::Feet}
+#[wasm_bindgen]
+impl PageFeet {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn add(&mut self,content:&str)->Result<usize,JsValue>{Ok(self.inner.add(serde_json::from_str(content).map_err(|e|JsValue::from_str(&e.to_string()))?))}
+    pub fn heights(content:&str)->Result<String,JsValue>{let content=serde_json::from_str(content).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(serde_json::to_string(&crate::feet::heights(&content)).unwrap())}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn output_len(&self)->usize{self.inner.output.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+
+#[wasm_bindgen]
+extern "C" {#[wasm_bindgen(js_namespace=Math,js_name=random)] fn page_random()->f64;}
+// One retained owner spans event collection, batched impact matching and
+// final drawing. No shot or particle crosses a per-object native call.
+#[wasm_bindgen]
+pub struct PageSniper {inner:crate::sniper::Sniper}
+#[wasm_bindgen]
+impl PageSniper {
+    #[wasm_bindgen(constructor)] pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn events_len(&self)->usize{self.inner.events.len()}
+    pub fn events_ptr(&self)->*const f64{self.inner.events.as_ptr()}
+    pub fn streaks_len(&self)->usize{self.inner.streaks.len()}
+    pub fn streaks_ptr(&self)->*const f32{self.inner.streaks.as_ptr()}
+    pub fn flares_len(&self)->usize{self.inner.flares.len()}
+    pub fn flares_ptr(&self)->*const f32{self.inner.flares.as_ptr()}
+    pub fn matches_len(&self)->usize{self.inner.matches.len()}
+    pub fn matches_ptr(&self)->*const f64{self.inner.matches.as_ptr()}
+    pub fn counts_len(&self)->usize{self.inner.counts.len()}
+    pub fn counts_ptr(&self)->*const u32{self.inner.counts.as_ptr()}
+    pub fn collect(&mut self){self.inner.collect(&mut ||page_random());}
+    pub fn match_impacts(&mut self,count:usize){self.inner.match_impacts(count);}
+    pub fn frame(&mut self){self.inner.frame(&mut ||page_random());}
 }

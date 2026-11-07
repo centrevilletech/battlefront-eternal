@@ -231,6 +231,583 @@ export function exportUnitBody(x, cx) {
   }
 }
 
+export const BodyPreviewFrameLayout = Object.freeze({ words: 75, aimYaw: 0, aimPitch: 1, sourceYaw: 2, sourcePitch: 3, sourceBasis: 4, maxTurn: 19, pitchLimits: 20, posture: 22, air: 23, dive: 25, lock: 26, tickLength: 27, lookX: 28, lookY: 29, count: 30, skipped: 31, position: 32, feet: 35, zoom: 38, walker: 39, eyeHeight: 40, rolled: 41, camera: 42, hasCamera: 45, usesEye: 46, trackOffsets: 47, basis: 50, eye: 65, from: 68, needsReach: 71, reach: 72, shotYaw: 73, shotPitch: 74 });
+export const BODY_PREVIEW_FRAME_WORDS = BodyPreviewFrameLayout.words;
+export const BODY_PREVIEW_FRAME_OFFSETS = BodyPreviewFrameLayout;
+
+export class BodyPreviewFrameMirror {
+  constructor() {
+    this.aimYaw = NaN;
+    this.aimPitch = NaN;
+    this.sourceYaw = NaN;
+    this.sourcePitch = NaN;
+    this.sourceBasis = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN];
+    this.maxTurn = NaN;
+    this.pitchLimits = [NaN, NaN];
+    this.posture = "stand";
+    this.air = null;
+    this.dive = NaN;
+    this.lock = NaN;
+    this.tickLength = NaN;
+    this.lookX = NaN;
+    this.lookY = NaN;
+    this.count = 0;
+    this.skipped = 0;
+    this.position = new THREE.Vector3();
+    this.feet = new THREE.Vector3();
+    this.zoom = NaN;
+    this.walker = false;
+    this.eyeHeight = NaN;
+    this.rolled = false;
+    this.camera = new THREE.Vector3();
+    this.hasCamera = false;
+    this.usesEye = false;
+    this.trackOffsets = [NaN, NaN, NaN];
+    this.basis = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN];
+    this.eye = new THREE.Vector3();
+    this.from = new THREE.Vector3();
+    this.needsReach = false;
+    this.reach = NaN;
+    this.shotYaw = NaN;
+    this.shotPitch = NaN;
+  }
+}
+
+export function syncBodyPreviewFrame(b, f, at, h, m) {
+  m.aimYaw = f[at + 0];
+  m.aimPitch = f[at + 1];
+  m.sourceYaw = f[at + 2];
+  m.sourcePitch = f[at + 3];
+  { const a = (m.sourceBasis ??= new Array(15)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; a[3] = f[at + 7]; a[4] = f[at + 8]; a[5] = f[at + 9]; a[6] = f[at + 10]; a[7] = f[at + 11]; a[8] = f[at + 12]; a[9] = f[at + 13]; a[10] = f[at + 14]; a[11] = f[at + 15]; a[12] = f[at + 16]; a[13] = f[at + 17]; a[14] = f[at + 18]; }
+  m.maxTurn = f[at + 19];
+  { const a = (m.pitchLimits ??= new Array(2)); a[0] = f[at + 20]; a[1] = f[at + 21]; }
+  m.posture = Posture_NAMES[f[at + 22]];
+  { const tag = f[at + 23]; if (tag === 0) { m.air = Air_NAMES[f[at + 24]]; } else m.air = tag === 1 ? null : undefined; }
+  m.dive = f[at + 25];
+  m.lock = f[at + 26];
+  m.tickLength = f[at + 27];
+  m.lookX = f[at + 28];
+  m.lookY = f[at + 29];
+  m.count = f[at + 30] >>> 0;
+  m.skipped = f[at + 31] >>> 0;
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 32]; $v.y = f[at + 33]; $v.z = f[at + 34]; }
+  { const $v = (m.feet ??= new THREE.Vector3()); $v.x = f[at + 35]; $v.y = f[at + 36]; $v.z = f[at + 37]; }
+  m.zoom = f[at + 38];
+  m.walker = f[at + 39] !== 0;
+  m.eyeHeight = f[at + 40];
+  m.rolled = f[at + 41] !== 0;
+  { const $v = (m.camera ??= new THREE.Vector3()); $v.x = f[at + 42]; $v.y = f[at + 43]; $v.z = f[at + 44]; }
+  m.hasCamera = f[at + 45] !== 0;
+  m.usesEye = f[at + 46] !== 0;
+  { const a = (m.trackOffsets ??= new Array(3)); a[0] = f[at + 47]; a[1] = f[at + 48]; a[2] = f[at + 49]; }
+  { const a = (m.basis ??= new Array(15)); a[0] = f[at + 50]; a[1] = f[at + 51]; a[2] = f[at + 52]; a[3] = f[at + 53]; a[4] = f[at + 54]; a[5] = f[at + 55]; a[6] = f[at + 56]; a[7] = f[at + 57]; a[8] = f[at + 58]; a[9] = f[at + 59]; a[10] = f[at + 60]; a[11] = f[at + 61]; a[12] = f[at + 62]; a[13] = f[at + 63]; a[14] = f[at + 64]; }
+  { const $v = (m.eye ??= new THREE.Vector3()); $v.x = f[at + 65]; $v.y = f[at + 66]; $v.z = f[at + 67]; }
+  { const $v = (m.from ??= new THREE.Vector3()); $v.x = f[at + 68]; $v.y = f[at + 69]; $v.z = f[at + 70]; }
+  m.needsReach = f[at + 71] !== 0;
+  m.reach = f[at + 72];
+  m.shotYaw = f[at + 73];
+  m.shotPitch = f[at + 74];
+  return m;
+}
+
+export function putBodyPreviewFrame(b, o, f, at, heap) {
+  f[at + 0] = o.aimYaw;
+  f[at + 1] = o.aimPitch;
+  f[at + 2] = o.sourceYaw;
+  f[at + 3] = o.sourcePitch;
+  { const $v = o.sourceBasis; f[at + 4] = $v[0]; f[at + 5] = $v[1]; f[at + 6] = $v[2]; f[at + 7] = $v[3]; f[at + 8] = $v[4]; f[at + 9] = $v[5]; f[at + 10] = $v[6]; f[at + 11] = $v[7]; f[at + 12] = $v[8]; f[at + 13] = $v[9]; f[at + 14] = $v[10]; f[at + 15] = $v[11]; f[at + 16] = $v[12]; f[at + 17] = $v[13]; f[at + 18] = $v[14]; }
+  f[at + 19] = o.maxTurn;
+  { const $v = o.pitchLimits; f[at + 20] = $v[0]; f[at + 21] = $v[1]; }
+  f[at + 22] = Posture_INDEX.get(o.posture);
+  { const $x = o.air; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; } else { f[at + 23] = 0; f[at + 24] = Air_INDEX.get($x); } }
+  f[at + 25] = o.dive;
+  f[at + 26] = o.lock;
+  f[at + 27] = o.tickLength;
+  f[at + 28] = o.lookX;
+  f[at + 29] = o.lookY;
+  f[at + 30] = o.count;
+  f[at + 31] = o.skipped;
+  { const $v = o.position; f[at + 32] = $v.x; f[at + 33] = $v.y; f[at + 34] = $v.z; }
+  { const $v = o.feet; f[at + 35] = $v.x; f[at + 36] = $v.y; f[at + 37] = $v.z; }
+  f[at + 38] = o.zoom;
+  f[at + 39] = o.walker ? 1 : 0;
+  f[at + 40] = o.eyeHeight;
+  f[at + 41] = o.rolled ? 1 : 0;
+  { const $v = o.camera; f[at + 42] = $v.x; f[at + 43] = $v.y; f[at + 44] = $v.z; }
+  f[at + 45] = o.hasCamera ? 1 : 0;
+  f[at + 46] = o.usesEye ? 1 : 0;
+  { const $v = o.trackOffsets; f[at + 47] = $v[0]; f[at + 48] = $v[1]; f[at + 49] = $v[2]; }
+  { const $v = o.basis; f[at + 50] = $v[0]; f[at + 51] = $v[1]; f[at + 52] = $v[2]; f[at + 53] = $v[3]; f[at + 54] = $v[4]; f[at + 55] = $v[5]; f[at + 56] = $v[6]; f[at + 57] = $v[7]; f[at + 58] = $v[8]; f[at + 59] = $v[9]; f[at + 60] = $v[10]; f[at + 61] = $v[11]; f[at + 62] = $v[12]; f[at + 63] = $v[13]; f[at + 64] = $v[14]; }
+  { const $v = o.eye; f[at + 65] = $v.x; f[at + 66] = $v.y; f[at + 67] = $v.z; }
+  { const $v = o.from; f[at + 68] = $v.x; f[at + 69] = $v.y; f[at + 70] = $v.z; }
+  f[at + 71] = o.needsReach ? 1 : 0;
+  f[at + 72] = o.reach;
+  f[at + 73] = o.shotYaw;
+  f[at + 74] = o.shotPitch;
+}
+
+export function sameBodyPreviewFrame(a, b) {
+  if (!Object.is(a.aimYaw, b.aimYaw)) return ".aimYaw";
+  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  if (!Object.is(a.sourceYaw, b.sourceYaw)) return ".sourceYaw";
+  if (!Object.is(a.sourcePitch, b.sourcePitch)) return ".sourcePitch";
+  if (!sameArray(a.sourceBasis, b.sourceBasis, 15)) return ".sourceBasis";
+  if (!Object.is(a.maxTurn, b.maxTurn)) return ".maxTurn";
+  if (!sameArray(a.pitchLimits, b.pitchLimits, 2)) return ".pitchLimits";
+  if (!Object.is(a.posture, b.posture)) return ".posture";
+  { const p = a.air, q = b.air; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".air"; } else { if (!Object.is(p, q)) return ".air"; } }
+  if (!Object.is(a.dive, b.dive)) return ".dive";
+  if (!Object.is(a.lock, b.lock)) return ".lock";
+  if (!Object.is(a.tickLength, b.tickLength)) return ".tickLength";
+  if (!Object.is(a.lookX, b.lookX)) return ".lookX";
+  if (!Object.is(a.lookY, b.lookY)) return ".lookY";
+  if (!Object.is(a.count, b.count)) return ".count";
+  if (!Object.is(a.skipped, b.skipped)) return ".skipped";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.feet, b.feet)) return ".feet";
+  if (!Object.is(a.zoom, b.zoom)) return ".zoom";
+  if (!Object.is(a.walker, b.walker)) return ".walker";
+  if (!Object.is(a.eyeHeight, b.eyeHeight)) return ".eyeHeight";
+  if (!Object.is(a.rolled, b.rolled)) return ".rolled";
+  if (!sameVec(a.camera, b.camera)) return ".camera";
+  if (!Object.is(a.hasCamera, b.hasCamera)) return ".hasCamera";
+  if (!Object.is(a.usesEye, b.usesEye)) return ".usesEye";
+  if (!sameArray(a.trackOffsets, b.trackOffsets, 3)) return ".trackOffsets";
+  if (!sameArray(a.basis, b.basis, 15)) return ".basis";
+  if (!sameVec(a.eye, b.eye)) return ".eye";
+  if (!sameVec(a.from, b.from)) return ".from";
+  if (!Object.is(a.needsReach, b.needsReach)) return ".needsReach";
+  if (!Object.is(a.reach, b.reach)) return ".reach";
+  if (!Object.is(a.shotYaw, b.shotYaw)) return ".shotYaw";
+  if (!Object.is(a.shotPitch, b.shotPitch)) return ".shotPitch";
+  return null;
+}
+
+export function exportBodyPreviewFrame(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.aimYaw = o.aimYaw;
+  v.aimPitch = o.aimPitch;
+  v.sourceYaw = o.sourceYaw;
+  v.sourcePitch = o.sourcePitch;
+  v.sourceBasis = [...o.sourceBasis];
+  v.maxTurn = o.maxTurn;
+  v.pitchLimits = [...o.pitchLimits];
+  v.posture = o.posture;
+  v.air = o.air;
+  v.dive = o.dive;
+  v.lock = o.lock;
+  v.tickLength = o.tickLength;
+  v.lookX = o.lookX;
+  v.lookY = o.lookY;
+  v.count = o.count;
+  v.skipped = o.skipped;
+  v.position = o.position.clone();
+  v.feet = o.feet.clone();
+  v.zoom = o.zoom;
+  v.walker = o.walker;
+  v.eyeHeight = o.eyeHeight;
+  v.rolled = o.rolled;
+  v.camera = o.camera.clone();
+  v.hasCamera = o.hasCamera;
+  v.usesEye = o.usesEye;
+  v.trackOffsets = [...o.trackOffsets];
+  v.basis = [...o.basis];
+  v.eye = o.eye.clone();
+  v.from = o.from.clone();
+  v.needsReach = o.needsReach;
+  v.reach = o.reach;
+  v.shotYaw = o.shotYaw;
+  v.shotPitch = o.shotPitch;
+  return v;
+}
+
+export const BodyLookLayout = Object.freeze({ words: 5, dx: 0, dy: 1, scale: 2, invert: 3, raw: 4 });
+export const BODY_LOOK_WORDS = BodyLookLayout.words;
+export const BODY_LOOK_OFFSETS = BodyLookLayout;
+
+export class BodyLookMirror {
+  constructor() {
+    this.dx = NaN;
+    this.dy = NaN;
+    this.scale = NaN;
+    this.invert = false;
+    this.raw = false;
+  }
+}
+
+export function syncBodyLook(b, f, at, h, m) {
+  m.dx = f[at + 0];
+  m.dy = f[at + 1];
+  m.scale = f[at + 2];
+  m.invert = f[at + 3] !== 0;
+  m.raw = f[at + 4] !== 0;
+  return m;
+}
+
+export function putBodyLook(b, o, f, at, heap) {
+  f[at + 0] = o.dx;
+  f[at + 1] = o.dy;
+  f[at + 2] = o.scale;
+  f[at + 3] = o.invert ? 1 : 0;
+  f[at + 4] = o.raw ? 1 : 0;
+}
+
+export function sameBodyLook(a, b) {
+  if (!Object.is(a.dx, b.dx)) return ".dx";
+  if (!Object.is(a.dy, b.dy)) return ".dy";
+  if (!Object.is(a.scale, b.scale)) return ".scale";
+  if (!Object.is(a.invert, b.invert)) return ".invert";
+  if (!Object.is(a.raw, b.raw)) return ".raw";
+  return null;
+}
+
+export function exportBodyLook(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.dx = o.dx;
+  v.dy = o.dy;
+  v.scale = o.scale;
+  v.invert = o.invert;
+  v.raw = o.raw;
+  return v;
+}
+
+export const BodySpawnOutputLayout = Object.freeze({ words: 29, position: 0, previous: 3, settled: 6, velocity: 9, normal: 12, origin: 15, aimYaw: 18, aimPitch: 19, posture: 20, air: 21, dive: 23, stateTime: 24, lock: 25, fuel: 26, grounded: 27, groundAdjustment: 28 });
+export const BODY_SPAWN_OUTPUT_WORDS = BodySpawnOutputLayout.words;
+export const BODY_SPAWN_OUTPUT_OFFSETS = BodySpawnOutputLayout;
+
+export class BodySpawnOutputMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.previous = new THREE.Vector3();
+    this.settled = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.normal = new THREE.Vector3();
+    this.origin = new THREE.Vector3();
+    this.aimYaw = NaN;
+    this.aimPitch = NaN;
+    this.posture = "stand";
+    this.air = null;
+    this.dive = NaN;
+    this.stateTime = NaN;
+    this.lock = NaN;
+    this.fuel = NaN;
+    this.grounded = false;
+    this.groundAdjustment = NaN;
+  }
+}
+
+export function syncBodySpawnOutput(b, f, at, h, m) {
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.settled ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 12]; $v.y = f[at + 13]; $v.z = f[at + 14]; }
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 15]; $v.y = f[at + 16]; $v.z = f[at + 17]; }
+  m.aimYaw = f[at + 18];
+  m.aimPitch = f[at + 19];
+  m.posture = Posture_NAMES[f[at + 20]];
+  { const tag = f[at + 21]; if (tag === 0) { m.air = Air_NAMES[f[at + 22]]; } else m.air = tag === 1 ? null : undefined; }
+  m.dive = f[at + 23];
+  m.stateTime = f[at + 24];
+  m.lock = f[at + 25];
+  m.fuel = f[at + 26];
+  m.grounded = f[at + 27] !== 0;
+  m.groundAdjustment = f[at + 28];
+  return m;
+}
+
+export function putBodySpawnOutput(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.previous; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  { const $v = o.settled; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  { const $v = o.velocity; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
+  { const $v = o.normal; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; }
+  { const $v = o.origin; f[at + 15] = $v.x; f[at + 16] = $v.y; f[at + 17] = $v.z; }
+  f[at + 18] = o.aimYaw;
+  f[at + 19] = o.aimPitch;
+  f[at + 20] = Posture_INDEX.get(o.posture);
+  { const $x = o.air; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f[at + 22] = 0; } else { f[at + 21] = 0; f[at + 22] = Air_INDEX.get($x); } }
+  f[at + 23] = o.dive;
+  f[at + 24] = o.stateTime;
+  f[at + 25] = o.lock;
+  f[at + 26] = o.fuel;
+  f[at + 27] = o.grounded ? 1 : 0;
+  f[at + 28] = o.groundAdjustment;
+}
+
+export function publishBodySpawnOutput(o, m) {
+  o.position.copy(m.position);
+  o.previous.copy(m.previous);
+  o.settled.copy(m.settled);
+  o.velocity.copy(m.velocity);
+  o.normal.copy(m.normal);
+  o.origin.copy(m.origin);
+  o.aimYaw = m.aimYaw;
+  o.aimPitch = m.aimPitch;
+  o.posture = m.posture;
+  o.air = m.air;
+  o.dive = m.dive;
+  o.stateTime = m.stateTime;
+  o.lock = m.lock;
+  o.fuel = m.fuel;
+  o.grounded = m.grounded;
+  o.groundAdjustment = m.groundAdjustment;
+}
+
+export function sameBodySpawnOutput(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.previous, b.previous)) return ".previous";
+  if (!sameVec(a.settled, b.settled)) return ".settled";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!sameVec(a.normal, b.normal)) return ".normal";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!Object.is(a.aimYaw, b.aimYaw)) return ".aimYaw";
+  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  if (!Object.is(a.posture, b.posture)) return ".posture";
+  { const p = a.air, q = b.air; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".air"; } else { if (!Object.is(p, q)) return ".air"; } }
+  if (!Object.is(a.dive, b.dive)) return ".dive";
+  if (!Object.is(a.stateTime, b.stateTime)) return ".stateTime";
+  if (!Object.is(a.lock, b.lock)) return ".lock";
+  if (!Object.is(a.fuel, b.fuel)) return ".fuel";
+  if (!Object.is(a.grounded, b.grounded)) return ".grounded";
+  if (!Object.is(a.groundAdjustment, b.groundAdjustment)) return ".groundAdjustment";
+  return null;
+}
+
+export function exportBodySpawnOutput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.previous = o.previous.clone();
+  v.settled = o.settled.clone();
+  v.velocity = o.velocity.clone();
+  v.normal = o.normal.clone();
+  v.origin = o.origin.clone();
+  v.aimYaw = o.aimYaw;
+  v.aimPitch = o.aimPitch;
+  v.posture = o.posture;
+  v.air = o.air;
+  v.dive = o.dive;
+  v.stateTime = o.stateTime;
+  v.lock = o.lock;
+  v.fuel = o.fuel;
+  v.grounded = o.grounded;
+  v.groundAdjustment = o.groundAdjustment;
+  return v;
+}
+
+export const DroidekaSpawnLayout = Object.freeze({ words: 6, position: 0, yaw: 3, hasShield: 4, shieldMax: 5 });
+export const DROIDEKA_SPAWN_WORDS = DroidekaSpawnLayout.words;
+export const DROIDEKA_SPAWN_OFFSETS = DroidekaSpawnLayout;
+
+export class DroidekaSpawnMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.yaw = NaN;
+    this.hasShield = false;
+    this.shieldMax = NaN;
+  }
+}
+
+export function syncDroidekaSpawn(b, f, at, h, m) {
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  m.yaw = f[at + 3];
+  m.hasShield = f[at + 4] !== 0;
+  m.shieldMax = f[at + 5];
+  return m;
+}
+
+export function putDroidekaSpawn(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  f[at + 3] = o.yaw;
+  f[at + 4] = o.hasShield ? 1 : 0;
+  f[at + 5] = o.shieldMax;
+}
+
+export function sameDroidekaSpawn(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.hasShield, b.hasShield)) return ".hasShield";
+  if (!Object.is(a.shieldMax, b.shieldMax)) return ".shieldMax";
+  return null;
+}
+
+export function exportDroidekaSpawn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.yaw = o.yaw;
+  v.hasShield = o.hasShield;
+  v.shieldMax = o.shieldMax;
+  return v;
+}
+
+export const DroidekaSpawnOutputLayout = Object.freeze({ words: 22, position: 0, previous: 3, settled: 6, velocity: 9, aimYaw: 12, aimPitch: 13, legs: 14, spin: 15, dead: 16, mode: 17, time: 18, reverse: 19, shieldValue: 20, shieldOn: 21 });
+export const DROIDEKA_SPAWN_OUTPUT_WORDS = DroidekaSpawnOutputLayout.words;
+export const DROIDEKA_SPAWN_OUTPUT_OFFSETS = DroidekaSpawnOutputLayout;
+
+export class DroidekaSpawnOutputMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.previous = new THREE.Vector3();
+    this.settled = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.aimYaw = NaN;
+    this.aimPitch = NaN;
+    this.legs = NaN;
+    this.spin = NaN;
+    this.dead = false;
+    this.mode = NaN;
+    this.time = NaN;
+    this.reverse = false;
+    this.shieldValue = NaN;
+    this.shieldOn = false;
+  }
+}
+
+export function syncDroidekaSpawnOutput(b, f, at, h, m) {
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.settled ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
+  m.aimYaw = f[at + 12];
+  m.aimPitch = f[at + 13];
+  m.legs = f[at + 14];
+  m.spin = f[at + 15];
+  m.dead = f[at + 16] !== 0;
+  m.mode = f[at + 17];
+  m.time = f[at + 18];
+  m.reverse = f[at + 19] !== 0;
+  m.shieldValue = f[at + 20];
+  m.shieldOn = f[at + 21] !== 0;
+  return m;
+}
+
+export function putDroidekaSpawnOutput(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.previous; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  { const $v = o.settled; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  { const $v = o.velocity; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
+  f[at + 12] = o.aimYaw;
+  f[at + 13] = o.aimPitch;
+  f[at + 14] = o.legs;
+  f[at + 15] = o.spin;
+  f[at + 16] = o.dead ? 1 : 0;
+  f[at + 17] = o.mode;
+  f[at + 18] = o.time;
+  f[at + 19] = o.reverse ? 1 : 0;
+  f[at + 20] = o.shieldValue;
+  f[at + 21] = o.shieldOn ? 1 : 0;
+}
+
+export function publishDroidekaSpawnOutput(o, m) {
+  o.position.copy(m.position);
+  o.previous.copy(m.previous);
+  o.settled.copy(m.settled);
+  o.velocity.copy(m.velocity);
+  o.aimYaw = m.aimYaw;
+  o.aimPitch = m.aimPitch;
+  o.legs = m.legs;
+  o.spin = m.spin;
+  o.dead = m.dead;
+  o.mode = m.mode;
+  o.time = m.time;
+  o.reverse = m.reverse;
+}
+
+export function sameDroidekaSpawnOutput(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.previous, b.previous)) return ".previous";
+  if (!sameVec(a.settled, b.settled)) return ".settled";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.aimYaw, b.aimYaw)) return ".aimYaw";
+  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  if (!Object.is(a.legs, b.legs)) return ".legs";
+  if (!Object.is(a.spin, b.spin)) return ".spin";
+  if (!Object.is(a.dead, b.dead)) return ".dead";
+  if (!Object.is(a.mode, b.mode)) return ".mode";
+  if (!Object.is(a.time, b.time)) return ".time";
+  if (!Object.is(a.reverse, b.reverse)) return ".reverse";
+  if (!Object.is(a.shieldValue, b.shieldValue)) return ".shieldValue";
+  if (!Object.is(a.shieldOn, b.shieldOn)) return ".shieldOn";
+  return null;
+}
+
+export function exportDroidekaSpawnOutput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.previous = o.previous.clone();
+  v.settled = o.settled.clone();
+  v.velocity = o.velocity.clone();
+  v.aimYaw = o.aimYaw;
+  v.aimPitch = o.aimPitch;
+  v.legs = o.legs;
+  v.spin = o.spin;
+  v.dead = o.dead;
+  v.mode = o.mode;
+  v.time = o.time;
+  v.reverse = o.reverse;
+  v.shieldValue = o.shieldValue;
+  v.shieldOn = o.shieldOn;
+  return v;
+}
+
+export const BodySpawnLayout = Object.freeze({ words: 5, position: 0, yaw: 3, recharge: 4 });
+export const BODY_SPAWN_WORDS = BodySpawnLayout.words;
+export const BODY_SPAWN_OFFSETS = BodySpawnLayout;
+
+export class BodySpawnMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.yaw = NaN;
+    this.recharge = NaN;
+  }
+}
+
+export function syncBodySpawn(b, f, at, h, m) {
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  m.yaw = f[at + 3];
+  m.recharge = f[at + 4];
+  return m;
+}
+
+export function putBodySpawn(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  f[at + 3] = o.yaw;
+  f[at + 4] = o.recharge;
+}
+
+export function sameBodySpawn(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.recharge, b.recharge)) return ".recharge";
+  return null;
+}
+
+export function exportBodySpawn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.yaw = o.yaw;
+  v.recharge = o.recharge;
+  return v;
+}
+
 export class F3CharacterReleaseMirror {
   constructor() {
     this.unit = null;

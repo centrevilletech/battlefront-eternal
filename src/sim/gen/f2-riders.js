@@ -3,60 +3,6 @@ import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_TURRET, KIND_UNIT, KIND_VEHICLE } from "./kinds.js";
 
-export class F2RiderBoneMirror {
-  constructor() {
-    this.name = '';
-    this.parent = 0;
-    this.p = new THREE.Vector3();
-    this.q = new THREE.Quaternion();
-    this.s = new THREE.Vector3();
-    this.bind = null;
-  }
-}
-
-export function syncF2RiderBone(b, f, at, h, m) {
-  m.name = b.strings.at(f[at + 0]);
-  m.parent = f[at + 1] | 0;
-  { const $v = (m.p ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
-  { const $q = (m.q ??= new THREE.Quaternion()); $q._x = f[at + 5]; $q._y = f[at + 6]; $q._z = f[at + 7]; $q._w = f[at + 8]; $q._onChangeCallback(); }
-  { const $v = (m.s ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
-  { const tag = f[at + 12]; if (tag === 0) { { const $v = (m.bind ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; } } else m.bind = tag === 1 ? null : undefined; }
-  return m;
-}
-
-export function putF2RiderBone(b, o, f, at, heap) {
-  f[at + 0] = b.strings.id(o.name);
-  f[at + 1] = o.parent;
-  { const $v = o.p; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
-  { const $v = o.q; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; f[at + 8] = $v.w; }
-  { const $v = o.s; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
-  { const $x = o.bind; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; f[at + 15] = 0; } else { f[at + 12] = 0; { const $v = $x; f[at + 13] = $v.x; f[at + 14] = $v.y; f[at + 15] = $v.z; } } }
-}
-
-export function sameF2RiderBone(a, b) {
-  if (!Object.is(a.name, b.name)) return ".name";
-  if (!Object.is(a.parent, b.parent)) return ".parent";
-  if (!sameVec(a.p, b.p)) return ".p";
-  if (!sameQuat(a.q, b.q)) return ".q";
-  if (!sameVec(a.s, b.s)) return ".s";
-  { const p = a.bind, q = b.bind; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".bind"; } else { if (!sameVec(p, q)) return ".bind"; } }
-  return null;
-}
-
-export function exportF2RiderBone(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.name = o.name;
-  v.parent = o.parent;
-  v.p = o.p.clone();
-  v.q = o.q.clone();
-  v.s = o.s.clone();
-  v.bind = ((x) => (x === null || x === undefined ? x : x.clone()))(o.bind);
-  return v;
-}
-
 export class F2RiderClipMirror {
   constructor() {
     this.hull = null;
@@ -116,8 +62,6 @@ export class F2RiderBirthMirror {
     this.unit = null;
     this.life = NaN;
     this.scale = NaN;
-    this.rootBind = null;
-    this.bones = [];
     this.clips = [];
   }
 }
@@ -126,9 +70,7 @@ export function syncF2RiderBirth(b, f, at, h, m) {
   m.unit = b.refs[KIND_UNIT].at(f[at + 0], f[at + 1]);
   m.life = f[at + 2];
   m.scale = f[at + 3];
-  { const tag = f[at + 4]; if (tag === 0) { { const $v = (m.rootBind ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; } } else m.rootBind = tag === 1 ? null : undefined; }
-  { const items = (m.bones ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncF2RiderBone(b, f, at + 0, h, v ?? new F2RiderBoneMirror()); } items[i] = v; } }
-  { const items = (m.clips ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 11; v = syncF2RiderClip(b, f, at + 0, h, v ?? new F2RiderClipMirror()); } items[i] = v; } }
+  { const items = (m.clips ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 11; v = syncF2RiderClip(b, f, at + 0, h, v ?? new F2RiderClipMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -136,17 +78,13 @@ export function putF2RiderBirth(b, o, f, at, heap) {
   b.refs[KIND_UNIT].put(o.unit, f, at + 0);
   f[at + 2] = o.life;
   f[at + 3] = o.scale;
-  { const $x = o.rootBind; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 4] = 0; { const $v = $x; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; } } }
-  heap.items(o.bones, f, at + 8, 16, (f, at, v) => { putF2RiderBone(b, v, f, at + 0, heap); });
-  heap.items(o.clips, f, at + 10, 11, (f, at, v) => { putF2RiderClip(b, v, f, at + 0, heap); });
+  heap.items(o.clips, f, at + 4, 11, (f, at, v) => { putF2RiderClip(b, v, f, at + 0, heap); });
 }
 
 export function sameF2RiderBirth(a, b) {
   if (!Object.is(a.unit, b.unit)) return ".unit";
   if (!Object.is(a.life, b.life)) return ".life";
   if (!Object.is(a.scale, b.scale)) return ".scale";
-  { const p = a.rootBind, q = b.rootBind; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".rootBind"; } else { if (!sameVec(p, q)) return ".rootBind"; } }
-  if (!sameEach(a.bones, b.bones, (x, y) => sameF2RiderBone(x, y) === null)) return ".bones";
   if (!sameEach(a.clips, b.clips, (x, y) => sameF2RiderClip(x, y) === null)) return ".clips";
   return null;
 }
@@ -159,8 +97,6 @@ export function exportF2RiderBirth(o, cx) {
   v.unit = cx.ref("unit", o.unit);
   v.life = o.life;
   v.scale = o.scale;
-  v.rootBind = ((x) => (x === null || x === undefined ? x : x.clone()))(o.rootBind);
-  v.bones = o.bones.map((x) => exportF2RiderBone(x, cx));
   v.clips = o.clips.map((x) => exportF2RiderClip(x, cx));
   return v;
 }

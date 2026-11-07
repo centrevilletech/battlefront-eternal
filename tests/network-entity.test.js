@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {encodeEntityPacket,decodeEntityPacket,encodeEntityRecord} from '../src/runtime/network-entity-codec.js';
 import {EntityScheduler,EntityReceiver} from '../src/runtime/network-entity-stream.js';
 import {captureSoldierCorrection,restoreSoldierCorrection,soldierCorrectionBytes} from '../src/runtime/network-entity-correction.js';
-import {Soldier} from '../src/soldier.js';
+import {Soldier} from './helpers/body.js';
 const soldier=(id,tick=1,generation=1)=>({kind:'soldier',id,generation,tick,classId:2,team:1,position:[1.234,-3.456,9.876],velocity:[1.23,2.34,-3.45],yaw:.345,pitch:-.234,health:100,posture:0,state:0,weapon:1,fireCounter:3});
 const correction=(tick=1,payload=new Uint8Array(8))=>({kind:'correction',id:1,generation:1,tick,schema:1,payload});
 const packet=(packetId,records,epoch=1)=>encodeEntityPacket({epoch,packetId,tick:Math.max(...records.map(r=>r.tick)),records});

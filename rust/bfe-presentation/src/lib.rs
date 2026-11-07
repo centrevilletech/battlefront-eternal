@@ -2,6 +2,10 @@
 //! The host submits ordered commands once; the kernel publishes draw records.
 pub mod layout;
 pub mod cameras;
+pub mod aim;
+pub mod feet;
+pub mod sniper;
+pub mod sniper_layout;
 use layout::{
     command as c, command_kind as ck, draw as d, draw_kind as dk, effect as e, event as ev,
     event_kind as ek, frame as f, header as h, status,
@@ -1107,3 +1111,7 @@ pub mod page_layout;
 pub mod lights;
 pub mod interface_batch;
 pub mod interface_batch_layout;
+
+pub mod rider_sources;
+
+pub mod unit_collision;

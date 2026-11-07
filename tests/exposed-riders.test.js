@@ -19,7 +19,7 @@ import { Vehicles, VehicleDriver } from "../src/vehicles.js";
 import { Units, makeUnitHit, segmentCapsule, strikeable } from '../src/registry.js';
 
 import { Unit } from '../src/units.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 
 

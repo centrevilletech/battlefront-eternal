@@ -1,6 +1,7 @@
 // game.js replayPrediction and restorePrediction now cross once per frame.
 // Rust owns every pending tick; these retained rows only import page facts and
 // publish the result. Clocks, smoothing and effects keep their page lifetime.
+import {BodyAimBatch} from '../presentation/body.js';
 import { bridgeFor, Heap } from '../sim/runtime.js';
 import { ClientOp_INDEX, ClientActorKind_INDEX, ClientHeld_INDEX, ClientAction_INDEX,
   putClientFrame, ClientFrameMirror, putClientCommand, ClientCommandMirror, putClientLook, ClientLookMirror,
@@ -80,6 +81,8 @@ export function createClientPrediction(instance, collision) {
   const flightRow = new ClientFlightCommandMirror();
   const result = new ClientResultMirror(), notice = new ClientShotMirror(), mirrors = [];
   const mountedWeapons = [];
+  const shotAims=new BodyAimBatch(collision);
+  notice.aimYaw=NaN;notice.aimPitch=NaN;
   const noticeGun = { index: 0, barrel: 0 };
   const mirrorGun = { index: 0, barrel: 0 };
   // Compact soldier and droideka formats have bounded optional tails. The
@@ -472,6 +475,21 @@ export function createClientPrediction(instance, collision) {
     present(unit, presentation, onShot) {
       live(); if (busy) throw Error('prediction session is busy'); busy = true;
       try {
+        // The notice actors already contain every firing pose. Prepare the
+        // complete aim block before callbacks can mutate a shell or grow WASM.
+        const aimed=Math.min(result.shotsCount,shotAims.capacity);
+        let aimAt=result.shotsAt;
+        for(let i=0;i<aimed;i++){
+          syncClientShot(null,output,aimAt,0,notice);
+          const w=unit.combat.arsenal.weapons[notice.weapon],level=w.level,def=w.def;
+          w.level=notice.level;w.def=w.levels[notice.level];
+          try{
+          if(kind===SOLDIER){syncSoldier(null,output,aimAt+notice.actorAt,0,actorMirror);shotAims.write(i,actorMirror,unit.combat);}
+          else{syncDroideka(rowContext,output,aimAt+notice.actorAt,0,droidMirror);shotAims.write(i,droidMirror,unit.combat);}
+          }finally{w.level=level;w.def=def;}
+          aimAt+=SHOT+result.actorWords;
+        }
+        if(aimed){shotAims.run(result.shotsCount);for(let i=0;i<aimed;i++)shotAims.answer(i,unit.combat);shotAims.run(aimed,true);}
         let before = false, at = result.shotsAt;
         // game.js replayPrediction showed each notice at its simulated pose,
         // with the notice's temporary weapon level. Restore that level even
@@ -485,7 +503,8 @@ export function createClientPrediction(instance, collision) {
           publishActor(unit, at + notice.actorAt);
           const w = unit.combat.arsenal.weapons[notice.weapon], level = w.level, def = w.def;
           w.level = notice.level; w.def = w.levels[notice.level];
-          try { onShot?.(notice, w); } finally { w.level = level; w.def = def; }
+          if(i<aimed)shotAims.publish(i,unit.combat,notice);
+          try { if(i<aimed)onShot?.(notice, w); } finally { w.level = level; w.def = def; }
           at += SHOT + result.actorWords;
         }
         // The old presenter also advanced its interpolation endpoints when

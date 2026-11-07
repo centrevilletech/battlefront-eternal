@@ -7,7 +7,6 @@ import { Weapon } from "./weapons.js";
 import { emitSound } from "./audio/events.js";
 import { vehicleBatches, attachVehicleBatches } from "./vehicle-rig.js";
 import { loadClips, Pose } from "./anim.js";
-import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
 
 // Placed objects that come to life, following the 2004 game: the
 // power-up droids (powerupstation) and the turrets (armedbuilding). Each is a
@@ -749,36 +748,21 @@ export class Turret extends Building {
     return Boolean(this.alive && this.rider?.shootable);
   }
 
-  // The gunner's hit shapes this tick (src/rider-pose.js riderHitShapes):
+  // The gunner's hit shapes this tick (the native unit sampler):
   // his body in riderSample's pose at the seat, turned with the drum, as he
   // is drawn. Written to shapes; returns their count, 0 where none shows.
   // index: the seat's, always 0 (as Vehicle.riderShapes takes it).
   riderShapes(index, unit, shapes) {
-    if (this.f2Seats) return this.f2Seats.phase.riders.shapes(unit, shapes);
-    const frame = this.riderBody(unit, riderScratch);
-    return frame ? riderHitShapes(riderScratch.points, frame, unit.rootScale, shapes) : 0;
+    return this.f2Seats.phase.riders.shapes(unit, shapes);
   }
 
   // Where a gunner killed at the gun starts to fall from, in the world:
-  // out, or null where none shows (src/rider-pose.js riderDropPoint).
+  // out, or null where none shows (the native drop sample).
   riderDrop(index, unit, out) {
-    if (this.f2Seats) return this.f2Seats.phase.riders.drop(unit, out);
-    const frame = this.riderBody(unit, riderScratch);
-    return frame ? riderDropPoint(riderScratch.points, out).applyMatrix4(frame) : null;
+    return this.f2Seats.phase.riders.drop(unit, out);
   }
 
-  // His body's points (written to s.points) and the frame that carries
-  // them into the world (s.frame): the seat node's place and turn
-  // (seatPoint, seatTurn), where Crews::pose (rust/sim/src/seats/turrets.rs)
-  // and the Gunner put his body. Null where none shows.
-  riderBody(unit, s) {
-    const animator = unit?.animator;
-    if (!this.rider || !animator) return null;
-    const sample = this.riderSample(animator.clips, s.sample);
-    if (!sample || !riderPoints(animator, sample, s.points)) return null;
-    this.seatPoint(s.point);
-    return s.frame.compose(s.point, this.seatTurn(s.turn), ONE);
-  }
+
 }
 // A direction from a yaw (from +z, positive to the left, toward +x) and
 // an up-positive pitch.
@@ -812,9 +796,6 @@ function withoutHeading(q) {
   const heading = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.atan2(forward.x, forward.z));
   return heading.invert().multiply(q);
 }
-// A gunner's pose scratch (Turret.riderBody), shared: one is posed at a time.
-const riderScratch = { points: makeRiderPoints(), frame: new THREE.Matrix4(), point: new THREE.Vector3(), turn: new THREE.Quaternion(),
-  sample: { clip: null, pitch: 0, turn: 0, time: null } };
 const ONE = new THREE.Vector3(1, 1, 1);
 
 // Every live object on the map. collision: the world to add their bodies to,
@@ -839,7 +820,7 @@ const ONE = new THREE.Vector3(1, 1, 1);
 //   rancor): while its action is under way, up to `window` seconds in, the
 //   first soldier found within reach of its node, alive and on foot, is
 //   held there to the action's end, posed in his clip (riders, src/seats.js
-//   and rider-pose.js); then he dies (no one is credited), his body is gone
+//   and the native unit sampler); then he dies (no one is credited), his body is gone
 //   at once and the KillSoldierSound plays.
 // - A door opens while anyone is in reach and closes when they leave, its
 //   Open clip run both ways. An "open" action drops the prop's collision
@@ -932,8 +913,6 @@ export class ObjectivePost extends Building {
 // droideka) on foot, living or lying dead, not seated or held.
 export const onFoot = (unit) => Boolean(unit?.soldier && !unit.walker && !unit.removed && (unit.alive || unit.dead) && !unit.seat && !unit.held);
 
-const heldScratch = { points: makeRiderPoints(), sample: { clip: null, pitch: 0, turn: 0, time: null } };
-
 // Stable construction offset gives each placed idle its authored phase.
 const phase = (index) => (((index + 1) * 2654435761) >>> 0) / 4294967296;
 
@@ -985,19 +964,6 @@ export class AnimatedProp {
     this.victim = null; // { unit, generation, grab, index, since, rider, clip }: whom it holds
     this.world = null; // a page's latest world state (adopt)
     this.openness = 0; // a door's, 0 shut to 1 open
-  }
-
-  // A held soldier's hit shapes (Unit.updateSpheres): his posed body in
-  // the frame he hangs in this tick, as a shown rider's. Returns their
-  // count.
-  heldShapes(unit, shapes) {
-    const held = unit.held;
-    const clip = unit.animator?.clips?.get(held?.grab?.clip);
-    if (!held?.frame || !clip) return 0;
-    const sample = heldScratch.sample;
-    sample.clip = clip; sample.time = held.time || 0;
-    if (!riderPoints(unit.animator, sample, heldScratch.points)) return 0;
-    return riderHitShapes(heldScratch.points, held.frame, unit.rootScale, shapes);
   }
 
   // The world's state of a creature that seizes, for a page to follow

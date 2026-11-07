@@ -90,6 +90,10 @@ impl PageUnits {
             inner: bfe_presentation::units::Units::new(),
         }
     }
+    /// Body display keeps native references to the already-retained sources.
+    pub fn bind_sources(&mut self,vehicles:&PageVehicles,props:&PageProps){
+        self.inner.rider_sources.bind(&vehicles.inner.sources,&props.inner.sources);
+    }
     pub fn preview() -> PageUnits {
         Self {
             inner: bfe_presentation::units::Units::preview(),
@@ -185,8 +189,16 @@ impl PageUnits {
     pub fn network_states_ptr(&self)->*const f64{self.inner.network.states_ptr()}
     pub fn network_states_len(&self)->usize{self.inner.network.states_len()}
     pub fn unbind_network(&mut self,actor:usize){self.inner.network.unbind(actor);}
+    pub fn collision_input_ptr(&self)->*const f64{self.inner.collision.input.as_ptr()}
+    pub fn collision_input_len(&self)->usize{self.inner.collision.input.len()}
+    pub fn collision_output_ptr(&self)->*const f64{self.inner.collision.output.as_ptr()}
+    pub fn collision_output_len(&self)->usize{self.inner.collision.output.len()}
+    pub fn collision_shapes_ptr(&self)->*const f64{self.inner.collision.shapes.as_ptr()}
+    pub fn collision_shapes_len(&self)->usize{self.inner.collision.shapes.len()}
+    pub fn collide_units(&mut self){self.inner.collision_frame();}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
+        self.inner.collision_frame();
     }
     pub fn present_first_person(&mut self) {
         self.inner.attachment_frame();
@@ -210,6 +222,9 @@ pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
 "skin"=>Ok(crate::session::bytes_mut(&mut self.inner.skin)),
 "header"=>Ok(crate::session::bytes_mut(&mut self.inner.header)),
 "weapons"=>Ok(crate::session::bytes_mut(&mut self.inner.weapon_input)),
+"collision_input"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.input)),
+"collision_output"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.output)),
+"collision_shapes"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.shapes)),
 _=>Err(format!("unknown presentation input bank {name}")),}}
 pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 "input"=>Ok(crate::session::bytes(&self.inner.input)),
@@ -221,6 +236,9 @@ pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 "skin"=>Ok(crate::session::bytes(&self.inner.skin)),
 "header"=>Ok(crate::session::bytes(&self.inner.header)),
 "weapons"=>Ok(crate::session::bytes(&self.inner.weapon_input)),
+"collision_input"=>Ok(crate::session::bytes(&self.inner.collision.input)),
+"collision_output"=>Ok(crate::session::bytes(&self.inner.collision.output)),
+"collision_shapes"=>Ok(crate::session::bytes(&self.inner.collision.shapes)),
 _=>Err(format!("unknown presentation bank {name}")),}}
 pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ("input", self.inner.input.len()),
@@ -232,6 +250,9 @@ pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ("skin", self.inner.skin.len()),
 ("header", self.inner.header.len()),
 ("weapons", self.inner.weapon_input.len()),
+("collision_input", self.inner.collision.input.len()),
+("collision_output", self.inner.collision.output.len()),
+("collision_shapes", self.inner.collision.shapes.len()),
 ]}
 }
 pub enum PageUnitsCommand {
@@ -239,6 +260,7 @@ load_content(String),
 add_actor(usize,String,String),
 add_view(String,String),
 unbind_network(usize),
+collide_units,
 present_units,
 present_first_person,
 place_actors(usize),
@@ -250,6 +272,7 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 "add_actor"=>Self::add_actor(a.usize(0)?,a.string(1)?,a.string(2)?),
 "add_view"=>Self::add_view(a.string(0)?,a.string(1)?),
 "unbind_network"=>Self::unbind_network(a.usize(0)?),
+"collide_units"=>Self::collide_units,
 "present_units"=>Self::present_units,
 "present_first_person"=>Self::present_first_person,
 "place_actors"=>Self::place_actors(a.usize(0)?),
@@ -260,6 +283,7 @@ Self::load_content(data)=>{let _=host.load_content(data)?;},
 Self::add_actor(content,inverses,attachments)=>{let _=host.add_actor(*content,inverses,attachments)?;},
 Self::add_view(data,attachments)=>{let _=host.add_view(data,attachments)?;},
 Self::unbind_network(actor)=>{let _=host.unbind_network(*actor);},
+Self::collide_units=>{let _=host.collide_units();},
 Self::present_units=>{let _=host.present_units();},
 Self::present_first_person=>{let _=host.present_first_person();},
 Self::place_actors(count)=>{let _=host.place_actors(*count);},
@@ -284,6 +308,9 @@ impl PageProps {
     pub fn add_trap(&mut self, data: &str) -> Result<usize, String> {
         let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
         Ok(self.inner.add_trap(input))
+    }
+    pub fn add_unit_rider(&mut self, units:&PageUnits, actor:usize)->i32 {
+        units.inner.rider_source(actor).map_or(-1,|(source,rig)|self.inner.add_unit_rider(source,rig) as i32)
     }
     pub fn add_rider(&mut self, data: &str) -> Result<usize, String> {
         let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
@@ -1033,4 +1060,103 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 _=>return Err(format!("unknown presentation command {name}")),})}
 pub fn execute(&self,host:&mut PageInterfaceBatch)->Result<(),String>{match self{
 Self::step=>{let _=host.step();},
+}Ok(())}}
+pub struct PageFeet {inner:bfe_presentation::feet::Feet}
+impl PageFeet {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn add(&mut self,content:&str)->Result<usize,String>{Ok(self.inner.add(serde_json::from_str(content).map_err(|e|e.to_string())?))}
+    pub fn heights(content:&str)->Result<String,String>{let content=serde_json::from_str(content).map_err(|e|e.to_string())?;Ok(serde_json::to_string(&bfe_presentation::feet::heights(&content)).unwrap())}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn output_len(&self)->usize{self.inner.output.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+impl PageFeet {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"output"=>Ok(crate::session::bytes_mut(&mut self.inner.output)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"output"=>Ok(crate::session::bytes(&self.inner.output)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("output", self.inner.output.len()),
+]}
+}
+pub enum PageFeetCommand {
+add(String),
+frame,
+}
+impl PageFeetCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"add"=>Self::add(a.string(0)?),
+"frame"=>Self::frame,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageFeet)->Result<(),String>{match self{
+Self::add(content)=>{let _=host.add(content)?;},
+Self::frame=>{let _=host.frame();},
+}Ok(())}}
+pub struct PageSniper {inner:bfe_presentation::sniper::Sniper}
+impl PageSniper {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn events_len(&self)->usize{self.inner.events.len()}
+    pub fn events_ptr(&self)->*const f64{self.inner.events.as_ptr()}
+    pub fn streaks_len(&self)->usize{self.inner.streaks.len()}
+    pub fn streaks_ptr(&self)->*const f32{self.inner.streaks.as_ptr()}
+    pub fn flares_len(&self)->usize{self.inner.flares.len()}
+    pub fn flares_ptr(&self)->*const f32{self.inner.flares.as_ptr()}
+    pub fn matches_len(&self)->usize{self.inner.matches.len()}
+    pub fn matches_ptr(&self)->*const f64{self.inner.matches.as_ptr()}
+    pub fn counts_len(&self)->usize{self.inner.counts.len()}
+    pub fn counts_ptr(&self)->*const u32{self.inner.counts.as_ptr()}
+    pub fn collect(&mut self,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.collect(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("sniper random service is short"));}Ok(())}
+    pub fn match_impacts(&mut self,count:usize){self.inner.match_impacts(count);}
+    pub fn frame(&mut self,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("sniper random service is short"));}Ok(())}
+}
+impl PageSniper {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"events"=>Ok(crate::session::bytes_mut(&mut self.inner.events)),
+"streaks"=>Ok(crate::session::bytes_mut(&mut self.inner.streaks)),
+"flares"=>Ok(crate::session::bytes_mut(&mut self.inner.flares)),
+"matches"=>Ok(crate::session::bytes_mut(&mut self.inner.matches)),
+"counts"=>Ok(crate::session::bytes_mut(&mut self.inner.counts)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"events"=>Ok(crate::session::bytes(&self.inner.events)),
+"streaks"=>Ok(crate::session::bytes(&self.inner.streaks)),
+"flares"=>Ok(crate::session::bytes(&self.inner.flares)),
+"matches"=>Ok(crate::session::bytes(&self.inner.matches)),
+"counts"=>Ok(crate::session::bytes(&self.inner.counts)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("events", self.inner.events.len()),
+("streaks", self.inner.streaks.len()),
+("flares", self.inner.flares.len()),
+("matches", self.inner.matches.len()),
+("counts", self.inner.counts.len()),
+]}
+}
+pub enum PageSniperCommand {
+collect(Vec<f64>),
+match_impacts(usize),
+frame(Vec<f64>),
+}
+impl PageSniperCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"collect"=>Self::collect(a.f64s(0)?),
+"match_impacts"=>Self::match_impacts(a.usize(0)?),
+"frame"=>Self::frame(a.f64s(0)?),
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageSniper)->Result<(),String>{match self{
+Self::collect(random)=>{let _=host.collect(random)?;},
+Self::match_impacts(count)=>{let _=host.match_impacts(*count);},
+Self::frame(random)=>{let _=host.frame(random)?;},
 }Ok(())}}

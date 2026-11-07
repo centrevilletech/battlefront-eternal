@@ -116,7 +116,7 @@ test('native shape sensors retain stale death poses and strict ordered ray ties'
 
 test('owned movement and combat phase matches frozen movement results over retained input rows',async()=>{
   const [{Soldier},{CollisionWorld},{loadRayKernel},{F3CombatStore}]=await Promise.all([
-    import('../src/soldier.js'),import('../src/collision.js'),import('../src/ray-kernel.js'),import('../src/f3-combat.js')]);
+    import('./helpers/body.js'),import('../src/collision.js'),import('../src/ray-kernel.js'),import('../src/f3-combat.js')]);
   const instance=await loadSim(),b=new SimBridge(instance,{classes:{Soldier:SoldierMirror,Droideka:DroidekaMirror}}),x=b.x;
   const rays=await loadRayKernel(instance);
   const collision=new CollisionWorld(new Float32Array([-100,0,-100,-100,0,100,100,0,100,100,0,-100]),
@@ -153,7 +153,7 @@ test('owned movement and combat phase matches frozen movement results over retai
 
 test('owned bridge pools ordinary Unit objects and submits no body rows after construction',async(t)=>{
   const [{Soldier},{Droideka},{CollisionWorld},{loadRayKernel},{attachF3Combat},{attachF3},{Unit},{Units},THREE]=await Promise.all([
-    import('../src/soldier.js'),import('../src/droideka.js'),import('../src/collision.js'),import('../src/ray-kernel.js'),
+    import('./helpers/body.js'),import('./helpers/droideka.js'),import('../src/collision.js'),import('../src/ray-kernel.js'),
     import('../src/f3-combat.js'),import('../src/f3-sim.js'),import('../src/units.js'),import('../src/registry.js'),import('three')]);
   const instance=await loadSim(),rays=await loadRayKernel(instance);
   const collision=new CollisionWorld(new Float32Array([-100,0,-100,-100,0,100,100,0,100,100,0,-100]),new Uint32Array([0,1,2,0,2,3]),new Uint32Array([0,1]),undefined,undefined,rays);

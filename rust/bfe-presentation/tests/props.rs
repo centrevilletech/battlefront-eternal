@@ -274,7 +274,7 @@ fn turret_frames_retain_storage_and_reject_nonfinite_aim() {
     let matrix=Matrix4::default().elements;
     let node=|parent,z|Node {parent,pose:[0.0,0.0,z,0.0,0.0,0.0,1.0,1.0,1.0,1.0],matrix,auto:true,skinned:false};
     let mut p=Props::new();
-    p.add_turret(Descriptor {scene:Input {nodes:vec![node(-1,0.0),node(0,0.0),node(1,-0.5)],bones:vec![],parent:None},
+    p.add_turret(Descriptor {seat:0,source_shown:false,turn_rate:0.0,scene:Input {nodes:vec![node(-1,0.0),node(0,0.0),node(1,-0.5)],bones:vec![],parent:None},
         drum:1,gun:-1,parent_turn:Some([0.0,0.0,0.0,1.0]),gun_bind:None,up:[0.0,1.0,0.0],yaw_factor:1.0,pitch_factor:0.0});
     p.input[fr::VERSION]=layout::VERSION as f64;
     // A full stream of new angles uses the registered storage. Corrupt
@@ -367,4 +367,27 @@ fn a_creature_hangs_whom_it_holds_from_its_node() {
     p.prop_input[pi::VICTIM] = 0.0;
     frame(&mut p, 1.0 / 60.0, 39.0, &[], &[]);
     assert_eq!(p.prop_output[po::HELD], hs::NONE as f64);
+}
+
+#[test]
+fn held_unkeyed_joints_retain_the_native_unit_pose_at_seizure(){
+    use bfe_pose::{display::DisplayRig,rig::skeleton::Skeleton};
+    use bfe_presentation::scene::{Input,Node};
+    use three::{Matrix4,Quaternion,Vector3};
+    let names=["DummyRoot","bone_root","bone_pelvis","bone_neck","bone_head","bone_l_thigh","bone_l_calf","bone_l_foot","bone_r_thigh","bone_r_calf","bone_r_foot"];
+    let binds=vec![(Vector3::default(),Quaternion::default(),Vector3::new(1.0,1.0,1.0));names.len()];
+    let skeleton=Skeleton::from_bind(names.iter().map(|s|s.to_string()).collect(),(0..names.len()as i32).map(|n|n-1).collect(),&binds,false);
+    let mut rig=DisplayRig::new(&skeleton);rig.tree.node_mut(rig.bones[1]).position.y=2.0;
+    let mut props=Props::new();let rider=props.add_unit_rider(&skeleton,&rig);
+    // Later display poses must not replace this immutable held sample. A
+    // grab clip without a root track keeps the pose at its first seizure.
+    rig.tree.node_mut(rig.bones[1]).position.y=3.0;
+    let clip=props.load_clip(2,30.0,false,vec![],vec![]);
+    let mut descriptor=prop(false,clip,vec![],true);
+    descriptor.scene=Input{nodes:vec![Node{parent:-1,pose:[0.0,0.0,0.0,0.0,0.0,0.0,1.0,1.0,1.0,1.0],matrix:Matrix4::default().elements,auto:false,skinned:false}],bones:vec![],parent:None};
+    props.add_prop(descriptor);hold(&mut props,0,rider as f64,clip as f64,0.0);
+    props.prop_input[pi::WORLD]=1.0;props.prop_input[pi::SLOT]=1.0;
+    frame(&mut props,0.0,1.0,&[],&[]);
+    assert_eq!(props.prop_output[po::HELD_PLACED],1.0);
+    assert_eq!(props.prop_output[po::HELD_FRAME+13],-2.0);
 }

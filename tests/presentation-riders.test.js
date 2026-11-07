@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import {Clip} from '../src/anim.js';
 import {bodyHost} from './helpers/presentation.js';
 import {EntitySeats} from '../src/runtime/entity-seats.js';
-import {pageProps} from './helpers/page-presentation.js';
+import {pageProps,fixtureVehicle,drawHull} from './helpers/page-presentation.js';
 
 // A complete body phase, with an authored ground-to-saddle offset. The
 // pelvis must meet the published saddle, rather than adding its height twice.
@@ -21,6 +21,7 @@ function rider() {
   const hull=new THREE.Group(),saddle=new THREE.Object3D();hull.add(saddle);
   const vehicle={alive:true,aiTarget:{id:37,generation:1},root:hull,velocity:new THREE.Vector3(),speed:10,yawRate:0,age:0,hoverPhase:0,yaw:0,healthType:'animal',
     seats:[{lease:null,aimYaw:0,pitch:0,yawRate:0,view:{rider:{clip:'human_ride',anim:'ride',node:saddle,ninePose:false},turnRate:2,pitchLimits:[-.5,.5],yawLimits:null}}]};
+  fixtureVehicle(vehicle);
   host.unit.seat={vehicle,index:0};
   return {host,vehicle,saddle,pelvis,root};
 }
@@ -35,6 +36,7 @@ test('lease birth retains its pre-frame clip time and publishes the source body 
   const fresh=bodyHost(host.row.actor,host.source.clips),unit=fresh.unit;
   saddle.position.set(4,3,-2);vehicle.root.updateMatrixWorld(true);
   vehicle.seats[0].aimYaw=.4;vehicle.seats[0].pitch=.2;
+  drawHull(vehicle);
   const seats=new EntitySeats({units:{byId:()=>unit},driver:{}});
   seats.setLease(null,vehicle,[unit.id,1,'pilot',unit.generation],lease=>{vehicle.seats[0].lease=lease;});
   vehicle.age=1/60;vehicle.seats[0].pitch=.5;
@@ -49,7 +51,8 @@ test('lease birth retains its pre-frame clip time and publishes the source body 
 test('the native rider phase keeps a posed pelvis on each animated saddle frame',()=>{
   const {host,vehicle,saddle,pelvis,root}=rider();
   for(let frame=0;frame<60;frame++) {
-    saddle.position.y=2.4+Math.sin(frame*.1)*.04;vehicle.root.updateMatrixWorld(true);
+    if(frame===0)saddle.position.y=2.4;
+    vehicle.position.y=Math.sin(frame*.1)*.04;
     host.begin(1/60);host.owner.run();
     const at=saddle.getWorldPosition(new THREE.Vector3()),body=pelvis.getWorldPosition(new THREE.Vector3());
     assert.ok(at.distanceTo(body)<1e-8);

@@ -8,7 +8,7 @@ import { CollisionWorld } from '../../src/collision.js';
 import { Ordnance } from '../../src/ordnance.js';
 import { Units } from '../../src/registry.js';
 import { Unit } from '../../src/units.js';
-import { Soldier } from '../../src/soldier.js';
+import { Soldier } from '../helpers/body.js';
 import { loadSim } from '../../src/sim/module.js';
 import { loadRayKernel } from '../../src/ray-kernel.js';
 import { SimBridge } from '../../src/sim/runtime.js';

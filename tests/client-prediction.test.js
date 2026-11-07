@@ -79,7 +79,7 @@ for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scena
       assert.deepEqual(encode(result.kick),expected.kick,`frame ${frame} kick`);
       assert.deepEqual(encode(arsenalObservation(a.combat.arsenal,a.combat.zoomStep)),expected.arsenal,`frame ${frame} arsenal`);
       const actualShots=[];
-      session.present(a,null,(notice,w)=>actualShots.push(shotValue({yaw:notice.yaw,pitch:notice.pitch,charge:notice.charge,targetId:notice.target,targetGeneration:notice.targetGeneration,swing:notice.swing,[notice.kind===1?'repair':notice.kind===2?'meleeStart':notice.kind===3?'meleeHit':notice.kind===4?'meleeEnd':'round']:true},notice.tick,notice.sequence,notice.press,notice.held,notice.button,w.level)));
+      session.present(a,null,(notice,w)=>{assert.equal(notice.aimYaw,a.soldier.aimYaw,'a shot callback receives its resolved yaw');assert.equal(notice.aimPitch,a.soldier.aimPitch,'a shot callback receives its resolved pitch');actualShots.push(shotValue({yaw:notice.yaw,pitch:notice.pitch,charge:notice.charge,targetId:notice.target,targetGeneration:notice.targetGeneration,swing:notice.swing,[notice.kind===1?'repair':notice.kind===2?'meleeStart':notice.kind===3?'meleeHit':notice.kind===4?'meleeEnd':'round']:true},notice.tick,notice.sequence,notice.press,notice.held,notice.button,w.level));});
       assert.deepEqual(encode(actualShots),expected.shots,`frame ${frame} shots`);
       assert.equal(Buffer.from(capture(a)).toString('hex'),expected.correction,`frame ${frame} presentation keeps checkpoint`);
       wa.restore();

@@ -96,7 +96,9 @@ export class PageVehicles {
     v.root.traverse((o) => { if (o !== v.root && !v.bones.includes(o)) nodes.push(o); });
     const skinned = nodes.filter((o) => o.isSkinnedMesh);
     // The bones as they stand now, their bind, and what the frame poses.
+    for(let i=0;i<seats.length;i++){const view=v.seats[i].view;seats[i].rider={node:nodes.indexOf(view.rider?.node),turnRate:view.turnRate,pitchLimits:view.pitchLimits,yawLimits:view.yawLimits||null,wrap:Boolean(view.wrapYaw)};}
     const descriptor = {
+      sourceHeight:v.size.y,sourceAnimal:v.healthType==='animal',
       bones: v.bones.map((bone, i) => ({
         parent: index(bone.parent), position: xyz(bone.position), quaternion: xyzw(bone.quaternion), scale: xyz(bone.scale),
         bind: [...xyzw(v.bindQuaternions[i]), ...xyz(v.bindPositions[i])],
@@ -188,6 +190,8 @@ export class PageVehicles {
     const x = this.input, rig = this.queue[(this.count - 1) * 3 + 1], slot = this.queue[(this.count - 1) * 3 + 2];
     // The native network link replaces these current source facts only when
     // a historical hull sample exists. Predicted/render slots stay local.
+    x[e+E.VELOCITY]=v.velocity.x;x[e+E.VELOCITY+1]=v.velocity.y;x[e+E.VELOCITY+2]=v.velocity.z;
+    x[e+E.SPEED]=v.speed;x[e+E.SOURCE_YAW_RATE]=v.yawRate;
     x[e+E.ALPHA]=alpha;x[e+E.DT]=dt;x[e+E.FRAME_DT]=dt;x[e+E.NETWORK]=0;x[e+E.LOCAL_PRESENT]=v.tickFrom&&!v.sleeping?1:0;x[e+E.DEFERRED]=0;
     x[e+E.POSITION]=v.position.x;x[e+E.POSITION+1]=v.position.y;x[e+E.POSITION+2]=v.position.z;
     const r=v.quaternion;x[e+E.QUATERNION]=r.x;x[e+E.QUATERNION+1]=r.y;x[e+E.QUATERNION+2]=r.z;x[e+E.QUATERNION+3]=r.w;
@@ -225,6 +229,7 @@ export class PageVehicles {
       // present() poses the seats someone holds; render() the player's seat
       // and each one a bot crews.
       s[o + S.HELD] = held ? 1 : 0; s[o + S.POSE] = (render ? i === v.seatIndex || v.crewed(i) : held) ? 1 : 0;
+      s[o+S.YAW_RATE]=seat.yawRate||0;
       s[o + S.AIM_YAW] = seat.aimYaw; s[o + S.PITCH] = seat.pitch; s[o + S.TARGET] = t ? 1 : 0;
       if (t) { s[o + S.TARGET_POINT] = t.x; s[o + S.TARGET_POINT + 1] = t.y; s[o + S.TARGET_POINT + 2] = t.z; }
     }

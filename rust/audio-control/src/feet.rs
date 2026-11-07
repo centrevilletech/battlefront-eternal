@@ -50,7 +50,9 @@ impl Foot {
         let schedule = |direction: f64| {
             let mut result = Vec::new(); if heights.is_empty() || length <= 0.0 { return result; }
             let low = heights.iter().copied().fold(f64::INFINITY, f64::min); let level = low + threshold; let lift0 = if centred { low } else { 0.0 };
-            let window = rate / 60.0; let steps = heights.len().max((length / window * 16.0).ceil() as usize); let step = length / steps as f64;
+            // footSchedule multiplied by its fixed update interval. Division can
+            // shift a threshold crossing by one grid point for fractional rates.
+            let window = rate * (1.0 / 60.0); let steps = heights.len().max((length / window * 16.0).ceil() as usize); let step = length / steps as f64;
             let mut landed = true; let mut armed = None; let mut crossing = false; let mut lifted = false; let mut stomps = Vec::new(); let mut lifts = Vec::new();
             // ports footSchedule: the first cycle settles the detector, and
             // only the second records events. Preserve down-before-arm ties.
@@ -63,7 +65,7 @@ impl Foot {
                 if pass == 1 && stomp { stomps.push((phase, if detection { armed } else { None })); } if pass == 1 && lift { lifts.push(phase); }
             } }
             for (phase, arm) in stomps { result.push(Event { at: phase, kind: 1 }); if let Some(at) = arm { result.push(Event { at, kind: 0 }); } }
-            for at in lifts { result.push(Event { at, kind: 2 }); } assert!(result.len() <= 128, "walker schedule capacity exceeded"); result
+            for at in lifts { result.push(Event { at, kind: 2 }); } result.truncate(128); result
         };
         Self { point, length, detection, forward: schedule(1.0), backward: schedule(-1.0) }
     }
@@ -80,34 +82,59 @@ impl Phase {
             let Some(definition) = self.foot_definitions.get(class).and_then(|feet| feet.get(number)) else { continue; };
             let point = definition.point; let m = &input[f::M0..=f::M15]; let w = 1.0 / (m[3] * point[0] + m[7] * point[1] + m[11] * point[2] + m[15]);
             let at = [(m[0] * point[0] + m[4] * point[1] + m[8] * point[2] + m[12]) * w, (m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13]) * w, (m[2] * point[0] + m[6] * point[1] + m[10] * point[2] + m[14]) * w];
-            let mut state = self.foot_state[id]; if state.generation != Some(row[e::GENERATION]) { state = State { generation: Some(row[e::GENERATION]), ..Default::default() }; }
+            let mut state=self.foot_state[id];state.reset_generation(row[e::GENERATION]);
+            let mut events=[0u8;128];
+            let count=definition.events(&mut state,previous,was_walking,phase,walking,at[1],dt,&mut events);
+            for &kind in &events[..count] {
+                if near {self.play_class(class,if kind==1 {c::STEP0+number}else{c::HYDRAULIC},FOLEY,NONE,Some(at),None);}
+            }
+            self.foot_state[id] = state;
+        }
+    }
+}
+
+impl State {
+    /// A reused resource starts a fresh detector, without adopting a phase
+    /// or height left by its preceding life.
+    pub fn reset_generation(&mut self,generation:f64) {
+        if self.generation!=Some(generation) {*self=Self{generation:Some(generation),..Default::default()};}
+    }
+}
+impl Foot {
+    /// Footfalls.update/fall, shared by sounds and visual stomp events.
+    /// The caller supplies the previously displayed cycle once per hull;
+    /// every foot keeps only its own arming and fallback height state.
+    pub fn events(&self,state:&mut State,previous:Option<f64>,was_walking:bool,
+        phase:f64,walking:bool,height:f64,dt:f64,out:&mut [u8;128])->usize {
             let mut events = [(0.0, 0u8); 128]; let mut count = 0;
-            if definition.length > 0.0 {
+            if self.length > 0.0 {
                 if let Some(from) = previous {
-                    if walking && !was_walking { state.armed = false; if definition.detection { events[0] = (0.0, 1); count = 1; } }
+                    if walking && !was_walking { state.armed = false; if self.detection { events[0] = (0.0, 1); count = 1; } }
                     else if walking {
-                        let length = definition.length; let delta = (((phase - from) % length) + length * 1.5) % length - length / 2.0;
-                        if delta != 0.0 { for event in if delta > 0.0 { &definition.forward } else { &definition.backward } {
-                            let reach = along(event.at, from, delta, length); if reach < 0.0 { continue; } let mut slot = count;
+                        let length = self.length; let delta = (((phase - from) % length) + length * 1.5) % length - length / 2.0;
+                        if delta != 0.0 { for event in if delta > 0.0 { &self.forward } else { &self.backward } {
+                            let reach = along(event.at, from, delta, length); if reach < 0.0 || count == events.len() { continue; } let mut slot = count;
                             while slot > 0 && events[slot - 1].0 > reach { events[slot] = events[slot - 1]; slot -= 1; } events[slot] = (reach, event.kind); count += 1;
                         } }
                     }
                 }
             } else if dt > 0.0 {
                 if let Some(before) = state.previous {
-                    let fall = (before - at[1]) / dt;
+                    let fall = (before - height) / dt;
                     if fall > 0.5 { state.falling = true; state.down = false; }
                     else if state.falling && fall < 0.15 { state.falling = false; state.down = true; events[0] = (0.0, 1); count = 1; }
                     else if state.down && -fall > 0.5 { state.down = false; events[0] = (0.0, 2); count = 1; }
-                } state.previous = Some(at[1]);
+                } state.previous = Some(height);
             }
-            let detection = definition.detection;
-            for &(_, kind) in &events[..count] {
-                if kind == 0 { state.armed = true; continue; }
-                if kind == 1 && detection && !(walking && !was_walking) { if !state.armed { continue; } state.armed = false; }
-                if near { self.play_class(class, if kind == 1 { c::STEP0 + number } else { c::HYDRAULIC }, FOLEY, NONE, Some(at), None); }
+
+        let mut kept=0;
+        for &(_,kind) in &events[..count] {
+            if kind==0 {state.armed=true;continue;}
+            if kind==1 && self.detection && !(walking&&!was_walking) {
+                if !state.armed {continue;} state.armed=false;
             }
-            self.foot_state[id] = state;
+            out[kept]=kind;kept+=1;
         }
+        kept
     }
 }

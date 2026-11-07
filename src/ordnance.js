@@ -218,6 +218,7 @@ export class Ordnance {
     for (const grenade of this.grenades) draw.grenade(grenade, alpha);
     extra?.draw();
     draw.finish();
+    this.renderer.batches.get("sniper")?.prepare();
     extra?.settle();
     this.renderer.end();
   }
@@ -234,16 +235,23 @@ export class Ordnance {
 
   // A sniper round's impact (`play`: its effect and sound) for the
   // Enhanced look to play when its drawn bolt arrives; false to play it now.
-  deferSniperImpact(def, point, play) {
-    return Boolean(sniperLook.enhanced && def?.FadeOutTime > 0 && this.sniperTrace().defer(point, play));
+  deferSniperImpact(def, point, play, state = null, seedEffect = false) {
+    return Boolean(sniperLook.enhanced && def?.FadeOutTime > 0 && this.sniperTrace().defer(point, play, state, seedEffect));
+  }
+
+  queueSniperImpact(state,tick) {
+    if(sniperLook.enhanced)this.sniperTrace().queueMatch(state,tick);
+  }
+  matchSniperImpacts() {
+    if(sniperLook.enhanced)this.sniperTrace().matchImpacts();
   }
 
   // Sticky ordnance holds onto the kinds of thing its Stick* properties name.
 
   // The first unit a segment meets, other than the round's owner (and any
   // the battle's rules exclude), within `far`: soldiers on foot, bodies
-  // lying where they fell, and riders shown on exposed seats (src/
-  // rider-pose.js). A round from a hull's or turret's own guns (ignoreBody:
+  // lying where they fell, and riders shown on exposed seats (the native
+  // unit sampler). A round from a hull's or turret's own guns (ignoreBody:
   // the body it passes through) leaves the riders on that hull alone.
   // `mount`: the hull a round has gone through to its riders (riderBehind),
   // whose riders alone it may strike.

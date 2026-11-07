@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import * as THREE from "three";
 
-import { PlayerCombat } from "../src/combat.js";
+import { PlayerCombat } from "./helpers/combat.js";
 import { Units } from "../src/registry.js";
 import { blankIntent, IntentControls } from "../src/units.js";
 
@@ -31,7 +31,7 @@ function combatFixture({ hero = true, at = [0, 0, 0], weapons = [saber()] } = {}
 test("a third-person network shot converges on the crosshair ray, not parallel to it", () => {
   const gun = { class: "rifle", base: "cannon", channel: 0, AnimationBank: "rifle", RoundsPerClip: 10, ReloadTime: 1, ordnance: { base: "bolt" } };
   const { combat } = combatFixture({ hero: false, weapons: [gun] });
-  combat.camera = { position: new THREE.Vector3(0.55, 2.1, -4) };
+  combat.camera = new THREE.PerspectiveCamera();combat.camera.position.set(0.55,2.1,-4);combat.camera.updateMatrixWorld();
   combat.firstPerson = false;
   // Body aim straight down +z; the gun sits low and left of the camera
   // axis, so the converged direction must angle back toward the

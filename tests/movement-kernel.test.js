@@ -6,7 +6,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { MovementKernel } from '../src/movement-kernel.js';
 import { loadSim } from '../src/sim/module.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 // Hosts can read memory.buffer before discovering fixed movement addresses.
 // Lazy pool construction belongs to mover creation, never pointer discovery.

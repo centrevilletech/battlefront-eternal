@@ -103,7 +103,7 @@ try {
       const b = __bf, c = b.combat, s = b.soldier, t = b.units.byId(id).position;
       s.aimYaw = yaw; s.aimPitch = 0;
       for (let i = 0; i < 4; i++) {
-        c.aimBasis();
+        const preview=b.bodyPreview;preview.begin(s,c);preview.run();c.origin.copy(preview.basis.origin);
         const dx = t.x - c.origin.x, dy = t.y + 1.2 - c.origin.y, dz = t.z - c.origin.z;
         s.aimYaw = Math.atan2(dx, dz); s.aimPitch = Math.atan2(dy, Math.hypot(dx, dz));
       }

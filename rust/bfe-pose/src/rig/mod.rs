@@ -30,3 +30,5 @@ pub mod rider;
 pub mod skeleton;
 
 pub mod construction;
+
+pub mod body_shapes;

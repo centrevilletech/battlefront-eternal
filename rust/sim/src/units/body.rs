@@ -73,10 +73,17 @@ impl Soldier {
     /// spawn(x, y, z, yaw) (soldier.js:201): fresh, on the ground under the
     /// point (a ray down from 1.5 m above it, 50 m long).
     pub fn spawn(&mut self, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
+        self.spawn_with(x, y, z, yaw, |origin, direction, far| world.cast(origin, direction, far));
+    }
+
+    // Cold page births use the same reset with the native collision owner.
+    // A supplied query also keeps synthetic fixtures independent of a world.
+    pub fn spawn_with(&mut self, x: f64, y: f64, z: f64, yaw: f64,
+        mut cast: impl FnMut(&Vector3, &Vector3, f64) -> Option<super::world::CastHit>) {
         self.pass_through = None;
         self.position = [x, y, z];
         let origin = Vector3 { x, y: y + 1.5, z };
-        let hit = world.cast(&origin, &DOWN, 50.0);
+        let hit = cast(&origin, &DOWN, 50.0);
         if let Some(hit) = &hit {
             self.position[1] = hit.point.y;
         }
@@ -176,9 +183,15 @@ impl Droideka {
     /// under the point, still, its shield full and down. The caller enters
     /// mode 0 and resets the rig's animator.
     pub fn spawn_place(&mut self, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
+        self.spawn_with(x,y,z,yaw,|p,d,far|world.cast(p,d,far));
+    }
+    /// Droideka.spawn uses this same reset beside the page collision owner.
+    /// The query is native; only its resource mirrors return to the host.
+    pub fn spawn_with(&mut self,x:f64,y:f64,z:f64,yaw:f64,
+        mut cast:impl FnMut(&Vector3,&Vector3,f64)->Option<super::world::CastHit>) {
         self.position = [x, y, z];
         let from = Vector3 { x, y: y + 1.5, z };
-        if let Some(hit) = world.cast(&from, &DOWN, 50.0) {
+        if let Some(hit) = cast(&from, &DOWN, 50.0) {
             self.position[1] = hit.point.y;
         }
         self.velocity = [0.0; 3];

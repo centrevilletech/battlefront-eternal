@@ -10,7 +10,7 @@ import { pullPose } from '../../src/vehicle-phase-data.js';
 import { drawHull } from './page-presentation.js';
 import { nativeVehicles } from './native-vehicles.js';
 import { KIND_VEHICLE } from '../../src/sim/gen/index.js';
-import { Soldier } from '../../src/soldier.js';
+import { Soldier } from '../helpers/body.js';
 import { Unit } from '../../src/units.js';
 
 const owners = new WeakMap(), packs = new WeakMap();

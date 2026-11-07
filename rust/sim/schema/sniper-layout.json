@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "records": {
+    "SniperFrame": {
+      "time": 1,
+      "eye": 3,
+      "hasCamera": 1,
+      "camera": 16,
+      "inverse": 16,
+      "hasMuzzle": 1,
+      "muzzle": 3,
+      "commands": 1,
+      "begin": 1
+    },
+    "SniperCommand": {
+      "kind": 1,
+      "source": 1,
+      "token": 1,
+      "record": 1,
+      "seedEffect": 1,
+      "point": 3,
+      "start": 3,
+      "head": 3,
+      "direction": 3,
+      "origin": 3,
+      "color": 3,
+      "reach": 1,
+      "ended": 1
+    },
+    "SniperEvent": {
+      "kind": 1,
+      "token": 1,
+      "seed": 1,
+      "position": 3,
+      "color": 3,
+      "reach": 1,
+      "time": 1
+    },
+    "SniperMatch": {
+      "point": 3,
+      "record": 1
+    },
+    "SniperCounts": {
+      "streaks": 1,
+      "flares": 1,
+      "events": 1,
+      "records": 1,
+      "sparks": 1,
+      "dropped": 1
+    },
+    "SniperStreak": {
+      "head": 3,
+      "tail": 3,
+      "color": 4,
+      "size": 4,
+      "misc": 4
+    },
+    "SniperFlare": {
+      "center": 3,
+      "axis": 3,
+      "color": 4,
+      "param": 4
+    }
+  },
+  "enums": {
+    "SniperKind": [
+      "touch",
+      "headshot",
+      "defer"
+    ],
+    "SniperEventKind": [
+      "light",
+      "flash",
+      "callback",
+      "release"
+    ]
+  },
+  "limits": {
+    "SniperLimits": {
+      "commands": 8192,
+      "events": 16384,
+      "sources": 16384,
+      "streaks": 512,
+      "flares": 128
+    }
+  }
+}

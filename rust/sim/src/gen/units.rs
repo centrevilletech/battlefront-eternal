@@ -358,6 +358,420 @@ impl UnitBody {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct BodyPreviewFrame {
+    pub aim_yaw: f64,
+    pub aim_pitch: f64,
+    pub source_yaw: f64,
+    pub source_pitch: f64,
+    pub source_basis: [f64; 15],
+    pub max_turn: f64,
+    pub pitch_limits: [f64; 2],
+    pub posture: Posture,
+    pub air: Option<Air>,
+    pub dive: f64,
+    pub lock: f64,
+    pub tick_length: f64,
+    pub look_x: f64,
+    pub look_y: f64,
+    pub count: u32,
+    pub skipped: u32,
+    pub position: Vec3,
+    pub feet: Vec3,
+    pub zoom: f64,
+    pub walker: bool,
+    pub eye_height: f64,
+    pub rolled: bool,
+    pub camera: Vec3,
+    pub has_camera: bool,
+    pub uses_eye: bool,
+    pub track_offsets: [f64; 3],
+    pub basis: [f64; 15],
+    pub eye: Vec3,
+    pub from: Vec3,
+    pub needs_reach: bool,
+    pub reach: f64,
+    pub shot_yaw: f64,
+    pub shot_pitch: f64,
+}
+
+impl BodyPreviewFrame {
+    pub const WORDS: usize = 75;
+    pub const AIM_YAW: usize = 0;
+    pub const AIM_PITCH: usize = 1;
+    pub const SOURCE_YAW: usize = 2;
+    pub const SOURCE_PITCH: usize = 3;
+    pub const SOURCE_BASIS: usize = 4;
+    pub const MAX_TURN: usize = 19;
+    pub const PITCH_LIMITS: usize = 20;
+    pub const POSTURE: usize = 22;
+    pub const AIR: usize = 23;
+    pub const DIVE: usize = 25;
+    pub const LOCK: usize = 26;
+    pub const TICK_LENGTH: usize = 27;
+    pub const LOOK_X: usize = 28;
+    pub const LOOK_Y: usize = 29;
+    pub const COUNT: usize = 30;
+    pub const SKIPPED: usize = 31;
+    pub const POSITION: usize = 32;
+    pub const FEET: usize = 35;
+    pub const ZOOM: usize = 38;
+    pub const WALKER: usize = 39;
+    pub const EYE_HEIGHT: usize = 40;
+    pub const ROLLED: usize = 41;
+    pub const CAMERA: usize = 42;
+    pub const HAS_CAMERA: usize = 45;
+    pub const USES_EYE: usize = 46;
+    pub const TRACK_OFFSETS: usize = 47;
+    pub const BASIS: usize = 50;
+    pub const EYE: usize = 65;
+    pub const FROM: usize = 68;
+    pub const NEEDS_REACH: usize = 71;
+    pub const REACH: usize = 72;
+    pub const SHOT_YAW: usize = 73;
+    pub const SHOT_PITCH: usize = 74;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 75] = (&mut row[..75]).try_into().unwrap();
+        row[0] = self.aim_yaw;
+        row[1] = self.aim_pitch;
+        row[2] = self.source_yaw;
+        row[3] = self.source_pitch;
+        row[4..4 + 15].copy_from_slice(&self.source_basis);
+        row[19] = self.max_turn;
+        row[20..20 + 2].copy_from_slice(&self.pitch_limits);
+        row[22] = self.posture as u8 as f64;
+        match &self.air { Some(v) => { row[23] = 0.0; row[23 + 1] = (*v) as u8 as f64; } None => { row[23] = 1.0; row[23 + 1..23 + 2].fill(0.0); } }
+        row[25] = self.dive;
+        row[26] = self.lock;
+        row[27] = self.tick_length;
+        row[28] = self.look_x;
+        row[29] = self.look_y;
+        row[30] = self.count as f64;
+        row[31] = self.skipped as f64;
+        row[32..32 + 3].copy_from_slice(&self.position);
+        row[35..35 + 3].copy_from_slice(&self.feet);
+        row[38] = self.zoom;
+        row[39] = if self.walker { 1.0 } else { 0.0 };
+        row[40] = self.eye_height;
+        row[41] = if self.rolled { 1.0 } else { 0.0 };
+        row[42..42 + 3].copy_from_slice(&self.camera);
+        row[45] = if self.has_camera { 1.0 } else { 0.0 };
+        row[46] = if self.uses_eye { 1.0 } else { 0.0 };
+        row[47..47 + 3].copy_from_slice(&self.track_offsets);
+        row[50..50 + 15].copy_from_slice(&self.basis);
+        row[65..65 + 3].copy_from_slice(&self.eye);
+        row[68..68 + 3].copy_from_slice(&self.from);
+        row[71] = if self.needs_reach { 1.0 } else { 0.0 };
+        row[72] = self.reach;
+        row[73] = self.shot_yaw;
+        row[74] = self.shot_pitch;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 75] = (&row[..75]).try_into().unwrap();
+        Self {
+            aim_yaw: row[0],
+            aim_pitch: row[1],
+            source_yaw: row[2],
+            source_pitch: row[3],
+            source_basis: { let mut a = [0.0; 15]; a.copy_from_slice(&row[4..4 + 15]); a },
+            max_turn: row[19],
+            pitch_limits: { let mut a = [0.0; 2]; a.copy_from_slice(&row[20..20 + 2]); a },
+            posture: Posture::from_u8(word_u32(row[22]) as u8).unwrap_or_default(),
+            air: if row[23] == 0.0 { Some(Air::from_u8(word_u32(row[23 + 1]) as u8).unwrap_or_default()) } else { None },
+            dive: row[25],
+            lock: row[26],
+            tick_length: row[27],
+            look_x: row[28],
+            look_y: row[29],
+            count: word_u32(row[30]),
+            skipped: word_u32(row[31]),
+            position: [row[32], row[32 + 1], row[32 + 2]],
+            feet: [row[35], row[35 + 1], row[35 + 2]],
+            zoom: row[38],
+            walker: row[39] != 0.0,
+            eye_height: row[40],
+            rolled: row[41] != 0.0,
+            camera: [row[42], row[42 + 1], row[42 + 2]],
+            has_camera: row[45] != 0.0,
+            uses_eye: row[46] != 0.0,
+            track_offsets: { let mut a = [0.0; 3]; a.copy_from_slice(&row[47..47 + 3]); a },
+            basis: { let mut a = [0.0; 15]; a.copy_from_slice(&row[50..50 + 15]); a },
+            eye: [row[65], row[65 + 1], row[65 + 2]],
+            from: [row[68], row[68 + 1], row[68 + 2]],
+            needs_reach: row[71] != 0.0,
+            reach: row[72],
+            shot_yaw: row[73],
+            shot_pitch: row[74],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BodyLook {
+    pub dx: f64,
+    pub dy: f64,
+    pub scale: f64,
+    pub invert: bool,
+    pub raw: bool,
+}
+
+impl BodyLook {
+    pub const WORDS: usize = 5;
+    pub const DX: usize = 0;
+    pub const DY: usize = 1;
+    pub const SCALE: usize = 2;
+    pub const INVERT: usize = 3;
+    pub const RAW: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.dx;
+        row[1] = self.dy;
+        row[2] = self.scale;
+        row[3] = if self.invert { 1.0 } else { 0.0 };
+        row[4] = if self.raw { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            dx: row[0],
+            dy: row[1],
+            scale: row[2],
+            invert: row[3] != 0.0,
+            raw: row[4] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BodySpawnOutput {
+    pub position: Vec3,
+    pub previous: Vec3,
+    pub settled: Vec3,
+    pub velocity: Vec3,
+    pub normal: Vec3,
+    pub origin: Vec3,
+    pub aim_yaw: f64,
+    pub aim_pitch: f64,
+    pub posture: Posture,
+    pub air: Option<Air>,
+    pub dive: f64,
+    pub state_time: f64,
+    pub lock: f64,
+    pub fuel: f64,
+    pub grounded: bool,
+    pub ground_adjustment: f64,
+}
+
+impl BodySpawnOutput {
+    pub const WORDS: usize = 29;
+    pub const POSITION: usize = 0;
+    pub const PREVIOUS: usize = 3;
+    pub const SETTLED: usize = 6;
+    pub const VELOCITY: usize = 9;
+    pub const NORMAL: usize = 12;
+    pub const ORIGIN: usize = 15;
+    pub const AIM_YAW: usize = 18;
+    pub const AIM_PITCH: usize = 19;
+    pub const POSTURE: usize = 20;
+    pub const AIR: usize = 21;
+    pub const DIVE: usize = 23;
+    pub const STATE_TIME: usize = 24;
+    pub const LOCK: usize = 25;
+    pub const FUEL: usize = 26;
+    pub const GROUNDED: usize = 27;
+    pub const GROUND_ADJUSTMENT: usize = 28;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 29] = (&mut row[..29]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.position);
+        row[3..3 + 3].copy_from_slice(&self.previous);
+        row[6..6 + 3].copy_from_slice(&self.settled);
+        row[9..9 + 3].copy_from_slice(&self.velocity);
+        row[12..12 + 3].copy_from_slice(&self.normal);
+        row[15..15 + 3].copy_from_slice(&self.origin);
+        row[18] = self.aim_yaw;
+        row[19] = self.aim_pitch;
+        row[20] = self.posture as u8 as f64;
+        match &self.air { Some(v) => { row[21] = 0.0; row[21 + 1] = (*v) as u8 as f64; } None => { row[21] = 1.0; row[21 + 1..21 + 2].fill(0.0); } }
+        row[23] = self.dive;
+        row[24] = self.state_time;
+        row[25] = self.lock;
+        row[26] = self.fuel;
+        row[27] = if self.grounded { 1.0 } else { 0.0 };
+        row[28] = self.ground_adjustment;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 29] = (&row[..29]).try_into().unwrap();
+        Self {
+            position: [row[0], row[0 + 1], row[0 + 2]],
+            previous: [row[3], row[3 + 1], row[3 + 2]],
+            settled: [row[6], row[6 + 1], row[6 + 2]],
+            velocity: [row[9], row[9 + 1], row[9 + 2]],
+            normal: [row[12], row[12 + 1], row[12 + 2]],
+            origin: [row[15], row[15 + 1], row[15 + 2]],
+            aim_yaw: row[18],
+            aim_pitch: row[19],
+            posture: Posture::from_u8(word_u32(row[20]) as u8).unwrap_or_default(),
+            air: if row[21] == 0.0 { Some(Air::from_u8(word_u32(row[21 + 1]) as u8).unwrap_or_default()) } else { None },
+            dive: row[23],
+            state_time: row[24],
+            lock: row[25],
+            fuel: row[26],
+            grounded: row[27] != 0.0,
+            ground_adjustment: row[28],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DroidekaSpawn {
+    pub position: Vec3,
+    pub yaw: f64,
+    pub has_shield: bool,
+    pub shield_max: f64,
+}
+
+impl DroidekaSpawn {
+    pub const WORDS: usize = 6;
+    pub const POSITION: usize = 0;
+    pub const YAW: usize = 3;
+    pub const HAS_SHIELD: usize = 4;
+    pub const SHIELD_MAX: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.position);
+        row[3] = self.yaw;
+        row[4] = if self.has_shield { 1.0 } else { 0.0 };
+        row[5] = self.shield_max;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            position: [row[0], row[0 + 1], row[0 + 2]],
+            yaw: row[3],
+            has_shield: row[4] != 0.0,
+            shield_max: row[5],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DroidekaSpawnOutput {
+    pub position: Vec3,
+    pub previous: Vec3,
+    pub settled: Vec3,
+    pub velocity: Vec3,
+    pub aim_yaw: f64,
+    pub aim_pitch: f64,
+    pub legs: f64,
+    pub spin: f64,
+    pub dead: bool,
+    pub mode: f64,
+    pub time: f64,
+    pub reverse: bool,
+    pub shield_value: f64,
+    pub shield_on: bool,
+}
+
+impl DroidekaSpawnOutput {
+    pub const WORDS: usize = 22;
+    pub const POSITION: usize = 0;
+    pub const PREVIOUS: usize = 3;
+    pub const SETTLED: usize = 6;
+    pub const VELOCITY: usize = 9;
+    pub const AIM_YAW: usize = 12;
+    pub const AIM_PITCH: usize = 13;
+    pub const LEGS: usize = 14;
+    pub const SPIN: usize = 15;
+    pub const DEAD: usize = 16;
+    pub const MODE: usize = 17;
+    pub const TIME: usize = 18;
+    pub const REVERSE: usize = 19;
+    pub const SHIELD_VALUE: usize = 20;
+    pub const SHIELD_ON: usize = 21;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.position);
+        row[3..3 + 3].copy_from_slice(&self.previous);
+        row[6..6 + 3].copy_from_slice(&self.settled);
+        row[9..9 + 3].copy_from_slice(&self.velocity);
+        row[12] = self.aim_yaw;
+        row[13] = self.aim_pitch;
+        row[14] = self.legs;
+        row[15] = self.spin;
+        row[16] = if self.dead { 1.0 } else { 0.0 };
+        row[17] = self.mode;
+        row[18] = self.time;
+        row[19] = if self.reverse { 1.0 } else { 0.0 };
+        row[20] = self.shield_value;
+        row[21] = if self.shield_on { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
+        Self {
+            position: [row[0], row[0 + 1], row[0 + 2]],
+            previous: [row[3], row[3 + 1], row[3 + 2]],
+            settled: [row[6], row[6 + 1], row[6 + 2]],
+            velocity: [row[9], row[9 + 1], row[9 + 2]],
+            aim_yaw: row[12],
+            aim_pitch: row[13],
+            legs: row[14],
+            spin: row[15],
+            dead: row[16] != 0.0,
+            mode: row[17],
+            time: row[18],
+            reverse: row[19] != 0.0,
+            shield_value: row[20],
+            shield_on: row[21] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BodySpawn {
+    pub position: Vec3,
+    pub yaw: f64,
+    pub recharge: f64,
+}
+
+impl BodySpawn {
+    pub const WORDS: usize = 5;
+    pub const POSITION: usize = 0;
+    pub const YAW: usize = 3;
+    pub const RECHARGE: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.position);
+        row[3] = self.yaw;
+        row[4] = self.recharge;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            position: [row[0], row[0 + 1], row[0 + 2]],
+            yaw: row[3],
+            recharge: row[4],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F3CharacterRelease {
     pub unit: Ref<Unit>,
     pub character: Ref<Character>,

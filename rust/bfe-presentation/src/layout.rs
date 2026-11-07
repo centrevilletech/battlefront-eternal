@@ -205,7 +205,14 @@ pub mod unit_input {
     pub const RIDER_HULL_YAW: usize = 176;
     pub const RIDER_SAMPLE_YAW_RATE: usize = 177;
     pub const RIDER_LIVE: usize = 178;
-    pub const STRIDE: usize = 179;
+    pub const COMBAT_ZOOM: usize = 179;
+    pub const EYE_HEIGHT: usize = 180;
+    pub const SOURCE_RIG: usize = 181;
+    pub const SOURCE_VERSION: usize = 182;
+    pub const SOURCE_PROP: usize = 183;
+    pub const SOURCE_TURRET: usize = 184;
+    pub const RIDER_FIXED_TIME: usize = 185;
+    pub const STRIDE: usize = 186;
 }
 pub mod unit_command {
     pub const SEQUENCE: usize = 0;
@@ -258,7 +265,9 @@ pub mod unit_output {
     pub const STALE: usize = 73;
     pub const SEAT_VISIBLE: usize = 74;
     pub const LEASE_BIRTH: usize = 75;
-    pub const STRIDE: usize = 76;
+    pub const COMBAT_BASIS: usize = 76;
+    pub const COMBAT_EYE: usize = 91;
+    pub const STRIDE: usize = 94;
 }
 pub mod unit_node {
     pub const ACTOR: usize = 0;
@@ -415,7 +424,10 @@ pub mod vehicle_entry {
     pub const OUTPUT: usize = 48;
     pub const LOCAL_PRESENT: usize = 49;
     pub const DEFERRED: usize = 50;
-    pub const STRIDE: usize = 51;
+    pub const VELOCITY: usize = 51;
+    pub const SPEED: usize = 54;
+    pub const SOURCE_YAW_RATE: usize = 55;
+    pub const STRIDE: usize = 56;
 }
 pub mod vehicle_seat_input {
     pub const HELD: usize = 0;
@@ -424,7 +436,8 @@ pub mod vehicle_seat_input {
     pub const PITCH: usize = 3;
     pub const TARGET: usize = 4;
     pub const TARGET_POINT: usize = 5;
-    pub const STRIDE: usize = 8;
+    pub const YAW_RATE: usize = 8;
+    pub const STRIDE: usize = 9;
 }
 pub mod vehicle_wheel_input {
     pub const PHASE: usize = 0;
@@ -457,7 +470,8 @@ pub mod vehicle_header {
     pub const STATUS: usize = 0;
     pub const RAYS: usize = 1;
     pub const SKIPPED: usize = 2;
-    pub const STRIDE: usize = 3;
+    pub const SOURCE_EPOCH: usize = 3;
+    pub const STRIDE: usize = 4;
 }
 pub mod cast_ray {
     pub const ORIGIN: usize = 0;
@@ -716,7 +730,73 @@ pub mod turret_presentation_input {
     pub const PITCH: usize = 1;
     pub const GUN_YAW: usize = 2;
     pub const GUN_PITCH: usize = 3;
-    pub const STRIDE: usize = 4;
+    pub const YAW_RATE: usize = 4;
+    pub const STRIDE: usize = 5;
+}
+pub mod foot_frame {
+    pub const DT: usize = 0;
+    pub const STRIDE: usize = 1;
+}
+pub mod foot_input {
+    pub const PRESENT: usize = 0;
+    pub const GENERATION: usize = 1;
+    pub const PHASE: usize = 2;
+    pub const BLEND: usize = 3;
+    pub const ROOT_Y: usize = 4;
+    pub const MATRIX: usize = 5;
+    pub const STRIDE: usize = 21;
+}
+pub mod foot_event {
+    pub const COUNT: usize = 0;
+    pub const POSITION: usize = 1;
+    pub const HAS_TURN: usize = 4;
+    pub const TURN: usize = 5;
+    pub const STRIDE: usize = 9;
+}
+pub mod unit_collision_input {
+    pub const ENABLED: usize = 0;
+    pub const GENERATION: usize = 1;
+    pub const TICK: usize = 2;
+    pub const POSITION: usize = 3;
+    pub const YAW: usize = 6;
+    pub const POSTURE: usize = 7;
+    pub const AIR: usize = 8;
+    pub const DIVE: usize = 9;
+    pub const DEAD: usize = 10;
+    pub const WALKER: usize = 11;
+    pub const MODE: usize = 12;
+    pub const SCALE: usize = 13;
+    pub const BALL_RADIUS: usize = 14;
+    pub const SEAT: usize = 15;
+    pub const EXPOSED: usize = 16;
+    pub const SOURCE_RIG: usize = 17;
+    pub const SOURCE_SEAT: usize = 18;
+    pub const SOURCE_TURRET: usize = 19;
+    pub const SOURCE_PROP: usize = 20;
+    pub const CLIP: usize = 21;
+    pub const TIMED: usize = 22;
+    pub const NINE: usize = 23;
+    pub const FIXED_TIME: usize = 24;
+    pub const TIME: usize = 25;
+    pub const BINDING: usize = 26;
+    pub const STRIDE: usize = 27;
+}
+pub mod unit_collision_output {
+    pub const CHANGED: usize = 0;
+    pub const COUNT: usize = 1;
+    pub const CENTER: usize = 2;
+    pub const RADIUS: usize = 5;
+    pub const STRIDE: usize = 6;
+}
+pub mod unit_shape {
+    pub const KIND: usize = 0;
+    pub const HEAD: usize = 1;
+    pub const CENTER: usize = 2;
+    pub const RADIUS: usize = 5;
+    pub const HALF: usize = 6;
+    pub const HALF_SIZE: usize = 7;
+    pub const YAW: usize = 10;
+    pub const STRIDE: usize = 11;
 }
 pub mod command_kind {
     pub const SPAWN: u32 = 0;
@@ -810,6 +890,12 @@ pub mod camera_motion {
     pub const CROUCH_TO_STAND: u32 = 5;
     pub const LAND: u32 = 6;
 }
+pub mod unit_shape_kind {
+    pub const SPHERE: u32 = 0;
+    pub const CYLINDER: u32 = 1;
+    pub const BOX: u32 = 2;
+    pub const CAPSULE: u32 = 3;
+}
 pub mod unit_limits {
     pub const ACTORS: usize = 1024;
     pub const NODES: usize = 131072;
@@ -834,4 +920,7 @@ pub mod camera_limits {
     pub const MOTION_SEGMENTS: usize = 64;
     pub const MOTION_STEPS: usize = 4096;
     pub const OWNERS: usize = 2;
+}
+pub mod unit_collision_limits {
+    pub const SHAPES: usize = 10;
 }

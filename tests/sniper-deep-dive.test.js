@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { Vector3, Scene } from 'three';
 import { Weapon } from '../src/weapons.js';
 import { Units } from '../src/registry.js';
-import { SniperTrace } from '../src/sniper-trace.js';
 import { lighting } from '../src/materials.js';
 
 const sniperDef = {
@@ -35,56 +34,18 @@ test('a press that ran late is locked out from when it was pressed, so the next 
 });
 
 test('droidekas are struck through p_ord and p_rollsphere, with no head', async () => {
-  const { Unit } = await import('../src/units.js');
-  const proto = Unit.prototype;
-  const s = { position: new Vector3(0, 0, 0), aimYaw: 0, rolled: false, ballRadius: 0.65 };
-  const unit = Object.create(proto);
-  Object.assign(unit, { soldier: s, walker: true, tickCount: 1, spheresTick: 0, rootScale: 1, bounds: { center: new Vector3(), radius: 1 },
-    shapes: [0, 1].map(() => ({ type: 'sphere', part: 'body', center: new Vector3(), radius: 0, half: 0, yaw: 0, halfSize: new Vector3() })) });
-  unit.hitSet = unit.shapes;
+  const {f3World}=await import('./fixtures/f3-world.js');
+  const world=await f3World({droideka:{class:'droideka',base:'walkerdroid',MaxHealth:100,weapons:[]}});
+  const unit=world.spawn('droideka',0,0),s=unit.soldier;
   const shapes = unit.hitShapes();
   assert.equal(shapes.length, 2);
   assert.ok(shapes.every((shape) => shape.part === 'body'));
   const ord = shapes.find((shape) => shape.type === 'cylinder');
   assert.deepEqual(ord.center.toArray().map((n) => +n.toFixed(3)), [0, 1, 0.506]);
   assert.equal(ord.radius, 0.8); assert.equal(ord.half, 1);
-  s.rolled = true; unit.tickCount++;
-  assert.equal(unit.hitShapes().length, 1, 'rolled, the ball alone');
-});
-
-test('the Enhanced sniper tracer flies its bolt, lands with the world\'s impact, and shows a head shot once', () => {
-  const flashes = [], played = [];
-  const trace = new SniperTrace({ add() {}, flash: (...args) => flashes.push(args) });
-  const def = sniperDef.ordnance;
-  const source = {};
-  const start = new Vector3(0, 1.6, 0), dir = new Vector3(0, 0, 1);
-  const frame = (t, touch = null) => { lighting.time.value = t; trace.begin(); touch?.(); trace.end(); };
-  frame(10, () => trace.touch(source, def, start, new Vector3(0, 1.6, 30), dir, false, 1));
-  assert.equal(trace.records.length, 1);
-  assert.equal(trace.puffs.length, 1, 'the muzzle puffs');
-  assert.ok(trace.streaks.count >= 2, 'the puff and the smoke');
-  // The round struck 40 m off within the next frame; the drawn bolt, at
-  // 650 m/s, is still on its way, and the world's impact and head shot wait.
-  frame(10.02, () => trace.touch(source, def, start, new Vector3(0, 1.6, 40), dir, true, 1));
-  assert.equal(trace.defer(new Vector3(0, 1.6, 40), () => played.push('impact')), true);
-  trace.headshot(new Vector3(0, 1.6, 40));
-  trace.headshot(new Vector3(0, 1.6, 40.2));
-  assert.equal(flashes.length, 0, 'nothing plays before the drawn bolt gets there');
-  assert.ok(trace.records[0].head.z > 5 && trace.records[0].head.z < 40, 'the bolt is drawn in flight');
-  frame(10.04, () => trace.touch(source, def, start, new Vector3(0, 1.6, 40), dir, true, 1));
-  frame(10.07, () => trace.touch(source, def, start, new Vector3(0, 1.6, 40), dir, true, 1));
-  assert.deepEqual(played, ['impact'], 'the world\'s impact plays as the bolt arrives');
-  assert.equal(flashes.length, 2, 'the impact light, and one head shot flourish for both copies');
-  assert.ok(trace.sparks.length > 0);
-  // The bolt gone, the tracer fades and its smoke runs out.
-  for (let t = 10.1; t < 14; t += 0.05) frame(t);
-  assert.equal(trace.records.length, 0);
-  assert.equal(trace.streaks.count, 0);
-  // A round that runs out of life in the air has no impact.
-  frame(20, () => trace.touch({}, def, start, new Vector3(0, 1.6, 300), dir, true, 1));
-  for (let t = 20.05; t < 21; t += 0.05) frame(t);
-  assert.equal(flashes.length, 2);
-  void THREE;
+  const folded=await f3World({droideka:{class:'droideka',base:'walkerdroid',MaxHealth:100,weapons:[]}},
+    {passiveClasses:['droideka'],prepareUnit(u){u.alive=true;u.removed=false;u.soldier.mode=12;}});
+  assert.equal(folded.passive[0].hitShapes().length,1,'rolled, the ball alone');
 });
 
 test('the crosshair ray converges on a soldier under it, not the ground behind him', async () => {
@@ -105,60 +66,15 @@ test('the crosshair ray converges on a soldier under it, not the ground behind h
   assert.equal(self.crosshairReach(from, forward), 60, 'a body lying dead is not aimed at');
 });
 
-test('the Enhanced sniper look is built with the battle, so its programs compile in the warm-up, and draws every instance once grown', () => {
+test('the Enhanced sniper resources compile during battle warm-up', () => {
   const scene = new Scene();
   const ordnance = rustOrdnance({ scene, collision: { cast: () => null }, effects: {}, lights: { add() {}, flash() {} }, texture: () => null });
   ordnance.prepare();
-  const names = [];
-  scene.traverse((o) => names.push(o.name));
-  assert.ok(names.includes('sniper-trace') && names.includes('sniper-flares'), 'in the scene before the first shot');
-  const trace = ordnance.sniperTrace();
-  const flares = trace.flares;
-  flares.geometry._maxInstanceCount = flares.capacity; // as three records it at the first draw
-  const capacity = flares.capacity;
-  lighting.time.value = 50;
-  // The most flashes it keeps is one more than its buffer was made for.
-  for (let i = 0; i < capacity + 5; i++) trace.burst({ kind: 0, at: new Vector3(i, 0, 0), color: [1, 1, 1], radius: 0.5, life: 1, brightness: 1 });
-  trace.begin();
-  trace.end();
-  assert.equal(flares.count, capacity + 1);
-  assert.ok(flares.capacity > capacity);
-  assert.equal(flares.geometry._maxInstanceCount, undefined, 'every instance is drawn after growing');
-  assert.deepEqual(flares.buffer.updateRanges.map((r) => [r.start, r.count]), [[0, (capacity + 1) * 14]]);
-  assert.equal(trace.streaks.capacity, 512, 'smoke, vapour and sparks at their caps (48 shots, 25 puffs, 161 sparks) fit the first buffer');
-});
-
-test('while warming, the empty sniper batches draw one dark instance each, so their pipelines are built before the first shot', () => {
-  const trace = new SniperTrace({ add() {}, flash() {} });
-  lighting.time.value = 40;
-  trace.begin();
-  trace.end();
-  for (const batch of [trace.streaks, trace.flares]) {
-    assert.equal(batch.count, 0);
-    assert.equal(batch.geometry.instanceCount, 1, 'one instance drawn');
-    assert.ok(batch.mesh.visible);
-    assert.ok(batch.data.subarray(0, batch.stride).every((x) => x === 0), 'all zero: no brightness');
-    assert.deepEqual(batch.buffer.updateRanges.map((r) => [r.start, r.count]), [[0, batch.stride]]);
-    batch.buffer.updateRanges.length = 0;
-  }
-  trace.warming = 0;
-  trace.begin();
-  trace.end();
-  assert.equal(trace.streaks.geometry.instanceCount, 0, 'warmed: empty draws nothing');
-  assert.equal(trace.flares.mesh.visible, false);
-});
-
-test('spent sniper sparks and embers are reused', () => {
-  const trace = new SniperTrace({ add() {}, flash() {} });
-  const frame = (t) => { lighting.time.value = t; trace.begin(); trace.end(); };
-  frame(30);
-  trace.spray(new Vector3(0, 1, 10), new Vector3(0, 0, 1), [1, 0, 0], 12, 1);
-  trace.embers(new Vector3(0, 1, 10), new Vector3(0, 0, 1), 6);
-  const first = new Set(trace.sparks);
-  assert.equal(first.size, 18);
-  for (let t = 30.05; t < 32.5; t += 0.05) frame(t);
-  assert.equal(trace.sparks.length, 0);
-  assert.equal(trace.sparkPool.length, 18);
-  trace.spray(new Vector3(0, 1, 10), new Vector3(0, 0, 1), [1, 0, 0], 12, 1);
-  assert.ok(trace.sparks.every((s) => first.has(s) && s.age === 0 && !s.ember), 'the same objects, started afresh');
+  const names=[];scene.traverse(o=>names.push(o.name));
+  assert.ok(names.includes('sniper-trace')&&names.includes('sniper-flares'));
+  const trace=ordnance.sniperTrace();lighting.time.value=50;trace.begin();trace.end();
+  assert.equal(trace.streaks.geometry.instanceCount,1);
+  assert.equal(trace.flares.geometry.instanceCount,1);
+  assert.equal(trace.streaks.capacity,512);
+  assert.equal(trace.flares.capacity,128);
 });

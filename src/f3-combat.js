@@ -580,12 +580,8 @@ export class CombatFacade {
     syncCombat(b,b.f,at,heap,this.state);
   }
 
-  // Headless viewpoint and network readers use the published basis only.
-  // PlayerCombat.eye remains a page camera read over published basis vectors.
-  // The same read helper serves the viewpoint's HUD and first-person placement.
-  // It does not recompute the native aim basis or observe a posed gameplay rig.
-  // Camera-parallax aim for independent page prediction remains page code.
-  eye(feet,out) { return PlayerCombat.prototype.eye.call(this,feet,out); }
+  // Headless viewpoint and network readers use the native published basis.
+  // Camera selection reads those records without a JS eye or aim algorithm.
   clearCharge() { this.glow?.kill(); this.glow = null; }
   firePoint() { return null; }
   static zooms(def) { return PlayerCombat.zooms(def); }

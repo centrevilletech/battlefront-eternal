@@ -18,7 +18,7 @@ import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { Ordnance } from '../src/ordnance.js';
 import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';

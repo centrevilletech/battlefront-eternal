@@ -9,7 +9,6 @@ import { heatMaterial } from "./destruction-debris.js";
 import { ENGINE, Soldier } from "./soldier.js";
 
 import { SoldierPresentation, HeadlessSoldierPresentation } from "./soldier-presentation.js";
-import { RIDER_SHAPES } from "./rider-pose.js";
 
 // The battle's units: every soldier on the field, the player's included.
 //
@@ -27,66 +26,6 @@ import { RIDER_SHAPES } from "./rider-pose.js";
 
 // A body lies 4 s where it fell, then is gone (the soldier's dead state).
 const JET_EFFECT_BONE = "bone_ribcage";
-
-// What rounds strike on a soldier, per posture, in its frame (x its left, y
-// up, z forward), as the 2004 game builds them: an upright cylinder for the
-// body standing or crouched (a box lying prone, or dead) and a sphere for
-// the head, whose hits do three times the damage. s is the class's
-// CollisionRootScale and S = max(s, 1).
-//
-// A droideka is struck through its class's OrdnanceCollision primitives
-// (cis_walk_droideka): p_rollsphere, a sphere of 0.65 m resting on the
-// ground, and p_ord, an upright cylinder of radius 0.8 and height 2 standing
-// 0.506 m ahead of the root, which takes in its head and guns. Rolled it is
-// the ball alone. The 2004 game's hit location table (HitLocation) is empty
-// for every class but the soldier's (which adds his head at 3), so nothing
-// on a droideka takes more than one round's damage.
-const DROIDEKA_BALL = 0.65;
-const DROIDEKA_ORD = { at: [0, 1.0, 0.506], radius: 0.8, half: 1.0 };
-function soldierShapes(posture, s) {
-  const S = Math.max(s, 1);
-  const lift = 0.17 * (S - 1);
-  if (posture === "prone") {
-    return [
-      { type: "box", part: "body", at: [0, 0.2, -0.25 * s], half: [0.25, 0.2, 0.87 * s] },
-      { type: "sphere", part: "head", at: [-0.07, 0.28 * s, 0.75 * s], radius: 0.17 * S },
-    ];
-  }
-  if (posture === "crouch") {
-    return [
-      { type: "cylinder", part: "body", at: [0, 0.6 * s + lift, 0], radius: 0.35, half: 0.45 * s },
-      { type: "sphere", part: "head", at: [-0.12, 1.2 * s, 0.25], radius: 0.17 * S },
-    ];
-  }
-  return [
-    { type: "cylinder", part: "body", at: [0, 0.8 * s + lift, 0], radius: 0.35, half: 0.775 * s },
-    { type: "sphere", part: "head", at: [-0.09, 1.65 * s, 0.16], radius: 0.17 * S },
-  ];
-}
-// soldierShapes' tables by scale, then posture: the same few every tick,
-// built once (nothing writes to them).
-const SHAPE_TABLES = new Map();
-function shapeTable(posture, s) {
-  let tables = SHAPE_TABLES.get(s);
-  if (!tables) SHAPE_TABLES.set(s, tables = { stand: soldierShapes("stand", s), crouch: soldierShapes("crouch", s), prone: soldierShapes("prone", s) });
-  return posture === "prone" ? tables.prone : posture === "crouch" ? tables.crouch : tables.stand;
-}
-// The broadphase sphere (bounds { center, radius }) around a body's first
-// `count` hit shapes: about the middle of their centres, reaching past the
-// farthest shape.
-function boundShapes(shapes, count, bounds) {
-  const c = bounds.center.set(0, 0, 0);
-  for (let i = 0; i < count; i++) c.add(shapes[i].center);
-  c.divideScalar(count);
-  let r = 0;
-  for (let i = 0; i < count; i++) {
-    const shape = shapes[i];
-    const reach = shape.type === "box" ? shape.halfSize.length() : shape.type === "cylinder" ? Math.hypot(shape.radius, shape.half)
-      : shape.type === "capsule" ? shape.halfSize.length() + shape.radius : shape.radius;
-    r = Math.max(r, c.distanceTo(shape.center) + reach);
-  }
-  bounds.radius = r;
-}
 
 // Mines feel a soldier's bounding sphere: its centre above the feet and its
 // size (as main.js has them for the player).
@@ -191,12 +130,9 @@ export class Unit {
     this.input = { forward: 0, right: 0, turn: 0, pitch: 0, jump: false, crouch: false, prone: false, use: false, jetDirection: null };
     this.bounds = { center: new THREE.Vector3(), radius: 1 };
     this.rootScale = def.CollisionRootScale ?? 1;
-    this.shapes = [0, 1].map(() => ({ type: "sphere", part: "body", center: new THREE.Vector3(), radius: 0, half: 0, yaw: 0, halfSize: new THREE.Vector3() }));
-    // The set hitShapes() answers with; a rider's (riderHits, RIDER_SHAPES) are made
-    // for his first exposed seat (no plain field: a worker's replica of the
-    // unit carries neither).
-    this.hitSet = this.shapes;
-    this.shapeCount = 0;
+    // Correction mirrors retain these fields; native ownership supplies all geometry.
+    this.shapes=[0,1].map(()=>({type:"sphere",part:"body",center:new THREE.Vector3(),radius:0,half:0,yaw:0,halfSize:new THREE.Vector3()}));
+    this.hitSet=this.shapes;this.shapeCount=0;
     this.spheresTick = -1;
     this.tickCount = 0;
     this.jetFlame = null;
@@ -249,7 +185,6 @@ export class Unit {
   get sphere() {
     // The native owner can publish bounds after observing its lazy shapes;
     // limb arrays need copying only when a reader asks hitShapes explicitly.
-    if (this.spheresTick !== this.tickCount) this.updateSpheres(true);
     return this.bounds;
   }
 
@@ -273,14 +208,9 @@ export class Unit {
     return out.set(Math.sin(s.aimYaw) * Math.cos(s.aimPitch), Math.sin(s.aimPitch), Math.cos(s.aimYaw) * Math.cos(s.aimPitch));
   }
 
-  // Hit shapes in the world, for this tick's pose (src/registry.js
-  // segmentShape): on foot by posture, or shown on an exposed seat, his
-  // body as the seat poses it.
-  hitShapes() {
-    if (this.spheresTick !== this.tickCount) this.updateSpheres();
-    const shapes = this.hitSet;
-    return this.shapeCount === shapes.length ? shapes : shapes.slice(0, this.shapeCount);
-  }
+  // Page hit shapes are a retained native publication, refreshed by the
+  // registry's coarse observation. Authority installs its own native getter.
+  hitShapes(){return this.hitSet;}
 
   // The posture whose shapes apply: standing in the air, crouched in a
   // dive, lying down prone or dead.
@@ -290,68 +220,6 @@ export class Unit {
     if (s.dive) return "crouch";
     if (s.air) return "stand";
     return s.posture;
-  }
-
-  updateSpheres() {
-    const s = this.soldier;
-    const p = s.position;
-    // A rider shown in the open (SeatLease exposed): rounds meet his posed
-    // body on the seat (src/rider-pose.js), as a client draws it.
-    this.hitSet = this.shapes;
-    // Held by a creature (src/props.js), his body as it hangs from its node.
-    if (this.seat?.exposed || this.held?.frame) {
-      this.riderHits ||= Array.from({ length: RIDER_SHAPES }, () => ({ type: "sphere", part: "body", center: new THREE.Vector3(), radius: 0, half: 0, yaw: 0, halfSize: new THREE.Vector3() }));
-      const count = this.seat?.exposed ? this.seat.riderShapes(this, this.riderHits) : this.held.prop.heldShapes(this, this.riderHits);
-      if (count) {
-        this.hitSet = this.riderHits;
-        this.shapeCount = count;
-        boundShapes(this.riderHits, count, this.bounds);
-        this.spheresTick = this.tickCount;
-        return;
-      }
-    }
-    if (this.walker) {
-      // The ball: p_rollsphere alone. Deployed, p_ord too, the upright
-      // cylinder that takes in the head and the guns.
-      const ball = this.shapes[0];
-      const r = s.rolled ? s.ballRadius : DROIDEKA_BALL;
-      ball.type = "sphere";
-      ball.part = "body";
-      ball.center.set(p.x, p.y + r, p.z);
-      ball.radius = r;
-      ball.yaw = s.aimYaw;
-      this.shapeCount = 1;
-      if (!s.rolled) {
-        const ord = this.shapes[1];
-        const [, y, z] = DROIDEKA_ORD.at;
-        ord.type = "cylinder";
-        ord.part = "body";
-        ord.center.set(p.x + Math.sin(s.aimYaw) * z, p.y + y, p.z + Math.cos(s.aimYaw) * z);
-        ord.radius = DROIDEKA_ORD.radius;
-        ord.half = DROIDEKA_ORD.half;
-        ord.yaw = s.aimYaw;
-        this.shapeCount = 2;
-      }
-      boundShapes(this.shapes, this.shapeCount, this.bounds);
-    } else {
-      const sin = Math.sin(s.aimYaw);
-      const cos = Math.cos(s.aimYaw);
-      const parts = shapeTable(this.hitPosture, this.rootScale);
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i], shape = this.shapes[i];
-        const x = part.at[0], y = part.at[1], z = part.at[2];
-        // The soldier's left is (cos yaw, 0, -sin yaw), forward (sin yaw, 0, cos yaw).
-        shape.center.set(p.x + cos * x + sin * z, p.y + y, p.z - sin * x + cos * z);
-        shape.type = part.type;
-        shape.part = part.part;
-        shape.radius = part.radius || 0;
-        shape.half = part.type === "box" ? shape.halfSize.set(part.half[0], part.half[1], part.half[2]) : part.half || 0;
-        shape.yaw = s.aimYaw;
-      }
-      this.shapeCount = parts.length;
-      boundShapes(this.shapes, parts.length, this.bounds);
-    }
-    this.spheresTick = this.tickCount;
   }
 
   // Into the world at (x, y, z) facing yaw, fresh.
@@ -381,7 +249,6 @@ export class Unit {
     this.intent = blankIntent();
     this.controls.was = [0, 0];
     this.tickCount += 1;
-    this.updateSpheres();
   }
 
   // Another body for the same unit (the player's, between lives): its class,
@@ -402,6 +269,9 @@ export class Unit {
     this.kind = walker ? 3 : 0;
     this.hero = Boolean(def.hero || def.IsHero);
     this.rootScale = def.CollisionRootScale ?? 1;
+    // Correction mirrors retain these fields; native ownership supplies all geometry.
+    this.shapes=[0,1].map(()=>({type:"sphere",part:"body",center:new THREE.Vector3(),radius:0,half:0,yaw:0,halfSize:new THREE.Vector3()}));
+    this.hitSet=this.shapes;this.shapeCount=0;
     this.spheresTick = -1;
     this.poseClock = 0;
     this.shadowNear = undefined;

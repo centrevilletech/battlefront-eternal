@@ -4,43 +4,6 @@
 use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct F2RiderBone {
-    pub name: StrId,
-    pub parent: i32,
-    pub p: Vec3,
-    pub q: Quat,
-    pub s: Vec3,
-    pub bind: Option<Vec3>,
-}
-
-impl F2RiderBone {
-    pub const WORDS: usize = 16;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
-        row[0] = self.name.0 as f64;
-        row[1] = self.parent as f64;
-        row[2..2 + 3].copy_from_slice(&self.p);
-        row[5..5 + 4].copy_from_slice(&self.q);
-        row[9..9 + 3].copy_from_slice(&self.s);
-        match &self.bind { Some(v) => { row[12] = 0.0; row[12 + 1..12 + 1 + 3].copy_from_slice(&(*v)); } None => { row[12] = 1.0; row[12 + 1..12 + 4].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
-        Self {
-            name: StrId(word_u32(row[0])),
-            parent: word_i32(row[1]),
-            p: [row[2], row[2 + 1], row[2 + 2]],
-            q: [row[5], row[5 + 1], row[5 + 2], row[5 + 3]],
-            s: [row[9], row[9 + 1], row[9 + 2]],
-            bind: if row[12] == 0.0 { Some([row[12 + 1], row[12 + 1 + 1], row[12 + 1 + 2]]) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2RiderClip {
     pub hull: Option<Ref<Vehicle>>,
     pub turret: Option<Ref<Turret>>,
@@ -82,33 +45,27 @@ pub struct F2RiderBirth {
     pub unit: Ref<Unit>,
     pub life: f64,
     pub scale: f64,
-    pub root_bind: Option<Vec3>,
-    pub bones: Vec<F2RiderBone>,
     pub clips: Vec<F2RiderClip>,
 }
 
 impl F2RiderBirth {
-    pub const WORDS: usize = 12;
+    pub const WORDS: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
         row[0] = self.unit.slot as f64; row[0 + 1] = self.unit.gen as f64;
         row[2] = self.life;
         row[3] = self.scale;
-        match &self.root_bind { Some(v) => { row[4] = 0.0; row[4 + 1..4 + 1 + 3].copy_from_slice(&(*v)); } None => { row[4] = 1.0; row[4 + 1..4 + 4].fill(0.0); } }
-        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.bones.len() as f64; heap.reserve(self.bones.len() * 16); for e in self.bones.iter() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
-        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.clips.len() as f64; heap.reserve(self.clips.len() * 11); for e in self.clips.iter() { let mut item = [0.0f64; 11]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.clips.len() as f64; heap.reserve(self.clips.len() * 11); for e in self.clips.iter() { let mut item = [0.0f64; 11]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
         Self {
             unit: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
             life: row[2],
             scale: row[3],
-            root_bind: if row[4] == 0.0 { Some([row[4 + 1], row[4 + 1 + 1], row[4 + 1 + 2]]) } else { None },
-            bones: { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 16..at + (i + 1) * 16]; out.push(F2RiderBone::take(&row[0..], heap)); } out },
-            clips: { let (at, n) = (word_u32(row[10]) as usize, word_u32(row[10 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 11..at + (i + 1) * 11]; out.push(F2RiderClip::take(&row[0..], heap)); } out },
+            clips: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 11..at + (i + 1) * 11]; out.push(F2RiderClip::take(&row[0..], heap)); } out },
         }
     }
 

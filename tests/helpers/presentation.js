@@ -7,12 +7,12 @@ afterEach(() => {
   for (const owner of owners) if (owner.__wbg_ptr) owner.free();
   owners.clear();
 });
-import init, { PageOrdnance, PagePresentation, PageUnits } from "../../src/presentation-pkg/bfe_presentation.js";
+import init, { PageOrdnance, PagePresentation, PageUnits,PageVehicles,PageProps } from "../../src/presentation-pkg/bfe_presentation.js";
 import { PageEffects } from "../../src/presentation/effects.js";
 const wasm = await init({
   module_or_path: fs.readFileSync(new URL("../../src/presentation-pkg/bfe_presentation_bg.wasm", import.meta.url)),
 });
-export const presentationLoaded = { module: { PageOrdnance, PagePresentation, PageUnits }, memory: wasm.memory };
+export const presentationLoaded = { module: { PageOrdnance, PagePresentation, PageUnits,PageVehicles,PageProps }, memory: wasm.memory };
 export class Effects extends PageEffects {
   constructor(scene, library, options) {
     super(scene, library, options, presentationLoaded);
@@ -110,7 +110,7 @@ export function bodyHost(actor, clips = null, banks = null) {
       removed: false,
       soldier: state,
       presentation: p,
-      actor,
+      actor,animator:row.handle,
       walker: false,
       held: null,
       seat: null,
@@ -131,6 +131,7 @@ export function bodyHost(actor, clips = null, banks = null) {
     p.state.aimPitch = state.aimPitch;
   };
   const begin = (dt, s, own = true) => {
+    if(unit.seat)bindSources(owner,unit);
     if (row.boundLease!==unit.seat) {row.boundLease=unit.seat;owner.lease(unit,unit.seat);}
     input(s);
     owner.begin(dt, frame++, null);
@@ -142,7 +143,7 @@ export class SoldierAnimator {
   constructor(actor, clips, banks = null) {
     const host = bodyHost(actor, clips, banks),
       handle = host.row.handle;
-    handle.host = host;
+    handle.host = host;handle.actor=actor;handle.bones=actor.bones;handle.byName=actor.byName;
     handle.diveClip = host.source.diveClip;
     handle.update = (dt, state) => {
       host.begin(dt, state);
@@ -187,7 +188,7 @@ export class FirstPersonView extends ViewResources {
   }
 }
 
-import {presentTurret} from "./page-presentation.js";
+import {presentTurret,attachPage,drawHull,fixtureVehicle,propPhase} from "./page-presentation.js";
 import { Unit } from "../../src/units.js";
 import { UnitCommand as C, UnitCommandKind as K } from "../../src/presentation/layout.js";
 const unitHosts = new WeakMap();
@@ -249,9 +250,19 @@ export function unitHost(unit) {
   unitHosts.set(unit, h);
   return h;
 }
+function bindSources(owner,unit){
+  owner.emptyVehicles ||= {kernel:new PageVehicles()};owner.emptyProps ||= {kernel:new PageProps()};
+  owners.add(owner.emptyVehicles.kernel);owners.add(owner.emptyProps.kernel);
+  let vehicles=owner.emptyVehicles,props=owner.emptyProps;
+  const vehicle=unit.seat?.vehicle,turret=unit.seat?.turret;
+  if(vehicle){fixtureVehicle(vehicle);if(!vehicle.system.page)attachPage(vehicle.system);vehicles=vehicle.system.page;drawHull(vehicle);}
+  if(turret)props=presentTurret(turret);
+  if(unit.held)props=propPhase(unit.held.prop)||props;
+  owner.bindSources(vehicles,props);
+}
 export function presentUnit(unit, dt, alpha = 1, light = null, effects = null, view = null) {
   const h = unitHost(unit);
-  if(unit.seat?.turret)presentTurret(unit.seat.turret);
+  bindSources(h.owner,unit);
   if(h.row.boundLease!==unit.seat) {h.row.boundLease=unit.seat;h.owner.lease(unit,unit.seat);}
   h.owner.begin(dt, h.frame++, view);
   h.owner.write(h.row, unit, alpha);

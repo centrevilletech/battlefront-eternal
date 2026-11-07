@@ -1,3 +1,91 @@
+export class PageFeet {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageFeetFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagefeet_free(ptr, 0);
+    }
+    /**
+     * @param {string} content
+     * @returns {number}
+     */
+    add(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagefeet_add(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    frame() {
+        wasm.pagefeet_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {string} content
+     * @returns {string}
+     */
+    static heights(content) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.pagefeet_heights(ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.pagefeet_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.pagefeet_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pagefeet_new();
+        this.__wbg_ptr = ret;
+        PageFeetFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_len() {
+        const ret = wasm.pagefeet_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.pagefeet_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageFeet.prototype[Symbol.dispose] = PageFeet.prototype.free;
+
 export class PageInterfaceBatch {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -852,6 +940,16 @@ export class PageProps {
         return ret[0] >>> 0;
     }
     /**
+     * @param {PageUnits} units
+     * @param {number} actor
+     * @returns {number}
+     */
+    add_unit_rider(units, actor) {
+        _assertClass(units, PageUnits);
+        const ret = wasm.pageprops_add_unit_rider(this.__wbg_ptr, units.__wbg_ptr, actor);
+        return ret;
+    }
+    /**
      * @returns {number}
      */
     bodies_at() {
@@ -1018,6 +1116,122 @@ export class PageShellMusic {
 }
 if (Symbol.dispose) PageShellMusic.prototype[Symbol.dispose] = PageShellMusic.prototype.free;
 
+export class PageSniper {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageSniperFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagesniper_free(ptr, 0);
+    }
+    collect() {
+        wasm.pagesniper_collect(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    counts_len() {
+        const ret = wasm.pagesniper_counts_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    counts_ptr() {
+        const ret = wasm.pagesniper_counts_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    events_len() {
+        const ret = wasm.pagesniper_events_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    events_ptr() {
+        const ret = wasm.pagesniper_events_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    flares_len() {
+        const ret = wasm.pagesniper_flares_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    flares_ptr() {
+        const ret = wasm.pagesniper_flares_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    frame() {
+        wasm.pagesniper_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.pagesniper_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.pagesniper_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    match_impacts(count) {
+        wasm.pagesniper_match_impacts(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    matches_len() {
+        const ret = wasm.pagesniper_matches_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    matches_ptr() {
+        const ret = wasm.pagesniper_matches_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pagesniper_new();
+        this.__wbg_ptr = ret;
+        PageSniperFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    streaks_len() {
+        const ret = wasm.pagesniper_streaks_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    streaks_ptr() {
+        const ret = wasm.pagesniper_streaks_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageSniper.prototype[Symbol.dispose] = PageSniper.prototype.free;
+
 /**
  * Thin browser binding for the unit phase. Registration owns allocations;
  * two record batches are split by the host camera phase, without re-entry.
@@ -1115,6 +1329,16 @@ export class PageUnits {
         wasm.pageunits_bind_network(this.__wbg_ptr, network.__wbg_ptr, actor, id, generation, kind);
     }
     /**
+     * Body display keeps native references to the already-retained sources.
+     * @param {PageVehicles} vehicles
+     * @param {PageProps} props
+     */
+    bind_sources(vehicles, props) {
+        _assertClass(vehicles, PageVehicles);
+        _assertClass(props, PageProps);
+        wasm.pageunits_bind_sources(this.__wbg_ptr, vehicles.__wbg_ptr, props.__wbg_ptr);
+    }
+    /**
      * @returns {number}
      */
     changed_len() {
@@ -1126,6 +1350,51 @@ export class PageUnits {
      */
     changed_ptr() {
         const ret = wasm.pageunits_changed_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    collide_units() {
+        wasm.pageunits_collide_units(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    collision_input_len() {
+        const ret = wasm.pageunits_collision_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    collision_input_ptr() {
+        const ret = wasm.pageunits_collision_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    collision_output_len() {
+        const ret = wasm.pageunits_collision_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    collision_output_ptr() {
+        const ret = wasm.pageunits_collision_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    collision_shapes_len() {
+        const ret = wasm.pageunits_collision_shapes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    collision_shapes_ptr() {
+        const ret = wasm.pageunits_collision_shapes_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1532,6 +1801,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_4c88d8bf264fd984: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_random_298d5763e452935f: function() {
+            const ret = Math.random();
+            return ret;
+        },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
@@ -1552,6 +1825,9 @@ function __wbg_get_imports() {
     };
 }
 
+const PageFeetFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagefeet_free(ptr, 1));
 const PageInterfaceBatchFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pageinterfacebatch_free(ptr, 1));
@@ -1576,6 +1852,9 @@ const PagePropsFinalization = (typeof FinalizationRegistry === 'undefined')
 const PageShellMusicFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pageshellmusic_free(ptr, 1));
+const PageSniperFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagesniper_free(ptr, 1));
 const PageUnitsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pageunits_free(ptr, 1));

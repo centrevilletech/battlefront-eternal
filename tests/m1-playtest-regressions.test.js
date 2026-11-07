@@ -5,7 +5,7 @@ import './fixtures/native-anim.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { PlayerCombat } from "../src/combat.js";
+import { PlayerCombat } from "./helpers/combat.js";
 import { Controls } from "../src/input.js";
 import { FLIGHT_BINDINGS } from "../src/flight/controls.js";
 import { discreteActions } from "../src/runtime/network-inputs.js";

@@ -175,10 +175,10 @@ export class CombatPresentation {
   bolt(event,def){return {def,position:new Vector3(...event.position),direction:new Vector3(...event.direction),offset:new Vector3(...event.offset),speed:event.speed,life:event.life,merge:event.merge,flown:0,drawn:0,networkFlightTick:event.launchTick,executionTick:event.executionTick,visualMuzzle:this.muzzle?()=>this.muzzle(event,def):null};}
   impact(state,def){
     const point=new Vector3(...state.position),name=state.surface===4?def.ImpactEffectWater??'watersplash_ord':state.surface===0?def.ImpactEffectTerrain:state.surface===2?def.ImpactEffectSoft||def.ImpactEffectStatic:state.surface===3?def.ImpactEffectRigid||def.ImpactEffectStatic:def.ImpactEffectStatic||def.ImpactEffectTerrain;
-    const play=()=>{if(name)this.ordnance.effects.play(name,point);emitSound(state.surface===4?'splash':'impact',def,point,state.surface===0);};
+    const play=(seed=null)=>{if(name)this.ordnance.effects.play(name,point,null,null,null,seed);emitSound(state.surface===4?'splash':'impact',def,point,state.surface===0);};
     // An Enhanced sniper shot plays its impact when its drawn bolt gets
     // there (sniper-trace.js), not before it.
-    if(this.ordnance.deferSniperImpact?.(def,point,play))return;
+    if(this.ordnance.deferSniperImpact?.(def,point,play,state,Boolean(name&&this.ordnance.effects.library?.[name]&&this.ordnance.effects.freeCount)))return;
     play();
   }
   landedBolt(event,def){
@@ -221,10 +221,12 @@ export class CombatPresentation {
         if(bolt.visualMuzzle){muzzle=bolt.visualMuzzle();bolt.visualMuzzle=null;}
         this.ordnance.draw.bolt(bolt,1,tick,muzzle,FL.RESOLVE_SHOWN);
       }
+      this.ordnance.queueSniperImpact?.(state,tick);
     }}
   // What the draws set off: an explosion or impact whose tick the clock has
   // reached, in the order the records arrived.
   settle(tick){
+    this.ordnance.matchSniperImpacts?.();
     for(const state of this.records.values()){
       if(state.explosion&&tick>=state.explosion.at){const at=new Vector3(...state.position);this.ordnance.presentExplosion(state.explosion.def,at,state.wet);this.onExplosion(state.explosion.def,at);state.explosion=null;}
       const bolt=state.bolt;

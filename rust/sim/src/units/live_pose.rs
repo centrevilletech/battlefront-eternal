@@ -27,6 +27,15 @@ pub extern "C" fn f3_body_skeleton() -> u32 {
     body_poses().skeleton(&s.store, &s.strings, input)
 }
 
+/// Vehicles sample the unit's retained immutable source directly. The copy
+/// contains only fixed joint values, never a skeleton or an allocated pose.
+pub(crate) fn rider_points(reference: Ref<Unit>, sample: &RiderSample, out: &mut crate::rig::rider::RiderPoints) -> bool {
+    let Some(body)=body_poses().rows.get_mut(reference.slot as usize).and_then(Option::as_mut) else {return false};
+    if body.reference!=reference {return false;}
+    let Some(points)=body.sampler.points(sample,false) else {return false};
+    *out=*points;true
+}
+
 pub fn set(input:F3PoseCommand) -> bool { body_poses().set(input) }
 pub fn clear(reference: Ref<Unit>) { body_poses().clear(reference) }
 /// AnimatedProp.carry places the soldier's root on the foreign grab node.

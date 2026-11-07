@@ -3,7 +3,7 @@ import {decodeOwnPlayer,OWN_PLAYER_SCHEMA} from '../src/runtime/network-entity-p
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Object3D } from 'three';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { PlayerCombat } from '../src/combat.js';
 import { Arsenal } from '../src/weapons.js';

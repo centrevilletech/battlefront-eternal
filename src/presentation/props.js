@@ -48,7 +48,7 @@ export class PageProps {
     this.propTrees = this.props.map(p => tree(p.rig.root, p.rig.bones));
     this.trapTrees = this.traps.map(t => tree(t.rig.root, t.rig.bones));
     for (let i = 0; i < this.props.length; i++) {
-      const prop = this.props[i];
+      const prop = this.props[i];prop.presentationSource=i;
       k.add_prop(exact({ scene: this.propTrees[i].descriptor,
       root: dummyRoot(prop.rig.bones), initial: prop.rig.bones.flatMap(transform),
       bind: prop.rig.bones.flatMap((bone) => { const at = prop.rig.bind.get(bone); return [at.q.x, at.q.y, at.q.z, at.q.w, at.p.x, at.p.y, at.p.z]; }),
@@ -70,9 +70,10 @@ export class PageProps {
     // Turret resource shells stay retained through pad/build/wreck changes.
     // Their pose is one more record in the prop batch, never a packet call.
     this.turrets = live?.turrets || NONE;
-    this.turretTrees = this.turrets.map(t => {
+    this.turretTrees = this.turrets.map((t,i) => {
+      t.presentationSource=i;
       const row = tree(t.rig.root), index = node => row.objects.indexOf(node);
-      row.start = k.add_turret(exact({ scene: row.descriptor, drum: index(t.drum), gun: index(t.gun),
+      row.start = k.add_turret(exact({ seat:index(t.seat||t.rig.root),sourceShown:Boolean(t.rider),turnRate:t.turnRate,scene: row.descriptor, drum: index(t.drum), gun: index(t.gun),
         parentTurn: t.drumParentTurn ? [t.drumParentTurn.x,t.drumParentTurn.y,t.drumParentTurn.z,t.drumParentTurn.w] : null,
         gunBind: t.gunBind ? [t.gunBind.x,t.gunBind.y,t.gunBind.z,t.gunBind.w] : null,
         up: [t.up.x,t.up.y,t.up.z], yawFactor: t.yawFactor, pitchFactor: t.pitchFactor }));
@@ -89,18 +90,14 @@ export class PageProps {
     if (handle === undefined) this.handles.set(clip, handle = this.kernel.load_clip(clip.frames, clip.fps, clip.rootMotion, Int32Array.from(clip.tracks), Float32Array.from(clip.data)));
     return handle;
   }
-  // A held soldier's skeleton, registered once for his class (riderPoints'
-  // bones, bind lengths and root bind), or -1 for a body without one.
+  // A held soldier's native source, registered once for his class. The
+  // unit and prop owners share immutable bind data without a JS copy.
   rider(unit) {
     const key = unit.className;
     let handle = this.riders.get(key);
     if (handle !== undefined) return handle;
-    const a = unit.animator, bones = a?.bones;
-    handle = bones ? this.kernel.add_rider(exact({
-      names: bones.map((b) => b.name), parents: bones.map((b) => bones.indexOf(b.parent)), poses: bones.map(poseOf),
-      binds: (a.bindLengths || []).map(([bone, p]) => [bones.indexOf(bone), [p.x, p.y, p.z]]),
-      rootBind: a.rootBind ? [a.rootBind.x, a.rootBind.y, a.rootBind.z] : null,
-    })) : -1;
+    const animator=unit.animator;
+    handle=this.kernel.add_unit_rider(animator.owner.kernel,animator.row.id);
     this.riders.set(key, handle);
     return handle;
   }
@@ -165,6 +162,7 @@ export class PageProps {
     }
     for (let i = 0, at = 0; i < this.turrets.length; i++, at += TP.STRIDE) {
       const t = this.turrets[i], own = t.humanGunner;
+      this.turretInput[at+TP.YAW_RATE]=own?own.previewState.yawVel:t.yawVel;
       this.turretInput[at + TP.YAW] = own ? t.yaw + own.previewYaw : t.yaw;
       this.turretInput[at + TP.PITCH] = own ? t.pitch + own.previewPitch : t.pitch;
       this.turretInput[at + TP.GUN_YAW] = t.gunYaw;

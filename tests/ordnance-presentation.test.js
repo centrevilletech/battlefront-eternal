@@ -25,6 +25,7 @@ function driver([bolts, sniper]) {
     effects: { play: () => ({ moves: [], move(p, q, v) { this.moves.push([p.toArray(), q ? q.toArray() : null, v ? v.toArray() : null]); }, stop() {} }) },
     model: () => () => new THREE.Object3D(),
   });
+  sur.trace.prepare = () => {};
   ordnance.sniperTrace = () => sur.trace;
   let projectiles;
   return {

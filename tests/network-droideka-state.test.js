@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Clip } from '../src/anim.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Droideka } from '../src/droideka.js';
+import { Droideka } from './helpers/droideka.js';
 import { captureDroidekaState as capture, decodeDroidekaState as decode, restoreDroidekaState as restore } from '../src/runtime/network-droideka-state.js';
 
 function fixture() {

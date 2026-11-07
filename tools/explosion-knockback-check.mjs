@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { createGame } from '../src/game.js';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
 import { captureCompactSoldier, restoreCompactSoldier } from '../src/runtime/network-entity-soldier-compact.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from '../tests/helpers/body.js';
 
 const root = resolve(process.env.BFE_DATA_DIR || 'public');
 globalThis.fetch = async path => {

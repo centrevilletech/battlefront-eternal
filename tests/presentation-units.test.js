@@ -348,9 +348,8 @@ test(
   },
 );
 import { PageUnits as UnitBridge } from "../src/presentation/units.js";
-import { riderPoints, makeRiderPoints } from "../src/rider-pose.js";
 test("own unit publication retains predicted fields and never regenerates matrices in JS", async () => {
-  const { default: init, PageUnits } = await import("../src/presentation-pkg/bfe_presentation.js");
+  const { default: init, PageUnits,PageProps:NativeProps } = await import("../src/presentation-pkg/bfe_presentation.js");
   const wasm = await init({
     module_or_path: fs.readFileSync(new URL("../src/presentation-pkg/bfe_presentation_bg.wasm", import.meta.url)),
   });
@@ -383,16 +382,17 @@ test("own unit publication retains predicted fields and never regenerates matric
       seat: null,
       held: null,
       gone: null,
+      combat: { zoom: 1, viewAim: Object.fromEntries(["origin", "pivot", "left", "up", "aimDir", "eyePoint"].map(key => [key, new THREE.Vector3()])) },
     };
   const bridge = new UnitBridge({ module: { PageUnits }, memory: wasm.memory }),
     row = bridge.attach(actor, animator, p);
+  // Held sources join the unit resource without reading page bones again.
+  const {PageProps:PropBridge}=await import('../src/presentation/props.js');
+  const props=new PropBridge({module:{PageProps:NativeProps},memory:wasm.memory},null,{feet(){},bodies(){return [];}});
+  Object.defineProperty(row.handle,'bones',{get(){throw Error('page skeleton transport');}});
+  assert.equal(props.rider({className:'fixture',animator:row.handle}),0);
   const camera = new THREE.Camera();
   camera.updateMatrixWorld();
-  const sample = { clip: animator.clips.get("pilot"), pitch: 0.2, turn: 0.3, time: null };
-  const originalPoints = riderPoints(animator, sample, makeRiderPoints()),
-    nativeHandlePoints = riderPoints(row.handle, sample, makeRiderPoints());
-  assert.ok(originalPoints, "the fixture must have a complete rider skeleton");
-  assert.deepEqual(nativeHandlePoints, originalPoints, "prediction must retain the immutable rider descriptors");
   const multiply = THREE.Matrix4.prototype.multiplyMatrices,
     compose = THREE.Matrix4.prototype.compose;
   let matrixCalls = 0;
@@ -430,6 +430,10 @@ test("own unit publication retains predicted fields and never regenerates matric
       bridge.writeView(null, false, false, null);
       bridge.run();
       bridge.finishView(camera, 1 / 60);
+      if (frame === 0) {
+        assert.deepEqual(unit.combat.viewAim.origin.toArray(), [p.position.x + 0.06 - 0.12, p.position.y + 1.5999999999999999, p.position.z + 0.25]);
+        assert.deepEqual(unit.combat.viewAim.eyePoint.toArray(), [p.position.x + 0.06 - 0.12, p.position.y + 1.5999999999999999, p.position.z - 0.04999999999999999]);
+      }
       if (worldElements) assert.equal(actor.root.matrixWorld.elements, worldElements);
       worldElements = actor.root.matrixWorld.elements;
       assert.ok(Array.isArray(worldElements), "Three matrices keep ordinary arrays");
@@ -448,6 +452,15 @@ test("own unit publication retains predicted fields and never regenerates matric
       assert.equal(p.state.air, s.air);
       assert.equal(p.state.dead, s.dead);
     }
+    const unzoomedEye = unit.combat.viewAim.eyePoint.z;
+    unit.combat.zoom = 6;
+    bridge.begin(0, 30, null);
+    bridge.write(row, unit, 1, true);
+    bridge.writeView(null, false, false, null);
+    bridge.run();
+    assert.equal(bridge.output[row.id * O.STRIDE + O.CHANGED], 1, "zoom-only changes publish the camera eye");
+    bridge.finishView(camera, 0);
+    assert.ok(Math.abs(unit.combat.viewAim.eyePoint.z - unzoomedEye + 0.3) < 1e-15);
     assert.equal(matrixCalls, 0, "published unit transforms must bypass JS matrix recomputation");
     const beforeGrowth = actor.root.matrixWorld.toArray();
     const inverseBeforeGrowth = actor.body.bindMatrixInverse.toArray();

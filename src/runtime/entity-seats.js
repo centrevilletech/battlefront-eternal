@@ -13,16 +13,6 @@ export class EntitySeats {
     const unit = this.game.units.byId(id);
     const lease = new SeatLease({ unit, human: Boolean(human), team: unit?.team ?? 0, vehicle, turret, index, role });
     lease.generation = generation;
-    // poseRider sampled these facts at lease arrival, before the hull phase
-    // advances its visual clock. Keep birth records separate from live lean.
-    if (vehicle) {
-      const seat=vehicle.seats[index],node=seat.view?.rider?.node,m=node?.matrixWorld.elements;
-      lease.poseTime=vehicle.age;lease.poseYaw=seat.aimYaw;lease.posePitch=seat.pitch;
-      lease.poseHullYaw=vehicle.yaw;lease.poseYawRate=seat.yawRate||0;
-      lease.poseX=m?m[12]:vehicle.position?.x||0;lease.poseY=m?m[13]:vehicle.position?.y||0;lease.poseZ=m?m[14]:vehicle.position?.z||0;
-      lease.poseHeight=node?0:vehicle.size?.y||0;
-      lease.poseVx=vehicle.velocity?.x||0;lease.poseVy=vehicle.velocity?.y||0;lease.poseVz=vehicle.velocity?.z||0;
-    }
     if (!unit) { assign(null); return; }
     assign(lease);
     // Seated, as the world seated him (seats.js seatBody). A switch to

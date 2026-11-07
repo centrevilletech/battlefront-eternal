@@ -46,6 +46,7 @@ function page({ rig = RIG, clips = null } = {}) {
   const {soldier} = createPredictionActor({kind:'soldier'},course);
   const combat = Object.create(PlayerCombat.prototype);
   Object.assign(combat, { arsenal: prepareMelee(new Arsenal([RIFLE, PISTOL], { random: () => .5 })), soldier, zoomStep: 0, dead: false, gunUnderwater:false, kick:{rate:0,hold:0,offset:0} });
+  for(const key of ['origin','pivot','left','up','aimDir','eyePoint'])combat[key]=new THREE.Vector3();
   const unit = { id: 1, generation: 1, alive: true, soldier, combat };
   const camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld();

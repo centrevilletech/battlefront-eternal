@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Object3D } from "three";
 import { listenSounds } from "../src/audio/events.js";
-import { Soldier } from "../src/soldier.js";
+import { Soldier } from "./helpers/body.js";
 import { SoldierPresentation } from "../src/soldier-presentation.js";
 import { PlayerCombat } from "../src/combat.js";
 import { Arsenal } from "../src/weapons.js";

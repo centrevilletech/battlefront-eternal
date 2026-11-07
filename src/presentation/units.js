@@ -1,6 +1,7 @@
 // Unit poses and first-person attachments are two record batches, split by
 // the current JS camera phase. Each changed row is published once.
 // Event hooks queue commands; none calls WebAssembly for an individual actor.
+import {UnitCollision} from "./unit-collision.js";
 import { lighting } from "../materials.js";
 import { presentationProfile } from "../presentation-profile.js";
 import { unitContent, firstPersonContent, poseOf } from "./unit-content.js";
@@ -14,6 +15,7 @@ import {
   UnitNode as N,
   UnitHeader as H,
   UnitWeapon as W,
+  VehicleHeader as VEHICLE_HEADER,
 } from "./layout.js";
 // The node record's generated offsets as plain constants: the per-node
 // copies below read them for every placed bone.
@@ -133,13 +135,6 @@ class AnimatorHandle {
     this.row = row;
     this.source = source;
     this.clips = source.clips;
-    // Page prediction still samples exposed-rider hit shapes from these
-    // immutable bind descriptors, independently of the displayed pose.
-    this.actor = source.actor;
-    this.bones = source.bones;
-    this.byName = source.byName;
-    this.bindLengths = source.bindLengths;
-    this.rootBind = source.rootBind;
     this.bank = "rifle";
     this.posture = source.posture;
     // Keep display scalars in double fields from birth. A tagged field
@@ -216,7 +211,7 @@ export class PageUnits {
     this.loaded = loaded;
     this.kernel = preview ? loaded.module.PageUnits.preview() : new loaded.module.PageUnits();
     this.rows = [];
-    this.byActor = new WeakMap();
+    this.byActor = new WeakMap();this.byUnit=new WeakMap();
     this.contents = new WeakMap();
     const nodes = this.kernel.nodes_len() / N.STRIDE;
     // Per-node component targets keep publication monomorphic: the owning
@@ -238,7 +233,7 @@ export class PageUnits {
     this.weapons = [];
     this.weaponIds = new Map();
     this.view = null;
-    this.refresh();
+    this.refresh();this.collision=new UnitCollision(this);
   }
   refresh() {
     const k = this.kernel,
@@ -355,8 +350,8 @@ export class PageUnits {
       e._z = data[at + NODE_EULER + 2];
     }
   }
-  attach(actor, source, presentation) {
-    if (this.byActor.has(actor)) return this.byActor.get(actor);
+  attach(actor, source, presentation, unit=null) {
+    if (this.byActor.has(actor)) {const row=this.byActor.get(actor);if(unit&&row.unit!==unit)this.collision.bind(row,unit);return row;}
     let byClip = this.contents.get(actor.body.geometry);
     if (!byClip) this.contents.set(actor.body.geometry, (byClip = new WeakMap()));
     let content = byClip.get(source.clips);
@@ -413,14 +408,24 @@ export class PageUnits {
     };
     actor.skeleton.update = nativeSkeletonUpdate;
     actor.skeleton.presentationNative = true;
+    if(unit)this.collision.bind(row,unit);
     return row;
   }
   // SeatReader registers clip aliases at lease birth, including a body
   // adopted into a different class. Frame collection reads numeric handles.
+  bindRegistry(units){units.refreshShapes=(riders,exclude,alive)=>this.collision.observe(riders,exclude,alive);}
+  bindSources(vehicles,props){
+    this.sourceVehicles=vehicles;this.sourceProps=props;
+    this.kernel.bind_sources(vehicles.kernel,props.kernel);
+  }
   lease(unit, lease) {
     const row=this.byActor.get(unit.actor);if(!row||!lease)return;
-    const turret=lease.turret,view=lease.vehicle?.seats[lease.index]?.view,rider=turret?turret.rider:view?.rider;
+    const vehicle=lease.vehicle,turret=lease.turret,view=vehicle?.seats[lease.index]?.view,rider=turret?turret.rider:view?.rider;
     lease.posePick=riderClip(row,turret||view,rider,Boolean(turret));
+    // Only stable resource ids and the source revision cross at arrival.
+    // Birth coordinates and nine-pose samples stay with their native owners.
+    if(vehicle&&lease.sourceRig===undefined){const page=vehicle.system.page,rig=page.rig(vehicle);page.refresh();
+      lease.sourceRig=rig.id;lease.sourceVersion=page.header[VEHICLE_HEADER.SOURCE_EPOCH];}
   }
   attachView(view, arsenal) {
     if (view.presentationRow) return view.presentationRow;
@@ -613,6 +618,8 @@ export class PageUnits {
       s = unit.soldier,
       p = unit.presentation;
     input.fill(0, at, at + I.STRIDE);
+    input[at + I.COMBAT_ZOOM] = unit.combat?.zoom??1;
+    input[at + I.EYE_HEIGHT] = s.eyeHeight??0;
     input[at + I.ACTOR] = row.id;
     input[at + I.ID] = unit.id;
     input[at + I.GENERATION] = unit.generation;
@@ -653,12 +660,11 @@ export class PageUnits {
       input[at + I.PREVIOUS_WALKER_POSE + 2] = p.previousPose.legs;
       input[at + I.PREVIOUS_WALKER_POSE + 3] = p.previousPose.time;
     }
-    const held = unit.held?.frame ? unit.held : null;
-    if (held) {
-      input[at + I.HELD] = 1;
-      for (let k = 0; k < 16; k++) input[at + I.HELD_MATRIX + k] = held.frame.elements[k];
-      input[at + I.HELD_TIME] = held.time;
-      input[at + I.HELD_CLIP] = clipId(row, row.source.clips.get(held.grab.clip));
+    input[at+I.SOURCE_PROP]=-1;
+    const held=unit.held;
+    if(held){
+      input[at+I.SOURCE_PROP]=held.prop.presentationSource;
+      input[at+I.HELD_CLIP]=clipId(row,row.source.clips.get(held.grab.clip));
     }
     if (unit.gone) {
       input[at + I.GONE] = 1;
@@ -685,6 +691,7 @@ export class PageUnits {
     // enclosure and saddle lean across frames, including a released corpse
     // whose former hull was destroyed. A hull's explicit pilot sample belongs
     // to lease birth (rust/sim/src/vehicles/module/f2/riders.rs). Stationary turret aim is refreshed by the native body phase.
+    if(!unit.f3&&this.byUnit.get(unit)!==row)this.collision.bind(row,unit);
     row.unit = unit;
     const lease = unit.seat, vehicle = lease?.vehicle, turret = lease?.turret;
     input[at + I.RIDER_RESET] = row.riderLease !== lease ? 1 : 0;
@@ -697,60 +704,23 @@ export class PageUnits {
       input[at + I.MOUNT_GENERATION] = mount.aiTarget?.generation ?? 0;
       input[at + I.MOUNT_ID] = mount.aiTarget?.id ?? 0;
     }
-    // The saddle and drum are already published by their own phase. Copy
-    // that frame directly instead of making Three resolve the rig again.
-    const seat = vehicle?.seats[lease.index], rider = turret ? turret.rider : seat?.view.rider;
-    const node = turret ? turret.seat || turret.rig.root : rider?.node;
-    if (vehicle || turret) {
-      const kind = turret ? 2 : 1, ownGunner = turret?.humanGunner, liveTurret=own||Boolean(ownGunner);
-      input[at+I.RIDER_LIVE]=liveTurret?1:0;
-      // SeatReader resolved the authored clip aliases at resource birth.
-      // Frames consume that handle without string lookups or allocation.
-      const pick = lease.posePick || NO_RIDER;
-      input[at + I.MOUNT_PRESENT] = 1;
-      input[at + I.MOUNT_ALIVE] = (vehicle || turret).alive ? 1 : 0;
-      input[at + I.MOUNT_ENCLOSED] = turret ? (turret.hidesGunner ? 1 : 0) : node ? 0 : 1;
-      input[at + I.RIDER_SEAT] = lease.index;
-      input[at + I.RIDER_KIND] = kind;
-      input[at + I.RIDER_CLIP] = pick.clip;
-      input[at + I.RIDER_TIMED] = pick.timed ? 1 : 0;
-      input[at + I.RIDER_TIME] = pick.time ?? (turret ? 0 : lease.poseTime ?? vehicle.age);
-      input[at + I.RIDER_NINE] = rider?.ninePose ? 1 : 0;
-      input[at + I.RIDER_YAW] = turret ? turret.yaw : lease.poseYaw ?? seat.aimYaw;
-      input[at + I.RIDER_PITCH] = ownGunner ? turret.pitch + ownGunner.previewPitch : turret ? turret.pitch : lease.posePitch ?? seat.pitch;
-      input[at + I.RIDER_YAW_RATE] = ownGunner ? ownGunner.previewState.yawVel : turret ? turret.yawVel : vehicle.healthType === "animal" ? vehicle.yawRate : seat.yawRate || 0;
-      input[at + I.RIDER_TURN_RATE] = turret ? turret.turnRate : seat.view.turnRate;
-      if (vehicle) {
-        input[at+I.RIDER_HULL_YAW]=lease.poseHullYaw??vehicle.yaw;
-        input[at+I.RIDER_SAMPLE_YAW_RATE]=lease.poseYawRate??seat.yawRate??0;
-        input[at+I.LEASE_FACTS]=lease.poseTime!==undefined?1:0;
-        input[at+I.LEASE_POSITION]=lease.poseX;input[at+I.LEASE_POSITION+1]=lease.poseY;input[at+I.LEASE_POSITION+2]=lease.poseZ;
-        input[at+I.LEASE_HEIGHT]=lease.poseHeight;
-        input[at+I.LEASE_VELOCITY]=lease.poseVx;input[at+I.LEASE_VELOCITY+1]=lease.poseVy;input[at+I.LEASE_VELOCITY+2]=lease.poseVz;
-      }
-      // These are scalar authored limits, not a pose computed by the host.
-      // Native nine-pose selection keeps the seat's wrap convention.
-      if (seat) {
-        input[at + I.RIDER_PITCH_LIMITS] = seat.view.pitchLimits[0]; input[at + I.RIDER_PITCH_LIMITS + 1] = seat.view.pitchLimits[1];
-        const yaw = seat.view.yawLimits;
-        input[at + I.RIDER_HAS_YAW_LIMITS] = yaw ? 1 : 0;
-        if (yaw) { input[at + I.RIDER_YAW_LIMITS] = yaw[0]; input[at + I.RIDER_YAW_LIMITS + 1] = yaw[1]; }
-        input[at + I.RIDER_WRAP_YAW] = seat.view.wrapYaw ? 1 : 0;
-      }
-      if (node) {
-        input[at + I.RIDER] = !turret||liveTurret?1:0;
-        const frame=node.matrixWorld.elements;
-        for (let k = 0; k < 16; k++) input[at + I.RIDER_MATRIX + k] = frame[k];
-        input[at + I.RIDER_ANIMAL] = vehicle?.healthType === "animal" ? 1 : 0;
-        if (vehicle) {
-          vector(input, at + I.RIDER_VELOCITY, vehicle.velocity);
-          input[at + I.RIDER_SPEED] = vehicle.speed;
-          input[at + I.RIDER_AGE] = vehicle.age;
-          input[at + I.RIDER_HOVER_PHASE] = vehicle.hoverPhase;
-          quaternion(input, at + I.RIDER_QUATERNION, vehicle.root.quaternion);
-        }
-      }
+    input[at+I.SOURCE_RIG]=-1;input[at+I.SOURCE_TURRET]=-1;
+    if(vehicle||turret){
+      if(!lease.posePick)this.lease(unit,lease);
+      const ownGunner=turret?.humanGunner,pick=lease.posePick||NO_RIDER;
+      input[at+I.RIDER_LIVE]=own||Boolean(ownGunner)?1:0;
+      input[at+I.RIDER_KIND]=turret?2:1;input[at+I.RIDER_SEAT]=lease.index;
+      input[at+I.RIDER_CLIP]=pick.clip;input[at+I.RIDER_TIMED]=pick.timed?1:0;
+      input[at+I.RIDER_FIXED_TIME]=pick.time===null?0:1;
+      input[at+I.RIDER_TIME]=pick.time??0;
+      input[at+I.RIDER_NINE]=(turret?.rider||vehicle?.seats[lease.index]?.view.rider)?.ninePose?1:0;
+      if(vehicle){
+        // A locally boarded lease also receives the cold native source link.
+        if(lease.sourceRig===undefined)this.lease(unit,lease);
+        input[at+I.SOURCE_RIG]=lease.sourceRig;input[at+I.SOURCE_VERSION]=lease.sourceVersion;
+      }else input[at+I.SOURCE_TURRET]=turret.presentationSource;
     }
+    this.collision.write(row,unit);
     this.writeParent(row, input, at, I.HAS_POSE_PARENT, I.POSE_PARENT);
     this.writeParent(row, input, at, I.HAS_ATTACHMENT_PARENT, I.ATTACHMENT_PARENT);
     return at;
@@ -822,7 +792,7 @@ export class PageUnits {
     this.commandCount = 0;
     if (this.header[H.STATUS]) throw Error(`unit presentation status ${this.header[H.STATUS]}`);
     this.publishNodes();
-    this.publishRows();
+    this.publishRows();this.collision.publish();
   }
   publishSkin(row) {
     // Only a placed row: attached skin bindings are native output too, and
@@ -907,6 +877,12 @@ export class PageUnits {
         if(row.unit)row.unit.tickCount++;
       }
       if (!this.output[out + O.CHANGED]) continue;
+      const aim=row.unit?.combat?.viewAim;
+      if(aim){
+        aim.origin.fromArray(this.output,out+O.COMBAT_BASIS);aim.pivot.fromArray(this.output,out+O.COMBAT_BASIS+3);
+        aim.left.fromArray(this.output,out+O.COMBAT_BASIS+6);aim.up.fromArray(this.output,out+O.COMBAT_BASIS+9);
+        aim.aimDir.fromArray(this.output,out+O.COMBAT_BASIS+12);aim.eyePoint.fromArray(this.output,out+O.COMBAT_EYE);
+      }
       if (!row.stale) this.publishSkin(row);
       p.position.set(
         this.output[out + O.POSITION],

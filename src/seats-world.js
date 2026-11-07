@@ -49,7 +49,7 @@ export class SeatsWorld {
   }
 
   // Where a rider killed on seat `index` of a hull or turret starts to fall
-  // from (his pose's drop point, src/rider-pose.js), into out; null where
+  // from (the native rider sample's drop point), into out; null where
   // none shows.
   riderDrop(holder, index, unit, out) {
     return holder.riderDrop?.(index, unit, out) ?? null;

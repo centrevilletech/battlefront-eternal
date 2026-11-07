@@ -70,5 +70,6 @@ pub mod unit;
 pub mod water;
 pub mod world;
 
+pub mod page_body;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod owner;

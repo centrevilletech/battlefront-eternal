@@ -7,7 +7,7 @@ import * as T from 'three';
 import {buildActor} from '../src/actor.js';
 import {loadClips} from '../src/anim.js';
 import {modelPack} from '../src/models.js';
-import {Droideka} from '../src/droideka.js';
+import {Droideka} from './helpers/droideka.js';
 import {FirstPersonView} from './helpers/presentation.js';
 import {DROIDEKA_OFFSET} from '../src/firstperson.js';
 import {PlayerCombat} from '../src/combat.js';

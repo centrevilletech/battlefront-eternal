@@ -167,6 +167,17 @@ macro_rules! arrays{($($method:ident,$ty:ty,$n:literal);*)=>{$(impl Arguments<'_
 arrays!(f64s,f64,8;f32s,f32,4;u32s,u32,4;i32s,i32,4;u16s,u16,2;u8s,u8,1);
 
 use crate::presentation_bridge::*;
+// Cold owner links borrow distinct resources in their native store. Sorting
+// three stack indices avoids allocation and never aliases mutable owners.
+fn three_owners(rows:&mut [PresentationOwner],a:usize,b:usize,c:usize)->Result<(&mut PresentationOwner,&mut PresentationOwner,&mut PresentationOwner),String>{
+    let mut ids=[a,b,c];ids.sort_unstable();
+    if ids[0]==ids[1]||ids[1]==ids[2]||ids[2]>=rows.len(){return Err("invalid source owner indices".into());}
+    let (low,high)=rows.split_at_mut(ids[2]);let z=&mut high[0];
+    let (low,mid)=low.split_at_mut(ids[1]);let y=&mut mid[0];let x=&mut low[ids[0]];
+    Ok(if a==ids[0]{if b==ids[1]{(x,y,z)}else{(x,z,y)}}
+        else if a==ids[1]{if b==ids[0]{(y,x,z)}else{(y,z,x)}}
+        else if b==ids[0]{(z,x,y)}else{(z,y,x)})
+}
 pub enum PresentationOwner {
     Effects(PagePresentation),
     Units(PageUnits),
@@ -174,6 +185,8 @@ pub enum PresentationOwner {
     Vehicles(PageVehicles),
     Items(PageItems),
     Ordnance(PageOrdnance),
+    Feet(PageFeet),
+    Sniper(PageSniper),
     Network(PageNetwork),
     Warning(PageWarning),
     Lights(PageLights),
@@ -188,6 +201,8 @@ pub enum PresentationCommand {
     Vehicles(PageVehiclesCommand),
     Items(PageItemsCommand),
     Ordnance(PageOrdnanceCommand),
+    Feet(PageFeetCommand),
+    Sniper(PageSniperCommand),
     Network(PageNetworkCommand),
     Warning(PageWarningCommand),
     Lights(PageLightsCommand),
@@ -208,7 +223,7 @@ impl PresentationOwner {
 }
 impl PresentationCommand {pub fn execute(&self,owner:&mut PresentationOwner)->Result<(),String>{match(self,owner){$((Self::$case(c),PresentationOwner::$case(p))=>c.execute(p),)*(Self::Network(c),PresentationOwner::Network(p))=>c.execute(p),(Self::Push,PresentationOwner::Timeline(t))=>{t.push();Ok(())},(Self::Present,PresentationOwner::Timeline(t))=>{t.present();Ok(())},(Self::Reset(e),PresentationOwner::Timeline(t))=>{t.reset(*e);Ok(())},(Self::Remove(e),PresentationOwner::Timeline(t))=>{t.remove(*e);Ok(())},_=>Err("presentation owner type mismatch".into())}}}
 };}
-owners!(Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
+owners!(Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
 impl PresentationOwner {
     pub fn new(class: &str, content: &str, preview: bool) -> Result<Self, String> {
         Ok(match class {
@@ -222,6 +237,8 @@ impl PresentationOwner {
             "pagevehicles" => Self::Vehicles(PageVehicles::new()),
             "pageitems" => Self::Items(PageItems::new()),
             "pageordnance" => Self::Ordnance(PageOrdnance::new()),
+            "pagefeet" => Self::Feet(PageFeet::new()),
+            "pagesniper" => Self::Sniper(PageSniper::new()),
             "pagenetwork" => Self::Network(PageNetwork::new()),
             "pagewarning" => Self::Warning(PageWarning::new()),
             "pagelights" => Self::Lights(PageLights::new(
@@ -430,6 +447,8 @@ fn bindings(args: &[Value], owners: &[Option<usize>]) -> Result<Vec<ArgumentBind
 enum Operation {
     External(ExternalCommand),
     BindNetwork(usize, usize, usize, f64, f64, f64),
+    HeldRider(usize, usize, usize),
+    BindSources(usize, usize, usize),
     PreparedView(
         usize,
         Option<bfe_presentation::unit_content::FirstPersonInput>,
@@ -723,7 +742,16 @@ impl Session {
                             bindings(&args, &result.owners)?,
                         )
                     } else if let Some(id) = result.owners.get(owner).and_then(|r| *r) {
-                        if name == "bind_network" {
+                        if name == "bind_sources" {
+                            let a=Arguments::new(&args,&blobs);
+                            let vehicle=result.owners.get(a.owner(0)?).and_then(|x|*x).ok_or("unknown vehicle source")?;
+                            let props=result.owners.get(a.owner(1)?).and_then(|x|*x).ok_or("unknown prop source")?;
+                            Operation::BindSources(id,vehicle,props)
+                        } else if name == "add_unit_rider" {
+                            let a=Arguments::new(&args,&blobs);
+                            let source=result.owners.get(a.owner(0)?).and_then(|x|*x).ok_or("unknown unit owner")?;
+                            Operation::HeldRider(id,source,a.usize(1)?)
+                        } else if name == "bind_network" {
                             let a = Arguments::new(&args, &blobs);
                             let source = a.owner(0)?;
                             Operation::BindNetwork(
@@ -942,6 +970,19 @@ impl Session {
     pub fn play_range(&mut self, range: std::ops::Range<usize>) -> Result<(), String> {
         for (index, op) in self.ops[range.clone()].iter_mut().enumerate() {
             let outcome = match op {
+                Operation::BindSources(id,vehicles,props)=>{
+                    let (units,vehicles,props)=three_owners(&mut self.presentation,*id,*vehicles,*props)?;
+                    let (PresentationOwner::Units(units),PresentationOwner::Vehicles(vehicles),PresentationOwner::Props(props))=(units,vehicles,props)
+                        else{return Err("invalid rider source owners".into())};
+                    units.bind_sources(vehicles,props);Ok(())
+                }
+                Operation::HeldRider(id,source,actor)=>{
+                    if id==source {return Err("held source cannot be its own unit owner".into());}
+                    let (target,source)=if *id<*source {let(a,b)=self.presentation.split_at_mut(*source);(&mut a[*id],&b[0])}
+                        else{let(a,b)=self.presentation.split_at_mut(*id);(&mut b[0],&a[*source])};
+                    let (PresentationOwner::Props(props),PresentationOwner::Units(units))=(target,source) else{return Err("invalid held source owners".into())};
+                    props.add_unit_rider(units,*actor);Ok(())
+                }
                 Operation::BindNetwork(id, source, slot, entity, generation, kind) => {
                     if id == source {
                         return Err("network cannot bind itself".into());

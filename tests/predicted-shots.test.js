@@ -68,13 +68,15 @@ test('prone cosmetic fire checks held movement, including movement against a wal
 
 test('Droideka fire input samples shared predicted aim without infantry lookRaw or consuming look counts', async()=>{
   const { commandBodyAim } = await import('../src/runtime/command-body-aim.js');
+  const {BodyPreview}=await import('../src/presentation/body.js');
+  const {owner}=await import('./helpers/body.js');
   const { EntityInputSender } = await import('../src/runtime/network-entity-sender.js');
-  const { Droideka } = await import('../src/droideka.js');
+  const { Droideka } = await import('./helpers/droideka.js');
   const f=fixture();
   const body=Object.create(Droideka.prototype);
-  Object.assign(body,{aimYaw:.4,aimPitch:-.2,lookX:7,lookY:9,mode:0});
+  Object.assign(body,{aimYaw:.4,aimPitch:-.2,lookX:7,lookY:9,mode:0,position:new THREE.Vector3(),eyeHeight:1.8});
   f.unit.soldier=body;
-  const preview=Object.create(body), command={tick:10,epoch:1,generation:2,sequence:1,down:['Mouse0'],actions:[],look:[[100,200]],mouseScale:2,invertMouse:true};
+  const preview=new BodyPreview(null,owner(null)), command={tick:10,epoch:1,generation:2,sequence:1,down:['Mouse0'],actions:[],look:[[100,200]],mouseScale:2,invertMouse:true};
   const sender=new EntityInputSender({registry:{},send(){},getAim:c=>commandBodyAim(body,true,preview,c,1,1,false),onFire:(edge,c)=>f.shots.fire(edge,f.unit,c)});
   sender.edges.reset(command.epoch,command.generation);
   sender.fire(command);
@@ -269,7 +271,7 @@ test('only a bolt is drawn ahead of the authority; a rocket shows its flash and 
 });
 
 test('a droideka cosmetic uses the session barrel, converging on the reticle without advancing the checkpoint',async()=>{
-  const { Droideka } = await import('../src/droideka.js');
+  const { Droideka } = await import('./helpers/droideka.js');
   const f=fixture();
   const root=new THREE.Group(); root.position.set(10,0,10); f.scene.add(root);
   const mk=(x)=>{const b=new THREE.Bone(); b.position.set(x,1,0.3); root.add(b); return b;};
@@ -282,6 +284,8 @@ test('a droideka cosmetic uses the session barrel, converging on the reticle wit
   // stayed undrawn, so the droideka showed no bolts at all.
   f.unit.combat.origin.set(999,999,999);
   f.unit.combat.soldier=body;
+  // The native shot-aim batch publishes the eye independently of gun origin.
+  f.unit.combat.eyePoint=new THREE.Vector3(10,1.6,10);
   const predicted={weapon:f.weapon,yaw:0,pitch:0,visualGun:{index:0,barrel:0}};
   assert.equal(f.shots.fire(f.edge,f.unit,{},predicted),true);
   f.setTime(.1);predicted.visualGun={index:1,barrel:0};

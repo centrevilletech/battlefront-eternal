@@ -30,6 +30,7 @@ const CENSUS = {
   'Math.random': {
     'src/ai/random.js': { legacy: 1 },
     'src/arc-lightning.js': { page: 58 },
+    'src/presentation-pkg/bfe_presentation.js': { page: 1 }, // native sniper cosmetic random primitive
     'src/presentation/cameras.js': { page: 1 }, // injectable cosmetic shake stream
     'src/sim/module.js': { page: 1 }, // binds the camera's standard random primitive
     'src/commandposts.js': { page: 2 }, // the post holograms' flicker (CommandPosts.present)
@@ -39,7 +40,6 @@ const CENSUS = {
     'src/lightning.js': { page: 1 },
     'src/player-body.js': { page: 2 }, // the spawn screen's preview fidgets
     'src/props.js': { page: 3 }, // build holograms' flicker, the power droids' idle turn (LiveObjects.present)
-    'src/sniper-trace.js': { page: 10 },
     'src/vehicle-effects.js': { page: 1 },
   },
   'performance.now': {

@@ -170,6 +170,7 @@ struct Trap {
 }
 
 pub struct Props {
+    pub sources:crate::rider_sources::SharedProps,
     clips: Vec<Clip>,
     props: Vec<Prop>,
     traps: Vec<Trap>,
@@ -207,6 +208,7 @@ impl Default for Props {
 impl Props {
     pub fn new() -> Props {
         Props {
+            sources:Default::default(),
             clips: Vec::new(),
             props: Vec::new(),
             traps: Vec::new(),
@@ -258,6 +260,7 @@ impl Props {
         self.bones.extend_from_slice(&d.initial);
         let mut bind = d.bind;
         bind.resize(bones * 7, 0.0);
+        self.sources.borrow_mut().held.push(crate::rider_sources::Held::default());
         self.props.push(Prop {
             scene: crate::scene::Scene::new(d.scene, &mut self.nodes),
             pose: Pose::new(bones, d.root),
@@ -296,6 +299,16 @@ impl Props {
         self.prop_output[row+po::NODE_START] = scene.start as f64;
         self.prop_output[row+po::NODE_COUNT] = scene.nodes.len() as f64;
         self.props.len() - 1
+    }
+    /// PageProps.rider imports no page bone description. The unit resource
+    /// already owns the names, binds and hierarchy needed by held sampling.
+    pub fn add_unit_rider(&mut self, source:&Skeleton,rig:&bfe_pose::display::DisplayRig)->usize {
+        let skeleton=RiderSkeleton::new(source);
+        let scratch=RiderScratch::new(&skeleton);
+        self.riders.push(Rider{skeleton,scratch,
+            q:rig.bones.iter().map(|&id|rig.tree.node(id).quaternion).collect(),
+            p:rig.bones.iter().map(|&id|rig.tree.node(id).position).collect()});
+        self.riders.len()-1
     }
     /// A held soldier's skeleton (his class's, registered at his first
     /// seizure). Returns its handle for PropInput.RIDER.
@@ -355,6 +368,7 @@ impl Props {
     pub fn add_turret(&mut self, d: crate::turrets::Descriptor) -> usize {
         let turret = crate::turrets::Turret::new(d, &mut self.nodes);
         let start = turret.scene.start;
+        self.sources.borrow_mut().turrets.push(crate::rider_sources::Source::default());
         self.turrets.push(turret);
         self.turret_input.resize(self.turrets.len() * crate::layout::turret_presentation_input::STRIDE, 0.0);
         start
@@ -380,6 +394,7 @@ impl Props {
         for (i, turret) in self.turrets.iter_mut().enumerate() {
             let start = i * crate::layout::turret_presentation_input::STRIDE;
             turret.present(&self.turret_input[start..], &mut self.nodes);
+            self.sources.borrow_mut().turrets[i]=turret.rider_source(&self.turret_input[start..]);
         }
         let dt = self.input[fr::DT];
         let tick = self.input[fr::TICK];
@@ -465,6 +480,10 @@ impl Props {
             }
         }
         self.header[ph::EVENTS] = events as f64;
+        // Source rows publish after every prop has resolved its grab frame.
+        // Unit display borrows these values directly in its subsequent phase.
+        let mut sources=self.sources.borrow_mut();
+        for index in 0..self.props.len(){sources.held(index,&self.prop_output[index*po::STRIDE..][..po::STRIDE]);}
     }
 }
 

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { ENGINE, Soldier } from '../src/soldier.js';
+import { ENGINE, Soldier } from './helpers/body.js';
 
 function retailWorld(name) {
   const dir = contentURL(`maps/${name}/`);

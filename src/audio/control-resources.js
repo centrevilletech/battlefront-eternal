@@ -1,4 +1,4 @@
-import { cycleHeights } from "../vehicle-feet.js";
+import { cycleHeights } from "../presentation/feet.js";
 import { classSetting } from "../vehicle-motion.js";
 import * as L from "./control-layout.js";
 import { hashKey, keyOf } from "./hash.js";
@@ -169,7 +169,6 @@ export class ControlResources {
   // The existing rig loader supplies asset height samples at attachment.
   // This is separate from live pose capture: native feet.rs constructs the
   // schedule and reads every frame crossing, plant and primitive position.
-  // The same JS sampler still has a real visual stomp-effects caller.
   prepareFeet(v,host) {
     const cls = this.class(v.name); if (cls < 0 || this.preparedFeet.has(cls)) return;
     this.preparedFeet.add(cls); const feet = v.def?.fx?.feet || [], rules = v.def?.fx?.stomp || {};

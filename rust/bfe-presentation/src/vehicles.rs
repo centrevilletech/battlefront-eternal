@@ -126,11 +126,18 @@ pub struct MuzzleInput {
     /// BarrelRecoil (0: no kick).
     pub recoil: f64,
 }
+/// Immutable rider geometry belongs to the same native hull rig. Node
+/// indices use the published tree order, including non-bone saddle nodes.
+#[derive(Deserialize,Default,Clone,Copy)]
+#[serde(rename_all="camelCase")]
+pub struct RiderSeat {pub node:i32,pub turn_rate:f64,pub pitch_limits:[f64;2],pub yaw_limits:Option<[f64;2]>,pub wrap:bool}
 /// A seat as poseSeat reads it (seatView: the turret node, its up at rest
 /// and the turn factors).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SeatInput {
+    #[serde(default)]
+    pub rider:Option<RiderSeat>,
     /// TurretNodeName's bone (-1: none).
     pub turret: i32,
     /// The turret's up at rest.
@@ -208,6 +215,10 @@ pub struct NodeInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RigInput {
+    #[serde(default)]
+    pub source_height:f64,
+    #[serde(default)]
+    pub source_animal:bool,
     /// The rig's bones, by index.
     pub bones: Vec<BoneInput>,
     /// The root's Euler order: true for 'YXZ'.
@@ -272,6 +283,7 @@ struct Aimer {
 }
 /// A seat's turret and its weapons' aimers.
 struct Seat {
+    rider:Option<RiderSeat>,
     /// The turret node, None for none.
     turret: Option<NodeId>,
     /// Its up at rest.
@@ -306,6 +318,7 @@ struct GearClock {
 /// One hull's rig and what its frame keeps: the tree, its bind, its clips
 /// and samplers, and the pose it was last drawn in alive (presentDying).
 struct Rig {
+    source_height:f64,source_animal:bool,
     /// The root and bones, the scene above the root (an identity, as three
     /// multiplies it in), by bone index.
     tree: TransformTree,
@@ -412,6 +425,7 @@ impl Rig {
 /// The page's hull phase: loaded clips, registered rigs, and the records
 /// the host writes and reads each frame.
 pub struct Vehicles {
+    pub sources:crate::rider_sources::SharedVehicles,
     pub network:crate::network::Bindings,
     clips: Vec<Clip>,
     rigs: Vec<Rig>,
@@ -472,6 +486,7 @@ impl Default for Vehicles {
 impl Vehicles {
     pub fn new() -> Vehicles {
         Vehicles {
+            sources:Default::default(),
             network:Default::default(),
             clips: Vec::new(),
             rigs: Vec::new(),
@@ -566,6 +581,7 @@ impl Vehicles {
                 }
             }
             seats.push(Seat {
+                rider:s.rider,
                 turret: node(s.turret),
                 up: Vector3::new(s.up[0], s.up[1], s.up[2]),
                 yaw_factor: s.yaw_factor,
@@ -583,6 +599,7 @@ impl Vehicles {
             l.bones.resize(l.at.len(), Vec::new());
         }
         let mut rig = Rig {
+            source_height:d.source_height,source_animal:d.source_animal,
             tree,
             root,
             nodes,
@@ -624,6 +641,7 @@ impl Vehicles {
         }
         // Each entry asks for at most its feet's rays and one ground ray.
         self.per_entry = self.per_entry.max(rig.pairs() * 2 + 1);
+        self.sources.borrow_mut().rig(rig.seats.len());
         self.rigs.push(rig);
         self.input.resize(vf::STRIDE + self.entries_capacity() * ve::STRIDE, 0.0);
         let rays = self.entries_capacity() * self.per_entry;
@@ -726,6 +744,8 @@ impl Vehicles {
                 }
             }
         }
+        let mut sources=self.sources.borrow_mut();sources.epoch+=1.0;
+        self.header[vh::SOURCE_EPOCH]=sources.epoch;
         for e in 0..entries {
             let Some((rig, slot, i, o)) = self.entry(e) else { continue };
             let at = vf::STRIDE + e * ve::STRIDE;
@@ -751,6 +771,24 @@ impl Vehicles {
             r.tree.update_matrix_world(root, true);
             root_out(r, out);
             publish(r, out);
+            // A lease names this publication's revision. Its immutable sample
+            // remains available while later hull/prediction batches advance.
+            if m==mode::ALIVE as f64||m==mode::RENDER as f64 {
+                for (number,seat) in r.seats.iter().enumerate(){
+                    let at=r.in_seats()+number*si::STRIDE;let authored=seat.rider.as_ref();
+                    let node=authored.and_then(|d|(d.node>=0).then(||r.nodes.get(d.node as usize).copied()).flatten());
+                    let frame=node.map_or(Matrix4::default(),|node|r.tree.node(node).matrix_world);
+                    let position=if node.is_some(){Vector3::new(frame.elements[12],frame.elements[13],frame.elements[14])}
+                        else{Vector3::new(x[ve::POSITION],x[ve::POSITION+1],x[ve::POSITION+2])};
+                    sources.publish(rig,number,crate::rider_sources::Source{frame,position,
+                        velocity:Vector3::new(x[ve::VELOCITY],x[ve::VELOCITY+1],x[ve::VELOCITY+2]),
+                        quaternion:r.tree.node(r.root).quaternion,age:out[eo::AGE],yaw:sin[at+si::AIM_YAW],pitch:sin[at+si::PITCH],
+                        hull_yaw:x[ve::YAW],yaw_rate:sin[at+si::YAW_RATE],hull_yaw_rate:x[ve::SOURCE_YAW_RATE],
+                        speed:x[ve::SPEED],hover_phase:x[ve::HOVER_PHASE],height:if node.is_some(){0.0}else{r.source_height},
+                        animal:r.source_animal,shown:node.is_some(),turn_rate:authored.map_or(0.0,|d|d.turn_rate),
+                        pitch_limits:authored.map_or([0.0;2],|d|d.pitch_limits),yaw_limits:authored.and_then(|d|d.yaw_limits),wrap:authored.is_some_and(|d|d.wrap)});
+                }
+            }
         }
     }
 }

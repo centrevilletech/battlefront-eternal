@@ -2,7 +2,7 @@ import { VehicleCamera } from './helpers/cameras.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { navigateMissile } from '../src/flight/targeting.js';

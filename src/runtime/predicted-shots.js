@@ -91,22 +91,19 @@ export class PredictedShots {
         const at=selected ? soldier.visualGunAt(origin,selected) : null;
         if(at){
           if(combat.firstPerson)combat.view?.muzzlePoint?.(selected,origin);
-          const eye=soldier.eye?soldier.eye(soldier.position,new THREE.Vector3()):origin.clone();
+          const eye=combat.eyePoint.clone();
           const seen={point:new THREE.Vector3(),normal:new THREE.Vector3()};
           const contact=this.collision?.cast(eye,direction,512,seen);
           const target=eye.addScaledVector(direction,contact?contact.distance:512);
           const converged=new THREE.Vector3().subVectors(target,origin).normalize();
           if(converged.toArray().every(Number.isFinite)&&converged.dot(direction)>0)direction.copy(converged);
         } else origin=combat.firePoint(weapon)?.position?.clone() || combat.origin.clone();
-      } else if(combat.aimBasis){
-        // The round leaves the gun origin beside the head, as the
-        // authority's does (PlayerCombat.aimBasis, this tick's pose), and is
-        // drawn from the gun as this page poses it, joining that path over
-        // MERGE as every other bolt does (Ordnance.bolt's visual muzzle), so
-        // it lands, and meets soldiers, where the authority's round does.
-        muzzle=combat.firePoint(weapon)?.position?.clone() ?? null;
-        combat.aimBasis();origin=combat.origin.clone();
-      } else origin=combat.firePoint(weapon)?.position?.clone() || combat.origin.clone();
+      } else {
+        // The replay's native aim batch published this firing pose before
+        // its notice. The displayed muzzle remains a resource lookup.
+        muzzle=combat.firePoint(weapon)?.position?.clone()??null;
+        origin=combat.origin.clone();
+      }
     }
     if(!origin)return false;
     if(predictedShot){

@@ -7,7 +7,7 @@ import { Object3D } from 'three';
 import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { EntitySeats } from '../src/runtime/entity-seats.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 import {presentUnit,unitHost} from './helpers/presentation.js';
 import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { PlayerCombat } from '../src/combat.js';

@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 import { SOLDIER_COLLISION, DROIDEKA_COLLISION, collisionRule } from '../src/collision-damage.js';
 
@@ -29,7 +29,7 @@ function drop(world, h, def = {}) {
   const s = new Soldier(world, def);
   s.spawn(0, 0, 0, 0);
   s.position.set(0, h, 0); s.settled.copy(s.position); s.previous.copy(s.position);
-  s.velocity.set(0, 0, 0); s.setAir('fall'); s.grounded = false;
+  s.velocity.set(0, 0, 0); s.air='fall';s.posture='stand';s.stateTime=0; s.grounded = false;
   const input = { forward: 0, right: 0, turn: 0 };
   let damage = 0, impact = 0;
   for (let t = 0; t < 600 && !s.grounded; t++) {

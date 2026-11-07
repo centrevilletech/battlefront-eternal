@@ -8,7 +8,7 @@
   for(const name of ['Float64Array','Float32Array','Uint32Array','Int32Array','Uint16Array','Uint8Array']){
     const Original=window[name];window[name]=new Proxy(Original,{construct(Target,args){const a=Reflect.construct(Target,args);if(args[0] instanceof ArrayBuffer&&args.length>1){let map=arrayViews.get(a.buffer);if(!map)arrayViews.set(a.buffer,map=new Map());map.set(a.byteOffset,Math.max(map.get(a.byteOffset)||0,a.byteLength));}return a;}});Object.defineProperty(Original.prototype,'constructor',{value:window[name],writable:true,configurable:true});
   }
-  const writable={pageunits:['input','header','commands','places','weapons'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
+  const writable={pageunits:['input','header','commands','places','weapons','collision_input'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],pagefeet:['input'],pagesniper:['input','matches'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
   const contextId=gl=>{if(!contexts.has(gl))contexts.set(gl,contexts.size);return contexts.get(gl);};
   const scalar={f64:Float64Array,f32:Float32Array,u32:Uint32Array,i32:Int32Array,u16:Uint16Array,u8:Uint8Array};
   const remember=(m,kind,ptr,context,args,preview=false)=>{
@@ -75,7 +75,7 @@
     if(type==='&str'){return [new TextDecoder().decode(new Uint8Array(m.real.memory.buffer,raw[at],raw[at+1])),2];}
     const t=type.match(/^(?:&\[|Vec<)(\w+)[\]>]$/)?.[1];
     if(t){return [saved(new Uint8Array(m.real.memory.buffer,raw[at],raw[at+1]*scalar[t].BYTES_PER_ELEMENT)),2];}
-    if(type==='&PageNetwork'){const row=owners.get('pagenetwork:'+m.id+':'+raw[at]);if(!row)throw Error('unknown network');return [{owner:row.id},1];}
+    if(type.startsWith('&Page')){const row=owners.get(type.slice(1).toLowerCase()+':'+m.id+':'+raw[at]);if(!row)throw Error('unknown presentation source');return [{owner:row.id},1];}
     if(type.includes('GpuResources')){const row=owners.get('gpuresources:'+m.id+':'+raw[at]);if(!row)throw Error('unknown resources');return [{owner:row.id},1];}
     if(type==='pixels'||type==='encoded'){return [saved(raw[at]),1];}
     if(type==='canvas'){const c=raw[at];return [blob(c.getContext('2d').getImageData(0,0,c.width,c.height).data),1];}
@@ -96,15 +96,20 @@
       if(kind==='gpuresources'&&name==='framebuffer'){
         e[key]=(...raw)=>{const out=fn(...raw);if(!out[2]){const handle=m.real.__wbindgen_externrefs.get(out[0]),row=owners.get(kind+':'+m.id+':'+raw[0]);framebuffers.set(handle,{owner:row.id,target:raw[1],multisample:!!raw[2],face:raw[3]});}return out;};continue;
       }
-      if(!spec){if(ignored.has(name)||['actor_node_start','actor_skin_start','view_node_start','slot_input','slot_output','entries_capacity','feet_at','bodies_at','handles_len'].includes(name))continue;
+      if(!spec){if(ignored.has(name)||kind==='pagefeet'&&name==='heights'||['actor_node_start','actor_skin_start','view_node_start','slot_input','slot_output','entries_capacity','feet_at','bodies_at','handles_len'].includes(name))continue;
         e[key]=(...raw)=>{if(!name.startsWith('__'))state.errors.push('unhandled '+key);return fn(...raw);};continue;}
       e[key]=(...raw)=>{
         const row=owners.get(kind+':'+m.id+':'+raw[0]);if(!row)throw Error('unregistered '+key);
-        flush(row);const args=[];let at=1;
-        for(const [n,t]of spec.args){const [value,count]=arg(m,kind,t,raw,at);args.push(value);at+=count;}
+        flush(row);const args=[];let at=1;const randomCall=kind==='pagesniper'&&['collect','frame'].includes(name);
+        for(const [n,t]of spec.args){if(randomCall&&n==='random')continue;const [value,count]=arg(m,kind,t,raw,at);args.push(value);at+=count;}
         const checkNames=kind==='bferenderer'&&['frame','mirror_frame','view_frame'].includes(name)?['input','bones']:kind==='bferenderer'&&name==='hud_frame'?['hud_model_input','hud_input','hud_position','hud_uv','hud_mask_uv','hud_tint']:[];
         const checks=views(row).filter(b=>checkNames.includes(b.name)).map(b=>({bank:b.name,data:blob(b.view)}));
-        state.calls.push({kind:'call',owner:row.id,name,args,checks});state.depth++;let out;try{out=fn(...raw);}finally{state.depth--;}
+        state.calls.push({kind:'call',owner:row.id,name,args,checks});
+        // The numeric phase owns when random draws occur. Capture its scalar
+        // service answers alongside the call, leaving the live stream intact.
+        const samples=randomCall?[]:null,previousRandom=Math.random;
+        if(samples)Math.random=()=>{const value=previousRandom();samples.push(value);return value;};
+        state.depth++;let out;try{out=fn(...raw);}finally{state.depth--;if(samples){Math.random=previousRandom;args.push(blob(new Uint8Array(Float64Array.from(samples).buffer)));}}
         if(kind==='bferenderer'&&spec.result.includes('core::Stats')&&!out[3]){const stats=new Uint32Array(m.real.memory.buffer,out[0],out[1]);const totals=state.passDraws[row.id]??=defaults.stats.names.map(()=>0);for(let i=0;i<totals.length;i++)totals[i]+=stats[defaults.stats.prefix+i];}
         if(kind==='bferenderer'&&['battle_frame','frame_aux_frame'].includes(name)&&out){const stats=new Float64Array(m.real.memory.buffer,m.real.bferenderer_frame_stats_ptr(row.ptr),m.real.bferenderer_frame_stats_len(row.ptr));const totals=state.passDraws[row.id]??=defaults.stats.names.map(()=>0);const stride=defaults.stats.prefix+totals.length;for(let at=name==='frame_aux_frame'?args[1]*stride:0,end=name==='frame_aux_frame'?Math.min(stats.length,(args[1]+1)*stride):stats.length;at<end;at+=stride)for(let i=0;i<totals.length;i++)totals[i]+=stats[at+defaults.stats.prefix+i];}
         if(name==='interface_buffer_init'){(row.streams??=[]).push(out);}

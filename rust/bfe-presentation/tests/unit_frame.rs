@@ -8,6 +8,7 @@ use bfe_presentation::{
     unit_content::{Bone, ClipInput, FirstPersonInput, Input, TableInput},
     units::Units,
 };
+use bfe_presentation::layout::unit_collision_input as ci;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 thread_local! {static TRACK:Cell<bool>=const{Cell::new(false)};static ALLOCS:Cell<usize>=const{Cell::new(0)};}
@@ -126,6 +127,13 @@ fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
         units.commands[c::ACTOR] = (frame % 32) as f64;
         units.commands[c::KIND] = if frame % 30 == 0 { k::RESET } else { k::FIRE } as f64;
         for row in 0..32 {
+            let collision=row*ci::STRIDE;
+            units.collision.input[collision+ci::ENABLED]=1.0;
+            units.collision.input[collision+ci::TICK]=frame as f64;
+            units.collision.input[collision+ci::GENERATION]=1.0;
+            units.collision.input[collision+ci::SCALE]=1.0;
+            units.collision.input[collision+ci::YAW]=frame as f64*0.001;
+            units.collision.input[collision+ci::SOURCE_PROP]=-1.0;
             let at = f::STRIDE + row * i::STRIDE;
             // Exercise first attach, detach and a parent move between the
             // two phases as interface layout does, without growing children.
@@ -160,6 +168,7 @@ fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
             units.input[at + i::GENERATION] = if frame < 300 { 1.0 } else { 2.0 };
         }
         units.pose_frame();
+        units.collision_frame();
         posed |= units.header[h::CHANGED] > 0.0;
         units.attachment_frame();
         valid &= units.header[h::STATUS] == 0.0;

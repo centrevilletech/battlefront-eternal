@@ -5821,33 +5821,6 @@ impl FfTow {
     }
 }
 
-impl F2RiderBone {
-    /// Its fields from a value (the export of the JavaScript object).
-    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
-        object(v, path)?;
-        Ok(F2RiderBone {
-            name: { let p = format!("{path}.name"); cx.str_in(v.get("name"), &p)? },
-            parent: { let p = format!("{path}.parent"); (int(v.get("parent"), &p, i32::MIN as f64, i32::MAX as f64)? as i32) },
-            p: { let p = format!("{path}.p"); vec3(v.get("p"), &p)? },
-            q: { let p = format!("{path}.q"); quat(v.get("q"), &p)? },
-            s: { let p = format!("{path}.s"); vec3(v.get("s"), &p)? },
-            bind: { let p = format!("{path}.bind"); match v.get("bind").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("bind"), &p)?) } },
-        })
-    }
-
-    /// Its value, as the export of the JavaScript object it stands for.
-    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
-        { let x = cx.str_out(self.name); fields.push(("name", x)); }
-        { let x = Value::Num(self.parent as f64); fields.push(("parent", x)); }
-        { let x = a.vec3(self.p); fields.push(("p", x)); }
-        { let x = a.quat(self.q); fields.push(("q", x)); }
-        { let x = a.vec3(self.s); fields.push(("s", x)); }
-        { let x = match &self.bind { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("bind", x)); }
-        a.object("", fields)
-    }
-}
-
 impl F2RiderClip {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -5883,20 +5856,16 @@ impl F2RiderBirth {
             unit: { let p = format!("{path}.unit"); Unit::ref_in(v.get("unit"), cx, &p)? },
             life: { let p = format!("{path}.life"); num(v.get("life"), &p)? },
             scale: { let p = format!("{path}.scale"); num(v.get("scale"), &p)? },
-            root_bind: { let p = format!("{path}.rootBind"); match v.get("rootBind").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("rootBind"), &p)?) } },
-            bones: { let p = format!("{path}.bones"); { let mut out = Vec::new(); for (i, e) in list(v.get("bones"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(F2RiderBone::from_value(e, cx, &at)?); } out } },
             clips: { let p = format!("{path}.clips"); { let mut out = Vec::new(); for (i, e) in list(v.get("clips"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(F2RiderClip::from_value(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Unit::ref_out(self.unit, cx, a); fields.push(("unit", x)); }
         { let x = Value::Num(self.life); fields.push(("life", x)); }
         { let x = Value::Num(self.scale); fields.push(("scale", x)); }
-        { let x = match &self.root_bind { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("rootBind", x)); }
-        { let x = { let mut items = Vec::new(); for e in self.bones.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("bones", x)); }
         { let x = { let mut items = Vec::new(); for e in self.clips.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("clips", x)); }
         a.object("", fields)
     }
@@ -14370,6 +14339,246 @@ impl TrActionResult {
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
         { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        a.object("", fields)
+    }
+}
+
+impl BodyPreviewFrame {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(BodyPreviewFrame {
+            aim_yaw: { let p = format!("{path}.aimYaw"); num(v.get("aimYaw"), &p)? },
+            aim_pitch: { let p = format!("{path}.aimPitch"); num(v.get("aimPitch"), &p)? },
+            source_yaw: { let p = format!("{path}.sourceYaw"); num(v.get("sourceYaw"), &p)? },
+            source_pitch: { let p = format!("{path}.sourcePitch"); num(v.get("sourcePitch"), &p)? },
+            source_basis: { let p = format!("{path}.sourceBasis"); numbers::<15>(v.get("sourceBasis"), &p)? },
+            max_turn: { let p = format!("{path}.maxTurn"); num(v.get("maxTurn"), &p)? },
+            pitch_limits: { let p = format!("{path}.pitchLimits"); numbers::<2>(v.get("pitchLimits"), &p)? },
+            posture: { let p = format!("{path}.posture"); Posture::from_u8(name_of(v.get("posture"), &Posture::NAMES, &p)?).unwrap() },
+            air: { let p = format!("{path}.air"); match v.get("air").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Air::from_u8(name_of(v.get("air"), &Air::NAMES, &p)?).unwrap()) } },
+            dive: { let p = format!("{path}.dive"); num(v.get("dive"), &p)? },
+            lock: { let p = format!("{path}.lock"); num(v.get("lock"), &p)? },
+            tick_length: { let p = format!("{path}.tickLength"); num(v.get("tickLength"), &p)? },
+            look_x: { let p = format!("{path}.lookX"); num(v.get("lookX"), &p)? },
+            look_y: { let p = format!("{path}.lookY"); num(v.get("lookY"), &p)? },
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+            skipped: { let p = format!("{path}.skipped"); (int(v.get("skipped"), &p, 0.0, u32::MAX as f64)? as u32) },
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            feet: { let p = format!("{path}.feet"); vec3(v.get("feet"), &p)? },
+            zoom: { let p = format!("{path}.zoom"); num(v.get("zoom"), &p)? },
+            walker: { let p = format!("{path}.walker"); boolean(v.get("walker"), &p)? },
+            eye_height: { let p = format!("{path}.eyeHeight"); num(v.get("eyeHeight"), &p)? },
+            rolled: { let p = format!("{path}.rolled"); boolean(v.get("rolled"), &p)? },
+            camera: { let p = format!("{path}.camera"); vec3(v.get("camera"), &p)? },
+            has_camera: { let p = format!("{path}.hasCamera"); boolean(v.get("hasCamera"), &p)? },
+            uses_eye: { let p = format!("{path}.usesEye"); boolean(v.get("usesEye"), &p)? },
+            track_offsets: { let p = format!("{path}.trackOffsets"); numbers::<3>(v.get("trackOffsets"), &p)? },
+            basis: { let p = format!("{path}.basis"); numbers::<15>(v.get("basis"), &p)? },
+            eye: { let p = format!("{path}.eye"); vec3(v.get("eye"), &p)? },
+            from: { let p = format!("{path}.from"); vec3(v.get("from"), &p)? },
+            needs_reach: { let p = format!("{path}.needsReach"); boolean(v.get("needsReach"), &p)? },
+            reach: { let p = format!("{path}.reach"); num(v.get("reach"), &p)? },
+            shot_yaw: { let p = format!("{path}.shotYaw"); num(v.get("shotYaw"), &p)? },
+            shot_pitch: { let p = format!("{path}.shotPitch"); num(v.get("shotPitch"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(33);
+        { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
+        { let x = Value::Num(self.aim_pitch); fields.push(("aimPitch", x)); }
+        { let x = Value::Num(self.source_yaw); fields.push(("sourceYaw", x)); }
+        { let x = Value::Num(self.source_pitch); fields.push(("sourcePitch", x)); }
+        { let x = { let items = self.source_basis.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("sourceBasis", x)); }
+        { let x = Value::Num(self.max_turn); fields.push(("maxTurn", x)); }
+        { let x = { let items = self.pitch_limits.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("pitchLimits", x)); }
+        { let x = Value::Str(Posture::NAMES[self.posture as usize].to_string()); fields.push(("posture", x)); }
+        { let x = match &self.air { Some(v) => Value::Str(Air::NAMES[(*v) as usize].to_string()), None => Value::Null }; fields.push(("air", x)); }
+        { let x = Value::Num(self.dive); fields.push(("dive", x)); }
+        { let x = Value::Num(self.lock); fields.push(("lock", x)); }
+        { let x = Value::Num(self.tick_length); fields.push(("tickLength", x)); }
+        { let x = Value::Num(self.look_x); fields.push(("lookX", x)); }
+        { let x = Value::Num(self.look_y); fields.push(("lookY", x)); }
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = Value::Num(self.skipped as f64); fields.push(("skipped", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.feet); fields.push(("feet", x)); }
+        { let x = Value::Num(self.zoom); fields.push(("zoom", x)); }
+        { let x = Value::Bool(self.walker); fields.push(("walker", x)); }
+        { let x = Value::Num(self.eye_height); fields.push(("eyeHeight", x)); }
+        { let x = Value::Bool(self.rolled); fields.push(("rolled", x)); }
+        { let x = a.vec3(self.camera); fields.push(("camera", x)); }
+        { let x = Value::Bool(self.has_camera); fields.push(("hasCamera", x)); }
+        { let x = Value::Bool(self.uses_eye); fields.push(("usesEye", x)); }
+        { let x = { let items = self.track_offsets.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("trackOffsets", x)); }
+        { let x = { let items = self.basis.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("basis", x)); }
+        { let x = a.vec3(self.eye); fields.push(("eye", x)); }
+        { let x = a.vec3(self.from); fields.push(("from", x)); }
+        { let x = Value::Bool(self.needs_reach); fields.push(("needsReach", x)); }
+        { let x = Value::Num(self.reach); fields.push(("reach", x)); }
+        { let x = Value::Num(self.shot_yaw); fields.push(("shotYaw", x)); }
+        { let x = Value::Num(self.shot_pitch); fields.push(("shotPitch", x)); }
+        a.object("", fields)
+    }
+}
+
+impl BodyLook {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(BodyLook {
+            dx: { let p = format!("{path}.dx"); num(v.get("dx"), &p)? },
+            dy: { let p = format!("{path}.dy"); num(v.get("dy"), &p)? },
+            scale: { let p = format!("{path}.scale"); num(v.get("scale"), &p)? },
+            invert: { let p = format!("{path}.invert"); boolean(v.get("invert"), &p)? },
+            raw: { let p = format!("{path}.raw"); boolean(v.get("raw"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Num(self.dx); fields.push(("dx", x)); }
+        { let x = Value::Num(self.dy); fields.push(("dy", x)); }
+        { let x = Value::Num(self.scale); fields.push(("scale", x)); }
+        { let x = Value::Bool(self.invert); fields.push(("invert", x)); }
+        { let x = Value::Bool(self.raw); fields.push(("raw", x)); }
+        a.object("", fields)
+    }
+}
+
+impl BodySpawnOutput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(BodySpawnOutput {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            previous: { let p = format!("{path}.previous"); vec3(v.get("previous"), &p)? },
+            settled: { let p = format!("{path}.settled"); vec3(v.get("settled"), &p)? },
+            velocity: { let p = format!("{path}.velocity"); vec3(v.get("velocity"), &p)? },
+            normal: { let p = format!("{path}.normal"); vec3(v.get("normal"), &p)? },
+            origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
+            aim_yaw: { let p = format!("{path}.aimYaw"); num(v.get("aimYaw"), &p)? },
+            aim_pitch: { let p = format!("{path}.aimPitch"); num(v.get("aimPitch"), &p)? },
+            posture: { let p = format!("{path}.posture"); Posture::from_u8(name_of(v.get("posture"), &Posture::NAMES, &p)?).unwrap() },
+            air: { let p = format!("{path}.air"); match v.get("air").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Air::from_u8(name_of(v.get("air"), &Air::NAMES, &p)?).unwrap()) } },
+            dive: { let p = format!("{path}.dive"); num(v.get("dive"), &p)? },
+            state_time: { let p = format!("{path}.stateTime"); num(v.get("stateTime"), &p)? },
+            lock: { let p = format!("{path}.lock"); num(v.get("lock"), &p)? },
+            fuel: { let p = format!("{path}.fuel"); num(v.get("fuel"), &p)? },
+            grounded: { let p = format!("{path}.grounded"); boolean(v.get("grounded"), &p)? },
+            ground_adjustment: { let p = format!("{path}.groundAdjustment"); num(v.get("groundAdjustment"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(16);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.settled); fields.push(("settled", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = a.vec3(self.normal); fields.push(("normal", x)); }
+        { let x = a.vec3(self.origin); fields.push(("origin", x)); }
+        { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
+        { let x = Value::Num(self.aim_pitch); fields.push(("aimPitch", x)); }
+        { let x = Value::Str(Posture::NAMES[self.posture as usize].to_string()); fields.push(("posture", x)); }
+        { let x = match &self.air { Some(v) => Value::Str(Air::NAMES[(*v) as usize].to_string()), None => Value::Null }; fields.push(("air", x)); }
+        { let x = Value::Num(self.dive); fields.push(("dive", x)); }
+        { let x = Value::Num(self.state_time); fields.push(("stateTime", x)); }
+        { let x = Value::Num(self.lock); fields.push(("lock", x)); }
+        { let x = Value::Num(self.fuel); fields.push(("fuel", x)); }
+        { let x = Value::Bool(self.grounded); fields.push(("grounded", x)); }
+        { let x = Value::Num(self.ground_adjustment); fields.push(("groundAdjustment", x)); }
+        a.object("", fields)
+    }
+}
+
+impl DroidekaSpawn {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(DroidekaSpawn {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            has_shield: { let p = format!("{path}.hasShield"); boolean(v.get("hasShield"), &p)? },
+            shield_max: { let p = format!("{path}.shieldMax"); num(v.get("shieldMax"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Bool(self.has_shield); fields.push(("hasShield", x)); }
+        { let x = Value::Num(self.shield_max); fields.push(("shieldMax", x)); }
+        a.object("", fields)
+    }
+}
+
+impl DroidekaSpawnOutput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(DroidekaSpawnOutput {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            previous: { let p = format!("{path}.previous"); vec3(v.get("previous"), &p)? },
+            settled: { let p = format!("{path}.settled"); vec3(v.get("settled"), &p)? },
+            velocity: { let p = format!("{path}.velocity"); vec3(v.get("velocity"), &p)? },
+            aim_yaw: { let p = format!("{path}.aimYaw"); num(v.get("aimYaw"), &p)? },
+            aim_pitch: { let p = format!("{path}.aimPitch"); num(v.get("aimPitch"), &p)? },
+            legs: { let p = format!("{path}.legs"); num(v.get("legs"), &p)? },
+            spin: { let p = format!("{path}.spin"); num(v.get("spin"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            mode: { let p = format!("{path}.mode"); num(v.get("mode"), &p)? },
+            time: { let p = format!("{path}.time"); num(v.get("time"), &p)? },
+            reverse: { let p = format!("{path}.reverse"); boolean(v.get("reverse"), &p)? },
+            shield_value: { let p = format!("{path}.shieldValue"); num(v.get("shieldValue"), &p)? },
+            shield_on: { let p = format!("{path}.shieldOn"); boolean(v.get("shieldOn"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.settled); fields.push(("settled", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
+        { let x = Value::Num(self.aim_pitch); fields.push(("aimPitch", x)); }
+        { let x = Value::Num(self.legs); fields.push(("legs", x)); }
+        { let x = Value::Num(self.spin); fields.push(("spin", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Num(self.mode); fields.push(("mode", x)); }
+        { let x = Value::Num(self.time); fields.push(("time", x)); }
+        { let x = Value::Bool(self.reverse); fields.push(("reverse", x)); }
+        { let x = Value::Num(self.shield_value); fields.push(("shieldValue", x)); }
+        { let x = Value::Bool(self.shield_on); fields.push(("shieldOn", x)); }
+        a.object("", fields)
+    }
+}
+
+impl BodySpawn {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(BodySpawn {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            recharge: { let p = format!("{path}.recharge"); num(v.get("recharge"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.recharge); fields.push(("recharge", x)); }
         a.object("", fields)
     }
 }

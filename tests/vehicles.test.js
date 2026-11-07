@@ -10,7 +10,7 @@ import { makeHit } from '../src/collision.js';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 import { Unit } from '../src/units.js';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 const box = (x, y, z, w, h, d) => {
   const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);

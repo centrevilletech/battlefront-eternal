@@ -39,6 +39,9 @@ struct Actor {
     fire_tick: f64,
     fire_counter: f64,
     rider_lean: f64,
+    // Idle animation clocks do not change a gun basis. Retain its pose key
+    // independently of skin/bone dirtiness and preserve signed-zero bits.
+    aim_key: [u64; 10],
     /// presentRiders keeps a hidden crewman's corpse hidden for this life.
     enclosed: bool,
     vanished: bool,
@@ -65,6 +68,8 @@ struct View {
 /// Fixed exchange storage. Resource registration may allocate; frame() never
 /// grows a collection, including when all actors change pose in one frame.
 pub struct Units {
+    pub collision:crate::unit_collision::Collision,
+    pub rider_sources:crate::rider_sources::Bindings,
     pub network:crate::network::Bindings,
     pub input: Vec<f64>,
     pub commands: Vec<f64>,
@@ -101,6 +106,8 @@ impl Units {
     fn with_capacity(actors: usize, nodes: usize, commands: usize, weapons: usize) -> Self {
         Self {
             network:Default::default(),
+            rider_sources:Default::default(),
+            collision:Default::default(),
             input: vec![0.0; f::STRIDE + actors * i::STRIDE],
             commands: vec![0.0; commands * c::STRIDE],
             output: vec![0.0; actors * o::STRIDE],
@@ -161,6 +168,8 @@ impl Units {
                 m
             })
             .collect();
+        self.rider_sources.reserve(self.actors.len()+1);
+        self.collision.actor(&data.skeleton);
         self.actors.push(Actor {
             content,
             rig,
@@ -178,6 +187,7 @@ impl Units {
             fire_tick: -1.0,
             fire_counter: 0.0,
             rider_lean: 0.0,
+            aim_key: [u64::MAX; 10],
             enclosed: false,
             vanished: false,
             mount_generation: -1.0,
@@ -190,6 +200,13 @@ impl Units {
             stale: false,
         });
         id
+    }
+    /// Held sampling snapshots the native local pose at first seizure.
+    /// Immutable bind lengths remain the class's; unkeyed joints keep the
+    /// current pose, as riderPoints read them without another JS bone copy.
+    pub fn rider_source(&self, actor:usize)->Option<(&bfe_pose::rig::skeleton::Skeleton,&DisplayRig)> {
+        let actor=self.actors.get(actor)?;
+        Some((&self.contents.get(actor.content)?.skeleton,&actor.rig))
     }
     /// Attachments are load-time rigid nodes: guns, muzzle markers, shadow
     /// proxies, and their children. Only the newest actor can grow its range.
@@ -261,10 +278,14 @@ impl Units {
         self.views[id].node_start
     }
 
+    /// One complete registry observation, before any per-target JS readers.
+    pub fn collision_frame(&mut self){for(id,actor)in self.actors.iter().enumerate(){self.collision.observe(id,&self.contents[actor.content],&actor.rig,&self.rider_sources);}}
+
     /// One presented frame, in original command order. Invalid counts fail
     /// explicitly and retain the previous outputs rather than running JS.
     pub fn frame(&mut self) {
         self.pose_frame();
+        self.collision_frame();
         self.attachment_frame();
     }
 
@@ -272,6 +293,7 @@ impl Units {
     /// batch before its camera phase; a native replay already has both sets
     /// of inputs and calls frame() to execute the same two phases together.
     pub fn pose_frame(&mut self) {
+        self.rider_sources.fill(&mut self.input);
         self.network.units(&mut self.input);
         self.header.fill(0.0);
         self.header[h::VERSION] = VERSION as f64;
@@ -690,6 +712,23 @@ impl Units {
                 out[o::SKIN_CHANGED] = 0.0;
                 publish_root(&mut a.rig.tree, a.rig.root, a.node_start, &mut self.nodes);
             }
+            // PlayerCombat.viewBasis and eye read the displayed pose, not the
+            // authority clock or the body's resource-shell transform.
+            let aim_key=[out[o::POSITION],out[o::POSITION+1],out[o::POSITION+2],
+                out[o::YAW],out[o::PITCH],out[o::POSTURE],out[o::AIR],
+                input[i::COMBAT_ZOOM],input[i::EYE_HEIGHT],input[i::WALKER_MODE]].map(f64::to_bits);
+            if a.aim_key!=aim_key {
+                a.aim_key=aim_key;
+            let position=vector(out,o::POSITION);
+            let mut basis=crate::aim::Basis::new::<crate::cameras::math::V8>(position,
+                out[o::YAW],out[o::PITCH],out[o::POSTURE] as usize,out[o::AIR]!=0.0);
+            let eye=if a.walker.is_some(){
+                basis.origin=Vector3::new(position.x,position.y+if input[i::WALKER_MODE]>=11.0{1.0}else{input[i::EYE_HEIGHT]},position.z);
+                basis.origin
+            }else{basis.eye(position,position,out[o::POSTURE] as usize,out[o::AIR]!=0.0,input[i::COMBAT_ZOOM])};
+            out[o::COMBAT_BASIS..o::COMBAT_BASIS+15].copy_from_slice(&basis.words());
+            write_vector(out,o::COMBAT_EYE,eye);
+            }
             mark_changed(&previous, out);
             if input[i::OWN] != 0.0 {
                 state.yaw = out[o::YAW];
@@ -907,7 +946,7 @@ fn publish_skin(a: &Actor, out: &mut [f64], skin: &mut [f32]) {
 // Only a touched mirror is copied by the web host. The change marker itself
 // is transient, so a previously changed row can become unchanged at dt=0.
 fn mark_changed(previous: &[f64], out: &mut [f64]) {
-    for i in 0..o::CHANGED {
+    for i in (0..o::CHANGED).chain(o::COMBAT_BASIS..o::STRIDE) {
         if previous[i].to_bits() != out[i].to_bits() {
             out[o::CHANGED] = 1.0;
             return;

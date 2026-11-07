@@ -13,7 +13,6 @@ import { loadClips, Pose } from "./anim.js";
 import { Weapon } from "./weapons.js";
 import { VehicleTarget, seatWeaponPolicy, dropBody, unseatBody } from "./seats.js";
 import { boardingSeat, canBoard, seatControl, teamRelation } from "./boarding.js";
-import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
 
 import { VehiclesWorld } from "./vehicles-world.js";
 import { SeatsWorld } from "./seats-world.js";
@@ -58,22 +57,6 @@ function arcYaw(view, relative) {
   return view.wrapYaw && a < 0 ? a + 2 * Math.PI : a;
 }
 
-// A turret seat's 9-pose, as the original game picks it: the pitch spread over
-// the seat's own limits (-1 at the top, 1 at the bottom), and the turn by
-// where the yaw sits in an arc under 270 degrees, or else by how fast it
-// turns against the seat's TurnRate. Written to out.
-function ninePose(view, yaw, pitch, yawRate, out) {
-  const low = view.pitchLimits[0], high = view.pitchLimits[1];
-  out.pitch = high > low ? THREE.MathUtils.clamp(2 * ((high - pitch) / (high - low) - .5), -1, 1) : 0;
-  if (view.yawLimits && view.yawLimits[1] - view.yawLimits[0] < 1.5 * Math.PI) {
-    const a = view.yawLimits[0], b = view.yawLimits[1];
-    const y = view.wrapYaw && yaw < 0 ? yaw + 2 * Math.PI : yaw;
-    out.turn = b > a ? THREE.MathUtils.clamp(2 * ((y - a) / (b - a) - .5), -1, 1) : 0;
-  } else out.turn = THREE.MathUtils.clamp(yawRate / Math.max(view.turnRate, 1e-3), -1, 1);
-  return out;
-}
-const nine = { pitch: 0, turn: 0 };
-
 // What a beam follows while it lasts: the barrel that fired it, its fire
 // point's node (the hull without one), pointing where that barrel shoots
 // now. Every barrel has its own, so a salvo's beams stay apart.
@@ -101,55 +84,6 @@ export function vehicleFootprintsOverlap(a, matrixA, b, matrixB, clearance = .3)
     if (Math.abs((bx - ax) * x + (bz - az) * z) >= ra + rb + clearance) return false;
   }
   return true;
-}
-
-// The rider's clip, human_ + the seat's pilot animation. The extractor
-// doesn't name four of the bank's rider clips yet (man_minigun, standing and
-// the two snowspeeder ones); until it does, the nearest named one stands in,
-// held on one frame: [clip, frame]. A missing "standing" leaves the body's
-// own standing idle.
-const RIDER_STANDIN = { man_minigun: ['human_minigun_9pose', 4], drivesnowspeeder: ['human_drive', 0], drivesnowspeedergunner: ['human_drive', 0] };
-
-// A rider's pose on seat index: his clip and where in it (the 9-pose's
-// pitch and turn, or a time), written to out { clip, pitch, turn, time };
-// null with no clip. the body phase draws it, and his hit shapes are posed from
-// the same (riderBody), so a round meets him where he is drawn.
-function riderSample(v, index, clips, out, ninePitch = null, nineTurn = 0) {
-  const seat = v.seats[index];
-  const rider = seat.view.rider;
-  if (!rider) return null;
-  let clip = clips?.get(rider.clip) || clips?.get(rider.anim) || null;
-  const standin = !clip && RIDER_STANDIN[rider.anim];
-  if (standin) clip = clips?.get(standin[0]) || null;
-  if (!clip) return null;
-  out.clip = clip; out.pitch = 0; out.turn = 0; out.time = null;
-  if (standin) out.time = standin[1] / clip.fps;
-  else if (!rider.ninePose) out.time = v.age;
-  // (A 9-pose the module worked out comes in as ninePitch, nineTurn.)
-  else if (ninePitch !== null) { out.pitch = ninePitch; out.turn = nineTurn; }
-  else if (index > 0) {
-    const pose = ninePose(seat.view, angle(seat.aimYaw - v.yaw), seat.pitch, seat.yawRate || 0, nine);
-    out.pitch = pose.pitch; out.turn = pose.turn;
-  } else out.pitch = -seat.pitch / .7;
-  return out;
-}
-
-// A rider's body on seat index as this tick poses it (src/rider-pose.js
-// riderPoints, written to points), and the frame that carries it into the
-// world (written to frame): the seat node's, or on a creature the hull's
-// turn with his pelvis on the saddle node, as seatRider places them. Null
-// where no rider shows or his skeleton lacks the joints. s: scratch
-// { point, riderOffset, sample }.
-function riderBody(v, index, unit, points, frame, s) {
-  const node = v.seats[index]?.view.rider?.node;
-  const animator = unit?.animator;
-  if (!node || !animator) return null;
-  const sample = riderSample(v, index, animator.clips, s.sample);
-  if (!sample || !riderPoints(animator, sample, points)) return null;
-  if (v.healthType !== 'animal') return frame.copy(node.matrixWorld);
-  node.getWorldPosition(s.point);
-  s.riderOffset.copy(points.pelvis).applyQuaternion(v.root.quaternion);
-  return frame.compose(s.point.sub(s.riderOffset), v.root.quaternion, UNIT_SCALE);
 }
 
 // Immutable geometry, materials and collision BVHs are shared by class. A
@@ -408,22 +342,15 @@ export class Vehicle {
   // animal to the rider the player sees (src/ordnance.js riderBehind); the
   // animal takes what misses him.
   shieldsRiders() { return this.healthType !== 'animal'; }
-  // A rider's hit shapes on seat i this tick (src/rider-pose.js
-  // riderHitShapes): his body as the native rider phase poses and places
+  // A rider's hit shapes on seat i this tick (the native rider sampler): his body as the native rider phase poses and places
   // it. Written to shapes; returns their count, 0 where none shows.
   riderShapes(i, unit, shapes) {
-    if (this.system.f2) return this.system.f2.riders.shapes(unit, shapes);
-    const s = this.system.rider;
-    const frame = riderBody(this, i, unit, s.points, s.frame, s);
-    return frame ? riderHitShapes(s.points, frame, unit.rootScale, shapes) : 0;
+    return this.system.f2.riders.shapes(unit, shapes);
   }
   // Where a rider killed on seat i starts to fall from, in the world: out,
-  // or null where none shows (src/rider-pose.js riderDropPoint).
+  // or null where none shows (the native drop sample).
   riderDrop(i, unit, out) {
-    if (this.system.f2) return this.system.f2.riders.drop(unit, out);
-    const s = this.system.rider;
-    const frame = riderBody(this, i, unit, s.points, s.frame, s);
-    return frame ? riderDropPoint(s.points, out).applyMatrix4(frame) : null;
+    return this.system.f2.riders.drop(unit, out);
   }
 
   // A seat's eye (the 2004 game's controller position): its
@@ -728,8 +655,6 @@ export class Vehicles {
     // s: the clock barrels kick back on. A page's wall clock; a world's is
     // its tick clock (src/game.js), as no step reads a clock of its own.
     this.clock = clockSeconds;
-    this.rider = { point: new THREE.Vector3(), riderOffset: new THREE.Vector3(),
-      points: makeRiderPoints(), frame: new THREE.Matrix4(), sample: { clip: null, pitch: 0, turn: 0, time: null } };
     this.templates = new Map();
     const pack = modelPack(Object.fromEntries(Object.entries(data.models).map(([k, m]) => [k, m.parts])), buffer, indexBuffer);
     for (const [name, rig] of Object.entries(data.models)) {

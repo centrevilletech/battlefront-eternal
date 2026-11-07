@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Quaternion, Vector3 } from 'three';
-import { Soldier } from '../../src/soldier.js';
+import { Soldier } from '../helpers/body.js';
 import { Weapon } from '../../src/weapons.js';
 import { captureWeaponState, decodeWeaponState } from '../../src/runtime/network-weapon-state.js';
 import { captureSoldierCorrection, restoreSoldierCorrection } from '../../src/runtime/network-entity-correction.js';

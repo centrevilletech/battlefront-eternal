@@ -2,17 +2,14 @@
 //! scratch persist with each actor. Publishing samples does not invalidate a
 //! Unit's lazy hit-shape cache; its existing tickCount still controls that.
 use super::*;
-use crate::rig::rider::{self, RiderSkeleton, RiderScratch, RiderPoints, RiderSample, HitShape, ShapeKind, ShapePart};
-use crate::rig::skeleton::Skeleton;
+use crate::rig::rider::{self, RiderPoints, RiderSample, HitShape, ShapeKind, ShapePart};
 use crate::store::block::Block;
 use three::{Matrix4, Quaternion, Vector3};
 
-// rider-pose.js skeletonOf and bindsOf describe one actor life. The bind
-// arrays and sampler scratch are retained because every seated tick samples
-// the same skeleton, even when its holder or selected animation changes.
+// The unit owns bind transforms and pose scratch. A seat retains only its
+// resolved animation aliases and completed collision/drop publication.
 pub(crate) struct Rider {
-    life: f64, scale: f64, skeleton: RiderSkeleton, scratch: RiderScratch,
-    q: Vec<Quaternion>, p: Vec<Vector3>, clips: Vec<F2RiderClip>,
+    life: f64, scale: f64, clips: Vec<F2RiderClip>,
     points: RiderPoints, shapes: [HitShape; 10], out: F2RiderOut,
     encoded: Block, previous: Block, dirty: bool,
 }
@@ -37,7 +34,7 @@ pub extern "C" fn f2_rider_birth_words() -> u32 { F2RiderBirth::WORDS as u32 }
 #[no_mangle]
 pub extern "C" fn f2_rider_birth() {
     let a = { let (row, heap) = sim().calls.args(); F2RiderBirth::take(row, heap) };
-    riders().birth(a, &sim().strings);
+    riders().birth(a);
 }
 
 /// Vehicle.poseRider's geometry before firing, and syncCrews' later body write.
@@ -156,23 +153,15 @@ impl Riders {
         }
         out.finish(); out.ptr()
     }
-    fn birth(&mut self, a: F2RiderBirth, strings: &crate::store::Strings) {
+    fn birth(&mut self, a: F2RiderBirth) {
         let index = a.unit.slot as usize;
         if self.rows.len() <= index { self.rows.resize_with(index + 1, || None); }
-        // skeletonOf reads names and parent links only at construction. A new
-        // holder reuses the actor's skeleton; a new model supplies it again.
-        if !a.bones.is_empty() {
-            let names = a.bones.iter().map(|b| String::from_utf16_lossy(strings.units(b.name))).collect();
-            let parents = a.bones.iter().map(|b| b.parent).collect();
-            let bind: Vec<_> = a.bones.iter().map(|b| (vec(&b.p), Quaternion::new(b.q[0], b.q[1], b.q[2], b.q[3]), vec(&b.s))).collect();
-            let skeleton = Skeleton::from_bind(names, parents, &bind, false);
-            let mut skeleton = RiderSkeleton::new(&skeleton);
-            for (i, b) in a.bones.iter().enumerate() { skeleton.binds[i] = b.bind.as_ref().map(vec); }
-            skeleton.root_bind = a.root_bind.as_ref().map(vec);
+        // A class activation installs the native unit sampler separately.
+        // The rider row carries stable handles through holder changes.
+        if self.rows[index].as_ref().is_none_or(|row|row.out.unit!=a.unit) {
             let mut out = F2RiderOut { unit: a.unit, life: a.life, clip: -1, ..Default::default() };
             out.shapes.reserve(10);
-            self.rows[index] = Some(Rider { life: a.life, scale: a.scale, scratch: RiderScratch::new(&skeleton), skeleton,
-                q: bind.iter().map(|b| b.1).collect(), p: bind.iter().map(|b| b.0).collect(), clips: Vec::with_capacity(16),
+            self.rows[index] = Some(Rider { life: a.life, scale: a.scale, clips: Vec::with_capacity(16),
                 points: RiderPoints::default(), shapes: [HitShape::default(); 10], out,
                 encoded: Block { words: Vec::with_capacity(256), heap: Vec::with_capacity(128) },
                 previous: Block { words: Vec::with_capacity(256), heap: Vec::with_capacity(128) }, dirty: false });
@@ -211,7 +200,7 @@ impl Riders {
         if show && binding.clip >= 0 {
             let clip = &clips[binding.clip as usize];
             let sample = RiderSample { clip, pitch: row.out.pitch, turn: row.out.turn, time: row.out.time };
-            if rider::rider_points(&row.skeleton, &row.q, &row.p, &sample, &mut row.scratch, &mut row.points, false) {
+            if crate::units::live_pose::rider_points(unit, &sample, &mut row.points) {
                 // seatRider subtracts the animated pelvis on riding animals.
                 // Applying the root's height twice would lift the rider off it.
                 if let Some(q) = animal {

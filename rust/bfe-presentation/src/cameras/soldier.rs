@@ -290,25 +290,8 @@ pub fn combat_eye<M: Math>(
     let (pivot, origin, left, forward) = if let Some([pivot, origin, left, forward]) = basis {
         (pivot, origin, left, forward)
     } else {
-        let forward = V::new(
-            M::sin(yaw) * M::cos(pitch),
-            M::sin(pitch),
-            M::cos(yaw) * M::cos(pitch),
-        );
-        let left = V::new(M::cos(yaw), 0.0, -M::sin(yaw));
-        let up = cross(forward, left);
-        let p = [[0.06, 1.7, 0.0], [-0.1, 1.2, 0.0], [0.06, 0.6, 0.4]][posture];
-        let pivot = V::new(
-            position.x + left.x * p[0] + M::sin(yaw) * p[2],
-            position.y + p[1],
-            position.z + left.z * p[0] + M::cos(yaw) * p[2],
-        );
-        let gun = [
-            [-0.12, -0.1, 0.25],
-            [-0.12, -0.05, 0.25],
-            [-0.12, -0.2, 0.15],
-        ][posture];
-        let origin = plus(plus(plus(pivot, forward, gun[2]), left, gun[0]), up, gun[1]);
+        let basis=crate::aim::Basis::new::<M>(position,yaw,pitch,posture,air);
+        let (pivot,origin,left,forward)=(basis.pivot,basis.origin,basis.left,basis.direction);
         (pivot, origin, left, forward)
     };
     let eye = if !air && posture == 2 {

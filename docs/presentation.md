@@ -32,6 +32,19 @@ only each one's mesh and trail. The kernel carries a bolt's first-draw and
 flicker state, keyed by the bolt's slot and generation (or a page key), and
 recycles it after 120 undrawn frames.
 
+Enhanced sniper traces retain their flights, vapour, waiting head shots,
+impact callbacks, sparks and draw buffers in `sniper.rs`. Collection follows the
+round batch; due terminal points match in one batch before settlement; final
+drawing advances every retained trace once. Numeric event ids carry resource
+callbacks back to the page. Reserved effect seeds preserve the original random
+order without a callback from the kernel. Bounded stores evict visual records
+and release their pending handles.
+
+Visual walker feet use `feet.rs`, sharing audio's native crossing detector.
+Cold clip samples retain bind transforms, authored scales and f32 height stores.
+One frame spans hulls and placed objects; it emits only planted-foot resources
+at the displayed primitive's turn and the hull root's height.
+
 Items a page online copies from the server's records have their own phase
 (`items.rs`). One call a frame flies and places every copy between its
 records (extrapolation, reconcile and adopt of `EntityItemPresentation`, the
@@ -122,7 +135,11 @@ predicted hull uses a second batch because tethers read the authoritative
 placement first. Cold registration reserves the two slots and updates the
 host's cached capacity; frame entries never query WASM individually.
 
-The unit phase consumes lease facts and published mount matrices directly.
+The unit phase borrows native hull and prop source stores directly. The page
+passes resource ids and a source revision; it transports no rider or held
+matrices, sampled coordinates or duplicate bind hierarchy. Four native source
+publications span ordinary and predicted hull batches. A body retains its
+lease-birth sample independently of later source-history turnover.
 It hides enclosed riders, retains hidden crew after a hull's destruction
 until their next generation, and places exposed riders after animation. A
 creature's posed pelvis meets its saddle; chest sway keeps its native clock.
@@ -130,6 +147,17 @@ Hull rider clip selection retains the lease-time sample, taken before the
 next hull phase advances its clock. A birth output also supplies the legacy
 body coordinates still read by prediction and hit shapes. These touched
 source fields publish once per lease; displayed matrices remain native.
+World rider collision samples the unit's retained BodyPose through the native
+vehicle owner. Held shapes use the same unit sampler and native prop frame;
+Unit.updateSpheres and the page riderPoints solver have no JS implementation.
+Page registry observations refresh all admitted native shape caches in one call;
+individual units expose retained bounds and shape mirrors. Body display also
+observes those caches after posing. Both owners share the posture primitives
+and broadphase arithmetic in bfe-pose, preserving each tick's lazy observation.
+The prop display owner registers a held body from the native unit skeleton
+and snapshots its current local pose once. Unkeyed grab joints retain that
+seizure pose while bind lengths retain their immutable class values. No
+skeleton or displayed bone array is rebuilt through JS.
 A stationary turret's own gunner consumes its current preview each frame.
 Replica gunners follow the current drum, refreshing their clip sample and
 source interpolation each displayed frame, as placeReplica did. The body turn
@@ -223,6 +251,15 @@ and first-person work. Animation measures the native pose call, with the own bod
 matrices; other drawn bodies are placed within the render span; HUD draw includes submission. These
 spans cannot be added to their enclosing phases. Performance comparisons use
 immutable reference and candidate builds with matched battle inputs.
+
+Cold soldier construction and soldier/droideka spawn resets use the native unit implementation
+beside its collision store. Generated mirrors retain the resource and correction
+fields that page consumers still read. Displayed gun bases and eyes publish with the native unit rows;
+predicted shots resolve all firing poses in one aim batch and one collision
+resume. Preview publishes the physical gun basis separately from pending look,
+so HUD targeting retains the tick pose. Immediate pointer preview submits one
+ordered block for all pending samples, preserving per-sample pitch limits and
+posture turns without advancing movement or mutating the corrected body.
 
 ## Cameras
 

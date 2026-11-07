@@ -9,6 +9,12 @@ use three::{Euler, EulerOrder, Quaternion, Vector3};
 #[serde(rename_all = "camelCase")]
 pub struct Descriptor {
     pub scene: Input,
+    #[serde(default)]
+    pub seat:i32,
+    #[serde(default)]
+    pub source_shown:bool,
+    #[serde(default)]
+    pub turn_rate:f64,
     pub drum: i32,
     pub gun: i32,
     pub parent_turn: Option<[f64; 4]>,
@@ -21,6 +27,7 @@ pub struct Descriptor {
 // Resolve optional node ids now instead of searching names while drawing.
 pub struct Turret {
     pub scene: Scene,
+    seat:usize,shown:bool,turn_rate:f64,
     drum: Option<usize>,
     gun: Option<usize>,
     parent_turn: Option<Quaternion>,
@@ -36,9 +43,16 @@ impl Turret {
     pub fn new(d: Descriptor, out: &mut Vec<f64>) -> Self {
         let scene = Scene::new(d.scene, out);
         let node = |index: i32| (index >= 0 && (index as usize) < scene.nodes.len()).then_some(index as usize);
-        Self { drum: node(d.drum), gun: node(d.gun), scene,
+        Self {seat:d.seat.max(0) as usize,shown:d.source_shown,turn_rate:d.turn_rate, drum: node(d.drum), gun: node(d.gun), scene,
             parent_turn: d.parent_turn.map(q), gun_bind: d.gun_bind.map(q),
             up: Vector3::new(d.up[0], d.up[1], d.up[2]), yaw_factor: d.yaw_factor, pitch_factor: d.pitch_factor }
+    }
+    /// The body owner reads the complete native seat frame, preserving slope
+    /// and authored drum binds instead of transporting its Three matrix.
+    pub fn rider_source(&self,input:&[f64])->crate::rider_sources::Source {
+        let frame=self.scene.nodes.get(self.seat).map_or(three::Matrix4::default(),|&node|self.scene.tree.node(node).matrix_world);
+        crate::rider_sources::Source{frame,position:Vector3::new(frame.elements[12],frame.elements[13],frame.elements[14]),
+            yaw:input[i::YAW],pitch:input[i::PITCH],yaw_rate:input[i::YAW_RATE],shown:self.shown,turn_rate:self.turn_rate,..Default::default()}
     }
     /// props.js Turret.present preserves the operation order: parent turn
     /// times look basis for the drum, bind times YXZ for the gun.

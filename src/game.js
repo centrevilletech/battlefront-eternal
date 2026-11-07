@@ -15,6 +15,7 @@ import { restoreDroidekaState } from './runtime/network-droideka-state.js';
 import { retireAuthoritativeInputs } from './runtime/input-retirement.js';
 import { retainPredictionCommands, resetPredictionIdentity } from './runtime/prediction-window.js';
 import { discreteActions, predictionCommands, expireMovement } from './runtime/network-inputs.js';
+import { BodyPreview } from "./presentation/body.js";
 import { commandBodyAim } from './runtime/command-body-aim.js';
 import { PredictedShots } from './runtime/predicted-shots.js';
 import { renderedViewTick } from './runtime/view-tick.js';
@@ -793,6 +794,7 @@ async function start() {
   // Everyone on the field (src/registry.js) and what happens to them
   // (src/sim-events.js), for ordnance, capture, and the bots.
   const units = new Units();
+  if(pageUnits)pageUnits.bindRegistry(units);
   // Who counts for whom at a post, and how each team looks: the registry's
   // mission table (set below, once the mission's calls are read).
   posts.teams = units;
@@ -935,7 +937,7 @@ async function start() {
   // What a unit does, for the journal.
   const aimFrom = new THREE.Vector3();
   function instrument(unit) {
-    if(!headless){const row=pageUnits.attach(unit.actor,unit.animator,unit.presentation);unit.animator=row.handle;unit.combat.animator=row.handle;}
+    if(!headless){const row=pageUnits.attach(unit.actor,unit.animator,unit.presentation,unit);unit.animator=row.handle;unit.combat.animator=row.handle;}
     unit.combat.random = gameplayRandom;
     unit.combat.onPresentation = (event, sample = null) => {
       // The owned event mirror is scratch storage. The journal retains value
@@ -1119,7 +1121,7 @@ async function start() {
   let paused = false, frozen = false;
   const commandHistory = new CommandHistory();
   const worldControls = new CommandControls();
-  let lookPreview = Object.create(soldier);
+  const lookPreview = new BodyPreview(collision);
   lookPreview.aimYaw = soldier.aimYaw; lookPreview.aimPitch = soldier.aimPitch;
   let previewYaw = 0, previewPitch = 0;
   let activeCommand = null;
@@ -1314,6 +1316,13 @@ async function start() {
     for (const v of Object.values(vehicleDef.classes)) for (const seat of v.seats) for (const w of seat.weapons) {
       if (w.def.ordnance?.LaserTexture) anyTexture(w.def.ordnance.LaserTexture);
     }
+  }
+  if(!headless){
+    // The body phase borrows native hull/prop samples; no pose array returns
+    // through the page between these owners. Empty sources serve sparse maps.
+    const sourceVehicles=vehicles?.page||new PageVehicles(presentationLoaded);
+    const sourceProps=pageProps||new PageProps(presentationLoaded,null,{feet(){},bodies(){return [];}});
+    pageUnits.bindSources(sourceVehicles,sourceProps);
   }
   // Thrust, damage, wakes, stomps and wrecks: drawn only, every frame,
   // from whatever hulls and turrets this page shows (src/vehicle-effects.js).
@@ -1697,7 +1706,7 @@ async function start() {
     // the animation path.
     if(firstPersonView)for(const weapon of combat.arsenal.weapons)firstPersonView.weapon(weapon.def);
     if(!headless){
-      const row=pageUnits.attach(actor,animator,presentation);animator=body.animator=playerUnit.animator=row.handle;combat.animator=animator;
+      const row=pageUnits.attach(actor,animator,presentation,playerUnit);animator=body.animator=playerUnit.animator=row.handle;combat.animator=animator;
       if(driver)driver.animator=animator;gunner.animator=animator;
       if(firstPersonView)pageUnits.attachView(firstPersonView,combat.arsenal);
     }
@@ -1753,7 +1762,7 @@ async function start() {
     playerUnit.setBody({ side: next.side, className: next.className, def: soldierDef, actor, soldier, animator, combat, presentation, walker });
     presentation.reset();
     visual = presentation.position;
-    lookPreview = Object.create(soldier);
+    lookPreview.begin(soldier);
     lookPreview.aimYaw = soldier.aimYaw; lookPreview.aimPitch = soldier.aimPitch;
     previewYaw = previewPitch = 0;
     view.setDef(soldierDef);
@@ -2086,7 +2095,7 @@ async function start() {
     const command = { sequence: notice.sequence || undefined, epoch: commandHistory.epoch, tick: notice.tick };
     game.predictedShots?.fire({ id: notice.press, held: notice.held, button: notice.button, pressed: true,
       tick: notice.tick, epoch: commandHistory.epoch, generation: playerUnit.generation,
-      ...combat.convergedAim(soldier.aimYaw, soldier.aimPitch) }, playerUnit, command, shot);
+      aimYaw:notice.aimYaw,aimPitch:notice.aimPitch }, playerUnit, command, shot);
   }
   function replayPrediction() {
     const replayActions = client.host.entityInput.replayActions(true, true);
@@ -2280,8 +2289,8 @@ async function start() {
           const direction = driver?.active ? driver.viewDirection(new THREE.Vector3()) : gunner.active ? gunner.viewDirection(new THREE.Vector3()) : playerUnit.seat.forward(new THREE.Vector3());
           return { aimYaw: Math.atan2(direction.x, direction.z), aimPitch: Math.asin(Math.max(-1, Math.min(1, direction.y))) };
         }
-        const body = commandBodyAim(soldier, walker, lookPreview, command, combat.zoom, settings.mouseScale, settings.get("invertMouse"));
-        return combat.convergedAim(body.aimYaw, body.aimPitch);
+        const body = commandBodyAim(soldier, walker, lookPreview, command, combat.zoom, settings.mouseScale, settings.get("invertMouse"),combat);
+        return combat.convergedAim(lookPreview);
       },
       onInputAck: ack => {
         inputTrace?.ack(ack);
@@ -2409,12 +2418,16 @@ async function start() {
     // acknowledged one plus every command's look the worker hasn't taken.
     // Predicted, the look of commands not yet gone to the worker too: the
     // replay turns him only by the look the worker will take, when it does.
-    lookPreview.aimYaw = soldier.aimYaw; lookPreview.aimPitch = soldier.aimPitch;
+    lookPreview.begin(soldier);
     if (!combat.dead && !walker) {
-      const scale = settings.mouseScale, invert = settings.get("invertMouse");
-      for (const command of client.pending) if (!client.predicted || command.lookSent === false) for (const [dx, dy] of command.look) lookPreview.lookRaw(dx / combat.zoom, dy / combat.zoom, scale, invert);
-      for (const [dx, dy] of controls.looks) lookPreview.lookRaw(dx / combat.zoom, dy / combat.zoom, scale, invert);
+      const scale = settings.mouseScale, invert = settings.get("invertMouse"), zoom = combat.zoom;
+      for (let i=0;i<client.pending.length;i++) {
+        const command=client.pending[i];
+        if (!client.predicted || command.lookSent===false) lookPreview.append(command.look,zoom,scale,invert);
+      }
+      lookPreview.append(controls.looks,zoom,scale,invert);
     }
+    lookPreview.run();
     previewYaw = lookPreview.aimYaw - soldier.aimYaw;
     previewPitch = lookPreview.aimPitch - soldier.aimPitch;
     // A manned turret's look ahead of the worker, as the soldier's (gunner.js).
@@ -2576,8 +2589,7 @@ async function start() {
     graphics.playerRoot = actor?.root ?? null;
     game.predictedShots?.update(client?.clock ?? null);
     remotes.present(frozen ? 0 : dt, settings.get("destructionEffects") === "enhanced", firstPerson);
-    vehicleEffects?.update(vehicles?.vehicles, frozen ? 0 : dt);
-    vehicleEffects?.updateBuildings(live ? [...live.turrets, ...live.objectives] : null, frozen ? 0 : dt);
+    vehicleEffects?.update(vehicles?.vehicles, frozen ? 0 : dt, live?.turrets, live?.objectives);
     updateJetFlame(frozen ? 0 : dt);
     runtimeProfile?.finish("unitPresentation", unitsStart);
     const cameraStart = runtimeProfile?.start();
@@ -2922,6 +2934,7 @@ async function start() {
 
   // Hooks for scripted checks in a headless browser.
   const game = {
+    bodyPreview:lookPreview,
     // A closed battle stops driving and gives up its construction sampler.
     // Prediction already defers owner release through an active replay.
     dispose() {

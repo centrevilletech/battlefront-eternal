@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 function ramp(slope = 0) {
   // A broad continuous walkable face: any repeating step-up here is false.

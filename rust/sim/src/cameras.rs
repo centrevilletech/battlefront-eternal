@@ -46,7 +46,7 @@ extern "C" {
     fn camera_random() -> f64;
 }
 #[cfg(target_arch = "wasm32")]
-struct HostMath;
+pub(crate) struct HostMath;
 #[cfg(target_arch = "wasm32")]
 impl Math for HostMath {
     fn sin(x: f64) -> f64 {

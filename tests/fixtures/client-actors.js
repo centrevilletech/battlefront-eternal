@@ -1,8 +1,8 @@
 import './native-anim.js';
 import * as THREE from 'three';
 import { CollisionWorld } from '../../src/collision.js';
-import { Soldier } from '../../src/soldier.js';
-import { Droideka } from '../../src/droideka.js';
+import { Soldier } from '../helpers/body.js';
+import { Droideka } from '../helpers/droideka.js';
 import { Clip } from '../../src/anim.js';
 import { PlayerCombat } from '../../src/combat.js';
 
@@ -63,6 +63,7 @@ export function createPredictionActor(scenario, course, content = null) {
   const combat = Object.assign(Object.create(PlayerCombat.prototype), { soldier, kick: { rate: .4, hold: .8, offset: .1, extra: 'retained' },
     gunUnderwater: false, arsenal: { weapons, current: channel => weapons[channel] },
     tick() { throw Error('prediction stepped authoritative combat'); }, fire() { throw Error('prediction fired an authoritative weapon'); } });
+  for(const key of ['origin','pivot','left','up','aimDir','eyePoint'])combat[key]=new THREE.Vector3();
   if (scenario.kick) combat.kick = structuredClone(scenario.kick);
   let deathCalls = 0;
   if (kind === 'droideka') { soldier.onDeathBlast = () => deathCalls++; soldier.onExploded = () => deathCalls++; }

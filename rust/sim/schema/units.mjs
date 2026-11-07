@@ -36,6 +36,23 @@ export default {
   },
 
   records: {
+    // Immediate page look is one ordered block, separate from replay ticks.
+    BodyPreviewFrame: { $layout:true, aimYaw:'f64', aimPitch:'f64', sourceYaw:'f64', sourcePitch:'f64', sourceBasis:'f64x15', maxTurn:'f64', pitchLimits:'f64x2',
+      posture:'enum:Posture', air:'enum:Air|null', dive:'f64', lock:'f64', tickLength:'f64',
+      lookX:'f64', lookY:'f64', count:'u32', skipped:'u32',
+      position:'vec3', feet:'vec3', zoom:'f64', walker:'bool', eyeHeight:'f64', rolled:'bool',
+      camera:'vec3', hasCamera:'bool', usesEye:'bool', trackOffsets:'f64x3',
+      basis:'f64x15', eye:'vec3', from:'vec3', needsReach:'bool', reach:'f64', shotYaw:'f64', shotPitch:'f64' },
+    BodyLook: { $layout:true, dx:'f64', dy:'f64', scale:'f64', invert:'bool', raw:'bool' },
+    BodySpawnOutput: { $layout:true, $publish:['position','previous','settled','velocity','normal','origin','aimYaw','aimPitch','posture','air','dive','stateTime','lock','fuel','grounded','groundAdjustment'],
+      position:'vec3', previous:'vec3', settled:'vec3', velocity:'vec3', normal:'vec3', origin:'vec3', aimYaw:'f64', aimPitch:'f64',
+      posture:'enum:Posture', air:'enum:Air|null', dive:'f64', stateTime:'f64', lock:'f64', fuel:'f64', grounded:'bool', groundAdjustment:'f64' },
+    DroidekaSpawn: { $layout:true, position:'vec3', yaw:'f64', hasShield:'bool', shieldMax:'f64' },
+    DroidekaSpawnOutput: { $layout:true,
+      $publish:['position','previous','settled','velocity','aimYaw','aimPitch','legs','spin','dead','mode','time','reverse'],
+      position:'vec3', previous:'vec3', settled:'vec3', velocity:'vec3', aimYaw:'f64', aimPitch:'f64',
+      legs:'f64', spin:'f64', dead:'bool', mode:'f64', time:'f64', reverse:'bool', shieldValue:'f64', shieldOn:'bool' },
+    BodySpawn: { $layout:true, position:'vec3', yaw:'f64', recharge:'f64' },
     F3CharacterRelease: { unit: 'ref:unit', character: 'ref:character' },
     F3RemovedNotice: { key: 'rec:F3UnitKey' },
     F3Allocation: { stage: 'enum:F3AllocationStage', bytes: 'u32', reallocation: 'bool' },

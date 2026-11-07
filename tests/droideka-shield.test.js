@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ShieldBubble } from '../src/droideka-shield.js';
-import { Droideka } from '../src/droideka.js';
+import { Droideka } from './helpers/droideka.js';
 
 
 const look = { Color: [96,160,192,255], SpecularColor: [216,240,255], Radius: 1.25, Height: 1.25, FadeIn: 0.15, FadeOut: 0.15 };

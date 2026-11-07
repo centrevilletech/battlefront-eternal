@@ -91,6 +91,12 @@
       "proneToStand",
       "crouchToStand",
       "land"
+    ],
+    "UnitShapeKind": [
+      "sphere",
+      "cylinder",
+      "box",
+      "capsule"
     ]
   },
   "records": {
@@ -291,7 +297,14 @@
       "leaseVelocity": 3,
       "riderHullYaw": 1,
       "riderSampleYawRate": 1,
-      "riderLive": 1
+      "riderLive": 1,
+      "combatZoom": 1,
+      "eyeHeight": 1,
+      "sourceRig": 1,
+      "sourceVersion": 1,
+      "sourceProp": 1,
+      "sourceTurret": 1,
+      "riderFixedTime": 1
     },
     "UnitCommand": {
       "sequence": 1,
@@ -342,7 +355,9 @@
       "changed": 1,
       "stale": 1,
       "seatVisible": 1,
-      "leaseBirth": 1
+      "leaseBirth": 1,
+      "combatBasis": 15,
+      "combatEye": 3
     },
     "UnitNode": {
       "actor": 1,
@@ -483,7 +498,10 @@
       "input": 1,
       "output": 1,
       "localPresent": 1,
-      "deferred": 1
+      "deferred": 1,
+      "velocity": 3,
+      "speed": 1,
+      "sourceYawRate": 1
     },
     "VehicleSeatInput": {
       "held": 1,
@@ -491,7 +509,8 @@
       "aimYaw": 1,
       "pitch": 1,
       "target": 1,
-      "targetPoint": 3
+      "targetPoint": 3,
+      "yawRate": 1
     },
     "VehicleWheelInput": {
       "phase": 1,
@@ -520,7 +539,8 @@
     "VehicleHeader": {
       "status": 1,
       "rays": 1,
-      "skipped": 1
+      "skipped": 1,
+      "sourceEpoch": 1
     },
     "CastRay": {
       "origin": 3,
@@ -772,7 +792,67 @@
       "yaw": 1,
       "pitch": 1,
       "gunYaw": 1,
-      "gunPitch": 1
+      "gunPitch": 1,
+      "yawRate": 1
+    },
+    "FootFrame": {
+      "dt": 1
+    },
+    "FootInput": {
+      "present": 1,
+      "generation": 1,
+      "phase": 1,
+      "blend": 1,
+      "rootY": 1,
+      "matrix": 16
+    },
+    "FootEvent": {
+      "count": 1,
+      "position": 3,
+      "hasTurn": 1,
+      "turn": 4
+    },
+    "UnitCollisionInput": {
+      "enabled": 1,
+      "generation": 1,
+      "tick": 1,
+      "position": 3,
+      "yaw": 1,
+      "posture": 1,
+      "air": 1,
+      "dive": 1,
+      "dead": 1,
+      "walker": 1,
+      "mode": 1,
+      "scale": 1,
+      "ballRadius": 1,
+      "seat": 1,
+      "exposed": 1,
+      "sourceRig": 1,
+      "sourceSeat": 1,
+      "sourceTurret": 1,
+      "sourceProp": 1,
+      "clip": 1,
+      "timed": 1,
+      "nine": 1,
+      "fixedTime": 1,
+      "time": 1,
+      "binding": 1
+    },
+    "UnitCollisionOutput": {
+      "changed": 1,
+      "count": 1,
+      "center": 3,
+      "radius": 1
+    },
+    "UnitShape": {
+      "kind": 1,
+      "head": 1,
+      "center": 3,
+      "radius": 1,
+      "half": 1,
+      "halfSize": 3,
+      "yaw": 1
     }
   },
   "version": 14,
@@ -801,6 +881,9 @@
       "motionSegments": 64,
       "motionSteps": 4096,
       "owners": 2
+    },
+    "UnitCollisionLimits": {
+      "shapes": 10
     }
   }
 }

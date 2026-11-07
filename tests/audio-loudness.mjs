@@ -72,11 +72,11 @@ async function battle(quality, profile) {
 
       // The scripted player: walking, turning, firing in bursts; 60 steps a
       // second, paced by the clock. The turn goes to the world as mouse
-      // counts, at what a count turns him (lookRaw, on a copy of his body);
+      // counts, at what a count turns him (the native preview phase);
       // after a death the world places him again (unit=).
       const probe = Object.create(b.soldier);
       probe.aimYaw = probe.aimPitch = 0;
-      probe.lookRaw(1, 0, b.settings.mouseScale, false);
+      const preview=b.bodyPreview;preview.begin(probe);preview.append([[1, 0]],1,b.settings.mouseScale,false);preview.run(probe);
       const yawPerCount = -probe.aimYaw;
       const steps = Math.round(seconds * 60);
       const start = performance.now();

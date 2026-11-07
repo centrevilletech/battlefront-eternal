@@ -95,6 +95,7 @@ export class Units {
 
   // Living units whose broadphase sphere meets the ball.
   query(center, radius, out = [], filter = null) {
+    this.refreshShapes?.(true,null,true);
     // Emptied by popping: setting the length to 0 drops the list's storage.
     while (out.length) out.pop();
     for (const unit of this.list) {
@@ -116,6 +117,7 @@ export class Units {
   // leave him out, as they leave out everyone seated. Returns `out` filled
   // { unit, distance, point, normal, part }, or null.
   raycast(origin, direction, far, exclude = null, out = makeUnitHit(), filter = null, riders = false) {
+    this.refreshShapes?.(riders,exclude,false);
     let best = far;
     let found = null;
     let part = null;

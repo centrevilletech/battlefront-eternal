@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Footfalls } from "./vehicle-feet.js";
+import { VisualFeet } from "./presentation/feet.js";
 
 // What a hull shows beyond its model, at Classic (docs/vehicles.md,
 // "Effects and sounds"), from its class's fx (tools/zero_vehicle.py
@@ -19,7 +19,7 @@ import { Footfalls } from "./vehicle-feet.js";
 //   DamageInheritVelocity of the hull's velocity.
 // - Water: a hover's WaterEffect, on the water's surface under it while it
 //   is within WATER_HEIGHT of it.
-// - Stomp: a walker's StompEffect where a foot comes down (vehicle-feet.js),
+// - Stomp: a walker's StompEffect where a foot comes down (the native foot phase),
 //   at the foot level with the walker's root, turned as the foot is.
 // - Death: the hull's effects stop and its chunks fly off (Debris), with
 //   their trails and each one's ChunkSmokeEffect. A walker with a death
@@ -44,6 +44,7 @@ import { Footfalls } from "./vehicle-feet.js";
 // simulated here, in a worker or on a server looks the same. Missing
 // attach points fall back to the hull's root, as the original game's do.
 
+const EMPTY=Object.freeze([]);
 const ACTIVE_FLIGHT = new Set(["TakingOff", "Flying", "Landing"]);
 const WATER_HEIGHT = 4; // m above the surface a hover still raises spray (the port's)
 const CHUNK_OVERKILL = -50; // the health Debris flings pieces at full speed for
@@ -140,30 +141,41 @@ export class VehicleEffects {
     this.debris = debris;
     this.random = random; // the dying explosions' picks (the page's own)
     this.states = new WeakMap();
+    this.feet = new VisualFeet();
     this.views = new WeakMap(); // building -> BuildingView
   }
 
-  update(vehicles, dt) {
-    for (const v of vehicles || []) this.updateVehicle(v, dt);
+  update(vehicles, dt, turrets = null, objectives = null) {
+    this.feet.begin(dt);
+    for (const v of vehicles || EMPTY) this.feet.write(v);
+    for (const building of turrets || EMPTY) this.prepareBuilding(building);
+    for (const building of objectives || EMPTY) this.prepareBuilding(building);
+    this.feet.run();
+    for (const v of vehicles || EMPTY) this.updateVehicle(v, dt);
+    for (const building of turrets || EMPTY) this.presentBuilding(building,dt);
+    for (const building of objectives || EMPTY) this.presentBuilding(building,dt);
+  }
+  prepareBuilding(building) {
+    if (!building.desc?.fx) return;
+    let view=this.views.get(building);
+    if (!view) this.views.set(building,(view=new BuildingView(building)));
+    if(view.root)this.feet.write(view.next());
+  }
+  presentBuilding(building,dt) {
+    const view=this.views.get(building);
+    if(view?.root)this.updateVehicle(view,dt);
   }
 
   // The placed turrets (src/props.js LiveObjects.turrets): those whose
   // class has damage effects or chunks.
-  updateBuildings(buildings, dt) {
-    for (const building of buildings || []) {
-      if (!building.desc?.fx) continue;
-      let view = this.views.get(building);
-      if (!view) this.views.set(building, (view = new BuildingView(building)));
-      if (view.root) this.updateVehicle(view.next(), dt);
-    }
-  }
+  updateBuildings(buildings, dt) { this.update(null,dt,buildings); }
 
   state(v) {
     let s = this.states.get(v);
     if (!s) this.states.set(v, (s = { life: -1 }));
     if (s.life !== v.aiTarget?.generation) {
       this.stopAll(s);
-      Object.assign(s, { life: v.aiTarget?.generation, alive: v.alive, thrust: [], damage: [], water: null, feet: new Footfalls(), dust: null,
+      Object.assign(s, { life: v.aiTarget?.generation, alive: v.alive, thrust: [], damage: [], water: null, dust: null,
         dying: null });
     }
     return s;
@@ -193,7 +205,7 @@ export class VehicleEffects {
     if (fx.thrust) this.updateThrust(v, s, fx);
     if (fx.damage) this.updateDamage(v, s, fx);
     if (fx.water && this.water) this.updateWater(v, s, fx);
-    if (fx.stomp?.effect) this.updateStomp(v, s, fx, dt);
+    if (fx.stomp?.effect) this.feet.apply(v,this.effects);
   }
 
   // The frame an entry hangs from: its node (else the hull's root) and
@@ -252,17 +264,6 @@ export class VehicleEffects {
     _position.set(p.x, level, p.z);
     if (!s.water || s.water.done) s.water = this.effects.play(fx.water, _position, UP, v.velocity);
     else s.water.move(_position, null, v.velocity);
-  }
-
-  // Where a foot comes down (src/vehicle-feet.js): its StompEffect at the
-  // foot, level with the walker's root, turned as its primitive is (the
-  // walker's foot update plays it so).
-  updateStomp(v, s, fx, dt) {
-    s.feet.update(v, fx.feet || [], dt, (i, point, step, turn) => {
-      if (step !== "down") return;
-      _position.set(point.x, v.root.matrixWorld.elements[13], point.z);
-      this.effects.play(fx.stomp.effect, _position, UP, null, turn);
-    });
   }
 
   // Destroyed: its effects out; a dying walker's pieces wait for its end.

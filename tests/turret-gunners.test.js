@@ -25,7 +25,7 @@ import { Units, makeUnitHit, strikeable } from '../src/registry.js';
 import { Unit } from '../src/units.js';
 import { leaveKilled } from '../src/boarding.js';
 
-import { Soldier } from '../src/soldier.js';
+import { Soldier } from './helpers/body.js';
 
 const same = (actual, expected, message) => assert.ok(actual === expected, message ?? `${typeof actual} !== ${typeof expected}`);
 const near = (a, b, eps, message) => assert.ok(Math.abs(a - b) <= eps, `${message}: ${a} vs ${b}`);

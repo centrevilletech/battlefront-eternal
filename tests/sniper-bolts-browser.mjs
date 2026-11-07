@@ -45,13 +45,13 @@ try {
       await page.evaluate(({ look, first }) => { const b = __bf; b.settings.set('boltEffects', look); b.settings.set('sniperEffects', 'classic'); b.setPerspective(first); }, { look, first: view === 'first' });
       // Every earlier round gone, the rifle ready and his aim back where it
       // was (each shot kicks it up): turned with mouse counts, at what a
-      // count turns him (lookRaw on a copy of his body), as his own input.
+      // count turns him (the native preview phase), as his own input.
       await battle.frames(60);
       await page.evaluate(async ({ yaw, pitch }) => {
         const b = __bf;
         for (let i = 0; i < 8; i++) {
           const s = b.soldier, probe = Object.create(s);
-          probe.aimYaw = probe.aimPitch = 0; probe.lookRaw(1, 1, b.settings.mouseScale, false);
+          probe.aimYaw = probe.aimPitch = 0; const preview=b.bodyPreview;preview.begin(probe);preview.append([[1, 1]],1,b.settings.mouseScale,false);preview.run(probe);
           const dyaw = Math.atan2(Math.sin(yaw - s.aimYaw), Math.cos(yaw - s.aimYaw)), dpitch = pitch - s.aimPitch;
           if (Math.abs(dyaw) < 2e-3 && Math.abs(dpitch) < 2e-3) break;
           b.controls.looks.push([probe.aimYaw ? dyaw / probe.aimYaw : 0, probe.aimPitch ? dpitch / probe.aimPitch : 0]);

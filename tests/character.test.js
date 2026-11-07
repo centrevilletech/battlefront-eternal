@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { Droideka } from '../src/droideka.js';
+import { Droideka } from './helpers/droideka.js';
 import { SoldierAnimator } from './helpers/presentation.js';
 import { f3World } from './fixtures/f3-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';

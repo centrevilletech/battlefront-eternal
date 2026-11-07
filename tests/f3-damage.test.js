@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { nativeCombat } from './fixtures/native-combat.js';
-import { Soldier, ENGINE } from '../src/soldier.js';
+import { Soldier, ENGINE } from './helpers/body.js';
 import { captureCompactSoldier, restoreCompactSoldier } from '../src/runtime/network-entity-soldier-compact.js';
 import { captureEntitySoldier, ENTITY_SOLDIER_STATES } from '../src/runtime/network-entity-capture.js';
 

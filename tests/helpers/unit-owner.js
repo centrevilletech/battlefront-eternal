@@ -3,8 +3,8 @@
 import {RandomStreams} from '../../src/ai/random.js';
 import * as THREE from 'three';
 import {Unit} from '../../src/units.js';
-import {Soldier} from '../../src/soldier.js';
-import {Droideka} from '../../src/droideka.js';
+import {Soldier} from '../helpers/body.js';
+import {Droideka} from '../helpers/droideka.js';
 import {Units} from '../../src/registry.js';
 import {Building,Turret} from '../../src/props.js';
 import {Vehicle} from '../../src/vehicles.js';

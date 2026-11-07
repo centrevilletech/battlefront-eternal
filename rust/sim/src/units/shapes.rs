@@ -79,18 +79,10 @@ pub enum HitPosture {
 /// standing or crouched (a box lying prone) and a sphere for the head. `s`
 /// is the class's CollisionRootScale.
 pub fn soldier_shapes(posture: HitPosture, s: f64) -> [Part; 2] {
-    let big = v8math::max(s, 1.0);
-    let lift = 0.17 * (big - 1.0);
-    let cylinder = |at: [f64; 3], radius: f64, half: f64| Part { kind: ShapeType::Cylinder, part: ShapePart::Body, at, radius, half, half_box: [0.0; 3] };
-    let head = |at: [f64; 3], radius: f64| Part { kind: ShapeType::Sphere, part: ShapePart::Head, at, radius, half: 0.0, half_box: [0.0; 3] };
-    match posture {
-        HitPosture::Prone => [
-            Part { kind: ShapeType::Box, part: ShapePart::Body, at: [0.0, 0.2, -0.25 * s], radius: 0.0, half: 0.0, half_box: [0.25, 0.2, 0.87 * s] },
-            head([-0.07, 0.28 * s, 0.75 * s], 0.17 * big),
-        ],
-        HitPosture::Crouch => [cylinder([0.0, 0.6 * s + lift, 0.0], 0.35, 0.45 * s), head([-0.12, 1.2 * s, 0.25], 0.17 * big)],
-        HitPosture::Stand => [cylinder([0.0, 0.8 * s + lift, 0.0], 0.35, 0.775 * s), head([-0.09, 1.65 * s, 0.16], 0.17 * big)],
-    }
+    use bfe_pose::rig::body_shapes::{parts,Kind};
+    let posture=match posture{HitPosture::Stand=>0,HitPosture::Crouch=>1,HitPosture::Prone=>2};
+    parts(posture,s).map(|p|Part{kind:match p.kind{Kind::Sphere=>ShapeType::Sphere,Kind::Cylinder=>ShapeType::Cylinder,Kind::Box=>ShapeType::Box,Kind::Capsule=>ShapeType::Capsule},
+        part:if p.head{ShapePart::Head}else{ShapePart::Body},at:p.at,radius:p.radius,half:p.half,half_box:p.half_box})
 }
 
 // The droideka's OrdnanceCollision primitives (units.js:62): its ball of
@@ -110,20 +102,16 @@ fn reach(shape: &HitShape) -> f64 {
     }
 }
 
+impl bfe_pose::rig::body_shapes::BoundsShape for HitShape {
+    fn center(&self)->Vector3{v3(self.center)}
+    fn reach(&self)->f64{reach(self)}
+}
+
 /// boundShapes(shapes, count, bounds) (units.js:95): about the middle of
 /// the first `count` shapes' centres, reaching past the farthest.
 pub fn bound_shapes(shapes: &[HitShape], count: usize, bounds: &mut Bounds) {
-    let mut c = Vector3::default();
-    for shape in &shapes[..count] {
-        c.add(&v3(shape.center));
-    }
-    c.divide_scalar(count as f64);
-    bounds.center = arr(&c);
-    let mut r = 0.0;
-    for shape in &shapes[..count] {
-        r = v8math::max(r, c.distance_to(&v3(shape.center)) + reach(shape));
-    }
-    bounds.radius = r;
+    let(center,radius)=bfe_pose::rig::body_shapes::bounds(&shapes[..count]);
+    bounds.center=arr(&center);bounds.radius=radius;
 }
 
 /// segmentShape(origin, dir, far, shape) (registry.js): the entry distance

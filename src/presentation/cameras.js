@@ -166,9 +166,9 @@ export class PageCameras {
     vector(a, F.VELOCITY, state.velocity); vector(a, F.FEET, feet); a[F.YAW] = state.aimYaw; a[F.PITCH] = state.aimPitch;
     a[F.ZOOM] = combat.zoom; a[F.HAS_EYE] = ownEyes ? 1 : 0; a[F.EYE_KIND] = Eye.PROVIDED;
     if (ownEyes && this.automaticEye) {
-      a[F.EYE_KIND] = state.eye ? Eye.DROIDEKA : this.authority ? Eye.BASIS : Eye.INFANTRY;
+      a[F.EYE_KIND] = state.mode !== undefined ? Eye.DROIDEKA : this.authority ? Eye.BASIS : Eye.INFANTRY;
       a[F.EYE_HEIGHT] = state.eyeHeight || 0; a[F.EYE_ROLLED] = state.rolled ? 1 : 0;
-      if (this.authority && !state.eye) {
+      if (this.authority && state.mode === undefined) {
         vector(a, F.EYE_PIVOT, combat.pivot); vector(a, F.EYE_ORIGIN, combat.origin);
         vector(a, F.EYE_LEFT, combat.left); vector(a, F.EYE_DIRECTION, combat.aimDir);
       }

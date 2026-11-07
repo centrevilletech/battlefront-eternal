@@ -40,7 +40,7 @@ export async function stationaryTurretGate([actor, observer]) {
         if(!t||!__bf.playerUnit.alive||t.gunner)return {invalid:true};
         const p=__bf.playerUnit.position,dx=t.position.x-p.x,dz=t.position.z-p.z;
         const yaw=Math.atan2(dx,dz),difference=Math.atan2(Math.sin(yaw-__bf.soldier.aimYaw),Math.cos(yaw-__bf.soldier.aimYaw));
-        const preview=Object.create(__bf.soldier);preview.aimYaw=__bf.soldier.aimYaw;preview.aimPitch=__bf.soldier.aimPitch;preview.lookRaw(1,0,__bf.settings.mouseScale,false);
+        const preview=__bf.bodyPreview;preview.begin(__bf.soldier);preview.append([[1,0]],1,__bf.settings.mouseScale,false);preview.run();
         const rate=preview.aimYaw-__bf.soldier.aimYaw;
         if(Math.abs(rate)>1e-9)__bf.controls.looks.push([Math.max(-10000,Math.min(10000,difference/rate)),0]);
         return {distance:Math.hypot(dx,dz),position:p.toArray(),target:t.position.toArray(),yaw:__bf.soldier.aimYaw};
@@ -61,7 +61,7 @@ export async function stationaryTurretGate([actor, observer]) {
   const aimed=await actor.evaluate(c=>{
     const t=__bf.live.turrets.find(t=>t.aiTarget.id===c.turretId),p=__bf.playerUnit.position,s=__bf.soldier;
     const dx=t.position.x-p.x,dz=t.position.z-p.z,yaw=Math.atan2(dx,dz),pitch=Math.atan2(t.position.y+1.5-(p.y+1.7),Math.hypot(dx,dz));
-    const preview=Object.create(s);preview.aimYaw=s.aimYaw;preview.aimPitch=s.aimPitch;preview.lookRaw(1,1,__bf.settings.mouseScale,false);
+    const preview=__bf.bodyPreview;preview.begin(s);preview.append([[1,1]],1,__bf.settings.mouseScale,false);preview.run();
     const dyaw=Math.atan2(Math.sin(yaw-s.aimYaw),Math.cos(yaw-s.aimYaw));
     __bf.controls.looks.push([dyaw/(preview.aimYaw-s.aimYaw),(pitch-s.aimPitch)/(preview.aimPitch-s.aimPitch)]);
     return {yaw,pitch,distance:Math.hypot(dx,dz),position:p.toArray()};
