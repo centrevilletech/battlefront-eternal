@@ -243,7 +243,7 @@ fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) {
 // Vehicles construction supplies pad descriptions and fixed class names.
 // The descriptor is a generated record; buffers remain battle-local because
 // one WASM instance owns one battle and its callback stack.
-pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, time: f64, acc: f64) -> *const f64 {
+pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, time: f64, acc: f64) -> Option<&[f64]> {
     let text = String::from_utf16_lossy(world_ctx.sim.strings.units(StrId(json)));
     let value = bfe_content::json::parse(&text).expect("F2 pad descriptions");
     let ds: Vec<_> = value.as_array().expect("F2 pads").iter().map(super::super::spawn::SlotDesc::of).collect();
@@ -269,7 +269,7 @@ pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, 
     // Vehicles construction owns the initial complete mirror. Later incoming
     // damage can then send a sparse delta even before Vehicles.update runs.
     publish_in(world_ctx);
-    world_ctx.fleet.scheduler.descriptor.as_ptr()
+    Some(&world_ctx.fleet.scheduler.descriptor[..])
 }
 
 /// Publish without a getter crossing from JS, also before a synchronous hook.
@@ -288,7 +288,7 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     // A Unit barrier can read this descriptor again without any fleet write.
     // Readers consume each publication once, retaining later foreign AI edits.
     world_ctx.fleet.scheduler.descriptor[F2Phase::VERSION] = (world_ctx.fleet.scheduler.descriptor[F2Phase::VERSION] as u32).wrapping_add(1) as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::FIRING] = firing::phase_ptr_in(world_ctx) as usize as f64;
+    world_ctx.fleet.scheduler.descriptor[F2Phase::FIRING] = firing::phase_ptr_in(world_ctx).map_or(0, |b| b.as_ptr() as usize) as f64;
     // The final world flush encodes the sample already observed by rounds.
     // A new native write still requires its ordinary observation first.
     let sampled=world_ctx.fleet.scheduler.publication_pending&&!world_ctx.fleet.scheduler.pending;
@@ -298,7 +298,7 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     world_ctx.fleet.scheduler.descriptor[F2Phase::HULLS] = p.hulls.ptr() as usize as f64;
     world_ctx.fleet.scheduler.descriptor[F2Phase::PADS] = p.pads.ptr() as usize as f64;
     world_ctx.fleet.scheduler.descriptor[F2Phase::LIVES] = p.lives.ptr() as usize as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::BODIES] = veh_changes_in(world_ctx) as usize as f64;
+    world_ctx.fleet.scheduler.descriptor[F2Phase::BODIES] = veh_changes_in(world_ctx).map_or(0, |b| b.as_ptr() as usize) as f64;
     world_ctx.fleet.scheduler.descriptor[F2Phase::POSES] = geometry::publish_in(world_ctx) as usize as f64;
     world_ctx.fleet.scheduler.descriptor[F2Phase::ACC] = world_ctx.fleet.scheduler.acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::FLIGHT_ACC] = world_ctx.fleet.flight_acc;
@@ -697,27 +697,31 @@ pub(crate) fn pending() { pending_in(&mut crate::abi::world().fleet) }
 pub(crate) fn revision(r: Ref<Vehicle>) -> u64 { revision_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn publish_pending() { publish_pending_in(crate::abi::world()) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_register(slot: u32, generation: u32, prepared: u32) { f2_register_in(crate::abi::world(), slot, generation, prepared) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_prepare_body(kernel: u32) { f2_prepare_body_in(crate::abi::world(), kernel) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 { f2_init_in(crate::abi::world(), json, time, acc) }
+
 #[cfg(target_arch = "wasm32")]
 pub fn publish() { publish_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub fn respawn_clock(hull: usize) { respawn_clock_in(crate::abi::world(), hull) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_step(dt: f64, tick: f64) { f2_step_in(crate::abi::world(), dt, tick) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn step(dt: f64, tick: f64, services: Option<crate::units::f3::WorldServices<'_>>) { step_in(crate::abi::world(), dt, tick, services) }
-#[no_mangle]
+
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, value: f64, tag: u32, owner_slot: u32, owner_gen: u32) -> u32 { f2_command_in(crate::abi::world(), slot, generation, life, code, value, tag, owner_slot, owner_gen) }
-#[no_mangle]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f2_register(slot: u32, generation: u32, prepared: u32) { f2_register_in(crate::abi::facade::world(), slot, generation, prepared) }
+    #[no_mangle]
+    pub extern "C" fn f2_prepare_body(kernel: u32) { f2_prepare_body_in(crate::abi::facade::world(), kernel) }
+    #[no_mangle]
+    pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 { f2_init_in(crate::abi::facade::world(), json, time, acc).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f2_step(dt: f64, tick: f64) { f2_step_in(crate::abi::facade::world(), dt, tick) }
+    #[no_mangle]
+    pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, value: f64, tag: u32, owner_slot: u32, owner_gen: u32) -> u32 { f2_command_in(crate::abi::facade::world(), slot, generation, life, code, value, tag, owner_slot, owner_gen) }
+    #[no_mangle]
+    pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 { f2_retire_in(crate::abi::facade::world(), slot, generation) }
+}
 #[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 { f2_retire_in(crate::abi::world(), slot, generation) }
+pub use exports::{f2_register, f2_prepare_body, f2_init, f2_step, f2_command, f2_retire};

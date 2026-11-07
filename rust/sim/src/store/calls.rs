@@ -51,6 +51,7 @@ impl Default for Events {
 }
 
 impl Events {
+    pub(crate) fn words(&self) -> &[f64] { &self.words }
     pub const fn cold() -> Self { Self { count: 0, words: Vec::new(), heap: Vec::new(), row: Vec::new() } }
 
     pub(crate) fn warm(&mut self) { self.words = vec![0.0]; }
@@ -118,6 +119,8 @@ impl Default for ImportExchange {
 }
 
 impl ImportExchange {
+    pub(crate) fn words(&self) -> &[f64] { &self.words }
+    pub(crate) fn words_mut(&mut self) -> &mut [f64] { &mut self.words }
     pub const fn new() -> Self { Self { words: [0.0; EXCHANGE], heap: Vec::new() } }
 
     pub fn out(&mut self, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {

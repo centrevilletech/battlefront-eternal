@@ -287,7 +287,7 @@ pub(crate) fn weapon_service_in(units: &super::owner::Units, weapon: crate::stor
 // reused block whose current address is written into that descriptor.
 // Large scratch capacities are not per-tick work and do not import any bodies.
 
-pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level: f64, body_serial: u32) -> *const f64 {
+pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level: f64, body_serial: u32) -> Option<&[f64]> {
     super::f3_hulls::body_serial_in(&mut world_ctx.units, body_serial);
     super::f3_construction::reset_in(world_ctx);
     if let Some(collision) = crate::vehicles::module::collision_world() {
@@ -466,7 +466,7 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
 // This generated record is the entire address/width contract. JavaScript
 // reads memory directly after a call; getter exports would add a crossing for
 // each output and make sparse publication needlessly expensive.
-fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
+fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
     let event_ptr = world_ctx.sim.events.ptr() as u32;
     let event_words = world_ctx.sim.events.len() as u32;
     let s = world_ctx.units.state.as_mut().expect("prepared unit service");
@@ -491,7 +491,7 @@ fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
     s.layout.event_words = event_words;
     s.layout.event_epoch = s.event_epoch;
     s.layout.put(&mut s.descriptor, &mut s.block.heap);
-    s.descriptor.as_ptr()
+    Some(&s.descriptor[..])
 }
 
 /// Publish the touched body only; do not compute hit shapes as a side effect.
@@ -1585,8 +1585,6 @@ pub fn f3_acquire_in(world_ctx: &mut crate::world::owner::World, class: u32) -> 
     acquire_native_in(world_ctx, crate::store::StrId(class)).map_or(-1, |r| r.slot as i32)
 }
 
-
-
 /// Native Unit.sphere and hitShapes sensor service. Cache observation remains
 /// lazy; publication and damage never ask it to rebuild.
 // Units.query/raycast and Unit.sphere/hitShapes are explicit sensor reads.
@@ -1594,14 +1592,14 @@ pub fn f3_acquire_in(world_ctx: &mut crate::world::owner::World, class: u32) -> 
 // output has separate storage so it cannot replace a pending body publication.
 // Reuse result capacity even when a shorter query previously emptied the list.
 
-pub fn f3_sensor_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
+pub fn f3_sensor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
     let input = F3Sensor::take(&world_ctx.units.state.as_mut().expect("prepared unit service").command, &[]);
     match input.mode {
         F3SensorMode::Bounds => {
             // Unit.sphere observes shapes at exactly the old updateSpheres
             // point. Only its bounding sphere crosses for an ordinary reader;
             // later hitShapes reads the already sampled canonical limb list.
-            if input.key.validate(&world_ctx.sim.store).is_err() { fail_in(&mut world_ctx.units); return std::ptr::null(); }
+            if input.key.validate(&world_ctx.sim.store).is_err() { fail_in(&mut world_ctx.units); return None; }
             module::with_unit_in(world_ctx,input.key.reference(),|world,unit| {
                 unit.sphere(input.key.slot, world);
                 cache_bounds_in(&mut world.w.units, input.key.reference(),unit);
@@ -1616,7 +1614,7 @@ pub fn f3_sensor_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
             }).expect("validated sensor unit");
         }
         F3SensorMode::Shapes => {
-            if input.key.validate(&world_ctx.sim.store).is_err() { fail_in(&mut world_ctx.units); return std::ptr::null(); }
+            if input.key.validate(&world_ctx.sim.store).is_err() { fail_in(&mut world_ctx.units); return None; }
             module::with_unit_in(world_ctx,input.key.reference(),|world,unit| {
                 unit.hit_shapes(input.key.slot, world);
                 let s = world.w.units.state.as_mut().expect("prepared unit service");
@@ -1701,7 +1699,7 @@ pub fn f3_sensor_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
     }
     let s = world_ctx.units.state.as_mut().expect("prepared unit service");
     s.sensor_block.finish();
-    s.sensor_block.ptr()
+    Some(&s.sensor_block.words[..])
 }
 
 // Units.raycast keeps the first hit on an exact distance tie. Its ordered
@@ -2463,27 +2461,15 @@ pub(crate) fn foreign_barrier(){ foreign_barrier_in(crate::abi::world()) }
 pub(crate) fn items() -> &'static mut super::f3_items::Items{ items_in(&mut crate::abi::world().units) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn world_camera(position: [f64;3]){ world_camera_in(&mut crate::abi::world().units, position) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f64{ f3_init_in(crate::abi::world(), world, level, body_serial) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn publish_changed(){ publish_changed_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_adopt() -> u32{ f3_adopt_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_weapon_services(weapon: u32, count: u32){ f3_weapon_services_in(crate::abi::world(), weapon, count) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_step(count: u32, dt: f64, level: f64, tick: f64) -> u32{ f3_step_in(crate::abi::world(), count, dt, level, tick) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn viewpoint_count(count: f64){ viewpoint_count_in(crate::abi::world(), count) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn spawn_occupant() -> Option<three::Vector3>{ spawn_occupant_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_command() -> u32{ f3_command_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn fail(){ fail_in(&mut crate::abi::world().units) }
 #[cfg(target_arch = "wasm32")]
@@ -2500,61 +2486,21 @@ pub(crate) fn random_binding(binding: u32) -> f64{ random_binding_in(&mut crate:
 pub(crate) fn random_next(stream: u32) -> u32{ random_next_in(&mut crate::abi::world().units, stream) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_visible(reference: Ref<Unit>, unit: &Unit) -> bool{ wire_visible_in(crate::abi::world(), reference, unit) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_acquire(class: u32) -> i32{ f3_acquire_in(crate::abi::world(), class) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_sensor() -> *const f64{ f3_sensor_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn raycast( origin: [f64; 3], direction: [f64; 3], far: f64, exclude: super::registry::Exclude, riders: bool, masked: bool, ) -> Option<super::registry::UnitHit>{ raycast_in(crate::abi::world(), origin, direction, far, exclude, riders, masked) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_pose() -> u32{ f3_pose_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_foreign(count: u32){ f3_foreign_in(crate::abi::world(), count) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn target(id: u32) -> Option<&'static F3PropFact>{ target_in(crate::abi::world(), id) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn prepared_target(id: u32) -> Option<&'static F3PropFact>{ prepared_target_in(&crate::abi::world().units, id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_registry_prepare(){ f3_registry_prepare_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_registry_add(kind: u32, generation: u32) -> u32{ f3_registry_add_in(crate::abi::world(), kind, generation) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_registry_remove(id: u32){ f3_registry_remove_in(&mut crate::abi::world().sim, id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_body_names(count: u32){ f3_body_names_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_missile_classes(count: u32){ f3_missile_classes_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_relations(count:u32) -> u32{ f3_relations_in(crate::abi::world(), count) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn relation(a:f64,b:f64) -> f64{ relation_in(&crate::abi::world().units, a, b) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_history_capture(tick: u32){ f3_history_capture_in(crate::abi::world(), tick) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn network(slot: u32) -> &'static F3NetworkView{ network_in(&crate::abi::world().units, slot) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_hit_policy(){ f3_hit_policy_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_blast_binding(){ f3_blast_binding_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_impact_rules(){ f3_impact_rules_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_world_blast(){ f3_world_blast_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn intent_changed(reference:Ref<Unit>){ intent_changed_in(&mut crate::abi::world().units, reference) }
 #[cfg(target_arch = "wasm32")]
@@ -2609,3 +2555,51 @@ impl Drop for FacadeControlSpan { fn drop(&mut self) { if let Some(guard) = self
 impl WorldServices<'_> {
     pub(crate) fn lifecycle(&mut self, hook: &F4AIHook) -> bool { self.lifecycle_in(crate::abi::world(), hook) }
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f64 { f3_init_in(crate::abi::facade::world(), world, level, body_serial).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f3_adopt() -> u32 { f3_adopt_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_weapon_services(weapon: u32, count: u32) { f3_weapon_services_in(crate::abi::facade::world(), weapon, count) }
+    #[no_mangle]
+    pub extern "C" fn f3_step(count: u32, dt: f64, level: f64, tick: f64) -> u32 { f3_step_in(crate::abi::facade::world(), count, dt, level, tick) }
+    #[no_mangle]
+    pub extern "C" fn f3_command() -> u32 { f3_command_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_acquire(class: u32) -> i32 { f3_acquire_in(crate::abi::facade::world(), class) }
+    #[no_mangle]
+    pub extern "C" fn f3_sensor() -> *const f64 { f3_sensor_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f3_pose() -> u32 { f3_pose_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_foreign(count: u32) { f3_foreign_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn f3_registry_prepare() { f3_registry_prepare_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_registry_add(kind: u32, generation: u32) -> u32 { f3_registry_add_in(crate::abi::facade::world(), kind, generation) }
+    #[no_mangle]
+    pub extern "C" fn f3_registry_remove(id: u32) { f3_registry_remove_in(&mut crate::abi::facade::world().sim, id) }
+    #[no_mangle]
+    pub extern "C" fn f3_body_names(count: u32) { f3_body_names_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn f3_missile_classes(count: u32) { f3_missile_classes_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn f3_relations(count:u32) -> u32 { f3_relations_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn f3_history_capture(tick: u32) { f3_history_capture_in(crate::abi::facade::world(), tick) }
+    #[no_mangle]
+    pub extern "C" fn f3_hit_policy() { f3_hit_policy_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_blast_binding() { f3_blast_binding_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_impact_rules() { f3_impact_rules_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f3_world_blast() { f3_world_blast_in(crate::abi::facade::world()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{f3_init, f3_adopt, f3_weapon_services, f3_step, f3_command, f3_acquire, f3_sensor, f3_pose, f3_foreign, f3_registry_prepare, f3_registry_add, f3_registry_remove, f3_body_names, f3_missile_classes, f3_relations, f3_history_capture, f3_hit_policy, f3_blast_binding, f3_impact_rules, f3_world_blast};

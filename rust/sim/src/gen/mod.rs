@@ -1062,52 +1062,51 @@ pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {
     true
 }
 
-/// The command echo, its arguments' words as parameters.
-#[no_mangle]
-pub extern "C" fn cmd_echo(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 {
-    if !crate::abi::command_available(COMMAND_ECHO) { return std::ptr::null(); }
+/// The command echo, decoded from its scalar boundary words.
+pub fn cmd_echo_in(w: &mut crate::world::owner::World, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> Option<&crate::store::block::Block> {
+    if !crate::abi::command_available(COMMAND_ECHO) { return None; }
     let row: [f64; 8] = [w0, w1, w2, w3, w4, w5, w6, w7];
     let args = Echo::take(&row, &[]);
-    let sim = crate::abi::sim();
+    let sim = &mut w.sim;
     let result = crate::abi::echo(sim, args);
     sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block)
 }
 
-/// The command f2Seat, its arguments' words as parameters.
-#[no_mangle]
-pub extern "C" fn cmd_f2_seat(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64, w8: f64, w9: f64, w10: f64, w11: f64, w12: f64, w13: f64, w14: f64, w15: f64, w16: f64, w17: f64, w18: f64, w19: f64, w20: f64, w21: f64, w22: f64) -> *const f64 {
-    if !crate::abi::command_available(COMMAND_F2_SEAT) { return std::ptr::null(); }
+/// The command f2Seat, decoded from its scalar boundary words.
+pub fn cmd_f2_seat_in(w: &mut crate::world::owner::World, run: impl FnOnce(&mut crate::world::owner::World, F2SeatCommand) -> F2SeatResult, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64, w8: f64, w9: f64, w10: f64, w11: f64, w12: f64, w13: f64, w14: f64, w15: f64, w16: f64, w17: f64, w18: f64, w19: f64, w20: f64, w21: f64, w22: f64) -> Option<&crate::store::block::Block> {
+    if !crate::abi::command_available(COMMAND_F2_SEAT) { return None; }
     let row: [f64; 23] = [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16, w17, w18, w19, w20, w21, w22];
     let args = F2SeatCommand::take(&row, &[]);
-    let result = crate::vehicles::f2_seats::command(args);
-    let sim = crate::abi::sim();
+    let result = run(w, args);
+    let sim = &mut w.sim;
     sim.calls.result(F2SeatResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block)
 }
 
-/// The command fill, its arguments' words as parameters.
-#[no_mangle]
-pub extern "C" fn cmd_fill(w0: f64, w1: f64) -> *const f64 {
-    if !crate::abi::command_available(COMMAND_FILL) { return std::ptr::null(); }
+/// The command fill, decoded from its scalar boundary words.
+pub fn cmd_fill_in(w: &mut crate::world::owner::World, w0: f64, w1: f64) -> Option<&crate::store::block::Block> {
+    if !crate::abi::command_available(COMMAND_FILL) { return None; }
     let row: [f64; 2] = [w0, w1];
     let args = Fill::take(&row, &[]);
-    let sim = crate::abi::sim();
+    let sim = &mut w.sim;
     crate::abi::fill(sim, args);
-    std::ptr::null()
+    None
 }
 
-/// The command relay, its arguments' words as parameters.
-#[no_mangle]
-pub extern "C" fn cmd_relay(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 {
-    if !crate::abi::command_available(COMMAND_RELAY) { return std::ptr::null(); }
+/// The command relay, decoded from its scalar boundary words.
+pub fn cmd_relay_in(w: &mut crate::world::owner::World, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> Option<&crate::store::block::Block> {
+    if !crate::abi::command_available(COMMAND_RELAY) { return None; }
     let row: [f64; 8] = [w0, w1, w2, w3, w4, w5, w6, w7];
     let args = Echo::take(&row, &[]);
-    let sim = crate::abi::sim();
+    let sim = &mut w.sim;
     let result = crate::abi::relay(sim, args);
     sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block)
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn cmd_relay(_w0: f64, _w1: f64, _w2: f64, _w3: f64, _w4: f64, _w5: f64, _w6: f64, _w7: f64) -> *const f64 { std::ptr::null() }
 
 impl AiControlBirth {
     /// Emits it as the event aiControlBirth (drained in order at the end of the phase).
@@ -2812,5 +2811,22 @@ pub fn import_world_network_in(context: &crate::abi::context::Context, args: &Wo
     let args = crate::abi::context::Record::new(WorldNetworkArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_NETWORK, args)?;
     Ok(reply.read(WorldNetworkReply::take))
+}
+
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    /// The command echo, its arguments' words as parameters.
+    #[no_mangle]
+    pub extern "C" fn cmd_echo(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 { cmd_echo_in(crate::abi::facade::world(), w0, w1, w2, w3, w4, w5, w6, w7).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
+    /// The command f2Seat, its arguments' words as parameters.
+    #[no_mangle]
+    pub extern "C" fn cmd_f2_seat(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64, w8: f64, w9: f64, w10: f64, w11: f64, w12: f64, w13: f64, w14: f64, w15: f64, w16: f64, w17: f64, w18: f64, w19: f64, w20: f64, w21: f64, w22: f64) -> *const f64 { cmd_f2_seat_in(crate::abi::facade::world(), crate::vehicles::module::f2::live_seats::command_in, w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16, w17, w18, w19, w20, w21, w22).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
+    /// The command fill, its arguments' words as parameters.
+    #[no_mangle]
+    pub extern "C" fn cmd_fill(w0: f64, w1: f64) -> *const f64 { cmd_fill_in(crate::abi::facade::world(), w0, w1).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
+    /// The command relay, its arguments' words as parameters.
+    #[no_mangle]
+    pub extern "C" fn cmd_relay(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 { cmd_relay_in(crate::abi::facade::world(), w0, w1, w2, w3, w4, w5, w6, w7).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
 }
 

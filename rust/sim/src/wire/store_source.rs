@@ -277,33 +277,33 @@ impl Source {
         Ok((reference.slot as f64, unit.generation))
     }
 }
-#[no_mangle]
-pub extern "C" fn wire_store_source_words() -> u32 { WireStoreSetup::WORDS as u32 }
-pub(crate) fn wire_store_source_create_in(w: &mut crate::world::owner::World) -> *mut Source {
+pub fn wire_store_source_words() -> u32 { WireStoreSetup::WORDS as u32 }
+
+pub(crate) fn wire_store_source_create_in(w: &mut crate::world::owner::World) -> usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
     let (row, heap) = w.sim.calls.args();
-    if !valid_setup(&w.input, row, heap, w.sim.strings.list.len()) { return std::ptr::null_mut(); }
+    if !valid_setup(&w.input, row, heap, w.sim.strings.list.len()) { return 0; }
     let setup = WireStoreSetup::take(row, heap);
     // Only construction owns these maps. A future native publication borrows
     // the retained rows directly without decoding an entity argument block.
-    let Ok(capture) = store_capture::Capture::new(&setup, &w.sim.strings) else { return std::ptr::null_mut() };
-    let Ok(ordnance_ids) = store_capture::definitions(&setup.ordnance) else { return std::ptr::null_mut() };
+    let Ok(capture) = store_capture::Capture::new(&setup, &w.sim.strings) else { return 0 };
+    let Ok(ordnance_ids) = store_capture::definitions(&setup.ordnance) else { return 0 };
     let own = super::store_own::Capture::new(&crate::combat::module::defs().weapons);
     // captureCompactFlight serializes authored status strings as enum bytes.
     // Intern those names cold, including the empty message and trick names.
     // No first-seen flight status may allocate during publication.
     let flight_names = ["", "barrel", "loop", "immelmann", "Locking", "Locked", "Takeoff path blocked", "Landing path blocked", "Too fast", "No landing zone", "Press SPACE to land", "Flight ceiling", "Leaving battlefield", ""].map(|n| w.sim.strings.intern_str(n));
     owner.sources.insert(Source { ordnance_ids, dynamic_faults: ["invalid projectile sample", "invalid projectile integer", "invalid projectile channel", "invalid projectile type/orientation", "combat capture capacity exceeded", "dynamic projectile capture capacity exceeded", "combat definition absent from matched registry"].map(|s| w.sim.strings.intern_str(s)), projectiles: Default::default(), own_stagger: super::stagger::Stagger::own(), eligibility: std::array::from_fn(|_| Eligibility::default()), eligibility_key: None, own, flight_names, capture, states: [setup.unbuilt, setup.built, setup.destroyed], world: Default::default(), summaries: Default::default(), stage: super::stagger::Stagger::new(), peers: setup.peers, input: vec![0.; crate::gen::WireWorldFacts::WORDS + 256 * crate::gen::WirePublicationLink::WORDS], fields: Default::default(),
-        names: [setup.unbuilt, setup.built, setup.destroyed, w.sim.strings.intern_str("waiting"), w.sim.strings.intern_str("active")] }).unwrap_or(0) as *mut Source
+        names: [setup.unbuilt, setup.built, setup.destroyed, w.sim.strings.intern_str("waiting"), w.sim.strings.intern_str("active")] }).unwrap_or(0)
 
 }
 /// # Safety
 /// This source belongs to this instance and is disposed exactly once.
-pub(crate) unsafe fn wire_store_source_drop_in(w: &mut crate::world::owner::World, source: *mut Source) {
+pub(crate) unsafe fn wire_store_source_drop_in(w: &mut crate::world::owner::World, source: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.sources.get(source as usize).is_none() {return;}
- if !source.is_null() { owner.sources.remove(source as usize); }
+ if source != 0 { owner.sources.remove(source as usize); }
 
 }
 
@@ -311,12 +311,12 @@ if owner.sources.get(source as usize).is_none() {return;}
 /// client admissions. It never replaces captured lives or protocol identities.
 /// # Safety
 /// The source is a live allocation belonging to this instance.
-pub(crate) unsafe fn wire_store_source_configure_in(w: &mut crate::world::owner::World, source: *mut Source) -> u32 {
+pub(crate) unsafe fn wire_store_source_configure_in(w: &mut crate::world::owner::World, source: usize) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.sources.get(source as usize).is_none() {return 0;}
 
     let (row, heap) = w.sim.calls.args();
-    if source.is_null() || !valid_setup(&w.input, row, heap, w.sim.strings.list.len()) { return 0; }
+    if source == 0 || !valid_setup(&w.input, row, heap, w.sim.strings.list.len()) { return 0; }
     let setup = WireStoreSetup::take(row, heap);
     if (owner.sources.get_mut(source as usize).unwrap()).capture.rebind(&setup, &w.sim.strings).is_err() { return 0; }
     let Ok(ordnance_ids) = store_capture::definitions(&setup.ordnance) else { return 0 };
@@ -333,10 +333,10 @@ if owner.sources.get(source as usize).is_none() {return 0;}
 /// records natively; it never materializes these generated record objects.
 /// # Safety
 /// Both pointers are live, distinct allocations belonging to this instance.
-pub(crate) unsafe fn wire_store_source_probe_in(w: &mut crate::world::owner::World, source: *mut Source, shots: *const Counters) -> *const f64 {
+pub(crate) unsafe fn wire_store_source_probe_in(w: &mut crate::world::owner::World, source: usize, shots: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.sources.get(source as usize).is_none() {return std::ptr::null();}
-if owner.shots.get(shots as usize).is_none() {return std::ptr::null();}
+if owner.sources.get(source as usize).is_none() {return None;}
+if owner.shots.get(shots as usize).is_none() {return None;}
 
     let before = crate::allocations::snapshot();
     let result = (owner.sources.get_mut(source as usize).unwrap()).capture(&Read {sim:&w.sim,input:&w.input}, owner.shots.get(shots as usize).unwrap());
@@ -347,7 +347,7 @@ if owner.shots.get(shots as usize).is_none() {return std::ptr::null();}
     };
     out.allocations = used.calls as f64; out.reallocations = used.reallocs as f64;
     w.sim.calls.result(WireStoreRecords::WORDS, |row, heap| out.put(row, heap));
-    w.sim.calls.block.ptr()
+    Some(&w.sim.calls.block.words[..])
 
 }
 
@@ -404,10 +404,10 @@ fn facts<'a>(row: &[f64], heap: &'a [f64]) -> Option<(f64, &'a [f64])> {
 /// Reserved generated input remains owned by this source through memory growth.
 /// # Safety
 /// The source is live in this instance until wire_store_source_drop.
-pub(crate) unsafe fn wire_store_world_input_in(w: &mut crate::world::owner::World, source: *mut Source) -> *mut f64 {
+pub(crate) unsafe fn wire_store_world_input_in(w: &mut crate::world::owner::World, source: usize) -> Option<&mut [f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.sources.get(source as usize).is_none() {return std::ptr::null_mut();}
- (owner.sources.get_mut(source as usize).unwrap()).input.as_mut_ptr()
+if owner.sources.get(source as usize).is_none() {return None;}
+ Some(&mut owner.sources.get_mut(source as usize).unwrap().input[..])
 
 }
 impl Source {
@@ -533,18 +533,20 @@ impl super::publisher::World for PublicationWorld<'_> {
     fn status(&self, id: StrId) -> &[u16] { self.w.sim.strings.units(id) }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_store_source_create() -> *mut Source { wire_store_source_create_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_source_drop(source: *mut Source) { wire_store_source_drop_in(crate::abi::world(), source) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_source_configure(source: *mut Source) -> u32 { wire_store_source_configure_in(crate::abi::world(), source) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_source_probe(source: *mut Source, shots: *const Counters) -> *const f64 { wire_store_source_probe_in(crate::abi::world(), source, shots) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 { wire_store_world_input_in(crate::abi::world(), source) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_store_source_words() -> u32 { super::wire_store_source_words() }
+    #[no_mangle]
+    pub extern "C" fn wire_store_source_create() -> *mut Source { wire_store_source_create_in(crate::abi::facade::world()) as *mut Source }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_store_source_drop(source: *mut Source) { wire_store_source_drop_in(crate::abi::facade::world(), source as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_store_source_configure(source: *mut Source) -> u32 { wire_store_source_configure_in(crate::abi::facade::world(), source as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_store_source_probe(source: *mut Source, shots: *const Counters) -> *const f64 { wire_store_source_probe_in(crate::abi::facade::world(), source as usize, shots as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 { wire_store_world_input_in(crate::abi::facade::world(), source as usize).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+}

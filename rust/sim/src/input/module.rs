@@ -1,41 +1,37 @@
 use super::{actions, fire, controls};
 use crate::gen::{IaInput, IaResult, IfInput, IfResult, ImInput, ImResult, IqInput, IqResult, IcInput, IcResult, IkInput};
-
-#[no_mangle]
-pub extern "C" fn input_actions_words(which: u32) -> u32 {
+pub fn input_actions_words(which: u32) -> u32 {
     (match which { 0 => IaInput::WORDS, 1 => IaResult::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn input_actions_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn input_actions_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let sim = &mut w.sim;
     let (row, heap) = sim.calls.args();
     let input = IaInput::take(row, heap);
     let result = actions::run(input, &mut sim.strings);
     sim.calls.result(IaResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
-
-#[no_mangle]
-pub extern "C" fn input_fire_words(which: u32) -> u32 {
+pub fn input_fire_words(which: u32) -> u32 {
     (match which { 0 => IfInput::WORDS, 1 => IfResult::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn input_fire_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn input_fire_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let sim = &mut w.sim;
     let (row, heap) = sim.calls.args();
     let input = IfInput::take(row, heap);
     let result = fire::run(input, &mut sim.strings);
     sim.calls.result(IfResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
 
-pub(crate) fn input_mailbox_owned_run_in(w: &mut crate::world::owner::World, handle:u32) -> *const f64 {
+pub(crate) fn input_mailbox_owned_run_in(w: &mut crate::world::owner::World, handle:u32) -> Option<&[f64]> {
     let sim=&mut w.sim;let (row,heap)=sim.calls.args();
-    if !super::owner::valid_call(row,heap) {return std::ptr::null();}
+    if !super::owner::valid_call(row,heap) {return None;}
     let call=crate::gen::InputMailboxCall::take(row,heap);
     let input=ImInput {op:call.op,entry:call.entry,sequence:call.sequence,epoch_matches:call.epoch_matches,
         tick:call.tick,generation:call.generation,..Default::default()};
-    let Some(owner)=w.input.mailboxes.get_mut(handle as usize) else {return std::ptr::null()};
+    let Some(owner)=w.input.mailboxes.get_mut(handle as usize) else {return None};
     let mut result=owner.run(input,&mut sim.strings);
     result.state=std::mem::take(&mut owner.state);
     // Queued commands stay with their owner. Only consumed values and fixed
@@ -43,31 +39,27 @@ pub(crate) fn input_mailbox_owned_run_in(w: &mut crate::world::owner::World, han
     let queue=std::mem::take(&mut result.state.queue);
     sim.calls.result(ImResult::WORDS,|row,heap|result.put(row,heap));
     result.state.queue=queue;owner.state=std::mem::take(&mut result.state);owner.recycle(&mut result);
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
-
-#[no_mangle]
-pub extern "C" fn input_queue_words(which: u32) -> u32 {
+pub fn input_queue_words(which: u32) -> u32 {
     (match which { 0 => IqInput::WORDS, 1 => IqResult::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn input_queue_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn input_queue_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let sim = &mut w.sim; let (row, heap) = sim.calls.args();
     let result = controls::queue(IqInput::take(row, heap), &mut sim.strings);
     sim.calls.result(IqResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
-
-#[no_mangle]
-pub extern "C" fn input_controls_words(which: u32) -> u32 {
+pub fn input_controls_words(which: u32) -> u32 {
     (match which { 0 => IcInput::WORDS, 1 => IcResult::WORDS, 2 => IkInput::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn input_controls_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn input_controls_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let sim = &mut w.sim; let (row, heap) = sim.calls.args();
     let result = controls::controls(IcInput::take(row, heap));
     sim.calls.result(IcResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
 
 pub(crate) fn input_controls_axis_in(w: &mut crate::world::owner::World) -> f64 {
@@ -106,9 +98,9 @@ pub(crate) fn input_mailbox_view_in(w: &mut crate::world::owner::World, handle:u
     if let Some(mailbox)=w.input.mailboxes.get_mut(handle as usize) {mailbox.view(input.key as usize,input.present,&input.view);}
 }
 /// Debug views do not run during an ordinary input or publication operation.
-pub(crate) fn input_mailbox_inspect_in(w: &mut crate::world::owner::World, handle:u32) ->*const f64 {
-    let sim=&mut w.sim;let Some(owner)=w.input.mailboxes.get(handle as usize) else {return std::ptr::null()};
-    sim.calls.result(crate::gen::ImState::WORDS,|row,heap|owner.state.put(row,heap));sim.calls.block.ptr()
+pub(crate) fn input_mailbox_inspect_in(w: &mut crate::world::owner::World, handle:u32) -> Option<&[f64]> {
+    let sim=&mut w.sim;let Some(owner)=w.input.mailboxes.get(handle as usize) else {return None};
+    sim.calls.result(crate::gen::ImState::WORDS,|row,heap|owner.state.put(row,heap));Some(&sim.calls.block.words[..])
 }
 
 /// Spawn-selection mutations enter once, independently of publication cadence.
@@ -117,40 +109,6 @@ pub(crate) fn input_mailbox_spawn_in(w: &mut crate::world::owner::World, handle:
     let spawn=crate::gen::WireSpawnFacts::take(row,heap);
     if let Some(owner)=w.input.mailboxes.get_mut(handle as usize) {owner.publication.spawn=spawn;}
 }
-
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_actions_run() -> *const f64 { input_actions_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_fire_run() -> *const f64 { input_fire_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_mailbox_owned_run(handle:u32) -> *const f64 { input_mailbox_owned_run_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_queue_run() -> *const f64 { input_queue_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_controls_run() -> *const f64 { input_controls_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_controls_axis() -> f64 { input_controls_axis_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_mailbox_create() ->u32 { input_mailbox_create_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_mailbox_drop(handle:u32) { input_mailbox_drop_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_mailbox_view(handle:u32) { input_mailbox_view_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_mailbox_inspect(handle:u32) ->*const f64 { input_mailbox_inspect_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_mailbox_spawn(handle:u32) { input_mailbox_spawn_in(crate::abi::world(), handle) }
 
 #[cfg(test)]
 mod tests {
@@ -181,3 +139,41 @@ mod tests {
         assert_eq!(b.input.mailboxes.get(kb as usize).unwrap().state.epoch, 9.);
     }
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn input_actions_words(which: u32) -> u32 { super::input_actions_words(which) }
+    #[no_mangle]
+    pub extern "C" fn input_fire_words(which: u32) -> u32 { super::input_fire_words(which) }
+    #[no_mangle]
+    pub extern "C" fn input_queue_words(which: u32) -> u32 { super::input_queue_words(which) }
+    #[no_mangle]
+    pub extern "C" fn input_controls_words(which: u32) -> u32 { super::input_controls_words(which) }
+    #[no_mangle]
+    pub extern "C" fn input_actions_run() -> *const f64 { input_actions_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn input_fire_run() -> *const f64 { input_fire_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_owned_run(handle:u32) -> *const f64 { input_mailbox_owned_run_in(crate::abi::facade::world(), handle).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn input_queue_run() -> *const f64 { input_queue_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn input_controls_run() -> *const f64 { input_controls_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn input_controls_axis() -> f64 { input_controls_axis_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_create() ->u32 { input_mailbox_create_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_drop(handle:u32) { input_mailbox_drop_in(crate::abi::facade::world(), handle) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_view(handle:u32) { input_mailbox_view_in(crate::abi::facade::world(), handle) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_inspect(handle:u32) ->*const f64 { input_mailbox_inspect_in(crate::abi::facade::world(), handle).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_spawn(handle:u32) { input_mailbox_spawn_in(crate::abi::facade::world(), handle) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{input_actions_run, input_fire_run, input_mailbox_owned_run, input_queue_run, input_controls_run, input_controls_axis, input_mailbox_create, input_mailbox_drop, input_mailbox_view, input_mailbox_inspect, input_mailbox_spawn};

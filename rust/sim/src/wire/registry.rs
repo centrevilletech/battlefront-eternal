@@ -107,15 +107,15 @@ pub fn tables(a: WrTables, strings: &Strings) -> Result<WrResult> {
         ..WrResult::default()
     })
 }
-#[no_mangle]
-pub extern "C" fn wire_registry_words(op: u32) -> u32 {
+pub fn wire_registry_words(op: u32) -> u32 {
     match op {
         0 => WrInputs::WORDS as u32,
         1 => WrTables::WORDS as u32,
         _ => 0,
     }
 }
-pub(crate) fn wire_registry_run_in(w: &mut crate::world::owner::World, op: u32) -> *const f64 {
+
+pub(crate) fn wire_registry_run_in(w: &mut crate::world::owner::World, op: u32) -> Option<&[f64]> {
     let s = &mut w.sim;
     let result = {
         let (row, heap) = s.calls.args();
@@ -134,7 +134,7 @@ pub(crate) fn wire_registry_run_in(w: &mut crate::world::owner::World, op: u32) 
     };
     s.calls
         .result(WrResult::WORDS, |row, heap| out.put(row, heap));
-    s.calls.block.ptr()
+    Some(&s.calls.block.words[..])
 }
 #[cfg(test)]
 mod tests {
@@ -170,6 +170,14 @@ mod tests {
     }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_registry_run(op: u32) -> *const f64 { wire_registry_run_in(crate::abi::world(), op) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_registry_words(op: u32) -> u32 { super::wire_registry_words(op) }
+    #[no_mangle]
+    pub extern "C" fn wire_registry_run(op: u32) -> *const f64 { wire_registry_run_in(crate::abi::facade::world(), op).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{wire_registry_run};

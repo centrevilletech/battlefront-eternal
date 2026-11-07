@@ -82,9 +82,7 @@ pub(crate) fn wire_weapons_in<T>(world_ctx: &mut crate::world::owner::World, hul
     capture(&values[..refs.len()])
 }
 fn node(n: f64) -> Option<three::NodeId> { (n >= 0.0).then_some(n as three::NodeId) }
-
-#[no_mangle]
-pub extern "C" fn f2_firing_words(which: u32) -> u32 {
+pub fn f2_firing_words(which: u32) -> u32 {
     match which { 0 => FfBirth::WORDS as u32, 1 => FfWeaponInput::WORDS as u32, 3 => FfSupply::WORDS as u32, 4 => FfSupplyResult::WORDS as u32, _ => 0 }
 }
 
@@ -239,19 +237,19 @@ fn dirty(st: &State, c: &Craft) -> bool {
     c.seats.iter().any(|s| s.iter().any(|&r| st.weapons.get(r).unwrap().dirty))
 }
 /// FfHullOut contains only hulls whose mounted state changed since publication.
-pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> *const f64 { publish_for_in(world_ctx, None) }
+pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { publish_for_in(world_ctx, None) }
 // Power-up supply publishes one hull; ordinary phase publication selects dirty
 // mounted rows. Neither operation copies another craft's mutable weapon state
 // back into JS and risks replacing an unlatched AI edit.
-fn publish_for_in(world_ctx: &mut crate::world::owner::World, only: Option<Ref<Vehicle>>) -> *const f64 { firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).publish_for(&mut world_ctx.fleet.poses, only) }
+fn publish_for_in(world_ctx: &mut crate::world::owner::World, only: Option<Ref<Vehicle>>) -> Option<&[f64]> { Some(firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).publish_for(&mut world_ctx.fleet.poses, only)) }
 /// The existing F2 descriptor points to a generated firing descriptor.
 /// Its event address removes getter/clear exports from the ordinary tick.
-pub(crate) fn phase_ptr_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
-    let weapons = publish_in(world_ctx) as usize as u32;
+pub(crate) fn phase_ptr_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
+    let weapons = publish_in(world_ctx).map_or(0, |b| b.as_ptr() as usize as u32);
     let st = firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings);
     let value = FfPhase { weapons, cables: st.cable_output.ptr() as usize as u32, events: world_ctx.sim.events.ptr() as usize as u32 };
     value.put(&mut st.phase, &mut st.cable_output.heap);
-    st.phase.as_ptr()
+    Some(&st.phase[..])
 }
 
 // Weapon.update chooses draws in the same order as its JS implementation.
@@ -761,13 +759,13 @@ pub(crate) fn emitter_pose_in(world_ctx: &mut crate::world::owner::World, source
 /// PowerupStation.serve sends ammunition as one scalar command per hull.
 /// It never imports the mirrored weapon clocks back into the mounted slab.
 
-pub(crate) fn f2_firing_supply_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn f2_firing_supply_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
     let a = { let (row, heap) = world_ctx.sim.calls.args(); FfSupply::take(row, heap) };
     let changed = supply_station_in(world_ctx, a.hull, a.life, a.amount);
 
-    let result = FfSupplyResult { changed, output: publish_for_in(world_ctx, Some(a.hull)) as usize as u32 };
+    let result = FfSupplyResult { changed, output: publish_for_in(world_ctx, Some(a.hull)).map_or(0, |b| b.as_ptr() as usize as u32) };
     firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).supply_result.result(FfSupplyResult::WORDS, |row, heap| result.put(row, heap));
-    firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).supply_result.block.ptr()
+    Some(&firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).supply_result.block.words)
 }
 
 // givePowerup uses the same canonical mounted ammunition as Station.serve.
@@ -979,7 +977,7 @@ impl State {
         weapon.input.yaw_spread_override=weapon.state.yaw_spread_override;
         weapon.dirty|=changed;Some(result)
     }
-    fn publish_for(&mut self, poses: &[Option<crate::vehicles::module::Posed>], only: Option<Ref<Vehicle>>) -> *const f64 {
+    fn publish_for(&mut self, poses: &[Option<crate::vehicles::module::Posed>], only: Option<Ref<Vehicle>>) -> &[f64] {
         let st = self;
         let n = st.crafts.iter().flatten().filter(|c| only.is_none_or(|r| c.id == r) && dirty(st, c)).count();
         st.output.begin(n, FfHullOut::WORDS);
@@ -1014,7 +1012,7 @@ impl State {
             let (words, heap) = st.cable_output.row(i); out.put(words, heap);
         }
         st.cable_output.finish();
-        st.output.ptr()
+        &st.output.words
     }
 }
 
@@ -1059,9 +1057,7 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_weapons<T>(hull: Ref<Vehicle>, life: f64, seat: usize,
     capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> { wire_weapons_in(crate::abi::world(), hull, life, seat, capture) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_firing_adopt() { f2_firing_adopt_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub fn retire(r: Ref<Vehicle>) { retire_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
@@ -1089,10 +1085,6 @@ pub fn edit_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_se
 #[cfg(target_arch = "wasm32")]
 pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) { policy_in(crate::abi::world(), r, seat, player, random) }
 #[cfg(target_arch = "wasm32")]
-pub fn publish() -> *const f64 { publish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub fn phase_ptr() -> *const f64 { phase_ptr_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
 pub fn flight_locks() { flight_locks_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub fn emitter_gone(source: BeamSource) -> Option<bool> { emitter_gone_in(crate::abi::world(), source) }
@@ -1100,9 +1092,7 @@ pub fn emitter_gone(source: BeamSource) -> Option<bool> { emitter_gone_in(crate:
 pub fn emitter_local(source: BeamSource, origin: [f64; 3]) -> Option<[f64; 3]> { emitter_local_in(crate::abi::world(), source, origin) }
 #[cfg(target_arch = "wasm32")]
 pub fn emitter_pose(source: BeamSource, local: [f64; 3], position: &mut [f64; 3], direction: &mut [f64; 3]) -> bool { emitter_pose_in(crate::abi::world(), source, local, position, direction) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_firing_supply() -> *const f64 { f2_firing_supply_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn supply(hull: Ref<Vehicle>, amount: f64, powerup: bool) -> bool { supply_in(crate::abi::world(), hull, amount, powerup) }
 #[cfg(target_arch = "wasm32")]
@@ -1111,3 +1101,21 @@ pub(crate) fn supply_station(hull: Ref<Vehicle>,life:f64,amount:f64)->bool { sup
 pub(crate) fn first_weapon(hull:Ref<Vehicle>,seat:usize)->Option<(crate::store::DefId,f64)> { first_weapon_in(crate::abi::world(), hull, seat) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) { refresh_weapon_masks_in(crate::abi::world(), table) }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    pub fn publish() -> *const f64 { publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub fn phase_ptr() -> *const f64 { phase_ptr_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f2_firing_words(which: u32) -> u32 { super::f2_firing_words(which) }
+    #[no_mangle]
+    pub extern "C" fn f2_firing_adopt() { f2_firing_adopt_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f2_firing_supply() -> *const f64 { f2_firing_supply_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{f2_firing_adopt, f2_firing_supply};
+#[cfg(target_arch = "wasm32")]
+pub use exports::{publish, phase_ptr};

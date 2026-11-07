@@ -19,13 +19,11 @@ impl clock::Host for ClockHost {
     fn now(&mut self, state: &mut WorldClockState) -> f64 { self.call(state, WorldClockCall::Now, 0.0, 0.0) }
     fn step(&mut self, state: &mut WorldClockState, dt: f64, tick: f64) { self.call(state, WorldClockCall::Step, dt, tick); }
 }
-
-#[no_mangle]
-pub extern "C" fn world_clock_words(which: u32) -> u32 {
+pub fn world_clock_words(which: u32) -> u32 {
     (match which { 0 => WorldClockInput::WORDS, 1 => WorldClockResult::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn world_clock_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn world_clock_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let input = { let (row, heap) = w.sim.calls.args(); WorldClockInput::take(row, heap) };
     let mut state = input.state;
     let result = match input.op {
@@ -37,11 +35,9 @@ pub(crate) fn world_clock_run_in(w: &mut crate::world::owner::World) -> *const f
     let (ran, error) = match result { Ok(ran) => (ran, None), Err(error) => (0.0, Some(sim.strings.intern_str(error))) };
     let out = WorldClockResult { state, ran, error };
     sim.calls.result(WorldClockResult::WORDS, |row, heap| out.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
-
-#[no_mangle]
-pub extern "C" fn world_clock_time(tick: f64, hz: f64) -> f64 { tick / hz }
+pub fn world_clock_time(tick: f64, hz: f64) -> f64 { tick / hz }
 
 struct EventHost;
 impl events::Host for EventHost {
@@ -51,13 +47,11 @@ impl events::Host for EventHost {
         reply.present
     }
 }
-
-#[no_mangle]
-pub extern "C" fn world_events_words(which: u32) -> u32 {
+pub fn world_events_words(which: u32) -> u32 {
     (match which { 0 => WorldEventInput::WORDS, 1 => WorldEventState::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn world_events_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn world_events_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let input = { let (row, heap) = w.sim.calls.args(); WorldEventInput::take(row, heap) };
     let mut state = input.state;
     match input.op {
@@ -67,7 +61,7 @@ pub(crate) fn world_events_run_in(w: &mut crate::world::owner::World) -> *const 
     }
     let sim = &mut w.sim;
     sim.calls.result(WorldEventState::WORDS, |row, heap| state.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
 
 struct LocalHost;
@@ -78,13 +72,11 @@ impl local::Host for LocalHost {
         reply.value
     }
 }
-
-#[no_mangle]
-pub extern "C" fn world_local_words(which: u32) -> u32 {
+pub fn world_local_words(which: u32) -> u32 {
     (match which { 0 => WorldLocalInput::WORDS, 1 => WorldLocalState::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let input = { let (row, heap) = w.sim.calls.args(); WorldLocalInput::take(row, heap) };
     let mut state = input.state;
     match input.op {
@@ -92,7 +84,7 @@ pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> *const f
     }
     let sim = &mut w.sim;
     sim.calls.result(WorldLocalState::WORDS, |row, heap| state.put(row, heap));
-    sim.calls.block.ptr()
+    Some(&sim.calls.block.words[..])
 }
 
 struct NetworkHost;
@@ -103,9 +95,7 @@ impl network::Host for NetworkHost {
         reply.value
     }
 }
-
-#[no_mangle]
-pub extern "C" fn world_network_words() -> u32 { WorldNetworkInput::WORDS as u32 }
+pub fn world_network_words() -> u32 { WorldNetworkInput::WORDS as u32 }
 
 pub(crate) fn world_network_run_in(w: &mut crate::world::owner::World) -> f64 {
     let input = { let (row, heap) = w.sim.calls.args(); WorldNetworkInput::take(row, heap) };
@@ -119,22 +109,33 @@ impl super::network_controls::Host for ControlsHost {
         import_world_controls(&WorldControlsArgs { op, index, value, other })
     }
 }
-
-#[no_mangle]
-pub extern "C" fn world_controls_run(stop: u32, tick: f64) {
+pub fn world_controls_run(stop: u32, tick: f64) {
     if stop != 0 { super::network_controls::stop(&mut ControlsHost); }
     else { super::network_controls::apply(tick, &mut ControlsHost); }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn world_clock_run() -> *const f64 { world_clock_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn world_events_run() -> *const f64 { world_events_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn world_local_run() -> *const f64 { world_local_run_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn world_network_run() -> f64 { world_network_run_in(crate::abi::world()) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn world_clock_words(which: u32) -> u32 { super::world_clock_words(which) }
+    #[no_mangle]
+    pub extern "C" fn world_clock_time(tick: f64, hz: f64) -> f64 { super::world_clock_time(tick, hz) }
+    #[no_mangle]
+    pub extern "C" fn world_events_words(which: u32) -> u32 { super::world_events_words(which) }
+    #[no_mangle]
+    pub extern "C" fn world_local_words(which: u32) -> u32 { super::world_local_words(which) }
+    #[no_mangle]
+    pub extern "C" fn world_network_words() -> u32 { super::world_network_words() }
+    #[no_mangle]
+    pub extern "C" fn world_controls_run(stop: u32, tick: f64) { super::world_controls_run(stop, tick) }
+    #[no_mangle]
+    pub extern "C" fn world_clock_run() -> *const f64 { world_clock_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn world_events_run() -> *const f64 { world_events_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn world_local_run() -> *const f64 { world_local_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn world_network_run() -> f64 { world_network_run_in(crate::abi::facade::world()) }
+}

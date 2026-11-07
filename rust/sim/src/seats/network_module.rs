@@ -94,10 +94,25 @@ pub fn run<T: Transport>(transport: T, cycle: bool) -> Result<Vec<f64>, ()> {
     Ok(words)
 }
 
+pub fn network_seats_words(result: u32) -> u32 {
+    use crate::gen::{NetworkSeatsCommand, NetworkSeatsReply};
+    if result == 0 { NetworkSeatsCommand::WORDS as u32 } else { NetworkSeatsReply::WORDS as u32 }
+}
+pub fn network_seats_run_in<T: Transport>(w: &mut crate::world::owner::World, transport: impl FnOnce(u32) -> T) -> &crate::store::block::Block {
+    use crate::gen::{NetworkSeatsCommand, NetworkSeatsReply};
+    let input = { let (row, heap) = w.sim.calls.args(); NetworkSeatsCommand::take(row, heap) };
+    let result = run(transport(input.context), input.cycle);
+    let answer = NetworkSeatsReply { ok: result.is_ok(), values: result.unwrap_or_default() };
+    // All imports and their owned temporaries have finished before this borrow.
+    let calls = &mut w.sim.calls;
+    calls.result(NetworkSeatsReply::WORDS, |row, heap| answer.put(row, heap));
+    &calls.block
+}
+
 #[cfg(target_arch = "wasm32")]
-mod abi {
+mod exports {
     use super::*;
-    use crate::{abi::sim, gen::{import_network_seats_world, NetworkSeatsCommand, NetworkSeatsQuery, NetworkSeatsReply}};
+    use crate::gen::{import_network_seats_world, NetworkSeatsQuery};
     struct Js { context: u32 }
     impl Transport for Js {
         fn call(&mut self, op: Op, values: Vec<f64>) -> Result<Vec<f64>, ()> {
@@ -106,17 +121,7 @@ mod abi {
         }
     }
     #[no_mangle]
-    pub extern "C" fn network_seats_words(result: u32) -> u32 {
-        if result == 0 { NetworkSeatsCommand::WORDS as u32 } else { NetworkSeatsReply::WORDS as u32 }
-    }
+    pub extern "C" fn network_seats_words(result: u32) -> u32 { super::network_seats_words(result) }
     #[no_mangle]
-    pub extern "C" fn network_seats_run() -> *const f64 {
-        let input = { let (row, heap) = sim().calls.args(); NetworkSeatsCommand::take(row, heap) };
-        let result = run(Js { context: input.context }, input.cycle);
-        let answer = NetworkSeatsReply { ok: result.is_ok(), values: result.unwrap_or_default() };
-        // All imports and their owned temporaries have finished before this borrow.
-        let calls = &mut sim().calls;
-        calls.result(NetworkSeatsReply::WORDS, |row, heap| answer.put(row, heap));
-        calls.block.ptr()
-    }
+    pub extern "C" fn network_seats_run() -> *const f64 { network_seats_run_in(crate::abi::facade::world(), |context| Js { context }).ptr() }
 }

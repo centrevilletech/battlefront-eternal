@@ -25,9 +25,8 @@ pub(crate) fn install_in(world_ctx: &mut crate::world::owner::World, unit: Ref<U
 // SeatLease acquisition binds the new gameplay life before its first pose.
 // This is the native equivalent of F2Riders.ensure's generation refresh.
 pub(crate) fn life_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, life: f64) { world_ctx.fleet.riders.life(unit, life) }
+pub fn f2_rider_birth_words() -> u32 { F2RiderBirth::WORDS as u32 }
 
-#[no_mangle]
-pub extern "C" fn f2_rider_birth_words() -> u32 { F2RiderBirth::WORDS as u32 }
 /// riderPoints skeletonOf/bindsOf and the seat's resolved clip are birth data.
 
 pub(crate) fn f2_rider_birth_in(world_ctx: &mut crate::world::owner::World) {
@@ -97,7 +96,7 @@ pub(crate) fn shapes_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Un
 
 /// Publish only samples whose numeric values changed. A stationary nine-pose
 /// rider keeps its shape cache while tickCount continues its normal cadence.
-pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> *const f64 { world_ctx.fleet.riders.publish() }
+pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { Some(world_ctx.fleet.riders.publish_words()) }
 
 impl Riders {
     pub(super) fn reserve(&mut self, count: usize) {
@@ -132,7 +131,9 @@ impl Riders {
         for (source, target) in row.shapes[..count].iter().zip(out) { target.set_rider(source); }
         count
     }
-    pub(super) fn publish(&mut self) -> *const f64 {
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn publish(&mut self) -> *const f64 { self.publish_words().as_ptr() }
+    pub(super) fn publish_words(&mut self) -> &[f64] {
         let mut count = 0;
         for row in self.rows.iter_mut().flatten() {
             if !row.dirty { continue; }
@@ -151,7 +152,7 @@ impl Riders {
             // storage; rebuilding encoded rows each tick would allocate.
             std::mem::swap(&mut row.previous, &mut row.encoded); row.dirty = false;
         }
-        out.finish(); out.ptr()
+        out.finish(); &out.words
     }
     fn birth(&mut self, a: F2RiderBirth) {
         let index = a.unit.slot as usize;
@@ -224,9 +225,7 @@ impl Riders {
 pub(crate) fn take(unit: Ref<Unit>) -> Option<Rider> { take_in(crate::abi::world(), unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn install(unit: Ref<Unit>, rider: Option<Rider>) { install_in(crate::abi::world(), unit, rider) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn f2_rider_birth() { f2_rider_birth_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub fn hull(r: Ref<Vehicle>, write_body: bool) { hull_in(crate::abi::world(), r, write_body) }
 #[cfg(target_arch = "wasm32")]
@@ -235,5 +234,18 @@ pub fn turret(unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, 
 pub fn drop(unit: Ref<Unit>) -> Option<Vector3> { drop_in(crate::abi::world(), unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn shapes(unit: Ref<Unit>, life: f64, out: &mut [crate::gen::HitShape]) -> usize { shapes_in(crate::abi::world(), unit, life, out) }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-pub fn publish() -> *const f64 { publish_in(crate::abi::world()) }
+mod exports {
+    use super::*;
+    pub fn publish() -> *const f64 { publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f2_rider_birth_words() -> u32 { super::f2_rider_birth_words() }
+    #[no_mangle]
+    pub extern "C" fn f2_rider_birth() { f2_rider_birth_in(crate::abi::facade::world()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{f2_rider_birth};
+#[cfg(target_arch = "wasm32")]
+pub use exports::{publish};

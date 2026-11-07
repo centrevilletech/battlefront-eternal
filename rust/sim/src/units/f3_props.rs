@@ -666,9 +666,7 @@ pub(crate) fn built_body(target:RepairTarget)->Option<Ref<Body>>{ built_body_in(
 pub(crate) fn trap_geometry(target:RepairTarget)->Option<(crate::ai::combat::world::Sphere,three::Matrix4)>{ trap_geometry_in(crate::abi::world(), target) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_turret(reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)>{ wire_turret_in(crate::abi::world(), reference) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_building(){ f3_building_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn count() -> usize{ count_in(&crate::abi::world().units) }
 #[cfg(target_arch = "wasm32")]
@@ -687,3 +685,11 @@ pub(crate) fn lock_key(target: RepairTarget) -> StrId{ lock_key_in(crate::abi::w
 pub(crate) fn battle_building(r: Ref<Building>) -> (bool, Attacker){ battle_building_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn battle_member(s: &Store, key: Member) -> Option<crate::battle::world::Member>{ battle_member_in(crate::abi::world(), s, key) }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f3_building() { f3_building_in(crate::abi::facade::world()) }
+}

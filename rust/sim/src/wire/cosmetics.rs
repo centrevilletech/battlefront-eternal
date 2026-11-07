@@ -949,40 +949,40 @@ impl Session {
     }
 }
 
-pub(crate) fn wire_cosmetics_create_in(w: &mut crate::world::owner::World) -> *mut Session {
+pub(crate) fn wire_cosmetics_create_in(w: &mut crate::world::owner::World) -> usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
-    owner.cosmetics.insert(Session::default()).unwrap_or(0) as *mut Session
+    owner.cosmetics.insert(Session::default()).unwrap_or(0)
 
 }
-pub(crate) unsafe fn wire_cosmetics_drop_in(w: &mut crate::world::owner::World, ptr: *mut Session) {
+pub(crate) unsafe fn wire_cosmetics_drop_in(w: &mut crate::world::owner::World, ptr: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return;}
 
-    if !ptr.is_null() {
+    if ptr != 0 {
         owner.cosmetics.remove(ptr as usize);
     }
 
 }
-pub(crate) unsafe fn wire_cosmetics_room_in(w: &mut crate::world::owner::World, ptr: *mut Session, n: u32) -> *mut f64 {
+pub(crate) unsafe fn wire_cosmetics_room_in(w: &mut crate::world::owner::World, ptr: usize, n: u32) -> Option<&mut [f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null_mut();}
+if owner.cosmetics.get(ptr as usize).is_none() {return None;}
 
     let s = owner.cosmetics.get_mut(ptr as usize).unwrap();
     s.input.resize(n as usize, 0.0);
-    s.input.as_mut_ptr()
+    Some(&mut s.input[..])
 
 }
-pub(crate) unsafe fn wire_cosmetics_payload_in(w: &mut crate::world::owner::World, ptr: *mut Session, n: u32) -> *mut u8 {
+pub(crate) unsafe fn wire_cosmetics_payload_in(w: &mut crate::world::owner::World, ptr: usize, n: u32) -> Option<&mut [u8]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null_mut();}
+if owner.cosmetics.get(ptr as usize).is_none() {return None;}
 
     let s = owner.cosmetics.get_mut(ptr as usize).unwrap();
     s.payload.resize(n as usize, 0);
-    s.payload.as_mut_ptr()
+    Some(&mut s.payload[..])
 
 }
-pub(crate) unsafe fn wire_cosmetics_run_in(w: &mut crate::world::owner::World, ptr: *mut Session, op: u32) -> u32 {
+pub(crate) unsafe fn wire_cosmetics_run_in(w: &mut crate::world::owner::World, ptr: usize, op: u32) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
 
@@ -991,15 +991,15 @@ if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
     s.error.is_some() as u32
 
 }
-pub(crate) unsafe fn wire_cosmetics_words_in(w: &mut crate::world::owner::World, ptr: *mut Session) -> *const f64 {
+pub(crate) unsafe fn wire_cosmetics_words_in(w: &mut crate::world::owner::World, ptr: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null();}
+if owner.cosmetics.get(ptr as usize).is_none() {return None;}
 
     let s = owner.cosmetics.get(ptr as usize).unwrap();
-    s.words.as_ptr()
+    Some(&s.words[..])
 
 }
-pub(crate) unsafe fn wire_cosmetics_word_count_in(w: &mut crate::world::owner::World, ptr: *mut Session) -> u32 {
+pub(crate) unsafe fn wire_cosmetics_word_count_in(w: &mut crate::world::owner::World, ptr: usize) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
 
@@ -1007,15 +1007,15 @@ if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
     s.words.len() as u32
 
 }
-pub(crate) unsafe fn wire_cosmetics_bytes_in(w: &mut crate::world::owner::World, ptr: *mut Session) -> *const u8 {
+pub(crate) unsafe fn wire_cosmetics_bytes_in(w: &mut crate::world::owner::World, ptr: usize) -> Option<&[u8]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null();}
+if owner.cosmetics.get(ptr as usize).is_none() {return None;}
 
     let s = owner.cosmetics.get(ptr as usize).unwrap();
-    s.bytes.as_ptr()
+    Some(&s.bytes[..])
 
 }
-pub(crate) unsafe fn wire_cosmetics_byte_count_in(w: &mut crate::world::owner::World, ptr: *mut Session) -> u32 {
+pub(crate) unsafe fn wire_cosmetics_byte_count_in(w: &mut crate::world::owner::World, ptr: usize) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
 
@@ -1023,15 +1023,15 @@ if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
     s.bytes.len() as u32
 
 }
-pub(crate) unsafe fn wire_cosmetics_error_in(w: &mut crate::world::owner::World, ptr: *mut Session) -> *const u8 {
+pub(crate) unsafe fn wire_cosmetics_error_in(w: &mut crate::world::owner::World, ptr: usize) -> Option<&[u8]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null();}
+if owner.cosmetics.get(ptr as usize).is_none() {return None;}
 
     let s = owner.cosmetics.get(ptr as usize).unwrap();
-    s.error.unwrap_or("").as_ptr()
+    Some(s.error.unwrap_or("").as_bytes())
 
 }
-pub(crate) unsafe fn wire_cosmetics_error_len_in(w: &mut crate::world::owner::World, ptr: *mut Session) -> u32 {
+pub(crate) unsafe fn wire_cosmetics_error_len_in(w: &mut crate::world::owner::World, ptr: usize) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
 
@@ -1039,7 +1039,7 @@ if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
     s.error.unwrap_or("").len() as u32
 
 }
-pub(crate) unsafe fn wire_cosmetics_metric_in(w: &mut crate::world::owner::World, ptr: *mut Session, index: u32) -> f64 {
+pub(crate) unsafe fn wire_cosmetics_metric_in(w: &mut crate::world::owner::World, ptr: usize, index: u32) -> f64 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return f64::NAN;}
 
@@ -1175,39 +1175,34 @@ mod tests {
     }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_cosmetics_create() -> *mut Session { wire_cosmetics_create_in(crate::abi::world()) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_cosmetics_create() -> *mut Session { wire_cosmetics_create_in(crate::abi::facade::world()) as *mut Session }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_drop(ptr: *mut Session) { wire_cosmetics_drop_in(crate::abi::facade::world(), ptr as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_room(ptr: *mut Session, n: u32) -> *mut f64 { wire_cosmetics_room_in(crate::abi::facade::world(), ptr as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_payload(ptr: *mut Session, n: u32) -> *mut u8 { wire_cosmetics_payload_in(crate::abi::facade::world(), ptr as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_run(ptr: *mut Session, op: u32) -> u32 { wire_cosmetics_run_in(crate::abi::facade::world(), ptr as usize, op) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_words(ptr: *mut Session) -> *const f64 { wire_cosmetics_words_in(crate::abi::facade::world(), ptr as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_word_count(ptr: *mut Session) -> u32 { wire_cosmetics_word_count_in(crate::abi::facade::world(), ptr as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_bytes(ptr: *mut Session) -> *const u8 { wire_cosmetics_bytes_in(crate::abi::facade::world(), ptr as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_byte_count(ptr: *mut Session) -> u32 { wire_cosmetics_byte_count_in(crate::abi::facade::world(), ptr as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_error(ptr: *mut Session) -> *const u8 { wire_cosmetics_error_in(crate::abi::facade::world(), ptr as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_error_len(ptr: *mut Session) -> u32 { wire_cosmetics_error_len_in(crate::abi::facade::world(), ptr as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_cosmetics_metric(ptr: *mut Session, index: u32) -> f64 { wire_cosmetics_metric_in(crate::abi::facade::world(), ptr as usize, index) }
+}
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_drop(ptr: *mut Session) { wire_cosmetics_drop_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_room(ptr: *mut Session, n: u32) -> *mut f64 { wire_cosmetics_room_in(crate::abi::world(), ptr, n) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_payload(ptr: *mut Session, n: u32) -> *mut u8 { wire_cosmetics_payload_in(crate::abi::world(), ptr, n) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_run(ptr: *mut Session, op: u32) -> u32 { wire_cosmetics_run_in(crate::abi::world(), ptr, op) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_words(ptr: *mut Session) -> *const f64 { wire_cosmetics_words_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_word_count(ptr: *mut Session) -> u32 { wire_cosmetics_word_count_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_bytes(ptr: *mut Session) -> *const u8 { wire_cosmetics_bytes_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_byte_count(ptr: *mut Session) -> u32 { wire_cosmetics_byte_count_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_error(ptr: *mut Session) -> *const u8 { wire_cosmetics_error_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_error_len(ptr: *mut Session) -> u32 { wire_cosmetics_error_len_in(crate::abi::world(), ptr) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_cosmetics_metric(ptr: *mut Session, index: u32) -> f64 { wire_cosmetics_metric_in(crate::abi::world(), ptr, index) }
+pub use exports::{wire_cosmetics_create, wire_cosmetics_drop, wire_cosmetics_room, wire_cosmetics_payload, wire_cosmetics_run, wire_cosmetics_words, wire_cosmetics_word_count, wire_cosmetics_bytes, wire_cosmetics_byte_count, wire_cosmetics_error, wire_cosmetics_error_len, wire_cosmetics_metric};

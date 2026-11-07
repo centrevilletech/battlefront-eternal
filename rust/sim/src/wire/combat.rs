@@ -328,27 +328,26 @@ impl Capture {
         out
     }
 }
-
-#[no_mangle]
-pub extern "C" fn wire_combat_words(encode: u32) -> u32 {
+pub fn wire_combat_words(encode: u32) -> u32 {
     if encode != 0 {
         WbEncode::WORDS as u32
     } else {
         WbCall::WORDS as u32
     }
 }
-pub(crate) fn wire_combat_encode_in(w: &mut crate::world::owner::World) -> *const f64 {
+
+pub(crate) fn wire_combat_encode_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let c = {
         let (row, heap) = w.sim.calls.args();
         WbEncode::take(row, heap)
     };
     super::module::output(&mut w.sim, encode(&c).map(|bytes| vec![bytes]))
 }
-pub(crate) fn wire_combat_create_in(w: &mut crate::world::owner::World) -> *mut Capture {
+pub(crate) fn wire_combat_create_in(w: &mut crate::world::owner::World) -> usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
     w.sim.strings.intern_str("combat capture capacity exceeded");
-    owner.combat.insert(Capture::default()).unwrap_or(0) as *mut Capture
+    owner.combat.insert(Capture::default()).unwrap_or(0)
 
 }
 /// CombatCapture.nextId is a scalar journal cursor. Its getter and setter
@@ -356,7 +355,7 @@ pub(crate) fn wire_combat_create_in(w: &mut crate::world::owner::World) -> *mut 
 /// serializing a complete queue result for each half of a postfix increment.
 /// # Safety
 /// The handle belongs to this module instance and remains live for the call.
-pub(crate) unsafe fn wire_combat_next_id_in(w: &mut crate::world::owner::World, handle: *const Capture) -> f64 {
+pub(crate) unsafe fn wire_combat_next_id_in(w: &mut crate::world::owner::World, handle: usize) -> f64 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return f64::NAN;}
 
@@ -366,7 +365,7 @@ if owner.combat.get(handle as usize).is_none() {return f64::NAN;}
 /// # Safety
 /// The live handle is exclusive for this operation. Keep the supplied IEEE
 /// value: validation still belongs to the subsequent record encoder.
-pub(crate) unsafe fn wire_combat_set_next_id_in(w: &mut crate::world::owner::World, handle: *mut Capture, id: f64) {
+pub(crate) unsafe fn wire_combat_set_next_id_in(w: &mut crate::world::owner::World, handle: usize, id: f64) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return;}
 
@@ -375,11 +374,11 @@ if owner.combat.get(handle as usize).is_none() {return;}
 }
 /// # Safety
 /// The handle belongs to this module instance and is released once.
-pub(crate) unsafe fn wire_combat_drop_in(w: &mut crate::world::owner::World, handle: *mut Capture) {
+pub(crate) unsafe fn wire_combat_drop_in(w: &mut crate::world::owner::World, handle: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return;}
 
-    if !handle.is_null() {
+    if handle != 0 {
         owner.combat.remove(handle as usize);
     }
 
@@ -387,9 +386,9 @@ if owner.combat.get(handle as usize).is_none() {return;}
 /// # Safety
 /// The live handle is exclusive for this operation. Inputs are owned and
 /// no simulation callback runs until the operation has returned.
-pub(crate) unsafe fn wire_combat_run_in(w: &mut crate::world::owner::World, handle: *mut Capture) -> *const f64 {
+pub(crate) unsafe fn wire_combat_run_in(w: &mut crate::world::owner::World, handle: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.combat.get(handle as usize).is_none() {return std::ptr::null();}
+if owner.combat.get(handle as usize).is_none() {return None;}
 
     let c = {
         let (row, heap) = w.sim.calls.args();
@@ -399,7 +398,7 @@ if owner.combat.get(handle as usize).is_none() {return std::ptr::null();}
     let out = owner.combat.get_mut(handle as usize).unwrap().run(c, &mut s.strings);
     s.calls
         .result(WbResult::WORDS, |row, heap| out.put(row, heap));
-    s.calls.block.ptr()
+    Some(&s.calls.block.words[..])
 
 }
 
@@ -426,11 +425,11 @@ pub(crate) fn wire_combat_dynamic_in(w: &mut crate::world::owner::World, handle:
 
 }
 /// Diagnostic/drain materialization is separate from publication's borrow.
-pub(crate) fn wire_combat_saved_in(w: &mut crate::world::owner::World, handle:usize,drain:u32) ->*const f64 {
+pub(crate) fn wire_combat_saved_in(w: &mut crate::world::owner::World, handle:usize,drain:u32) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-    let Some(c)=owner.combat.get_mut(handle) else{return std::ptr::null()};
+    let Some(c)=owner.combat.get_mut(handle) else{return None};
     let result=c.saved();if drain!=0 {c.pending.clear();}
-    let sim=&mut w.sim;sim.calls.result(crate::gen::WbSavedResult::WORDS,|row,heap|result.put(row,heap));sim.calls.block.ptr()
+    let sim=&mut w.sim;sim.calls.result(crate::gen::WbSavedResult::WORDS,|row,heap|result.put(row,heap));Some(&sim.calls.block.words[..])
 
 }
 
@@ -512,30 +511,30 @@ mod tests {
     }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_combat_encode() -> *const f64 { wire_combat_encode_in(crate::abi::world()) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_combat_words(encode: u32) -> u32 { super::wire_combat_words(encode) }
+    #[no_mangle]
+    pub extern "C" fn wire_combat_encode() -> *const f64 { wire_combat_encode_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn wire_combat_create() -> *mut Capture { wire_combat_create_in(crate::abi::facade::world()) as *mut Capture }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 { wire_combat_next_id_in(crate::abi::facade::world(), handle as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) { wire_combat_set_next_id_in(crate::abi::facade::world(), handle as usize, id) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_combat_drop(handle: *mut Capture) { wire_combat_drop_in(crate::abi::facade::world(), handle as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 { wire_combat_run_in(crate::abi::facade::world(), handle as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn wire_combat_commit(handle:usize) ->u32 { wire_combat_commit_in(crate::abi::facade::world(), handle) }
+    #[no_mangle]
+    pub extern "C" fn wire_combat_dynamic(handle:usize) ->u32 { wire_combat_dynamic_in(crate::abi::facade::world(), handle) }
+    #[no_mangle]
+    pub extern "C" fn wire_combat_saved(handle:usize,drain:u32) ->*const f64 { wire_combat_saved_in(crate::abi::facade::world(), handle, drain).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_combat_create() -> *mut Capture { wire_combat_create_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 { wire_combat_next_id_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) { wire_combat_set_next_id_in(crate::abi::world(), handle, id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_combat_drop(handle: *mut Capture) { wire_combat_drop_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 { wire_combat_run_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_combat_commit(handle:usize) ->u32 { wire_combat_commit_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_combat_dynamic(handle:usize) ->u32 { wire_combat_dynamic_in(crate::abi::world(), handle) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_combat_saved(handle:usize,drain:u32) ->*const f64 { wire_combat_saved_in(crate::abi::world(), handle, drain) }
+pub use exports::{wire_combat_encode, wire_combat_create, wire_combat_next_id, wire_combat_set_next_id, wire_combat_drop, wire_combat_run, wire_combat_commit, wire_combat_dynamic, wire_combat_saved};

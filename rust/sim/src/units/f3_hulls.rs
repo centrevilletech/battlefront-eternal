@@ -330,10 +330,6 @@ fn notice_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, event:
 fn vec(a: [f64; 3]) -> Vector3 { Vector3::new(a[0], a[1], a[2]) }
 fn array(v: Vector3) -> [f64; 3] { [v.x, v.y, v.z] }
 
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f3_hull(){ f3_hull_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn activate(r: Ref<Vehicle>, index: usize){ activate_in(crate::abi::world(), r, index) }
 #[cfg(target_arch = "wasm32")]
@@ -367,4 +363,12 @@ impl HullDamageWorld for DamageWorld<'_> {
     fn release_hull_crew(&mut self, index: usize) { self.with(|world| world.release_hull_crew(index)); }
     fn explode_hull(&mut self, index: usize, final_explosion: bool, at: &Vector3) { self.with(|world| world.explode_hull(index, final_explosion, at)); }
     fn hull_effect(&mut self, name: &str, at: &Vector3) { self.with(|world| world.hull_effect(name, at)); }
+}
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f3_hull() { f3_hull_in(crate::abi::facade::world()) }
 }

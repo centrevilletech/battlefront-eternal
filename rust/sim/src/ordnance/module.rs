@@ -38,10 +38,6 @@ fn water(owner: &OrdnanceOwnerState, which: usize) -> bool {
     owner.water[which]
 }
 
-/// The rounds' (0) or the items' (1) water, present or not.
-#[no_mangle]
-pub extern "C" fn ord_water(which: u32, present: u32) { ord_water_in(crate::abi::cold(), which, present) }
-
 pub(crate) fn ord_water_in(w: &mut crate::world::owner::World, which: u32, present: u32) {
     w.ordnance.water[(which & 1) as usize] = present != 0;
 }
@@ -86,30 +82,12 @@ pub(crate) fn call_fields<const N: usize>(calls: &Calls, strings: &Strings) -> [
     std::array::from_fn(|i| field(row[2 * i], row[2 * i + 1], strings))
 }
 
-/// Registers ordnance class `id` (DefTable order): its 16 fields
-/// (OrdnanceDef::FIELDS), two words each, in the call block.
-#[no_mangle]
-// Ordnance construction resolves each immutable projectile class once.
-// The definition table keeps JavaScript's absent/null/number field distinctions.
-// Flight and immediate hits read numeric policies prepared by the unit owner.
-// The class import never runs once per live projectile tick.
-pub extern "C" fn ord_def(id: u32) { ord_def_in(crate::abi::world(), id) }
-
 pub(crate) fn ord_def_in(w: &mut crate::world::owner::World, id: u32) {
     let s = &mut w.sim;
     let fields: [Field; 16] = call_fields(&s.calls, &s.strings);
     let def = OrdnanceDef::read(|name| fields[OrdnanceDef::FIELDS.iter().position(|f| *f == name).expect("an ordnance field")].clone());
     OrdnanceOwnerState::install_ordnance(defs_in(&mut w.ordnance), id, def);
 }
-
-/// Registers explosion `id`: Damage, DamageRadiusInner, DamageRadiusOuter,
-/// then the five scales (SCALE_FIELDS), two words each, in the call block.
-#[no_mangle]
-// Ordnance construction prepares explosion radii and health-type policy.
-// A referenced explosion may arrive before the unit owner binds its services.
-// The cold binding pass supplies the corresponding native combat handle.
-// Recursive blasts later use that handle without looking up field names.
-pub extern "C" fn ord_explosion(id: u32) { ord_explosion_in(crate::abi::world(), id) }
 
 pub(crate) fn ord_explosion_in(w: &mut crate::world::owner::World, id: u32) {
     let s = &mut w.sim;
@@ -126,25 +104,13 @@ pub(crate) fn ord_explosion_in(w: &mut crate::world::owner::World, id: u32) {
 /// The words of a command's record in the call block: 0 FireArgs, 1
 /// FlightMissileArgs (src/ordnance-sim.js writes them with the generated
 /// put functions).
-#[no_mangle]
-pub extern "C" fn ord_args_words(which: u32) -> u32 {
+pub fn ord_args_words(which: u32) -> u32 {
     (match which {
         0 => FireArgs::WORDS,
         1 => FlightMissileArgs::WORDS,
         _ => 0,
     }) as u32
 }
-
-/// ordnance.js update (a world's): every round's step, then the lists kept.
-/// Which kinds' mirrors have anything to sync: a bit a kind (beams, bolts,
-/// grenades, rounds) that has entities or retired ones; none, and nothing
-/// moved (the Ordnance's lists and `start` are as they were).
-#[no_mangle]
-// Ordnance.update advances the canonical lists in their original order.
-// Native unit services share the same collision, history and damage owner.
-// A projectile's immediate hit completes before the next flight entry advances.
-// Mirrors and pure presentation notices are delivered after this entry returns.
-pub extern "C" fn ord_update(dt: f64) -> u32 { ord_update_in(crate::abi::world(), dt) }
 
 pub(crate) fn ord_update_in(w: &mut crate::world::owner::World, dt: f64) -> u32 {
     let boundary = crate::units::f3::external_in(w);
@@ -165,17 +131,7 @@ pub(crate) fn ord_update_in(w: &mut crate::world::owner::World, dt: f64) -> u32 
     result
 }
 
-/// ordnance.js fireRound, its arguments (FireArgs) in the call block. The
-/// answer, in the call block: the kind's code of the round made (0 for a
-/// beam or a grenade, which fire gives none of), then its row.
-#[no_mangle]
-// Ordnance.fire can produce an instant hit before returning its shot.
-// Use the same native world services as the later flight update.
-// Launch identity must be published before any impact references that round.
-// The answer is a retained mirror handle, not a copied JavaScript projectile.
-pub extern "C" fn ord_fire() -> *const f64 { ord_fire_in(crate::abi::world()) }
-
-pub(crate) fn ord_fire_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn ord_fire_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let boundary = crate::units::f3::external_in(w);
     let a = {
         let (row, heap) = w.sim.calls.args();
@@ -188,17 +144,12 @@ pub(crate) fn ord_fire_in(w: &mut crate::world::owner::World) -> *const f64 {
         world.finish();
         shot
     });
-    let result = answer(&mut w.sim,shot);
+    answer(&mut w.sim,shot);
     boundary.finish(w,true);
-    result
+    Some(&w.sim.calls.block.words)
 }
 
-/// ordnance.js flightMissile, its arguments (FlightMissileArgs) in the call
-/// block; the answer as ord_fire's (0: the round is gone).
-#[no_mangle]
-pub extern "C" fn ord_flight_missile() -> *const f64 { ord_flight_missile_in(crate::abi::world()) }
-
-pub(crate) fn ord_flight_missile_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn ord_flight_missile_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let a = {
         let (row, heap) = w.sim.calls.args();
         FlightMissileArgs::take(row, heap)
@@ -211,9 +162,9 @@ pub(crate) fn ord_flight_missile_in(w: &mut crate::world::owner::World) -> *cons
         world.finish();
         flying
     });
-    let result = answer(&mut w.sim, if flying { Some(Shot::Round(a.round)) } else { None });
+    answer(&mut w.sim, if flying { Some(Shot::Round(a.round)) } else { None });
     boundary.finish(w,true);
-    result
+    Some(&w.sim.calls.block.words)
 }
 
 /// A command's answer: the round's kind and row, into the call block.
@@ -221,7 +172,7 @@ pub(crate) fn ord_flight_missile_in(w: &mut crate::world::owner::World) -> *cons
 // Beam and grenade admission can succeed without returning that handle.
 // Publish the row before its answer references are decoded by the caller.
 // A missing shot is distinct from a just-retired projectile's terminal sample.
-fn answer(s: &mut Sim, shot: Option<Shot>) -> *const f64 {
+fn answer(s: &mut Sim, shot: Option<Shot>) -> Option<&[f64]> {
     let Sim { store, calls, .. } = s;
     match shot {
         None => calls.result(1, |row, _| row[0] = 0.0),
@@ -233,7 +184,7 @@ fn answer(s: &mut Sim, shot: Option<Shot>) -> *const f64 {
             });
         }
     }
-    calls.block.ptr()
+    Some(&calls.block.words[..])
 }
 
 fn shot_layout(shot: Shot) -> (KindCode, usize) {
@@ -891,3 +842,55 @@ impl OrdnanceOwnerState {
         d.explosion[i] = def;
     }
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    /// The rounds' (0) or the items' (1) water, present or not.
+    #[no_mangle]
+    pub extern "C" fn ord_water(which: u32, present: u32) { ord_water_in(crate::abi::facade::cold(), which, present) }
+    /// Registers ordnance class `id` (DefTable order): its 16 fields
+    /// (OrdnanceDef::FIELDS), two words each, in the call block.
+    // Ordnance construction resolves each immutable projectile class once.
+    // The definition table keeps JavaScript's absent/null/number field distinctions.
+    // Flight and immediate hits read numeric policies prepared by the unit owner.
+    // The class import never runs once per live projectile tick.
+    #[no_mangle]
+    pub extern "C" fn ord_def(id: u32) { ord_def_in(crate::abi::facade::world(), id) }
+    /// Registers explosion `id`: Damage, DamageRadiusInner, DamageRadiusOuter,
+    /// then the five scales (SCALE_FIELDS), two words each, in the call block.
+    // Ordnance construction prepares explosion radii and health-type policy.
+    // A referenced explosion may arrive before the unit owner binds its services.
+    // The cold binding pass supplies the corresponding native combat handle.
+    // Recursive blasts later use that handle without looking up field names.
+    #[no_mangle]
+    pub extern "C" fn ord_explosion(id: u32) { ord_explosion_in(crate::abi::facade::world(), id) }
+    #[no_mangle]
+    pub extern "C" fn ord_args_words(which: u32) -> u32 { super::ord_args_words(which) }
+    /// ordnance.js update (a world's): every round's step, then the lists kept.
+    /// Which kinds' mirrors have anything to sync: a bit a kind (beams, bolts,
+    /// grenades, rounds) that has entities or retired ones; none, and nothing
+    /// moved (the Ordnance's lists and `start` are as they were).
+    // Ordnance.update advances the canonical lists in their original order.
+    // Native unit services share the same collision, history and damage owner.
+    // A projectile's immediate hit completes before the next flight entry advances.
+    // Mirrors and pure presentation notices are delivered after this entry returns.
+    #[no_mangle]
+    pub extern "C" fn ord_update(dt: f64) -> u32 { ord_update_in(crate::abi::facade::world(), dt) }
+    /// ordnance.js fireRound, its arguments (FireArgs) in the call block. The
+    /// answer, in the call block: the kind's code of the round made (0 for a
+    /// beam or a grenade, which fire gives none of), then its row.
+    // Ordnance.fire can produce an instant hit before returning its shot.
+    // Use the same native world services as the later flight update.
+    // Launch identity must be published before any impact references that round.
+    // The answer is a retained mirror handle, not a copied JavaScript projectile.
+    #[no_mangle]
+    pub extern "C" fn ord_fire() -> *const f64 { ord_fire_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    /// ordnance.js flightMissile, its arguments (FlightMissileArgs) in the call
+    /// block; the answer as ord_fire's (0: the round is gone).
+    #[no_mangle]
+    pub extern "C" fn ord_flight_missile() -> *const f64 { ord_flight_missile_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{ord_water, ord_def, ord_explosion, ord_update, ord_fire, ord_flight_missile};

@@ -26,7 +26,6 @@ pub(super) struct Phase {
     droidekas: Vec<Option<DroidekaBody>>,
 }
 
-
 fn phase_in(units: &mut super::owner::Units) -> &mut Phase {
 units.phase.get_or_insert_with(|| Phase { world: 0, scratch: cb::Scratch::default(), droideka_classes: Vec::new(), droidekas: Vec::new() })
 }
@@ -559,18 +558,21 @@ pub(super) fn with_registry_in<T>(w: &mut crate::world::owner::World, run: impl 
     result
 }
 
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn units_droideka_class() -> u32{ units_droideka_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn units_droideka_attach(unit: u32, class: u32){ units_droideka_attach_in(crate::abi::world(), unit, class) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn units_muzzle_attach(unit: u32, class: u32){ units_muzzle_attach_in(crate::abi::world(), unit, class) }
-
 #[cfg(target_arch = "wasm32")]
 impl ModuleWorld<'static, 'static> {
     pub(crate) fn sensor(world: usize) -> Self { Self::sensor_in(crate::abi::world(),world) }
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn units_droideka_class() -> u32 { units_droideka_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn units_droideka_attach(unit: u32, class: u32) { units_droideka_attach_in(crate::abi::facade::world(), unit, class) }
+    #[no_mangle]
+    pub extern "C" fn units_muzzle_attach(unit: u32, class: u32) { units_muzzle_attach_in(crate::abi::facade::world(), unit, class) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{units_droideka_class, units_droideka_attach, units_muzzle_attach};

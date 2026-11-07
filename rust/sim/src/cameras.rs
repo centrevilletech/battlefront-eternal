@@ -159,8 +159,7 @@ impl<M:Math> cameras::Cast for CastWorld<'_, M> {
 // Resource decoding and Vec allocation are confined to this cold path.
 // The raw sim module shares memory with collision, avoiding duplicate meshes.
 // The optional web feature belongs to the separate presentation web package.
-pub(crate) fn camera_init_in(w: &mut crate::world::owner::World, ptr: *const u8, len: usize) -> u32 {
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+pub(crate) fn camera_init_in(w: &mut crate::world::owner::World, bytes: &[u8]) -> u32 {
     let Ok(content) = serde_json::from_slice::<cameras::Content>(bytes) else {
         return 0;
     };
@@ -178,8 +177,7 @@ pub(crate) fn camera_init_in(w: &mut crate::world::owner::World, ptr: *const u8,
 // This cannot fail a running frame or evict a class still held by a soldier.
 // Serialization, decoding and content allocation are confined to the cold edge.
 // The steady frame sees no class strings, JSON values or dynamic lookup table.
-pub(crate) fn camera_add_definition_in(w: &mut crate::world::owner::World, id: u32, ptr: *const u8, len: usize) -> i32 {
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+pub(crate) fn camera_add_definition_in(w: &mut crate::world::owner::World, id: u32, bytes: &[u8]) -> i32 {
     let Ok(def) = serde_json::from_slice(bytes) else {
         return -1;
     };
@@ -192,17 +190,17 @@ pub(crate) fn camera_add_definition_in(w: &mut crate::world::owner::World, id: u
 // Invalid owners return null without touching another clock's record.
 // The page caches all addresses and only checks memory.buffer on later frames.
 // Matrices and flags remain primitive records rather than imported scene objects.
-pub(crate) fn camera_input_ptr_in(w: &mut crate::world::owner::World, id: u32) -> *mut f64 {
-    phase(&mut w.cameras, id).map_or(std::ptr::null_mut(), |p| p.input.as_mut_ptr())
+pub(crate) fn camera_input_ptr_in(w: &mut crate::world::owner::World, id: u32) -> Option<&mut [f64]> {
+    phase(&mut w.cameras, id).map_or(None, |p| Some(&mut p.input[..]))
 }
-pub(crate) fn camera_commands_ptr_in(w: &mut crate::world::owner::World, id: u32) -> *mut f64 {
-    phase(&mut w.cameras, id).map_or(std::ptr::null_mut(), |p| p.commands.as_mut_ptr())
+pub(crate) fn camera_commands_ptr_in(w: &mut crate::world::owner::World, id: u32) -> Option<&mut [f64]> {
+    phase(&mut w.cameras, id).map_or(None, |p| Some(&mut p.commands[..]))
 }
-pub(crate) fn camera_output_ptr_in(w: &mut crate::world::owner::World, id: u32) -> *const f64 {
-    phase(&mut w.cameras, id).map_or(std::ptr::null(), |p| p.output.as_ptr())
+pub(crate) fn camera_output_ptr_in(w: &mut crate::world::owner::World, id: u32) -> Option<&[f64]> {
+    phase(&mut w.cameras, id).map_or(None, |p| Some(&p.output[..]))
 }
-pub(crate) fn camera_flags_ptr_in(w: &mut crate::world::owner::World) -> *mut u8 {
-    w.cameras.flags.as_mut_ptr()
+pub(crate) fn camera_flags_ptr_in(w: &mut crate::world::owner::World) -> Option<&mut [u8]> {
+    Some(&mut w.cameras.flags[..])
 }
 // The one displayed-frame export. There is no callback per camera or ray.
 // Input and output pointers were obtained on cold owner initialization.
@@ -284,36 +282,30 @@ pub(crate) fn camera_director_best_in(w: &mut crate::world::owner::World, id: u3
     phase(&mut w.cameras, id).map_or(-1, |p| p.best_shot(Vector3::new(x, y, z)))
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_init(ptr: *const u8, len: usize) -> u32 { camera_init_in(crate::abi::cold(), ptr, len) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_add_definition(id: u32, ptr: *const u8, len: usize) -> i32 { camera_add_definition_in(crate::abi::cold(), id, ptr, len) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_input_ptr(id: u32) -> *mut f64 { camera_input_ptr_in(crate::abi::cold(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_commands_ptr(id: u32) -> *mut f64 { camera_commands_ptr_in(crate::abi::cold(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_output_ptr(id: u32) -> *const f64 { camera_output_ptr_in(crate::abi::cold(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_flags_ptr() -> *mut u8 { camera_flags_ptr_in(crate::abi::cold()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_frame(id: u32) { camera_frame_in::<HostMath>(crate::abi::cold(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_reset(id: u32) { camera_reset_in(crate::abi::cold(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_director_show(id: u32, index: f64) -> i32 { camera_director_show_in(crate::abi::cold(), id, index) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_director_follow(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_follow_in::<HostMath>(crate::abi::cold(), id, x, y, z) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn camera_director_best(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_best_in(crate::abi::cold(), id, x, y, z) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn camera_init(ptr: *const u8, len: usize) -> u32 { camera_init_in(crate::abi::facade::cold(), unsafe { std::slice::from_raw_parts(ptr, len) }) }
+    #[no_mangle]
+    pub extern "C" fn camera_add_definition(id: u32, ptr: *const u8, len: usize) -> i32 { camera_add_definition_in(crate::abi::facade::cold(), id, unsafe { std::slice::from_raw_parts(ptr, len) }) }
+    #[no_mangle]
+    pub extern "C" fn camera_input_ptr(id: u32) -> *mut f64 { camera_input_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn camera_commands_ptr(id: u32) -> *mut f64 { camera_commands_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn camera_output_ptr(id: u32) -> *const f64 { camera_output_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn camera_flags_ptr() -> *mut u8 { camera_flags_ptr_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn camera_frame(id: u32) { camera_frame_in::<HostMath>(crate::abi::facade::cold(), id) }
+    #[no_mangle]
+    pub extern "C" fn camera_reset(id: u32) { camera_reset_in(crate::abi::facade::cold(), id) }
+    #[no_mangle]
+    pub extern "C" fn camera_director_show(id: u32, index: f64) -> i32 { camera_director_show_in(crate::abi::facade::cold(), id, index) }
+    #[no_mangle]
+    pub extern "C" fn camera_director_follow(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_follow_in::<HostMath>(crate::abi::facade::cold(), id, x, y, z) }
+    #[no_mangle]
+    pub extern "C" fn camera_director_best(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_best_in(crate::abi::facade::cold(), id, x, y, z) }
+}

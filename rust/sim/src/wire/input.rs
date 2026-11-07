@@ -100,10 +100,9 @@ pub fn encode(packet: &WiPacket) -> Result<Vec<u8>> {
 pub fn keepalive(ack: &WiAck) -> Result<Vec<u8>> {
     let mut w = Fields::new(10); w.u32(0x31414e42u32 as f64)?; w.u16(ack.epoch)?; w.u32(ack.tick)?; Ok(w.bytes)
 }
+pub fn wire_input_words(op: u32) -> u32 { if op == 0 { WiPacket::WORDS as u32 } else { WiAck::WORDS as u32 } }
 
-#[no_mangle]
-pub extern "C" fn wire_input_words(op: u32) -> u32 { if op == 0 { WiPacket::WORDS as u32 } else { WiAck::WORDS as u32 } }
-pub(crate) fn wire_input_encode_in(w: &mut crate::world::owner::World, op: u32) -> *const f64 {
+pub(crate) fn wire_input_encode_in(w: &mut crate::world::owner::World, op: u32) -> Option<&[f64]> {
     let (row, heap) = w.sim.calls.args();
     let result = if op == 0 { encode(&WiPacket::take(row, heap)) } else { keepalive(&WiAck::take(row, heap)) };
     super::module::output(&mut w.sim, result.map(|bytes| vec![bytes]))
@@ -140,6 +139,14 @@ mod tests {
     }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_input_encode(op: u32) -> *const f64 { wire_input_encode_in(crate::abi::world(), op) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_input_words(op: u32) -> u32 { super::wire_input_words(op) }
+    #[no_mangle]
+    pub extern "C" fn wire_input_encode(op: u32) -> *const f64 { wire_input_encode_in(crate::abi::facade::world(), op).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{wire_input_encode};

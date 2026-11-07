@@ -15,11 +15,6 @@ use crate::store::{word_u32, DefId, Ref, StrId};
 /// them (src/items-sim.js ITEM_FIELDS).
 const ITEM_FIELDS: [&str; 12] = ["base", "Gravity", "Rebound", "Friction", "LifeSpan", "MaxHealth", "HealthType", "ExplosionDeath", "ExplosionTrigger", "ExplosionExpire", "TriggerRadius", "SuppressRadius"];
 
-/// Registers item class `id` (DefTable order): its 12 fields (ITEM_FIELDS),
-/// two words each, in the call block.
-#[no_mangle]
-pub extern "C" fn items_def(id: u32) { items_def_in(crate::abi::world(), id) }
-
 pub(crate) fn items_def_in(w: &mut crate::world::owner::World, id: u32) {
     let s = &mut w.sim;
     let fields: [Field; 12] = call_fields(&s.calls, &s.strings);
@@ -31,11 +26,6 @@ pub(crate) fn items_def_in(w: &mut crate::world::owner::World, id: u32) {
     }
     d.item[i] = def;
 }
-
-/// The battle's item pools (items.js `pools`): `n` entries in the call
-/// block, each the base's string, then its size as a field (two words).
-#[no_mangle]
-pub extern "C" fn items_pools(n: u32) { items_pools_in(crate::abi::world(), n) }
 
 pub(crate) fn items_pools_in(w: &mut crate::world::owner::World, n: u32) {
     let s = &mut w.sim;
@@ -51,8 +41,7 @@ pub(crate) fn items_pools_in(w: &mut crate::world::owner::World, n: u32) {
 
 /// The words of a command's record in the call block: 0 SpawnArgs, 1
 /// DispenseArgs, 2 DropArgs, 3 ItemsBlastArgs, 4 HurtArgs.
-#[no_mangle]
-pub extern "C" fn items_args_words(which: u32) -> u32 {
+pub fn items_args_words(which: u32) -> u32 {
     (match which {
         0 => SpawnArgs::WORDS,
         1 => DispenseArgs::WORDS,
@@ -77,13 +66,6 @@ fn with_cx<T>(w: &mut crate::world::owner::World, f: impl FnOnce(&mut Cx<'_, JsW
     result
 }
 
-/// items.js update: every item's tick, `targets` the number of targets the
-/// battle gave (JavaScript keeps them: ItemsWorld.targets).
-/// Whether the items' mirrors have anything to sync (1: items lie about or
-/// were retired; 0: none, and the lists are as they were).
-#[no_mangle]
-pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 { items_update_in(crate::abi::world(), dt, targets) }
-
 pub(crate) fn items_update_in(w: &mut crate::world::owner::World, dt: f64, targets: u32) -> u32 {
     if crate::units::f3::active() { crate::units::f3_items::targets(targets); }
     with_cx(w, |cx| {
@@ -93,12 +75,7 @@ pub(crate) fn items_update_in(w: &mut crate::world::owner::World, dt: f64, targe
     })
 }
 
-/// items.js spawn, its arguments (SpawnArgs) in the call block. The answer,
-/// in the call block: KIND_ITEM and the item's row, or 0 for no room.
-#[no_mangle]
-pub extern "C" fn items_spawn() -> *const f64 { items_spawn_in(crate::abi::world()) }
-
-pub(crate) fn items_spawn_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn items_spawn_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let a = {
         let (row, heap) = w.sim.calls.args();
         SpawnArgs::take(row, heap)
@@ -107,11 +84,7 @@ pub(crate) fn items_spawn_in(w: &mut crate::world::owner::World) -> *const f64 {
     answer(&mut w.sim, made)
 }
 
-/// items.js dispense (DispenseArgs); the answer as items_spawn's.
-#[no_mangle]
-pub extern "C" fn items_dispense() -> *const f64 { items_dispense_in(crate::abi::world()) }
-
-pub(crate) fn items_dispense_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn items_dispense_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let a = {
         let s = &mut w.sim;
         let (row, heap) = s.calls.args();
@@ -130,11 +103,7 @@ pub(crate) fn items_dispense_in(w: &mut crate::world::owner::World) -> *const f6
     answer(&mut w.sim, made)
 }
 
-/// items.js dropFor (DropArgs); the answer as items_spawn's.
-#[no_mangle]
-pub extern "C" fn items_drop_for() -> *const f64 { items_drop_for_in(crate::abi::world()) }
-
-pub(crate) fn items_drop_for_in(w: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn items_drop_for_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
     let (a, drops) = {
         let s = &mut w.sim;
         let a = {
@@ -148,10 +117,6 @@ pub(crate) fn items_drop_for_in(w: &mut crate::world::owner::World) -> *const f6
     answer(&mut w.sim, made)
 }
 
-/// items.js blast (ItemsBlastArgs: the explosion's index).
-#[no_mangle]
-pub extern "C" fn items_blast() { items_blast_in(crate::abi::world()) }
-
 pub(crate) fn items_blast_in(w: &mut crate::world::owner::World) {
     let a = {
         let (row, heap) = w.sim.calls.args();
@@ -159,10 +124,6 @@ pub(crate) fn items_blast_in(w: &mut crate::world::owner::World) {
     };
     with_cx(w, |cx| cx.blast(DefId(a.explosion), a.position));
 }
-
-/// items.js hurt (HurtArgs).
-#[no_mangle]
-pub extern "C" fn items_hurt() { items_hurt_in(crate::abi::world()) }
 
 pub(crate) fn items_hurt_in(w: &mut crate::world::owner::World) {
     let a = {
@@ -173,7 +134,7 @@ pub(crate) fn items_hurt_in(w: &mut crate::world::owner::World) {
 }
 
 /// An item made, or none: its kind and row into the call block.
-fn answer(s: &mut Sim, made: Option<Ref<Item>>) -> *const f64 {
+fn answer(s: &mut Sim, made: Option<Ref<Item>>) -> Option<&[f64]> {
     let Sim { store, calls, .. } = s;
     match made {
         None => calls.result(1, |row, _| row[0] = 0.0),
@@ -185,5 +146,45 @@ fn answer(s: &mut Sim, made: Option<Ref<Item>>) -> *const f64 {
             v.put_export(&mut row[1..], heap);
         }),
     }
-    calls.block.ptr()
+    Some(&calls.block.words[..])
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    /// Registers item class `id` (DefTable order): its 12 fields (ITEM_FIELDS),
+    /// two words each, in the call block.
+    #[no_mangle]
+    pub extern "C" fn items_def(id: u32) { items_def_in(crate::abi::facade::world(), id) }
+    /// The battle's item pools (items.js `pools`): `n` entries in the call
+    /// block, each the base's string, then its size as a field (two words).
+    #[no_mangle]
+    pub extern "C" fn items_pools(n: u32) { items_pools_in(crate::abi::facade::world(), n) }
+    #[no_mangle]
+    pub extern "C" fn items_args_words(which: u32) -> u32 { super::items_args_words(which) }
+    /// items.js update: every item's tick, `targets` the number of targets the
+    /// battle gave (JavaScript keeps them: ItemsWorld.targets).
+    /// Whether the items' mirrors have anything to sync (1: items lie about or
+    /// were retired; 0: none, and the lists are as they were).
+    #[no_mangle]
+    pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 { items_update_in(crate::abi::facade::world(), dt, targets) }
+    /// items.js spawn, its arguments (SpawnArgs) in the call block. The answer,
+    /// in the call block: KIND_ITEM and the item's row, or 0 for no room.
+    #[no_mangle]
+    pub extern "C" fn items_spawn() -> *const f64 { items_spawn_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    /// items.js dispense (DispenseArgs); the answer as items_spawn's.
+    #[no_mangle]
+    pub extern "C" fn items_dispense() -> *const f64 { items_dispense_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    /// items.js dropFor (DropArgs); the answer as items_spawn's.
+    #[no_mangle]
+    pub extern "C" fn items_drop_for() -> *const f64 { items_drop_for_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    /// items.js blast (ItemsBlastArgs: the explosion's index).
+    #[no_mangle]
+    pub extern "C" fn items_blast() { items_blast_in(crate::abi::facade::world()) }
+    /// items.js hurt (HurtArgs).
+    #[no_mangle]
+    pub extern "C" fn items_hurt() { items_hurt_in(crate::abi::facade::world()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{items_def, items_pools, items_update, items_spawn, items_dispense, items_drop_for, items_blast, items_hurt};

@@ -245,7 +245,7 @@ pub fn f4_roster_init_in(w: &mut Root) {
     }
     drop(outer);
 }
-pub fn f4_roster_command_in(w: &mut Root) -> *const f64 {
+pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
     let (row, heap) = w.sim.calls.args();
     let input = F4RosterCommand::take(row, heap);
     super::f4_live::count_external(&mut w.battle, F4RosterCommand::WORDS);
@@ -366,13 +366,19 @@ pub fn f4_roster_command_in(w: &mut Root) -> *const f64 {
     let (row, heap) = owner.output.row(0);
     owner.result.put(row, heap);
     owner.output.finish();
-    owner.output.ptr()
+    Some(&owner.output.words[..])
 }
 
-// facade shims
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_roster_init() { f4_roster_init_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_roster_command() -> *const f64 { f4_roster_command_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    // facade shims
+    #[no_mangle]
+    pub extern "C" fn f4_roster_init() { f4_roster_init_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_roster_command() -> *const f64 { f4_roster_command_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}

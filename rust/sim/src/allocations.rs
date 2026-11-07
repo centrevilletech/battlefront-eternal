@@ -158,10 +158,7 @@ pub(crate) fn at(stage: F3AllocationStage) -> Stage {
 }
 /// Read after the phase. Total counters include every request; this trace
 /// retains only the first records, without growing the publication bank.
-#[cfg_attr(target_arch = "wasm32", no_mangle)]
-pub extern "C" fn f3_allocation_trace() -> *const f64 {
-    storage::with(|d| unsafe { encode(&*addr_of!((*d).trace), (&mut *addr_of_mut!((*d).output)).as_mut().expect("prepared allocation census")) })
-}
+pub fn allocation_trace<R>(read: impl FnOnce(&Block) -> R) -> R { storage::with(|d| unsafe { let output = (&mut *addr_of_mut!((*d).output)).as_mut().expect("prepared allocation census"); encode(&*addr_of!((*d).trace), output); read(output) }) }
 
 #[cfg(target_arch = "wasm32")]
 mod allocator {
@@ -218,8 +215,17 @@ mod tests {
             assert_eq!((*d).trace.rows[1].stage, F3AllocationStage::Input);
         });
         let before = snapshot();
-        f3_allocation_trace();
+        allocation_trace(|_| ());
         assert_eq!(snapshot(), before);
         storage::with(|d| unsafe { assert_eq!((*d).output.as_ref().unwrap().rows(), TRACE_CAPACITY); });
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f3_allocation_trace() -> *const f64 { allocation_trace(Block::ptr) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{f3_allocation_trace};

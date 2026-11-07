@@ -70,22 +70,17 @@ impl World {
 }
 
 // The WASM facade decodes inputs and encodes the completed value only.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn world_step_init() -> *mut f64 {
-    let w=crate::abi::world();
+pub fn world_step_init_in(w: &mut World) -> Option<&mut [f64]> {
     let setup={let(row,heap)=w.sim.calls.args();WorldTickSetup::take(row,heap)};
-    w.step_init(&setup); w.tick.input.as_mut_ptr()
+    w.step_init(&setup); Some(&mut w.tick.input[..])
 }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn world_step_run() -> *const f64 {
-    let w=crate::abi::world();
+
+pub fn world_step_run_in(w: &mut World) -> Option<&[f64]> {
     let input=WorldTickInput::take(&w.tick.input,&[]);
     let output=w.step(&input);
     let result=&mut w.tick.output;
     result.begin(1,WorldTickOutput::WORDS);
-    let (row,heap)=result.row(0);output.put(row,heap);result.finish();result.ptr()
+    let (row,heap)=result.row(0);output.put(row,heap);result.finish();Some(&result.words[..])
 }
 
 // Game.step consumes one already-stamped command, so pacing and host now()
@@ -95,4 +90,14 @@ struct CompletedClock;
 impl super::clock::Host for CompletedClock {
     fn now(&mut self,_:&mut crate::gen::WorldClockState)->f64 {0.0}
     fn step(&mut self,_:&mut crate::gen::WorldClockState,_:f64,_:f64) {}
+}
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn world_step_init() -> *mut f64 { world_step_init_in(crate::abi::facade::world()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn world_step_run() -> *const f64 { world_step_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
 }

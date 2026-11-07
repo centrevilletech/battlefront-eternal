@@ -14,11 +14,14 @@ impl Census {
     }
 }
 pub(crate) fn wire_census_begin_in(w: &mut crate::world::owner::World, counts: Counts) {super::owner::with_in(w, |owner|owner.census.begin(counts));}
-pub(crate) fn wire_census_end_in(w: &mut crate::world::owner::World, counts: Counts) ->*const f64 {super::owner::with_in(w, |owner|owner.census.end(counts))}
+pub(crate) fn wire_census_end_in(w: &mut crate::world::owner::World, counts: Counts) -> Option<&[f64]> {super::owner::with_in(w, |owner| { owner.census.end(counts); }); Some(&w.wire.as_deref().expect("admitted wire owner").census.result)}
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_census_begin() { wire_census_begin_in(crate::abi::world(), crate::allocations::snapshot()) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_census_end() ->*const f64 { wire_census_end_in(crate::abi::world(), crate::allocations::snapshot()) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_census_begin() { wire_census_begin_in(crate::abi::facade::world(), crate::allocations::snapshot()) }
+    #[no_mangle]
+    pub extern "C" fn wire_census_end() ->*const f64 { wire_census_end_in(crate::abi::facade::world(), crate::allocations::snapshot()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}

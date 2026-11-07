@@ -26,9 +26,15 @@ pub fn class_allowed_record(row: &[f64], heap: &[f64]) -> bool {
 
 // The generated cold record shares the battle's string table. No body or
 // phase owner needs to exist yet, and no host service runs during admission.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn f4_startup_class() -> u32 {
-    let (row, heap) = crate::abi::sim().calls.args();
+pub fn f4_startup_class_in(w: &mut crate::world::owner::World) -> u32 {
+    let (row, heap) = w.sim.calls.args();
     class_allowed_record(row, heap) as u32
+}
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f4_startup_class() -> u32 { f4_startup_class_in(crate::abi::facade::world()) }
 }

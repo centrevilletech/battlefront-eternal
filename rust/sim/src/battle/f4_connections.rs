@@ -8,10 +8,10 @@ use crate::{gen::*,store::{block::Block,Ref},units::f3};
 struct Entry {handle:F4Handle,ordinal:f64,view:F4ConnectionView}
 pub(super) struct State {rows:Vec<Option<Entry>>,output:Block,result:F4ConnectionView}
 impl State {
-    fn publish(&mut self)->*const f64 {
+    fn publish(&mut self)->&[f64] {
         self.output.begin(1,F4ConnectionView::WORDS);
         let (row,heap)=self.output.row(0);self.result.put(row,heap);
-        self.output.finish();self.output.ptr()
+        self.output.finish();&self.output.words
     }
 }
 pub(crate) fn reset(battle: &mut BattleOwner){{battle.connections=None;}}
@@ -47,20 +47,24 @@ fn spawn(w: &mut Root, entry:&mut Entry,character:Ref<Character>,class:Option<cr
     entry.view.unit=Some(unit);entry.view.class_name=Some(class);entry.view.post=Some(post);
     entry.view.phase=HumanPhase::Alive;entry.view.spawned_once=true;true
 }
-pub fn f4_connection_command_in(w: &mut Root)->*const f64 {
+pub fn f4_connection_command_in(w: &mut Root)-> Option<&[f64]> {
     let (row,heap)=w.sim.calls.args();let input=F4ConnectionCommand::take(row,heap);
     super::f4_live::count_external(&mut w.battle, F4ConnectionCommand::WORDS);
     let character=super::f4_core::resolve(&mut w.battle, &w.sim.store,&input.target);
-    let owner=state(&mut w.battle);owner.result.accepted=false;
-    let Some(character)=character else{return owner.publish()};
-    // Qualified Characters can outlive a smaller connection owner. Refuse
-    // admission without indexing its rows or changing an existing connection.
-    let index=character.slot as usize;if index>=owner.rows.len(){return owner.publish();}
-    if input.op==F4ConnectionOp::Admit {
-        owner.rows[index]=Some(Entry{handle:input.target.clone(),ordinal:input.ordinal,view:F4ConnectionView{class_name:input.class_name,..Default::default()}});
-    }
-    if !owner.rows[index].as_ref().is_some_and(|entry|entry.handle==input.target) {return owner.publish();}
-    let mut entry=owner.rows[index].take().unwrap();
+    let prepared = {
+        let owner=state(&mut w.battle);owner.result.accepted=false;
+        character.and_then(|character| {
+            // Refuse rows beyond the retained connection capacity.
+            let index=character.slot as usize;
+            if index>=owner.rows.len() { return None; }
+            if input.op==F4ConnectionOp::Admit {
+                owner.rows[index]=Some(Entry{handle:input.target.clone(),ordinal:input.ordinal,view:F4ConnectionView{class_name:input.class_name,..Default::default()}});
+            }
+            if !owner.rows[index].as_ref().is_some_and(|entry|entry.handle==input.target) { return None; }
+            Some((character,index,owner.rows[index].take().unwrap()))
+        })
+    };
+    let Some((character,index,mut entry))=prepared else {return Some(state(&mut w.battle).publish())};
     let outer=f3::external();
     f3::with_services(|services| {
         let mut services=services.expect("canonical connection body services");
@@ -102,7 +106,7 @@ pub fn f4_connection_command_in(w: &mut Root)->*const f64 {
     let result=entry.view.clone();
     state(&mut w.battle).rows[index]=Some(entry);
     drop(outer);
-    let owner=state(&mut w.battle);owner.result=result;owner.publish()
+    let owner=state(&mut w.battle);owner.result=result;Some(owner.publish())
 }
 
 impl State {
@@ -111,12 +115,18 @@ impl State {
     }
 }
 
-// facade shims
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_connections_init(capacity:u32) { f4_connections_init_in(crate::abi::world(), capacity) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_character(store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> { wire_character_in(&mut crate::abi::cold().battle, store, handle) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_view(store: &Store, handle: &F4Handle) -> Option<&'static F4ConnectionView> { wire_view_in(&mut crate::abi::cold().battle, store, handle) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_connection_command() ->*const f64 { f4_connection_command_in(crate::abi::world()) }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    // facade shims
+    #[no_mangle]
+    pub extern "C" fn f4_connections_init(capacity:u32) { f4_connections_init_in(crate::abi::facade::world(), capacity) }
+    #[no_mangle]
+    pub extern "C" fn f4_connection_command() ->*const f64 { f4_connection_command_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}

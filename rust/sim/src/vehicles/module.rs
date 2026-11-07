@@ -191,13 +191,13 @@ pub(crate) fn veh_collision_in(world_ctx: &mut crate::world::owner::World, world
 /// Where JavaScript writes each body's enabled flag, by its place in the
 /// collision world's order (MAX_BODIES bytes; 0 without a world here).
 
-pub(crate) fn veh_flags_in(world_ctx: &mut crate::world::owner::World) -> *mut u8 {
-    if world_ctx.fleet.collision.is_some() { world_ctx.movement.flags_mut().as_mut_ptr() } else { std::ptr::null_mut() }
+pub(crate) fn veh_flags_in(world_ctx: &mut crate::world::owner::World) -> Option<&mut [u8]> {
+    if world_ctx.fleet.collision.is_some() { Some(&mut world_ctx.movement.flags_mut()[..]) } else { None }
 }
 
 /// Room for `count` numbers JavaScript hands over (veh_bodies, veh_collider).
 
-pub(crate) fn veh_input_in(world_ctx: &mut crate::world::owner::World, count: u32) -> *mut f64 { Fleet::veh_input(&mut world_ctx.fleet.input, count) }
+pub(crate) fn veh_input_in(world_ctx: &mut crate::world::owner::World, count: u32) -> Option<&mut [f64]> { Fleet::veh_input(&mut world_ctx.fleet.input, count); Some(&mut world_ctx.fleet.input) }
 
 /// The bodies' numbers: `count` pairs in the input, each a body's number in
 /// the store (the bridge's) and its kernel slot.
@@ -246,16 +246,16 @@ pub(crate) fn prepare_collision_in(world_ctx: &mut crate::world::owner::World) {
 /// JavaScript's bodies (Collision::take_changes); returns their address, or
 /// 0 without a collision world here.
 
-pub(crate) fn veh_changes_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
-    let Some(c) = world_ctx.fleet.collision.as_mut() else { return std::ptr::null() };
+pub(crate) fn veh_changes_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
+    let Some(c) = world_ctx.fleet.collision.as_mut() else { return None };
     let out = &mut world_ctx.fleet.changes;
     c.take_changes_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), out);
-    out.as_ptr()
+    Some(&out[..])
 }
 
 /// Room for `count` bytes JavaScript hands over (the vehicle pack).
 
-pub(crate) fn veh_bytes_in(world_ctx: &mut crate::world::owner::World, count: u32) -> *mut u8 { Fleet::veh_bytes(&mut world_ctx.fleet.bytes, count) }
+pub(crate) fn veh_bytes_in(world_ctx: &mut crate::world::owner::World, count: u32) -> Option<&mut [u8]> { Fleet::veh_bytes(&mut world_ctx.fleet.bytes, count); Some(&mut world_ctx.fleet.bytes) }
 
 /// The vehicle pack, from `veh_bytes`'s room: its JSON (`def_len` bytes:
 /// its models, collision, animations and classes), then (from the next
@@ -413,8 +413,8 @@ pub(crate) fn veh_flight_acc_in(world_ctx: &mut crate::world::owner::World) -> f
 /// then per craft its slot, the lock's target id, generation, elapsed time
 /// and whether it is complete]. Returns its address.
 
-pub(crate) fn veh_locks_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
-    world_ctx.fleet.locks.as_ptr()
+pub(crate) fn veh_locks_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
+    Some(&world_ctx.fleet.locks[..])
 }
 
 /// A class's flight keys (flightConfig's own, from its definition) and its
@@ -1152,72 +1152,62 @@ pub(crate) fn flight_tuning(class: FlightClass) -> Tuning { flight_tuning_in(cra
 pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) { wire_walk_in(crate::abi::world(), reference) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { wire_seat_history_in(crate::abi::world(), reference, index) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_class(name: u32, json: u32, turn_rate: f64) { veh_class_in(crate::abi::world(), name, json, turn_rate) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_map(json: u32, kill_y: f64) { veh_map_in(crate::abi::world(), json, kill_y) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_collision(world: i32, blockers: i32) { veh_collision_in(crate::abi::world(), world, blockers) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_flags() -> *mut u8 { veh_flags_in(crate::abi::cold()) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_input(count: u32) -> *mut f64 { veh_input_in(crate::abi::world(), count) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_bodies(count: u32) { veh_bodies_in(crate::abi::world(), count) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_collider(walls: u32, springs: u32) { veh_collider_in(crate::abi::world(), walls, springs) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_changes() -> *const f64 { veh_changes_in(crate::abi::world()) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_bytes(count: u32) -> *mut u8 { veh_bytes_in(crate::abi::world(), count) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: u32) -> u32 { veh_pack_in(crate::abi::world(), def_len, floats, indices, animations) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32, seed: u32) -> u32 { veh_pull_in(crate::abi::world(), slot, generation, count, seed) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_flight_env(json: u32, max_fly_height: f64) { veh_flight_env_in(crate::abi::world(), json, max_fly_height) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_flight_tune(class: u32, key: u32, value: f64) -> u32 { veh_flight_tune_in(crate::abi::world(), class, key, value) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_members(count: u32) { veh_members_in(crate::abi::world(), count) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_relations(count: u32) { veh_relations_in(crate::abi::world(), count) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_flight_inputs(count: u32) { veh_flight_inputs_in(crate::abi::world(), count) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_flight_acc() -> f64 { veh_flight_acc_in(crate::abi::world()) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_locks() -> *const f64 { veh_locks_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> { prediction_hull_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn read_flight(hull: &mut Hull) { read_flight_in(crate::abi::world(), hull) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn store_hull(hull: &Hull) { store_hull_in(crate::abi::world(), hull) }
-#[no_mangle]
-#[cfg(target_arch = "wasm32")]
-pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32) -> f64 { veh_ground_in(crate::abi::world(), dt, acc, flight_acc, level, clock, flags) }
 
 impl<'a> JsWorld<'static, 'a> {
     // facade shims: external physical callers still enter through WASM.
     #[cfg(target_arch = "wasm32")]
     pub fn new(craft: u32) -> Self { Self::new_in(crate::abi::world(), craft) }
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn veh_class(name: u32, json: u32, turn_rate: f64) { veh_class_in(crate::abi::facade::world(), name, json, turn_rate) }
+    #[no_mangle]
+    pub extern "C" fn veh_map(json: u32, kill_y: f64) { veh_map_in(crate::abi::facade::world(), json, kill_y) }
+    #[no_mangle]
+    pub extern "C" fn veh_collision(world: i32, blockers: i32) { veh_collision_in(crate::abi::facade::world(), world, blockers) }
+    #[no_mangle]
+    pub extern "C" fn veh_flags() -> *mut u8 { veh_flags_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn veh_input(count: u32) -> *mut f64 { veh_input_in(crate::abi::facade::world(), count).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn veh_bodies(count: u32) { veh_bodies_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn veh_collider(walls: u32, springs: u32) { veh_collider_in(crate::abi::facade::world(), walls, springs) }
+    #[no_mangle]
+    pub extern "C" fn veh_changes() -> *const f64 { veh_changes_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn veh_bytes(count: u32) -> *mut u8 { veh_bytes_in(crate::abi::facade::world(), count).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: u32) -> u32 { veh_pack_in(crate::abi::facade::world(), def_len, floats, indices, animations) }
+    #[no_mangle]
+    pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32, seed: u32) -> u32 { veh_pull_in(crate::abi::facade::world(), slot, generation, count, seed) }
+    #[no_mangle]
+    pub extern "C" fn veh_flight_env(json: u32, max_fly_height: f64) { veh_flight_env_in(crate::abi::facade::world(), json, max_fly_height) }
+    #[no_mangle]
+    pub extern "C" fn veh_flight_tune(class: u32, key: u32, value: f64) -> u32 { veh_flight_tune_in(crate::abi::facade::world(), class, key, value) }
+    #[no_mangle]
+    pub extern "C" fn veh_members(count: u32) { veh_members_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn veh_relations(count: u32) { veh_relations_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn veh_flight_inputs(count: u32) { veh_flight_inputs_in(crate::abi::facade::world(), count) }
+    #[no_mangle]
+    pub extern "C" fn veh_flight_acc() -> f64 { veh_flight_acc_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn veh_locks() -> *const f64 { veh_locks_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32) -> f64 { veh_ground_in(crate::abi::facade::world(), dt, acc, flight_acc, level, clock, flags) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{veh_class, veh_map, veh_collision, veh_flags, veh_input, veh_bodies, veh_collider, veh_changes, veh_bytes, veh_pack, veh_pull, veh_flight_env, veh_flight_tune, veh_members, veh_relations, veh_flight_inputs, veh_flight_acc, veh_locks, veh_ground};

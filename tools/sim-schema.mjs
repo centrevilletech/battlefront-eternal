@@ -207,7 +207,7 @@ export function buildModel(files) {
       const where = `${file} command ${name}`;
       if (model.commands.has(name)) fail(where, 'declared twice');
       if (!spec || typeof spec.args !== 'string' || typeof spec.rust !== 'string') fail(where, 'a command is { args: Record, result: Record or null, rust: "module::function" }');
-      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, detached: spec.detached === true, where });
+      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, owned: spec.owned ?? null, detached: spec.detached === true, where });
     }
     for (const [name, spec] of Object.entries(schema.events || {})) {
       const where = `${file} event ${name}`;
@@ -882,23 +882,29 @@ function rustCalls(model) {
   // of its own taking their words as its parameters: one call, nothing
   // written into memory (the bridge's command() uses it). Its result, if
   // any, is in the call block, whose start it returns.
+  const veneers = [];
   if (!model.target.test) for (const c of model.commandsList) {
     if (!flat(model, c.args)) continue;
+    if (c.detached && !c.owned) fail(c.where, "a detached command needs an owned Rust entry");
     const n = recordWords(model, c.args);
-    const params = Array.from({ length: n }, (_, i) => `w${i}: f64`).join(', ');
-    lines.push(`/// The command ${c.name}, its arguments' words as parameters.`, '#[no_mangle]', `pub extern "C" fn cmd_${snake(c.name).replace(/^r#/, '')}(${params}) -> *const f64 {`, `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return std::ptr::null(); }`, `    let row: [f64; ${n}] = [${Array.from({ length: n }, (_, i) => `w${i}`).join(', ')}];`, `    let args = ${c.args}::take(&row, &[]);`, '    let sim = crate::abi::sim();');
-    if (c.detached) {
-      // Decode the scalar record on the stack and acquire Sim only after the
-      // command returns. Reentrant commands can use the canonical instance.
-      lines.pop();
-      const call = `    let result = crate::${c.rust}(args);`;
-      lines.push(call, '    let sim = crate::abi::sim();');
-      if (c.result) lines.push(`    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
-      else lines.push('    std::ptr::null()');
-    }
-    else if (c.result) lines.push(`    let result = crate::${c.rust}(sim, args);`, `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
-    else lines.push(`    crate::${c.rust}(sim, args);`, '    std::ptr::null()');
+    const name = `cmd_${snake(c.name).replace(/^r#/, '')}`;
+    const values = Array.from({ length: n }, (_, i) => `w${i}`);
+    const params = values.map(v => `${v}: f64`).join(', ');
+    lines.push(`/// The command ${c.name}, decoded from its scalar boundary words.`,
+      `pub fn ${name}_in(w: &mut crate::world::owner::World, ${c.detached ? `run: impl FnOnce(&mut crate::world::owner::World, ${c.args}) -> ${c.result ?? "()"}, ` : ""}${params}) -> Option<&crate::store::block::Block> {`,
+      `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return None; }`,
+      `    let row: [f64; ${n}] = [${values.join(', ')}];`,
+      `    let args = ${c.args}::take(&row, &[]);`);
+    if (c.detached) lines.push(`    let result = run(w, args);`, '    let sim = &mut w.sim;');
+    else lines.push('    let sim = &mut w.sim;', `    ${c.result ? 'let result = ' : ''}crate::${c.rust}(sim, args);`);
+    if (c.result) lines.push(`    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    Some(&sim.calls.block)');
+    else lines.push('    None');
     lines.push('}', '');
+    veneers.push(`    /// The command ${c.name}, its arguments' words as parameters.`, `    #[no_mangle]`, `    pub extern "C" fn ${name}(${params}) -> *const f64 { ${name}_in(crate::abi::facade::world(), ${c.detached ? `crate::${c.owned}, ` : ""}${values.join(', ')}).map_or(std::ptr::null(), crate::store::block::Block::ptr) }`);
+    // Native callers retain the existing explicit rejection of raw relay.
+    // Context is the only native owner allowed to dispatch a host callback.
+    if (c.name === 'relay') lines.push('#[cfg(not(target_arch = "wasm32"))]',
+      `pub fn ${name}(${values.map(v => `_${v}: f64`).join(', ')}) -> *const f64 { std::ptr::null() }`, '');
   }
   for (const e of model.eventsList) {
     lines.push(`impl ${e.record} {`, `    /// Emits it as the event ${e.name} (drained in order at the end of the phase).`, '    pub fn emit(&self, events: &mut crate::store::calls::Events) {', `        events.emit(EVENT_${upper(e.name)}, ${e.record}::WORDS, |row, heap| self.put(row, heap));`, '    }', '}', '');
@@ -922,6 +928,7 @@ function rustCalls(model) {
       }
     }
   }
+  if (veneers.length) lines.push('#[cfg(target_arch = "wasm32")]', 'mod exports {', '    use super::*;', ...veneers, '}', '');
   return lines;
 }
 

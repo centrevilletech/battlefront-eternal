@@ -34,10 +34,10 @@ fn metadata_mut(battle: &mut BattleOwner) -> &mut Metadata {
 fn state(battle: &mut BattleOwner) -> &mut State { battle.live_phase.as_mut().expect("idle live owner") }
 pub(crate) fn reset(battle: &mut BattleOwner) { battle.live_phase = None; battle.io = None; battle.metadata = None; }
 fn args<T>(w: &mut Root, take: impl FnOnce(&[f64], &[f64]) -> T) -> T { let (row, heap) = w.sim.calls.args(); take(row, heap) }
-fn return_handle(w: &mut Root, handle: F4Handle) -> *const f64 {
-    handle.put(&mut io(&mut w.battle).handle, &mut Vec::new()); io(&mut w.battle).handle.as_ptr()
+fn return_handle(w: &mut Root, handle: F4Handle) -> Option<&[f64]> {
+    handle.put(&mut io(&mut w.battle).handle, &mut Vec::new()); Some(&io(&mut w.battle).handle[..])
 }
-pub fn f4_live_init_in(w: &mut Root) -> *const f64 {
+pub fn f4_live_init_in(w: &mut Root) -> Option<&[f64]> {
     assert!(f3::active(), "canonical unit owner required");
     let setup = args(w, F4LiveSetup::take);
     let store = &w.sim.store;
@@ -60,9 +60,9 @@ pub fn f4_live_init_in(w: &mut Root) -> *const f64 {
             stations, regenerators, traps, hulls: Vec::with_capacity(setup.hull_capacity as usize) });
         w.battle.metadata = Some(Metadata { animations: Vec::new(), gains: Vec::new(), grips: Vec::new(), sides: Vec::new() });
     }
-    descriptor(w)
+    descriptor_words(w)
 }
-pub fn f4_building_handle_in(w: &mut Root, index: u32) -> *const f64 { return_handle(w, crate::units::f3_props::owner(index as usize)) }
+pub fn f4_building_handle_in(w: &mut Root, index: u32) -> Option<&[f64]> { return_handle(w, crate::units::f3_props::owner(index as usize)) }
 pub fn f4_unit_class_in(w: &mut Root) {
     let c = args(w, F4UnitClass::take); let slot = c.def.0 as usize;
     state(&mut w.battle).supply.class(c.def, c.vehicle); let s = metadata_mut(&mut w.battle); s.gains.resize(s.gains.len().max(slot + 1), None);
@@ -81,7 +81,7 @@ pub fn f4_grip_class_in(w: &mut Root) {
     s.grips.resize_with(s.grips.len().max(g.def.0 as usize + 1), Vec::new);
     let class = &mut s.grips[g.def.0 as usize]; class.resize_with(class.len().max(index + 1), Vec::new); class[index] = g.clips;
 }
-pub fn f4_animated_birth_in(w: &mut Root) -> *const f64 {
+pub fn f4_animated_birth_in(w: &mut Root) -> Option<&[f64]> {
     let input = args(w, F4AnimationSetup::take); let mut animation = prepared::animated(input.birth);
     let index = metadata(&w.battle).animations.len(); animation.state.index = index;
     let handle = f4::live_in(&mut w.battle).animated.adopt(1.0, animation);
@@ -117,13 +117,13 @@ pub(crate) fn wire_trap_in(battle: &mut BattleOwner, index: usize) -> Option<[f6
     Some([phase, value.started.unwrap_or(value.tick), u8::from(value.sprung) as f64])
 }
 
-pub(crate) fn descriptor(w: &mut Root) -> *const f64 {
+pub(crate) fn descriptor_words(w: &mut Root) -> Option<&[f64]> {
     let phase = F4Phase { version: io(&mut w.battle).version, live_input: io(&mut w.battle).live.as_ptr() as u32, tail_input: io(&mut w.battle).tail.as_ptr() as u32,
         input_capacity: F4LiveInput::WORDS.max(F4TailInput::WORDS) as u32,
         buildings: f4::live_in(&mut w.battle).buildings.publication.ptr() as u32, animated: f4::live_in(&mut w.battle).animated.publication.ptr() as u32,
         traps: f4::live_in(&mut w.battle).traps.publication.ptr() as u32, counters: io(&mut w.battle).counters.as_ptr() as u32,
         battle: super::f4_core::publication_ptr(&mut w.battle), events: w.sim.events.ptr() as u32, ..F4Phase::default() };
-    let io = io(&mut w.battle); io.dirty_counters = false; io.counts.put(&mut io.counters, &mut Vec::new()); phase.put(&mut io.descriptor, &mut Vec::new()); io.descriptor.as_ptr()
+    let io = io(&mut w.battle); io.dirty_counters = false; io.counts.put(&mut io.counters, &mut Vec::new()); phase.put(&mut io.descriptor, &mut Vec::new()); Some(&io.descriptor[..])
 }
 /// Only actual foreign barriers and outer returns publish. Native setters mark
 /// their rows; an intermediate commit must not overwrite an unread delta.
@@ -143,7 +143,7 @@ pub(crate) fn publish_in(w: &mut Root) {
         // Rewriting this descriptor for every aimer would scale with bodies.
         return;
     }
-    descriptor(w);
+    descriptor_words(w);
 }
 pub(crate) fn record_publication(battle: &mut BattleOwner, rows: usize, words: usize) {
     if battle.io.is_none() {return;}
@@ -154,7 +154,7 @@ pub(crate) fn count_command(battle: &mut BattleOwner) {count_external(battle, F4
 pub(crate) fn count_external(battle: &mut BattleOwner, words:usize) {
     if battle.io.is_some() {io(battle).dirty_counters = true;io(battle).counts.commands += 1.0;io(battle).counts.input_words += words as f64;}
 }
-pub fn f4_live_publish_in(w: &mut Root) -> *const f64 { super::f4_core::publish_in(w); publish_in(w); descriptor(w) }
+pub fn f4_live_publish_in(w: &mut Root) -> Option<&[f64]> { super::f4_core::publish_in(w); publish_in(w); descriptor_words(w) }
 pub(crate) fn with_store_in<T>(w: &mut Root, store: &mut Store, run: impl FnOnce(&mut Root) -> T) -> T {
     std::mem::swap(store, &mut w.sim.store); let result = run(w); std::mem::swap(store, &mut w.sim.store); result
 }
@@ -253,7 +253,7 @@ impl traps::World for Logs<'_, '_, '_> {
 }
 fn array(p: Vector3) -> [f64; 3] { [p.x, p.y, p.z] }
 
-pub fn f4_live_in(w: &mut Root) -> *const f64 {
+pub fn f4_live_in(w: &mut Root) -> Option<&[f64]> {
     let before = crate::allocations::snapshot(); crate::allocations::begin();
     let input = F4LiveInput::take(&io(&mut w.battle).live, &[]);
     let outer = f3::external();
@@ -268,7 +268,7 @@ pub fn f4_live_in(w: &mut Root) -> *const f64 {
     drop(outer);
     crate::allocations::end(); let used = crate::allocations::snapshot().since(before);
     io(&mut w.battle).counts.allocations = used.calls as u32; io(&mut w.battle).counts.reallocations = used.reallocs as u32; io(&mut w.battle).counts.allocation_bytes = used.bytes as u32;
-    descriptor(w)
+    descriptor_words(w)
 }
 
 /// External writes validate the complete F4 identity before any owner service.
@@ -336,7 +336,7 @@ pub(crate) fn count_tail(w: &mut Root, commands:usize,before:crate::allocations:
     let used=crate::allocations::snapshot().since(before);let counts=&mut io(&mut w.battle).counts;
     counts.tail+=1.0;counts.input_words+=(F4TailInput::WORDS+commands*HsCommand::WORDS) as f64;
     counts.allocations=used.calls as u32;counts.reallocations=used.reallocs as u32;counts.allocation_bytes=used.bytes as u32;
-    descriptor(w);
+    descriptor_words(w);
 }
 
 pub(crate) fn count_hook(battle: &mut BattleOwner) {
@@ -406,21 +406,6 @@ impl State {
     }
 }
 
-// facade shims
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_live_init() -> *const f64 { f4_live_init_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_building_handle(index: u32) -> *const f64 { f4_building_handle_in(crate::abi::world(), index) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_unit_class() { f4_unit_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_weapon_class() { f4_weapon_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_hull_class() { f4_hull_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_grip_class() { f4_grip_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_animated_birth() -> *const f64 { f4_animated_birth_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_animation_count() -> usize { wire_animation_count_in(&mut crate::abi::cold().battle) }
 #[cfg(target_arch = "wasm32")]
@@ -431,19 +416,46 @@ pub(crate) fn wire_trap_count() -> usize { wire_trap_count_in(&mut crate::abi::c
 pub(crate) fn wire_trap(index: usize) -> Option<[f64; 3]> { wire_trap_in(&mut crate::abi::cold().battle, index) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn publish() { publish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_live_publish() -> *const f64 { f4_live_publish_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn with_store<T>(store: &mut Store, run: impl FnOnce() -> T) -> T { with_store_in(crate::abi::world(), store, |_| run()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_live() -> *const f64 { f4_live_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_live_command() -> u32 { f4_live_command_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> { held_clip_in(&mut crate::abi::cold().battle, r, unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn owns_held(prop:Ref<Prop>) ->bool { owns_held_in(&mut crate::abi::cold().battle, prop) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_viewpoint_clock() { f4_viewpoint_clock_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    pub(crate) fn descriptor(w: &mut Root) -> *const f64 { descriptor_words(w).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    // facade shims
+    #[no_mangle]
+    pub extern "C" fn f4_live_init() -> *const f64 { f4_live_init_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_building_handle(index: u32) -> *const f64 { f4_building_handle_in(crate::abi::facade::world(), index).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_unit_class() { f4_unit_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_weapon_class() { f4_weapon_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_hull_class() { f4_hull_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_grip_class() { f4_grip_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_animated_birth() -> *const f64 { f4_animated_birth_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_live_publish() -> *const f64 { f4_live_publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_live() -> *const f64 { f4_live_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_live_command() -> u32 { f4_live_command_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_viewpoint_clock() { f4_viewpoint_clock_in(crate::abi::facade::world()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub(crate) use exports::descriptor;

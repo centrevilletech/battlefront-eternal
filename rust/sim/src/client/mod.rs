@@ -631,12 +631,12 @@ fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
 mod module {
     use super::*;
     use crate::gen::ClientOp;
-    pub(crate) fn client_prediction_create_in(w: &mut crate::world::owner::World) -> *mut ClientPrediction { w.page.prediction.insert(ClientPrediction::default()).unwrap_or(0) as *mut ClientPrediction }
-    pub(crate) unsafe fn client_prediction_drop_in(w: &mut crate::world::owner::World, p: *mut ClientPrediction) { w.page.prediction.remove(p as usize); }
-    pub(crate) unsafe fn client_prediction_room_in(w: &mut crate::world::owner::World, p: *mut ClientPrediction, n: u32) -> *mut f64 { let Some(s) = w.page.prediction.get_mut(p as usize) else { return std::ptr::null_mut() }; s.input.resize(n as usize, 0.0); s.input.as_mut_ptr() }
+    pub(crate) fn client_prediction_create_in(w: &mut crate::world::owner::World) -> usize { w.page.prediction.insert(ClientPrediction::default()).unwrap_or(0) }
+    pub(crate) unsafe fn client_prediction_drop_in(w: &mut crate::world::owner::World, p: usize) { w.page.prediction.remove(p as usize); }
+    pub(crate) unsafe fn client_prediction_room_in(w: &mut crate::world::owner::World, p: usize, n: u32) -> Option<&mut [f64]> { let Some(s) = w.page.prediction.get_mut(p as usize) else { return None }; s.input.resize(n as usize, 0.0); Some(&mut s.input[..]) }
     // The shared generated enum names the ABI commands. Reject an oversized
     // operation before narrowing it, rather than aliasing another command.
-    pub(crate) unsafe fn client_prediction_run_in(w: &mut crate::world::owner::World, p: *mut ClientPrediction, op: u32) -> u32 {
+    pub(crate) unsafe fn client_prediction_run_in(w: &mut crate::world::owner::World, p: usize, op: u32) -> u32 {
         let operation = u8::try_from(op).ok().and_then(ClientOp::from_u8);
         // predictionVehicle resolves its private fleet source before the
         // session loan, so retained page storage never aliases that lookup.
@@ -665,44 +665,42 @@ mod module {
     // Moving the vector preserves its allocation while letting the session
     // borrow the input independently. A failed frame invalidates continuation
     // and returns an error pointer; it cannot fall back to page simulation.
-    pub(crate) unsafe fn client_predict_session_in(w: &mut crate::world::owner::World, p: *mut ClientPrediction, n: u32) -> *const f64 {
-        let Some(s) = w.page.prediction.get_mut(p as usize) else { return std::ptr::null() };
+    pub(crate) unsafe fn client_predict_session_in(w: &mut crate::world::owner::World, p: usize, n: u32) -> Option<&[f64]> {
+        let Some(s) = w.page.prediction.get_mut(p as usize) else { return None };
         let words = std::mem::take(&mut s.input);
         let result = words.get(..n as usize).ok_or(INVALID)
             .and_then(|input| s.predict_session(input, &mut w.collision.state));
         s.input = words; s.error = result.err();
-        if s.error.is_some() { s.reset(); std::ptr::null() } else { s.output.as_ptr() }
+        if s.error.is_some() { s.reset(); None } else { Some(&s.output[..]) }
     }
-    pub(crate) unsafe fn client_prediction_output_in(w: &mut crate::world::owner::World, p: *const ClientPrediction) -> *const f64 { w.page.prediction.get(p as usize).map_or(std::ptr::null(), |s| s.output.as_ptr()) }
-    pub(crate) unsafe fn client_prediction_output_len_in(w: &mut crate::world::owner::World, p: *const ClientPrediction) -> u32 { w.page.prediction.get(p as usize).map_or(0, |s| s.output.len() as u32) }
-    pub(crate) unsafe fn client_prediction_error_in(w: &mut crate::world::owner::World, p: *const ClientPrediction) -> *const u8 { w.page.prediction.get(p as usize).map_or(std::ptr::null(), |s| s.error.unwrap_or("").as_ptr()) }
-    pub(crate) unsafe fn client_prediction_error_len_in(w: &mut crate::world::owner::World, p: *const ClientPrediction) -> u32 { w.page.prediction.get(p as usize).map_or(0, |s| s.error.unwrap_or("").len() as u32) }
+    pub(crate) unsafe fn client_prediction_output_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[f64]> { w.page.prediction.get(p as usize).map_or(None, |s| Some(&s.output[..])) }
+    pub(crate) unsafe fn client_prediction_output_len_in(w: &mut crate::world::owner::World, p: usize) -> u32 { w.page.prediction.get(p as usize).map_or(0, |s| s.output.len() as u32) }
+    pub(crate) unsafe fn client_prediction_error_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[u8]> { w.page.prediction.get(p as usize).map_or(None, |s| Some(s.error.unwrap_or("").as_bytes())) }
+    pub(crate) unsafe fn client_prediction_error_len_in(w: &mut crate::world::owner::World, p: usize) -> u32 { w.page.prediction.get(p as usize).map_or(0, |s| s.error.unwrap_or("").len() as u32) }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn client_prediction_create() -> *mut ClientPrediction { module::client_prediction_create_in(crate::abi::world()) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn client_prediction_create() -> *mut ClientPrediction { module::client_prediction_create_in(crate::abi::facade::world()) as *mut ClientPrediction }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_drop(p: *mut ClientPrediction) { module::client_prediction_drop_in(crate::abi::facade::world(), p as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_room(p: *mut ClientPrediction, n: u32) -> *mut f64 { module::client_prediction_room_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_run(p: *mut ClientPrediction, op: u32) -> u32 { module::client_prediction_run_in(crate::abi::facade::world(), p as usize, op) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_predict_session(p: *mut ClientPrediction, n: u32) -> *const f64 { module::client_predict_session_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_output(p: *const ClientPrediction) -> *const f64 { module::client_prediction_output_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_output_len(p: *const ClientPrediction) -> u32 { module::client_prediction_output_len_in(crate::abi::facade::world(), p as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_error(p: *const ClientPrediction) -> *const u8 { module::client_prediction_error_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub unsafe extern "C" fn client_prediction_error_len(p: *const ClientPrediction) -> u32 { module::client_prediction_error_len_in(crate::abi::facade::world(), p as usize) }
+}
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_drop(p: *mut ClientPrediction) { module::client_prediction_drop_in(crate::abi::world(), p) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_room(p: *mut ClientPrediction, n: u32) -> *mut f64 { module::client_prediction_room_in(crate::abi::world(), p, n) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_run(p: *mut ClientPrediction, op: u32) -> u32 { module::client_prediction_run_in(crate::abi::world(), p, op) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_predict_session(p: *mut ClientPrediction, n: u32) -> *const f64 { module::client_predict_session_in(crate::abi::world(), p, n) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_output(p: *const ClientPrediction) -> *const f64 { module::client_prediction_output_in(crate::abi::world(), p) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_output_len(p: *const ClientPrediction) -> u32 { module::client_prediction_output_len_in(crate::abi::world(), p) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_error(p: *const ClientPrediction) -> *const u8 { module::client_prediction_error_in(crate::abi::world(), p) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn client_prediction_error_len(p: *const ClientPrediction) -> u32 { module::client_prediction_error_len_in(crate::abi::world(), p) }
+pub use exports::{client_prediction_create, client_prediction_drop, client_prediction_room, client_prediction_run, client_predict_session, client_prediction_output, client_prediction_output_len, client_prediction_error, client_prediction_error_len};

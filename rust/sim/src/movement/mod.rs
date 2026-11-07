@@ -61,7 +61,6 @@ pub const JET_DIRECTION: usize = 40;
 pub const CLASS: usize = 50;
 pub const IO_LEN: usize = 80;
 
-
 #[derive(Default)]
 struct Movers {
     list: Vec<Mover>,
@@ -215,24 +214,6 @@ pub fn mover(id: u32) -> &'static mut Mover {
     owner().mover(id)
 }
 
-// The module's exports, for src/movement-kernel.js.
-
-#[no_mangle]
-pub extern "C" fn movement_io_ptr() -> *mut f64 {
-    owner().io.as_mut_ptr()
-}
-
-#[no_mangle]
-pub extern "C" fn movement_flags_ptr() -> *mut u8 {
-    owner().flags.as_mut_ptr()
-}
-
-/// A soldier of world `world` with the class numbers in CLASS; returns its id.
-#[no_mangle]
-pub extern "C" fn mover_new(world: u32) -> u32 {
-    owner().mover_new(world)
-}
-
 /// The class assignments shared by legacy and owned construction.
 pub(crate) fn set_class(m: &mut Mover, c: &[f64]) {
         m.max_speed = c[0];
@@ -252,12 +233,6 @@ pub(crate) fn set_class(m: &mut Mover, c: &[f64]) {
         m.threshold = [c[15], c[16], c[17]];
         m.scale = [c[18], c[19], c[20]];
 }
-
-/// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:
-/// done, the state back in the slots; 2: an unknown state code, rejected
-/// before changing the mover or advancing its collision scene.
-#[no_mangle]
-pub extern "C" fn mover_tick(id: u32) -> u32 { owner().tick(state(), id) }
 
 impl MovementOwner {
     pub fn mover_new(&mut self, world: u32) -> u32 {
@@ -299,3 +274,22 @@ impl MovementOwner {
         0
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    // The module's exports, for src/movement-kernel.js.
+    #[no_mangle]
+    pub extern "C" fn movement_io_ptr() -> *mut f64 { crate::abi::facade::cold().movement.io_mut().as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn movement_flags_ptr() -> *mut u8 { crate::abi::facade::cold().movement.flags_mut().as_mut_ptr() }
+    /// A soldier of world `world` with the class numbers in CLASS; returns its id.
+    #[no_mangle]
+    pub extern "C" fn mover_new(world: u32) -> u32 { crate::abi::facade::cold().movement.mover_new(world) }
+    /// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:
+    /// done, the state back in the slots; 2: an unknown state code, rejected
+    /// before changing the mover or advancing its collision scene.
+    #[no_mangle]
+    pub extern "C" fn mover_tick(id: u32) -> u32 { let w = crate::abi::facade::cold(); w.movement.tick(&mut w.collision.state, id) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{movement_io_ptr, movement_flags_ptr, mover_new, mover_tick};

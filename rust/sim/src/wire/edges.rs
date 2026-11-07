@@ -170,31 +170,30 @@ impl Host {
         out
     }
 }
+pub fn wire_edges_words() -> u32 { WeCall::WORDS as u32 }
 
-#[no_mangle]
-pub extern "C" fn wire_edges_words() -> u32 { WeCall::WORDS as u32 }
-pub(crate) fn wire_edges_create_in(w: &mut crate::world::owner::World) -> *mut Host {
+pub(crate) fn wire_edges_create_in(w: &mut crate::world::owner::World) -> usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
- owner.edges.insert(Host::default()).unwrap_or(0) as *mut Host
+ owner.edges.insert(Host::default()).unwrap_or(0)
 
 }
 /// # Safety
 /// `host` belongs to this instance and has not been released.
-pub(crate) unsafe fn wire_edges_drop_in(w: &mut crate::world::owner::World, host: *mut Host) {
+pub(crate) unsafe fn wire_edges_drop_in(w: &mut crate::world::owner::World, host: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.edges.get(host as usize).is_none() {return;}
- if !host.is_null() { owner.edges.remove(host as usize); }
+ if host != 0 { owner.edges.remove(host as usize); }
 
 }
 /// # Safety
 /// `host` remains live for this call. No import or callback runs here.
-pub(crate) unsafe fn wire_edges_run_in(w: &mut crate::world::owner::World, host: *mut Host) -> *const f64 {
+pub(crate) unsafe fn wire_edges_run_in(w: &mut crate::world::owner::World, host: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-if owner.edges.get(host as usize).is_none() {return std::ptr::null();}
+if owner.edges.get(host as usize).is_none() {return None;}
 
     let input = { let (row, heap) = w.sim.calls.args(); WeCall::take(row, heap) };
     let out = owner.edges.get_mut(host as usize).unwrap().run(input, &mut w.sim.strings);
-    let s = &mut w.sim; s.calls.result(WeResult::WORDS, |row, heap| out.put(row, heap)); s.calls.block.ptr()
+    let s = &mut w.sim; s.calls.result(WeResult::WORDS, |row, heap| out.put(row, heap)); Some(&s.calls.block.words[..])
 
 }
 
@@ -242,12 +241,18 @@ mod tests {
     }
 }
 
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_edges_create() -> *mut Host { wire_edges_create_in(crate::abi::world()) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn wire_edges_words() -> u32 { super::wire_edges_words() }
+    #[no_mangle]
+    pub extern "C" fn wire_edges_create() -> *mut Host { wire_edges_create_in(crate::abi::facade::world()) as *mut Host }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_edges_drop(host: *mut Host) { wire_edges_drop_in(crate::abi::facade::world(), host as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_edges_run(host: *mut Host) -> *const f64 { wire_edges_run_in(crate::abi::facade::world(), host as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+}
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_edges_drop(host: *mut Host) { wire_edges_drop_in(crate::abi::world(), host) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_edges_run(host: *mut Host) -> *const f64 { wire_edges_run_in(crate::abi::world(), host) }
+pub use exports::{wire_edges_create, wire_edges_drop, wire_edges_run};

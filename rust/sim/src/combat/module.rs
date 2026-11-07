@@ -133,10 +133,10 @@ pub(crate) fn cmb_explosion_in(w: &mut crate::world::owner::World, id: u32) { le
 
 /// A command's answer in the call block: what it wrote into the unit, then
 /// the combat's record. `flag`: a command's own answer (a weapon chosen).
-fn answer(s: &mut crate::abi::Sim, r: Ref<Unit>) -> *const f64 {
+fn answer(s: &mut crate::abi::Sim, r: Ref<Unit>) -> Option<&[f64]> {
     let u = s.store.unit.get(r).expect("a constructed unit");
     s.calls.result(Combat::WORDS, |row, heap| u.combat.put(row, heap));
-    s.calls.block.ptr()
+    Some(&s.calls.block.words[..])
 }
 
 // Unit.tick and Unit.onMoved own the complete body. Lend its combat in place
@@ -163,7 +163,7 @@ pub(crate) fn put_in(w: &mut crate::world::owner::World, r: Ref<Unit>, mut unit:
 /// weapons keep a player's spread floor), and the numbers JavaScript took
 /// from its class (MaxHealth || 300, the chunk roll, the health scale's
 /// name). The answer as every command's.
-pub(crate) fn cmb_new_in(w: &mut crate::world::owner::World, unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 {
+pub(crate) fn cmb_new_in(w: &mut crate::world::owner::World, unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> Option<&[f64]> {
     let defs = content(&mut w.combat).defs.clone();
     let r = unit_ref(&w.sim.store, unit);
     let weapons = arm(defs.loadout(DefId(class)), &defs.weapons, player != 0);
@@ -955,21 +955,23 @@ impl Content {
 pub(crate) fn defs() -> Rc<CombatDefs>{ defs_in(&mut crate::abi::world().combat) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn zoom(c: &mut Combat) -> f64{ zoom_in(&mut crate::abi::world().combat, c) }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmb_weapon(id: u32){ cmb_weapon_in(crate::abi::world(), id) }
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn cmb_weapon(id: u32) { cmb_weapon_in(crate::abi::facade::world(), id) }
+    #[no_mangle]
+    pub extern "C" fn cmb_class(id: u32) { cmb_class_in(crate::abi::facade::world(), id) }
+    #[no_mangle]
+    pub extern "C" fn cmb_explosion(id: u32) { cmb_explosion_in(crate::abi::facade::world(), id) }
+    #[no_mangle]
+    pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 { cmb_new_in(crate::abi::facade::world(), unit, class, player, max_health, chunks, scale).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32 { cmb_set_in(crate::abi::facade::world(), unit, field, value) }
+    #[no_mangle]
+    pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32 { cmb_weapon_set_in(crate::abi::facade::world(), unit, weapon, field, value) }
+}
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmb_class(id: u32){ cmb_class_in(crate::abi::world(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmb_explosion(id: u32){ cmb_explosion_in(crate::abi::world(), id) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64{ cmb_new_in(crate::abi::world(), unit, class, player, max_health, chunks, scale) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32{ cmb_set_in(crate::abi::world(), unit, field, value) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32{ cmb_weapon_set_in(crate::abi::world(), unit, weapon, field, value) }
+pub use exports::{cmb_weapon, cmb_class, cmb_explosion, cmb_new, cmb_set, cmb_weapon_set};

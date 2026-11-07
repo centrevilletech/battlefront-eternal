@@ -54,7 +54,7 @@ pub(crate) struct Random(pub u32);
 impl Random {
     fn next_in(&mut self, _w: &mut Root) -> f64 { f3::random_next(self.0) as f64 }
 }
-pub fn f4_tail_init_in(w: &mut Root) -> *const f64 {
+pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
     assert!(
         f3::active() && super::f4_core::active_in(&mut w.battle),
         "canonical unit and battle owners required"
@@ -119,10 +119,10 @@ pub fn f4_tail_init_in(w: &mut Root) -> *const f64 {
             effects,
         });
     }
-    super::f4_live::descriptor(w)
+    super::f4_live::descriptor_words(w)
 }
-pub fn f4_tail_commands_in(w: &mut Root) -> *mut f64 {
-    state(&mut w.battle).input.as_mut_ptr()
+pub fn f4_tail_commands_in(w: &mut Root) -> Option<&mut [f64]> {
+    Some(&mut state(&mut w.battle).input[..])
 }
 pub fn f4_tail_unit_class_in(w: &mut Root) {
     let (row, heap) = w.sim.calls.args();
@@ -195,11 +195,11 @@ pub fn f4_tail_capture_team_in(w: &mut Root) {
     table.resize(table.len().max(c.team as usize + 1), None);
     table[c.team as usize] = Some(c.value);
 }
-pub fn f4_tail_ready_in(w: &mut Root) -> *const f64 {
+pub fn f4_tail_ready_in(w: &mut Root) -> Option<&[f64]> {
     super::f4_core::prepare_tail_publications(w);
     super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
     f3::publish_changed();
-    super::f4_live::descriptor(w)
+    super::f4_live::descriptor_words(w)
 }
 pub fn f4_tail_in(w: &mut Root) {
     let input = super::f4_live::tail_input(&mut w.battle);
@@ -398,35 +398,43 @@ pub(crate) fn wire_roster(team: usize) -> &'static [StrId] { wire_roster_in(&mut
 pub(crate) fn refresh_mobile_views() { refresh_mobile_views_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn initial_human(character:Option<crate::store::Ref<Character>>) { initial_human_in(&mut crate::abi::cold().battle, character) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_init() -> *const f64 { f4_tail_init_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_commands() -> *mut f64 { f4_tail_commands_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_unit_class() { f4_tail_unit_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_weapon_class() { f4_tail_weapon_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_hull_class() { f4_tail_hull_class_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_post() { f4_tail_post_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_pad() { f4_tail_pad_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_hero() { f4_tail_hero_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_capture_team() { f4_tail_capture_team_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_ready() -> *const f64 { f4_tail_ready_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail() { f4_tail_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn owns_player(unit:crate::store::Ref<Unit>) ->bool { owns_player_in(crate::abi::world(), unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn auto_respawn(services:f3::WorldServices<'_>) { auto_respawn_in(crate::abi::world(), services) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_unit_spawn() ->i32 { f4_unit_spawn_in(crate::abi::world()) }
+
 #[cfg(target_arch = "wasm32")]
 impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }
 #[cfg(target_arch = "wasm32")]
 impl super::spawning::Draws for Random { fn next(&mut self) -> f64 { self.next_in(crate::abi::world()) } }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f4_tail_init() -> *const f64 { f4_tail_init_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_commands() -> *mut f64 { f4_tail_commands_in(crate::abi::facade::world()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_unit_class() { f4_tail_unit_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_weapon_class() { f4_tail_weapon_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_hull_class() { f4_tail_hull_class_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_post() { f4_tail_post_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_pad() { f4_tail_pad_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_hero() { f4_tail_hero_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_capture_team() { f4_tail_capture_team_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_ready() -> *const f64 { f4_tail_ready_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail() { f4_tail_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_unit_spawn() ->i32 { f4_unit_spawn_in(crate::abi::facade::world()) }
+}

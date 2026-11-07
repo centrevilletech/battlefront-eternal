@@ -52,7 +52,7 @@ impl Counters {
 pub(crate) fn native_observe_in(w: &mut crate::world::owner::World, id:f64,generation:f64,live:f64) {
     w.wire.as_mut().expect("wire observer outside publication").observe_shot(id,generation,live);
 }
-pub(crate) unsafe fn wire_shots_attach_in(w: &mut crate::world::owner::World, counter:*mut Counters) ->u32 {
+pub(crate) unsafe fn wire_shots_attach_in(w: &mut crate::world::owner::World, counter:usize) ->u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
     let key=counter as usize;if owner.shots.get(key).is_none(){return 0;}
     if owner.attached_shots.contains(&key){return 1;}
@@ -61,21 +61,21 @@ pub(crate) unsafe fn wire_shots_attach_in(w: &mut crate::world::owner::World, co
     owner.attached_shots.push(key);1
 
 }
-pub(crate) fn wire_shots_create_in(w: &mut crate::world::owner::World, capacity:f64) ->*mut Counters {
-    if !integer(capacity)||!(1. ..=65536.).contains(&capacity){return std::ptr::null_mut();}
-    super::owner::with_in(w, |owner|owner.shots.insert(Counters {capacity,units:Vec::with_capacity(capacity as usize),..Default::default()}).unwrap_or(0) as *mut Counters)
+pub(crate) fn wire_shots_create_in(w: &mut crate::world::owner::World, capacity:f64) ->usize {
+    if !integer(capacity)||!(1. ..=65536.).contains(&capacity){return 0;}
+    super::owner::with_in(w, |owner|owner.shots.insert(Counters {capacity,units:Vec::with_capacity(capacity as usize),..Default::default()}).unwrap_or(0))
 }
-pub(crate) unsafe fn wire_shots_drop_in(w: &mut crate::world::owner::World, p:*mut Counters) {
+pub(crate) unsafe fn wire_shots_drop_in(w: &mut crate::world::owner::World, p:usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");let key=p as usize;owner.attached_shots.retain(|&h|h!=key);owner.shots.remove(key);
 }
-pub(crate) unsafe fn wire_shots_observe_in(w: &mut crate::world::owner::World, p:*mut Counters,id:f64,generation:f64,live:f64) {
+pub(crate) unsafe fn wire_shots_observe_in(w: &mut crate::world::owner::World, p:usize,id:f64,generation:f64,live:f64) {
     super::owner::with_in(w, |owner|if let Some(c)=owner.shots.get_mut(p as usize){c.observe(id,generation,live)});
 }
-pub(crate) unsafe fn wire_shots_counter_in(w: &mut crate::world::owner::World, p:*const Counters,id:f64,generation:f64) ->f64 {
+pub(crate) unsafe fn wire_shots_counter_in(w: &mut crate::world::owner::World, p:usize,id:f64,generation:f64) ->f64 {
     super::owner::with_in(w, |owner|owner.shots.get(p as usize).map_or(0.,|c|c.counter(id,generation)))
 }
-pub(crate) unsafe fn wire_shots_reset_in(w: &mut crate::world::owner::World, p:*mut Counters) {super::owner::with_in(w, |owner|if let Some(c)=owner.shots.get_mut(p as usize){c.reset()});}
-pub(crate) unsafe fn wire_shots_overflow_in(w: &mut crate::world::owner::World, p:*const Counters) ->f64 {super::owner::with_in(w, |owner|owner.shots.get(p as usize).map_or(0.,|c|c.overflow))}
+pub(crate) unsafe fn wire_shots_reset_in(w: &mut crate::world::owner::World, p:usize) {super::owner::with_in(w, |owner|if let Some(c)=owner.shots.get_mut(p as usize){c.reset()});}
+pub(crate) unsafe fn wire_shots_overflow_in(w: &mut crate::world::owner::World, p:usize) ->f64 {super::owner::with_in(w, |owner|owner.shots.get(p as usize).map_or(0.,|c|c.overflow))}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,28 +103,6 @@ mod tests {
         assert!(c.units.is_empty());
     }
 }
-
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_attach(counter:*mut Counters) ->u32 { wire_shots_attach_in(crate::abi::world(), counter) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn wire_shots_create(capacity:f64) ->*mut Counters { wire_shots_create_in(crate::abi::world(), capacity) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_drop(p:*mut Counters) { wire_shots_drop_in(crate::abi::world(), p) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_observe(p:*mut Counters,id:f64,generation:f64,live:f64) { wire_shots_observe_in(crate::abi::world(), p, id, generation, live) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_counter(p:*const Counters,id:f64,generation:f64) ->f64 { wire_shots_counter_in(crate::abi::world(), p, id, generation) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_reset(p:*mut Counters) { wire_shots_reset_in(crate::abi::world(), p) }
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_overflow(p:*const Counters) ->f64 { wire_shots_overflow_in(crate::abi::world(), p) }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn native_observe(id:f64,generation:f64,live:f64) { native_observe_in(crate::abi::world(),id,generation,live); }
@@ -160,3 +138,25 @@ mod owner_tests {
         }
     }
 }
+
+// The WASM boundary owns addresses; shared services borrow their owners.
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_shots_attach(counter:*mut Counters) ->u32 { wire_shots_attach_in(crate::abi::facade::world(), counter as usize) }
+    #[no_mangle]
+    pub extern "C" fn wire_shots_create(capacity:f64) ->*mut Counters { wire_shots_create_in(crate::abi::facade::world(), capacity) as *mut Counters }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_shots_drop(p:*mut Counters) { wire_shots_drop_in(crate::abi::facade::world(), p as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_shots_observe(p:*mut Counters,id:f64,generation:f64,live:f64) { wire_shots_observe_in(crate::abi::facade::world(), p as usize, id, generation, live) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_shots_counter(p:*const Counters,id:f64,generation:f64) ->f64 { wire_shots_counter_in(crate::abi::facade::world(), p as usize, id, generation) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_shots_reset(p:*mut Counters) { wire_shots_reset_in(crate::abi::facade::world(), p as usize) }
+    #[no_mangle]
+    pub unsafe extern "C" fn wire_shots_overflow(p:*const Counters) ->f64 { wire_shots_overflow_in(crate::abi::facade::world(), p as usize) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{wire_shots_attach, wire_shots_create, wire_shots_drop, wire_shots_observe, wire_shots_counter, wire_shots_reset, wire_shots_overflow};
