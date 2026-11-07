@@ -20,7 +20,7 @@ pub(crate) fn hook(w: &mut Root, input: F4AIHook,mut services:WorldServices<'_>)
     let native=if let Some(ai)=services.ai.as_deref_mut() {
         ai.lifecycle_in(w,&input,services.recon,services.queries);true
     }else{false};
-    if native || crate::world::deferred() {
+    if native || crate::world::deferred_in(&w.tick) {
         // Native authority finishes synchronously. The outer boundary later
         // delivers presentation notices without reentering an AI decision.
         if matches!(input.op,F4AIHookOp::Post|F4AIHookOp::Mobile|F4AIHookOp::Over|F4AIHookOp::Retarget|F4AIHookOp::Rejected) {
@@ -29,7 +29,7 @@ pub(crate) fn hook(w: &mut Root, input: F4AIHook,mut services:WorldServices<'_>)
         return;
     }
     f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
-    f3::foreign_barrier();
+    f3::foreign_barrier_in(w);
     super::f4_live::count_hook(&mut w.battle);
     import_f4_aihook(&input);
 }
@@ -64,7 +64,7 @@ impl Lifecycle for Native {
             SpawnPost::MobilePost(r) => w.sim.store.mobile_post.get(r).unwrap().name,
         };
         let unit = if human {
-            f4_factory::player(
+            f4_factory::player(w,
                 &F4PlayerRequest {
                     character: Some(character),
                     body: if local { self.local } else { None },
@@ -77,8 +77,8 @@ impl Lifecycle for Native {
                 services.reborrow(),
             )?
         } else {
-            let unit = f4_factory::acquire(class, services.reborrow())?;
-            f3::spawn_native(unit, character, at, yaw.unwrap_or(0.0), services.reborrow());
+            let unit = f4_factory::acquire(w,class, services.reborrow())?;
+            f3::spawn_native_in(w, unit, character, at, yaw.unwrap_or(0.0), services.reborrow());
             unit
         };
         let class = w.sim.store.unit.get(unit).unwrap().class_name;
@@ -244,7 +244,7 @@ pub(crate) fn died(w: &mut Root,
     let team = u.team;
     if let Some(r) = character {
         let c = w.sim.store.character.get_mut(r).unwrap();
-        c.died_at = Some(f3::tick() / 60.0);
+        c.died_at = Some(f3::tick_in(&w.units) / 60.0);
         if c.unit == Some(unit) {
             c.unit = None;
         }

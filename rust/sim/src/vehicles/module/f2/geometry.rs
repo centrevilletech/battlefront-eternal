@@ -34,11 +34,11 @@ fn update_in(world_ctx: &mut crate::world::owner::World, value: &mut F2Pose) {
     }
     posed.pose = h.pose.take().unwrap(); world_ctx.fleet.poses[r.slot as usize] = Some(posed); recycle_in(world_ctx, h);
 }
-pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
+pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> &[f64] {
     let mut geometry = std::mem::replace(&mut world_ctx.fleet.geometry, Geometry::new());
-    let result = geometry.publish(|value| { if !world_ctx.sim.store.vehicle.contains(value.hull) { return false; } update_in(world_ctx, value); true });
+    geometry.publish(|value| { if !world_ctx.sim.store.vehicle.contains(value.hull) { return false; } update_in(world_ctx, value); true });
     world_ctx.fleet.geometry = geometry;
-    result
+    words_in(&world_ctx.fleet.geometry)
 }
 
 impl Geometry {
@@ -52,7 +52,7 @@ impl Geometry {
         self.rows[r.slot as usize].as_mut().unwrap().delta.reserve(size);
         self.output.get_or_insert_with(Block::default).words.reserve(size); self.output.get_or_insert_with(Block::default).heap.reserve(size);
     }
-    fn publish(&mut self, mut sample: impl FnMut(&mut F2Pose) -> bool) -> *const f64 {
+    fn publish(&mut self, mut sample: impl FnMut(&mut F2Pose) -> bool) {
         let mut count = 0;
         for row in self.rows.iter_mut().flatten() {
             if !row.dirty { continue; }
@@ -68,8 +68,10 @@ impl Geometry {
             let (words,heap) = out.row(at); row.delta.value.put(words,heap); at += 1;
             std::mem::swap(&mut row.next,&mut row.last); row.dirty = false;
         }
-        out.finish(); out.ptr()
+        out.finish();
     }
 }
 
 // facade shims: callers outside the fleet bindings still enter through WASM.
+
+pub(super) fn words_in(geometry: &Geometry) -> &[f64] { &geometry.output.as_ref().expect("prepared geometry output").words }

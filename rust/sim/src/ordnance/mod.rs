@@ -21,7 +21,6 @@
 pub mod defs;
 pub mod math;
 // The module's exports and the world its imports make (WebAssembly only).
-#[cfg(target_arch = "wasm32")]
 pub mod module;
 pub mod world;
 

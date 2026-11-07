@@ -28,10 +28,10 @@ pub(crate) fn mounted_sample_in(world_ctx: &mut crate::world::owner::World, owne
 }
 // Game.mountedShot's counter belongs to the source Unit, not its hull. A
 // frozen ordnance owner can name an earlier life; do not count it for reuse.
-pub(crate) fn wire_shot_in(sim: &mut crate::abi::Sim, sample: &F3MountedSample) {
+pub(crate) fn wire_shot_in(w:&mut crate::world::owner::World, sample: &F3MountedSample) {
     if !sample.has_source { return; }
-    let life = sim.store.unit.at(sample.source.id as u32).map_or(f64::NAN, |(_, unit)| unit.generation);
-    crate::wire::shots::native_observe(sample.source.id, sample.source.generation, life);
+    let life = w.sim.store.unit.at(sample.source.id as u32).map_or(f64::NAN, |(_, unit)| unit.generation);
+    crate::wire::shots::native_observe_in(w,sample.source.id, sample.source.generation, life);
 }
 // Unit.aimPoint observes its lazy sphere. Hull and prop aim points instead
 // follow their current matrix or prepared foreign fact, without a JS rig read.
@@ -128,7 +128,7 @@ pub(crate) fn life(member: Member) -> f64{ life_in(crate::abi::world(), member) 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn mounted_sample(owner: OrdnanceOwner, mount: Member) -> F3MountedSample{ mounted_sample_in(crate::abi::world(), owner, mount) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_shot(sample: &F3MountedSample){ wire_shot_in(&mut crate::abi::world().sim, sample) }
+pub(crate) fn wire_shot(sample: &F3MountedSample){ wire_shot_in(crate::abi::world(), sample) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn aim(member: Member) -> Vector3{ aim_in(crate::abi::world(), member) }
 #[cfg(target_arch = "wasm32")]

@@ -10,11 +10,12 @@ pub(super) struct State {core:Core,handle:Vec<f64>,capacity:usize,battle_capacit
 fn state(battle: &mut BattleOwner) -> &mut State { battle.core.as_mut().expect("battle owner initialized") }
 pub(crate) fn reset(battle: &mut BattleOwner) { battle.core = None; }
 pub(crate) fn active_in(battle: &mut BattleOwner) -> bool { battle.core.is_some() }
+#[cfg(target_arch = "wasm32")]
 pub(crate) fn publication_ptr(battle: &mut BattleOwner) -> u32 {
     if !active_in(battle) { return 0; } state(battle).core.publication.block.ptr() as u32
 }
 pub(crate) fn publish_in(w: &mut Root) {
-    if crate::world::deferred() {return;}
+    if crate::world::deferred_in(&w.tick) {return;}
 
     if active_in(&mut w.battle) {
         let rows = state(&mut w.battle).core.flush(&w.sim.store);
@@ -37,26 +38,26 @@ pub fn f4_battle_capacity_in(w: &mut Root, character: u32) -> u32 {
     if character == 0 { state(&mut w.battle).battle_capacity as u32 }
     else { (HEADER + Character::EXPORT_STRIDE + Core::character_heap(state(&mut w.battle).capacity)) as u32 }
 }
-pub fn f4_character_handle_in(w: &mut Root, index: u32) -> *const f64 {
+pub fn f4_character_handle_in(w: &mut Root, index: u32) -> &[f64] {
     let r = w.sim.store.battle.characters[index as usize];
     let handle = state(&mut w.battle).core.character(r).expect("prepared Character").clone();
-    handle.put(&mut state(&mut w.battle).handle, &mut Vec::new()); state(&mut w.battle).handle.as_ptr()
+    handle.put(&mut state(&mut w.battle).handle, &mut Vec::new()); &state(&mut w.battle).handle[..]
 }
-pub fn f4_battle_publish_in(w: &mut Root) -> *const f64 {
-    publish_in(w); super::f4_live::publish_in(w); super::f4_live::descriptor(w)
+pub fn f4_battle_publish_in(w: &mut Root) -> Option<&[f64]> {
+    publish_in(w); super::f4_live::publish_in(w); super::f4_live::descriptor_words(w)
 }
 pub fn f4_battle_command_in(w: &mut Root) -> u32 {
     let (row, heap) = w.sim.calls.args(); let command = F4Command::take(row, heap);
-    let outer = crate::units::f3::external();
+    let outer = crate::units::f3::external_in(w);
     super::f4_live::count_command(&mut w.battle);
     let result = state(&mut w.battle).core.apply(&mut w.sim.store, &command);
     if result == Result::Applied {
         if command.op==F4CommandOp::Controller {
-            let key=command.unit_key.as_ref().unwrap();crate::units::f3::changed(Ref::new(key.slot,key.generation));
+            let key=command.unit_key.as_ref().unwrap();crate::units::f3::changed_in(w, Ref::new(key.slot,key.generation));
         }
     }
-    if !outer.is_outer(){crate::units::f3::publish_changed();}
-    drop(outer); u32::from(result == Result::Applied)
+    if !outer.is_outer(){crate::units::f3::publish_changed_in(w);}
+    outer.finish(w, true); u32::from(result == Result::Applied)
 }
 /// Direct owner services do not need external command handles. The combat
 /// service resolved these captured Character refs before pooling can resume.
@@ -122,8 +123,8 @@ fn tail_handle(w: &mut Root, kind:u32,index:u32)->F4Handle{
     };
     state(&mut w.battle).core.publication.handle(source).expect("prepared battle publication").clone()
 }
-pub fn f4_tail_handle_in(w: &mut Root, kind:u32,index:u32)->*const f64{
-    tail_handle(w, kind,index).put(&mut state(&mut w.battle).handle,&mut Vec::new());state(&mut w.battle).handle.as_ptr()
+pub fn f4_tail_handle_in(w: &mut Root, kind:u32,index:u32)->&[f64]{
+    tail_handle(w, kind,index).put(&mut state(&mut w.battle).handle,&mut Vec::new());&state(&mut w.battle).handle[..]
 }
 pub fn f4_tail_capacity_in(w: &mut Root, kind:u32,index:u32)->u32{
     let h=tail_handle(w, kind,index);state(&mut w.battle).tail.iter().find(|(k,_)|*k==h).unwrap().1 as u32
@@ -175,13 +176,13 @@ pub fn f4_human_ready_in(w: &mut Root) -> u32 {
             }
         }
     } else {None};
-    let outer=crate::units::f3::external();
+    let outer=crate::units::f3::external_in(w);
     super::spawning::on_human_ready_named(&mut w.sim.store,character,super::spawning::HumanChoice{
         class_name:command.class_name,class_index:command.class_index,post,
     },&w.sim.strings,|class|state(&mut w.battle).hero_names.iter().find(|(name,_)|*name==class).and_then(|(_,name)|*name));
     mark_tail_in(&mut w.battle, &w.sim.store);
-    if !outer.is_outer(){crate::units::f3::publish_changed();}
-    drop(outer);1
+    if !outer.is_outer(){crate::units::f3::publish_changed_in(w);}
+    outer.finish(w, true);1
 }
 
 impl State {
@@ -209,16 +210,11 @@ impl State {
 pub(crate) fn active() -> bool { active_in(&mut crate::abi::cold().battle) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn publish() { publish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_battle_init() { f4_battle_init_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_battle_capacity(character: u32) -> u32 { f4_battle_capacity_in(crate::abi::world(), character) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_character_handle(index: u32) -> *const f64 { f4_character_handle_in(crate::abi::world(), index) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_battle_publish() -> *const f64 { f4_battle_publish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_battle_command() -> u32 { f4_battle_command_in(crate::abi::world()) }
+
+
+
+
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn achievement(character: Option<Ref<Character>>, op: F4CommandOp) { achievement_in(crate::abi::world(), character, op) }
 #[cfg(target_arch = "wasm32")]
@@ -227,9 +223,29 @@ pub(crate) fn mark_character(r:Ref<Character>) { mark_character_in(&mut crate::a
 pub(crate) fn owns_lifecycle() ->bool { owns_lifecycle_in(&mut crate::abi::cold().battle) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn died(unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64,services:crate::units::f3::WorldServices<'_>) ->Option<Ref<Controller>> { died_in(crate::abi::world(), unit, killer, relation, services) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_handle(kind:u32,index:u32) ->*const f64 { f4_tail_handle_in(crate::abi::world(), kind, index) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_tail_capacity(kind:u32,index:u32) ->u32 { f4_tail_capacity_in(crate::abi::world(), kind, index) }
-#[cfg(target_arch = "wasm32")] #[no_mangle]
-pub extern "C" fn f4_human_ready() -> u32 { f4_human_ready_in(crate::abi::world()) }
+
+
+
+
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn f4_battle_init() { f4_battle_init_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_battle_capacity(character: u32) -> u32 { f4_battle_capacity_in(crate::abi::facade::world(), character) }
+    #[no_mangle]
+    pub extern "C" fn f4_character_handle(index: u32) -> *const f64 { f4_character_handle_in(crate::abi::facade::world(), index).as_ptr() }
+    #[no_mangle]
+    pub extern "C" fn f4_battle_publish() -> *const f64 { f4_battle_publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |bank| bank.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn f4_battle_command() -> u32 { f4_battle_command_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_handle(kind:u32,index:u32) ->*const f64 { f4_tail_handle_in(crate::abi::facade::world(), kind, index).as_ptr() }
+    #[no_mangle]
+    pub extern "C" fn f4_tail_capacity(kind:u32,index:u32) ->u32 { f4_tail_capacity_in(crate::abi::facade::world(), kind, index) }
+    #[no_mangle]
+    pub extern "C" fn f4_human_ready() -> u32 { f4_human_ready_in(crate::abi::facade::world()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{f4_battle_init, f4_battle_capacity, f4_character_handle, f4_battle_publish, f4_battle_command, f4_tail_handle, f4_tail_capacity, f4_human_ready};

@@ -168,7 +168,7 @@ impl External {
             // Shared RNG seeds still reach the facade before F3 pushes them.
             let deferred=!publish_intents && world_ctx.units.state.as_mut().expect("prepared unit service").owner.changed().is_empty()
                 && world_ctx.units.state.as_mut().expect("prepared unit service").completed.is_empty() && world_ctx.sim.events.is_empty()
-                && !crate::vehicles::module::f2::has_pending();
+                && !crate::vehicles::module::f2::has_pending_in(world_ctx);
             if deferred {descriptor_in(world_ctx);}else{flush_completed_in(world_ctx);publish_changed_at_in(world_ctx, None,publish_intents);}
             world_ctx.units.state.as_mut().expect("prepared unit service").running=false;self.0=false;
         }
@@ -245,11 +245,11 @@ pub struct WorldServices<'a> {
 impl WorldServices<'_> {
     /// A nested service reborrows the already active Core, never a global
     /// AI owner. False means this outer entry has no native AI phase bound.
-    pub(crate) fn aim_in(&mut self, _world_ctx: &mut crate::world::owner::World, key:&F3UnitKey,dt:f64)->bool {
-        let Some(ai)=self.ai.as_mut() else{return false};ai.aim(key,dt,self.recon,self.queries);true
+    pub(crate) fn aim_in(&mut self, world_ctx: &mut crate::world::owner::World, key:&F3UnitKey,dt:f64)->bool {
+        let Some(ai)=self.ai.as_mut() else{return false};ai.aim_in(world_ctx,key,dt,self.recon,self.queries);true
     }
-    pub(crate) fn lifecycle_in(&mut self, _world_ctx: &mut crate::world::owner::World, hook:&F4AIHook)->bool {
-        let Some(ai)=self.ai.as_mut() else{return false};ai.lifecycle(hook,self.recon,self.queries);true
+    pub(crate) fn lifecycle_in(&mut self, world_ctx: &mut crate::world::owner::World, hook:&F4AIHook)->bool {
+        let Some(ai)=self.ai.as_mut() else{return false};ai.lifecycle_in(world_ctx,hook,self.recon,self.queries);true
     }
 
     pub(crate) fn reborrow(&mut self) -> WorldServices<'_> {
@@ -262,7 +262,7 @@ impl WorldServices<'_> {
 }
 pub(crate) fn with_services_in<T>(world_ctx: &mut crate::world::owner::World, run: impl FnOnce(&mut crate::world::owner::World, Option<WorldServices<'_>>) -> T) -> T {
     with_bare_services_in(world_ctx, |world_ctx, services| match services {
-        Some(services) => crate::ai::owned::entry::with_callbacks(services.recon, services.queries, |services| run(world_ctx, Some(services))),
+        Some(services) => crate::ai::owned::entry::with_callbacks_in(world_ctx, services.recon, services.queries, |world_ctx, services| run(world_ctx, Some(services))),
         None => run(world_ctx, None),
     })
 }
@@ -290,12 +290,12 @@ pub(crate) fn weapon_service_in(units: &super::owner::Units, weapon: crate::stor
 pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level: f64, body_serial: u32) -> Option<&[f64]> {
     super::f3_hulls::body_serial_in(&mut world_ctx.units, body_serial);
     super::f3_construction::reset_in(world_ctx);
-    if let Some(collision) = crate::vehicles::module::collision_world() {
+    if let Some(collision) = crate::vehicles::module::collision_world_in(world_ctx) {
         assert_eq!(collision.world, world as usize, "one battle collision world");
     }
     module::setup_in(&mut world_ctx.units, world);
-    crate::battle::f4::reset();
-    if let Some(map) = crate::vehicles::module::map() { map.level = level; }
+    crate::battle::f4::reset_in(&mut world_ctx.battle);
+    if let Some(map) = crate::vehicles::module::map_in(world_ctx) { map.level = level; }
     crate::allocations::prepare();
     world_ctx.sim.events.reserve(65536, 128, 1024);
     // Ordnance.fire may insert and retire an instant bolt inside this phase.
@@ -311,9 +311,9 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
     store.items.owned.entries.reserve(8192);
     store.ordnance.bolts.reserve(1024); store.ordnance.beams.reserve(1024);
     store.ordnance.grenades.reserve(1024); store.ordnance.rounds.reserve(1024);
-    let mut input = vec![0.0; INPUT_WORDS];
-    let mut random_states = vec![0.0; RANDOM_CAPACITY * F3RandomState::WORDS];
-    let mut aim_input = vec![0.0; AIM_CAPACITY * F3AimChange::WORDS];
+    let input = vec![0.0; INPUT_WORDS];
+    let random_states = vec![0.0; RANDOM_CAPACITY * F3RandomState::WORDS];
+    let aim_input = vec![0.0; AIM_CAPACITY * F3AimChange::WORDS];
     let mut block = Block::default();
     block.words.reserve(RESERVED_UNITS * (F3Publication::WORDS + 256));
     block.heap.reserve(RESERVED_UNITS * 256);
@@ -353,15 +353,15 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
         building_state_words: F3BuildingState::WORDS as u32,
         hull_setup_words: F3HullSetup::WORDS as u32,
         body_name_words: F3BodyName::WORDS as u32,
-        input: input.as_mut_ptr() as u32,
+        input: 0,
         input_capacity: INPUT_WORDS as u32,
         input_stride: F3PhaseInput::WORDS as u32,
         network_words: F3PhaseNetwork::WORDS as u32,
-        random_states: random_states.as_mut_ptr() as u32,
+        random_states: 0,
         random_capacity: RANDOM_CAPACITY as u32,
         random_words: F3RandomState::WORDS as u32,
         random_global_words: F3RandomGlobals::WORDS as u32,
-        aim_input: aim_input.as_mut_ptr() as u32,
+        aim_input: 0,
         aim_words: F3AimChange::WORDS as u32,
         aim_capacity: AIM_CAPACITY as u32,
         aim_header_words: F3AimHeader::WORDS as u32,
@@ -450,13 +450,8 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
             ordnance_depth: 0,
         });
     }
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.command = world_ctx.units.state.as_mut().expect("prepared unit service").command.as_mut_ptr() as u32;
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.acknowledgement=world_ctx.units.state.as_mut().expect("prepared unit service").acknowledgement.as_mut_ptr() as u32;
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.random_epoch=world_ctx.units.state.as_mut().expect("prepared unit service").random_epoch.as_mut_ptr() as u32;
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.random_globals = world_ctx.units.state.as_mut().expect("prepared unit service").random_globals.as_mut_ptr() as u32;
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.aim_header = world_ctx.units.state.as_mut().expect("prepared unit service").aim_header.as_mut_ptr() as u32;
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.foreign_header = world_ctx.units.state.as_mut().expect("prepared unit service").foreign_header.as_mut_ptr() as u32;
-    world_ctx.units.state.as_mut().expect("prepared unit service").layout.separation = world_ctx.units.state.as_mut().expect("prepared unit service").separation.as_mut_ptr() as u32;
+    #[cfg(target_arch = "wasm32")]
+    world_ctx.units.state.as_mut().expect("prepared unit service").bind_inputs();
     // Standalone phases have no single camera. Production supplies the same
     // camera scope as Game.separateSoldiers before entering its owned span.
     { let state = world_ctx.units.state.as_mut().expect("prepared unit service"); F3Separation { global: true, ..Default::default() }
@@ -467,6 +462,7 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
 // reads memory directly after a call; getter exports would add a crossing for
 // each output and make sparse publication needlessly expensive.
 fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
+    #[cfg(target_arch = "wasm32")]
     let event_ptr = world_ctx.sim.events.ptr() as u32;
     let event_words = world_ctx.sim.events.len() as u32;
     let s = world_ctx.units.state.as_mut().expect("prepared unit service");
@@ -487,7 +483,8 @@ fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
         row.put(&mut s.random_states[at..],&mut s.block.heap);
     }
     s.layout.controls_consumed=s.controls_consumed;
-    s.layout.events = event_ptr;
+    #[cfg(target_arch = "wasm32")]
+    s.bind_events(event_ptr);
     s.layout.event_words = event_words;
     s.layout.event_epoch = s.event_epoch;
     s.layout.put(&mut s.descriptor, &mut s.block.heap);
@@ -508,7 +505,7 @@ fn encode_publication_in(world_ctx: &mut crate::world::owner::World, reference:R
     let flags = publication_flags(s, reference, unit);
 
     if body_only && s.native_intents[reference.slot as usize]==Some(reference) {
-        stage_body_in(flags, &mut s.snapshot.value,reference,unit);stage_controls_in(flags, &mut s.snapshot,reference,unit);
+        stage_body_in(&world_ctx.fleet,&world_ctx.sim.store,flags, &mut s.snapshot.value,reference,unit);stage_controls_in(flags, &mut s.snapshot,reference,unit);
         let base=crate::store::block::HEADER;
         if let Some(changed)=s.publication[reference.slot as usize].prepare_retained(
             reference.slot,reference.gen,F3Publication::WORDS,
@@ -518,7 +515,7 @@ fn encode_publication_in(world_ctx: &mut crate::world::owner::World, reference:R
             return changed;
         }
     }
-    stage_in(&mut world_ctx.combat, flags, &mut s.snapshot,reference,unit);
+    stage_in(&world_ctx.fleet,&world_ctx.sim.store,&mut world_ctx.combat, flags, &mut s.snapshot,reference,unit);
     s.publication[reference.slot as usize].prepare(reference.slot,reference.gen,
         F3Publication::WORDS,|row,heap|s.snapshot.put(row,heap))
 }
@@ -567,7 +564,7 @@ fn queue_encoded_in(units: &mut super::owner::Units, reference:Ref<Unit>,changed
     changed||pending
 }
 pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Unit>) {
-    if crate::world::deferred() {world_ctx.units.state.as_mut().expect("prepared unit service").owner.mark(reference);return;}
+    if crate::world::deferred_in(&world_ctx.tick) {world_ctx.units.state.as_mut().expect("prepared unit service").owner.mark(reference);return;}
     let _allocations=crate::allocations::at(F3AllocationStage::Publication);
     acknowledge_publication_in(&mut world_ctx.units);
     let changed=queue_publication_in(world_ctx, reference,false);
@@ -595,11 +592,11 @@ fn completed_tick_in(units: &mut super::owner::Units, reference: Ref<Unit>) {
     units.state.as_mut().expect("prepared unit service").completed.push(reference);
 }
 fn publish_changed_at_in(world_ctx: &mut crate::world::owner::World, body_only:Option<Ref<Unit>>,publish_intents:bool) {
-    if crate::world::deferred() {crate::vehicles::module::f2::publish_pending();crate::ai::owned::entry::publish_controls();return;}
-    crate::battle::f4_core::publish();
-    crate::battle::f4_live::publish();
-    crate::vehicles::module::f2::publish_pending();
-    crate::ai::owned::entry::publish_controls();
+    if crate::world::deferred_in(&world_ctx.tick) {crate::vehicles::module::f2::publish_pending_in(world_ctx);crate::ai::owned::entry::publish_controls_in(world_ctx);return;}
+    crate::battle::f4_core::publish_in(world_ctx);
+    crate::battle::f4_live::publish_in(world_ctx);
+    crate::vehicles::module::f2::publish_pending_in(world_ctx);
+    crate::ai::owned::entry::publish_controls_in(world_ctx);
     let _allocations=crate::allocations::at(F3AllocationStage::Publication);
     acknowledge_publication_in(&mut world_ctx.units);
     let mut changed=false;
@@ -647,9 +644,9 @@ fn finish_publication_in(world_ctx: &mut crate::world::owner::World, count:usize
     let s=world_ctx.units.state.as_mut().expect("prepared unit service");
 s.block.finish();
     s.layout.version=s.layout.version.wrapping_add(1);
-    s.layout.output=s.block.ptr() as u32+(crate::store::block::HEADER*8) as u32;
+    #[cfg(target_arch = "wasm32")]
+    s.bind_output();
     s.layout.output_rows=count as u32;
-    s.layout.output_heap=s.block.ptr() as u32+(s.block.words[BlockHeader::HEAP] as u32*8);
     // Direct cache reads count as traffic too, although they no longer take
     // space in the output heap. The shared masks bound exactly these words.
     let borrowed: usize = s.publication_ready.iter()
@@ -692,7 +689,7 @@ pub fn f3_adopt_in(world_ctx: &mut crate::world::owner::World) -> u32 {
         return 0;
     }
     module::reserve_unit_in(&mut world_ctx.units, slot);
-    crate::vehicles::module::f2::live_seats::adopt_unit(reference, adoption.has_actor, adoption.no_enter);
+    crate::vehicles::module::f2::live_seats::adopt_unit_in(world_ctx, reference, adoption.has_actor, adoption.no_enter);
     let capacity = world_ctx.units.state.as_mut().expect("prepared unit service").owner.built().len();
     let history_capacity = world_ctx.sim.store.units.list.len().max(capacity);
     world_ctx.units.state.as_mut().expect("prepared unit service").pushers.reserve(history_capacity);
@@ -822,7 +819,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     begin_events_in(world_ctx);
     // WaterState has already advanced in Game.step. Later F1 crossings use
     // this same bobbed surface until the next authoritative world tick.
-    if let Some(map) = crate::vehicles::module::map() { map.level = level; }
+    if let Some(map) = crate::vehicles::module::map_in(world_ctx) { map.level = level; }
     world_ctx.units.state.as_mut().expect("prepared unit service").running = true;
     crate::allocations::begin();
     if count as usize>INPUT_WORDS/F3PhaseInput::WORDS {
@@ -845,7 +842,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     building_rows_in(world_ctx, offset + foreign.count as usize * F3PropFact::WORDS, foreign.buildings);
     // F3.phase prepares mounted hints before updating the first body.
     // Keep that snapshot point: a later shot can replace a controller.
-    if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {crate::vehicles::module::f2::firing::freeze_ai_targets(&**ai);}
+    if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {crate::vehicles::module::f2::firing::freeze_ai_targets_in(world_ctx, &**ai);}
     // Foreign requests are indexed before any callbacks can reuse input memory.
     // Omitted native bots resolve current Core ownership before any body
     // advances, never the page's hint alone. Empty standalone phases
@@ -858,7 +855,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         let at=i*F3PhaseInput::WORDS;
         let key=F3UnitKey::take(&world_ctx.units.state.as_mut().expect("prepared unit service").input[at+F3PhaseInput::KEY..at+F3PhaseInput::KEY+F3UnitKey::WORDS],&[]);
         if key.validate(&world_ctx.sim.store).is_err() {
-            if crate::world::deferred() {continue;}
+            if crate::world::deferred_in(&world_ctx.tick) {continue;}
             world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
         }
         let slot=key.slot as usize;
@@ -876,7 +873,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         let (reference,mut input)=if i<count as usize {
             let at=i*F3PhaseInput::WORDS;
             let input=F3PhaseInput::take(&world_ctx.units.state.as_mut().expect("prepared unit service").input[at..at+F3PhaseInput::WORDS],&[]);
-            if crate::world::deferred() && input.key.validate(&world_ctx.sim.store).is_err() {continue;}
+            if crate::world::deferred_in(&world_ctx.tick) && input.key.validate(&world_ctx.sim.store).is_err() {continue;}
             (input.key.reference(),Some(input))
         }else{
             let reference=world_ctx.units.state.as_mut().expect("prepared unit service").owner.built()[i-count as usize];
@@ -889,7 +886,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         // The enclosing input was prepared before AI. Boarding can move
         // this controller to a native SeatUnit in that interval, leaving no
         // foreign foot-intent row. Its canonical seated body remains current.
-        let retained_body=crate::world::deferred() && world_ctx.sim.store.unit.get(reference).is_some_and(|unit| {
+        let retained_body=crate::world::deferred_in(&world_ctx.tick) && world_ctx.sim.store.unit.get(reference).is_some_and(|unit| {
             unit.combat.dead || unit.seat.is_some() && unit.character
                 .and_then(|character|world_ctx.sim.store.character.get(character))
                 .is_some_and(|character|character.unit==Some(reference)&&character.controller.is_some())
@@ -909,7 +906,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
             }
         }
         world_ctx.units.state.as_mut().expect("prepared unit service").bot_targets[reference.slot as usize] = if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {
-            let hint=ai.weapon_hint(&world_ctx.sim.store,reference,None);hint.bot.then_some(hint.target)
+            let hint=ai.weapon_hint_in(world_ctx,reference,None);hint.bot.then_some(hint.target)
         }else{input.as_ref().filter(|input|input.bot_target_set).map(|input|input.bot_target)};
         let network=if let Some(input)=input.as_ref().filter(|input|input.has_network) {
             if input.network_index>=foreign.network {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;}
@@ -973,8 +970,9 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     // Game.step interposes Vehicles.update and TurretSeats.update here.
     // Lend the same services to physics, seats and mounted fire; an exported
     // fleet wrapper would start another ownership boundary inside this one.
-    if crate::vehicles::module::f2::active() {
-        crate::vehicles::module::f2::step(dt,world_ctx.units.state.as_mut().expect("prepared unit service").tick,
+    if crate::vehicles::module::f2::active_in(&world_ctx.fleet) {
+        let tick = world_ctx.units.state.as_ref().expect("prepared unit service").tick;
+        crate::vehicles::module::f2::step_in(world_ctx, dt, tick,
             recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
     }
     // Recon finish also advances removed, seated and retired
@@ -1167,7 +1165,7 @@ fn command_in(world_ctx: &mut crate::world::owner::World, mut recon: Option<crat
         // stream after boarding returns. Apply that foreign scalar immediately;
         // a later unrelated publication must not restore the old callback.
         F3Action::MountedRandom => {
-            world_ctx.units.state.as_mut().expect("prepared unit service").layout.accepted = crate::vehicles::module::f2::live_seats::bind_random(
+            world_ctx.units.state.as_mut().expect("prepared unit service").layout.accepted = crate::vehicles::module::f2::live_seats::bind_random_in(world_ctx,
                 reference,match command.lease {Some(lease)=>lease,None=>return 0},command.value as u32);
         }
         // Arsenal.select/next can refuse a busy channel without making this
@@ -1414,11 +1412,11 @@ fn weapon_view_with_defs(w: &Weapon,defs:&crate::combat::defs::WeaponDefs) -> F3
 /// captureUnitState observes the same authoritative visibility that the F3
 /// mirror publishes. Missing rider nodes and destroyed hidden crew remain
 /// invisible after vacating; no presentation object needs to be imported.
-pub(crate) fn wire_visible_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Unit>, unit: &Unit) -> bool {
+pub(crate) fn wire_visible_in(units:&super::owner::Units,fleet:&crate::vehicles::module::Fleet, store:&Store, reference: Ref<Unit>, unit: &Unit) -> bool {
     let mut visible = !unit.removed && !(unit.dead && unit.combat.blow_apart)
         && !matches!(&unit.soldier, UnitBody::Droideka(d) if d.mode == 4.);
-    if let Some(shown) = crate::vehicles::module::f2::live_seats::visible(unit) { visible &= shown; }
-    if unit.dead && world_ctx.units.state.as_mut().expect("prepared unit service").hidden_crew.get(reference.slot as usize).copied().flatten() == Some((reference, unit.generation)) { visible = false; }
+    if let Some(shown) = crate::vehicles::module::f2::live_seats::visible_in(fleet, store, unit) { visible &= shown; }
+    if unit.dead && units.state.as_ref().expect("prepared unit service").hidden_crew.get(reference.slot as usize).copied().flatten() == Some((reference, unit.generation)) { visible = false; }
     visible
 }
 
@@ -1434,9 +1432,9 @@ fn publication_flags(state: &State, reference: Ref<Unit>, unit: &Unit) -> Public
         hidden: unit.dead && state.hidden_crew[reference.slot as usize] == Some((reference, unit.generation)),
         native: state.native_intents[reference.slot as usize] == Some(reference) }
 }
-fn stage_in(combat: &mut crate::combat::module::CombatOwner, flags: PublicationFlags, out: &mut PublicationSnapshot, reference: Ref<Unit>, unit: &Unit) {
+fn stage_in(fleet:&crate::vehicles::module::Fleet,store:&Store,combat: &mut crate::combat::module::CombatOwner, flags: PublicationFlags, out: &mut PublicationSnapshot, reference: Ref<Unit>, unit: &Unit) {
     out.value.arsenal = flags.arsenal;
-    stage_body_in(flags, &mut out.value,reference,unit);
+    stage_body_in(fleet,store,flags, &mut out.value,reference,unit);
     let c = &unit.combat;
     let v = &mut out.value.combat;
     v.health = c.health;
@@ -1472,13 +1470,13 @@ fn stage_in(combat: &mut crate::combat::module::CombatOwner, flags: PublicationF
 }
 // Unit.onMoved precedes combat. Its body and consumed movement controls can
 // change while the arsenal and weapon heap retain their last consumed bits.
-fn stage_body_in(flags: PublicationFlags, out:&mut F3Publication,reference:Ref<Unit>,unit:&Unit) {
+fn stage_body_in(fleet:&crate::vehicles::module::Fleet,store:&Store,flags: PublicationFlags, out:&mut F3Publication,reference:Ref<Unit>,unit:&Unit) {
     out.body = ownership::mirror(reference, unit);
     out.body.pooled = flags.pooled;
     // Native rider placement owns visibility as well as the shape sample.
     // A hull's missing rider node hides its occupant; destruction keeps the
     // corpse hidden even after the lease has been cleared before death.
-    if let Some(visible) = crate::vehicles::module::f2::live_seats::visible(unit) { out.body.visible &= visible; }
+    if let Some(visible) = crate::vehicles::module::f2::live_seats::visible_in(fleet,store,unit) { out.body.visible &= visible; }
     if flags.hidden { out.body.visible = false; }
 }
 fn stage_controls_in(flags: PublicationFlags, out:&mut PublicationSnapshot,_reference:Ref<Unit>,unit:&Unit) {
@@ -1839,7 +1837,7 @@ pub(crate) fn reserve_registry_in(world_ctx: &mut crate::world::owner::World) {
     let ids = members.next_id as usize + super::f3_hulls::prepared_count_in(&world_ctx.units);
     { let state = world_ctx.units.state.as_mut().expect("prepared unit service"); state.foreign.resize_with(state.foreign.len().max(ids), F3PropFact::default); }
     super::f3_hulls::reserve_members_in(&mut world_ctx.units, ids);
-    crate::vehicles::module::f2::reserve_registry(count);
+    crate::vehicles::module::f2::reserve_registry_in(world_ctx, count);
     reserve_history_in(world_ctx);
 }
 
@@ -1879,7 +1877,7 @@ pub fn f3_body_names_in(world_ctx: &mut crate::world::owner::World, count: u32) 
         let at=i*F3BodyName::WORDS;
         let row=F3BodyName::take(&world_ctx.units.state.as_mut().expect("prepared unit service").input[at..],&[]);
         if row.kernel as usize >= world_ctx.collision.state.bodies.len() {continue;}
-        if let Some(collision)=crate::vehicles::module::collision_world() {
+        if let Some(collision)=crate::vehicles::module::collision_world_in(world_ctx) {
             collision.bind_body(row.body,row.kernel);
         }
     }
@@ -1891,7 +1889,7 @@ pub fn f3_body_names_in(world_ctx: &mut crate::world::owner::World, count: u32) 
 // A native F1 cast returns the body that was named with the collision tree.
 // It must never manufacture generation zero from the kernel's numeric slot.
 pub(crate) fn body_reference_in(_world_ctx: &mut crate::world::owner::World, kernel: usize) -> Option<Ref<Body>> {
-    crate::vehicles::module::collision_world()?.kernel_reference(kernel)
+    crate::vehicles::module::collision_world_in(_world_ctx)?.kernel_reference(kernel)
 }
 
 // Weapon-targeting's bot override is a phase fact from JS AI. Missing and null
@@ -2039,16 +2037,17 @@ pub(crate) fn intent_changed_in(units: &mut super::owner::Units, reference:Ref<U
 // encoding waits for the following unit phase; synchronous barriers flush it.
 pub(crate) fn ai_changed_in(units: &mut super::owner::Units, reference:Ref<Unit>) { units.state.as_mut().expect("prepared unit service").ai_changed(reference) }
 
-pub(crate) fn changed_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Unit>) {
+pub(crate) fn changed_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Unit>) { changed_parts(&mut world_ctx.units,&world_ctx.sim.store,reference); }
+pub(crate) fn changed_parts(units:&mut super::owner::Units,store:&Store, reference:Ref<Unit>) {
     // Seat placement can advance tickCount outside Unit.tick. Its qualified
     // touch must retire an earlier shared bounds sample before JS observes it.
-    if let Some(unit)=world_ctx.sim.store.unit.get(reference) {
+    if let Some(unit)=store.unit.get(reference) {
         let at=reference.slot as usize*F3BoundsView::WORDS;
-        if world_ctx.units.state.as_mut().expect("prepared unit service").bounds_cache.get(at+F3BoundsView::TICK).is_some_and(|tick|*tick!=unit.tick_count) {
-            invalidate_bounds_in(&mut world_ctx.units, reference.slot);
+        if units.state.as_mut().expect("prepared unit service").bounds_cache.get(at+F3BoundsView::TICK).is_some_and(|tick|*tick!=unit.tick_count) {
+            invalidate_bounds_in(units, reference.slot);
         }
     }
-    world_ctx.units.state.as_mut().expect("prepared unit service").owner.mark(reference);
+    units.state.as_mut().expect("prepared unit service").owner.mark(reference);
 }
 
 // Pure shot, damage and presentation notices use Sim.events, in source order.
@@ -2139,7 +2138,8 @@ fn prepare_bounds_in(world_ctx: &mut crate::world::owner::World, count:usize) {
 
     let words=count*F3BoundsView::WORDS;
     if s.bounds_cache.len()<words {s.bounds_cache.resize(words,f64::NAN);}
-    s.layout.bounds_cache=s.bounds_cache.as_mut_ptr() as u32;
+    #[cfg(target_arch = "wasm32")]
+    s.bind_bounds();
     s.layout.bounds_capacity=(s.bounds_cache.len()/F3BoundsView::WORDS) as u32;
     descriptor_in(world_ctx);
 }
@@ -2169,7 +2169,7 @@ let count=count.max(s.categories.len());
     s.items.reserve_unit(count);s.pushers.reserve(count);
     super::f3_hulls::reserve_members_in(&mut world_ctx.units, count);
     // Prepared future births may become flight targets without a JS registry add.
-    crate::vehicles::module::f2::reserve_registry(count);
+    crate::vehicles::module::f2::reserve_registry_in(world_ctx, count);
     prepare_bounds_in(world_ctx, count);
 }
 pub(crate) fn take_bindings_in(units: &mut super::owner::Units, slot:u32)->Vec<u32> { units.state.as_mut().expect("prepared unit service").take_bindings(slot) }
@@ -2238,7 +2238,7 @@ pub(crate) fn native_intent_in(world_ctx: &mut crate::world::owner::World, refer
 // Empty native services may return without opening another event epoch only
 // after every changed body and notification has reached its foreign reader.
 pub(crate) fn settled_in(world_ctx: &mut crate::world::owner::World)->bool {
-    let deferred=crate::world::deferred();
+    let deferred=crate::world::deferred_in(&world_ctx.tick);
     world_ctx.units.state.as_mut().expect("prepared unit service").settled(deferred,&world_ctx.sim.events)
 }
 /// Encoded outer payload size, without another export or body traversal.
@@ -2485,7 +2485,7 @@ pub(crate) fn random_binding(binding: u32) -> f64{ random_binding_in(&mut crate:
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn random_next(stream: u32) -> u32{ random_next_in(&mut crate::abi::world().units, stream) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_visible(reference: Ref<Unit>, unit: &Unit) -> bool{ wire_visible_in(crate::abi::world(), reference, unit) }
+pub(crate) fn wire_visible(reference: Ref<Unit>, unit: &Unit) -> bool{ wire_visible_in(&crate::abi::world().units,&crate::abi::world().fleet,&crate::abi::world().sim.store, reference, unit) }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn raycast( origin: [f64; 3], direction: [f64; 3], far: f64, exclude: super::registry::Exclude, riders: bool, masked: bool, ) -> Option<super::registry::UnitHit>{ raycast_in(crate::abi::world(), origin, direction, far, exclude, riders, masked) }
@@ -2556,6 +2556,30 @@ impl WorldServices<'_> {
     pub(crate) fn lifecycle(&mut self, hook: &F4AIHook) -> bool { self.lifecycle_in(crate::abi::world(), hook) }
 }
 
+// Native readers borrow these banks directly. Only the linear-memory host
+// binds addresses after the bank has reached its retained publication point.
+#[cfg(target_arch = "wasm32")]
+impl State {
+    fn bind_inputs(&mut self) {
+        self.layout.input = self.input.as_mut_ptr() as u32;
+        self.layout.random_states = self.random_states.as_mut_ptr() as u32;
+        self.layout.aim_input = self.aim_input.as_mut_ptr() as u32;
+        self.layout.command = self.command.as_mut_ptr() as u32;
+        self.layout.acknowledgement = self.acknowledgement.as_mut_ptr() as u32;
+        self.layout.random_epoch = self.random_epoch.as_mut_ptr() as u32;
+        self.layout.random_globals = self.random_globals.as_mut_ptr() as u32;
+        self.layout.aim_header = self.aim_header.as_mut_ptr() as u32;
+        self.layout.foreign_header = self.foreign_header.as_mut_ptr() as u32;
+        self.layout.separation = self.separation.as_mut_ptr() as u32;
+    }
+    fn bind_output(&mut self) {
+        self.layout.output = self.block.ptr() as u32 + (crate::store::block::HEADER * 8) as u32;
+        self.layout.output_heap = self.block.ptr() as u32 + self.block.words[BlockHeader::HEAP] as u32 * 8;
+    }
+    fn bind_bounds(&mut self) { self.layout.bounds_cache = self.bounds_cache.as_mut_ptr() as u32; }
+    fn bind_events(&mut self, events: u32) { self.layout.events = events; }
+}
+
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {
@@ -2603,3 +2627,29 @@ mod exports {
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{f3_init, f3_adopt, f3_weapon_services, f3_step, f3_command, f3_acquire, f3_sensor, f3_pose, f3_foreign, f3_registry_prepare, f3_registry_add, f3_registry_remove, f3_body_names, f3_missile_classes, f3_relations, f3_history_capture, f3_hit_policy, f3_blast_binding, f3_impact_rules, f3_world_blast};
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_banks {
+    use super::*;
+    #[test]
+    fn native_publication_keeps_widths_and_counts_without_linear_memory_addresses() {
+        let mut w = crate::world::owner::World::new();
+        f3_init_in(&mut w, 0, f64::NAN, 0);
+        prepare_bounds_in(&mut w, 3);
+        write_publication_in(&mut w);
+        let s = w.units.state.as_ref().unwrap();
+        let d = &s.layout;
+        assert_eq!(d.descriptor_words, F3Boundary::WORDS as u32);
+        assert_eq!(d.bounds_capacity, 3);
+        assert_eq!(d.output_rows, 0);
+        assert_eq!([d.input, d.random_states, d.aim_input, d.command, d.acknowledgement,
+            d.random_epoch, d.random_globals, d.aim_header, d.foreign_header,
+            d.separation, d.events, d.output, d.output_heap, d.bounds_cache], [0; 14]);
+    }
+}
+
+pub(crate) fn recon_ref(units:&super::owner::Units)->Option<&crate::recon::Authority> { units.state.as_ref()?.recon.as_ref() }
+
+pub(crate) fn recon_services_ref(units:&super::owner::Units)->&crate::recon::module::Services { &units.state.as_ref().expect("prepared unit service").recon_services }
+
+pub(crate) fn with_owner_rows<T>(w:&mut crate::world::owner::World,run:impl FnOnce(&mut Store,&mut Ownership)->T)->T { with_rows_in(&mut w.sim.store,w.units.state.as_mut().expect("prepared unit service"),run) }

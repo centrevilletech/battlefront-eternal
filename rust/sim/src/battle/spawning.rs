@@ -20,7 +20,7 @@ use super::names::{human_name, BotNames, NameLists};
 use super::posts::{self, post_ref, spawn_post, SpawnFacts};
 use super::rules::{new_character, spend};
 use super::world::SpawningWorld;
-use super::stats::Text;
+use super::stats::{Text, ContextText};
 use crate::gen::{Character, PlayerId, PostRef, Spawn, SpawnClass, SpawnPost, SpawnTeam, Spawning, Store, Unit};
 use crate::store::{Nullable, Ref, StrId, Strings, TypedArray};
 use jsrt::conv::{fround, to_int32};
@@ -56,11 +56,39 @@ pub trait Draws {
     }
 }
 
+impl<D:Draws+?Sized> Draws for &mut D {
+fn next(&mut self)->f64 { (**self).next() }
+fn uniform(&mut self)->f64 { (**self).uniform() }
+fn int(&mut self,lo:f64,hi:f64)->f64 { (**self).int(lo,hi) }
+}
 impl Draws for jsrt::rng::ClassicRandom {
     fn next(&mut self) -> f64 {
         self.next_f64()
     }
 }
+
+/// Random callbacks borrow the current phase host only for the draw.
+pub trait ContextDraws<W: ?Sized> {
+    fn next_in(&mut self, world: &mut W) -> f64;
+    fn uniform_in(&mut self, world: &mut W) -> f64 { ((self.next_in(world) as u32) >> 9) as f64 / 8388608.0 }
+    fn int_in(&mut self, world: &mut W, lo: f64, hi: f64) -> f64 {
+        if !(hi > lo) { return lo; }
+        let u = self.uniform_in(world);
+        v8math::trunc(fround(fround(u * fround(hi - lo + 1.0)) + lo))
+    }
+}
+impl<W: ?Sized, D: Draws + ?Sized> ContextDraws<W> for D {
+    fn next_in(&mut self, _: &mut W) -> f64 { self.next() }
+    fn uniform_in(&mut self, _: &mut W) -> f64 { self.uniform() }
+    fn int_in(&mut self, _: &mut W, lo: f64, hi: f64) -> f64 { self.int(lo, hi) }
+}
+pub struct BoundDraws<'a, W: ?Sized>(pub &'a mut dyn ContextDraws<W>, pub &'a mut W);
+impl<W: ?Sized> Draws for BoundDraws<'_, W> {
+    fn next(&mut self) -> f64 { self.0.next_in(self.1) }
+    fn uniform(&mut self) -> f64 { self.0.uniform_in(self.1) }
+    fn int(&mut self, lo: f64, hi: f64) -> f64 { self.0.int_in(self.1,lo,hi) }
+}
+pub trait RandomWorld { fn random_next(&mut self, stream: u32) -> f64; }
 
 /// An argument of a mission's AI call (ai-mission.json), as the script gave
 /// it.
@@ -389,7 +417,7 @@ pub fn new_spawning(calls: &[Call], unit_scale: f64, heroes: bool, demo: bool, n
 /// begin() (spawning.js:339): humans join their teams, bots fill each team
 /// to its unit count (named by their team), then each team pads its class
 /// targets and activates its Characters in order.
-pub fn begin<W: SpawningWorld + ?Sized>(s: &mut Store, humans: &[HumanSpec], naming: &mut Naming, strings: &mut Strings, world: &mut W, random: &mut dyn Draws) {
+pub fn begin<W: SpawningWorld + ?Sized>(s: &mut Store, humans: &[HumanSpec], naming: &mut Naming, strings: &mut Strings, world: &mut W, random: &mut dyn ContextDraws<W>) {
     if s.spawning.started {
         return;
     }
@@ -461,8 +489,8 @@ pub fn bot_name(sp: &Spawning, t: usize, naming: &mut Naming, strings: &mut Stri
 }
 
 /// setupTeam(team) (spawning.js:392).
-fn setup_team<W: SpawningWorld + ?Sized>(s: &mut Store, t: usize, strings: &mut Strings, world: &mut W, random: &mut dyn Draws) {
-    pad_quotas(&mut s.spawning, t, random);
+fn setup_team<W: SpawningWorld + ?Sized>(s: &mut Store, t: usize, strings: &mut Strings, world: &mut W, random: &mut dyn ContextDraws<W>) {
+    pad_quotas(&mut s.spawning, t, &mut BoundDraws(random, world));
     let list = s.spawning.teams[t].characters.clone();
     for r in list {
         activate(s, r, strings, world, random);
@@ -487,7 +515,7 @@ pub fn pad_quotas(sp: &mut Spawning, t: usize, random: &mut dyn Draws) {
 
 /// activate(character) (spawning.js:422): class 0, the final heroCount slots
 /// take the hero classes, a bot draws its objective, then it prepares.
-pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     let t = ch(s, r).team;
     set_class(s, r, 0.0, strings, world);
     if !ch(s, r).human {
@@ -605,11 +633,11 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, team
 }
 
 /// choosePost(character) (spawning.js:496).
-pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn Draws) -> Option<SpawnPost> {
+pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn ContextDraws<W>) -> Option<SpawnPost> {
     choose_post_with_scratch(s, r, world, random, &mut Scratch::default())
 }
 
-pub fn choose_post_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) -> Option<SpawnPost> {
+pub fn choose_post_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) -> Option<SpawnPost> {
     let goal = if ch(s, r).human { None } else { world.spawn_goal(s, r) };
     listed(s, world, scratch);
     let list = &*scratch;
@@ -628,7 +656,7 @@ pub fn choose_post_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref
     if c.human {
         human_spawn_post(&s.spawning, old, list, c.team)
     } else {
-        retain_spawn_post(&s.spawning, old, list, c.team, random)
+        retain_spawn_post(&s.spawning, old, list, c.team, &mut BoundDraws(random, world))
     }
 }
 
@@ -726,12 +754,15 @@ pub fn spend_ticket(s: &mut Store, team: f64) {
 
 /// setClass(character, index) (spawning.js:433): a hero class takes the
 /// hero's name too.
-pub fn set_class<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, index: f64, strings: &dyn Text, world: &mut W) {
-    set_class_named(s,r,index,strings,|name|world.hero_name(name));
+pub fn set_class<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, index: f64, strings: &dyn ContextText<W>, world: &mut W) {
+    set_class_named_with(s,r,index,strings,world,|world,name|world.hero_name(name));
 }
 
 /// Class assignment reads only a prepared hero name; no body service runs.
 pub fn set_class_named(s:&mut Store,r:Ref<Character>,index:f64,strings:&dyn Text,mut hero_name:impl FnMut(StrId)->Option<StrId>) {
+    set_class_named_with(s,r,index,&strings,&mut (),|_,name|hero_name(name));
+}
+fn set_class_named_with<W:?Sized>(s:&mut Store,r:Ref<Character>,index:f64,strings:&dyn ContextText<W>,world:&mut W,mut hero_name:impl FnMut(&mut W,StrId)->Option<StrId>) {
     let t = ch(s, r).team;
     let team = team(&s.spawning, t);
     let cls = (index >= 0.0 && index.fract() == 0.0).then(|| team.classes.get(index as usize)).flatten().cloned();
@@ -741,7 +772,7 @@ pub fn set_class_named(s:&mut Store,r:Ref<Character>,index:f64,strings:&dyn Text
     c.class_name = Some(cls.name);
     c.hero = Some(cls.hero);
     if cls.hero {
-        if let Some(name) = hero_name(cls.name).filter(|n| strings.nonempty(*n)) {
+        if let Some(name) = hero_name(world,cls.name).filter(|n| strings.nonempty_in(world,*n)) {
             ch_mut(s, r).name = Some(name);
         }
     }
@@ -795,14 +826,14 @@ pub fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
 /// class and is ready, a human waits; it keeps or picks a post, joins its
 /// queue, and is scheduled for the next wave (two ahead if the wave clock is
 /// overdue).
-pub fn prepare<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+pub fn prepare<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     prepare_with_scratch(s, r, strings, world, random, &mut Scratch::default())
 }
 
-pub fn prepare_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) {
+pub fn prepare_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) {
     if !ch(s, r).human {
         if !is_hero(ch(s, r)) {
-            let index = pick_class(s, r, random);
+            let index = pick_class(s, r, &mut BoundDraws(random, world));
             set_class(s, r, index, strings, world);
         }
         sp_mut(ch_mut(s, r)).ready = true;
@@ -871,11 +902,11 @@ pub fn waiting(sp: &Spawning, c: &Character) -> bool {
 }
 
 /// updateCharacters(dt) (spawning.js:561): every Character in roster order.
-pub fn update_characters<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+pub fn update_characters<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     update_characters_with_scratch(s, dt, strings, world, random, &mut Scratch::default())
 }
 
-pub fn update_characters_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) {
+pub fn update_characters_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) {
     let mut i = 0;
     while i < s.spawning.characters.len() {
         let r = s.spawning.characters[i];
@@ -885,11 +916,11 @@ pub fn update_characters_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, 
 }
 
 /// updateCharacter(character, dt) (spawning.js:605).
-pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     update_character_with_scratch(s, r, dt, strings, world, random, &mut Scratch::default())
 }
 
-pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) {
+pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) {
     let dt = fround(dt);
     let mut t = ch(s, r).team;
     if let Some(unit) = ch(s, r).unit {
@@ -950,13 +981,13 @@ pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r
 /// spawn path (its ally path when the post is an ally's), else a random
 /// class spawn point (own posts only), else the post itself.
 fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bool, world: &mut W,
-    random: &mut dyn Draws, scratch: &mut Scratch) -> [f64; 4] {
+    random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) -> [f64; 4] {
     let view = posts::spawn_facts(s, post, world);
     if let SpawnPost::Post(r) = post {
         let ai = s.post.get(r).expect("a post").ai.as_ref();
         let path = ai.and_then(|a| if allied { a.ally_path.as_ref() } else { a.spawn_path.as_ref() });
         if let Some(path) = path.filter(|p| p.present && !p.points.is_empty()) {
-            return path.points[(random.next() % path.points.len() as f64) as usize];
+            return path.points[(random.next_in(world) % path.points.len() as f64) as usize];
         }
     }
     if !allied && view.class_spawn_points > 0.0 {
@@ -971,7 +1002,7 @@ fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bo
             }
         };
         if !points.is_empty() {
-            let i = random.next() % view.class_spawn_points;
+            let i = random.next_in(world) % view.class_spawn_points;
             return points.get(i as usize).copied().unwrap_or(points[0]);
         }
     }
@@ -981,11 +1012,11 @@ fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bo
 
 /// spawn(character) (spawning.js:664): into the world; if the class can't be
 /// made, class 0 is tried once.
-pub fn spawn<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) -> Option<Ref<Unit>> {
+pub fn spawn<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) -> Option<Ref<Unit>> {
     spawn_with_scratch(s, r, strings, world, random, &mut Scratch::default())
 }
 
-pub fn spawn_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) -> Option<Ref<Unit>> {
+pub fn spawn_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) -> Option<Ref<Unit>> {
     let post = spawn_post(sp(ch(s, r)).post).expect("a post");
     let t = ch(s, r).team;
     let allied = t != owner_of(posts::team_of(s, post).0);
@@ -1057,23 +1088,26 @@ pub struct HumanChoice {
 /// onHumanReady(character, choice) (spawning.js:705): a class from his
 /// team's roster (by name or index; a name outside it is his class, not
 /// counted) and a post if he chose one; he spawns on the next update.
-pub fn on_human_ready<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &dyn Text, world: &mut W) {
-    on_human_ready_named(s,r,choice,strings,|name|world.hero_name(name));
+pub fn on_human_ready<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &dyn ContextText<W>, world: &mut W) {
+    on_human_ready_named_with(s,r,choice,strings,world,|world,name|world.hero_name(name));
 }
 
 /// A waiting human has no body to change. Readiness updates only canonical
 /// Character/class/queue rows, including inside a synchronous AI hook.
 pub fn on_human_ready_named(s:&mut Store,r:Ref<Character>,choice:HumanChoice,strings:&dyn Text,mut hero_name:impl FnMut(StrId)->Option<StrId>) {
+    on_human_ready_named_with(s,r,choice,&strings,&mut (),|_,name|hero_name(name));
+}
+fn on_human_ready_named_with<W:?Sized>(s:&mut Store,r:Ref<Character>,choice:HumanChoice,strings:&dyn ContextText<W>,world:&mut W,mut hero_name:impl FnMut(&mut W,StrId)->Option<StrId>) {
     let t = ch(s, r).team;
     if let Some(name) = choice.class_name {
         match team(&s.spawning, t).classes.iter().position(|c| c.name == name) {
-            Some(index) => set_class_named(s, r, index as f64, strings, &mut hero_name),
+            Some(index) => set_class_named_with(s, r, index as f64, strings, world, &mut hero_name),
             None => ch_mut(s, r).class_name = Some(name),
         }
     } else if let Some(index) = choice.class_index {
         let last = team(&s.spawning, t).classes.len() as f64 - 1.0;
         let index = v8math::min(v8math::max(to_int32(index) as f64, 0.0), last);
-        set_class_named(s, r, index, strings, &mut hero_name);
+        set_class_named_with(s, r, index, strings, world, &mut hero_name);
     }
     if let Some(post) = choice.post {
         change_post(s, r, post);
@@ -1083,11 +1117,11 @@ pub fn on_human_ready_named(s:&mut Store,r:Ref<Character>,choice:HumanChoice,str
 
 /// switchTeam(character, to) (spawning.js:723): a non-hero Character to
 /// another team with room; a bot picks a class there.
-pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) -> bool {
+pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) -> bool {
     switch_team_with_scratch(s, r, to, strings, world, random, &mut Scratch::default())
 }
 
-pub fn switch_team_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) -> bool {
+pub fn switch_team_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>, scratch: &mut Scratch) -> bool {
     let c = ch(s, r);
     if is_hero(c) || c.team == to || to < 1.0 || to >= TEAM_COUNT as f64 {
         return false;
@@ -1111,7 +1145,7 @@ pub fn switch_team_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref
     team_mut(&mut s.spawning, to).characters.push(r);
     ch_mut(s, r).team = to;
     if !ch(s, r).human {
-        let index = pick_class(s, r, random);
+        let index = pick_class(s, r, &mut BoundDraws(random, world));
         set_class(s, r, index, strings, world);
     } else {
         let last = team(&s.spawning, to).classes.len() as f64 - 1.0;

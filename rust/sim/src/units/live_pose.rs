@@ -46,9 +46,9 @@ pub fn held_frame_in(world_ctx: &mut crate::world::owner::World, input: &F3PoseC
     let mut node = Matrix4::default(); node.from_array(&input.frame, 0);
     body.sampler.held_frame(clip,input.time,&node,out)
 }
-pub fn exposed_in(store: &crate::gen::Store, _id: u32, unit: &Unit) -> bool {
+pub fn exposed_in(fleet:&crate::vehicles::module::Fleet,store: &crate::gen::Store, _id: u32, unit: &Unit) -> bool {
     if let Some(lease) = unit.seat.and_then(|r| store.seat_lease.get(r)) {
-        return crate::vehicles::module::f2::live_seats::exposed(lease);
+        return crate::vehicles::module::f2::live_seats::exposed_in(fleet,store,lease);
     }
     false
 }
@@ -58,19 +58,19 @@ pub(crate) fn blastable_in(world_ctx: &crate::world::owner::World, id: u32) -> b
     let reference = super::f3::unit_reference_in(&world_ctx.units, id);
     let unit = world_ctx.sim.store.unit.get(reference).expect("blast seat unit");
     unit.seat.and_then(|r| world_ctx.sim.store.seat_lease.get(r))
-        .is_some_and(|l| l.turret.is_some() && crate::vehicles::module::f2::live_seats::exposed(l))
+        .is_some_and(|l| l.turret.is_some() && crate::vehicles::module::f2::live_seats::exposed_in(&world_ctx.fleet,&world_ctx.sim.store, l))
 }
 
 /// SeatLease.riderShapes and AnimatedProp.heldShapes read their own sample,
 /// while Unit owns when it invalidates and observes the resulting shapes.
 pub fn sample_in(world_ctx: &mut crate::world::owner::World, id: u32, unit: &Unit, out: &mut [HitShape]) -> usize {
     if unit.seat.and_then(|r| world_ctx.sim.store.seat_lease.get(r)).is_some() {
-        return crate::vehicles::module::f2::riders::shapes(super::f3::unit_reference_in(&world_ctx.units, id), unit.generation, out);
+        return crate::vehicles::module::f2::riders::shapes_in(world_ctx, super::f3::unit_reference_in(&world_ctx.units, id), unit.generation, out);
     }
     let Some(body) = (&mut body_poses_in(&mut world_ctx.units).rows).get_mut(id as usize).and_then(Option::as_mut) else { return 0 };
     let (clip,time,elements)=if let crate::store::Nullable::Value(held)=&unit.held {
-        if crate::battle::f4_live::owns_held(held.prop) {
-            let Some(clip)=crate::battle::f4_live::held_clip(body.reference,unit) else {return 0};
+        if crate::battle::f4_live::owns_held_in(&mut world_ctx.battle, held.prop) {
+            let Some(clip)=crate::battle::f4_live::held_clip_in(&mut world_ctx.battle, body.reference,unit) else {return 0};
             let crate::store::Nullable::Value(frame)=held.frame else {return 0};
             (clip,Some(v8math::max(held.time.unwrap_or(0.),0.)),frame)
         }else{
@@ -93,16 +93,16 @@ pub fn sample_in(world_ctx: &mut crate::world::owner::World, id: u32, unit: &Uni
 // OrdnanceWorld.mayStrike needs the lease's mount identity, independently of
 // whether that lease exposes a sampled rider pose. No host lookup is needed.
 pub(crate) fn mount_in(world_ctx: &crate::world::owner::World, id: u32) -> Option<(Option<Ref<crate::gen::Body>>, Option<Ref<crate::gen::Vehicle>>)> {
-    world_ctx.sim.store.unit.get(super::f3::unit_reference_in(&world_ctx.units,id)).and_then(|unit| mount_row(&world_ctx.sim.store,unit))
+    world_ctx.sim.store.unit.get(super::f3::unit_reference_in(&world_ctx.units,id)).and_then(|unit| mount_row(&world_ctx.fleet,&world_ctx.sim.store,unit))
 }
 // Current-ray predicates already hold the exact registry row. Passing it
 // avoids looking for a borrowed body in the temporarily detached slab.
-pub(super) fn mount_row(store: &crate::gen::Store, unit: &Unit) -> Option<(Option<Ref<crate::gen::Body>>, Option<Ref<crate::gen::Vehicle>>)> {
+pub(super) fn mount_row(fleet:&crate::vehicles::module::Fleet,store: &crate::gen::Store, unit: &Unit) -> Option<(Option<Ref<crate::gen::Body>>, Option<Ref<crate::gen::Vehicle>>)> {
     if let Some(lease) = unit.seat.and_then(|r| store.seat_lease.get(r)) {
         if let Some(vehicle) = lease.vehicle {
             return Some((store.vehicle.get(vehicle).map(|v| v.body),Some(vehicle)));
         }
-        return Some((lease.turret.and_then(crate::vehicles::module::f2::live_seats::turret_body),None));
+        return Some((lease.turret.and_then(|r|crate::vehicles::module::f2::live_seats::turret_body_in(fleet,r)),None));
     }
     None
 }

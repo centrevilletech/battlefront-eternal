@@ -237,7 +237,7 @@ pub(crate) fn world_frame(w: &mut crate::world::owner::World, id:u32, offline:bo
     camera_frame_in::<HostMath>(w, id);
     let Some(phase)=phase(&mut w.cameras, id) else {return};
     let output=&phase.output;
-    crate::units::f3::world_camera([output[o::POSITION],output[o::POSITION+1],output[o::POSITION+2]]);
+    crate::units::f3::world_camera_in(&mut w.units, [output[o::POSITION],output[o::POSITION+1],output[o::POSITION+2]]);
     if offline {
         if let Some(battle)=w.ai.battle_mut() {
             if battle.exchange.camera_words.len()>=crate::gen::AiPhaseCamera::WORDS {

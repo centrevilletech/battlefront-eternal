@@ -128,7 +128,7 @@ mod module {
         // A stale resource leaves the placement airborne instead of indexing
         // collision storage. The unit query keeps its original flag ordering.
         if world as usize >= w.collision.state.worlds.len() { None }
-        else { super::super::native::cast(world as usize,p,d,far) }
+        else { super::super::native::cast_in(w, world as usize,p,d,far) }
     }
 
     pub(crate) fn body_spawn_droideka_in(w: &mut crate::world::owner::World, world:u32) -> Option<&[f64]> {

@@ -197,10 +197,16 @@ impl Owner {
         Self {tail:tail::Tail::new(battlefield,members,posts,mobile,victims), prepared:Prepared::default(),local,classic}
     }
     pub fn step<S: Services>(&mut self, input: &crate::gen::F4TailInput, s: &mut Store,
-        strings: &dyn super::stats::Text, commands: &[Command], services: &mut S,
-        random: &mut dyn spawning::Draws, gameplay: &mut dyn spawning::Draws) {
+        strings: &dyn for<'w> super::stats::ContextText<World<'w, S>>, commands: &[Command], services: &mut S,
+        random: &mut dyn for<'w> spawning::ContextDraws<World<'w, S>>, gameplay: &mut dyn for<'w> spawning::ContextDraws<World<'w, S>>) {
         self.tail.step(input,s,strings,self.classic,|_,_|true,commands,
             &mut World {prepared:&mut self.prepared,services,local:self.local,classic:self.classic}, random,gameplay);
         services.changed_battle(s);
     }
+}
+
+impl<S: Services + super::stats::TextWorld> super::stats::TextWorld for World<'_, S> { fn text_nonempty(&self,id:StrId)->bool { self.services.text_nonempty(id) } }
+
+impl<S: Services + spawning::RandomWorld> spawning::RandomWorld for World<'_, S> {
+    fn random_next(&mut self, stream: u32) -> f64 { self.services.random_next(stream) }
 }

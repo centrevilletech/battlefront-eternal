@@ -143,7 +143,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
         if self.rows.state.controllers.capturing_shots() {
             let Some(source)=source else{return};
             use crate::ai::combat::control::Objects as _;
-            let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.rows.w,store:row_store!(self.rows),commands:self.rows.characters,entities:&self.rows.state.entities,roster:&self.rows.state.roster,population:&self.rows.state.population};
+            let objects=super::objects::Objects { w:self.rows.w,store:row_store!(self.rows),commands:self.rows.characters,entities:&self.rows.state.entities,roster:&self.rows.state.roster,population:&self.rows.state.population};
             let source=objects.alert_source(source);
             self.rows.state.controllers.shot(&self.rows.state.entities,c,source,known,point);
         }else{self.ctl_mut(c).notify_shot(source,known,point);}

@@ -2,7 +2,7 @@
 //! pose, then animated collision/grabs and log-trap crush in insertion order.
 //! Objects and prepared settings persist across phases. Unit and hull services
 //! provide native reader views; this scheduler never calls a JS object method.
-use super::{animated, ownership::{Publish, Rows}, props, stats::Text, traps};
+use super::{animated, ownership::{Publish, Rows}, props, stats::ContextText, traps};
 use crate::gen::{F4AnimatedView, PaVictim, F4BuildingView, F4Handle, F4ObjectKind, F4TrapView, TrPhase, TrState};
 use three::Vector3;
 use crate::store::Ref;
@@ -109,7 +109,7 @@ impl Live {
     }
     /// Animated props run between supply() and crush(). Their retained rigs
     /// and held-body writer belong to the unit service at that join.
-    pub fn crush<W: World>(&mut self, dt: f64, tick: f64, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
+    pub fn crush<W: World>(&mut self, dt: f64, tick: f64, strings: &dyn ContextText<W>, vehicles: &[W::Vehicle], world: &mut W) {
         for i in 0..self.traps.len() {
             let h = self.traps.handle(i);
             self.traps.command(&h, |entry| entry.state.step_with_scratch(dt, tick, &entry.settings, strings, vehicles, world, &mut entry.victims));
@@ -161,7 +161,7 @@ impl Live {
     #[allow(clippy::too_many_arguments)]
     pub fn step<W: World>(&mut self, dt: f64, tick: f64, targets: &mut SupplyTargets<'_>,
         positions: &[Vector3], bodies: &mut [animated::Body], order: &[usize],
-        strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) -> usize {
+        strings: &dyn ContextText<W>, vehicles: &[W::Vehicle], world: &mut W) -> usize {
         self.supply(dt, targets, world);
         for i in 0..self.animated.len() {
             let h = self.animated.handle(i);

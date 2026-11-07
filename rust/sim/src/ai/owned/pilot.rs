@@ -1,7 +1,7 @@
 //! flight/ai.js reads rounds from the canonical ordnance sequence. A dead
 //! guided round stays in that sequence until its owner reaps it; it must not
 //! trigger a pilot's evasive turn during that intervening observation.
-#[cfg(target_arch="wasm32")]
+
 use super::rows::row_store;
 use crate::gen::Store;
 use three::Vector3;
@@ -12,7 +12,7 @@ pub fn incoming(store:&Store,target_id:f64,position:&Vector3,range:f64)->bool {
             &&Vector3::new(round.position[0],round.position[1],round.position[2]).distance_to(position)<range
     })
 }
-#[cfg(target_arch="wasm32")]
+
 mod live {
     use super::*;
     use crate::vehicles::BodyId;
@@ -55,5 +55,5 @@ mod live {
         Stick {forward:stick.forward,right:stick.right,turn:stick.turn,pitch:stick.pitch,up:stick.up,down:stick.down,brake:stick.brake,trick:stick.trick,immelmann:stick.immelmann,boost:stick.boost}
     }
 }
-#[cfg(target_arch="wasm32")]
+
 pub use live::input;

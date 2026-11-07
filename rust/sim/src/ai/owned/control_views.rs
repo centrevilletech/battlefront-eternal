@@ -27,6 +27,7 @@ impl Publication {
     pub fn version(&self)->u32 {self.version}
     pub fn word_count(&self)->u32 {self.count*(AiControlView::WORDS as u32)}
     pub fn acknowledge(&mut self,version:u32) {self.ack[0]=version as f64;}
+    #[cfg(target_arch = "wasm32")]
     pub fn ack_pointer(&mut self)->u32 {self.ack.as_mut_ptr() as usize as u32}
     /// Call only after every recursive Core loan has returned. Released
     /// controls whose controller has unbound can leave the native pool; weak targets resolve
@@ -72,7 +73,7 @@ impl Publication {
             }
         }
         self.pending|=changed;
-        if deferred {return [self.words.as_ptr() as usize as u32,self.count,self.version,0];}
+        if deferred {return [self.word_address(),self.count,self.version,0];}
         // Rebuild the changed prefix only when a new value arrives. Repeated
         // mirror barriers keep the same pointer, version and unread prefix.
         if self.pending {
@@ -80,6 +81,13 @@ impl Publication {
             for slot in 0..self.last.len() {if self.dirty[slot] {self.words.extend_from_slice(&self.last[slot]);self.count+=1;}}
             self.version=self.version.wrapping_add(1);
         }
-        [self.words.as_ptr() as usize as u32,self.count,self.version,0]
+        [self.word_address(),self.count,self.version,0]
+    }
+}
+
+impl Publication {
+    fn word_address(&self)->u32 {
+        #[cfg(target_arch = "wasm32")] { self.words.as_ptr() as usize as u32 }
+        #[cfg(not(target_arch = "wasm32"))] { 0 }
     }
 }

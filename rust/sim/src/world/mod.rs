@@ -3,11 +3,9 @@ pub mod owner;
 pub mod clock;
 pub mod events;
 pub mod local;
-#[cfg(target_arch = "wasm32")]
 pub mod step;
 pub mod network;
 pub mod network_controls;
-#[cfg(target_arch = "wasm32")]
 mod module;
 
 /// Reserved whole-tick input and completed output. These buffers contain no

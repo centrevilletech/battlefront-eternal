@@ -123,20 +123,30 @@ pub fn cast_static_in(world_ctx: &mut crate::world::owner::World, world: usize, 
 /// OrdnanceWorld.cast and castMoving use the same live collision tree as
 /// soldier movement, including the shooter's ignored body and moving mask.
 pub fn ordnance_cast_in(world_ctx: &mut crate::world::owner::World, world: usize, origin: [f64; 3], direction: [f64; 3], far: f64, ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit> {
+    ordnance_cast_parts_in(&mut world_ctx.collision, &mut world_ctx.movement, &world_ctx.fleet,
+        world, origin, direction, far, ignore, static_only, moving)
+}
+
+/// Cold spawn and publication callbacks already borrow their Store. Lend
+/// disjoint physical owners to the same caster without acquiring a facade.
+pub(crate) fn ordnance_cast_parts_in(collision_owner: &mut collision::CollisionOwner,
+    movement: &mut crate::movement::MovementOwner, fleet: &crate::vehicles::module::Fleet,
+    world: usize, origin: [f64; 3], direction: [f64; 3], far: f64,
+    ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit> {
     let ignored = match ignore {
         Some(body)=>{
-            let collision=crate::vehicles::module::collision_world()?;
+            let collision=fleet.collision.as_ref()?;
             if collision.body_reference(body.slot)!=Some(body) {return None;}
             collision.kernel_slot(body.slot)? as i64
         },
         None=>-1,
     };
-    let s = &mut world_ctx.collision.state;
+    let s = &mut collision_owner.state;
     let ray = collision::Ray { ox: origin[0], oy: origin[1], oz: origin[2], dx: direction[0], dy: direction[1], dz: direction[2] };
-    let candidates = &mut world_ctx.collision.candidates;
-    let enabled = &mut world_ctx.collision.enabled;
+    let candidates = &mut collision_owner.candidates;
+    let enabled = &mut collision_owner.enabled;
     let count = broad::world_candidates_near_into(s, world, &ray, far, ignored, static_only, moving, candidates);
-    let flags = world_ctx.movement.flags_mut();
+    let flags = movement.flags_mut();
     for (i, flag) in enabled.iter_mut().enumerate().take(count) { *flag = flags[candidates[i] as usize]; }
     // CollisionWorld.castMoving excludes terrain and fixed meshes as well as
     // fixed body candidates. Bolts already retained their static impact at
@@ -145,7 +155,7 @@ pub fn ordnance_cast_in(world_ctx: &mut crate::world::owner::World, world: usize
         else { collision::world_cast_ray_in(s, world, &ray, far, v8math::hypot(direction[0], direction[2]), &candidates[..count], &enabled[..count]) };
     if code == MISS {return None;}
     // A stale or unknown body identity is rejected rather than indexed.
-    let body=if code >= 0 {Some(super::f3::body_reference_in(world_ctx, code as usize)?)}else{None};
+    let body=if code >= 0 {Some(fleet.collision.as_ref()?.kernel_reference(code as usize)?)}else{None};
     Some(crate::ordnance::world::Hit {distance:h.distance,point:[h.px,h.py,h.pz],normal:[h.nx,h.ny,h.nz],terrain:code==TERRAIN,body})
 }
 

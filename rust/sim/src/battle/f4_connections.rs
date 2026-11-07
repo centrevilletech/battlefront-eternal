@@ -17,26 +17,26 @@ impl State {
 pub(crate) fn reset(battle: &mut BattleOwner){{battle.connections=None;}}
 fn state(battle: &mut BattleOwner)->&mut State {battle.connections.as_mut().expect("connection owner prepared")}
 pub fn f4_connections_init_in(w: &mut Root, capacity:u32) {
-    let outer=f3::external();
+    let outer=f3::external_in(w);
     let human=&mut w.sim.store.human_spawn;human.auto=None;human.pending=None;human.spawned_once=true;
     super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
     let mut output=Block::default();output.words.reserve(crate::store::block::HEADER+F4ConnectionView::WORDS);
     {w.battle.connections=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
-    drop(outer);
+    outer.finish(w, true);
 }
 /// attachedPlayers qualifies the connection, not merely a recycled roster
 /// index. A released Character's old link facts cannot mark its bot reuse as
 /// a human while the next transport publication is still queued.
-pub(crate) fn wire_character_in(battle: &mut BattleOwner, store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> {
-    let reference = super::f4_core::resolve(battle, store, handle)?;
-    let rows = state(battle); let entry = rows.rows.get(reference.slot as usize)?.as_ref()?;
+pub(crate) fn wire_character_in(battle: &BattleOwner, store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> {
+    let reference = super::f4_core::resolve_character_ref(battle, store, handle)?;
+    let rows = battle.connections.as_ref().expect("prepared connections"); let entry = rows.rows.get(reference.slot as usize)?.as_ref()?;
     (entry.handle == *handle).then_some(reference)
 }
 /// The connection owns its retained dead/unspawned body and spawn phase.
 /// A Character's current bot body is not a substitute after disconnection.
-pub(crate) fn wire_view_in<'w>(battle: &'w mut BattleOwner, store: &Store, handle: &F4Handle) -> Option<&'w F4ConnectionView> {
+pub(crate) fn wire_view_in<'w>(battle: &'w BattleOwner, store: &Store, handle: &F4Handle) -> Option<&'w F4ConnectionView> {
     let reference = wire_character_in(battle, store, handle)?;
-    state(battle).view(reference)
+    battle.connections.as_ref().expect("prepared connections").view(reference)
 }
 
 fn spawn(w: &mut Root, entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
@@ -65,15 +65,15 @@ pub fn f4_connection_command_in(w: &mut Root)-> Option<&[f64]> {
         })
     };
     let Some((character,index,mut entry))=prepared else {return Some(state(&mut w.battle).publish())};
-    let outer=f3::external();
-    f3::with_services(|services| {
+    let outer=f3::external_in(w);
+    f3::with_services_in(w, |w, services| {
         let mut services=services.expect("canonical connection body services");
         entry.view.accepted=match input.op {
             F4ConnectionOp::Admit=>true,
             F4ConnectionOp::Spawn=>spawn(w, &mut entry,character,input.class_name,input.post,services.reborrow()),
             F4ConnectionOp::Unspawn=>{
                 if let Some(unit)=entry.view.unit {
-                    f3::unspawn_native(unit);
+                    f3::unspawn_native_in(w, unit);
                     let team=w.sim.store.character.get(character).unwrap().team;
                     if let Some(team)=w.sim.store.spawning.teams.iter_mut().find(|row|row.index==team) {team.living-=1.;}
                     entry.view.phase=HumanPhase::Unspawned;entry.view.spawned_once=false;entry.view.post=None;entry.view.dead_time=4.;
@@ -82,14 +82,14 @@ pub fn f4_connection_command_in(w: &mut Root)-> Option<&[f64]> {
             F4ConnectionOp::Team=>{
                 if let Some(unit)=entry.view.unit {
                     let team=w.sim.store.character.get(character).unwrap().team;
-                    f3::with_rows(|store,owner| {
+                    f3::with_owner_rows(w,|store,owner| {
                         let key=F3UnitKey::of(unit,store.unit.get(unit).unwrap());owner.team(store,&key,team).expect("current connection body");
                     });
                 }true
             },
             F4ConnectionOp::State=>{
                 if let Some(unit)=entry.view.unit {
-                    f3::advance_removed_clock(unit,1./60.);
+                    f3::advance_removed_clock_in(w, unit,1./60.);
                     let u=w.sim.store.unit.get(unit).unwrap();
                     if !u.alive && input.auto_respawn && u.dead_time+1e-6>=4. {let post=entry.view.post;spawn(w, &mut entry,character,None,post,services.reborrow());}
                     let u=w.sim.store.unit.get(entry.view.unit.unwrap()).unwrap();
@@ -105,7 +105,7 @@ pub fn f4_connection_command_in(w: &mut Root)-> Option<&[f64]> {
     });
     let result=entry.view.clone();
     state(&mut w.battle).rows[index]=Some(entry);
-    drop(outer);
+    outer.finish(w, true);
     let owner=state(&mut w.battle);owner.result=result;Some(owner.publish())
 }
 

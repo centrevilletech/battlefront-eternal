@@ -32,8 +32,8 @@ pub(crate) fn reset(battle: &mut BattleOwner) {
 }
 /// captureWorldSummaries reads the same prepared human roster without
 /// running a spawn choice, advancing a queue or consuming a random draw.
-pub(crate) fn wire_roster_in(battle: &mut BattleOwner, team: usize) -> &[StrId] {
-    state(battle).human.human.prepared.rosters.get(team).map_or(&[], Vec::as_slice)
+pub(crate) fn wire_roster_in(battle: &BattleOwner, team: usize) -> &[StrId] {
+    battle.tail.as_ref().expect("prepared battle tail").human.human.prepared.rosters.get(team).map_or(&[], Vec::as_slice)
 }
 // The pre-AI boundary also replaces CommandPosts.all's former JS refresh.
 // State is lent out inside a tail; its World refreshes before its own hooks.
@@ -48,15 +48,14 @@ pub(crate) fn initial_human_in(battle: &mut BattleOwner, character:Option<crate:
     let state=state(battle);state.owner.prepared.local_character=character;
     state.human.human.prepared.character=character;
 }
-struct Text;
-impl Text { fn nonempty_in(&self, w: &Root, id: StrId) -> bool { !w.sim.strings.units(id).is_empty() } }
+use super::stats::WorldText as Text;
 pub(crate) struct Random(pub u32);
-impl Random {
-    fn next_in(&mut self, _w: &mut Root) -> f64 { f3::random_next(self.0) as f64 }
+impl<W: super::spawning::RandomWorld + ?Sized> super::spawning::ContextDraws<W> for Random {
+    fn next_in(&mut self, world: &mut W) -> f64 { world.random_next(self.0) }
 }
 pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
     assert!(
-        f3::active() && super::f4_core::active_in(&mut w.battle),
+        f3::active_in(&w.units) && super::f4_core::active_in(&mut w.battle),
         "canonical unit and battle owners required"
     );
     let (row, heap) = w.sim.calls.args();
@@ -198,7 +197,7 @@ pub fn f4_tail_capture_team_in(w: &mut Root) {
 pub fn f4_tail_ready_in(w: &mut Root) -> Option<&[f64]> {
     super::f4_core::prepare_tail_publications(w);
     super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
-    f3::publish_changed();
+    f3::publish_changed_in(w);
     super::f4_live::descriptor_words(w)
 }
 pub fn f4_tail_in(w: &mut Root) {
@@ -210,8 +209,8 @@ pub fn f4_tail_in(w: &mut Root) {
             .expect("battle tail cannot reenter")
     };
     state.decode_commands(&input, &w.sim.strings);
-    let outer = f3::external();
-    f3::with_services(|services| {
+    let outer = f3::external_in(w);
+    f3::with_services_in(w, |w, services| {
         let mut services = services.expect("native battle body services");
         let mut shell = state.shell.take().unwrap();
         std::mem::swap(&mut shell, &mut w.sim.store);
@@ -245,7 +244,7 @@ pub fn f4_tail_in(w: &mut Root) {
     {
         w.battle.tail = Some(state);
     }
-    drop(outer);
+    outer.finish(w, true);
     super::f4_live::count_tail(w, input.human_count as usize, before);
 }
 
@@ -256,8 +255,8 @@ pub(crate) fn spawning<T>(w: &mut Root,
     mut services: crate::units::f3::WorldServices<'_>,
     run: impl FnOnce(
         &mut Store,
-        &mut dyn super::world::SpawningWorld,
-        &mut dyn super::spawning::Draws,
+        &mut (dyn SpawnContext + '_),
+        &mut dyn for<'w> super::spawning::ContextDraws<dyn SpawnContext + 'w>,
     ) -> T,
 ) -> T {
     let mut state = w.battle.tail.take().expect("idle battle tail");
@@ -318,12 +317,14 @@ pub(crate) fn connection_spawn(w: &mut Root, character:crate::store::Ref<Charact
     std::mem::swap(&mut shell,&mut world.services.w.sim.store);
     let choice=(|| {
     // Landed transports use the original ground-normal admission test.
-    choices.begin(&mut shell,&mut world,|at,body| {
-        crate::units::native::ordnance_cast(f3::collision_world(),[at.x,at.y,at.z],[0.,-1.,0.],12.,Some(body),true,false)
+    choices.begin_with(&mut shell,&mut world,|world,at,body| {
+        let w = &mut *world.services.w;
+        let world_id = f3::collision_world_in(&w.units);
+        crate::units::native::ordnance_cast_in(w, world_id,[at.x,at.y,at.z],[0.,-1.,0.],12.,Some(body),true,false)
             .map(|hit|(three::Vector3::new(hit.point[0],hit.point[1],hit.point[2]),three::Vector3::new(hit.normal[0],hit.normal[1],hit.normal[2])))
     });
-    let index=choices.choose(team,post,f3::relation,||0.5)?;
-    let point=choices.point(&shell,index,team,&mut world,f3::relation,||(ordinal*0.381966)%1.0)?;
+    let index=choices.choose(team,post,|a,b|f3::relation_in(&world.services.w.units,a,b),||0.5)?;
+    let point=choices.point_with(&shell,index,team,&mut world,|world,a,b|f3::relation_in(&world.services.w.units,a,b),||(ordinal*0.381966)%1.0)?;
     let name=choices.name(index);
     Some((point, name))
     })();
@@ -332,7 +333,7 @@ pub(crate) fn connection_spawn(w: &mut Root, character:crate::store::Ref<Charact
     let (point,name)=choice?;
     let w=&mut *world.services.w;
     let was_alive=previous.and_then(|r|w.sim.store.unit.get(r)).is_some_and(|u|u.alive);
-    let unit=super::f4_factory::player(&F4PlayerRequest{character:Some(character),body:previous,class_name:class,
+    let unit=super::f4_factory::player(w,&F4PlayerRequest{character:Some(character),body:previous,class_name:class,
         post:Some(name),position:[point[0],point[1],point[2]],yaw:point[3],local:false},world.services.services.reborrow())?;
     let c=w.sim.store.character.get_mut(character).unwrap();c.unit=Some(unit);c.class_name=Some(class);
     if let Some(spawn)=&mut c.spawn {spawn.ready=false;spawn.timer=f64::INFINITY;}
@@ -361,10 +362,10 @@ pub fn f4_unit_spawn_in(w: &mut Root)->i32 {
         _=>return -1,
     };
     super::f4_live::count_external(&mut w.battle, F4UnitSpawn::WORDS);
-    let outer=f3::external();
+    let outer=f3::external_in(w);
     let state=state(&mut w.battle);let mut lifecycle=Native{local:state.owner.local,character:state.owner.prepared.local_character};
-    let unit=f3::with_services(|services|lifecycle.spawn(w,character,Some(input.class_name),post,input.position,Some(input.yaw),services.expect("native spawn body services")));
-    super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);drop(outer);
+    let unit=f3::with_services_in(w, |w, services|lifecycle.spawn(w,character,Some(input.class_name),post,input.position,Some(input.yaw),services.expect("native spawn body services")));
+    super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);outer.finish(w, true);
     unit.map_or(-1,|r|r.slot as i32)
 }
 
@@ -401,10 +402,8 @@ pub(crate) fn owns_player(unit:crate::store::Ref<Unit>) ->bool { owns_player_in(
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn auto_respawn(services:f3::WorldServices<'_>) { auto_respawn_in(crate::abi::world(), services) }
 
-#[cfg(target_arch = "wasm32")]
-impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }
-#[cfg(target_arch = "wasm32")]
-impl super::spawning::Draws for Random { fn next(&mut self) -> f64 { self.next_in(crate::abi::world()) } }
+
+
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
@@ -435,3 +434,6 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn f4_unit_spawn() ->i32 { f4_unit_spawn_in(crate::abi::facade::world()) }
 }
+
+pub(crate) trait SpawnContext: super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld {}
+impl<T:super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld> SpawnContext for T {}

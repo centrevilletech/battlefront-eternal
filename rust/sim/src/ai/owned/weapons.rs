@@ -5,28 +5,28 @@ use crate::{gen::{Store,F3UnitKey,Weapon},units::ownership::{Ownership,Stale}};
 use crate::ai::combat::world::WeaponSettings;
 
 pub trait Changes {
-    fn mark(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>);
+    fn mark(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>);
     /// Tuning and selection join the next native unit span when promised.
     /// Other owners retain their ordinary immediate dirty-row contract.
-    fn weapon(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
-    fn body(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
-    fn intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
+    fn weapon(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
+    fn body(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
+    fn intent(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
     /// Native ownership also controls whether a command publication may copy
     /// held intents. Synthetic owners already observe their canonical rows.
-    fn native_intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,_owned:bool) {changed!(self,w,mark,unit);}
+    fn native_intent(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,_owned:bool) {changed!(self,w,mark,unit);}
 }
-impl Changes for Ownership {fn mark(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {#[cfg(target_arch="wasm32")] let _=w;Ownership::mark(self,unit);}}
+impl Changes for Ownership {fn mark(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) { let _=w;Ownership::mark(self,unit);}}
 /// Native F3 keeps publication membership through recursive seat commands.
 /// A service view marks the owner without retaining its mutable row table.
-#[cfg(target_arch="wasm32")]
+
 pub struct F3;
-#[cfg(target_arch="wasm32")]
+
 impl Changes for F3 {
-    fn mark(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::changed_in(w,unit);}
-    fn intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::intent_changed_in(&mut w.units,unit);}
-    fn weapon(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed_in(&mut w.units,unit);}
-    fn body(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed_in(&mut w.units,unit);}
-    fn native_intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,owned:bool) {crate::units::f3::native_intent_in(w,unit,owned);}
+    fn mark(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::changed_in(w,unit);}
+    fn intent(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::intent_changed_in(&mut w.units,unit);}
+    fn weapon(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed_in(&mut w.units,unit);}
+    fn body(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed_in(&mut w.units,unit);}
+    fn native_intent(&mut self, w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,owned:bool) {crate::units::f3::native_intent_in(w,unit,owned);}
 }
 
 pub fn settings(store:&Store,key:&F3UnitKey,index:usize)->Result<WeaponSettings,Stale> {

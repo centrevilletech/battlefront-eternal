@@ -7,26 +7,26 @@ use crate::{
 };
 use three::Vector3;
 pub trait Seats {
-    fn origin(&mut self, #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3>;
-    fn forward(&mut self, #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3>;
+    fn origin(&mut self,  w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3>;
+    fn forward(&mut self,  w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3>;
 }
-pub fn origin(#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store: &Store, seats: &mut dyn Seats, key: &F3UnitKey) -> Result<Vector3, Stale> {
-    #[cfg(target_arch="wasm32")] let store=&w.sim.store;
+pub fn origin( w:&mut crate::world::owner::World, seats: &mut dyn Seats, key: &F3UnitKey) -> Result<Vector3, Stale> {
+     let store=&w.sim.store;
     let unit = key.validate(store)?;
     if let Some(lease) = unit.seat {
-        #[cfg(target_arch="wasm32")] let origin=seats.origin(w,lease);
-        #[cfg(not(target_arch="wasm32"))] let origin=seats.origin(lease);
+         let origin=seats.origin(w,lease);
+
         Ok(origin.expect("current native AI seat origin"))
     } else {
         Ok(unit.origin_on_foot())
     }
 }
-pub fn forward(#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store: &Store, seats: &mut dyn Seats, key: &F3UnitKey) -> Result<Vector3, Stale> {
-    #[cfg(target_arch="wasm32")] let store=&w.sim.store;
+pub fn forward( w:&mut crate::world::owner::World, seats: &mut dyn Seats, key: &F3UnitKey) -> Result<Vector3, Stale> {
+     let store=&w.sim.store;
     let unit = key.validate(store)?;
     if let Some(lease) = unit.seat {
-        #[cfg(target_arch="wasm32")] let forward=seats.forward(w,lease);
-        #[cfg(not(target_arch="wasm32"))] let forward=seats.forward(lease);
+         let forward=seats.forward(w,lease);
+
         Ok(forward.expect("current native AI seat forward"))
     } else {
         Ok(unit.forward_on_foot())
@@ -44,14 +44,14 @@ pub fn sphere(
         radius: sphere.radius,
     })
 }
-#[cfg(target_arch = "wasm32")]
+
 pub struct F2;
-#[cfg(target_arch = "wasm32")]
+
 impl Seats for F2 {
-    fn origin(&mut self, #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3> {
+    fn origin(&mut self,  w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3> {
         crate::vehicles::module::f2::live_seats::lease_origin_in(w,lease)
     }
-    fn forward(&mut self, #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3> {
+    fn forward(&mut self,  w:&mut crate::world::owner::World,lease: Ref<SeatLease>) -> Option<Vector3> {
         crate::vehicles::module::f2::live_seats::lease_forward_in(w,lease)
     }
 }

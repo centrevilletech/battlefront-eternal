@@ -16,6 +16,7 @@ impl World {
     /// The caller keeps input independent of the shared command block.
     /// Calling existing owner entries preserves their independent event epochs,
     /// numeric substeps and publication banks without a host phase dispatcher.
+    #[cfg(target_arch = "wasm32")]
     pub fn step(&mut self, input: &WorldTickInput) -> WorldTickOutput {
         let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
         let before=crate::allocations::snapshot();
@@ -75,6 +76,7 @@ pub fn world_step_init_in(w: &mut World) -> Option<&mut [f64]> {
     w.step_init(&setup); Some(&mut w.tick.input[..])
 }
 
+#[cfg(target_arch = "wasm32")]
 pub fn world_step_run_in(w: &mut World) -> Option<&[f64]> {
     let input=WorldTickInput::take(&w.tick.input,&[]);
     let output=w.step(&input);

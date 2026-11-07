@@ -100,7 +100,6 @@ pub(crate) fn sphere_span(origin: &Vector3, direction: &Vector3, center: &Vector
 
 /// Vehicle.fireSeat and TurretSeats.drive use the same mounted Weapon.update
 /// admission and standing aim. Each caller keeps its own ordered draw stream.
-#[cfg(target_arch = "wasm32")]
 #[allow(clippy::too_many_arguments)]
 pub fn update_mounted(weapon: &mut crate::gen::Weapon, index: u32, class: &crate::combat::defs::WeaponClass, dt: f64,
     held: bool, pressed: bool, reload: bool, draws: &mut impl crate::combat::weapons::WeaponDraws, shots: &mut Vec<crate::combat::weapons::Shot>) {
@@ -110,15 +109,10 @@ pub fn update_mounted(weapon: &mut crate::gen::Weapon, index: u32, class: &crate
         &Aim { stick: 0.0, posture: Some(crate::gen::Posture::Stand), zoomed: false, repair_target: false }, draws, shots);
 }
 
-#[cfg(target_arch = "wasm32")]
 mod targeting;
-#[cfg(target_arch = "wasm32")]
 pub use targeting::*;
-#[cfg(target_arch = "wasm32")]
 mod live;
-#[cfg(target_arch = "wasm32")]
 pub use live::*;
-#[cfg(target_arch = "wasm32")]
 pub(crate) use live::State;
 
 #[cfg(test)]

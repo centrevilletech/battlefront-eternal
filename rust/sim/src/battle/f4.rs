@@ -30,23 +30,23 @@ fn building<'a>(live: &'a Live, h: &F4Handle) -> &'a Building {
     // frames before any native death, seat or explosion service can reenter.
     live.buildings.get(&h).expect("building row")
 }
-pub(crate) fn frame_in(battle: &mut BattleOwner, h: &F4Handle) -> props::Building {
+pub(crate) fn frame_in(battle: &BattleOwner, h: &F4Handle) -> props::Building {
     if h.kind == F4ObjectKind::Trap {
         let t = trap_in(battle, h).expect("trap row");
         props::Building { state: if t.built { props::State::Built } else { props::State::Unbuilt },
             health: t.health, add_health: 0.0, last_attacker: identity(attacker_in(battle, h)), target_generation: None }
-    } else { building(live_in(battle), h).state.building }
+    } else { building(live_ref(battle), h).state.building }
 }
-pub(crate) fn attacker_in(battle: &mut BattleOwner, h: &F4Handle) -> Attacker {
+pub(crate) fn attacker_in(battle: &BattleOwner, h: &F4Handle) -> Attacker {
     if h.kind == F4ObjectKind::Trap {
-        let h = live_in(battle).traps.current(h).expect("current trap row");
-        live_in(battle).traps.get(&h).unwrap().attacker
-    } else { building(live_in(battle), h).attacker }
+        let h = live_ref(battle).traps.current(h).expect("current trap row");
+        live_ref(battle).traps.get(&h).unwrap().attacker
+    } else { building(live_ref(battle), h).attacker }
 }
-pub(crate) fn trap_in(battle: &mut BattleOwner, h: &F4Handle) -> Option<traps::Trap> {
+pub(crate) fn trap_in(battle: &BattleOwner, h: &F4Handle) -> Option<traps::Trap> {
     if h.kind != F4ObjectKind::Trap { return None; }
-    let h = live_in(battle).traps.current(h).expect("current trap row");
-    Some(live_in(battle).traps.get(&h).unwrap().state)
+    let h = live_ref(battle).traps.current(h).expect("current trap row");
+    Some(live_ref(battle).traps.get(&h).unwrap().state)
 }
 pub(crate) fn set_attacker_in(battle: &mut BattleOwner, h: &F4Handle, attacker: Attacker) {
     if h.kind == F4ObjectKind::Trap {
@@ -84,8 +84,8 @@ fn identity(attacker: Attacker) -> props::Identity {
 }
 
 /// Supply clocks remain on the same canonical row used by combat.
-pub(crate) fn station_in(battle: &mut BattleOwner, h: &F4Handle) -> (props::Station, props::Settings, Option<props::Supply>) {
-    let b = building(live_in(battle), h); (b.state, b.settings, b.supply)
+pub(crate) fn station_in(battle: &BattleOwner, h: &F4Handle) -> (props::Station, props::Settings, Option<props::Supply>) {
+    let b = building(live_ref(battle), h); (b.state, b.settings, b.supply)
 }
 pub(crate) fn put_station(battle: &mut BattleOwner, h: &F4Handle, state: props::Station) {
     let h = live_in(battle).buildings.current(h).expect("current station");

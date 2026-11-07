@@ -29,7 +29,5 @@ pub mod delivery;
 pub mod journal;
 pub mod store_projectiles;
 pub mod publisher;
-#[cfg(target_arch = "wasm32")]
 mod publish_module;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod store_source;

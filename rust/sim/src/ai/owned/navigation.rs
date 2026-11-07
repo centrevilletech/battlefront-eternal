@@ -1,32 +1,19 @@
 //! Navigation on canonical unit rows. Only helper, route and controller state
 //! persists here; movement facts are read from the slab at each observation.
 // Phase owners and independent scalar fixtures use the same navigation body.
-#[cfg(target_arch="wasm32")]
+
 macro_rules! nav_store {($w:expr,$s:expr)=>{&($w).sim.store};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! nav_store {($w:expr,$s:expr)=>{&*($s)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! nav_store_mut {($w:expr,$s:expr)=>{&mut ($w).sim.store};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! nav_store_mut {($w:expr,$s:expr)=>{&mut *($s)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! nav_seats_mut {($w:expr,$s:expr)=>{($w).fleet.seats_owner()};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! nav_seats_mut {($w:expr,$s:expr)=>{&mut *($s)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! nav_fn {($f:path,$w:expr,$s:expr,$seats:expr,$($a:expr),* $(,)?)=>{$f($w,$($a),*)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! nav_fn {($f:path,$w:expr,$s:expr,$seats:expr,$($a:expr),* $(,)?)=>{$f($s,$seats,$($a),*)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! nav_method {($e:expr,$f:ident,$w:expr,$s:expr,$seats:expr,$($a:expr),* $(,)?)=>{($e).$f($w,$($a),*)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! nav_method {($e:expr,$f:ident,$w:expr,$s:expr,$seats:expr,$($a:expr),* $(,)?)=>{($e).$f($s,$seats,$($a),*)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! nav_building {($e:expr,$w:expr,$f:ident,$($a:expr),*)=>{($e).$f($w,$($a),*)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! nav_building {($e:expr,$w:expr,$f:ident,$($a:expr),*)=>{($e).$f($($a),*)};}
-#[cfg(not(target_arch="wasm32"))]
-use super::rows::row_seats_mut;
+
 use super::rows::{row_store_mut};
 use super::super::control::world::{ControlObs, HelperObs};
 use super::super::nav::{
@@ -40,8 +27,6 @@ use crate::gen::{AiLifeHandle, SeatLease, SeatUnit, Store, Unit, UnitBody};
 use crate::seats::lease::control_key;
 use crate::store::{Ref, Slab};
 use crate::vehicles::f2_seats::HullLife;
-#[cfg(not(target_arch="wasm32"))]
-use crate::vehicles::f2_seats::Seats;
 
 /// Native actor identity. The registry generation prevents a retired control
 /// from following a different actor when either registry or unit slots recycle.
@@ -127,11 +112,11 @@ const NO_CONTROL:usize=usize::MAX;
 /// clear-above query occurs only at the original jet-attempt observation point.
 pub trait Environment {
     fn time(&self) -> f64;
-    fn building_target(&mut self,#[cfg(target_arch="wasm32")] _w:&crate::world::owner::World,_target:&crate::gen::F4Handle)->Option<FollowView> {None}
-    fn trap_target(&mut self,#[cfg(target_arch="wasm32")] _w:&crate::world::owner::World,_target:&crate::gen::F4Handle,_position:Vec3)->Option<FollowView> {None}
+    fn building_target(&mut self, _w:&crate::world::owner::World,_target:&crate::gen::F4Handle)->Option<FollowView> {None}
+    fn trap_target(&mut self, _w:&crate::world::owner::World,_target:&crate::gen::F4Handle,_position:Vec3)->Option<FollowView> {None}
     /// Unit.origin/forward switches to its lease immediately, even before the
     /// next AI sync replaces the infantry controller with a seat controller.
-    fn unit_frame(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,unit:Ref<Unit>)->Option<(Vec3,Vec3)> {
+    fn unit_frame(&mut self, w:&mut crate::world::owner::World,unit:Ref<Unit>)->Option<(Vec3,Vec3)> {
         let seat=nav_store!(w,store).unit.get(unit)?.seat;
         let source=seat.and_then(|r|nav_store!(w,store).seat_lease.get(r));
         if let Some(lease)=source {
@@ -151,10 +136,10 @@ pub trait Environment {
         Some((Vec3::new(p.x,p.y,p.z),Vec3::new(d.x,d.y,d.z)))
     }
     fn remembered(&mut self, target: Actor) -> Option<Vec3>;
-    fn clear_above(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,from:Vec3,unit:&AiLifeHandle)->bool;
+    fn clear_above(&mut self, w:&mut crate::world::owner::World,from:Vec3,unit:&AiLifeHandle)->bool;
     fn follow_far(&mut self) -> f64;
     /// SeatLease.origin/forward on the current simulation rig.
-    fn seat_frame(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,hull: HullLife,index:usize) -> Option<(Vec3, Vec3)>;
+    fn seat_frame(&mut self, w:&mut crate::world::owner::World,hull: HullLife,index:usize) -> Option<(Vec3, Vec3)>;
 }
 
 pub enum Command<'a> {
@@ -526,7 +511,7 @@ impl Navigation {
     }
     pub fn command(
         &mut self,
-        #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,
+         w:&mut crate::world::owner::World,
         random: &mut RandomState,
         env: &mut dyn Environment,
         actor: Actor,
@@ -535,7 +520,7 @@ impl Navigation {
         let key=self.helper_key(actor)?;
         nav_method!(self,command_for,w,nav_store_mut!(w,store),nav_seats_mut!(w,seats),random,env,key,command)
     }
-    pub fn command_for(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,random:&mut RandomState,env:&mut dyn Environment,key:HelperKey,command:Command<'_>)->Option<HelperObs> {
+    pub fn command_for(&mut self, w:&mut crate::world::owner::World,random:&mut RandomState,env:&mut dyn Environment,key:HelperKey,command:Command<'_>)->Option<HelperObs> {
         let actor=self.helpers.get(key.0)?.actor;
         let binding = self.actors.get(actor.reference())?;
         if binding.control==NO_CONTROL {return None;}
@@ -591,7 +576,7 @@ impl Navigation {
         match command {
             Command::Attach=>{self.nav.control_attach(control,Some(&unit));return self.helper_observation_for(nav_store_mut!(w,store),key);},
             Command::Update(dt)=>{
-                let mut world=World {#[cfg(target_arch="wasm32")] w:&mut *w,#[cfg(not(target_arch="wasm32"))] store:nav_store_mut!(w,store),#[cfg(not(target_arch="wasm32"))] seats:nav_seats_mut!(w,seats),classes:&self.classes,actors:&self.actors,random,env,jet:false};
+                let mut world=World { w:&mut *w,classes:&self.classes,actors:&self.actors,random,env,jet:false};
                 self.nav.control_update(control,dt,&mut unit,&mut world);
                 if self.actors.get(actor.reference())?.seat.is_none()&&write_avoidance(row_store_mut!(world),&binding.target,&unit) {mark(&mut self.dirty,&binding.target);}
                 return self.helper_observation_for(row_store_mut!(world),key);
@@ -610,7 +595,7 @@ impl Navigation {
             _=>{},
         }
         let helper = &mut self.helpers.get_mut(key.0)?.value;
-        let mut world = World {#[cfg(target_arch="wasm32")] w:&mut *w,#[cfg(not(target_arch="wasm32"))] store:nav_store_mut!(w,store),#[cfg(not(target_arch="wasm32"))] seats:nav_seats_mut!(w,seats),
+        let mut world = World { w:&mut *w,
             classes: &self.classes,
             actors: &self.actors,
             random,
@@ -664,7 +649,7 @@ impl Navigation {
     /// Called within the AI input phase. The generated intent row is written
     /// directly, preserving unrelated weapon edges and held buttons.
     pub fn input(
-        &mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,random:&mut RandomState,
+        &mut self, w:&mut crate::world::owner::World,random:&mut RandomState,
         env:&mut dyn Environment,actor:Actor,dt:f64,aim:Option<Vec3>,facing:bool,
     )->Option<bool> {
         self.input_body_changed=false;
@@ -672,7 +657,7 @@ impl Navigation {
         if binding.control==NO_CONTROL {return None;}
         let mut unit = nav_fn!(project,w,nav_store_mut!(w,store),nav_seats_mut!(w,seats), &self.classes, &self.actors, actor, env)?;
         nav_fn!(input_frame,w,nav_store_mut!(w,store),nav_seats_mut!(w,seats),binding,env,&mut unit)?;
-        let mut world = World {#[cfg(target_arch="wasm32")] w:&mut *w,#[cfg(not(target_arch="wasm32"))] store:nav_store_mut!(w,store),#[cfg(not(target_arch="wasm32"))] seats:nav_seats_mut!(w,seats),
+        let mut world = World { w:&mut *w,
             classes: &self.classes,
             actors: &self.actors,
             random,
@@ -704,7 +689,7 @@ impl Navigation {
     pub fn input_body_changed(&self)->bool {self.input_body_changed}
     /// nav/analogs.js plain conversion does not step a control, consume a
     /// jet or toggle posture. The scheduler owns those edges in this path.
-    pub fn analogs(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,env:&mut dyn Environment,actor:Actor,aim:Option<Vec3>,dt:f64,facing:bool)->Option<[f64;4]> {
+    pub fn analogs(&mut self, w:&mut crate::world::owner::World,env:&mut dyn Environment,actor:Actor,aim:Option<Vec3>,dt:f64,facing:bool)->Option<[f64;4]> {
         let binding=self.actors.get(actor.reference())?;
         let mut unit=nav_fn!(project,w,nav_store_mut!(w,store),nav_seats_mut!(w,seats),&self.classes,&self.actors,actor,env)?;
         nav_fn!(input_frame,w,nav_store_mut!(w,store),nav_seats_mut!(w,seats),binding,env,&mut unit)?;
@@ -735,7 +720,7 @@ fn mark(dirty: &mut Vec<AiLifeHandle>, target: &AiLifeHandle) {
     }
 }
 fn project(
-    #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,
+     w:&mut crate::world::owner::World,
     classes: &[ClassDef],
     actors: &Slab<Binding>,
     actor: Actor,
@@ -831,7 +816,7 @@ fn project(
 }
 // Navigation only observes a newly mounted infantry body's lease frame at
 // input conversion. A follow-position query must not warm its rig early.
-fn input_frame(#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,binding:&Binding,env:&mut dyn Environment,unit:&mut NavUnit)->Option<()> {
+fn input_frame( w:&mut crate::world::owner::World,binding:&Binding,env:&mut dyn Environment,unit:&mut NavUnit)->Option<()> {
     if binding.seat.is_none()&&binding.passive.is_none() {
         let reference=Ref::new(binding.target.slot,binding.target.generation);
         if nav_store_mut!(w,store).unit.get(reference)?.seat.is_some() {
@@ -893,12 +878,9 @@ fn write_intent(out: &mut crate::gen::Intent, value: super::super::nav::analogs:
     )
 }
 struct World<'a> {
-    #[cfg(target_arch="wasm32")]
+
     w:&'a mut crate::world::owner::World,
-    #[cfg(not(target_arch="wasm32"))]
-    store: &'a mut Store,
-    #[cfg(not(target_arch="wasm32"))]
-    seats: &'a mut Seats,
+
     classes: &'a [ClassDef],
     actors: &'a Slab<Binding>,
     random: &'a mut RandomState,
@@ -1005,7 +987,7 @@ fn valid_seat<'a>(
     Some(h)
 }
 fn project_seat(
-    #[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,
+     w:&mut crate::world::owner::World,
     binding: &Binding,
     class: &ClassDef,
     actor: Actor,

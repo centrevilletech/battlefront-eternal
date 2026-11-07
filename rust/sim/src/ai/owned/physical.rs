@@ -2,7 +2,7 @@
 //! arguments are resolved before lending the owners onward, so recursive
 //! boarding and death callbacks cannot keep a stale body or seat borrow.
 use super::rows::{row_buildings,row_seats,row_store};
-#[cfg(target_arch="wasm32")]
+
 use super::rows::row_store_mut;
 use super::{arsenals::Mounted,entities::Entity,rows::Rows,weapons::Changes};
 use crate::{ai::vehicles::world::{ExitOptions,Obj},gen::{F2SeatCommand,F2SeatOp,SeatReason}};
@@ -52,7 +52,7 @@ pub fn seat_command<C:Changes+?Sized,M:Mounted>(rows:&Rows<'_,C,M>,action:SeatAc
     }
     Some(out)
 }
-#[cfg(target_arch="wasm32")]
+
 pub fn seat<F:super::callbacks::Factory>(factory:&F,core:&mut crate::ai::control::Core,
     rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,random:&mut crate::ai::phase::RandomState,
     combat:&mut crate::ai::combat::binding::CombatAi,settings:&super::frame::Settings,facts:&super::world::Facts,
@@ -62,7 +62,6 @@ pub fn seat<F:super::callbacks::Factory>(factory:&F,core:&mut crate::ai::control
         |w,services|crate::vehicles::module::f2::live_seats::ai_command_in(w,command,services).accepted)
 }
 
-#[cfg(target_arch="wasm32")]
 pub fn damage<F:super::callbacks::Factory>(factory:&F,core:&mut crate::ai::control::Core,
     rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,random:&mut crate::ai::phase::RandomState,
     combat:&mut crate::ai::combat::binding::CombatAi,settings:&super::frame::Settings,facts:&super::world::Facts,

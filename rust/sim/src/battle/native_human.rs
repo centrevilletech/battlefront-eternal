@@ -95,12 +95,12 @@ impl HumanDriver for Driver {
         self.human.journal(&mut w.sim.events);
     }
 }
-struct Text;
-impl Text { fn nonempty_in(&self, w: &Root, id: StrId) -> bool { !w.sim.strings.units(id).is_empty() } }
+use super::stats::WorldText as Text;
 impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
-    fn floor(at: Vector3, body: Ref<Body>) -> Option<(Vector3, Vector3)> {
-        crate::units::native::ordnance_cast(
-            f3::collision_world(),
+    fn floor(&mut self, at: Vector3, body: Ref<Body>) -> Option<(Vector3, Vector3)> {
+        let world_id = f3::collision_world_in(&self.services.w.units);
+        crate::units::native::ordnance_cast_in(
+            self.services.w, world_id,
             [at.x, at.y, at.z],
             [0.0, -1.0, 0.0],
             12.0,
@@ -115,8 +115,8 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
             )
         })
     }
-    fn relation(a: f64, b: f64) -> f64 {
-        f3::relation(a, b)
+    fn relation(&self, a: f64, b: f64) -> f64 {
+        f3::relation_in(&self.services.w.units, a, b)
     }
     fn local(&self) -> Option<Ref<Unit>> {
         self.local
@@ -138,8 +138,8 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
             yaw: point[3],
             local: true,
         };
-        let unit = with_store_in(self.services.w, s, |_| {
-            super::f4_factory::player(&request, self.services.services.reborrow())
+        let unit = with_store_in(self.services.w, s, |w| {
+            super::f4_factory::player(w,&request, self.services.services.reborrow())
         })?;
         let u = s.unit.get(unit).expect("spawned native player");
         let p = u.position();
@@ -157,14 +157,14 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
         Some(unit)
     }
     fn linked(&mut self, _: &mut Store, unit: Ref<Unit>, character: Option<Ref<Character>>) {
-        f3::changed(unit);
+        f3::changed_in(self.services.w,unit);
         if let Some(r) = character {
             super::f4_core::mark_character_in(&mut self.services.w.battle, r);
         }
     }
     fn retarget(&mut self, s: &mut Store, team: f64) {
         if let Some(unit) = self.local {
-            f3::changed(unit);
+            f3::changed_in(self.services.w,unit);
         }
         with_store_in(self.services.w, s, |w| {
             super::native_lifecycle::hook(w, F4AIHook {
@@ -181,13 +181,13 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
             HsEvent::from(event).emit(&mut self.services.w.sim.events);
         }
         let unit = self.local.expect("native human viewpoint");
-        with_store_in(self.services.w, s, |_| {
-            crate::vehicles::module::f2::live_seats::leave_voluntary(
-                unit,
+        with_store_in(self.services.w, s, |w| {
+            crate::vehicles::module::f2::live_seats::leave_voluntary_in(
+                w,unit,
                 self.services.services.reborrow(),
             );
-            crate::combat::live::damage(
-                unit,
+            crate::combat::live::damage_in(
+                w,unit,
                 f64::INFINITY,
                 Attacker::Null,
                 self.services.services.reborrow(),
@@ -212,5 +212,3 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
 }
 
 // facade shims
-#[cfg(target_arch = "wasm32")]
-impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }

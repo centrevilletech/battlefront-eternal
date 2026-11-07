@@ -8,9 +8,9 @@ struct Services {now:f64,vo:usize,vehicles:owned::vehicles::Binding}
 impl Environment for Services {
  fn time(&self)->f64 {self.now}
  fn remembered(&mut self,_:Actor)->Option<Vec3> {None}
- fn clear_above(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:Vec3,_:&AiLifeHandle)->bool {true}
+ fn clear_above(&mut self,_:&mut crate::world::owner::World,_:Vec3,_:&AiLifeHandle)->bool {true}
  fn follow_far(&mut self)->f64 {3.}
- fn seat_frame(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {panic!("no mounts in this fixture")}
+ fn seat_frame(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {panic!("no mounts in this fixture")}
 }
 #[allow(unused_variables)]
 impl<C:Changes+?Sized,M:Mounted> Hooks<C,M> for Services {
@@ -19,15 +19,15 @@ fn fire_primary(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,control
 fn flight_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool) {panic!("unprepared native flight path")}
 
 fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:bfe_sim::ai::vehicles::world::Origin)->Option<Vector3> {panic!("no mounts in this fixture")}
-fn origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};rows.store.unit.get(reference).unwrap().origin_on_foot()}
-fn forward(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};rows.store.unit.get(reference).unwrap().forward_on_foot()}
-fn aim_point(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};rows.store.unit.get(reference).unwrap().position()}
-fn sphere(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Sphere {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};Sphere {center:rows.store.unit.get(reference).unwrap().position(),radius:0.}}
+fn origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};rows.w.sim.store.unit.get(reference).unwrap().origin_on_foot()}
+fn forward(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};rows.w.sim.store.unit.get(reference).unwrap().forward_on_foot()}
+fn aim_point(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};rows.w.sim.store.unit.get(reference).unwrap().position()}
+fn sphere(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Sphere {let owned::entities::Entity::Unit(reference)=rows.state.entities.get(u).unwrap() else{panic!("body geometry")};Sphere {center:rows.w.sim.store.unit.get(reference).unwrap().position(),radius:0.}}
 fn use_classic_random(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj) {panic!("disabled canonical fixture service use_classic_random")}
 fn query(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,center: &Vector3,radius: f64,filter: QueryFilter)-> List<Obj> {
  assert!(matches!(filter,QueryFilter::Except {except:None}));
  let mut out=rows.state.buffers.units.take();
- for &member in &rows.store.units.list {
+ for &member in &rows.w.sim.store.units.list {
   let Member::Unit(reference)=member else{continue};
   let key=rows.state.entities.find(owned::entities::Entity::Unit(reference)).unwrap();
   let unit=rows.scene().policy(key).unwrap();
@@ -39,7 +39,7 @@ fn relation(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,a: f64,b: f
 fn living(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState)-> List<Obj> {panic!("disabled canonical fixture service living")}
 fn los(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,from: &Vector3,to: &Vector3,a: Option<Obj>,b: Option<Obj>)-> bool {panic!("disabled canonical fixture service los")}
 fn set_stance(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,c:Obj,stance:f64) {panic!("disabled canonical fixture service set_stance")}
-fn human_target(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,hull:Obj)->Option<Obj> {panic!("unprepared native human reticle target")} 
+fn human_target(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,hull:Obj)->Option<Obj> {panic!("unprepared native human reticle target")}
 fn interrupts_tick(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent: Obj,combat:&mut bfe_sim::ai::combat::binding::CombatAi)-> bool {panic!("disabled canonical fixture service interrupts_tick")}
 fn has_helper(&self,rows:&Rows<'_,C,M>,agent: Obj)-> bool {panic!("disabled canonical fixture service has_helper")}
 fn helper_arrived(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent: Obj)-> bool {panic!("disabled canonical fixture service helper_arrived")}
@@ -65,9 +65,9 @@ fn nav_analogs(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&
 
 struct NoMount;
 impl Mounted for NoMount {
- fn count(&self,_:&bfe_sim::gen::Store,_:owned::seats::Source,_:usize)->Option<usize> {panic!("no mounted arsenal")}
- fn read<R>(&self,_:&bfe_sim::gen::Store,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("no mounted arsenal")}
- fn edit<R>(&mut self,_:&bfe_sim::gen::Store,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut bfe_sim::ai::combat::world::WeaponSettings)->R)->Option<R> {panic!("no mounted arsenal")}
+ fn count(&self,_:&crate::world::owner::World,_:owned::seats::Source,_:usize)->Option<usize> {panic!("no mounted arsenal")}
+ fn read<R>(&self,_:&crate::world::owner::World,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("no mounted arsenal")}
+ fn edit<R>(&mut self,_:&mut crate::world::owner::World,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut bfe_sim::ai::combat::world::WeaponSettings)->R)->Option<R> {panic!("no mounted arsenal")}
 }
 #[test]
 fn concrete_world_runs_core_over_canonical_rows_without_tick_allocations() {
@@ -81,7 +81,7 @@ fn concrete_world_runs_core_over_canonical_rows_without_tick_allocations() {
   let mut strings=bfe_sim::store::Strings::default();
   let class=AiUnitClass {def:DefId(0),name:strings.intern_str("trooper"),size_type:AiClassScalar::Str(strings.intern_str("SOLDIER")),max_speed:AiClassScalar::F64(7.),forward_speed:AiClassScalar::F64(7.),..Default::default()};
   state.unit_class(&class,&strings);state.prepare_hints(|_|None);
-  for index in 0..2 {let character=state.roster.reference(&store,&commands,index).unwrap();store.units.list.push(Member::Unit(store.character.get(character).unwrap().unit.unwrap()));}
+  for index in 0..2 {let character=state.roster.reference(&store,&commands,index).unwrap();store.sim.store.units.list.push(Member::Unit(store.character.get(character).unwrap().unit.unwrap()));}
   let difficulty=if enhanced {ctl::difficulty::Difficulty::enhanced(3.,Some(side),false)}else{ctl::difficulty::Difficulty::classic(Default::default())};
   let options=ctl::Options {bind:Bind {enhanced,combat:false,combat_agent:false,vehicles:false,classes:false,vehicle_adapter:false,mine_ground:false,..Default::default()},..Default::default()};
   let mut core=ctl::Core::new(options,TeamTable::default(),difficulty.clone(),2);core.prepare(2,8,16);
@@ -92,9 +92,10 @@ fn concrete_world_runs_core_over_canonical_rows_without_tick_allocations() {
   let defs=bfe_sim::combat::defs::WeaponDefs::default();let mut changes=bfe_sim::units::ownership::Ownership::default();let mut mounted=NoMount;
   // The publication owner adopts the same canonical bodies before AI can
   // mark a changed controller link. Its generation stamps stay authoritative.
-  for &member in &store.units.list {if let Member::Unit(reference)=member {changes.adopt(&store,reference).unwrap();}}
+  for &member in &store.sim.store.units.list {if let Member::Unit(reference)=member {changes.adopt(&store,reference).unwrap();}}
   changes.clear_changed();
-  let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+  crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let mut rows=Rows {w:&mut store,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
   for index in 0..2 {
    let mut world=owned::world::World {rows:&mut rows,random:&mut random,combat:&mut combat,services:&mut services,settings:&settings,facts:&facts};
    runtime.attach(&mut world,index).unwrap();runtime.request_objective(&mut world,index);
@@ -148,13 +149,13 @@ fn concrete_world_runs_core_over_canonical_rows_without_tick_allocations() {
    let mut active=owned::active::Active {core:&mut runtime.core,services:&mut services,facts:&facts,settings:&settings};
    Hooks::helper_goto(&mut active,&mut rows,&mut random,old,&Vector3::new(24.,0.,0.),Some(CombatGotoMode::Direct));
    Hooks::helper_stop(&mut active,&mut rows,&mut random,old);
-   assert_eq!(rows.state.navigation.destination_for(rows.store,old_helper),Some(Vec3::new(24.,0.,0.)));
-   assert_eq!(rows.state.navigation.destination_for(rows.store,next_helper),Some(Vec3::default()));
+   assert_eq!(rows.state.navigation.destination_for(&rows.w.sim.store,old_helper),Some(Vec3::new(24.,0.,0.)));
+   assert_eq!(rows.state.navigation.destination_for(&rows.w.sim.store,next_helper),Some(Vec3::default()));
    assert!(Hooks::helper_arrived(&mut active,&mut rows,&mut random,old));
    assert_eq!(rows.state.agents.key(0),Some(next));
   }
   rows.state.agents.leave(&mut rows.state.entities,old);rows.state.reap_helpers();
-  assert!(rows.state.navigation.helper_observation_for(rows.store,old_helper).is_none());
+  assert!(rows.state.navigation.helper_observation_for(&rows.w.sim.store,old_helper).is_none());
   COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
   // Mounted callbacks update the active Core immediately. A support
   // hold returns the same patrol and native helper without a service bag.
@@ -176,11 +177,11 @@ fn concrete_world_runs_core_over_canonical_rows_without_tick_allocations() {
   COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
   assert_eq!(runtime.random.draw_counts()[0]-draws[0],120);
   runtime.core.controllers[0].agent.as_mut().unwrap().kind=saved_kind;
-  let character=rows.state.roster.reference(rows.store,rows.characters,0).unwrap();
-  let body=rows.store.character.get(character).unwrap().unit.unwrap();
+  let character=rows.state.roster.reference(rows.w,rows.characters,0).unwrap();
+  let body=rows.w.sim.store.character.get(character).unwrap().unit.unwrap();
   let old_actor=rows.state.actor(0).unwrap();
-  rows.store.unit.get_mut(body).unwrap().generation=2.;
-  assert!(rows.state.navigation.observation(rows.store,old_actor).is_none());
+  rows.w.sim.store.unit.get_mut(body).unwrap().generation=2.;
+  assert!(rows.state.navigation.observation(&rows.w.sim.store,old_actor).is_none());
   ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
   {
    let mut world=owned::world::World {rows:&mut rows,random:&mut random,combat:&mut combat,services:&mut services,settings:&settings,facts:&facts};
@@ -255,13 +256,13 @@ fn concrete_world_runs_core_over_canonical_rows_without_tick_allocations() {
   }}
   COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
   runtime.core.controllers[0].commands.current=saved_goal;
-  for index in 0..2 {let character=rows.state.roster.reference(rows.store,rows.characters,index).unwrap();assert!(!matches!(rows.store.character.get(character).unwrap().objective,PostRef::Null|PostRef::Undefined));}
+  for index in 0..2 {let character=rows.state.roster.reference(rows.w,rows.characters,index).unwrap();assert!(!matches!(rows.w.sim.store.character.get(character).unwrap().objective,PostRef::Null|PostRef::Undefined));}
   // A post-battle warning survives the next control feed. Its recipient
   // list comes from canonical registry rows and consumes only one A draw.
   let unit=runtime.core.controllers[0].unit.unwrap();
   let p=rows.scene().policy(unit).unwrap().position;
-  let grenade=rows.store.grenade.insert(Grenade {position:[p.x,p.y,p.z],..Default::default()});
-  rows.store.ordnance.grenades.push(grenade);rows.state.dangers.reserve(grenade.slot as usize+1);
+  let grenade=rows.w.sim.store.grenade.insert(Grenade {position:[p.x,p.y,p.z],..Default::default()});
+  rows.w.sim.store.ordnance.grenades.push(grenade);rows.state.dangers.reserve(grenade.slot as usize+1);
   rows.state.dangers.contact(grenade,0.);
   let before=runtime.random.draw_counts()[0];
   {
@@ -351,20 +352,21 @@ fn instance_owner_runs_native_phases_and_keeps_only_process_caches_between_battl
   battle.state.controllers=controllers;battle.state.combat_units=combat_units;battle.state.controls=seat_controls;
   battle.state.mounts=mounts;battle.state.turrets=turrets;battle.state.buildings=props;
   battle.state.unit_class(&class,&strings);battle.state.prepare_hints(|_|None);
-  for index in 0..2 {let character=battle.state.roster.reference(&store,&commands,index).unwrap();store.units.list.push(Member::Unit(store.character.get(character).unwrap().unit.unwrap()));}
+  for index in 0..2 {let character=battle.state.roster.reference(&store,&commands,index).unwrap();store.sim.store.units.list.push(Member::Unit(store.character.get(character).unwrap().unit.unwrap()));}
   let mut changes=bfe_sim::units::ownership::Ownership::default();
-  for &member in &store.units.list {if let Member::Unit(reference)=member {changes.adopt(&store,reference).unwrap();}}
+  for &member in &store.sim.store.units.list {if let Member::Unit(reference)=member {changes.adopt(&store,reference).unwrap();}}
   let defs=bfe_sim::combat::defs::WeaponDefs::default();let mut mounted=NoMount;
   battle.activate();assert!(battle.ready());assert_eq!(battle.runtime.core.character_count,2);assert_eq!(battle.runtime.random.draw_counts(),[0,0,0]);
   let mut services=Services {now:0.,vo:0,vehicles:battle.vehicles.clone()};
   let mut facts=Facts {time:0.,paused:false,network_views:false,lod_disabled:false,network_secondary:false};
-  battle.with_world(Owners {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut commands,changes:&mut changes,mounted:&mut mounted,definitions:&defs},&mut services,&facts,|runtime,world|{
+  crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  battle.with_world(Owners {w:&mut store,buildings:&buildings.buildings,characters:&mut commands,changes:&mut changes,mounted:&mut mounted,definitions:&defs},&mut services,&facts,|runtime,world|{
    for index in 0..2 {runtime.attach(world,index).unwrap();runtime.request_objective(world,index);}
   });
   for tick in 1..=360 {
    facts.time=tick as f64/60.;services.now=facts.time;
    if tick==181 {ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));}
-   battle.phase(Owners {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut commands,changes:&mut changes,mounted:&mut mounted,definitions:&defs},&mut services,&facts,
+   battle.phase(Owners {w:&mut store,buildings:&buildings.buildings,characters:&mut commands,changes:&mut changes,mounted:&mut mounted,definitions:&defs},&mut services,&facts,
     &AiPhaseFacts {dt:1./60.,tick,..Default::default()},&[]);
   }
   COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
@@ -389,7 +391,8 @@ fn immediate_seat_actions_resolve_physical_lives_and_reject_replaced_occupancy()
  let lease=store.seat_lease.insert(SeatLease {unit:Some(unit),generation:life,vehicle:Some(hull),..Default::default()});
  store.unit.get_mut(unit).unwrap().seat=Some(lease);
  let defs=bfe_sim::combat::defs::WeaponDefs::default();let mut changes=bfe_sim::units::ownership::Ownership::default();let mut mounted=NoMount;
- let rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+ crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let rows=Rows {w:&mut store,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
  let options=bfe_sim::ai::vehicles::world::ExitOptions {placement:Some(false),promote:Some(false),post:Some(None)};
  ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
  for _ in 0..120 {
@@ -397,13 +400,13 @@ fn immediate_seat_actions_resolve_physical_lives_and_reject_replaced_occupancy()
   assert_eq!(board.unit,Some(unit));assert_eq!(board.unit_life,life);assert_eq!(board.hull,Some(hull));assert_eq!(board.hull_life,3.);assert_eq!(board.index,-1.);
   let exit=seat_command(&rows,SeatAction::Unboard {unit:Some(key),options}).unwrap();
   assert_eq!(exit.op,F2SeatOp::Unboard);assert_eq!(exit.lease,Some(lease));assert!(!exit.placement);assert_eq!(exit.promote,Some(false));
-  rows.store.seat_lease.get_mut(lease).unwrap().generation=life+1.;
+  rows.w.sim.store.seat_lease.get_mut(lease).unwrap().generation=life+1.;
   assert!(seat_command(&rows,SeatAction::Unboard {unit:Some(key),options}).is_none());
-  rows.store.seat_lease.get_mut(lease).unwrap().generation=life;
+  rows.w.sim.store.seat_lease.get_mut(lease).unwrap().generation=life;
  }
  COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
- rows.store.vehicle.remove(hull).unwrap();
- let next=rows.store.vehicle.insert(Vehicle {target_generation:3.,..Default::default()});assert_eq!(next.slot,hull.slot);
+ rows.w.sim.store.vehicle.remove(hull).unwrap();
+ let next=rows.w.sim.store.vehicle.insert(Vehicle {target_generation:3.,..Default::default()});assert_eq!(next.slot,hull.slot);
  assert!(seat_command(&rows,SeatAction::Board {unit:key,hull:hull_key}).is_none());
 }
 
@@ -412,7 +415,7 @@ fn mounted_scheduler_creates_stationary_control_at_input_without_rig_queries() {
  use owned::{entities::Entity,state::{State,Capacity}};
  use bfe_sim::{gen::*,ai::{nav::Nav,control::{controller::Controller,difficulty::Difficulty}},battle::{commands::Commands,live_phase::{Live,Building},props},seats::{hulls::HullSide,turrets::TurretSide},store::{Ref,Strings},vehicles::f2_seats::Seats};
  for turret in [false,true] {
-  let mut store=Store::default();let mut seats=Seats::default();let mut strings=Strings::default();
+  let mut store=crate::ai::owned::tests::empty_world();let mut seats=Seats::default();let mut strings=Strings::default();
   let mut buildings=Live::new(1,0,0);let mut characters=Commands::new(0);
   let mut state=State::new(Nav::empty(Default::default()),false,Capacity {registry:8,characters:1,posts:0,hulls:1,buildings:1,controls:4,scopes:4,cameras:0});
   let class=state.control_class(&AiUnitClass {name:strings.intern_str("gunner"),forward_speed:AiClassScalar::F64(0.),..Default::default()},&strings,7.);
@@ -443,7 +446,8 @@ fn mounted_scheduler_creates_stationary_control_at_input_without_rig_queries() {
   let mut services=Services {now:0.,vo:0,vehicles:owned::vehicles::Binding {authority:owned::vehicles::Authority::new(bfe_sim::ai::vehicles::VehicleAI::new()),settings:Default::default(),navigation:true,population:false}};
   let mut changes=bfe_sim::units::ownership::Ownership::default();let mut mounted=NoMount;let defs=bfe_sim::combat::defs::WeaponDefs::default();
   let mut random=RandomState::new(17);let mut combat=CombatAi::default();let facts=Facts {time:0.,paused:false,network_views:false,lod_disabled:true,network_secondary:false};
-  let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+  crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let mut rows=Rows {w:&mut store,buildings:&buildings.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
   assert!(rows.state.actor(0).is_none());
   let mut world=owned::world::World {rows:&mut rows,random:&mut random,combat:&mut combat,services:&mut services,settings:&settings,facts:&facts};
   core.execute(&mut world,1./60.);
@@ -453,7 +457,7 @@ fn mounted_scheduler_creates_stationary_control_at_input_without_rig_queries() {
   for _ in 0..120 {core.execute(&mut world,1./60.);}
   COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);assert_eq!(world.random.draw_counts(),[0,0,0]);
   assert_eq!(world.rows.state.navigation.control(actor).unwrap().serial,serial);
-  let output=if turret {&world.rows.seats.crews.controls}else{&world.rows.seats.hulls.controls};
+  let output=if turret {&world.rows.w.fleet.seats_owner().crews.controls}else{&world.rows.w.fleet.seats_owner().hulls.controls};
   let intent=&output.get(&bfe_sim::seats::lease::control_key(control)).unwrap().intent;
   assert_eq!([intent.forward,intent.right,intent.turn,intent.pitch],[0.;4]);
  }
@@ -480,7 +484,8 @@ fn canonical_combat_ingest_uses_sparse_journal_order_overflow_and_qualified_live
  let difficulty=ctl::difficulty::Difficulty::classic(Default::default());let settings=Settings {difficulty:std::cell::RefCell::new(difficulty),mission_stay_in_turrets:false,mission_no_jet_obstacle_test:false,ai_stay_in_turrets:false,vehicles:false,dense:false,navigation:false};
  let facts=Facts {time:0.,paused:false,network_views:false,lod_disabled:true,network_secondary:false};let mut random=RandomState::new(17);let mut combat=CombatAi::default();
  let mut services=Services {now:0.,vo:0,vehicles:owned::vehicles::Binding {authority:owned::vehicles::Authority::new(bfe_sim::ai::vehicles::VehicleAI::new()),settings:Default::default(),navigation:false,population:false}};
- let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+ crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let mut rows=Rows {w:&mut store,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
  let mut world=owned::world::World {rows:&mut rows,random:&mut random,combat:&mut combat,services:&mut services,settings:&settings,facts:&facts};
  let victim=world.rows.state.controllers.key(0).unwrap();
  world.rows.state.import_journal(&input).unwrap();
@@ -539,7 +544,8 @@ fn sparse_ai_voice_and_owner_notices_preserve_body_and_proxy_identity() {
  store.unit.get_mut(body).unwrap().network_human=None;
  assert!(state.link_controller(&mut store,&mut changes,proxy,0,false));state.seat_driven(&mut seats,proxy);
  assert!(!seats.hulls.controls.get(&bfe_sim::seats::lease::control_key(control)).unwrap().driven);
- let rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+ crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let rows=Rows {w:&mut store,buildings:&buildings.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
  assert!(matches!(owners.observe(&rows,keys[0]).unwrap().actor,AiActor::Unit(reference) if reference==body));
  assert!(matches!(owners.observe(&rows,proxy).unwrap().actor,AiActor::SeatUnit(reference) if reference==control));
  let notice=voices.record(7.,&rows,proxy,"charge","ChargeSound",0.,Some(0.),Some(false),Some(false)).unwrap();
@@ -554,9 +560,9 @@ fn sparse_ai_voice_and_owner_notices_preserve_body_and_proxy_identity() {
  COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
  // The same pooled body's next life keeps its lazy owner number. Storage
  // replacement and a fresh SeatUnit object each receive a new observation.
- rows.store.unit.get_mut(body).unwrap().generation=2.;assert!(owners.observe(&rows,keys[0]).is_none());
- assert!(rows.state.controls.retire(control));assert!(rows.state.births.retire(rows.seats,&mut rows.state.entities,control));
- rows.store.seat_lease.get_mut(lease).unwrap().generation=2.;
- let next=rows.state.construct_control(rows.store,rows.seats,rows.buildings.rows(),lease).unwrap();assert_eq!(next.slot,control.slot);assert_ne!(next,control);
+ rows.w.sim.store.unit.get_mut(body).unwrap().generation=2.;assert!(owners.observe(&rows,keys[0]).is_none());
+ assert!(rows.state.controls.retire(control));assert!(rows.state.births.retire(rows.w.fleet.seats_owner(),&mut rows.state.entities,control));
+ rows.w.sim.store.seat_lease.get_mut(lease).unwrap().generation=2.;
+ let next=rows.state.construct_control(&mut rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)),lease).unwrap();assert_eq!(next.slot,control.slot);assert_ne!(next,control);
  let proxy=rows.state.entities.find(Entity::Control(next)).unwrap();assert!(owners.observe(&rows,proxy).is_some());assert!(owners.observe(&rows,proxy).is_none());
 }

@@ -29,7 +29,7 @@ pub(crate) unsafe fn wire_publish_in(w: &mut crate::world::owner::World, session
         owner.sources.get_mut(s.source),owner.staggers.get_mut(s.stagger),owner.shots.get(s.shots),
         owner.hosts.get_mut(s.host),owner.combat.get_mut(s.combat),owner.runtimes.get_mut(s.runtime)) else{return None};
     let facts=source.publication_clock();
-    let mut world=PublicationWorld {w: super::store_source::Read {sim:&w.sim,input:&w.input},epoch:host.epoch,source,stagger,shots,combat,edges:&owner.edges};
+    let mut world=PublicationWorld {w: super::store_source::Read {sim:&w.sim,input:&w.input,units:&w.units,fleet:&w.fleet,battle:&w.battle,combat:&w.combat,collision:&mut w.collision,movement:&mut w.movement},epoch:host.epoch,source,stagger,shots,combat,edges:&owner.edges};
     s.publisher.run(host,runtime,&mut world,facts[F::TICK],facts[F::AT],facts[F::UNIX_MS],facts[F::DROPPED_TICKS]);
     Some(&s.publisher.block.words[..])
 

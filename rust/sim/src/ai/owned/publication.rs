@@ -1,7 +1,7 @@
 //! squads.emitVo and Items.ownedBy publish their first-use facts in source
 //! order. Body and control identities remain distinct, even when a mounted
 //! proxy borrows its physical rider's weapons or both share a slab index.
-#[cfg(target_arch="wasm32")]
+
 use super::rows::row_store;
 use super::{arsenals::Mounted,entities::Entity,rows::Rows,weapons::Changes};
 use crate::{ai::combat::world::Obj,gen::{AiActor,AiItemOwnerNotice,AiVoiceNotice},store::{StrId,Strings}};
@@ -45,13 +45,13 @@ impl ItemOwners {
         cell.set(Some(unit));Some(AiItemOwnerNotice {actor})
     }
 }
-#[cfg(target_arch="wasm32")]
+
 impl super::host::Voice for &Voices {
     fn emit(&self,time:f64,rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,event:&str,property:&str,command:f64,context:Option<f64>,positional:Option<bool>,notice:Option<bool>) {
         if let Some(record)=self.record(time,rows,unit,event,property,command,context,positional,notice) {record.emit(&mut rows.w.sim.events);}
     }
 }
-#[cfg(target_arch="wasm32")]
+
 impl super::host::OwnedItems for &ItemOwners {
     fn count(&self,rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,weapon:(crate::store::DefId,u32))->usize {
         if let Some(record)=self.observe(rows,unit) {record.emit(&mut rows.w.sim.events);}

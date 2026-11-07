@@ -20,7 +20,6 @@ use jsrt::rng::Mulberry32;
 /// givePowerup and Station.serve keep the loaded round out of the reserve
 /// capacity. The small change threshold is deliberate; a pickup which gives
 /// no ammunition must remain available to the next target in list order.
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn supply(weapon: &mut Weapon, level: &Level, amount: f64, powerup: bool) -> bool {
     let ammo = level.get(K::Ammo).num();
     if (powerup && level.powerup_dispenser) || weapon.bottomless || !(ammo > 0.0) { return false; }

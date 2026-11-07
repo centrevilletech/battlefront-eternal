@@ -116,7 +116,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
 impl<S:super::navigation::Environment> super::navigation::Environment for Active<'_,S> {
  fn time(&self)->f64 {self.services.time()}
  fn remembered(&mut self,target:super::navigation::Actor)->Option<crate::ai::nav::math::Vec3> {self.services.remembered(target)}
- fn clear_above(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut crate::gen::Store,#[cfg(not(target_arch="wasm32"))] seats:&mut crate::vehicles::f2_seats::Seats,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool {#[cfg(target_arch="wasm32")] {self.services.clear_above(w,from,unit)} #[cfg(not(target_arch="wasm32"))] {self.services.clear_above(store,seats,from,unit)}}
+ fn clear_above(&mut self, w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool { {self.services.clear_above(w,from,unit)} }
  fn follow_far(&mut self)->f64 {self.services.follow_far()}
- fn seat_frame(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut crate::gen::Store,#[cfg(not(target_arch="wasm32"))] seats:&mut crate::vehicles::f2_seats::Seats,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> {#[cfg(target_arch="wasm32")] {self.services.seat_frame(w,hull,index)} #[cfg(not(target_arch="wasm32"))] {self.services.seat_frame(store,seats,hull,index)}}
+ fn seat_frame(&mut self, w:&mut crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> { {self.services.seat_frame(w,hull,index)} }
 }

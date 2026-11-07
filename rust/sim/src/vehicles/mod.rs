@@ -32,9 +32,6 @@ pub mod build;
 pub mod class;
 pub mod damage;
 pub mod firing;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "module/f2/firing.rs"]
-mod firing_phase;
 pub mod hover;
 pub mod hull;
 #[path = "module/f2/seats.rs"]
@@ -50,7 +47,6 @@ pub mod spawn;
 pub mod store;
 pub mod tethers;
 pub mod walker;
-#[cfg(target_arch = "wasm32")]
 pub mod module;
 #[cfg(feature = "replay")]
 pub mod replay;

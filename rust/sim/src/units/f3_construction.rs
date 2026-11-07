@@ -43,9 +43,9 @@ pub fn f3_factory_reserve_in(world_ctx: &mut crate::world::owner::World, limit: 
     f.players.reserve(limit.saturating_sub(f.players.len()));
     f3::reserve_native_slots_in(world_ctx, limit);
     module::reserve_bodies_in(&mut world_ctx.units, limit);
-    crate::vehicles::module::f2::reserve_registry(limit);
+    crate::vehicles::module::f2::reserve_registry_in(world_ctx, limit);
     crate::recon::module::reserve_unit_slots_in(world_ctx, limit);
-    crate::vehicles::module::f2::live_seats::reserve_unit_slots(limit);
+    crate::vehicles::module::f2::live_seats::reserve_unit_slots_in(world_ctx, limit);
 }
 
 /// UnitFactory.build completes ordinary adoption before staging. Its source
@@ -59,7 +59,7 @@ pub fn f3_factory_stage_in(world_ctx: &mut crate::world::owner::World) {
     input.adoption.key.validate(&world_ctx.sim.store).expect("current cold construction row");
     let resources=Resources {
         body:module::take_body_in(&mut world_ctx.units, source.slot),
-        rider:crate::vehicles::module::f2::riders::take(source),
+        rider:crate::vehicles::module::f2::riders::take_in(world_ctx, source),
         publication:f3::take_publication_in(&mut world_ctx.units, source),
         health:f3::health_scale_in(&world_ctx.units, source.slot),
         bindings:f3::take_bindings_in(&mut world_ctx.units, source.slot),
@@ -86,11 +86,11 @@ fn activate_in(world_ctx: &mut crate::world::owner::World, result: Realized, ret
     if let Some((cookie,_))=result.prepared {
         let resources=world_ctx.units.factory.as_mut().expect("prepared unit service").resources[cookie as usize].take().expect("cold body services");
         module::install_body_in(&mut world_ctx.units, reference,resources.body);
-        crate::vehicles::module::f2::riders::install(reference,resources.rider);
+        crate::vehicles::module::f2::riders::install_in(world_ctx, reference,resources.rider);
         let water=resources.adoption.droideka_water.clone();
         f3::install_native_slot_in(&mut world_ctx.units, reference,resources.adoption.category,resources.health,
             resources.bindings,water,resources.publication);
-        crate::vehicles::module::f2::live_seats::adopt_unit(reference,
+        crate::vehicles::module::f2::live_seats::adopt_unit_in(world_ctx, reference,
             resources.adoption.has_actor,resources.adoption.no_enter);
         world_ctx.units.factory.as_mut().expect("prepared unit service").residents[reference.slot as usize]=Some(Resident {cookie,adoption:resources.adoption});
         F3UnitBirth {key:result.key,cookie,replacement:result.replacement,retired_cookie,
@@ -120,7 +120,7 @@ pub(crate) fn realize_in(world_ctx: &mut crate::world::owner::World, request: &F
         let cookie=old.cookie;
         world_ctx.units.factory.as_mut().expect("prepared unit service").resources[cookie as usize]=Some(Resources {
             body:module::take_body_in(&mut world_ctx.units, reference.slot),adoption:old.adoption,
-            rider:crate::vehicles::module::f2::riders::take(reference),
+            rider:crate::vehicles::module::f2::riders::take_in(world_ctx, reference),
             publication:f3::take_publication_in(&mut world_ctx.units, reference),
             health:f3::health_scale_in(&world_ctx.units, reference.slot),bindings:f3::take_bindings_in(&mut world_ctx.units, reference.slot),
         });

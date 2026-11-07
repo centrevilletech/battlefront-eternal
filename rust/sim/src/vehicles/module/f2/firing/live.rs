@@ -64,14 +64,14 @@ fn firing_state<'a>(firing: &'a mut Option<State>, strings: &mut crate::store::S
 }
 /// captureMountedControl reads both exact weapon clocks and their next
 /// barrels. The pose owns barrel rotation; the firing slab owns Weapon state.
-pub(crate) fn wire_weapons_in<T>(world_ctx: &mut crate::world::owner::World, hull: Ref<Vehicle>, life: f64, seat: usize,
+pub(crate) fn wire_weapons_in<T>(fleet:&super::super::super::Fleet, hull: Ref<Vehicle>, life: f64, seat: usize,
     capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> {
-    let st = world_ctx.fleet.firing.as_ref().ok_or("mounted control lease prerequisite missing")?;
+    let st = fleet.firing.as_ref().ok_or("mounted control lease prerequisite missing")?;
     let craft = st.crafts.get(hull.slot as usize).and_then(Option::as_ref)
         .filter(|c| c.id == hull && c.life == life).ok_or("mounted control lease prerequisite missing")?;
     let refs = craft.seats.get(seat).ok_or("mounted control lease prerequisite missing")?;
     if refs.len() > 2 { return Err("mounted weapon count exceeds correction budget"); }
-    let posed = world_ctx.fleet.poses.get(hull.slot as usize).and_then(Option::as_ref)
+    let posed = fleet.poses.get(hull.slot as usize).and_then(Option::as_ref)
         .and_then(|p| p.pose.seats.get(seat)).ok_or("mounted control lease prerequisite missing")?;
     let unused = Weapon::default(); let mut values = [(&unused, 0.); 2];
     for (i, &reference) in refs.iter().enumerate() {
@@ -102,7 +102,7 @@ pub(crate) fn f2_firing_adopt_in(world_ctx: &mut crate::world::owner::World) {
         craft.leg_names.push(leg.name);
         craft.legs.push(TowLeg { name: String::new(), thigh: leg.thigh.as_ref().map(vec), calf: leg.calf.as_ref().map(vec), foot: leg.foot.as_ref().map(vec) });
     }
-    let defs = crate::combat::module::defs();
+    let defs = crate::combat::module::defs_in(&mut world_ctx.combat);
     for seat in a.seats {
         let mut refs = Vec::new();
         for birth in seat.weapons {
@@ -170,7 +170,7 @@ fn rebuild_publication_in(world_ctx: &mut crate::world::owner::World) { firing_s
 // Only submitted changed facts replace the retained foreign input. Reapply
 // AI modifiers before latch so a later seatWeaponPolicy call can override them
 // at its original slot. Triggers always come from the canonical lease later.
-pub(crate) fn inputs_in(firing: &mut Option<State>, strings: &mut crate::store::Strings, data: &[f64]) -> usize { firing_state(firing, strings).inputs(data, crate::world::deferred()) }
+pub(crate) fn inputs_in(units:&crate::units::owner::Units,whole_tick:bool,firing: &mut Option<State>, strings: &mut crate::store::Strings, data: &[f64]) -> usize { firing_state(firing, strings).inputs(data, whole_tick, f3::active_in(units)) }
 
 /// Bind a bot seat to the same native generator its controller consumes.
 /// Retain that handle in each fire invocation so recursive retirement cannot
@@ -216,7 +216,7 @@ pub(crate) fn edit_weapon_owned_in<R>(firing: &mut Option<State>, strings: &mut 
 // Vehicle.setSeatPolicy can run during promotion or boarding after input was
 // imported. Apply the native reset immediately, rather than waiting for a JS
 // mirror to send the same values in the following phase.
-pub(crate) fn policy_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, seat: usize, player: bool, random: bool) { firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).policy(r, seat, player, random) }
+pub(crate) fn policy_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, seat: usize, player: bool, random: bool) { firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).policy(&mut world_ctx.units,r, seat, player, random) }
 
 // ClassicCombatBinding.attachController changes every weapon on that seat
 // to its shared AI generator before later native fire can consume a draw.
@@ -235,21 +235,42 @@ fn publish_for_in(world_ctx: &mut crate::world::owner::World, only: Option<Ref<V
 /// The existing F2 descriptor points to a generated firing descriptor.
 /// Its event address removes getter/clear exports from the ordinary tick.
 pub(crate) fn phase_ptr_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
-    let weapons = publish_in(world_ctx).map_or(0, |b| b.as_ptr() as usize as u32);
+    publish_in(world_ctx);
+    let mut value = FfPhase::default();
+    #[cfg(target_arch = "wasm32")]
+    bind_phase(world_ctx, &mut value);
     let st = firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings);
-    let value = FfPhase { weapons, cables: st.cable_output.ptr() as usize as u32, events: world_ctx.sim.events.ptr() as usize as u32 };
     value.put(&mut st.phase, &mut st.cable_output.heap);
     Some(&st.phase[..])
 }
 
+// Address descriptors belong to the linear-memory facade. Native readers
+// observe the same retained weapon, cable and supply banks without offsets.
+#[cfg(target_arch = "wasm32")]
+fn bind_phase(w: &mut crate::world::owner::World, value: &mut FfPhase) {
+    let st = firing_state(&mut w.fleet.firing, &mut w.sim.strings);
+    value.weapons = st.output.ptr() as u32;
+    value.cables = st.cable_output.ptr() as u32;
+    value.events = w.sim.events.ptr() as u32;
+}
+pub(crate) fn phase_words_in(w: &mut crate::world::owner::World) -> &[f64] {
+    &firing_state(&mut w.fleet.firing, &mut w.sim.strings).phase
+}
+#[cfg(target_arch = "wasm32")]
+fn bind_supply(w: &mut crate::world::owner::World, value: &mut FfSupplyResult) {
+    value.output = firing_state(&mut w.fleet.firing, &mut w.sim.strings).output.ptr() as u32;
+}
+#[cfg(target_arch = "wasm32")]
+fn events_address(w: &crate::world::owner::World) -> u32 { w.sim.events.ptr() as u32 }
+
 // Weapon.update chooses draws in the same order as its JS implementation.
 // Seed/admission hooks remain no-ops for mounted weapons, matching the original
 // Vehicle.fireSeat path rather than the infantry prediction path.
-struct Draws { hull: Ref<Vehicle>, seat: u32, weapon: u32, random:Option<crate::ai::random::SharedRandom>, binding:u32 }
-impl WeaponDraws for Draws {
+struct Draws<'a> { units:&'a mut crate::units::owner::Units, hull: Ref<Vehicle>, seat: u32, weapon: u32, random:Option<crate::ai::random::SharedRandom>, binding:u32 }
+impl WeaponDraws for Draws<'_> {
     fn draw(&mut self, _: u32) -> f64 {
             if let Some(random)=self.random.as_mut() {return crate::ai::random::Random::uniform(random);}
-            if f3::active() { return f3::random_binding(self.binding); }
+            if f3::active_in(self.units) { return f3::random_binding_in(self.units,self.binding); }
             import_f2_weapon_draw(&FfDraw { hull: self.hull, seat: self.seat, weapon: self.weapon }).value
     }
     fn legacy(&mut self, i: u32) -> f64 { self.draw(i) }
@@ -282,7 +303,7 @@ fn lock_pick_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, cla
     let range = d.get(K::LockOnRange).or(0.0);
     if target >= -1 {
         if target < 0 { return None; }
-        let facts = target_facts(r, target as usize, false, false);
+        let facts = target_facts(world_ctx,r, target as usize, false, false);
         if !facts.alive || !allowed(masks.0,masks.1,facts.relation,facts.category) { return None; }
         return Some(target_key_in(world_ctx, target as usize, facts.alive));
     }
@@ -302,7 +323,7 @@ impl LockQuery for HullQuery<'_> {
     }
 
     fn facts(&mut self, i: usize, shapes: bool, aim: bool) -> LockFacts { let world_ctx = &mut *self.0;
-            let f = target_facts(self.1,i,shapes,aim); let m = member_in(world_ctx, i);
+            let f = target_facts(world_ctx,self.1,i,shapes,aim); let m = member_in(world_ctx, i);
             LockFacts { id: m.id, generation: m.generation.unwrap_or(0.0), alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
                 hull: if m.kind == 1 || m.kind == 3 { world_ctx.sim.store.vehicle.at(m.hull).map(|(r,_)| r) } else { None },
                 body: (f.body >= 0.0).then_some(f.body as u32), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
@@ -315,9 +336,9 @@ impl LockQuery for HullQuery<'_> {
 }
 
 fn member_in(world_ctx: &mut crate::world::owner::World, i: usize) -> MemberRow {
-    if f3::active() {
-        let facts = crate::units::f3_fleet::flight(i, u32::MAX);
-        let hull = crate::units::f3_hulls::for_member(crate::units::f3_fleet::key(i));
+    if f3::active_in(&world_ctx.units) {
+        let facts = crate::units::f3_fleet::flight_in(world_ctx, i, u32::MAX);
+        let hull = crate::units::f3_hulls::for_member_in(world_ctx, crate::units::f3_fleet::key_in(&world_ctx.sim, i));
         return MemberRow { kind: if facts.unit { 0 } else if hull.is_some() { 1 } else { 2 },
             id: facts.id, generation: facts.generation, alive: facts.alive, team: facts.team,
             hull: hull.map_or(u32::MAX, |r| r.slot), point: facts.point };
@@ -325,8 +346,8 @@ fn member_in(world_ctx: &mut crate::world::owner::World, i: usize) -> MemberRow 
     world_ctx.fleet.members[i]
 }
 fn target_key_in(world_ctx: &mut crate::world::owner::World, i: usize, alive: bool) -> LockTarget { let m = member_in(world_ctx, i); LockTarget { id: m.id, generation: m.generation.unwrap_or(0.0), alive } }
-fn target_facts(r: Ref<Vehicle>, i: usize, shapes: bool, aim: bool) -> FfTargetFacts {
-    if f3::active() { return crate::units::f3_fleet::hull_target(r, i, shapes, aim); }
+fn target_facts(world_ctx:&mut crate::world::owner::World,r: Ref<Vehicle>, i: usize, shapes: bool, aim: bool) -> FfTargetFacts {
+    if f3::active_in(&world_ctx.units) { return crate::units::f3_fleet::hull_target_in(world_ctx,r, i, shapes, aim); }
     import_f2_target_facts(&FfTargetQuery { index: i as u32, viewer: r, shapes, aim })
 }
 
@@ -414,7 +435,7 @@ fn fire_seat_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, sea
     }
     let suppressed = tow && world_ctx.sim.store.vehicle.get(r).unwrap().tow_target >= 0.0;
     update_mounted(&mut w, weapon as u32, &class, dt, !suppressed && (held || pressed), !suppressed && pressed, reload,
-        &mut Draws { hull: r, seat: seat as u32, weapon: weapon as u32, random, binding }, &mut shots);
+        &mut Draws { units:&mut world_ctx.units,hull: r, seat: seat as u32, weapon: weapon as u32, random, binding }, &mut shots);
     { let m = firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).weapons.get_mut(wr).unwrap(); m.state = w; m.input = input; m.class = Some(class); m.dirty = true; }
     for shot in &shots {
         if !world_ctx.sim.store.vehicle.get(r).is_some_and(|v| v.alive) { break; }
@@ -472,18 +493,22 @@ fn emit_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, seat: us
     // Vehicle.emitShot captures its weapon state and muzzle before another
     // barrel advances. Game's fired observer is a journal/presentation notice;
     // owned worlds drain it in the shared stream after native work returns.
-    let sample = if f3::active() {
-        crate::units::f3_fleet::mounted_sample(owner,crate::units::f3_hulls::member(r))
+    let sample = if f3::active_in(&world_ctx.units) {
+        crate::units::f3_fleet::mounted_sample_in(world_ctx, owner,crate::units::f3_hulls::member_in(&world_ctx.units, r))
     } else { F3MountedSample::default() };
-    if f3::active() { crate::units::f3_fleet::wire_shot(&sample); }
+    if f3::active_in(&world_ctx.units) { crate::units::f3_fleet::wire_shot_in(world_ctx, &sample); }
     let event = FfShot {
         state: firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).weapons.get(wr).unwrap().state.clone(), hull: r, life,
         seat: seat as u32, weapon: weapon as u32, owner, yaw, pitch, charge,
         target_id, target_generation, origin: v3(&muzzle), direction: v3(&direction), sample,
     };
     event.emit(&mut world_ctx.sim.events);
-    if !f3::active() {
-        import_f2_fired(&FfFired { shot: event, events: world_ctx.sim.events.ptr() as usize as u32 });
+    if !f3::active_in(&world_ctx.units) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let events = 0;
+        #[cfg(target_arch = "wasm32")]
+        let events = events_address(world_ctx);
+        import_f2_fired(&FfFired { shot: event, events });
     }
 }
 
@@ -518,7 +543,7 @@ fn assist_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, origin
     let mut world = JsWorld::new_in(world_ctx, r.slot);
     if !world.environment().assists || id < 0.0 { return; }
     let Some(i) = world.member_by_id(id) else { return };
-    let facts = target_facts(r, i, false, true);
+    let facts = target_facts(world.world_ctx,r, i, false, true);
     if !facts.alive { return; }
     let point = vec(&facts.aim);
     let t = world.tuning(class);
@@ -684,7 +709,7 @@ fn update_tethers_in(world_ctx: &mut crate::world::owner::World, mut services: O
             if let Some(services) = &mut services {
                 // Vehicles.updateTethers finishes the tripped walker's crew
                 // deaths and blast before continuing the next retained cable.
-                crate::units::f3_hulls::mutate(target, f64::INFINITY, Some(owner), services.reborrow());
+                crate::units::f3_hulls::mutate_in(world_ctx, target, f64::INFINITY, Some(owner), services.reborrow());
             } else {
                 let (tag, slot, gen) = match owner { OrdnanceOwner::Unit(u) => (2, u.slot, u.gen), _ => (3, r.slot, r.gen) };
                 super::super::f2_command_in(world_ctx, target.slot, target.gen, target_life, 0, f64::INFINITY, tag, slot, gen);
@@ -753,7 +778,10 @@ pub(crate) fn f2_firing_supply_in(world_ctx: &mut crate::world::owner::World) ->
     let a = { let (row, heap) = world_ctx.sim.calls.args(); FfSupply::take(row, heap) };
     let changed = supply_station_in(world_ctx, a.hull, a.life, a.amount);
 
-    let result = FfSupplyResult { changed, output: publish_for_in(world_ctx, Some(a.hull)).map_or(0, |b| b.as_ptr() as usize as u32) };
+    publish_for_in(world_ctx, Some(a.hull));
+    let mut result = FfSupplyResult { changed, ..Default::default() };
+    #[cfg(target_arch = "wasm32")]
+    bind_supply(world_ctx, &mut result);
     firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).supply_result.result(FfSupplyResult::WORDS, |row, heap| result.put(row, heap));
     Some(&firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).supply_result.block.words)
 }
@@ -835,7 +863,7 @@ impl State {
         st.cable_output.words.reserve(8192); st.cable_output.heap.reserve(1024);
         st.output.words.reserve(32768); st.output.heap.reserve(32768);
     }
-    fn inputs(&mut self, data: &[f64], whole_tick:bool) -> usize {
+    fn inputs(&mut self, data: &[f64], whole_tick:bool,native:bool) -> usize {
         let mut o = 0;
         let st = self;
         for c in st.crafts.iter_mut().flatten() {
@@ -855,7 +883,7 @@ impl State {
         for c in st.crafts.iter().flatten() { for seat in &c.seats { for &wr in seat {
             let w = st.weapons.get_mut(wr).unwrap();
             w.state.random = w.input.has_random;
-            if f3::active() { w.random_binding = w.input.random_binding; }
+            if native { w.random_binding = w.input.random_binding; }
             w.state.floor = w.input.floor;
             if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
             w.state.spread_scale = w.input.spread_scale; w.state.sniper_scale = w.input.sniper_scale;
@@ -872,7 +900,7 @@ impl State {
             weapon.dirty = true;
         }
     }
-    fn policy(&mut self, r: Ref<Vehicle>, seat: usize, player: bool, random: bool) {
+    fn policy(&mut self,units:&mut crate::units::owner::Units, r: Ref<Vehicle>, seat: usize, player: bool, random: bool) {
         let c = self.crafts[r.slot as usize].as_ref().unwrap();
         for &wr in &c.seats[seat] {
             let w = self.weapons.get_mut(wr).unwrap(); let d = w.state.level(w.class.as_ref().unwrap());
@@ -880,8 +908,8 @@ impl State {
             w.state.floor = if player { -d.get(K::SpreadThreshold).or(0.0) } else { 0.0 };
             if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
             w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None; w.state.random = random; w.dirty = true;
-            if f3::active() {
-                w.random_binding = if random { f3::seat_binding() } else { u32::MAX };
+            if f3::active_in(units) {
+                w.random_binding = if random { f3::seat_binding_in(units) } else { u32::MAX };
                 w.input.random_binding = w.random_binding; w.input.has_random = random;
                 w.input.floor = w.state.floor; w.input.spread_scale = 1.0;
                 w.input.sniper_scale = 0.0; w.input.yaw_spread_override = None;
@@ -1046,12 +1074,12 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
 // facade shims: callers outside the fleet bindings still enter through WASM.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn wire_weapons<T>(hull: Ref<Vehicle>, life: f64, seat: usize,
-    capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> { wire_weapons_in(crate::abi::world(), hull, life, seat, capture) }
+    capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> { wire_weapons_in(&crate::abi::world().fleet, hull, life, seat, capture) }
 
 #[cfg(target_arch = "wasm32")]
 pub fn retire(r: Ref<Vehicle>) { retire_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
-pub fn inputs(data: &[f64]) -> usize { let w = crate::abi::world(); inputs_in(&mut w.fleet.firing, &mut w.sim.strings, data) }
+pub fn inputs(data: &[f64]) -> usize { let w = crate::abi::world(); inputs_in(&w.units,crate::world::deferred_in(&w.tick),&mut w.fleet.firing, &mut w.sim.strings, data) }
 #[cfg(target_arch = "wasm32")]
 pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) { freeze_ai_targets_in(crate::abi::world(), ai) }
 #[cfg(target_arch = "wasm32")]

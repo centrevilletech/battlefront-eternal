@@ -3,8 +3,8 @@ use std::cell::Cell;
 
 struct AllocationCounter;
 thread_local! {
-    static COUNTING: Cell<bool> = const { Cell::new(false) };
-    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+    pub(super) static COUNTING: Cell<bool> = const { Cell::new(false) };
+    pub(super) static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 unsafe impl GlobalAlloc for AllocationCounter {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -192,7 +192,7 @@ fn missing_b_service_shares_a_at_each_draw_point() {
 #[test]
 fn canonical_reads_reject_respawns_and_slot_reuse_without_mirrors() {
     use bfe_sim::gen::{Store, Unit, Vehicle, KIND_UNIT, KIND_VEHICLE};
-    let mut store = Store::default();
+    let mut store = crate::ai::owned::tests::empty_world();
     let unit = store.unit.insert(Unit { generation: 7., ..Unit::default() });
     let hull = store.vehicle.insert(Vehicle { target_generation: 9., ..Vehicle::default() });
     let key = AiLifeHandle { kind: KIND_UNIT.into(), slot: unit.slot, generation: unit.gen, life: 7. };
@@ -213,9 +213,9 @@ fn canonical_reads_reject_respawns_and_slot_reuse_without_mirrors() {
 struct NavigationEnvironment { now: f64 }
 impl bfe_sim::ai::owned::navigation::Environment for NavigationEnvironment {
     fn time(&self) -> f64 { self.now }
-    fn seat_frame(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {Some((Vec3::default(),Vec3::new(0.,0.,1.)))}
+    fn seat_frame(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {Some((Vec3::default(),Vec3::new(0.,0.,1.)))}
     fn remembered(&mut self, _: bfe_sim::ai::owned::navigation::Actor) -> Option<Vec3> { None }
-    fn clear_above(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:Vec3,_:&AiLifeHandle) -> bool { true }
+    fn clear_above(&mut self,_:&mut crate::world::owner::World,_:Vec3,_:&AiLifeHandle) -> bool { true }
     fn follow_far(&mut self) -> f64 { 3. }
 }
 fn owned_navigation(graph: bool) -> bfe_sim::ai::owned::navigation::Navigation {
@@ -237,7 +237,7 @@ fn canonical_navigation_runs_two_maps_without_tick_allocations_or_body_imports()
     use bfe_sim::ai::{owned::navigation::Command, nav::{goto::GotoMode, units::ClassDef}, phase::RandomState};
     use bfe_sim::gen::{Store, Unit, Soldier, UnitBody, KIND_UNIT};
     for graph in [false,true] {
-        let mut store = Store::default();
+        let mut store = crate::ai::owned::tests::empty_world();
         let reference = store.unit.insert(Unit { alive: true, generation: 1.,
             soldier: UnitBody::Soldier(Soldier { max_speed: 9., max_strafe: 7., max_turn: 2., max_pitch: 0.5, ..Soldier::default() }), ..Unit::default() });
         let key = AiLifeHandle { kind: KIND_UNIT.into(), slot: reference.slot, generation: reference.gen, life: 1. };
@@ -246,18 +246,18 @@ fn canonical_navigation_runs_two_maps_without_tick_allocations_or_body_imports()
         let actor = navigation.register(&store,key,class).unwrap();
         let mut random = RandomState::new(19);
         let mut env = NavigationEnvironment { now: 0. };
-        navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.), if graph { GotoMode::Route } else { GotoMode::Direct })).unwrap();
+        navigation.command(&mut store,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.), if graph { GotoMode::Route } else { GotoMode::Direct })).unwrap();
         for _ in 0..8 {
             navigation.nav.service(1.);
-            navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
-            navigation.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();
+            navigation.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
+            navigation.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();
             navigation.clear_dirty();
         }
         store.unit.get_mut(reference).unwrap().intent.buttons = [2.,3.];
         ALLOCATIONS.with(|count| count.set(0)); COUNTING.with(|active| active.set(true));
         for _ in 0..120 {
-            navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
-            navigation.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();
+            navigation.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
+            navigation.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();
             navigation.clear_dirty(); env.now += 1./60.;
         }
         COUNTING.with(|active| active.set(false));
@@ -268,7 +268,7 @@ fn canonical_navigation_runs_two_maps_without_tick_allocations_or_body_imports()
         // New authoritative movement is observed on the next input call.
         let UnitBody::Soldier(body) = &mut store.unit.get_mut(reference).unwrap().soldier else { unreachable!() };
         body.position = [20.,0.,0.];
-        navigation.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();
+        navigation.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();
         assert_eq!(store.unit.get(reference).unwrap().intent.forward,0.);
     }
 }
@@ -277,7 +277,7 @@ fn canonical_navigation_runs_two_maps_without_tick_allocations_or_body_imports()
 fn navigation_follow_handles_reject_recycled_actors_and_previous_lives() {
     use bfe_sim::ai::nav::units::ClassDef;
     use bfe_sim::gen::{Store,Unit,KIND_UNIT};
-    let mut store=Store::default(); let reference=store.unit.insert(Unit { alive:true,generation:1.,..Unit::default() });
+    let mut store=crate::ai::owned::tests::empty_world(); let reference=store.unit.insert(Unit { alive:true,generation:1.,..Unit::default() });
     let key=|| AiLifeHandle { kind:KIND_UNIT.into(),slot:reference.slot,generation:reference.gen,life:1. };
     let mut navigation=owned_navigation(false); let class=navigation.class(ClassDef::default());
     let actor=navigation.register(&store,key(),class).unwrap(); let old=navigation.follow_ref(actor).unwrap();
@@ -295,7 +295,7 @@ fn navigation_follow_handles_reject_recycled_actors_and_previous_lives() {
 #[test]
 fn owned_lod_batches_camera_facts_and_observes_current_canonical_motion() {
     use bfe_sim::{gen::{Store,Unit,UnitBody,Soldier,KIND_UNIT},ai::owned::lod::Lod};
-    let mut store=Store::default();
+    let mut store=crate::ai::owned::tests::empty_world();
     let reference=store.unit.insert(Unit { generation:3.,soldier:UnitBody::Soldier(Soldier { position:[100.,0.,1.],..Soldier::default() }),..Unit::default() });
     let key=AiLifeHandle { kind:KIND_UNIT.into(),slot:reference.slot,generation:reference.gen,life:3. };
     let first=AiPhaseCamera { elements:[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.], fov:90.,aspect:1.,near:0.1,far:2000.,zoom:1. };
@@ -327,7 +327,7 @@ fn policy(post:bfe_sim::gen::SpawnPost)->bfe_sim::gen::AiPostPolicy {
 #[test]
 fn native_population_shares_driver_objectives_and_rejects_old_character_lives() {
     use bfe_sim::{gen::*,battle::commands::Commands,ai::{owned::population::{Population,Stale},control::world::TeamTable}};
-    let mut store=Store::default();
+    let mut store=crate::ai::owned::tests::empty_world();
     let home=store.post.insert(Post {active:true,team:1.,ai:Some(PostAi {spawn_path:Some(SpawnPath {present:true,points:vec![]}),..PostAi::default()}),..Post::default()});
     let enemy=store.post.insert(Post {active:true,team:2.,position:[20.,0.,0.],..Post::default()});
     let mut population=Population::new(2,3,false);population.add(&store,policy(SpawnPost::Post(home))).unwrap();population.add(&store,policy(SpawnPost::Post(enemy))).unwrap();
@@ -383,7 +383,7 @@ fn native_population_shares_driver_objectives_and_rejects_old_character_lives() 
 #[test]
 fn enhanced_population_keeps_threat_window_and_defense_exception() {
     use bfe_sim::{gen::*,battle::commands::Commands,ai::{owned::population::Population,control::world::TeamTable}};
-    let mut store=Store::default();
+    let mut store=crate::ai::owned::tests::empty_world();
     let home=store.post.insert(Post {active:true,team:1.,ai:Some(PostAi {spawn_path:Some(SpawnPath {present:true,points:vec![]}),..PostAi::default()}),..Post::default()});
     let enemy=store.post.insert(Post {active:true,team:2.,position:[20.,0.,0.],..Post::default()});
     let character=store.character.insert(Character {team:1.,..Character::default()});let mut owner=Commands::new(1);let handle=owner.adopt(&store,character);
@@ -402,13 +402,13 @@ fn class_jobs_read_native_ammo_and_keep_owned_by_presence() {
     use std::rc::Rc;
     use bfe_sim::{gen::*,store::{DefId,StrId},combat::defs::{Js,JsObj,DefTable,WeaponClass},ai::owned::classes::{Classes,DispenserKeys}};
     fn object(fields:Vec<(&str,Js)>,def:Option<(DefTable,DefId)>)->Rc<JsObj> {Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(Rc::from(k),v)).collect(),def})}
-    struct Keys(Option<StrId>);impl DispenserKeys for Keys {fn owned_key(&self,_:&AiLifeHandle,_:DefId,_:u32)->Option<StrId>{self.0}}
+    struct Keys(Option<StrId>);impl DispenserKeys for Keys {fn owned_key(&self,_:&crate::world::owner::World,_:&AiLifeHandle,_:DefId,_:u32)->Option<StrId>{self.0}}
     let item=object(vec![("base",Js::Str(Rc::from("mine"))),("LifeSpan",Js::Num(f64::INFINITY)),("PersonHealth",Js::Num(10.))],Some((DefTable::Item,DefId(7))));
     let def=object(vec![("base",Js::Str(Rc::from("dispenser"))),("RoundsPerClip",Js::Num(10.)),("ammo",Js::Num(5.)),("MaxItems",Js::Num(2.)),("item",Js::Obj(item))],None);
     let mut classes=Classes::new();classes.weapon(DefId(3),&WeaponClass::new(def));
     classes.weapon(DefId(4),&WeaponClass::new(object(vec![("base",Js::Str(Rc::from("repair")))],None)));
     let repair=Weapon {def:DefId(4),..Weapon::default()};
-    let mut store=Store::default();let unit=store.unit.insert(Unit {alive:true,generation:1.,combat:Combat {health:70.,max_health:100.,weapons:vec![Weapon {def:DefId(3),clip:1.,reserve:0.,..Weapon::default()}],..Combat::default()},..Unit::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let unit=store.unit.insert(Unit {alive:true,generation:1.,combat:Combat {health:70.,max_health:100.,weapons:vec![Weapon {def:DefId(3),clip:1.,reserve:0.,..Weapon::default()}],..Combat::default()},..Unit::default()});
     let key=AiLifeHandle {kind:KIND_UNIT.into(),slot:unit.slot,generation:unit.gen,life:1.};let owned=StrId(17);
     for _ in 0..2 {let r=store.item.insert(Item {def:DefId(7),owner:ItemOwner::Unit(unit),..Item::default()});store.items.items.push(r);}
     assert_eq!(classes.mine_weapon(&store,&key,&Keys(None)),None);
@@ -433,9 +433,9 @@ fn native_class_jobs_read_body_and_holder_arsenals_and_observe_only_eligible_own
         battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats};
     struct Holder(Weapon);
     impl Mounted for Holder {
-        fn count(&self,_:&bfe_sim::gen::Store,_:Source,_:usize)->Option<usize> {Some(1)}
-        fn read<R>(&self,_:&bfe_sim::gen::Store,_:Source,_:usize,index:usize,run:impl FnOnce(&Weapon)->R)->Option<R> {(index==0).then(||run(&self.0))}
-        fn edit<R>(&mut self,_:&bfe_sim::gen::Store,_:Source,_:usize,_:usize,_:impl FnOnce(&mut bfe_sim::ai::combat::world::WeaponSettings)->R)->Option<R> {panic!("class queries never edit weapons")}
+        fn count(&self,_:&crate::world::owner::World,_:Source,_:usize)->Option<usize> {Some(1)}
+        fn read<R>(&self,_:&crate::world::owner::World,_:Source,_:usize,index:usize,run:impl FnOnce(&Weapon)->R)->Option<R> {(index==0).then(||run(&self.0))}
+        fn edit<R>(&mut self,_:&mut crate::world::owner::World,_:Source,_:usize,_:usize,_:impl FnOnce(&mut bfe_sim::ai::combat::world::WeaponSettings)->R)->Option<R> {panic!("class queries never edit weapons")}
     }
     fn object(fields:Vec<(&str,Js)>)->Rc<JsObj> {Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(Rc::from(k),v)).collect(),def:None})}
     let repair=WeaponClass::new(object(vec![("base",Js::Str("repair".into())),("PersonHealth",Js::Num(5.))]));
@@ -444,7 +444,7 @@ fn native_class_jobs_read_body_and_holder_arsenals_and_observe_only_eligible_own
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:1,posts:0,hulls:1,buildings:0,controls:1,scopes:2,cameras:1});
     state.classes.weapon(DefId(0),&repair);state.classes.weapon(DefId(1),&mine);
     let mut defs=WeaponDefs::default();defs.set(DefId(0),repair);defs.set(DefId(1),mine);
-    let mut store=Store::default();let body=store.unit.insert(Unit {alive:true,generation:1.,..Default::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let body=store.unit.insert(Unit {alive:true,generation:1.,..Default::default()});
     store.unit.get_mut(body).unwrap().combat.weapons=vec![Weapon {def:DefId(0),..Default::default()},Weapon {def:DefId(1),clip:1.,..Default::default()}];
     let obj=state.entities.register(Entity::Unit(body));
     let hull=store.vehicle.insert(Vehicle {alive:true,target_generation:1.,seats:vec![Default::default()],..Default::default()});
@@ -455,7 +455,8 @@ fn native_class_jobs_read_body_and_holder_arsenals_and_observe_only_eligible_own
     let mounted=state.entities.find(Entity::Control(control)).unwrap();assert_ne!(obj,mounted);
     let mut holder=Holder(Weapon {def:DefId(1),clip:1.,..Default::default()});
     let mut changes=bfe_sim::units::ownership::Ownership::default();let mut characters=Commands::new(0);let buildings=Live::new(0,0,0);
-    let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut holder,definitions:&defs};
+    crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let mut rows=Rows {w:&mut store,buildings:&buildings.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut holder,definitions:&defs};
     let owned=Cell::new(1);let observations=Cell::new(0);let last=Cell::new(None);
     let mut count=|_:&mut Rows<'_,_,_>,owner,weapon:(DefId,u32)| {assert_eq!(weapon.0,DefId(1));last.set(Some(owner));observations.set(observations.get()+1);owned.get()};
     ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
@@ -470,13 +471,13 @@ fn native_class_jobs_read_body_and_holder_arsenals_and_observe_only_eligible_own
         assert_eq!(observations.get(),before+2);
         let before=observations.get();assert_eq!(rows.service_weapon(obj,0.,false,&mut count),Some(0));
         assert_eq!(observations.get(),before,"repair selection never observes ownedBy");
-        rows.store.unit.get_mut(body).unwrap().combat.weapons[1].clip=0.;rows.mounted.0.clip=0.;
+        rows.w.sim.store.unit.get_mut(body).unwrap().combat.weapons[1].clip=0.;rows.mounted.0.clip=0.;
         assert!(!rows.dispenser_available(obj,1,&mut count));assert!(!rows.dispenser_available(mounted,0,&mut count));
         assert_eq!(observations.get(),before,"empty weapons do not number an owner");
-        rows.store.unit.get_mut(body).unwrap().combat.weapons[1].clip=1.;rows.mounted.0.clip=1.;owned.set(1);
+        rows.w.sim.store.unit.get_mut(body).unwrap().combat.weapons[1].clip=1.;rows.mounted.0.clip=1.;owned.set(1);
     }
     COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
-    let before=observations.get();rows.store.seat_lease.get_mut(lease).unwrap().released=true;
+    let before=observations.get();rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=true;
     assert_eq!(rows.mine_weapon(mounted,&mut count),None);assert_eq!(observations.get(),before);
 }
 
@@ -511,7 +512,7 @@ fn reserved_query_lists_preserve_nested_order_and_return_on_early_exit() {
 fn mounted_policy_reads_current_f2_rows_and_preserves_frozen_fire_edges() {
     use bfe_sim::{gen::*,store::Ref,vehicles::f2_seats::Seats,
         seats::{hulls::HullSide,lease::control_key},ai::{owned::{entities::{Entities,Entity},mounts::{Mounts,HullClass}},vehicles::world::{SeatView,Stick}}};
-    let mut store=Store::default();let mut seats=Seats::default();let mut entities=Entities::new(16);
+    let mut store=crate::ai::owned::tests::empty_world();let mut seats=Seats::default();let mut entities=Entities::new(16);
     let unit=store.unit.insert(Unit {alive:true,generation:4.,..Unit::default()});
     let hull=store.vehicle.insert(Vehicle {alive:true,target_generation:2.,seats:vec![VehicleSeat::default();2],..Vehicle::default()});
     seats.add_hull(&store,HullSide {vehicle:hull,weapons:vec![1,0],..HullSide::default()});
@@ -563,7 +564,7 @@ fn mounted_policy_reads_current_f2_rows_and_preserves_frozen_fire_edges() {
 fn native_weapon_edits_keep_enhanced_floor_life_and_sparse_publication() {
     use bfe_sim::{gen::*,units::ownership::Ownership,ai::owned::weapons,combat::defs::{Js,JsObj}};
     use std::rc::Rc;
-    let mut store=Store::default();let mut owner=Ownership::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut owner=Ownership::default();
     let reference=store.unit.insert(Unit {alive:true,generation:3.,combat:Combat {weapons:vec![Weapon {clip:0.5,reserve:8.,floor:0.,kick:1.,sniper_scale:0.,spread_scale:1.,..Weapon::default()}],..Combat::default()},..Unit::default()});
     let key=owner.adopt(&store,reference).unwrap();owner.clear_changed();
     let mut def=JsObj::default();def.fields.push((Rc::from("SpreadThreshold"),Js::Num(0.25)));
@@ -593,7 +594,7 @@ fn native_post_callbacks_keep_team_roster_and_recruitment_budgets() {
         }
         fn mask(&self,u:&Unit)->f64 {u.class_def.0 as f64}
     }
-    let mut store=Store::default();let mut commands=Commands::new(13);
+    let mut store=crate::ai::owned::tests::empty_world();let mut commands=Commands::new(13);
     let old=store.post.insert(Post {active:true,team:0.,..Post::default()});
     let enemy=store.post.insert(Post {active:true,team:2.,..Post::default()});
     let mut population=Population::new(2,13,false);let mut p=policy(SpawnPost::Post(old));p.bans=2.;
@@ -628,7 +629,7 @@ fn native_post_callbacks_keep_team_roster_and_recruitment_budgets() {
 #[test]
 fn control_observations_read_canonical_scalars_without_copying_arsenals_or_shapes() {
     use bfe_sim::{gen::*,store::DefId,ai::{owned::{units::Units,entities::{Entities,Entity}},control::world::ClassSnap}};
-    let mut store=Store::default();let mut entities=Entities::new(2);let mut views=Units::new();
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(2);let mut views=Units::new();
     let r=store.unit.insert(Unit {alive:true,generation:4.,class_def:DefId(2),combat:Combat {health:90.,max_health:100.,weapons:vec![Weapon::default();8],..Combat::default()},soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Soldier::default()}),spheres_tick:-99.,..Unit::default()});
     let actor=entities.register(Entity::Unit(r));
     views.class(DefId(2),ClassSnap::default(),"infantry".into());
@@ -650,12 +651,12 @@ fn control_observations_read_canonical_scalars_without_copying_arsenals_or_shape
 #[test]
 fn core_objective_publication_writes_the_f4_character_without_a_roster_mirror() {
     use bfe_sim::{gen::*,battle::commands::Commands,ai::{owned::{roster::Roster,entities::{Entities,Entity},population::Population},control::{Core,Options,controller::Controller,difficulty::{Difficulty,DifficultyOptions},world::{Characters,CharacterSnap,TeamTable}}}};
-    struct Battle {store:Store,commands:Commands,entities:Entities,population:Population,roster:Roster}
+    struct Battle {store:Box<crate::world::owner::World>,commands:Commands,entities:Entities,population:Population,roster:Roster}
     impl Characters for Battle {
         fn character(&self,index:usize)->CharacterSnap {self.roster.read(&self.store,&self.commands,&self.entities,&self.population,index).unwrap()}
         fn character_set_objective(&mut self,index:usize,post:Option<usize>) {self.roster.assign(&mut self.store,&mut self.commands,&self.population,index,post).unwrap();}
     }
-    let mut b=Battle {store:Store::default(),commands:Commands::new(1),entities:Entities::new(2),population:Population::new(1,1,false),roster:Roster::new(1)};
+    let mut b=Battle {store:crate::ai::owned::tests::empty_world(),commands:Commands::new(1),entities:Entities::new(2),population:Population::new(1,1,false),roster:Roster::new(1)};
     let post=b.store.post.insert(Post {active:true,..Post::default()});b.population.add(&b.store,policy(SpawnPost::Post(post))).unwrap();
     let character=b.store.character.insert(Character {team:1.,..Character::default()});let handle=b.commands.adopt(&b.store,character);b.roster.add(handle.clone());
     let unit=b.store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});b.entities.register(Entity::Unit(unit));b.store.character.get_mut(character).unwrap().unit=Some(unit);
@@ -675,7 +676,7 @@ fn core_objective_publication_writes_the_f4_character_without_a_roster_mirror() 
 #[test]
 fn mobile_post_policy_observes_current_class_weights_and_hull_position() {
     use bfe_sim::{gen::*,ai::{owned::{posts::{Posts,Definition},population::Population},control::world::TeamTable}};
-    let mut store=Store::default();let mut population=Population::new(2,1,false);let mut posts=Posts::new(2);
+    let mut store=crate::ai::owned::tests::empty_world();let mut population=Population::new(2,1,false);let mut posts=Posts::new(2);
     let hull=store.vehicle.insert(Vehicle {alive:true,position:[9.,0.,0.],..Vehicle::default()});
     let mobile=store.mobile_post.insert(MobilePost {active:true,team:2.,vehicle:Some(hull),ai:MobileAi {atk:vec![0.;6],def:vec![100.;6],..MobileAi::default()},..MobilePost::default()});
     let placed=store.post.insert(Post {active:true,team:2.,..Post::default()});
@@ -707,7 +708,7 @@ fn combat_weapon_views_and_selection_use_current_f3_arsenal_rows() {
         let class=WeaponClass::new(Rc::new(JsObj {fields:vec![("channel".into(),Js::Num(channel)),("RoundsPerClip".into(),Js::Num(10.)),("ammo".into(),Js::Num(5.))],def:None}));
         prepared.register(DefId(id),&class);defs.set(DefId(id),class);
     }
-    let mut store=Store::default();let mut owner=Ownership::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut owner=Ownership::default();
     let reference=store.unit.insert(Unit {alive:true,generation:1.,combat:Combat {weapons:(0..3).map(|i|Weapon::create(DefId(i),&defs,false)).collect(),..Combat::default()},..Unit::default()});
     let key=owner.adopt(&store,reference).unwrap();owner.clear_changed();
     assert_eq!(prepared.current(&store,&key,0.),Some(0));assert_eq!(prepared.current(&store,&key,1.),Some(2));
@@ -750,7 +751,7 @@ fn native_vehicle_and_combat_bindings_share_prepared_weapon_policy_and_cluster_s
 fn combat_observations_read_f3_bodies_without_shape_or_arsenal_snapshots() {
     use bfe_sim::{gen::*,store::{DefId,Ref},combat::defs::{Js,JsObj},ai::{owned::{combat::{Units,ControlOwners},entities::{Entities,Entity}},combat::{world::Obj,agent::role_of,weapons_ai::category_of}}};
     struct Controls;impl ControlOwners for Controls {fn controller(&self,_:Ref<SeatUnit>)->Option<Obj>{None}}
-    let mut store=Store::default();let mut entities=Entities::new(4);let mut facts=Units::new();
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(4);let mut facts=Units::new();
     facts.class(DefId(3),&JsObj {fields:vec![("UnitType".into(),Js::Str("support".into())),("HealthType".into(),Js::Str("Droid".into()))],def:None});
     let r=store.unit.insert(Unit {alive:true,generation:1.,class_def:DefId(3),spheres_tick:-9.,combat:Combat {max_health:100.,weapons:vec![Weapon::default();8],..Combat::default()},..Unit::default()});
     let actor=entities.register(Entity::Unit(r));let lease=store.seat_lease.insert(SeatLease {unit:Some(r),generation:1.,..SeatLease::default()});
@@ -772,7 +773,7 @@ fn combat_observations_read_f3_bodies_without_shape_or_arsenal_snapshots() {
 fn native_seat_controls_read_live_hull_and_reject_released_or_respawned_bindings() {
     use bfe_sim::{gen::*,store::Ref,vehicles::f2_seats::Seats,seats::lease::{SeatControl,control_key},
         ai::{owned::{controls::HullControls,entities::{Entities,Entity}},vehicles::world::ClassView}};
-    let mut store=Store::default();let mut entities=Entities::new(8);let mut controls=HullControls::new();let mut seats=Seats::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(8);let mut controls=HullControls::new();let mut seats=Seats::default();
     let unit=store.unit.insert(Unit {alive:true,hero:true,generation:3.,..Unit::default()});
     let hull=store.vehicle.insert(Vehicle {alive:true,health:200.,max_health:400.,size:[4.,0.,6.],target_generation:4.,seats:vec![VehicleSeat::default()],..Vehicle::default()});
     entities.register(Entity::Hull(hull));
@@ -869,7 +870,7 @@ fn native_navigation_drives_current_f2_seat_intents_without_importing_hulls() {
     use bfe_sim::{gen::*,store::Ref,seats::lease::{SeatControl,control_key},vehicles::f2_seats::Seats,
         ai::{owned::navigation::Command,nav::{goto::GotoMode,units::ClassDef,math::Vec3 as NavVec3},phase::RandomState,vehicles::world::ClassView}};
     for kind in [5.,6.] {
-        let mut store=Store::default();let mut seats=Seats::default();let mut nav=owned_navigation(false);
+        let mut store=crate::ai::owned::tests::empty_world();let mut seats=Seats::default();let mut nav=owned_navigation(false);
         let unit=store.unit.insert(Unit {alive:true,generation:3.,..Unit::default()});
         let hull=store.vehicle.insert(Vehicle {alive:true,target_generation:2.,size:[4.,3.,8.],seats:vec![VehicleSeat::default()],..Vehicle::default()});
         let control=Ref::new(1,2);let lease=store.seat_lease.insert(SeatLease {unit:Some(unit),generation:3.,vehicle:Some(hull),controllable:Some(control),..SeatLease::default()});
@@ -887,24 +888,25 @@ fn native_navigation_drives_current_f2_seat_intents_without_importing_hulls() {
         let infantry=nav.register(&store,AiLifeHandle {kind:KIND_UNIT.into(),slot:unit.slot,generation:unit.gen,life:3.},infantry_class).unwrap();
         // Unit.origin has already switched to the lease, while Core.sync has
         // not yet replaced this old infantry control. The seat eye is y=0.
-        let analogs=nav.analogs(&mut store,&mut seats,&mut env,infantry,Some(NavVec3::new(0.,0.,30.)),1./60.,false).unwrap();
+        crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,seats);
+        let analogs=nav.analogs(&mut store,&mut env,infantry,Some(NavVec3::new(0.,0.,30.)),1./60.,false).unwrap();
         assert_eq!(analogs[3],0.);
-        nav.command(&mut store,&mut seats,&mut random,&mut env,infantry,Command::Follow(nav.follow_ref(passive).unwrap(),0.,false)).unwrap();
-        nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(NavVec3::new(0.,0.,100.),GotoMode::Direct)).unwrap();
-        {let intent=&mut seats.hulls.controls.get_mut(&control_key(control)).unwrap().intent;intent.buttons=[1.,1.];intent.reload=true;}
+        nav.command(&mut store,&mut random,&mut env,infantry,Command::Follow(nav.follow_ref(passive).unwrap(),0.,false)).unwrap();
+        nav.command(&mut store,&mut random,&mut env,actor,Command::Goto(NavVec3::new(0.,0.,100.),GotoMode::Direct)).unwrap();
+        {let intent=&mut store.fleet.seats_owner().hulls.controls.get_mut(&control_key(control)).unwrap().intent;intent.buttons=[1.,1.];intent.reload=true;}
         ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
         for tick in 0..120 {
             store.vehicle.get_mut(hull).unwrap().position[2]=tick as f64*0.1;
-            nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
-            nav.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();
-            let intent=&seats.hulls.controls.get(&control_key(control)).unwrap().intent;
+            nav.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
+            nav.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();
+            let intent=&store.fleet.seats_owner().hulls.controls.get(&control_key(control)).unwrap().intent;
             assert_eq!(intent.buttons,[1.,1.]);assert!(intent.reload);assert!(intent.forward.is_finite());
         }
         COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);assert!(nav.dirty().is_empty());
         store.seat_lease.get_mut(lease).unwrap().released=true;
-        assert!(nav.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).is_none());
+        assert!(nav.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).is_none());
         store.seat_lease.get_mut(lease).unwrap().released=false;store.vehicle.get_mut(hull).unwrap().target_generation=3.;
-        assert!(nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).is_none());
+        assert!(nav.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).is_none());
     }
 }
 
@@ -993,7 +995,7 @@ fn native_combat_controllers_renew_lives_without_reallocating_perception_or_aler
 #[test]
 fn native_goal_masks_keep_the_source_distinction_from_navigation_integer_masks() {
     use bfe_sim::{gen::{Store,Unit},store::DefId,ai::{owned::{units::Units,entities::{Entities,Entity}},control::{world::ClassSnap,goals::{travel_mask_of,class_travel_mask},classes::health_type},nav::units::SizeType}};
-    let mut store=Store::default();let mut entities=Entities::new(8);let mut classes=Units::new();
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(8);let mut classes=Units::new();
     for (i,size,expected) in [(0,SizeType::Text("FLYER".into()),32.),(1,SizeType::Number(32.),1.),(2,SizeType::Text(" HOVER ".into()),1.),(3,SizeType::Text("hover".into()),2.)] {
         assert_eq!(travel_mask_of(&size),expected);
         classes.class(DefId(i),ClassSnap {ai_size_type:size.clone(),health_type_name:Some("Vehicle".into()),..ClassSnap::default()},"class".into());
@@ -1048,7 +1050,6 @@ fn native_acceptance_callbacks_keep_classic_and_enhanced_policy_boundaries() {
     world.now=13.;world.fighters=0.;assert!(policy::accepts_hazard(repair,&mut state,&mut world));
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
 }
-
 
 #[test]
 fn native_support_keys_and_selection_keep_rounded_identity_and_route_order_without_allocations() {
@@ -1148,13 +1149,13 @@ fn native_two_battles_keep_weapon_registration_and_aircraft_run_but_reset_local_
 fn native_agent_helpers_renew_without_recreating_the_controller_navigation_state() {
     let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
     use bfe_sim::{gen::{Store,Unit,UnitBody,Soldier,KIND_UNIT},ai::{owned::navigation::{Command,Actor},nav::{units::ClassDef,goto::GotoMode},phase::RandomState}};
-    let mut store=Store::default();
+    let mut store=crate::ai::owned::tests::empty_world();
     let r=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Default::default()}),..Default::default()});
     let mut nav=owned_navigation(true);let class=nav.class(ClassDef::default());
     let actor:Actor=nav.register(&store,AiLifeHandle {kind:u32::from(KIND_UNIT),slot:r.slot,generation:r.gen,life:1.},class).unwrap();
     let mut random=RandomState::new(81);let mut env=NavigationEnvironment {now:1.};
-    nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
-    nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Stop).unwrap();
+    nav.command(&mut store,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
+    nav.command(&mut store,&mut random,&mut env,actor,Command::Stop).unwrap();
     nav.control_mut(actor).unwrap().stance=2.;
     let serial=nav.control(actor).unwrap().serial;let controls=nav.nav.controls.len();
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
@@ -1168,7 +1169,7 @@ fn native_agent_helpers_renew_without_recreating_the_controller_navigation_state
 #[test]
 fn running_navigation_helpers_keep_their_identity_and_do_not_reuse_a_retired_control() {
     use bfe_sim::{ai::{owned::navigation::Command,nav::{units::ClassDef,goto::GotoMode},phase::RandomState},gen::{Store,Unit,UnitBody,Soldier,KIND_UNIT}};
-    let mut store=Store::default();let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
     let unit=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Default::default()}),..Default::default()});
     let target=AiLifeHandle {kind:KIND_UNIT.into(),slot:unit.slot,generation:unit.gen,life:1.};
     let mut nav=owned_navigation(true);let class=nav.class(ClassDef::default());
@@ -1179,17 +1180,17 @@ fn running_navigation_helpers_keep_their_identity_and_do_not_reuse_a_retired_con
         if iteration==2 {ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));}
         let actor=nav.register(&store,target.clone(),class).unwrap();
         let old=nav.helper_key(actor).unwrap();assert!(nav.retain_helper(old));
-        nav.command_for(&mut store,&mut seats,&mut random,&mut env,old,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
+        nav.command_for(&mut store,&mut random,&mut env,old,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
         nav.renew_helper(&store,actor).unwrap();let next=nav.helper_key(actor).unwrap();assert_ne!(old,next);
-        nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(Vec3::new(90.,0.,0.),GotoMode::Direct)).unwrap();
-        nav.command_for(&mut store,&mut seats,&mut random,&mut env,old,Command::Stop).unwrap();
+        nav.command(&mut store,&mut random,&mut env,actor,Command::Goto(Vec3::new(90.,0.,0.),GotoMode::Direct)).unwrap();
+        nav.command_for(&mut store,&mut random,&mut env,old,Command::Stop).unwrap();
         assert_eq!(nav.destination_for(&store,old),Some(Vec3::new(20.,0.,0.)));
         assert_eq!(nav.destination(&store,actor),Some(Vec3::new(90.,0.,0.)));
         assert!(nav.helper_observation_for(&store,old).unwrap().arrived);
         let controls=nav.nav.controls.len();let weak=nav.follow_ref(actor).unwrap();
         assert!(nav.retire(actor));assert!(nav.resolve(&store,weak).is_none());
-        nav.command_for(&mut store,&mut seats,&mut random,&mut env,old,Command::Goto(Vec3::new(200.,0.,0.),GotoMode::Direct)).unwrap();
-        nav.command_for(&mut store,&mut seats,&mut random,&mut env,old,Command::Stop).unwrap();
+        nav.command_for(&mut store,&mut random,&mut env,old,Command::Goto(Vec3::new(200.,0.,0.),GotoMode::Direct)).unwrap();
+        nav.command_for(&mut store,&mut random,&mut env,old,Command::Stop).unwrap();
         assert_eq!(nav.destination_for(&store,old),Some(Vec3::new(20.,0.,0.)));
         let successor=nav.register(&store,target.clone(),class).unwrap();
         assert!(nav.nav.controls.len()>=controls);assert_ne!(actor,successor);
@@ -1264,7 +1265,7 @@ fn native_controller_navigation_follows_body_changes_without_retargeting_passive
     use bfe_sim::{gen::*,store::{DefId,Strings},ai::{owned::{state::{State,Capacity},entities::Entity,navigation::Command},nav::{Nav,PlannerOptions,goto::GotoMode,math::Vec3},phase::RandomState}};
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:4,characters:1,posts:0,hulls:0,buildings:0,controls:0,scopes:2,cameras:1});
     let mut strings=Strings::default();state.unit_class(&AiUnitClass {def:DefId(0),name:strings.intern_str("trooper"),max_speed:AiClassScalar::F64(7.),..Default::default()},&strings);
-    let mut store=Store::default();let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
     let bodies=[0.,10.].map(|x|store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {position:[x,0.,0.],max_speed:7.,..Default::default()}),..Default::default()}));
     let objects=bodies.map(|r|state.entities.register(Entity::Unit(r)));
     state.controllers.adopt(0,&mut state.entities);
@@ -1272,7 +1273,7 @@ fn native_controller_navigation_follows_body_changes_without_retargeting_passive
     let target=state.navigation.follow_ref(passive).unwrap();
     let actor=state.controller_body(&store,0,objects[0]).unwrap();assert_ne!(passive,actor);
     let mut random=RandomState::new(81);let mut env=NavigationEnvironment {now:1.};
-    state.navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
+    state.navigation.command(&mut store,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
     let controls=state.navigation.nav.controls.len();let mut serial=state.navigation.control(actor).unwrap().serial;
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for turn in 0..120 {
@@ -1280,7 +1281,7 @@ fn native_controller_navigation_follows_body_changes_without_retargeting_passive
         assert_eq!(state.controller_body(&store,0,objects[at]),Some(actor));
         assert_eq!(state.navigation.control(actor).unwrap().serial,serial,"binding defers NavControl.attach until its original observation");
         state.navigation.renew_helper(&store,actor).unwrap();
-        state.navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
+        state.navigation.command(&mut store,&mut random,&mut env,actor,Command::Goto(Vec3::new(20.,0.,0.),GotoMode::Direct)).unwrap();
         serial+=1.;assert_eq!(state.navigation.control(actor).unwrap().serial,serial);
         assert_eq!(state.navigation.control(actor).unwrap().unit,Some(objects[at]));
         assert_eq!(state.navigation.nav.controls.len(),controls);
@@ -1317,7 +1318,7 @@ fn native_path_pool_reuses_slots_and_reclaims_large_tails_without_losing_source_
 fn native_turrets_read_f2_aim_and_f4_life_without_refreshing_rigs_or_copying_buildings() {
     use bfe_sim::{gen::*,store::Ref,battle::{props,live_phase::{Live,Building}},seats::turrets::{TurretSide,TurretDesc},vehicles::f2_seats::Seats,
         ai::owned::{turrets::Turrets,entities::{Entities,Entity},controls::HullControls}};
-    let mut store=Store::default();let mut entities=Entities::new(64);let mut seats=Seats::default();let controls=HullControls::new();
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(64);let mut seats=Seats::default();let controls=HullControls::new();
     let turret=Ref::<Turret>::new(3,2);
     let control=Ref::<SeatUnit>::new(31,2);
     let unit=store.unit.insert(Unit {alive:true,hero:true,generation:1.,..Default::default()});
@@ -1394,11 +1395,11 @@ fn native_service_candidates_keep_registry_fleet_and_wreck_order_without_allocat
         fn position(&mut self,u:u64)->Vec3 {self.reads[self.count]=u;self.count+=1;Vec3::new(if self.count==4 {20.}else{0.},0.,0.)}
         fn radius(&mut self,_:u64)->Option<f64> {Some(f64::NAN)}
     }
-    let mut store=Store::default();let mut entities=Entities::new(12);let mut candidates=Candidates::new(12,3,2);
-    let first=store.unit.insert(Unit {alive:true,..Default::default()});store.units.add(|_|Member::Unit(first));
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(12);let mut candidates=Candidates::new(12,3,2);
+    let first=store.unit.insert(Unit {alive:true,..Default::default()});store.sim.store.units.add(|_|Member::Unit(first));
     let body=entities.register(Entity::Unit(first));
-    let seated=store.unit.insert(Unit {alive:true,seat:Some(Ref::new(0,1)),..Default::default()});store.units.add(|_|Member::Unit(seated));entities.register(Entity::Unit(seated));
-    let dead=store.unit.insert(Unit::default());store.units.add(|_|Member::Unit(dead));entities.register(Entity::Unit(dead));
+    let seated=store.unit.insert(Unit {alive:true,seat:Some(Ref::new(0,1)),..Default::default()});store.sim.store.units.add(|_|Member::Unit(seated));entities.register(Entity::Unit(seated));
+    let dead=store.unit.insert(Unit::default());store.sim.store.units.add(|_|Member::Unit(dead));entities.register(Entity::Unit(dead));
     let hull=store.vehicle.insert(Vehicle::default());store.vehicles.vehicles.push(hull);let vehicle=entities.register(Entity::HullEntry(hull));
     let repair=Ref::<Building>::new(0,1);let wrapper=entities.register(Entity::BuildingService(repair));
     candidates.building(RepairTarget::Building(repair),wrapper,false);
@@ -1420,7 +1421,7 @@ fn native_service_candidates_keep_registry_fleet_and_wreck_order_without_allocat
 #[test]
 fn native_combat_objects_distinguish_roster_post_and_body_slots_and_reject_old_roster_lives() {
     use bfe_sim::{gen::*,store::Ref,battle::core::Core as BattleCore,ai::{combat::control::Objects as CombatObjects,control::{controller::Controller,world::{CombatInput,AlertSource}},owned::{objects::Objects,entities::{Entities,Entity},roster::Roster,population::Population,controllers::Controllers}}};
-    let mut store=Store::default();let mut commands=BattleCore::new(&store,8);let mut roster=Roster::new(8);let mut entities=Entities::new(32);
+    let mut store=crate::ai::owned::tests::empty_world();let mut commands=BattleCore::new(&store,8);let mut roster=Roster::new(8);let mut entities=Entities::new(32);
     let later=store.character.insert_at(5,2,Character::default());let first=store.character.insert_at(0,1,Character::default());
     let later_life=commands.adopt(&mut store,later);roster.add(later_life);roster.add(commands.adopt(&mut store,first));
     let unit=store.unit.insert_at(0,1,Unit {alive:true,generation:1.,..Default::default()});let body=entities.register(Entity::Unit(unit));
@@ -1433,7 +1434,7 @@ fn native_combat_objects_distinguish_roster_post_and_body_slots_and_reject_old_r
     let mut input=Controller::new(0);input.unit=Some(body);input.generation=1.;
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..120 {
-        let objects=Objects {store:&store,commands:&commands,entities:&entities,roster:&roster,population:&population};
+        let objects=Objects {w:&store,store:&store,commands:&commands,entities:&entities,roster:&roster,population:&population};
         let character=objects.character(0);assert_ne!(body,character);assert_ne!(character,controller);
         assert_ne!(objects.post(0),objects.post(1));assert_ne!(objects.post(1),objects.character(1));
         assert_eq!(objects.alert_source(character),AlertSource::Character(0));assert_eq!(objects.alert_source(body),AlertSource::Unit(body));
@@ -1499,7 +1500,7 @@ fn generated_class_rows_load_native_control_combat_and_navigation_with_distinct_
     let data=UnitClass::read(&decoded,&strings);assert_eq!(data.policy.ai_size_type,SizeType::Number(32.));assert_eq!(data.navigation.jet_fuel_recharge_rate,Some(1.));assert!(data.combat.jet_jump.is_nullish());
     let mut native=Units::new();let mut combat=CombatUnits::new();let mut navigation=Navigation::new(nav::Nav::empty(Default::default()),4);
     let class=data.install(&mut native,&mut combat,&mut navigation);assert_eq!(class,0);
-    let mut store=Store::default();let mut entities=Entities::new(8);let r=store.unit.insert(Unit {alive:true,generation:1.,class_def:DefId(7),network_human:Some(true),..Default::default()});let actor=entities.register(Entity::Unit(r));
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(8);let r=store.unit.insert(Unit {alive:true,generation:1.,class_def:DefId(7),network_human:Some(true),..Default::default()});let actor=entities.register(Entity::Unit(r));
     let controls=HullControls::new();
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..120 {
@@ -1516,7 +1517,7 @@ fn generated_class_rows_load_native_control_combat_and_navigation_with_distinct_
 #[test]
 fn native_seat_births_capture_occupants_before_binding_and_reuse_generation_qualified_controls() {
     use bfe_sim::{gen::*,ai::owned::{seats::{Controls,Source},controls::HullControls,entities::{Entities,Entity}},seats::hulls::HullSide,vehicles::f2_seats::Seats};
-    let mut store=Store::default();let mut entities=Entities::new(8);let mut seats=Seats::default();let mut pool=Controls::new(1);let mut controls=HullControls::with_capacity(1);
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(8);let mut seats=Seats::default();let mut pool=Controls::new(1);let mut controls=HullControls::with_capacity(1);
     let unit=store.unit.insert(Unit {alive:true,generation:1.,hero:true,..Default::default()});
     let hull=store.vehicle.insert(Vehicle {alive:true,target_generation:2.,seats:vec![VehicleSeat::default()],..Default::default()});entities.register(Entity::Hull(hull));
     seats.add_hull(&store,HullSide {vehicle:hull,..Default::default()});
@@ -1546,11 +1547,11 @@ fn mounted_arsenal_preserves_channels_tuning_and_weapon_clocks() {
     use std::rc::Rc;
     struct Mount {source:Source,weapons:Vec<Weapon>,changed:usize}
     impl Mounted for Mount {
-        fn count(&self,_:&bfe_sim::gen::Store,s:Source,seat:usize)->Option<usize> {(s==self.source&&seat==1).then_some(self.weapons.len())}
-        fn read<R>(&self,store:&bfe_sim::gen::Store,s:Source,seat:usize,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
+        fn count(&self,_:&crate::world::owner::World,s:Source,seat:usize)->Option<usize> {(s==self.source&&seat==1).then_some(self.weapons.len())}
+        fn read<R>(&self,store:&crate::world::owner::World,s:Source,seat:usize,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
             self.count(store,s,seat)?;Some(read(self.weapons.get(index)?))
         }
-        fn edit<R>(&mut self,store:&bfe_sim::gen::Store,s:Source,seat:usize,index:usize,edit:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {
+        fn edit<R>(&mut self,store:&mut crate::world::owner::World,s:Source,seat:usize,index:usize,edit:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {
             self.count(store,s,seat)?;let (r,changed)=weapons::edit_state(self.weapons.get_mut(index)?,edit);
             self.changed+=usize::from(changed);Some(r)
         }
@@ -1560,7 +1561,7 @@ fn mounted_arsenal_preserves_channels_tuning_and_weapon_clocks() {
         let class=WeaponClass::new(Rc::new(JsObj {fields:vec![("channel".into(),channel)],def:None}));
         prepared.register(DefId(id),&class);defs.set(DefId(id),class);
     }
-    let mut store=Store::default();let mut ownership=Ownership::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut ownership=Ownership::default();
     for source in [Source::Hull(Ref::new(3,2),4.),Source::Turret(Ref::new(5,6),7.)] {
         let owner=Owner::Mount(source,1);
         let mut mount=Mount {source,weapons:(0..3).map(|i|Weapon::create(DefId(i),&defs,false)).collect(),changed:0};
@@ -1592,37 +1593,37 @@ fn native_sight_keeps_collision_body_exclusions_and_registry_observation_order()
     use three::Vector3;
     struct Occlusion {hit:Option<Option<Ref<Body>>>,unit:bool,casts:usize,rays:usize,ignored:Option<Ref<Body>>,excluded:Vec<Member>,axis:Vector3,span:f64}
     impl World for Occlusion {
-        fn cast(&mut self,_:&mut Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,from:&Vector3,d:&Vector3,span:f64,ignore:Option<Ref<Body>>)->Option<Option<Ref<Body>>> {
+        fn cast(&mut self,_:&mut crate::world::owner::World,from:&Vector3,d:&Vector3,span:f64,ignore:Option<Ref<Body>>)->Option<Option<Ref<Body>>> {
             assert_eq!(*from,Vector3::default());assert_eq!(*d,self.axis);assert_eq!(span,self.span);
             self.casts+=1;self.ignored=ignore;self.hit
         }
-        fn raycast(&mut self,_:&mut Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:&Vector3,_:&Vector3,_:f64,exclude:&[Member])->bool {
+        fn raycast(&mut self,_:&mut crate::world::owner::World,_:&Vector3,_:&Vector3,_:f64,exclude:&[Member])->bool {
             assert!(self.casts>self.rays);self.rays+=1;self.excluded.clear();self.excluded.extend_from_slice(exclude);self.unit
         }
     }
-    let mut store=Store::default();let mut entities=Entities::new(16);let controls=Controls::new(4);let queries=Queries::new(16,2);
+    let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(16);let controls=Controls::new(4);let queries=Queries::new(16,2);
     let hull=store.vehicle.insert(Vehicle {body:Ref::new(21,3),..Vehicle::default()});
     let lease=store.seat_lease.insert(SeatLease {vehicle:Some(hull),..SeatLease::default()});
     let rider=store.unit.insert(Unit {seat:Some(lease),..Unit::default()});let rider_obj=entities.register(Entity::Unit(rider));
     let target_ref=Ref::new(8,2);let target=entities.register(Entity::BuildingService(target_ref));
     let authored=entities.register(Entity::Building(target_ref));
     let mut sight=Sight::new(16);sight.prepare(authored,Ref::new(22,4));
-    let from=Vector3::default();let to=Vector3::new(0.,0.,10.);let mut seats=Default::default();
+    let from=Vector3::default();let to=Vector3::new(0.,0.,10.);let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
     let mut world=Occlusion {hit:None,unit:false,casts:0,rays:0,ignored:None,excluded:Vec::with_capacity(2),axis:Vector3::new(0.,0.,1.),span:10.};
-    assert!(sight.los(&mut store,&mut seats,&entities,&controls,&queries,&mut world,&from,&from,Some(rider_obj),Some(target)));
+    assert!(sight.los(&mut store,&entities,&controls,&queries,&mut world,&from,&from,Some(rider_obj),Some(target)));
     assert_eq!(world.casts,0);assert_eq!(world.rays,0);
     world.hit=Some(None);
-    assert!(!sight.los(&mut store,&mut seats,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));
+    assert!(!sight.los(&mut store,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));
     assert_eq!(world.ignored,Some(Ref::new(21,3)));assert_eq!(world.rays,0);
     world.hit=Some(Some(Ref::new(22,4)));
-    assert!(sight.los(&mut store,&mut seats,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));
+    assert!(sight.los(&mut store,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));
     assert_eq!(world.excluded,vec![Member::Unit(rider)]);
     world.unit=true;
-    assert!(!sight.los(&mut store,&mut seats,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));
+    assert!(!sight.los(&mut store,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));
     world.unit=false;world.hit=None;
     store.unit.get_mut(rider).unwrap().seat=None;
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
-    for _ in 0..120 {assert!(sight.los(&mut store,&mut seats,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));}
+    for _ in 0..120 {assert!(sight.los(&mut store,&entities,&controls,&queries,&mut world,&from,&to,Some(rider_obj),Some(target)));}
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);assert_eq!(world.ignored,None);
     entities.retire(authored);
     let replacement=entities.register(Entity::Building(Ref::new(8,3)));
@@ -1632,21 +1633,21 @@ fn native_sight_keeps_collision_body_exclusions_and_registry_observation_order()
     let handle=AiLifeHandle {kind:KIND_UNIT.into(),slot:rider.slot,generation:rider.gen,life:0.};
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..120 {
-        assert!(bfe_sim::ai::owned::sight::clear_above(&mut store,&mut seats,&mut world,&from,&handle));
+        assert!(bfe_sim::ai::owned::sight::clear_above(&mut store,&mut world,&from,&handle));
         assert_eq!(world.ignored,Some(Ref::new(21,3)));assert_eq!(&world.excluded,&[Member::Unit(rider)]);
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
     let rays=world.rays;world.hit=Some(None);
-    assert!(!bfe_sim::ai::owned::sight::clear_above(&mut store,&mut seats,&mut world,&from,&handle));assert_eq!(world.rays,rays);
+    assert!(!bfe_sim::ai::owned::sight::clear_above(&mut store,&mut world,&from,&handle));assert_eq!(world.rays,rays);
     let casts=world.casts;store.unit.get_mut(rider).unwrap().generation=1.;
-    assert!(!bfe_sim::ai::owned::sight::clear_above(&mut store,&mut seats,&mut world,&from,&handle));assert_eq!(world.casts,casts);
+    assert!(!bfe_sim::ai::owned::sight::clear_above(&mut store,&mut world,&from,&handle));assert_eq!(world.casts,casts);
 }
 
 #[test]
 fn native_navigation_reuses_physical_controls_without_reusing_actor_identity() {
     let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
     use bfe_sim::{ai::{owned::navigation::Command,nav::{goto::GotoMode,units::ClassDef},phase::RandomState},gen::*};
-    let mut store=Store::default();let r=store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let r=store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});
     let mut navigation=owned_navigation(false);let class=navigation.class(ClassDef::default());
     let mut random=RandomState::new(37);let mut env=NavigationEnvironment{now:0.};
     let key=|life|AiLifeHandle {kind:KIND_UNIT.into(),slot:r.slot,generation:r.gen,life};
@@ -1658,7 +1659,7 @@ fn native_navigation_reuses_physical_controls_without_reusing_actor_identity() {
         let actor=navigation.register(&store,key(life as f64),class).unwrap();
         assert_ne!(actor,first);assert!(navigation.resolve(&store,old).is_none());
         assert!(!navigation.control(actor).unwrap().disposed);
-        navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(bfe_sim::ai::nav::math::Vec3::new(10.,0.,0.),GotoMode::Direct)).unwrap();
+        navigation.command(&mut store,&mut random,&mut env,actor,Command::Goto(bfe_sim::ai::nav::math::Vec3::new(10.,0.,0.),GotoMode::Direct)).unwrap();
         assert!(navigation.retire(actor));
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);assert_eq!(navigation.nav.controls.len(),1);
@@ -1671,7 +1672,7 @@ fn shared_native_state_uses_canonical_controller_links_and_prepares_empty_hint_s
         gen::{Store,Unit},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats};
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:2,posts:2,hulls:2,buildings:2,controls:4,scopes:2,cameras:1});
     state.prepare_hints(|_|None);
-    let mut store=Store::default();let mut owner=Ownership::default();let r=store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let mut owner=Ownership::default();let r=store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});
     owner.adopt(&store,r).unwrap();owner.clear_changed();
     let obj=state.entities.register(Entity::Unit(r));state.units.class(DefId(0),ClassSnap::default(),"test".into());
     state.combat_units.class_view(DefId(0),Default::default());
@@ -1716,7 +1717,7 @@ fn native_jet_jobs_keep_random_ties_authored_vectors_and_current_launch_position
     let record=HintRecord {kind:Some("jetjump".into()),name:None,xfrm:[1.,0.,0.,0.,1.,0.,0.,0.,1.,0.,0.,0.],properties:vec![]};
     let mut raw=owned_navigation(false).nav;raw.hints=HintSet::new(build_hints(&[record.clone(),record.clone(),record],None,350.));
     let hints=Hints::new(&raw,2,|_|None,|i|i as u64+40);
-    let mut nav=Navigation::new(raw,2);let mut store=Store::default();
+    let mut nav=Navigation::new(raw,2);let mut store=crate::ai::owned::tests::empty_world();
     let r=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Default::default()}),..Default::default()});
     let class=nav.class(ClassDef::default());let actor=nav.register(&store,AiLifeHandle {kind:KIND_UNIT.into(),slot:r.slot,generation:r.gen,life:1.},class).unwrap();
     let mut jets=Jets::new(4);let mut random=RandomState::new(47);let mut expected=ClassicRandom::from_state(47);
@@ -1727,11 +1728,11 @@ fn native_jet_jobs_keep_random_ties_authored_vectors_and_current_launch_position
     let mut env=NavigationEnvironment {now:1.};
     for forward in [Vec3::new(2.,0.,0.),Vec3::default()] {
         nav.nav.hints.list[0].forward=forward;
-        jets.enter(1,Some(actor),Some(0),&mut nav,&mut store,&mut seats,&mut random,&mut env);
+        jets.enter(1,Some(actor),Some(0),&mut nav,&mut store,&mut random,&mut env);
         for _ in 0..8 {
             nav.nav.service(1.);
-            nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
-            nav.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();
+            nav.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();
+            nav.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();
             if nav.helper_observation(&store,actor).unwrap().arrived {break;}
         }
         assert!(nav.helper_observation(&store,actor).unwrap().arrived);
@@ -1739,17 +1740,17 @@ fn native_jet_jobs_keep_random_ties_authored_vectors_and_current_launch_position
         nav.renew_helper(&store,actor).unwrap();
         let successor_destination=nav.destination(&store,actor).unwrap();
         let UnitBody::Soldier(body)=&mut store.unit.get_mut(r).unwrap().soldier else {unreachable!()};body.position=[3.,0.,4.];
-        assert!(!jets.tick(1,&mut nav,&mut store,&mut seats,&mut random,&mut env));
+        assert!(!jets.tick(1,&mut nav,&mut store,&mut random,&mut env));
         assert_eq!(nav.destination_for(&store,job_helper),Some(Vec3::new(3.+forward.x*80.,0.,4.+forward.z*80.)));
         assert_eq!(nav.destination(&store,actor),Some(successor_destination));
         assert_eq!(nav.control(actor).unwrap().jet.vector,forward);assert!(nav.control(actor).unwrap().jet.pending);
-        env.now+=1.;assert!(!jets.tick(1,&mut nav,&mut store,&mut seats,&mut random,&mut env));
-        env.now+=0.01;assert!(jets.tick(1,&mut nav,&mut store,&mut seats,&mut random,&mut env));
-        jets.exit(1,&mut nav);assert!(jets.tick(1,&mut nav,&mut store,&mut seats,&mut random,&mut env));
+        env.now+=1.;assert!(!jets.tick(1,&mut nav,&mut store,&mut random,&mut env));
+        env.now+=0.01;assert!(jets.tick(1,&mut nav,&mut store,&mut random,&mut env));
+        jets.exit(1,&mut nav);assert!(jets.tick(1,&mut nav,&mut store,&mut random,&mut env));
         let UnitBody::Soldier(body)=&mut store.unit.get_mut(r).unwrap().soldier else {unreachable!()};body.position=[0.,0.,0.];
     }
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
-    for _ in 0..120 {assert!(jets.find(&nav,&hints,3,Vec3::default(),env.now,&mut random).is_some());jets.enter(1,None,Some(0),&mut nav,&mut store,&mut seats,&mut random,&mut env);jets.exit(1,&mut nav);}
+    for _ in 0..120 {assert!(jets.find(&nav,&hints,3,Vec3::default(),env.now,&mut random).is_some());jets.enter(1,None,Some(0),&mut nav,&mut store,&mut random,&mut env);jets.exit(1,&mut nav);}
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
 }
 
@@ -1759,9 +1760,9 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
         gen::{Store,Unit,Weapon},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats,combat::defs::{WeaponDefs,WeaponClass,JsObj,Js}};
     struct NoMount;
     impl Mounted for NoMount {
-        fn count(&self,_:&bfe_sim::gen::Store,_:bfe_sim::ai::owned::seats::Source,_:usize)->Option<usize> {Some(0)}
-        fn read<R>(&self,_:&bfe_sim::gen::Store,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("body arsenal must stay with F3")}
-        fn edit<R>(&mut self,_:&bfe_sim::gen::Store,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {panic!("body arsenal must stay with F3")}
+        fn count(&self,_:&crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize)->Option<usize> {Some(0)}
+        fn read<R>(&self,_:&crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("body arsenal must stay with F3")}
+        fn edit<R>(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {panic!("body arsenal must stay with F3")}
     }
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:2,posts:2,hulls:2,buildings:2,controls:4,scopes:2,cameras:1});
     let mut defs=WeaponDefs::default();let class=WeaponClass::new(std::rc::Rc::new(JsObj {fields:vec![("channel".into(),Js::Num(0.)),("base".into(),Js::Str("towcableweapon".into()))],def:None}));
@@ -1769,66 +1770,68 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     let mut strings=bfe_sim::store::Strings::default();
     let body_class=bfe_sim::gen::AiUnitClass {def:DefId(0),name:strings.intern_str("test"),..Default::default()};
     state.unit_class(&body_class,&strings);
-    let mut store=Store::default();let r=store.unit.insert(Unit {alive:true,generation:1.,..Default::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let r=store.unit.insert(Unit {alive:true,generation:1.,..Default::default()});
     store.unit.get_mut(r).unwrap().combat.weapons.push(Weapon::create(DefId(0),&defs,false));
     let obj=state.entities.register(Entity::Unit(r));let mut changes=Ownership::default();changes.adopt(&store,r).unwrap();changes.clear_changed();
     let mut seats=Seats::default();let live=Live::new(0,0,0);let mut commands=Commands::new(0);let mut mounted=NoMount;
-    let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&live.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+    store.sim.strings=std::mem::take(&mut strings);
+    crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let mut rows=Rows {w:&mut store,buildings:&live.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
     assert!(rows.unit(obj).alive);assert!(rows.has_arsenal(obj));assert_eq!(rows.weapon_count(obj),1);
     assert_eq!(rows.unit_life(obj),(rows.unit(obj).alive,rows.unit(obj).generation));
     assert_eq!(rows.unit_priority(obj),bfe_sim::ai::combat::world::PriorityView::of(&rows.unit(obj)));
     assert_eq!(rows.unit_target_status(obj),bfe_sim::ai::combat::world::TargetStatus::of(&rows.unit(obj)));
     assert_eq!(rows.unit_has_origin(obj),rows.unit(obj).has_origin);
     for tick in 0..3 {
-        let bfe_sim::gen::UnitBody::Soldier(body)=&mut rows.store.unit.get_mut(r).unwrap().soldier else {unreachable!()};
+        let bfe_sim::gen::UnitBody::Soldier(body)=&mut rows.w.sim.store.unit.get_mut(r).unwrap().soldier else {unreachable!()};
         body.velocity=[tick as f64,-0.0,3.];
         assert_eq!(rows.unit_velocity(obj),rows.unit(obj).velocity);
         assert_eq!(rows.unit_controller(obj),rows.unit(obj).controller);
     }
-    rows.store.unit.get_mut(r).unwrap().class_def=DefId(999);
+    rows.w.sim.store.unit.get_mut(r).unwrap().class_def=DefId(999);
     assert_eq!(rows.unit_velocity(obj),None);assert_eq!(rows.unit_controller(obj),None);
     assert_eq!(rows.unit_life(obj),(false,0.));assert!(!rows.unit_has_origin(obj));
     assert_eq!(rows.unit_target_status(obj),Default::default());
-    rows.store.unit.get_mut(r).unwrap().class_def=DefId(0);
+    rows.w.sim.store.unit.get_mut(r).unwrap().class_def=DefId(0);
     assert_eq!(rows.unit_velocity(u64::MAX),None);assert_eq!(rows.unit_controller(u64::MAX),None);
-    let hull=rows.store.vehicle.insert(Default::default());
+    let hull=rows.w.sim.store.vehicle.insert(Default::default());
     let raw_hull=rows.state.entities.register(Entity::Hull(hull));
     let hull_target=rows.state.entities.register(Entity::HullEntry(hull));
-    rows.store.unit.get_mut(r).unwrap().combat.repair_target=Some(bfe_sim::gen::RepairTarget::Vehicle(hull));
+    rows.w.sim.store.unit.get_mut(r).unwrap().combat.repair_target=Some(bfe_sim::gen::RepairTarget::Vehicle(hull));
     {
-        let row=rows.store.vehicle.get_mut(hull).unwrap();row.alive=true;row.target_generation=1.;
+        let row=rows.w.sim.store.vehicle.get_mut(hull).unwrap();row.alive=true;row.target_generation=1.;
         row.seats.push(Default::default());
     }
-    let lease=rows.store.seat_lease.insert(bfe_sim::gen::SeatLease {unit:Some(r),generation:1.,vehicle:Some(hull),..Default::default()});
-    rows.store.vehicle.get_mut(hull).unwrap().seats[0].lease=Some(lease);
-    rows.store.unit.get_mut(r).unwrap().seat=Some(lease);
-    let control=rows.state.births.construct(rows.store,rows.seats,&mut rows.state.entities,lease,None).unwrap();
-    rows.store.seat_lease.get_mut(lease).unwrap().controllable=Some(control);
-    let seat_class=bfe_sim::gen::AiUnitClass {name:strings.intern_str("seat"),..Default::default()};
-    let class=rows.state.control_class(&seat_class,&strings,6.);
-    assert!(rows.state.controls.register(rows.store,&mut rows.state.entities,control,lease,bfe_sim::gen::AiLifeHandle {kind:bfe_sim::gen::KIND_VEHICLE.into(),slot:hull.slot,generation:hull.gen,life:1.},6.,Default::default(),"craft".into(),None,bfe_sim::ai::owned::seats::Occupant {id:0.,hero:false}));
+    let lease=rows.w.sim.store.seat_lease.insert(bfe_sim::gen::SeatLease {unit:Some(r),generation:1.,vehicle:Some(hull),..Default::default()});
+    rows.w.sim.store.vehicle.get_mut(hull).unwrap().seats[0].lease=Some(lease);
+    rows.w.sim.store.unit.get_mut(r).unwrap().seat=Some(lease);
+    let control=rows.state.births.construct(&rows.w.sim.store,rows.w.fleet.seats_owner(),&mut rows.state.entities,lease,None).unwrap();
+    rows.w.sim.store.seat_lease.get_mut(lease).unwrap().controllable=Some(control);
+    let seat_class=bfe_sim::gen::AiUnitClass {name:rows.w.sim.strings.intern_str("seat"),..Default::default()};
+    let class=rows.state.control_class(&seat_class,&rows.w.sim.strings,6.);
+    assert!(rows.state.controls.register(&rows.w.sim.store,&mut rows.state.entities,control,lease,bfe_sim::gen::AiLifeHandle {kind:bfe_sim::gen::KIND_VEHICLE.into(),slot:hull.slot,generation:hull.gen,life:1.},6.,Default::default(),"craft".into(),None,bfe_sim::ai::owned::seats::Occupant {id:0.,hero:false}));
     assert!(rows.state.controls.set_class(control,class));
     let control_obj=rows.state.entities.find(Entity::Control(control)).unwrap();
     let seat_key=bfe_sim::seats::lease::control_key(control);
-    rows.seats.hulls.controls.get_mut(&seat_key).unwrap().intent.buttons=[4.,5.];
-    rows.seats.hulls.controls.get_mut(&seat_key).unwrap().intent.reload=true;
-    rows.seats.add_hull(rows.store,bfe_sim::seats::hulls::HullSide {vehicle:hull,..Default::default()});
+    rows.w.fleet.seats_owner().hulls.controls.get_mut(&seat_key).unwrap().intent.buttons=[4.,5.];
+    rows.w.fleet.seats_owner().hulls.controls.get_mut(&seat_key).unwrap().intent.reload=true;
+    rows.w.fleet.seats_owner().add_hull(&rows.w.sim.store,bfe_sim::seats::hulls::HullSide {vehicle:hull,..Default::default()});
     let mut hull_definition=bfe_sim::gen::AiHullDefinition {
         hull,member:Some(bfe_sim::gen::Member::VehicleTarget(bfe_sim::store::Ref::new(0,1))),kind:6.,category:3.,forward_speed:f64::NAN,
-        policy:bfe_sim::gen::AiUnitClass {name:strings.intern_str("craft"),vehicle_type:bfe_sim::gen::AiClassScalar::Str(strings.intern_str("transport")),..Default::default()},
+        policy:bfe_sim::gen::AiUnitClass {name:rows.w.sim.strings.intern_str("craft"),vehicle_type:bfe_sim::gen::AiClassScalar::Str(rows.w.sim.strings.intern_str("transport")),..Default::default()},
         seats:vec![bfe_sim::gen::AiSeatDefinition {policy:seat_class.clone(),kind:6.,weapons:1,..Default::default()}],..Default::default()
     };
     // A rejected batch leaves both registry and existing construction intact.
     hull_definition.hull=bfe_sim::store::Ref::new(hull.slot,hull.gen+1);
-    assert!(!rows.prepare_members(std::slice::from_ref(&hull_definition),&[],&strings));
+    assert!(!rows.prepare_members(std::slice::from_ref(&hull_definition),&[]));
     assert!(rows.state.queries.object(&rows.state.entities,hull_definition.member.unwrap()).is_none());
     hull_definition.hull=hull;
-    assert!(rows.prepare_members(std::slice::from_ref(&hull_definition),&[],&strings));
+    assert!(rows.prepare_members(std::slice::from_ref(&hull_definition),&[]));
     assert_eq!(rows.state.queries.object(&rows.state.entities,hull_definition.member.unwrap()),Some(hull_target));
     assert_eq!(rows.scene().vehicle(hull_target).unwrap().class.unwrap().vehicle_type.as_deref(),Some("transport"));
-    let variant=rows.store.vehicle.insert(bfe_sim::gen::Vehicle {seats:vec![Default::default()],..Default::default()});
+    let variant=rows.w.sim.store.vehicle.insert(bfe_sim::gen::Vehicle {seats:vec![Default::default()],..Default::default()});
     let mut pending=hull_definition.clone();pending.hull=variant;pending.member=None;
-    assert!(rows.prepare_members(std::slice::from_ref(&pending),&[],&strings));
+    assert!(rows.prepare_members(std::slice::from_ref(&pending),&[]));
     let future=bfe_sim::gen::Member::VehicleTarget(bfe_sim::store::Ref::new(7,1));
     assert!(rows.state.queries.object(&rows.state.entities,future).is_none());
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
@@ -1840,9 +1843,9 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     let controller=rows.state.controllers.adopt(0,&mut rows.state.entities);
     rows.state.controllers.write(&rows.state.entities,controller).unwrap().unit=Some(control_obj);
     rows.state.controls.link_controller(control,controller,true).unwrap();
-    let body_actor=rows.state.controller_body(rows.store,0,obj).unwrap();
+    let body_actor=rows.state.controller_body(&rows.w.sim.store,0,obj).unwrap();
     let control_count=rows.state.navigation.nav.controls.len();
-    assert_eq!(rows.state.controller_hull(rows.store,0,control_obj),Some(body_actor));
+    assert_eq!(rows.state.controller_hull(&rows.w.sim.store,0,control_obj),Some(body_actor));
     assert_eq!(rows.state.navigation.nav.controls.len(),control_count);
     let agent=rows.state.agents.begin(&mut rows.state.entities,0,controller);
     let mut helper=bfe_sim::ai::control::agents::Helper::default();helper.kind=Some(bfe_sim::ai::control::world::HelperKind::Ground);
@@ -1853,12 +1856,12 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     let combat_settings=bfe_sim::ai::owned::frame::Settings {difficulty:std::cell::RefCell::new(bfe_sim::ai::control::difficulty::Difficulty::classic(Default::default())),mission_stay_in_turrets:false,mission_no_jet_obstacle_test:false,ai_stay_in_turrets:false,vehicles:true,dense:false,navigation:true};
     let mut combat=bfe_sim::ai::combat::binding::CombatAi::default();let mut random=bfe_sim::ai::phase::RandomState::new(3);
     let mut hooks=canonical_combat_fixture::Callbacks::default();
-    rows.store.unit.get_mut(r).unwrap().intent.reload=true;
+    rows.w.sim.store.unit.get_mut(r).unwrap().intent.reload=true;
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for step in 0..120 {
-        assert_eq!(rows.state.controller_body(rows.store,0,obj),Some(body_actor));
-        assert_eq!(rows.state.controller_hull(rows.store,0,control_obj),Some(body_actor));
-        assert!(rows.state.navigation.renew_helper(rows.store,body_actor).is_some());
+        assert_eq!(rows.state.controller_body(&rows.w.sim.store,0,obj),Some(body_actor));
+        assert_eq!(rows.state.controller_hull(&rows.w.sim.store,0,control_obj),Some(body_actor));
+        assert!(rows.state.navigation.renew_helper(&rows.w.sim.store,body_actor).is_some());
         assert_eq!(rows.state.navigation.nav.controls.len(),control_count);
         {
             use bfe_sim::ai::vehicles::{World,service::VehicleServices,notify::VehicleNotify};
@@ -1879,16 +1882,16 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
             let mut frame=bfe_sim::ai::owned::frame::Frame {rows:&mut rows,hooks:&mut hooks,random:&mut random,settings:&combat_settings,time:step as f64/60.,response:None};
             assert!(frame.has_vehicle_dispatch());assert!(frame.has_mount_reach());
             assert!(!frame.agent_board_policy(agent,hull_target),"stationary hull without remembered target");
-            frame.rows.store.vehicle.get_mut(hull).unwrap().speed=1.;
+            frame.rows.w.sim.store.vehicle.get_mut(hull).unwrap().speed=1.;
             assert!(frame.agent_board_policy(agent,hull_target),"moving hull bypasses remembered target");
-            frame.rows.store.vehicle.get_mut(hull).unwrap().speed=0.;
+            frame.rows.w.sim.store.vehicle.get_mut(hull).unwrap().speed=0.;
             assert!(frame.mount_reach(control_obj,&three::Vector3::new(0.,0.,10.)));
             let choice=bfe_sim::ai::combat::agent::dispatch_shared(&mut frame,&mut combat.shared,Some(controller),control_obj,obj,true);
             assert_eq!((choice.pattern,choice.probability,choice.aux,choice.weapon),(0.,0.,false,None));
         }
         assert_eq!(rows.tow_weapon(obj),Some((0,0.)));
         assert!(rows.vehicle_fields(control_obj,bfe_sim::ai::vehicles::world::SeatIntent {up:step as f64,down:2.,brake:true,trick:true,immelmann:false,boost:true}));
-        let intent=&rows.seats.hulls.controls.get(&seat_key).unwrap().intent;
+        let intent=&rows.w.fleet.seats_owner().hulls.controls.get(&seat_key).unwrap().intent;
         assert_eq!(intent.up,step as f64);assert_eq!(intent.buttons,[4.,5.]);assert!(intent.reload);assert!(intent.boost);
         assert_eq!(rows.vehicle_steer(control_obj,|steer|{let steer=steer.get_or_insert_with(bfe_sim::ai::vehicles::world::Steer::full);steer.land=Some(true);steer.land==Some(true)}),Some(true));
         assert_eq!(rows.repair_target(obj),Some(raw_hull));
@@ -1899,7 +1902,7 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
         rows.edit_weapon(obj,0,|w|w.spread_scale=0.5);
         assert_eq!(rows.weapon_settings(obj,0).spread_scale,0.5);assert_eq!(rows.current_weapon(obj,0.),Some(0));
         assert!(rows.select(obj,0));assert_eq!(rows.body_lease_count(obj),0);
-        assert!(rows.store.unit.get(r).unwrap().intent.reload);assert!(rows.weapon(obj,0).is_some());
+        assert!(rows.w.sim.store.unit.get(r).unwrap().intent.reload);assert!(rows.weapon(obj,0).is_some());
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);assert_eq!(rows.changes.changed(),&[r]);
     // Mounted pattern state belongs to this agent. The optional helper is
@@ -1938,34 +1941,34 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     // A promoted pilot receives a fresh control; the old body now mans a
     // gunner slot. Its shared target comes from the separate human pilot's
     // reticle, and every early gate precedes that lazy query.
-    let pilot=rows.store.unit.insert(Unit {alive:true,generation:1.,human:true,team:1.,..Default::default()});
-    let human_lease=rows.store.seat_lease.insert(bfe_sim::gen::SeatLease {unit:Some(pilot),generation:1.,vehicle:Some(hull),human:true,team:1.,..Default::default()});
+    let pilot=rows.w.sim.store.unit.insert(Unit {alive:true,generation:1.,human:true,team:1.,..Default::default()});
+    let human_lease=rows.w.sim.store.seat_lease.insert(bfe_sim::gen::SeatLease {unit:Some(pilot),generation:1.,vehicle:Some(hull),human:true,team:1.,..Default::default()});
     rows.state.entities.register(Entity::Unit(pilot));rows.state.entities.register(Entity::Lease(human_lease));
-    rows.store.unit.get_mut(pilot).unwrap().seat=Some(human_lease);
-    rows.store.unit.get_mut(r).unwrap().team=1.;
-    rows.store.seat_lease.get_mut(lease).unwrap().index=1.;rows.store.seat_lease.get_mut(lease).unwrap().team=1.;
-    rows.store.vehicle.get_mut(hull).unwrap().seats[0].lease=Some(human_lease);
-    rows.store.vehicle.get_mut(hull).unwrap().seats.push(Default::default());rows.store.vehicle.get_mut(hull).unwrap().seats[1].lease=Some(lease);
-    let gun=rows.state.births.construct(rows.store,rows.seats,&mut rows.state.entities,lease,None).unwrap();
-    rows.store.seat_lease.get_mut(lease).unwrap().controllable=Some(gun);
-    let class=rows.state.control_class(&seat_class,&strings,7.);
-    assert!(rows.state.controls.register(rows.store,&mut rows.state.entities,gun,lease,bfe_sim::gen::AiLifeHandle {kind:bfe_sim::gen::KIND_VEHICLE.into(),slot:hull.slot,generation:hull.gen,life:1.},7.,Default::default(),"gun".into(),Some(controller),bfe_sim::ai::owned::seats::Occupant {id:r.slot as f64,hero:false}));
+    rows.w.sim.store.unit.get_mut(pilot).unwrap().seat=Some(human_lease);
+    rows.w.sim.store.unit.get_mut(r).unwrap().team=1.;
+    rows.w.sim.store.seat_lease.get_mut(lease).unwrap().index=1.;rows.w.sim.store.seat_lease.get_mut(lease).unwrap().team=1.;
+    rows.w.sim.store.vehicle.get_mut(hull).unwrap().seats[0].lease=Some(human_lease);
+    rows.w.sim.store.vehicle.get_mut(hull).unwrap().seats.push(Default::default());rows.w.sim.store.vehicle.get_mut(hull).unwrap().seats[1].lease=Some(lease);
+    let gun=rows.state.births.construct(&rows.w.sim.store,rows.w.fleet.seats_owner(),&mut rows.state.entities,lease,None).unwrap();
+    rows.w.sim.store.seat_lease.get_mut(lease).unwrap().controllable=Some(gun);
+    let class=rows.state.control_class(&seat_class,&rows.w.sim.strings,7.);
+    assert!(rows.state.controls.register(&rows.w.sim.store,&mut rows.state.entities,gun,lease,bfe_sim::gen::AiLifeHandle {kind:bfe_sim::gen::KIND_VEHICLE.into(),slot:hull.slot,generation:hull.gen,life:1.},7.,Default::default(),"gun".into(),Some(controller),bfe_sim::ai::owned::seats::Occupant {id:r.slot as f64,hero:false}));
     assert!(rows.state.controls.set_class(gun,class));
     let gun_obj=rows.state.entities.find(Entity::Control(gun)).unwrap();rows.state.controllers.write(&rows.state.entities,controller).unwrap().unit=Some(gun_obj);
-    let target=rows.store.unit.insert(Unit {alive:true,generation:1.,team:2.,..Default::default()});
-    if let bfe_sim::gen::UnitBody::Soldier(body)=&mut rows.store.unit.get_mut(target).unwrap().soldier {body.position=[0.,0.,10.];}
-    let target_obj=rows.state.entities.register(Entity::Unit(target));rows.store.units.list.push(bfe_sim::gen::Member::Unit(target));
+    let target=rows.w.sim.store.unit.insert(Unit {alive:true,generation:1.,team:2.,..Default::default()});
+    if let bfe_sim::gen::UnitBody::Soldier(body)=&mut rows.w.sim.store.unit.get_mut(target).unwrap().soldier {body.position=[0.,0.,10.];}
+    let target_obj=rows.state.entities.register(Entity::Unit(target));rows.w.sim.store.units.list.push(bfe_sim::gen::Member::Unit(target));
     rows.state.phase_facts(&bfe_sim::gen::AiPhaseFacts {reticle:bfe_sim::gen::AiPhaseReticle {pilot:Some(hull),pilot_life:1.,target:Some(bfe_sim::gen::Member::Unit(target)),target_life:1.},..Default::default()},&[]);
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..120 {
         use bfe_sim::ai::combat::world::World;
         let mut frame=bfe_sim::ai::owned::frame::Frame {rows:&mut rows,hooks:&mut hooks,random:&mut random,settings:&combat_settings,time:0.,response:None};
         assert_eq!(frame.shared_target(controller),Some(target_obj));
-        frame.rows.store.vehicle.get_mut(hull).unwrap().flying=true;assert_eq!(frame.shared_target(controller),None);frame.rows.store.vehicle.get_mut(hull).unwrap().flying=false;
-        frame.rows.store.seat_lease.get_mut(human_lease).unwrap().human=false;assert_eq!(frame.shared_target(controller),None);frame.rows.store.seat_lease.get_mut(human_lease).unwrap().human=true;
-        frame.rows.store.unit.get_mut(target).unwrap().alive=false;assert_eq!(frame.shared_target(controller),None);frame.rows.store.unit.get_mut(target).unwrap().alive=true;
-        frame.rows.store.unit.get_mut(target).unwrap().team=1.;assert_eq!(frame.shared_target(controller),None);frame.rows.store.unit.get_mut(target).unwrap().team=2.;
-        frame.rows.store.seat_lease.get_mut(lease).unwrap().released=true;assert_eq!(frame.shared_target(controller),None);frame.rows.store.seat_lease.get_mut(lease).unwrap().released=false;
+        frame.rows.w.sim.store.vehicle.get_mut(hull).unwrap().flying=true;assert_eq!(frame.shared_target(controller),None);frame.rows.w.sim.store.vehicle.get_mut(hull).unwrap().flying=false;
+        frame.rows.w.sim.store.seat_lease.get_mut(human_lease).unwrap().human=false;assert_eq!(frame.shared_target(controller),None);frame.rows.w.sim.store.seat_lease.get_mut(human_lease).unwrap().human=true;
+        frame.rows.w.sim.store.unit.get_mut(target).unwrap().alive=false;assert_eq!(frame.shared_target(controller),None);frame.rows.w.sim.store.unit.get_mut(target).unwrap().alive=true;
+        frame.rows.w.sim.store.unit.get_mut(target).unwrap().team=1.;assert_eq!(frame.shared_target(controller),None);frame.rows.w.sim.store.unit.get_mut(target).unwrap().team=2.;
+        frame.rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=true;assert_eq!(frame.shared_target(controller),None);frame.rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=false;
         frame.rows.state.reticle.target_life=2.;assert_eq!(frame.shared_target(controller),None);frame.rows.state.reticle.target_life=1.;
         frame.rows.state.reticle.pilot_life=2.;assert_eq!(frame.shared_target(controller),None);frame.rows.state.reticle.pilot_life=1.;
     }
@@ -1974,49 +1977,49 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     // only after all agent/helper scopes have left. Reboarding reuses storage
     // with another generation and never grows the warmed native pool.
     let mut output=std::mem::take(&mut rows.state.control_views);
-    let first=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());
+    let first=output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)));
     assert_eq!(first[1],2);assert!(rows.state.births.read(control).is_none());
-    assert_eq!(output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows()),first);
+    assert_eq!(output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle))),first);
     output.acknowledge(first[2]);
-    assert_eq!(output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows())[1],0);
+    assert_eq!(output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)))[1],0);
     // Steering never leaves the native owner. Structural identities remain
     // immediately visible, independently of the following unit phase.
     let key=bfe_sim::seats::lease::control_key(gun);
-    rows.seats.hulls.controls.get_mut(&key).unwrap().intent.forward=0.75;
+    rows.w.fleet.seats_owner().hulls.controls.get_mut(&key).unwrap().intent.forward=0.75;
     let version=output.version();
-    assert_eq!(output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows())[1],0);
+    assert_eq!(output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)))[1],0);
     assert_eq!(output.version(),version);
-    let driven=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());
+    let driven=output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)));
     assert_eq!(driven[1],0);output.acknowledge(driven[2]);
-    rows.store.seat_lease.get_mut(lease).unwrap().released=true;
-    let released=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());
+    rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=true;
+    let released=output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)));
     assert_eq!(released[1],1);assert!(rows.state.births.read(gun).is_some());output.acknowledge(released[2]);
     // A physical release publishes controller=None immediately, but the old
     // qualified object survives until Core has completed its unbind hooks.
-    assert!(rows.state.link_controller(rows.store,rows.changes,gun_obj,0,false));
+    assert!(rows.state.link_controller(rows.w,rows.changes,gun_obj,0,false));
     rows.state.controllers.write(&rows.state.entities,controller).unwrap().unit=None;
-    assert_eq!(output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows())[1],0);
+    assert_eq!(output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)))[1],0);
     assert!(rows.state.births.read(gun).is_none());
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..1000 {
-        rows.store.seat_lease.get_mut(lease).unwrap().released=false;
-        let next=rows.state.births.construct(rows.store,rows.seats,&mut rows.state.entities,lease,None).unwrap();
+        rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=false;
+        let next=rows.state.births.construct(&rows.w.sim.store,rows.w.fleet.seats_owner(),&mut rows.state.entities,lease,None).unwrap();
         assert!(next.slot<2);assert_ne!(next,gun);
-        rows.store.seat_lease.get_mut(lease).unwrap().controllable=Some(next);
-        let born=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());output.acknowledge(born[2]);
-        rows.store.seat_lease.get_mut(lease).unwrap().released=true;
+        rows.w.sim.store.seat_lease.get_mut(lease).unwrap().controllable=Some(next);
+        let born=output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)));output.acknowledge(born[2]);
+        rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=true;
         // F2 retires steering before the AI publisher sees the released lease.
-        rows.seats.hulls.controls.remove(&bfe_sim::seats::lease::control_key(next));
-        let retired=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());output.acknowledge(retired[2]);
+        rows.w.fleet.seats_owner().hulls.controls.remove(&bfe_sim::seats::lease::control_key(next));
+        let retired=output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)));output.acknowledge(retired[2]);
         assert!(rows.state.births.read(next).is_none());
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
     rows.state.control_views=output;
-    rows.store.vehicle.get_mut(hull).unwrap().target_generation=2.;
-    assert!(rows.state.controller_hull(rows.store,0,control_obj).is_none());
+    rows.w.sim.store.vehicle.get_mut(hull).unwrap().target_generation=2.;
+    assert!(rows.state.controller_hull(&rows.w.sim.store,0,control_obj).is_none());
     assert!(!rows.vehicle_fields(control_obj,Default::default()));
     assert!(rows.vehicle_steer(control_obj,|_|panic!("old holder must not edit steering")).is_none());
-    rows.store.unit.remove(r);let replacement=rows.store.unit.insert(Unit {alive:true,..Default::default()});assert_eq!(replacement.slot,r.slot);
+    rows.w.sim.store.unit.remove(r);let replacement=rows.w.sim.store.unit.insert(Unit {alive:true,..Default::default()});assert_eq!(replacement.slot,r.slot);
     assert!(!rows.unit(obj).alive);assert!(!rows.has_arsenal(obj));assert_eq!(rows.weapon(obj,0),None);
     assert!(!rows.select(obj,0));
 }
@@ -2031,9 +2034,9 @@ impl Default for Callbacks {
 impl bfe_sim::ai::owned::navigation::Environment for Callbacks {
  fn time(&self)->f64 {0.}
  fn remembered(&mut self,_:bfe_sim::ai::owned::navigation::Actor)->Option<bfe_sim::ai::nav::math::Vec3> {panic!("unprepared fixture memory")}
- fn clear_above(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::ai::nav::math::Vec3,_:&bfe_sim::gen::AiLifeHandle)->bool {panic!("unprepared fixture ceiling")}
+ fn clear_above(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::ai::nav::math::Vec3,_:&bfe_sim::gen::AiLifeHandle)->bool {panic!("unprepared fixture ceiling")}
  fn follow_far(&mut self)->f64 {panic!("unprepared fixture follow")}
- fn seat_frame(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(bfe_sim::ai::nav::math::Vec3,bfe_sim::ai::nav::math::Vec3)> {panic!("unprepared fixture seat pose")}
+ fn seat_frame(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(bfe_sim::ai::nav::math::Vec3,bfe_sim::ai::nav::math::Vec3)> {panic!("unprepared fixture seat pose")}
 }
 #[allow(unused_variables)]
 impl<C:Changes+?Sized,M:Mounted> Hooks<C,M> for Callbacks {
@@ -2041,18 +2044,18 @@ fn vehicle_binding(&self)->bfe_sim::ai::owned::vehicles::Binding {self.vehicles.
 fn fire_primary(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,controller:Obj) {rows.state.controllers.write(&rows.state.entities,controller).unwrap().fire_a=true;}
 fn flight_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool) {panic!("unprepared native flight path")}
 
-fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:bfe_sim::ai::vehicles::world::Origin)->Option<Vector3> {let bfe_sim::ai::vehicles::world::Origin::Lease(key)=origin else{panic!("fixture lease origin")};let Entity::Lease(reference)=rows.state.entities.get(key).unwrap() else{panic!("fixture lease identity")};let body=rows.store.seat_lease.get(reference).unwrap().unit.unwrap();Some(rows.store.unit.get(body).unwrap().origin_on_foot())}
-fn origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { {let Entity::Unit(r)=rows.state.entities.get(u).unwrap() else {panic!("body origin")};rows.store.unit.get(r).unwrap().origin_on_foot()} }
-fn forward(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { {let Entity::Unit(r)=rows.state.entities.get(u).unwrap() else {panic!("body forward")};rows.store.unit.get(r).unwrap().forward_on_foot()} }
+fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:bfe_sim::ai::vehicles::world::Origin)->Option<Vector3> {let bfe_sim::ai::vehicles::world::Origin::Lease(key)=origin else{panic!("fixture lease origin")};let Entity::Lease(reference)=rows.state.entities.get(key).unwrap() else{panic!("fixture lease identity")};let body=rows.w.sim.store.seat_lease.get(reference).unwrap().unit.unwrap();Some(rows.w.sim.store.unit.get(body).unwrap().origin_on_foot())}
+fn origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { {let Entity::Unit(r)=rows.state.entities.get(u).unwrap() else {panic!("body origin")};rows.w.sim.store.unit.get(r).unwrap().origin_on_foot()} }
+fn forward(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { {let Entity::Unit(r)=rows.state.entities.get(u).unwrap() else {panic!("body forward")};rows.w.sim.store.unit.get(r).unwrap().forward_on_foot()} }
 fn aim_point(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { panic!("unbound fixture service aim_point") }
 fn sphere(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Sphere {
     struct NoBodies;
     impl bfe_sim::ai::owned::observe::Bodies for NoBodies {
-        fn sphere(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::store::Ref<bfe_sim::gen::Unit>)->Option<Sphere> {panic!("only native mounted spheres are prepared")}
+        fn sphere(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::store::Ref<bfe_sim::gen::Unit>)->Option<Sphere> {panic!("only native mounted spheres are prepared")}
     }
     rows.sphere(u,&mut NoBodies).expect("canonical mounted sphere")
 }
-fn use_classic_random(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj) { {let Entity::Unit(r)=rows.state.entities.get(u).unwrap() else {panic!("body stream")};let unit=rows.store.unit.get_mut(r).unwrap();unit.combat.random=true;for weapon in &mut unit.combat.weapons {weapon.random=true;}rows.changes.mark(r);} }
+fn use_classic_random(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj) { {let Entity::Unit(r)=rows.state.entities.get(u).unwrap() else {panic!("body stream")};let unit=rows.w.sim.store.unit.get_mut(r).unwrap();unit.combat.random=true;for weapon in &mut unit.combat.weapons {weapon.random=true;}rows.changes.mark(rows.w,r);} }
 fn query(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,center: &Vector3,radius: f64,filter: QueryFilter)-> List<Obj> { assert_eq!(radius,8.,"only the boarding query is prepared");assert!(matches!(filter,QueryFilter::Hostile {..}));rows.state.buffers.units.take() }
 fn relation(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,a: f64,b: f64)-> f64 { if a==b {1.}else{-1.} }
 fn living(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState)-> List<Obj> { panic!("unbound fixture service living") }
@@ -2060,8 +2063,8 @@ fn los(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,from: &Vector3,t
 fn set_stance(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,c:Obj,stance:f64) {rows.state.controllers.write(&rows.state.entities,c).unwrap().set_stance(stance);}
 fn human_target(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,hull:Obj)->Option<Obj> {
     let Some(Entity::Hull(reference))=rows.state.entities.get(hull) else {panic!("native reticle hull")};
-    let body=rows.store.vehicle.get(reference).unwrap();assert!(!body.flying);
-    let pilot=rows.store.seat_lease.get(body.seats[0].lease.unwrap()).unwrap();assert!(pilot.human);
+    let body=rows.w.sim.store.vehicle.get(reference).unwrap();assert!(!body.flying);
+    let pilot=rows.w.sim.store.seat_lease.get(body.seats[0].lease.unwrap()).unwrap();assert!(pilot.human);
     rows.human_reticle_target(hull)
 }
 fn interrupts_tick(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent: Obj,combat:&mut bfe_sim::ai::combat::binding::CombatAi)-> bool { panic!("unbound fixture service interrupts_tick") }
@@ -2079,9 +2082,9 @@ fn emit_vo(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,unit: Obj,ev
 }
 pub struct Mount;
 impl Mounted for Mount {
-fn count(&self,_:&bfe_sim::gen::Store,_:bfe_sim::ai::owned::seats::Source,_:usize)->Option<usize> {panic!("no mounted fixture arsenal")}
-fn read<R>(&self,_:&bfe_sim::gen::Store,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("no mounted fixture arsenal")}
-fn edit<R>(&mut self,_:&bfe_sim::gen::Store,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {panic!("no mounted fixture arsenal")}
+fn count(&self,_:&crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize)->Option<usize> {panic!("no mounted fixture arsenal")}
+fn read<R>(&self,_:&crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("no mounted fixture arsenal")}
+fn edit<R>(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {panic!("no mounted fixture arsenal")}
  }
 }
 
@@ -2098,7 +2101,7 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
     state.weapons.register(DefId(0),&class);defs.set(DefId(0),class);
     state.units.class(DefId(0),ClassSnap::default(),"test".into());state.combat_units.class_view(DefId(0),Default::default());state.units.vehicle_class(DefId(0),Default::default(),None);
     state.prepare_hints(|_|None);
-    let mut store=Store::default();let mut commands=Commands::new(2);let mut changes=Ownership::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut commands=Commands::new(2);let mut changes=Ownership::default();
     let mut actors=Vec::new();
     for team in [1.,2.] {
         let character=store.character.insert(Character {team,..Default::default()});state.roster.add(commands.adopt(&store,character));
@@ -2112,7 +2115,8 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
     assert!(state.link_controller(&mut store,&mut changes,obj,0,true));let controller=state.controllers.key(0).unwrap();
     {let ctl=state.controllers.write(&state.entities,controller).unwrap();ctl.unit=Some(obj);ctl.generation=1.;}
     let mut seats=Seats::default();let live=Live::new(0,0,0);let mut mounted=canonical_combat_fixture::Mount;
-    let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&live.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+    crate::vehicles::module::f2::live_seats::admit_test_seats(&mut store.fleet,std::mem::take(&mut seats));
+  let mut rows=Rows {w:&mut store,buildings:&live.buildings,characters:&mut commands,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
     let settings=Settings {difficulty:std::cell::RefCell::new(Difficulty::classic(DifficultyOptions::default())),mission_stay_in_turrets:false,mission_no_jet_obstacle_test:false,ai_stay_in_turrets:false,vehicles:false,dense:false,navigation:false};
     let nav_settings=Settings {difficulty:std::cell::RefCell::new(settings.difficulty.borrow().clone()),mission_stay_in_turrets:false,mission_no_jet_obstacle_test:false,ai_stay_in_turrets:false,vehicles:false,dense:false,navigation:true};
     let mut hooks=canonical_combat_fixture::Callbacks::default();let mut random=RandomState::new(11);let mut combat=CombatAi::default();
@@ -2122,21 +2126,21 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
     let mut visited=Vec::new();frame.visit_weapon_levels(obj,0,&mut |def|visited.push(def as *const _));
     assert_eq!(visited,frame.weapon(obj,0).unwrap().levels.unwrap().iter().map(|def|&**def as *const _).collect::<Vec<_>>());
     frame.set_weapon_yaw(obj,0,Some(-0.));
-    assert_eq!(frame.rows.store.unit.get(victim).unwrap().combat.weapons[0].yaw_spread_override.unwrap().to_bits(),(-0.0f64).to_bits());
+    assert_eq!(frame.rows.w.sim.store.unit.get(victim).unwrap().combat.weapons[0].yaw_spread_override.unwrap().to_bits(),(-0.0f64).to_bits());
     frame.set_weapon_yaw(obj,0,None);
-    assert_eq!(frame.rows.store.unit.get(victim).unwrap().combat.weapons[0].yaw_spread_override,None);
+    assert_eq!(frame.rows.w.sim.store.unit.get(victim).unwrap().combat.weapons[0].yaw_spread_override,None);
     let observed=frame.unit_sensor(obj);
     assert_eq!((observed.generation,observed.team,observed.controller),(1.,1.,Some(controller)));
     assert_eq!(frame.unit_bound_posture(obj),Some(bfe_sim::ai::combat::world::BoundPosture::Stand));
-    frame.rows.store.unit.get_mut(victim).unwrap().class_def=DefId(999);
+    frame.rows.w.sim.store.unit.get_mut(victim).unwrap().class_def=DefId(999);
     assert_eq!(frame.unit_sensor(obj),bfe_sim::ai::combat::world::UnitSensor::default());
     assert_eq!(frame.unit_weapon_motion(obj),(0.,0.));
     assert_eq!(frame.unit_bound_posture(obj),None,"missing classes retain the full reader's sphere fallback");
-    frame.rows.store.unit.get_mut(victim).unwrap().class_def=DefId(0);
+    frame.rows.w.sim.store.unit.get_mut(victim).unwrap().class_def=DefId(0);
     assert!(!frame.has_jet_hints());
     combat.create_perception(&mut frame,controller);combat.attach_controller(&mut frame,controller);
-    assert!(frame.rows.store.unit.get(victim).unwrap().combat.random);
-    assert!(frame.rows.store.unit.get(victim).unwrap().combat.weapons[0].random);
+    assert!(frame.rows.w.sim.store.unit.get(victim).unwrap().combat.random);
+    assert!(frame.rows.w.sim.store.unit.get(victim).unwrap().combat.weapons[0].random);
     let journal=Journal::new(4096);let mut reader=journal.reader();
     for _ in 0..8 {combat.aim(&mut frame,controller,1./60.);}
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
@@ -2148,7 +2152,7 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
         reader.ingest(&journal,&mut combat,&mut frame);
         assert!(frame.ctl(controller).shot.pending);assert!(frame.ctl(controller).shot.known);
         combat.aim(&mut frame,controller,1./60.);
-        let unit=frame.rows.store.unit.get(victim).unwrap();assert!(unit.intent.aim.is_some());assert_eq!(unit.combat.weapons[0].wait,0.);
+        let unit=frame.rows.w.sim.store.unit.get(victim).unwrap();assert!(unit.intent.aim.is_some());assert_eq!(unit.combat.weapons[0].wait,0.);
         frame.ctl_mut(controller).shot.pending=false;
         assert!((0. ..1.).contains(&frame.uniform_a()));assert!((0. ..1.).contains(&frame.uniform_b()));assert!((0. ..1.).contains(&frame.uniform_c()));
     }
@@ -2194,11 +2198,11 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
     input.policy=Input {kind:Kind::Follow,unit:Some(obj),controller_unit:Some(obj),has_agent:true,..Default::default()};
     let mut response=ResponseState::read(&control);
     let class=frame.rows.state.navigation.class(bfe_sim::ai::nav::units::ClassDef::default());
-    let actor=frame.rows.state.navigation.register(frame.rows.store,AiLifeHandle {kind:bfe_sim::gen::KIND_UNIT.into(),slot:victim.slot,generation:victim.gen,life:1.},class).unwrap();
+    let actor=frame.rows.state.navigation.register(&frame.rows.w.sim.store,AiLifeHandle {kind:bfe_sim::gen::KIND_UNIT.into(),slot:victim.slot,generation:victim.gen,life:1.},class).unwrap();
     frame.rows.state.actors[0]=Some(actor);
     input.helper_kind=Some(bfe_sim::ai::control::world::HelperKind::Ground);input.helper_has_path=true;
     assert!(frame.rows.combat_feed(0,&input));
-    let view=frame.rows.state.vehicle_controller(frame.rows.store,controller).unwrap();
+    let view=frame.rows.state.vehicle_controller(&frame.rows.w.sim.store,controller).unwrap();
     assert!(!view.nav_control,"preallocated physical control does not create navControl presence");
     assert!(!view.executor);assert_eq!(view.executor_status,0.);assert!(view.helper);assert!(!view.helper_has_path,"GroundGotoHelper has no hasPath property");
     assert_eq!(view.helper_state,Some(1.));assert_eq!(view.helper_destination,Some(three::Vector3::default()));
@@ -2208,7 +2212,7 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..120 {
         input.policy.kind=Kind::Follow;assert!(frame.rows.combat_feed(0,&input));
-        assert!(frame.rows.state.vehicle_controller(frame.rows.store,controller).unwrap().nav_control);
+        assert!(frame.rows.state.vehicle_controller(&frame.rows.w.sim.store,controller).unwrap().nav_control);
         frame.response=Some(bfe_sim::ai::owned::frame::ResponseScope::take(&mut response,combat.shared.share()));
         assert!(!frame.agent_accepts_alert(agent,true,&three::Vector3::default()));
         assert!(!frame.agent_accepts_hazard(agent));
@@ -2235,7 +2239,7 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
         let hint=frame.jet_hints_find(controller).expect("authored jet hint");
         assert!(!frame.jet_hints_excluded(controller));
         frame.jet_hints_enter(controller,Some(hint));
-        assert_eq!(frame.rows.state.navigation.destination(frame.rows.store,actor),Some(Vec3::default()));
+        assert_eq!(frame.rows.state.navigation.destination(&frame.rows.w.sim.store,actor),Some(Vec3::default()));
         frame.jet_hints_exit(controller,Some(hint));
         assert!(frame.jet_hints_tick(controller,Some(hint),1./60.));
     }
@@ -2269,7 +2273,7 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
         frame.response.take().unwrap().finish(&mut response);
     }
     COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
-    frame.rows.store.unit.get_mut(victim).unwrap().generation=2.;
+    frame.rows.w.sim.store.unit.get_mut(victim).unwrap().generation=2.;
     journal.emit(Record::Combat(Event::Shot {source:EventRef::Unit(shooter),target:EventRef::Ref(Weak {obj,generation:1.})}));
     reader.ingest(&journal,&mut combat,&mut frame);assert!(!frame.ctl(controller).shot.pending);
     // A retired seat/control token can remain in feedback until Core.sync.
@@ -2286,7 +2290,7 @@ fn navigation_follows_humans_without_creating_controls_and_qualifies_their_lives
     use bfe_sim::{ai::{owned::{state::{State,Capacity},entities::Entity,navigation::Command},nav::{Nav,PlannerOptions},phase::RandomState},gen::{Store,Unit,UnitBody,Soldier,AiUnitClass},store::Strings};
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:2,posts:2,hulls:0,buildings:0,controls:0,scopes:2,cameras:1});
     let mut strings=Strings::default();let row=AiUnitClass {name:strings.intern_str("soldier"),..Default::default()};state.unit_class(&row,&strings);
-    let mut store=Store::default();let human=store.unit.insert(Unit {alive:true,human:true,generation:1.,soldier:UnitBody::Soldier(Soldier {position:[0.,0.,10.],max_speed:7.,..Default::default()}),..Default::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let human=store.unit.insert(Unit {alive:true,human:true,generation:1.,soldier:UnitBody::Soldier(Soldier {position:[0.,0.,10.],max_speed:7.,..Default::default()}),..Default::default()});
     let person=state.entities.register(Entity::Unit(human));
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     let target=state.body_actor(&store,person,false).unwrap();
@@ -2296,13 +2300,13 @@ fn navigation_follows_humans_without_creating_controls_and_qualifies_their_lives
     let bot=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,max_strafe:5.,max_turn:2.,..Default::default()}),..Default::default()});
     let follower=state.entities.register(Entity::Unit(bot));let actor=state.body_actor(&store,follower,true).unwrap();
     let mut random=RandomState::new(13);let mut env=NavigationEnvironment {now:0.};
-    state.navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Follow(old,3.,false)).unwrap();
-    for _ in 0..8 {state.navigation.nav.service(1.);state.navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();state.navigation.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();}
+    state.navigation.command(&mut store,&mut random,&mut env,actor,Command::Follow(old,3.,false)).unwrap();
+    for _ in 0..8 {state.navigation.nav.service(1.);state.navigation.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();state.navigation.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();}
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for tick in 0..120 {
         let UnitBody::Soldier(body)=&mut store.unit.get_mut(human).unwrap().soldier else {unreachable!()};body.position[2]=10.+tick as f64*0.1;
         assert_eq!(state.body_actor(&store,person,false),Some(target));
-        state.navigation.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();state.navigation.input(&mut store,&mut seats,&mut random,&mut env,actor,1./60.,None,false).unwrap();
+        state.navigation.command(&mut store,&mut random,&mut env,actor,Command::Tick(1./60.)).unwrap();state.navigation.input(&mut store,&mut random,&mut env,actor,1./60.,None,false).unwrap();
         state.navigation.clear_dirty();env.now+=1./60.;
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);assert_eq!(state.navigation.nav.controls.len(),1);
@@ -2323,11 +2327,11 @@ fn native_stationary_seat_helpers_keep_requests_and_observe_current_position_wit
     impl Environment for NoQueries {
         fn time(&self)->f64 {panic!("stationary helper must not observe time")}
         fn remembered(&mut self,_:Actor)->Option<Vec3> {panic!("stationary helper must not resolve memories")}
-        fn clear_above(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:Vec3,_:&AiLifeHandle)->bool {panic!("stationary helper must not cast")}
+        fn clear_above(&mut self,_:&mut crate::world::owner::World,_:Vec3,_:&AiLifeHandle)->bool {panic!("stationary helper must not cast")}
         fn follow_far(&mut self)->f64 {panic!("stationary helper must not read formation")}
-        fn seat_frame(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {panic!("stationary helper must not pose the rig")}
+        fn seat_frame(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {panic!("stationary helper must not pose the rig")}
     }
-    let mut store=Store::default();let mut nav=owned_navigation(false);
+    let mut store=crate::ai::owned::tests::empty_world();let mut nav=owned_navigation(false);
     let hull=store.vehicle.insert(Vehicle {alive:true,target_generation:2.,seats:vec![VehicleSeat::default(),VehicleSeat::default()],..Default::default()});
     let unit=store.unit.insert(Unit {alive:true,generation:3.,..Default::default()});
     let control=Ref::new(3,4);
@@ -2346,13 +2350,13 @@ fn native_stationary_seat_helpers_keep_requests_and_observe_current_position_wit
         assert!(obs.arrived);assert!(!obs.failed);assert!(!obs.has_path);assert_eq!(obs.status,0.);
         assert!(nav.control(actor).unwrap().request.valid,"new helper does not reset controller request");
         for command in [Command::Tick(1./60.),Command::Follow(UnitRef {unit:u64::MAX,generation:None},1.,true),Command::Stance(2.),Command::Aim(Vec3::new(5.,2.,3.)),Command::AimTarget(None),Command::AimPath] {
-            assert!(nav.command(&mut store,&mut seats,&mut random,&mut env,actor,command).unwrap().arrived);
+            assert!(nav.command(&mut store,&mut random,&mut env,actor,command).unwrap().arrived);
             assert!(nav.control(actor).unwrap().request.valid,"present no-op keeps request");
         }
-        nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Goto(Vec3::new(100.,0.,100.),GotoMode::Route)).unwrap();
+        nav.command(&mut store,&mut random,&mut env,actor,Command::Goto(Vec3::new(100.,0.,100.),GotoMode::Route)).unwrap();
         assert!(!nav.control(actor).unwrap().request.valid);
         nav.control_mut(actor).unwrap().request.valid=true;
-        nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Stop).unwrap();
+        nav.command(&mut store,&mut random,&mut env,actor,Command::Stop).unwrap();
         assert!(!nav.control(actor).unwrap().request.valid);
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
@@ -2360,7 +2364,7 @@ fn native_stationary_seat_helpers_keep_requests_and_observe_current_position_wit
     store.seat_lease.get_mut(lease).unwrap().released=true;
     assert!(nav.helper_observation(&store,actor).is_none());
     assert!(nav.destination(&store,actor).is_none());
-    assert!(nav.command(&mut store,&mut seats,&mut random,&mut env,actor,Command::Stop).is_none());
+    assert!(nav.command(&mut store,&mut random,&mut env,actor,Command::Stop).is_none());
     store.seat_lease.get_mut(lease).unwrap().released=false;
     store.vehicle.get_mut(hull).unwrap().target_generation=3.;
     assert!(nav.renew_helper(&store,actor).is_none());
@@ -2439,7 +2443,7 @@ mod vehicle_frame_hooks;
 #[test]
 fn native_control_factory_uses_committed_lease_index_and_prepared_classes_without_allocations() {
  use bfe_sim::{gen::*,ai::{owned::{state::{State,Capacity},entities::Entity},nav::Nav},seats::hulls::HullSide,vehicles::f2_seats::Seats,store::Strings};
- let mut store=Store::default();let mut seats=Seats::default();let mut strings=Strings::default();
+ let mut store=crate::ai::owned::tests::empty_world();let mut seats=Seats::default();let mut strings=Strings::default();
  let buildings=bfe_sim::battle::live_phase::Live::new(0,0,0);
  let mut state=State::new(Nav::empty(Default::default()),false,Capacity {registry:4,characters:0,posts:0,hulls:1,buildings:0,controls:2,scopes:2,cameras:0});
  let pilot=state.control_class(&AiUnitClass {name:strings.intern_str("craft"),forward_speed:AiClassScalar::F64(17.),..Default::default()},&strings,5.);
@@ -2489,7 +2493,7 @@ fn generated_cold_navigation_preserves_authored_numbers_and_maps_hint_posts_to_c
  let (nav,posts)=loaded.into_parts();assert_eq!(nav.hints.list.len(),1);
  assert_eq!(nav.hints.list[0].position.x.to_bits(),(-0.0f64).to_bits());
  assert_eq!(nav.hints.list[0].command_post,None,"the source post array has no byName method");
- let mut store=Store::default();
+ let mut store=crate::ai::owned::tests::empty_world();
  // Population order is independent from the loader's temporary indices.
  let a=store.post.insert(Post::default());let b=store.post.insert(Post::default());
  let mut population=Population::new(2,0,false);
@@ -2525,11 +2529,11 @@ fn native_weapon_record_loading_retains_side_order_truthiness_and_authored_charg
 #[test]
 fn native_pilot_checks_the_ordered_live_rounds_and_exact_evasion_radius() {
  use bfe_sim::{ai::owned::pilot,gen::{Store,Round}};
- let mut store=Store::default();let center=three::Vector3::new(1.,2.,3.);
+ let mut store=crate::ai::owned::tests::empty_world();let center=three::Vector3::new(1.,2.,3.);
  let boundary=store.round.insert(Round {target_id:Some(0.),position:[301.,2.,3.],..Default::default()});
  let dead=store.round.insert(Round {target_id:Some(0.),position:[2.,2.,3.],dead:true,..Default::default()});
  let other=store.round.insert(Round {target_id:Some(4.),position:[2.,2.,3.],..Default::default()});
- store.ordnance.rounds.extend([boundary,dead,other]);
+ store.sim.store.ordnance.rounds.extend([boundary,dead,other]);
  ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
  for _ in 0..120 {
   assert!(!pilot::incoming(&store,0.,&center,300.));
@@ -2621,7 +2625,6 @@ fn vehicle_objective_traversal_uses_authored_settings_and_navigation_coercion() 
     for value in [Scalar::Undefined,Scalar::Null,Scalar::Bool(true),Scalar::F64(2.5)] {assert_eq!(traversal_size(value,&strings),1);}
 }
 
-
 #[test]
 fn initial_mission_arguments_keep_numeric_coercion_separate_from_numeric_class_quotas() {
     use bfe_sim::{gen::*,store::Strings,ai::owned::initial::Program};
@@ -2649,7 +2652,7 @@ fn authored_item_services_keep_empty_tables_and_canonical_order_without_allocati
         health:vec![Scalar::F64(50.)],ammo:vec![Scalar::Str(strings.intern_str("7"))],
         bare:vec![Scalar::Undefined,Scalar::Undefined,Scalar::Undefined,Scalar::Undefined,Scalar::Undefined,Scalar::F64(12.)]};
     let mut items=Items::new();content::item(&row,&strings,&mut items);
-    let mut store=Store::default();let reference=store.item.insert(Item {def:row.def,position:[1.,2.,3.],..Default::default()});
+    let mut store=crate::ai::owned::tests::empty_world();let reference=store.item.insert(Item {def:row.def,position:[1.,2.,3.],..Default::default()});
     store.items.items.push(reference);let entities=Entities::new(1);
     let view=items.read(&store,&entities,0);
     assert_eq!(view.def_class.as_deref(),Some("supply"));assert_eq!(view.def_base.as_deref(),Some("powerupitem"));
@@ -2665,7 +2668,7 @@ fn authored_item_services_keep_empty_tables_and_canonical_order_without_allocati
 #[test]
 fn late_network_body_admission_precedes_roster_reads_and_rejects_stale_units() {
     use bfe_sim::{gen::*,store::Ref,battle::commands::Commands,ai::{nav::Nav,owned::{state::{State,Capacity},entities::Entity}}};
-    let mut store=Store::default();
+    let mut store=crate::ai::owned::tests::empty_world();
     let mut commands=Commands::new(64);
     let mut state=State::new(Nav::empty(Default::default()),false,Capacity {registry:64,characters:64,posts:0,hulls:0,buildings:0,controls:0,scopes:1,cameras:0});
     let characters:Vec<_>=(0..64).map(|_|store.character.insert(Character {human:true,..Default::default()})).collect();
@@ -2697,7 +2700,7 @@ fn late_network_body_admission_precedes_roster_reads_and_rejects_stale_units() {
 #[test]
 fn seat_birth_rejects_invalid_holder_index_and_occupant_generations() {
     use bfe_sim::{gen::*,store::Ref,ai::owned::{seats::Controls,entities::Entities},vehicles::f2_seats::Seats};
-    let mut store=Store::default();let mut pool=Controls::new(1);let mut entities=Entities::new(8);let mut seats=Seats::default();
+    let mut store=crate::ai::owned::tests::empty_world();let mut pool=Controls::new(1);let mut entities=Entities::new(8);let mut seats=Seats::default();
     let unit=store.unit.insert(Unit {generation:4.,..Default::default()});
     let hull=store.vehicle.insert(Vehicle {seats:vec![Default::default()],..Default::default()});
     let lease=store.seat_lease.insert(SeatLease {unit:Some(unit),generation:4.,vehicle:Some(hull),..Default::default()});

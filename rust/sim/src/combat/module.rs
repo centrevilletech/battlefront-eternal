@@ -510,7 +510,7 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn lock_key(&mut self, target: Option<RepairTarget>) -> StrId {
-        target.map_or_else(crate::units::f3::empty_text, crate::units::f3_props::lock_key)
+        match target {None=>crate::units::f3::empty_text_in(&self.w.units),Some(target)=>crate::units::f3_props::lock_key_in(self.w,target)}
     }
 
     fn repair(&mut self, weapon: u32, target: Option<RepairTarget>, team: f64, unit: &mut Unit, combat: &mut Combat) -> bool {
@@ -635,15 +635,15 @@ impl CombatWorld for JsWorld<'_, '_> {
             // does not create or change any BattleStats record.
             _ => None,
         };
-        if crate::battle::f4_core::active() {
-            crate::battle::f4_core::achievement(character, F4CommandOp::Headshot);
+        if crate::battle::f4_core::active_in(&mut self.w.battle) {
+            crate::battle::f4_core::achievement_in(self.w, character, F4CommandOp::Headshot);
         } else if let Some(character) = character { import_f3_head_credit(&F3HeadCredit { character }); }
     }
 
     fn fired(&mut self, shot: &Shot, unit: &mut Unit, combat: &mut Combat) {
         // instrument.onFired is a pure notice. Capture its origin and life
         // now; later separation or reuse must not change the journal row.
-        crate::wire::shots::native_observe(self.r.slot as f64, unit.generation, unit.generation);
+        crate::wire::shots::native_observe_in(self.w, self.r.slot as f64, unit.generation, unit.generation);
         F3ShotNotice {
             key: F3UnitKey::of(self.r, unit),
             shot: self.shot(shot),
@@ -710,7 +710,7 @@ impl CombatWorld for JsWorld<'_, '_> {
             // item drops. A gunner falls from the last native rider pose.
             let reference = self.r;
             self.changing(unit, combat, |w, services| {
-                crate::vehicles::module::f2::live_seats::leave_killed(reference, crate::units::f3::required_services!(&mut w.units; services, ()));
+                crate::vehicles::module::f2::live_seats::leave_killed_in(w, reference, crate::units::f3::required_services!(&mut w.units; services, ()));
             });
         }
         if let UnitBody::Soldier(body) = &mut unit.soldier {
@@ -732,8 +732,8 @@ impl CombatWorld for JsWorld<'_, '_> {
         };
         let mut controller = None;
         self.changing(unit, combat, |w, services| {
-            if crate::battle::f4_core::owns_lifecycle() {
-                controller=crate::battle::f4_core::died(credit.unit,credit.killer,credit.relation,crate::units::f3::required_services!(&mut w.units; services,()));
+            if crate::battle::f4_core::owns_lifecycle_in(&mut w.battle) {
+                controller=crate::battle::f4_core::died_in(w, credit.unit,credit.killer,credit.relation,crate::units::f3::required_services!(&mut w.units; services,()));
             } else {
                 crate::units::f3::foreign_barrier_in(w);
                 controller=import_f3_death_credit(&credit).controller;
@@ -774,8 +774,8 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn respawn(&mut self, unit: &mut Unit, combat: &mut Combat) {
-        if crate::battle::f4_tail::owns_player(self.r) {
-            self.changing(unit,combat,|_w, services| crate::battle::f4_tail::auto_respawn(services.expect("native player body services")));
+        if crate::battle::f4_tail::owns_player_in(self.w, self.r) {
+            self.changing(unit,combat,|w, services| crate::battle::f4_tail::auto_respawn_in(w, services.expect("native player body services")));
             return;
         }
         // PlayerCombat.onRespawn only notifies the host. Deliver it after
@@ -975,3 +975,5 @@ mod exports {
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{cmb_weapon, cmb_class, cmb_explosion, cmb_new, cmb_set, cmb_weapon_set};
+
+pub(crate) fn defs_ref(owner:&CombatOwner)->&CombatDefs { &owner.content.as_ref().expect("prepared combat content").defs }

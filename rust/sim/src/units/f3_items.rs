@@ -424,10 +424,10 @@ pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, 
         let next = v8math::min(v.health + amount,v.max_health);
         if health { super::f3_hulls::mutate_in(world_ctx, r,next,None,services.expect("pickup hull world services")); }
         let amount = amounts.ammo[scale];
-        let ammo = amount != 0.0 && !amount.is_nan() && crate::vehicles::module::f2::firing::supply(r,amount,true);
+        let ammo = amount != 0.0 && !amount.is_nan() && crate::vehicles::module::f2::firing::supply_in(world_ctx, r,amount,true);
         // givePowerup can change only ammunition on an undamaged hull.
         // Its dirty mounted rows still need the shared outer publication.
-        if ammo { crate::vehicles::module::f2::pending(); }
+        if ammo { crate::vehicles::module::f2::pending_in(&mut world_ctx.fleet); }
         health || ammo
     }
 }

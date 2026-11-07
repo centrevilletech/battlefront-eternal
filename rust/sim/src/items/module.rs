@@ -67,7 +67,7 @@ fn with_cx<T>(w: &mut crate::world::owner::World, f: impl FnOnce(&mut Cx<'_, JsW
 }
 
 pub(crate) fn items_update_in(w: &mut crate::world::owner::World, dt: f64, targets: u32) -> u32 {
-    if crate::units::f3::active() { crate::units::f3_items::targets(targets); }
+    if crate::units::f3::active_in(&w.units) { crate::units::f3_items::targets_in(w, targets); }
     with_cx(w, |cx| {
         cx.items_update(dt, targets as usize);
         let s = cx.s();
@@ -90,12 +90,12 @@ pub(crate) fn items_dispense_in(w: &mut crate::world::owner::World) -> Option<&[
         let (row, heap) = s.calls.args();
         DispenseArgs::take(row, heap)
     };
-    if crate::units::f3::active() {
+    if crate::units::f3::active_in(&w.units) {
         let ItemOwner::Unit(owner) = a.owner else { panic!("prepared owned dispenser source") };
         let life = w.sim.store.unit.get(owner).expect("dispenser owner").generation;
-        let mut frame = crate::units::f3::items().take_name(owner.slot,life,a.weapon);
+        let mut frame = crate::units::f3::items_in(&mut w.units).take_name(owner.slot,life,a.weapon);
         let made = with_cx(w, |cx| cx.dispense_prepared(frame.key,&mut frame.work,&mut frame.spare,a.max_items,a.def,a.position,a.velocity,a.yaw,a.owner,a.team));
-        crate::units::f3::items().restore(frame);
+        crate::units::f3::items_in(&mut w.units).restore(frame);
         return answer(&mut w.sim, made);
     }
     let weapon = String::from_utf16_lossy(w.sim.strings.units(a.weapon));

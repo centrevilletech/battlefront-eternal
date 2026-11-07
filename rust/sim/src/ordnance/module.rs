@@ -217,6 +217,7 @@ fn put_row(store: &Store, shot: Shot, row: &mut [f64], heap: &mut Vec<f64>) {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "bfe")]
 extern "C" {
     fn bfe_import_projectile();
@@ -224,6 +225,20 @@ extern "C" {
     fn bfe_import_impact();
     fn bfe_import_grenade_contact();
 }
+
+#[cfg(target_arch = "wasm32")]
+type HostCall = unsafe extern "C" fn();
+#[cfg(not(target_arch = "wasm32"))]
+type HostCall = unsafe fn();
+// Rust ABI keeps an accidental native host request unwindable at Context.
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn bfe_import_projectile() { crate::abi::no_native_host("projectile") }
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn bfe_import_launch() { crate::abi::no_native_host("launch") }
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn bfe_import_impact() { crate::abi::no_native_host("impact") }
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn bfe_import_grenade_contact() { crate::abi::no_native_host("grenadeContact") }
 
 /// The battle as the module's imports give it.
 pub struct JsWorld<'w, 'a> {
@@ -350,7 +365,9 @@ impl<'w, 'a> JsWorld<'w, 'a> {
     // Write only the affected shot before handing its generated argument block over.
     // The import may issue another command and reuse the shared exchange storage.
     // The resumed native solver therefore keeps its arguments in local value frames.
-    fn hand(&self, shot: Shot, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>), call: unsafe extern "C" fn()) {
+    fn hand(&self, shot: Shot, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>), call: HostCall) {
+        #[cfg(target_arch = "wasm32")]
+        {
         let (_, stride) = shot_layout(shot);
         let store = self.store();
         import_out(words + stride, |row, heap| {
@@ -359,6 +376,9 @@ impl<'w, 'a> JsWorld<'w, 'a> {
         });
         // SAFETY: an import the module's loader gives every instance.
         unsafe { call() };
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        { let _ = (shot, words, put); unsafe { call() }; }
     }
 }
 
@@ -469,8 +489,8 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn gone(&mut self, x: BeamSource) -> bool {
-        if let Some(gone) = crate::vehicles::module::f2::firing::emitter_gone(x) { return gone; }
-        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(x) { return crate::vehicles::module::f2::live_seats::beam_gone(r); }
+        if let Some(gone) = crate::vehicles::module::f2::firing::emitter_gone_in(self.w, x) { return gone; }
+        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(x) { return crate::vehicles::module::f2::live_seats::beam_gone_in(self.w, r); }
         // `x?.alive === false`: never for nobody or the player's own.
         if matches!(x, BeamSource::Null | BeamSource::Player) {
             return false;
@@ -492,8 +512,8 @@ impl World for JsWorld<'_, '_> {
     // The next holder in that seat must not retarget an already launched beam.
     // World-space reconstruction follows the current canonical source frame.
     fn beam_local_origin(&mut self, source: BeamSource, origin: Vec3) -> Option<Vec3> {
-        if let Some(local) = crate::vehicles::module::f2::firing::emitter_local(source, origin) { return Some(local); }
-        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { return crate::vehicles::module::f2::live_seats::beam_local(r, origin); }
+        if let Some(local) = crate::vehicles::module::f2::firing::emitter_local_in(self.w, source, origin) { return Some(local); }
+        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { return crate::vehicles::module::f2::live_seats::beam_local_in(self.w, r, origin); }
         if crate::units::f3::active_in(&self.w.units) {
             // Ordinary Unit and captured-life owners expose no matrix. Beams
             // keep their supplied start, just as beamLocalOrigin returns null.
@@ -514,8 +534,8 @@ impl World for JsWorld<'_, '_> {
     // Direction and position are updated together before testing this beam segment.
     // Presentation interpolation is never an input to authoritative collision.
     fn beam_pose(&mut self, source: BeamSource, local_origin: Vec3, position: &mut Vec3, direction: &mut Vec3) {
-        if crate::vehicles::module::f2::firing::emitter_pose(source, local_origin, position, direction) { return; }
-        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { crate::vehicles::module::f2::live_seats::beam_pose(r, local_origin, position, direction); return; }
+        if crate::vehicles::module::f2::firing::emitter_pose_in(self.w, source, local_origin, position, direction) { return; }
+        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { crate::vehicles::module::f2::live_seats::beam_pose_in(self.w, r, local_origin, position, direction); return; }
         if crate::units::f3::active_in(&self.w.units) {
             let BeamSource::Vehicle(r) = source else { panic!("native mounted beam pose required") };
             let hull = self.store().vehicle.get(r).expect("beam hull");
@@ -766,7 +786,7 @@ impl World for JsWorld<'_, '_> {
     fn dispenser_active(&self, key: StrId) -> bool { crate::units::f3::items_read(&self.w.units).active(key) }
     fn retain_empty_dispenser(&self, key: StrId) -> bool { crate::units::f3::items_read(&self.w.units).current(key) }
     fn dispenser_changed(&mut self, key: StrId, removed: bool) {
-        if crate::units::f3::active_in(&self.w.units) { crate::units::f3::items_in(&mut self.w.units).changed(key,removed); }
+        if crate::units::f3::active_in(&self.w.units) { crate::units::f3::items_in(&mut self.w.units).changed_in(&mut self.w.sim,key,removed); }
     }
 
     fn owner_key(&mut self, owner: ItemOwner) -> String {

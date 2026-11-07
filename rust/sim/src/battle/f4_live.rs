@@ -38,14 +38,14 @@ fn return_handle(w: &mut Root, handle: F4Handle) -> Option<&[f64]> {
     handle.put(&mut io(&mut w.battle).handle, &mut Vec::new()); Some(&io(&mut w.battle).handle[..])
 }
 pub fn f4_live_init_in(w: &mut Root) -> Option<&[f64]> {
-    assert!(f3::active(), "canonical unit owner required");
+    assert!(f3::active_in(&w.units), "canonical unit owner required");
     let setup = args(w, F4LiveSetup::take);
     let store = &w.sim.store;
     let mut bodies = Bodies::new((store.unit.slots() as usize).max(setup.registry_capacity as usize), setup.registry_capacity as usize);
     for (r, _) in store.unit.iter() { bodies.adopt(r); }
     let mut stations = Vec::new(); let mut regenerators = Vec::new(); let mut traps = Vec::new();
-    for index in 0..crate::units::f3_props::count() {
-        let handle = crate::units::f3_props::owner(index);
+    for index in 0..crate::units::f3_props::count_in(&w.units) {
+        let handle = crate::units::f3_props::owner_in(w, index);
         if handle.kind == F4ObjectKind::Trap { traps.push((index, handle)); continue; }
         let (_, settings, supply) = f4::station_in(&mut w.battle, &handle);
         if supply.is_some() { stations.push(index); }
@@ -55,14 +55,14 @@ pub fn f4_live_init_in(w: &mut Root) -> Option<&[f64]> {
     let phase_row = vec![0.0; F4Phase::WORDS]; let handle = vec![0.0; F4Handle::WORDS]; let counters = vec![0.0; F4Counters::WORDS];
     {
         w.battle.io = Some(Io { live, tail, descriptor: phase_row, handle, counters, counts: F4Counters::default(), version: 0, pending_publication: false, dirty_counters: true });
-        w.battle.live_phase = Some(State { shell: Some(Store::default()), local: setup.local, body_revision: f3::unit_revision(), bodies,
+        w.battle.live_phase = Some(State { shell: Some(Store::default()), local: setup.local, body_revision: f3::unit_revision_in(&w.units), bodies,
             targets: supply::Targets::new(setup.unit_capacity as usize, setup.hull_capacity as usize), supply: supply::Prepared::default(),
             stations, regenerators, traps, hulls: Vec::with_capacity(setup.hull_capacity as usize) });
         w.battle.metadata = Some(Metadata { animations: Vec::new(), gains: Vec::new(), grips: Vec::new(), sides: Vec::new() });
     }
     descriptor_words(w)
 }
-pub fn f4_building_handle_in(w: &mut Root, index: u32) -> Option<&[f64]> { return_handle(w, crate::units::f3_props::owner(index as usize)) }
+pub fn f4_building_handle_in(w: &mut Root, index: u32) -> Option<&[f64]> { let owner = crate::units::f3_props::owner_in(w, index as usize); return_handle(w, owner) }
 pub fn f4_unit_class_in(w: &mut Root) {
     let c = args(w, F4UnitClass::take); let slot = c.def.0 as usize;
     state(&mut w.battle).supply.class(c.def, c.vehicle); let s = metadata_mut(&mut w.battle); s.gains.resize(s.gains.len().max(slot + 1), None);
@@ -88,20 +88,20 @@ pub fn f4_animated_birth_in(w: &mut Root) -> Option<&[f64]> {
     // Body order is fixed at construction. Flags share F2/F3's reservation;
     // door posing writes its byte directly, without a collision export.
     let flag = input.body.and_then(|body| {
-        let collision = crate::vehicles::module::collision_world().expect("prepared animated collision");
+        let collision = crate::vehicles::module::collision_world_in(w).expect("prepared animated collision");
         let kernel = collision.kernel_slot(body.slot)?;
-        crate::collision::state().worlds[f3::collision_world()].order.iter().position(|&slot| slot as usize == kernel)
+        crate::collision::state().worlds[f3::collision_world_in(&w.units)].order.iter().position(|&slot| slot as usize == kernel)
     });
     metadata_mut(&mut w.battle).animations.push(Animation { handle: handle.clone(), original: input.prop, flag, index });
     return_handle(w, handle)
 }
 /// AnimatedProp.state's scalar publication. The body key retained by the
 /// native holder is the Unit id, even after that body changes gameplay life.
-pub(crate) fn wire_animation_count_in(battle: &mut BattleOwner) -> usize { metadata(battle).animations.len() }
-pub(crate) fn wire_animation_in(battle: &mut BattleOwner, index: usize) -> Option<[f64; 7]> {
+pub(crate) fn wire_animation_count_in(battle: &BattleOwner) -> usize { metadata(battle).animations.len() }
+pub(crate) fn wire_animation_in(battle: &BattleOwner, index: usize) -> Option<[f64; 7]> {
     let original = metadata(battle).animations.get(index)?.handle.clone();
-    let handle = f4::live_in(battle).animated.current(&original)?;
-    let prop = f4::live_in(battle).animated.get(&handle)?;
+    let handle = f4::live_ref(battle).animated.current(&original)?;
+    let prop = f4::live_ref(battle).animated.get(&handle)?;
     if prop.settings.grabs.is_empty() || prop.state.slot < 0 { return None; }
     let value = &prop.state;
     let (id, life, grab, since) = value.victim.as_ref().map_or((0., 0., -1., 0.),
@@ -110,25 +110,37 @@ pub(crate) fn wire_animation_in(battle: &mut BattleOwner, index: usize) -> Optio
 }
 /// LogTrap.stateRecord refreshes on any phase/start/direction change, with
 /// the authored trap order independent of its position in buildings.
-pub(crate) fn wire_trap_count_in(battle: &mut BattleOwner) -> usize { state(battle).traps.len() }
-pub(crate) fn wire_trap_in(battle: &mut BattleOwner, index: usize) -> Option<[f64; 3]> {
-    let handle = state(battle).traps.get(index)?.1.clone(); let value = f4::trap_in(battle, &handle)?;
+pub(crate) fn wire_trap_count_in(battle: &BattleOwner) -> usize { battle.live_phase.as_ref().expect("prepared live phase").traps.len() }
+pub(crate) fn wire_trap_in(battle: &BattleOwner, index: usize) -> Option<[f64; 3]> {
+    let handle = battle.live_phase.as_ref().expect("prepared live phase").traps.get(index)?.1.clone(); let value = f4::trap_in(battle, &handle)?;
     let phase = match value.phase { traps::Phase::Down => 0., traps::Phase::Reset => 1., traps::Phase::Armed => 2., traps::Phase::Swing => 3. };
     Some([phase, value.started.unwrap_or(value.tick), u8::from(value.sprung) as f64])
 }
 
 pub(crate) fn descriptor_words(w: &mut Root) -> Option<&[f64]> {
-    let phase = F4Phase { version: io(&mut w.battle).version, live_input: io(&mut w.battle).live.as_ptr() as u32, tail_input: io(&mut w.battle).tail.as_ptr() as u32,
-        input_capacity: F4LiveInput::WORDS.max(F4TailInput::WORDS) as u32,
-        buildings: f4::live_in(&mut w.battle).buildings.publication.ptr() as u32, animated: f4::live_in(&mut w.battle).animated.publication.ptr() as u32,
-        traps: f4::live_in(&mut w.battle).traps.publication.ptr() as u32, counters: io(&mut w.battle).counters.as_ptr() as u32,
-        battle: super::f4_core::publication_ptr(&mut w.battle), events: w.sim.events.ptr() as u32, ..F4Phase::default() };
+    let mut phase = F4Phase { version: io(&mut w.battle).version,
+        input_capacity: F4LiveInput::WORDS.max(F4TailInput::WORDS) as u32, ..F4Phase::default() };
+    #[cfg(target_arch = "wasm32")]
+    bind_descriptor(w, &mut phase);
     let io = io(&mut w.battle); io.dirty_counters = false; io.counts.put(&mut io.counters, &mut Vec::new()); phase.put(&mut io.descriptor, &mut Vec::new()); Some(&io.descriptor[..])
+}
+// The native publication owns typed banks; facade offsets are bound only
+// after the shared phase has completed its counters and changed rows.
+#[cfg(target_arch = "wasm32")]
+fn bind_descriptor(w: &mut Root, phase: &mut F4Phase) {
+    phase.live_input = io(&mut w.battle).live.as_ptr() as u32;
+    phase.tail_input = io(&mut w.battle).tail.as_ptr() as u32;
+    phase.buildings = f4::live_in(&mut w.battle).buildings.publication.ptr() as u32;
+    phase.animated = f4::live_in(&mut w.battle).animated.publication.ptr() as u32;
+    phase.traps = f4::live_in(&mut w.battle).traps.publication.ptr() as u32;
+    phase.counters = io(&mut w.battle).counters.as_ptr() as u32;
+    phase.battle = super::f4_core::publication_ptr(&mut w.battle);
+    phase.events = w.sim.events.ptr() as u32;
 }
 /// Only actual foreign barriers and outer returns publish. Native setters mark
 /// their rows; an intermediate commit must not overwrite an unread delta.
 pub(crate) fn publish_in(w: &mut Root) {
-    if crate::world::deferred() {return;}
+    if crate::world::deferred_in(&w.tick) {return;}
     if w.battle.io.is_none() { return; }
     let rows = f4::live_in(&mut w.battle).flush();
     let words = { let live = f4::live_in(&mut w.battle); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };
@@ -158,21 +170,20 @@ pub fn f4_live_publish_in(w: &mut Root) -> Option<&[f64]> { super::f4_core::publ
 pub(crate) fn with_store_in<T>(w: &mut Root, store: &mut Store, run: impl FnOnce(&mut Root) -> T) -> T {
     std::mem::swap(store, &mut w.sim.store); let result = run(w); std::mem::swap(store, &mut w.sim.store); result
 }
-struct Text;
-impl Text { fn nonempty_in(&self, w: &Root, id: StrId) -> bool { !w.sim.strings.units(id).is_empty() } }
+use super::stats::WorldText as Text;
 
 struct Supplies<'w, 'a> { w: &'w mut Root, station: F4Handle, services: WorldServices<'a> }
 impl supply::World for Supplies<'_, '_> {
     fn hull_health(&mut self, s: &mut Store, r: Ref<Vehicle>, _: f64, value: f64) {
-        with_store_in(self.w, s, |_| crate::units::f3_hulls::mutate(r, value, None, self.services.reborrow()));
+        with_store_in(self.w, s, |w| crate::units::f3_hulls::mutate_in(w, r, value, None, self.services.reborrow()));
     }
     fn hull_ammo(&mut self, s: &mut Store, r: Ref<Vehicle>, life: f64, amount: f64) -> bool {
-        with_store_in(self.w, s, |_| crate::vehicles::module::f2::firing::supply_station(r, life, amount))
+        with_store_in(self.w, s, |w| crate::vehicles::module::f2::firing::supply_station_in(w, r, life, amount))
 
     }
     fn changed(&mut self, _: &mut Store, key: supply::Key) {
-        match key { supply::Key::Unit { reference, .. } => f3::changed(reference),
-            supply::Key::Hull { reference, .. } => crate::vehicles::module::f2::mark_changed(reference) }
+        match key { supply::Key::Unit { reference, .. } => f3::changed_in(self.w, reference),
+            supply::Key::Hull { reference, .. } => crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, reference) }
     }
     fn served(&mut self, _: &props::Station, _: supply::Key, class: crate::store::DefId, p: Vector3, gave: u8) {
         let gain = metadata(&self.w.battle).gains[class.0 as usize].expect("prepared gain effects");
@@ -205,7 +216,7 @@ impl animated::World for Animator<'_, '_, '_> {
     fn body_changed(&mut self, p: &animated::Animated, b: &animated::Body) {
         self.stage(p);
         let Some(key) = held_bodies::commit(self.store, self.binding.original, b) else { return };
-        f3::changed(key.reference());
+        f3::changed_in(self.w, key.reference());
         F4Held { key, prop: b.held.as_ref().map(|_| self.binding.handle.clone()), grab: b.held.as_ref().map_or(0, |h| h.grab as u32),
             since: b.held.as_ref().map_or(0.0, |h| h.since), frame: b.held.as_ref().and_then(|h| h.frame.as_ref()).map(|m| m.elements),
             time: b.held.as_ref().and_then(|h| h.time) }.emit(&mut self.w.sim.events);
@@ -218,14 +229,14 @@ impl animated::World for Animator<'_, '_, '_> {
     }
     fn damage(&mut self, p: &animated::Animated, b: &mut animated::Body, amount: f64) {
         self.stage(p); let r = b.reference.expect("swallowed Unit");
-        with_store_in(self.w, self.store, |_| crate::combat::live::damage(r, amount, Attacker::Null, self.services.reborrow()));
+        with_store_in(self.w, self.store, |w| crate::combat::live::damage_in(w, r, amount, Attacker::Null, self.services.reborrow()));
     }
     fn remove(&mut self, p: &animated::Animated, b: &mut animated::Body) {
         self.stage(p); let r = b.reference.expect("removed Unit");
-        with_store_in(self.w, self.store, |_| f3::remove_native(r, self.services.reborrow()));
+        with_store_in(self.w, self.store, |w| f3::remove_native_in(w, r, self.services.reborrow()));
     }
     fn rider_root(&mut self, _: &animated::Animated, b: &animated::Body, _: StrId, time: f64) -> Option<(Vector3, Quaternion)> {
-        crate::units::live_pose::held_root(b.reference?, self.clip(b, b.held.as_ref()?.grab)?, time)
+        crate::units::live_pose::held_root_in(self.w, b.reference?, self.clip(b, b.held.as_ref()?.grab)?, time)
     }
 }
 struct Logs<'w, 'a, 'b> { w: &'w mut Root, store: &'a mut Store, handle: F4Handle, index: usize,  services: WorldServices<'b> }
@@ -234,18 +245,18 @@ impl traps::World for Logs<'_, '_, '_> {
     type Vehicle = Ref<Vehicle>;
     fn alive(&mut self, r: Self::Vehicle) -> bool { self.store.vehicle.get(r).is_some_and(|v| v.alive) }
     fn sphere(&mut self, r: Self::Vehicle) -> ([f64; 3], f64) {
-        with_store_in(self.w, self.store, |_| { let (p, radius) = crate::units::f3_hulls::sphere(r, true); (array(p), radius) })
+        with_store_in(self.w, self.store, |w| { let (p, radius) = crate::units::f3_hulls::sphere_in(w, r, true); (array(p), radius) })
     }
     fn side(&mut self, r: Self::Vehicle) -> Option<StrId> { metadata(&self.w.battle).sides.get(r.slot as usize).copied().flatten().filter(|(key, _, _)| *key == r).and_then(|(_, side, _)| side) }
-    fn clear_attacker(&mut self, t: &mut traps::Trap, r: Self::Vehicle) { self.commit(t); self.store.vehicle.get_mut(r).unwrap().last_attacker = OrdnanceOwner::Null; crate::vehicles::module::f2::mark_changed(r); }
+    fn clear_attacker(&mut self, t: &mut traps::Trap, r: Self::Vehicle) { self.commit(t); self.store.vehicle.get_mut(r).unwrap().last_attacker = OrdnanceOwner::Null; crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, r); }
     fn set_health(&mut self, t: &mut traps::Trap, r: Self::Vehicle, value: f64) {
-        self.commit(t); with_store_in(self.w, self.store, |_| crate::units::f3_hulls::mutate(r, value, None, self.services.reborrow()));
+        self.commit(t); with_store_in(self.w, self.store, |w| crate::units::f3_hulls::mutate_in(w, r, value, None, self.services.reborrow()));
         *t = f4::trap_in(&mut self.w.battle, &self.handle).expect("live trap after hull death");
     }
-    fn set_dying(&mut self, _: &mut traps::Trap, r: Self::Vehicle, value: f64) { self.store.vehicle.get_mut(r).unwrap().dying = value; crate::vehicles::module::f2::mark_changed(r); }
-    fn hide_root(&mut self, _: &mut traps::Trap, r: Self::Vehicle) { self.store.vehicle.get_mut(r).unwrap().visible = false; crate::vehicles::module::f2::mark_changed(r); }
+    fn set_dying(&mut self, _: &mut traps::Trap, r: Self::Vehicle, value: f64) { self.store.vehicle.get_mut(r).unwrap().dying = value; crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, r); }
+    fn hide_root(&mut self, _: &mut traps::Trap, r: Self::Vehicle) { self.store.vehicle.get_mut(r).unwrap().visible = false; crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, r); }
     fn show(&mut self, t: &mut traps::Trap, built: bool) {
-        self.commit(t); with_store_in(self.w, self.store, |_| crate::units::f3_props::trap_show(self.index, t, built, self.services.reborrow()));
+        self.commit(t); with_store_in(self.w, self.store, |w| crate::units::f3_props::trap_show_in(w, self.index, t, built, self.services.reborrow()));
         *t = f4::trap_in(&mut self.w.battle, &self.handle).expect("shown trap");
     }
     fn sound(&mut self, t: &mut traps::Trap, name: StrId, at: [f64; 3]) { self.commit(t); F4Sound { name, position: at }.emit(&mut self.w.sim.events); }
@@ -256,8 +267,8 @@ fn array(p: Vector3) -> [f64; 3] { [p.x, p.y, p.z] }
 pub fn f4_live_in(w: &mut Root) -> Option<&[f64]> {
     let before = crate::allocations::snapshot(); crate::allocations::begin();
     let input = F4LiveInput::take(&io(&mut w.battle).live, &[]);
-    let outer = f3::external();
-    f3::with_services(|services| {
+    let outer = f3::external_in(w);
+    f3::with_services_in(w, |w, services| {
         let services = services.expect("native live services");
         let mut state = { w.battle.live_phase.take().expect("nonrecursive live phase") };
         let mut store = std::mem::replace(&mut w.sim.store, state.shell.take().expect("retained store shell"));
@@ -265,7 +276,7 @@ pub fn f4_live_in(w: &mut Root) -> Option<&[f64]> {
         state.shell = Some(std::mem::replace(&mut w.sim.store, store)); { w.battle.live_phase = Some(state); }
     });
     { let io = io(&mut w.battle); io.counts.live += 1.0; io.counts.input_words += F4LiveInput::WORDS as f64; }
-    drop(outer);
+    outer.finish(w, true);
     crate::allocations::end(); let used = crate::allocations::snapshot().since(before);
     io(&mut w.battle).counts.allocations = used.calls as u32; io(&mut w.battle).counts.reallocations = used.reallocs as u32; io(&mut w.battle).counts.allocation_bytes = used.bytes as u32;
     descriptor_words(w)
@@ -292,12 +303,12 @@ pub fn f4_live_command_in(w: &mut Root) -> u32 {
         return u32::from(accepted);
     }
     if !matches!(command.op, F4CommandOp::Health | F4CommandOp::Damage) { return 0; }
-    let index = (0..crate::units::f3_props::count()).find(|&i| crate::units::f3_props::owner(i) == command.target);
+    let index = (0..crate::units::f3_props::count_in(&w.units)).find(|&i| crate::units::f3_props::owner_in(w, i) == command.target);
     let Some(index) = index else { return 0 };
-    let outer = f3::external();
-    f3::with_services(|services| crate::units::f3_props::command_hit(index, command.value,
+    let outer = f3::external_in(w);
+    f3::with_services_in(w, |w, services| crate::units::f3_props::command_hit_in(w, index, command.value,
         (command.op == F4CommandOp::Damage).then_some(command.attacker), command.damage_info, services.expect("native prop command")));
-    drop(outer); 1
+    outer.finish(w, true); 1
 }
 
 /// Prepared hull display names are shared with the tail's mounted statistics.
@@ -349,9 +360,9 @@ pub(crate) fn count_hook(battle: &mut BattleOwner) {
 pub fn f4_viewpoint_clock_in(w: &mut Root) {
     if w.battle.io.is_some() { io(&mut w.battle).dirty_counters = true; io(&mut w.battle).counts.lifecycle += 1.0; }
     super::f4_tail::refresh_mobile_views_in(w);
-    let unit=f3::viewpoint();
+    let unit=f3::viewpoint_in(&w.units);
     let count=w.sim.store.unit.get(unit).expect("current viewpoint").tick_count+1.0;
-    f3::viewpoint_count(count);
+    f3::viewpoint_count_in(w, count);
 }
 
 impl State {
@@ -361,31 +372,31 @@ impl State {
     fn advance(&mut self, w: &mut Root, store: &mut Store, input: &F4LiveInput, mut services: WorldServices<'_>) {
         // Ordinary ticks retain structural membership. A new native body or
         // class replacement admits its integer slot before a prop can see it.
-        let revision = f3::unit_revision();
+        let revision = f3::unit_revision_in(&w.units);
         if self.body_revision != revision {
             for (r, _) in store.unit.iter() { if self.bodies.frames.get(r.slot as usize).and_then(|b| b.reference) != Some(r) { self.bodies.adopt(r); } }
             self.body_revision = revision;
         }
         if !self.stations.is_empty() {
             let driving = self.local.and_then(|r| store.unit.get(r)).and_then(|u| u.seat).and_then(|r| store.seat_lease.get(r)).is_some_and(|l| l.vehicle.is_some());
-            self.targets.begin(store, self.local, driving, f3::built(), &store.vehicles.vehicles);
+            self.targets.begin(store, self.local, driving, f3::built_in(&w.units), &store.vehicles.vehicles);
         }
         for &index in &self.stations {
-            if crate::units::f3_props::needs_regeneration(index) {
-                with_store_in(w, store, |_| crate::units::f3_props::regenerate(index, input.dt, services.reborrow()));
+            if crate::units::f3_props::needs_regeneration_in(w, index) {
+                with_store_in(w, store, |w| crate::units::f3_props::regenerate_in(w, index, input.dt, services.reborrow()));
             }
-            let handle = crate::units::f3_props::owner(index); let (mut station, _, supply) = f4::station_in(&mut w.battle, &handle);
+            let handle = crate::units::f3_props::owner_in(w, index); let (mut station, _, supply) = f4::station_in(&mut w.battle, &handle);
             self.targets.pulse(&mut station, input.dt, &supply.expect("station supply"), store, &self.supply,
                 &mut Supplies { w, station: handle.clone(), services: services.reborrow() });
             f4::put_station(&mut w.battle, &handle, station);
         }
         for &index in &self.regenerators {
-            if crate::units::f3_props::needs_regeneration(index) {
-                with_store_in(w, store, |_| crate::units::f3_props::regenerate(index, input.dt, services.reborrow()));
+            if crate::units::f3_props::needs_regeneration_in(w, index) {
+                with_store_in(w, store, |w| crate::units::f3_props::regenerate_in(w, index, input.dt, services.reborrow()));
             }
         }
-        with_store_in(w, store, |_| crate::vehicles::module::f2::live_seats::idle_turrets(input.dt));
-        if !metadata(&w.battle).animations.is_empty() { self.bodies.positions.begin(store, self.local, f3::built()); }
+        with_store_in(w, store, |w| crate::vehicles::module::f2::live_seats::idle_turrets_in(w, input.dt));
+        if !metadata(&w.battle).animations.is_empty() { self.bodies.positions.begin(store, self.local, f3::built_in(&w.units)); }
         for index in 0..metadata(&w.battle).animations.len() {
             // Keep the scalar binding off the root while held-body callbacks
             // read the canonical clip and victim tables recursively.
@@ -421,8 +432,7 @@ pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> { held_clip_in
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn owns_held(prop:Ref<Prop>) ->bool { owns_held_in(&mut crate::abi::cold().battle, prop) }
 
-#[cfg(target_arch = "wasm32")]
-impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }
+
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
@@ -455,3 +465,5 @@ mod exports {
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) use exports::descriptor;
+
+impl super::stats::TextWorld for Logs<'_, '_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }

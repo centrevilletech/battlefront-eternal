@@ -9,16 +9,12 @@ use super::{entities::{Entities,Entity},population::Population};
 /// isolated fixtures; the live battle supplies Core and its sparse publisher.
 pub trait CharacterOwner {
     fn resolve(&self,context:ReadContext<'_>,handle:&F4Handle)->Option<crate::store::Ref<crate::gen::Character>>;
-    #[cfg(not(target_arch="wasm32"))]
-    fn changed(&mut self,reference:crate::store::Ref<crate::gen::Character>);
-    #[cfg(target_arch="wasm32")]
+
     fn changed_in(&mut self,w:&mut crate::world::owner::World,reference:crate::store::Ref<crate::gen::Character>);
 }
 impl CharacterOwner for Commands {
     fn resolve(&self,context:ReadContext<'_>,handle:&F4Handle)->Option<crate::store::Ref<crate::gen::Character>> {let store=context_store!(context);Commands::resolve(self,store,handle)}
-    #[cfg(not(target_arch="wasm32"))]
-    fn changed(&mut self,r:crate::store::Ref<crate::gen::Character>) {if !self.dirty.contains(&r) {self.dirty.push(r);}}
-    #[cfg(target_arch="wasm32")]
+
     fn changed_in(&mut self,_w:&mut crate::world::owner::World,r:crate::store::Ref<crate::gen::Character>) {if !self.dirty.contains(&r) {self.dirty.push(r);}}
 }
 impl CharacterOwner for crate::battle::core::Core {
@@ -26,9 +22,7 @@ impl CharacterOwner for crate::battle::core::Core {
         let r=crate::store::Ref::new(handle.slot,handle.generation);
         (store.character.contains(r)&&self.character(r)==Some(handle)).then_some(r)
     }
-    #[cfg(not(target_arch="wasm32"))]
-    fn changed(&mut self,r:crate::store::Ref<crate::gen::Character>) {self.mark(r);}
-    #[cfg(target_arch="wasm32")]
+
     fn changed_in(&mut self,_w:&mut crate::world::owner::World,r:crate::store::Ref<crate::gen::Character>) {self.mark(r);}
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
@@ -91,10 +85,9 @@ impl Roster {
         let after=post_ref(post);let c=context_store_mut!(context).character.get_mut(reference).unwrap();
         if c.objective!=after {
             c.objective=after;
-            #[cfg(target_arch="wasm32")]
+
             commands.changed_in(context,reference);
-            #[cfg(not(target_arch="wasm32"))]
-            commands.changed(reference);
+
         }
         Ok(())
     }

@@ -40,10 +40,35 @@ impl Exchange {
     }
     /// Pointers are rebuilt after construction or a native loan, never cached
     /// across moves of the fixed header. Publishing counters copies no bodies.
-    pub fn descriptor(&mut self,counters:&AiPhaseCounters)->*const f64 {
-        let descriptor=AiPhaseBoundary {header:self.header.as_ptr() as usize as u32,cameras:self.camera_words.as_ptr() as usize as u32,
-            camera_capacity:(self.camera_words.len()/AiPhaseCamera::WORDS) as u32,journal:self.journal_words.as_ptr() as usize as u32,
-            journal_capacity:(self.journal_words.len()/AiJournalEvent::WORDS) as u32,counters:self.counters.as_ptr() as usize as u32,controls:self.control_output[0],control_count:self.control_output[1],control_version:self.control_output[2],control_ack:self.control_output[3]};
-        descriptor.put(&mut self.descriptor,&mut Vec::new());counters.put(&mut self.counters,&mut Vec::new());self.descriptor.as_ptr()
+    pub fn descriptor(&mut self,counters:&AiPhaseCounters)->&[f64] {
+        let mut descriptor=AiPhaseBoundary {camera_capacity:(self.camera_words.len()/AiPhaseCamera::WORDS) as u32,
+            journal_capacity:(self.journal_words.len()/AiJournalEvent::WORDS) as u32,
+            control_count:self.control_output[1],control_version:self.control_output[2],..Default::default()};
+        #[cfg(target_arch = "wasm32")]
+        self.bind_descriptor(&mut descriptor);
+        descriptor.put(&mut self.descriptor,&mut Vec::new());counters.put(&mut self.counters,&mut Vec::new());&self.descriptor
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Exchange {
+    fn bind_descriptor(&self,descriptor:&mut AiPhaseBoundary) {
+        descriptor.header=self.header.as_ptr() as usize as u32;descriptor.cameras=self.camera_words.as_ptr() as usize as u32;
+        descriptor.journal=self.journal_words.as_ptr() as usize as u32;descriptor.counters=self.counters.as_ptr() as usize as u32;
+        descriptor.controls=self.control_output[0];descriptor.control_ack=self.control_output[3];
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_descriptor_retains_capacity_and_counter_banks_without_addresses() {
+        let mut exchange=Exchange::new(3,7);
+        exchange.control_output=[11,3,9,17];
+        let descriptor=AiPhaseBoundary::take(exchange.descriptor(&AiPhaseCounters::default()),&[]);
+        assert_eq!((descriptor.camera_capacity,descriptor.journal_capacity),(3,7));
+        assert_eq!((descriptor.control_count,descriptor.control_version),(3,9));
+        assert_eq!([descriptor.header,descriptor.cameras,descriptor.journal,descriptor.counters,descriptor.controls,descriptor.control_ack],[0;6]);
     }
 }

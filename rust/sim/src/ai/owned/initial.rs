@@ -74,14 +74,13 @@ pub fn begin<W:SpawningWorld+?Sized>(s:&mut Store,program:&mut Program,populatio
     spawning::begin(s,&program.humans,&mut program.naming,strings,&mut world,random);
 }
 
-
 /// Initial setup needs canonical fleet/post geometry before the later F4
 /// phase host exists. This cold reader never creates or kills a body.
-#[cfg(target_arch="wasm32")]
-pub struct Native<'a> {pads:crate::battle::fleet_posts::Pads,names:&'a [crate::gen::F4HeroSetup],facts:&'a dyn Facts}
-#[cfg(target_arch="wasm32")]
+
+pub struct Native<'a> {collision: &'a mut crate::collision::CollisionOwner, movement: &'a mut crate::movement::MovementOwner, fleet: &'a crate::vehicles::module::Fleet, world: usize, pads:crate::battle::fleet_posts::Pads,names:&'a [crate::gen::F4HeroSetup],facts:&'a dyn Facts}
+
 impl<'a> Native<'a> {
-    pub fn new(s:&mut Store,input:&'a AiRosterSetup,facts:&'a dyn Facts)->Self {
+    pub fn new(s:&mut Store,input:&'a AiRosterSetup,facts:&'a dyn Facts, collision: &'a mut crate::collision::CollisionOwner, movement: &'a mut crate::movement::MovementOwner, fleet: &'a crate::vehicles::module::Fleet, world: usize)->Self {
         let mut pads=crate::battle::fleet_posts::Pads::default();
         for pad in &input.pads {
             pads.adopt(pad.index as usize,pad.pad.clone());
@@ -90,10 +89,10 @@ impl<'a> Native<'a> {
                 if post.index==pad.index as f64 {pads.reserve_post(pad.index as usize,post);}
             }
         }
-        Self {pads,names:&input.hero_names,facts}
+        Self {collision,movement,fleet,world,pads,names:&input.hero_names,facts}
     }
 }
-#[cfg(target_arch="wasm32")]
+
 impl PostsWorld for Native<'_> {
     fn capture_team(&mut self,team:f64)->f64 {team}
     fn building_alive(&mut self,building:Ref<Building>)->bool {self.facts.building_alive(building)}
@@ -106,12 +105,12 @@ impl PostsWorld for Native<'_> {
     fn class_spawn_world_into(&mut self,s:&Store,post:Ref<MobilePost>,into:&mut Vec<[f64;4]>) {
         crate::battle::fleet_posts::spawn_points(s,post,into,|from,direction,span,body| {
             let array=|point:three::Vector3|[point.x,point.y,point.z];
-            crate::units::native::ordnance_cast(crate::units::f3::collision_world(),array(from),array(direction),span,Some(body),true,false)
+            crate::units::native::ordnance_cast_parts_in(self.collision,self.movement,self.fleet,self.world,array(from),array(direction),span,Some(body),true,false)
                 .map(|hit|three::Vector3::new(hit.point[0],hit.point[1],hit.point[2]))
         });
     }
 }
-#[cfg(target_arch="wasm32")]
+
 impl SpawningWorld for Native<'_> {
     fn health(&mut self,s:&Store,unit:Ref<Unit>)->f64 {s.unit.get(unit).map_or(0.,|unit|unit.combat.health)}
     fn force_kill(&mut self,_s:&mut Store,_character:Ref<Character>,_unit:Ref<Unit>) {unreachable!("initial roster has no bodies")}

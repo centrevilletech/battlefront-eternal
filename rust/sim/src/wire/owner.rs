@@ -11,9 +11,9 @@ pub struct Owner {
     pub budgets:Pool<super::host::EntityBudget>,pub semantic:Pool<super::semantic::Semantic>,
     pub presentation:Pool<super::presentation::Presentation>,pub cosmetics:Pool<super::cosmetics::Session>,
     pub attached_shots:Vec<usize>,
-    #[cfg(target_arch="wasm32")]
+
     pub sources:Pool<super::store_source::Source>,
-    #[cfg(target_arch="wasm32")]
+
     pub publications:Pool<super::publish_module::Session>,
     pub census:super::census::Census,
 }
@@ -22,8 +22,10 @@ impl Owner {
     pub const fn new()->Self {Self {runtimes:Pool::new(1),hosts:Pool::new(2),staggers:Pool::new(3),shots:Pool::new(4),
         edges:Pool::new(5),combat:Pool::new(6),budgets:Pool::new(7),semantic:Pool::new(8),presentation:Pool::new(9),
         cosmetics:Pool::new(10),attached_shots:Vec::new(),
-        #[cfg(target_arch="wasm32")] sources:Pool::new(11),
-        #[cfg(target_arch="wasm32")] publications:Pool::new(12),
+
+        sources:Pool::new(11),
+
+        publications:Pool::new(12),
         census:super::census::Census::new()}}
     /// Canonical fired notices update only this battle's admitted counters.
     /// Capture itself never dispatches a gameplay or presentation callback.

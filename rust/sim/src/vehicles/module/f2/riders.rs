@@ -64,7 +64,7 @@ pub(crate) fn hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle
                 p.turn_rates[index], crate::vehicles::hull::angle(seat.aim_yaw - v.yaw), seat.pitch, sp.yaw_rate)
         };
         let q = p.pose.rig.tree.node(p.pose.rig.root).quaternion;
-        world_ctx.fleet.riders.sample(&world_ctx.sim.store, &world_ctx.pose.clips, unit, Some(r), None, index, node.is_some(), point, frame, animal.then_some(q), pitch, turn, p.pose.age);
+        world_ctx.fleet.riders.sample(&mut world_ctx.units,&world_ctx.sim.store, &world_ctx.pose.clips, unit, Some(r), None, index, node.is_some(), point, frame, animal.then_some(q), pitch, turn, p.pose.age);
         // syncCrews writes bodies after hull firing, not at the earlier pose
         // sample. Keep tickCount in that slot: Unit.updateSpheres is lazy.
         if write_body && super::live_seats::has_actor_in(&mut world_ctx.fleet, unit) {
@@ -73,18 +73,18 @@ pub(crate) fn hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle
                 s.position = v3(&point); s.previous = s.position; s.settled = s.position;
                 s.velocity = v.velocity; s.aim_yaw = seat.aim_yaw; s.aim_pitch = seat.pitch;
             }
-            u.tick_count += 1.0; super::live_seats::rider_posed_in(&mut world_ctx.fleet, unit);
+            u.tick_count += 1.0; super::live_seats::rider_posed_in(&mut world_ctx.fleet,&mut world_ctx.units,&world_ctx.sim.store, unit);
         }
     }
 }
 
 /// Turret.riderBody uses its seat's full world turn, including a bound drum.
 pub(crate) fn turret_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, turn: Quaternion, pitch: f64, yaw: f64) {
-    turret_sample(&mut world_ctx.fleet.riders, &world_ctx.sim.store, &world_ctx.pose.clips, unit, turret, show, point, turn, pitch, yaw);
+    turret_sample(&mut world_ctx.units,&mut world_ctx.fleet.riders, &world_ctx.sim.store, &world_ctx.pose.clips, unit, turret, show, point, turn, pitch, yaw);
 }
-pub(super) fn turret_sample(riders: &mut Riders, store: &Store, clips: &[crate::pose::Clip], unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, turn: Quaternion, pitch: f64, yaw: f64) {
+pub(super) fn turret_sample(units:&mut crate::units::owner::Units,riders: &mut Riders, store: &Store, clips: &[crate::pose::Clip], unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, turn: Quaternion, pitch: f64, yaw: f64) {
     let mut frame = Matrix4::default(); frame.compose(&point, &turn, &Vector3::new(1.0, 1.0, 1.0));
-    riders.sample(store, clips, unit, None, Some(turret), 0, show, point, frame, None, pitch, yaw, 0.0);
+    riders.sample(units,store, clips, unit, None, Some(turret), 0, show, point, frame, None, pitch, yaw, 0.0);
 }
 // Vehicles.vacate reads the last completed riderDropPoint. Looking it up
 // must not sample a newer pose or advance the unit's hit-shape cache.
@@ -133,6 +133,7 @@ impl Riders {
     }
     #[cfg(target_arch = "wasm32")]
     pub(super) fn publish(&mut self) -> *const f64 { self.publish_words().as_ptr() }
+    pub(super) fn words(&self) -> &[f64] { &self.output.as_ref().expect("prepared rider output").words }
     pub(super) fn publish_words(&mut self) -> &[f64] {
         let mut count = 0;
         for row in self.rows.iter_mut().flatten() {
@@ -182,7 +183,7 @@ impl Riders {
     // riderBody/riderHitShapes share the frame used for death drops. Animal
     // clips put the pelvis on the saddle, leaving the root below.
     #[allow(clippy::too_many_arguments)]
-    fn sample(&mut self, store: &Store, clips: &[crate::pose::Clip], unit: Ref<Unit>, hull: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: usize,
+    fn sample(&mut self,units:&mut crate::units::owner::Units, store: &Store, clips: &[crate::pose::Clip], unit: Ref<Unit>, hull: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: usize,
         show: bool, point: Vector3, mut frame: Matrix4, animal: Option<Quaternion>, pitch: f64, turn: f64, time: f64) {
         let Some(row) = self.rows.get_mut(unit.slot as usize).and_then(Option::as_mut) else { return };
         let Some(u) = store.unit.get(unit) else { return };
@@ -199,7 +200,7 @@ impl Riders {
         if show && binding.clip >= 0 {
             let clip = &clips[binding.clip as usize];
             let sample = RiderSample { clip, pitch: row.out.pitch, turn: row.out.turn, time: row.out.time };
-            if crate::units::live_pose::rider_points(unit, &sample, &mut row.points) {
+            if crate::units::live_pose::rider_points_in(units,unit, &sample, &mut row.points) {
                 // seatRider subtracts the animated pelvis on riding animals.
                 // Applying the root's height twice would lift the rider off it.
                 if let Some(q) = animal {

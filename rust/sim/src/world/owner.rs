@@ -15,15 +15,10 @@ macro_rules! cold_fields {
             collision: crate::collision::CollisionOwner::new(),
             movement: crate::movement::MovementOwner::new(),
             pose: crate::pose::State::new(),
-            #[cfg(target_arch = "wasm32")]
             units: crate::units::owner::Units::new(),
-            #[cfg(target_arch = "wasm32")]
             fleet: crate::vehicles::module::Fleet::new(),
-            #[cfg(target_arch = "wasm32")]
             battle: crate::battle::owner::BattleOwner::new(),
-            #[cfg(target_arch = "wasm32")]
             combat: crate::combat::module::CombatOwner::new(),
-            #[cfg(target_arch = "wasm32")]
             ordnance: crate::ordnance::module::OrdnanceOwnerState::new(),
             cameras: crate::cameras::Owner::new(),
             page_body: crate::units::page_body::Owner::new(), warmed: false,
@@ -60,17 +55,11 @@ pub struct World {
     pub(crate) collision: crate::collision::CollisionOwner,
     pub(crate) movement: crate::movement::MovementOwner,
     pub(crate) pose: crate::pose::State,
-    // These phase bindings still have their existing target gates; their shared
-    // solver cores already compile natively and do not acquire facade storage.
-    #[cfg(target_arch = "wasm32")]
+    // Every phase belongs to this battle on both host targets.
     pub(crate) units: crate::units::owner::Units,
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fleet: crate::vehicles::module::Fleet,
-    #[cfg(target_arch = "wasm32")]
     pub(crate) battle: crate::battle::owner::BattleOwner,
-    #[cfg(target_arch = "wasm32")]
     pub(crate) combat: crate::combat::module::CombatOwner,
-    #[cfg(target_arch = "wasm32")]
     pub(crate) ordnance: crate::ordnance::module::OrdnanceOwnerState,
     pub(crate) cameras: crate::cameras::Owner,
     pub(crate) page_body: crate::units::page_body::Owner,

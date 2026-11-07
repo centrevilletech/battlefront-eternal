@@ -55,3 +55,6 @@ pub mod vehicles;
 
 pub mod wire;
 pub mod world;
+
+#[cfg(test)]
+extern crate self as bfe_sim;

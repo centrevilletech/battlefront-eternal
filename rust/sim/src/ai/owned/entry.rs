@@ -6,7 +6,7 @@ use crate::{world::owner::World,battle::live::Queries,recon::Authority,units::f3
 
 /// missionTeams/teamTable are cold readers for the page's relationship,
 /// capture and side UI. Runtime bot decisions use the canonical roster.
-pub fn ai_mission_teams_in(w:&mut World,roster:u32)->*const f64 {
+pub fn ai_mission_teams_in(w:&mut World,roster:u32)->&crate::store::block::Block {
     use crate::{battle::spawning,gen::{AiMissionTeam,AiMissionTeams,AiMissionTeamsInput}};
     let (words,heap)=w.sim.calls.args();let input=AiMissionTeamsInput::take(words,heap);
     let calls=super::initial::calls(&input.calls,&w.sim.strings);
@@ -20,7 +20,7 @@ pub fn ai_mission_teams_in(w:&mut World,roster:u32)->*const f64 {
     }).collect();
     let names=input.names.iter().map(|id|spawning::faction_of(Some(&String::from_utf16_lossy(w.sim.strings.units(*id))))).collect();
     let out=AiMissionTeams {teams,names};
-    w.sim.calls.result(AiMissionTeams::WORDS,|row,heap|out.put(row,heap));w.sim.calls.block.ptr()
+    w.sim.calls.result(AiMissionTeams::WORDS,|row,heap|out.put(row,heap));&w.sim.calls.block
 }
 
 pub fn with_callbacks_in<R>(w:&mut World,recon:&mut Authority,queries:&mut Queries,run:impl FnOnce(&mut World,WorldServices<'_>)->R)->R {
@@ -44,9 +44,9 @@ pub fn ai_world_begin_in(w:&mut World)->u32 {
 
 /// The descriptor's generated pointers survive ordinary phases. JavaScript
 /// recreates typed views after calls, just as for the unit and fleet owners.
-pub fn ai_world_boundary_in(w:&mut World)->*const f64 {
-    let Some(battle)=w.ai.battle_mut() else{return std::ptr::null()};
-    battle.exchange.descriptor(&battle.counters)
+pub fn ai_world_boundary_in(w:&mut World)->Option<&[f64]> {
+    let battle=w.ai.battle_mut()?;
+    Some(battle.exchange.descriptor(&battle.counters))
 }
 
 /// ai.update crosses once. Decisions, mounted aim and recursive physical
@@ -149,9 +149,9 @@ pub fn ai_world_activate_in(w:&mut World)->u32 {
                 crate::units::f3::bind_ai_stream_in(&mut w.units,battle.stream_a,battle.runtime.random.weapon_stream());
                 if battle.runtime.core.options.bind.random_b {crate::units::f3::bind_ai_stream_in(&mut w.units,battle.stream_b,battle.runtime.random.command_stream());}
                 battle.activate();
-                
+
                 battle.attach_initial(w,services.recon,services.queries);
-                
+
             }
             prepared
         }else{false};
@@ -203,7 +203,6 @@ pub fn ai_world_dangers_in(w:&mut World)->u32 {
     w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
 }
 
-
 /// A user order is a boundary command, never a foreign controller action.
 /// Qualified Character life rejects a command retained across slot reuse.
 pub fn ai_world_command_in(w:&mut World)->u32 {
@@ -225,7 +224,6 @@ pub fn ai_world_command_in(w:&mut World)->u32 {
     w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
 }
 
-
 /// F3 calls this after its unit, seat and lifecycle loans have ended. The
 /// sidecar never reads a JS mirror and never acquires another Core scope.
 pub fn publish_controls_in(w:&mut World) {
@@ -243,10 +241,10 @@ pub fn publish_controls_in(w:&mut World) {
     // Inline acknowledgement/header addresses are valid only in their final
     // instance location, after returning the complete owner from its loan.
     let battle=w.ai.battle_mut().unwrap();
-    battle.exchange.control_output[3]=battle.state.control_views.ack_pointer();
+    #[cfg(target_arch = "wasm32")]
+    { battle.exchange.control_output[3]=battle.state.control_views.ack_pointer(); }
     battle.exchange.descriptor(&battle.counters);
 }
-
 
 /// Initial Spawning.begin precedes Classic's attach loop. It uses the same
 /// retained population and shared A as later objectives and native weapons.
@@ -269,7 +267,8 @@ pub fn ai_world_roster_in(w:&mut World)->u32 {
         let Some(_services)=services else{return false};
         super::live::with_rows(w,&mut battle.state,|rows| {
             let facts=rows.state.bindings.facts(row_buildings!(rows));
-            let mut world=super::initial::Native::new(row_store_mut!(rows),&input,&facts);
+            let world_id = crate::units::f3::collision_world_in(&rows.w.units);
+            let mut world=super::initial::Native::new(&mut rows.w.sim.store,&input,&facts, &mut rows.w.collision, &mut rows.w.movement, &rows.w.fleet, world_id);
             super::initial::begin(row_store_mut!(rows),&mut program,&mut rows.state.population,&mut battle.runtime.random,
                 &battle.runtime.core.teams,&facts,battle.runtime.core.options.bind.enhanced,&mut rows.w.sim.strings,&mut world);
         });
@@ -289,53 +288,53 @@ pub fn ai_world_roster_in(w:&mut World)->u32 {
     if accepted {w.sim.store.battle.characters.len() as u32+1}else{0}
 }
 
-
 /// This cold structural identity precedes F4 command/publication handles.
 /// It names only the canonical Character slab and cannot issue a command.
-pub fn ai_world_roster_character_in(w:&mut World,index:u32)->*const f64 {
-    let Some(battle)=w.ai.battle_mut() else{return std::ptr::null()};
-    let Some(reference)=w.sim.store.battle.characters.get(index as usize).copied() else{return std::ptr::null()};
+pub fn ai_world_roster_character_in(w:&mut World,index:u32)->Option<&[f64]> {
+    let battle=w.ai.battle_mut()?;
+    let reference=w.sim.store.battle.characters.get(index as usize).copied()?;
     crate::gen::AiCharacterBirth {slot:reference.slot,generation:reference.gen}.put(&mut battle.initial_character,&mut Vec::new());
-    battle.initial_character.as_ptr()
+    Some(&battle.initial_character)
 }
-
 
 /// F3 construction already owns these canonical F4 identities. The cold AI
 /// loader can bind policies before the later live-phase host is constructed.
-pub fn ai_world_prop_owner_in(w:&mut World,index:u32)->*const f64 {
+pub fn ai_world_prop_owner_in(w:&mut World,index:u32)->Option<&[f64]> {
     // Cold and reentrant callers may have no AI owner or prepared unit props.
-    if w.ai.battle().is_none() {return std::ptr::null();}
-    if index as usize>=crate::units::f3_props::count_in(&w.units) {return std::ptr::null()};
+    if w.ai.battle().is_none() {return None;}
+    if index as usize>=crate::units::f3_props::count_in(&w.units) {return None};
     let owner=crate::units::f3_props::owner_in(w,index as usize);
-    let Some(battle)=w.ai.battle_mut() else{return std::ptr::null()};
+    let battle=w.ai.battle_mut()?;
     owner.put(&mut battle.initial_prop,&mut Vec::new());
-    battle.initial_prop.as_ptr()
+    Some(&battle.initial_prop)
 }
 
-// Facade shims for callers awaiting explicit owner context.
-#[no_mangle]
-pub extern "C" fn ai_mission_teams(roster:u32)->*const f64 { ai_mission_teams_in(crate::abi::world(),roster) }
-#[no_mangle]
-pub extern "C" fn ai_world_begin()->u32 { ai_world_begin_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_boundary()->*const f64 { ai_world_boundary_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_phase()->u32 { ai_world_phase_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_content()->u32 { ai_world_content_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_activate()->u32 { ai_world_activate_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_dangers()->u32 { ai_world_dangers_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_command()->u32 { ai_world_command_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_roster()->u32 { ai_world_roster_in(crate::abi::world()) }
-#[no_mangle]
-pub extern "C" fn ai_world_roster_character(index:u32)->*const f64 { ai_world_roster_character_in(crate::abi::world(),index) }
-#[no_mangle]
-pub extern "C" fn ai_world_prop_owner(index:u32)->*const f64 { ai_world_prop_owner_in(crate::abi::world(),index) }
-#[cfg(target_arch="wasm32")]
-pub fn with_callbacks<R>(recon:&mut Authority,queries:&mut Queries,run:impl FnOnce(WorldServices<'_>)->R)->R { with_callbacks_in(crate::abi::world(),recon,queries,|_,services|run(services)) }
-#[cfg(target_arch="wasm32")]
-pub fn publish_controls() { publish_controls_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    // Facade shims for callers awaiting explicit owner context.
+    #[no_mangle]
+    pub extern "C" fn ai_mission_teams(roster:u32)->*const f64 { ai_mission_teams_in(crate::abi::facade::world(),roster).ptr() }
+    #[no_mangle]
+    pub extern "C" fn ai_world_begin()->u32 { ai_world_begin_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_boundary()->*const f64 { ai_world_boundary_in(crate::abi::facade::world()).map_or(std::ptr::null(),|b|b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_phase()->u32 { ai_world_phase_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_content()->u32 { ai_world_content_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_activate()->u32 { ai_world_activate_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_dangers()->u32 { ai_world_dangers_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_command()->u32 { ai_world_command_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_roster()->u32 { ai_world_roster_in(crate::abi::facade::world()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_roster_character(index:u32)->*const f64 { ai_world_roster_character_in(crate::abi::facade::world(),index).map_or(std::ptr::null(),|b|b.as_ptr()) }
+    #[no_mangle]
+    pub extern "C" fn ai_world_prop_owner(index:u32)->*const f64 { ai_world_prop_owner_in(crate::abi::facade::world(),index).map_or(std::ptr::null(),|b|b.as_ptr()) }
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{ai_mission_teams, ai_world_begin, ai_world_boundary, ai_world_phase, ai_world_content, ai_world_activate, ai_world_dangers, ai_world_command, ai_world_roster, ai_world_roster_character, ai_world_prop_owner};

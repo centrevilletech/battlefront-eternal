@@ -196,17 +196,17 @@ fn native_ai_geometry_observes_body_spheres_and_current_seat_rigs_at_distinct_po
     use bfe_sim::ai::{owned::{self,arsenals::Mounted,entities::Entity,rows::Rows,state::{State,Capacity}},nav::{Nav,PlannerOptions},combat::world::WeaponSettings};
     struct NoMount;
     impl Mounted for NoMount {
-        fn count(&self,_:&bfe_sim::gen::Store,_:owned::seats::Source,_:usize)->Option<usize> {panic!("geometry must not read weapons")}
-        fn read<R>(&self,_:&bfe_sim::gen::Store,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("geometry must not read weapons")}
-        fn edit<R>(&mut self,_:&bfe_sim::gen::Store,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {panic!("geometry must not edit weapons")}
+        fn count(&self,_:&crate::world::owner::World,_:owned::seats::Source,_:usize)->Option<usize> {panic!("geometry must not read weapons")}
+        fn read<R>(&self,_:&crate::world::owner::World,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&Weapon)->R)->Option<R> {panic!("geometry must not read weapons")}
+        fn edit<R>(&mut self,_:&mut crate::world::owner::World,_:owned::seats::Source,_:usize,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->Option<R> {panic!("geometry must not edit weapons")}
     }
     #[derive(Default)]struct Hulls {reads:usize}
     impl owned::observe::Hulls for Hulls {
-        fn origin(&mut self,s:&mut Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,h:Ref<Vehicle>,seat:usize)->Option<Vector3> {self.reads+=1;let p=s.vehicle.get(h)?.position;Some(Vector3::new(p[0],20.+seat as f64,p[2]))}
-        fn forward(&mut self,s:&mut Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,h:Ref<Vehicle>,seat:usize)->Option<Vector3> {self.reads+=1;s.vehicle.get(h)?;Some(Vector3::new(seat as f64,0.,1.))}
+        fn origin(&mut self,s:&mut crate::world::owner::World,h:Ref<Vehicle>,seat:usize)->Option<Vector3> {self.reads+=1;let p=s.vehicle.get(h)?.position;Some(Vector3::new(p[0],20.+seat as f64,p[2]))}
+        fn forward(&mut self,s:&mut crate::world::owner::World,h:Ref<Vehicle>,seat:usize)->Option<Vector3> {self.reads+=1;s.vehicle.get(h)?;Some(Vector3::new(seat as f64,0.,1.))}
     }
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:1,posts:0,hulls:1,buildings:0,controls:2,scopes:2,cameras:1});
-    let mut store=Store::default();let body=store.unit.insert(soldier());
+    let mut store=crate::ai::owned::tests::empty_world();let body=store.unit.insert(soldier());
     store.unit.get_mut(body).unwrap().generation=3.;
     store.unit.get_mut(body).unwrap().combat.pivot=[5.,6.,7.];
     let unit=state.entities.register(Entity::Unit(body));
@@ -220,13 +220,15 @@ fn native_ai_geometry_observes_body_spheres_and_current_seat_rigs_at_distinct_po
     let gunner=state.entities.find(Entity::Control(control)).unwrap();
     let mut seats=Default::default();let live=bfe_sim::battle::live_phase::Live::new(0,0,0);
     let mut characters=bfe_sim::battle::commands::Commands::new(0);let mut changes=Ownership::default();let mut mounted=NoMount;let defs=Default::default();
-    let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&live.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
+    let mut native_world=store;
+    crate::vehicles::module::f2::live_seats::admit_test_seats(&mut native_world.fleet,seats);
+    let mut rows=Rows {w:&mut native_world,buildings:&live.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut mounted,definitions:&defs};
     let mut hulls=Hulls::default();let mut world=World {exposed:true,..Default::default()};
     assert_eq!(rows.origin(unit,&mut hulls),Some(Vector3::new(5.,6.,7.)));assert_eq!(hulls.reads,0);
     let original=rows.aim_point(unit,&mut owned::observe::Shapes(&mut world)).unwrap();assert_ne!(original,Vector3::new(5.,6.,7.));
-    rows.store.unit.get_mut(body).unwrap().seat=Some(lease);
+    rows.w.sim.store.unit.get_mut(body).unwrap().seat=Some(lease);
     for tick in 1..=120 {
-        rows.store.vehicle.get_mut(hull).unwrap().position[0]=tick as f64;
+        rows.w.sim.store.vehicle.get_mut(hull).unwrap().position[0]=tick as f64;
         assert_eq!(rows.origin(unit,&mut hulls),Some(Vector3::new(tick as f64,21.,30.)));
         assert_eq!(rows.origin(gunner,&mut hulls),Some(Vector3::new(tick as f64,21.,30.)));
         assert_eq!(rows.origin(target,&mut hulls),Some(Vector3::new(tick as f64,20.,30.)));
@@ -237,13 +239,13 @@ fn native_ai_geometry_observes_body_spheres_and_current_seat_rigs_at_distinct_po
         assert_eq!(rows.aim_point(unit,&mut owned::observe::Shapes(&mut world)),Some(original),"same body tick retains its lazy sphere");
         assert_eq!(hulls.reads,before);assert_eq!(world.rider_samples,0);
     }
-    rows.store.unit.get_mut(body).unwrap().tick_count=1.;
+    rows.w.sim.store.unit.get_mut(body).unwrap().tick_count=1.;
     rows.aim_point(unit,&mut owned::observe::Shapes(&mut world)).unwrap();assert_eq!(world.rider_samples,1);
     rows.aim_point(unit,&mut owned::observe::Shapes(&mut world)).unwrap();assert_eq!(world.rider_samples,1);
-    rows.store.vehicle.get_mut(hull).unwrap().target_generation=5.;
+    rows.w.sim.store.vehicle.get_mut(hull).unwrap().target_generation=5.;
     let before=hulls.reads;
     assert!(rows.origin(gunner,&mut hulls).is_none());assert!(rows.forward(gunner,&mut hulls).is_none());assert!(rows.aim_point(gunner,&mut owned::observe::Shapes(&mut world)).is_none());
     assert_eq!(hulls.reads,before);
-    rows.store.unit.remove(body).unwrap();let replacement=rows.store.unit.insert(soldier());assert_eq!(replacement.slot,body.slot);
+    rows.w.sim.store.unit.remove(body).unwrap();let replacement=rows.w.sim.store.unit.insert(soldier());assert_eq!(replacement.slot,body.slot);
     assert!(rows.origin(unit,&mut hulls).is_none());assert!(rows.aim_point(unit,&mut owned::observe::Shapes(&mut world)).is_none());
 }

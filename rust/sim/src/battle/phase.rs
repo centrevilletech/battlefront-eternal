@@ -10,8 +10,8 @@ use super::objectives::{kill_region_built, KillRegionHost};
 use super::regions::build_region;
 use super::posts::{self, Capturer, Change};
 use super::rules::{self, RulesWorld};
-use super::stats::Text;
-use super::spawning::{self, Draws};
+use super::stats::ContextText;
+use super::spawning::{self, ContextDraws};
 use super::world::{BattleWorld, Member, SpawningWorld, Victim};
 use crate::gen::{Building, Character, Post, PostChange, PostEvent, Store, Vehicle};
 use crate::store::{Nullable, Ref};
@@ -86,12 +86,12 @@ impl Scratch {
 pub fn update_battle<W: PhaseWorld + ?Sized>(
     dt: f64,
     s: &mut Store,
-    strings: &dyn Text,
+    strings: &dyn ContextText<W>,
     ai: bool,
     stats_active: impl Fn(Ref<Character>, &Character) -> bool,
     world: &mut W,
-    random: &mut dyn Draws,
-    gameplay: &mut dyn Draws,
+    random: &mut dyn ContextDraws<W>,
+    gameplay: &mut dyn ContextDraws<W>,
 ) {
     update_battle_with_scratch(dt, s, strings, ai, stats_active, world, random, gameplay, &mut Scratch::default());
 }
@@ -100,9 +100,9 @@ pub fn update_battle<W: PhaseWorld + ?Sized>(
 /// their source order while callbacks can change the next observation.
 #[allow(clippy::too_many_arguments)]
 pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
-    dt: f64, s: &mut Store, strings: &dyn Text, ai: bool,
+    dt: f64, s: &mut Store, strings: &dyn ContextText<W>, ai: bool,
     stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W,
-    random: &mut dyn Draws, gameplay: &mut dyn Draws, scratch: &mut Scratch,
+    random: &mut dyn ContextDraws<W>, gameplay: &mut dyn ContextDraws<W>, scratch: &mut Scratch,
 ) {
     // Who counts toward a post: living soldiers on foot whose class captures;
     // never anyone seated, held, or the player in a hull or at a gun.
@@ -156,14 +156,14 @@ pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
 /// stream's draws, the page's effects, the living soldiers and hulls.
 struct Region<'w, W: PhaseWorld + ?Sized> {
     world: &'w mut W,
-    gameplay: &'w mut dyn Draws,
+    gameplay: &'w mut dyn ContextDraws<W>,
     store: &'w mut Store,
     victims: &'w mut Vec<Victim>,
 }
 
 impl<W: PhaseWorld + ?Sized> KillRegionHost for Region<'_, W> {
     fn random(&mut self) -> f64 {
-        self.gameplay.uniform()
+        self.gameplay.uniform_in(self.world)
     }
 
     fn play(&mut self, name: &str, point: Vector3) {
@@ -192,7 +192,7 @@ impl<W: PhaseWorld + ?Sized> KillRegionHost for Region<'_, W> {
 
 /// objectiveDestroyed(event) (game.js:2370): a post point for whoever hurt
 /// the building last unless he is its owner's friend, then its kill region.
-fn objective_destroyed<W: PhaseWorld + ?Sized>(post: Ref<Post>, from: f64, s: &mut Store, world: &mut W, gameplay: &mut dyn Draws, victims: &mut Vec<Victim>, points: &mut Vec<Vector3>) {
+fn objective_destroyed<W: PhaseWorld + ?Sized>(post: Ref<Post>, from: f64, s: &mut Store, world: &mut W, gameplay: &mut dyn ContextDraws<W>, victims: &mut Vec<Victim>, points: &mut Vec<Vector3>) {
     let building = s.post.get(post).expect("a post").building;
     let destroyer = building.and_then(|b| world.building_attacker(s, b));
     if let Some(d) = destroyer {

@@ -6,6 +6,12 @@ use super::{store_capture::{self, World}, shots::Counters};
 pub(crate) struct Read<'a> {
     pub sim: &'a crate::abi::Sim,
     pub input: &'a crate::input::owner::Owner,
+    pub units:&'a crate::units::owner::Units,
+    pub fleet:&'a crate::vehicles::module::Fleet,
+    pub battle:&'a crate::battle::owner::BattleOwner,
+    pub combat:&'a crate::combat::module::CombatOwner,
+    pub collision:&'a mut crate::collision::CollisionOwner,
+    pub movement:&'a mut crate::movement::MovementOwner,
 }
 
 // Validate descriptors before generated take can index them. A malformed
@@ -60,12 +66,12 @@ struct NativeWorld<'a> {
     states: [StrId; 3],
 }
 impl World for NativeWorld<'_> {
-    fn walk(&self, r: crate::store::Ref<crate::gen::Vehicle>) -> (f64, f64) { crate::vehicles::module::wire_walk(r) }
+    fn walk(&self, r: crate::store::Ref<crate::gen::Vehicle>) -> (f64, f64) { crate::vehicles::module::wire_walk_in(self.w.fleet,r) }
     fn remote_count(&self) -> usize { self.recon.wire_slots() }
     fn remote(&self, index: usize) -> Option<(u32, crate::store::Ref<crate::gen::ReconDroid>)> { self.recon.wire_slot(index) }
-    fn turret_count(&self) -> usize { crate::vehicles::module::f2::live_seats::wire_turret_count() }
+    fn turret_count(&self) -> usize { crate::vehicles::module::f2::live_seats::wire_turret_count_in(self.w.fleet) }
     fn turret(&self, index: usize) -> Option<store_capture::Turret> {
-        crate::vehicles::module::f2::live_seats::wire_turret(index, &self.w.sim.store, self.states)
+        crate::vehicles::module::f2::live_seats::wire_turret_in(self.w.fleet,self.w.units,self.w.battle,index, &self.w.sim.store, self.states)
     }
 }
 // entitySpawnPosts and classEligibility are read once per team and tick.
@@ -93,7 +99,7 @@ impl Source {
     // captureSpawnSummary queries choices without advancing spawn queues.
     // Its cache includes the completed tick, epoch and game-over state.
     // An invalid team is a normal capture fault, never an array index.
-    fn eligibility(&mut self, w: &Read<'_>, tick: f64, epoch: f64, team: f64) -> super::codec::Result<usize> {
+    fn eligibility(&mut self, w: &mut Read<'_>, tick: f64, epoch: f64, team: f64) -> super::codec::Result<usize> {
         let store = &w.sim.store; let key = (tick, epoch, store.battle.game_over);
         if self.eligibility_key != Some(key) {
             for entry in &mut self.eligibility { entry.valid = false; entry.posts.clear(); entry.classes.clear(); }
@@ -109,9 +115,9 @@ impl Source {
         // entitySpawnPosts permits friendly paths and allied authored paths.
         // Convert post ownership with JS ToInt32 before relation lookup.
         // A neutral post is excluded even when it has authored spawn positions.
-        fn allowed(owner: f64, team: f64, path: bool, points: f64, ally: bool) -> bool {
+        fn allowed(units:&crate::units::owner::Units,owner: f64, team: f64, path: bool, points: f64, ally: bool) -> bool {
             let owner = jsrt::to_int32(owner) as f64;
-            owner != 0. && if owner == team { path || points > 0. } else { crate::units::f3::relation(owner, team) > 0. && ally }
+            owner != 0. && if owner == team { path || points > 0. } else { crate::units::f3::relation_in(units,owner, team) > 0. && ally }
         }
         if !store.battle.game_over {
             // entitySpawnPosts keeps placed, mobile, then landed transport
@@ -120,14 +126,14 @@ impl Source {
             for &r in &store.command_posts.posts {
                 let Some(post) = store.post.get(r).filter(|p| p.active) else { continue };
                 let ai = post.ai.as_ref();
-                if allowed(post.team, team, ai.is_some_and(|a| a.spawn_path.as_ref().is_some_and(|p| p.present)),
+                if allowed(w.units,post.team, team, ai.is_some_and(|a| a.spawn_path.as_ref().is_some_and(|p| p.present)),
                     ai.map_or(0., |a| a.class_spawn_points), ai.is_some_and(|a| a.ally_path.as_ref().is_some_and(|p| p.present))) {
                     append(&mut entry.posts, self.capture.post_id(post.name).ok_or("placed post registry prerequisite missing")?)?;
                 }
             }
             for &r in &store.mobile_posts.posts {
                 let Some(post) = store.mobile_post.get(r).filter(|p| p.active) else { continue };
-                if allowed(post.team, team, false, post.ai.class_spawn_points, false) {
+                if allowed(w.units,post.team, team, false, post.ai.class_spawn_points, false) {
                     append(&mut entry.posts, self.capture.post_id(post.name).ok_or("mobile post registry prerequisite missing")?)?;
                 }
             }
@@ -140,17 +146,17 @@ impl Source {
                 let mut at = three::Vector3::new(v.bounds_max[0] + 2., 1., 0.);
                 at.apply_quaternion(&three::Quaternion::new(v.quaternion[0], v.quaternion[1], v.quaternion[2], v.quaternion[3]));
                 at.add(&three::Vector3::new(v.position[0], v.position[1], v.position[2]));
-                let floor = crate::units::native::ordnance_cast(crate::units::f3::collision_world(), [at.x, at.y, at.z], [0., -1., 0.],
+                let floor = crate::units::native::ordnance_cast_parts_in(w.collision,w.movement,w.fleet,crate::units::f3::collision_world_in(w.units), [at.x, at.y, at.z], [0., -1., 0.],
                     12., Some(v.body), true, false);
                 if floor.is_none_or(|hit| hit.normal[1] < 0.8) { continue; }
-                if allowed(v.team.unwrap_or(0.), team, true, 0., false) {
+                if allowed(w.units,v.team.unwrap_or(0.), team, true, 0., false) {
                     append(&mut entry.posts, self.capture.transport_post_id(v.slot_index).ok_or("summary registry prerequisite missing")?)?;
                 }
             }
             // Network admission prepares both complete human rosters before
             // registering its connection. Availability here is content, not
             // a count of currently free pooled bodies.
-            for &name in crate::battle::f4_tail::wire_roster(index) {
+            for &name in crate::battle::f4_tail::wire_roster_in(w.battle,index) {
                 let id = self.capture.class_id(name); if id == 0. { return Err("spawn class registry prerequisite missing"); }
                 append(&mut entry.classes, id)?;
             }
@@ -160,7 +166,7 @@ impl Source {
     // ownSummaryFields joins the mailbox to F4's connection by peer id.
     // Pending and auto requests are still mailbox facts; realized spawn state
     // and current unit generation are read from the native connection owner.
-    fn own_summaries(&mut self, w: &Read<'_>, id: u32, epoch: f64) -> super::codec::Result<()> {
+    fn own_summaries(&mut self, w: &mut Read<'_>, id: u32, epoch: f64) -> super::codec::Result<()> {
         use crate::gen::*;
         let header = WireWorldFacts::WORDS;
         let (tick, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
@@ -169,14 +175,15 @@ impl Source {
         let foreign = self.mailbox(w,id)?.publication.spawn.clone();
         if !foreign.valid { return Err("spawn selection registry prerequisite missing"); }
         let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
-        let handle = peer.character.as_ref().ok_or("own spectator correction not implemented")?;
+        let handle = peer.character.as_ref().ok_or("own spectator correction not implemented")?.clone();
         let store = &w.sim.store;
-        let character = crate::battle::f4_connections::wire_character(store, handle).ok_or("own spectator correction not implemented")?;
-        let connection = crate::battle::f4_connections::wire_view(store, handle).ok_or("own spectator correction not implemented")?;
+        let character = crate::battle::f4_connections::wire_character_in(w.battle,store, &handle).ok_or("own spectator correction not implemented")?;
+        let connection = crate::battle::f4_connections::wire_view_in(w.battle,store, &handle).ok_or("own spectator correction not implemented")?;
         let team = store.character.get(character).ok_or("own spectator correction not implemented")?.team;
         let slot = store.battle.characters.iter().position(|&r| r == character).unwrap_or(255);
         let identity = connection.unit.and_then(|r| store.unit.get(r).map(|u| (r.slot as f64, u.generation))).unwrap_or((0., 0.));
         let index = self.eligibility(w,tick,epoch,team)?; let eligibility = &self.eligibility[index];
+        let connection = crate::battle::f4_connections::wire_view_in(w.battle,store,&handle).ok_or("own spectator correction not implemented")?;
         self.summaries.own(tick, epoch, store, &self.capture, character, super::store_summaries::Spawn {
             connection, identity, team, slot, posts: &eligibility.posts, classes: &eligibility.classes,
             pending: foreign.pending.then_some((foreign.pending_class, foreign.pending_post)),
@@ -184,16 +191,10 @@ impl Source {
         }, &mut self.own_stagger)
     }
     pub(crate) fn capture(&mut self, w: &Read<'_>, shots: &Counters) -> super::codec::Result<()> {
-        // Borrow the existing recon authority rather than importing its JS
-        // facade. with_services returns the same owner after this closure;
-        // no launch, rewind sample or publication clock advances here.
-        crate::units::f3::with_services(|services| {
-            let services = services.ok_or("canonical entity services unavailable")?;
-            let store = &w.sim.store;
-            let defs = crate::combat::module::defs();
-            let world = NativeWorld { w, recon: services.recon, states: self.states };
-            self.capture.capture(store, &defs.weapons, &world, shots)
-        })
+        let store = &w.sim.store;
+        let defs = crate::combat::module::defs_ref(w.combat);
+        let world = NativeWorld { w, recon: crate::units::f3::recon_ref(w.units).ok_or("canonical entity services unavailable")?, states: self.states };
+        self.capture.capture(store, &defs.weapons, &world, shots)
     }
     // capturePlayerCorrection chooses a body from the qualified connection.
     // Its unit may differ from the previous publication after spawn or death.
@@ -207,12 +208,12 @@ impl Source {
         let foreign = self.mailbox(w,id)?.publication.clone();
         let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
         let store = &w.sim.store;
-        let connection = crate::battle::f4_connections::wire_view(store, peer.character.as_ref().ok_or("own spectator correction not implemented")?).ok_or("own spectator correction not implemented")?;
+        let connection = crate::battle::f4_connections::wire_view_in(w.battle,store, peer.character.as_ref().ok_or("own spectator correction not implemented")?).ok_or("own spectator correction not implemented")?;
         let reference = connection.unit.ok_or("own spectator correction not implemented")?;
         let unit = store.unit.get(reference).ok_or("own spectator correction not implemented")?;
         if unit.team != 1. && unit.team != 2. { return Err("invalid own team"); }
         if self.capture.class_id(unit.class_name) == 0. { return Err("player class prerequisite missing"); }
-        let defs = &crate::combat::module::defs().weapons;
+        let defs = &crate::combat::module::defs_ref(&w.combat).weapons;
         self.own.mounted.value.clear(); self.own.remote.value.clear();
         let mut vehicle = None;
         // captureMountedControl requires both the unit life and the live lease.
@@ -231,17 +232,17 @@ impl Source {
                     if let Some(value) = seat.look_yaw { flags |= 1; aim[count] = value; count += 1; }
                     if let Some(value) = seat.look_pitch { flags |= 2; aim[count] = value; count += 1; }
                 }
-                crate::vehicles::module::f2::firing::wire_weapons(hull, v.target_generation, lease.index as usize,
+                crate::vehicles::module::f2::firing::wire_weapons_in(w.fleet,hull, v.target_generation, lease.index as usize,
                     |weapons| self.own.mount(mode, v.target_id, v.target_generation, lease.index, &aim[..count], flags, weapons, defs))?;
                 if mode == 4 { vehicle = Some((hull, v)); }
             } else if let Some(turret) = lease.turret {
-                crate::vehicles::module::f2::live_seats::wire_own_turret(store, turret, &mut self.own, defs)?;
+                crate::vehicles::module::f2::live_seats::wire_own_turret_in(w.fleet,w.units,w.battle,store, turret, &mut self.own, defs)?;
             } else { return Err("mounted control lease prerequisite missing"); }
         }
         if !foreign.view.profile_found { return Err("binding profile mismatch"); }
         let (schema, mount) = if let Some((reference, v)) = vehicle {
             let seat = v.seats.first().ok_or("pilot lease prerequisite missing")?;
-            let (yaw_rate, last_yaw) = crate::vehicles::module::wire_seat_history(reference, 0).ok_or("pilot lease prerequisite missing")?;
+            let (yaw_rate, last_yaw) = crate::vehicles::module::wire_seat_history_in(w.fleet,reference, 0).ok_or("pilot lease prerequisite missing")?;
             let fields = [Some(seat.aim_yaw), Some(seat.pitch), seat.look_yaw, seat.look_pitch, Some(yaw_rate), last_yaw];
             let schema = if v.flying {
                 let names = self.flight_names;
@@ -257,10 +258,7 @@ impl Source {
             } else { self.own.ground(v, fields)? };
             (schema, (v.target_id, v.target_generation))
         } else { (self.own.foot(&unit.soldier)?, (0., 0.)) };
-        let remote = crate::units::f3::with_services(|services| {
-            let services = services.ok_or("canonical entity services unavailable")?;
-            services.recon.wire_own(store, &F3UnitKey::of(reference, unit), &mut self.own, foreign.recon_aspect)
-        })?;
+        let remote = crate::units::f3::recon_ref(w.units).ok_or("canonical entity services unavailable")?.wire_own(store, &F3UnitKey::of(reference, unit), &mut self.own, foreign.recon_aspect)?;
         if remote.is_some() && !self.own.mounted.value.is_empty() { return Err("conflicting own control modes"); }
         let remote = remote.map(|(id, generation, class)| self.capture.remote_id(class).map(|definition| (id as f64, generation as f64, definition))
             .ok_or("recon content prerequisite missing")).transpose()?;
@@ -289,7 +287,7 @@ pub(crate) fn wire_store_source_create_in(w: &mut crate::world::owner::World) ->
     // the retained rows directly without decoding an entity argument block.
     let Ok(capture) = store_capture::Capture::new(&setup, &w.sim.strings) else { return 0 };
     let Ok(ordnance_ids) = store_capture::definitions(&setup.ordnance) else { return 0 };
-    let own = super::store_own::Capture::new(&crate::combat::module::defs().weapons);
+    let own = super::store_own::Capture::new(&crate::combat::module::defs_in(&mut w.combat).weapons);
     // captureCompactFlight serializes authored status strings as enum bytes.
     // Intern those names cold, including the empty message and trick names.
     // No first-seen flight status may allocate during publication.
@@ -324,7 +322,7 @@ if owner.sources.get(source as usize).is_none() {return 0;}
     (owner.sources.get_mut(source as usize).unwrap()).states = [setup.unbuilt, setup.built, setup.destroyed];
     (owner.sources.get_mut(source as usize).unwrap()).peers = setup.peers;
     (owner.sources.get_mut(source as usize).unwrap()).eligibility_key = None;
-    (owner.sources.get_mut(source as usize).unwrap()).own.rebind(&crate::combat::module::defs().weapons);
+    (owner.sources.get_mut(source as usize).unwrap()).own.rebind(&crate::combat::module::defs_in(&mut w.combat).weapons);
     1
 
 }
@@ -339,7 +337,7 @@ if owner.sources.get(source as usize).is_none() {return None;}
 if owner.shots.get(shots as usize).is_none() {return None;}
 
     let before = crate::allocations::snapshot();
-    let result = (owner.sources.get_mut(source as usize).unwrap()).capture(&Read {sim:&w.sim,input:&w.input}, owner.shots.get(shots as usize).unwrap());
+    let result = (owner.sources.get_mut(source as usize).unwrap()).capture(&Read {sim:&w.sim,input:&w.input,units:&w.units,fleet:&w.fleet,battle:&w.battle,combat:&w.combat,collision:&mut w.collision,movement:&mut w.movement}, owner.shots.get(shots as usize).unwrap());
     let used = crate::allocations::snapshot().since(before);
     let mut out = match result {
         Ok(()) => WireStoreRecords { records: (owner.sources.get(source as usize).unwrap()).capture.records().to_vec(), ..Default::default() },
@@ -354,25 +352,25 @@ if owner.shots.get(shots as usize).is_none() {return None;}
 // captureWorldPresentation borrows F3/F4 scalar sidecars in authored order.
 // These accessors never export a rig or refresh its lazy geometry.
 // The presentation writer only observes state already owned by the phase.
-struct NativeProps;
-impl super::store_world::Props for NativeProps {
-    fn building_count(&self) -> usize { crate::units::f3_props::count() }
-    fn building(&self, index: usize) -> Option<super::store_world::Building> { crate::units::f3_props::wire_building(index) }
-    fn animation_count(&self) -> usize { crate::battle::f4_live::wire_animation_count() }
-    fn animation(&self, index: usize) -> Option<[f64; 7]> { crate::battle::f4_live::wire_animation(index) }
-    fn trap_count(&self) -> usize { crate::battle::f4_live::wire_trap_count() }
-    fn trap(&self, index: usize) -> Option<[f64; 3]> { crate::battle::f4_live::wire_trap(index) }
+struct NativeProps<'a> { w:&'a Read<'a> }
+impl super::store_world::Props for NativeProps<'_> {
+    fn building_count(&self) -> usize { crate::units::f3_props::count_in(self.w.units) }
+    fn building(&self, index: usize) -> Option<super::store_world::Building> { crate::units::f3_props::wire_building_in(self.w.units,self.w.battle,index) }
+    fn animation_count(&self) -> usize { crate::battle::f4_live::wire_animation_count_in(self.w.battle) }
+    fn animation(&self, index: usize) -> Option<[f64; 7]> { crate::battle::f4_live::wire_animation_in(self.w.battle,index) }
+    fn trap_count(&self) -> usize { crate::battle::f4_live::wire_trap_count_in(self.w.battle) }
+    fn trap(&self, index: usize) -> Option<[f64; 3]> { crate::battle::f4_live::wire_trap_in(self.w.battle,index) }
 }
 
 // captureRoster finds transport facts through qualified Characters.
 // Protocol peer ids are stable across reorderings of the JS player Map.
 // Spectators can supply links without becoming native Character owners.
-struct NativeLinks<'a> { store: &'a crate::gen::Store, peers: &'a [crate::gen::WireStorePeer], words: &'a [f64] }
+struct NativeLinks<'a> { battle:&'a crate::battle::owner::BattleOwner, store: &'a crate::gen::Store, peers: &'a [crate::gen::WireStorePeer], words: &'a [f64] }
 impl super::store_summaries::Links for NativeLinks<'_> {
     fn get(&self, character: crate::store::Ref<crate::gen::Character>) -> Option<super::store_summaries::Link> {
         for peer in self.peers {
             let Some(handle) = &peer.character else { continue };
-            if crate::battle::f4_connections::wire_character(self.store, handle) != Some(character) { continue; }
+            if crate::battle::f4_connections::wire_character_in(self.battle,self.store, handle) != Some(character) { continue; }
             for row in self.words.chunks_exact(crate::gen::WirePublicationLink::WORDS) {
                 let link = crate::gen::WirePublicationLink::take(row, &[]);
                 if link.id == peer.id { return Some(super::store_summaries::Link { rtt: link.rtt, has_kind: link.has_kind,
@@ -423,11 +421,11 @@ impl Source {
     let result = (|| {
         source.stage.copy_native_from(stagger)?; source.stage.begin();
         let store = &w.sim.store; let strings = &w.sim.strings;
-        let links = NativeLinks { store, peers: &source.peers, words };
+        let links = NativeLinks { battle:w.battle,store, peers: &source.peers, words };
         source.summaries.take(tick, epoch, store, strings, &source.capture, &links, &mut source.stage)?;
-        let defs = crate::combat::module::defs();
-        source.world.take(tick, store, strings, &defs.weapons, &source.capture, &mut source.stage, crate::units::f3::wire_visible)?;
-        source.fields.take(tick, epoch, store, strings, &NativeProps, source.names, &mut source.stage)?;
+        let defs = crate::combat::module::defs_ref(&w.combat);
+        source.world.take(tick, store, strings, &defs.weapons, &source.capture, &mut source.stage, |r,u|crate::units::f3::wire_visible_in(w.units,w.fleet,store,r,u))?;
+        source.fields.take(tick, epoch, store, strings, &NativeProps {w}, source.names, &mut source.stage)?;
         source.stage.finish(&[7., 8., 9., 10.]); std::mem::swap(stagger, &mut source.stage); Ok(())
     })();
     if result.is_err() { source.summaries.restore_roster_clock(roster_clock); } result
@@ -470,7 +468,7 @@ impl super::publisher::World for PublicationWorld<'_> {
         let Some(row) = rows.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == peer as f64) else { return Default::default() };
         let Some(peer) = source.peers.iter().find(|p| p.id == peer) else { return Default::default() };
         let store = &self.w.sim.store;
-        let unit = peer.character.as_ref().and_then(|h| crate::battle::f4_connections::wire_view(store, h))
+        let unit = peer.character.as_ref().and_then(|h| crate::battle::f4_connections::wire_view_in(self.w.battle,store, h))
             .and_then(|c| c.unit).and_then(|r| store.unit.get(r).map(|u| (r, u)));
         let position = unit.map(|(_, u)| {
             u.seat.and_then(|r| store.seat_lease.get(r)).and_then(|l| l.vehicle).and_then(|r| store.vehicle.get(r)).map(|v| v.position)
@@ -481,7 +479,7 @@ impl super::publisher::World for PublicationWorld<'_> {
             discarded_actions: row[WirePublicationLink::DISCARDED_ACTIONS] }
     }
     fn summaries(&mut self, peer: u32, epoch: f64, fields: &mut super::publisher::Fields) -> super::codec::Result<()> {
-        self.source.own_summaries(&self.w,peer,epoch)?;
+        self.source.own_summaries(&mut self.w,peer,epoch)?;
         fields.clear(); for field in self.source.own_stagger.entries.iter().filter_map(|e| e.field.as_ref()) { fields.push(field)?; } Ok(())
     }
     fn own(&mut self, peer: u32, epoch: f64) -> super::codec::Result<super::publisher::Correction<'_>> {
@@ -512,7 +510,7 @@ impl super::publisher::World for PublicationWorld<'_> {
                 .ok_or("combat definition absent from matched registry")?;
             let (owner_id, owner_generation, fire_id) = match sample.owner {
                 crate::gen::OrdnanceOwner::Unit(r) => store.unit.get(r).map_or((0., 0., 0.), |u| {
-                    let net = crate::units::f3::network(r.slot);
+                    let net = crate::units::f3::network_in(self.w.units,r.slot);
                     (r.slot as f64, u.generation, if sample.channel == 0. { net.fire0 } else { net.fire1 })
                 }),
                 crate::gen::OrdnanceOwner::OwnerSnapshot(r) => store.owner_snapshot.get(r).map_or((0., 0., 0.), |o| (o.id, o.generation, 0.)),

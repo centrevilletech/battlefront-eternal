@@ -61,7 +61,7 @@ impl Controllers {
             shots:Pool::new(depth,capacity),intake:None,shot_marks:vec![None;capacity],
         }
     }
-    #[cfg(target_arch="wasm32")]
+
     pub(crate) fn adopt_in(&mut self,w:&mut crate::world::owner::World,core:usize,entities:&mut Entities)->Obj {
         let born=self.key(core).is_none();
         let object=self.adopt(core,entities);
@@ -303,8 +303,8 @@ pub fn link_character(context:super::rows::WriteContext<'_>,owner:&mut dyn super
     if bound {character.controller=Some(controller);}else if before==Some(controller) {character.controller=None;}
     let changed=before!=character.controller;
     if changed {
-        #[cfg(target_arch="wasm32")] owner.changed_in(context,reference);
-        #[cfg(not(target_arch="wasm32"))] owner.changed(reference);
+         owner.changed_in(context,reference);
+
     }
     Some(changed)
 }

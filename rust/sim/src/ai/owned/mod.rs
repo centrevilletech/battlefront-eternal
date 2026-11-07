@@ -58,7 +58,6 @@ pub mod seats;
 
 pub mod scene;
 
-#[cfg(target_arch="wasm32")]
 pub mod live;
 
 pub mod active;
@@ -79,19 +78,16 @@ pub mod owner;
 
 pub mod load;
 
-#[cfg(target_arch="wasm32")]
 pub mod callbacks;
 
 pub mod physical;
 
 pub mod pilot;
 
-#[cfg(target_arch="wasm32")]
 pub mod host;
 
 pub mod publication;
 
-#[cfg(target_arch="wasm32")]
 pub mod entry;
 
 pub mod exchange;
@@ -103,5 +99,7 @@ pub mod control_views;
 pub mod initial;
 
 // Cold policy readback for player, seat and HUD resource hosts.
-#[cfg(target_arch="wasm32")]
 pub mod policies;
+
+#[cfg(test)]
+pub(crate) mod tests;

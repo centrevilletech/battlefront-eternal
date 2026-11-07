@@ -1,7 +1,6 @@
 //! A combat service scope over the canonical owners. Mutable borrows end
 //! before geometry, boarding or lifecycle services loan the owners onward.
-#[cfg(not(target_arch="wasm32"))]
-use crate::{gen::Store,vehicles::f2_seats::Seats};
+
 use super::{arsenals::{Mounted,Owner},entities::Entity,intent::Command,roster::CharacterOwner,
     scene::Scene,state::State,weapons::Changes};
 use crate::{ai::combat::world::{LeaseView,Obj,UnitView,WeaponSettings,WeaponView},
@@ -11,122 +10,80 @@ use three::Vector3;
 
 // Canonical production projections and native fixture slabs share the same
 // AI algorithms. Native phase admission supplies the enclosing owners later.
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_store {($r:expr)=>{&($r).w.sim.store};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_store {($r:expr)=>{&*($r).store};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_store_mut {($r:expr)=>{&mut ($r).w.sim.store};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_store_mut {($r:expr)=>{&mut *($r).store};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_seats {($r:expr)=>{crate::vehicles::module::f2::live_seats::seats_ref(&($r).w.fleet)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_seats {($r:expr)=>{&*($r).seats};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_seats_mut {($r:expr)=>{($r).w.fleet.seats_owner()};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_seats_mut {($r:expr)=>{&mut *($r).seats};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_context {($r:expr)=>{($r).w};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_context {($r:expr)=>{($r).store};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_buildings {($r:expr)=>{($r).buildings.rows_in(crate::battle::f4::live_ref(&($r).w.battle))};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_buildings {($r:expr)=>{($r).buildings.rows()};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_traps {($r:expr)=>{($r).buildings.traps_in(crate::battle::f4::live_ref(&($r).w.battle))};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_traps {($r:expr)=>{($r).buildings.traps()};}
+
 pub(crate) use {row_store,row_store_mut,row_seats,row_seats_mut,row_context,row_buildings,row_traps};
-#[cfg(target_arch="wasm32")]
+
 pub type ReadContext<'a>=&'a crate::world::owner::World;
-#[cfg(not(target_arch="wasm32"))]
-pub type ReadContext<'a>=&'a Store;
-#[cfg(target_arch="wasm32")]
+
 pub type WriteContext<'a>=&'a mut crate::world::owner::World;
-#[cfg(not(target_arch="wasm32"))]
-pub type WriteContext<'a>=&'a mut Store;
-#[cfg(target_arch="wasm32")]
+
 macro_rules! context_store {($c:expr)=>{&($c).sim.store};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! context_store {($c:expr)=>{&*($c)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! context_store_mut {($c:expr)=>{&mut ($c).sim.store};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! context_store_mut {($c:expr)=>{&mut *($c)};}
+
 pub(crate) use {context_store,context_store_mut};
 
-#[cfg(target_arch="wasm32")]
 macro_rules! view_context {($v:expr)=>{($v).w};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! view_context {($v:expr)=>{($v).store};}
+
 pub(crate) use view_context;
-#[cfg(target_arch="wasm32")]
+
 pub type MountEditContext<'a>=&'a mut crate::world::owner::World;
-#[cfg(not(target_arch="wasm32"))]
-pub type MountEditContext<'a>=&'a Store;
-#[cfg(target_arch="wasm32")]
+
 macro_rules! changed {($owner:expr,$context:expr,$method:ident $(,$arg:expr)*)=>{($owner).$method($context $(,$arg)*)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! changed {($owner:expr,$context:expr,$method:ident $(,$arg:expr)*)=>{($owner).$method($($arg),*)};}
+
 pub(crate) use changed;
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_hull {($r:expr,$sampler:expr,$method:ident,$h:expr,$seat:expr)=>{($sampler).$method(($r).w,$h,$seat)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_hull {($r:expr,$sampler:expr,$method:ident,$h:expr,$seat:expr)=>{($sampler).$method(&mut *($r).store,&mut *($r).seats,$h,$seat)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_body {($r:expr,$sampler:expr,$unit:expr)=>{($sampler).sphere(($r).w,$unit)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_body {($r:expr,$sampler:expr,$unit:expr)=>{($sampler).sphere(&mut *($r).store,&mut *($r).seats,$unit)};}
+
 pub(crate) use {row_hull,row_body};
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_nav {($r:expr,$method:ident,$($a:expr),* $(,)?)=>{($r).state.navigation.$method(($r).w,$($a),*)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_nav {($r:expr,$method:ident,$($a:expr),* $(,)?)=>{($r).state.navigation.$method(&mut *($r).store,&mut *($r).seats,$($a),*)};}
+
 pub(crate) use row_nav;
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_trap_geometry {($r:expr,$target:expr)=>{($r).buildings.trap_geometry(($r).w,$target)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_trap_geometry {($r:expr,$target:expr)=>{($r).buildings.trap_geometry($target)};}
+
 pub(crate) use row_trap_geometry;
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_jet_enter {($r:expr,$c:expr,$actor:expr,$hint:expr,$random:expr,$env:expr)=>{($r).state.jets.enter($c,$actor,$hint,&mut ($r).state.navigation,($r).w,$random,$env)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_jet_enter {($r:expr,$c:expr,$actor:expr,$hint:expr,$random:expr,$env:expr)=>{($r).state.jets.enter($c,$actor,$hint,&mut ($r).state.navigation,&mut *($r).store,&mut *($r).seats,$random,$env)};}
-#[cfg(target_arch="wasm32")]
+
 macro_rules! row_jet_tick {($r:expr,$c:expr,$random:expr,$env:expr)=>{($r).state.jets.tick($c,&mut ($r).state.navigation,($r).w,$random,$env)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! row_jet_tick {($r:expr,$c:expr,$random:expr,$env:expr)=>{($r).state.jets.tick($c,&mut ($r).state.navigation,&mut *($r).store,&mut *($r).seats,$random,$env)};}
+
 pub(crate) use {row_jet_enter,row_jet_tick};
 /// A live reader lends F4's rows only during an observation. Holding its
 /// zero-sized reader across a damage hook does not hold the building table.
 pub trait BuildingOwner {
-    #[cfg(not(target_arch="wasm32"))]
-    fn rows(&self)->&Buildings<Building>;
-    #[cfg(target_arch="wasm32")]
+
     fn rows_in<'a>(&'a self,live:&'a crate::battle::live_phase::Live)->&'a Buildings<Building>;
-    #[cfg(not(target_arch="wasm32"))]
-    fn traps(&self)->Option<&Buildings<crate::battle::live_phase::Trap>> {None}
-    #[cfg(target_arch="wasm32")]
+
     fn traps_in<'a>(&'a self,_live:&'a crate::battle::live_phase::Live)->Option<&'a Buildings<crate::battle::live_phase::Trap>> {None}
-    fn trap_geometry(&self,#[cfg(target_arch="wasm32")] _w:&mut crate::world::owner::World,_:crate::gen::RepairTarget)->Option<(crate::ai::combat::world::Sphere,three::Matrix4)> {None}
+    fn trap_geometry(&self, _w:&mut crate::world::owner::World,_:crate::gen::RepairTarget)->Option<(crate::ai::combat::world::Sphere,three::Matrix4)> {None}
 }
 impl BuildingOwner for Buildings<Building> {
-    #[cfg(not(target_arch="wasm32"))]
-    fn rows(&self)->&Buildings<Building> {self}
-    #[cfg(target_arch="wasm32")]
+
     fn rows_in<'a>(&'a self,_live:&'a crate::battle::live_phase::Live)->&'a Buildings<Building> {self}
 }
 
 pub struct Rows<'a,C:Changes+?Sized,M:Mounted> {
-    #[cfg(target_arch="wasm32")]
+
     pub w:&'a mut crate::world::owner::World,
-    #[cfg(not(target_arch="wasm32"))]
-    pub store:&'a mut Store,
-    #[cfg(not(target_arch="wasm32"))]
-    pub seats:&'a mut Seats,
+
     pub buildings:&'a dyn BuildingOwner,
     pub characters:&'a mut dyn CharacterOwner,
     pub state:&'a mut State,
@@ -420,12 +377,12 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
 
 impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     pub fn combat_feed(&mut self,core:usize,input:&crate::ai::control::world::CombatInput<'_>)->bool {
-        let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
+        let objects=super::objects::Objects { w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         self.state.controllers.feed_core(core,input,&objects)
     }
     pub fn combat_query_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller,aim:bool)->bool {
         let Some(row)=self.state.controllers.write_core(core) else{return false};
-        let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
+        let objects=super::objects::Objects { w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         if aim {row.feed_aim_query(source,&objects);}else{row.feed_query(source,&objects);}true
     }
     /// Deferred sight validates the bound owner and life, then changes only
@@ -437,12 +394,12 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     }
     pub fn combat_aimer_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller)->bool {
         let Some(row)=self.state.controllers.write_core(core) else{return false};
-        let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
+        let objects=super::objects::Objects { w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         row.feed_aimer(source,&objects);true
     }
     pub fn combat_fire_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller)->bool {
         let Some(row)=self.state.controllers.write_core(core) else{return false};
-        let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
+        let objects=super::objects::Objects { w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         row.feed_fire(source,&objects);true
     }
     /// CombatAgent.face writes aimTarget separately from the fire target.
@@ -452,11 +409,11 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
         ctl.aim_target.map(|r|crate::ai::control::world::EntRef {unit:r.obj,generation:r.generation})
     }
     pub fn combat_writes(&self,core:usize)->Option<crate::ai::control::world::CombatWrites> {
-        let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
+        let objects=super::objects::Objects { w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         Some(self.state.controllers.read_core(core)?.control_writes(&objects))
     }
     pub fn combat_alerts(&self)->super::scratch::List<crate::ai::control::world::AlertState> {
-        let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
+        let objects=super::objects::Objects { w:self.w,store:row_store!(self),commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         self.state.controllers.ingest(&objects)
     }
 }

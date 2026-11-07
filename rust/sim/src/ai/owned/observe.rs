@@ -1,14 +1,12 @@
 //! Unit/SeatUnit/VehicleTarget/TurretTarget geometry (src/units.js and
 //! src/seats.js). Each method observes only its source geometry. In
 //! particular, an aim point reads the lazy sphere, never the gun origin.
-#[cfg(not(target_arch="wasm32"))]
-use crate::{gen::Store,vehicles::f2_seats::Seats};
+
 use super::rows::{row_body,row_buildings,row_hull,row_seats,row_seats_mut,row_store,row_store_mut,row_traps};
 use super::{arsenals::Mounted,entities::Entity,rows::Rows,weapons::Changes};
 use crate::{ai::combat::world::{Obj,Sphere},gen::{RepairTarget,SeatLease,Vehicle},
     store::Ref,units::world::UnitsWorld};
 use three::Vector3;
-
 
 #[derive(Clone,Copy)]
 struct ForwardSample {storage:u32,life:u64,yaw:u64,pitch:u64,value:Vector3}
@@ -31,24 +29,24 @@ impl ForwardCache {
 /// Native hull rigs are retained separately from the canonical row. A read
 /// loans that row's owner only for the duration of the requested seat pose.
 pub trait Bodies {
-    fn sphere(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
-        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere>;
+    fn sphere(&mut self, w:&mut crate::world::owner::World,
+        unit:Ref<crate::gen::Unit>)->Option<Sphere>;
 }
 /// Isolated native worlds supply their own pose sampler, without a host.
 pub struct Shapes<'a>(pub &'a mut dyn UnitsWorld);
 impl Bodies for Shapes<'_> {
-    fn sphere(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
-        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] _seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere> {
-        #[cfg(target_arch="wasm32")] let store=&mut w.sim.store;
+    fn sphere(&mut self, w:&mut crate::world::owner::World,
+        unit:Ref<crate::gen::Unit>)->Option<Sphere> {
+         let store=&mut w.sim.store;
         let key=crate::gen::F3UnitKey::of(unit,store.unit.get(unit)?);
         super::geometry::sphere(store,self.0,&key).ok()
     }
 }
 pub trait Hulls {
-    fn origin(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
-        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
-    fn forward(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
-        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
+    fn origin(&mut self, w:&mut crate::world::owner::World,
+        hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
+    fn forward(&mut self, w:&mut crate::world::owner::World,
+        hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
 }
 impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     fn control_lease(&self,reference:Ref<crate::gen::SeatUnit>)->Option<Ref<SeatLease>> {
@@ -122,7 +120,7 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     }
     pub fn aim_point(&mut self,obj:Obj,bodies:&mut impl Bodies)->Option<Vector3> {Some(self.sphere(obj,bodies)?.center)}
 }
-#[cfg(target_arch="wasm32")]
+
 impl Hulls for super::geometry::F2 {
     fn origin(&mut self,w:&mut crate::world::owner::World,hull:Ref<Vehicle>,seat:usize)->Option<Vector3> {
         let life=w.sim.store.vehicle.get(hull)?.target_generation;
@@ -136,9 +134,9 @@ impl Hulls for super::geometry::F2 {
 
 /// The live sampler borrows the root for canonical lazy geometry. No local
 /// Store borrow spans held or rider observations.
-#[cfg(target_arch="wasm32")]
+
 pub struct F3;
-#[cfg(target_arch="wasm32")]
+
 impl Bodies for F3 {
     fn sphere(&mut self,w:&mut crate::world::owner::World,unit:Ref<crate::gen::Unit>)->Option<Sphere> {
         let row=w.sim.store.unit.get(unit)?;

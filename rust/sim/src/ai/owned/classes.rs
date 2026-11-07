@@ -12,14 +12,13 @@ struct Facts {
     mine:bool, persistent_mine:bool, item:Option<DefId>,
     def_service:QtySnap, item_service:QtySnap,
 }
-#[cfg(target_arch="wasm32")]
+
 macro_rules! dispenser_key {($keys:expr,$context:expr,$($a:expr),*)=>{($keys).owned_key($context,$($a),*)};}
-#[cfg(not(target_arch="wasm32"))]
-macro_rules! dispenser_key {($keys:expr,$context:expr,$($a:expr),*)=>{($keys).owned_key($($a),*)};}
+
 pub trait DispenserKeys {
     /// F3's construction-time owner key, qualified by unit life and level.
     /// None denotes a missing ownedBy service, not an empty owned list.
-    fn owned_key(&self, #[cfg(target_arch="wasm32")] w:&crate::world::owner::World,unit:&AiLifeHandle, weapon:DefId, level:u32)->Option<StrId>;
+    fn owned_key(&self,  w:&crate::world::owner::World,unit:&AiLifeHandle, weapon:DefId, level:u32)->Option<StrId>;
 }
 pub struct Classes { weapons:Vec<Option<Vec<Facts>>> }
 impl Classes {
@@ -135,11 +134,11 @@ fn read_quantities(def:&JsObj)->QtySnap {
 
 /// The live world always has Items.ownedBy. A missing prepared key is a load
 /// error; it must not silently choose the degraded all-items scan.
-#[cfg(target_arch="wasm32")]
+
 pub struct F3Keys;
-#[cfg(target_arch="wasm32")]
+
 impl DispenserKeys for F3Keys {
-    fn owned_key(&self, #[cfg(target_arch="wasm32")] w:&crate::world::owner::World,unit:&AiLifeHandle, weapon:DefId, level:u32)->Option<StrId> {
+    fn owned_key(&self,  w:&crate::world::owner::World,unit:&AiLifeHandle, weapon:DefId, level:u32)->Option<StrId> {
         Some(crate::units::f3::items_read(&w.units).owned_key(unit.slot,unit.life,weapon,level).expect("prepared AI dispenser key"))
     }
 }

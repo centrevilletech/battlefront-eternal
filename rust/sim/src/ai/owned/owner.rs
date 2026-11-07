@@ -1,7 +1,7 @@
 //! The simulation instance owns one native AI battle. Content is prepared
 //! before activation; phase scopes borrow this retained state and canonical
 //! entity owners, rather than constructing another per-method AI service.
-#[cfg(target_arch="wasm32")]
+
 use super::rows::row_context;
 use super::{frame::Settings,process::Process,runtime::Runtime,state::{Capacity,State},vehicles::{Authority,Binding}};
 use crate::{ai::{combat::{binding::CombatAi,enhanced::EnhancedCombat,weapons_ai::Registered},
@@ -91,9 +91,7 @@ impl Owner {
     }
     /// Only the battle scope leaves its owner during recursive physical work.
     /// Process caches stay in place for the next battle's cold admission.
-    #[cfg(target_arch="wasm32")]
     pub(crate) fn take_battle(&mut self)->Option<Box<Battle>> {self.battle.take()}
-    #[cfg(target_arch="wasm32")]
     pub(crate) fn return_battle(&mut self,battle:Box<Battle>) {self.battle=Some(battle);}
     pub fn battle(&self)->Option<&Battle> {self.battle.as_deref()}
     pub fn battle_mut(&mut self)->Option<&mut Battle> {self.battle.as_deref_mut()}
@@ -178,12 +176,9 @@ impl Battle {
 /// The phase borrows each canonical owner once. Geometry and lifecycle
 /// services may loan them onward only after the current row read ends.
 pub struct Owners<'a,C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> {
-    #[cfg(target_arch="wasm32")]
+
     pub w:&'a mut crate::world::owner::World,
-    #[cfg(not(target_arch="wasm32"))]
-    pub store:&'a mut crate::gen::Store,
-    #[cfg(not(target_arch="wasm32"))]
-    pub seats:&'a mut crate::vehicles::f2_seats::Seats,
+
     pub buildings:&'a dyn super::rows::BuildingOwner,
     pub characters:&'a mut dyn super::roster::CharacterOwner,
     pub changes:&'a mut C,
@@ -196,7 +191,7 @@ impl Battle {
         run:impl FnOnce(&mut Runtime,&mut super::world::World<'_,'_,C,M,S>)->R)->R {
         assert!(self.ready,"activate native AI content before entering a world scope");
         let mut random=self.runtime.random.share();
-        let mut rows=super::rows::Rows {#[cfg(target_arch="wasm32")] w:owners.w,#[cfg(not(target_arch="wasm32"))] store:owners.store,#[cfg(not(target_arch="wasm32"))] seats:owners.seats,buildings:owners.buildings,
+        let mut rows=super::rows::Rows { w:owners.w,buildings:owners.buildings,
             characters:owners.characters,state:&mut self.state,changes:owners.changes,mounted:owners.mounted,definitions:owners.definitions};
         let mut world=super::world::World {rows:&mut rows,random:&mut random,combat:&mut self.combat,
             services,settings:&self.settings,facts};
@@ -222,7 +217,6 @@ impl Battle {
     }
 }
 
-#[cfg(target_arch="wasm32")]
 impl Battle {
     /// One native scope spans the enclosing unit, seat or battle operation.
     /// Every recursive callback receives this same Core, memory and generators.
@@ -248,7 +242,7 @@ impl Battle {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             for index in 0..self.runtime.core.character_count {self.runtime.attach(&mut world,index);}
         });
-        
+
     }
     pub fn native_phase(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
         facts:&super::world::Facts,input:&crate::gen::AiPhaseFacts,cameras:&[crate::gen::AiPhaseCamera],journal:&crate::gen::AiJournalInput)->Result<(),super::events::Invalid> {
@@ -263,7 +257,7 @@ impl Battle {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             self.runtime.phase(&mut world,input.dt);
         });
-        
+
         self.phase_counters(input.dt);
         self.counters.input_words=self.counters.input_words.wrapping_add((crate::gen::AiPhaseHeader::WORDS+cameras.len()*crate::gen::AiPhaseCamera::WORDS
             +journal.records.len()*crate::gen::AiJournalEvent::WORDS) as u32);
@@ -273,7 +267,6 @@ impl Battle {
     }
 }
 
-#[cfg(target_arch="wasm32")]
 impl Battle {
     /// Danger warnings stay after battle and targeting, rather than joining
     /// the earlier decide/execute boundary or the projectile flight callback.
@@ -288,7 +281,7 @@ impl Battle {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             world.grenade_dangers(&mut self.runtime.core,||Some(viewpoint));
         });
-        
+
         self.record_danger_phase();
     }
     pub fn record_danger_phase(&mut self) {
@@ -299,8 +292,6 @@ impl Battle {
     }
 }
 
-
-#[cfg(target_arch="wasm32")]
 impl Battle {
     /// playerCommand observes the current Character and sends one ordered
     /// command through the same squad, voice and shared-generator services.

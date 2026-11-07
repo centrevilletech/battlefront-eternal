@@ -2,15 +2,15 @@
 //! Class availability and rosters are prepared at load. The body service
 //! acquires, places or kills a native viewpoint; this module owns the choice,
 //! queue, team and HumanSpawn transitions around those actions.
-use super::{human::{Command,Event}, human_owned, human_posts::{Choices,Key}, spawning::{self,Draws,Scratch}, stats::Text,
+use super::{human::{Command,Event}, human_owned, human_posts::{Choices,Key}, spawning::{self,Draws,ContextDraws,Scratch}, stats::ContextText,
     world::SpawningWorld};
 use crate::gen::{Character, HumanPick, SpawnPost, Store, Unit};
 use crate::store::{Ref,StrId};
 use three::Vector3;
 
 pub trait PlayerServices: SpawningWorld {
-    fn floor(at:Vector3,body:Ref<crate::gen::Body>)->Option<(Vector3,Vector3)>;
-    fn relation(a:f64,b:f64)->f64;
+    fn floor(&mut self,at:Vector3,body:Ref<crate::gen::Body>)->Option<(Vector3,Vector3)>;
+    fn relation(&self,a:f64,b:f64)->f64;
     fn local(&self)->Option<Ref<Unit>>;
     /// The low-level factory operation changes body/class/life only. The
     /// caller links the Character and emits HumanSpawn's own spawned event.
@@ -38,7 +38,7 @@ impl Human {
         Self{state:human_owned::Human::new(commands),prepared,choices,scratch:Scratch::new(posts,points)}
     }
     pub fn step<S:PlayerServices>(&mut self,s:&mut Store,dt:f64,commands:&[Command],services:&mut S,
-        strings:&dyn Text,random:&mut dyn Draws,gameplay:&mut dyn Draws) {
+        strings:&dyn ContextText<S>,random:&mut dyn ContextDraws<S>,gameplay:&mut dyn ContextDraws<S>) {
         self.state.step(s,dt,commands,&mut Context{prepared:&self.prepared,choices:&mut self.choices,
             scratch:&mut self.scratch,services,strings,random,gameplay});
     }
@@ -46,7 +46,7 @@ impl Human {
     /// slots. Classic confirms its queue; without AI it places immediately.
     /// The caller retains the URL index and the first authored world path.
     pub fn auto_respawn<S:PlayerServices>(&mut self,s:&mut Store,index:&mut f64,fallback:&[[f64;4]],services:&mut S,
-        strings:&dyn Text,gameplay:&mut dyn Draws) {
+        strings:&dyn ContextText<S>,gameplay:&mut dyn ContextDraws<S>) {
         let Some(auto)=&s.human_spawn.auto else{return};
         let class=auto.class_name;
         self.choices.auto_posts(s,s.battle.own,services);
@@ -58,7 +58,7 @@ impl Human {
             services.changed(s,Some(r));
             return;
         }
-        let Some((post,point))=self.choices.auto_point(index,fallback,||gameplay.uniform()) else{return};
+        let Some((post,point))=self.choices.auto_point(index,fallback,||gameplay.uniform_in(services)) else{return};
         let Some(unit)=services.spawn_player(s,class,post,point) else{return};
         let character=self.prepared.character.filter(|r|s.character.contains(*r));
         if let Some(r)=character {let c=s.character.get_mut(r).unwrap();c.unit=Some(unit);c.class_name=Some(class);}
@@ -74,11 +74,11 @@ impl Human {
 }
 struct Context<'a,S:PlayerServices> {
     prepared:&'a Prepared,choices:&'a mut Choices,scratch:&'a mut Scratch,services:&'a mut S,
-    strings:&'a dyn Text,random:&'a mut dyn Draws,gameplay:&'a mut dyn Draws,
+    strings:&'a dyn ContextText<S>,random:&'a mut dyn ContextDraws<S>,gameplay:&'a mut dyn ContextDraws<S>,
 }
 impl<S:PlayerServices> Context<'_,S> {
     fn character(&self,s:&Store)->Option<Ref<Character>> {self.prepared.character.filter(|r|s.character.contains(*r))}
-    fn begin(&mut self,s:&mut Store) {self.choices.begin(s,self.services,S::floor);}
+    fn begin(&mut self,s:&mut Store) {self.choices.begin_with(s,self.services,S::floor);}
     fn named_post(s:&Store,name:Option<StrId>)->Option<SpawnPost> {
         for &r in &s.command_posts.posts {if Some(s.post.get(r).unwrap().name)==name {return Some(SpawnPost::Post(r));}}
         for &r in &s.mobile_posts.posts {if Some(s.mobile_post.get(r).unwrap().name)==name {return Some(SpawnPost::MobilePost(r));}}
@@ -112,10 +112,10 @@ impl<S:PlayerServices> human_owned::Services for Context<'_,S> {
     }
     fn spawn(&mut self,s:&mut Store,events:&mut Vec<Event>,choice:&HumanPick) {
         self.begin(s);let team=s.battle.own;
-        let picked=self.choices.choose(team,choice.post,S::relation,||self.gameplay.uniform()).or_else(||self.choices.fallback(team));
+        let picked=self.choices.choose_with(team,choice.post,self.services,|services,a,b|services.relation(a,b),|services|self.gameplay.uniform_in(services)).or_else(||self.choices.fallback(team));
         let Some(index)=picked else{return};
         let name=self.choices.rows[index].name;
-        let Some(point)=self.choices.point(s,index,team,self.services,S::relation,||self.gameplay.uniform()) else{return};
+        let Some(point)=self.choices.point_context(s,index,team,self.services,|services,a,b|services.relation(a,b),|services|self.gameplay.uniform_in(services)) else{return};
         let Some(unit)=self.services.spawn_player(s,choice.class_name,Some(name),point) else{return};
         let character=self.character(s);
         if let Some(r)=character {let c=s.character.get_mut(r).unwrap();c.unit=Some(unit);c.class_name=Some(choice.class_name);}

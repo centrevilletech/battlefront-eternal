@@ -932,9 +932,13 @@ function rustCalls(model) {
       lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the import block,`, '/// its result comes back there (store::calls). The module only (a native build serves', '/// its boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(args: &${c.args}) -> ${c.result ?? '()'} {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
       if (c.result) lines.push(`    crate::store::calls::import_in(|row, heap| ${c.result}::take(row, heap))`);
       lines.push('}', '');
+      lines.push('#[cfg(not(target_arch = "wasm32"))]', '#[cold]',
+        `pub fn import_${fn}(_args: &${c.args}) -> ${c.result ?? '()'} { crate::abi::no_native_host(${JSON.stringify(c.name)}) }`, '');
       if (c.borrow && c.result) {
         lines.push('/// Read a variable result into retained caller storage.', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}_read<T>(args: &${c.args}, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`, '    crate::store::calls::import_in(read)', '}', '');
       }
+      if (c.borrow && c.result) lines.push('#[cfg(not(target_arch = "wasm32"))]', '#[cold]',
+        `pub fn import_${fn}_read<T>(_args: &${c.args}, _read: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::no_native_host(${JSON.stringify(c.name)}) }`, '');
       if (!model.target.test) {
         lines.push('/// Calls the explicitly owned native host; no context borrow spans dispatch.', '#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]', `pub fn import_${fn}_in(context: &crate::abi::context::Context, args: &${c.args}) -> Result<${c.result ?? '()'}, crate::abi::context::Failure> {`, `    let args = crate::abi::context::Record::new(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    let reply = context.call_import(IMPORT_${upper(c.name)}, args)?;`);
         lines.push(c.result ? `    Ok(reply.read(${c.result}::take))` : '    Ok(())');

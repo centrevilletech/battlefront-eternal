@@ -29,21 +29,21 @@ struct Entry {
     trap_sphere: Option<(Vector3, f64)>,
 }
 impl Entry {
-    fn frame(&self) -> props::Building { f4::frame(&self.owner) }
-    fn attacker(&self) -> Attacker { f4::attacker(&self.owner) }
-    fn trap(&self) -> Option<traps::Trap> { f4::trap(&self.owner) }
-    fn put_frame(&self, frame: &props::Building) { f4::put_frame(&self.owner, frame); }
-    fn put_attacker(&self, attacker: Attacker) { f4::set_attacker(&self.owner, attacker); }
-    fn put_trap(&self, trap: traps::Trap) { f4::put_trap(&self.owner, trap); }
+    fn frame(&self, battle: &crate::battle::owner::BattleOwner) -> props::Building { f4::frame_in(battle, &self.owner) }
+    fn attacker(&self, battle: &crate::battle::owner::BattleOwner) -> Attacker { f4::attacker_in(battle, &self.owner) }
+    fn trap(&self, battle: &crate::battle::owner::BattleOwner) -> Option<traps::Trap> { f4::trap_in(battle, &self.owner) }
+    fn put_frame(&self, battle: &mut crate::battle::owner::BattleOwner, frame: &props::Building) { f4::put_frame_in(battle, &self.owner, frame); }
+    fn put_attacker(&self, battle: &mut crate::battle::owner::BattleOwner, attacker: Attacker) { f4::set_attacker_in(battle, &self.owner, attacker); }
+    fn put_trap(&self, battle: &mut crate::battle::owner::BattleOwner, trap: traps::Trap) { f4::put_trap_in(battle, &self.owner, trap); }
 }
 /// captureWorldPresentation reads F4's canonical frame and cold affiliation.
 /// Only Turret defines facing/yaw in LiveObjects.buildings; that class has its
 /// own entity record. Other buildings preserve the original absent-to-0 fields.
-pub(crate) fn wire_building_in(world_ctx: &mut crate::world::owner::World, index: usize) -> Option<crate::wire::store_world::Building> {
+pub(crate) fn wire_building_in(units:&super::owner::Units, battle:&crate::battle::owner::BattleOwner, index: usize) -> Option<crate::wire::store_world::Building> {
     use crate::wire::store_world::{Building, Station};
-    let entry = f3::props_in(&mut world_ctx.units).entries.get(index)?; let frame = entry.frame();
+    let entry = f3::props_read(units).entries.get(index)?; let frame = entry.frame(battle);
     let station = if entry.owner.kind == F4ObjectKind::Trap { None }
-        else { let (value, _, supply) = f4::station(&entry.owner);
+        else { let (value, _, supply) = f4::station_in(battle, &entry.owner);
             supply.map(|_| Station { active_mode: value.active_mode, active: value.active, pulse: value.pulse,
                 served_health: value.served_health, served_ammo: value.served_ammo }) };
     Some(Building { turret: matches!(entry.target, RepairTarget::Turret(_)),
@@ -118,11 +118,11 @@ pub(crate) fn trap_geometry_in(world_ctx: &mut crate::world::owner::World, targe
 
 /// EntityWorldCapture.turret reads authored building order and canonical
 /// health/life. A turret with no mixed registry target has no wire identity.
-pub(crate) fn wire_turret_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)> {
-    let all = f3::props_in(&mut world_ctx.units);
-    let index = all.index(&world_ctx.sim.store, RepairTarget::Turret(reference))?;
+pub(crate) fn wire_turret_in(units:&super::owner::Units, battle:&crate::battle::owner::BattleOwner, store:&Store,reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)> {
+    let all = f3::props_read(units);
+    let index = all.index(store, RepairTarget::Turret(reference))?;
     let entry = &all.entries[index];
-    Some((index, entry.member?, entry.frame(), entry.target_team))
+    Some((index, entry.member?, entry.frame(battle), entry.target_team))
 }
 
 // LiveObjects construction gives each collision look its own body identity.
@@ -186,7 +186,7 @@ pub fn f3_building_in(world_ctx: &mut crate::world::owner::World) {
         member: input.member,
         lock_key: input.key,
         settings,
-        owner: f4::adopt(input.live, input.trap, world_ctx.sim.store.vehicles.vehicles.len()),
+        owner: f4::adopt_in(&mut world_ctx.battle, input.live, input.trap, world_ctx.sim.store.vehicles.vehicles.len()),
         geometry_state: state(frame.state),
         team: frame.team,
         target_team: frame.target_team,
@@ -201,14 +201,14 @@ pub fn f3_building_in(world_ctx: &mut crate::world::owner::World) {
     if let Some(member) = input.member {
         bind(&mut all.member_slots, super::registry::target_id(member), index);
         let entry = &all.entries[index];
-        let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame().sphere(&entry.settings));
+        let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame(&mut world_ctx.battle).sphere(&entry.settings));
         let mut position = Vector3::default();
         position.set_from_matrix_position(&entry.settings.matrix);
         let fact = F3PropFact {
-            id: super::registry::target_id(member), alive: entry.frame().alive(), dead: !entry.frame().alive(),
-            team: entry.target_team, bounds: Bounds { center: a(center), radius }, health: entry.frame().health,
+            id: super::registry::target_id(member), alive: entry.frame(&mut world_ctx.battle).alive(), dead: !entry.frame(&mut world_ctx.battle).alive(),
+            team: entry.target_team, bounds: Bounds { center: a(center), radius }, health: entry.frame(&mut world_ctx.battle).health,
             category: input.category, kind: input.kind, position: a(position), aim: a(center),
-            life: entry.frame().target_generation.unwrap_or(0.0), body: entry.bodies[0], ..Default::default()
+            life: entry.frame(&mut world_ctx.battle).target_generation.unwrap_or(0.0), body: entry.bodies[0], ..Default::default()
         };
         f3::prepare_prop_target_in(&mut world_ctx.units, fact);
     }
@@ -219,70 +219,72 @@ pub fn f3_building_in(world_ctx: &mut crate::world::owner::World) {
 pub(crate) fn extra_melee_count_in(units: &super::owner::Units) -> usize { f3::props_read(units).extra_melee.len() }
 pub(crate) fn extra_melee_in(units: &super::owner::Units, index: usize) -> usize { f3::props_read(units).extra_melee[index] }
 pub(crate) fn melee_body_in(units: &super::owner::Units, index: usize) -> Option<Ref<Body>> { f3::props_read(units).entries[index].bodies[0] }
-pub(crate) fn melee_facts_in(units: &super::owner::Units, index: usize) -> crate::combat::targeting::Facts {
-    let entry = &f3::props_read(units).entries[index];
+pub(crate) fn melee_facts_in(world_ctx: &mut crate::world::owner::World, index: usize) -> crate::combat::targeting::Facts {
+    let entry = &f3::props_read(&world_ctx.units).entries[index];
     let mut position = Vector3::default();
     position.set_from_matrix_position(&entry.settings.matrix);
     // Trap.placePad gives it the pad's position too, not the log rig's root.
     // Its melee direction must use the same point as its broadphase sphere.
     if let Some((center, _)) = entry.trap_sphere { position = center; }
     crate::combat::targeting::Facts {
-        alive: entry.frame().alive(), seated: false, exposed: false,
-        health: entry.frame().health, team: entry.team, category: 4, kind: 0.0, position,
+        alive: entry.frame(&mut world_ctx.battle).alive(), seated: false, exposed: false,
+        health: entry.frame(&mut world_ctx.battle).health, team: entry.team, category: 4, kind: 0.0, position,
     }
 }
-pub(crate) fn melee_volume_in(units: &super::owner::Units, index: usize) -> crate::combat::targeting::Volume {
-    let entry = &f3::props_read(units).entries[index];
-    let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame().sphere(&entry.settings));
+pub(crate) fn melee_volume_in(world_ctx: &mut crate::world::owner::World, index: usize) -> crate::combat::targeting::Volume {
+    let entry = &f3::props_read(&world_ctx.units).entries[index];
+    let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame(&mut world_ctx.battle).sphere(&entry.settings));
     crate::combat::targeting::Volume { center, radius, hull: None }
 }
 // LiveObjects.update runs outside this phase. Its next changed row replaces
 // only mutable foreign facts; geometry, body names and list order stay put.
 pub(crate) fn changed_in(world_ctx: &mut crate::world::owner::World, frame: F3BuildingState) {
     let entry = &mut f3::props_in(&mut world_ctx.units).entries[frame.index as usize];
-    entry.put_frame(&props::Building {
+    entry.put_frame(&mut world_ctx.battle, &props::Building {
         state: state(frame.state), health: frame.health, add_health: frame.add_health,
         last_attacker: identity(frame.attacker, frame.index as usize), target_generation: frame.generation,
     });
-    entry.put_attacker(frame.attacker);
+    entry.put_attacker(&mut world_ctx.battle, frame.attacker);
     entry.team = frame.team;
     entry.target_team = frame.target_team;
     entry.gunner = frame.gunner;
-    if frame.trap_mode { entry.put_trap(frame.trap_state.into()); }
-    let body = entry.frame();
+    if frame.trap_mode { entry.put_trap(&mut world_ctx.battle, frame.trap_state.into()); }
+    let body = entry.frame(&mut world_ctx.battle);
     commit_in(world_ctx, frame.index as usize, &body);
 }
 // The ordered notification retains this touched row at its source point.
 // Facade readers keep their existing object, body and model identities.
-fn snapshot_in(units: &mut super::owner::Units, index: usize) -> F3BuildingState {
-    let entry = &f3::props_in(units).entries[index];
+fn snapshot_in(world_ctx: &mut crate::world::owner::World, index: usize) -> F3BuildingState {
+    let entry = &f3::props_in(&mut world_ctx.units).entries[index];
     F3BuildingState {
-        index: index as u32, state: state_name(entry.frame().state), health: entry.frame().health,
-        add_health: entry.frame().add_health, attacker: entry.attacker(), generation: entry.frame().target_generation,
+        index: index as u32, state: state_name(entry.frame(&mut world_ctx.battle).state), health: entry.frame(&mut world_ctx.battle).health,
+        add_health: entry.frame(&mut world_ctx.battle).add_health, attacker: entry.attacker(&mut world_ctx.battle), generation: entry.frame(&mut world_ctx.battle).target_generation,
         team: entry.team, target_team: entry.target_team, gunner: entry.gunner,
-        trap_mode: entry.trap().is_some(), trap_state: entry.trap().as_ref().map_or_else(TrState::default, Into::into),
+        trap_mode: entry.trap(&mut world_ctx.battle).is_some(), trap_state: entry.trap(&mut world_ctx.battle).as_ref().map_or_else(TrState::default, Into::into),
     }
 }
 // Building.show changes collision visibility before its next callback. Updating
 // the existing flag bytes here keeps an immediate nested blast off the old BVH.
 fn commit_in(world_ctx: &mut crate::world::owner::World, index: usize, frame: &props::Building) {
     let entry = &mut f3::props_in(&mut world_ctx.units).entries[index];
-    entry.put_frame(frame); entry.geometry_state = frame.state;
-    if frame.last_attacker == props::Identity::Null { entry.put_attacker(Attacker::Null); }
+    entry.put_frame(&mut world_ctx.battle, frame); entry.geometry_state = frame.state;
+    if frame.last_attacker == props::Identity::Null { entry.put_attacker(&mut world_ctx.battle, Attacker::Null); }
     // Death does not advance a turret's target generation; a completed repair
     // does. Update the registry's health and life at the same write point.
     let member = entry.member;
     let (center, radius) = entry.trap_sphere.unwrap_or_else(|| frame.sphere(&entry.settings));
     let bodies = entry.bodies;
-    let team = target_team(&world_ctx.sim.store, entry);
-    if let RepairTarget::Turret(turret) = entry.target {
-        crate::vehicles::module::f2::live_seats::turret_life(turret, frame.alive(), entry.attacker(),
+    let team = target_team(&world_ctx.fleet,&world_ctx.sim.store, entry);
+    let target = entry.target;
+    let attacker = entry.attacker(&mut world_ctx.battle);
+    if let RepairTarget::Turret(turret) = target {
+        crate::vehicles::module::f2::live_seats::turret_life_in(world_ctx, turret, frame.alive(), attacker,
             frame.target_generation.unwrap_or(0.0), center, radius);
     }
     if let Some(member) = member {
         f3::prop_target_in(&mut world_ctx.units, member, frame.alive(), frame.health, a(center), radius, frame.target_generation, team);
     }
-    let collision = crate::vehicles::module::collision_world().expect("prepared prop collision world");
+    let collision = world_ctx.fleet.collision.as_ref().expect("prepared prop collision world");
     for (look, body) in bodies.into_iter().enumerate() {
         let Some(kernel) = body.and_then(|body| collision.kernel_slot(body.slot)) else { continue };
         let world = &world_ctx.collision.state.worlds[f3::collision_world_in(&world_ctx.units)];
@@ -313,12 +315,12 @@ impl BuildingWorld<'_, '_> {
         // Building.show/onDestroyed observe this source-point state. Record
         // it beside recursive deaths and shots; facade delivery cannot lend
         // the authoritative world back to JavaScript mid-tick.
-        F3PropEffect {kind,state:snapshot_in(&mut self.w.units, self.index)}.emit(&mut self.w.sim.events);
+        F3PropEffect {kind,state:snapshot_in(self.w, self.index)}.emit(&mut self.w.sim.events);
     }
     // Building.destroyed resumes after any immediate nested explosion. Reload
     // the live row, rather than overwriting what recursive damage left there.
-    fn reload(&self, frame: &mut props::Building) {
-        *frame = f3::props_read(&self.w.units).entries[self.index].frame();
+    fn reload(&mut self, frame: &mut props::Building) {
+        *frame = f3::props_read(&self.w.units).entries[self.index].frame(&mut self.w.battle);
     }
 }
 impl props::World for BuildingWorld<'_, '_> {
@@ -328,7 +330,7 @@ impl props::World for BuildingWorld<'_, '_> {
     fn crew_destroyed(&mut self, frame: &mut props::Building) {
         commit_in(self.w, self.index, frame);
         if let RepairTarget::Turret(turret) = f3::props_in(&mut self.w.units).entries[self.index].target {
-            crate::vehicles::module::f2::live_seats::turret_destroyed(turret, self.services.reborrow());
+            crate::vehicles::module::f2::live_seats::turret_destroyed_in(self.w, turret, self.services.reborrow());
         }
         self.reload(frame);
     }
@@ -358,13 +360,13 @@ impl props::World for BuildingWorld<'_, '_> {
         let (direction, untyped, typed, generic) = self.hit.map_or((None, amount, 1.0, 1.0), |hit| (hit.direction.map(a), hit.amount, hit.typed, hit.generic));
         // A crew may have boarded or died since the foreign facts arrived.
         // TurretTarget.team is the lease's team at this exact callback slot.
-        let team = match entry.target {
-            RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_team(turret, entry.team)
-                .unwrap_or(entry.target_team),
-            _ => entry.target_team,
+        let (target, authored, fallback, attacker) = (entry.target, entry.team, entry.target_team, entry.attacker(&mut self.w.battle));
+        let team = match target {
+            RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_team_in(self.w, turret, authored).unwrap_or(fallback),
+            _ => fallback,
         };
         F3PropDamage {
-            index: self.index as u32, amount, attacker: entry.attacker(),
+            index: self.index as u32, amount, attacker,
             // Damage credit samples the occupied target's team; policy uses
             // the building's authored team earlier in the hit.
             has_direction: direction.is_some(), direction: direction.unwrap_or([0.0; 3]), untyped, typed, generic, position: a(position), team, generation: frame.target_generation,
@@ -379,8 +381,8 @@ impl props::World for BuildingWorld<'_, '_> {
 impl traps::HealthWorld for BuildingWorld<'_, '_> {
     fn health_show(&mut self, trap: &mut traps::Trap, built: bool) {
         let entry = &mut f3::props_in(&mut self.w.units).entries[self.index];
-        entry.put_trap(*trap);
-        let mut frame = entry.frame();
+        entry.put_trap(&mut self.w.battle, *trap);
+        let mut frame = entry.frame(&mut self.w.battle);
         frame.state = if built { props::State::Built } else { props::State::Unbuilt };
         frame.health = trap.health;
         self.leaf(&frame, F3PropEffectKind::Show);
@@ -392,20 +394,20 @@ pub(crate) fn count_in(units: &super::owner::Units) -> usize { f3::props_read(un
 pub(crate) fn owner_in(world_ctx: &mut crate::world::owner::World, index: usize) -> F4Handle {
     let handle = &f3::props_in(&mut world_ctx.units).entries[index].owner;
     match handle.kind {
-        F4ObjectKind::Trap => f4::live().traps.current(handle),
-        _ => f4::live().buildings.current(handle),
+        F4ObjectKind::Trap => f4::live_in(&mut world_ctx.battle).traps.current(handle),
+        _ => f4::live_in(&mut world_ctx.battle).buildings.current(handle),
     }.expect("current prop owner")
 }
 /// An idle prop has no world service to call. Check its canonical scalar
 /// frame before lending the complete Store around a regeneration callback.
-pub(crate) fn needs_regeneration_in(units: &super::owner::Units, index: usize) -> bool {
-    let entry = &f3::props_read(units).entries[index];
+pub(crate) fn needs_regeneration_in(world_ctx: &mut crate::world::owner::World, index: usize) -> bool {
+    let entry = &f3::props_read(&world_ctx.units).entries[index];
     if !entry.settings.regenerates { return false; }
-    let frame = entry.frame(); frame.add_health > 0.0 && frame.health < entry.settings.max_health
+    let frame = entry.frame(&mut world_ctx.battle); frame.add_health > 0.0 && frame.health < entry.settings.max_health
 }
 pub(crate) fn regenerate_in(world_ctx: &mut crate::world::owner::World, index: usize, dt: f64, services: WorldServices<'_>) {
     let entry = &f3::props_in(&mut world_ctx.units).entries[index];
-    let mut frame = entry.frame(); let settings = entry.settings;
+    let mut frame = entry.frame(&mut world_ctx.battle); let settings = entry.settings;
     if !settings.regenerates || !(frame.add_health > 0.0 && frame.health < settings.max_health) { return; }
     frame.regenerate(dt, &settings, &mut BuildingWorld { w: world_ctx, index, services, hit: None });
     commit_in(world_ctx, index, &frame);
@@ -424,29 +426,31 @@ pub(crate) fn trap_show_in(world_ctx: &mut crate::world::owner::World, index: us
 // stack frame releases the foreign table before a crew death or explosion can
 // recurse; copying these fixed facts allocates neither a table nor a Vec.
 fn mutate_in(world_ctx: &mut crate::world::owner::World, index: usize, amount: f64, attacker: Option<Attacker>, hit: Option<HitInfo>, services: WorldServices<'_>) {
-    let entry = &mut f3::props_in(&mut world_ctx.units).entries[index];
-    let mut frame = entry.frame();
-    let mut settings = entry.settings;
-    settings.has_crew = match entry.target {
-        RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_gunner(turret).is_some(),
-        _ => entry.gunner.is_some(),
+    let (target, gunner) = { let entry = &f3::props_read(&world_ctx.units).entries[index]; (entry.target, entry.gunner.is_some()) };
+    let occupied = match target {
+        RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_gunner_in(world_ctx, turret).is_some(),
+        _ => gunner,
     };
+    let entry = &mut f3::props_in(&mut world_ctx.units).entries[index];
+    let mut frame = entry.frame(&mut world_ctx.battle);
+    let mut settings = entry.settings;
+    settings.has_crew = occupied;
     // Building.damage rejects a dead target before replacing lastAttacker.
     // A repair has no attacker write, so an old repair lock or credit survives.
     if let Some(attacker) = attacker {
         if !frame.alive() || !(amount > 0.0) { return; }
-        entry.put_attacker(attacker);
+        entry.put_attacker(&mut world_ctx.battle, attacker);
         frame.last_attacker = identity(attacker, index);
     }
-    let trap = entry.trap();
-    entry.put_frame(&frame);
+    let trap = entry.trap(&mut world_ctx.battle);
+    entry.put_frame(&mut world_ctx.battle, &frame);
     let mut world = BuildingWorld { w: world_ctx, index, services, hit };
     if let Some(mut trap) = trap {
         // Building.damage delegates to Trap.setHealth for this subclass. At
         // zero health it stays built until the next outside trap phase.
         let value = if attacker.is_some() { frame.health - amount } else { amount };
         trap.set_health_with(value, settings.max_health, &mut world);
-        f3::props_in(&mut world.w.units).entries[index].put_trap(trap);
+        f3::props_in(&mut world.w.units).entries[index].put_trap(&mut world.w.battle, trap);
         frame.health = trap.health;
         frame.state = if trap.built { props::State::Built } else { props::State::Unbuilt };
     } else if attacker.is_some() {
@@ -478,8 +482,10 @@ impl live::World for QueryWorld<'_, '_> {
                 health:v.health, max_health:v.max_health, team:v.team.unwrap_or(0.0),
                 body:Some(v.body.slot as usize), gunner:false, position:Vector3::new(v.position[0],v.position[1],v.position[2]), matrix };
         }
+        let target = f3::props_read(&self.w.units).entries[index].target;
+        let gunner = match target { RepairTarget::Turret(r) => crate::vehicles::module::f2::live_seats::turret_gunner_in(self.w, r).is_some(), _ => false };
         let entry = &f3::props_in(&mut self.w.units).entries[index];
-        let frame = entry.frame();
+        let frame = entry.frame(&mut self.w.battle);
         let health_type = if entry.settings.kind == props::Kind::Objective && !frame.alive() { None } else {
             Some(match frame.state { props::State::Built => live::Health::Building,
                 props::State::Destroyed => live::Health::Rebuild, props::State::Unbuilt => live::Health::Build })
@@ -490,7 +496,7 @@ impl live::World for QueryWorld<'_, '_> {
             alive: frame.alive(), state: Some(frame.state), health_type, health: frame.health,
             max_health: entry.settings.max_health, team: entry.team,
             body: entry.bodies[frame.state.index()].map(|b| b.slot as usize),
-            gunner: match entry.target { RepairTarget::Turret(r) => crate::vehicles::module::f2::live_seats::turret_gunner(r).is_some(), _ => false },
+            gunner,
             position, matrix: entry.settings.matrix,
         }
     }
@@ -502,7 +508,7 @@ impl live::World for QueryWorld<'_, '_> {
         if index >= buildings { return super::f3_hulls::sphere_in(self.w, super::f3_hulls::reference_in(&self.w.sim, index - buildings), blast); }
         let entry = &f3::props_in(&mut self.w.units).entries[index];
         if let Some(sphere) = entry.trap_sphere { return sphere; }
-        if blast { entry.frame().blast_sphere(&entry.settings) } else { entry.frame().sphere(&entry.settings) }
+        if blast { entry.frame(&mut self.w.battle).blast_sphere(&entry.settings) } else { entry.frame(&mut self.w.battle).sphere(&entry.settings) }
     }
     // blastBlocked ignores the victim's current collision look. Repair LOS
     // instead accepts a hit owned by the candidate itself. The native world
@@ -618,12 +624,12 @@ fn v(value: [f64; 3]) -> Vector3 { Vector3::new(value[0], value[1], value[2]) }
 /// Placed-post readers need only the canonical health and captured attacker.
 pub(crate) fn battle_building_in(world_ctx: &mut crate::world::owner::World, r: Ref<Building>) -> (bool, Attacker) {
     let p = f3::props_in(&mut world_ctx.units); let index = p.index(&world_ctx.sim.store, RepairTarget::Building(r)).expect("prepared post building");
-    (p.entries[index].frame().alive(),p.entries[index].attacker())
+    (p.entries[index].frame(&mut world_ctx.battle).alive(),p.entries[index].attacker(&mut world_ctx.battle))
 }
 
-fn target_team(s: &Store, entry: &Entry) -> f64 {
+fn target_team(fleet:&crate::vehicles::module::Fleet,s: &Store, entry: &Entry) -> f64 {
     match entry.target {
-        RepairTarget::Turret(r) => crate::vehicles::module::f2::live_seats::battle_team(s,r).unwrap_or(entry.team),
+        RepairTarget::Turret(r) => crate::vehicles::module::f2::live_seats::battle_team_in(fleet,s,r).unwrap_or(entry.team),
         _ => entry.team,
     }
 }
@@ -633,8 +639,8 @@ pub(crate) fn refresh_in(world_ctx: &mut crate::world::owner::World, id: u32) {
     let previous = f3::prepared_target_in(&world_ctx.units, id).map(|fact| (fact.alive, fact.health.to_bits(), fact.life.to_bits(), fact.team.to_bits()));
     let all = f3::props_in(&mut world_ctx.units);
     let Some(index) = all.member_slots.get(id as usize).copied().flatten() else {return};
-    let entry = &mut all.entries[index]; let frame = entry.frame();
-    let team = target_team(&world_ctx.sim.store, entry);
+    let entry = &mut all.entries[index]; let frame = entry.frame(&mut world_ctx.battle);
+    let team = target_team(&world_ctx.fleet,&world_ctx.sim.store, entry);
     // Damage/regeneration already commit these same canonical facts. Most AI
     // reads need neither another sphere transform nor another registry write.
     if entry.geometry_state == frame.state && previous == Some((frame.alive(), frame.health.to_bits(), frame.target_generation.unwrap_or(0.0).to_bits(), team.to_bits())) { return; }
@@ -649,13 +655,13 @@ pub(crate) fn battle_member_in(world_ctx: &mut crate::world::owner::World, s: &S
     let index = all.member_slots.get(super::registry::target_id(key) as usize).copied().flatten()?;
     let entry = &all.entries[index]; if entry.member != Some(key) {return None;}
     let mut position = Vector3::default(); position.set_from_matrix_position(&entry.settings.matrix);
-    Some(crate::battle::world::Member {alive:entry.frame().alive(),team:target_team(s,entry),position:a(position),
+    Some(crate::battle::world::Member {alive:entry.frame(&mut world_ctx.battle).alive(),team:target_team(&world_ctx.fleet,s,entry),position:a(position),
         ..crate::battle::world::Member::default()})
 }
 
 // facade shims: retained for unconverted callers.
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_building(index: usize) -> Option<crate::wire::store_world::Building>{ wire_building_in(crate::abi::world(), index) }
+pub(crate) fn wire_building(index: usize) -> Option<crate::wire::store_world::Building>{ wire_building_in(&crate::abi::world().units,&crate::abi::world().battle, index) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn member(target: RepairTarget) -> Option<Member>{ member_in(crate::abi::world(), target) }
 #[cfg(target_arch = "wasm32")]
@@ -665,14 +671,14 @@ pub(crate) fn built_body(target:RepairTarget)->Option<Ref<Body>>{ built_body_in(
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn trap_geometry(target:RepairTarget)->Option<(crate::ai::combat::world::Sphere,three::Matrix4)>{ trap_geometry_in(crate::abi::world(), target) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_turret(reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)>{ wire_turret_in(crate::abi::world(), reference) }
+pub(crate) fn wire_turret(reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)>{ wire_turret_in(&crate::abi::world().units,&crate::abi::world().battle,&crate::abi::world().sim.store, reference) }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn count() -> usize{ count_in(&crate::abi::world().units) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn owner(index: usize) -> F4Handle{ owner_in(crate::abi::world(), index) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn needs_regeneration(index: usize) -> bool{ needs_regeneration_in(&crate::abi::world().units, index) }
+pub(crate) fn needs_regeneration(index: usize) -> bool{ needs_regeneration_in(crate::abi::world(), index) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn regenerate(index: usize, dt: f64, services: WorldServices<'_>){ regenerate_in(crate::abi::world(), index, dt, services) }
 #[cfg(target_arch = "wasm32")]

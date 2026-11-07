@@ -66,7 +66,7 @@ fn register_hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>)
         let mut hull = Hull::from_store(r,v,class,0);
         hull.leg_side_scratch.reserve(leg_count);
         hull.support_heights.reserve(leg_count);
-        if v.flying { hull.target_scratch.reserve(if crate::units::f3::active() { s.store.units.list.len() } else { world_ctx.fleet.members.len() }); }
+        if v.flying { hull.target_scratch.reserve(if crate::units::f3::active_in(&world_ctx.units) { s.store.units.list.len() } else { world_ctx.fleet.members.len() }); }
         pool.push(hull);
     }
     let texts = crate::flight::store::FlightTextIds::new(&mut world_ctx.sim.strings);
@@ -184,7 +184,7 @@ pub(crate) fn revision_in(world_ctx: &mut crate::world::owner::World, r: Ref<Veh
 // F3's Unit.onMoved barrier need not republish an untouched fleet. Damage or
 // seat work marks this bit; its next mirror barrier flushes those rows once.
 pub(crate) fn publish_pending_in(world_ctx: &mut crate::world::owner::World) {
-    let deferred=crate::world::deferred();
+    let deferred=crate::world::deferred_in(&world_ctx.tick);
     if active_in(&world_ctx.fleet) && (world_ctx.fleet.scheduler.pending || (!deferred && world_ctx.fleet.scheduler.publication_pending)) { publish_in(world_ctx); }
 }
 
@@ -231,7 +231,7 @@ fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) {
     let index = world_ctx.sim.store.vehicles.vehicles.len();
     world_ctx.sim.store.vehicles.vehicles.push(r);
     live_seats::activate_in(world_ctx, r,index);
-    crate::units::f3_hulls::activate(r,index);
+    crate::units::f3_hulls::activate_in(world_ctx, r,index);
     // Cold publication may have reused a working row. Reload the new target
     // id before spawn stores its first active life back into the slab.
     mark_in(&mut world_ctx.fleet, r);
@@ -264,7 +264,8 @@ pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, 
     reserve_phase_in(world_ctx, world_ctx.sim.store.vehicles.vehicles.len());
     world_ctx.sim.events.reserve(262144, FfShot::WORDS, 1024);
     prepare_collision_in(world_ctx);
-    world_ctx.fleet.scheduler.descriptor[F2Phase::INPUT] = world_ctx.fleet.scheduler.io.as_mut_ptr() as usize as f64;
+    #[cfg(target_arch = "wasm32")]
+    world_ctx.fleet.scheduler.bind_input();
     world_ctx.fleet.scheduler.descriptor[F2Phase::CAPACITY] = CAPACITY as f64;
     // Vehicles construction owns the initial complete mirror. Later incoming
     // damage can then send a sparse delta even before Vehicles.update runs.
@@ -278,7 +279,7 @@ pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, 
 // can publish recursively, so every block represents this flush rather than
 // an append-only fleet snapshot that a later hook might read again.
 pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
-    if crate::world::deferred() {
+    if crate::world::deferred_in(&world_ctx.tick) {
         live_seats::sample_changed_in(world_ctx);
         // Pose readers observed this logical barrier. Only facade encoding
         // stays pending; later empty native barriers must not resample rigs.
@@ -288,22 +289,44 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     // A Unit barrier can read this descriptor again without any fleet write.
     // Readers consume each publication once, retaining later foreign AI edits.
     world_ctx.fleet.scheduler.descriptor[F2Phase::VERSION] = (world_ctx.fleet.scheduler.descriptor[F2Phase::VERSION] as u32).wrapping_add(1) as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::FIRING] = firing::phase_ptr_in(world_ctx).map_or(0, |b| b.as_ptr() as usize) as f64;
+    firing::phase_ptr_in(world_ctx);
     // The final world flush encodes the sample already observed by rounds.
     // A new native write still requires its ordinary observation first.
     let sampled=world_ctx.fleet.scheduler.publication_pending&&!world_ctx.fleet.scheduler.pending;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::SEATS] = live_seats::publish_sampled_in(world_ctx, sampled) as usize as f64;
+    live_seats::publish_sampled_in(world_ctx, sampled);
     let p = world_ctx.fleet.scheduler.publication.get_or_insert_with(Default::default);
     p.flush(&mut world_ctx.sim.store);
-    world_ctx.fleet.scheduler.descriptor[F2Phase::HULLS] = p.hulls.ptr() as usize as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::PADS] = p.pads.ptr() as usize as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::LIVES] = p.lives.ptr() as usize as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::BODIES] = veh_changes_in(world_ctx).map_or(0, |b| b.as_ptr() as usize) as f64;
-    world_ctx.fleet.scheduler.descriptor[F2Phase::POSES] = geometry::publish_in(world_ctx) as usize as f64;
+    veh_changes_in(world_ctx);
+    geometry::publish_in(world_ctx);
+    #[cfg(target_arch = "wasm32")]
+    bind_descriptor(world_ctx);
     world_ctx.fleet.scheduler.descriptor[F2Phase::ACC] = world_ctx.fleet.scheduler.acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::FLIGHT_ACC] = world_ctx.fleet.flight_acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::TIME] = world_ctx.fleet.scheduler.time;
     world_ctx.fleet.scheduler.pending=false;world_ctx.fleet.scheduler.publication_pending=false;
+}
+
+// Shared publication completes every retained bank once. Only the facade
+// turns those completed banks into linear-memory offsets for its readers.
+#[cfg(target_arch = "wasm32")]
+impl Scheduler {
+    fn bind_input(&mut self) { self.descriptor[F2Phase::INPUT] = self.io.as_ptr() as usize as f64; }
+}
+#[cfg(target_arch = "wasm32")]
+fn bind_descriptor(w: &mut crate::world::owner::World) {
+    let firing = firing::phase_words_in(w).as_ptr() as usize as f64;
+    let poses = geometry::words_in(&w.fleet.geometry).as_ptr() as usize as f64;
+    let seats = live_seats::descriptor_words(&w.fleet).as_ptr();
+    let fleet = &mut w.fleet;
+    let p = fleet.scheduler.publication.as_ref().expect("prepared fleet publication");
+    let descriptor = &mut fleet.scheduler.descriptor;
+    descriptor[F2Phase::FIRING] = firing;
+    descriptor[F2Phase::SEATS] = seats as usize as f64;
+    descriptor[F2Phase::HULLS] = p.hulls.ptr() as usize as f64;
+    descriptor[F2Phase::PADS] = p.pads.ptr() as usize as f64;
+    descriptor[F2Phase::LIVES] = p.lives.ptr() as usize as f64;
+    descriptor[F2Phase::BODIES] = if fleet.collision.is_some() { fleet.changes.as_ptr() as usize as f64 } else { 0.0 };
+    descriptor[F2Phase::POSES] = poses;
 }
 
 /// Fresh pose output exists only after spawn rendering or the complete phase.
@@ -322,8 +345,8 @@ fn publish_posed_in(world_ctx: &mut crate::world::owner::World) {
 fn spawns_in(world_ctx: &mut crate::world::owner::World, dt: f64,mut services:Option<&mut crate::units::f3::WorldServices<'_>>) {
 
     let header = F2Input::take(&mut world_ctx.fleet.scheduler.io, &[]);
-    let occupant = if crate::units::f3::active() {
-        crate::units::f3::spawn_occupant()
+    let occupant = if crate::units::f3::active_in(&world_ctx.units) {
+        crate::units::f3::spawn_occupant_in(world_ctx)
     } else { header.occupant.as_ref().map(vec) };
     for i in 0..world_ctx.fleet.scheduler.descs.len() {
         let d = &world_ctx.fleet.scheduler.descs[i];
@@ -354,7 +377,7 @@ fn spawns_in(world_ctx: &mut crate::world::owner::World, dt: f64,mut services:Op
             activate_in(world_ctx, r);
             // Prepared policy follows the mixed-registry birth at this source
             // slot, before any later AI/seat query can observe the new hull.
-            if let Some(ai)=services.as_mut().and_then(|services|services.ai.as_mut()) {ai.hull_born(r,crate::units::f3_hulls::member(r));}
+            if let Some(ai)=services.as_mut().and_then(|services|services.ai.as_mut()) {ai.hull_born(r,crate::units::f3_hulls::member_in(&world_ctx.units, r));}
         }
         let v = world_ctx.sim.store.vehicle.get(r).expect("F2 variant");
         let (center, size, radius, flying) = (v.center, v.size, v.radius, v.flying);
@@ -393,13 +416,13 @@ fn spawns_in(world_ctx: &mut crate::world::owner::World, dt: f64,mut services:Op
         store_flight_in(world_ctx, &hull);
         // Spawn's render is observable by boarding in the following latch.
         geometry::mark_in(&mut world_ctx.fleet, r);
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&world_ctx.units) {
             // Vehicle.spawn resets retained mounted rows before latching.
             // It must not rebuild JS weapons or reenter module exports here.
             firing::reset_life_in(world_ctx, r,world_ctx.sim.store.vehicle.get(r).unwrap().target_generation);
         } else { publish_posed_in(world_ctx); }
         recycle_in(world_ctx, hull);
-        if !crate::units::f3::active() { import_f2_life(&VehHull { hull: index as f64 }); }
+        if !crate::units::f3::active_in(&world_ctx.units) { import_f2_life(&VehHull { hull: index as f64 }); }
     }
 }
 
@@ -422,7 +445,7 @@ pub(crate) fn respawn_clock_in(world_ctx: &mut crate::world::owner::World, hull:
 // aim-query scratch for this phase without allocating a new registry vector.
 fn foreign_in(world_ctx: &mut crate::world::owner::World) {
     let h = F2Input::take(&mut world_ctx.fleet.scheduler.io, &[]);
-    if !crate::units::f3::active() {
+    if !crate::units::f3::active_in(&world_ctx.units) {
     let members = &mut world_ctx.fleet.members;
     members.resize(h.member_length as usize, MemberRow { kind: 0, id: 0.0, generation: None, alive: false, team: None, hull: u32::MAX, point: Vector3::default() });
     for i in 0..h.member_count as usize {
@@ -440,7 +463,7 @@ fn foreign_in(world_ctx: &mut crate::world::owner::World) {
     live_seats::reserve_riders_in(world_ctx, h.member_length as usize);
     // FlightWorld caches canonical Unit aim points even when the foreign
     // member block is empty. Its capacity was reserved at registry creation.
-    let count=if crate::units::f3::active() { world_ctx.sim.store.units.list.len() } else { h.member_length as usize };
+    let count=if crate::units::f3::active_in(&world_ctx.units) { world_ctx.sim.store.units.list.len() } else { h.member_length as usize };
     let cache = &mut world_ctx.fleet.aim_cache;
     // A later native birth can be observed before the next fleet input.
     // Retain the admitted future range as well as the current registry.
@@ -463,7 +486,7 @@ fn foreign_in(world_ctx: &mut crate::world::owner::World) {
             roll_lock: k.roll_lock, target_lock: k.target_lock, bot: k.bot, response_curve: k.response_curve, no_assist: k.no_assist,
         })));
     }
-    let n = firing::inputs_in(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, &world_ctx.fleet.scheduler.io[h.firing as usize..h.end as usize]);
+    let n = firing::inputs_in(&world_ctx.units,crate::world::deferred_in(&world_ctx.tick),&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, &world_ctx.fleet.scheduler.io[h.firing as usize..h.end as usize]);
     assert_eq!(h.firing as usize + n, h.end as usize, "F2 foreign input length");
 }
 
@@ -474,15 +497,17 @@ fn foreign_in(world_ctx: &mut crate::world::owner::World) {
 pub(crate) fn f2_step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick: f64) {
     // Vehicles.writeRiders consumes mounted controls too. Keep this guard
     // outside the publication guard so its final mirrors include those edges.
-    let _controls = crate::units::f3::control_span(true);
-    let _external = crate::units::f3::external();
-    crate::units::f3::with_services(|services| step_in(world_ctx, dt, tick, services));
+    let _controls = crate::units::f3::control_span_in(world_ctx, true);
+    let _external = crate::units::f3::external_in(world_ctx);
+    crate::units::f3::with_services_in(world_ctx, |world_ctx, services| step_in(world_ctx, dt, tick, services));
+    _external.finish(world_ctx, true);
+    _controls.finish(world_ctx);
 }
 
 // Vehicles.update lends its authority to hull, mounted and crew work. The
 // outer unit coordinator calls this directly with the borrow it already owns.
 pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick: f64, mut services: Option<crate::units::f3::WorldServices<'_>>) {
-    assert!(active(), "F2 must be initialized");
+    assert!(active_in(&world_ctx.fleet), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     { world_ctx.fleet.scheduler.time += dt; world_ctx.fleet.clock = Some(world_ctx.fleet.scheduler.io[F2Input::CLOCK]); }
     allocation::begin();
@@ -540,13 +565,14 @@ pub(crate) fn f2_command_in(world_ctx: &mut crate::world::owner::World, slot: u3
     if code > 3 || tag > 4 { return 0; }
     let flying = v.flying;
     let owner = match tag { 0 => OrdnanceOwner::Null, 1 => OrdnanceOwner::Player, 2 => OrdnanceOwner::Unit(Ref::new(owner_slot, owner_gen)), 3 => OrdnanceOwner::Vehicle(Ref::new(owner_slot, owner_gen)), 4 => OrdnanceOwner::OwnerSnapshot(Ref::new(owner_slot, owner_gen)), _ => return 0 };
-    if crate::units::f3::active() && matches!(F2HullOp::from_u8(code as u8).unwrap(), F2HullOp::Damage | F2HullOp::Health) {
+    if crate::units::f3::active_in(&world_ctx.units) && matches!(F2HullOp::from_u8(code as u8).unwrap(), F2HullOp::Damage | F2HullOp::Health) {
         // Vehicle.damage between phases joins the same native impact service
         // as an instant round. A recursive crew death cannot call a JS adapter.
-        let _external = crate::units::f3::external();
-        crate::units::f3::with_services(|services| crate::units::f3_hulls::mutate(r, value,
+        let _external = crate::units::f3::external_in(world_ctx);
+        crate::units::f3::with_services_in(world_ctx, |world_ctx, services| crate::units::f3_hulls::mutate_in(world_ctx, r, value,
             (code == F2HullOp::Damage as u32).then_some(owner), services.expect("native world services")));
         publish_in(world_ctx);
+        _external.finish(world_ctx, true);
         return 1;
     }
     let index = world_ctx.sim.store.vehicles.vehicles.iter().position(|&x| x == r).expect("F2 ordered hull");
@@ -577,13 +603,15 @@ pub(crate) fn f2_retire_in(world_ctx: &mut crate::world::owner::World, slot: u32
     let v = world_ctx.sim.store.vehicle.get_mut(r).unwrap();
     v.alive = false; v.visible = false;
     // Commit the old registry target while this generation still resolves.
-    if crate::units::f3::active() { crate::units::f3_hulls::refresh(v.target_id as u32); }
+    let target_id = v.target_id as u32;
+    if crate::units::f3::active_in(&world_ctx.units) { crate::units::f3_hulls::refresh_in(world_ctx, target_id); }
     firing::retire_in(world_ctx, r);
     live_seats::retire_in(world_ctx, r);
     // A retired registry member outlives its hull slot. Commit its dead facts
     // before releasing the generation; a later query must not retain alive.
-    if crate::units::f3::active() { crate::units::f3_hulls::refresh(world_ctx.sim.store.vehicle.get(r).unwrap().target_id as u32); }
-    crate::battle::f4_tail::refresh_mobile_views();
+    let target_id = world_ctx.sim.store.vehicle.get(r).unwrap().target_id as u32;
+    if crate::units::f3::active_in(&world_ctx.units) { crate::units::f3_hulls::refresh_in(world_ctx, target_id); }
+    crate::battle::f4_tail::refresh_mobile_views_in(world_ctx);
     if !world_ctx.sim.store.vehicle.retire(r) { return 0; }
     world_ctx.sim.store.vehicles.vehicles.retain(|&x| x != r);
     for (index, pad) in world_ctx.sim.store.vehicles.slots.iter_mut().enumerate() {
@@ -601,13 +629,13 @@ pub(crate) fn f2_retire_in(world_ctx: &mut crate::world::owner::World, slot: u32
 // lockPick asks for identity only in its retained-target pass. Keep that
 // observation separate from expensive lazy hit-shape and sight capabilities.
 fn target_count_in(world_ctx: &mut crate::world::owner::World) -> usize {
-    if crate::units::f3::active() { crate::units::f3_fleet::count() }
+    if crate::units::f3::active_in(&world_ctx.units) { crate::units::f3_fleet::count_in(&world_ctx.sim) }
     else { world_ctx.fleet.members.len() }
 }
 fn target_identity_in(world_ctx: &mut crate::world::owner::World, index: usize) -> (f64, f64) {
-    if crate::units::f3::active() {
-        let key = crate::units::f3_fleet::key(index);
-        (crate::units::registry::target_id(key) as f64, crate::units::f3_fleet::life(key))
+    if crate::units::f3::active_in(&world_ctx.units) {
+        let key = crate::units::f3_fleet::key_in(&world_ctx.sim, index);
+        (crate::units::registry::target_id(key) as f64, crate::units::f3_fleet::life_in(world_ctx, key))
     } else {
         let m = world_ctx.fleet.members[index];
         (m.id, m.generation.unwrap_or(0.0))

@@ -38,29 +38,18 @@ pub mod construction;
 pub mod damage;
 pub mod droideka;
 pub mod factory;
-#[cfg(target_arch = "wasm32")]
 pub mod f3;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f3_construction;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f3_items;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f3_props;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f3_hulls;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f3_fleet;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f3_sensors;
 pub mod ownership;
 pub mod poses;
-#[cfg(target_arch = "wasm32")]
 pub mod module;
-#[cfg(target_arch = "wasm32")]
 pub mod muzzles;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod live_pose;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod native;
 pub mod registry;
 pub mod separate;
@@ -71,5 +60,7 @@ pub mod water;
 pub mod world;
 
 pub mod page_body;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod owner;
+
+#[cfg(test)]
+mod ownership_tests;

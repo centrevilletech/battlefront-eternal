@@ -47,27 +47,27 @@ impl<F:Lifecycle,H:HumanDriver> Mounts for Actions<'_, '_,F,H> {
         if let Some(r)=l.vehicle {
             let v=s.vehicle.get(r)?;
             let weapon=if l.index>=0.0 && l.index.is_finite() && l.index.fract()==0.0 {
-                crate::vehicles::module::f2::firing::first_weapon(r,l.index as usize)
+                crate::vehicles::module::f2::firing::first_weapon_in(self.w, r,l.index as usize)
             } else {None};
             return Some(Mount{position:v.position,weapon,vehicle:Some((Some(v.name),super::f4_live::hull_label(&mut self.w.battle, r)))});
         }
-        let (position,weapon)=crate::vehicles::module::f2::live_seats::battle_mount(l.turret?)?;
+        let (position,weapon)=crate::vehicles::module::f2::live_seats::battle_mount_in(self.w, l.turret?)?;
         Some(Mount{position,weapon,vehicle:None})
     }
 }
 impl<F:Lifecycle,H:HumanDriver> Targets for Actions<'_, '_,F,H> {
     fn member(&mut self,s:&Store,key:Member)->BattleMember {
-        if let Some(m)=crate::units::f3_hulls::battle_member(s,key) {return m;}
-        if let Some(m)=crate::units::f3_props::battle_member(s,key) {return m;}
-        let f=f3::prepared_target(crate::units::registry::target_id(key)).expect("prepared battle target");
+        if let Some(m)=crate::units::f3_hulls::battle_member_in(&mut self.w.units, s,key) {return m;}
+        if let Some(m)=crate::units::f3_props::battle_member_in(self.w, s,key) {return m;}
+        let f=f3::prepared_target_in(&self.w.units, crate::units::registry::target_id(key)).expect("prepared battle target");
         BattleMember{alive:f.alive,team:f.team,position:f.position,..BattleMember::default()}
     }
 }
 impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
     fn changed_battle(&mut self,_:&Store) {super::f4_core::changed_battle(&mut self.w.battle);}
-    fn building_alive(&mut self,r:Ref<Building>)->bool {crate::units::f3_props::battle_building(r).0}
+    fn building_alive(&mut self,r:Ref<Building>)->bool {crate::units::f3_props::battle_building_in(self.w, r).0}
     fn building_attacker(&mut self,s:&Store,r:Ref<Building>)->Option<Ref<Character>> {
-        character(s,self.local,crate::units::f3_props::battle_building(r).1)
+        character(s,self.local,crate::units::f3_props::battle_building_in(self.w, r).1)
     }
     fn vehicle_attacker(&mut self,s:&Store,r:Ref<Vehicle>)->Option<Ref<Character>> {
         let owner=s.vehicle.get(r)?.last_attacker;
@@ -77,23 +77,23 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
         }; character(s,self.local,owner)
     }
     fn piloted(&mut self,s:&Store,r:Ref<Unit>)->Option<[f64;3]> {
-        s.recon_droid.get(crate::recon::module::piloted_in(s,r)?).map(|d|d.position)
+        s.recon_droid.get(crate::recon::module::piloted_in(&self.w.units,s,r)?).map(|d|d.position)
     }
-    fn relation(&mut self,a:f64,b:f64)->f64 {f3::relation(a,b)}
+    fn relation(&mut self,a:f64,b:f64)->f64 {f3::relation_in(&self.w.units, a,b)}
     fn prepare_record(&mut self,s:&mut Store,r:Ref<Character>) {super::f4_core::prepare_record(&mut self.w.battle, s,r);}
     fn point(&mut self,s:&mut Store,r:Option<Ref<Character>>) {super::f4_core::point(&mut self.w.battle, s,r);}
     fn kill(&mut self,s:&mut Store,r:Ref<Unit>) {
-        with_store_in(self.w,s,|_|crate::combat::live::damage(r,f64::INFINITY,Attacker::Null,self.services.reborrow()));
+        with_store_in(self.w,s,|w|crate::combat::live::damage_in(w, r,f64::INFINITY,Attacker::Null,self.services.reborrow()));
     }
     fn kill_droid(&mut self,s:&mut Store,r:Ref<Unit>) {
-        with_store_in(self.w,s,|_|crate::recon::module::kill_piloted(r,self.services.reborrow()));
+        with_store_in(self.w,s,|w|crate::recon::module::kill_piloted_in(w, r,self.services.reborrow()));
     }
     fn wreck(&mut self,s:&mut Store,r:Ref<Vehicle>) {
         s.vehicle.get_mut(r).expect("boundary hull").last_attacker=OrdnanceOwner::Null;
-        with_store_in(self.w,s,|_|crate::units::f3_hulls::mutate(r,f64::INFINITY,Some(OrdnanceOwner::Null),self.services.reborrow()));
+        with_store_in(self.w,s,|w|crate::units::f3_hulls::mutate_in(w, r,f64::INFINITY,Some(OrdnanceOwner::Null),self.services.reborrow()));
     }
     fn set_hull_health(&mut self,s:&mut Store,r:Ref<Vehicle>,value:f64) {
-        with_store_in(self.w,s,|_|crate::units::f3_hulls::mutate(r,value,None,self.services.reborrow()));
+        with_store_in(self.w,s,|w|crate::units::f3_hulls::mutate_in(w, r,value,None,self.services.reborrow()));
     }
     fn spawn(&mut self,s:&mut Store,r:Ref<Character>,class:Option<StrId>,post:SpawnPost,at:[f64;3],yaw:Option<f64>)->Option<Ref<Unit>> {
         with_store_in(self.w,s,|w|self.lifecycle.spawn(w,r,class,post,at,yaw,self.services.reborrow()))
@@ -105,7 +105,7 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
         with_store_in(self.w,s,|w|{self.lifecycle.republish(w,r,self.services.reborrow());});
     }
     fn cast_spawn(&mut self,from:Vector3,direction:Vector3,span:f64,body:Ref<Body>)->Option<Vector3> {
-        crate::units::native::ordnance_cast(f3::collision_world(),array(from),array(direction),span,Some(body),true,false)
+        crate::units::native::ordnance_cast_in(self.w, f3::collision_world_in(&self.w.units),array(from),array(direction),span,Some(body),true,false)
             .map(|h|Vector3::new(h.point[0],h.point[1],h.point[2]))
     }
     fn effect(&mut self,_:&mut Store,name:&str,position:[f64;3]) {
@@ -130,7 +130,11 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
         let Some(r)=self.local else{return};
         let u=s.unit.get(r).expect("viewpoint corpse");
         if u.combat.dead && !u.removed && u.combat.death_time>=crate::units::unit::DEATH_LINGER {
-            with_store_in(self.w,s,|_|f3::remove_native(r,self.services.reborrow()));
+            with_store_in(self.w,s,|w|f3::remove_native_in(w, r,self.services.reborrow()));
         }
     }
 }
+
+impl<F:Lifecycle,H:HumanDriver> super::stats::TextWorld for Actions<'_, '_, F,H> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }
+
+impl<F:Lifecycle,H:HumanDriver> super::spawning::RandomWorld for Actions<'_, '_, F,H> { fn random_next(&mut self, stream:u32)->f64 { f3::random_next_in(&mut self.w.units,stream) as f64 } }

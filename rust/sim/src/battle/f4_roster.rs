@@ -36,8 +36,7 @@ pub(crate) fn reset(battle: &mut BattleOwner) {
         battle.roster = None;
     }
 }
-struct Text;
-impl Text { fn nonempty_in(&self, w: &Root, id: StrId) -> bool { !w.sim.strings.units(id).is_empty() } }
+use super::stats::WorldText as Text;
 fn text(w: &mut Root, id: StrId) -> String {
     String::from_utf16_lossy(w.sim.strings.units(id))
 }
@@ -116,12 +115,12 @@ impl RosterWorld for World<'_, '_> {
     }
     fn retire_unit(&mut self, s: &mut Store, _: Ref<Character>, r: Ref<Unit>) {
         super::f4_live::with_store_in(self.w, s, |w| {
-            crate::vehicles::module::f2::live_seats::leave_voluntary(r, self.services.reborrow());
+            crate::vehicles::module::f2::live_seats::leave_voluntary_in(w, r, self.services.reborrow());
             let u = w.sim.store.unit.get_mut(r).expect("retired roster body");
             u.human = false;
             u.network_human = Some(false);
             u.combat.player = false;
-            f3::remove_native(r, self.services.reborrow());
+            f3::remove_native_in(w, r, self.services.reborrow());
         });
     }
     fn bot_name(&mut self, _: &mut Store, team: usize) -> StrId {
@@ -142,8 +141,8 @@ impl RosterWorld for World<'_, '_> {
         });
     }
     fn pad_quotas(&mut self, s: &mut Store, team: usize) {
-        f4_tail::spawning(self.w, s, self.services.reborrow(), |s, _, random| {
-            spawning::pad_quotas(&mut s.spawning, team, random)
+        f4_tail::spawning(self.w, s, self.services.reborrow(), |s, world, random| {
+            spawning::pad_quotas(&mut s.spawning, team, &mut spawning::BoundDraws(random,world))
         });
     }
 }
@@ -171,7 +170,7 @@ impl PlayersWorld for World<'_, '_> {
         r
     }
     fn remove_body(&mut self, _: &mut Players, s: &mut Store, _: Ref<Character>, r: Ref<Unit>) {
-        super::f4_live::with_store_in(self.w, s, |_| f3::remove_native(r, self.services.reborrow()));
+        super::f4_live::with_store_in(self.w, s, |w| f3::remove_native_in(w, r, self.services.reborrow()));
     }
 }
 pub fn f4_roster_init_in(w: &mut Root) {
@@ -212,11 +211,11 @@ pub fn f4_roster_init_in(w: &mut Root) {
         .words
         .reserve(crate::store::block::HEADER + F4RosterResult::WORDS + 2 * RoCount::WORDS);
     owner.output.heap.reserve(2 * RoCount::WORDS);
-    let outer = f3::external();
+    let outer = f3::external_in(w);
     // MultiplayerWorld relinquishes the dormant viewpoint before constructing
     // its roster. Retiring the Character must not return that passive body.
     if let Some(local)=cfg.local {w.sim.store.character.get_mut(local).expect("local roster Character").unit=None;}
-    f3::with_services(|services| {
+    f3::with_services_in(w, |w, services| {
         let mut services=services.expect("native roster body services");
         let mut shell = owner.shell.take().unwrap();
         std::mem::swap(&mut shell, &mut w.sim.store);
@@ -243,7 +242,7 @@ pub fn f4_roster_init_in(w: &mut Root) {
     {
         w.battle.roster = Some(owner);
     }
-    drop(outer);
+    outer.finish(w, true);
 }
 pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
     let (row, heap) = w.sim.calls.args();
@@ -262,8 +261,8 @@ pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
     let source = w.sim.strings.units(input.name);
     let length = source.len().min(name.len());
     name[..length].copy_from_slice(&source[..length]);
-    let outer = f3::external();
-    f3::with_services(|services| {
+    let outer = f3::external_in(w);
+    f3::with_services_in(w, |w, services| {
         let mut services=services.expect("native roster body services");
         let mut shell = owner.shell.take().unwrap();
         std::mem::swap(&mut shell, &mut w.sim.store);
@@ -360,7 +359,7 @@ pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
     {
         w.battle.roster = Some(owner);
     }
-    drop(outer);
+    outer.finish(w, true);
     let owner = state(&mut w.battle);
     owner.output.begin(1, F4RosterResult::WORDS);
     let (row, heap) = owner.output.row(0);
@@ -369,8 +368,7 @@ pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
     Some(&owner.output.words[..])
 }
 
-#[cfg(target_arch = "wasm32")]
-impl super::stats::Text for Text { fn nonempty(&self, id: StrId) -> bool { self.nonempty_in(crate::abi::world(), id) } }
+
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
@@ -382,3 +380,7 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn f4_roster_command() -> *const f64 { f4_roster_command_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
 }
+
+impl super::stats::TextWorld for World<'_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }
+
+impl super::spawning::RandomWorld for World<'_, '_> { fn random_next(&mut self, stream:u32)->f64 { f3::random_next_in(&mut self.w.units,stream) as f64 } }

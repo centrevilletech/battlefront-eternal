@@ -105,12 +105,11 @@ impl super::posts::Definition {
     }
 }
 
-
 /// Cold registry bindings retain policies and qualified owner references.
 /// The full batch is checked before installation; runtime reads never import
 /// another hull, building or seat snapshot from JavaScript.
 impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::Rows<'_,C,M> {
-    pub fn prepare_members(&mut self,hulls:&[crate::gen::AiHullDefinition],props:&[crate::gen::AiPropDefinition],#[cfg(not(target_arch="wasm32"))] strings:&Strings)->bool {
+    pub fn prepare_members(&mut self,hulls:&[crate::gen::AiHullDefinition],props:&[crate::gen::AiPropDefinition],)->bool {
         use crate::gen::{Member,RepairTarget};
         for row in hulls {
             let Some(hull)=row_store!(self).vehicle.get(row.hull) else{return false};
@@ -136,7 +135,7 @@ impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::R
             if row.post.is_some_and(|post|self.state.population.index(crate::battle::posts::post_ref(Some(post))).is_none()) {return false;}
         }
         for row in hulls {
-            #[cfg(target_arch="wasm32")]
+
             let strings=&self.w.sim.strings;
             let class=super::content::UnitClass::read(&row.policy,strings);
             self.state.bindings.vehicle(row.hull,super::content::traversal_size(row.traversal_size,strings) as f64);
@@ -158,7 +157,7 @@ impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::R
         }
         for row in props {
             let geometry=if row.owner.kind==crate::gen::F4ObjectKind::Trap {row_trap_geometry!(self,row.target)}else{None};
-            #[cfg(target_arch="wasm32")]
+
             let strings=&self.w.sim.strings;
             let class=super::content::UnitClass::read(&row.policy,strings);
             let target_class=row.target_policy.as_ref().map(|policy|super::content::UnitClass::read(policy,strings));
@@ -199,7 +198,7 @@ impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::R
                 RepairTarget::Vehicle(_)=>unreachable!(),
             }
         }
-        #[cfg(target_arch="wasm32")]
+
         let strings=&self.w.sim.strings;
         // Following a live repair target accepts hull and building wrappers,
         // not only infantry. These passive identities own no movement helper.

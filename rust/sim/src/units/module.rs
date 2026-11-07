@@ -153,7 +153,7 @@ fn held(u: &Unit) -> bool {
 // Hazards can kill immediately and therefore share the combat damage services.
 // Their effect notices keep the same observation order as ordinary impacts.
 fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f64, w: &mut ModuleWorld) {
-    let water = vm::map().is_some_and(|m| m.water.is_some());
+    let water = vm::map_in(w.w).is_some_and(|m| m.water.is_some());
     if water && unit.alive && unit.seat.is_none() && !held(unit) && !unit.walker {
         // unit.waterContact ??= {}: a contact whose clocks are all unset.
         let mut contact = unit.water_contact.take().unwrap_or_default();
@@ -163,7 +163,7 @@ fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f
         let velocity = unit.velocity();
         let mut splash = Splash { at: None };
         let hurt = {
-            let rules = vm::map().expect("the map's rules");
+            let rules = vm::map_in(w.w).expect("the map's rules");
             let water = rules.water.as_ref().expect("the map's water");
             soldier_step_at(level, dt, &mut contact, &feet, &head, &gun, &velocity, &mut |x, z| water.over(x, z), &mut splash)
         };
@@ -188,7 +188,7 @@ fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f
             let mut hurt = 0.0;
             if dt > 0.0 {
                 let depth = if d.mode >= 11.0 { rule.ball } else { rule.upright };
-                let rules = vm::map().expect("the map's rules");
+                let rules = vm::map_in(w.w).expect("the map's rules");
                 let over = rules.water.as_ref().is_some_and(|wt| wt.over(d.position[0], d.position[2]));
                 if !(over && level >= d.position[1] + depth) {
                     d.water_clock = Some(rule.interval);
@@ -207,7 +207,7 @@ fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f
     }
     if unit.alive && !held(unit) {
         let p = unit.position();
-        if vm::map().is_some_and(|m| m.in_death_region(&p)) {
+        if vm::map_in(w.w).is_some_and(|m| m.in_death_region(&p)) {
             w.damage(id, unit, f64::INFINITY);
         }
     }
@@ -258,7 +258,7 @@ impl<'w, 'a> ModuleWorld<'w, 'a> {
         match &mut unit.soldier {
             UnitBody::Soldier(s) => {
                 let pass_through = match s.pass_through {
-                    Some(body) => vm::collision_world().and_then(|c| c.kernel_slot(body.slot)).map_or(-1, |k| k as i64),
+                    Some(body) => vm::collision_world_in(self.w).and_then(|c| c.kernel_slot(body.slot)).map_or(-1, |k| k as i64),
                     None => -1,
                 };
                 tick_soldier_in(&mut self.w.movement, &mut self.w.collision.state, s, input, h, self.world, pass_through);
@@ -303,7 +303,7 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
     }
 
     fn seat_exposed(&mut self, id: u32, _unit: &Unit) -> bool {
-        super::live_pose::exposed_in(&self.w.sim.store, id, _unit)
+        super::live_pose::exposed_in(&self.w.fleet,&self.w.sim.store, id, _unit)
     }
 
     fn rider_shapes(&mut self, id: u32, unit: &Unit, shapes: &mut [HitShape]) -> usize {
@@ -472,10 +472,10 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
             // returning the body to its pool. This foreign pointer operation
             // cannot run movement, combat or factory adapters.
             if let Some(character) = unit.character {
-                if crate::battle::f4_core::owns_lifecycle(){
+                if crate::battle::f4_core::owns_lifecycle_in(&mut self.w.battle){
                     let reference=unit_ref_in(&self.w.sim.store, id);
                     if let Some(c)=self.w.sim.store.character.get_mut(character){
-                        if c.unit==Some(reference){c.unit=None;crate::battle::f4_core::mark_character(character);}
+                        if c.unit==Some(reference){c.unit=None;crate::battle::f4_core::mark_character_in(&mut self.w.battle, character);}
                     }
                 }else{import_f3_character_release(&F3CharacterRelease { unit:unit_ref_in(&self.w.sim.store, id), character });}
             }

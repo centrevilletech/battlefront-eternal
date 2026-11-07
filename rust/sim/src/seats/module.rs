@@ -27,39 +27,13 @@ use crate::units::shapes::{Bounds, HitShape};
 use crate::units::world::{CastHit, UnitsWorld};
 use three::Vector3;
 
-#[cfg(target_arch = "wasm32")]
 use crate::gen::{import_seat_cast, import_seat_controllable, import_seat_controller_state, import_seat_overlaps, import_seat_policy};
 
-/// Natively there is no JavaScript to ask: the phase runs in the module
-/// only (the replays serve the seats' boundary themselves).
-#[cfg(not(target_arch = "wasm32"))]
-mod native {
-    use crate::gen::{SeatFlag, SeatHit, SeatLeaseArgs, SeatMade, SeatNumber, SeatPolicyArgs, SeatRay, SeatSphere, SeatWho};
-    pub fn import_seat_cast(_: &SeatRay) -> SeatHit {
-        unreachable!("the seat phase's imports are the module's")
-    }
-    pub fn import_seat_overlaps(_: &SeatSphere) -> SeatFlag {
-        unreachable!("the seat phase's imports are the module's")
-    }
-    pub fn import_seat_controller_state(_: &SeatWho) -> SeatNumber {
-        unreachable!("the seat phase's imports are the module's")
-    }
-    pub fn import_seat_controllable(_: &SeatLeaseArgs) -> SeatMade {
-        unreachable!("the seat phase's imports are the module's")
-    }
-    pub fn import_seat_policy(_: &SeatPolicyArgs) {
-        unreachable!("the seat phase's imports are the module's")
-    }
-}
-#[cfg(not(target_arch = "wasm32"))]
-use native::*;
-
-/// seats.js placeOnFoot's Soldier.spawn boundary, shared by the live owner.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn stand_up(unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
+/// seats.js placeOnFoot keeps its ground query in the owning collision world.
+pub(crate) fn stand_up_in(w:&mut crate::world::owner::World,unit:&mut Unit,x:f64,y:f64,z:f64,yaw:f64) {
     match &mut unit.soldier {
-        UnitBody::Soldier(s) => s.spawn(x, y, z, yaw, &mut Ground),
-        UnitBody::Droideka(_) => unreachable!("a droideka never sits"),
+        UnitBody::Soldier(s)=>s.spawn(x,y,z,yaw,&mut Ground(Some(w))),
+        UnitBody::Droideka(_)=>unreachable!("a droideka never sits"),
     }
 }
 
@@ -189,7 +163,7 @@ impl SeatWorld for JsSeats {
 
     fn stand_up(&mut self, unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
         match &mut unit.soldier {
-            UnitBody::Soldier(s) => s.spawn(x, y, z, yaw, &mut Ground),
+            UnitBody::Soldier(s) => s.spawn(x, y, z, yaw, &mut Ground(None)),
             UnitBody::Droideka(_) => unreachable!("a droideka never sits"),
         }
     }
@@ -249,18 +223,12 @@ impl SeatWorld for JsSeats {
 
 /// What Soldier.spawn asks of the units' world: the cast down under the
 /// point it stands up at (the collision world's, through the seats' cast).
-struct Ground;
+struct Ground<'a>(Option<&'a mut crate::world::owner::World>);
 
-impl UnitsWorld for Ground {
-    #[cfg(target_arch = "wasm32")]
-    fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
-        crate::vehicles::module::collision_world().expect("the seat collision world")
-            .cast(crate::collision::state(), origin, direction, far, None)?
-            .map(|h| CastHit { point: h.point, normal: h.normal, distance: h.distance, terrain: h.terrain })
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    fn cast(&mut self, _: &Vector3, _: &Vector3, _: f64) -> Option<CastHit> {
-        unreachable!("the module ground boundary belongs to its collision instance")
+impl UnitsWorld for Ground<'_> {
+    fn cast(&mut self,origin:&Vector3,direction:&Vector3,far:f64)->Option<CastHit> {
+        if let Some(w)=self.0.as_deref_mut() { return ground_cast(w,origin,direction,far); }
+        legacy_ground_cast(origin,direction,far)
     }
     fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
         _: &mut dyn FnMut(bool, &[Vector3; 3])) {
@@ -324,3 +292,13 @@ impl UnitsWorld for Ground {
         unreachable!("a spawn asks only for the ground")
     }
 }
+
+fn ground_cast(w:&mut crate::world::owner::World,origin:&Vector3,direction:&Vector3,far:f64)->Option<CastHit> {
+    w.fleet.collision.as_mut().expect("the seat collision world")
+        .cast_in(&mut w.collision.state,w.movement.flags_mut(),origin,direction,far,None)?
+        .map(|h|CastHit {point:h.point,normal:h.normal,distance:h.distance,terrain:h.terrain})
+}
+#[cfg(target_arch = "wasm32")]
+fn legacy_ground_cast(origin:&Vector3,direction:&Vector3,far:f64)->Option<CastHit> { ground_cast(crate::abi::facade::world(),origin,direction,far) }
+#[cfg(not(target_arch = "wasm32"))]
+fn legacy_ground_cast(_: &Vector3,_:&Vector3,_:f64)->Option<CastHit> { crate::abi::no_native_host("seatCast") }

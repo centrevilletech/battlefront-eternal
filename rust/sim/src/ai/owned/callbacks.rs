@@ -59,7 +59,7 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
             let mut world=super::world::World {rows,random:&mut random,combat:self.combat,services:&mut services,settings:self.settings,facts:self.facts};
             super::lifecycle::Callback {core:self.core,random:self.random}.aim_controller(&mut world,controller,dt);
         });
-        
+
     }
     fn lifecycle_in(&mut self,w:&mut crate::world::owner::World,hook:&F4AIHook,recon:&mut Authority,queries:&mut Queries) {
         if let Some(handle)=hook.character_handle.as_ref() {
@@ -81,7 +81,7 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
             let mut world=super::world::World {rows,random:&mut random,combat:self.combat,services:&mut services,settings:self.settings,facts:self.facts};
             super::lifecycle::Callback {core:self.core,random:self.random}.battle_hook(&mut world,hook).expect("current native AI lifecycle handles");
         });
-        
+
     }
     fn controller_state(&self,store:&Store,unit:Option<Ref<Unit>>)->Option<f64> {
         let reference=store.unit.get(unit?)?.controller?;
@@ -123,12 +123,4 @@ pub fn with_services<F:Factory,R>(
     run:impl FnOnce(&mut crate::world::owner::World,crate::units::f3::WorldServices<'_>)->R)->R {
     let mut scope=Scope {core,state:rows.state,random,combat,settings,facts,factory};
     run(rows.w,crate::units::f3::WorldServices {recon,queries,ai:Some(&mut scope)})
-}
-
-// Facade shims for the unit service hub awaiting explicit context.
-#[cfg(target_arch="wasm32")]
-impl dyn Callbacks + '_ {
-    pub(crate) fn weapon_hint(&self,_store:&Store,unit:Ref<Unit>,control:Option<Ref<SeatUnit>>)->crate::gen::F2TurretHint {self.weapon_hint_in(crate::abi::world(),unit,control)}
-    pub(crate) fn aim(&mut self,key:&F3UnitKey,dt:f64,recon:&mut Authority,queries:&mut Queries) {self.aim_in(crate::abi::world(),key,dt,recon,queries);}
-    pub(crate) fn lifecycle(&mut self,hook:&F4AIHook,recon:&mut Authority,queries:&mut Queries) {self.lifecycle_in(crate::abi::world(),hook,recon,queries);}
 }

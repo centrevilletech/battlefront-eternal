@@ -5,22 +5,22 @@ use crate::ai::combat::weapons_ai::WeaponAiTable;
 
 /// A page has no AI battle. Cook its preview masks through the same content
 /// parser and table as bots, without creating controllers or a second world.
-pub fn ai_weapon_policies_in(w:&mut World)->*const f64 {
+pub fn ai_weapon_policies_in(w:&mut World)->Option<&crate::store::block::Block> {
     let source={let(row,heap)=w.sim.calls.args();AiWeaponPolicySource::take(row,heap)};
     let definitions=&crate::combat::module::defs_in(&mut w.combat).weapons;
-    if source.weapons.iter().any(|id|!definitions.has(*id)) {return std::ptr::null();}
+    if source.weapons.iter().any(|id|!definitions.has(*id)) {return None;}
     let mut table=WeaponAiTable::default();
     for data in source.data {
-        let Ok(records)=super::load::weapon_records(&data.json) else{return std::ptr::null()};
+        let Ok(records)=super::load::weapon_records(&data.json) else{return None};
         table.register(&records);
     }
     if crate::units::f3::active_in(&w.units) {complete_bindings(w,&table);}
     publish(w,&table,source.weapons.into_iter())
 }
 
-pub fn ai_world_weapon_policies_in(w:&mut World)->*const f64 {
-    let Some(battle)=w.ai.battle() else{return std::ptr::null()};
-    if battle.ready() {return std::ptr::null();}
+pub fn ai_world_weapon_policies_in(w:&mut World)->Option<&crate::store::block::Block> {
+    let Some(battle)=w.ai.battle() else{return None};
+    if battle.ready() {return None;}
     let table=battle.combat.shared.weapons.clone();
     // Initial physical owners can precede AI content loading. Complete their
     // immutable lock bindings now, without resetting weapons or RNG streams.
@@ -37,7 +37,7 @@ fn complete_bindings(w:&mut World,table:&WeaponAiTable) {
     crate::vehicles::module::f2::live_seats::refresh_weapon_masks_in(w,table);
 }
 
-fn publish(w:&mut World,table:&WeaponAiTable,ids:impl Iterator<Item=DefId>)->*const f64 {
+fn publish<'a>(w:&'a mut World,table:&WeaponAiTable,ids:impl Iterator<Item=DefId>)->Option<&'a crate::store::block::Block> {
     let definitions=crate::combat::module::defs_in(&mut w.combat);
     let weapons=ids.map(|id| {
         let class=definitions.weapons.class(id);
@@ -52,11 +52,17 @@ fn publish(w:&mut World,table:&WeaponAiTable,ids:impl Iterator<Item=DefId>)->*co
     }).collect();
     let out=AiWeaponPolicyContent {weapons};
     w.sim.calls.result(AiWeaponPolicyContent::WORDS,|row,heap|out.put(row,heap));
-    w.sim.calls.block.ptr()
+    Some(&w.sim.calls.block)
 }
 
-// Facade shims for the cold policy boundary.
-#[no_mangle]
-pub extern "C" fn ai_weapon_policies()->*const f64 {ai_weapon_policies_in(crate::abi::world())}
-#[no_mangle]
-pub extern "C" fn ai_world_weapon_policies()->*const f64 {ai_world_weapon_policies_in(crate::abi::world())}
+#[cfg(target_arch = "wasm32")]
+mod exports {
+    use super::*;
+    // Facade shims for the cold policy boundary.
+    #[no_mangle]
+    pub extern "C" fn ai_weapon_policies()->*const f64 {ai_weapon_policies_in(crate::abi::facade::world()).map_or(std::ptr::null(),|b|b.ptr())}
+    #[no_mangle]
+    pub extern "C" fn ai_world_weapon_policies()->*const f64 {ai_world_weapon_policies_in(crate::abi::facade::world()).map_or(std::ptr::null(),|b|b.ptr())}
+}
+#[cfg(target_arch = "wasm32")]
+pub use exports::{ai_weapon_policies, ai_world_weapon_policies};

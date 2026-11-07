@@ -183,7 +183,7 @@ pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f6
 
 /// update(dt) (battle.js:205). `stats_active(him)`: whether his tallies run
 /// this tick (battle.statsActive).
-pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stats::Text, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W) {
+pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stats::ContextText<W>, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W) {
     if !s.battle.game_over {
         s.battle.stats.time += dt;
         for i in 0..s.battle.characters.len() {
@@ -194,9 +194,9 @@ pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stat
             let c = s.character.get_mut(r).expect("active statistics Character");
             stats::record_of(c);
             let unit = c.unit;
-            let visible = stats::truthy(strings, c.class_name) || unit.is_some();
+            let visible = stats::truthy(&stats::BoundText(strings,world), c.class_name) || unit.is_some();
             let seen = if visible { world.observe(s, r, unit) } else { None };
-            stats::tick_character(dt, s.character.get_mut(r).unwrap(), strings, seen);
+            stats::tick_character(dt, s.character.get_mut(r).unwrap(), &stats::BoundText(strings,world), seen);
         }
     }
     let b = &mut s.battle;

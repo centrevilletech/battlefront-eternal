@@ -2,7 +2,7 @@
 //! deaths precede post capture and rules; local spawn realization and corpse
 //! removal follow the native character-spawn pass. HUD work stays outside this span.
 use super::{battlefield::{Battlefield, BattlefieldWorld}, human::Command,
-    phase::{self, PhaseWorld, Scratch}, spawning::Draws, stats::Text};
+    phase::{self, PhaseWorld, Scratch}, spawning::ContextDraws, stats::ContextText};
 use crate::gen::{Character, F4TailInput, Store};
 use crate::store::Ref;
 
@@ -21,9 +21,9 @@ impl Tail {
     /// A single native phase entry preserves the interposed ordnance/item
     /// span by remaining separate from LiveObjects' earlier phase entry.
     #[allow(clippy::too_many_arguments)]
-    pub fn step<W: World + ?Sized>(&mut self, input: &F4TailInput, s: &mut Store, strings: &dyn Text,
+    pub fn step<W: World + ?Sized>(&mut self, input: &F4TailInput, s: &mut Store, strings: &dyn ContextText<W>,
         spawning: bool, active: impl Fn(Ref<Character>, &Character) -> bool,
-        commands: &[Command], world: &mut W, random: &mut dyn Draws, gameplay: &mut dyn Draws) {
+        commands: &[Command], world: &mut W, random: &mut dyn ContextDraws<W>, gameplay: &mut dyn ContextDraws<W>) {
         self.battlefield.update(input.dt, s, world);
         phase::update_battle_with_scratch(input.dt, s, strings, spawning, active, world,
             random, gameplay, &mut self.scratch);

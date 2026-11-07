@@ -31,6 +31,12 @@ impl Choices {
     pub fn reserve_points(&mut self,count:usize) {self.points.reserve(count.saturating_sub(self.points.len()));}
     pub fn begin<W:PostsWorld>(&mut self,s:&mut Store,world:&mut W,
         mut floor:impl FnMut(Vector3,Ref<crate::gen::Body>)->Option<(Vector3,Vector3)>) {
+        self.begin_with(s, world, |_, at, body| floor(at, body));
+    }
+    /// Lend the same post owner to each grounding query without capturing it
+    /// while transport admission already holds its mutable loan.
+    pub fn begin_with<W:PostsWorld>(&mut self,s:&mut Store,world:&mut W,
+        mut floor:impl FnMut(&mut W,Vector3,Ref<crate::gen::Body>)->Option<(Vector3,Vector3)>) {
         mobile::refresh_all(s,world); self.rows.clear();
         for &r in &s.command_posts.posts {
             let p=s.post.get(r).expect("placed human post"); if !p.active {continue;}
@@ -49,7 +55,7 @@ impl Choices {
             let mut at=Vector3::new(v.bounds_max[0]+2.0,1.0,0.0);
             let [x,y,z,w]=v.quaternion; at.apply_quaternion(&Quaternion::new(x,y,z,w));
             at.add(&Vector3::new(v.position[0],v.position[1],v.position[2]));
-            let Some((hit,normal))=floor(at,v.body) else {continue}; if normal.y<0.8 {continue;}
+            let Some((hit,normal))=floor(world,at,v.body) else {continue}; if normal.y<0.8 {continue;}
             at.y=hit.y+0.1;
             let name=self.hulls.get(r.slot as usize).copied().flatten().filter(|(h,_)|*h==r).expect("prepared transport post name").1;
             self.rows.push(Candidate{key:Key::Transport(r),name,
@@ -103,29 +109,32 @@ impl Choices {
         else {relation(p.facts.owner,team)>0.0 && p.facts.ally_path}
     }
     pub fn choose(&self,team:f64,previous:Option<StrId>,mut relation:impl FnMut(f64,f64)->f64,mut uniform:impl FnMut()->f64)->Option<usize> {
+        self.choose_with(team,previous,&mut (),|_,a,b|relation(a,b),|_|uniform())
+    }
+    pub fn choose_with<W>(&self,team:f64,previous:Option<StrId>,world:&mut W,mut relation:impl FnMut(&mut W,f64,f64)->f64,mut uniform:impl FnMut(&mut W)->f64)->Option<usize> {
         let previous=self.named(previous); let mut best=FLT_MAX; let mut pick=None;
         if let Some(old)=previous {
-            if Self::friendly(&self.rows[old],team,&mut relation) {return Some(old);}
+            if Self::friendly(&self.rows[old],team,&mut |a,b|relation(world,a,b)) {return Some(old);}
             for (i,p) in self.rows.iter().enumerate() {
-                if !Self::friendly(p,team,&mut relation) {continue;}
+                if !Self::friendly(p,team,&mut |a,b|relation(world,a,b)) {continue;}
                 let d=distance(p.facts.position,self.rows[old].facts.position);
                 if best>d {best=d;pick=Some(i);}
             }
         } else {
             for (i,p) in self.rows.iter().enumerate() {
-                if !Self::friendly(p,team,&mut relation) {continue;}
+                if !Self::friendly(p,team,&mut |a,b|relation(world,a,b)) {continue;}
                 for enemy in &self.rows {
-                    if !(relation(team,enemy.facts.owner)<0.0) {continue;}
+                    if !(relation(world,team,enemy.facts.owner)<0.0) {continue;}
                     let d=distance(p.facts.position,enemy.facts.position);
                     if best>d {best=d;pick=Some(i);}
                 }
             }
         }
         if pick.is_some() {return pick;}
-        let count=self.rows.iter().filter(|p|Self::friendly(p,team,&mut relation)).count();
+        let count=self.rows.iter().filter(|p|Self::friendly(p,team,&mut |a,b|relation(world,a,b))).count();
         if count==0 {return None;}
-        let chosen=v8math::min(v8math::floor(uniform()*count as f64),count as f64-1.0) as usize;
-        self.rows.iter().enumerate().filter(|(_,p)|Self::friendly(p,team,&mut relation)).nth(chosen).map(|(i,_)|i)
+        let chosen=v8math::min(v8math::floor(uniform(world)*count as f64),count as f64-1.0) as usize;
+        self.rows.iter().enumerate().filter(|(_,p)|Self::friendly(p,team,&mut |a,b|relation(world,a,b))).nth(chosen).map(|(i,_)|i)
     }
     /// Game.spawnPosts' fallback is limited to placed posts with raw paths.
     /// An own post wins; otherwise the first active placed path is retained.
@@ -134,24 +143,34 @@ impl Choices {
         self.rows.iter().position(|p|p.facts.owner==team && raw(p)).or_else(||self.rows.iter().position(raw))
     }
     pub fn point<W:PostsWorld>(&mut self,s:&Store,index:usize,team:f64,world:&mut W,
-        mut relation:impl FnMut(f64,f64)->f64,mut uniform:impl FnMut()->f64)->Option<[f64;4]> {
+        mut relation:impl FnMut(f64,f64)->f64,uniform:impl FnMut()->f64)->Option<[f64;4]> {
+        self.point_with(s, index, team, world, |_, a, b| relation(a, b), uniform)
+    }
+    /// Relation and path reads borrow one owner in sequence. A recursive body
+    /// operation never needs to reacquire a facade during post admission.
+    pub fn point_with<W:PostsWorld>(&mut self,s:&Store,index:usize,team:f64,world:&mut W,
+        mut relation:impl FnMut(&mut W,f64,f64)->f64,mut uniform:impl FnMut()->f64)->Option<[f64;4]> {
+        self.point_context(s,index,team,world,relation,|_|uniform())
+    }
+    pub fn point_context<W:PostsWorld>(&mut self,s:&Store,index:usize,team:f64,world:&mut W,
+        mut relation:impl FnMut(&mut W,f64,f64)->f64,mut uniform:impl FnMut(&mut W)->f64)->Option<[f64;4]> {
         let p=*self.rows.get(index)?;
-        if !Self::friendly(&p,team,&mut relation) {
+        if !Self::friendly(&p,team,&mut |a,b|relation(world,a,b)) {
             if let Key::Post(SpawnPost::Post(r))=p.key {
                 if let Some(points)=self.raw.iter().find(|p|p.post==r).and_then(|p|p.points.as_ref()) {
-                    let chosen=v8math::floor(uniform()*points.len() as f64) as usize;
+                    let chosen=v8math::floor(uniform(world)*points.len() as f64) as usize;
                     return points.get(chosen).copied();
                 }
             }
         }
-        if let Some(point)=p.point {uniform();return Some(point);}
+        if let Some(point)=p.point {uniform(world);return Some(point);}
         let Key::Post(key)=p.key else {unreachable!()};
         let allied=p.facts.owner!=team;
         if let SpawnPost::Post(r)=key {
             let ai=s.post.get(r).expect("human path post").ai.as_ref();
             let path=ai.and_then(|ai|if allied {ai.ally_path.as_ref()} else {ai.spawn_path.as_ref()});
             if let Some(path)=path.filter(|path|path.present && !path.points.is_empty()) {
-                let i=v8math::min(v8math::floor(uniform()*path.points.len() as f64),path.points.len() as f64-1.0) as usize;
+                let i=v8math::min(v8math::floor(uniform(world)*path.points.len() as f64),path.points.len() as f64-1.0) as usize;
                 return path.points.get(i).copied();
             }
         }
@@ -161,7 +180,7 @@ impl Choices {
                 self.points.clear();if let Some(ai)=&s.post.get(r).unwrap().ai {self.points.extend_from_slice(&ai.class_spawn_world);}
             }
             if !self.points.is_empty() {
-                let i=v8math::min(v8math::floor(uniform()*p.facts.class_spawn_points),self.points.len() as f64-1.0) as usize;
+                let i=v8math::min(v8math::floor(uniform(world)*p.facts.class_spawn_points),self.points.len() as f64-1.0) as usize;
                 return self.points.get(i).copied().or_else(||self.points.first().copied());
             }
         }

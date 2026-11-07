@@ -125,9 +125,9 @@ impl World for Borrowed<'_> {
     }}
     fn team(&self,member:Member)->f64 {match member {Member::Unit(r)=>self.store.unit.get(r).unwrap().team,_=>self.targets.team(member)}}
 }
-#[cfg(target_arch="wasm32")]
+
 pub struct F3<'a> {w:&'a mut crate::world::owner::World}
-#[cfg(target_arch="wasm32")]
+
 impl World for F3<'_> {
     fn len(&self)->usize {self.w.sim.store.units.list.len()}
     fn member(&self,index:usize)->Member {self.w.sim.store.units.list[index]}
@@ -144,7 +144,7 @@ impl World for F3<'_> {
         _=>crate::units::f3::prepared_target_in(&self.w.units,crate::units::registry::target_id(member)).expect("current native registry target").team,
     }}
 }
-#[cfg(target_arch="wasm32")]
+
 impl Queries {
     pub fn query_live(&self,w:&mut crate::world::owner::World,entities:&super::entities::Entities,center:&three::Vector3,radius:f64,
         filter:crate::ai::combat::world::QueryFilter)->List<crate::ai::combat::world::Obj> {

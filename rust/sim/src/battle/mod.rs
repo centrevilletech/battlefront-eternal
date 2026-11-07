@@ -10,23 +10,14 @@
 //! trap state machine has its own [`traps::World`] for hulls and effects.
 
 pub mod battlefield;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f4;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f4_live;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f4_core;
-#[cfg(target_arch = "wasm32")]
 pub mod f4_factory;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f4_tail;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f4_roster;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod f4_connections;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod native_lifecycle;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod native_human;
 pub mod commands;
 pub mod core;
@@ -47,7 +38,6 @@ pub mod objectives;
 pub mod observation;
 pub mod ownership;
 pub mod owned_world;
-#[cfg(target_arch = "wasm32")]
 pub mod native_actions;
 pub mod publication;
 pub mod prepared;
@@ -68,5 +58,4 @@ pub mod traps;
 pub mod turrets;
 pub mod world;
 
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod owner;

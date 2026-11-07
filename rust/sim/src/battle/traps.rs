@@ -5,7 +5,7 @@
 
 use crate::store::StrId;
 use crate::gen::{TrPhase, TrState, TrSettings};
-use super::stats::Text;
+use super::stats::{Text, ContextText, BoundText};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
@@ -127,14 +127,14 @@ impl Trap {
             && (center[2] - settings.point[2]).abs() <= r
     }
 
-    pub fn crush<W: World>(&mut self, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
+    pub fn crush<W: World>(&mut self, settings: &Settings, strings: &dyn ContextText<W>, vehicles: &[W::Vehicle], world: &mut W) {
         let mut victims = Vec::new();
         self.crush_with_scratch(settings, strings, vehicles, world, &mut victims);
     }
 
     /// Native phase callers reserve the selection buffer at construction.
     /// Selection still finishes before any death can mutate another hull.
-    pub fn crush_with_scratch<W: World>(&mut self, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W, victims: &mut Vec<W::Vehicle>) {
+    pub fn crush_with_scratch<W: World>(&mut self, settings: &Settings, strings: &dyn ContextText<W>, vehicles: &[W::Vehicle], world: &mut W, victims: &mut Vec<W::Vehicle>) {
         victims.clear();
         for &vehicle in vehicles {
             if self.catches(settings, vehicle, world) { victims.push(vehicle); }
@@ -149,17 +149,17 @@ impl Trap {
         }
         self.crushed += killed;
         if killed != 0.0 {
-            if let Some(name) = text(settings.death_effect, strings) { world.effect(self, name, settings.effect_at); }
+            if let Some(name) = text(settings.death_effect, &BoundText(strings, world)) { world.effect(self, name, settings.effect_at); }
         }
     }
 
-    pub fn step<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
+    pub fn step<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn ContextText<W>, vehicles: &[W::Vehicle], world: &mut W) {
         let mut victims = Vec::new();
         self.step_with_scratch(dt, tick, settings, strings, vehicles, world, &mut victims);
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn step_with_scratch<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W, victims: &mut Vec<W::Vehicle>) {
+    pub fn step_with_scratch<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn ContextText<W>, vehicles: &[W::Vehicle], world: &mut W, victims: &mut Vec<W::Vehicle>) {
         self.tick = tick;
         if !self.built {
             if self.phase != Phase::Down { self.begin(Phase::Down, Some(tick)); }
@@ -175,12 +175,12 @@ impl Trap {
             return;
         }
         if self.phase == Phase::Armed {
-            let triggered = self.sprung || text(settings.trigger_team, strings).is_some_and(|side| {
+            let triggered = self.sprung || text(settings.trigger_team, &BoundText(strings, world)).is_some_and(|side| {
                 vehicles.iter().copied().any(|v| self.catches(settings, v, world) && world.side(v) == Some(side))
             });
             if !triggered { return; }
             self.begin(Phase::Swing, Some(tick));
-            if let Some(sound) = text(settings.sound, strings) { world.sound(self, sound, settings.point); }
+            if let Some(sound) = text(settings.sound, &BoundText(strings, world)) { world.sound(self, sound, settings.point); }
         }
         if settings.death_time > 0.0 && self.time < settings.death_time && self.time + dt >= settings.death_time {
             self.crush_with_scratch(settings, strings, vehicles, world, victims);

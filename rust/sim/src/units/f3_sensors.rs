@@ -35,7 +35,7 @@ impl Targets for Sensors<'_> {
                 Facts {
                     alive: u.alive,
                     seated: u.seat.is_some(),
-                    exposed: super::live_pose::exposed_in(&self.w.sim.store, r.slot, u),
+                    exposed: super::live_pose::exposed_in(&self.w.fleet,&self.w.sim.store, r.slot, u),
                     health: u.combat.health,
                     team: u.team,
                     category: f3::category_in(&self.w.units, r.slot),
@@ -188,7 +188,7 @@ impl history::World for Sensors<'_> {
             u.alive
                 && !u.removed
                 && u.generation == life
-                && (u.seat.is_none() || riders && super::live_pose::exposed_in(&self.w.sim.store, r.slot, u))
+                && (u.seat.is_none() || riders && super::live_pose::exposed_in(&self.w.fleet,&self.w.sim.store, r.slot, u))
         })
     }
 }
@@ -280,7 +280,7 @@ pub(crate) fn arc_targets_in(world_ctx: &mut crate::world::owner::World, owner: 
         let Member::Unit(reference) = world_ctx.sim.store.units.list[index] else { continue };
         if reference == owner { continue; }
         let unit = world_ctx.sim.store.unit.get(reference).expect("arc registry Unit");
-        if unit.dead || unit.removed || unit.seat.is_some() && !super::live_pose::exposed_in(&world_ctx.sim.store, reference.slot, unit) { continue; }
+        if unit.dead || unit.removed || unit.seat.is_some() && !super::live_pose::exposed_in(&world_ctx.fleet,&world_ctx.sim.store, reference.slot, unit) { continue; }
         if crate::combat::impacts::team_damage(team,human,unit.team,unit.human,f3::friendly_fire_in(&world_ctx.units)) <= 0.0 { continue; }
         let origin = unit.position();
         let (center,radius) = unit_sphere_in(world_ctx, reference);
@@ -347,13 +347,13 @@ impl Targets for MeleeWorld<'_, '_> {
     fn facts(&mut self, key: MeleeKey) -> Facts {
         match key {
             MeleeKey::Member(member) => (Sensors { w: self.w }).facts(member),
-            MeleeKey::Prop(index) => super::f3_props::melee_facts_in(&self.w.units, index),
+            MeleeKey::Prop(index) => super::f3_props::melee_facts_in(self.w, index),
         }
     }
     fn volume(&mut self, key: MeleeKey) -> Volume {
         match key {
             MeleeKey::Member(member) => (Sensors { w: self.w }).volume(member),
-            MeleeKey::Prop(index) => super::f3_props::melee_volume_in(&self.w.units, index),
+            MeleeKey::Prop(index) => super::f3_props::melee_volume_in(self.w, index),
         }
     }
     fn relation(&self, a: f64, b: f64) -> f64 { f3::relation_in(&self.w.units, a, b) }
@@ -384,7 +384,7 @@ impl targeting::MeleeTargets for MeleeWorld<'_, '_> {
             }).expect("melee Unit");
         }
         let body = self.body(target)?;
-        let kernel = crate::vehicles::module::collision_world()
+        let kernel = crate::vehicles::module::collision_world_in(self.w)
             .unwrap()
             .kernel_slot(body.slot)?;
         let state = &mut self.w.collision.state;
@@ -513,8 +513,8 @@ pub(crate) fn ordnance_raycast_in(world_ctx: &mut crate::world::owner::World,
     // OrdnanceWorld.mayStrike excludes the firing hull's riders and, after
     // piercing a mount, restricts the second ray to that mount's riders.
     // These tests precede broadphase and therefore observe no rejected shapes.
-    let accept = |store: &crate::gen::Store, unit: &Unit| {
-        if let Some((body, riding)) = super::live_pose::mount_row(store,unit) {
+    let accept = |fleet:&crate::vehicles::module::Fleet,store: &crate::gen::Store, unit: &Unit| {
+        if let Some((body, riding)) = super::live_pose::mount_row(fleet,store,unit) {
             if ignore.is_some() && body == ignore {
                 return false;
             }
@@ -532,7 +532,7 @@ pub(crate) fn ordnance_raycast_in(world_ctx: &mut crate::world::owner::World,
         // History's callbacks only access sensors, never its retained frames.
         let hit = f3::with_history_in(world_ctx, |world_ctx, history| history.raycast_with(tick, &o, &d, far, exclude, true, &mut Sensors { w: world_ctx }, &mut |sensors,member| {
             let Member::Unit(r) = member else {return false};
-            sensors.w.sim.store.unit.get(r).is_some_and(|unit| accept(&sensors.w.sim.store,unit))
+            sensors.w.sim.store.unit.get(r).is_some_and(|unit| accept(&sensors.w.fleet,&sensors.w.sim.store,unit))
         }))?;
         let Member::Unit(unit) = hit.key else {
             unreachable!()
@@ -553,7 +553,7 @@ pub(crate) fn ordnance_raycast_in(world_ctx: &mut crate::world::owner::World,
     // exactly at far, or tied with an earlier shape, cannot replace that hit.
     let hit = super::module::with_registry_in(world_ctx,|world,registry,slab| registry.raycast_with(
         slab,&o,&d,far,exclude.map_or(registry::Exclude::Nobody,registry::Exclude::One),
-        &mut |member,unit,world: &mut super::module::ModuleWorld<'_, '_>| matches!(member,Member::Unit(_)) && accept(&world.w.sim.store,unit),
+        &mut |member,unit,world: &mut super::module::ModuleWorld<'_, '_>| matches!(member,Member::Unit(_)) && accept(&world.w.fleet,&world.w.sim.store,unit),
         true,world,|world| world))?;
     Some(crate::ordnance::world::UnitHit {
         unit: world_ctx.sim.store.unit.at(hit.unit).unwrap().0,
@@ -666,7 +666,7 @@ pub(crate) fn navigate_missile_in(world_ctx: &mut crate::world::owner::World,
             }
         }
     };
-    let tuning = crate::vehicles::module::flight_tuning(f3::missile_class_in(&world_ctx.units, class));
+    let tuning = crate::vehicles::module::flight_tuning_in(world_ctx, f3::missile_class_in(&world_ctx.units, class));
     let mut motion = v3(*velocity);
     let retained = crate::flight::targeting::navigate_missile(&v3(position),&mut motion,&tuning,&target,dt);
     *velocity = a3(motion);
@@ -677,7 +677,7 @@ pub(crate) fn navigate_missile_in(world_ctx: &mut crate::world::owner::World,
 /// use the same bobbed level. The map's numeric water grid is loaded once.
 /// Only downward crossings count, including a start exactly on the surface.
 pub(crate) fn water_crossing_in(_world_ctx: &mut crate::world::owner::World, from: [f64;3], to: [f64;3]) -> Option<[f64;3]> {
-    let map = crate::vehicles::module::map()?;
+    let map = crate::vehicles::module::map_in(_world_ctx)?;
     let water = map.water.as_ref()?;
     let level = map.level;
     if !(from[1] >= level && to[1] < level) { return None; }

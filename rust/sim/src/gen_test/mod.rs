@@ -180,3 +180,7 @@ pub fn import_look_up(args: &Ask) -> Spot {
     crate::store::calls::import_in(|row, heap| Spot::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_look_up(_args: &Ask) -> Spot { crate::abi::no_native_host("lookUp") }
+

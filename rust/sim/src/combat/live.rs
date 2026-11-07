@@ -91,7 +91,7 @@ pub(crate) fn blast_in(w: &mut crate::world::owner::World, definition: crate::st
         notice.has_source = true;
         notice.source = source;
     }
-    if let Some(map) = crate::vehicles::module::map() {
+    if let Some(map) = crate::vehicles::module::map_in(w) {
         // presentExplosion's water choice belongs to the explosion moment,
         // even if its cosmetic notice is delivered after more body movement.
         notice.wet = map.water.as_ref().is_some_and(|water| {

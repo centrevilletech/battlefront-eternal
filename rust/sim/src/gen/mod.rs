@@ -1537,6 +1537,10 @@ pub fn import_ask(args: &Echo) -> Echo {
     crate::store::calls::import_in(|row, heap| Echo::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_ask(_args: &Echo) -> Echo { crate::abi::no_native_host("ask") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_ask_in(context: &crate::abi::context::Context, args: &Echo) -> Result<Echo, crate::abi::context::Failure> {
@@ -1554,6 +1558,10 @@ pub fn import_beam_local_origin(args: &SourceArgs) -> PointAnswer {
     unsafe { bfe_import_beam_local_origin() };
     crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_beam_local_origin(_args: &SourceArgs) -> PointAnswer { crate::abi::no_native_host("beamLocalOrigin") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1573,6 +1581,10 @@ pub fn import_beam_pose(args: &BeamPoseArgs) -> BeamPoseAnswer {
     crate::store::calls::import_in(|row, heap| BeamPoseAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_beam_pose(_args: &BeamPoseArgs) -> BeamPoseAnswer { crate::abi::no_native_host("beamPose") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_beam_pose_in(context: &crate::abi::context::Context, args: &BeamPoseArgs) -> Result<BeamPoseAnswer, crate::abi::context::Failure> {
@@ -1591,6 +1603,10 @@ pub fn import_blocked(args: &BlockedArgs) -> FlagAnswer {
     crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_blocked(_args: &BlockedArgs) -> FlagAnswer { crate::abi::no_native_host("blocked") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_blocked_in(context: &crate::abi::context::Context, args: &BlockedArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
@@ -1607,6 +1623,10 @@ pub fn import_bounce(args: &BounceArgs) -> () {
     crate::store::calls::import_out(BounceArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_bounce() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_bounce(_args: &BounceArgs) -> () { crate::abi::no_native_host("bounce") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1626,6 +1646,10 @@ pub fn import_cast(args: &CastArgs) -> CastAnswer {
     crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_cast(_args: &CastArgs) -> CastAnswer { crate::abi::no_native_host("cast") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_cast_in(context: &crate::abi::context::Context, args: &CastArgs) -> Result<CastAnswer, crate::abi::context::Failure> {
@@ -1643,6 +1667,10 @@ pub fn import_cast_moving(args: &CastArgs) -> CastAnswer {
     unsafe { bfe_import_cast_moving() };
     crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_cast_moving(_args: &CastArgs) -> CastAnswer { crate::abi::no_native_host("castMoving") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1662,6 +1690,10 @@ pub fn import_drop_roll(args: &NoArgs) -> NumberAnswer {
     crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_drop_roll(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("dropRoll") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_drop_roll_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
@@ -1678,6 +1710,10 @@ pub fn import_explode(args: &ItemBlastArgs) -> () {
     crate::store::calls::import_out(ItemBlastArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_explode() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_explode(_args: &ItemBlastArgs) -> () { crate::abi::no_native_host("explode") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1696,6 +1732,10 @@ pub fn import_explosion(args: &BlastArgs) -> () {
     unsafe { bfe_import_explosion() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_explosion(_args: &BlastArgs) -> () { crate::abi::no_native_host("explosion") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_explosion_in(context: &crate::abi::context::Context, args: &BlastArgs) -> Result<(), crate::abi::context::Failure> {
@@ -1712,6 +1752,10 @@ pub fn import_f2_fired(args: &FfFired) -> () {
     crate::store::calls::import_out(FfFired::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f2_fired() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_fired(_args: &FfFired) -> () { crate::abi::no_native_host("f2Fired") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1730,6 +1774,10 @@ pub fn import_f2_foreign(args: &VehNumber) -> () {
     unsafe { bfe_import_f2_foreign() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_foreign(_args: &VehNumber) -> () { crate::abi::no_native_host("f2Foreign") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_foreign_in(context: &crate::abi::context::Context, args: &VehNumber) -> Result<(), crate::abi::context::Failure> {
@@ -1747,6 +1795,10 @@ pub fn import_f2_life(args: &VehHull) -> () {
     unsafe { bfe_import_f2_life() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_life(_args: &VehHull) -> () { crate::abi::no_native_host("f2Life") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_life_in(context: &crate::abi::context::Context, args: &VehHull) -> Result<(), crate::abi::context::Failure> {
@@ -1763,6 +1815,10 @@ pub fn import_f2_posed(args: &VehNothing) -> () {
     crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f2_posed() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_posed(_args: &VehNothing) -> () { crate::abi::no_native_host("f2Posed") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1782,6 +1838,10 @@ pub fn import_f2_seat_action(args: &F2SeatAction) -> F2SeatAnswer {
     crate::store::calls::import_in(|row, heap| F2SeatAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_seat_action(_args: &F2SeatAction) -> F2SeatAnswer { crate::abi::no_native_host("f2SeatAction") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_seat_action_in(context: &crate::abi::context::Context, args: &F2SeatAction) -> Result<F2SeatAnswer, crate::abi::context::Failure> {
@@ -1799,6 +1859,10 @@ pub fn import_f2_target_facts(args: &FfTargetQuery) -> FfTargetFacts {
     unsafe { bfe_import_f2_target_facts() };
     crate::store::calls::import_in(|row, heap| FfTargetFacts::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_target_facts(_args: &FfTargetQuery) -> FfTargetFacts { crate::abi::no_native_host("f2TargetFacts") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1818,6 +1882,10 @@ pub fn import_f2_turret_draw(args: &F2TurretDraw) -> VehNumber {
     crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_turret_draw(_args: &F2TurretDraw) -> VehNumber { crate::abi::no_native_host("f2TurretDraw") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_turret_draw_in(context: &crate::abi::context::Context, args: &F2TurretDraw) -> Result<VehNumber, crate::abi::context::Failure> {
@@ -1835,6 +1903,10 @@ pub fn import_f2_turret_hint(args: &F2TurretHintQuery) -> F2TurretHint {
     unsafe { bfe_import_f2_turret_hint() };
     crate::store::calls::import_in(|row, heap| F2TurretHint::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_turret_hint(_args: &F2TurretHintQuery) -> F2TurretHint { crate::abi::no_native_host("f2TurretHint") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1854,6 +1926,10 @@ pub fn import_f2_turret_target(args: &F2TurretTargetQuery) -> F2TurretTarget {
     crate::store::calls::import_in(|row, heap| F2TurretTarget::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_turret_target(_args: &F2TurretTargetQuery) -> F2TurretTarget { crate::abi::no_native_host("f2TurretTarget") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_turret_target_in(context: &crate::abi::context::Context, args: &F2TurretTargetQuery) -> Result<F2TurretTarget, crate::abi::context::Failure> {
@@ -1870,6 +1946,10 @@ pub fn import_f2_variant(args: &F2Variant) -> () {
     crate::store::calls::import_out(F2Variant::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f2_variant() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_variant(_args: &F2Variant) -> () { crate::abi::no_native_host("f2Variant") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1889,6 +1969,10 @@ pub fn import_f2_weapon_draw(args: &FfDraw) -> VehNumber {
     crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f2_weapon_draw(_args: &FfDraw) -> VehNumber { crate::abi::no_native_host("f2WeaponDraw") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_weapon_draw_in(context: &crate::abi::context::Context, args: &FfDraw) -> Result<VehNumber, crate::abi::context::Failure> {
@@ -1905,6 +1989,10 @@ pub fn import_f3_character_release(args: &F3CharacterRelease) -> () {
     crate::store::calls::import_out(F3CharacterRelease::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f3_character_release() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f3_character_release(_args: &F3CharacterRelease) -> () { crate::abi::no_native_host("f3CharacterRelease") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1924,6 +2012,10 @@ pub fn import_f3_death_credit(args: &F3DeathCredit) -> F3DeathAnswer {
     crate::store::calls::import_in(|row, heap| F3DeathAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f3_death_credit(_args: &F3DeathCredit) -> F3DeathAnswer { crate::abi::no_native_host("f3DeathCredit") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f3_death_credit_in(context: &crate::abi::context::Context, args: &F3DeathCredit) -> Result<F3DeathAnswer, crate::abi::context::Failure> {
@@ -1940,6 +2032,10 @@ pub fn import_f3_head_credit(args: &F3HeadCredit) -> () {
     crate::store::calls::import_out(F3HeadCredit::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f3_head_credit() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f3_head_credit(_args: &F3HeadCredit) -> () { crate::abi::no_native_host("f3HeadCredit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1958,6 +2054,10 @@ pub fn import_f3_hull_credit(args: &F3HullCredit) -> () {
     unsafe { bfe_import_f3_hull_credit() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f3_hull_credit(_args: &F3HullCredit) -> () { crate::abi::no_native_host("f3HullCredit") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f3_hull_credit_in(context: &crate::abi::context::Context, args: &F3HullCredit) -> Result<(), crate::abi::context::Failure> {
@@ -1974,6 +2074,10 @@ pub fn import_f4_aihook(args: &F4AIHook) -> () {
     crate::store::calls::import_out(F4AIHook::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f4_aihook() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_f4_aihook(_args: &F4AIHook) -> () { crate::abi::no_native_host("f4AIHook") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -1993,6 +2097,10 @@ pub fn import_fat_query(args: &NearArgs) -> NearAnswer {
     crate::store::calls::import_in(|row, heap| NearAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_fat_query(_args: &NearArgs) -> NearAnswer { crate::abi::no_native_host("fatQuery") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_fat_query_in(context: &crate::abi::context::Context, args: &NearArgs) -> Result<NearAnswer, crate::abi::context::Failure> {
@@ -2010,6 +2118,10 @@ pub fn import_give(args: &GiveArgs) -> FlagAnswer {
     unsafe { bfe_import_give() };
     crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_give(_args: &GiveArgs) -> FlagAnswer { crate::abi::no_native_host("give") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2029,6 +2141,10 @@ pub fn import_gone(args: &GoneArgs) -> FlagAnswer {
     crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_gone(_args: &GoneArgs) -> FlagAnswer { crate::abi::no_native_host("gone") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_gone_in(context: &crate::abi::context::Context, args: &GoneArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
@@ -2045,6 +2161,10 @@ pub fn import_grenade_contact(args: &ContactArgs) -> () {
     crate::store::calls::import_out(ContactArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_grenade_contact() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_grenade_contact(_args: &ContactArgs) -> () { crate::abi::no_native_host("grenadeContact") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2064,6 +2184,10 @@ pub fn import_history_tick(args: &NoArgs) -> NumberAnswer {
     crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_history_tick(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("historyTick") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_history_tick_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
@@ -2080,6 +2204,10 @@ pub fn import_hit(args: &StrikeArgs) -> () {
     crate::store::calls::import_out(StrikeArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_hit() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_hit(_args: &StrikeArgs) -> () { crate::abi::no_native_host("hit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2098,6 +2226,10 @@ pub fn import_hit_unit(args: &UnitStrikeArgs) -> () {
     unsafe { bfe_import_hit_unit() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_hit_unit(_args: &UnitStrikeArgs) -> () { crate::abi::no_native_host("hitUnit") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_hit_unit_in(context: &crate::abi::context::Context, args: &UnitStrikeArgs) -> Result<(), crate::abi::context::Failure> {
@@ -2114,6 +2246,10 @@ pub fn import_impact(args: &ImpactArgs) -> () {
     crate::store::calls::import_out(ImpactArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_impact() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_impact(_args: &ImpactArgs) -> () { crate::abi::no_native_host("impact") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2133,6 +2269,10 @@ pub fn import_is_droid(args: &UnitArgs) -> FlagAnswer {
     crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_is_droid(_args: &UnitArgs) -> FlagAnswer { crate::abi::no_native_host("isDroid") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_is_droid_in(context: &crate::abi::context::Context, args: &UnitArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
@@ -2150,6 +2290,10 @@ pub fn import_item_cast(args: &ItemCastArgs) -> CastAnswer {
     unsafe { bfe_import_item_cast() };
     crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_item_cast(_args: &ItemCastArgs) -> CastAnswer { crate::abi::no_native_host("itemCast") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2169,6 +2313,10 @@ pub fn import_item_model(args: &ItemDefArgs) -> ModelAnswer {
     crate::store::calls::import_in(|row, heap| ModelAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_item_model(_args: &ItemDefArgs) -> ModelAnswer { crate::abi::no_native_host("itemModel") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_model_in(context: &crate::abi::context::Context, args: &ItemDefArgs) -> Result<ModelAnswer, crate::abi::context::Failure> {
@@ -2186,6 +2334,10 @@ pub fn import_item_relations(args: &TeamArgs) -> RelationsAnswer {
     unsafe { bfe_import_item_relations() };
     crate::store::calls::import_in(|row, heap| RelationsAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_item_relations(_args: &TeamArgs) -> RelationsAnswer { crate::abi::no_native_host("itemRelations") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2205,6 +2357,10 @@ pub fn import_item_targets(args: &NoArgs) -> TargetsAnswer {
     crate::store::calls::import_in(|row, heap| TargetsAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_item_targets(_args: &NoArgs) -> TargetsAnswer { crate::abi::no_native_host("itemTargets") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_targets_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<TargetsAnswer, crate::abi::context::Failure> {
@@ -2223,6 +2379,10 @@ pub fn import_item_water_crossing(args: &SegmentArgs) -> PointAnswer {
     crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_item_water_crossing(_args: &SegmentArgs) -> PointAnswer { crate::abi::no_native_host("itemWaterCrossing") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_water_crossing_in(context: &crate::abi::context::Context, args: &SegmentArgs) -> Result<PointAnswer, crate::abi::context::Failure> {
@@ -2239,6 +2399,10 @@ pub fn import_launch(args: &LaunchArgs) -> () {
     crate::store::calls::import_out(LaunchArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_launch() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_launch(_args: &LaunchArgs) -> () { crate::abi::no_native_host("launch") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2258,6 +2422,10 @@ pub fn import_missile_target(args: &TargetArgs) -> PointAnswer {
     crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_missile_target(_args: &TargetArgs) -> PointAnswer { crate::abi::no_native_host("missileTarget") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_missile_target_in(context: &crate::abi::context::Context, args: &TargetArgs) -> Result<PointAnswer, crate::abi::context::Failure> {
@@ -2275,6 +2443,10 @@ pub fn import_navigate_missile(args: &SeekArgs) -> SeekAnswer {
     unsafe { bfe_import_navigate_missile() };
     crate::store::calls::import_in(|row, heap| SeekAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_navigate_missile(_args: &SeekArgs) -> SeekAnswer { crate::abi::no_native_host("navigateMissile") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2294,6 +2466,10 @@ pub fn import_network_seats_world(args: &NetworkSeatsQuery) -> NetworkSeatsReply
     crate::store::calls::import_in(|row, heap| NetworkSeatsReply::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_network_seats_world(_args: &NetworkSeatsQuery) -> NetworkSeatsReply { crate::abi::no_native_host("networkSeatsWorld") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_network_seats_world_in(context: &crate::abi::context::Context, args: &NetworkSeatsQuery) -> Result<NetworkSeatsReply, crate::abi::context::Failure> {
@@ -2312,6 +2488,10 @@ pub fn import_owner_key(args: &OwnerArgs) -> KeyAnswer {
     crate::store::calls::import_in(|row, heap| KeyAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_owner_key(_args: &OwnerArgs) -> KeyAnswer { crate::abi::no_native_host("ownerKey") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_owner_key_in(context: &crate::abi::context::Context, args: &OwnerArgs) -> Result<KeyAnswer, crate::abi::context::Failure> {
@@ -2329,6 +2509,10 @@ pub fn import_pickup(args: &PickupArgs) -> () {
     unsafe { bfe_import_pickup() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_pickup(_args: &PickupArgs) -> () { crate::abi::no_native_host("pickup") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_pickup_in(context: &crate::abi::context::Context, args: &PickupArgs) -> Result<(), crate::abi::context::Failure> {
@@ -2345,6 +2529,10 @@ pub fn import_projectile(args: &ProjectileArgs) -> () {
     crate::store::calls::import_out(ProjectileArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_projectile() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_projectile(_args: &ProjectileArgs) -> () { crate::abi::no_native_host("projectile") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2364,6 +2552,10 @@ pub fn import_raycast_units(args: &UnitCastArgs) -> UnitCastAnswer {
     crate::store::calls::import_in(|row, heap| UnitCastAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_raycast_units(_args: &UnitCastArgs) -> UnitCastAnswer { crate::abi::no_native_host("raycastUnits") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_raycast_units_in(context: &crate::abi::context::Context, args: &UnitCastArgs) -> Result<UnitCastAnswer, crate::abi::context::Failure> {
@@ -2381,6 +2573,10 @@ pub fn import_rider_mount(args: &BodyArgs) -> MountAnswer {
     unsafe { bfe_import_rider_mount() };
     crate::store::calls::import_in(|row, heap| MountAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_rider_mount(_args: &BodyArgs) -> MountAnswer { crate::abi::no_native_host("riderMount") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2400,6 +2596,10 @@ pub fn import_seat_cast(args: &SeatRay) -> SeatHit {
     crate::store::calls::import_in(|row, heap| SeatHit::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_seat_cast(_args: &SeatRay) -> SeatHit { crate::abi::no_native_host("seatCast") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_cast_in(context: &crate::abi::context::Context, args: &SeatRay) -> Result<SeatHit, crate::abi::context::Failure> {
@@ -2417,6 +2617,10 @@ pub fn import_seat_controllable(args: &SeatLeaseArgs) -> SeatMade {
     unsafe { bfe_import_seat_controllable() };
     crate::store::calls::import_in(|row, heap| SeatMade::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_seat_controllable(_args: &SeatLeaseArgs) -> SeatMade { crate::abi::no_native_host("seatControllable") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2436,6 +2640,10 @@ pub fn import_seat_controller_state(args: &SeatWho) -> SeatNumber {
     crate::store::calls::import_in(|row, heap| SeatNumber::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_seat_controller_state(_args: &SeatWho) -> SeatNumber { crate::abi::no_native_host("seatControllerState") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_controller_state_in(context: &crate::abi::context::Context, args: &SeatWho) -> Result<SeatNumber, crate::abi::context::Failure> {
@@ -2454,6 +2662,10 @@ pub fn import_seat_overlaps(args: &SeatSphere) -> SeatFlag {
     crate::store::calls::import_in(|row, heap| SeatFlag::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_seat_overlaps(_args: &SeatSphere) -> SeatFlag { crate::abi::no_native_host("seatOverlaps") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_overlaps_in(context: &crate::abi::context::Context, args: &SeatSphere) -> Result<SeatFlag, crate::abi::context::Failure> {
@@ -2470,6 +2682,10 @@ pub fn import_seat_policy(args: &SeatPolicyArgs) -> () {
     crate::store::calls::import_out(SeatPolicyArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_seat_policy() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_seat_policy(_args: &SeatPolicyArgs) -> () { crate::abi::no_native_host("seatPolicy") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2489,6 +2705,10 @@ pub fn import_shooter(args: &ShotArgs) -> ShooterAnswer {
     crate::store::calls::import_in(|row, heap| ShooterAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_shooter(_args: &ShotArgs) -> ShooterAnswer { crate::abi::no_native_host("shooter") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_shooter_in(context: &crate::abi::context::Context, args: &ShotArgs) -> Result<ShooterAnswer, crate::abi::context::Failure> {
@@ -2506,6 +2726,10 @@ pub fn import_shot_tick(args: &ShotArgs) -> TickAnswer {
     unsafe { bfe_import_shot_tick() };
     crate::store::calls::import_in(|row, heap| TickAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_shot_tick(_args: &ShotArgs) -> TickAnswer { crate::abi::no_native_host("shotTick") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2525,6 +2749,10 @@ pub fn import_spin(args: &NoArgs) -> NumberAnswer {
     crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_spin(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("spin") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_spin_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
@@ -2542,6 +2770,10 @@ pub fn import_unit_aim(args: &UnitAimArgs) -> UnitAimAnswer {
     unsafe { bfe_import_unit_aim() };
     crate::store::calls::import_in(|row, heap| UnitAimAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_unit_aim(_args: &UnitAimArgs) -> UnitAimAnswer { crate::abi::no_native_host("unitAim") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2561,6 +2793,10 @@ pub fn import_unit_sphere(args: &UnitArgs) -> SphereAnswer {
     crate::store::calls::import_in(|row, heap| SphereAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_unit_sphere(_args: &UnitArgs) -> SphereAnswer { crate::abi::no_native_host("unitSphere") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_unit_sphere_in(context: &crate::abi::context::Context, args: &UnitArgs) -> Result<SphereAnswer, crate::abi::context::Failure> {
@@ -2578,6 +2814,10 @@ pub fn import_veh_aim_point(args: &VehHull) -> VehPoint {
     unsafe { bfe_import_veh_aim_point() };
     crate::store::calls::import_in(|row, heap| VehPoint::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_aim_point(_args: &VehHull) -> VehPoint { crate::abi::no_native_host("vehAimPoint") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2597,6 +2837,10 @@ pub fn import_veh_aim_points(args: &VehMembers) -> VehPoints {
     crate::store::calls::import_in(|row, heap| VehPoints::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_aim_points(_args: &VehMembers) -> VehPoints { crate::abi::no_native_host("vehAimPoints") }
+
 /// Read a variable result into retained caller storage.
 #[cfg(target_arch = "wasm32")]
 pub fn import_veh_aim_points_read<T>(args: &VehMembers, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {
@@ -2604,6 +2848,10 @@ pub fn import_veh_aim_points_read<T>(args: &VehMembers, read: impl FnOnce(&[f64]
     unsafe { bfe_import_veh_aim_points() };
     crate::store::calls::import_in(read)
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_aim_points_read<T>(_args: &VehMembers, _read: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::no_native_host("vehAimPoints") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2622,6 +2870,10 @@ pub fn import_veh_damaged(args: &VehDamaged) -> () {
     unsafe { bfe_import_veh_damaged() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_damaged(_args: &VehDamaged) -> () { crate::abi::no_native_host("vehDamaged") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_damaged_in(context: &crate::abi::context::Context, args: &VehDamaged) -> Result<(), crate::abi::context::Failure> {
@@ -2638,6 +2890,10 @@ pub fn import_veh_destroyed(args: &VehHull) -> () {
     crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_veh_destroyed() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_destroyed(_args: &VehHull) -> () { crate::abi::no_native_host("vehDestroyed") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2656,6 +2912,10 @@ pub fn import_veh_effect(args: &VehEffect) -> () {
     unsafe { bfe_import_veh_effect() };
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_effect(_args: &VehEffect) -> () { crate::abi::no_native_host("vehEffect") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_effect_in(context: &crate::abi::context::Context, args: &VehEffect) -> Result<(), crate::abi::context::Failure> {
@@ -2672,6 +2932,10 @@ pub fn import_veh_explosion(args: &VehBlast) -> () {
     crate::store::calls::import_out(VehBlast::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_veh_explosion() };
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_explosion(_args: &VehBlast) -> () { crate::abi::no_native_host("vehExplosion") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2691,6 +2955,10 @@ pub fn import_veh_raycast_units(args: &VehRay) -> VehHit {
     crate::store::calls::import_in(|row, heap| VehHit::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_veh_raycast_units(_args: &VehRay) -> VehHit { crate::abi::no_native_host("vehRaycastUnits") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_raycast_units_in(context: &crate::abi::context::Context, args: &VehRay) -> Result<VehHit, crate::abi::context::Failure> {
@@ -2708,6 +2976,10 @@ pub fn import_water_crossing(args: &SegmentArgs) -> PointAnswer {
     unsafe { bfe_import_water_crossing() };
     crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_water_crossing(_args: &SegmentArgs) -> PointAnswer { crate::abi::no_native_host("waterCrossing") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2727,6 +2999,10 @@ pub fn import_waver(args: &NoArgs) -> NumberAnswer {
     crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_waver(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("waver") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_waver_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
@@ -2744,6 +3020,10 @@ pub fn import_world_clock(args: &WorldClockArgs) -> WorldClockReply {
     unsafe { bfe_import_world_clock() };
     crate::store::calls::import_in(|row, heap| WorldClockReply::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_world_clock(_args: &WorldClockArgs) -> WorldClockReply { crate::abi::no_native_host("worldClock") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2763,6 +3043,10 @@ pub fn import_world_controls(args: &WorldControlsArgs) -> WorldControlsReply {
     crate::store::calls::import_in(|row, heap| WorldControlsReply::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_world_controls(_args: &WorldControlsArgs) -> WorldControlsReply { crate::abi::no_native_host("worldControls") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_world_controls_in(context: &crate::abi::context::Context, args: &WorldControlsArgs) -> Result<WorldControlsReply, crate::abi::context::Failure> {
@@ -2780,6 +3064,10 @@ pub fn import_world_events(args: &WorldEventArgs) -> WorldEventReply {
     unsafe { bfe_import_world_events() };
     crate::store::calls::import_in(|row, heap| WorldEventReply::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_world_events(_args: &WorldEventArgs) -> WorldEventReply { crate::abi::no_native_host("worldEvents") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
@@ -2799,6 +3087,10 @@ pub fn import_world_local(args: &WorldLocalArgs) -> WorldLocalReply {
     crate::store::calls::import_in(|row, heap| WorldLocalReply::take(row, heap))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_world_local(_args: &WorldLocalArgs) -> WorldLocalReply { crate::abi::no_native_host("worldLocal") }
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_world_local_in(context: &crate::abi::context::Context, args: &WorldLocalArgs) -> Result<WorldLocalReply, crate::abi::context::Failure> {
@@ -2816,6 +3108,10 @@ pub fn import_world_network(args: &WorldNetworkArgs) -> WorldNetworkReply {
     unsafe { bfe_import_world_network() };
     crate::store::calls::import_in(|row, heap| WorldNetworkReply::take(row, heap))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cold]
+pub fn import_world_network(_args: &WorldNetworkArgs) -> WorldNetworkReply { crate::abi::no_native_host("worldNetwork") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]

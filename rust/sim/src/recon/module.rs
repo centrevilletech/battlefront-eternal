@@ -126,7 +126,7 @@ impl World for NativeWorld<'_, '_> {
     // surface. A map with water elsewhere must still return no surface for
     // a dry cell; a global level alone would change its hover height.
     fn water(&self, x: f64, z: f64) -> Option<f64> {
-        let map = crate::vehicles::module::map()?;
+        let map = self.w.fleet.map.as_ref()?;
         map.water.as_ref()?.over(x, z).then_some(map.level)
     }
     // RemoteDroids.control runs after the simulation camera update. Exit
@@ -700,7 +700,7 @@ pub(crate) fn reserve_unit_slots_in(world_ctx: &mut crate::world::owner::World, 
 
 }
 
-pub(crate) fn piloted_in(s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>>{ piloted_in_in(f3::recon_services(), s, owner) }
+pub(crate) fn piloted_in(units:&crate::units::owner::Units,s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>>{ piloted_in_in(f3::recon_services_ref(units), s, owner) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn kill_piloted(owner: Ref<Unit>, services: f3::WorldServices<'_>){ kill_piloted_in(crate::abi::world(), owner, services) }
 

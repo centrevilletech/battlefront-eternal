@@ -44,7 +44,7 @@ pub fn f3_hull_in(world_ctx: &mut crate::world::owner::World) {
     all.rows[slot] = Some(input);
     // Traps may have been prepared before this variant existed. Fleet birth
     // reserves their victim snapshots too, rather than growing them on crush.
-    crate::battle::f4::live().prepare_hulls(all.rows.len());
+    crate::battle::f4::live_in(&mut world_ctx.battle).prepare_hulls(all.rows.len());
     // The first native sensor may run before the first fleet update.
     if let Some(id) = id { refresh_in(world_ctx, id as u32); }
     let all = world_ctx.units.hulls.get_or_insert_with(Hulls::default);
@@ -79,7 +79,7 @@ pub(crate) fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Veh
     let v = world_ctx.sim.store.vehicle.get_mut(r).unwrap();
     v.target_id = id as f64;
     let body = v.body;
-    let collision = fleet::collision_world().expect("prepared fleet collision");
+    let collision = fleet::collision_world_in(world_ctx).expect("prepared fleet collision");
     let state = crate::collision::state();
     let kernel = collision.kernel_slot(body.slot).expect("prepared hull body");
     let world = &mut state.worlds[collision.world];
@@ -108,7 +108,7 @@ fn target_team_in(sim: &crate::abi::Sim, v: &Vehicle) -> f64 {
 /// facts/aim/LOS reads of that same revision share its prepared target row.
 pub(crate) fn refresh_in(world_ctx: &mut crate::world::owner::World, id: u32) {
     let Some(r) = world_ctx.units.hulls.get_or_insert_with(Hulls::default).members.get(id as usize).copied().flatten() else { return };
-    let revision = f2::revision(r);
+    let revision = f2::revision_in(world_ctx, r);
     if world_ctx.units.hulls.get_or_insert_with(Hulls::default).fact_versions[r.slot as usize] == Some(revision) { return; }
     let Some(v) = world_ctx.sim.store.vehicle.get(r) else { return };
     let row = binding(world_ctx.units.hulls.get_or_insert_with(Hulls::default), r);
@@ -168,7 +168,7 @@ pub(crate) fn body_index_in(world_ctx: &mut crate::world::owner::World, body: Re
 pub(crate) fn rider_mount_in(world_ctx: &mut crate::world::owner::World, body: Ref<Body>) -> Option<crate::ordnance::world::RiderMount> {
     let r=world_ctx.units.hulls.get_or_insert_with(Hulls::default).bodies.get(body.slot as usize).copied().flatten()?;
     let hull=world_ctx.sim.store.vehicle.get(r)?;
-    if hull.body!=body || !f2::live_seats::animal(r) ||
+    if hull.body!=body || !f2::live_seats::animal_in(&mut world_ctx.fleet, r) ||
         !hull.seats.iter().any(|seat|seat.lease.is_some()) {return None;}
     Some(crate::ordnance::world::RiderMount {vehicle:r,bound_radius:hull.bound_radius,body:crate::store::Nullable::Value(body)})
 }
@@ -177,17 +177,17 @@ pub(crate) fn rider_mount_in(world_ctx: &mut crate::world::owner::World, body: R
 /// A working row comes from F2's retained pool rather than cloning its class.
 pub(crate) fn mutate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, value: f64, attacker: Option<OrdnanceOwner>, services: WorldServices<'_>) {
     let index = world_ctx.sim.store.vehicles.vehicles.iter().position(|&v| v == r).expect("ordered fleet hull");
-    let mut hull = f2::take_hull(r, index);
+    let mut hull = f2::take_hull_in(world_ctx, r, index);
     // The retained spare may last have served a ground-only read. Preserve
     // flight state too before the common store writes this incoming hit.
-    if hull.flying { fleet::read_flight(&mut hull); }
+    if hull.flying { fleet::read_flight_in(world_ctx, &mut hull); }
     let mut world = HullDamage::new(world_ctx, r, services);
     if let Some(attacker) = attacker { hull.damage(&mut world, value, attacker); }
     else { hull.set_health(&mut world, value); }
     // The solver can reload after a nested death. Store that final result,
     // not the row sampled before its onDamaged or crew hooks.
-    fleet::store_hull(&hull);
-    f2::recycle(hull);
+    fleet::store_hull_in(world_ctx, &hull);
+    f2::recycle_in(world_ctx, hull);
 }
 /// Vehicles.struck accepts only the actual hull collision owner. A stale body
 /// reference must not redirect a projectile to a recycled vehicle slot.
@@ -257,13 +257,13 @@ impl<'w, 'a> HullDamage<'w, 'a> {
     pub(crate) fn new(w: &'w mut crate::world::owner::World, hull: Ref<Vehicle>, services: WorldServices<'a>) -> Self { Self { w, hull, services } }
 }
 impl HullDamageWorld for HullDamage<'_, '_> {
-    fn commit_hull(&mut self, hull: &Hull) { fleet::store_hull(hull); }
+    fn commit_hull(&mut self, hull: &Hull) { fleet::store_hull_in(self.w, hull); }
     fn resume_hull(&mut self, hull: &mut Hull) {
         // A nested crew death may have exploded back through this hull.
         // Its committed canonical row takes precedence over our old copy.
         let v = self.w.sim.store.vehicle.get(hull.id).expect("damaged hull");
         hull.load(v);
-        if hull.flying { fleet::read_flight(hull); }
+        if hull.flying { fleet::read_flight_in(self.w, hull); }
     }
     fn damaged_hull(&mut self, index: usize, amount: f64, attacker: &OrdnanceOwner) {
         // Vehicle.onDamaged is a notice. Its sampled values stay before the
@@ -271,10 +271,10 @@ impl HullDamageWorld for HullDamage<'_, '_> {
         notice_in(self.w, reference_in(&self.w.sim, index), F3HullEvent::Damaged, amount, *attacker);
     }
     fn set_damage_body(&mut self, body: u32, enabled: bool) {
-        fleet::collision_world().expect("fleet collision").enable_body(crate::collision::state(), body, enabled).expect("hull collision body");
+        fleet::collision_world_in(self.w).expect("fleet collision").enable_body(crate::collision::state(), body, enabled).expect("hull collision body");
     }
-    fn start_respawn(&mut self, index: usize) { f2::respawn_clock(index); }
-    fn destroy_hull_crew(&mut self, index: usize) { f2::live_seats::destroyed_with(index, Some(self.services.reborrow())); }
+    fn start_respawn(&mut self, index: usize) { f2::respawn_clock_in(self.w, index); }
+    fn destroy_hull_crew(&mut self, index: usize) { f2::live_seats::destroyed_with_in(self.w, index, Some(self.services.reborrow())); }
     fn destroyed_hull(&mut self, index: usize) {
         let r = reference_in(&self.w.sim, index);
         let owner = self.w.sim.store.vehicle.get(r).expect("destroyed hull").last_attacker;
@@ -285,8 +285,8 @@ impl HullDamageWorld for HullDamage<'_, '_> {
             Attacker::OwnerSnapshot(r) => self.w.sim.store.owner_snapshot.get(r).and_then(|o| o.character),
             _ => None,
         };
-        if crate::battle::f4_core::active() {
-            crate::battle::f4_core::achievement(character, F4CommandOp::VehicleDestroyed);
+        if crate::battle::f4_core::active_in(&mut self.w.battle) {
+            crate::battle::f4_core::achievement_in(self.w, character, F4CommandOp::VehicleDestroyed);
         } else if let Some(character) = character {
             // Game.vehicleDestroyed updates an achievement immediately.
             // It sees committed mirrors but cannot call damage or a solver.
@@ -294,7 +294,7 @@ impl HullDamageWorld for HullDamage<'_, '_> {
             import_f3_hull_credit(&F3HullCredit { character });
         }
     }
-    fn release_hull_crew(&mut self, index: usize) { f2::live_seats::release_with(index, Some(self.services.reborrow())); }
+    fn release_hull_crew(&mut self, index: usize) { f2::live_seats::release_with_in(self.w, index, Some(self.services.reborrow())); }
     fn explode_hull(&mut self, index: usize, final_explosion: bool, at: &Vector3) {
         let r = reference_in(&self.w.sim, index);
         let row = binding(self.w.units.hulls.get_or_insert_with(Hulls::default), r);

@@ -14,7 +14,6 @@ use v8math::{cos, hypot, max, min, sin};
 
 mod camera;
 mod defs;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod module;
 
 pub const RADIUS: f64 = 0.271;
@@ -594,11 +593,9 @@ impl Authority {
     }
     /// Combat's pending-shot token keeps slot and generation exactly in f64.
     /// The reservation nonce never crosses the native service boundary.
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fn token(reservation: Reservation) -> f64 {
         reservation.slot as f64 + reservation.generation as f64 * 4096.0
     }
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fn reservation(&self, token: f64) -> Option<Reservation> {
         let generation = (token / 4096.0).floor() as u32;
         let slot = (token % 4096.0) as u32;

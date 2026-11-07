@@ -11,7 +11,7 @@ pub enum Owner {Unit(F3UnitKey),Mount(Source,usize)}
 impl Owner {
     /// useClassicRandom runs at controller binding, before its next shot.
     /// The numeric stream was attached to F3 once during world construction.
-    #[cfg(target_arch="wasm32")]
+
     pub fn bind_classic(&self,w:&mut crate::world::owner::World,binding:u32,stream:crate::ai::random::SharedRandom)->bool {
         use crate::vehicles::{module::f2::{firing,live_seats},f2_seats::HullLife};
         match self {
@@ -88,9 +88,8 @@ pub trait Mounted {
     fn edit<R>(&mut self,context:MountEditContext<'_>,source:Source,seat:usize,index:usize,edit:impl FnOnce(&mut WeaponSettings)->R)->Option<R>;
 }
 
-#[cfg(target_arch="wasm32")]
 pub struct Live;
-#[cfg(target_arch="wasm32")]
+
 impl Mounted for Live {
     fn count(&self,context:ReadContext<'_>,source:Source,seat:usize)->Option<usize> {
         use crate::vehicles::{module::f2::{firing,live_seats},f2_seats::HullLife};

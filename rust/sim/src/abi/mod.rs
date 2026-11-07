@@ -20,6 +20,11 @@ use crate::store::{KindCode, StrId, Strings};
 /// checks it).
 pub const ABI: u32 = 1;
 
+/// A native tick must resolve every gameplay service from its owners.
+/// An unserved host callback is a deterministic failure, never a second path.
+#[cold]
+pub fn no_native_host(name: &str) -> ! { panic!("native host import unavailable: {name}") }
+
 pub struct Sim {
     pub store: Store,
     pub strings: Strings,

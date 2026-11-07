@@ -36,8 +36,23 @@ pub trait Text {
     fn nonempty(&self, id: StrId) -> bool;
 }
 
+impl<T: Text + ?Sized> Text for &T { fn nonempty(&self, id: StrId) -> bool { (**self).nonempty(id) } }
+
 impl Text for Strings {
     fn nonempty(&self, id: StrId) -> bool { !self.units(id).is_empty() }
+}
+
+/// A phase reads text through its current borrowed world, including after
+/// callbacks which intern labels. Pure callers can still supply `Strings`.
+pub trait ContextText<W: ?Sized> {
+    fn nonempty_in(&self, world: &W, id: StrId) -> bool;
+}
+impl<W: ?Sized, T: Text + ?Sized> ContextText<W> for T {
+    fn nonempty_in(&self, _: &W, id: StrId) -> bool { self.nonempty(id) }
+}
+pub struct BoundText<'a, W: ?Sized>(pub &'a dyn ContextText<W>, pub &'a W);
+impl<W: ?Sized> Text for BoundText<'_, W> {
+    fn nonempty(&self, id: StrId) -> bool { self.0.nonempty_in(self.1, id) }
 }
 
 /// A string field's truthiness (null and "" are false).
@@ -266,4 +281,10 @@ pub fn tick_character(dt: f64, character: &mut Character, strings: &dyn Text, se
     if let Some((key, label)) = seen.vehicle {
         add_time(&mut record.slots[own].vehicles, VEHICLES, key, label, dt, strings);
     }
+}
+
+pub trait TextWorld { fn text_nonempty(&self, id: StrId) -> bool; }
+pub struct WorldText;
+impl<W: TextWorld + ?Sized> ContextText<W> for WorldText {
+    fn nonempty_in(&self, world: &W, id: StrId) -> bool { world.text_nonempty(id) }
 }

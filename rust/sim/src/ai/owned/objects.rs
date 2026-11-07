@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub struct Objects<'a> {
-    #[cfg(target_arch="wasm32")]
+
     pub w:&'a crate::world::owner::World,
     pub store: &'a Store,
     pub commands: &'a dyn CharacterOwner,

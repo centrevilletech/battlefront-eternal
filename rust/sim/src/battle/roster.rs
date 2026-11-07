@@ -54,8 +54,8 @@ impl RosterWorld for NativeWorld<'_> {
     fn bot_name(&mut self, s: &mut Store, team: usize) -> StrId { spawning::bot_name(&s.spawning, team, self.naming.as_deref_mut().expect("the roster's names"), self.strings) }
     fn player_name(&mut self, name: &[u16]) -> StrId { self.strings.intern(player_name(name)) }
     fn insert(&mut self, s: &mut Store, team: f64, name: StrId) -> Option<Ref<Character>> { spawning::insert(s, team, false, -1.0, name, self.strings) }
-    fn activate(&mut self, s: &mut Store, character: Ref<Character>) { spawning::activate(s, character, self.strings, self.world, self.random.as_deref_mut().expect("the roster's draws")); }
-    fn pad_quotas(&mut self, s: &mut Store, team: usize) { spawning::pad_quotas(&mut s.spawning, team, self.random.as_deref_mut().expect("the roster's draws")); }
+    fn activate(&mut self, s: &mut Store, character: Ref<Character>) { spawning::activate(s, character, self.strings, self.world, &mut self.random.as_deref_mut().expect("the roster's draws")); }
+    fn pad_quotas(&mut self, s: &mut Store, team: usize) { spawning::pad_quotas(&mut s.spawning, team, &mut self.random.as_deref_mut().expect("the roster's draws")); }
 }
 
 /// A player's name as the roster keeps it: String(name).slice(0, 32), in

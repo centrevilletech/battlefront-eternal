@@ -45,8 +45,8 @@ pub(crate) struct Fleet {
     classes: Option<HashMap<String, HullClass>>,
     // VehiclesWorld collision, map rules and lifecycle exchange are separate
     // from retained class/pose banks and from each independent flight clock.
-    collision: Option<Collision>,
-    map: Option<MapRules>,
+    pub(crate) collision: Option<Collision>,
+    pub(crate) map: Option<MapRules>,
     input: Vec<f64>,
     changes: Vec<f64>,
     templates: Option<HashMap<String, VehicleTemplate>>,
@@ -165,10 +165,10 @@ pub(crate) fn flight_tuning_in(world_ctx: &mut crate::world::owner::World, class
 
 /// EntityWorldCapture's mount sample reads the retained walk clocks without
 /// updating a rig or publishing a geometry row back through JavaScript.
-pub(crate) fn wire_walk_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Vehicle>) -> (f64, f64) { Fleet::wire_walk(&mut world_ctx.fleet.poses, reference) }
+pub(crate) fn wire_walk_in(fleet:&Fleet, reference: Ref<Vehicle>) -> (f64, f64) { Fleet::wire_walk(&fleet.poses, reference) }
 /// captureGroundCorrection observes aim history after the completed pose
 /// pass. Reading it must not call aimSeats or sample the rig a second time.
-pub(crate) fn wire_seat_history_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { Fleet::wire_seat_history(&mut world_ctx.fleet.poses, reference, index) }
+pub(crate) fn wire_seat_history_in(fleet:&Fleet, reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { Fleet::wire_seat_history(&fleet.poses, reference, index) }
 
 /// The hull classes' keys the phase has been given (`veh_class`), by name.
 
@@ -190,7 +190,8 @@ pub(crate) fn veh_map_in(world_ctx: &mut crate::world::owner::World, json: u32, 
 /// (collision.js rayWorld) and the vehicle-only barriers' fixed set (-1
 /// none). The world is required; body mappings stay with its lifetime.
 
-pub(crate) fn veh_collision_in(world_ctx: &mut crate::world::owner::World, world: i32, blockers: i32) { Fleet::veh_collision(&mut world_ctx.fleet.collision, world, blockers); if let Some(c) = world_ctx.fleet.collision.as_mut() { c.use_world_flags(); } }
+pub(crate) fn veh_collision_in(world_ctx: &mut crate::world::owner::World, world: i32, blockers: i32) { Fleet::veh_collision(&mut world_ctx.fleet.collision, world, blockers); #[cfg(target_arch = "wasm32")]
+    if let Some(c) = world_ctx.fleet.collision.as_mut() { c.use_world_flags(); } }
 
 /// Where JavaScript writes each body's enabled flag, by its place in the
 /// collision world's order (MAX_BODIES bytes; 0 without a world here).
@@ -758,9 +759,8 @@ impl VehicleWorld for JsWorld<'_, '_> {
     fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) { let world_ctx = &mut *self.world_ctx;
             if let Some(services) = &mut self.services {
                 use crate::vehicles::damage::HullDamageWorld;
-                crate::units::f3_hulls::DamageWorld {
-                    services: services.reborrow(), hull: f2::hull_reference_in(world_ctx, hull),
-                }.damaged_hull(hull, amount, attacker);
+                let reference=f2::hull_reference_in(world_ctx,hull);
+                crate::units::f3_hulls::HullDamage::new(world_ctx, reference, services.reborrow()).damaged_hull(hull, amount, attacker);
                 return;
             }
             if f2::active_in(&world_ctx.fleet) { f2::publish_in(world_ctx); }
@@ -770,9 +770,8 @@ impl VehicleWorld for JsWorld<'_, '_> {
     fn destroyed_crew(&mut self, hull: usize) { let world_ctx = &mut *self.world_ctx;
             if let Some(services) = &mut self.services {
                 use crate::vehicles::damage::HullDamageWorld;
-                crate::units::f3_hulls::DamageWorld {
-                    services: services.reborrow(), hull: f2::hull_reference_in(world_ctx, hull),
-                }.destroy_hull_crew(hull);
+                let reference=f2::hull_reference_in(world_ctx,hull);
+                crate::units::f3_hulls::HullDamage::new(world_ctx, reference, services.reborrow()).destroy_hull_crew(hull);
                 return;
             }
             f2::live_seats::destroyed_in(world_ctx, hull);
@@ -781,9 +780,8 @@ impl VehicleWorld for JsWorld<'_, '_> {
     fn destroyed(&mut self, hull: usize) { let world_ctx = &mut *self.world_ctx;
             if let Some(services) = &mut self.services {
                 use crate::vehicles::damage::HullDamageWorld;
-                crate::units::f3_hulls::DamageWorld {
-                    services: services.reborrow(), hull: f2::hull_reference_in(world_ctx, hull),
-                }.destroyed_hull(hull);
+                let reference=f2::hull_reference_in(world_ctx,hull);
+                crate::units::f3_hulls::HullDamage::new(world_ctx, reference, services.reborrow()).destroyed_hull(hull);
                 return;
             }
             if f2::active_in(&world_ctx.fleet) { f2::publish_in(world_ctx); }
@@ -797,9 +795,8 @@ impl VehicleWorld for JsWorld<'_, '_> {
     fn release_crew(&mut self, hull: usize) { let world_ctx = &mut *self.world_ctx;
             if let Some(services) = &mut self.services {
                 use crate::vehicles::damage::HullDamageWorld;
-                crate::units::f3_hulls::DamageWorld {
-                    services: services.reborrow(), hull: f2::hull_reference_in(world_ctx, hull),
-                }.release_hull_crew(hull);
+                let reference=f2::hull_reference_in(world_ctx,hull);
+                crate::units::f3_hulls::HullDamage::new(world_ctx, reference, services.reborrow()).release_hull_crew(hull);
                 return;
             }
             f2::live_seats::release_in(world_ctx, hull);
@@ -808,9 +805,8 @@ impl VehicleWorld for JsWorld<'_, '_> {
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3) { let world_ctx = &mut *self.world_ctx;
             if let Some(services) = &mut self.services {
                 use crate::vehicles::damage::HullDamageWorld;
-                crate::units::f3_hulls::DamageWorld {
-                    services: services.reborrow(), hull: f2::hull_reference_in(world_ctx, hull),
-                }.explode_hull(hull, final_explosion, position);
+                let reference=f2::hull_reference_in(world_ctx,hull);
+                crate::units::f3_hulls::HullDamage::new(world_ctx, reference, services.reborrow()).explode_hull(hull, final_explosion, position);
                 return;
             }
             if f2::active_in(&world_ctx.fleet) { f2::publish_in(world_ctx); }
@@ -820,9 +816,7 @@ impl VehicleWorld for JsWorld<'_, '_> {
     fn effect(&mut self, name: &str, position: &Vector3) { let world_ctx = &mut *self.world_ctx;
             if let Some(services) = &mut self.services {
                 use crate::vehicles::damage::HullDamageWorld;
-                crate::units::f3_hulls::DamageWorld {
-                    services: services.reborrow(), hull: self.hull.expect("committed wreck"),
-                }.hull_effect(name, position);
+                crate::units::f3_hulls::HullDamage::new(world_ctx,self.hull.expect("committed wreck"),services.reborrow()).hull_effect(name, position);
                 return;
             }
             let name = world_ctx.sim.strings.intern_str(name);
@@ -830,8 +824,8 @@ impl VehicleWorld for JsWorld<'_, '_> {
     }
 
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64> {
-            if crate::units::f3::active() {
-                return crate::units::f3_fleet::raycast(origin, direction, far, None);
+            if crate::units::f3::active_in(&self.world_ctx.units) {
+                return crate::units::f3_fleet::raycast_in(self.world_ctx, origin, direction, far, None);
             }
             let h = import_veh_raycast_units(&VehRay { origin: v3(origin), direction: v3(direction), far, ignore: -1.0 });
             h.found.then_some(h.distance)
@@ -886,12 +880,12 @@ impl FlightWorld for JsWorld<'_, '_> {
     }
 
     fn member_count(&mut self) -> usize { let world_ctx = &mut *self.world_ctx;
-            if crate::units::f3::active() { return crate::units::f3_fleet::count(); }
+            if crate::units::f3::active_in(&world_ctx.units) { return crate::units::f3_fleet::count_in(&world_ctx.sim); }
             world_ctx.fleet.members.len()
     }
 
     fn member(&mut self, i: usize) -> Member { let world_ctx = &mut *self.world_ctx;
-            if crate::units::f3::active() { return crate::units::f3_fleet::flight(i, self.craft); }
+            if crate::units::f3::active_in(&world_ctx.units) { return crate::units::f3_fleet::flight_in(world_ctx, i, self.craft); }
             let m = world_ctx.fleet.members[i];
             match m.kind {
                 MEMBER_UNIT => Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: true, body: None, point: Vector3::default() },
@@ -908,7 +902,7 @@ impl FlightWorld for JsWorld<'_, '_> {
     }
 
     fn relation(&mut self, a: Team, b: Team) -> f64 { let world_ctx = &mut *self.world_ctx;
-            if crate::units::f3::active() { return crate::units::f3::relation(a.unwrap_or(0.0),b.unwrap_or(0.0)); }
+            if crate::units::f3::active_in(&world_ctx.units) { return crate::units::f3::relation_in(&world_ctx.units, a.unwrap_or(0.0),b.unwrap_or(0.0)); }
             let teams = &world_ctx.fleet.teams;
             let same = |x: &Team, y: &Team| match (x, y) {
                 (None, None) => true,
@@ -922,15 +916,15 @@ impl FlightWorld for JsWorld<'_, '_> {
     }
 
     fn aim_point(&mut self, i: usize) -> Vector3 { let world_ctx = &mut *self.world_ctx;
-            if crate::units::f3::active() {
-                let member = crate::units::f3_fleet::key(i);
+            if crate::units::f3::active_in(&world_ctx.units) {
+                let member = crate::units::f3_fleet::key_in(&world_ctx.sim, i);
                 if matches!(member, crate::gen::Member::Unit(_)) {
                     if let Some(Some(point)) = world_ctx.fleet.aim_cache.get(i) { return *point; }
-                    let point = crate::units::f3_fleet::aim(member);
+                    let point = crate::units::f3_fleet::aim_in(world_ctx, member);
                     { world_ctx.fleet.aim_cache[i] = Some(point); }
                     return point;
                 }
-                return crate::units::f3_fleet::aim(member);
+                return crate::units::f3_fleet::aim_in(world_ctx, member);
             }
             let m = world_ctx.fleet.members[i];
             match m.kind {
@@ -949,15 +943,16 @@ impl FlightWorld for JsWorld<'_, '_> {
             }
     }
 
-    fn prefetch_aim_points(&mut self, members: &[usize]) { let world_ctx = &mut *self.world_ctx;
-            if crate::units::f3::active() {
+    fn prefetch_aim_points(&mut self, members: &[usize]) {
+            if crate::units::f3::active_in(&self.world_ctx.units) {
                 // Flight targeting observes each requested Unit once this phase.
                 // Preserve the original bulk request order and retained aim cache.
                 for &index in members {
-                    if matches!(crate::units::f3_fleet::key(index), crate::gen::Member::Unit(_)) { self.aim_point(index); }
+                    if matches!(crate::units::f3_fleet::key_in(&self.world_ctx.sim,index), crate::gen::Member::Unit(_)) { self.aim_point(index); }
                 }
                 return;
             }
+            let world_ctx = &mut *self.world_ctx;
             let rows = &world_ctx.fleet.members;
             let cache = &world_ctx.fleet.aim_cache;
             let mut args = VehMembers { indices: std::mem::take(&mut world_ctx.fleet.aim_wanted) };
@@ -1133,11 +1128,11 @@ impl Fleet {
     fn flight_tuning(tunings: &mut Option<Tunings>, class: FlightClass) -> Tuning {
         tunings.get_or_insert_with(Tunings::default).of(class)
     }
-    fn wire_walk(poses: &mut Vec<Option<Posed>>, reference: Ref<Vehicle>) -> (f64, f64) {
+    fn wire_walk(poses: &[Option<Posed>], reference: Ref<Vehicle>) -> (f64, f64) {
         poses.get(reference.slot as usize).and_then(Option::as_ref)
             .map_or((0., 0.), |row| (row.pose.walk_phase, row.pose.walk_blend))
     }
-    fn wire_seat_history(poses: &mut Vec<Option<Posed>>, reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> {
+    fn wire_seat_history(poses: &[Option<Posed>], reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> {
         let row = poses.get(reference.slot as usize)?.as_ref()?;
         let seat = row.pose.seats.get(index)?; Some((seat.yaw_rate, seat.last_yaw))
     }
@@ -1151,9 +1146,9 @@ pub(crate) fn map() -> Option<&'static mut MapRules> { map_in(crate::abi::world(
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn flight_tuning(class: FlightClass) -> Tuning { flight_tuning_in(crate::abi::world(), class) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) { wire_walk_in(crate::abi::world(), reference) }
+pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) { wire_walk_in(&crate::abi::world().fleet, reference) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { wire_seat_history_in(crate::abi::world(), reference, index) }
+pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { wire_seat_history_in(&crate::abi::world().fleet, reference, index) }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> { prediction_hull_in(crate::abi::world(), r) }

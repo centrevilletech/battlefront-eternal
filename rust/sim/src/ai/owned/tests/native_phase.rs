@@ -6,26 +6,19 @@ use ctl::world::*;
 use owned::scratch::List;
 use nav::math::Vec3;
 use std::{alloc::{GlobalAlloc,Layout,System},cell::Cell};
-struct Allocator;
-thread_local! {static COUNTING:Cell<bool>=const {Cell::new(false)};static ALLOCATIONS:Cell<usize>=const {Cell::new(0)};}
-unsafe impl GlobalAlloc for Allocator {
- unsafe fn alloc(&self,l:Layout)->*mut u8 {COUNTING.with(|on|if on.get(){ALLOCATIONS.with(|n|n.set(n.get()+1));});System.alloc(l)}
- unsafe fn dealloc(&self,p:*mut u8,l:Layout){System.dealloc(p,l)}
- unsafe fn realloc(&self,p:*mut u8,l:Layout,n:usize)->*mut u8 {COUNTING.with(|on|if on.get(){ALLOCATIONS.with(|n|n.set(n.get()+1));});System.realloc(p,l,n)}
-}
-#[global_allocator]static ALLOCATOR:Allocator=Allocator;
+use super::phase::{COUNTING,ALLOCATIONS};
 struct Facts;
 impl owned::population::Facts for Facts {fn building_alive(&self,_:Ref<Building>)->bool {true}fn vehicle_mask(&self,_:Ref<Vehicle>)->f64 {1.}}
 struct Env {now:f64}
 impl Environment for Env {
  fn time(&self)->f64 {self.now}
  fn remembered(&mut self,_:Actor)->Option<Vec3> {None}
- fn clear_above(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:Vec3,_:&AiLifeHandle)->bool {true}
+ fn clear_above(&mut self,_:&mut crate::world::owner::World,_:Vec3,_:&AiLifeHandle)->bool {true}
  fn follow_far(&mut self)->f64 {3.}
- fn seat_frame(&mut self,_:&mut bfe_sim::gen::Store,_:&mut bfe_sim::vehicles::f2_seats::Seats,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {panic!("no seats")}
+ fn seat_frame(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::vehicles::f2_seats::HullLife,_:usize)->Option<(Vec3,Vec3)> {panic!("no seats")}
 }
 struct Native {
- store:Store,commands:Commands,entities:owned::entities::Entities,units:owned::units::Units,
+ store:Box<crate::world::owner::World>,commands:Commands,entities:owned::entities::Entities,units:owned::units::Units,
  roster:owned::roster::Roster,population:owned::population::Population,posts:owned::posts::Posts,
  buffers:owned::buffers::Buffers,nav:Navigation,actors:Vec<Actor>,keys:Vec<UKey>,cameras:Vec<CameraView>,
  random:bfe_sim::ai::phase::RandomState,env:Env,vo:usize,crew:Option<CrewSnap>,
@@ -163,16 +156,16 @@ impl AiWorld for Native {
     fn foreign_agent_tick(&mut self,core:&mut ctl::Core, controller: usize, dt: f64, phase: f64, shared: &ForeignShared) -> ForeignTick {panic!("unbound native service foreign_agent_tick")}
     fn foreign_agent_exit(&mut self,core:&mut ctl::Core, controller: usize, shared: &ForeignShared) -> (Option<ForeignShared>, Vec<CoreEffect>) {panic!("unbound native service foreign_agent_exit")}
     fn helper_create(&mut self, controller: usize) -> (HelperKind, HelperObs, Option<ControlObs>) {let actor=self.actor(controller);let obs=self.nav.renew_helper(&self.store,actor).unwrap();(HelperKind::Ground,obs,self.nav.observation(&self.store,actor))}
-    fn helper_goto(&mut self, controller: usize, point: Vec3, mode: GotoMode) -> HelperObs {let actor=self.actor(controller);let mode=match mode {GotoMode::Route=>nav::goto::GotoMode::Route,GotoMode::Direct=>nav::goto::GotoMode::Direct,GotoMode::Straight=>nav::goto::GotoMode::Straight};self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Goto(point,mode)).unwrap()}
-    fn helper_stop(&mut self, controller: usize) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Stop).unwrap()}
-    fn helper_terminate(&mut self, controller: usize) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Stop).unwrap()}
-    fn helper_tick(&mut self, controller: usize, dt: f64) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Tick(dt)).unwrap()}
+    fn helper_goto(&mut self, controller: usize, point: Vec3, mode: GotoMode) -> HelperObs {let actor=self.actor(controller);let mode=match mode {GotoMode::Route=>nav::goto::GotoMode::Route,GotoMode::Direct=>nav::goto::GotoMode::Direct,GotoMode::Straight=>nav::goto::GotoMode::Straight};self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Goto(point,mode)).unwrap()}
+    fn helper_stop(&mut self, controller: usize) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Stop).unwrap()}
+    fn helper_terminate(&mut self, controller: usize) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Stop).unwrap()}
+    fn helper_tick(&mut self, controller: usize, dt: f64) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Tick(dt)).unwrap()}
     fn helper_destination(&mut self, controller: usize) -> Vec3 {self.nav.destination(&self.store,self.actor(controller)).unwrap()}
-    fn helper_install_path(&mut self, controller: usize, points: &[Vec3]) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Install(points)).unwrap()}
+    fn helper_install_path(&mut self, controller: usize, points: &[Vec3]) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Install(points)).unwrap()}
     fn helper_follow(&mut self, controller: usize, target: EntRef) -> HelperObs {panic!("unbound native service helper_follow")}
-    fn helper_follow_trail(&mut self, controller: usize, on: bool) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Trail(on)).unwrap()}
-    fn helper_hold_path(&mut self, controller: usize, on: bool) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Hold(on)).unwrap()}
-    fn helper_set_leader(&mut self, controller: usize, leader: Option<EntRef>) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,Command::Leader(None)).unwrap()}
+    fn helper_follow_trail(&mut self, controller: usize, on: bool) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Trail(on)).unwrap()}
+    fn helper_hold_path(&mut self, controller: usize, on: bool) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Hold(on)).unwrap()}
+    fn helper_set_leader(&mut self, controller: usize, leader: Option<EntRef>) -> HelperObs {let actor=self.actor(controller);self.nav.command(&mut self.store,&mut self.random,&mut self.env,actor,Command::Leader(None)).unwrap()}
     fn helper_dispose(&mut self, controller: usize) {}
     fn nav_control_ensure(&mut self, controller: usize) -> ControlObs {self.nav.observation(&self.store,self.actor(controller)).unwrap()}
     fn nav_control_reset(&mut self, controller: usize) {let actor=self.actor(controller);assert!(self.nav.reset(actor));}
@@ -191,7 +184,7 @@ impl AiWorld for Native {
     fn perception_flags(&mut self, controller: usize) -> (bool, bool) {panic!("unbound native service perception_flags")}
     fn combat_writes(&mut self, controller: usize) -> CombatWrites {panic!("unbound native service combat_writes")}
     fn network_secondary_active(&self) -> bool {false}
-    fn nav_navigation_input(&mut self, _core:&mut bfe_sim::ai::control::Core, controller: usize, step: f64, aim: Option<Vec3>,facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>) {let actor=self.actor(controller);self.nav.input(&mut self.store,&mut self.seats,&mut self.random,&mut self.env,actor,step,aim,facing).unwrap();(Some(self.nav.helper_observation(&self.store,self.actor(controller)).unwrap()),Vec::new())}
+    fn nav_navigation_input(&mut self, _core:&mut bfe_sim::ai::control::Core, controller: usize, step: f64, aim: Option<Vec3>,facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>) {let actor=self.actor(controller);self.nav.input(&mut self.store,&mut self.random,&mut self.env,actor,step,aim,facing).unwrap();(Some(self.nav.helper_observation(&self.store,self.actor(controller)).unwrap()),Vec::new())}
     fn nav_analogs(&mut self, _core:&mut bfe_sim::ai::control::Core, controller: usize, aim: Option<Vec3>, step: f64,_facing:bool) -> ([f64; 4], Vec<CoreEffect>) {panic!("unbound native service nav_analogs")}
 }
 
@@ -213,11 +206,11 @@ impl Native {
   self.actors[reference.slot as usize]
  }
  fn scene(&self)->owned::scene::Scene<'_> {
-  owned::scene::Scene {store:&self.store,seats:&self.seats,buildings:&self.buildings.buildings,traps:Some(&self.buildings.traps),characters:&self.commands,roster:&self.roster,entities:&self.entities,
+  owned::scene::Scene {w:&self.store,store:&self.store,seats:&self.seats,buildings:&self.buildings.buildings,traps:Some(&self.buildings.traps),characters:&self.commands,roster:&self.roster,entities:&self.entities,
    units:&self.units,combat_units:&self.combat_units,controls:&self.seat_controls,mounts:&self.mounts,turrets:&self.turrets,props:&self.props}
  }
  fn new(graph:bool,side:f64)->Self {
-  let mut store=Store::default();let mut entities=owned::entities::Entities::new(16);
+  let mut store=crate::ai::owned::tests::empty_world();let mut entities=owned::entities::Entities::new(16);
   let mut commands=Commands::new(2);let mut roster=owned::roster::Roster::new(2);let mut units=owned::units::Units::new();
   let mut strings=bfe_sim::store::Strings::default();
   let class_row=AiUnitClass {def:DefId(0),name:strings.intern_str("trooper"),size_type:AiClassScalar::Str(strings.intern_str("SOLDIER")),max_speed:AiClassScalar::F64(7.),forward_speed:AiClassScalar::F64(7.),..Default::default()};

@@ -22,8 +22,8 @@ impl SpawningWorld for Bodies {
     fn spawn_unit(&mut self,_:&mut Store,_:Ref<Character>,_:Option<StrId>,_:SpawnPost,_:[f64;3],_:Option<f64>)->Option<Ref<Unit>> {panic!("human body uses its factory")}
 }
 impl PlayerServices for Bodies {
-    fn floor(_:Vector3,_:Ref<Body>)->Option<(Vector3,Vector3)> {None}
-    fn relation(a:f64,b:f64)->f64 {if a==b {1.0} else {-1.0}}
+    fn floor(&mut self,_:Vector3,_:Ref<Body>)->Option<(Vector3,Vector3)> {None}
+    fn relation(&self,a:f64,b:f64)->f64 {if a==b {1.0} else {-1.0}}
     fn local(&self)->Option<Ref<Unit>> {Some(self.local)}
     fn spawn_player(&mut self,s:&mut Store,_:StrId,_:Option<StrId>,point:[f64;4])->Option<Ref<Unit>> {
         let u=s.unit.get_mut(self.local).unwrap();u.alive=true;u.removed=false;u.combat.dead=false;u.combat.health=100.0;u.generation+=1.0;
