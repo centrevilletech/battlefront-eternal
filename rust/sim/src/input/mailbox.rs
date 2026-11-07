@@ -41,8 +41,13 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
                 }
                 while s.queue.first().is_some_and(|c| c.tick <= input.tick) {
                     let next=&s.queue[0];
-                    if command.actions.len()+next.actions.len()>2048 || command.look.len()+next.look.len().max(1)>2048
-                        || command.human.len()+next.human.len()>16*s.capacity as usize {break;}
+                    let looks=next.look_total.map_or(next.look.len(),|total|usize::from(
+                        truthy(total[0]-s.look_total[0])||truthy(total[1]-s.look_total[1])));
+                    let oversized=next.actions.len()>2048 || looks>2048 || next.human.len() as f64>16.0*s.capacity;
+                    // InputMailbox.take defers a valid burst, but must retire an
+                    // individually invalid record rather than retry it forever.
+                    if next.generation==input.generation && !oversized && (command.actions.len()+next.actions.len()>2048
+                        || command.look.len()+looks>2048 || (command.human.len()+next.human.len()) as f64>16.0*s.capacity) {break;}
                     let entry = s.queue.remove(0);
                     out.retired.push(entry.identity);
                     if entry.generation != input.generation {
@@ -51,20 +56,22 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
                     consumed(&entry);
                     s.ack = entry.sequence; s.ack_tick = input.tick; s.state_tick = entry.tick;
                     if entry.tick < input.tick { s.late += 1.0; }
-                    s.down = Some(entry.down); command.actions.extend(entry.actions);
+                    s.down = Some(entry.down);
+                    if !oversized { command.actions.extend(entry.actions); }
                     if let Some(total) = entry.look_total {
                         let point = [total[0] - s.look_total[0], total[1] - s.look_total[1]];
-                        if truthy(point[0]) || truthy(point[1]) { command.look.push(ImLook { point, object: None }); }
+                        if !oversized && (truthy(point[0]) || truthy(point[1])) { command.look.push(ImLook { point, object: None }); }
                         s.look_total = total;
-                    } else { command.look.extend(entry.look); }
-                    command.human.extend(entry.human); command.fire.extend(entry.fire);
+                    } else if !oversized { command.look.extend(entry.look); }
+                    if !oversized { command.human.extend(entry.human); command.fire.extend(entry.fire); }
                     for field in entry.view {
                         if let Some(old) = s.view.iter_mut().find(|v| v.key == field.key) { old.value = field.value; }
                         else if s.view.len()<7 { s.view.push(field); }
                     }
-                    if command.actions.len() > 2048 || command.look.len() > 2048 || command.human.len() as f64 > 16.0 * s.capacity {
-                        return Err("input batch overflow");
-                    }
+                    // Rejection preserves the original consumption side effects,
+                    // including held/view and cumulative look, without appending
+                    // oversized payloads to the reserved command scratch.
+                    if oversized { return Err("input batch overflow"); }
                 }
                 out.command = Some(std::mem::take(&mut command));
             }
@@ -103,4 +110,31 @@ mod tests {
         assert_eq!(out.state.ack_tick, 5.0); assert_eq!(out.state.state_tick, 3.0); assert_eq!(out.state.late, 1.0);
         assert_eq!(out.state.queue.len(), 1); assert_eq!(out.command.unwrap().look[0].point, [12.0, -4.0]);
     }
+    #[test]
+    fn oversized_records_retire_with_partial_state_without_growing_scratch() {
+        for (actions,looks,humans) in [(2049,0,0),(0,2049,0),(0,0,17)] {
+            let mut strings=Strings::default();let jump=strings.intern_str("jump");
+            let total=(looks==0).then_some([-0.0,12.5]);
+            let input=ImInput {op:ImOperation::Take,tick:2.0,generation:1.0,
+                state:ImState {capacity:1.0,generation:1.0,queue:vec![ImEntry {
+                    identity:7.0,sequence:1.0,tick:1.0,generation:1.0,down:17.0,
+                    actions:vec![jump;actions],look:vec![ImLook::default();looks],
+                    human:vec![1.0;humans],look_total:total,..Default::default()
+                }],..Default::default()},..Default::default()};
+            let scratch=ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),
+                human:Vec::with_capacity(16),fire:Vec::with_capacity(16)};
+            let capacities=(scratch.actions.capacity(),scratch.look.capacity(),scratch.human.capacity(),scratch.fire.capacity());
+            let mut consumed=0;
+            let (out,spare)=run_reusing(input,&mut strings,scratch,Vec::with_capacity(1),|_|consumed+=1);
+            assert_eq!(strings.units(out.error.unwrap()),"input batch overflow".encode_utf16().collect::<Vec<_>>());
+            assert!(out.command.is_none());assert!(out.state.queue.is_empty());assert_eq!(out.retired,[7.0]);
+            assert_eq!(out.state.ack,1.0);assert_eq!(out.state.ack_tick,2.0);assert_eq!(out.state.down,Some(17.0));
+            assert_eq!(out.state.look_total.map(f64::to_bits),total.unwrap_or([0.0;2]).map(f64::to_bits));
+            assert_eq!(consumed,1);
+            assert_eq!((spare.actions.capacity(),spare.look.capacity(),spare.human.capacity(),spare.fire.capacity()),capacities);
+            let recovered=run(ImInput {op:ImOperation::Take,state:out.state,tick:3.0,generation:1.0,..Default::default()},&mut strings);
+            assert!(recovered.error.is_none());
+        }
+    }
+
 }

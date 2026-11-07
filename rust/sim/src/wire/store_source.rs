@@ -264,7 +264,10 @@ impl Source {
             else { return Err("invalid own-player integer") };
         let input = super::store_own::Facts { held: foreign.held.0, invalid_held: !foreign.held_valid, flags,
             view: [v.mouse_scale, v.aspect, v.view_tick, v.sensitivity, v.curve], axes: v.axes,
-            buttons: jsrt::to_uint32(v.buttons) as u16, binding: v.profile as u16, discarded: foreign.discarded, presentation_first: Some(unit.combat.first_person) };
+            // applyNetworkControls keeps the chosen perspective in the input
+            // view. Combat's dormant mirror is not its publication owner.
+            buttons: jsrt::to_uint32(v.buttons) as u16, binding: v.profile as u16, discarded: foreign.discarded,
+            presentation_first: Some(flags & 2 != 0) };
         self.own.envelope(unit, schema, mount, epoch, epoch, &self.capture, defs, &input, remote)?;
         Ok((reference.slot as f64, unit.generation))
     }
