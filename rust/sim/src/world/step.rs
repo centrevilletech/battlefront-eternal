@@ -24,6 +24,7 @@ pub extern "C" fn world_step_run() -> *const f64 {
     let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
     let before=crate::allocations::snapshot();
     if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !sim().world.running
+        && crate::units::f3::registered_viewpoint().is_some_and(|r|sim().store.unit.get(r).is_some())
         && input.tick==input.clock.tick+1.0
         && super::clock::advance(&mut output.clock,input.dt,false,&mut CompletedClock)==Ok(1.0) {
         sim().world.running=true;
@@ -37,8 +38,8 @@ pub extern "C" fn world_step_run() -> *const f64 {
         if input.ai {
             for (index, kind) in [0.0,2.0,3.0,1.0].into_iter().enumerate() {
                 if input.squads & (1<<index)==0 {continue;}
-                let local=crate::units::f3::viewpoint();
-                let unit=sim().store.unit.get(local).unwrap();
+                let Some(local)=crate::units::f3::registered_viewpoint() else {continue};
+                let Some(unit)=sim().store.unit.get(local) else {continue};
                 if unit.combat.dead {continue;}
                 let Some(character)=unit.character.and_then(crate::battle::f4_core::character_handle) else {continue};
                 let command=crate::gen::AiPlayerCommand {character,kind,time:input.tick/60.0};
@@ -54,10 +55,12 @@ pub extern "C" fn world_step_run() -> *const f64 {
             if input.live { crate::battle::f4_live::f4_live(); }
             output.ordnance = crate::ordnance::module::ord_update(input.dt);
             let targets = crate::units::f3_items::world_targets();
-            output.items = crate::items::module::items_update(input.dt, targets);
+            if let Some(targets)=targets {
+                output.items = crate::items::module::items_update(input.dt, targets);
+            }
             crate::battle::f4_tail::f4_tail();
             if input.ai { crate::ai::owned::entry::ai_world_dangers(); }
-            output.accepted = true;
+            output.accepted = targets.is_some();
         }
         sim().world.running=false;
         // Each producer kept dirty rows and retired leases until this point.

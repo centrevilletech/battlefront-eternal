@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { InputMailbox } from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import { InputActions } from '../src/runtime/input-actions.js';
 
 const state = (sequence, extra = {}) => ({ epoch:1, generation:1, sequence, tick:sequence,

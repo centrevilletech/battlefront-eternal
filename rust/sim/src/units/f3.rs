@@ -203,6 +203,7 @@ pub(crate) fn collision_world() -> usize {
     state().world
 }
 pub(crate) fn tick() -> f64 { state().tick }
+pub(crate) fn registered_viewpoint() -> Option<Ref<Unit>> {state().viewpoint}
 pub(crate) fn viewpoint() -> Ref<Unit> { state().viewpoint.expect("registered player viewpoint") }
 pub(crate) fn built() -> &'static [Ref<Unit>] { state().owner.built() }
 pub(crate) fn unit_revision() -> u64 { state().owner.revision() }

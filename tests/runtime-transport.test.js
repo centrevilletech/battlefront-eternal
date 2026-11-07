@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TransferPool,ReliableOutbox,InputMailbox} from '../src/runtime/transport.js';
+import {TransferPool,ReliableOutbox} from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import {CommandHistory,CommandControls} from '../src/runtime/commands.js';
 const command=(sequence,overrides={})=>({epoch:1,sequence,tick:sequence,generation:2,down:[],actions:[],look:[],...overrides});
 
@@ -79,3 +80,20 @@ test('trigger edges ride a command through the mailbox, in order, into the tick 
 });
 
 test('future discarded and wrong-life inputs never masquerade as executed or update lead timing',()=>{const box=new InputMailbox();box.push(command(1,{down:['KeyW'],lookTotal:[4,0]}));box.take(1,2);box.push(command(2,{tick:40,down:['KeyS'],lookTotal:[9,0]}));box.clear();assert.equal(box.ack,1);assert.equal(box.ackTick,1);assert.equal(box.discarded,2);assert.deepEqual(box.take(40,2).down,[]);box.push(command(3,{tick:41,generation:1}));box.take(41,2);assert.equal(box.ack,1);assert.equal(box.ackTick,1);assert.equal(box.discarded,3);box.push(command(4,{tick:42,lookTotal:[12,0]}));assert.deepEqual(box.take(42,2).look,[[8,0]]);assert.equal(box.ack,4);assert.equal(box.ackTick,42);});
+
+// A suspended page can fill every connection slot and then submit another
+// frame. Refuse new records and drain bounded batches without ending a tick.
+test('paused input bursts refuse overflow and resume in bounded batches',()=>{
+ const box=new InputMailbox(1,4);
+ try {
+  for(let i=1;i<=4;i++)assert.equal(box.push(command(i,{tick:1,actions:Array(2048).fill('jump')})),true);
+  assert.equal(box.push(command(5,{tick:1})),false);
+  for(let i=1;i<=4;i++) {
+   assert.equal(box.take(i,2).actions.length,2048);
+   assert.equal(box.ack,i);
+  }
+  assert.equal(box.queue.length,0);
+  assert.equal(box.push(command(5,{tick:5})),true);
+  box.clear();assert.equal(box.discarded,5);
+ } finally {box.dispose();}
+});

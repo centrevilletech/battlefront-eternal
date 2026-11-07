@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { retainPredictionCommands } from '../src/runtime/prediction-window.js';
 import { InputLead, advanceInputClock } from '../src/runtime/reconcile.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
-import { InputMailbox } from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';
 import { Soldier } from '../src/soldier.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';

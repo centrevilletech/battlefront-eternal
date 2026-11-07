@@ -597,7 +597,7 @@ fn retained_cosmetic_delivery_preserves_order_replacements_and_acknowledgements_
 #[test]
 fn complete_native_publication_including_first_capture_and_fault_recovery_does_not_allocate() {
     use bfe_sim::wire::{publisher::{self, World}, Runtime, host::Host, journal};
-    struct Source { strings: Strings, body: Vec<u8>, fields: Vec<WireField>, tick: f64, fail: bool, burst: usize }
+    struct Source { strings: Strings, body: Vec<u8>, fields: Vec<WireField>, tick: f64, fail: bool, burst: usize, edges:bfe_sim::store::handles::Pool<bfe_sim::wire::edges::Host> }
     impl World for Source {
         fn capture(&mut self, tick: f64, epoch: f64, runtime: &mut Runtime) -> codec::Result<()> {
             runtime.capture_canonical(tick, epoch, &[], std::iter::empty(), &self.strings)
@@ -617,21 +617,22 @@ fn complete_native_publication_including_first_capture_and_fault_recovery_does_n
             for id in 0..self.burst { events.emit_raw(id as f64, 1., self.tick, 4., &payload, Default::default()); }
         }
         fn status(&self, id: bfe_sim::store::StrId) -> &[u16] { self.strings.units(id) }
+        fn edges(&self,key:usize)->Option<&bfe_sim::wire::edges::Host> {self.edges.get(key)}
     }
     let fixture = bfe_content::json::parse(include_str!("../../../tests/fixtures/wire-own-fields.json")).unwrap();
     let mut source = Source { strings: Strings::default(), body: hex(fixture.as_array().unwrap()[0].get("payload").unwrap()),
-        fields: vec![WireField { id: 65536., schema: 3., generation: 3., payload: vec![0, 0, 1, 0, 2, 0, 3, 0, 4] }], tick: 1., fail: false, burst: 0 };
+        fields: vec![WireField { id: 65536., schema: 3., generation: 3., payload: vec![0, 0, 1, 0, 2, 0, 3, 0, 4] }], tick: 1., fail: false, burst: 0, edges:bfe_sim::store::handles::Pool::new(5) };
     let mut runtime = Runtime::default(); runtime.reserve_world(0, 0).unwrap();
     let mut host = Host::new(true, f64::INFINITY, f64::INFINITY, 3.);
     host.add(1, 0.); host.add(2, 0.);
     for id in 1..=2 {
         let c = host.client_mut(id); c.ready = true; c.started = true;
-        c.publication = Some(publisher::Personal::new(id, std::ptr::null()).unwrap());
+        c.publication = Some(publisher::Personal::new(id, 0).unwrap());
     }
-    let mut edge_owner = Box::new(bfe_sim::wire::edges::Host::default());
+    let mut edge_owner = bfe_sim::wire::edges::Host::default();
     let status = source.strings.intern(&[0x03bb, 0xd83d, 0xde80, 0xd800]);
     edge_owner.epoch = 3.; edge_owner.generation = 7.; edge_owner.results.push(WeOutcome { id: 12., status, tick: 1. });
-    host.client_mut(1).publication.as_mut().unwrap().edges = &*edge_owner;
+    host.client_mut(1).publication.as_mut().unwrap().edges = source.edges.insert(edge_owner).unwrap();
     let mut publisher = publisher::Publisher::default(); publisher.admit(2);
     let frozen = codec::own_datagram(&WireOwn { epoch: 3., tick: 1., interval: 1., baseline_tick: 0., ack_input: 5., own_parts: 1.,
         correction: Some(WireField { id: 1., generation: 7., schema: 11., payload: source.body.clone() }), summaries: Some(source.fields.clone()), ..Default::default() }).unwrap();

@@ -951,65 +951,122 @@ impl Session {
 
 #[no_mangle]
 pub extern "C" fn wire_cosmetics_create() -> *mut Session {
-    Box::into_raw(Box::new(Session::default()))
+    super::owner::with(|owner| {
+
+    owner.cosmetics.insert(Session::default()).unwrap_or(0) as *mut Session
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_drop(ptr: *mut Session) {
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return;}
+
     if !ptr.is_null() {
-        drop(Box::from_raw(ptr));
+        owner.cosmetics.remove(ptr as usize);
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_room(ptr: *mut Session, n: u32) -> *mut f64 {
-    let s = &mut *ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null_mut();}
+
+    let s = owner.cosmetics.get_mut(ptr as usize).unwrap();
     s.input.resize(n as usize, 0.0);
     s.input.as_mut_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_payload(ptr: *mut Session, n: u32) -> *mut u8 {
-    let s = &mut *ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null_mut();}
+
+    let s = owner.cosmetics.get_mut(ptr as usize).unwrap();
     s.payload.resize(n as usize, 0);
     s.payload.as_mut_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_run(ptr: *mut Session, op: u32) -> u32 {
-    let s = &mut *ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
+
+    let s = owner.cosmetics.get_mut(ptr as usize).unwrap();
     s.error = s.run(op).err();
     s.error.is_some() as u32
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_words(ptr: *mut Session) -> *const f64 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null();}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     s.words.as_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_word_count(ptr: *mut Session) -> u32 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     s.words.len() as u32
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_bytes(ptr: *mut Session) -> *const u8 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null();}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     s.bytes.as_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_byte_count(ptr: *mut Session) -> u32 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     s.bytes.len() as u32
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_error(ptr: *mut Session) -> *const u8 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return std::ptr::null();}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     s.error.unwrap_or("").as_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_error_len(ptr: *mut Session) -> u32 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     s.error.unwrap_or("").len() as u32
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_cosmetics_metric(ptr: *mut Session, index: u32) -> f64 {
-    let s = &*ptr;
+    super::owner::with(|owner| {
+if owner.cosmetics.get(ptr as usize).is_none() {return f64::NAN;}
+
+    let s = owner.cosmetics.get(ptr as usize).unwrap();
     let Some(b) = s.outbox.as_ref() else {
         return 0.0;
     };
@@ -1021,6 +1078,8 @@ pub unsafe extern "C" fn wire_cosmetics_metric(ptr: *mut Session, index: u32) ->
         4 => b.entries.size() as f64,
         _ => 0.0,
     }
+
+    })
 }
 
 #[cfg(test)]

@@ -47,59 +47,42 @@ impl Counters {
         self.overflow = 0.;
     }
 }
-// EntityShotCounters.listen is replaced for canonical worlds by these native
-// sinks. Registration is cold, and each battle module owns its own fixed bank.
-// No sink can outlive wire_shots_drop; capture never calls a gameplay callback.
-struct Sinks { rows: [*mut Counters; 16], len: usize }
-static mut SINKS: Sinks = Sinks { rows: [std::ptr::null_mut(); 16], len: 0 };
-pub(crate) fn native_observe(id: f64, generation: f64, live: f64) {
-    let sinks = unsafe { &mut *std::ptr::addr_of_mut!(SINKS) };
-    for &counter in &sinks.rows[..sinks.len] {
-        if !counter.is_null() { unsafe { (&mut *counter).observe(id, generation, live); } }
-    }
-}
-/// Attach once, after a canonical source is admitted. Standalone codec users
-/// keep explicit observe(); there is no alternate gameplay authority here.
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_attach(counter: *mut Counters) -> u32 {
-    if counter.is_null() { return 0; }
-    let sinks = &mut *std::ptr::addr_of_mut!(SINKS);
-    if sinks.rows[..sinks.len].contains(&counter) { return 1; }
-    if let Some(at) = sinks.rows.iter().position(|p| p.is_null()) {
-        sinks.rows[at] = counter; sinks.len = sinks.len.max(at + 1); 1
-    } else { 0 }
-}
-
-#[no_mangle]
-pub extern "C" fn wire_shots_create(capacity: f64) -> *mut Counters {
-    if !integer(capacity) || capacity < 1. || capacity > 65536. { return std::ptr::null_mut(); }
-    Box::into_raw(Box::new(Counters { capacity, units: Vec::with_capacity(capacity as usize), ..Default::default() }))
+// Canonical fired notices resolve counters in this battle's owned bank.
+// Registration is cold, bounded, and never retains a sibling allocation.
+pub(crate) fn native_observe(id:f64,generation:f64,live:f64) {
+    crate::abi::sim().wire.as_mut().expect("wire observer outside publication").observe_shot(id,generation,live);
 }
 #[no_mangle]
-pub unsafe extern "C" fn wire_shots_drop(p: *mut Counters) {
-    if !p.is_null() {
-        let sinks = &mut *std::ptr::addr_of_mut!(SINKS);
-        for row in &mut sinks.rows[..sinks.len] { if *row == p { *row = std::ptr::null_mut(); } }
-        while sinks.len > 0 && sinks.rows[sinks.len - 1].is_null() { sinks.len -= 1; }
-        drop(Box::from_raw(p));
-    }
+pub unsafe extern "C" fn wire_shots_attach(counter:*mut Counters)->u32 {
+    super::owner::with(|owner| {
+        let key=counter as usize;if owner.shots.get(key).is_none(){return 0;}
+        if owner.attached_shots.contains(&key){return 1;}
+        if owner.attached_shots.len()==16{return 0;}
+        owner.attached_shots.reserve(16usize.saturating_sub(owner.attached_shots.len()));
+        owner.attached_shots.push(key);1
+    })
 }
 #[no_mangle]
-pub unsafe extern "C" fn wire_shots_observe(p: *mut Counters, id: f64, generation: f64, live: f64) {
-    (&mut *p).observe(id, generation, live);
+pub extern "C" fn wire_shots_create(capacity:f64)->*mut Counters {
+    if !integer(capacity)||!(1. ..=65536.).contains(&capacity){return std::ptr::null_mut();}
+    super::owner::with(|owner|owner.shots.insert(Counters {capacity,units:Vec::with_capacity(capacity as usize),..Default::default()}).unwrap_or(0) as *mut Counters)
 }
 #[no_mangle]
-pub unsafe extern "C" fn wire_shots_counter(p: *const Counters, id: f64, generation: f64) -> f64 {
-    (&*p).counter(id, generation)
+pub unsafe extern "C" fn wire_shots_drop(p:*mut Counters) {
+    super::owner::with(|owner| {let key=p as usize;owner.attached_shots.retain(|&h|h!=key);owner.shots.remove(key);});
 }
 #[no_mangle]
-pub unsafe extern "C" fn wire_shots_reset(p: *mut Counters) {
-    (&mut *p).reset();
+pub unsafe extern "C" fn wire_shots_observe(p:*mut Counters,id:f64,generation:f64,live:f64) {
+    super::owner::with(|owner|if let Some(c)=owner.shots.get_mut(p as usize){c.observe(id,generation,live)});
 }
 #[no_mangle]
-pub unsafe extern "C" fn wire_shots_overflow(p: *const Counters) -> f64 {
-    (*p).overflow
+pub unsafe extern "C" fn wire_shots_counter(p:*const Counters,id:f64,generation:f64)->f64 {
+    super::owner::with(|owner|owner.shots.get(p as usize).map_or(0.,|c|c.counter(id,generation)))
 }
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_reset(p:*mut Counters) {super::owner::with(|owner|if let Some(c)=owner.shots.get_mut(p as usize){c.reset()});}
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_overflow(p:*const Counters)->f64 {super::owner::with(|owner|owner.shots.get(p as usize).map_or(0.,|c|c.overflow))}
 #[cfg(test)]
 mod tests {
     use super::*;

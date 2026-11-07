@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { stillCommand } from '../src/runtime/commands.js';
 import { EntityInputSender } from '../src/runtime/network-entity-sender.js';
 import { INPUT_CODES, DEFAULT_BINDING_PROFILES, decodeEntityInput } from '../src/runtime/network-entity-input.js';
-import { InputMailbox } from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import { flightInput, flightBindings } from '../src/flight/controls.js';
 
 const registry = { inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, classIds: new Map(), postIds: new Map() };

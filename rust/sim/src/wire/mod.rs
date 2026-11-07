@@ -1,6 +1,7 @@
 //! Snapshot capture, baseline ownership and byte encoding. The semantic
 //! capture boundary also serves native hosts while tick ownership moves.
 pub mod codec;
+pub mod owner;
 pub mod buffered;
 mod module;
 pub mod records;

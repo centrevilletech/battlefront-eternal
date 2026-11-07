@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NetworkSimulator } from '../src/runtime/network-simulator.js';
-import { InputMailbox } from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 
 for (const rtt of [0, 50, 100, 200]) test(`commands and reliable events survive ${rtt}ms RTT with loss/jitter/reordering`, () => {
   const link = new NetworkSimulator({ seed: 123, rtt, jitter: 15, loss: .05, duplicate: .05, reorder: .1 });

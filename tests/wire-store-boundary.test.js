@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loadSim } from '../src/sim/module.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { putWireStoreSetup, WireStoreSetupLayout as L, WireWorldFactsLayout as F, WirePublicationLinkLayout as P } from '../src/sim/gen/wire-store.js';
-import { WireDynamicFactLayout as D, WireJournalFactLayout as J, WirePublicationOutputMirror, syncWirePublicationOutput } from '../src/sim/gen/wire-publish.js';
+import { WirePublicationOutputMirror, syncWirePublicationOutput } from '../src/sim/gen/wire-publish.js';
 import { BlockHeaderLayout as H } from '../src/sim/gen/boundary.js';
 
 // Raw descriptor corruption must fail before a generated decoder can use its
@@ -53,14 +53,11 @@ test('canonical capture rejects malformed counts and offsets before decoding', a
     b.f[at + F.words + field] = value;
     assert.notEqual(rejected(), 0, `link descriptor ${field} value ${value}`);
   }
-  // Exceptional batches can request the full protocol window without making
-  // the ordinary battle reserve it. Invalid requests retain the old block.
-  assert.equal(x.wire_store_world_room(handle, 0xffffffff), 0);
-  assert.equal(x.wire_store_journal_room(handle, 0xffffffff), 0);
-  const grown = x.wire_store_world_room(handle, F.words + 256 * P.words + 4096 * (J.words + D.words)) >>> 0;
-  assert.notEqual(grown, 0); b.views(); assert.equal(b.f[grown / 8 + F.tick], 1);
-  const bytes = x.wire_store_journal_room(handle, 4096 * 900) >>> 0;
-  assert.notEqual(bytes, 0); b.views(); assert.equal(b.u8[bytes + 4096 * 900 - 1], 0);
-  x.wire_publish_drop(publication); x.wire_host_drop(host); x.wire_drop(runtime); x.wire_combat_drop(combat); x.wire_shots_drop(shots);
+  // A session cannot follow a replacement owner in the same bank slot.
+  x.wire_drop(runtime);
+  const replacement=x.wire_create();assert.notEqual(replacement,runtime);
+  assert.equal(x.wire_publish(publication),0);
+  x.wire_drop(replacement);
+  x.wire_publish_drop(publication);x.wire_publish_drop(publication); x.wire_host_drop(host); x.wire_drop(runtime); x.wire_combat_drop(combat); x.wire_shots_drop(shots);
   x.wire_stagger_drop(stagger); x.wire_store_source_drop(handle);
 });

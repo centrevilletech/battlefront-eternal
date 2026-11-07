@@ -1,7 +1,7 @@
 // Registry callbacks and decoded publication views stay at the boundary.
 // The native producer owns payload bytes, event IDs and queue decisions.
 import { bridgeFor } from '../sim/runtime.js';
-import { WbResultMirror, WireOutputMirror, putWbCall, putWbEncode, syncWbResult, syncWireOutput } from '../sim/gen/index.js';
+import { WbResultMirror, WbSavedResultMirror, WbCommitLayout, WireJournalFactMirror, WireDynamicFactLayout, WireOutputMirror, putWbCommit, putWireDynamicFact, putWbCall, putWbEncode, syncWbResult, syncWbSavedResult, syncWireOutput } from '../sim/gen/index.js';
 
 const output = { Mirror: WbResultMirror, sync: syncWbResult };
 const bytesOutput = { Mirror: WireOutputMirror, sync: syncWireOutput };
@@ -14,6 +14,9 @@ export class WireCombat {
   constructor({ instance = null, bridge = instance ? bridgeFor(instance) : null }) {
     this.bridge = bridge; this.handle = bridge.x.wire_combat_create();
     this.input = { put: putWbCall, words: bridge.x.wire_combat_words(0) };
+    this.commitInput = { put: putWbCommit, words: WbCommitLayout.words };
+    this.dynamicInput = { put: putWireDynamicFact, words: WireDynamicFactLayout.words };
+    this.fact = new WireJournalFactMirror();
     this.encoding = { put: putWbEncode, words: bridge.x.wire_combat_words(1) };
     // These exchanges remain private; records copy their payload and queue
     // keys before another callback or operation can overwrite either mirror.
@@ -69,17 +72,36 @@ export class WireCombat {
   }
   emit(capture, record, decode) {
     const tick = capture.tick(), out = this.run(0, { tick, capacity: capture.maxRecords, id: record.id, schema: record.schema }, this.exchange);
-    for (const id of out.ids) capture.pending.delete(id);
     capture.prunedTick = tick;
+    if (out.error === 'combat capture capacity exceeded') return false;
     if (out.error !== null) throw Error(out.error);
     const key = out.key, view = decode(record);
     this.run(1, { key, schema: record.schema, expiryTick: view.expiryTick }, this.exchange);
-    capture.pending.set(key, { record, view, expiresTick: view.expiryTick, retention: [3, 4, 5, 8].includes(record.schema) ? 'cosmetic' : 'projectile' });
+    const fact = this.fact;
+    fact.id = record.id; fact.generation = record.generation; fact.tick = record.tick; fact.schema = record.schema;
+    fact.payload.offset = 0; fact.payload.length = record.payload.length;
+    fact.hasPosition = !!view.position; fact.position.set(view.position?.[0] ?? 0, view.position?.[1] ?? 0, view.position?.[2] ?? 0);
+    fact.ownerTag = view.ownerId === undefined ? 0 : view.ownerId === null ? 1 : 2;
+    fact.owner = typeof view.ownerId === 'number' ? view.ownerId : NaN;
+    fact.speed = typeof view.speed === 'number' ? view.speed : NaN; fact.life = typeof view.life === 'number' ? view.life : NaN;
+    this.bridge.callArgs(this.commitInput, { key, fact, payload: record.payload });
+    return !!this.bridge.x.wire_combat_commit(this.handle);
   }
-  drain(capture) {
-    const records = this.run(2).ids.map(id => capture.pending.get(id));
-    capture.pending.clear(); return records;
+  saved(decode, drain = false) {
+    if (!this.handle) throw Error('combat runtime disposed');
+    const rows = this.bridge.callResult({ Mirror: WbSavedResultMirror, sync: syncWbSavedResult }, this.bridge.x.wire_combat_saved(this.handle, Number(drain))).records;
+    const values = new Map();
+    for (const row of rows) {
+      const record = { kind: 'combat', id: row.fact.id, generation: row.fact.generation, tick: row.fact.tick, schema: row.fact.schema, payload: Uint8Array.from(row.payload) };
+      values.set(row.key, { record, view: decode(record), expiresTick: row.expiresTick, retention: [3,4,5,8].includes(record.schema) ? 'cosmetic' : 'projectile' });
+    }
+    return values;
   }
+  dynamic(entry) {
+    this.bridge.callArgs(this.dynamicInput, { ...entry, type: entry.nativeType });
+    return !!this.bridge.x.wire_combat_dynamic(this.handle);
+  }
+  drain(capture, decode) { return [...this.saved(decode, true).values()]; }
   get nextId() { if (!this.handle) throw Error('combat runtime disposed'); return this.bridge.x.wire_combat_next_id(this.handle); }
   set nextId(id) { if (!this.handle) throw Error('combat runtime disposed'); this.bridge.x.wire_combat_set_next_id(this.handle, id); }
   fault(error) { this.run(6, { text: String(error?.message ?? error) }); }

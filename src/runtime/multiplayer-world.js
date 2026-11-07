@@ -26,7 +26,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   const players = new Map();
   const inputActions = () => new InputActions();
   const fireCommands = () => new FireCommands();
-  const inputMailbox = () => new InputMailbox();
+  const inputMailbox = () => new InputMailbox(1, 256, game.simBridge);
   const commandControls = () => new CommandControls();
   const disconnectGraceTicks = Math.round(DISCONNECT_GRACE_SECONDS * (game.worldClock.hz ?? 60));
   game.serverWorld = true;
@@ -119,7 +119,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       const existing = players.get(id);
       if (existing) {
         if (!existing.disconnectedAt) throw new Error('player already joined');
-        existing.disconnectedAt = null; existing.mailbox = inputMailbox(); existing.controls = commandControls(); existing.fire = fireCommands(); existing.reliableFire = reliableFire; existing.lastInputAt = performance.now(); existing.inputsStale=false;
+        existing.disconnectedAt = null; existing.mailbox.dispose(); existing.mailbox = inputMailbox(); existing.controls = commandControls(); existing.fire = fireCommands(); existing.reliableFire = reliableFire; existing.lastInputAt = performance.now(); existing.inputsStale=false;
         existing.actions = inputActions(); existing.separateActions = separateActions;
         if (existing.unit) existing.unit.f3.advanceLife(existing.unit);
         return this.player(id);
@@ -145,7 +145,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         connections.command('admit',p,className);
       }
       players.set(id,p);
-      if (!spectator && !spawn(p)) { players.delete(id); roster.release(character); throw new Error('no eligible spawn'); }
+      if (!spectator && !spawn(p)) { p.mailbox.dispose(); players.delete(id); roster.release(character); throw new Error('no eligible spawn'); }
       if (!spectator && !autoSpawn) unspawn(p);
 
       return this.player(id);
@@ -209,7 +209,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
               roster.release(p.character);
             }
             remoteWorld?.retire(p.id);
-            players.delete(p.id);
+            p.mailbox.dispose(); players.delete(p.id);
           }
           continue;
         }

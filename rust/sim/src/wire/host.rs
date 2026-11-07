@@ -367,13 +367,22 @@ fn list(values: Vec<f64>) -> *const f64 {
 }
 #[no_mangle]
 pub extern "C" fn wire_host_create(local: u32, budget: f64, stale: f64, epoch: f64) -> *mut Host {
-    Box::into_raw(Box::new(Host::new(local != 0, budget, stale, epoch)))
+    super::owner::with(|owner| {
+
+    owner.hosts.insert(Host::new(local != 0, budget, stale, epoch)).unwrap_or(0) as *mut Host
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_drop(p: *mut Host) {
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return;}
+
     if !p.is_null() {
-        drop(Box::from_raw(p));
+        owner.hosts.remove(p as usize);
     }
+
+    })
 }
 #[no_mangle]
 pub extern "C" fn wire_host_words(op: u32) -> u32 {
@@ -397,7 +406,10 @@ pub extern "C" fn wire_baselines() -> *const f64 {
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_get(p: *const Host, id: u32, field: u32) -> f64 {
-    let h = &*p;
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return f64::NAN;}
+
+    let h = owner.hosts.get(p as usize).unwrap();
     if field == 0 {
         return h.interval;
     }
@@ -416,10 +428,15 @@ pub unsafe extern "C" fn wire_host_get(p: *const Host, id: u32, field: u32) -> f
         10..=19 => c.metrics[(field - 10) as usize],
         _ => f64::NAN,
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_set(p: *mut Host, id: u32, field: u32, value: f64) {
-    let h = &mut *p;
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return;}
+
+    let h = owner.hosts.get_mut(p as usize).unwrap();
     if field == 0 {
         h.set_interval(value);
         return;
@@ -435,10 +452,15 @@ pub unsafe extern "C" fn wire_host_set(p: *mut Host, id: u32, field: u32, value:
         10..=19 => c.metrics[(field - 10) as usize] = value,
         _ => {}
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_op(p: *mut Host, op: u32, id: u32, a: f64, b: f64) -> f64 {
-    let h = &mut *p;
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return f64::NAN;}
+
+    let h = owner.hosts.get_mut(p as usize).unwrap();
     match op {
         0 => {
             h.add(id, a);
@@ -467,40 +489,69 @@ pub unsafe extern "C" fn wire_host_op(p: *mut Host, op: u32, id: u32, a: f64, b:
         }
         _ => f64::NAN,
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_held(p: *mut Host, id: u32, tick: f64) -> *const f64 {
-    list((&mut *p).held(id, tick))
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return std::ptr::null();}
+
+    list((owner.hosts.get_mut(p as usize).unwrap()).held(id, tick))
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_stale(p: *const Host, at: f64, seconds: f64) -> *const f64 {
-    list((&*p).stale(at, seconds))
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return std::ptr::null();}
+
+    list((owner.hosts.get(p as usize).unwrap()).stale(at, seconds))
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_host_own(p: *mut Host, id: u32) -> *const f64 {
+    super::owner::with(|owner| {
+if owner.hosts.get(p as usize).is_none() {return std::ptr::null();}
+
     let a = {
         let (row, heap) = sim().calls.args();
         OwnInput::take(row, heap)
     };
-    super::module::output((&mut *p).prepare_own(id, a))
+    super::module::output((owner.hosts.get_mut(p as usize).unwrap()).prepare_own(id, a))
+
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn wire_budget_create(rate: f64, burst: f64, at: f64) -> *mut EntityBudget {
+    super::owner::with(|owner| {
+
     match EntityBudget::new(rate, burst, at) {
-        Ok(value) => Box::into_raw(Box::new(value)),
+        Ok(value) => owner.budgets.insert(value).unwrap_or(0) as *mut EntityBudget,
         Err(_) => std::ptr::null_mut(),
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_budget_drop(p: *mut EntityBudget) {
+    super::owner::with(|owner| {
+if owner.budgets.get(p as usize).is_none() {return;}
+
     if !p.is_null() {
-        drop(Box::from_raw(p));
+        owner.budgets.remove(p as usize);
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_budget_get(p: *const EntityBudget, field: u32) -> f64 {
-    let b = &*p;
+    super::owner::with(|owner| {
+if owner.budgets.get(p as usize).is_none() {return f64::NAN;}
+
+    let b = owner.budgets.get(p as usize).unwrap();
     match field {
         0 => b.rate,
         1 => b.burst,
@@ -510,10 +561,15 @@ pub unsafe extern "C" fn wire_budget_get(p: *const EntityBudget, field: u32) -> 
         5 => b.denied,
         _ => f64::NAN,
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_budget_set(p: *mut EntityBudget, field: u32, value: f64) {
-    let b = &mut *p;
+    super::owner::with(|owner| {
+if owner.budgets.get(p as usize).is_none() {return;}
+
+    let b = owner.budgets.get_mut(p as usize).unwrap();
     match field {
         0 => b.rate = value,
         1 => b.burst = value,
@@ -523,6 +579,8 @@ pub unsafe extern "C" fn wire_budget_set(p: *mut EntityBudget, field: u32, value
         5 => b.denied = value,
         _ => {}
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_budget_run(
@@ -531,13 +589,16 @@ pub unsafe extern "C" fn wire_budget_run(
     bytes: f64,
     at: f64,
 ) -> f64 {
+    super::owner::with(|owner| {
+if owner.budgets.get(p as usize).is_none() {return f64::NAN;}
+
     if op != 0 && validate_size(bytes).is_err() {
         return -1.;
     }
     if !at.is_finite() {
         return -2.;
     }
-    let b = &mut *p;
+    let b = owner.budgets.get_mut(p as usize).unwrap();
     match op {
         0 => b.available(at).unwrap(),
         1 => b.take(bytes, at).unwrap() as u8 as f64,
@@ -547,6 +608,8 @@ pub unsafe extern "C" fn wire_budget_run(
         }
         _ => f64::NAN,
     }
+
+    })
 }
 
 #[cfg(test)]

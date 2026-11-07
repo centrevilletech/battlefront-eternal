@@ -23,3 +23,26 @@ test('native counters retain bounded generation state through live events and di
   }
   native.dispose();js.dispose();assert.equal(listeners.size,0);assert.equal(native.overflow,0);assert.equal(native.counter(units[0]),0);
 });
+
+// Numeric handles may be reused by independent module instances. A release
+// invalidates its generation locally before storage can hold another counter.
+test('shot bank handles reject retired generations and stay instance local',async()=>{
+ const a=bridgeFor(await loadSim()).x,b=bridgeFor(await loadSim()).x;
+ const first=a.wire_shots_create(8),other=b.wire_shots_create(8);
+ assert.equal(first,other);
+ a.wire_shots_observe(first,1,1,1);
+ assert.equal(a.wire_shots_counter(first,1,1),1);
+ assert.equal(b.wire_shots_counter(other,1,1),0);
+ a.wire_shots_drop(first);a.wire_shots_drop(first);
+ const replacement=a.wire_shots_create(8);
+ assert.notEqual(replacement,first);
+ a.wire_shots_observe(first,1,1,1);
+ assert.equal(a.wire_shots_counter(replacement,1,1),0);
+ assert.equal(a.wire_shots_attach(first),0);
+ assert.equal(a.wire_shots_attach(replacement),1);
+ a.memory.grow(1);
+ a.wire_shots_observe(replacement,1,1,1);
+ assert.equal(a.wire_shots_counter(replacement,1,1),1);
+ assert.equal(a.wire_shots_counter(first,1,1),0);
+ a.wire_shots_drop(replacement);b.wire_shots_drop(other);
+});

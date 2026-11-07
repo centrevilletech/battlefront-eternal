@@ -4,7 +4,6 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameTyped, sameVec } 
 import { F4HandleMirror, exportF4Handle, putF4Handle, sameF4Handle, syncF4Handle } from "./f4.js";
 import { WireRecordMirror, exportWireRecord, putWireRecord, sameWireRecord, syncWireRecord } from "./wire.js";
 import { WiViewMirror, exportWiView, putWiView, sameWiView, syncWiView } from "./wire-edges.js";
-import { WireDynamicFactMirror, WireJournalFactMirror, WireSpanMirror, exportWireDynamicFact, exportWireJournalFact, exportWireSpan, putWireDynamicFact, putWireJournalFact, putWireSpan, sameWireDynamicFact, sameWireJournalFact, sameWireSpan, syncWireDynamicFact, syncWireJournalFact, syncWireSpan } from "./wire-publish.js";
 
 export const WireStoreNameLayout = Object.freeze({ words: 2, name: 0, id: 1 });
 export const WIRE_STORE_NAME_WORDS = WireStoreNameLayout.words;
@@ -82,7 +81,7 @@ export function exportWireStoreDefinition(o, cx) {
   return v;
 }
 
-export const WireStorePeerLayout = Object.freeze({ words: 6, id: 0, character: 1 });
+export const WireStorePeerLayout = Object.freeze({ words: 7, id: 0, character: 1, mailbox: 6 });
 export const WIRE_STORE_PEER_WORDS = WireStorePeerLayout.words;
 export const WIRE_STORE_PEER_OFFSETS = WireStorePeerLayout;
 
@@ -90,23 +89,27 @@ export class WireStorePeerMirror {
   constructor() {
     this.id = 0;
     this.character = null;
+    this.mailbox = 0;
   }
 }
 
 export function syncWireStorePeer(b, f, at, h, m) {
   m.id = f[at + 0] >>> 0;
   { const tag = f[at + 1]; if (tag === 0) { m.character = syncF4Handle(b, f, at + 2, h, m.character ?? new F4HandleMirror()); } else m.character = tag === 1 ? null : undefined; }
+  m.mailbox = f[at + 6] >>> 0;
   return m;
 }
 
 export function putWireStorePeer(b, o, f, at, heap) {
   f[at + 0] = o.id;
   { const $x = o.character; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 1] = 0; putF4Handle(b, $x, f, at + 2, heap); } }
+  f[at + 6] = o.mailbox;
 }
 
 export function sameWireStorePeer(a, b) {
   if (!Object.is(a.id, b.id)) return ".id";
   { const p = a.character, q = b.character; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".character"; } else { { const d = sameF4Handle(p, q); if (d) return ".character" + d; } } }
+  if (!Object.is(a.mailbox, b.mailbox)) return ".mailbox";
   return null;
 }
 
@@ -117,6 +120,7 @@ export function exportWireStorePeer(o, cx) {
   cx.seen.set(o, v);
   v.id = o.id;
   v.character = ((x) => (x === null || x === undefined ? x : exportF4Handle(x, cx)))(o.character);
+  v.mailbox = o.mailbox;
   return v;
 }
 
@@ -251,67 +255,51 @@ export function exportWireOwnFacts(o, cx) {
   return v;
 }
 
-export const WirePublicationLinkLayout = Object.freeze({ words: 51, id: 0, ack: 1, ackTick: 2, discardedInput: 3, discardedActions: 4, rtt: 5, hasKind: 6, relay: 7, hasFamily: 8, familySix: 9, own: 10 });
+export const WirePublicationLinkLayout = Object.freeze({ words: 7, id: 0, discardedActions: 1, rtt: 2, hasKind: 3, relay: 4, hasFamily: 5, familySix: 6 });
 export const WIRE_PUBLICATION_LINK_WORDS = WirePublicationLinkLayout.words;
 export const WIRE_PUBLICATION_LINK_OFFSETS = WirePublicationLinkLayout;
 
 export class WirePublicationLinkMirror {
   constructor() {
     this.id = 0;
-    this.ack = NaN;
-    this.ackTick = NaN;
-    this.discardedInput = NaN;
     this.discardedActions = NaN;
     this.rtt = NaN;
     this.hasKind = false;
     this.relay = false;
     this.hasFamily = false;
     this.familySix = false;
-    this.own = new WireOwnFactsMirror();
   }
 }
 
 export function syncWirePublicationLink(b, f, at, h, m) {
   m.id = f[at + 0] >>> 0;
-  m.ack = f[at + 1];
-  m.ackTick = f[at + 2];
-  m.discardedInput = f[at + 3];
-  m.discardedActions = f[at + 4];
-  m.rtt = f[at + 5];
-  m.hasKind = f[at + 6] !== 0;
-  m.relay = f[at + 7] !== 0;
-  m.hasFamily = f[at + 8] !== 0;
-  m.familySix = f[at + 9] !== 0;
-  m.own = syncWireOwnFacts(b, f, at + 10, h, m.own ?? new WireOwnFactsMirror());
+  m.discardedActions = f[at + 1];
+  m.rtt = f[at + 2];
+  m.hasKind = f[at + 3] !== 0;
+  m.relay = f[at + 4] !== 0;
+  m.hasFamily = f[at + 5] !== 0;
+  m.familySix = f[at + 6] !== 0;
   return m;
 }
 
 export function putWirePublicationLink(b, o, f, at, heap) {
   f[at + 0] = o.id;
-  f[at + 1] = o.ack;
-  f[at + 2] = o.ackTick;
-  f[at + 3] = o.discardedInput;
-  f[at + 4] = o.discardedActions;
-  f[at + 5] = o.rtt;
-  f[at + 6] = o.hasKind ? 1 : 0;
-  f[at + 7] = o.relay ? 1 : 0;
-  f[at + 8] = o.hasFamily ? 1 : 0;
-  f[at + 9] = o.familySix ? 1 : 0;
-  putWireOwnFacts(b, o.own, f, at + 10, heap);
+  f[at + 1] = o.discardedActions;
+  f[at + 2] = o.rtt;
+  f[at + 3] = o.hasKind ? 1 : 0;
+  f[at + 4] = o.relay ? 1 : 0;
+  f[at + 5] = o.hasFamily ? 1 : 0;
+  f[at + 6] = o.familySix ? 1 : 0;
 }
 
 export function sameWirePublicationLink(a, b) {
   if (!Object.is(a.id, b.id)) return ".id";
-  if (!Object.is(a.ack, b.ack)) return ".ack";
-  if (!Object.is(a.ackTick, b.ackTick)) return ".ackTick";
-  if (!Object.is(a.discardedInput, b.discardedInput)) return ".discardedInput";
   if (!Object.is(a.discardedActions, b.discardedActions)) return ".discardedActions";
   if (!Object.is(a.rtt, b.rtt)) return ".rtt";
   if (!Object.is(a.hasKind, b.hasKind)) return ".hasKind";
   if (!Object.is(a.relay, b.relay)) return ".relay";
   if (!Object.is(a.hasFamily, b.hasFamily)) return ".hasFamily";
   if (!Object.is(a.familySix, b.familySix)) return ".familySix";
-  { const d = sameWireOwnFacts(a.own, b.own); if (d) return ".own" + d; }
   return null;
 }
 
@@ -321,20 +309,16 @@ export function exportWirePublicationLink(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.id = o.id;
-  v.ack = o.ack;
-  v.ackTick = o.ackTick;
-  v.discardedInput = o.discardedInput;
   v.discardedActions = o.discardedActions;
   v.rtt = o.rtt;
   v.hasKind = o.hasKind;
   v.relay = o.relay;
   v.hasFamily = o.hasFamily;
   v.familySix = o.familySix;
-  v.own = exportWireOwnFacts(o.own, cx);
   return v;
 }
 
-export const WireWorldFactsLayout = Object.freeze({ words: 12, tick: 0, at: 1, unixMs: 2, droppedTicks: 3, links: 4, linksLength: 5, journal: 6, journalLength: 7, dynamics: 8, dynamicsLength: 9, journalBytes: 10 });
+export const WireWorldFactsLayout = Object.freeze({ words: 6, tick: 0, at: 1, unixMs: 2, droppedTicks: 3, links: 4, linksLength: 5 });
 export const WIRE_WORLD_FACTS_WORDS = WireWorldFactsLayout.words;
 export const WIRE_WORLD_FACTS_OFFSETS = WireWorldFactsLayout;
 
@@ -345,9 +329,6 @@ export class WireWorldFactsMirror {
     this.unixMs = NaN;
     this.droppedTicks = NaN;
     this.links = [];
-    this.journal = [];
-    this.dynamics = [];
-    this.journalBytes = new WireSpanMirror();
   }
 }
 
@@ -356,10 +337,7 @@ export function syncWireWorldFacts(b, f, at, h, m) {
   m.at = f[at + 1];
   m.unixMs = f[at + 2];
   m.droppedTicks = f[at + 3];
-  { const items = (m.links ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 51; v = syncWirePublicationLink(b, f, at + 0, h, v ?? new WirePublicationLinkMirror()); } items[i] = v; } }
-  { const items = (m.journal ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; v = syncWireJournalFact(b, f, at + 0, h, v ?? new WireJournalFactMirror()); } items[i] = v; } }
-  { const items = (m.dynamics ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncWireDynamicFact(b, f, at + 0, h, v ?? new WireDynamicFactMirror()); } items[i] = v; } }
-  m.journalBytes = syncWireSpan(b, f, at + 10, h, m.journalBytes ?? new WireSpanMirror());
+  { const items = (m.links ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncWirePublicationLink(b, f, at + 0, h, v ?? new WirePublicationLinkMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -368,10 +346,7 @@ export function putWireWorldFacts(b, o, f, at, heap) {
   f[at + 1] = o.at;
   f[at + 2] = o.unixMs;
   f[at + 3] = o.droppedTicks;
-  heap.items(o.links, f, at + 4, 51, (f, at, v) => { putWirePublicationLink(b, v, f, at + 0, heap); });
-  heap.items(o.journal, f, at + 6, 14, (f, at, v) => { putWireJournalFact(b, v, f, at + 0, heap); });
-  heap.items(o.dynamics, f, at + 8, 12, (f, at, v) => { putWireDynamicFact(b, v, f, at + 0, heap); });
-  putWireSpan(b, o.journalBytes, f, at + 10, heap);
+  heap.items(o.links, f, at + 4, 7, (f, at, v) => { putWirePublicationLink(b, v, f, at + 0, heap); });
 }
 
 export function sameWireWorldFacts(a, b) {
@@ -380,9 +355,6 @@ export function sameWireWorldFacts(a, b) {
   if (!Object.is(a.unixMs, b.unixMs)) return ".unixMs";
   if (!Object.is(a.droppedTicks, b.droppedTicks)) return ".droppedTicks";
   if (!sameEach(a.links, b.links, (x, y) => sameWirePublicationLink(x, y) === null)) return ".links";
-  if (!sameEach(a.journal, b.journal, (x, y) => sameWireJournalFact(x, y) === null)) return ".journal";
-  if (!sameEach(a.dynamics, b.dynamics, (x, y) => sameWireDynamicFact(x, y) === null)) return ".dynamics";
-  { const d = sameWireSpan(a.journalBytes, b.journalBytes); if (d) return ".journalBytes" + d; }
   return null;
 }
 
@@ -396,9 +368,6 @@ export function exportWireWorldFacts(o, cx) {
   v.unixMs = o.unixMs;
   v.droppedTicks = o.droppedTicks;
   v.links = o.links.map((x) => exportWirePublicationLink(x, cx));
-  v.journal = o.journal.map((x) => exportWireJournalFact(x, cx));
-  v.dynamics = o.dynamics.map((x) => exportWireDynamicFact(x, cx));
-  v.journalBytes = exportWireSpan(o.journalBytes, cx);
   return v;
 }
 
@@ -435,7 +404,7 @@ export function syncWireStoreSetup(b, f, at, h, m) {
   { const items = (m.weaponNames ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireStoreName(b, f, at + 0, h, v ?? new WireStoreNameMirror()); } items[i] = v; } }
   { const items = (m.posts ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireStoreName(b, f, at + 0, h, v ?? new WireStoreNameMirror()); } items[i] = v; } }
   { const items = (m.weapons ??= []), start = h + f[at + 9], n = f[at + 10]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireStoreDefinition(b, f, at + 0, h, v ?? new WireStoreDefinitionMirror()); } items[i] = v; } }
-  { const items = (m.peers ??= []), start = h + f[at + 11], n = f[at + 12]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncWireStorePeer(b, f, at + 0, h, v ?? new WireStorePeerMirror()); } items[i] = v; } }
+  { const items = (m.peers ??= []), start = h + f[at + 11], n = f[at + 12]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncWireStorePeer(b, f, at + 0, h, v ?? new WireStorePeerMirror()); } items[i] = v; } }
   { const items = (m.items ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireStoreDefinition(b, f, at + 0, h, v ?? new WireStoreDefinitionMirror()); } items[i] = v; } }
   { const items = (m.remotes ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireStoreDefinition(b, f, at + 0, h, v ?? new WireStoreDefinitionMirror()); } items[i] = v; } }
   { const items = (m.ordnance ??= []), start = h + f[at + 17], n = f[at + 18]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireStoreDefinition(b, f, at + 0, h, v ?? new WireStoreDefinitionMirror()); } items[i] = v; } }
@@ -455,7 +424,7 @@ export function putWireStoreSetup(b, o, f, at, heap) {
   heap.items(o.weaponNames, f, at + 5, 2, (f, at, v) => { putWireStoreName(b, v, f, at + 0, heap); });
   heap.items(o.posts, f, at + 7, 2, (f, at, v) => { putWireStoreName(b, v, f, at + 0, heap); });
   heap.items(o.weapons, f, at + 9, 2, (f, at, v) => { putWireStoreDefinition(b, v, f, at + 0, heap); });
-  heap.items(o.peers, f, at + 11, 6, (f, at, v) => { putWireStorePeer(b, v, f, at + 0, heap); });
+  heap.items(o.peers, f, at + 11, 7, (f, at, v) => { putWireStorePeer(b, v, f, at + 0, heap); });
   heap.items(o.items, f, at + 13, 2, (f, at, v) => { putWireStoreDefinition(b, v, f, at + 0, heap); });
   heap.items(o.remotes, f, at + 15, 2, (f, at, v) => { putWireStoreDefinition(b, v, f, at + 0, heap); });
   heap.items(o.ordnance, f, at + 17, 2, (f, at, v) => { putWireStoreDefinition(b, v, f, at + 0, heap); });

@@ -29,6 +29,7 @@ pub trait World {
     fn created(&self) -> &[WireDynamicFact] { &[] }
     fn retired(&self) -> &[u32] { &[] }
     fn status(&self, id: crate::store::StrId) -> &[u16];
+    fn edges(&self,_handle:usize)->Option<&super::edges::Host> {None}
 }
 /// Own summaries have two protocol fields. Their nested byte allocations
 /// return to this client when the next staggered capture replaces them.
@@ -55,13 +56,13 @@ pub struct Personal {
     // Queued event identities remain independent of own-body baselines.
     pub peer: u32, pub ring: own_ring::Ring, pub outbox: delivery::Outbox,
     pub fields: Fields, pub cached: bool,
-    /// Cold binding to the same battle's reliable edge owner. It is released
-    /// with this client before that owner can be disposed by the host.
-    pub edges: *const super::edges::Host,
+    /// Qualified identity in this battle's edge bank. A released owner never
+    /// follows the next occupant of its storage slot.
+    pub edges: usize,
     correction: Writer, summaries: Writer, packet: Writer,
 }
 impl Personal {
-    pub fn new(peer: u32, edges: *const super::edges::Host) -> Result<Self> {
+    pub fn new(peer: u32, edges: usize) -> Result<Self> {
         Ok(Self { peer, ring: own_ring::Ring::new(128)?, outbox: delivery::Outbox::new(300.), fields: Fields::default(), cached: false, edges,
             correction: Writer(Vec::with_capacity(2200)), summaries: Writer(Vec::with_capacity(2048)), packet: Writer(Vec::with_capacity(1100)) })
     }
@@ -199,8 +200,8 @@ impl Publisher {
     }
     /// SnapshotHost.publish preserves the order of ACKs, feedback, reliable
     /// events, recipient faults, group joins and first/second own datagrams.
-    /// Edge pointers were bound at admission and must remain live for this call.
-    pub unsafe fn run(&mut self, host: &mut Host, runtime: &mut Runtime, world: &mut impl World, tick: f64, at: f64, unix: f64, dropped: f64) {
+    /// Edge identities resolve against this publication owner at the read point.
+    pub fn run(&mut self, host: &mut Host, runtime: &mut Runtime, world: &mut impl World, tick: f64, at: f64, unix: f64, dropped: f64) {
         self.reset(host.epoch, tick, unix, dropped);
         self.output.ring_newest = host.ring.newest_tick() as f64; self.output.encodes = self.last_encodes;
         if let Err(error) = world.validate() { self.fault(0, error); self.serialize(); return; }
@@ -238,8 +239,7 @@ impl Publisher {
             let actor = world.actor(personal.peer);
             if actor.present { self.output.acks.push(WirePublishedAck { client: c.id, generation: actor.unit.map_or(0., |u| u.1),
                 ack: actor.ack, ack_tick: actor.ack_tick, discarded_input: actor.discarded_input, discarded_actions: actor.discarded_actions }); }
-            if !personal.edges.is_null() {
-                let edges = &*personal.edges;
+            if let Some(edges)=world.edges(personal.edges) {
                 if !edges.received.is_empty() || !edges.results.is_empty() {
                     let mut row = self.edge_spare.pop().unwrap(); row.client = c.id; row.epoch = edges.epoch; row.generation = edges.generation;
                     row.received.clear(); row.received.extend(edges.received.iter().copied().take(32)); row.results.clear();

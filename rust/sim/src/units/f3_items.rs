@@ -339,11 +339,11 @@ pub(crate) fn targets(count: u32) {
 /// local, factory and fleet order, including the local body if also built.
 /// Capacity bounds exceed authored battle populations; excess membership
 /// drops at the end without reallocating the retained target bank.
-pub(crate) fn world_targets() -> u32 {
+pub(crate) fn world_targets() -> Option<u32> {
     let capacity = super::f3::items().targets.capacity();
     let mut count = 0;
-    let local = super::f3::viewpoint();
-    let unit = sim().store.unit.get(local).unwrap();
+    let local = super::f3::registered_viewpoint()?;
+    let unit = sim().store.unit.get(local)?;
     if !unit.combat.dead && unit.seat.is_none() {
         let row = F3ItemTarget {unit:Some(local),hull:None,life:unit.generation};
         super::f3::world_item_target(count,&row);count += 1;
@@ -364,7 +364,7 @@ pub(crate) fn world_targets() -> u32 {
         let row = F3ItemTarget {unit:None,hull:Some(reference),life:hull.target_generation};
         super::f3::world_item_target(count,&row);count += 1;
     }
-    count as u32
+    Some(count as u32)
 }
 
 // UnitFactory.itemTarget and Vehicle.itemTarget read current coordinates,

@@ -505,24 +505,41 @@ impl Default for Presentation {
 }
 #[no_mangle]
 pub extern "C" fn wire_presentation_create() -> *mut Presentation {
-    Box::into_raw(Box::new(Presentation::default()))
+    super::owner::with(|owner| {
+
+    owner.presentation.insert(Presentation::default()).unwrap_or(0) as *mut Presentation
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_presentation_drop(p: *mut Presentation) {
+    super::owner::with(|owner| {
+if owner.presentation.get(p as usize).is_none() {return;}
+
     if !p.is_null() {
-        drop(Box::from_raw(p));
+        owner.presentation.remove(p as usize);
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_presentation_room(p: *mut Presentation, words: u32) -> *mut f64 {
-    let p = &mut *p;
+    super::owner::with(|owner| {
+if owner.presentation.get(p as usize).is_none() {return std::ptr::null_mut();}
+
+    let p = owner.presentation.get_mut(p as usize).unwrap();
     p.input.clear();
     p.input.resize(words as usize, 0.0);
     p.input.as_mut_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_presentation_run(p: *mut Presentation, op: u32) -> u32 {
-    let p = &mut *p;
+    super::owner::with(|owner| {
+if owner.presentation.get(p as usize).is_none() {return 0;}
+
+    let p = owner.presentation.get_mut(p as usize).unwrap();
     p.error_field = 0;
     let result = match op {
         0 => unit_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output, &mut p.repair),
@@ -543,18 +560,35 @@ pub unsafe extern "C" fn wire_presentation_run(p: *mut Presentation, op: u32) ->
         }
     }
     p.error
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_presentation_ptr(p: *mut Presentation) -> *const u8 {
-    (*p).output.as_ptr()
+    super::owner::with(|owner| {
+if owner.presentation.get(p as usize).is_none() {return std::ptr::null();}
+
+    owner.presentation.get_mut(p as usize).unwrap().output.as_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_presentation_len(p: *mut Presentation) -> u32 {
-    (*p).output.len() as u32
+    super::owner::with(|owner| {
+if owner.presentation.get(p as usize).is_none() {return 0;}
+
+    owner.presentation.get_mut(p as usize).unwrap().output.len() as u32
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_presentation_error_field(p: *mut Presentation) -> u32 {
-    (*p).error_field
+    super::owner::with(|owner| {
+if owner.presentation.get(p as usize).is_none() {return 0;}
+
+    owner.presentation.get_mut(p as usize).unwrap().error_field
+
+    })
 }
 
 #[cfg(test)]

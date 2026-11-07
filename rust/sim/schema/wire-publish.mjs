@@ -1,7 +1,6 @@
 // Publication bytes are spans into an owned native arena. Layouts describe
 // transport results and foreign facts; they never describe canonical bodies.
 export default {
-  constants: { WIRE_FACT_BATCH_RESERVE: 128, WIRE_FACT_BYTES_RESERVE: 65536 },
   records: {
     WireDynamicFact: { $layout: true, slot: 'u32', refGeneration: 'u32', type: 'u8', id: 'f64', generation: 'f64', launchTick: 'f64', definitionId: 'f64', ownerId: 'f64', ownerGeneration: 'f64', fireId: 'f64', channel: 'f64', terminal: 'bool' },
     WireSpan: { $layout: true, offset: 'u32', length: 'u32' },

@@ -1,5 +1,5 @@
 //! Combat publication bytes and the ordered, expiring producer queue.
-//! The adapter retains decoded views; native state owns queue decisions.
+//! The owner retains validated callback bytes, identities and queue decisions.
 use crate::gen::{WbCall, WbEncode, WbResult};
 use crate::store::{StrId, Strings};
 type Result<T> = std::result::Result<T, &'static str>;
@@ -192,7 +192,12 @@ struct Pending {
     key: f64,
     schema: f64,
     expiry_tick: f64,
+    saved: Option<Saved>,
 }
+// CombatCapture.emit keeps the validated payload at its original callback
+// point. Publication borrows these bytes without a host round trip.
+#[derive(Clone, Debug)]
+struct Saved { fact: crate::gen::WireJournalFact, payload: [u8;900], length: usize }
 fn same_key(a: f64, b: f64) -> bool {
     a == b || a.is_nan() && b.is_nan()
 }
@@ -201,26 +206,55 @@ pub struct Capture {
     pruned_tick: Option<f64>,
     next_id: f64,
     faults: Vec<StrId>,
+    pub dynamics: Vec<crate::gen::WireDynamicFact>,
+    pub saturated: u64,
 }
 impl Default for Capture {
     fn default() -> Self {
         Self {
-            pending: vec![],
+            pending: Vec::with_capacity(4096),
             pruned_tick: None,
             next_id: 1.,
             faults: Vec::with_capacity(9),
+            dynamics: Vec::with_capacity(4096),saturated:0,
         }
     }
 }
 impl Capture {
+    pub fn next_id(&self) -> f64 { self.next_id }
+    pub fn set_next_id(&mut self, id: f64) { self.next_id = id; }
     // ProjectileCapture.launch shares this namespace with callbacks emitted
     // earlier in the tick. A late host admission consumes the next id here.
     pub(crate) fn allocate_id(&mut self) -> f64 { let id = self.next_id; self.next_id += 1.; id }
     /// The batch publisher consumed the same journal; no ID-list materialization.
-    pub(crate) fn clear(&mut self) { self.pending.clear(); }
+    pub(crate) fn clear(&mut self) { self.pending.clear(); self.dynamics.clear(); }
     pub(crate) fn sampled(&mut self, tick: f64, error: Option<StrId>) {
         self.pruned_tick = Some(tick);
         if let Some(error) = error { self.faults.push(error); if self.faults.len() > 8 { self.faults.remove(0); } }
+    }
+    pub fn commit(&mut self, key: f64, fact: crate::gen::WireJournalFact, payload: &[f64]) -> bool {
+        if payload.len() > 900 { return false; }
+        let Some(entry) = self.pending.iter_mut().find(|p| same_key(p.key,key)) else { return false };
+        let mut saved=Saved {fact,payload:[0;900],length:payload.len()};
+        for (target,&byte) in saved.payload.iter_mut().zip(payload) {*target=jsrt::to_uint32(byte) as u8;}
+        entry.saved=Some(saved);true
+    }
+    pub(crate) fn len(&self)->usize {self.pending.len()}
+    pub(crate) fn publish(&self, events: &mut super::journal::Events) {
+        for entry in &self.pending { if let Some(saved) = &entry.saved {
+            let fact = &saved.fact;
+            events.emit_raw(fact.id,fact.generation,fact.tick,fact.schema,&saved.payload[..saved.length],super::cosmetics::View {
+                schema:fact.schema,position:fact.has_position.then_some(fact.position),
+                owner:super::cosmetics::Owner {tag:fact.owner_tag,value:fact.owner},speed:fact.speed,life:fact.life,..Default::default() });
+        }}
+    }
+    pub fn dynamic(&mut self, fact:crate::gen::WireDynamicFact) -> bool {
+        if let Some(old)=self.dynamics.iter_mut().find(|p|same_key(p.id,fact.id)) {*old=fact;true}
+        else if self.dynamics.len()<4096 {self.dynamics.push(fact);true} else {self.saturated+=1;false}
+    }
+    fn saved(&self)->crate::gen::WbSavedResult {
+        crate::gen::WbSavedResult { records:self.pending.iter().filter_map(|p|p.saved.as_ref().map(|s|crate::gen::WbSaved {
+            key:p.key,fact:s.fact.clone(),payload:s.payload[..s.length].to_vec(),expires_tick:p.expiry_tick})).collect() }
     }
     pub fn run(&mut self, c: WbCall, strings: &mut Strings) -> WbResult {
         let mut out = WbResult::default();
@@ -250,9 +284,9 @@ impl Capture {
                     c.id
                 };
                 if !self.pending.iter().any(|p| same_key(p.key, out.key))
-                    && self.pending.len() as f64 >= c.capacity
+                    && self.pending.len() as f64 >= c.capacity.min(4096.)
                 {
-                    out.error = Some(strings.intern_str("combat capture capacity exceeded"));
+                    self.saturated+=1;out.error = Some(strings.intern_str("combat capture capacity exceeded"));
                 }
             }
             1 => {
@@ -260,12 +294,13 @@ impl Capture {
                     key: if c.key == 0. { 0. } else { c.key },
                     schema: c.schema,
                     expiry_tick: c.expiry_tick,
+                    saved: None,
                 };
                 if let Some(old) = self.pending.iter_mut().find(|p| same_key(p.key, c.key)) {
                     *old = entry;
-                } else {
+                } else if self.pending.len()<4096 {
                     self.pending.push(entry);
-                }
+                } else {self.saturated+=1;out.error=Some(strings.intern_str("combat capture capacity exceeded"));}
             }
             2 => {
                 out.ids = self.pending.drain(..).map(|p| p.key).collect();
@@ -312,7 +347,12 @@ pub extern "C" fn wire_combat_encode() -> *const f64 {
 }
 #[no_mangle]
 pub extern "C" fn wire_combat_create() -> *mut Capture {
-    Box::into_raw(Box::new(Capture::default()))
+    super::owner::with(|owner| {
+
+    crate::abi::sim().strings.intern_str("combat capture capacity exceeded");
+    owner.combat.insert(Capture::default()).unwrap_or(0) as *mut Capture
+
+    })
 }
 /// CombatCapture.nextId is a scalar journal cursor. Its getter and setter
 /// preserve separate observations around synchronous callback work without
@@ -321,37 +361,91 @@ pub extern "C" fn wire_combat_create() -> *mut Capture {
 /// The handle belongs to this module instance and remains live for the call.
 #[no_mangle]
 pub unsafe extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 {
-    (*handle).next_id
+    super::owner::with(|owner| {
+if owner.combat.get(handle as usize).is_none() {return f64::NAN;}
+
+    owner.combat.get_mut(handle as usize).unwrap().next_id
+
+    })
 }
 /// # Safety
 /// The live handle is exclusive for this operation. Keep the supplied IEEE
 /// value: validation still belongs to the subsequent record encoder.
 #[no_mangle]
 pub unsafe extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) {
-    (*handle).next_id = id;
+    super::owner::with(|owner| {
+if owner.combat.get(handle as usize).is_none() {return;}
+
+    owner.combat.get_mut(handle as usize).unwrap().next_id = id;
+
+    })
 }
 /// # Safety
 /// The handle belongs to this module instance and is released once.
 #[no_mangle]
 pub unsafe extern "C" fn wire_combat_drop(handle: *mut Capture) {
+    super::owner::with(|owner| {
+if owner.combat.get(handle as usize).is_none() {return;}
+
     if !handle.is_null() {
-        drop(Box::from_raw(handle));
+        owner.combat.remove(handle as usize);
     }
+
+    })
 }
 /// # Safety
 /// The live handle is exclusive for this operation. Inputs are owned and
 /// no simulation callback runs until the operation has returned.
 #[no_mangle]
 pub unsafe extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 {
+    super::owner::with(|owner| {
+if owner.combat.get(handle as usize).is_none() {return std::ptr::null();}
+
     let c = {
         let (row, heap) = crate::abi::sim().calls.args();
         WbCall::take(row, heap)
     };
     let s = crate::abi::sim();
-    let out = (*handle).run(c, &mut s.strings);
+    let out = owner.combat.get_mut(handle as usize).unwrap().run(c, &mut s.strings);
     s.calls
         .result(WbResult::WORDS, |row, heap| out.put(row, heap));
     s.calls.block.ptr()
+
+    })
+}
+
+/// Ordered callback ingress commits a record before the next observer runs.
+#[no_mangle]
+pub extern "C" fn wire_combat_commit(handle:usize)->u32 {
+    super::owner::with(|owner| {
+        let Some(c)=owner.combat.get_mut(handle) else{return 0};
+        let (row,heap)=crate::abi::sim().calls.args();
+        use crate::gen::WbCommit as C;
+        if row.len()<C::WORDS {return 0;}
+        let at=row[C::PAYLOAD];let length=row[C::PAYLOAD+1];
+        let valid=|n:f64,max:usize|n.is_finite()&&n>=0.&&n.fract()==0.&&n<=max as f64;
+        if !valid(at,heap.len())||!valid(length,900) {return 0;}
+        let Some(payload)=heap.get(at as usize..(at as usize).saturating_add(length as usize)) else{return 0};
+        c.commit(row[C::KEY],crate::gen::WireJournalFact::take(&row[C::FACT..],&[]),payload) as u32
+    })
+}
+#[no_mangle]
+pub extern "C" fn wire_combat_dynamic(handle:usize)->u32 {
+    super::owner::with(|owner| {
+        let Some(c)=owner.combat.get_mut(handle) else{return 0};
+        let (row,heap)=crate::abi::sim().calls.args();
+        if row.len()<crate::gen::WireDynamicFact::WORDS {return 0;}
+        c.dynamic(crate::gen::WireDynamicFact::take(row,heap)) as u32
+    })
+}
+/// Diagnostic/drain materialization is separate from publication's borrow.
+#[no_mangle]
+pub extern "C" fn wire_combat_saved(handle:usize,drain:u32)->*const f64 {
+    super::owner::with(|owner| {
+        let Some(c)=owner.combat.get_mut(handle) else{return std::ptr::null()};
+        let result=c.saved();if drain!=0 {c.pending.clear();}
+        let sim=crate::abi::sim();sim.calls.result(crate::gen::WbSavedResult::WORDS,|row,heap|result.put(row,heap));sim.calls.block.ptr()
+    })
 }
 
 #[cfg(test)]
@@ -362,11 +456,11 @@ mod tests {
         let mut c = Capture::default();
         let mut strings = Strings::default();
         for value in [-0., 1., 4294967295., 4294967296., f64::INFINITY, f64::NAN] {
-            unsafe { wire_combat_set_next_id(&mut c, value); }
+            c.set_next_id(value);
             let old = c.run(WbCall { op: 4., ..Default::default() }, &mut strings);
-            assert_eq!(unsafe { wire_combat_next_id(&c) }.to_bits(), old.next_id.to_bits());
+            assert_eq!(c.next_id().to_bits(), old.next_id.to_bits());
             c.run(WbCall { op: 5., id: value, ..Default::default() }, &mut strings);
-            assert_eq!(unsafe { wire_combat_next_id(&c) }.to_bits(), value.to_bits());
+            assert_eq!(c.next_id().to_bits(), value.to_bits());
         }
     }
     #[test]

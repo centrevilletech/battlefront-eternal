@@ -17,7 +17,7 @@ import {MovementKernel} from '../src/movement-kernel.js';
 import {loadRayKernel} from '../src/ray-kernel.js';
 import {SoldierPresentation} from '../src/soldier-presentation.js';
 import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';
-import {InputMailbox} from '../src/runtime/transport.js';
+import {InputMailbox} from '../tests/fixtures/input-mailbox.js';
 import {FixedClock} from '../src/runtime/fixed-clock.js';
 import {PlayoutClock} from '../src/runtime/playout.js';
 import {SnapshotInterval,renderedViewTick} from '../src/runtime/snapshot-interval.js';

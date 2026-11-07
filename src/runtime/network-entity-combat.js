@@ -51,6 +51,7 @@ export class CombatCapture {
   constructor({tick,definitionId,generation=1,maxRecords=4096,instance=null,bridge=null}){
     Object.assign(this,{tick,definitionId,generation,maxRecords});this.nextId=1;this.projectiles=new WeakMap();this.pending=new Map();this.faults=[];
     if(bridge||instance){this.native=new WireCombat({bridge:bridge??undefined,instance});Object.defineProperties(this,{
+      pending:{enumerable:true,configurable:true,get:()=>this.native.saved(decodeCombat)},
       nextId:{enumerable:true,configurable:true,get:()=>this.native.nextId,set:id=>{this.native.nextId=id;}},
       faults:{enumerable:true,configurable:true,get:()=>this.native.faults},
     });}
@@ -61,7 +62,7 @@ export class CombatCapture {
   // flight, or one flown to its end inside its lag-compensated launch) would
   // otherwise reach every client as an impact with no bolt to draw. The
   // decoded view goes with it, so publication need not decode it again.
-  emit(record){if(this.native)return this.native.emit(this,record,decodeCombat);const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)throw Error('combat capture capacity exceeded');const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
+  emit(record){if(this.native)return this.native.emit(this,record,decodeCombat);const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)return false;const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
   launch(bolt,{tick:sampleTick,sample=null}={}){
     if(this.nextId>0xffffffff)throw Error('combat identity exhausted');
     // Native notices carry the original launch values even when catch-up has
@@ -85,12 +86,12 @@ export class CombatCapture {
       speed:view.speed,life:view.life,merge:view.merge,native:this.native,
     }));
   }
-  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic){dynamic.terminal=true;this.dynamic.pending.set(dynamic.id,dynamic); }this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
+  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic){dynamic.terminal=true;if(this.native)this.native.dynamic(dynamic);else this.dynamic.pending.set(dynamic.id,dynamic); }this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
   explosion(definition,position,{wet=false}={}){if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(explosionRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet,native:this.native}));}
   event(event){if(!['damage','death'].includes(event.kind))return;if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(feedbackRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),event,native:this.native}));}
   fault(error){if(this.native)return this.native.fault(error);this.faults.push(String(error?.message??error).slice(0,160));if(this.faults.length>8)this.faults.shift();}
   drainFaults(){return this.native?this.native.drainFaults():this.faults.splice(0);}
-  drain(){if(this.native)return this.native.drain(this);const records=[...this.pending.values()];this.pending.clear();return records;}
+  drain(){if(this.native)return this.native.drain(this,decodeCombat);const records=[...this.pending.values()];this.pending.clear();return records;}
   dispose(){this.native?.dispose();}
 }
 

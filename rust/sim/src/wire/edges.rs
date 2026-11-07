@@ -174,18 +174,32 @@ impl Host {
 #[no_mangle]
 pub extern "C" fn wire_edges_words() -> u32 { WeCall::WORDS as u32 }
 #[no_mangle]
-pub extern "C" fn wire_edges_create() -> *mut Host { Box::into_raw(Box::new(Host::default())) }
+pub extern "C" fn wire_edges_create() -> *mut Host {
+    super::owner::with(|owner| {
+ owner.edges.insert(Host::default()).unwrap_or(0) as *mut Host
+    })
+}
 /// # Safety
 /// `host` belongs to this instance and has not been released.
 #[no_mangle]
-pub unsafe extern "C" fn wire_edges_drop(host: *mut Host) { if !host.is_null() { drop(Box::from_raw(host)); } }
+pub unsafe extern "C" fn wire_edges_drop(host: *mut Host) {
+    super::owner::with(|owner| {
+if owner.edges.get(host as usize).is_none() {return;}
+ if !host.is_null() { owner.edges.remove(host as usize); }
+    })
+}
 /// # Safety
 /// `host` remains live for this call. No import or callback runs here.
 #[no_mangle]
 pub unsafe extern "C" fn wire_edges_run(host: *mut Host) -> *const f64 {
+    super::owner::with(|owner| {
+if owner.edges.get(host as usize).is_none() {return std::ptr::null();}
+
     let input = { let (row, heap) = crate::abi::sim().calls.args(); WeCall::take(row, heap) };
-    let out = (*host).run(input, &mut crate::abi::sim().strings);
+    let out = owner.edges.get_mut(host as usize).unwrap().run(input, &mut crate::abi::sim().strings);
     let s = crate::abi::sim(); s.calls.result(WeResult::WORDS, |row, heap| out.put(row, heap)); s.calls.block.ptr()
+
+    })
 }
 
 #[cfg(test)]

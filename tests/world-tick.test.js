@@ -91,3 +91,18 @@ test('the enclosing tick advances gameplay water before the body and item phases
   assert.ok(Math.abs(water.simulationTime-2)<1e-12);
   assert.ok(water.physicsWave<0);
 });
+
+// A retired viewpoint is a stale boundary identity, even for an AI-off tick.
+// Reject before the clock or water can advance, rather than trapping mid-tick.
+test('a stale viewpoint rejects the enclosing tick before world mutation',async()=>{
+  const f=await fixture(), b=f.world.phase.bridge, input=new WorldTickInputMirror();
+  const { KIND_UNIT }=await import('../src/sim/gen/kinds.js');
+  const key=f.world.phase.bindings[f.unit.id].view.key;
+  b.retire(KIND_UNIT,key.slot,key.generation);
+  input.dt=1/60;input.tick=1;input.clock=f.tick.clock;
+  b.views();putWorldTickInput(b,input,b.f,f.tick.address,b.heap);
+  const result=b.callResult({Mirror:WorldTickOutputMirror,sync:syncWorldTickOutput},f.x.world_step_run());
+  assert.equal(result.accepted,false);
+  assert.equal(result.clock.tick,0);
+  assert.equal(f.battle.stats.time,0);
+});

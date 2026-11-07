@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WorldTickEstimator, InputLead, advanceInputClock, replayTicks, CorrectionSmoother } from '../src/runtime/reconcile.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
-import { InputMailbox } from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import { NetworkInputs } from '../src/runtime/network-inputs.js';
 
 const HZ = 60;
@@ -308,7 +308,9 @@ test('replayTicks merges pending commands per tick exactly as the mailbox takes 
       down: [`K${i}`], actions: i % 2 ? ['jump'] : [], look: [[i, 0]], mouseScale: i === 2 ? 1.5 : undefined }));
     // The mailbox, holding `held` for this life, takes the same commands.
     const mailbox = new InputMailbox(1);
-    mailbox.generation = generation; mailbox.down = held;
+    mailbox.push({epoch:1,generation,sequence:1,tick:from,down:held,actions:[],look:[]});
+    mailbox.take(from,generation);
+    for (const command of pending) command.sequence++;
     for (const command of pending) mailbox.push(command);
     const last = Math.max(from + 1, ...pending.filter((c) => c.generation === generation).map((c) => c.tick));
     const expected = [];

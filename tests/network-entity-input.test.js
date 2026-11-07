@@ -4,7 +4,7 @@ import {INPUT_CODES,DEFAULT_BINDING_PROFILES,encodeEntityInput,decodeEntityInput
 import {EntityEdgeSender,EntityEdgeReceiver} from '../src/runtime/network-entity-edges.js';
 const command=(sequence=1)=>({sequence,tick:sequence+5,down:['KeyW','Mouse0'],lookTotal:[100.5,-55],mouseScale:1,aspect:16/9,flightSettings:{sensitivity:1,curve:1.35,invert:false,bindings:{}},gamepad:{axes:[.1,.2,.3,.4],buttons:[{pressed:true}]}});
 test('fractional view ticks survive input and reliable fire encoding without changing the ABI header',async()=>{
- const {InputMailbox}=await import('../src/runtime/transport.js');
+ const {InputMailbox}=await import('./fixtures/input-mailbox.js');
  const {FireCommands}=await import('../src/runtime/fire-commands.js');
  const viewTick=4.987654321,edge={id:1,tick:6,kind:'fire',button:'fireSecondary',pressed:true,viewTick,aimYaw:0,aimPitch:0};
  const bytes=encodeEntityInput({epoch:1,generation:3,commands:[{...command(),viewTick}],edges:[edge]});

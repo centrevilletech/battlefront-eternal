@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CommandHistory, CommandControls, HUMAN_COMMAND_LIMIT, humanCommands, humanEntry, queueHumanCommand } from "../src/runtime/commands.js";
 import { HeadlessControls } from "../src/runtime/headless-ports.js";
-import { InputMailbox } from "../src/runtime/transport.js";
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import { Unit } from "../src/units.js";
 
 const command = (sequence, extra = {}) => ({ tick: sequence, epoch: 1, generation: 0, sequence, down: [], actions: [], look: [], ...extra });

@@ -153,7 +153,11 @@ impl Runtime {
 }
 #[no_mangle]
 pub extern "C" fn wire_create() -> *mut Runtime {
-    Box::into_raw(Box::new(Runtime::default()))
+    super::owner::with(|owner| {
+
+    owner.runtimes.insert(Runtime::default()).unwrap_or(0) as *mut Runtime
+
+    })
 }
 /// Bind the canonical producer before its first publication. Ring banks
 /// reserve the loaded content's maximum crew size at this cold boundary.
@@ -162,35 +166,51 @@ pub extern "C" fn wire_create() -> *mut Runtime {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub unsafe extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::store_source::Source) -> u32 {
+    super::owner::with(|owner| {
+if owner.runtimes.get(runtime as usize).is_none() {return 0;}
+if owner.sources.get(source as usize).is_none() {return 0;}
+
     if runtime.is_null() || source.is_null() { return 0; }
-    let runtime = &mut *runtime;
+    let runtime = owner.runtimes.get_mut(runtime as usize).unwrap();
     if runtime.retained.is_some() { return 1; }
-    let Ok(ring) = super::retained::Ring::new((&*source).capture.seat_capacity(), 1024, 128) else { return 0 };
+    let Ok(ring) = super::retained::Ring::new((owner.sources.get(source as usize).unwrap()).capture.seat_capacity(), 1024, 128) else { return 0 };
     runtime.retained = Some(ring); 1
+
+    })
 }
 /// # Safety
-/// The pointer must be a live wire_create allocation, dropped exactly once.
+/// The handle names a wire runtime in this module instance.
 #[no_mangle]
 pub unsafe extern "C" fn wire_drop(runtime: *mut Runtime) {
+    super::owner::with(|owner| {
+if owner.runtimes.get(runtime as usize).is_none() {return;}
+
     if !runtime.is_null() {
-        drop(Box::from_raw(runtime));
+        owner.runtimes.remove(runtime as usize);
     }
+
+    })
 }
 /// # Safety
-/// The pointer must belong to this module and remain live through the call.
+/// The handle belongs to this module instance for the call.
 #[no_mangle]
 pub unsafe extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 {
+    super::owner::with(|owner| {
+if owner.runtimes.get(runtime as usize).is_none() {return std::ptr::null();}
+
     let input = {
         let (row, heap) = sim().calls.args();
         WireCapture::take(row, heap)
     };
-    let result = (*runtime)
+    let result = owner.runtimes.get_mut(runtime as usize).unwrap()
         .capture(input, &sim().strings)
         .map(|_| Vec::new());
     output(result)
+
+    })
 }
 /// # Safety
-/// The pointer must belong to this module and remain live through the call.
+/// The handle belongs to this module instance for the call.
 #[no_mangle]
 pub unsafe extern "C" fn wire_held(
     runtime: *mut Runtime,
@@ -199,5 +219,10 @@ pub unsafe extern "C" fn wire_held(
     baseline: f64,
     interval: f64,
 ) -> *const f64 {
-    output_retained((*runtime).encode(tick, epoch, baseline, interval))
+    super::owner::with(|owner| {
+if owner.runtimes.get(runtime as usize).is_none() {return std::ptr::null();}
+
+    output_retained(owner.runtimes.get_mut(runtime as usize).unwrap().encode(tick, epoch, baseline, interval))
+
+    })
 }

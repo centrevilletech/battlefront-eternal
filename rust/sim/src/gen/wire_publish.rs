@@ -3,8 +3,6 @@
 
 use super::*;
 
-pub const WIRE_FACT_BATCH_RESERVE:u32=128;
-pub const WIRE_FACT_BYTES_RESERVE:u32=65536;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WireDynamicFact {
     pub slot: u32,

@@ -1036,24 +1036,41 @@ pub struct Semantic {
 }
 #[no_mangle]
 pub extern "C" fn wire_semantic_create() -> *mut Semantic {
-    Box::into_raw(Box::new(Semantic::default()))
+    super::owner::with(|owner| {
+
+    owner.semantic.insert(Semantic::default()).unwrap_or(0) as *mut Semantic
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_semantic_drop(p: *mut Semantic) {
+    super::owner::with(|owner| {
+if owner.semantic.get(p as usize).is_none() {return;}
+
     if !p.is_null() {
-        drop(Box::from_raw(p));
+        owner.semantic.remove(p as usize);
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_semantic_room(p: *mut Semantic, n: u32) -> *mut f64 {
-    let p = &mut *p;
+    super::owner::with(|owner| {
+if owner.semantic.get(p as usize).is_none() {return std::ptr::null_mut();}
+
+    let p = owner.semantic.get_mut(p as usize).unwrap();
     p.input.clear();
     p.input.resize(n as usize, 0.);
     p.input.as_mut_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 {
-    let p = &mut *p;
+    super::owner::with(|owner| {
+if owner.semantic.get(p as usize).is_none() {return 0;}
+
+    let p = owner.semantic.get_mut(p as usize).unwrap();
     let result = encode(op, &p.input, &crate::abi::sim().strings);
     p.output.clear();
     match result {
@@ -1069,14 +1086,26 @@ pub unsafe extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 {
         }
         Err(error) => crate::abi::sim().strings.intern_str(error).0 + 1,
     }
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 {
-    (*p).output.as_ptr()
+    super::owner::with(|owner| {
+if owner.semantic.get(p as usize).is_none() {return std::ptr::null();}
+
+    owner.semantic.get_mut(p as usize).unwrap().output.as_ptr()
+
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 {
-    (*p).output.len() as u32
+    super::owner::with(|owner| {
+if owner.semantic.get(p as usize).is_none() {return 0;}
+
+    owner.semantic.get_mut(p as usize).unwrap().output.len() as u32
+
+    })
 }
 
 #[cfg(test)]

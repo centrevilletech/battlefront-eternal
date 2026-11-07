@@ -82,8 +82,8 @@ test('native queue prunes before decoding, retains terminal pairs and bounds dia
   try {
     for (const f of [native, js]) {
       f.capture.maxRecords = 1; f.capture.emit(launch(1));
-      assert.throws(() => f.capture.emit({ id: 2, schema: 2 }), /capacity exceeded/);
-      assert.throws(() => f.capture.emit({ id: 1, schema: 2 }), /capacity exceeded/);
+      assert.doesNotThrow(() => f.capture.emit({ id: 2, schema: 2 }));
+      assert.doesNotThrow(() => f.capture.emit({ id: 1, schema: 2 }));
       f.capture.maxRecords = 2;
       const terminal = combatRecord({ id: 1, generation: 1, tick: 10, schema: 2, expiryTick: 30, definitionId: 1, position: [0, 0, 0], direction: [0, 0, 1] });
       f.capture.emit(terminal); assert.deepEqual([...f.capture.pending.keys()], [1, -1]);

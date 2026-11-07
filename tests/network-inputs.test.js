@@ -19,7 +19,7 @@ test('movement acknowledgements cannot discard an unacknowledged reliable jump',
   assert.deepEqual(predictionCommands([old],[old],2,[])[0].actions,[]);
 });
 
-import {InputMailbox} from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 import {InputActions} from '../src/runtime/input-actions.js';
 for(const rtt of [0,50,100,200])test(`real split sender recovers lost/reordered movement and delayed action at ${rtt}ms RTT`,()=>{
  const mailbox=new InputMailbox(),actions=new InputActions(),wire=[],reliable=[];let serial=0;

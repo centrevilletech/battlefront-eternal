@@ -2,6 +2,9 @@
 // before the adapter decodes a view or invokes a simulation callback.
 export default {
   records: {
+    WbCommit: { $layout: true, key: 'f64', fact: 'rec:WireJournalFact', payload: 'list:u8' },
+    WbSaved: { key: 'f64', fact: 'rec:WireJournalFact', payload: 'list:u8', expiresTick: 'f64' },
+    WbSavedResult: { records: 'list:rec:WbSaved' },
     WbEncode: {
       op: 'f64', id: 'f64', generation: 'f64', tick: 'f64', schema: 'f64', expiryTick: 'f64', definitionId: 'f64',
       ownerId: 'f64', ownerGeneration: 'f64', fireId: 'f64', channel: 'f64', launchTick: 'f64', executionTick: 'f64',

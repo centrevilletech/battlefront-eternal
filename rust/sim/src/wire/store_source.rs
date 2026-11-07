@@ -36,7 +36,8 @@ fn valid_setup(row: &[f64], heap: &[f64], strings: usize) -> bool {
     let start = row[field] as usize; let count = row[field + 1] as usize;
     let Some(peers) = heap.get(start..start.saturating_add(count.saturating_mul(P::WORDS))) else { return false };
     for peer in peers.chunks_exact(P::WORDS) {
-        if !integer(peer[P::ID], u32::MAX as usize) { return false; }
+        if !integer(peer[P::ID], u32::MAX as usize) || !integer(peer[P::MAILBOX], u32::MAX as usize)
+            || sim().input.mailboxes.get(peer[P::MAILBOX] as usize).is_none() { return false; }
         if peer[P::CHARACTER] != 0. && peer[P::CHARACTER] != 1. { return false; }
         if peer[P::CHARACTER] == 1. { continue; }
         let h = &peer[P::CHARACTER + 1..][..H::WORDS];
@@ -70,8 +71,16 @@ impl Default for Eligibility { fn default() -> Self { Self { valid: false, posts
 // EntityWorldCapture owns immutable protocol maps alongside reusable rows.
 // Foreign facts have fixed capacities independent of the current roster.
 // Only cold admission can replace definition maps or grow weapon defaults.
-pub struct Source { ordnance_ids: Vec<u32>, dynamic_faults: [StrId; 7], projectiles: super::store_projectiles::Capture, own_stagger: super::stagger::Stagger, eligibility: [Eligibility; 8], eligibility_key: Option<(f64, f64, bool)>, own: super::store_own::Capture, flight_names: [StrId; 14], pub capture: store_capture::Capture, states: [StrId; 3], world: super::store_world::Units, summaries: super::store_summaries::Summaries, stage: super::stagger::Stagger, peers: Vec<crate::gen::WireStorePeer>, input: Vec<f64>, payload: Vec<u8>, fields: super::store_world::WorldFields, names: [StrId; 5] }
+pub struct Source { ordnance_ids: Vec<u32>, dynamic_faults: [StrId; 7], projectiles: super::store_projectiles::Capture, own_stagger: super::stagger::Stagger, eligibility: [Eligibility; 8], eligibility_key: Option<(f64, f64, bool)>, own: super::store_own::Capture, flight_names: [StrId; 14], pub capture: store_capture::Capture, states: [StrId; 3], world: super::store_world::Units, summaries: super::store_summaries::Summaries, stage: super::stagger::Stagger, peers: Vec<crate::gen::WireStorePeer>, input: Vec<f64>, fields: super::store_world::WorldFields, names: [StrId; 5] }
 impl Source {
+    // InputMailbox retains held/view values at consumption, not at publish.
+    // Qualified handles reject a retired connection instead of following its
+    // replacement into another player correction.
+    fn mailbox(&self,id:u32)->super::codec::Result<&crate::input::owner::Mailbox> {
+        let peer=self.peers.iter().find(|p|p.id==id).ok_or("own input prerequisite missing")?;
+        sim().input.mailboxes.get(peer.mailbox as usize).ok_or("own input prerequisite missing")
+    }
+
     // SnapshotHost.publish supplies clocks before entering the native borrow.
     // Copy the fixed header so output allocation cannot invalidate a view.
     // The full descriptor is validated before any list is decoded.
@@ -150,9 +159,9 @@ impl Source {
         use crate::gen::*;
         let header = WireWorldFacts::WORDS;
         let (tick, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
-        let row = words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64)
+        words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64)
             .ok_or("own input prerequisite missing")?;
-        let foreign = WireOwnFacts::take(&row[WirePublicationLink::OWN..], &[]).spawn;
+        let foreign = self.mailbox(id)?.publication.spawn.clone();
         if !foreign.valid { return Err("spawn selection registry prerequisite missing"); }
         let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
         let handle = peer.character.as_ref().ok_or("own spectator correction not implemented")?;
@@ -188,9 +197,9 @@ impl Source {
         use crate::gen::*;
         let header = WireWorldFacts::WORDS;
         let (_, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
-        let row = words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64)
+        words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64)
             .ok_or("own input prerequisite missing")?;
-        let foreign = WireOwnFacts::take(&row[WirePublicationLink::OWN..], &[]);
+        let foreign = self.mailbox(id)?.publication.clone();
         let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
         let store = &sim().store;
         let connection = crate::battle::f4_connections::wire_view(store, peer.character.as_ref().ok_or("own spectator correction not implemented")?).ok_or("own spectator correction not implemented")?;
@@ -255,7 +264,7 @@ impl Source {
             else { return Err("invalid own-player integer") };
         let input = super::store_own::Facts { held: foreign.held.0, invalid_held: !foreign.held_valid, flags,
             view: [v.mouse_scale, v.aspect, v.view_tick, v.sensitivity, v.curve], axes: v.axes,
-            buttons: jsrt::to_uint32(v.buttons) as u16, binding: v.profile as u16, discarded: foreign.discarded, presentation_first: Some(foreign.combat_first_person) };
+            buttons: jsrt::to_uint32(v.buttons) as u16, binding: v.profile as u16, discarded: foreign.discarded, presentation_first: Some(unit.combat.first_person) };
         self.own.envelope(unit, schema, mount, epoch, epoch, &self.capture, defs, &input, remote)?;
         Ok((reference.slot as f64, unit.generation))
     }
@@ -264,6 +273,8 @@ impl Source {
 pub extern "C" fn wire_store_source_words() -> u32 { WireStoreSetup::WORDS as u32 }
 #[no_mangle]
 pub extern "C" fn wire_store_source_create() -> *mut Source {
+    super::owner::with(|owner| {
+
     let (row, heap) = sim().calls.args();
     if !valid_setup(row, heap, sim().strings.list.len()) { return std::ptr::null_mut(); }
     let setup = WireStoreSetup::take(row, heap);
@@ -276,13 +287,20 @@ pub extern "C" fn wire_store_source_create() -> *mut Source {
     // Intern those names cold, including the empty message and trick names.
     // No first-seen flight status may allocate during publication.
     let flight_names = ["", "barrel", "loop", "immelmann", "Locking", "Locked", "Takeoff path blocked", "Landing path blocked", "Too fast", "No landing zone", "Press SPACE to land", "Flight ceiling", "Leaving battlefield", ""].map(|n| sim().strings.intern_str(n));
-    Box::into_raw(Box::new(Source { ordnance_ids, dynamic_faults: ["invalid projectile sample", "invalid projectile integer", "invalid projectile channel", "invalid projectile type/orientation", "combat capture capacity exceeded", "dynamic projectile capture capacity exceeded", "combat definition absent from matched registry"].map(|s| sim().strings.intern_str(s)), projectiles: Default::default(), own_stagger: super::stagger::Stagger::own(), eligibility: std::array::from_fn(|_| Eligibility::default()), eligibility_key: None, own, flight_names, capture, states: [setup.unbuilt, setup.built, setup.destroyed], world: Default::default(), summaries: Default::default(), stage: super::stagger::Stagger::new(), peers: setup.peers, input: vec![0.; crate::gen::WireWorldFacts::WORDS + 256 * crate::gen::WirePublicationLink::WORDS + crate::gen::WIRE_FACT_BATCH_RESERVE as usize * (crate::gen::WireJournalFact::WORDS + crate::gen::WireDynamicFact::WORDS)], payload: vec![0; crate::gen::WIRE_FACT_BYTES_RESERVE as usize], fields: Default::default(),
-        names: [setup.unbuilt, setup.built, setup.destroyed, sim().strings.intern_str("waiting"), sim().strings.intern_str("active")] }))
+    owner.sources.insert(Source { ordnance_ids, dynamic_faults: ["invalid projectile sample", "invalid projectile integer", "invalid projectile channel", "invalid projectile type/orientation", "combat capture capacity exceeded", "dynamic projectile capture capacity exceeded", "combat definition absent from matched registry"].map(|s| sim().strings.intern_str(s)), projectiles: Default::default(), own_stagger: super::stagger::Stagger::own(), eligibility: std::array::from_fn(|_| Eligibility::default()), eligibility_key: None, own, flight_names, capture, states: [setup.unbuilt, setup.built, setup.destroyed], world: Default::default(), summaries: Default::default(), stage: super::stagger::Stagger::new(), peers: setup.peers, input: vec![0.; crate::gen::WireWorldFacts::WORDS + 256 * crate::gen::WirePublicationLink::WORDS], fields: Default::default(),
+        names: [setup.unbuilt, setup.built, setup.destroyed, sim().strings.intern_str("waiting"), sim().strings.intern_str("active")] }).unwrap_or(0) as *mut Source
+
+    })
 }
 /// # Safety
 /// This source belongs to this instance and is disposed exactly once.
 #[no_mangle]
-pub unsafe extern "C" fn wire_store_source_drop(source: *mut Source) { if !source.is_null() { drop(Box::from_raw(source)); } }
+pub unsafe extern "C" fn wire_store_source_drop(source: *mut Source) {
+    super::owner::with(|owner| {
+if owner.sources.get(source as usize).is_none() {return;}
+ if !source.is_null() { owner.sources.remove(source as usize); }
+    })
+}
 
 /// Cold content preparation can extend native definition handles between
 /// client admissions. It never replaces captured lives or protocol identities.
@@ -290,17 +308,22 @@ pub unsafe extern "C" fn wire_store_source_drop(source: *mut Source) { if !sourc
 /// The source is a live allocation belonging to this instance.
 #[no_mangle]
 pub unsafe extern "C" fn wire_store_source_configure(source: *mut Source) -> u32 {
+    super::owner::with(|owner| {
+if owner.sources.get(source as usize).is_none() {return 0;}
+
     let (row, heap) = sim().calls.args();
     if source.is_null() || !valid_setup(row, heap, sim().strings.list.len()) { return 0; }
     let setup = WireStoreSetup::take(row, heap);
-    if (&mut *source).capture.rebind(&setup, &sim().strings).is_err() { return 0; }
+    if (owner.sources.get_mut(source as usize).unwrap()).capture.rebind(&setup, &sim().strings).is_err() { return 0; }
     let Ok(ordnance_ids) = store_capture::definitions(&setup.ordnance) else { return 0 };
-    (&mut *source).ordnance_ids = ordnance_ids;
-    (&mut *source).states = [setup.unbuilt, setup.built, setup.destroyed];
-    (&mut *source).peers = setup.peers;
-    (&mut *source).eligibility_key = None;
-    (&mut *source).own.rebind(&crate::combat::module::defs().weapons);
+    (owner.sources.get_mut(source as usize).unwrap()).ordnance_ids = ordnance_ids;
+    (owner.sources.get_mut(source as usize).unwrap()).states = [setup.unbuilt, setup.built, setup.destroyed];
+    (owner.sources.get_mut(source as usize).unwrap()).peers = setup.peers;
+    (owner.sources.get_mut(source as usize).unwrap()).eligibility_key = None;
+    (owner.sources.get_mut(source as usize).unwrap()).own.rebind(&crate::combat::module::defs().weapons);
     1
+
+    })
 }
 
 /// A read-only probe for the producer corpus. Production consumes the retained
@@ -309,16 +332,22 @@ pub unsafe extern "C" fn wire_store_source_configure(source: *mut Source) -> u32
 /// Both pointers are live, distinct allocations belonging to this instance.
 #[no_mangle]
 pub unsafe extern "C" fn wire_store_source_probe(source: *mut Source, shots: *const Counters) -> *const f64 {
+    super::owner::with(|owner| {
+if owner.sources.get(source as usize).is_none() {return std::ptr::null();}
+if owner.shots.get(shots as usize).is_none() {return std::ptr::null();}
+
     let before = crate::allocations::snapshot();
-    let result = (&mut *source).capture(&*shots);
+    let result = (owner.sources.get_mut(source as usize).unwrap()).capture(owner.shots.get(shots as usize).unwrap());
     let used = crate::allocations::snapshot().since(before);
     let mut out = match result {
-        Ok(()) => WireStoreRecords { records: (&*source).capture.records().to_vec(), ..Default::default() },
+        Ok(()) => WireStoreRecords { records: (owner.sources.get(source as usize).unwrap()).capture.records().to_vec(), ..Default::default() },
         Err(error) => WireStoreRecords { error: Some(sim().strings.intern_str(error)), ..Default::default() },
     };
     out.allocations = used.calls as f64; out.reallocations = used.reallocs as f64;
     sim().calls.result(WireStoreRecords::WORDS, |row, heap| out.put(row, heap));
     sim().calls.block.ptr()
+
+    })
 }
 
 
@@ -376,7 +405,12 @@ fn facts<'a>(row: &[f64], heap: &'a [f64]) -> Option<(f64, &'a [f64])> {
 /// # Safety
 /// The source is live in this instance until wire_store_source_drop.
 #[no_mangle]
-pub unsafe extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 { (&mut *source).input.as_mut_ptr() }
+pub unsafe extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 {
+    super::owner::with(|owner| {
+if owner.sources.get(source as usize).is_none() {return std::ptr::null_mut();}
+ (owner.sources.get_mut(source as usize).unwrap()).input.as_mut_ptr()
+    })
+}
 impl Source {
     // captureSnapshot stages common, unit and world fields in that order.
     // Only a complete capture swaps into the live stagger bank.
@@ -401,35 +435,27 @@ impl Source {
     }
 }
 
-/// The publisher lends these owners for one call. Every pointer is bound at
-/// construction or client admission, and no callback can reenter this borrow.
+/// The publisher lends disjoint banks for one call. Local handles were bound
+/// at admission, and no callback can reenter this borrow.
 pub(crate) struct PublicationWorld<'a> {
     pub epoch: f64,
     pub source: &'a mut Source, pub stagger: &'a mut super::stagger::Stagger,
     pub shots: &'a Counters, pub combat: &'a mut super::combat::Capture,
+    pub edges:&'a crate::store::handles::Pool<super::edges::Host>,
 }
 impl super::publisher::World for PublicationWorld<'_> {
+    fn edges(&self,handle:usize)->Option<&super::edges::Host> {self.edges.get(handle)}
     // wire_publish validates the complete reserved window before capture.
-    // Journal payload spans count from their declared byte window only.
-    // Clamped list lengths never authorize bytes outside that window.
     // A malformed input returns a normal host fault before any world walk.
     // It must not drain journal facts that a corrected retry still needs.
     // The fixed root header itself is always retained by the Source.
-    // All arithmetic is saturating before the final bounds comparison.
     fn validate(&self) -> super::codec::Result<()> {
-        use crate::gen::{WireWorldFacts as F, WireJournalFact as J, WireDynamicFact as D, WireSpan as S};
-        let root = &self.source.input[..F::WORDS]; let heap = &self.source.input[F::WORDS..];
-        facts(root, heap).ok_or("invalid canonical world facts")?;
-        let integer = |n: f64, max: usize| n.is_finite() && n >= 0. && n.fract() == 0. && n <= max as f64;
-        for (field, width) in [(F::JOURNAL, J::WORDS), (F::DYNAMICS, D::WORDS)] {
-            let at = root[field]; let count = root[field + 1];
-            if !integer(at, heap.len()) || !integer(count, 4096) || (at as usize).saturating_add(count as usize * width) > heap.len() { return Err("invalid canonical world facts"); }
-        }
-        let span = &root[F::JOURNAL_BYTES..];
-        if !integer(span[S::OFFSET], self.source.payload.len()) || !integer(span[S::LENGTH], self.source.payload.len())
-            || (span[S::OFFSET] as usize).saturating_add(span[S::LENGTH] as usize) > self.source.payload.len() { return Err("invalid canonical world facts"); }
+        use crate::gen::WireWorldFacts as F;
+        facts(&self.source.input[..F::WORDS], &self.source.input[F::WORDS..])
+            .ok_or("invalid canonical world facts")?;
         Ok(())
     }
+
     fn capture(&mut self, tick: f64, epoch: f64, runtime: &mut super::Runtime) -> super::codec::Result<()> {
         self.source.capture(self.shots)?; self.source.world(self.stagger, epoch)?;
         runtime.capture_canonical(tick, epoch, self.source.capture.records(), self.stagger.entries.iter().filter_map(|e| e.field.as_ref()), &sim().strings)
@@ -451,7 +477,7 @@ impl super::publisher::World for PublicationWorld<'_> {
                 .unwrap_or_else(|| match &u.soldier { UnitBody::Soldier(s) => s.position, UnitBody::Droideka(d) => d.position })
         });
         super::publisher::Actor { present: true, spectator: peer.character.is_none(), unit: unit.map(|(r, u)| (r.slot as f64, u.generation)), position,
-            ack: row[WirePublicationLink::ACK], ack_tick: row[WirePublicationLink::ACK_TICK], discarded_input: row[WirePublicationLink::DISCARDED_INPUT],
+            ack: self.source.mailbox(peer.id).map_or(0.,|m|m.state.ack), ack_tick: self.source.mailbox(peer.id).map_or(0.,|m|m.state.ack_tick), discarded_input: self.source.mailbox(peer.id).map_or(0.,|m|m.state.discarded),
             discarded_actions: row[WirePublicationLink::DISCARDED_ACTIONS] }
     }
     fn summaries(&mut self, peer: u32, epoch: f64, fields: &mut super::publisher::Fields) -> super::codec::Result<()> {
@@ -466,40 +492,16 @@ impl super::publisher::World for PublicationWorld<'_> {
     // Consume the foreign callback journal first, then native dynamic samples.
     // Their insertion and diagnostic order is part of the publication contract.
     fn events(&mut self, events: &mut super::journal::Events) {
-        use crate::gen::{WireWorldFacts as F, WireJournalFact as J};
+        use crate::gen::WireWorldFacts as F;
         let source = &mut self.source; events.begin();
-        let valid = |n: f64, max: usize| n.is_finite() && n >= 0. && n.fract() == 0. && n <= max as f64;
-        let header = &source.input[..F::WORDS]; let heap = &source.input[F::WORDS..];
-        let window = crate::gen::WireSpan::take(&header[F::JOURNAL_BYTES..], &[]);
-        let payload = source.payload.get(window.offset as usize..(window.offset as usize).saturating_add(window.length as usize)).unwrap_or(&[]);
-        // ProjectileCapture.launch still assigns callback identities outside capture.
-        // The input contains changed qualified identities and attribution only.
-        // Position, velocity, quaternion, end and remaining life stay in the store.
+        events.saturated+=std::mem::take(&mut self.combat.saturated);
+        let header = &source.input[..F::WORDS];
         source.projectiles.begin_updates();
         let mut identity_overflow = false;
-        if valid(header[F::DYNAMICS], heap.len()) && valid(header[F::DYNAMICS + 1], 4096) {
-            let at = header[F::DYNAMICS] as usize; let count = header[F::DYNAMICS + 1] as usize;
-            if let Some(rows) = heap.get(at..at.saturating_add(count * crate::gen::WireDynamicFact::WORDS)) {
-                for row in rows.chunks_exact(crate::gen::WireDynamicFact::WORDS) { if !source.projectiles.update(crate::gen::WireDynamicFact::take(row, &[])) { identity_overflow = true; } }
-            }
-        }
-        // Reserve only this pending batch at the publication boundary. The
-        // dynamic owner can add a launch and terminal for each qualified life.
-        let incoming = (header[F::JOURNAL + 1] as usize).min(4096) + source.projectiles.facts.len().min(4096) * 2;
-        if events.prepare(incoming).is_err() { events.saturated += incoming as u64; }
-        if valid(header[F::JOURNAL], heap.len()) && valid(header[F::JOURNAL + 1], 4096) {
-            let at = header[F::JOURNAL] as usize; let count = header[F::JOURNAL + 1] as usize;
-            if let Some(rows) = heap.get(at..at.saturating_add(count * J::WORDS)) {
-                for row in rows.chunks_exact(J::WORDS) {
-                    let fact = crate::gen::WireJournalFact::take(row, &[]);
-                    let at = fact.payload.offset as usize; let len = fact.payload.length as usize;
-                    if len > 900 || at.saturating_add(len) > payload.len() { events.malformed += 1; continue; }
-                    events.emit_raw(fact.id, fact.generation, fact.tick, fact.schema, &payload[at..at + len], super::cosmetics::View {
-                        schema: fact.schema, position: fact.has_position.then_some(fact.position), owner: super::cosmetics::Owner { tag: fact.owner_tag, value: fact.owner },
-                        speed: fact.speed, life: fact.life, ..Default::default() });
-                }
-            }
-        }
+        for fact in &self.combat.dynamics {if !source.projectiles.update(fact.clone()) {identity_overflow=true;}}
+        let incoming=self.combat.len()+source.projectiles.facts.len().min(4096)*2;
+        if events.prepare(incoming).is_err() {events.saturated+=incoming as u64;}
+        self.combat.publish(events);
         let store = &sim().store; let tick = header[F::TICK];
         source.projectiles.take_with(tick, store, events, |sample| {
             // The raw journal already consumed every earlier callback id.
@@ -529,42 +531,4 @@ impl super::publisher::World for PublicationWorld<'_> {
     fn created(&self) -> &[crate::gen::WireDynamicFact] { &self.source.projectiles.created }
     fn retired(&self) -> &[u32] { &self.source.projectiles.retired }
     fn status(&self, id: StrId) -> &[u16] { sim().strings.units(id) }
-}
-/// The byte portion of the same reserved publication facts block. Offsets in
-/// WireJournalFact.payload count from here; capacity is fixed at attachment.
-/// # Safety
-/// This source remains live until its publisher and bridge are disposed.
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_journal_bytes(source: *mut Source) -> *mut u8 { (&mut *source).payload.as_mut_ptr() }
-
-/// A paused journal may exceed the ordinary reserved byte window. Grow only
-/// before the foreign block is written; all cached views refresh afterwards.
-/// # Safety
-/// The source is live and no publication currently borrows its facts.
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_journal_room(source: *mut Source, bytes: u32) -> *mut u8 {
-    if source.is_null() || bytes as usize > 4096 * 900 { return std::ptr::null_mut(); }
-    let payload = &mut (&mut *source).payload;
-    if bytes as usize > payload.len() {
-        if payload.try_reserve(bytes as usize - payload.len()).is_err() { return std::ptr::null_mut(); }
-        payload.resize(bytes as usize, 0);
-    }
-    payload.as_mut_ptr()
-}
-
-/// Exceptional journal/identity batches resize their single generated fact
-/// block before JS takes a view. Protocol bounds remain independent of the
-/// ordinary reservation; failure returns a normal invalid-fact snapshot fault.
-/// # Safety
-/// The source is live and the publication has not borrowed this input yet.
-#[no_mangle]
-pub unsafe extern "C" fn wire_store_world_room(source: *mut Source, words: u32) -> *mut f64 {
-    let maximum = crate::gen::WireWorldFacts::WORDS + 256 * crate::gen::WirePublicationLink::WORDS + 4096 * crate::gen::WireJournalFact::WORDS + 4096 * crate::gen::WireDynamicFact::WORDS;
-    if source.is_null() || words as usize > maximum { return std::ptr::null_mut(); }
-    let input = &mut (&mut *source).input;
-    if words as usize > input.len() {
-        if input.try_reserve(words as usize - input.len()).is_err() { return std::ptr::null_mut(); }
-        input.resize(words as usize, 0.);
-    }
-    input.as_mut_ptr()
 }

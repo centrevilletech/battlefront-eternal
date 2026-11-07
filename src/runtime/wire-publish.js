@@ -23,7 +23,7 @@ export function createWirePublisher(bridge, { runtime, source, stagger, shots, h
       source.writeWorldFacts(tick, { at, unixMs, droppedTicks, journal: combat });
       const result = bridge.callResult(output, x.wire_publish(handle), exchange);
       if (bridge.boundaryCounters) bridge.boundaryCounters.outputBytes = (bridge.boundaryCounters.outputBytes ?? 0) + result.byteLength;
-      if (result.drained) { combat.pending.clear(); if (combat.dynamic) combat.dynamic.pending.clear(); combat.dynamic?.adopt(result.created, bridge); combat.dynamic?.retire(result.retired); }
+      if (result.drained) { combat.dynamic?.adopt(result.created, bridge); combat.dynamic?.retire(result.retired); }
       ringNewest = result.ringNewest; encodes = result.encodes;
       bridge.views();
       const bytes = bridge.u8, base = result.bytes;

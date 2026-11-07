@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { HsCommandMirror, exportHsCommand, putHsCommand, sameHsCommand, syncHsCommand } from "./battle.js";
+import { WiViewMirror, exportWiView, putWiView, sameWiView, syncWiView } from "./wire-edges.js";
 
 export const IaOperation_NAMES = ["push","take","clear","enable","drain","outcome"];
 export const IaOperation_INDEX = new Map(IaOperation_NAMES.map((name, i) => [name, i]));
@@ -735,8 +736,57 @@ export function exportImFire(o, cx) {
   return v;
 }
 
+export const InputViewUpdateLayout = Object.freeze({ words: 15, key: 0, present: 1, view: 2 });
+export const INPUT_VIEW_UPDATE_WORDS = InputViewUpdateLayout.words;
+export const INPUT_VIEW_UPDATE_OFFSETS = InputViewUpdateLayout;
+
+export class InputViewUpdateMirror {
+  constructor() {
+    this.key = 0;
+    this.present = false;
+    this.view = new WiViewMirror();
+  }
+}
+
+export function syncInputViewUpdate(b, f, at, h, m) {
+  m.key = f[at + 0] >>> 0;
+  m.present = f[at + 1] !== 0;
+  m.view = syncWiView(b, f, at + 2, h, m.view ?? new WiViewMirror());
+  return m;
+}
+
+export function putInputViewUpdate(b, o, f, at, heap) {
+  f[at + 0] = o.key;
+  f[at + 1] = o.present ? 1 : 0;
+  putWiView(b, o.view, f, at + 2, heap);
+}
+
+export function sameInputViewUpdate(a, b) {
+  if (!Object.is(a.key, b.key)) return ".key";
+  if (!Object.is(a.present, b.present)) return ".present";
+  { const d = sameWiView(a.view, b.view); if (d) return ".view" + d; }
+  return null;
+}
+
+export function exportInputViewUpdate(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.key = o.key;
+  v.present = o.present;
+  v.view = exportWiView(o.view, cx);
+  return v;
+}
+
+export const ImEntryLayout = Object.freeze({ words: 33, publication: 0, codes: 13, codesLength: 14, identity: 15, sequence: 16, tick: 17, generation: 18, down: 19, actions: 20, actionsLength: 21, look: 22, lookLength: 23, lookTotal: 24, view: 27, viewLength: 28, human: 29, humanLength: 30, fire: 31, fireLength: 32 });
+export const IM_ENTRY_WORDS = ImEntryLayout.words;
+export const IM_ENTRY_OFFSETS = ImEntryLayout;
+
 export class ImEntryMirror {
   constructor() {
+    this.publication = new WiViewMirror();
+    this.codes = [];
     this.identity = NaN;
     this.sequence = NaN;
     this.tick = NaN;
@@ -752,35 +802,41 @@ export class ImEntryMirror {
 }
 
 export function syncImEntry(b, f, at, h, m) {
-  m.identity = f[at + 0];
-  m.sequence = f[at + 1];
-  m.tick = f[at + 2];
-  m.generation = f[at + 3];
-  m.down = f[at + 4];
-  { const items = (m.actions ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
-  { const items = (m.look ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
-  { const tag = f[at + 9]; if (tag === 0) { { const a = (m.lookTotal ??= new Array(2)); a[0] = f[at + 10]; a[1] = f[at + 11]; } } else m.lookTotal = tag === 1 ? null : undefined; }
-  { const items = (m.view ??= []), start = h + f[at + 12], n = f[at + 13]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 14], n = f[at + 15]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.fire ??= []), start = h + f[at + 16], n = f[at + 17]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
+  m.publication = syncWiView(b, f, at + 0, h, m.publication ?? new WiViewMirror());
+  { const items = (m.codes ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  m.identity = f[at + 15];
+  m.sequence = f[at + 16];
+  m.tick = f[at + 17];
+  m.generation = f[at + 18];
+  m.down = f[at + 19];
+  { const items = (m.actions ??= []), start = h + f[at + 20], n = f[at + 21]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.look ??= []), start = h + f[at + 22], n = f[at + 23]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
+  { const tag = f[at + 24]; if (tag === 0) { { const a = (m.lookTotal ??= new Array(2)); a[0] = f[at + 25]; a[1] = f[at + 26]; } } else m.lookTotal = tag === 1 ? null : undefined; }
+  { const items = (m.view ??= []), start = h + f[at + 27], n = f[at + 28]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 29], n = f[at + 30]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.fire ??= []), start = h + f[at + 31], n = f[at + 32]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
   return m;
 }
 
 export function putImEntry(b, o, f, at, heap) {
-  f[at + 0] = o.identity;
-  f[at + 1] = o.sequence;
-  f[at + 2] = o.tick;
-  f[at + 3] = o.generation;
-  f[at + 4] = o.down;
-  heap.items(o.actions, f, at + 5, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
-  heap.items(o.look, f, at + 7, 4, (f, at, v) => { putImLook(b, v, f, at + 0, heap); });
-  { const $x = o.lookTotal; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; f[at + 11] = 0; } else { f[at + 9] = 0; { const $v = $x; f[at + 10] = $v[0]; f[at + 11] = $v[1]; } } }
-  heap.items(o.view, f, at + 12, 2, (f, at, v) => { putImField(b, v, f, at + 0, heap); });
-  heap.items(o.human, f, at + 14, 1, (f, at, v) => { f[at + 0] = v; });
-  heap.items(o.fire, f, at + 16, 3, (f, at, v) => { putImFire(b, v, f, at + 0, heap); });
+  putWiView(b, o.publication, f, at + 0, heap);
+  heap.items(o.codes, f, at + 13, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
+  f[at + 15] = o.identity;
+  f[at + 16] = o.sequence;
+  f[at + 17] = o.tick;
+  f[at + 18] = o.generation;
+  f[at + 19] = o.down;
+  heap.items(o.actions, f, at + 20, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
+  heap.items(o.look, f, at + 22, 4, (f, at, v) => { putImLook(b, v, f, at + 0, heap); });
+  { const $x = o.lookTotal; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v[0]; f[at + 26] = $v[1]; } } }
+  heap.items(o.view, f, at + 27, 2, (f, at, v) => { putImField(b, v, f, at + 0, heap); });
+  heap.items(o.human, f, at + 29, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.fire, f, at + 31, 3, (f, at, v) => { putImFire(b, v, f, at + 0, heap); });
 }
 
 export function sameImEntry(a, b) {
+  { const d = sameWiView(a.publication, b.publication); if (d) return ".publication" + d; }
+  if (!sameEach(a.codes, b.codes, (x, y) => Object.is(x, y))) return ".codes";
   if (!Object.is(a.identity, b.identity)) return ".identity";
   if (!Object.is(a.sequence, b.sequence)) return ".sequence";
   if (!Object.is(a.tick, b.tick)) return ".tick";
@@ -800,6 +856,8 @@ export function exportImEntry(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
+  v.publication = exportWiView(o.publication, cx);
+  v.codes = o.codes.map((x) => x);
   v.identity = o.identity;
   v.sequence = o.sequence;
   v.tick = o.tick;
@@ -839,7 +897,7 @@ export function syncImState(b, f, at, h, m) {
   m.ack = f[at + 3];
   m.ackTick = f[at + 4];
   m.discarded = f[at + 5];
-  { const items = (m.queue ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 18; v = syncImEntry(b, f, at + 0, h, v ?? new ImEntryMirror()); } items[i] = v; } }
+  { const items = (m.queue ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 33; v = syncImEntry(b, f, at + 0, h, v ?? new ImEntryMirror()); } items[i] = v; } }
   { const tag = f[at + 8]; if (tag === 0) { m.down = f[at + 9]; } else m.down = tag === 1 ? null : undefined; }
   m.generation = f[at + 10];
   m.late = f[at + 11];
@@ -856,7 +914,7 @@ export function putImState(b, o, f, at, heap) {
   f[at + 3] = o.ack;
   f[at + 4] = o.ackTick;
   f[at + 5] = o.discarded;
-  heap.items(o.queue, f, at + 6, 18, (f, at, v) => { putImEntry(b, v, f, at + 0, heap); });
+  heap.items(o.queue, f, at + 6, 33, (f, at, v) => { putImEntry(b, v, f, at + 0, heap); });
   { const $x = o.down; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x; } }
   f[at + 10] = o.generation;
   f[at + 11] = o.late;
@@ -963,21 +1021,21 @@ export function syncImInput(b, f, at, h, m) {
   m.op = ImOperation_NAMES[f[at + 0]];
   m.state = syncImState(b, f, at + 1, h, m.state ?? new ImStateMirror());
   { const tag = f[at + 18]; if (tag === 0) { m.entry = syncImEntry(b, f, at + 19, h, m.entry ?? new ImEntryMirror()); } else m.entry = tag === 1 ? null : undefined; }
-  m.sequence = f[at + 37];
-  m.epochMatches = f[at + 38] !== 0;
-  m.tick = f[at + 39];
-  m.generation = f[at + 40];
+  m.sequence = f[at + 52];
+  m.epochMatches = f[at + 53] !== 0;
+  m.tick = f[at + 54];
+  m.generation = f[at + 55];
   return m;
 }
 
 export function putImInput(b, o, f, at, heap) {
   f[at + 0] = ImOperation_INDEX.get(o.op);
   putImState(b, o.state, f, at + 1, heap);
-  { const $x = o.entry; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f.fill(0, at + 19, at + 37); } else { f[at + 18] = 0; putImEntry(b, $x, f, at + 19, heap); } }
-  f[at + 37] = o.sequence;
-  f[at + 38] = o.epochMatches ? 1 : 0;
-  f[at + 39] = o.tick;
-  f[at + 40] = o.generation;
+  { const $x = o.entry; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f.fill(0, at + 19, at + 52); } else { f[at + 18] = 0; putImEntry(b, $x, f, at + 19, heap); } }
+  f[at + 52] = o.sequence;
+  f[at + 53] = o.epochMatches ? 1 : 0;
+  f[at + 54] = o.tick;
+  f[at + 55] = o.generation;
 }
 
 export function sameImInput(a, b) {
@@ -1006,8 +1064,67 @@ export function exportImInput(o, cx) {
   return v;
 }
 
+export const InputMailboxCallLayout = Object.freeze({ words: 39, op: 0, entry: 1, sequence: 35, epochMatches: 36, tick: 37, generation: 38 });
+export const INPUT_MAILBOX_CALL_WORDS = InputMailboxCallLayout.words;
+export const INPUT_MAILBOX_CALL_OFFSETS = InputMailboxCallLayout;
+
+export class InputMailboxCallMirror {
+  constructor() {
+    this.op = "admit";
+    this.entry = null;
+    this.sequence = NaN;
+    this.epochMatches = false;
+    this.tick = NaN;
+    this.generation = NaN;
+  }
+}
+
+export function syncInputMailboxCall(b, f, at, h, m) {
+  m.op = ImOperation_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.entry = syncImEntry(b, f, at + 2, h, m.entry ?? new ImEntryMirror()); } else m.entry = tag === 1 ? null : undefined; }
+  m.sequence = f[at + 35];
+  m.epochMatches = f[at + 36] !== 0;
+  m.tick = f[at + 37];
+  m.generation = f[at + 38];
+  return m;
+}
+
+export function putInputMailboxCall(b, o, f, at, heap) {
+  f[at + 0] = ImOperation_INDEX.get(o.op);
+  { const $x = o.entry; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 35); } else { f[at + 1] = 0; putImEntry(b, $x, f, at + 2, heap); } }
+  f[at + 35] = o.sequence;
+  f[at + 36] = o.epochMatches ? 1 : 0;
+  f[at + 37] = o.tick;
+  f[at + 38] = o.generation;
+}
+
+export function sameInputMailboxCall(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const p = a.entry, q = b.entry; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".entry"; } else { { const d = sameImEntry(p, q); if (d) return ".entry" + d; } } }
+  if (!Object.is(a.sequence, b.sequence)) return ".sequence";
+  if (!Object.is(a.epochMatches, b.epochMatches)) return ".epochMatches";
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  return null;
+}
+
+export function exportInputMailboxCall(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.entry = ((x) => (x === null || x === undefined ? x : exportImEntry(x, cx)))(o.entry);
+  v.sequence = o.sequence;
+  v.epochMatches = o.epochMatches;
+  v.tick = o.tick;
+  v.generation = o.generation;
+  return v;
+}
+
 export class ImResultMirror {
   constructor() {
+    this.retired = [];
     this.state = new ImStateMirror();
     this.accepted = false;
     this.command = null;
@@ -1017,23 +1134,26 @@ export class ImResultMirror {
 }
 
 export function syncImResult(b, f, at, h, m) {
-  m.state = syncImState(b, f, at + 0, h, m.state ?? new ImStateMirror());
-  m.accepted = f[at + 17] !== 0;
-  { const tag = f[at + 18]; if (tag === 0) { m.command = syncImTaken(b, f, at + 19, h, m.command ?? new ImTakenMirror()); } else m.command = tag === 1 ? null : undefined; }
-  m.replacedLookTotal = f[at + 27] !== 0;
-  { const tag = f[at + 28]; if (tag === 0) { m.error = b.strings.at(f[at + 29]); } else m.error = tag === 1 ? null : undefined; }
+  { const items = (m.retired ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  m.state = syncImState(b, f, at + 2, h, m.state ?? new ImStateMirror());
+  m.accepted = f[at + 19] !== 0;
+  { const tag = f[at + 20]; if (tag === 0) { m.command = syncImTaken(b, f, at + 21, h, m.command ?? new ImTakenMirror()); } else m.command = tag === 1 ? null : undefined; }
+  m.replacedLookTotal = f[at + 29] !== 0;
+  { const tag = f[at + 30]; if (tag === 0) { m.error = b.strings.at(f[at + 31]); } else m.error = tag === 1 ? null : undefined; }
   return m;
 }
 
 export function putImResult(b, o, f, at, heap) {
-  putImState(b, o.state, f, at + 0, heap);
-  f[at + 17] = o.accepted ? 1 : 0;
-  { const $x = o.command; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f[at + 19] = 0; f[at + 20] = 0; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 18] = 0; putImTaken(b, $x, f, at + 19, heap); } }
-  f[at + 27] = o.replacedLookTotal ? 1 : 0;
-  { const $x = o.error; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f[at + 29] = 0; } else { f[at + 28] = 0; f[at + 29] = b.strings.id($x); } }
+  heap.items(o.retired, f, at + 0, 1, (f, at, v) => { f[at + 0] = v; });
+  putImState(b, o.state, f, at + 2, heap);
+  f[at + 19] = o.accepted ? 1 : 0;
+  { const $x = o.command; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; f[at + 27] = 0; f[at + 28] = 0; } else { f[at + 20] = 0; putImTaken(b, $x, f, at + 21, heap); } }
+  f[at + 29] = o.replacedLookTotal ? 1 : 0;
+  { const $x = o.error; if ($x === null || $x === undefined) { f[at + 30] = $x === null ? 1 : 2; f[at + 31] = 0; } else { f[at + 30] = 0; f[at + 31] = b.strings.id($x); } }
 }
 
 export function sameImResult(a, b) {
+  if (!sameEach(a.retired, b.retired, (x, y) => Object.is(x, y))) return ".retired";
   { const d = sameImState(a.state, b.state); if (d) return ".state" + d; }
   if (!Object.is(a.accepted, b.accepted)) return ".accepted";
   { const p = a.command, q = b.command; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".command"; } else { { const d = sameImTaken(p, q); if (d) return ".command" + d; } } }
@@ -1047,6 +1167,7 @@ export function exportImResult(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
+  v.retired = o.retired.map((x) => x);
   v.state = exportImState(o.state, cx);
   v.accepted = o.accepted;
   v.command = ((x) => (x === null || x === undefined ? x : exportImTaken(x, cx)))(o.command);

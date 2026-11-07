@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { InputMailbox } from '../src/runtime/transport.js';
+import { InputMailbox } from './fixtures/input-mailbox.js';
 
 test('input acknowledgment records execution time independently of snapshot publication', () => {
   const mailbox = new InputMailbox();

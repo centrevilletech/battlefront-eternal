@@ -4,6 +4,91 @@
 use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct WbCommit {
+    pub key: f64,
+    pub fact: WireJournalFact,
+    pub payload: Vec<u8>,
+}
+
+impl WbCommit {
+    pub const WORDS: usize = 17;
+    pub const KEY: usize = 0;
+    pub const FACT: usize = 1;
+    pub const PAYLOAD: usize = 15;
+    pub fn payload_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[15] as usize; let length = row[16] as usize; heap[start..start + length * 1].chunks_exact(1) }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        row[0] = self.key;
+        self.fact.put(&mut row[1..], heap);
+        { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.payload.len() as f64; heap.resize(at + self.payload.len() * 1, 0.0); for (i, e) in self.payload.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        Self {
+            key: row[0],
+            fact: WireJournalFact::take(&row[1..], heap),
+            payload: { let (at, n) = (word_u32(row[15]) as usize, word_u32(row[15 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(word_u32(row[0]) as u8); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WbSaved {
+    pub key: f64,
+    pub fact: WireJournalFact,
+    pub payload: Vec<u8>,
+    pub expires_tick: f64,
+}
+
+impl WbSaved {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        row[0] = self.key;
+        self.fact.put(&mut row[1..], heap);
+        { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.payload.len() as f64; heap.resize(at + self.payload.len() * 1, 0.0); for (i, e) in self.payload.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        row[17] = self.expires_tick;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            key: row[0],
+            fact: WireJournalFact::take(&row[1..], heap),
+            payload: { let (at, n) = (word_u32(row[15]) as usize, word_u32(row[15 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(word_u32(row[0]) as u8); } out },
+            expires_tick: row[17],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WbSavedResult {
+    pub records: Vec<WbSaved>,
+}
+
+impl WbSavedResult {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.records.len() as f64; heap.resize(at + self.records.len() * 18, 0.0); for (i, e) in self.records.iter().enumerate() { let mut item = [0.0f64; 18]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 18..at + (i + 1) * 18].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            records: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 18..at + (i + 1) * 18]; out.push(WbSaved::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WbEncode {
     pub op: f64,
     pub id: f64,

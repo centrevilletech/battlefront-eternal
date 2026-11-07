@@ -2,8 +2,6 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const WIRE_FACT_BATCH_RESERVE = 128;
-export const WIRE_FACT_BYTES_RESERVE = 65536;
 export const WireDynamicFactLayout = Object.freeze({ words: 12, slot: 0, refGeneration: 1, type: 2, id: 3, generation: 4, launchTick: 5, definitionId: 6, ownerId: 7, ownerGeneration: 8, fireId: 9, channel: 10, terminal: 11 });
 export const WIRE_DYNAMIC_FACT_WORDS = WireDynamicFactLayout.words;
 export const WIRE_DYNAMIC_FACT_OFFSETS = WireDynamicFactLayout;

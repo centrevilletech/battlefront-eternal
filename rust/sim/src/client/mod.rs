@@ -2,6 +2,7 @@
 //! A frame imports facts once and replays its entire command stream without
 //! invoking JavaScript. Input clocks, smoothing and presentation stay on the page.
 
+pub mod resources;
 use crate::collision::State;
 use crate::combat::defs::K;
 use crate::combat::weapons::{Arsenal, ShotKind};
@@ -609,13 +610,13 @@ fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
 mod module {
     use super::*;
     use crate::gen::ClientOp;
-    #[no_mangle] pub extern "C" fn client_prediction_create() -> *mut ClientPrediction { Box::into_raw(Box::new(ClientPrediction::default())) }
-    #[no_mangle] pub unsafe extern "C" fn client_prediction_drop(p: *mut ClientPrediction) { if !p.is_null() { drop(Box::from_raw(p)); } }
-    #[no_mangle] pub unsafe extern "C" fn client_prediction_room(p: *mut ClientPrediction, n: u32) -> *mut f64 { let s = &mut *p; s.input.resize(n as usize, 0.0); s.input.as_mut_ptr() }
+    #[no_mangle] pub extern "C" fn client_prediction_create() -> *mut ClientPrediction { crate::abi::sim().page.prediction.insert(ClientPrediction::default()).unwrap_or(0) as *mut ClientPrediction }
+    #[no_mangle] pub unsafe extern "C" fn client_prediction_drop(p: *mut ClientPrediction) { crate::abi::sim().page.prediction.remove(p as usize); }
+    #[no_mangle] pub unsafe extern "C" fn client_prediction_room(p: *mut ClientPrediction, n: u32) -> *mut f64 { let Some(s) = crate::abi::sim().page.prediction.get_mut(p as usize) else { return std::ptr::null_mut() }; s.input.resize(n as usize, 0.0); s.input.as_mut_ptr() }
     // The shared generated enum names the ABI commands. Reject an oversized
     // operation before narrowing it, rather than aliasing another command.
     #[no_mangle] pub unsafe extern "C" fn client_prediction_run(p: *mut ClientPrediction, op: u32) -> u32 {
-        let s = &mut *p;
+        let Some(s) = crate::abi::sim().page.prediction.get_mut(p as usize) else { return 0 };
         // Move the exchange buffer out, retaining its capacity across frames.
         let words = std::mem::take(&mut s.input);
         let operation = u8::try_from(op).ok().and_then(ClientOp::from_u8);
@@ -636,15 +637,15 @@ mod module {
     // borrow the input independently. A failed frame invalidates continuation
     // and returns an error pointer; it cannot fall back to page simulation.
     #[no_mangle] pub unsafe extern "C" fn client_predict_session(p: *mut ClientPrediction, n: u32) -> *const f64 {
-        let s = &mut *p;
+        let Some(s) = crate::abi::sim().page.prediction.get_mut(p as usize) else { return std::ptr::null() };
         let words = std::mem::take(&mut s.input);
         let result = words.get(..n as usize).ok_or(INVALID)
             .and_then(|input| s.predict_session(input, crate::collision::state()));
         s.input = words; s.error = result.err();
         if s.error.is_some() { s.reset(); std::ptr::null() } else { s.output.as_ptr() }
     }
-    #[no_mangle] pub unsafe extern "C" fn client_prediction_output(p: *const ClientPrediction) -> *const f64 { (*p).output.as_ptr() }
-    #[no_mangle] pub unsafe extern "C" fn client_prediction_output_len(p: *const ClientPrediction) -> u32 { (*p).output.len() as u32 }
-    #[no_mangle] pub unsafe extern "C" fn client_prediction_error(p: *const ClientPrediction) -> *const u8 { (*p).error.unwrap_or("").as_ptr() }
-    #[no_mangle] pub unsafe extern "C" fn client_prediction_error_len(p: *const ClientPrediction) -> u32 { (*p).error.unwrap_or("").len() as u32 }
+    #[no_mangle] pub unsafe extern "C" fn client_prediction_output(p: *const ClientPrediction) -> *const f64 { crate::abi::sim().page.prediction.get(p as usize).map_or(std::ptr::null(), |s| s.output.as_ptr()) }
+    #[no_mangle] pub unsafe extern "C" fn client_prediction_output_len(p: *const ClientPrediction) -> u32 { crate::abi::sim().page.prediction.get(p as usize).map_or(0, |s| s.output.len() as u32) }
+    #[no_mangle] pub unsafe extern "C" fn client_prediction_error(p: *const ClientPrediction) -> *const u8 { crate::abi::sim().page.prediction.get(p as usize).map_or(std::ptr::null(), |s| s.error.unwrap_or("").as_ptr()) }
+    #[no_mangle] pub unsafe extern "C" fn client_prediction_error_len(p: *const ClientPrediction) -> u32 { crate::abi::sim().page.prediction.get(p as usize).map_or(0, |s| s.error.unwrap_or("").len() as u32) }
 }

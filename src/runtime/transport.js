@@ -17,7 +17,7 @@ export class TransferPool {
   }
 }
 
-import { humanCommands, HUMAN_COMMAND_LIMIT } from './commands.js';
+import { humanCommands } from './commands.js';
 
 // Reliable events have separate backpressure from replaceable transforms.
 // One bounded batch is in flight; overflow is an explicit host fault.
@@ -69,47 +69,7 @@ export function validateMailboxCommand(command) {
   return humanCommands(command.human);
 }
 
-export class InputMailbox {
-  constructor(epoch = 1, capacity = 256) {
-    this.epoch = epoch; this.capacity = capacity; this.received = 0; this.ack = 0; this.ackTick = 0; this.discarded = 0;
-    this.queue = []; this.down = []; this.generation = 0; this.late = 0; this.view = {};
-    this.lookTotal = [0, 0];
-    this.stateTick = 0;
-  }
-  push(command) {
-    if (command.epoch !== this.epoch || !Number.isSafeInteger(command.sequence) || command.sequence <= this.received) return false;
-    const human = validateMailboxCommand(command);
-    if (this.queue.length >= this.capacity) throw new Error('input mailbox overflow');
-    if (this.queue.length && command.tick < this.queue.at(-1).tick) throw new Error('input tick moved backwards');
-    this.received = command.sequence; this.queue.push(human.length ? {...command,human} : command); return true;
-  }
-  take(tick, generation) {
-    if (generation !== this.generation) { this.down = []; this.generation = generation; this.lookTotal = [0, 0]; this.stateTick = 0; }
-    const actions = [], look = [], human = [], fire = [];
-    while (this.queue.length && this.queue[0].tick <= tick) {
-      const command = this.queue.shift();
-      if (command.generation !== generation) { this.discarded = Math.max(this.discarded, command.sequence); continue; }
-      this.ack = command.sequence; this.ackTick = tick;
-      this.stateTick = command.tick;
-      if (command.tick < tick) this.late++;
-      this.down = command.down; actions.push(...command.actions);
-      if (command.lookTotal) {
-        const dx = command.lookTotal[0] - this.lookTotal[0], dy = command.lookTotal[1] - this.lookTotal[1];
-        if (dx || dy) look.push([dx, dy]);
-        this.lookTotal[0] = command.lookTotal[0]; this.lookTotal[1] = command.lookTotal[1];
-      } else look.push(...command.look);
-      if (command.human) human.push(...command.human);
-      if (command.fire) for (const edge of command.fire) fire.push({id:edge.id, button:edge.button, pressed:edge.pressed});
-      for (const key of ['mouseScale','invertMouse','firstPerson','aspect','viewTick','flightSettings','gamepad']) if (command[key] !== undefined) this.view[key] = command[key];
-      if (actions.length > 2048 || look.length > 2048 || human.length > HUMAN_COMMAND_LIMIT * this.capacity) throw new Error('input batch overflow');
-    }
-    const command = {epoch:this.epoch,sequence:tick,tick,generation,down:this.down,actions,look,...this.view};
-    if (human.length) command.human = human;
-    if (fire.length) command.fire = fire;
-    return command;
-  }
-  clear() { this.discarded = Math.max(this.discarded, this.queue.at(-1)?.sequence || 0); this.queue.length = 0; this.down = []; this.stateTick = 0; delete this.view.gamepad; delete this.view.viewTick; }
-}
+export { InputMailbox } from './input-mailbox.js';
 
 export const SNAPSHOT_CAPACITY = 512;
 export const SNAPSHOT_STRIDE = 16;

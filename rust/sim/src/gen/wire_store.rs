@@ -61,24 +61,28 @@ impl WireStoreDefinition {
 pub struct WireStorePeer {
     pub id: u32,
     pub character: Option<F4Handle>,
+    pub mailbox: u32,
 }
 
 impl WireStorePeer {
-    pub const WORDS: usize = 6;
+    pub const WORDS: usize = 7;
     pub const ID: usize = 0;
     pub const CHARACTER: usize = 1;
+    pub const MAILBOX: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.id as f64;
         match &self.character { Some(v) => { row[1] = 0.0; v.put(&mut row[1 + 1..], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 5].fill(0.0); } }
+        row[6] = self.mailbox as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
         Self {
             id: word_u32(row[0]),
             character: if row[1] == 0.0 { Some(F4Handle::take(&row[1 + 1..], heap)) } else { None },
+            mailbox: word_u32(row[6]),
         }
     }
 
@@ -185,61 +189,45 @@ impl WireOwnFacts {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WirePublicationLink {
     pub id: u32,
-    pub ack: f64,
-    pub ack_tick: f64,
-    pub discarded_input: f64,
     pub discarded_actions: f64,
     pub rtt: f64,
     pub has_kind: bool,
     pub relay: bool,
     pub has_family: bool,
     pub family_six: bool,
-    pub own: WireOwnFacts,
 }
 
 impl WirePublicationLink {
-    pub const WORDS: usize = 51;
+    pub const WORDS: usize = 7;
     pub const ID: usize = 0;
-    pub const ACK: usize = 1;
-    pub const ACK_TICK: usize = 2;
-    pub const DISCARDED_INPUT: usize = 3;
-    pub const DISCARDED_ACTIONS: usize = 4;
-    pub const RTT: usize = 5;
-    pub const HAS_KIND: usize = 6;
-    pub const RELAY: usize = 7;
-    pub const HAS_FAMILY: usize = 8;
-    pub const FAMILY_SIX: usize = 9;
-    pub const OWN: usize = 10;
+    pub const DISCARDED_ACTIONS: usize = 1;
+    pub const RTT: usize = 2;
+    pub const HAS_KIND: usize = 3;
+    pub const RELAY: usize = 4;
+    pub const HAS_FAMILY: usize = 5;
+    pub const FAMILY_SIX: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 51] = (&mut row[..51]).try_into().unwrap();
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.id as f64;
-        row[1] = self.ack;
-        row[2] = self.ack_tick;
-        row[3] = self.discarded_input;
-        row[4] = self.discarded_actions;
-        row[5] = self.rtt;
-        row[6] = if self.has_kind { 1.0 } else { 0.0 };
-        row[7] = if self.relay { 1.0 } else { 0.0 };
-        row[8] = if self.has_family { 1.0 } else { 0.0 };
-        row[9] = if self.family_six { 1.0 } else { 0.0 };
-        self.own.put(&mut row[10..], heap);
+        row[1] = self.discarded_actions;
+        row[2] = self.rtt;
+        row[3] = if self.has_kind { 1.0 } else { 0.0 };
+        row[4] = if self.relay { 1.0 } else { 0.0 };
+        row[5] = if self.has_family { 1.0 } else { 0.0 };
+        row[6] = if self.family_six { 1.0 } else { 0.0 };
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 51] = (&row[..51]).try_into().unwrap();
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
         Self {
             id: word_u32(row[0]),
-            ack: row[1],
-            ack_tick: row[2],
-            discarded_input: row[3],
-            discarded_actions: row[4],
-            rtt: row[5],
-            has_kind: row[6] != 0.0,
-            relay: row[7] != 0.0,
-            has_family: row[8] != 0.0,
-            family_six: row[9] != 0.0,
-            own: WireOwnFacts::take(&row[10..], heap),
+            discarded_actions: row[1],
+            rtt: row[2],
+            has_kind: row[3] != 0.0,
+            relay: row[4] != 0.0,
+            has_family: row[5] != 0.0,
+            family_six: row[6] != 0.0,
         }
     }
 
@@ -252,48 +240,34 @@ pub struct WireWorldFacts {
     pub unix_ms: f64,
     pub dropped_ticks: f64,
     pub links: Vec<WirePublicationLink>,
-    pub journal: Vec<WireJournalFact>,
-    pub dynamics: Vec<WireDynamicFact>,
-    pub journal_bytes: WireSpan,
 }
 
 impl WireWorldFacts {
-    pub const WORDS: usize = 12;
+    pub const WORDS: usize = 6;
     pub const TICK: usize = 0;
     pub const AT: usize = 1;
     pub const UNIX_MS: usize = 2;
     pub const DROPPED_TICKS: usize = 3;
     pub const LINKS: usize = 4;
-    pub const JOURNAL: usize = 6;
-    pub const DYNAMICS: usize = 8;
-    pub const JOURNAL_BYTES: usize = 10;
-    pub fn links_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[4] as usize; let length = row[5] as usize; heap[start..start + length * 51].chunks_exact(51) }
-    pub fn journal_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[6] as usize; let length = row[7] as usize; heap[start..start + length * 14].chunks_exact(14) }
-    pub fn dynamics_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[8] as usize; let length = row[9] as usize; heap[start..start + length * 12].chunks_exact(12) }
+    pub fn links_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[4] as usize; let length = row[5] as usize; heap[start..start + length * 7].chunks_exact(7) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
         row[0] = self.tick;
         row[1] = self.at;
         row[2] = self.unix_ms;
         row[3] = self.dropped_ticks;
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.links.len() as f64; heap.resize(at + self.links.len() * 51, 0.0); for (i, e) in self.links.iter().enumerate() { let mut item = [0.0f64; 51]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 51..at + (i + 1) * 51].copy_from_slice(&item); } }
-        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.journal.len() as f64; heap.resize(at + self.journal.len() * 14, 0.0); for (i, e) in self.journal.iter().enumerate() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 14..at + (i + 1) * 14].copy_from_slice(&item); } }
-        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.dynamics.len() as f64; heap.resize(at + self.dynamics.len() * 12, 0.0); for (i, e) in self.dynamics.iter().enumerate() { let mut item = [0.0f64; 12]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 12..at + (i + 1) * 12].copy_from_slice(&item); } }
-        self.journal_bytes.put(&mut row[10..], heap);
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.links.len() as f64; heap.resize(at + self.links.len() * 7, 0.0); for (i, e) in self.links.iter().enumerate() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 7..at + (i + 1) * 7].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
         Self {
             tick: row[0],
             at: row[1],
             unix_ms: row[2],
             dropped_ticks: row[3],
-            links: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 51..at + (i + 1) * 51]; out.push(WirePublicationLink::take(&row[0..], heap)); } out },
-            journal: { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 14..at + (i + 1) * 14]; out.push(WireJournalFact::take(&row[0..], heap)); } out },
-            dynamics: { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 12..at + (i + 1) * 12]; out.push(WireDynamicFact::take(&row[0..], heap)); } out },
-            journal_bytes: WireSpan::take(&row[10..], heap),
+            links: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 7..at + (i + 1) * 7]; out.push(WirePublicationLink::take(&row[0..], heap)); } out },
         }
     }
 
@@ -341,7 +315,7 @@ impl WireStoreSetup {
     pub fn weapon_names_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[5] as usize; let length = row[6] as usize; heap[start..start + length * 2].chunks_exact(2) }
     pub fn posts_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[7] as usize; let length = row[8] as usize; heap[start..start + length * 2].chunks_exact(2) }
     pub fn weapons_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[9] as usize; let length = row[10] as usize; heap[start..start + length * 2].chunks_exact(2) }
-    pub fn peers_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[11] as usize; let length = row[12] as usize; heap[start..start + length * 6].chunks_exact(6) }
+    pub fn peers_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[11] as usize; let length = row[12] as usize; heap[start..start + length * 7].chunks_exact(7) }
     pub fn items_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[13] as usize; let length = row[14] as usize; heap[start..start + length * 2].chunks_exact(2) }
     pub fn remotes_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[15] as usize; let length = row[16] as usize; heap[start..start + length * 2].chunks_exact(2) }
     pub fn ordnance_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[17] as usize; let length = row[18] as usize; heap[start..start + length * 2].chunks_exact(2) }
@@ -355,7 +329,7 @@ impl WireStoreSetup {
         { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.weapon_names.len() as f64; heap.resize(at + self.weapon_names.len() * 2, 0.0); for (i, e) in self.weapon_names.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.posts.len() as f64; heap.resize(at + self.posts.len() * 2, 0.0); for (i, e) in self.posts.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 2, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.peers.len() as f64; heap.resize(at + self.peers.len() * 6, 0.0); for (i, e) in self.peers.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.peers.len() as f64; heap.resize(at + self.peers.len() * 7, 0.0); for (i, e) in self.peers.iter().enumerate() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 7..at + (i + 1) * 7].copy_from_slice(&item); } }
         { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.items.len() as f64; heap.resize(at + self.items.len() * 2, 0.0); for (i, e) in self.items.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.remotes.len() as f64; heap.resize(at + self.remotes.len() * 2, 0.0); for (i, e) in self.remotes.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[17] = at as f64; row[17 + 1] = self.ordnance.len() as f64; heap.resize(at + self.ordnance.len() * 2, 0.0); for (i, e) in self.ordnance.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
@@ -376,7 +350,7 @@ impl WireStoreSetup {
             weapon_names: { let (at, n) = (word_u32(row[5]) as usize, word_u32(row[5 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(WireStoreName::take(&row[0..], heap)); } out },
             posts: { let (at, n) = (word_u32(row[7]) as usize, word_u32(row[7 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(WireStoreName::take(&row[0..], heap)); } out },
             weapons: { let (at, n) = (word_u32(row[9]) as usize, word_u32(row[9 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(WireStoreDefinition::take(&row[0..], heap)); } out },
-            peers: { let (at, n) = (word_u32(row[11]) as usize, word_u32(row[11 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(WireStorePeer::take(&row[0..], heap)); } out },
+            peers: { let (at, n) = (word_u32(row[11]) as usize, word_u32(row[11 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 7..at + (i + 1) * 7]; out.push(WireStorePeer::take(&row[0..], heap)); } out },
             items: { let (at, n) = (word_u32(row[13]) as usize, word_u32(row[13 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(WireStoreDefinition::take(&row[0..], heap)); } out },
             remotes: { let (at, n) = (word_u32(row[15]) as usize, word_u32(row[15 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(WireStoreDefinition::take(&row[0..], heap)); } out },
             ordnance: { let (at, n) = (word_u32(row[17]) as usize, word_u32(row[17 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(WireStoreDefinition::take(&row[0..], heap)); } out },

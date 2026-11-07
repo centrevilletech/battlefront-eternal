@@ -111,7 +111,7 @@ impl Definitions {
     }
     pub fn current_combat(&self,combat:&crate::gen::Combat,channel:f64)->Option<usize> {
         let c=index_of(channel)?;
-        let selected=*combat.selected.get(c).expect("arsenal channel");let selected=index_of(selected)?;
+        let selected=index_of(*combat.selected.get(c)?)?;
         combat.weapons.iter().enumerate().filter(|(_,w)|matches!(&self.facts(w).channel,Js::Num(n) if *n==channel))
             .nth(selected).map(|(index,_)|index)
     }
@@ -121,4 +121,16 @@ pub fn select<C:Changes+?Sized>(store:&mut Store,owner:&mut C,key:&F3UnitKey,ind
     let selected=crate::combat::weapons::select(&mut unit.combat,defs,index);
     if before.map(f64::to_bits)!=unit.combat.selected.map(f64::to_bits) {owner.weapon(key.reference());}
     Ok(selected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn content_channels_outside_the_arsenal_are_rejected() {
+        let definitions=Definitions::new();let combat=crate::gen::Combat::default();
+        for channel in [2.,255.,4294967295.,-1.,0.5,f64::NAN,f64::INFINITY] {
+            assert_eq!(definitions.current_combat(&combat,channel),None);
+        }
+    }
 }

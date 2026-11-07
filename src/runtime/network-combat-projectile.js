@@ -41,7 +41,7 @@ export class ProjectileCapture {
    fireId:sample?sample.fireId:shot?.id??0,channel,
   };
   if(c.native){entry.slot=projectile.simSlot;entry.refGeneration=projectile.simGen;entry.nativeType=TYPES.indexOf(type);this.byId.set(entry.id,projectile);}
-  this.active.set(projectile,entry);this.pending.set(entry.id,entry);
+  this.active.set(projectile,entry);if(c.native)c.native.dynamic(entry);else this.pending.set(entry.id,entry);
  }
  retire(ids){for(const id of ids){const projectile=this.byId.get(id);if(projectile)this.active.delete(projectile);this.byId.delete(id);this.pending.delete(id);}}
  // A native first sample can discover a body that predates host admission.

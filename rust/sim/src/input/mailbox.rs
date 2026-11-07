@@ -10,16 +10,27 @@ fn admits(s: &ImState, epoch_matches: bool, sequence: f64) -> bool {
 }
 fn truthy(n: f64) -> bool { n != 0.0 && !n.is_nan() }
 
-pub fn run(input: ImInput, strings: &mut Strings) -> ImResult {
-    let mut out = ImResult { state: input.state, ..Default::default() };
+pub fn run(input: ImInput, strings: &mut Strings) -> ImResult {run_with(input,strings,|_|{})}
+// The owner observes each consumed command at the same point as down/view
+// replacement. It retains publication values without decoding host mirrors.
+pub fn run_with(input: ImInput, strings: &mut Strings, consumed:impl FnMut(&crate::gen::ImEntry)) -> ImResult {
+    run_reusing(input,strings,ImTaken::default(),Vec::new(),consumed).0
+}
+/// InputMailbox.take lends reserved result vectors across each exchange.
+/// Admission can allocate owned packet values; consumption only moves them
+/// into this fixed-capacity scratch, preserving paused-burst order.
+pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut retired:Vec<f64>,
+    mut consumed:impl FnMut(&crate::gen::ImEntry))->(ImResult,ImTaken) {
+    command.actions.clear();command.look.clear();command.human.clear();command.fire.clear();retired.clear();
+    let mut out = ImResult { state: input.state, retired, ..Default::default() };
     let result: Result<(), &'static str> = (|| {
         let s = &mut out.state;
         match input.op {
             ImOperation::Admit => out.accepted = admits(s, input.epoch_matches, input.sequence),
             ImOperation::Push => {
-                let entry = input.entry.expect("a validated movement command");
+                let entry = input.entry.ok_or("invalid movement command")?;
                 if !admits(s, input.epoch_matches, entry.sequence) { return Ok(()); }
-                if s.queue.len() as f64 >= s.capacity { return Err("input mailbox overflow"); }
+                if s.queue.len() as f64 >= s.capacity { return Ok(()); }
                 if s.queue.last().is_some_and(|last| entry.tick < last.tick) { return Err("input tick moved backwards"); }
                 s.received = entry.sequence; s.queue.push(entry); out.accepted = true;
             }
@@ -28,12 +39,16 @@ pub fn run(input: ImInput, strings: &mut Strings) -> ImResult {
                     s.down = None; s.generation = input.generation; s.look_total = [0.0; 2]; s.state_tick = 0.0;
                     out.replaced_look_total = true;
                 }
-                let mut command = ImTaken::default();
                 while s.queue.first().is_some_and(|c| c.tick <= input.tick) {
+                    let next=&s.queue[0];
+                    if command.actions.len()+next.actions.len()>2048 || command.look.len()+next.look.len().max(1)>2048
+                        || command.human.len()+next.human.len()>16*s.capacity as usize {break;}
                     let entry = s.queue.remove(0);
+                    out.retired.push(entry.identity);
                     if entry.generation != input.generation {
                         s.discarded = v8math::max(s.discarded, entry.sequence); continue;
                     }
+                    consumed(&entry);
                     s.ack = entry.sequence; s.ack_tick = input.tick; s.state_tick = entry.tick;
                     if entry.tick < input.tick { s.late += 1.0; }
                     s.down = Some(entry.down); command.actions.extend(entry.actions);
@@ -45,13 +60,13 @@ pub fn run(input: ImInput, strings: &mut Strings) -> ImResult {
                     command.human.extend(entry.human); command.fire.extend(entry.fire);
                     for field in entry.view {
                         if let Some(old) = s.view.iter_mut().find(|v| v.key == field.key) { old.value = field.value; }
-                        else { s.view.push(field); }
+                        else if s.view.len()<7 { s.view.push(field); }
                     }
                     if command.actions.len() > 2048 || command.look.len() > 2048 || command.human.len() as f64 > 16.0 * s.capacity {
                         return Err("input batch overflow");
                     }
                 }
-                out.command = Some(command);
+                out.command = Some(std::mem::take(&mut command));
             }
             ImOperation::Clear => {
                 let last = s.queue.last().map_or(0.0, |c| c.sequence);
@@ -66,7 +81,7 @@ pub fn run(input: ImInput, strings: &mut Strings) -> ImResult {
         Ok(())
     })();
     if let Err(error) = result { out.error = Some(strings.intern_str(error)); }
-    out
+    (out,command)
 }
 
 #[cfg(test)]
