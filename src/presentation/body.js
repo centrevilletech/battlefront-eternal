@@ -24,7 +24,9 @@ export function constructSoldier(body, world, def, x) {
   owners.set(body,x);
   const bytes = new TextEncoder().encode(JSON.stringify(def)), ptr = x.sim_scratch(bytes.length);
   new Uint8Array(x.memory.buffer, ptr, bytes.length).set(bytes);
-  const out = result(x, x.body_construct(ptr, bytes.length));
+  const address = x.body_construct(ptr, bytes.length);
+  if (!address) throw Error("invalid soldier class content");
+  const out = result(x, address);
   syncSoldier(null,out.words,out.at,out.heap,body);
   // Keep the optional flag in the fixed mirror shape. Deleting an earlier
   // field would make every subsequent numeric publication allocate boxes.

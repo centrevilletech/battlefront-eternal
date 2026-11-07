@@ -602,20 +602,20 @@ impl World for Rw<'_, '_> {
         let Some(call) = self.call("seat.forward") else { return Vector3::default() };
         vec3_of(call.result()).unwrap_or_default()
     }
-    fn mount_origin(&mut self, origin: Origin) -> Vector3 {
-        match origin {
+    fn mount_origin(&mut self, origin: Origin) -> Option<Vector3> {
+        Some(match origin {
             Origin::Lease(_) => self.call("lease.origin").and_then(|c| vec3_of(c.result())).unwrap_or_default(),
             Origin::TurretPivot(t) => {
-                let Some(call) = self.call("port.turretPivot") else { return Vector3::default() };
+                let Some(call) = self.call("port.turretPivot") else { return Some(Vector3::default()) };
                 self.check_obj("turretPivot of", call.arg(0), Some(t));
                 vec3_of(call.result()).unwrap_or_default()
             }
             Origin::SeatOrigin(_, i) => {
-                let Some(call) = self.call("vehicle.seatOrigin") else { return Vector3::default() };
+                let Some(call) = self.call("vehicle.seatOrigin") else { return Some(Vector3::default()) };
                 self.check_num("seatOrigin index", call.arg(0), i as f64);
                 vec3_of(call.result()).unwrap_or_default()
             }
-        }
+        })
     }
     fn hold_yaw(&mut self, _turret: Obj, a: f64) -> f64 {
         let Some(call) = self.call("turret.holdYaw") else { return 0.0 };

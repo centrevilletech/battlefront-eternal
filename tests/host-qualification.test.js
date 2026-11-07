@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {options,backendProvider} from '../tools/host-qualification/common.mjs';
@@ -58,4 +58,23 @@ test('lifecycle control exercises every stage and requires native teardown count
   const failing=join(dir,'failing.mjs');await writeFile(failing,(await readFile(module,'utf8')).replace("tick+=n","if(n===20)throw Error('stress fault');tick+=n"));
   await assert.rejects(qualifyLifecycle({backend:'native','backend-module':failing,engine:dir,clients:1,battles:2,ticks:2,'stress-ticks':20,seconds:0.1}),error=>error.qualification.phase==='stress'&&error.qualification.sequential.length===2&&/stress fault/.test(error.message));
   assert.equal(result.passed,true);assert.equal(result.phase,'complete');assert.equal(result.sequential.length,24);assert.equal(result.construction.length,2);assert.equal(result.stress.ticks,20);assert.equal(result.nativeDrops.live,0);
+});
+
+test('initial and reconnect shaping preserve nondefault configured rates',async()=>{
+  const {shapeClients}=await import('../tools/host-qualification/service.mjs');
+  const config=options(['--shape-up-kbps=321','--shape-down-kbps=654']),calls=[];
+  const shape=async(pairs,settings)=>{calls.push({pairs,settings});return {stop(){}};};
+  await shapeClients([{pair:'first'}],config,shape);await shapeClients([{pair:'reconnected'}],config,shape);
+  assert.deepEqual(calls.map(c=>c.pairs),[['first'],['reconnected']]);
+  for(const {settings} of calls){assert.equal(settings.upKbps,321);assert.equal(settings.downKbps,654);}
+});
+test('addon qualification uses the built default without creating unused raw directories',async t=>{
+  const {spawnSync}=await import('node:child_process');const {fileURLToPath}=await import('node:url');
+  const dir=await mkdtemp(join(tmpdir(),'host-paths-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const out=join(dir,'result.json');
+  const run=spawnSync(process.execPath,[fileURLToPath(new URL('../tools/host-qualification.mjs',import.meta.url)),'addon',`--out=${out}`],
+    {cwd:dir,env:{...process.env,TMPDIR:dir},encoding:'utf8'});
+  assert.equal(run.status,1,run.stderr);const result=JSON.parse(await readFile(out,'utf8'));
+  assert.match(result.error,/\.host-addon[\/]bfe-node\.node/);
+  assert.deepEqual(await readdir(dir),['result.json']);
 });

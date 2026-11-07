@@ -10,17 +10,16 @@ pub struct Owner {pub mailboxes:Pool<Mailbox>}
 impl Default for Owner {fn default()->Self {Self {mailboxes:Pool::new(15)}}}
 pub struct Mailbox {pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>}
 impl Mailbox {
-    pub fn new(epoch:f64,capacity:f64,strings:&mut Strings)->Self {
+    pub fn new(epoch:f64,capacity:f64,codes:Vec<StrId>,strings:&mut Strings)->Option<Self> {
+        // The host supplies registry order, which is also the wire bit order.
+        // Check identities and bounded names before retaining a connection.
+        if !capacity.is_finite() || capacity.fract()!=0. || !(0. ..=4096.).contains(&capacity)
+            || codes.len()>128 || codes.iter().enumerate().any(|(i,id)|codes[..i].contains(id)
+                || strings.list.get(id.0 as usize).is_none_or(|s|s.is_empty()||s.len()>64)) {return None;}
         let names=["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].map(|s|strings.intern_str(s));
-        let mut codes=Vec::with_capacity(112);
-        for n in b'A'..=b'Z' {codes.push(strings.intern_str(&format!("Key{}",n as char)));}
-        for n in 0..10 {codes.push(strings.intern_str(&format!("Digit{n}")));}
-        for n in 1..=12 {codes.push(strings.intern_str(&format!("F{n}")));}
-        for n in 0..10 {codes.push(strings.intern_str(&format!("Numpad{n}")));}
-        for name in ["Space","Enter","Escape","Tab","Backquote","CapsLock","ShiftLeft","ShiftRight","ControlLeft","ControlRight","AltLeft","AltRight","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Backspace","Delete","Insert","Home","End","PageUp","PageDown","Minus","Equal","BracketLeft","BracketRight","Backslash","Semicolon","Quote","Comma","Period","Slash","NumpadEnter","NumpadAdd","NumpadSubtract","NumpadMultiply","NumpadDivide","NumpadDecimal","Mouse0","Mouse1","Mouse2","Mouse3","Mouse4","WheelUp","WheelDown"] {codes.push(strings.intern_str(name));}
-        Self {state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
+        Some(Self {state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
             publication:WireOwnFacts {held_valid:true,recon_aspect:1.,view:WiView {profile_found:true,..Default::default()},spawn:WireSpawnFacts {valid:true,..Default::default()},..Default::default()},names,codes,
-            taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(capacity as usize)}
+            taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(capacity as usize)})
     }
     // WiView's presence flags remain independent from numeric values. In
     // particular a viewTick of zero and a signed-zero axis stay observable.
@@ -45,6 +44,12 @@ impl Mailbox {
         self.retired=std::mem::take(&mut result.retired);
     }
     pub fn run(&mut self,mut input:ImInput,strings:&mut Strings)->ImResult {
+        // Transport validation precedes string interning; native callers must
+        // still pass only registered identities before the queue retains them.
+        if input.entry.as_ref().is_some_and(|entry| entry.codes.len()>64 || entry.codes.iter().any(|code|
+            !self.codes.contains(code) || strings.list.get(code.0 as usize).is_none_or(|units|units.len()>64))) {
+            return ImResult {error:Some(strings.intern_str("invalid input payload")),..Default::default()};
+        }
         if matches!(input.op,ImOperation::Clear)||matches!(input.op,ImOperation::Take)&&input.generation!=self.state.generation {self.publication.held.0.fill(0);self.publication.held_valid=true;}
         if matches!(input.op,ImOperation::Clear) {self.publication.view.flags=((self.publication.view.flags as u16)&!(GAMEPAD|VIEW_TICK)) as f64;}
         let input_op=input.op;
@@ -72,6 +77,58 @@ pub fn valid_call(row:&[f64],heap:&[f64])->bool {
         if !integer(entry[field],heap.len())||!integer(entry[field+1],max) {return false;}
         let end=(entry[field] as usize).saturating_add((entry[field+1] as usize).saturating_mul(width));
         if end>heap.len() {return false;}
+        if field==E::CODES && heap[entry[field] as usize..end].iter().any(|id|!integer(*id,u32::MAX as usize)) {return false;}
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gen::ImEntry;
+
+    #[test]
+    fn cumulative_look_and_ack_use_only_consumed_matching_lives() {
+        let mut strings = Strings::default();
+        let input = ImInput { op: ImOperation::Take, tick: 5.0, generation: 2.0,
+            state: ImState { epoch: 1.0, capacity: 256.0, queue: vec![
+                ImEntry { sequence: 1.0, tick: 1.0, generation: 1.0, look_total: Some([100.0, 50.0]), ..Default::default() },
+                ImEntry { sequence: 2.0, tick: 3.0, generation: 2.0, look_total: Some([12.0, -4.0]), ..Default::default() },
+                ImEntry { sequence: 3.0, tick: 9.0, generation: 2.0, look_total: Some([20.0, 8.0]), ..Default::default() },
+            ], ..Default::default() }, ..Default::default() };
+        let mut owner=Mailbox::new(1.,256.,Vec::new(),&mut strings).unwrap();
+        owner.state=input.state;
+        let mut out=owner.run(ImInput {state:ImState::default(),..input},&mut strings);
+        out.state=std::mem::take(&mut owner.state);
+        assert!(out.error.is_none()); assert_eq!(out.state.ack, 2.0); assert_eq!(out.state.discarded, 1.0);
+        assert_eq!(out.state.ack_tick, 5.0); assert_eq!(out.state.state_tick, 3.0); assert_eq!(out.state.late, 1.0);
+        assert_eq!(out.state.queue.len(), 1); assert_eq!(out.command.unwrap().look[0].point, [12.0, -4.0]);
+    }
+    #[test]
+    fn oversized_records_retire_with_partial_state_without_growing_scratch() {
+        for (actions,looks,humans) in [(2049,0,0),(0,2049,0),(0,0,17)] {
+            let mut strings=Strings::default();let jump=strings.intern_str("jump");
+            let total=(looks==0).then_some([-0.0,12.5]);
+            let input=ImInput {op:ImOperation::Take,tick:2.0,generation:1.0,
+                state:ImState {capacity:1.0,generation:1.0,queue:vec![ImEntry {
+                    identity:7.0,sequence:1.0,tick:1.0,generation:1.0,down:17.0,
+                    actions:vec![jump;actions],look:vec![ImLook::default();looks],
+                    human:vec![1.0;humans],look_total:total,..Default::default()
+                }],..Default::default()},..Default::default()};
+            let mut owner=Mailbox::new(1.,1.,Vec::new(),&mut strings).unwrap();
+            owner.state=input.state;
+            let capacities=(owner.taken.actions.capacity(),owner.taken.look.capacity(),owner.taken.human.capacity(),owner.taken.fire.capacity());
+            let mut out=owner.run(ImInput {state:ImState::default(),..input},&mut strings);
+            out.state=std::mem::take(&mut owner.state);
+            assert_eq!(strings.units(out.error.unwrap()),"input batch overflow".encode_utf16().collect::<Vec<_>>());
+            assert!(out.command.is_none());assert!(out.state.queue.is_empty());assert_eq!(out.retired,[7.0]);
+            assert_eq!(out.state.ack,1.0);assert_eq!(out.state.ack_tick,2.0);assert_eq!(out.state.down,Some(17.0));
+            assert_eq!(out.state.look_total.map(f64::to_bits),total.unwrap_or([0.0;2]).map(f64::to_bits));
+            assert_eq!((owner.taken.actions.capacity(),owner.taken.look.capacity(),owner.taken.human.capacity(),owner.taken.fire.capacity()),capacities);
+            owner.state=std::mem::take(&mut out.state);owner.recycle(&mut out);
+            let recovered=owner.run(ImInput {op:ImOperation::Take,tick:3.0,generation:1.0,..Default::default()},&mut strings);
+            assert!(recovered.error.is_none());
+        }
+    }
+
 }

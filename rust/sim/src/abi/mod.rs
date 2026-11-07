@@ -69,6 +69,13 @@ impl Sim {
         &mut self.scratch
     }
 
+    /// Cold page readers may borrow only the currently reserved scratch span.
+    /// Bounds are checked before slicing; arbitrary page pointers are refused.
+    pub fn scratch_bytes(&self, ptr: *const u8, len: usize) -> Option<&[u8]> {
+        let start=(ptr as usize).checked_sub(self.scratch.as_ptr() as usize)?;
+        self.scratch.get(start..start.checked_add(len)?)
+    }
+
     pub fn intern_scratch(&mut self, units: usize) -> StrId {
         let list: Vec<u16> = self.scratch[..units * 2].chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]])).collect();

@@ -720,7 +720,7 @@ impl VehicleWorld for JsWorld<'_> {
     // query round-trip can interleave a stale JavaScript collider mirror.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> {
             collision_world().expect("the vehicle collision world")
-                .cast(crate::collision::state(), origin, direction, far, ignore).expect("named collision bodies")
+                .cast(crate::collision::state(), origin, direction, far, ignore)?
     }
 
     fn push_walls(&mut self, hull: usize, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> bool {

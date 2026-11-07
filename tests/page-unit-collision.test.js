@@ -80,3 +80,18 @@ test('one lazy batch shares readers and submits only a changed body',()=>{
  assert.deepEqual(counts,[2,1,1,1]);
  } finally {owner.kernel.free();}
 });
+
+// Cold lease admission may detach all held views, even in a collision query.
+test('collision input reacquires every view after lease admission grows memory',async()=>{
+ const {UnitCollisionInput:I}=await import('../src/presentation/layout.js');
+ const {unit,soldier,host}=body(),owner=host.owner,collision=owner.collision;
+ const previous=owner.lease;let admissions=0;
+ owner.lease=()=>{admissions++;owner.loaded.memory.grow(1);unit.seat.posePick={clip:3,timed:true,time:2};};
+ unit.seat={index:2,exposed:true,sourceRig:7};soldier.position.set(3,4,5);
+ const old=collision.input;collision.write(host.row,unit);
+ assert.equal(admissions,1);assert.notEqual(collision.input.buffer,old.buffer);
+ const at=host.row.id*I.STRIDE,x=collision.input;
+ assert.equal(x[at+I.POSITION],3);assert.equal(x[at+I.SEAT],1);assert.equal(x[at+I.SOURCE_SEAT],2);assert.equal(x[at+I.CLIP],3);
+ assert.equal(collision.actors.buffer,owner.loaded.memory.buffer);assert.equal(collision.shapes.buffer,owner.loaded.memory.buffer);
+ owner.lease=previous;
+});

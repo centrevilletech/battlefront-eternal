@@ -34,14 +34,17 @@ export class UnitCollision {
  }
  // These are correction facts and resource handles, with no shape math.
  // Current native mount/held samples are joined when the batch observes them.
- write(row,unit){const x=this.input,at=row.id*I.STRIDE,s=unit.soldier;if(at>=x.length)return;
+ write(row,unit){
+  // lease() can admit a hull rig and relocate native collision buffers.
+  // Acquire every view only after that resource operation has completed.
+  const lease=unit.seat;if(lease&&!lease.posePick){this.owner.lease(unit,lease);this.refresh(true);}
+  const x=this.input,at=row.id*I.STRIDE,s=unit.soldier;if(at>=x.length)return;
   // A prepared class can be rebound without advancing its tick or life.
   x[at+I.BINDING]=row.collisionBinding;
   x[at+I.ENABLED]=unit.removed?0:1;x[at+I.GENERATION]=unit.generation;x[at+I.TICK]=unit.tickCount;
   x[at+I.POSITION]=s.position.x;x[at+I.POSITION+1]=s.position.y;x[at+I.POSITION+2]=s.position.z;
   x[at+I.YAW]=s.aimYaw;x[at+I.POSTURE]=POSTURES.indexOf(s.posture);x[at+I.AIR]=s.air?1:0;x[at+I.DIVE]=s.dive||0;x[at+I.DEAD]=unit.dead?1:0;
   x[at+I.WALKER]=unit.walker?1:0;x[at+I.MODE]=s.mode||0;x[at+I.SCALE]=unit.rootScale??1;x[at+I.BALL_RADIUS]=s.ballRadius??.65;
-  const lease=unit.seat;if(lease&&!lease.posePick)this.owner.lease(unit,lease);
   const vehicle=lease?.vehicle,turret=lease?.turret,held=unit.held;
   x[at+I.SEAT]=lease?1:0;x[at+I.EXPOSED]=lease?.exposed?1:0;
   x[at+I.SOURCE_RIG]=vehicle?lease.sourceRig??-1:-1;x[at+I.SOURCE_SEAT]=lease?.index??0;

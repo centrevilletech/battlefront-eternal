@@ -305,7 +305,7 @@ test('replayTicks merges pending commands per tick exactly as the mailbox takes 
   for (const [ticks, foreign] of cases) {
     const from = 2, held = ['KeyS'];
     const pending = ticks.map((tick, i) => ({ epoch: 1, generation: foreign.includes(tick) ? generation + 1 : generation, sequence: i + 1, tick,
-      down: [`K${i}`], actions: i % 2 ? ['jump'] : [], look: [[i, 0]], mouseScale: i === 2 ? 1.5 : undefined }));
+      down: [`Digit${i}`], actions: i % 2 ? ['jump'] : [], look: [[i, 0]], mouseScale: i === 2 ? 1.5 : undefined }));
     // The mailbox, holding `held` for this life, takes the same commands.
     const mailbox = new InputMailbox(1);
     mailbox.push({epoch:1,generation,sequence:1,tick:from,down:held,actions:[],look:[]});

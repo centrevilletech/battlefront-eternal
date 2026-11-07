@@ -8,7 +8,7 @@ use three::Vector3;
 pub trait Hooks<C:Changes+?Sized,M:Mounted>:CombatHooks<C,M> {
  fn support_holds(&self,rows:&Rows<'_,C,M>, agent: Obj) -> Option<f64>;
  fn cast(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit>;
- fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Vector3;
+ fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Option<Vector3>;
  fn eligible_seat(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> f64;
  fn board(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> bool;
  fn man(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, turret: Obj) -> bool;
@@ -102,7 +102,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_,'_,C,M,H> {
  fn sphere(&mut self, x: Obj) -> Sphere {let sphere=CombatHooks::sphere(self.hooks,self.rows,self.random,x);Sphere {center:sphere.center,radius:sphere.radius}}
  fn origin(&mut self, control: Obj) -> Vector3 {CombatHooks::origin(self.hooks,self.rows,self.random,control)}
  fn forward(&mut self, control: Obj) -> Vector3 {CombatHooks::forward(self.hooks,self.rows,self.random,control)}
- fn mount_origin(&mut self, origin: Origin) -> Vector3 {Hooks::mount_origin(self.hooks,self.rows,self.random,self.combat,origin)}
+ fn mount_origin(&mut self, origin: Origin) -> Option<Vector3> {Hooks::mount_origin(self.hooks,self.rows,self.random,self.combat,origin)}
  fn hold_yaw(&mut self, turret: Obj, a: f64) -> f64 {let Some(Entity::Turret(reference))=self.rows.state.entities.get(turret) else{panic!("current native turret")};self.rows.state.turrets.hold_yaw(self.rows.seats,self.rows.buildings.rows(),reference,a).expect("current native turret pivot")}
  fn eligible_seat(&mut self, unit: Obj, hull: Obj) -> f64 {Hooks::eligible_seat(self.hooks,self.rows,self.random,self.combat,unit,hull)}
  fn first_free_seat(&mut self, hull: Obj) -> f64 {let Some(Entity::Hull(reference))=self.rows.state.entities.get(hull) else{return -1.};self.rows.store.vehicle.get(reference).map_or(-1.,|h|crate::seats::boarding::first_free_seat(h) as f64)}

@@ -9135,6 +9135,27 @@ impl ImInput {
     }
 }
 
+impl InputMailboxSetup {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(InputMailboxSetup {
+            epoch: { let p = format!("{path}.epoch"); num(v.get("epoch"), &p)? },
+            capacity: { let p = format!("{path}.capacity"); num(v.get("capacity"), &p)? },
+            codes: { let p = format!("{path}.codes"); { let mut out = Vec::new(); for (i, e) in list(v.get("codes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(cx.str_in(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.epoch); fields.push(("epoch", x)); }
+        { let x = Value::Num(self.capacity); fields.push(("capacity", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.codes.iter() { let x = cx.str_out((*e)); items.push(x); } a.array(items) }; fields.push(("codes", x)); }
+        a.object("", fields)
+    }
+}
+
 impl InputMailboxCall {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

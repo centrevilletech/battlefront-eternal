@@ -3,7 +3,7 @@
 //! state; the outer Result reports context lifetime errors only.
 use super::{Context, Error, Record};
 use crate::gen::*;
-use crate::input::{actions, controls, fire, mailbox};
+use crate::input::{actions, controls, fire};
 
 impl Context {
     pub fn input_actions(&self, input: IaInput) -> Result<IaResult, Error> {
@@ -17,13 +17,6 @@ impl Context {
         let _flight = self.enter()?;
         let out = self.store(|s| fire::run(input, &mut s.strings))?;
         self.publish(&Record::new(IfResult::WORDS, |r, h| out.put(r, h)))?;
-        Ok(out)
-    }
-
-    pub fn input_mailbox(&self, input: ImInput) -> Result<ImResult, Error> {
-        let _flight = self.enter()?;
-        let out = self.store(|s| mailbox::run(input, &mut s.strings))?;
-        self.publish(&Record::new(ImResult::WORDS, |r, h| out.put(r, h)))?;
         Ok(out)
     }
 

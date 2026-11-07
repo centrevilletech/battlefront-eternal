@@ -1258,7 +1258,7 @@ pub trait MountWorld {
     fn mount_turret(&self,turret:Obj)->super::world::TurretView;
     fn mount_seat_count(&self,hull:Obj)->usize;
     fn mount_seat(&self,hull:Obj,index:usize)->Option<super::world::SeatView>;
-    fn mount_eye(&mut self,origin:Origin)->Vector3;
+    fn mount_eye(&mut self,origin:Origin)->Option<Vector3>;
     fn mount_hold_yaw(&mut self,turret:Obj,yaw:f64)->f64;
 }
 impl<W:World+?Sized> MountWorld for W {
@@ -1268,7 +1268,7 @@ impl<W:World+?Sized> MountWorld for W {
     fn mount_turret(&self,turret:Obj)->super::world::TurretView {self.turret(turret)}
     fn mount_seat_count(&self,hull:Obj)->usize {self.hull_seat_count(hull)}
     fn mount_seat(&self,hull:Obj,index:usize)->Option<super::world::SeatView> {self.hull_seat(hull,index)}
-    fn mount_eye(&mut self,origin:Origin)->Vector3 {self.mount_origin(origin)}
+    fn mount_eye(&mut self,origin:Origin)->Option<Vector3> {self.mount_origin(origin)}
     fn mount_hold_yaw(&mut self,turret:Obj,yaw:f64)->f64 {self.hold_yaw(turret,yaw)}
 }
 /// Boarding policy observes a candidate and its mounts without physical
@@ -1362,6 +1362,8 @@ pub fn mount_angles<W: MountWorld + ?Sized>(w: &mut W, vehicle: Option<Obj>, tur
     if vehicle.is_none() && turret.is_none() {
         return true;
     }
+    // Refuse retired geometry before observing its hull, turret or seat.
+    let Some(o) = w.mount_eye(origin) else {return false;};
     let (yaw_setting, pitch_setting,prepared) = match (vehicle, turret) {
         (Some(h), _) => {
             let seat = if index >= 0.0 && (index as usize) < w.mount_seat_count(h) && v8math::trunc(index) == index { w.mount_seat(h,index as usize) } else { None };
@@ -1374,7 +1376,6 @@ pub fn mount_angles<W: MountWorld + ?Sized>(w: &mut W, vehicle: Option<Obj>, tur
         _ => unreachable!(),
     };
     let [yaw_limits,pitch_limits]=prepared.unwrap_or_else(||prepare_mount_limits(yaw_setting.as_deref(),pitch_setting.as_deref(),vehicle.is_some()));
-    let o = w.mount_eye(origin);
     let mut q = Vector3::default();
     q.sub_vectors(point, &o);
     let length = q.length();

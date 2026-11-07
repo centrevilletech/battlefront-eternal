@@ -3,14 +3,21 @@
 // they never carry a serialized copy of the retained native queue.
 import { validateMailboxCommand } from './transport.js';
 import { publicationView } from './input-view.js';
+import { INPUT_CODES } from './network-entity-input.js';
 import { InputMailboxCallMirror, InputMailboxCallLayout, ImEntryMirror, ImResultMirror, ImStateMirror, InputViewUpdateMirror,
-  putInputMailboxCall, putInputViewUpdate, syncImResult, syncImState, InputViewUpdateLayout, WireSpawnFactsMirror, WireSpawnFactsLayout, putWireSpawnFacts } from '../sim/gen/index.js';
+  InputMailboxSetupLayout, putInputMailboxSetup, putInputMailboxCall, putInputViewUpdate, syncImResult, syncImState, InputViewUpdateLayout, WireSpawnFactsMirror, WireSpawnFactsLayout, putWireSpawnFacts } from '../sim/gen/index.js';
 const keys = ['mouseScale','invertMouse','firstPerson','aspect','viewTick','flightSettings','gamepad'];
 const result = { Mirror: ImResultMirror, sync: syncImResult }, inspected = { Mirror: ImStateMirror, sync: syncImState };
 export class InputMailbox {
-  constructor(epoch = 1, capacity = 256, bridge = null) {
+  constructor(epoch = 1, capacity = 256, bridge = null, registry = {inputCodes:INPUT_CODES}) {
     if (!bridge) throw Error('InputMailbox requires a battle simulation bridge');
-    this.bridge = bridge; this.handle = this.bridge.x.input_mailbox_create(epoch, capacity);
+    const codes = registry.inputCodes;
+    if (!Array.isArray(codes) || codes.length > 128 || new Set(codes).size !== codes.length ||
+        codes.some(code => typeof code !== 'string' || !code.length || code.length > 64)) throw Error('invalid input-code registry');
+    this.codes = Object.freeze(codes.slice());
+    this.bridge = bridge;
+    bridge.callArgs({words:InputMailboxSetupLayout.words,put:putInputMailboxSetup},{epoch,capacity,codes:this.codes});
+    this.handle = this.bridge.x.input_mailbox_create();
     if (!this.handle) throw Error('input mailbox admission failed');
     this.epoch = epoch; this.capacity = capacity; this.received = this.ack = this.ackTick = this.discarded = this.generation = this.late = this.stateTick = 0;
     this.emptyDown = []; this.down = this.emptyDown; this.lookTotal = [0,0]; this.references = new Map(); this.serial = 0; this.tokens = new Map();
@@ -29,9 +36,12 @@ export class InputMailbox {
     this.bridge.callArgs(this.viewInput, this.update); this.bridge.x.input_mailbox_view(this.handle);
   }
   run(op, tick = 0, generation = 0) {
+    if (!this.handle) throw Error("input mailbox is disposed");
     const c = this.change; c.op = op; c.tick = tick; c.generation = generation;
     this.bridge.callArgs(this.input, c);
-    const out = this.bridge.callResult(result, this.bridge.x.input_mailbox_owned_run(this.handle), this.exchange), s = out.state;
+    const ptr = this.bridge.x.input_mailbox_owned_run(this.handle);
+    if (!ptr) throw Error('input mailbox operation refused');
+    const out = this.bridge.callResult(result, ptr, this.exchange), s = out.state;
     this.received = s.received; this.ack = s.ack; this.ackTick = s.ackTick; this.discarded = s.discarded; this.generation = s.generation; this.late = s.late; this.stateTick = s.stateTick;
     this.down = s.down === null ? this.emptyDown : this.references.get(s.down).command.down;
     if (out.replacedLookTotal) this.lookTotal = [0,0];
@@ -59,7 +69,7 @@ export class InputMailbox {
   push(command) {
     const c = this.change; c.entry = null; c.sequence = command.sequence; c.epochMatches = command.epoch === this.epoch;
     if (!this.run('admit').accepted) return false;
-    const human = validateMailboxCommand(command), id = ++this.serial, row = human.length ? { ...command, human } : command;
+    const human = validateMailboxCommand(command, this.codes), id = ++this.serial, row = human.length ? { ...command, human } : command;
     const e = this.entry; e.identity = id; e.sequence = command.sequence; e.tick = command.tick; e.generation = command.generation;
     e.down = id; e.codes = command.down; e.actions = command.actions; e.lookTotal = command.lookTotal ?? null;
     e.look = command.look.map((point, i) => ({ point, object: id * 2048 + i }));
@@ -82,7 +92,12 @@ export class InputMailbox {
     this.cleanup(); return command;
   }
   clear() { this.run('clear'); this.cleanup(); }
-  get queue() { return this.bridge.callResult(inspected, this.bridge.x.input_mailbox_inspect(this.handle)).queue.map(row => this.references.get(row.identity).command); }
+  get queue() {
+    if (!this.handle) throw Error('input mailbox is disposed');
+    const ptr = this.bridge.x.input_mailbox_inspect(this.handle);
+    if (!ptr) throw Error('input mailbox inspection refused');
+    return this.bridge.callResult(inspected, ptr).queue.map(row => this.references.get(row.identity).command);
+  }
   dispose() { if (this.handle) { this.bridge.x.input_mailbox_drop(this.handle); this.handle = 0; this.references.clear(); } }
 }
 

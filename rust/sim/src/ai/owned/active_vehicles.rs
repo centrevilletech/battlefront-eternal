@@ -20,7 +20,7 @@ impl<S> Active<'_,S> {
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> super::vehicle_frame::Hooks<C,M> for Active<'_,S> {
     fn support_holds(&self,rows:&Rows<'_,C,M>, agent: Obj) -> Option<f64> { let index=agent_controller(rows,agent);self.core.objective(index).and_then(|o|o.support_holds) }
     fn cast(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> { super::vehicle_frame::Hooks::cast(self.services,rows,random,combat,origin,direction,far,ignore) }
-    fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Vector3 { super::vehicle_frame::Hooks::mount_origin(self.services,rows,random,combat,origin) }
+    fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Option<Vector3> { super::vehicle_frame::Hooks::mount_origin(self.services,rows,random,combat,origin) }
     fn eligible_seat(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> f64 { super::vehicle_frame::Hooks::eligible_seat(self.services,rows,random,combat,unit,hull) }
     fn board(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> bool { Services::seat_action(self.services,self.core,rows,random,combat,self.facts,self.settings,super::physical::SeatAction::Board {unit,hull}) }
     fn man(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, turret: Obj) -> bool { Services::seat_action(self.services,self.core,rows,random,combat,self.facts,self.settings,super::physical::SeatAction::Man {unit,turret}) }

@@ -6,13 +6,13 @@ validates its pinned engine/server identities before starting a world. Imported
 content stays external. Use Node with `--expose-gc` for lifecycle checks.
 
 Every invocation requires `--out=FILE`; results are bounded JSON summaries.
-`--backend=wasm` exercises the landed host. `--backend=native` requires explicit
+`--backend=wasm` exercises the bundled WASM host. `--backend=native` requires explicit
 harness adapters with native world/publication capabilities. It fails if those
 capabilities are absent. These inputs never select the shipped application's
 backend. A foundation Context test does not qualify a native battle.
 
 ```sh
-node --expose-gc tools/host-qualification.mjs addon --backend=wasm --addon=.host-probe/bfe-node.node --out=addon.json
+node --expose-gc tools/host-qualification.mjs addon --backend=wasm --addon=.host-addon/bfe-node.node --out=addon.json
 node --expose-gc tools/host-qualification.mjs lifecycle --backend=wasm --engine=.host-runtime/engine --data=CONTENT --map=nab2 --side=rep --seconds=1800 --battles=24 --ticks=120 --clients=4 --out=lifecycle.json
 node tools/host-qualification.mjs service --backend=wasm --engine=.host-runtime/engine --data=CONTENT --clients=64 --concurrency=1 --seconds=1800 --rotate=1 --out=memory.json
 node tools/host-qualification.mjs network --backend=wasm --engine=.host-runtime/engine --data=CONTENT --clients=4 --seconds=60 --blackout-seconds=3 --shape-up-kbps=1000 --shape-down-kbps=2000 --out=network.json
@@ -48,8 +48,8 @@ only the diagnostic addon proves termination requested inside an active native
 import. These are separate observations.
 
 The diagnostic addon is built with `node tools/build-node-host.mjs --fixtures`.
-Keep a separate copy before preparing the production bundle, which omits the
-probe feature. Its allocation-free owner counters cover early acquisition errors,
+The default addon path is `.host-addon/bfe-node.node`, matching that build.
+The production bundle omits the probe feature. Its allocation-free owner counters cover early acquisition errors,
 double close, collection, and forced worker termination during a real active
 Context import. A killed cgroup reports OS reclamation, never fabricated Rust
 Drop counts. WASM lifecycle checks require collection of instance/memory weak

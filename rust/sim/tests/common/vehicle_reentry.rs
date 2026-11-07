@@ -52,7 +52,7 @@ fn los(&mut self, a: &Vector3, b: &Vector3) -> Option<bool> {panic!("unexpected 
 fn sphere(&mut self, x: Obj) -> Sphere {panic!("unexpected vehicle notification service sphere")}
 fn origin(&mut self, control: Obj) -> Vector3 {panic!("unexpected vehicle notification service origin")}
 fn forward(&mut self, control: Obj) -> Vector3 {panic!("unexpected vehicle notification service forward")}
-fn mount_origin(&mut self, origin: Origin) -> Vector3 {panic!("unexpected vehicle notification service mount_origin")}
+fn mount_origin(&mut self, origin: Origin) -> Option<Vector3> {panic!("unexpected vehicle notification service mount_origin")}
 fn hold_yaw(&mut self, turret: Obj, a: f64) -> f64 {panic!("unexpected vehicle notification service hold_yaw")}
 fn eligible_seat(&mut self, unit: Obj, hull: Obj) -> f64 {panic!("unexpected vehicle notification service eligible_seat")}
 fn first_free_seat(&mut self, hull: Obj) -> f64 {panic!("unexpected vehicle notification service first_free_seat")}

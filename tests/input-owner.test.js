@@ -38,3 +38,42 @@ test('owned mailbox rejects malformed list spans before decoding',async()=>{
     assert.equal(box.take(1,2).sequence,1);
   } finally {box.dispose();}
 });
+
+// Reject before generated put() interns any client-controlled held name.
+test('held input rejects unknown and oversized names without interning',()=>{
+  const box=new InputMailbox(),b=box.bridge;
+  const before=b.strings.list.length;
+  for(let i=0;i<128;i++)for(const code of [`Unknown${i}`, 'KeyW'.repeat(1000)])
+    assert.throws(()=>box.push({epoch:1,sequence:1,tick:1,generation:2,down:[code],actions:[],look:[]}),/invalid input payload/);
+  assert.equal(b.strings.list.length,before);
+  assert.equal(box.received,0);assert.deepEqual(box.queue,[]);
+  box.dispose();
+});
+
+test('native mailbox refuses unregistered held identities',async()=>{
+  const {InputMailboxCallMirror,ImEntryMirror}=await import('../src/sim/gen/input.js');
+  const box=new InputMailbox(),b=box.bridge,call=new InputMailboxCallMirror();
+  call.op='push';call.epochMatches=true;call.entry=new ImEntryMirror();
+  Object.assign(call.entry,{sequence:1,tick:1,generation:2,codes:['Unregistered']});
+  b.callArgs(box.input,call);
+  const ptr=b.x.input_mailbox_owned_run(box.handle);
+  assert.ok(ptr);assert.deepEqual(box.queue,[]);assert.equal(box.take(1,2).down.length,0);
+  box.dispose();
+});
+
+test('disposed and stale mailboxes refuse calls before decoding address zero',()=>{
+  const box=new InputMailbox();box.dispose();
+  for(const call of [()=>box.take(1,2),()=>box.clear(),()=>box.queue,()=>box.push({sequence:1})])
+    assert.throws(call,/disposed/);
+  const stale=new InputMailbox();stale.bridge.x.input_mailbox_drop(stale.handle);
+  assert.throws(()=>stale.take(1,2),/operation refused/);
+  assert.throws(()=>stale.queue,/inspection refused/);stale.dispose();
+});
+test('mailbox admits the registry order instead of a private key-code copy',()=>{
+  const codes=['Mouse0','KeyW'],box=new InputMailbox(1,4,undefined,{inputCodes:codes});
+  codes.reverse();
+  assert.equal(box.push({epoch:1,sequence:1,tick:1,generation:2,down:['Mouse0'],actions:[],look:[]}),true);
+  assert.deepEqual(box.take(1,2).down,['Mouse0']);
+  assert.throws(()=>box.push({epoch:1,sequence:2,tick:2,generation:2,down:['KeyS'],actions:[],look:[]}),/invalid input payload/);
+  box.dispose();
+});

@@ -625,7 +625,7 @@ pub trait World: Draws {
     fn origin(&mut self, control: Obj) -> Vector3;
     fn forward(&mut self, control: Obj) -> Vector3;
     /// A mount's pivot (mountAngles' `lease.origin(out)`).
-    fn mount_origin(&mut self, origin: Origin) -> Vector3;
+    fn mount_origin(&mut self, origin: Origin) -> Option<Vector3>;
     /// turret.holdYaw(a).
     fn hold_yaw(&mut self, turret: Obj, a: f64) -> f64;
     /// Vehicles.eligibleSeat(unit, body) / Vehicle.firstFreeSeat().

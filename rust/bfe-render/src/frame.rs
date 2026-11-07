@@ -17,8 +17,29 @@ enum Channel { Input,Bones,Shadow,World,StaticShadow,Far,FarVertices,Fx,FxData,F
 // Each channel contains only initialized numeric scalars. Byte views preserve
 // signed zero and integer payload bits without converting through JS numbers.
 // Their lifetime is limited to the borrowed slice; no view survives a resize.
-fn bytes<T>(values: &[T]) -> &[u8] { unsafe { std::slice::from_raw_parts(values.as_ptr().cast(),std::mem::size_of_val(values)) } }
-fn bytes_mut<T>(values: &mut [T]) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(values.as_mut_ptr().cast(),std::mem::size_of_val(values)) } }
+mod scalar {
+    // Sealed within frame: no pointer-bearing or padded record can opt in.
+    mod sealed {
+        pub trait Sealed {}
+        impl Sealed for f32 {}
+        impl Sealed for f64 {}
+        impl Sealed for u32 {}
+    }
+    pub trait Scalar:sealed::Sealed {}
+    impl Scalar for f32 {}
+    impl Scalar for f64 {}
+    impl Scalar for u32 {}
+}
+fn bytes<T:scalar::Scalar>(values: &[T]) -> &[u8] {
+    // SAFETY: the sealed scalar types have no padding and all bits initialized.
+    // The byte slice borrows exactly the source span and cannot outlive it.
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast(),std::mem::size_of_val(values)) }
+}
+fn bytes_mut<T:scalar::Scalar>(values: &mut [T]) -> &mut [u8] {
+    // SAFETY: all bit patterns are valid for the sealed numeric scalar types.
+    // The exclusive slice borrow prevents aliasing until this view is dropped.
+    unsafe { std::slice::from_raw_parts_mut(values.as_mut_ptr().cast(),std::mem::size_of_val(values)) }
+}
 // A span is a retained native packet range, with capacity fixed at admission.
 // Used bytes are independent so a shorter view cannot resurrect old records.
 #[derive(Clone, Copy)]
@@ -485,4 +506,33 @@ impl<C:HasContext,Md:MultiDraw> crate::transparent::Source<C,Md> for LineSource<
 // Keep the bounded-store fault in the shared frame owner on every platform.
 impl<C: HasContext> FrameBank<C> {
     pub fn mark_overflow(&mut self){self.clipped=true;}
+}
+
+#[cfg(test)]
+mod scalar_tests {
+    use super::{bytes,bytes_mut};
+    // Compile the actual helpers in isolation: the old unconstrained generic
+    // admitted these padded and pointer-bearing values from entirely safe code.
+    #[test]
+    fn packet_byte_views_reject_records_and_pointers() {
+        let source=include_str!("frame.rs");
+        let helpers=&source[source.find("mod scalar {").unwrap()..source.find("// A span is a retained").unwrap()];
+        let directory=std::env::temp_dir().join(format!("frame-scalars-{}",std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let file=directory.join("reject.rs");
+        std::fs::write(&file,format!("{helpers}\nstruct Padded(u8,u32);\nfn main() {{let _=bytes(&[Padded(0,0)]);let mut values=[String::new()];let _=bytes_mut(&mut values);}} ")).unwrap();
+        let output=std::process::Command::new("rustc").arg(&file).arg("--out-dir").arg(&directory).output().unwrap();
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(!output.status.success(),"non-scalar input compiled");
+        let errors=String::from_utf8_lossy(&output.stderr);
+        assert!(errors.contains("E0277")&&errors.contains("Scalar"),"{errors}");
+    }
+    #[test]
+    fn packet_scalar_views_preserve_bits_and_mutate_only_the_borrowed_span() {
+        let source=[-0.0f64,f64::from_bits(0x7ff8000000000001)];let mut target=[1.0f64;3];
+        bytes_mut(&mut target[..2]).copy_from_slice(bytes(&source));
+        assert_eq!(target.map(f64::to_bits),[source[0].to_bits(),source[1].to_bits(),1.0f64.to_bits()]);
+        assert_eq!(bytes(&[u32::MAX]),u32::MAX.to_ne_bytes());
+        assert_eq!(bytes(&[-0.0f32]),(-0.0f32).to_ne_bytes());
+    }
 }

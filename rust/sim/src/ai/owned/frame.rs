@@ -44,7 +44,7 @@ pub trait Hooks<C:Changes+?Sized,M:Mounted>:super::navigation::Environment {
     fn vehicle_binding(&self)->super::vehicles::Binding;
     fn fire_primary(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,controller:Obj);
     fn flight_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool);
-    fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:crate::ai::vehicles::world::Origin)->Vector3;
+    fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:crate::ai::vehicles::world::Origin)->Option<Vector3>;
     fn origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3;
     fn forward(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3;
     fn aim_point(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3;
@@ -394,7 +394,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> crate::ai::vehicles::service::Moun
         let super::entities::Entity::Hull(reference)=self.rows.state.entities.get(hull)? else{return None};
         self.rows.state.mounts.seat(self.rows.store,&self.rows.state.entities,reference,index)
     }
-    fn mount_eye(&mut self,origin:crate::ai::vehicles::world::Origin)->Vector3 {self.hooks.mount_origin(self.rows,self.random,origin)}
+    fn mount_eye(&mut self,origin:crate::ai::vehicles::world::Origin)->Option<Vector3> {self.hooks.mount_origin(self.rows,self.random,origin)}
     fn mount_hold_yaw(&mut self,turret:Obj,yaw:f64)->f64 {
         let Some(super::entities::Entity::Turret(reference))=self.rows.state.entities.get(turret) else {panic!("current native mount turret")};
         self.rows.state.turrets.hold_yaw(self.rows.seats,self.rows.buildings.rows(),reference,yaw).expect("current native mount pivot")

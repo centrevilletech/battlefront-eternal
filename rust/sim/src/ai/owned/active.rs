@@ -53,7 +53,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
             }
         }
     }
-    fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:crate::ai::vehicles::world::Origin)->Vector3 {Hooks::mount_origin(self.services,rows,random,origin)}
+    fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,origin:crate::ai::vehicles::world::Origin)->Option<Vector3> {Hooks::mount_origin(self.services,rows,random,origin)}
     fn origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { Hooks::origin(self.services,rows,random,u) }
     fn forward(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { Hooks::forward(self.services,rows,random,u) }
     fn aim_point(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,u: Obj)-> Vector3 { Hooks::aim_point(self.services,rows,random,u) }

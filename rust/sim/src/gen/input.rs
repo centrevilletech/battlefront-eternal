@@ -827,6 +827,38 @@ impl ImInput {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct InputMailboxSetup {
+    pub epoch: f64,
+    pub capacity: f64,
+    pub codes: Vec<StrId>,
+}
+
+impl InputMailboxSetup {
+    pub const WORDS: usize = 4;
+    pub const EPOCH: usize = 0;
+    pub const CAPACITY: usize = 1;
+    pub const CODES: usize = 2;
+    pub fn codes_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[2] as usize; let length = row[3] as usize; heap[start..start + length * 1].chunks_exact(1) }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.epoch;
+        row[1] = self.capacity;
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.codes.len() as f64; heap.reserve(self.codes.len() * 1); for e in self.codes.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            epoch: row[0],
+            capacity: row[1],
+            codes: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(StrId(word_u32(row[0]))); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InputMailboxCall {
     pub op: ImOperation,
     pub entry: Option<ImEntry>,

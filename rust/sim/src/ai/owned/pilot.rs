@@ -19,7 +19,7 @@ mod live {
     impl PilotWorld for Native<'_> {
         fn cast(&mut self,origin:&Vector3,direction:&Vector3,far:f64,ignore:Option<BodyId>)->Option<Hit> {
             fleet::collision_world().expect("native flight collision world")
-                .cast(crate::collision::state(),origin,direction,far,ignore).expect("prepared native flight collision bodies")
+                .cast(crate::collision::state(),origin,direction,far,ignore)?
         }
         fn terrain(&mut self,x:f64,z:f64)->Option<f64> {
             fleet::collision_world().expect("native flight collision world").ground(crate::collision::state(),x,z,10000.).map(|hit|hit.height)
@@ -45,7 +45,7 @@ mod live {
         // probes borrow their own owner, and incoming rounds read this same
         // store; no global store exchange or solver scratch is needed.
         let Some(config)=f2::flight_config(hull) else{return Stick::default()};
-        let pilot=ai::Pilot::from_vehicle(body,&crate::abi::sim().strings,config).expect("registered pilot flight");
+        let Ok(pilot)=ai::Pilot::from_vehicle(body,&crate::abi::sim().strings,config) else{return Stick::default()};
         let tuning=fleet::flight_tuning(body.flight_class.unwrap_or_default());
         let env=ai::PilotEnv {has_path:env.has_path,min_fly_height:env.min_fly_height,max_fly_height:Some(env.max_fly_height),space:fleet::flight_environment().space};
         let stick=pilot.pilot_input(&mut Native {store:rows.store},&env,&tuning,request.as_ref(),aim,&steer,target_id);

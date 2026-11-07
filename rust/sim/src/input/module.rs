@@ -1,4 +1,4 @@
-use super::{actions, fire, mailbox, controls};
+use super::{actions, fire, controls};
 use crate::abi::sim;
 use crate::gen::{IaInput, IaResult, IfInput, IfResult, ImInput, ImResult, IqInput, IqResult, IcInput, IcResult, IkInput};
 
@@ -29,21 +29,6 @@ pub extern "C" fn input_fire_run() -> *const f64 {
     let input = IfInput::take(row, heap);
     let result = fire::run(input, &mut sim.strings);
     sim.calls.result(IfResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
-}
-
-#[no_mangle]
-pub extern "C" fn input_mailbox_words(which: u32) -> u32 {
-    (match which { 0 => ImInput::WORDS, 1 => ImResult::WORDS, _ => 0 }) as u32
-}
-
-#[no_mangle]
-pub extern "C" fn input_mailbox_run() -> *const f64 {
-    let sim = sim();
-    let (row, heap) = sim.calls.args();
-    let input = ImInput::take(row, heap);
-    let result = mailbox::run(input, &mut sim.strings);
-    sim.calls.result(ImResult::WORDS, |row, heap| result.put(row, heap));
     sim.calls.block.ptr()
 }
 
@@ -100,9 +85,16 @@ pub extern "C" fn input_controls_axis() -> f64 {
 
 /// Mailboxes live until their connection is retired.
 #[no_mangle]
-pub extern "C" fn input_mailbox_create(epoch:f64,capacity:f64)->u32 {
-    if !capacity.is_finite() || capacity.fract()!=0. || !(0. ..=4096.).contains(&capacity) {return 0;}
-    let sim=sim();let mailbox=super::owner::Mailbox::new(epoch,capacity,&mut sim.strings);
+pub extern "C" fn input_mailbox_create()->u32 {
+    let sim=sim();let(row,heap)=sim.calls.args();
+    use crate::gen::InputMailboxSetup as S;
+    if row.len()<S::WORDS {return 0;}
+    let start=row[S::CODES];let count=row[S::CODES+1];
+    if !start.is_finite() || start<0. || start.fract()!=0. || !count.is_finite() || count.fract()!=0. || !(0. ..=128.).contains(&count)
+        || start+count>heap.len() as f64 {return 0;}
+    if heap[start as usize..(start+count) as usize].iter().any(|id|!id.is_finite()||id.fract()!=0.||!(0. ..=u32::MAX as f64).contains(id)) {return 0;}
+    let setup=S::take(row,heap);let capacity=setup.capacity;
+    let Some(mailbox)=super::owner::Mailbox::new(setup.epoch,capacity,setup.codes,&mut sim.strings) else{return 0;};
     // InputMailbox.take can consume an entire paused burst. Reserve both
     // generated exchange vectors at admission so even its first result fits.
     let count=capacity as usize;

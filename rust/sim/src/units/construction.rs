@@ -15,7 +15,7 @@ pub struct Prepared {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Error { Unprepared, Capacity, Stale(Stale) }
+pub enum Error { Unprepared, Capacity, Admission, Stale(Stale) }
 
 /// The coordinator activates these retained resources before publishing rows.
 /// A warm acquisition has no birth; its existing facade and vectors survive.
@@ -78,12 +78,20 @@ impl Construction {
 
     /// UnitFactory.acquire keeps its original LIFO corpse pool. Only an empty
     /// pool consumes a cold body and appends one new mixed-registry member.
-    pub fn acquire(&mut self, store: &mut Store, owner: &mut Ownership, class: StrId) -> Result<Realized, Error> {
+    /// UnitFactory admits AI identity before moving class stock or registry ids.
+    /// Refusal leaves all resources available for the next construction attempt.
+    pub fn acquire(&mut self, store:&mut Store, owner:&mut Ownership, class:StrId,
+        mut admit:impl FnMut(Ref<Unit>)->bool)->Result<Realized,Error> {
+        if let Some(reference)=owner.candidate(store,class) {
+            if !admit(reference) {return Err(Error::Admission);}
+        }
         if let Some(key) = owner.acquire(store, class) {
             return Ok(Realized {key, prepared: None, replacement: false});
         }
         if store.units.next_id as usize >= self.limit { return Err(Error::Capacity); }
         let at = self.ready.iter().rposition(|body| body.unit.class_name == class && body.local.is_none()).ok_or(Error::Unprepared)?;
+        let reference=Ref::new(store.units.next_id as u32,1);
+        if !admit(reference) {return Err(Error::Admission);}
         let prepared = self.ready.remove(at);
         let key = owner.build(store, prepared.unit);
         Ok(Realized {key, prepared: Some((prepared.cookie, prepared.source)), replacement: false})
@@ -92,11 +100,13 @@ impl Construction {
     /// PlayerBodies.adopt preserves the local viewpoint's Unit identity. A
     /// connection changing class instead acquires another pooled Unit, leaving
     /// its former body available to the caller's ordered removal operation.
-    pub fn realize(&mut self, store: &mut Store, owner: &mut Ownership,
-        class: StrId, previous: Option<F3UnitKey>, local: bool) -> Result<Realized, Error> {
+    /// PlayerBodies also admits a replacement before retiring the old class.
+    pub fn realize(&mut self,store:&mut Store,owner:&mut Ownership,class:StrId,
+        previous:Option<F3UnitKey>,local:bool,mut admit:impl FnMut(Ref<Unit>)->bool)->Result<Realized,Error> {
         if let Some(key) = previous {
             let old = key.validate(store).map_err(Error::Stale)?;
             if old.class_name == class {
+                if !admit(key.reference()) {return Err(Error::Admission);}
                 return Ok(Realized {key, prepared: None, replacement: false});
             }
             if local {
@@ -104,6 +114,7 @@ impl Construction {
                 let at = self.ready.iter().rposition(|body| body.unit.class_name==class && body.local==Some(key.reference()))
                     .or_else(||self.ready.iter().rposition(|body|body.unit.class_name==class && body.local.is_none()))
                     .ok_or(Error::Unprepared)?;
+                if !admit(key.reference()) {return Err(Error::Admission);}
                 let mut prepared = self.ready.remove(at);
                 // Class replacement is distinct from spawning. Its subsequent
                 // Unit.spawn advances life and resets the new arsenal once.
@@ -119,7 +130,7 @@ impl Construction {
                 return Ok(Realized {key, prepared: Some((prepared.cookie, prepared.source)), replacement: true});
             }
         }
-        self.acquire(store, owner, class)
+        self.acquire(store, owner, class,admit)
     }
 
     /// Called only after structural notices and their row readers finish.

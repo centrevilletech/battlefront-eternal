@@ -48,3 +48,18 @@ test('a cold spawn resets its body against the native collision store',async()=>
   // A rechargeable jet starts half full and a real contact marks ground.
   assert.equal(body.fuel,.5);assert.equal(body.grounded,true);
 });
+
+// Page content failures return refusal without trapping the shared module.
+test('soldier construction refuses malformed JSON and invalid scratch spans',()=>{
+  const body=new Soldier({},{}),x=bodyNative(body);
+  for(const source of ['{broken','null','[]']) {
+    const bytes=new TextEncoder().encode(source),ptr=x.sim_scratch(bytes.length);
+    new Uint8Array(x.memory.buffer,ptr,bytes.length).set(bytes);
+    assert.equal(x.body_construct(ptr,bytes.length),0);
+    assert.equal(x.body_construct(ptr,bytes.length+1),0);
+  }
+  assert.equal(x.body_construct(0,4),0);
+  const bytes=new TextEncoder().encode('{}'),ptr=x.sim_scratch(bytes.length);
+  new Uint8Array(x.memory.buffer,ptr,bytes.length).set(bytes);
+  assert.ok(x.body_construct(ptr,bytes.length),'valid construction survives refusal');
+});

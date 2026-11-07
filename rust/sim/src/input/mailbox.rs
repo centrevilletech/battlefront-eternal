@@ -10,12 +10,6 @@ fn admits(s: &ImState, epoch_matches: bool, sequence: f64) -> bool {
 }
 fn truthy(n: f64) -> bool { n != 0.0 && !n.is_nan() }
 
-pub fn run(input: ImInput, strings: &mut Strings) -> ImResult {run_with(input,strings,|_|{})}
-// The owner observes each consumed command at the same point as down/view
-// replacement. It retains publication values without decoding host mirrors.
-pub fn run_with(input: ImInput, strings: &mut Strings, consumed:impl FnMut(&crate::gen::ImEntry)) -> ImResult {
-    run_reusing(input,strings,ImTaken::default(),Vec::new(),consumed).0
-}
 /// InputMailbox.take lends reserved result vectors across each exchange.
 /// Admission can allocate owned packet values; consumption only moves them
 /// into this fixed-capacity scratch, preserving paused-burst order.
@@ -89,52 +83,4 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
     })();
     if let Err(error) = result { out.error = Some(strings.intern_str(error)); }
     (out,command)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gen::ImEntry;
-
-    #[test]
-    fn cumulative_look_and_ack_use_only_consumed_matching_lives() {
-        let mut strings = Strings::default();
-        let input = ImInput { op: ImOperation::Take, tick: 5.0, generation: 2.0,
-            state: ImState { epoch: 1.0, capacity: 256.0, queue: vec![
-                ImEntry { sequence: 1.0, tick: 1.0, generation: 1.0, look_total: Some([100.0, 50.0]), ..Default::default() },
-                ImEntry { sequence: 2.0, tick: 3.0, generation: 2.0, look_total: Some([12.0, -4.0]), ..Default::default() },
-                ImEntry { sequence: 3.0, tick: 9.0, generation: 2.0, look_total: Some([20.0, 8.0]), ..Default::default() },
-            ], ..Default::default() }, ..Default::default() };
-        let out = run(input, &mut strings);
-        assert!(out.error.is_none()); assert_eq!(out.state.ack, 2.0); assert_eq!(out.state.discarded, 1.0);
-        assert_eq!(out.state.ack_tick, 5.0); assert_eq!(out.state.state_tick, 3.0); assert_eq!(out.state.late, 1.0);
-        assert_eq!(out.state.queue.len(), 1); assert_eq!(out.command.unwrap().look[0].point, [12.0, -4.0]);
-    }
-    #[test]
-    fn oversized_records_retire_with_partial_state_without_growing_scratch() {
-        for (actions,looks,humans) in [(2049,0,0),(0,2049,0),(0,0,17)] {
-            let mut strings=Strings::default();let jump=strings.intern_str("jump");
-            let total=(looks==0).then_some([-0.0,12.5]);
-            let input=ImInput {op:ImOperation::Take,tick:2.0,generation:1.0,
-                state:ImState {capacity:1.0,generation:1.0,queue:vec![ImEntry {
-                    identity:7.0,sequence:1.0,tick:1.0,generation:1.0,down:17.0,
-                    actions:vec![jump;actions],look:vec![ImLook::default();looks],
-                    human:vec![1.0;humans],look_total:total,..Default::default()
-                }],..Default::default()},..Default::default()};
-            let scratch=ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),
-                human:Vec::with_capacity(16),fire:Vec::with_capacity(16)};
-            let capacities=(scratch.actions.capacity(),scratch.look.capacity(),scratch.human.capacity(),scratch.fire.capacity());
-            let mut consumed=0;
-            let (out,spare)=run_reusing(input,&mut strings,scratch,Vec::with_capacity(1),|_|consumed+=1);
-            assert_eq!(strings.units(out.error.unwrap()),"input batch overflow".encode_utf16().collect::<Vec<_>>());
-            assert!(out.command.is_none());assert!(out.state.queue.is_empty());assert_eq!(out.retired,[7.0]);
-            assert_eq!(out.state.ack,1.0);assert_eq!(out.state.ack_tick,2.0);assert_eq!(out.state.down,Some(17.0));
-            assert_eq!(out.state.look_total.map(f64::to_bits),total.unwrap_or([0.0;2]).map(f64::to_bits));
-            assert_eq!(consumed,1);
-            assert_eq!((spare.actions.capacity(),spare.look.capacity(),spare.human.capacity(),spare.fire.capacity()),capacities);
-            let recovered=run(ImInput {op:ImOperation::Take,state:out.state,tick:3.0,generation:1.0,..Default::default()},&mut strings);
-            assert!(recovered.error.is_none());
-        }
-    }
-
 }

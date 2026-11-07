@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 // Backend choice belongs to this qualification executable only. Production
 // selects its one backend from the validated bundle, without a user switch.
-import {resolve,join} from 'node:path';
-import {tmpdir} from 'node:os';
-import {mkdtemp} from 'node:fs/promises';
+import {resolve} from 'node:path';
 import {options,output} from './host-qualification/common.mjs';
 import {enterProbeNamespace} from './net-probe-shaping.mjs';
 const [command,...args]=process.argv.slice(2),config=options(args);
@@ -11,7 +9,7 @@ if(!['addon','lifecycle','workers','service','network'].includes(command))throw 
 if(!config.out)throw Error('An explicit --out=FILE is required');
 config.engine=resolve(config.engine??'.host-runtime/engine');
 config.data=resolve(config.data??process.env.BFE_CONTENT_DIR??'public');
-config['raw-dir']=resolve(config['raw-dir']??await mkdtemp(join(tmpdir(),'bfe-host-qualification-')));
+if(config['raw-dir'])config['raw-dir']=resolve(config['raw-dir']);
 if(command==='network'){
   // The existing helper creates and removes a disposable namespace. A plain
   // host invocation cannot attach impairment to the developer's interfaces.
@@ -24,7 +22,7 @@ if(command==='network'){
 }
 let result;
 try{
-  if(command==='addon')result={passed:true,...await (await import('./host-qualification/addon.mjs')).qualifyAddon(resolve(config.addon??'.host-probe/bfe-node.node'))};
+  if(command==='addon')result={passed:true,...await (await import('./host-qualification/addon.mjs')).qualifyAddon(resolve(config.addon??'.host-addon/bfe-node.node'))};
   else if(command==='workers')result={passed:true,backend:config.backend,workers:await (await import('./host-qualification/lifecycle.mjs')).qualifyWorkers(config)};
   else if(command==='lifecycle')result={passed:true,...await (await import('./host-qualification/lifecycle.mjs')).qualifyLifecycle(config)};
   else result=await (await import('./host-qualification/service.mjs')).qualifyService({...config,mode:command==='network'?'network':'memory'});

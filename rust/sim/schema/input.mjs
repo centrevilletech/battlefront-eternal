@@ -23,6 +23,7 @@ export default {
     ImState: { epoch: 'f64', capacity: 'f64', received: 'f64', ack: 'f64', ackTick: 'f64', discarded: 'f64', queue: 'list:rec:ImEntry', down: 'f64|null', generation: 'f64', late: 'f64', view: 'list:rec:ImField', lookTotal: 'f64x2', stateTick: 'f64' },
     ImTaken: { actions: 'list:str', look: 'list:rec:ImLook', human: 'list:f64', fire: 'list:rec:ImFire' },
     ImInput: { op: 'enum:ImOperation', state: 'rec:ImState', entry: 'rec:ImEntry|null', sequence: 'f64', epochMatches: 'bool', tick: 'f64', generation: 'f64' },
+    InputMailboxSetup: { $layout: true, epoch: 'f64', capacity: 'f64', codes: 'list:str' },
     InputMailboxCall: { $layout: true, op: 'enum:ImOperation', entry: 'rec:ImEntry|null', sequence: 'f64', epochMatches: 'bool', tick: 'f64', generation: 'f64' },
     ImResult: { retired: 'list:f64', state: 'rec:ImState', accepted: 'bool', command: 'rec:ImTaken|null', replacedLookTotal: 'bool', error: 'str|null' },
     IqSlot: { index: 'f64', value: 'f64' },

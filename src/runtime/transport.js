@@ -18,6 +18,7 @@ export class TransferPool {
 }
 
 import { humanCommands } from './commands.js';
+import { INPUT_CODES } from './network-entity-input.js';
 
 // Reliable events have separate backpressure from replaceable transforms.
 // One bounded batch is in flight; overflow is an explicit host fault.
@@ -42,9 +43,9 @@ export class ReliableOutbox {
 }
 
 // Shared transport validation for the JavaScript and native mailboxes.
-export function validateMailboxCommand(command) {
+export function validateMailboxCommand(command, codes = INPUT_CODES) {
   if (!Number.isSafeInteger(command.tick) || command.tick < 1 || !Number.isSafeInteger(command.generation)) throw new Error('invalid input stamp');
-  if (!Array.isArray(command.down) || command.down.length > 64 || !command.down.every(x=>typeof x === 'string') ||
+  if (!Array.isArray(command.down) || command.down.length > 64 || !command.down.every(x=>typeof x === 'string' && x.length <= 64 && codes.includes(x)) ||
       !Array.isArray(command.actions) || command.actions.length > 2048 || !command.actions.every(x=>typeof x === 'string') ||
       !Array.isArray(command.look) || command.look.length > 2048 || !command.look.every(p=>Array.isArray(p) && p.length===2 && p.every(Number.isFinite))) throw new Error('invalid input payload');
   if (command.lookTotal !== undefined && (!Array.isArray(command.lookTotal) || command.lookTotal.length !== 2 ||

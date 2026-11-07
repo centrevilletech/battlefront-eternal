@@ -96,60 +96,39 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
         2
     );
 
-    let out = a
-        .input_mailbox(ImInput {
-            op: ImOperation::Take,
-            tick: 2.0,
-            generation: 1.0,
-            state: ImState {
-                capacity: 4.0,
-                queue: vec![ImEntry {
-                    sequence: 1.0,
-                    tick: 1.0,
-                    generation: 1.0,
-                    actions: vec![jump; 1025],
-                    down: 17.0,
-                    look_total: Some([-0.0, 12.5]),
-                    ..Default::default()
-                }, ImEntry {
-                    sequence: 2.0,
-                    tick: 2.0,
-                    generation: 1.0,
-                    actions: vec![jump; 1025],
-                    down: 19.0,
-                    look_total: Some([3.0, 13.5]),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .unwrap();
+    // The real mailbox retains its own state; Context has no stateless copy.
+    // An entry larger than the reserved batch is refused without stalling.
+    let mut strings=bfe_sim::store::Strings::default();
+    let mut mailbox=bfe_sim::input::owner::Mailbox::new(1.,4.,Vec::new(),&mut strings).unwrap();
+    mailbox.state.queue.push(ImEntry {sequence:1.,tick:1.,generation:1.,actions:vec![jump;2049],
+        down:17.,look_total:Some([-0.,12.5]),..Default::default()});
+    let out=mailbox.run(ImInput {op:ImOperation::Take,tick:2.,generation:1.,..Default::default()},&mut strings);
+    assert!(out.error.is_some());assert!(out.command.is_none());
+    assert!(mailbox.state.queue.is_empty());assert_eq!(mailbox.state.ack,1.);
+    assert_eq!(mailbox.state.down,Some(17.));assert_eq!(mailbox.state.look_total,[-0.,12.5]);
+    let recovered=mailbox.run(ImInput {op:ImOperation::Take,tick:3.,generation:1.,..Default::default()},&mut strings);
+    assert!(recovered.error.is_none());
+
     // InputMailbox.take defers the next valid command before exceeding its
     // fixed scratch. Both commands must survive a paused burst, in order.
+    let mut strings=bfe_sim::store::Strings::default();
+    let mut mailbox=bfe_sim::input::owner::Mailbox::new(1.,4.,Vec::new(),&mut strings).unwrap();
+    mailbox.state.queue.push(ImEntry {sequence:1.,tick:1.,generation:1.,actions:vec![jump;1025],
+        down:17.,look_total:Some([-0.,12.5]),..Default::default()});
+    mailbox.state.queue.push(ImEntry {sequence:2.,tick:2.,generation:1.,actions:vec![jump;1025],
+        down:19.,look_total:Some([3.,13.5]),..Default::default()});
+    let out=mailbox.run(ImInput {op:ImOperation::Take,tick:2.,generation:1.,..Default::default()},&mut strings);
     assert!(out.error.is_none());
-    assert_eq!(out.command.as_ref().unwrap().actions, vec![jump; 1025]);
-    assert_eq!(out.state.queue.len(), 1);
-    assert_eq!(out.state.queue[0].sequence, 2.0);
-    assert_eq!(out.state.ack, 1.0);
-    assert_eq!(out.state.down, Some(17.0));
-    assert_eq!(out.state.look_total, [-0.0, 12.5]);
-    let recovered = a
-        .input_mailbox(ImInput {
-            op: ImOperation::Take,
-            state: out.state,
-            tick: 3.0,
-            generation: 1.0,
-            ..Default::default()
-        })
-        .unwrap();
+    assert_eq!(out.command.as_ref().unwrap().actions,vec![jump;1025]);
+    assert_eq!(mailbox.state.queue.len(),1);assert_eq!(mailbox.state.queue[0].sequence,2.);
+    assert_eq!(mailbox.state.ack,1.);assert_eq!(mailbox.state.down,Some(17.));
+    assert_eq!(mailbox.state.look_total,[-0.,12.5]);
+    let recovered=mailbox.run(ImInput {op:ImOperation::Take,tick:3.,generation:1.,..Default::default()},&mut strings);
     assert!(recovered.error.is_none());
-    assert!(recovered.state.queue.is_empty());
-    assert_eq!(recovered.state.ack, 2.0);
-    assert_eq!(recovered.state.down, Some(19.0));
-    let command = recovered.command.unwrap();
-    assert_eq!(command.actions, vec![jump; 1025]);
-    assert_eq!(command.look[0].point, [3.0, 1.0]);
+    assert!(mailbox.state.queue.is_empty());assert_eq!(mailbox.state.ack,2.);assert_eq!(mailbox.state.down,Some(19.));
+    let command=recovered.command.unwrap();
+    assert_eq!(command.actions,vec![jump;1025]);
+    assert_eq!(command.look[0].point,[3.,1.]);
 
     let status = a
         .intern(&"manual".encode_utf16().collect::<Vec<_>>())

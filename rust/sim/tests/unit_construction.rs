@@ -15,11 +15,11 @@ fn cold_births_join_mixed_order_at_activation_and_corpses_keep_identity() {
     factory.prepare(&mut owner,prepared(1,7));
     assert!(store.units.list.is_empty());
     store.units.add(|id|Member::VehicleTarget(Ref::new(id,0)));
-    let first=factory.acquire(&mut store,&mut owner,StrId(1)).unwrap();
+    let first=factory.acquire(&mut store,&mut owner,StrId(1),|_|true).unwrap();
     assert_eq!(first.key.slot,1);assert_eq!(first.prepared,Some((7,Ref::new(107,0))));
     assert_eq!(store.units.list,vec![Member::VehicleTarget(Ref::new(0,0)),Member::Unit(first.key.reference())]);
     owner.removed(&store,&first.key).unwrap();
-    let again=factory.acquire(&mut store,&mut owner,StrId(1)).unwrap();
+    let again=factory.acquire(&mut store,&mut owner,StrId(1),|_|true).unwrap();
     assert_eq!(again.key,first.key);assert!(again.prepared.is_none());
     assert_eq!(store.units.list.len(),2);
 }
@@ -32,11 +32,11 @@ fn local_realization_preserves_identity_and_life_without_aliasing_a_connection()
     store.units.add(|_|Member::Unit(local));owner.adopt_passive(&store,local).unwrap();
     factory.prepare(&mut owner,prepared(2,4));factory.prepare(&mut owner,prepared(3,5));
     let key=F3UnitKey::of(local,store.unit.get(local).unwrap());
-    let result=factory.realize(&mut store,&mut owner,StrId(2),Some(key.clone()),true).unwrap();
+    let result=factory.realize(&mut store,&mut owner,StrId(2),Some(key.clone()),true,|_|true).unwrap();
     assert!(result.replacement);assert_eq!(result.key,key);
     let unit=store.unit.get(local).unwrap();assert_eq!(unit.class_name,StrId(2));assert_eq!(unit.generation,8.);
     assert_eq!(unit.team,2.);assert!(unit.human);assert!(owner.built().is_empty());
-    let connection=factory.realize(&mut store,&mut owner,StrId(3),Some(key.clone()),false).unwrap();
+    let connection=factory.realize(&mut store,&mut owner,StrId(3),Some(key.clone()),false,|_|true).unwrap();
     assert_ne!(connection.key.reference(),local);assert!(!connection.replacement);
     assert_eq!(store.unit.get(local).unwrap().class_name,StrId(2));
 }
@@ -46,8 +46,27 @@ fn stale_realization_and_unprepared_classes_do_not_consume_stock() {
     let mut store=Store::default();let mut owner=Ownership::default();let mut factory=Construction::default();
     factory.reserve(&mut store,&mut owner,8);factory.prepare(&mut owner,prepared(1,1));
     let stale=F3UnitKey {slot:0,generation:1,life:1.};
-    assert!(matches!(factory.realize(&mut store,&mut owner,StrId(1),Some(stale),true),Err(Error::Stale(_))));
+    assert!(matches!(factory.realize(&mut store,&mut owner,StrId(1),Some(stale),true,|_|true),Err(Error::Stale(_))));
     assert_eq!(factory.available(StrId(1)),1);assert!(store.units.list.is_empty());
-    assert!(matches!(factory.acquire(&mut store,&mut owner,StrId(9)),Err(Error::Unprepared)));
+    assert!(matches!(factory.acquire(&mut store,&mut owner,StrId(9),|_|true),Err(Error::Unprepared)));
     assert_eq!(factory.available(StrId(1)),1);
+}
+
+#[test]
+fn refused_ai_birth_preserves_stock_registry_and_local_class() {
+    let mut store=Store::default();let mut owner=Ownership::default();let mut factory=Construction::default();
+    factory.reserve(&mut store,&mut owner,8);factory.prepare(&mut owner,prepared(1,1));
+    use bfe_sim::ai::owned::entities::{Entities,Entity};
+    let mut identities=Entities::new(1);let occupied=identities.register(Entity::Hint(0));
+    for _ in 0..64 {
+        assert!(matches!(factory.acquire(&mut store,&mut owner,StrId(1),|body|identities.try_register(Entity::Unit(body)).is_some()),Err(Error::Admission)));
+        assert_eq!(factory.available(StrId(1)),1);assert_eq!(store.units.next_id,0.);assert!(owner.built().is_empty());
+    }
+    identities.retire(occupied);
+    let first=factory.acquire(&mut store,&mut owner,StrId(1),|body|identities.try_register(Entity::Unit(body)).is_some()).unwrap();
+    factory.prepare(&mut owner,prepared(2,2));
+    assert!(matches!(factory.realize(&mut store,&mut owner,StrId(2),Some(first.key.clone()),true,|_|false),Err(Error::Admission)));
+    assert_eq!(store.unit.get(first.key.reference()).unwrap().class_name,StrId(1));
+    assert_eq!(factory.available(StrId(2)),1);assert_eq!(store.units.list.len(),1);
+    assert!(factory.realize(&mut store,&mut owner,StrId(2),Some(first.key),true,|_|true).is_ok());
 }

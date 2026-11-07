@@ -46,18 +46,20 @@ impl<V:Voice,I:OwnedItems> super::navigation::Environment for Scope<'_,V,I> {
 // agent, mounted pattern, recovery or decay. Reject a scope violation at that
 // call instead of acquiring a second Core or invoking a foreign AI method.
 fn active()->! {unreachable!("native AI action requires its active Core scope")}
-fn helper(rows:&Rows<'_,F3,Live>,agent:Obj)->ctl::agents::Helper {
-    let row=rows.state.agents.get(&rows.state.entities,agent).expect("current native helper agent");
+fn helper(rows:&Rows<'_,F3,Live>,agent:Obj)->Option<ctl::agents::Helper> {
+    let row=rows.state.agents.get(&rows.state.entities,agent)?;
     let mut helper=row.helper;
     if let Some(key)=row.navigation {if let Some(obs)=rows.state.navigation.helper_observation_for(rows.store,key) {helper.obs=obs;}}
-    helper
+    Some(helper)
 }
-fn mount_origin(rows:&mut Rows<'_,F3,Live>,origin:crate::ai::vehicles::world::Origin)->Vector3 {
+// VehicleAI.mountAngles refuses a mount whose body or lease has retired.
+// Keep absence through the shared traits so no origin at zero can be targeted.
+fn mount_origin(rows:&mut Rows<'_,F3,Live>,origin:crate::ai::vehicles::world::Origin)->Option<Vector3> {
     use crate::ai::vehicles::world::Origin;
     match origin {
-        Origin::Lease(key)=>{let Entity::Lease(lease)=rows.state.entities.get(key).expect("native mount lease") else{unreachable!()};rows.lease_origin(lease,&mut super::geometry::F2).expect("current native mount lease")},
-        Origin::TurretPivot(key)=>{let Entity::Turret(turret)=rows.state.entities.get(key).expect("native mount turret") else{unreachable!()};rows.state.turrets.origin(rows.seats,rows.buildings.rows(),turret).expect("current native turret pivot")},
-        Origin::SeatOrigin(key,index)=>{let Entity::Hull(hull)=rows.state.entities.get(key).expect("native mount hull") else{unreachable!()};let life=rows.store.vehicle.get(hull).expect("current native mount hull").target_generation;let _=life;super::observe::Hulls::origin(&mut super::geometry::F2,rows.store,rows.seats,hull,index).expect("current native mount seat")},
+        Origin::Lease(key)=>{let Entity::Lease(lease)=rows.state.entities.get(key)? else{return None};rows.lease_origin(lease,&mut super::geometry::F2)},
+        Origin::TurretPivot(key)=>{let Entity::Turret(turret)=rows.state.entities.get(key)? else{return None};rows.state.turrets.origin(rows.seats,rows.buildings.rows(),turret)},
+        Origin::SeatOrigin(key,index)=>{let Entity::Hull(hull)=rows.state.entities.get(key)? else{return None};rows.store.vehicle.get(hull)?;super::observe::Hulls::origin(&mut super::geometry::F2,rows.store,rows.seats,hull,index)},
     }
 }
 
@@ -66,25 +68,25 @@ impl<V:Voice,I:OwnedItems> Hooks<F3,Live> for Scope<'_,V,I> {
 fn vehicle_binding(&self)->super::vehicles::Binding { self.context.vehicles.clone() }
 fn fire_primary(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,controller:Obj) { active() }
 fn flight_path(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool) { active() }
-fn mount_origin(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,origin:crate::ai::vehicles::world::Origin)->Vector3 { mount_origin(rows,origin) }
+fn mount_origin(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,origin:crate::ai::vehicles::world::Origin)->Option<Vector3> { mount_origin(rows,origin) }
 fn origin(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,u: Obj)-> Vector3 { super::live::origin(rows,u) }
 fn forward(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,u: Obj)-> Vector3 { super::live::forward(rows,u) }
 fn aim_point(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,u: Obj)-> Vector3 { super::live::sphere(rows,u).center }
 fn sphere(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,u: Obj)-> Sphere { super::live::sphere(rows,u) }
-fn use_classic_random(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,u: Obj) { let owner=arsenals::Owner::resolve(rows.store,&rows.state.entities,&rows.state.births,u).expect("current native AI arsenal");let stream=random.weapon_stream();
-        crate::vehicles::module::f2::live_seats::loan_seats(rows.seats,||crate::battle::f4_live::with_store(rows.store,||assert!(owner.bind_classic(self.context.stream_a,stream),"current native weapon stream owner"))); }
+fn use_classic_random(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,u: Obj) { let Some(owner)=arsenals::Owner::resolve(rows.store,&rows.state.entities,&rows.state.births,u) else{return};let stream=random.weapon_stream();
+        crate::vehicles::module::f2::live_seats::loan_seats(rows.seats,||crate::battle::f4_live::with_store(rows.store,||{owner.bind_classic(self.context.stream_a,stream);})); }
 fn query(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,center: &Vector3,radius: f64,filter: QueryFilter)-> List<Obj> { super::live::query(rows,center,radius,filter) }
 fn relation(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,a: f64,b: f64)-> f64 { crate::units::f3::relation(a,b) }
 fn living(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState)-> List<Obj> { super::live::living(rows) }
 fn los(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,from: &Vector3,to: &Vector3,a: Option<Obj>,b: Option<Obj>)-> bool { super::live::los(rows,from,to,a,b) }
-fn set_stance(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,c:Obj,stance:f64) { rows.state.controllers.write(&rows.state.entities,c).expect("current native stance controller").set_stance(stance);
+fn set_stance(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,c:Obj,stance:f64) { let Some(controller)=rows.state.controllers.write(&rows.state.entities,c) else{return};controller.set_stance(stance);
         if let Some(index)=rows.state.controllers.core(&rows.state.entities,c) {if let Some(actor)=rows.state.actor(index) {if let Some(control)=rows.state.navigation.control_mut(actor) {control.stance=stance;}}} }
 fn human_target(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,hull:Obj)->Option<Obj> { rows.human_reticle_target(hull) }
 fn interrupts_tick(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent: Obj,combat:&mut crate::ai::combat::binding::CombatAi)-> bool { active() }
-fn has_helper(&self,rows:&Rows<'_,F3,Live>,agent: Obj)-> bool { helper(rows,agent).kind.is_some() }
-fn helper_arrived(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent: Obj)-> bool { let helper=helper(rows,agent);match helper.kind {None=>false,Some(ctl::world::HelperKind::Direct)=>helper.direct.arrived,_=>helper.obs.arrived} }
+fn has_helper(&self,rows:&Rows<'_,F3,Live>,agent: Obj)-> bool { helper(rows,agent).is_some_and(|helper|helper.kind.is_some()) }
+fn helper_arrived(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent: Obj)-> bool { let Some(helper)=helper(rows,agent) else{return false};match helper.kind {None=>false,Some(ctl::world::HelperKind::Direct)=>helper.direct.arrived,_=>helper.obs.arrived} }
 fn helper_flying(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent: Obj)-> bool { false }
-fn helper_has_follow(&self,rows:&Rows<'_,F3,Live>,agent: Obj)-> bool { if helper(rows,agent).kind==Some(ctl::world::HelperKind::Stationary) {return true;}
+fn helper_has_follow(&self,rows:&Rows<'_,F3,Live>,agent: Obj)-> bool { if helper(rows,agent).is_some_and(|helper|helper.kind==Some(ctl::world::HelperKind::Stationary)) {return true;}
         rows.state.agents.get(&rows.state.entities,agent).and_then(|row|row.navigation).and_then(|key|rows.state.navigation.helper_has_follow_for(key)).unwrap_or(false) }
 fn helper_goto(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent: Obj,point: &Vector3,mode: Option<GotoMode>) { active() }
 fn helper_stop(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent: Obj) { active() }
@@ -101,8 +103,8 @@ use crate::ai::vehicles::world::{Origin,ExitOptions,Request,PilotEnv,Stick,Ref};
 #[allow(unused_variables)]
 impl<V:Voice,I:OwnedItems> super::super::vehicle_frame::Hooks<F3,Live> for Scope<'_,V,I> {
 fn support_holds(&self,rows:&Rows<'_,F3,Live>, agent: Obj) -> Option<f64> { active() }
-fn cast(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> { crate::vehicles::module::collision_world().expect("native AI collision world").cast(crate::collision::state(),origin,direction,far,ignore).expect("prepared native AI collision bodies") }
-fn mount_origin(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Vector3 { mount_origin(rows,origin) }
+fn cast(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> { crate::vehicles::module::collision_world().expect("native AI collision world").cast(crate::collision::state(),origin,direction,far,ignore)? }
+fn mount_origin(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Option<Vector3> { mount_origin(rows,origin) }
 fn eligible_seat(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> f64 { super::super::physical::eligible(rows,unit,hull,&mut |a,b|crate::units::f3::relation(a,b)) }
 fn board(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> bool { active() }
 fn man(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, turret: Obj) -> bool { active() }
@@ -139,8 +141,8 @@ impl<V:Voice,I:OwnedItems> super::world::Services<F3,Live> for Scope<'_,V,I> {
     }
     fn emit_vo(&mut self,rows:&mut Rows<'_,F3,Live>,_random:&mut RandomState,_combat:&mut CombatAi,facts:&Facts,_settings:&Settings,unit:UKey,event:&str,property:&str,command:f64,context:Option<f64>,positional:Option<bool>,notice:Option<bool>) {self.context.voice.emit(facts.time,rows,unit,event,property,command,context,positional,notice)}
     fn nav_analogs(&mut self,rows:&mut Rows<'_,F3,Live>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller:usize,aim:Option<Vec3>,step:f64,facing:bool)->([f64;4],Vec<CoreEffect>) {
-        let actor=rows.state.actor(controller).expect("current native analog control");
-        (rows.state.navigation.analogs(rows.store,rows.seats,self,actor,aim,step,facing).expect("current native analog body"),Vec::new())
+        let Some(actor)=rows.state.actor(controller) else{return ([0.;4],Vec::new())};
+        (rows.state.navigation.analogs(rows.store,rows.seats,self,actor,aim,step,facing).unwrap_or([0.;4]),Vec::new())
     }
     fn seat_action(&mut self,core:&mut ctl::Core,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,action:super::physical::SeatAction)->bool {super::physical::seat(self.context,core,rows,random,combat,settings,facts,self.recon,self.queries,action)}
     fn hull_damage(&mut self,core:&mut ctl::Core,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,hull:UKey,amount:f64) {super::physical::damage(self.context,core,rows,random,combat,settings,facts,self.recon,self.queries,hull,amount)}

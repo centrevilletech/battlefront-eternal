@@ -106,8 +106,9 @@ fn activate(result: Realized, retired_cookie:Option<u32>) -> Ref<Unit> {
 
 /// Native UnitFactory.acquire. A missing prepared class is a construction
 /// error, never permission to reenter a JavaScript factory from the phase.
-pub(crate) fn cold(class: StrId) -> Option<Ref<Unit>> {
-    let result=f3::with_rows(|store,owner| factory().acquire(store,owner,class));
+pub(crate) fn cold(class: StrId, mut services:f3::WorldServices<'_>) -> Option<Ref<Unit>> {
+    let result=f3::with_rows(|store,owner| factory().construction.acquire(store,owner,class,
+        |reference|services.ai.as_mut().is_none_or(|ai|ai.unit_born(reference))));
     result.ok().map(|result|activate(result,None))
 }
 
@@ -115,7 +116,8 @@ pub(crate) fn cold(class: StrId) -> Option<Ref<Unit>> {
 /// canonical class pool. The caller performs removal before changing classes,
 /// then resets/spawns this result at the original lifecycle observation point.
 pub(crate) fn realize(request: &F3PlayerRealization, mut services: f3::WorldServices<'_>) -> Option<Ref<Unit>> {
-    let result=f3::with_rows(|store,owner| factory().realize(store,owner,request)).ok()?;
+    let result=f3::with_rows(|store,owner| factory().construction.realize(store,owner,request.class_name,request.previous.clone(),request.local,
+        |reference|services.ai.as_mut().is_none_or(|ai|ai.unit_born(reference)))).ok()?;
     let retired_cookie=if result.replacement {
         let reference=result.key.reference();
         let old=factory().residents[reference.slot as usize].take().expect("resident viewpoint class");
@@ -130,11 +132,6 @@ pub(crate) fn realize(request: &F3PlayerRealization, mut services: f3::WorldServ
         Some(cookie)
     } else {None};
     let reference=activate(result,retired_cookie);
-    // A new pooled body can be observed by AI roster queries before it ever
-    // aims. Bind its generation at realization, while the native loan exists.
-    if let Some(ai)=services.ai.as_mut() {
-        if !ai.unit_born(&sim().store,reference) { return None; }
-    }
     let m=&request.metadata;
     let metadata=F3Metadata {character:m.character,controller:m.controller,team:m.team,
         life:sim().store.unit.get(reference).unwrap().generation,
@@ -255,17 +252,6 @@ pub extern "C" fn f3_factory_resident() {
 }
 
 impl Factory {
-    // UnitFactory.acquire/PlayerBodies.adopt return a realization before any
-    // rig installation, lifecycle hook or journal notice. Construction and
-    // Ownership are borrowed together only while assigning the canonical id.
-    fn acquire(&mut self, store: &mut Store, owner: &mut super::ownership::Ownership, class: StrId)
-        -> Result<Realized, super::construction::Error> {
-        self.construction.acquire(store, owner, class)
-    }
-    fn realize(&mut self, store: &mut Store, owner: &mut super::ownership::Ownership, request: &F3PlayerRealization)
-        -> Result<Realized, super::construction::Error> {
-        self.construction.realize(store, owner, request.class_name, request.previous.clone(), request.local)
-    }
     fn bind_player(&mut self, store: &Store, input: F3PlayerBinding) {
 
         assert!(store.character.get(input.character).is_some(),"admitted Character");

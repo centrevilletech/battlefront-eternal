@@ -2,6 +2,7 @@
 // that ceiling. OOM and partial startup are results, never a heap-limit pass.
 import assert from 'node:assert/strict';
 import {resolve,dirname,join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {mkdir,readFile,mkdtemp,rm} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
@@ -11,6 +12,12 @@ import {manifest,sleep,until} from './common.mjs';
 import {maximum,processMemory,cgroupMemory} from './telemetry.mjs';
 import {shapeProbeTraffic} from '../net-probe-shaping.mjs';
 const number=(value,fallback)=>value===undefined?fallback:Number(value);
+// Reconnect uses the same configured link as initial admission. Only the
+// endpoint pairs change; rate, delay and loss policy remain identical.
+export function shapeClients(clients,config,shape=shapeProbeTraffic){
+  return shape(clients.map(c=>c.pair),{upKbps:number(config['shape-up-kbps'],1000),downKbps:number(config['shape-down-kbps'],2000),
+    delayMs:50,jitterMs:15,lossPercent:5,competingUpKbps:0,queuePackets:32});
+}
 export function checkSample(sample,advertised){
   if(sample.errors?.length)throw Error(sample.errors[0]);
   for(const world of sample.worlds){
@@ -23,7 +30,7 @@ export function checkSample(sample,advertised){
 }
 export async function qualifyService(config){
   const identity=await manifest(config.engine),server=resolve(dirname(config.engine),'server');
-  const raw=resolve(config['raw-dir']);await mkdir(raw,{recursive:true});
+  const raw=resolve(config['raw-dir']??tmpdir());await mkdir(raw,{recursive:true});
   const state=await mkdtemp(join(raw,'service-')),cgroup=join(state,'cgroup.json');
   const helper=fileURLToPath(new URL('./cgroup.py',import.meta.url));
   const command=[process.execPath,join(server,'scripts/qualify-host.mjs'),`--engine=${config.engine}`,`--data=${config.data}`,`--state=${state}`,`--backend=${config.backend}`];
@@ -69,8 +76,7 @@ export async function qualifyService(config){
     }
     await connectAll();await observe('clients-ready');
     if(config.mode==='network'){
-      shaping=await shapeProbeTraffic(clients.map(c=>c.pair),{upKbps:number(config['shape-up-kbps'],1000),downKbps:number(config['shape-down-kbps'],2000),
-        delayMs:50,jitterMs:15,lossPercent:5,competingUpKbps:0,queuePackets:32});
+      shaping=await shapeClients(clients,config);
       if(!shaping)throw Error('Network qualification requires kernel shaping');result.kernelBefore=shaping.stats();
     }
     const started=performance.now(),end=started+config.seconds*1000;let sampled=0,reconnected=false,rotated=0,blackout=false,recovered=false;
@@ -94,7 +100,7 @@ export async function qualifyService(config){
         await closeClients();await connectAll();
         assert.deepEqual(clients.map(c=>c.id),initial.map(c=>c.id));assert.ok(clients.every((c,i)=>c.receiver!==initial[i].receiver));
         result.reconnects++;await observe('reconnected');
-        if(config.mode==='network'){shaping=await shapeProbeTraffic(clients.map(c=>c.pair),{upKbps:1000,downKbps:2000,delayMs:50,jitterMs:15,lossPercent:5,competingUpKbps:0,queuePackets:32});}
+        if(config.mode==='network'){shaping=await shapeClients(clients,config);}
       }
       if(config.mode==='network'&&!blackout&&elapsed>config.seconds*0.55){
         blackout=true;const completed=clients.map(c=>c.complete);

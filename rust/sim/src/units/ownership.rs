@@ -235,6 +235,12 @@ impl Ownership {
         Ok(())
     }
 
+    /// Inspect the same LIFO candidate before another owner admits its identity.
+    pub fn candidate(&self,store:&Store,class:crate::store::StrId)->Option<Ref<Unit>> {
+        let slot=*self.free.free.iter().find(|(name,_)|*name==class)?.1.last()?;
+        store.unit.reference(slot)
+    }
+
     pub fn acquire(&mut self, store: &Store, class: crate::store::StrId) -> Option<F3UnitKey> {
         let slot = self.free.acquire(class)?;
         self.pooled[slot as usize] = false;

@@ -6,7 +6,7 @@ use three::Vector3;
 impl<C:Changes+?Sized,M:Mounted> Hooks<C,M> for Callbacks {
 fn support_holds(&self,rows:&Rows<'_,C,M>, agent: Obj) -> Option<f64> {panic!("unprepared native vehicle frame effect support_holds") }
 fn cast(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> {panic!("unprepared native vehicle frame effect cast") }
-fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Vector3 {panic!("unprepared native vehicle frame effect mount_origin") }
+fn mount_origin(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Option<Vector3> {panic!("unprepared native vehicle frame effect mount_origin") }
 fn eligible_seat(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> f64 {panic!("unprepared native vehicle frame effect eligible_seat") }
 fn board(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, hull: Obj) -> bool {panic!("unprepared native vehicle frame effect board") }
 fn man(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi, unit: Obj, turret: Obj) -> bool {panic!("unprepared native vehicle frame effect man") }

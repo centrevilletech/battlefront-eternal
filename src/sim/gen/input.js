@@ -1064,6 +1064,49 @@ export function exportImInput(o, cx) {
   return v;
 }
 
+export const InputMailboxSetupLayout = Object.freeze({ words: 4, epoch: 0, capacity: 1, codes: 2, codesLength: 3 });
+export const INPUT_MAILBOX_SETUP_WORDS = InputMailboxSetupLayout.words;
+export const INPUT_MAILBOX_SETUP_OFFSETS = InputMailboxSetupLayout;
+
+export class InputMailboxSetupMirror {
+  constructor() {
+    this.epoch = NaN;
+    this.capacity = NaN;
+    this.codes = [];
+  }
+}
+
+export function syncInputMailboxSetup(b, f, at, h, m) {
+  m.epoch = f[at + 0];
+  m.capacity = f[at + 1];
+  { const items = (m.codes ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  return m;
+}
+
+export function putInputMailboxSetup(b, o, f, at, heap) {
+  f[at + 0] = o.epoch;
+  f[at + 1] = o.capacity;
+  heap.items(o.codes, f, at + 2, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
+}
+
+export function sameInputMailboxSetup(a, b) {
+  if (!Object.is(a.epoch, b.epoch)) return ".epoch";
+  if (!Object.is(a.capacity, b.capacity)) return ".capacity";
+  if (!sameEach(a.codes, b.codes, (x, y) => Object.is(x, y))) return ".codes";
+  return null;
+}
+
+export function exportInputMailboxSetup(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.epoch = o.epoch;
+  v.capacity = o.capacity;
+  v.codes = o.codes.map((x) => x);
+  return v;
+}
+
 export const InputMailboxCallLayout = Object.freeze({ words: 39, op: 0, entry: 1, sequence: 35, epochMatches: 36, tick: 37, generation: 38 });
 export const INPUT_MAILBOX_CALL_WORDS = InputMailboxCallLayout.words;
 export const INPUT_MAILBOX_CALL_OFFSETS = InputMailboxCallLayout;

@@ -137,9 +137,11 @@ mod module {
     // Soldier.constructor's native class reader keeps authored defaults in
     // one place. JSON parsing is confined to this cold resource admission.
     pub extern "C" fn body_construct(ptr: *const u8, len: u32) -> *const f64 {
-        // Class JSON is cold authored content, just as in the unit importer.
-        let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-        let def = bfe_content::json::parse_bytes(bytes).expect("soldier class content");
+        // Soldier.constructor accepts only the owned scratch span, so no raw
+        // slice can outlive its allocation or read beyond the supplied bytes.
+        let Some(bytes)=sim().scratch_bytes(ptr,len as usize) else {return std::ptr::null()};
+        let Ok(def)=bfe_content::json::parse_bytes(bytes) else {return std::ptr::null()};
+        if !matches!(def,bfe_content::Value::Object(_)) {return std::ptr::null();}
         let body = super::super::class::soldier_body(&def, 200.0, 0.0, 0.0);
         let s = sim(); s.calls.result(Soldier::WORDS, |row, heap| body.put(row, heap));
         s.calls.block.ptr()

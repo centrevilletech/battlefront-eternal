@@ -2070,10 +2070,8 @@ pub(crate) fn acquire_native(class: crate::store::StrId) -> Option<Ref<Unit>> {
     state().owner.acquire(&sim().store,class).map(|key|key.reference())
 }
 /// A cold miss activates an already prepared row through the same owner.
-pub(crate) fn construct_native(class: crate::store::StrId, mut services: WorldServices<'_>) -> Option<Ref<Unit>> {
-    let unit=super::f3_construction::cold(class)?;
-    if let Some(ai)=services.ai.as_mut() { if !ai.unit_born(&sim().store,unit) {return None;} }
-    Some(unit)
+pub(crate) fn construct_native(class: crate::store::StrId, services: WorldServices<'_>) -> Option<Ref<Unit>> {
+    super::f3_construction::cold(class,services)
 }
 /// Player and connection realization is independent of the subsequent spawn.
 pub(crate) fn realize_native(request:&F3PlayerRealization, services:WorldServices<'_>) -> Option<Ref<Unit>> {
