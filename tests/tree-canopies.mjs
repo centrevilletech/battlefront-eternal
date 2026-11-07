@@ -84,22 +84,14 @@ test('canopy frustum selection follows stationary-camera zoom changes',()=>{
   assert.ok(f.trees.states.every(value=>value===0));
 });
 
-test('drawn by the Rust renderer: three neither lists nor uploads the leaves, and the changed slots are kept for the renderer',()=>{
+test('canopy placement retains raw dirty rows without Three descriptors',()=>{
   const f=fixture();f.trees.update(f.camera);
-  const center=f.trees.mesh.geometry.attributes.leafCenter;
-  assert.equal(f.trees.mesh.parent,null);
-  assert.equal(f.trees.mesh.material.vertexShader,undefined);
+  assert.equal(f.trees.mesh,undefined);
+  assert.equal(f.trees.node.parent,null);
   assert.deepEqual(f.trees.takeDirty(),[0,12*LEAVES]);
   assert.equal(f.trees.takeDirty(),null);
-  center.clearUpdateRanges();
-  const version=center.version;
-  // The camera turns: some slots change.
   f.camera.position.set(0,6,-48);f.camera.lookAt(0,6,0);f.camera.updateMatrixWorld(true);f.trees.update(f.camera);
-  assert.equal(center.updateRanges.length,0,'no upload for three');
-  assert.equal(center.version,version);
   const dirty=f.trees.takeDirty();
   assert.ok(dirty&&dirty[0]%LEAVES===0&&dirty[1]%LEAVES===0&&dirty[1]>dirty[0]);
-  assert.equal(f.trees.mesh.parent,null);
-  assert.equal(center.updateRanges.length,0);
-  assert.equal(center.version,version);
+  assert.equal(f.trees.centers instanceof Float32Array,true);
 });

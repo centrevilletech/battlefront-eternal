@@ -118,7 +118,6 @@ struct Slots {
 
 pub struct FoliagePass<C: HasContext> {
     classes: Vec<Class<C>>,
-    // Off: three draws the foliage (the page's switch for this pass alone).
     pub input: Vec<f64>,
     // The view matrix each program last had (modelViewMatrix: the cards are
     // in world space, so it is the camera's), by program.
@@ -258,7 +257,9 @@ impl<C: HasContext> FoliagePass<C> {
         self.classes.push(Class {
             program, texture: core.textures[texture as usize], grass, wiggle, vao, _buffers: buffers, rows_buffer, index_count: index.len() as i32,
             model_view, map_transform, model, map_matrix: map, constants, patches, rows: rows.to_vec(), cell, cells, always,
-            selected: Vec::with_capacity(n), next: Vec::with_capacity(n), upload: vec![], dirty: false,
+            // FoliageGpuBatch.update can reveal every patch after a camera jump.
+            // Reserve that upload cold instead of growing it in a later frame.
+            selected: Vec::with_capacity(n), next: Vec::with_capacity(n), upload: Vec::with_capacity(n * ROW), dirty: false,
             eye: [0.0; 3], right: [0.0; 3], up: [0.0; 3], back: [0.0; 3], time: 0.0, end: 0.0,
         });
         (self.classes.len() - 1) as u32

@@ -1,3 +1,5 @@
+import { STATIC } from "./static-layout.js";
+import { staticFeatures } from "./geometry-types.js";
 import { ownedWorldProgram } from "./world-programs.js";
 // The far pass (far.rs): the far scene (graphics.farScene, seen from the
 // far camera into graphics.farTarget), drawn by the renderer in place of
@@ -131,6 +133,37 @@ class FarPass {
     // The near scene's items (drawNear): mesh -> its own layers' mask, while
     // it is hidden from three.
     this.hidden = new Map();
+    this.nativePending = [];
+  }
+
+  // The static world no longer constructs browser geometry/material shells.
+  // Frame scheduling retains only a scene node and its numeric native slot.
+  admit(object, record, vertices, index, map, bump, weights = new Uint8Array(), samplers = null, source = null) {
+    const core = this.core, slot = this.nextSlot;
+    this.nextSlot += record.terrain ? 2 : 1;
+    const item = { id: -1, slot, native: true, terrain: Boolean(record.terrain), object };
+    object.userData.nativeFar = item;
+    source ??= core.rust.static_source(JSON.stringify(record), vertices, index);
+    if (weights.length) core.rust.static_source_weights(source, weights);
+    this.nativePending.push({ item, source, tree: Boolean(record.treeCanopies), scale: record.lowResScale || 1, samplers, map, bump });
+    this.all.push(item);
+    return item;
+  }
+
+  prepareNative() {
+    const core = this.core;
+    for (const cold of this.nativePending) {
+      const { item, source, tree, scale, map, bump } = cold;
+      const samplers = cold.samplers || new Int32Array(STATIC.SAMPLERS.LENGTH).fill(-1);
+      if (!cold.samplers) {
+        samplers[STATIC.SAMPLERS.MAP] = map == null ? -1 : core.texture(core.resources.staticSample(map));
+        samplers[STATIC.SAMPLERS.BUMP] = bump == null ? -1 : core.texture(core.resources.staticSample(bump));
+        if (map == null) samplers[STATIC.SAMPLERS.EMPTY] = core.texture(core.resources.gpu.world_fallback(false));
+        if (tree) samplers[STATIC.SAMPLERS.TREE] = core.texture(core.graphics.treeCanopies.stateMap);
+      }
+      item.id = core.rust.static_world(source, true, scale, samplers, staticFeatures(core, true), item.object.userData.worldOrder, item.slot, item.object.id);
+    }
+    this.nativePending.length = 0;
   }
 
   register() {
@@ -148,6 +181,7 @@ class FarPass {
   // Only frame/camera inputs change; registration must not depend on which view
   // happened to draw an object first. Every selected item remains Rust-owned.
   frame(ctx) {
+    if (this.nativePending.length) this.prepareNative();
     const { renderer, scene, camera } = ctx, core = this.core;
     this.near = false;
     this.count = 0;
@@ -243,7 +277,11 @@ class FarPass {
     if (object.visible === false) return;
     if (object.layers.test(camera.layers)) {
       if (object.isGroup) groupOrder = object.renderOrder;
-      if (object.userData.patches) { this.find(object, object.children[0]?.material, groupOrder); return; }
+      if (object.userData.nativeFar) {
+        const f = this.found[this.count] ??= {};
+        f.object = object; f.item = object.userData.nativeFar;
+        this.count++;
+      }
       if (object.isMesh || object.isLine || object.isPoints || object.isSprite) {
         const material = object.material;
         if (Array.isArray(material) ? material.some((m) => m?.visible || ownsEffectSource(m)) : material?.visible || ownsEffectSource(material)) this.find(object, material, groupOrder);
@@ -256,7 +294,7 @@ class FarPass {
   // Its item for the material and program it has now, registered if it can be.
   find(object, material, groupOrder) {
     if (material && !ownsEffectSource(material) && material.userData.bfeFamily !== "world" && !Array.isArray(material) && unbuilt(this.core.renderer, material)) {
-      const mesh = object.userData.patches ? object.children[0] : object;
+      const mesh = object;
       compileFor(this.core.renderer, [[mesh, material]], this.camera, this.scene);
     }
     const program = ownsEffectSource(material) ? material.userData.bfeProgram : material?.userData?.bfeFamily === "world" ? ownedWorldProgram(this.core, material, this.scene, this.camera) : material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
@@ -274,7 +312,7 @@ class FarPass {
     this.count++;
   }
 
-  // An item for a mesh of the far scene (or the far terrain's group); null
+  // An item for a remaining sky, blended or dynamic far mesh; null
   // when the renderer can't draw it as three would, undefined when it can't
   // yet (a texture three hasn't made yet).
   // Import the material program once, including its actual active uniforms.
@@ -283,9 +321,7 @@ class FarPass {
   // unrecognised uniform merely because the object is far from the camera.
   registerItem(object, material, threeProgram, groupOrder, camera) {
     const core = this.core, rust = core.rust, gl = core.gl;
-    // The terrain's group: its patches (terrain-patches.js) and level.
-    const terrain = object.userData.patches ? { patches: object.userData.patches, reduced: object.userData.reduced } : null;
-    const mesh = terrain ? object.children[0] : object;
+    const mesh = object;
     if (!mesh?.isMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh || mesh.morphTargetInfluences) return null;
     // An instanced mesh three culls by its instances' bounds: not here.
     const instanced = Boolean(mesh.isInstancedMesh);
@@ -342,9 +378,9 @@ class FarPass {
     // Where each comes from: the camera and the object's matrices; else the
     // material's value, fixed (a zero material's) or written each frame
     // into the input (a plain one's).
-    const placed = own.some((u) => u.name in OBJECT) || !mesh.matrixWorld.equals(IDENTITY) || (mesh.matrixAutoUpdate && !terrain);
+    const placed = own.some((u) => u.name in OBJECT) || !mesh.matrixWorld.equals(IDENTITY) || mesh.matrixAutoUpdate;
     const slot = this.nextSlot;
-    let at = slot + 1 + (placed ? 16 : 0) + (terrain ? 1 : 0);
+    let at = slot + 1 + (placed ? 16 : 0);
     const sources = [], dynamic = [], watched = [];
     for (let index = 0; index < own.length; index++) {
       const { name, type, size } = own[index];
@@ -371,7 +407,7 @@ class FarPass {
             sources.push([index, SRC.TEXTURE, null, id]);
             continue;
           }
-          if (!value?.isTexture) return null;
+          if (!value?.isTexture && typeof value !== "number") return null;
           const id = core.texture(value);
           if (id < 0) return undefined;
           sources.push([index, SRC.TEXTURE, null, id]);
@@ -440,20 +476,15 @@ class FarPass {
     const s = geometry.boundingSphere;
     const flags = material.side | (material.depthTest ? F.DEPTH_TEST : 0) | (material.depthWrite ? F.DEPTH_WRITE : 0) | (material.colorWrite ? F.COLOR_WRITE : 0)
       | (material.alphaToCoverage ? F.A2C : 0) | (material.transparent ? F.TRANSPARENT : 0) | (placed ? F.PLACED : 0)
-      | (mesh.frustumCulled && !terrain ? F.CULLED : 0) | (blend ? F.BLEND : 0);
+      | (mesh.frustumCulled ? F.CULLED : 0) | (blend ? F.BLEND : 0);
     const id = rust.far_item(program.id, table.id, g, flags, DEPTH[material.depthFunc], new Uint32Array(blend || [0, 0, 0, 0, 0, 0]),
-      new Float64Array([groupOrder, (terrain ? mesh : object).renderOrder, material.id, mesh.id]), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]), slot);
+      new Float64Array([groupOrder, object.renderOrder, material.id, mesh.id]), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]), slot);
     for (const [index, kind, floats, from] of sources) rust.far_source(id, index, kind, new Float32Array(floats || []), from);
     for (const i of instances) rust.far_instanced(id, i.location, i.columns, i.rows, i.max, countAt, i.at);
     if (share) rust.far_base(id, share.base);
     for (const r of refresh) rust.far_refresh(id, r.slot, r.at, r.floats, refreshAt);
     if (unindexed) {
       rust.far_range_input(id, rangeAt);
-    } else if (terrain) {
-      // Its levels, as terrain-patches.js keeps them (the reduced one made
-      // the first time it is drawn).
-      this.level(id, terrain.patches.full, 0);
-      if (terrain.patches.reduced) this.level(id, terrain.patches.reduced, 1);
     } else if (mesh.userData.cellLights) {
       // The positions alone (the map's vertices are interleaved).
       const position = geometry.attributes.position, positions = new Float32Array(position.count * 3);
@@ -471,7 +502,7 @@ class FarPass {
     // values are written each frame.
     const hooks = !fixed && [mesh.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender ? "object" : null,
       material.onBeforeRender !== THREE.Material.prototype.onBeforeRender ? "material" : null].filter(Boolean);
-    return { id, object, mesh, material, threeProgram, slot, placed, terrain, levels: terrain ? [true, Boolean(terrain.patches.reduced)] : null, level: 0,
+    return { id, object, mesh, material, threeProgram, slot, placed, terrain: false,
       dynamic, watched, hooks: hooks || [], instances, countAt, rangeAt, refresh, refreshAt };
   }
 
@@ -516,7 +547,7 @@ class FarPass {
     const renderer = this.core.renderer, groups = new Map();
     scene.traverse((o) => {
       const m = o.material;
-      if (!o.isMesh || o.isInstancedMesh || o.parent?.userData.patches || !m || Array.isArray(m) || !m.name?.startsWith("zero:")) return;
+      if (!o.isMesh || o.isInstancedMesh || !m || Array.isArray(m) || !m.name?.startsWith("zero:")) return;
       if (!("FAR" in m.defines) || !("WORLD_SPACE" in m.defines)) return;
       const program = renderer.properties.get(m).currentProgram;
       const key = program && this.layoutKey(o.geometry, program);
@@ -578,16 +609,6 @@ class FarPass {
     return g;
   }
 
-  // A terrain level's index and cells.
-  level(id, level, n) {
-    const cells = new Float64Array(level.cells.length * 8);
-    level.cells.forEach((cell, i) => {
-      const { min, max } = cell.box;
-      cells.set([cell.start, cell.end, min.x, min.y, min.z, max.x, max.y, max.z], i * 8);
-    });
-    const index = level.index.array;
-    this.core.rust.far_terrain(id, n, index instanceof Uint32Array ? index : Uint32Array.from(index), cells);
-  }
 
   // What a sampler three is given no texture for reads: three's empty
   // texture, one texel of zeros.
@@ -631,13 +652,12 @@ class FarPass {
     const core = this.core;
     for (let i = 0; i < this.count; i++) {
       const item = this.found[i].item;
-      if (!item) continue;
+      if (!item || item.native) continue;
       for (const hook of item.hooks) {
         if (hook === "object") item.mesh.onBeforeRender(renderer, scene, camera, item.mesh.geometry, item.material, null);
         else item.material.onBeforeRender(renderer, scene, camera, item.mesh.geometry, item.mesh, null);
       }
       for (const texture of item.watched) this.upload(texture);
-      if (item.terrain) item.level = this.terrainLevel(item);
       const uniforms = item.material.uniforms;
       for (const d of item.dynamic) {
         if (!d.sampler) continue;
@@ -645,7 +665,7 @@ class FarPass {
         if (value?.isTexture) this.upload(value);
         // None: three's empty texture, as for a fixed one (a cube sampler
         // given none is never read: none).
-        d.id = d.cube ? (value?.isTexture ? core.texture(value) : -1) : core.texture(value?.isTexture ? value : this.emptyTexture());
+        d.id = d.cube ? (value?.isTexture || typeof value === "number" ? core.texture(value) : -1) : core.texture(value?.isTexture || typeof value === "number" ? value : this.emptyTexture());
       }
     }
   }
@@ -678,8 +698,11 @@ class FarPass {
       if (!item) continue;
       const slot = item.slot;
       input[slot] = 1;
+      if (item.native) {
+        if (item.terrain) input[slot + 1] = core.graphics.settings.get("farTerrain") === "reduced" ? 1 : 0;
+        continue;
+      }
       if (item.placed) input.set(item.mesh.matrixWorld.elements, slot + 1);
-      if (item.terrain) input[slot + 1] = item.level;
       if (item.instances.length) {
         const count = Math.min(item.mesh.count, item.instances[0].max);
         input[item.countAt] = count;
@@ -706,17 +729,6 @@ class FarPass {
         for (let k = 0; k < d.floats; k++) input[d.at + k] = floats[k] ?? 0;
       }
     }
-  }
-
-  // The terrain's level this frame (terrain-patches.js reduced()), made and
-  // registered the first time it is drawn.
-  terrainLevel(item) {
-    const terrain = item.terrain, reduced = Boolean(terrain.reduced?.());
-    if (reduced && !item.levels[1]) {
-      this.level(item.id, terrain.patches.level(true), 1);
-      item.levels[1] = true;
-    }
-    return reduced ? 1 : 0;
   }
 
   // A texture's new contents, uploaded as three would before a draw.

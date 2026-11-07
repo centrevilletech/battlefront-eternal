@@ -21,6 +21,7 @@ struct Cells {
 }
 
 struct World<C: HasContext> {
+    lamps: Option<(usize, usize)>,
     geometry: usize,
     program: usize,
     textures: Vec<(u32, C::Texture)>,
@@ -42,15 +43,45 @@ pub struct WorldPass<C: HasContext> {
     world: Vec<World<C>>,
     order: Vec<usize>,
     by_program: bool,
+    light_list: Vec<f32>,
+    pub input: Vec<f32>,
+    pub input_active: bool,
 }
 
 impl<C: HasContext> WorldPass<C> {
+    pub fn uses_lamps<M: MultiDraw>(&self, _core: &Core<C,M>, id: u32) -> bool {
+        self.world.get(id as usize).is_some_and(|w| w.lamps.is_some())
+    }
+
+    // WorldPass.draw used to send the same identity-origin lamp selection for
+    // every static bucket. Resolve uniform slots once during cold admission;
+    // the frame now publishes one five-float row, consumed by every bucket.
+    pub fn init_lamps<M: MultiDraw>(&mut self, core: &Core<C,M>, id: u32) {
+        let Some(w)=self.world.get_mut(id as usize) else {return;};
+        let program=&core.programs[w.program];
+        let index=program.uniforms.iter().position(|(n,_,_)| n=="bfeLampIndex");
+        let count=program.uniforms.iter().position(|(n,_,_)| n=="bfeLampCount");
+        if let (Some(index),Some(count))=(index,count) {
+            let at=w.uniforms.len();
+            w.uniforms.push((index,Value::F(4,[-1.;4])));
+            w.uniforms.push((count,Value::F(1,[0.;4])));
+            w.lamps=Some((at,at+1));
+        }
+    }
+
+    pub fn program_id(&self,id:u32)->Option<u32> {self.world.get(id as usize).map(|w|w.program as u32)}
+    // A typed settings command changes material/program state in place. Cells,
+    // visibility and sort identity survive; slots are resolved again cold.
+    pub fn reprogram(&mut self,id:u32,program:u32) {
+        if let Some(w)=self.world.get_mut(id as usize) {w.program=program as usize;w.uniforms.clear();w.textures.clear();w.lamps=None;}
+    }
+
     pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
         for world in &mut self.world { for (_, texture) in &mut world.textures { if *texture == old { *texture = new; } } }
     }
 
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> WorldPass<C> {
-        WorldPass { world: vec![], order: vec![], by_program: true }
+        WorldPass { world: vec![], order: vec![], by_program: true, light_list: Vec::with_capacity(8 * MAX_LIGHTS), input: vec![-1.,-1.,-1.,-1.,0.], input_active: false }
     }
 
     // flags: cull side | 4 alpha to coverage | 8 depth write | 16 point lit
@@ -58,7 +89,7 @@ impl<C: HasContext> WorldPass<C> {
     // centre and radius, then box min and max (world space).
     pub fn add_world(&mut self, geometry: u32, program: u32, order: u32, flags: u32, bounds: &[f64]) -> u32 {
         self.world.push(World {
-            geometry: geometry as usize, program: program as usize, textures: vec![], uniforms: vec![],
+            lamps: None, geometry: geometry as usize, program: program as usize, textures: Vec::with_capacity(16), uniforms: Vec::with_capacity(16),
             cull: flags & 3, alpha_to_coverage: flags & 4 != 0, depth_write: flags & 8 != 0, point_lit: flags & 16 != 0, order,
             sphere: ([bounds[0], bounds[1], bounds[2]], bounds[3]),
             bbox: ([bounds[4], bounds[5], bounds[6]], [bounds[7], bounds[8], bounds[9]]),
@@ -89,18 +120,13 @@ impl<C: HasContext> WorldPass<C> {
     // on): values [4 lamp table indices (-1: none), count], its program's
     // WORLD_LAMP_UNIFORMS, set in place of last frame's.
     pub fn world_lamps<M: MultiDraw>(&mut self, core: &Core<C, M>, w: u32, values: &[f32]) {
-        let world = &mut self.world[w as usize];
-        let program = &core.programs[world.program];
-        let mut put = |name: &str, value: Value| {
-            if let Some(slot) = program.uniforms.iter().position(|(n, _, _)| n == name) {
-                match world.uniforms.iter_mut().find(|(s, _)| *s == slot) {
-                    Some(entry) => entry.1 = value,
-                    None => world.uniforms.push((slot, value)),
-                }
-            }
-        };
-        put("bfeLampIndex", Value::F(4, [values[0], values[1], values[2], values[3]]));
-        put("bfeLampCount", Value::F(1, [values[4], 0.0, 0.0, 0.0]));
+        let _ = core;
+        let Some(world)=self.world.get_mut(w as usize) else {return;};
+        if let Some((index,count))=world.lamps {
+            let mut row=[-1.,-1.,-1.,-1.,0.];let n=values.len().min(5);row[..n].copy_from_slice(&values[..n]);
+            world.uniforms[index].1=Value::F(4,[row[0],row[1],row[2],row[3]]);
+            world.uniforms[count].1=Value::F(1,[row[4].clamp(0.,4.),0.,0.,0.]);
+        }
     }
 
     // The cells render-culling.js culls a large bucket by: its triangles in
@@ -173,6 +199,13 @@ impl<C: HasContext> WorldPass<C> {
     }
 
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera) {
+        if self.input_active {
+            let row=&self.input;
+            for world in &mut self.world { if let Some((index,count))=world.lamps {
+                world.uniforms[index].1=Value::F(4,[row[0],row[1],row[2],row[3]]);
+                world.uniforms[count].1=Value::F(1,[row[4].clamp(0.,4.),0.,0.,0.]);
+            }}
+        }
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         let (programs, geometries) = (&mut core.programs, &core.geometries);
@@ -180,7 +213,7 @@ impl<C: HasContext> WorldPass<C> {
         let light_count = camera.light_count;
         let lights = &core.input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         let lights32 = &core.frame[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
-        let mut light_list: Vec<f32> = Vec::with_capacity(8 * MAX_LIGHTS);
+        let light_list = &mut self.light_list;
         for &wi in &self.order {
             let w = &mut self.world[wi];
             // three tests a mesh's bounding sphere before it draws any of it.
@@ -233,7 +266,7 @@ impl<C: HasContext> WorldPass<C> {
                 let program = &mut programs[w.program];
                 material_values(gl, stats, program, &w.uniforms);
                 if w.point_lit {
-                    point_lights(gl, stats, program, lights32, light_count, mask, &mut light_list);
+                    point_lights(gl, stats, program, lights32, light_count, mask, light_list);
                 }
                 for &(unit, t) in &w.textures {
                     state.bind_texture(gl, stats, unit, Some(t));

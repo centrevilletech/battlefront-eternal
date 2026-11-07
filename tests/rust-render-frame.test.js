@@ -105,14 +105,9 @@ test("a mirror's render of the near scene draws the near phase's passes for the 
 
 test("foliage: Rust selects every registered card class", async () => {
   const { core, calls, renderer, scene, properties } = bridge();
-  const geometry = new THREE.InstancedBufferGeometry();
-  const card = (name, size) => geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(4 * size).map((_, i) => i), size));
-  for (const [name, size] of [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]]) card(name, size);
-  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array([0, 2, 1, 1, 2, 3]), 1));
-  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), alphaTest: 0.25 });
-  const batch = { geometry, material, uniforms: { foliageWiggle: { value: 0.11 } } };
+  const map = new THREE.Texture();
   const instance = { position: new THREE.Vector3(1, 2, 3), matrix: new THREE.Matrix4().makeTranslation(1, 2, 3), tint: [0.5, 0.6, 0.7], sphere: null, cullDistance: Infinity, maxDistance: 100 };
-  const kind = { grass: true, batch, instances: [instance] };
+  const kind = { grass:true,map,def:{Alpha:.5},cards:[{x:0,y:0,z:0,grey:.7,width:.5,height:1,phase:2,rate:1,part:0}],instances:[instance] };
   const foliage = { kinds: new Map([["a", kind]]), time: 2.5, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
   core.phase("near", renderer, scene, core.graphics.camera);
@@ -122,12 +117,13 @@ test("foliage: Rust selects every registered card class", async () => {
   camera.updateMatrixWorld(true);
   foliage.drawer.select(foliage, camera);
   const added = calls.find((c) => c[0] === "foliage_class");
-  assert.equal(added[3], true, "grass");
-  assert.deepEqual([...added[7]], [0, 3, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12], "attribute locations: the card's, then the patch row's");
-  assert.deepEqual([...added[8]].slice(0, 6).map((v) => +v.toFixed(2)), [1, 2, 3, 0.5, 0.6, 0.7]);
-  assert.deepEqual([...added[8]].slice(15, 16), [100]);
-  assert.deepEqual([...added[9]].slice(6, 9), [-1, Infinity, 100], "no sphere, always tested");
-  assert.equal(properties.get(material).currentProgram,undefined);
+  assert.equal(added[2],true,"grass");
+  assert.equal(added[3],false,"shadow feature");
+  assert.deepEqual([...added[5]],[0,0,0,.7,.5,1,2,1,0],"authored cards, not GPU layout");
+  assert.deepEqual([...added[6]].slice(0, 6).map((v) => +v.toFixed(2)), [1, 2, 3, 0.5, 0.6, 0.7]);
+  assert.deepEqual([...added[6]].slice(15, 16), [100]);
+  assert.deepEqual([...added[7]].slice(6, 9), [-1, Infinity, 100], "no sphere, always tested");
+  assert.equal(calls.some(c=>c[0]==="owned_program"&&String(c[1]).includes("foliage")),false,"native class owns catalog selection");
   assert.ok(foliage.drawer.classes.has(kind));
   assert.ok(calls.some((c) => c[0] === "foliage_frame"));
   const input = core.foliageInput;
@@ -137,16 +133,12 @@ test("foliage: Rust selects every registered card class", async () => {
 test("foliage under shadows: a card program that reads modelMatrix (three's world position for USE_SHADOWMAP) is taken", () => {
   const { core, calls, renderer, scene, properties } = bridge();
   core.graphics.csm={};
-  const geometry = new THREE.InstancedBufferGeometry();
-  for (const [name, size] of [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]]) geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(4 * size), size));
-  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array([0, 2, 1, 1, 2, 3]), 1));
-  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture() });
-  const kind = { grass: true, batch: { geometry, material, uniforms: { foliageWiggle: { value: 0 } } }, instances: [] };
+  const kind = {grass:true,map:new THREE.Texture(),def:{},cards:[],instances:[]};
   const foliage = { kinds: new Map([["a", kind]]), time: 0, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
   core.phase("near", renderer, scene, core.graphics.camera);
   foliage.drawer.select(foliage, core.graphics.camera);
-  assert.ok(calls.some((c) => c[0] === "foliage_class"), "registered");
+  assert.equal(calls.find(c=>c[0]==="foliage_class")[3],true,"native shadow feature");
   assert.ok(foliage.drawer.classes.has(kind));
 });
 

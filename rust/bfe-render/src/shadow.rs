@@ -46,13 +46,23 @@ pub const INPUT_LEN: usize = S_FIRST + MAX_DRAWS * DRAW;
 pub struct ShadowPass<C: HasContext> {
     gl: PhantomData<C>,
     pub input: Vec<f64>,
+    pub static_view: Vec<f64>,
+    pub statics: crate::static_depth::Bank,
     // Matrices each program holds, by (program, slot) (post.rs set_uniform).
     matrices: HashMap<(usize, usize), [f32; 16]>,
 }
 
 impl<C: HasContext> ShadowPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> ShadowPass<C> {
-        ShadowPass { gl: PhantomData, input: vec![0.0; INPUT_LEN], matrices: HashMap::new() }
+        ShadowPass { gl: PhantomData, input: vec![0.0; INPUT_LEN], static_view: vec![0.;crate::static_layout::SHADOW_LENGTH], statics: crate::static_depth::Bank::default(), matrices: HashMap::new() }
+    }
+
+    // Content-sized native descriptor commands share the existing draw stream;
+    // reserve their slots cold so a view never resizes either side's arrays.
+    pub fn reserve_static(&mut self) {
+        let count=MAX_DRAWS+(self.statics.sources.len()+2).min(crate::static_depth::MAX_RECORDS);
+        self.input.resize(S_FIRST+count*DRAW,0.);
+        self.matrices.reserve(64);
     }
 
     // One cascade pass, as the page wrote it.
@@ -97,9 +107,16 @@ impl<C: HasContext> ShadowPass<C> {
                 stats.gl_calls += 2;
             }
         }
-        let draws = (v[S_DRAWS] as usize).min(MAX_DRAWS);
+        let mut projection=[0.;16];projection.copy_from_slice(&self.static_view[..16]);
+        let mut view=[0.;16];view.copy_from_slice(&self.static_view[16..32]);
+        let static_frustum=crate::math::Frustum::from_matrix(&crate::math::mul(&projection,&view));
+        let draws = (v[S_DRAWS] as usize).min((v.len()-S_FIRST)/DRAW);
         for d in 0..draws {
             let at = S_FIRST + d * DRAW;
+            if self.input[at+D_PROGRAM]<0. {
+                self.statics.draw(core,&mut self.matrices,self.input[at+D_GEOMETRY] as usize,&self.static_view,&static_frustum);
+                continue;
+            }
             let (program, geometry) = (self.input[at + D_PROGRAM] as usize, self.input[at + D_GEOMETRY] as usize);
             let count = self.input[at + D_COUNT] as i32;
             if program >= core.programs.len() || geometry >= core.geometries.len() || count <= 0 {

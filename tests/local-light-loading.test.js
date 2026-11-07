@@ -30,3 +30,16 @@ test('lamp discovery preserves scene order when shared images finish first',()=>
   assert.deepEqual(emitted,['first','middle','last']);
   assert.equal(lights.pending.length,0);
 });
+
+test('native static rows produce the same lamp emitters without mesh resources',()=>{
+  const geometry=new THREE.PlaneGeometry(7,5,3,2),texture=new THREE.DataTexture(new Uint8Array([180,230,90,255]),1,1);
+  const mesh=new THREE.Mesh(geometry,new THREE.ShaderMaterial({uniforms:{map:{value:texture}}}));mesh.name='ceiling_light';
+  const authored=[],attributes=['position','normal','uv'];
+  for(let i=0;i<geometry.attributes.position.count;i++)for(const name of attributes){const a=geometry.attributes[name];for(let k=0;k<a.itemSize;k++)authored.push(a.getComponent(i,k));}
+  const original=new LocalLights(),native=new LocalLights();original.register(mesh,true);
+  native.registerSource({texture:mesh.name,stride:8,attributes},Float32Array.from(authored),geometry.index.array,texture,true);
+  original.begin(true);native.begin(true);
+  assert.ok(original.sources.length>0);
+  assert.deepEqual(native.sources,original.sources);
+  assert.equal(native.pending.length,0);
+});

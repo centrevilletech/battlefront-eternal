@@ -1,8 +1,7 @@
+import { STATIC } from "./rust-render/static-layout.js";
 import { ownWorldMaterial } from "./rust-render/world-programs.js";
 import * as THREE from "three";
-import { describe, lighting, skyMaterial, worldMaterial } from "./materials.js";
-import { cullColorOnly } from "./shadow-casters.js";
-import { TerrainPatches } from "./terrain-patches.js";
+import { describe, skyMaterial, worldMaterial } from "./materials.js";
 import { addFabricWind } from "./fabric.js";
 import { TreeCanopies } from "./tree-canopies.js";
 
@@ -33,61 +32,68 @@ function geometryFor(record, verts, indices) {
   return geometry;
 }
 
-// Whether the terrain's baked light is flat (no sun shading in its vertex
-// colours, as on Hoth): nearly every vertex at the sunlit value.
-function bakedFlat(geometry, lit) {
-  const color = geometry.getAttribute("color");
-  let flat = 0;
-  for (let i = 0; i < color.count; i++) {
-    if (Math.abs(color.getX(i) - lit[0]) < 0.02 && Math.abs(color.getY(i) - lit[1]) < 0.02 && Math.abs(color.getZ(i) - lit[2]) < 0.02) flat++;
+function admitStatic(graphics, record, verts, indices, textureFor, look, order) {
+  const base = record.vertexOffset / 4, first = record.indexOffset / 4;
+  const vertices = verts.subarray(base, base + record.vertexCount * record.stride);
+  const index = indices.subarray(first, first + record.indexCount);
+  const map = textureFor(record.texture), bump = record.bump ? textureFor(record.bump) : null;
+  const mesh = new THREE.Object3D();
+  mesh.name = record.texture;
+  mesh.matrixAutoUpdate = false;
+  mesh.userData.worldOrder = order;
+  if (look.far) {
+    graphics.rust.byName.far.admit(mesh, record, vertices, index, map, bump);
+    graphics.farScene.add(mesh);
+  } else {
+    const lamp = /lamp|light/i.test(record.texture) && (look.kind === "unlit" || /interior_light/i.test(record.texture));
+    if (lamp || look.kind === "unlit" && !look.alphaTest) graphics.localLights.registerSource(record, vertices, index, map, lamp);
+    const source = graphics.rust.byName.world.admit(mesh, record, vertices, index, map, bump);
+    const texture = map == null ? -1 : graphics.rust.texture(graphics.rust.resources.staticSample(map));
+    mesh.userData.nativeDepthSource = graphics.rust.rust.static_depth_add(source, texture);
+    graphics.scene.add(mesh);
   }
-  return flat > color.count * 0.85;
+  return mesh;
 }
 
-// The brightest baked colour on the terrain: its sunlit value.
-function sunlit(geometry) {
-  const color = geometry.getAttribute("color");
-  const lit = [0, 0, 0];
-  for (let i = 0; i < color.count; i++) {
-    lit[0] = Math.max(lit[0], color.getX(i));
-    lit[1] = Math.max(lit[1], color.getY(i));
-    lit[2] = Math.max(lit[2], color.getZ(i));
+// Terrain geometry, bins, reduced levels and material policy are compiled in
+// Rust. The page only fetches optional authored weights and image assets.
+function admitGround(graphics, map, record, verts, indices, textureFor, order) {
+  const core = graphics.rust, base = record.vertexOffset / 4, first = record.indexOffset / 4;
+  const vertices = verts.subarray(base, base + record.vertexCount * record.stride);
+  const index = indices.subarray(first, first + record.indexCount);
+  const source = core.rust.static_source(JSON.stringify(record), vertices, index);
+  const ground = new THREE.Group();
+  ground.name = record.texture; ground.matrixAutoUpdate = false; ground.userData.worldOrder = order;
+  graphics.scene.add(ground);
+  const sample = texture => core.texture(core.resources.staticSample(texture));
+  const [layer0, layer1] = record.layers || [record.texture];
+  const empty = core.texture(core.resources.gpu.world_fallback(false));
+  const neutral = core.texture(core.resources.gpu.world_fallback(true));
+  const samplers = new Int32Array(STATIC.SAMPLERS.LENGTH).fill(empty);
+  samplers[0] = sample(textureFor(layer0)); samplers[1] = -1;
+  samplers[2] = sample(textureFor(layer1 || layer0)); samplers[3] = record.detail ? sample(textureFor(record.detail)) : neutral;
+  const low = map.distance?.lowRes;
+  if (low?.texture) {
+    const far = new THREE.Object3D();
+    far.name = "far-terrain"; far.matrixAutoUpdate = false; far.userData.worldOrder = order + 1;
+    const samples = samplers.slice(); samples[0] = samples[2] = sample(textureFor(low.texture)); samples[3] = neutral;
+    core.byName.far.admit(far, { ...record, far: true, lowResScale: low.scale }, vertices, index, null, null, new Uint8Array(), samples, source);
+    graphics.farScene.add(far);
   }
-  return lit;
-}
-
-// Each terrain patch paints with its own one to three of the map's layers, in
-// its own order (tools/zero_terrain.py). Their weights come per vertex for
-// every layer, so the shader can sum them. The ground stays hidden until they
-// arrive rather than showing the two-layer fallback for a moment.
-function paintedLayers(ground, patches, map, record, textureFor) {
-  const slots = 8;
-  const { material } = ground;
-  const upgrade = (buffer) => {
-    const weights = new Uint8Array(buffer);
-    if (weights.length !== patches.attributes.position.count * slots) return;
-    const painted = Array.from({ length: Math.min(record.layers.length, slots) }, (_, i) => {
-      for (let v = i; v < weights.length; v += slots) if (weights[v]) return true;
-      return false;
-    });
-    const count = painted.lastIndexOf(true) + 1;
-    if (!count) return;
-    const interleaved = new THREE.InterleavedBuffer(weights, slots);
-    patches.setAttribute("weights0", new THREE.InterleavedBufferAttribute(interleaved, 4, 0, true));
-    patches.setAttribute("weights1", new THREE.InterleavedBufferAttribute(interleaved, 4, 4, true));
-    material.defines.TERRAIN_LAYERS = count;
-    for (let i = 0; i < count; i++) material.uniforms[`layerMap${i}`] = { value: painted[i] ? textureFor(record.layers[i]) : null };
-    const scales = [...record.scales, 8, 8, 8, 8, 8, 8, 8, 8];
-    material.uniforms.layerScale0.value.fromArray(scales, 0);
-    material.uniforms.layerScale1.value.fromArray(scales, 4);
-    material.needsUpdate = true;
+  const finish = weights => {
+    const mask = core.rust.static_terrain_layers(source, weights);
+    for (let i = 0; i < 8; i++) if (mask & (1 << i)) samplers[4 + i] = sample(textureFor(record.layers[i]));
+    core.byName.terrain.admit(ground, record, vertices, index, weights, samplers, source);
+    ground.visible = true;
   };
-  ground.visible = false;
-  fetch(`/maps/${map.name}/${record.weights}`)
-    .then((response) => (response.ok ? response.arrayBuffer() : null))
-    .then((buffer) => buffer && upgrade(buffer))
-    .catch((error) => console.warn(`terrain layers: ${error.message}`))
-    .finally(() => (ground.visible = true));
+  if (!record.weights) finish(new Uint8Array());
+  else {
+    ground.visible = false;
+    fetch(`/maps/${map.name}/${record.weights}`).then(r => r.ok ? r.arrayBuffer() : null)
+      .then(bytes => finish(bytes ? new Uint8Array(bytes) : new Uint8Array()))
+      .catch(error => { console.warn(`terrain layers: ${error.message}`); finish(new Uint8Array()); });
+  }
+  return ground;
 }
 
 // The near scene's meshes, the far scene's low-detail ones and low-res
@@ -96,59 +102,30 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
   const verts = new Float32Array(geomBuf);
   const indices = new Uint32Array(indexBuf);
   const meshes = [];
+  const sources = new Map();
   const canopies = map.treeCanopies ? new TreeCanopies(graphics, map.treeCanopies, textureFor) : null;
   graphics.treeCanopies = canopies;
+  let order = 0;
   for (const record of map.meshes) {
+    const worldOrder = order++ * 2;
     const look = describe(record);
-    const geometry = geometryFor(record, verts, indices);
-    const map0 = textureFor(record.texture);
-    let material, patches = null;
-    if (look.kind === "terrain") {
-      patches = new TerrainPatches(geometry);
-      const [first, second] = record.layers || [record.texture];
-      const lit = sunlit(geometry);
-      material = worldMaterial("terrain", {
-        map: textureFor(first),
-        layer1Map: textureFor(second || first),
-        detailMap: record.detail ? textureFor(record.detail) : null,
-        layerScales: record.scales || [8, 8],
-        bakedLit: lit,
-      });
-      if (bakedFlat(geometry, lit)) material.defines.TERRAIN_RELIGHT = "";
-      // The far scene draws the same ground with the low-res texture: the
-      // sky's LowResTerrain image, laid once over the height field (a map's
-      // top-down render, or a tile) and repeated TextureScale times across it.
-      const low = map.distance?.lowRes;
-      if (low?.texture) {
-        const extent = geometry.boundingBox;
-        const repeats = low.scale > 0 ? low.scale : 1;
-        const farMaterial = worldMaterial("terrain", {
-          map: textureFor(low.texture), far: true,
-          farOrigin: [extent.min.x, extent.min.z],
-          layerScales: [(extent.max.x - extent.min.x) / repeats, (extent.max.z - extent.min.z) / repeats],
-        });
-        if (material.defines.TERRAIN_RELIGHT !== undefined) farMaterial.defines.TERRAIN_RELIGHT = "";
-        const far = patches.view(graphics.farScene, farMaterial, {
-          fade: lighting.fade.value, reduced: () => graphics.settings.get("farTerrain") === "reduced",
-        });
-        far.name = "far-terrain";
-        if (far.matrix.equals(IDENTITY)) farMaterial.defines.WORLD_SPACE = "";
-        ownWorldMaterial(farMaterial);
-        graphics.farScene.add(far);
-      }
-    } else {
-      const options = { ...look, map: map0, bumpMap: record.bump ? textureFor(record.bump) : null };
-      material = look.kind === "sky" ? skyMaterial(options) : worldMaterial(look.kind, options);
+    if (look.kind !== "sky" && look.kind !== "terrain" && !look.blending) {
+      const authored = canopies && /treebillboard|bush/i.test(record.texture || "") ? { ...record, treeCanopies: map.treeCanopies } : record;
+      const mesh = admitStatic(graphics, authored, verts, indices, textureFor, look, worldOrder);
+      if (!look.far) { meshes.push(mesh); sources.set(mesh.userData.nativeSource, mesh); }
+      continue;
     }
-    let mesh;
-    if (patches) {
-      // The ground, drawn as the runs of patches in view (terrain-patches.js).
-      mesh = patches.view(graphics.scene, material, { receiveShadow: true });
-      mesh.material = material;
-    } else mesh = new THREE.Mesh(geometry, material);
+    if (look.kind === "terrain") {
+      meshes.push(admitGround(graphics, map, record, verts, indices, textureFor, worldOrder));
+      continue;
+    }
+    const geometry = geometryFor(record, verts, indices);
+    const options = { ...look, map: textureFor(record.texture), bumpMap: record.bump ? textureFor(record.bump) : null };
+    const material = look.kind === "sky" ? skyMaterial(options) : worldMaterial(look.kind, options);
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.name = record.texture;
-    if (patches && record.weights) paintedLayers(mesh, patches, map, record, textureFor);
-    if (!patches) canopies?.adapt(mesh, record);
+    mesh.userData.worldOrder = worldOrder;
+    canopies?.adapt(mesh, record);
     // Lamps by name, and any other self-lit surface (ceiling panels and light
     // strips painted into building atlases); its texels decide what glows.
     const lamp = /lamp|light/i.test(record.texture) && (look.kind === "unlit" || /interior_light/i.test(record.texture));
@@ -180,22 +157,16 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     if (mesh.matrix.equals(IDENTITY)) for (const m of [].concat(mesh.material)) if (m?.defines) m.defines.WORLD_SPACE = "";
     if (look.far) {
       ownWorldMaterial(material, geometry);
-      // The far scene's buckets span the map too: each view draws only the
-      // cells in its frustum, as the near scene's do (render-culling.js).
-      if (!look.blending) cullColorOnly(mesh);
       graphics.farScene.add(mesh);
       continue;
     }
     mesh.receiveShadow = look.kind !== "baked" && look.kind !== "unlit";
-    const fabric = !patches && /(?:^|_)(?:banner|flag|cloth|fabric)(?:_|$)/i.test(record.texture);
+    const fabric = /(?:^|_)(?:banner|flag|cloth|fabric)(?:_|$)/i.test(record.texture);
     if (fabric) addFabricWind(mesh);
-    if (!look.blending && look.kind !== "terrain") {
-      if (fabric) graphics.caster(mesh); else graphics.staticCaster(mesh);
-    }
     ownWorldMaterial(material, mesh.geometry);
     graphics.scene.add(mesh);
     meshes.push(mesh);
   }
-  graphics.finishStaticShadows?.();
+  if (sources.size) graphics.rust.byName.shadow.admitNative(JSON.parse(graphics.rust.rust.static_depth_finish()), sources);
   return meshes;
 }

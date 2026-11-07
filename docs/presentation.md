@@ -259,3 +259,33 @@ Synthetic tests cover long pauses, oversized births, actor identity churn,
 cache movement and allocation-free native advancement. Electron supplies the
 standard scalar sine, cosine, atan2 and two-argument norm used by the replaced
 pixel-visible water and lightning math, following the camera import pattern.
+
+## Static world resources
+
+Opaque near/far world, terrain, foliage cards and canopy draw resources are
+compiled and retained by `bfe-render`. The loading host supplies authored rows
+and image assets once. Native source records own vertex/index bytes, layouts,
+cloth subdivision, original-tree assignments, bounds and terrain levels. Colour
+and static depth draws share those source records; scene nodes carry only
+numeric resource ids and visibility. Cold lamp extraction reads authored rows
+under its lighting owner, without constructing geometry or material shells.
+
+Native materials select the closed program catalog and retain raster state,
+uniform values and sampler ids. Static sampler ownership is pinned separately
+from loader image ownership: late source uploads, sampler clones, release/reuse
+and context restoration preserve the logical identity. Settings use typed
+commands; static frame draws do not scan Three UUIDs, versions or properties.
+`static-layout.json` generates both sides of the resource boundary.
+
+The CPU source bank survives context loss. The existing recovery journal
+replays GPU recipes against stable source ids, including ordered variant and
+depth replacements. Shadow traversal supplies native descriptor ids and one
+projection/view/time block per cascade; it preserves the existing pass order.
+Depth admission retains at most 4,094 source references plus two merged sides;
+excess sources clip in admission order with a counter. Cascade range selection
+uses retained Morton cells and allocates no memory.
+
+Standalone native fixtures freeze the replaced JavaScript constructors' vertex,
+index, bounds, terrain/LOD, material and shadow-range bytes without content.
+Blended world/sky, actors/rigs, dynamic water/effects and interface resources
+retain their separate consumers until their resource families move.

@@ -22,6 +22,7 @@ export const localLighting = {
 // rays don't stop on the fixture itself), with a reach that grows with the
 // glowing area so high ceilings still light the floor. Materials named as
 // lamps or lights accept dimmer, coloured glass.
+const IDENTITY = new THREE.Matrix4();
 const CELL = 2.5;
 const NONE = Object.freeze([]);
 const GRID = 8; // m per spatial-hash cell for selection
@@ -66,6 +67,17 @@ export class LocalLights {
     this.pending.push({ mesh, lamp, triangles: mesh.geometry.index.array.slice() });
   }
 
+  // Native world draws do not retain Three resources. Emitter discovery is a
+  // cold content consumer of authored rows and image pixels, released once the
+  // loading prefix has produced its lights; it never feeds a renderer upload.
+  registerSource(record, vertices, triangles, texture, lamp = true) {
+    const sizes = {position:3,normal:3,uv:2,color:4,tangent:3,binormal:3};
+    let offset=0,uv=-1,normal=-1;
+    for(const name of record.attributes){if(name==="uv")uv=offset;if(name==="normal")normal=offset;offset+=sizes[name];}
+    if(uv<0)return;
+    this.pending.push({source:{record,vertices,uv,normal},triangles:triangles.slice(),texture,lamp});
+  }
+
   begin(enabled) {
     this.enabled = enabled;
     this.rays = 0;
@@ -80,7 +92,7 @@ export class LocalLights {
     let completed=0;
     for(let i=0;i<this.pending.length;i++) {
       const item=this.pending[i];
-      const pixels = texturePixels(item.mesh.material.uniforms?.map?.value);
+      const pixels = texturePixels(item.texture ?? item.mesh?.material.uniforms?.map?.value);
       if (!pixels || i!==completed) continue;
       this.emitters(item, pixels.data, pixels.width, pixels.height);
       completed++;
@@ -89,10 +101,15 @@ export class LocalLights {
     this.pending.length-=completed;
   }
 
-  emitters({ mesh, lamp, triangles }, data, width, height) {
-    const { position, uv, normal } = mesh.geometry.attributes;
-    mesh.updateMatrixWorld();
-    const matrix = mesh.matrixWorld, cells = new Map();
+  emitters({ mesh, source, lamp, triangles }, data, width, height) {
+    const attributes = mesh?.geometry.attributes;
+    if (mesh) mesh.updateMatrixWorld();
+    const matrix = mesh?.matrixWorld ?? IDENTITY, cells = new Map();
+    const component = (name, i, k) => source
+      ? source.vertices[i * source.record.stride + (name === "uv" ? source.uv : name === "normal" ? source.normal : 0) + k]
+      : attributes[name].getComponent(i, k);
+    const vector = (target, name, i) => target.set(component(name,i,0),component(name,i,1),component(name,i,2));
+    const normal = source ? source.normal >= 0 : Boolean(attributes.normal);
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
     const texel = (u, v) => {
       const x = Math.min(width - 1, Math.floor(THREE.MathUtils.euclideanModulo(u, 1) * width));
@@ -104,22 +121,22 @@ export class LocalLights {
       let bright = 0, r = 0, g = 0, bl = 0;
       for (const [s0, s1] of SAMPLES) {
         const s2 = 1 - s0 - s1;
-        const at = texel(uv.getX(i0) * s2 + uv.getX(i1) * s0 + uv.getX(i2) * s1, uv.getY(i0) * s2 + uv.getY(i1) * s0 + uv.getY(i2) * s1);
+        const at = texel(component("uv",i0,0) * s2 + component("uv",i1,0) * s0 + component("uv",i2,0) * s1, component("uv",i0,1) * s2 + component("uv",i1,1) * s0 + component("uv",i2,1) * s1);
         const peak = Math.max(data[at], data[at + 1], data[at + 2]);
         const luma = 0.3 * data[at] + 0.59 * data[at + 1] + 0.11 * data[at + 2];
         if (data[at + 3] < (lamp ? 32 : 128) || (lamp ? peak < 64 : luma < 185)) continue;
         bright++; r += data[at]; g += data[at + 1]; bl += data[at + 2];
       }
       if (bright < 2) continue;
-      a.fromBufferAttribute(position, i0).applyMatrix4(matrix);
-      b.fromBufferAttribute(position, i1).applyMatrix4(matrix);
-      c.fromBufferAttribute(position, i2).applyMatrix4(matrix);
+      vector(a,"position",i0).applyMatrix4(matrix);
+      vector(b,"position",i1).applyMatrix4(matrix);
+      vector(c,"position",i2).applyMatrix4(matrix);
       n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
       const area = n.length() / 2;
       if (area < 1e-5) continue;
       // Face the way the surface's own normals do; winding isn't reliable.
       if (normal) {
-        e1.fromBufferAttribute(normal, i0).add(e2.fromBufferAttribute(normal, i1)).add(e2.fromBufferAttribute(normal, i2)).transformDirection(matrix);
+        vector(e1,"normal",i0).add(vector(e2,"normal",i1)).add(vector(e2,"normal",i2)).transformDirection(matrix);
         if (n.dot(e1) < 0) n.negate();
       }
       n.normalize();
@@ -146,7 +163,7 @@ export class LocalLights {
       // throws much less onto the platform outside it.
       const aim = lamp || facing.y < -0.5 ? 1 : facing.y > 0.5 ? 0.8 : 0.55;
       const intensity = (lamp ? 0.75 : THREE.MathUtils.clamp(0.45 + 0.2 * size, 0.5, 0.8)) * aim;
-      this.add(center.toArray(), cell.rgb.map((v) => v / cell.area), radius, intensity).from = mesh.name;
+      this.add(center.toArray(), cell.rgb.map((v) => v / cell.area), radius, intensity).from = mesh?.name ?? source.record.texture;
     }
   }
 

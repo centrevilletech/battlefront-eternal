@@ -1,0 +1,8 @@
+{
+  "card": { "x": 0, "y": 1, "z": 2, "grey": 3, "width": 4, "height": 5, "phase": 6, "rate": 7, "part": 8, "stride": 9, "max": 65536 },
+  "features": { "shadows": 0, "points": 1, "csm": 2, "lamps": 3, "length": 4 },
+  "samplers": { "map": 0, "bump": 1, "layer1": 2, "detail": 3, "layers": 4, "tree": 12, "empty": 13, "length": 14 },
+  "shadow": { "projection": 0, "view": 16, "time": 32, "length": 33 },
+  "lamps": { "indices": 0, "count": 4, "length": 5 },
+  "canopies": { "maxGroups": 12, "leaves": 912, "shown": 0, "shadows": 1, "texture": 2, "instances": 3, "copied": 4, "inputLength": 6 }
+}

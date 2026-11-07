@@ -1,7 +1,7 @@
 // The Enhanced tree canopies (tree-canopies.js): the leaves the near jungle
 // backdrop's models are rebuilt with near the eye, one camera-facing card an
 // instance, drawn in the near phase (and a mirror's) before the opaque world,
-// with three's program for their material (the frame block's camera, time
+// with the native catalog program (the frame block's camera, time
 // and fog: the World kind) and its state: both sides, alpha to coverage,
 // depth tested and written, no blending.
 //
@@ -16,17 +16,18 @@ use crate::core::{bytes, Core, MultiDraw, PASS_CANOPIES, UNIT_MAP};
 use glow::HasContext;
 
 // The input (f64): whether three would draw the mesh this frame, its
-// program, its texture (-1: none), how many instances draw, and the
+// shadow feature, its texture (-1: none), how many instances draw, and the
 // instances the page copied this frame [first, end).
-pub const C_SHOWN: usize = 0;
-pub const C_PROGRAM: usize = 1;
-pub const C_TEXTURE: usize = 2;
-pub const C_INSTANCES: usize = 3;
-pub const C_COPIED: usize = 4;
-pub const INPUT_LEN: usize = 6;
+pub const C_SHOWN: usize = crate::static_layout::CANOPIES_SHOWN;
+pub const C_SHADOWS: usize = crate::static_layout::CANOPIES_SHADOWS;
+pub const C_TEXTURE: usize = crate::static_layout::CANOPIES_TEXTURE;
+pub const C_INSTANCES: usize = crate::static_layout::CANOPIES_INSTANCES;
+pub const C_COPIED: usize = crate::static_layout::CANOPIES_COPIED;
+pub const INPUT_LEN: usize = crate::static_layout::CANOPIES_INPUT_LENGTH;
 
 struct Mesh<C: HasContext> {
     geometry: usize,
+    programs: [u32;2],
     // A buffer an attribute: (buffer, floats an instance, where its values
     // start in `leaves`).
     attributes: Vec<(C::Buffer, usize, usize)>,
@@ -58,7 +59,7 @@ impl<C: HasContext> CanopiesPass<C> {
     // The canopies' mesh: a geometry the page registered (core.rs: its card's
     // corners and index), and its per-instance attributes, read at
     // `locations`, `sizes` floats an instance, for up to `max` instances.
-    pub fn set_mesh<M: MultiDraw>(&mut self, core: &Core<C, M>, geometry: u32, locations: &[u32], sizes: &[u32], max: u32) {
+    pub fn set_mesh<M: MultiDraw>(&mut self, core: &Core<C, M>, geometry: u32, locations: &[u32], sizes: &[u32], max: u32, programs: [u32;2]) {
         let gl = &core.gl;
         let g = &core.geometries[geometry as usize];
         let max = max as usize;
@@ -81,7 +82,7 @@ impl<C: HasContext> CanopiesPass<C> {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
         }
         self.leaves = vec![0.0; at];
-        self.mesh = Some(Mesh { geometry: geometry as usize, attributes, max, count: g.index_count });
+        self.mesh = Some(Mesh { geometry: geometry as usize, programs, attributes, max, count: g.index_count });
     }
 
     // The near phase's part (renderer.rs frame, a mirror's too): the
@@ -107,7 +108,7 @@ impl<C: HasContext> CanopiesPass<C> {
         }
         let input = &self.input;
         let instances = (input[C_INSTANCES].max(0.0) as usize).min(mesh.max);
-        let program = input[C_PROGRAM] as usize;
+        let program = mesh.programs[usize::from(input[C_SHADOWS]!=0.)] as usize;
         if input[C_SHOWN] == 0.0 || instances == 0 || program >= core.programs.len() {
             return;
         }

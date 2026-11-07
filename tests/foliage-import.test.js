@@ -15,10 +15,12 @@ const matrix=(x=0,y=0,z=-10)=>new THREE.Matrix4().makeTranslation(x,y,z).toArray
 
 // The whole texture is one part, so mirroring must not switch atlas quadrants.
 // Inspecting authored cards catches an accidental resource-construction change.
-test('single-image grass retains the whole atlas and alternating mirrors',()=>{
+test('single-image grass retains authored atlas parts without renderer shells',()=>{
   const f=build({base:'grasspatch',NumParts:1,NumParticles:4,MinSize:1,MaxSize:1,Alpha:1},[{matrix:matrix()}]);
-  const uv=f.kinds.get('plant').batch.geometry.attributes.uv.array;
-  assert.deepEqual([...uv.slice(0,16)],[0,1,1,1,0,0,1,0,1,1,0,1,1,0,0,0]);
+  const kind=f.kinds.get('plant');
+  assert.deepEqual(kind.cards.map(c=>c.part),[0,1,2,3]);
+  assert.equal(kind.def.NumParts,1);
+  assert.equal(kind.batch,undefined);
 });
 
 // Distance/tint are retained inputs to the Rust selector, not a JS selection.

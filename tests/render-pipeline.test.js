@@ -46,22 +46,22 @@ test('canopy selection and every uploaded leaf match the original equations',()=
   const instances=Array.from({length:20},(_,i)=>({matrix:new THREE.Matrix4().makeTranslation((i%5-2)*25,0,-30-Math.floor(i/5)*40).toArray(),bounds:[[-4,0,-4],[4,12,4]]}));
   const trees=new TreeCanopies(graphics,{instances,texture:'leaves'},()=>new THREE.Texture());
   const camera=new THREE.PerspectiveCamera(75,1,.1,1000),frustum=new THREE.Frustum(),matrix=new THREE.Matrix4();
-  const attributes=trees.mesh.geometry.attributes;
+
   for(let frame=0;frame<80;frame++) {
     enabled=frame%19!==0;camera.position.set(Math.sin(frame*.2)*50,6,Math.cos(frame*.1)*20);camera.rotation.y=Math.sin(frame*.13)*.9;camera.fov=frame%2?50:80;camera.updateProjectionMatrix();camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
     const expected=enabled?trees.groups.filter(g=>frustum.intersectsSphere(g.sphere)&&g.sphere.center.distanceTo(camera.position)-g.sphere.radius<220).sort((a,b)=>a.sphere.center.distanceToSquared(camera.position)-b.sphere.center.distanceToSquared(camera.position)).slice(0,12):[];
-    trees.update(camera);assert.deepEqual(trees.active,expected);assert.equal(trees.mesh.geometry.instanceCount,expected.length*912);
-    for(const [name,field] of [['leafCenter','centers'],['leafSize','sizes'],['leafShade','shades']]) {
-      assert.deepEqual(attributes[name].array.slice(0,expected.length*912*attributes[name].itemSize),new Float32Array(expected.flatMap(g=>g[field])));
+    trees.update(camera);assert.deepEqual(trees.active,expected);assert.equal(trees.instanceCount,expected.length*912);
+    for(const [field,size] of [['centers',3],['sizes',2],['shades',3]]) {
+      assert.deepEqual(trees[field].slice(0,expected.length*912*size),new Float32Array(expected.flatMap(g=>g[field])));
     }
     for(const g of trees.groups)assert.equal(trees.states[g.index*4],expected.includes(g)?1:0);
   }
   enabled=true;trees.update(camera);
-  const versions=Object.values(attributes).map(a=>a.version),stateVersion=trees.stateMap.version;
+  const stateVersion=trees.stateVersion;
   // Distinct camera objects/projections are used for near and far scenes.
   const far=camera.clone();far.far=3000;far.updateProjectionMatrix();far.updateMatrixWorld();trees.update(far);
-  assert.deepEqual(Object.values(attributes).map(a=>a.version),versions);assert.equal(trees.stateMap.version,stateVersion);
+  assert.equal(trees.stateVersion,stateVersion);
 });
 
 test('GPU profiling polls sparsely, never reads unavailable results, and discards disjoint samples',()=>{

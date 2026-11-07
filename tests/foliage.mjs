@@ -43,7 +43,6 @@ for (const leaf of kind.cards) {
 // Selection and drawing use the Rust foliage phase. Construction retains all
 // authored clusters and creates no browser shader or scene draw.
 assert.equal(scene.children.length, 0);
-assert.equal(kind.batch.geometry.attributes.position.count, 200);
-assert.equal(kind.batch.material.isShaderMaterial, undefined);
-assert.equal(kind.batch.material.vertexShader, undefined);
+assert.equal(kind.cards.length * 4, 200);
+assert.equal(kind.batch, undefined);
 console.log('foliage source resources passed');

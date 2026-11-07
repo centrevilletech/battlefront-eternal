@@ -93,15 +93,14 @@ test("reveal: three's own render runs with what each pass hid shown, hidden agai
   assert.deepEqual(log, [["a", true], ["b", true], ["a", false], ["b", false]]);
   });
 
-test("the world pass shows its taken buckets to three while three's render needs them", () => {
+test("native static anchors never expose material descriptors during shadow traversal", () => {
   const { core } = bridge();
   const world = core.byName.world;
-  const taken = new THREE.ShaderMaterial(), stale = new THREE.ShaderMaterial();
-  taken.visible = false;
-  world.meshes.push({ mesh: { material: taken }, id: 0, version: taken.version, stale: false }, { mesh: { material: stale }, id: 1, version: 0, stale: true });
-  core.reveal(() => assert.equal(taken.visible, true, "three's shadow pass draws it"));
-  assert.equal(taken.visible, false);
-  assert.equal(stale.visible, true, "one three draws anyway is left alone");
+  const anchor = new THREE.Object3D();
+  Object.defineProperty(anchor, "material", {get(){throw Error("static material shell read");}});
+  Object.defineProperty(anchor, "geometry", {get(){throw Error("static geometry shell read");}});
+  world.meshes.push({mesh:anchor,id:0,stale:false});
+  core.reveal(() => world.draw());
 });
 
 test("the shadow block: each cascade's values, matrix, plane matrix and slice in BfeShadow's layout, and its maps", () => withCascades(() => {

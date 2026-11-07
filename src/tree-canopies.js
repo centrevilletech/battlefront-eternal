@@ -20,8 +20,15 @@ export class TreeCanopies {
     this.frustum = new THREE.Frustum();
     this.viewProjection = new THREE.Matrix4();
     this.states = new Float32Array(data.instances.length * 4);
-    this.stateMap = new THREE.DataTexture(this.states, data.instances.length, 1, THREE.RGBAFormat, THREE.FloatType);
-    this.stateMap.needsUpdate = true;
+    this.stateVersion = 0;
+    this.stateMap = null;
+    this.maskMaterials = [];
+    // Native source/sampler policy is installed after the asynchronous renderer
+    // exists. Authored state rows have their own CPU owner during cold loading.
+    graphics.rustReady?.then(core => {
+      this.stateMap = core.resources.gpu.canopy_state(this.groups.length, this.states);
+      for (const material of this.maskMaterials) material.uniforms.treeStates.value = this.stateMap;
+    });
     this.active = [];
     this.candidates = [];
     this.orderByDistance = (a, b) => a.distance - b.distance;
@@ -32,6 +39,7 @@ export class TreeCanopies {
     // Whether any canopy is near. Changed leaf slots are copied to Rust
     // as [dirtyFirst, dirtyEnd); the browser does not upload these attributes.
     this.drawn = false;
+    this.dirtyRange = [0, 0];
 
     this.capacity = MAX_GROUPS * LEAVES;
     this.dirtyFirst = Infinity;
@@ -93,25 +101,15 @@ export class TreeCanopies {
       }
       this.groups.push({ matrix, inverse, local, world, sphere, centers, sizes, shades, index });
     }
-    const geometry = new THREE.InstancedBufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute([-0.5,-0.5,0, 0.5,-0.5,0, -0.5,0.5,0, 0.5,0.5,0], 3));
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute([0,1, 1,1, 0,0, 1,0], 2));
-    geometry.setIndex([0,1,2, 2,1,3]);
-    for (const [name, size] of [["leafCenter",3],["leafSize",2],["leafShade",3]]) {
-      geometry.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_GROUPS * LEAVES * size), size).setUsage(THREE.DynamicDrawUsage));
-    }
-    geometry.instanceCount = 0;
-    // Geometry and selection remain host resources; the shader exists only
-    // in Rust and this mesh is never added to a browser render scene.
-    const material = new THREE.Material();
-    material.uniforms = { map: { value: texture(data.texture) } };
-    material.side = THREE.DoubleSide;
-    material.alphaToCoverage = true;
-    material.name = "native-enhanced-tree-canopies";
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.name = "enhanced-tree-canopies";
-    this.mesh.frustumCulled = false;
-    this.mesh.castShadow = false;
+    // TreeCanopies.update owns selected CPU placement rows, not renderer
+    // attributes. Rust owns the card, attribute layout and material descriptor.
+    this.centers = new Float32Array(MAX_GROUPS * LEAVES * 3);
+    this.sizes = new Float32Array(MAX_GROUPS * LEAVES * 2);
+    this.shades = new Float32Array(MAX_GROUPS * LEAVES * 3);
+    this.maxLeaves = MAX_GROUPS * LEAVES;
+    this.instanceCount = 0;
+    this.map = texture(data.texture);
+    this.node = new THREE.Object3D();
 
     for (const scene of [graphics.farScene, graphics.scene]) {
       const previous = scene.onBeforeRender;
@@ -134,7 +132,6 @@ export class TreeCanopies {
     }
     candidates.sort(this.orderByDistance);
     const count = Math.min(candidates.length, MAX_GROUPS);
-    const geometry = this.mesh.geometry;
     let changed = count !== this.active.length;
     // Camera motion changes selection, not the leaves themselves. Upload only
     // slots whose group changed; repeated far/near/reflection views often use
@@ -143,16 +140,14 @@ export class TreeCanopies {
       const group = candidates[i];
       if (group === this.active[i]) continue;
       changed = true;
-      for (const [name, values] of [["leafCenter", group.centers], ["leafSize", group.sizes], ["leafShade", group.shades]]) {
-        const attribute = geometry.attributes[name];
-        const offset = i * LEAVES * attribute.itemSize;
-        attribute.array.set(values, offset);
-      }
+      this.centers.set(group.centers, i * LEAVES * 3);
+      this.sizes.set(group.sizes, i * LEAVES * 2);
+      this.shades.set(group.shades, i * LEAVES * 3);
       this.active[i] = group;
       this.dirtyFirst = Math.min(this.dirtyFirst, i * LEAVES);
       this.dirtyEnd = Math.max(this.dirtyEnd, (i + 1) * LEAVES);
     }
-    geometry.instanceCount = count * LEAVES;
+    this.instanceCount = count * LEAVES;
     // Nothing to draw (Original tree detail, or no canopy near): no draw at all.
     this.drawn = count > 0;
 
@@ -160,7 +155,8 @@ export class TreeCanopies {
       this.active.length = count;
       this.states.fill(0);
       for (const group of this.active) this.states[group.index * 4] = 1;
-      this.stateMap.needsUpdate = true;
+      this.stateVersion++;
+      if (this.stateMap !== null) this.graphics.rust.resources.gpu.update_canopy_state(this.stateMap, this.states);
     }
 
   }
@@ -169,7 +165,8 @@ export class TreeCanopies {
   // ([first, end)), or null.
   takeDirty() {
     if (!(this.dirtyEnd > this.dirtyFirst)) return null;
-    const range = [this.dirtyFirst, this.dirtyEnd];
+    const range = this.dirtyRange;
+    range[0] = this.dirtyFirst; range[1] = this.dirtyEnd;
     this.dirtyFirst = Infinity;
     this.dirtyEnd = 0;
     return range;
@@ -208,6 +205,7 @@ export class TreeCanopies {
     geometry.setAttribute("treeGroup",new THREE.BufferAttribute(ids,1));
     const material=mesh.material;
     material.uniforms.treeStates={value:this.stateMap};
+    this.maskMaterials.push(material);
     material.uniforms.treeStateCount={value:this.groups.length};
     material.needsUpdate=true;
     mesh.userData.treeCanopyPieces=assigned;

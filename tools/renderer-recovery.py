@@ -44,7 +44,7 @@ for path in sorted(web.glob('*.rs')):
     # it must not rewrite arbitrary Rust expressions or private helpers.
     for m in re.finditer(r'pub fn (\w+)\((.*?)\)\s*(?:->\s*([^\{]+))?\{', text, re.S):
         name, args, ret = m.group(1), m.group(2), (m.group(3) or '').strip()
-        if name.startswith('hud_model_') or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
+        if name.startswith(('hud_model_', 'static_source')) or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
         parsed = []
         for arg in args.split(','):
             arg = arg.strip()
@@ -61,7 +61,12 @@ for path in sorted(web.glob('*.rs')):
 # Every retained API needs an explanation here. Keeping these beside the
 # emitter makes a new resource method fail generation until its replay
 # dependency is documented; the generated Rust is never edited by hand.
-method_notes = dict(line.split('|', 1) for line in '''canopies_mesh|Recreate the canopy VAO and instance capacity; leaf rows come from the retained mirror.
+method_notes = dict(line.split('|', 1) for line in '''static_depth_add|Retain a static depth reference to the shared native authored source.
+static_depth_replace|Preserve each replacement before its depth geometry rebuild.
+static_depth_finish|Build depth resources from retained sources while preserving geometry and scene ids.
+static_world_settings|Replay each preset transition in order because it can allocate newly selected catalog programs.
+static_world|Compile authored world geometry and material descriptors through the same native admission path.
+canopies_mesh|Recreate the canopy VAO and instance capacity; leaf rows come from the retained mirror.
 fx_reserve|Retain effects capacity so moving the old instance mirror cannot exceed the new allocation.
 fx_add_owner|Allocate the analytic owner's track binding before batches refer to its owner id.
 fx_add_batch|Allocate the particle batch with its shader bindings and authored blend state.
@@ -193,7 +198,20 @@ out = [
        '    Texture(u32),']
 for name,args,ret in methods:
     out.append('    ' + name + ' { ' + ', '.join(n+': '+owned(t) for n,t in args) + ' },')
-out += ['}', '#[allow(non_camel_case_types)]', 'impl BfeRenderer {',
+out += ['}', 'impl Recovery {',
+        '    // Recompile against retained cold inputs without cloning asset buffers.',
+        '    // During restoration, ignore resources admitted after this command.',
+        '    pub(super) fn configure_static_world(&self, renderer: &mut BfeRenderer, near: &[u32], far: &[u32], through: u64) -> Result<(),JsValue> {',
+        '        let mut resource = 0;',
+        '        for (clock, command) in &self.commands { if *clock > through { continue; }',
+        '            if let Command::static_world { source, far_view, low_res_scale, samplers, features: _, order, slot, object } = command {',
+        '                let old = *renderer.static_worlds.get(resource).ok_or_else(||JsValue::from_str("Missing static descriptor"))?;',
+        '                renderer.compile_static_world(*source,*far_view,*low_res_scale,samplers,if old.far {far} else {near},*order,*slot,*object,Some(old))?;',
+        '                resource += 1;',
+        '            }',
+        '        }',
+        '        Ok(())',
+        '    }', '}', '#[allow(non_camel_case_types)]', 'impl BfeRenderer {',
         '    // add_texture has an external object, so remember its position rather than',
         '    // retaining a WebGlTexture that becomes unusable with the lost context.',
         '    pub(super) fn remember_texture(&mut self) {',
@@ -206,7 +224,7 @@ out += ['}', '#[allow(non_camel_case_types)]', 'impl BfeRenderer {',
 # descriptions refer to their positions. Setters can replace only an identical
 # selector key; writes with different keys still retain independent clocks.
 for ident,(name,args,ret) in enumerate(methods):
-    append = ('u32' in ret and not ret.startswith('bool')) or name in {'geometry_pointer', 'geometry_group', 'transparent_object_pass'}
+    append = ('u32' in ret and not ret.startswith('bool')) or name in {'geometry_pointer', 'geometry_group', 'transparent_object_pass', 'static_world_settings', 'static_depth_finish', 'canopies_mesh'}
     signature = ', '.join(n+': '+t for n,t in args)
     out += [f'    // BfeRenderer::{name}: {method_notes[name]}',
             ('    // Keep every call: later registrations depend on the returned id or append order.' if append else '    // Coalesce only the same selector key; other writes retain their own chronology.'),
@@ -254,6 +272,7 @@ out += ['}', '#[wasm_bindgen]', 'impl BfeRenderer {',
         '        // still owns CPU mirrors needed below, but none of its GL handles is valid.',
         '        let mut saved = std::mem::take(&mut self.recovery);',
         '        let mut old = std::mem::replace(&mut self.r, BfeRenderer::new(context).r);',
+        '        self.static_worlds.clear();',
         '        // Replay uses the public registration methods, whose remember hooks',
         '        // must stay inert rather than recursively appending the replay itself.',
         '        self.rebuilding = true;',
@@ -265,6 +284,7 @@ out += ['}', '#[wasm_bindgen]', 'impl BfeRenderer {',
         '            Command::Texture(slot) => { let texture = *textures.get(*slot as usize).ok_or_else(|| JsValue::from_str("Missing restored texture id"))?; self.add_texture(resources,texture)?; },']
 for name,args,ret in methods:
     invoke = f'self.{name}('+', '.join(ref(n,t) for n,t in args)+')' + ('?' if ret.startswith('Result') else '')
+    if name == 'static_world_settings': invoke = 'saved.configure_static_world(self,near,far,saved.commands[recovery_at].0)?'
     out.append('            Command::'+name+' { '+', '.join(n for n,t in args)+' } => { let _ = '+invoke+'; },')
 out += ['        }}',
         '        // Allocations and bindings now have their original logical ids.',
@@ -275,7 +295,7 @@ out += ['        }}',
 # preserves its values and allocation without replaying a draw that reads it.
 # GPU-backed mirrors need an explicit upload after all resource ids exist.
 # Adding another mirror here requires its owner to define that upload ordering.
-fields = {'core':['input','bones','shadow_input'], 'effects':['input','data','matrices'], 'far':['input','vertices'], 'hud':['input','position','uv','mask_uv','tint'], 'interface':['input','streams'], 'canopies':['input','leaves'], 'post':['input','states'], 'motion':['input','bones','previous','extras_input','extra_values'], 'water':['input','rings_position','rings_uv','rings_alpha','instances'], 'foliage':['input'], 'view':['input'], 'shadow':['input'], 'transparent':['keys','objects']}
+fields = {'world':['input','input_active'], 'core':['input','bones','shadow_input'], 'effects':['input','data','matrices'], 'far':['input','vertices'], 'hud':['input','position','uv','mask_uv','tint'], 'interface':['input','streams'], 'canopies':['input','leaves'], 'post':['input','states'], 'motion':['input','bones','previous','extras_input','extra_values'], 'water':['input','rings_position','rings_uv','rings_alpha','instances'], 'foliage':['input'], 'view':['input'], 'shadow':['input','static_view'], 'transparent':['keys','objects']}
 for owner,names in fields.items():
     out.append(f'        // Preserve {owner} input storage; replay must not reset the live frame values.')
     for name in names: out.append(f'        self.r.{owner}.{name} = std::mem::take(&mut old.{owner}.{name});')

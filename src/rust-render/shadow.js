@@ -8,10 +8,11 @@
 //
 // The scene walk follows WebGLShadowMap's visibility, layer and frustum
 // rules. Custom depth shells name Rust programs and carry material values.
-// onBeforeShadow still supplies merged static meshes and alpha-cut proxies
-// with their cell ranges. Skeleton bones and geometry buffers retain their
+// Static casters carry native descriptor ids; Rust selects their cell ranges.
+// Skeleton bones and dynamic geometry buffers retain their
 // existing upload contracts; no browser shader compilation is needed.
 import * as THREE from "three";
+import { STATIC } from "./static-layout.js";
 import { ownedProgram } from "./programs.js";
 import { lighting } from "../materials.js";
 import { writeUniform } from "./post.js";
@@ -86,6 +87,44 @@ class ShadowPass {
     this.drawn = 0;
     this.left = 0;
     this.why = null;
+    this.nativeNodes = new Map();
+    this.nativeRoots = new Map();
+    this.capacity = MAX_DRAWS;
+    this.clipped = 0;
+    this.reserveCommands(MAX_DRAWS);
+  }
+
+  reserveCommands(capacity) {
+    this.capacity = capacity;
+    this.scratch = new Float64Array(S.FIRST + capacity * DRAW);
+    this.commandViews = Array.from({length:capacity + 1}, (_, n) => this.scratch.subarray(0, S.FIRST + n * DRAW));
+  }
+
+  // Native static casters keep only scene anchors and numeric resource ids.
+  // Descriptor admission, cells, uniforms and GPU restoration belong to Rust.
+  admitNative(metadata, roots) {
+    const core = this.core, g = core.graphics;
+    this.nativeRoots = roots;
+    if (!this.nativeInput) {
+      core.addView("staticShadowInput", Float64Array, () => core.rust.static_shadow_input_ptr(), () => core.rust.static_shadow_input_len());
+      this.nativeInput = true;
+    }
+    this.reserveCommands(metadata.capacity);
+    for (const row of metadata.nodes) {
+      let node = this.nativeNodes.get(row.id);
+      if (!node && !row.active && row.source !== null) continue;
+      if (!node) {
+        node = new THREE.Object3D(); node.name = `native-static-depth:${row.id}`;node.matrixAutoUpdate = false;
+        node.userData.nativeShadow = { native: row.id };
+        this.nativeNodes.set(row.id, node);
+        g.caster(node);
+      }
+      const parent = row.source === null ? g.scene : roots.get(row.source);
+      if (parent && node.parent !== parent) parent.add(node);
+      node.layers.set(row.layer);node.visible = row.active;
+    }
+    this.found.clear();
+    for (const window of g.cascadeWindows) window.invalidate();
   }
 
   // Compile source-owned depth variants before the battle's first cascade.
@@ -138,13 +177,20 @@ class ShadowPass {
     // The pass is written into a buffer of the page's first: a value's texture
     // registered on the way (core.texture) can grow the renderer's memory,
     // which detaches every view of it; the view is taken once all is written.
-    const out = this.scratch ||= new Float64Array(S.FIRST + MAX_DRAWS * DRAW);
+    const out = this.scratch;
     let n = 0;
     const ok = () => {
-      if (this.why || target < 0 || (from && source < 0) || this.draws.length > MAX_DRAWS) return false;
+      if (this.why || target < 0 || (from && source < 0)) return false;
       out[S.TARGET] = target; out[S.FROM] = source; out[S.SIZE] = shadow.mapSize.x;
-      for (const d of this.draws) {
-        const o = S.FIRST + n * DRAW, { program } = d;
+      const count = Math.min(this.draws.length, this.capacity);
+      this.clipped += this.draws.length - count;
+      for (let i = 0; i < count; i++) {
+        const d = this.draws[i], o = S.FIRST + n * DRAW;
+        if (d.native !== undefined) {
+          out[o + D.PROGRAM] = -1;out[o + D.GEOMETRY] = d.native;out[o + D.UNIFORMS] = 0;
+          n++;continue;
+        }
+        const { program } = d;
         out[o + D.PROGRAM] = program.id; out[o + D.GEOMETRY] = d.geometry; out[o + D.START] = d.start; out[o + D.COUNT] = d.count;
         out[o + D.SIDE] = d.side; out[o + D.MIRRORED] = d.mirrored ? 1 : 0;
         if (program.uniforms.length > MAX_UNIFORMS) { this.why = `${program.uniforms.length} uniforms`; return false; }
@@ -166,7 +212,12 @@ class ShadowPass {
       input[S.TARGET] = -1; input[S.DRAWS] = 0;
       return;
     }
-    input.set(out.subarray(0, S.FIRST + n * DRAW));
+    input.set(this.commandViews[n]);
+    if (this.nativeInput) {
+      core.staticShadowInput.set(shadowCamera.projectionMatrix.elements, STATIC.SHADOW.PROJECTION);
+      core.staticShadowInput.set(shadowCamera.matrixWorldInverse.elements, STATIC.SHADOW.VIEW);
+      core.staticShadowInput[STATIC.SHADOW.TIME] = lighting.time.value;
+    }
     this.done = true;
   }
 
@@ -176,6 +227,7 @@ class ShadowPass {
     const core = this.core;
     for (const object of this.candidates(scene, camera, renderer)) {
       if (this.why) return;
+      if (object.userData.nativeShadow) { this.draws.push(object.userData.nativeShadow); continue; }
       if (object.frustumCulled && !frustum.intersectsObject(object)) continue;
       if (!object.isMesh) { core.skip(object, object.material, "a line or points caster"); continue; }
       object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object.matrixWorld);
@@ -204,7 +256,7 @@ class ShadowPass {
       entry.list.length = 0;
       const collect = (object) => {
         if (object.visible === false) return;
-        if (object.castShadow && object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints)) entry.list.push(object);
+        if (object.castShadow && object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints || object.userData.nativeShadow)) entry.list.push(object);
         const children = object.children;
         for (let i = 0; i < children.length; i++) collect(children[i]);
       };

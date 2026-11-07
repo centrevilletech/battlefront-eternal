@@ -223,6 +223,16 @@ pub struct FarPass<C: HasContext> {
 }
 
 impl<C: HasContext> FarPass<C> {
+    pub fn program_id(&self,id:u32)->Option<u32> {self.items.get(id as usize).map(|w|w.program as u32)}
+    // Preserve static admission/order slots across a typed preset change.
+    // A new base VAO must explicitly bind the next terrain level again.
+    pub fn reprogram(&mut self,id:u32,program:u32,table:u32) {
+        if let Some(w)=self.items.get_mut(id as usize) {
+            w.program=program as usize;w.table=table as usize;w.sources.clear();
+            if let Draw::Terrain(t)=&mut w.draw {t.bound=None;}
+        }
+    }
+
     // A restored context has fresh buffers but the CPU mirrors are current.
     pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
         for item in &self.items { for refresh in &item.refresh {

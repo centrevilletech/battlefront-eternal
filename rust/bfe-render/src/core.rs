@@ -594,6 +594,21 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         (self.geometries.len() - 1) as u32
     }
 
+    // Static descriptor settings can activate a different attribute layout.
+    // Reuse its logical geometry id while replacing only GPU storage; repeated
+    // preset changes must not accumulate obsolete VAOs or vertex buffers.
+    pub fn reset_geometry(&mut self, id:u32)->Result<(),String> {
+        let Some(geometry)=self.geometries.get_mut(id as usize) else {return Err("unknown static geometry".into());};
+        let vao=unsafe {self.gl.create_vertex_array()?};
+        unsafe {
+            for buffer in geometry.buffers.drain(..) {self.gl.delete_buffer(buffer);}
+            self.gl.delete_vertex_array(geometry.vao);
+        }
+        geometry.vao=vao;geometry.groups.clear();geometry.index_count=0;geometry.short=false;
+        self.state.reset();
+        Ok(())
+    }
+
     // Line and helper geometry shares the retained VAO/buffer owner. Mesh
     // geometries retain their indexed-triangle default.
     pub fn geometry_primitive(&mut self, g: u32, mode: u32, first: i32, indexed: bool, width: f32) {

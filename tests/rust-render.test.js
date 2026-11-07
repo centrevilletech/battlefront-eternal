@@ -3,8 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { ownedBasicEffect } from "../src/rust-render/effect-material.js";
-import { worldMaterial } from "../src/materials.js";
-import { ownWorldMaterial } from "../src/rust-render/world-programs.js";
 
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
@@ -73,7 +71,7 @@ test("the near phase: the far scene's image and frame block, its passes in order
   core.addPass({ name: "c", phase: "far", draw: () => drawn.push(["c"]) });
   core.phase("near", renderer, scene, camera);
   assert.deepEqual(drawn, [["a", 0], ["b", 2]]);
-  assert.deepEqual(calls, [["add_texture"], ["set_far_map", 0], ["sort", false], ["frame", 3], ["resetState"], ["setRenderTarget", graphics.sceneTarget], ["transparent_frame", 0, 0], ["resetState"], ["setRenderTarget", graphics.sceneTarget]]);
+  assert.deepEqual(calls, [["add_texture"], ["set_far_map", 0], ["frame", 3], ["resetState"], ["setRenderTarget", graphics.sceneTarget], ["transparent_frame", 0, 0], ["resetState"], ["setRenderTarget", graphics.sceneTarget]]);
   assert.equal(core.stats, STATS);
   // The frame block: the camera's matrices and position, as three uploads them.
   assert.deepEqual([...core.input.subarray(0, 16)], camera.projectionMatrix.elements);
@@ -156,70 +154,43 @@ test("objects the transparent pass draws leave three's list as records with thre
 
 
 
-// The core's program, geometry and texture calls, stood in for: every
-// program reads what `names` lists.
-function standIns(core, names) {
-  core.program = () => ({ id: 5, names: new Set(names), attributes: [] });
-  core.geometry = () => 3;
-  core.texture = () => 0;
-}
-
-function mapMaterial(scene, terrain = true) {
-  for(let i=0;i<14;i++)scene.add(new THREE.PointLight(0,0,1));
-  const material=worldMaterial(terrain?"terrain":"unlit",{map:new THREE.Texture(),lights:terrain});
-  material.defines.WORLD_SPACE="";
-  if(terrain){material.defines.TERRAIN_LAYERS=3;Object.assign(material.uniforms,{layerMap0:{value:material.map},layerMap1:{value:null},layerMap2:{value:null}});}
-  ownWorldMaterial(material);return material;
-}
-
-test("the ground registers its owned program before any browser draw", () => {
+test("the ground admits authored native descriptors and publishes visibility", () => {
   const { core, calls, renderer, scene, camera } = bridge();
-  standIns(core, ["map", "layer1Map", "brightness", "layerScales"]);
-  const material=mapMaterial(scene);
-  material.uniforms.layerScale0.value.set(8,4,2,1);
-  const group = new THREE.Group(), index = new THREE.BufferAttribute(new Uint32Array(6), 1), geometry = new THREE.BufferGeometry();
-  geometry.setIndex(index);
-  group.add(new THREE.Mesh(geometry, material));
-  group.material = material;
-  const box = (x) => new THREE.Box3(new THREE.Vector3(x, 0, 0), new THREE.Vector3(x + 1, 1, 1));
-  group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: box(0) }, { start: 3, end: 6, box: box(5) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 9) };
-  scene.add(group);
-  core.phase("near", renderer, scene, camera);
-  assert.equal(renderer.properties.get(material).currentProgram,undefined);
-  const add = calls.find((c) => c[0] === "add_world");
-  assert.ok(add && add[4] & 32 && add[4] & 8, "a world bucket counted for the terrain, writing depth");
-  assert.deepEqual([...calls.find((c) => c[0] === "world_runs")[2]], [0, 3, 3, 6]);
-  assert.deepEqual([...calls.find((c) => c[0] === "world_uniform" && c[2] === "layerScale0")[3]], [8, 4, 2, 1]);
-  assert.equal(material.visible, false);
-  assert.equal(group.userData.drawnElsewhere, true);
-  // A material change hides the old native bucket and registers its replacement.
-  material.needsUpdate = true;
-  calls.length = 0;
-  core.phase("near", renderer, scene, camera);
-  assert.deepEqual(calls.find((c) => c[0] === "world_shown"), ["world_shown", 9, false]);
-  assert.equal(material.visible, false);
-  assert.equal(group.userData.drawnElsewhere, true);
-  assert.ok(calls.some(c => c[0] === "add_world"), "changed materials are recompiled and registered before drawing");
+  const group = new THREE.Group(); group.userData.worldOrder = 8; scene.add(group);
+  const record = { terrain: true, vertexCount: 3, stride: 3, attributes: ["position"] };
+  const vertices = Float32Array.of(0,0,0, 1,0,0, 0,1,0), index = Uint32Array.of(0,1,2);
+  core.byName.terrain.admit(group,record,vertices,index,new Uint8Array(),Int32Array.of(1,-1,2,3,4,4,4,4,4,4,4,4,-1));
+  core.phase("near",renderer,scene,camera);
+  const id = core.byName.terrain.grounds[0].id;
+  const add = calls.find(c=>c[0]==="static_source");
+  assert.equal(JSON.parse(add[1]).terrain,true);
+  assert.deepEqual([...add[2]],[...vertices]);
+  assert.equal(group.material,undefined);
+  calls.length=0; core.phase("near",renderer,scene,camera);
+  assert.equal(calls.some(c=>c[0]==="static_world"),false);
+  group.visible=false; core.phase("near",renderer,scene,camera);
+  assert.deepEqual(calls.find(c=>c[0]==="world_shown"),["world_shown",id,false]);
 });
 
-test("a bucket culled by cell registers whatever draw range three's last view left it", () => {
+test("static world admissions retain handles and replace resources without descriptor reads", () => {
   const { core, calls, renderer, scene, camera } = bridge();
-  standIns(core, ["map"]);
-  const material=mapMaterial(scene,false);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setIndex([0, 1, 2]);
-  geometry.setDrawRange(0, 0);
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.matrixAutoUpdate = false;
-  mesh.userData.cellLights = true;
-  scene.add(mesh);
-  core.phase("near", renderer, scene, camera);
-  assert.equal(calls.filter((c) => c[0] === "add_world").length, 1);
-  assert.equal(calls.filter((c) => c[0] === "world_cells").length, 1);
+  const node = new THREE.Object3D(); node.userData.worldOrder=12; scene.add(node);
+  for (const name of ["geometry","material"]) Object.defineProperty(node,name,{get(){throw Error("descriptor read");}});
+  const record={flags:1,vertexCount:3,stride:3,attributes:["position"]};
+  const vertices=Float32Array.of(0,0,0,1,0,0,0,1,0), index=Uint32Array.of(0,1,2);
+  const world=core.byName.world;
+  world.admit(node,record,vertices,index,null,null);
+  core.phase("near",renderer,scene,camera);
+  const id=world.meshes[0].id;
+  assert.deepEqual([...calls.find(c=>c[0]==="static_source")[2]],[...vertices]);
+  calls.length=0;core.phase("near",renderer,scene,camera);
+  assert.equal(calls.some(c=>c[0]==="static_world"),false);
+  world.admit(node,{...record,flags:0},vertices,index,null,null);
+  assert.deepEqual(calls.find(c=>c[0]==="world_shown"),["world_shown",id,false]);
+  core.phase("near",renderer,scene,camera);
+  assert.notEqual(world.meshes.at(-1).id,id);
+  assert.equal(world.meshes[0].stale,true);
 });
-
-
 
 test("a phase that made no GL call leaves three's state alone", () => {
   const { core, calls, renderer, scene, camera } = bridge();
@@ -228,29 +199,5 @@ test("a phase that made no GL call leaves three's state alone", () => {
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
 });
 
-test("painted terrain binds an empty color texture for an unpainted layer between active layers", () => {
-  const { core, calls, renderer, scene, camera } = bridge();
-  standIns(core, ["layerMap0", "layerMap1", "layerMap2"]);
-  const textures = [], first = new THREE.Texture(), last = new THREE.Texture();
-  core.texture = (texture) => { textures.push(texture); return textures.length - 1; };
-  const material=mapMaterial(scene);
-  Object.assign(material.uniforms,{layerMap0:{value:first},layerMap1:{value:null},layerMap2:{value:last}});
-  const geometry = new THREE.BufferGeometry(), index = new THREE.BufferAttribute(new Uint32Array([0, 1, 2]), 1);
-  geometry.setIndex(index);
-  const group = new THREE.Group();
-  group.add(new THREE.Mesh(geometry, material));
-  group.material = material;
-  group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 2) };
-  scene.add(group);
-  core.phase("near", renderer, scene, camera);
-  const bindings = calls.filter((c) => c[0] === "world_texture");
-  assert.deepEqual(bindings.filter(c=>c[2]>=6).map((c) => c[2]), [6, 7, 8], "every active sampler gets a binding, including the zero-weight layer");
-  const bound = bindings.filter(c=>c[2]>=6).map((c) => textures[c[3]]);
-  assert.equal(bound[0], first);
-  assert.equal(bound[2], last);
-  assert.ok(bound[1].isDataTexture);
-  assert.deepEqual([...bound[1].image.data], [0, 0, 0, 0], "the same empty color texel three binds for null");
-  assert.equal(material.visible, false, "the phase takes the complete terrain draw");
-  core.phase("near", renderer, scene, camera);
-  assert.equal(calls.filter((c) => c[0] === "world_texture").length, bindings.length, "registered once, with no per-frame texture allocation");
-});
+// Native descriptor and backend fixtures cover painted/empty sampler bytes;
+// the host adapter above must never reconstruct a DataTexture for those slots.

@@ -169,26 +169,13 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
-     * @param {number} geometry
-     * @param {Uint32Array | number[]} locations
-     * @param {Uint32Array | number[]} sizes
      * @param {number} max
      */
-    canopies_mesh(geometry, locations, sizes, max) {
-        const val3 = +geometry;
-        const val4 = +max;
-        let ptr0, len0, ptr1, len1;
-        try {
-            ptr0 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
-            len0 = WASM_VECTOR_LEN;
-            ptr1 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
-            len1 = WASM_VECTOR_LEN;
-        } catch (e) {
-            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
-            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
-            throw e;
+    canopies_mesh(max) {
+        const ret = wasm.bferenderer_canopies_mesh(this.__wbg_ptr, max);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
         }
-        wasm.bferenderer_canopies_mesh(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
     }
     /**
      * @returns {number}
@@ -443,56 +430,45 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
-     * @param {number} program
      * @param {number} texture
      * @param {boolean} grass
-     * @param {number} wiggle
-     * @param {Float32Array | number[]} vertices
-     * @param {Uint32Array | number[]} index
-     * @param {Int32Array | number[]} locations
+     * @param {boolean} shadows
+     * @param {string} definition
+     * @param {Float64Array | number[]} authored
      * @param {Float32Array | number[]} rows
      * @param {Float64Array | number[]} bounds
      * @param {Float32Array | number[]} map_matrix
-     * @param {Float32Array | number[]} diffuse
-     * @param {number} opacity
-     * @param {number} alpha_test
      * @returns {number}
      */
-    foliage_class(program, texture, grass, wiggle, vertices, index, locations, rows, bounds, map_matrix, diffuse, opacity, alpha_test) {
-        const val8 = +program;
-        const val9 = +texture;
-        const val10 = +grass;
-        const val11 = +wiggle;
-        const val12 = +opacity;
-        const val13 = +alpha_test;
-        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6;
+    foliage_class(texture, grass, shadows, definition, authored, rows, bounds, map_matrix) {
+        const val6 = +texture;
+        const val7 = +grass;
+        const val8 = +shadows;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4;
         try {
-            ptr0 = passArrayF32ToWasm0(vertices, wasm.__wbindgen_malloc);
+            ptr0 = passStringToWasm0(definition, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             len0 = WASM_VECTOR_LEN;
-            ptr1 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            ptr1 = passArrayF64ToWasm0(authored, wasm.__wbindgen_malloc);
             len1 = WASM_VECTOR_LEN;
-            ptr2 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+            ptr2 = passArrayF32ToWasm0(rows, wasm.__wbindgen_malloc);
             len2 = WASM_VECTOR_LEN;
-            ptr3 = passArrayF32ToWasm0(rows, wasm.__wbindgen_malloc);
+            ptr3 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
             len3 = WASM_VECTOR_LEN;
-            ptr4 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
+            ptr4 = passArrayF32ToWasm0(map_matrix, wasm.__wbindgen_malloc);
             len4 = WASM_VECTOR_LEN;
-            ptr5 = passArrayF32ToWasm0(map_matrix, wasm.__wbindgen_malloc);
-            len5 = WASM_VECTOR_LEN;
-            ptr6 = passArrayF32ToWasm0(diffuse, wasm.__wbindgen_malloc);
-            len6 = WASM_VECTOR_LEN;
         } catch (e) {
-            if (ptr6) { wasm.__wbindgen_free(ptr6, len6 * 4, 4); }
-            if (ptr5) { wasm.__wbindgen_free(ptr5, len5 * 4, 4); }
-            if (ptr4) { wasm.__wbindgen_free(ptr4, len4 * 8, 8); }
-            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 4, 4); }
+            if (ptr4) { wasm.__wbindgen_free(ptr4, len4 * 4, 4); }
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 8, 8); }
             if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
-            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
-            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
             throw e;
         }
-        const ret = wasm.bferenderer_foliage_class(this.__wbg_ptr, val8, val9, val10, val11, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, val12, val13);
-        return ret >>> 0;
+        const ret = wasm.bferenderer_foliage_class(this.__wbg_ptr, val6, val7, val8, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
     }
     /**
      * @returns {number}
@@ -1615,6 +1591,181 @@ export class BfeRenderer {
         wasm.bferenderer_sort(this.__wbg_ptr, by_program);
     }
     /**
+     * @param {number} source
+     * @param {number} texture
+     * @returns {number}
+     */
+    static_depth_add(source, texture) {
+        const ret = wasm.bferenderer_static_depth_add(this.__wbg_ptr, source, texture);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    static_depth_clipped() {
+        const ret = wasm.bferenderer_static_depth_clipped(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    static_depth_finish() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.bferenderer_static_depth_finish(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
+     * @param {number} id
+     * @param {number} source
+     * @param {number} texture
+     * @returns {number}
+     */
+    static_depth_replace(id, source, texture) {
+        const ret = wasm.bferenderer_static_depth_replace(this.__wbg_ptr, id, source, texture);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    static_shadow_input_len() {
+        const ret = wasm.bferenderer_static_shadow_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    static_shadow_input_ptr() {
+        const ret = wasm.bferenderer_static_shadow_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {string} authored
+     * @param {Float32Array | number[]} vertices
+     * @param {Uint32Array | number[]} index
+     * @returns {number}
+     */
+    static_source(authored, vertices, index) {
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passStringToWasm0(authored, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(vertices, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_static_source(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {Uint8Array | number[]} weights
+     */
+    static_source_weights(id, weights) {
+        const val2 = +id;
+        const ptr0 = passArray8ToWasm0(weights, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_static_source_weights(this.__wbg_ptr, val2, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {number} source
+     * @param {Uint8Array | number[]} weights
+     * @returns {number}
+     */
+    static_terrain_layers(source, weights) {
+        const val2 = +source;
+        const ptr0 = passArray8ToWasm0(weights, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_static_terrain_layers(this.__wbg_ptr, val2, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} source
+     * @param {boolean} far_view
+     * @param {number} low_res_scale
+     * @param {Int32Array | number[]} samplers
+     * @param {Uint32Array | number[]} features
+     * @param {number} order
+     * @param {number} slot
+     * @param {number} object
+     * @returns {number}
+     */
+    static_world(source, far_view, low_res_scale, samplers, features, order, slot, object) {
+        const val3 = +source;
+        const val4 = +far_view;
+        const val5 = +low_res_scale;
+        const val6 = +order;
+        const val7 = +slot;
+        const val8 = +object;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(samplers, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(features, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_static_world(this.__wbg_ptr, val3, val4, val5, ptr0, len0, ptr1, len1, val6, val7, val8);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {Uint32Array | number[]} near
+     * @param {Uint32Array | number[]} far
+     */
+    static_world_settings(near, far) {
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(near, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(far, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_static_world_settings(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} geometry
      * @param {Uint32Array | number[]} blend
      * @param {number} depth_func
@@ -1984,6 +2135,20 @@ export class BfeRenderer {
         wasm.bferenderer_world_cells(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
     }
     /**
+     * @returns {number}
+     */
+    world_input_len() {
+        const ret = wasm.bferenderer_world_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    world_input_ptr() {
+        const ret = wasm.bferenderer_world_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} w
      * @param {Float32Array | number[]} values
      */
@@ -2052,6 +2217,14 @@ export class BfeRenderer {
         const ret = wasm.bferenderer_world_uniform(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
         return ret !== 0;
     }
+    /**
+     * @param {number} id
+     * @returns {boolean}
+     */
+    world_uses_lamps(id) {
+        const ret = wasm.bferenderer_world_uses_lamps(this.__wbg_ptr, id);
+        return ret !== 0;
+    }
 }
 if (Symbol.dispose) BfeRenderer.prototype[Symbol.dispose] = BfeRenderer.prototype.free;
 
@@ -2085,6 +2258,18 @@ export class GpuResources {
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
+    }
+    /**
+     * @param {number} width
+     * @param {object} pixels
+     * @returns {number}
+     */
+    canopy_state(width, pixels) {
+        const ret = wasm.gpuresources_canopy_state(this.__wbg_ptr, width, pixels);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
     }
     /**
      * @param {number} source
@@ -2221,6 +2406,17 @@ export class GpuResources {
         }
     }
     /**
+     * @param {number} id
+     * @returns {number}
+     */
+    retain_sample(id) {
+        const ret = wasm.gpuresources_retain_sample(this.__wbg_ptr, id);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
      * @returns {number}
      */
     retired_sample() {
@@ -2351,6 +2547,15 @@ export class GpuResources {
             throw takeFromExternrefTable0(ret[0]);
         }
     }
+    /**
+     * @param {number} value
+     */
+    static_anisotropy(value) {
+        const ret = wasm.gpuresources_static_anisotropy(this.__wbg_ptr, value);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
     suspend() {
         wasm.gpuresources_suspend(this.__wbg_ptr);
     }
@@ -2379,6 +2584,16 @@ export class GpuResources {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @param {number} sample
+     * @param {object} pixels
+     */
+    update_canopy_state(sample, pixels) {
+        const ret = wasm.gpuresources_update_canopy_state(this.__wbg_ptr, sample, pixels);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} id
      */
     upload(id) {
@@ -2402,6 +2617,17 @@ export class GpuResources {
             throw takeFromExternrefTable0(ret[1]);
         }
         return ret[0] !== 0;
+    }
+    /**
+     * @param {boolean} neutral
+     * @returns {number}
+     */
+    world_fallback(neutral) {
+        const ret = wasm.gpuresources_world_fallback(this.__wbg_ptr, neutral);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
     }
 }
 if (Symbol.dispose) GpuResources.prototype[Symbol.dispose] = GpuResources.prototype.free;
@@ -2677,6 +2903,12 @@ function __wbg_get_imports() {
         },
         __wbg_deleteTexture_1653a9994a44215e: function(arg0, arg1) {
             arg0.deleteTexture(arg1);
+        },
+        __wbg_deleteVertexArrayOES_2214ecdf65be031d: function(arg0, arg1) {
+            arg0.deleteVertexArrayOES(arg1);
+        },
+        __wbg_deleteVertexArray_2589b74b67ba20c8: function(arg0, arg1) {
+            arg0.deleteVertexArray(arg1);
         },
         __wbg_depthFunc_04abd9f6ff980ba9: function(arg0, arg1) {
             arg0.depthFunc(arg1 >>> 0);

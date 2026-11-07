@@ -252,7 +252,34 @@ export async function checkResources(renderer, assert) {
     cube.texture.generateMipmaps=true;owner.textureId(cube.texture);
     gl.bindTexture(gl.TEXTURE_CUBE_MAP,cubeHandle);
     assert('Cube final face exposes the full generated mip range',gl.getTexParameter(gl.TEXTURE_CUBE_MAP,gl.TEXTURE_MAX_LEVEL)===4);
+    // Native static samplers outlive the loader's descriptors. Retain one,
+    // release both host owners, restore storage, then release/reuse its physical
+    // row. A stale logical id must never alias the new native descriptor.
+    const owned=new THREE.DataTexture(Uint8Array.of(31,73,149,227),1,1);textures.push(owned);owned.needsUpdate=true;
+    const native=owner.staticSample(owned),sourceId=owner.images.get(owned.source).id;
+    const alias=owned.clone();textures.push(alias);
+    const assetSample=owner.textureId(owned),aliasSample=owner.textureId(alias);
+    owned.anisotropy=alias.anisotropy=2;
+    owner.gpu.static_anisotropy(2);
+    const nativeHandle=owner.gpu.texture(native);
+    assert('Typed static sampling uploads all aliases before publication',gl.isTexture(nativeHandle)&&owner.gpu.texture(assetSample)===nativeHandle&&owner.gpu.texture(aliasSample)===nativeHandle);
+    owner.textureId(owned);owner.textureId(alias);
+    assert('Native and loader sampling keys share the same storage',owner.gpu.texture(native)===nativeHandle&&owner.gpu.texture(assetSample)===nativeHandle&&owner.gpu.texture(aliasSample)===nativeHandle);
+    alias.dispose();
+    owned.dispose();owner.gpu.release_source(sourceId);
+    assert('Static sampler owns source lifetime after loader disposal',owner.gpu.texture(native)===nativeHandle&&gl.isTexture(nativeHandle));
+    const release=new THREE.DataTexture(Uint8Array.of(2,3,5,255),1,1);textures.push(release);release.needsUpdate=true;
+    const dead=owner.staticSample(release),deadHandle=owner.gpu.texture(dead),releaseSource=owner.images.get(release.source).id;
+    release.dispose();owner.gpu.release_source(releaseSource);owner.gpu.dispose_sample(dead);
+    assert('Last native sampler releases physical storage',!gl.isTexture(deadHandle));
+    const reused=new THREE.DataTexture(Uint8Array.of(7,11,13,255),1,1);textures.push(reused);reused.needsUpdate=true;
+    const next=owner.staticSample(reused);let stale=false;
+    try {owner.gpu.texture(dead);} catch {stale=true;}
+    assert('Native sampler logical ids never alias reused storage',next!==dead&&stale);
+    const reusedSource=owner.images.get(reused.source).id;reused.dispose();owner.gpu.release_source(reusedSource);owner.gpu.dispose_sample(next);
+    renderer.setRenderTarget(before);
     assert('Resource fixture has no GL errors' ,gl.getError()===gl.NO_ERROR);
+    return { native };
   } finally {
     // Keep the following battle fixture independent of these direct readbacks.
     // Disposing descriptors must release Rust storage without native listeners.

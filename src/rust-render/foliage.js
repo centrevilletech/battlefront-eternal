@@ -1,11 +1,9 @@
-import { ownedGeometryProgram } from "./programs.js";
+import { STATIC } from "./static-layout.js";
 // The foliage pass (foliage.rs) selects placed grass and leaf cards and draws
 // them with declared Rust-owned variants. The host supplies immutable geometry,
 // placement rows and the camera inputs used by Foliage.update.
 // A card vertex's attributes, then a patch row's (foliage.rs VERTEX, ROW).
-const VERTEX = [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]];
-const ROW = ["foliagePatch", "foliageTint", "foliageAxisX", "foliageAxisY", "foliageAxisZ", "foliageDistance"];
-const VERTEX_FLOATS = 16, ROW_FLOATS = 16, BOUNDS = 9;
+const ROW_FLOATS = 16, BOUNDS = 9;
 // The selection's inputs (foliage.rs IN_*).
 const IN = { PROJECTION: 0, VIEW: 16, WORLD: 32, EYE: 48, END: 51, TIME: 52 };
 
@@ -64,24 +62,15 @@ class FoliagePass {
   // selected per view; reconstructing the former every frame changes both
   // allocation cost and the authored random sequence.
   registerClass(kind) {
-    const core = this.core, batch = kind.batch, material = batch?.material;
-    const geometry = batch?.geometry;
-    if (!geometry?.isInstancedBufferGeometry || !geometry.index) throw Error("Invalid foliage geometry");
-    const key = "world/foliage-" + (kind.grass ? "grass" : "leaves") + (core.graphics.csm ? "-shadows" : "");
-    const program = ownedGeometryProgram(core, key);
-    const texture = core.texture(material.map);
-    if (!program || texture < 0) core.fail(new Error("Invalid foliage program or texture"));
-    const at = new Map(program.attributes);
-    const locations = Int32Array.from([...VERTEX.map(([name]) => at.get(name) ?? -1), ...ROW.map((name) => at.get(name) ?? -1)]);
-    // The cards' vertices, interleaved.
-    const count = geometry.attributes.position.count, vertices = new Float32Array(count * VERTEX_FLOATS);
-    let offset = 0;
-    for (const [name, size] of VERTEX) {
-      const array = geometry.attributes[name].array;
-      for (let v = 0; v < count; v++) for (let k = 0; k < size; k++) vertices[v * VERTEX_FLOATS + offset + k] = array[v * size + k];
-      offset += size;
-    }
-    const index = geometry.index.array instanceof Uint32Array ? geometry.index.array : Uint32Array.from(geometry.index.array);
+    const core = this.core;
+    const texture = core.texture(core.resources.staticSample(kind.map));
+    if (texture < 0) core.fail(new Error("Invalid foliage program or texture"));
+    // Authored cards remain asset data. Atlas, packing and material policy are
+    // compiled natively; no geometry or material shell is made for this family.
+    const cards = new Float64Array(kind.cards.length * STATIC.CARD.STRIDE);
+    kind.cards.forEach((c, i) => cards.set(kind.grass
+      ? [c.x,c.y,c.z,c.grey,c.width,c.height,c.phase,c.rate,c.part]
+      : [c.p.x,c.p.y,c.p.z,c.grey,c.size,0,c.phase,0,c.part], i * STATIC.CARD.STRIDE));
     // Immutable placement rows and bounds, selected and uploaded by Rust.
     const n = kind.instances.length, rows = new Float32Array(n * ROW_FLOATS), bounds = new Float64Array(n * BOUNDS);
     kind.instances.forEach((inst, i) => {
@@ -96,11 +85,12 @@ class FoliagePass {
       bounds[b + 7] = inst.cullDistance;
       bounds[b + 8] = inst.maxDistance;
     });
-    // The map's uv transform, colour, opacity and alpha test, as three sets them.
-    const map = material.map;
+    // Texture transforms are a cold loader input, shared with the existing
+    // source/sampler owner. No material version or UV scan runs in a frame.
+    const map = kind.map;
     if (map.matrixAutoUpdate) map.updateMatrix();
-    const id = core.rust.foliage_class(program.id, texture, Boolean(kind.grass), batch.uniforms.foliageWiggle.value, vertices, index, locations, rows, bounds,
-      Float32Array.from(map.matrix.elements), Float32Array.of(material.color.r, material.color.g, material.color.b), material.opacity, material.alphaTest);
+    const id = core.rust.foliage_class(texture, Boolean(kind.grass), Boolean(core.graphics.csm), JSON.stringify(kind.def), cards, rows, bounds,
+      Float32Array.from(map.matrix.elements));
 
     this.classes.set(kind, id);
   }

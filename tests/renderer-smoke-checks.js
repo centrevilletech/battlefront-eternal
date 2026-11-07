@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { Graphics } from '../src/graphics.js';
 import { ParticleRenderer } from '../src/particles.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
-import { FoliageGpuBatch } from '../src/foliage-gpu.js';
 import { motionVectors } from '../src/motion-vectors.js';
 import { Batch, loadInterfaceBatch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
@@ -90,7 +89,7 @@ export async function checkRenderer(backend, manifests) {
   // Start from a deterministic low-effects frame, then change one setting at
   // a time. Off/on/off comparisons below detect both ignored settings and
   // state that remains accidentally enabled after a material revision.
-  const settings = new Settings({ shadows: 'low', waterQuality: 'low', antialiasing: 'off', bloom: false, softFocus: false, renderScale: 1, upscaler: 'off' });
+  const settings = new Settings({ shadows: 'low', waterQuality: 'low', antialiasing: 'off', bloom: false, softFocus: false, renderScale: 1, upscaler: 'off', terrainDetail: 'original' });
   const g = new Graphics(document.body, settings);
   try {
     await g.rustReady;
@@ -98,7 +97,7 @@ export async function checkRenderer(backend, manifests) {
     const gl = g.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
-    await checkResources(g.renderer,assert);
+    const coldResources=await checkResources(g.renderer,assert);
     // Every family is discovered by the launcher from its manifest at runtime.
     // Register before fixture draws, so the Rust cache is cold for every key.
     // Register before any fixture draws so each manifest key reaches a cold
@@ -165,17 +164,30 @@ export async function checkRenderer(backend, manifests) {
     const material = worldMaterial('lit', { map: white, bumpMap: normal, specular: [20, .3, .3, .3] });
     material.defines.WORLD_SPACE = '';
     ownWorldMaterial(material,geometry);
+    const nativeSources = new Map();
+    const nativeWorld = (mesh, record, order = mesh.material.id) => {
+      const attrs = ["position","normal","uv",...Object.keys(mesh.geometry.attributes).filter(n=>!["position","normal","uv"].includes(n))];
+      const vertices = [];
+      for(let v=0;v<mesh.geometry.attributes.position.count;v++)for(const name of attrs){const attribute=mesh.geometry.attributes[name];for(let k=0;k<attribute.itemSize;k++)vertices.push(attribute.getComponent(v,k));}
+      const authored={...record,vertexCount:mesh.geometry.attributes.position.count,stride:attrs.reduce((n,key)=>n+mesh.geometry.attributes[key].itemSize,0),attributes:attrs};
+      const node=new THREE.Object3D();node.name=mesh.name;node.userData.worldOrder=order;
+      const source=g.rust.byName.world.admit(node,authored,Float32Array.from(vertices),Uint32Array.from(mesh.geometry.index.array),mesh.material.map,mesh.material.uniforms.bumpMap?.value);
+      nativeSources.set(source,node);
+      node.userData.nativeDepthSource=g.rust.rust.static_depth_add(source,g.rust.texture(g.rust.resources.staticSample(mesh.material.map)));
+      g.scene.add(node);
+      return node;
+    };
     // Static buckets must have identity transforms; bake the placements.
     for (let i = 0; i < 3; i++) {
       const mesh = new THREE.Mesh(geometry.clone().translate(i * 1.5 - 1.5, 0, 0), material);
-      mesh.matrixAutoUpdate = false; g.scene.add(mesh);
+      mesh.matrixAutoUpdate = false; nativeWorld(mesh,{flags:0x21,bump:"normal",specular:[20,.3,.3,.3]});
     }
     // This raised caster projects onto the visible right terrain run.
-    const raised=new THREE.Mesh(geometry.clone().scale(.6,.6,1).translate(1.5,-.4,.25),material);
-    raised.matrixAutoUpdate=false;g.scene.add(raised);
+    const raised=new THREE.Mesh(geometry.clone().scale(.6,.6,1).translate(1.5,-.9,.25),material);
+    raised.matrixAutoUpdate=false;nativeWorld(raised,{flags:0x21,bump:"normal",specular:[20,.3,.3,.3]});
     const pendingMaterial=worldMaterial('unlit',{map:pendingImage,lights:false});pendingMaterial.defines.WORLD_SPACE='';ownWorldMaterial(pendingMaterial);
     const pendingMesh=new THREE.Mesh(new THREE.PlaneGeometry(.7,.7).translate(-2,2,1),pendingMaterial);
-    pendingMesh.matrixAutoUpdate=false;g.scene.add(pendingMesh);
+    pendingMesh.matrixAutoUpdate=false;nativeWorld(pendingMesh,{flags:0});
     const skinGeometry = new THREE.PlaneGeometry(.7, .7);
     skinGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(16),4));
     skinGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],4));
@@ -191,39 +203,34 @@ export async function checkRenderer(backend, manifests) {
     transparent.position.set(0, 1, 1); g.scene.add(transparent);
     const view = new THREE.Mesh(new THREE.PlaneGeometry(.12, .12), actorMaterial('dynamic', { map: white }));
     view.position.set(.2, -.15, -1); g.viewScene.add(view);
-    // Three terrain cells: the invisible middle one splits visible runs,
-    // requiring multi-draw rather than one contiguous range.
-    const groundGeometry = new THREE.BufferGeometry();
-    groundGeometry.setAttribute('position', new THREE.Float32BufferAttribute([-3,-2,0,-1,-2,0,-3,-1,0, 99,99,0,100,99,0,99,100,0, 1,-2,0,3,-2,0,3,-1,0], 3));
-    groundGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(18), 2));
-    groundGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(Array(9).fill([0,0,1]).flat(), 3));
-    groundGeometry.setAttribute('weights0', new THREE.Float32BufferAttribute(Array(9).fill([.5,0,.5,0]).flat(),4));
-    groundGeometry.setIndex([0,1,2,3,4,5,6,7,8]);
-    groundGeometry.setAttribute('color',new THREE.Float32BufferAttribute(Array(9).fill([1,1,1]).flat(),3));
-    groundGeometry.setAttribute('weights1',new THREE.Float32BufferAttribute(new Float32Array(36),4));
-    const groundMaterial=worldMaterial('terrain',{map:white});
-    Object.assign(groundMaterial.defines,{WORLD_SPACE:'',TERRAIN_LAYERS:6});
-    Object.assign(groundMaterial.uniforms,{layerMap0:{value:white},layerMap1:{value:null},layerMap2:{value:texture([100,180,60,255])},layerMap3:{value:null},layerMap4:{value:null},layerMap5:{value:null}});
-    ownWorldMaterial(groundMaterial,groundGeometry);
-    const ground = new THREE.Group(),groundMesh=new THREE.Mesh(groundGeometry, groundMaterial);groundMesh.receiveShadow=true;ground.add(groundMesh);ground.material = groundMaterial;
-    const boxes = [[-3,-2,0,-1,-1,0], [99,99,0,100,100,0], [1,-2,0,3,-1,0]].map(b => new THREE.Box3(new THREE.Vector3(...b.slice(0,3)),new THREE.Vector3(...b.slice(3))));
-    ground.userData.patches = { full: { index: groundGeometry.index, cells: boxes.map((box,i) => ({ start: i*3, end: i*3+3, box })) }, bounds: new THREE.Sphere(new THREE.Vector3(), 200) };
+    // This upright synthetic receiver uses Original terrain lighting; its
+    // normal cannot describe a heightfield slope. Unused boundary vertices
+    // fix a two-by-two native terrain grid. The two
+    // visible triangles straddle its z boundary; the offscreen middle cell
+    // separates their index spans, requiring the actual multi-draw path.
+    const ground = new THREE.Group(); ground.userData.worldOrder = 10000;
+    const groundPositions = [-3,-2,-.1,-1,-2,-.1,-3,-1,-.1, 99,99,-.1,100,99,-.1,99,100,-.1, 1,-2,.1,3,-2,.1,3,-1,.1, -128,0,-128,128,0,128];
+    const groundVertices = Float32Array.from(Array.from({length:11},(_,i)=>[...groundPositions.slice(i*3,i*3+3),0,0,1,0,0,.7,.6,.5,1]).flat());
+    const groundRecord = {terrain:true,vertexCount:11,stride:12,attributes:["position","normal","uv","color"],layers:["base","empty1","empty2","empty3","green"]};
+    const emptySample = g.rust.texture(g.renderer.resources.gpu.world_fallback(false));
+    const neutralSample = g.rust.texture(g.renderer.resources.gpu.world_fallback(true));
+    const groundSamplers = Int32Array.of(g.rust.texture(white),-1,g.rust.texture(white),neutralSample,g.rust.texture(white),emptySample,emptySample,emptySample,g.rust.texture(texture([100,180,60,255])),emptySample,emptySample,emptySample,-1,emptySample);
+    g.rust.byName.terrain.admit(ground,groundRecord,groundVertices,Uint32Array.of(0,1,2,3,4,5,6,7,8),Uint8Array.from(Array(11).fill([128,0,0,0,128,0,0,0]).flat()),groundSamplers);
     g.scene.add(ground);
     const cutoutMap=new THREE.DataTexture(new Uint8Array([220,80,40,128,220,80,40,255,220,80,40,0,220,80,40,192]),2,2);cutoutMap.needsUpdate=true;
     const cutoutMaterial=worldMaterial('unlit',{map:cutoutMap,lights:false,alphaTest:true,doubleSided:true});cutoutMaterial.defines.WORLD_SPACE='';
     const cutoutGeometry=new THREE.PlaneGeometry(.8,.8).translate(-1.5,-1,1);ownWorldMaterial(cutoutMaterial,cutoutGeometry);
-    const cutout=new THREE.Mesh(cutoutGeometry,cutoutMaterial);cutout.matrixAutoUpdate=false;g.scene.add(cutout);
+    const cutout=new THREE.Mesh(cutoutGeometry,cutoutMaterial);cutout.matrixAutoUpdate=false;const cutoutNode=nativeWorld(cutout,{flags:2});
     const particles = new ParticleRenderer(g.scene).batch(white, 'additive');
     particles.begin(); particles.push(-1, 1, .5, 1, .4, .2, 1, .3); particles.end();
     const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,0,240,-10,10);
     batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.quad(new THREE.Matrix4(),88,12,120,40,pendingImage,[0,0,1,1],[1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
     const hud = { batch, scene: hudScene, camera: hudCamera };
     g.treeCanopies = new TreeCanopies(g, { texture: 'leaves', instances: [{ matrix: new THREE.Matrix4().makeTranslation(-6,2,-10).elements, bounds: [[-3,-3,-1],[3,3,1]] }] }, () => white);
-    const foliageBatch = new FoliageGpuBatch(white, [{ x:0,y:0,z:0,width:.4,height:.8,grey:1,part:0,phase:0,rate:1 }], { Alpha: 1 }, true);
     const instances = [{ position: new THREE.Vector3(2,-1,1), matrix: new THREE.Matrix4(), tint: [1,1,1], sphere: null, cullDistance: Infinity, maxDistance: 100 }];
-    const foliage = { kinds: new Map([[0,{ batch: foliageBatch, grass: true, instances }]]), nearEnd: () => 100, time: 0, drawer: null };
+    const foliage = { kinds: new Map([[0,{ map: white, def: { Alpha: 1 }, cards: [{ x:0,y:0,z:0,width:.4,height:.8,grey:1,part:0,phase:0,rate:1 }], grass: true, instances }]]), nearEnd: () => 100, time: 0, drawer: null };
     g.scene.userData.foliage = foliage;
-    for (const mesh of g.scene.children) if (mesh.isMesh && mesh.material === material) { mesh.receiveShadow = true; g.caster(mesh); }
+    g.rust.byName.shadow.admitNative(JSON.parse(g.rust.rust.static_depth_finish()),nativeSources);
     body.receiveShadow = true; g.caster(body);
     const phaseDraws = {}, passDraws = Array(15).fill(0);
     // Seed the formerly unpainted unit with a comparison texture. A missing
@@ -311,13 +318,22 @@ export async function checkRenderer(backend, manifests) {
     const baseline=compare('opaque, far, terrain, transparent, view and composite');
     const terrainShadowPixels=()=>{
       lighting.shadowStrength.value=0;const unshadowed=capture();lighting.shadowStrength.value=1;const shadowed=capture();
-      const lo=new THREE.Vector3(1.8,-1.9,0).project(g.camera),hi=new THREE.Vector3(2.2,-1.75,0).project(g.camera);
+      const lo=new THREE.Vector3(1.8,-1.9,.1).project(g.camera),hi=new THREE.Vector3(2.2,-1.75,.1).project(g.camera);
       let pixels=0;
       for(let y=Math.ceil((lo.y+1)*.5*gl.drawingBufferHeight);y<Math.floor((hi.y+1)*.5*gl.drawingBufferHeight);y++)for(let x=Math.ceil((lo.x+1)*.5*gl.drawingBufferWidth);x<Math.floor((hi.x+1)*.5*gl.drawingBufferWidth);x++){
         const at=4*(y*gl.drawingBufferWidth+x);if([0,1,2].some(k=>shadowed[at+k]!==unshadowed[at+k]))pixels++;
       }
       return pixels;
     };
+    // Replace a cutout's material through the same raw-source API used by
+    // loading. Both colour and depth must return to the exact original pixels.
+    const cutoutRows=[];
+    for(let v=0;v<cutoutGeometry.attributes.position.count;v++)for(const name of ['position','normal','uv']){const a=cutoutGeometry.attributes[name];for(let k=0;k<a.itemSize;k++)cutoutRows.push(a.getComponent(v,k));}
+    const replaceCutout=flags=>g.rust.byName.world.admit(cutoutNode,{flags,vertexCount:4,stride:8,attributes:['position','normal','uv']},Float32Array.from(cutoutRows),Uint32Array.from(cutoutGeometry.index.array),cutoutMap,null);
+    const depthReference=cutoutNode.userData.nativeDepthSource;
+    replaceCutout(0);compare('native material replacement to opaque');
+    replaceCutout(2);const replacement=compare('native material replacement restored');
+    assert('Material replacement preserves depth reference and original pixels',depthReference===cutoutNode.userData.nativeDepthSource&&replacement.every((v,i)=>v===baseline[i]));
     const shadowPixels=terrainShadowPixels();
     assert('Multi-draw terrain receives an occluding mesh shadow',shadowPixels>0,{terrainShadowPixels:shadowPixels});
     // Settings can rebuild shadow storage after a battle has cached its FBOs.
@@ -384,7 +400,7 @@ export async function checkRenderer(backend, manifests) {
     assert('Multisampled multi-draw terrain receives an occluding mesh shadow',coveredShadowPixels>0,{terrainShadowPixels:coveredShadowPixels,samples:g.sceneTarget.samples});
     assert('Alpha-to-coverage drew on a four-sample target',alphaCoverageDraws>0&&alphaSamples.has(4),{alphaCoverageDraws,samples:[...alphaSamples]});
     settings.set('antialiasing','off');compare('multisampling switched off');
-    assert('Unpainted terrain taken by Rust', groundMaterial.visible === false);
+    assert('Native terrain has no browser geometry or material', ground.children.length === 0 && ground.material === undefined);
     for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_chain_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
     // Motion has its own target and depth input, separate from post history.
     // Use real motion tracking with synthetic depth and two distinct view matrices.
@@ -556,6 +572,15 @@ export async function checkRenderer(backend, manifests) {
     loss.restoreContext();
     await restored;
     {const error=gl.getError();if(error)throw Error(`After restore: GL ${error}`);}
+    // The descriptor fixture released its Three Source before loss. Only the
+    // native sampler retains its restoration bytes and stable logical handle.
+    {
+      const sampler=g.renderer.resources.gpu.texture(coldResources.native),fb=gl.createFramebuffer(),rgba=new Uint8Array(4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,sampler,0);
+      gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,rgba);gl.deleteFramebuffer(fb);
+      assert('Native sampler restores exact bytes without a Three Source',rgba.every((v,i)=>v===[31,73,149,227][i]));
+      g.renderer.setRenderTarget(null);
+    }
     poison = makePoison();
     {const error=gl.getError();if(error)throw Error(`After poison: GL ${error}`);}
     g.renderer.resetState();

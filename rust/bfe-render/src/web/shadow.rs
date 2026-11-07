@@ -5,6 +5,8 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 impl BfeRenderer {
+    pub fn static_shadow_input_ptr(&mut self)->u32 {self.r.shadow.static_view.as_mut_ptr() as u32}
+    pub fn static_shadow_input_len(&self)->u32 {self.r.shadow.static_view.len() as u32}
     pub fn caster_input_ptr(&mut self) -> u32 { self.r.shadow.input.as_mut_ptr() as u32 }
     pub fn caster_input_len(&self) -> u32 { self.r.shadow.input.len() as u32 }
     pub fn shadow_frame(&mut self) -> Result<Vec<u32>, JsValue> {

@@ -19,6 +19,8 @@ mod transparent;
 mod view;
 mod water;
 mod world;
+mod static_world;
+mod static_depth;
 
 use crate::core::MultiDraw;
 use crate::renderer::Renderer;
@@ -63,6 +65,8 @@ pub struct BfeRenderer {
     recovery: recovery::Recovery,
     hud_model: crate::hud_model::HudModel,
     rebuilding: bool,
+    static_worlds: Vec<static_world::StaticSlot>,
+    static_sources: Vec<static_world::StaticSource>,
 }
 
 #[wasm_bindgen]
@@ -71,7 +75,7 @@ impl BfeRenderer {
     pub fn new(context: web_sys::WebGl2RenderingContext) -> BfeRenderer {
         let ext = context.get_extension("WEBGL_multi_draw").ok().flatten().map(|e| e.unchecked_into::<web_sys::WebglMultiDraw>());
         let multi = WebMultiDraw(ext, context.clone(), None);
-        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false }
+        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false, static_worlds: vec![], static_sources: vec![] }
     }
 
     // Where the page writes the frame's values and records (f64), and the

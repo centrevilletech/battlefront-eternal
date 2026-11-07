@@ -164,14 +164,17 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
 // Presentation tests isolate the command boundary from real WebGL storage.
 // Backend smoke tests exercise GpuResources itself, including restore/copies.
 export function standinResources(renderer, calls) {
-  const ids = new WeakMap(); let next = 0;
+  const ids = new WeakMap(),handles=[]; let next = 0;
   const owner = {
-    gpu: { epoch: () => 0, retired_sample: () => next++ },
+    gpu: { epoch: () => 0, retired_sample: () => next++, texture:id=>handles[id] },
     owns: texture => ids.has(texture),
+    staticAnisotropy(value) { calls.push(["static_anisotropy",value]); },
+    staticSample(texture) { return typeof texture === "number" ? texture : this.textureId(texture); },
     textureId(texture) {
       renderer.initTexture(texture);
       if (!ids.has(texture)) ids.set(texture,next++);
-      return ids.get(texture);
+      const id=ids.get(texture);handles[id]=renderer.properties.get(texture).__webglTexture;
+      return id;
     },
     resolve(target) { if (target?.samples) calls.push(["resolveTarget",target]); },
     copy(source,target,mask,mipmaps=false) { calls.push(["copyTarget",source,target,mask,mipmaps]); },

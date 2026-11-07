@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { lighting } from "./materials.js";
-import { FoliageGpuBatch } from "./foliage-gpu.js";
 import { SurfaceHost } from "./environment/surfaces.js";
 import { SurfaceResult as RESULT } from "./environment/layout.js";
 
@@ -195,7 +194,7 @@ export class Foliage {
     for (const [name, def] of Object.entries(data.classes || {})) {
       const grass = def.base === "grasspatch";
       const cards = grass ? buildGrass(def) : buildLeaves(def);
-      const batch = new FoliageGpuBatch(texture(def.Texture), cards, def, grass);
+      const map = texture(def.Texture);
       const bounds = new THREE.Box3();
       if (grass) for (const card of cards) {
         const center = new THREE.Vector3(card.x, card.y, card.z);
@@ -210,7 +209,7 @@ export class Foliage {
         bounds.expandByPoint(center.clone().addScalar(size));
         bounds.expandByPoint(center.clone().addScalar(-size));
       }
-      this.kinds.set(name, { def, grass, cards, batch, instances: [], bounds });
+      this.kinds.set(name, { def, grass, cards, map, instances: [], bounds });
     }
     for (const inst of data.instances || []) {
       const kind = this.kinds.get(inst.class);

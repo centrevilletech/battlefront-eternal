@@ -5,12 +5,12 @@
 use std::collections::HashMap;
 use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::{WebGl2RenderingContext as Gl, WebGlTexture, WebGlFramebuffer, WebGlRenderbuffer, WebGlSync};
-use serde::Deserialize;
+use serde::{Deserialize,Serialize};
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ImageDesc { width: i32, height: i32, depth: i32, target: u32, format: u32, data_type: u32, internal: Option<String>, srgb: bool, #[serde(default)] render_target: bool }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Sampling { wrap_s: u32, wrap_t: u32, wrap_r: u32, min: u32, mag: u32, anisotropy: f32, flip: bool, premultiply: bool, alignment: i32, mipmaps: bool, compare: Option<u32> }
 #[derive(Clone, Deserialize)]
@@ -18,10 +18,10 @@ struct Mip { width: i32, height: i32, offset: usize, length: usize }
 // Encoded PNGs survive restoration without retaining another full RGBA image.
 // Dynamic presentation arrays remain borrowed JS views, avoiding a per-frame
 // copy into WASM. Compressed payloads retain their exact authored mip bytes.
-enum Pixels { Empty, Png(Vec<u8>, Option<js_sys::Object>), Foreign(js_sys::Object), Blocks(Vec<u8>, Vec<Mip>), Canvas(web_sys::HtmlCanvasElement) }
-struct Source { desc: ImageDesc, pixels: Pixels, version: u32 }
+enum Pixels { Empty, Owned(Vec<u8>), Png(Vec<u8>, Option<js_sys::Object>), Foreign(js_sys::Object), Blocks(Vec<u8>, Vec<Mip>), Canvas(web_sys::HtmlCanvasElement) }
+struct Source { desc: ImageDesc, pixels: Pixels, version: u32, host_released: bool }
 struct Physical { source: u32, sampling: Sampling, handle: Option<WebGlTexture>, seen: u32, users: u32, allocated: Option<(i32,i32,i32,u32,bool)>, mip_levels: u32, anisotropy_set: bool }
-struct Sample { physical: usize, alive: bool }
+struct Sample { physical: usize, alive: bool, owned: bool }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TargetDesc { width: i32, height: i32, color: u32, depth: Option<u32>, depth_buffer: bool, stencil: bool, samples: i32, resolve_depth: bool, resolve_stencil: bool, cube: bool }
@@ -41,7 +41,7 @@ pub struct GpuResources {
     free_physical: Vec<usize>,
     current: Option<u32>, face: usize, level: i32,
     epoch: u32, anisotropy: bool, float_linear: bool,
-    retired: Option<u32>, lost: bool,
+    retired: Option<u32>, world_empty: Option<u32>, world_neutral: Option<u32>, lost: bool,
     // A frame boundary alone does not drain ANGLE's upload staging allocations.
     // Loading waits on this fence before issuing another bounded image batch.
     upload_sync: Option<WebGlSync>,
@@ -128,7 +128,7 @@ impl GpuResources {
         // Enable sampling/renderability extensions before storage creation.
         // Capability queries are context-local and run once, not per upload.
         let (float_linear,anisotropy) = enable_extensions(&gl);
-        Self { gl, sources: Vec::new(), physical: Vec::new(), samples: Vec::new(), cache: HashMap::new(), targets: Vec::new(), free_physical: Vec::new(), current: None, face: 0, level: 0, epoch: 0, anisotropy, float_linear, retired: None, lost: false, upload_sync: None }
+        Self { gl, sources: Vec::new(), physical: Vec::new(), samples: Vec::new(), cache: HashMap::new(), targets: Vec::new(), free_physical: Vec::new(), current: None, face: 0, level: 0, epoch: 0, anisotropy, float_linear, retired: None, world_empty: None, world_neutral: None, lost: false, upload_sync: None }
     }
     // Diagnostics are computed on demand, never while submitting a frame.
     // Encoded/source bytes count once; shared sampler handles count once too.
@@ -141,7 +141,7 @@ impl GpuResources {
         for source in self.sources.iter().flatten() {
             retained += match &source.pixels {
                 Pixels::Png(bytes,initial)=>bytes.len()+initial.as_ref().and_then(|v|js_sys::Reflect::get(v,&JsValue::from_str("byteLength")).ok()).and_then(|v|v.as_f64()).unwrap_or(0.0) as usize,
-                Pixels::Blocks(bytes,_)=>bytes.len(),
+                Pixels::Blocks(bytes,_) | Pixels::Owned(bytes)=>bytes.len(),
                 Pixels::Foreign(view) => js_sys::Reflect::get(view,&JsValue::from_str("byteLength")).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as usize,
                 _ => 0,
             };
@@ -206,11 +206,45 @@ impl GpuResources {
         if let Some(id) = self.retired { return Ok(id); }
         let desc = ImageDesc { width:1,height:1,depth:1,target:Gl::TEXTURE_2D,format:1023,data_type:1009,internal:None,srgb:false,render_target:false };
         let source = self.sources.len() as u32;
-        self.sources.push(Some(Source { desc,pixels:Pixels::Empty,version:1 }));
+        self.sources.push(Some(Source { desc,pixels:Pixels::Empty,version:1,host_released:false }));
         let id = self.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":4,"mipmaps":false,"compare":null}"#)?;
         self.upload(id)?;self.retired=Some(id);Ok(id)
     }
 
+    // TerrainPass.bind and materials.js::neutralTexture made these two tiny
+    // DataTextures. Their bytes, representation and nearest sampler now have
+    // one native descriptor, shared by every terrain bucket and restoration.
+    pub fn world_fallback(&mut self, neutral: bool) -> Result<u32,JsValue> {
+        if let Some(id) = if neutral { self.world_neutral } else { self.world_empty } { return Ok(id); }
+        let source = self.sources.len() as u32;
+        self.sources.push(Some(Source { desc: ImageDesc { width: 1, height: 1, depth: 1, target: Gl::TEXTURE_2D,
+            format: 1023, data_type: 1009, internal: None, srgb: false, render_target: false },
+            pixels: Pixels::Owned(if neutral {vec![128,128,128,255]} else {vec![0;4]}), version: 1, host_released: false }));
+        let sample = self.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        self.upload(sample)?;
+        if neutral { self.world_neutral=Some(sample); } else { self.world_empty=Some(sample); }
+        Ok(sample)
+    }
+    // TreeCanopies.constructor formerly made a DataTexture solely to select
+    // distant tree cards. Its scalar type and nearest/clamp sampler are native
+    // policy. The retained placement owner supplies one persistent CPU mirror.
+    pub fn canopy_state(&mut self, width: u32, pixels: js_sys::Object) -> Result<u32,JsValue> {
+        if width == 0 || width > 65_536 { return Err(error("Invalid canopy state capacity")); }
+        let source = self.sources.len() as u32;
+        self.sources.push(Some(Source { desc: ImageDesc { width: width as i32, height: 1, depth: 1, target: Gl::TEXTURE_2D,
+            format: 1023, data_type: 1015, internal: None, srgb: false, render_target: false }, pixels: Pixels::Foreign(pixels), version: 1, host_released: false }));
+        let sample = self.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        self.upload(sample)?;
+        Ok(sample)
+    }
+    // A typed dirty command replaces Texture.needsUpdate/version polling.
+    // The physical handle stays fixed; restoration retains the latest mirror.
+    pub fn update_canopy_state(&mut self, sample: u32, pixels: js_sys::Object) -> Result<(),JsValue> {
+        let physical = self.sample_physical(sample)?;
+        let source = self.physical[physical].source;
+        self.source_pixels(source, pixels)?;
+        self.upload(sample)
+    }
     // TextureLibrary publishes source dimensions before sampling is possible.
     // A source owns bytes; it is not a WebGL object and survives context loss.
     // Its id is append-only because retained sampler rows address this table.
@@ -218,7 +252,7 @@ impl GpuResources {
         let desc: ImageDesc = parse(desc)?;
         validate_image(&desc)?;
         let id = self.sources.len() as u32;
-        self.sources.push(Some(Source { desc, pixels: Pixels::Empty, version: 1 })); Ok(id)
+        self.sources.push(Some(Source { desc, pixels: Pixels::Empty, version: 1, host_released: false })); Ok(id)
     }
     // Source commands publish only changed payloads. Sampler clones see that
     // generation on their next upload without copying or cloning its bytes.
@@ -241,8 +275,19 @@ impl GpuResources {
     // Scene Source lifetime, rather than a sampler's disposal, owns encoded
     // pixels. Disposing then reusing a Texture must still be able to upload it.
     pub fn release_source(&mut self, id: u32) {
-        for i in 0..self.samples.len() { if self.samples[i].alive && self.physical[self.samples[i].physical].source == id { let _=self.dispose_sample(i as u32); } }
-        if let Some(slot) = self.sources.get_mut(id as usize) { *slot = None; }
+        if let Some(source)=self.sources.get_mut(id as usize).and_then(Option::as_mut) {source.host_released=true;} else {return;}
+        for i in 0..self.samples.len() { if self.samples[i].alive && !self.samples[i].owned && self.physical[self.samples[i].physical].source == id { let _=self.dispose_sample(i as u32); } }
+        if !self.samples.iter().any(|s|s.alive&&s.owned&&self.physical[s.physical].source==id) {self.sources[id as usize]=None;}
+    }
+    // Static descriptors own sampler/source lifetime independently of a loader
+    // Texture's weak cache or finalizer. Pinning shares existing storage/bytes;
+    // logical ids never recycle even when the physical allocation is reused.
+    pub fn retain_sample(&mut self, id: u32) -> Result<u32,JsValue> {
+        let physical=self.sample_physical(id)?;
+        self.physical[physical].users+=1;
+        let id=self.samples.len() as u32;
+        self.samples.push(Sample {physical,alive:true,owned:true});
+        Ok(id)
     }
     // Port of WebGLTextures' source-and-cache-key sharing. Logical samples
     // remain distinct even when two clones initially share one GPU texture.
@@ -260,7 +305,7 @@ impl GpuResources {
         }
         self.physical[physical].users += 1;
         let id = self.samples.len() as u32;
-        self.samples.push(Sample { physical, alive: true }); Ok(id)
+        self.samples.push(Sample { physical, alive: true, owned: false }); Ok(id)
     }
     // WebGLTextures updates sampling without replacing target attachments.
     // Ordinary image clones instead move between cached physical allocations.
@@ -285,7 +330,7 @@ impl GpuResources {
             return Ok(());
         }
         let next_sampling: Sampling=parse(settings)?;
-        let key=(source,settings.to_owned());
+        let key=(source,serde_json::to_string(&next_sampling).map_err(|e|error(e.to_string()))?);
         // A sole sampler keeps its allocation for filtering-only revisions.
         // No PNG decode or upload belongs on the anisotropy setting's frame.
         if self.physical[old].users==1 && !self.cache.contains_key(&key) {
@@ -309,12 +354,40 @@ impl GpuResources {
         }
         Ok(())
     }
+    // Graphics.filter's static family publishes a typed anisotropy setting.
+    // Walk native owned samplers on the event, never loader Texture versions
+    // on a battle frame. Source bytes and clone identities remain shared.
+    pub fn static_anisotropy(&mut self, value:f32)->Result<(),JsValue> {
+        // Graphics.filter applies this global setting to every asset clone.
+        // Update borrowed aliases of static sources in the same command, so
+        // static-only loader shells cannot strand a second GPU allocation.
+        let maximum=if self.lost {value.max(1.)} else if self.anisotropy {self.gl.get_parameter(0x84ff)?.as_f64().unwrap_or(1.) as f32} else {1.};
+        let value=value.max(1.).min(maximum);
+        let mut owned=vec![false;self.sources.len()];
+        for sample in &self.samples {if sample.alive&&sample.owned {owned[self.physical[sample.physical].source as usize]=true;}}
+        for id in 0..self.samples.len() {
+            if !self.samples[id].alive || !owned[self.physical[self.samples[id].physical].source as usize] {continue;}
+            let mut sampling=self.physical[self.samples[id].physical].sampling.clone();
+            sampling.anisotropy=value.max(1.);
+            self.sampling(id as u32,&serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?)?;
+            // Sampling can split shared storage. Finish that cold upload before
+            // publishing the epoch; a live draw must never see an empty handle.
+            if !self.lost {self.upload(id as u32)?;}
+        }
+        Ok(())
+    }
     // Texture.dispose releases one sampler, not its shared source payload.
     // Idempotence matters when both explicit disposal and a finalizer arrive.
     // The last sampler releases physical storage; other clones remain valid.
     pub fn dispose_sample(&mut self,id:u32)->Result<(),JsValue>{
         let sample=self.samples.get_mut(id as usize).ok_or_else(||error("Unknown sampler"))?;
-        if sample.alive{sample.alive=false;let physical=sample.physical;self.release_physical(physical)?;self.epoch+=1;}Ok(())
+        if sample.alive {
+            sample.alive=false;let physical=sample.physical;let owned=sample.owned;let source=self.physical[physical].source;
+            self.release_physical(physical)?;self.epoch+=1;
+            if owned && self.sources.get(source as usize).and_then(Option::as_ref).is_some_and(|s|s.host_released)
+                && !self.samples.iter().any(|s|s.alive&&s.owned&&self.physical[s.physical].source==source) { self.sources[source as usize]=None; }
+        }
+        Ok(())
     }
     pub fn upload(&mut self,id:u32)->Result<(),JsValue>{let physical=self.sample_physical(id)?;self.upload_physical(physical)}
     pub fn texture(&self, id: u32) -> Result<WebGlTexture,JsValue> {
@@ -432,10 +505,12 @@ impl GpuResources {
     fn source_mut(&mut self,id:u32)->Result<&mut Source,JsValue>{self.sources.get_mut(id as usize).and_then(Option::as_mut).ok_or_else(||error("Unknown or disposed source"))}
     fn target_ref(&self,id:u32)->Result<&Target,JsValue>{self.targets.get(id as usize).and_then(Option::as_ref).ok_or_else(||error("Unknown or disposed target"))}
     fn sample_physical(&self,id:u32)->Result<usize,JsValue>{let s=self.samples.get(id as usize).filter(|s|s.alive).ok_or_else(||error("Unknown or disposed sampler"))?;Ok(s.physical)}
+    // Native typed commands and loader JSON use one canonical sampling key.
+    // Equivalent 2 and 2.0 values must share storage across the two callers.
     fn physical_for(&mut self,source:u32,text:&str)->Result<usize,JsValue>{
-        self.source_ref(source)?;let key=(source,text.to_owned());
+        self.source_ref(source)?;let sampling:Sampling=parse(text)?;
+        let key=(source,serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?);
         if let Some(id)=self.cache.get(&key){return Ok(*id);}
-        let sampling=parse(text)?;
         let row=Physical{source,sampling,handle:None,seen:0,users:0,allocated:None,mip_levels:0,anisotropy_set:false};
         let id=if let Some(id)=self.free_physical.pop(){self.physical[id]=row;id}else{let id=self.physical.len();self.physical.push(row);id};
         self.cache.insert(key,id);Ok(id)
@@ -520,6 +595,10 @@ impl GpuResources {
             // Keep that source-specific rule in Rust and disable GL's second
             // conversion. Foreign arrays retain their original upload behavior.
             Pixels::Foreign(data)=>Some(data.clone()),
+            Pixels::Owned(bytes)=>{
+                crate::core::spare_view_slot();
+                Some(unsafe { js_sys::Uint8Array::view(bytes) }.into())
+            },
             Pixels::Png(_,Some(data)) if !s.premultiply=>Some(data.clone()),
             Pixels::Png(bytes,initial)=>{
                 // Initial rows came from the worker. Only restoration or a

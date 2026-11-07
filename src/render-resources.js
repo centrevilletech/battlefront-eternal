@@ -28,6 +28,7 @@ export class RenderResources {
     this.gpu = new GpuResources(renderer.getContext());
     this.images = new WeakMap();
     this.entries = new WeakMap();
+    this.staticSamples = new WeakMap();
     this.targets = new WeakMap();
     this.targetTextures = new WeakMap();
     this.samples = new Set();
@@ -141,6 +142,30 @@ export class RenderResources {
 
   owns(texture) { return this.entries.has(texture); }
 
+  // Static draw descriptors retain a numeric sampler. Late asset uploads and
+  // shared-source clones still use this bank; drawing never adopts a handle
+  // from renderer.properties or rescans a Three texture after cold admission.
+  staticSample(texture) {
+    if (texture == null || typeof texture === "number") return texture ?? -1;
+    const sample = this.textureId(texture);
+    let id = this.staticSamples.get(texture);
+    if (id === undefined) { id = this.gpu.retain_sample(sample); this.staticSamples.set(texture, id); }
+    return id;
+  }
+
+  // Typed settings update native aliases together. Existing loader clients
+  // refresh their presentation handles on next use even without a JS version
+  // change; numeric static draws already observe the resource epoch directly.
+  staticAnisotropy(value) {
+    this.gpu.static_anisotropy(value);
+    for (const entry of this.samples) entry.generation = -1;
+    this.revision++;
+  }
+
+  // Late compressed clones publish once through the paced upload queue. Frame
+  // adapters hold only native ids, so completion cannot rely on version scans.
+  publishStatic(texture) { if (this.staticSamples.has(texture)) return this.enqueue(texture); }
+
   // Interface font preloads need dimensions and restorable source bytes, not
   // GPU storage for every unused page. Visible batches upload through textureId.
   // World loaders may already have uploaded; releasing decoded rows is harmless.
@@ -183,7 +208,13 @@ export class RenderResources {
     } else {
       let changed=false;
       for (const key of SAMPLE_KEYS) if (entry[key] !== texture[key]) { changed=true;break; }
-      if (changed) { this.gpu.sampling(entry.id,JSON.stringify(this.sampling(texture,entry.sampling)));dirty=true; }
+      if (changed) {
+        const descriptor = JSON.stringify(this.sampling(texture,entry.sampling));
+        this.gpu.sampling(entry.id,descriptor);
+        const native = this.staticSamples.get(texture);
+        if (native !== undefined) this.gpu.sampling(native,descriptor);
+        dirty=true;
+      }
     }
     // Unchanged descriptors require no WASM call and no WebGL lookup. This
     // matters for maps with many retained effect samplers visited each frame.

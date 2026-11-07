@@ -5,12 +5,15 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 impl BfeRenderer {
+    pub fn world_input_ptr(&mut self) -> u32 { self.r.world.input_active=true; self.r.world.input.as_mut_ptr() as u32 }
+    pub fn world_input_len(&self) -> u32 { self.r.world.input.len() as u32 }
+    pub fn world_uses_lamps(&self, id: u32) -> bool { self.r.world.uses_lamps(&self.r.core, id) }
     // bounds: sphere centre and radius, then box min and max (world space).
     // WorldPass.register creates the geometry/program first. The returned bucket
     // id is retained by JS, so recovery must replay those allocations in order.
     pub fn add_world(&mut self, geometry: u32, program: u32, order: u32, flags: u32, bounds: &[f64]) -> u32 {
         self.remember_add_world(geometry, program, order, flags, bounds); // recovery
- self.r.world.add_world(geometry, program, order, flags, bounds)
+ let id=self.r.world.add_world(geometry, program, order, flags, bounds); self.r.world.init_lamps(&self.r.core,id); id
     }
     pub fn world_texture(&mut self, w: u32, unit: u32, texture: u32) {
         self.remember_world_texture(w, unit, texture); // recovery

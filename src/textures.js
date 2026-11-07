@@ -80,7 +80,7 @@ export class TextureLibrary {
           magFilter: THREE.LinearFilter, premultiplyAlpha: image.premultiplied };
         fill(texture, loaded);
         for (const copy of copies) fill(copy, loaded);
-        await this.renderer.resources.enqueue(texture);
+        await Promise.all([this.renderer.resources.enqueue(texture), ...Array.from(copies, copy => this.renderer.resources.publishStatic(copy))]);
         copies.clear();
         this.stats.compressed++;
         } finally { image.release(); }

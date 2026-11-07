@@ -162,6 +162,7 @@ export class RustRender {
     this.programs = new Map(); // three's program -> Rust's program
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
     this.textureSources = [];
+    this.nativeSamples = new Map();
     this.sampleTextures = new WeakMap();
     this.textureRevision = graphics.textureRevision ?? 0;
     this.resourceEpoch = 0;
@@ -236,6 +237,7 @@ export class RustRender {
     this.sampleTextures = new WeakMap();
     for (let id = 0; id < this.textureSources.length; id++) {
       const texture = this.textureSources[id];
+      if (typeof texture === "number") { ids[id] = texture; continue; }
       ids[id] = this.resources.owns(texture) ? this.resources.textureId(texture) : this.resources.gpu.retired_sample();
       const handle = renderer.properties.get(texture).__webglTexture;
       this.textures.set(handle,id);
@@ -310,13 +312,26 @@ export class RustRender {
   }
 
   texture(texture,refresh=false) {
+    // Native resource clients pass sampler ids. Their descriptors and retained
+    // restoration bytes live in GpuResources, never renderer.properties.
+    if (typeof texture === "number") {
+      const known = this.nativeSamples.get(texture);
+      if (known !== undefined) {
+        if (refresh) this.rust.replace_sample_texture(known, this.resources.gpu, texture);
+        return known;
+      }
+      const id = this.rust.add_texture(this.resources.gpu, texture);
+      this.nativeSamples.set(texture, id);
+      this.textureSources[id] = texture;
+      return id;
+    }
     if (!texture) return -1;
     const known = this.sampleTextures.get(texture);
     // Resource generations are resolved once per descriptor change. Ordinary
     // draw lookups only compare scalar versions; no image/sampler scan runs.
     if(!refresh && known && known.revision===this.resources.revision && known.version===texture.version && known.source===texture.source && known.sourceVersion===texture.source.version && known.width===texture.image?.width && known.height===texture.image?.height && known.depth===texture.image?.depth)return known.id;
     const resource = this.resources.textureId(texture);
-    const handle = this.renderer.properties.get(texture).__webglTexture;
+    const handle = this.resources.gpu.texture(resource);
     if(known){
       if(known.handle!==handle)this.replaceTexture(known.id,texture,known.handle,handle,resource);
       known.revision=this.resources.revision;known.version=texture.version;known.source=texture.source;known.sourceVersion=texture.source.version;known.width=texture.image?.width;known.height=texture.image?.height;known.depth=texture.image?.depth;
@@ -625,7 +640,7 @@ export class RustRender {
     const revision=this.graphics.textureRevision ?? 0;
     if(revision!==this.textureRevision || this.resources.gpu.epoch()!==this.resourceEpoch){
       this.textureRevision=revision;
-      for(const texture of this.textureSources)if(this.resources.owns(texture))this.texture(texture,true);
+      for(const texture of this.textureSources)if(typeof texture === "number" || this.resources.owns(texture))this.texture(texture,true);
       this.resourceEpoch=this.resources.gpu.epoch();
     }
 
