@@ -6,27 +6,23 @@ use napi_derive::napi;
 use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
-#[cfg(feature = "lifecycle-probe")]
 mod blocks;
+mod operations;
 mod lifecycle;
 use lifecycle::{Owner, OwnedContext, Scope, close};
 
-#[cfg(feature = "lifecycle-probe")]
 use std::sync::atomic::{AtomicU32, Ordering};
-#[cfg(feature = "lifecycle-probe")]
 static CREATED: AtomicU32 = AtomicU32::new(0);
-#[cfg(feature = "lifecycle-probe")]
 static RELEASED: AtomicU32 = AtomicU32::new(0);
 #[cfg(feature = "lifecycle-probe")]
 static HOOKS_CREATED: AtomicU32 = AtomicU32::new(0);
 #[cfg(feature = "lifecycle-probe")]
 static HOOKS_RELEASED: AtomicU32 = AtomicU32::new(0);
 
-// Test counters contain no owners or IDs and never participate in simulation.
-#[cfg(feature = "lifecycle-probe")]
+// Counters contain no owners or IDs and never participate in simulation.
 #[napi]
-pub fn lifecycle_counts() -> Vec<u32> {
-    vec![CREATED.load(Ordering::SeqCst), RELEASED.load(Ordering::SeqCst)]
+pub fn lifecycle_counts() -> Result<Vec<u32>> {
+    boundary(|| Ok(vec![CREATED.load(Ordering::SeqCst), RELEASED.load(Ordering::SeqCst)]))
 }
 
 // No raw extern-C simulation export crosses this unwind boundary. Errors stop
@@ -71,29 +67,36 @@ impl NativeHost {
         boundary(|| Ok(Self {scope: Scope::new(env)?}))
     }
     #[napi]
-    pub fn create(&self) -> Result<NativeOwner> {
-        self.create_owner(None)
+    pub fn create(&self, reserve: Option<operations::Reserve>) -> Result<NativeOwner> {
+        self.create_owner(reserve, None)
     }
-    fn create_owner(&self, _fail_after: Option<u32>) -> Result<NativeOwner> {
+    fn create_owner(&self, reserve: Option<operations::Reserve>, _fail_after: Option<u32>) -> Result<NativeOwner> {
         boundary(|| {
-            let owner = Rc::new(RefCell::new(OwnedContext {context: Some(Context::new()),
+            let owner = Rc::new(RefCell::new(OwnedContext {context: Some(Context::new()), arenas: operations::Arenas::default(), poisoned: false,
                 #[cfg(feature = "lifecycle-probe")] panic_on_close: false}));
             // Establish the take-once destructor before registry allocation or
             // diagnostic failure injection. A partial construction owns a drop.
             let native = NativeOwner { owner, scope: RefCell::new(Some(self.scope.clone())) };
-            #[cfg(feature = "lifecycle-probe")]
             CREATED.fetch_add(1, Ordering::SeqCst);
             #[cfg(feature = "lifecycle-probe")]
             if _fail_after == Some(1) { return Err(Error::from_reason("Context acquisition fixture")); }
             self.scope.insert(&native.owner);
             #[cfg(feature = "lifecycle-probe")]
             if _fail_after == Some(2) { return Err(Error::from_reason("Registry acquisition fixture")); }
+            native.invoke(|owner| owner.arenas.reserve(reserve))?;
+            #[cfg(feature = "lifecycle-probe")]
+            if _fail_after == Some(3) { return Err(Error::from_reason("Arena acquisition fixture")); }
+            #[cfg(feature = "lifecycle-probe")]
+            if _fail_after == Some(4) {
+                native.intern(vec![65])?;
+                return Err(Error::from_reason("Cold admission acquisition fixture"));
+            }
             Ok(native)
         })
     }
     #[napi]
-    pub fn live_owners(&self) -> u32 {
-        self.scope.live()
+    pub fn live_owners(&self) -> Result<u32> {
+        boundary(|| Ok(self.scope.live()))
     }
 }
 

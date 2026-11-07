@@ -9,7 +9,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [features]
-# Nonallocating resource counters for worker/GC teardown fixtures only.
+# Fault injection and active-call fixtures are absent from packaged addons.
 lifecycle-probe = []
 
 [dependencies]

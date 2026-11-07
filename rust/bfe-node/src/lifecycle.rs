@@ -9,6 +9,8 @@ use std::rc::{Rc, Weak};
 
 pub(super) struct OwnedContext {
     pub context: Option<Context>,
+    pub arenas: super::operations::Arenas,
+    pub poisoned: bool,
     #[cfg(feature = "lifecycle-probe")]
     pub panic_on_close: bool,
 }
@@ -91,13 +93,17 @@ unsafe extern "C" fn cleanup(data: *mut c_void) {
 pub(super) fn close(owner: &Owner) -> bool {
     // Return the RefCell loan before disposal: a resource destructor may call
     // into another owner, and no loan should span that callback point.
-    let context = owner.borrow_mut().context.take();
+    let context = {
+        let mut owner = owner.borrow_mut();
+        owner.arenas.release();
+        owner.context.take()
+    };
     if let Some(context) = context {
         let _ = context.dispose();
         drop(context);
+        super::RELEASED.fetch_add(1, super::Ordering::SeqCst);
         #[cfg(feature = "lifecycle-probe")]
         {
-            super::RELEASED.fetch_add(1, super::Ordering::SeqCst);
             let panic = std::mem::take(&mut owner.borrow_mut().panic_on_close);
             if panic {panic!("Context close fixture");}
         }

@@ -22,8 +22,8 @@ pub struct Identity {
 impl NativeHost {
     #[napi]
     pub fn probe_failure(&self, acquisition: u32) -> Result<NativeOwner> {
-        if !(1..=2).contains(&acquisition) { return Err(Error::from_reason("Unknown acquisition")); }
-        self.create_owner(Some(acquisition))
+        if !(1..=4).contains(&acquisition) { return Err(Error::from_reason("Unknown acquisition")); }
+        self.create_owner(None, Some(acquisition))
     }
 }
 
@@ -128,6 +128,10 @@ pub fn cleanup_hook_counts() -> Vec<u32> {
 }
 #[napi]
 impl NativeOwner {
+    #[napi]
+    pub fn probe_operation_panic(&self) -> Result<()> {
+        self.invoke(|_| panic!("operation fixture"))
+    }
     #[napi]
     pub fn probe_close_panic(&self) {self.owner.borrow_mut().panic_on_close = true;}
 }
