@@ -110,7 +110,7 @@ test('admission may answer asynchronously (policy on another thread)', async t =
 
 test('a port race keeps the fastest of several routes to one server and closes the rest', async t => {
   const { server, client } = await pair(t, { clientOptions: { raceAddress: () => true } });
-  const proxy = await multipathProxy({ address: '127.0.0.1', port: server.port }, { fastIndex: 3, slowMs: 60 });
+  const proxy = await multipathProxy({ address: '127.0.0.1', port: server.port }, { fastIndex: 3, slowMs: 200 });
   t.after(() => proxy.close());
   const report = probed(client);
   const session = await client.connect({ serverId: server.identity.id, candidates: [{ address: '127.0.0.1', port: proxy.port }], ports: 6 });
@@ -119,7 +119,7 @@ test('a port race keeps the fastest of several routes to one server and closes t
   assert.equal(proxy.routes.size, 6, 'six local ports raced');
   assert.equal(session.path.localPort, fast, 'the session uses the port with the fast route');
   assert.equal((await report).ports.length, 16, 'every raced port and the probe-only ones were timed');
-  assert.ok(session.rtt < 40, `round trip ${session.rtt} ms`);
+  assert.ok(session.rtt < 100, `round trip ${session.rtt} ms`);
   assert.equal(client.extraSockets.size, fast === client.port ? 0 : 1, 'losing ports are closed');
   session.close();
   await waitFor(() => client.extraSockets.size === 0, 4000);

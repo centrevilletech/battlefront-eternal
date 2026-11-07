@@ -1,5 +1,5 @@
-// Compare cold native algorithms with the browser constructors on synthetic
-// authored inputs. The oracle reads source directly; it never changes src/.
+// Compare cold native algorithms with the browser's current builders on
+// synthetic inputs. Foliage still uses JS; water/ocean use Rust descriptors.
 import fs from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -29,18 +29,17 @@ for(const definition of definitions){
  let delta=0;for(let i=0;i<expected.length;i++){delta=Math.max(delta,Math.abs(actual[i]-expected[i]));assert.equal(Math.fround(actual[i]),Math.fround(expected[i]),`${definition.base} scalar ${i}`);}
  console.log(JSON.stringify({kind:definition.base,count:cards.length,maxFloat64Delta:delta,uploadedScalarsExact:true}));
 }
-// Water.surface itself only constructs Three shells after these arrays. Run
-// that method with a synthetic receiver and compare its typed geometry.
-const water=fs.readFileSync(new URL('../src/water.js',import.meta.url),'utf8');
-const method=water.slice(water.indexOf('  surface(divisions'),water.indexOf('  ringMesh(map)'));
-const surface=new Function('THREE',`return ({${method}}).surface`)(THREE);
+// Water.prepareResources now delegates to WaterSource. Compare its live
+// descriptor with the independent native content constructor, including UVs,
+// clipped-cell exclusion and rebased patch indices. No JS twin is retained.
 const data={cell:32,height:-4,offset:[16,16],cells:[[0,0,0],[1,0,1]],patches:[{positions:[[0,-4,0],[1,-4,0],[0,-4,1]],uvs:[[0,0],[1,0],[0,1]],indices:[0,1,2]}]};
 for(const [divisions,rows] of [[1,1],[3,7],[16,16]]){
- const g=surface.call({...data,data},divisions,rows),p=g.attributes.position.array,uv=g.attributes.uv.array;
- const vertices=[];for(let i=0;i<p.length/3;i++)vertices.push(...p.subarray(i*3,i*3+3),...uv.subarray(i*2,i*2+2));
- const actual=native({kind:'water',data,divisions,rows});assert.deepEqual(actual,{vertices,index:Array.from(g.index.array)});console.log(JSON.stringify({kind:'water',divisions,rows,vertices:p.length/3,exact:true}));
+ const expected=native({kind:'browser-water',data,divisions,rows});
+ const actual=native({kind:'water',data,divisions,rows});assert.deepEqual(actual,expected);console.log(JSON.stringify({kind:'water',divisions,rows,vertices:actual.vertices.length/5,exact:true}));
 }
 
-const oceanSource=fs.readFileSync(new URL('../src/ocean-surface.js',import.meta.url),'utf8');
-const ocean=new Function('THREE',oceanSource.slice(oceanSource.indexOf('export function oceanGeometry'),oceanSource.indexOf('export class OceanSurface')).replace('export function','function')+';return oceanGeometry;')(THREE)();
-assert.deepEqual(native({kind:'ocean'}),{positions:Array.from(ocean.attributes.position.array),index:Array.from(ocean.index.array)});console.log(JSON.stringify({kind:'ocean',vertices:ocean.attributes.position.count,exact:true}));
+// OceanSurface uses ocean_resources::geometry's classic grid and skirt. Both
+// builders widen stored Float32 positions to f64; strict equality checks every
+// resulting value (including signed zero) and index without a tolerance.
+const ocean=native({kind:'ocean'});
+assert.deepEqual(ocean,native({kind:'browser-ocean'}));console.log(JSON.stringify({kind:'ocean',vertices:ocean.positions.length/3,exact:true}));
