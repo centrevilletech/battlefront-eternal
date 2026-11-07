@@ -46,10 +46,10 @@ pub(super) fn invalid_entry(e:&crate::gen::ImEntry,codes:&[crate::store::StrId],
 }
 
 /// InputMailbox.take lends reserved result vectors across each exchange.
-/// Admission can allocate owned packet values; consumption only moves them
+/// Admission reserves packet banks; consumption only moves their values
 /// into this fixed-capacity scratch, preserving paused-burst order.
-pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut retired:Vec<f64>,
-    mut consumed:impl FnMut(&crate::gen::ImEntry))->(ImResult,ImTaken) {
+pub fn run_reusing(mut input:ImInput,strings:&mut Strings,mut command:ImTaken,mut retired:Vec<f64>,
+    entries:&mut Vec<crate::gen::ImEntry>,mut consumed:impl FnMut(&crate::gen::ImEntry))->(ImResult,ImTaken) {
     command.actions.clear();command.look.clear();command.human.clear();command.fire.clear();retired.clear();
     let mut out = ImResult { state: input.state, retired, ..Default::default() };
     (|| {
@@ -57,10 +57,11 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
         match input.op {
             ImOperation::Admit => out.accepted = admits(s, input.epoch_matches, input.sequence),
             ImOperation::Push => {
-                let Some(entry) = input.entry else { return; };
-                if !admits(s, input.epoch_matches, entry.sequence) { return; }
-                if s.queue.len() as f64 >= s.capacity { return; }
-                if s.queue.last().is_some_and(|last| entry.tick < last.tick) { return; }
+                let Some(entry) = input.entry.take() else { return; };
+                if !admits(s, input.epoch_matches, entry.sequence) || s.queue.len() as f64>=s.capacity
+                    || s.queue.last().is_some_and(|last|entry.tick<last.tick) {
+                    super::records::recycle(entries,entry);return;
+                }
                 s.received = entry.sequence; s.queue.push(entry); out.accepted = true;
             }
             ImOperation::Take => {
@@ -77,26 +78,27 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
                     // individually invalid record rather than retry it forever.
                     if next.generation==input.generation && !oversized && (command.actions.len()+next.actions.len()>2048
                         || command.look.len()+looks>2048 || (command.human.len()+next.human.len()) as f64>16.0*s.capacity || (command.fire.len()+next.fire.len()) as f64>16.0*s.capacity) {break;}
-                    let entry = s.queue.remove(0);
+                    let mut entry = s.queue.remove(0);
                     out.retired.push(entry.identity);
                     if entry.generation != input.generation {
-                        s.discarded = v8math::max(s.discarded, entry.sequence); continue;
+                        s.discarded = v8math::max(s.discarded, entry.sequence); super::records::recycle(entries,entry);continue;
                     }
                     consumed(&entry);
                     s.ack = entry.sequence; s.ack_tick = input.tick; s.state_tick = entry.tick;
                     if entry.tick < input.tick { s.late += 1.0; }
                     s.down = Some(entry.down);
-                    if !oversized { command.actions.extend(entry.actions); }
+                    if !oversized { command.actions.extend(entry.actions.drain(..)); }
                     if let Some(total) = entry.look_total {
                         let point = [total[0] - s.look_total[0], total[1] - s.look_total[1]];
                         if !oversized && (truthy(point[0]) || truthy(point[1])) { command.look.push(ImLook { point, object: None }); }
                         s.look_total = total;
-                    } else if !oversized { command.look.extend(entry.look); }
-                    if !oversized { command.human.extend(entry.human); command.fire.extend(entry.fire); }
-                    for field in entry.view {
+                    } else if !oversized { command.look.extend(entry.look.drain(..)); }
+                    if !oversized { command.human.extend(entry.human.drain(..)); command.fire.extend(entry.fire.drain(..)); }
+                    for field in entry.view.drain(..) {
                         if let Some(old) = s.view.iter_mut().find(|v| v.key == field.key) { old.value = field.value; }
                         else if s.view.len()<7 { s.view.push(field); }
                     }
+                    super::records::recycle(entries,entry);
                     // Even corrupted retained records retire with their original
                     // held/view watermarks, without growing command scratch or
                     // leaving a record that every later tick retries forever.
@@ -106,7 +108,7 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
             ImOperation::Clear => {
                 let last = s.queue.last().map_or(0.0, |c| c.sequence);
                 s.discarded = v8math::max(s.discarded, if truthy(last) { last } else { 0.0 });
-                s.queue.clear(); s.down = None; s.state_tick = 0.0;
+                for entry in s.queue.drain(..) {super::records::recycle(entries,entry);} s.down = None; s.state_tick = 0.0;
                 s.view.retain(|field| {
                     let key = strings.units(field.key);
                     !key.iter().copied().eq("gamepad".encode_utf16()) && !key.iter().copied().eq("viewTick".encode_utf16())
@@ -114,5 +116,6 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
             }
         }
     })();
+    if let Some(entry)=input.entry {super::records::recycle(entries,entry);}
     (out,command)
 }

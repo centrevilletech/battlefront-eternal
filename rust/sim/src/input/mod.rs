@@ -6,3 +6,5 @@ pub mod fire;
 pub mod mailbox;
 pub mod controls;
 pub mod module;
+
+mod records;

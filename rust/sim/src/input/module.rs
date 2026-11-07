@@ -1,5 +1,5 @@
 use super::{actions, fire, controls};
-use crate::gen::{IaInput, IaResult, IfInput, IfResult, ImInput, ImResult, IqInput, IqResult, IcInput, IcResult, IkInput};
+use crate::gen::{IaInput, IaResult, IfInput, IfResult, ImResult, IqInput, IqResult, IcInput, IcResult, IkInput};
 pub fn input_actions_words(which: u32) -> u32 {
     (match which { 0 => IaInput::WORDS, 1 => IaResult::WORDS, _ => 0 }) as u32
 }
@@ -26,25 +26,9 @@ pub(crate) fn input_fire_run_in(w: &mut crate::world::owner::World) -> Option<&[
 }
 
 pub(crate) fn input_mailbox_owned_run_in(w: &mut crate::world::owner::World, handle:u32) -> Option<&[f64]> {
-    let sim=&mut w.sim;let (row,heap)=sim.calls.args();
-    if !super::owner::valid_call(row,heap) {
-        if let Some(owner)=w.input.mailboxes.get_mut(handle as usize) {owner.rejected=owner.rejected.saturating_add(1);}
-        return None;
-    }
-    let call=crate::gen::InputMailboxCall::take(row,heap);
-    let input=ImInput {op:call.op,entry:call.entry,sequence:call.sequence,epoch_matches:call.epoch_matches,
-        tick:call.tick,generation:call.generation,..Default::default()};
-    let Some(owner)=w.input.mailboxes.get_mut(handle as usize) else {return None};
-    let mut result=owner.run(input,&mut sim.strings);
-    owner.lend_down(&mut result);
-    owner.lend_consumed(&mut result);
-    result.state=std::mem::take(&mut owner.state);
-    // Queued commands stay with their owner. Only consumed values and fixed
-    // counters return to the caller; inspection is a separate cold operation.
-    let queue=std::mem::take(&mut result.state.queue);
-    sim.calls.result(ImResult::WORDS,|row,heap|result.put(row,heap));
-    result.state.queue=queue;owner.state=std::mem::take(&mut result.state);owner.recycle(&mut result);owner.return_down(&mut result);
-    Some(&sim.calls.block.words[..])
+    let sim=&mut w.sim;
+    let owner=w.input.mailboxes.get_mut(handle as usize)?;
+    owner.exchange(&mut sim.calls,&mut sim.strings)
 }
 pub fn input_queue_words(which: u32) -> u32 {
     (match which { 0 => IqInput::WORDS, 1 => IqResult::WORDS, _ => 0 }) as u32

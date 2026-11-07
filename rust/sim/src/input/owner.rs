@@ -20,7 +20,9 @@ impl Default for Owner {fn default()->Self {Self::new()}}
 pub struct Mailbox {pub rejected:u32,pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>,down:Vec<StrId>,down_out:Vec<StrId>,
     /// The packets the players' phase consumed since the host's last exchange:
     /// the host frees their lent producer objects when it hears of them.
-    consumed:Vec<f64>}
+    consumed:Vec<f64>,
+    /// InputMailbox.push borrows one admitted bank, returned on every retirement.
+    entries:Vec<ImEntry>}
 impl Mailbox {
     pub fn new(epoch:f64,capacity:f64,codes:Vec<StrId>,strings:&mut Strings)->Option<Self> {
         // The host supplies registry order, which is also the wire bit order.
@@ -28,10 +30,13 @@ impl Mailbox {
         if !capacity.is_finite() || capacity.fract()!=0. || !(0. ..=4096.).contains(&capacity)
             || codes.len()>128 || codes.iter().enumerate().any(|(i,id)|codes[..i].contains(id)
                 || strings.list.get(id.0 as usize).is_none_or(|s|s.is_empty()||s.len()>64)) {return None;}
+        let mut entries=Vec::new();
+        entries.try_reserve_exact(capacity as usize).ok()?;
+        for _ in 0..capacity as usize {entries.push(super::records::reserved_entry()?);}
         let names=["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].map(|s|strings.intern_str(s));
         Some(Self {rejected:0,state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
             publication:WireOwnFacts {held_valid:true,recon_aspect:1.,view:WiView {profile_found:true,..Default::default()},spawn:WireSpawnFacts {valid:true,..Default::default()},..Default::default()},names,codes,
-            taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(2*capacity as usize),down:Vec::with_capacity(64),down_out:Vec::with_capacity(64),consumed:Vec::with_capacity(capacity as usize)})
+            taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(2*capacity as usize),down:Vec::with_capacity(64),down_out:Vec::with_capacity(64),consumed:Vec::with_capacity(capacity as usize),entries})
     }
     // WiView's presence flags remain independent from numeric values. In
     // particular a viewTick of zero and a signed-zero axis stay observable.
@@ -107,6 +112,37 @@ impl Mailbox {
     pub fn present(&self,key:usize)->bool {
         self.names.get(key).is_some_and(|name|self.state.view.iter().any(|field|field.key==*name))
     }
+    /// InputMailbox's generated exchange lends the same banks for push and
+    /// take. Decode only after validation, and never grow a full queue.
+    pub fn exchange<'a>(&mut self,calls:&'a mut crate::store::calls::Calls,strings:&mut Strings)->Option<&'a [f64]> {
+        let (row,heap)=calls.args();
+        if !valid_call(row,heap) {self.rejected=self.rejected.saturating_add(1);return None;}
+        let mut input=super::records::call(row);
+        let mut result=if matches!(input.op,ImOperation::Push) && row[InputMailboxCall::ENTRY]==0. {
+            if let Some(mut entry)=self.entries.pop() {
+                super::records::read_entry(&mut entry,&row[InputMailboxCall::ENTRY+1..],heap);
+                input.entry=Some(entry);self.run(input,strings)
+            } else {
+                self.refuse("input queue full",strings)
+            }
+        } else {self.run(input,strings)};
+        self.lend_down(&mut result);self.lend_consumed(&mut result);
+        result.state=std::mem::take(&mut self.state);
+        // Inspection owns queue serialization; an ordinary exchange publishes
+        // only consumed values and counters, just as InputMailbox.run does.
+        let queue=std::mem::take(&mut result.state.queue);
+        calls.result(ImResult::WORDS,|row,heap|result.put(row,heap));
+        result.state.queue=queue;self.state=std::mem::take(&mut result.state);
+        self.recycle(&mut result);self.return_down(&mut result);
+        Some(&calls.block.words)
+    }
+    // A refusal can still return identities consumed by the native phase.
+    // Lend its retained receipt bank too, even though no command was queued.
+    fn refuse(&mut self,reason:&str,strings:&mut Strings)->ImResult {
+        self.rejected=self.rejected.saturating_add(1);
+        let mut retired=std::mem::take(&mut self.retired);retired.clear();
+        ImResult {retired,error:Some(strings.intern_str(reason)),..Default::default()}
+    }
     pub fn run(&mut self,mut input:ImInput,strings:&mut Strings)->ImResult {
         // Transport validation precedes string interning; native callers must
         // still pass only registered identities before the queue retains them.
@@ -121,8 +157,8 @@ impl Mailbox {
                 })
             });
             if let Some(reason)=reason {
-                self.rejected=self.rejected.saturating_add(1);
-                return ImResult {error:Some(strings.intern_str(reason)),..Default::default()};
+                if let Some(entry)=input.entry.take() {super::records::recycle(&mut self.entries,entry);}
+                return self.refuse(reason,strings);
             }
         }
         if matches!(input.op,ImOperation::Take) && (!super::actions::safe_integer(input.tick)||input.tick<0.
@@ -134,7 +170,9 @@ impl Mailbox {
         let input_op=input.op;
         input.state=std::mem::take(&mut self.state);
         let taken=std::mem::take(&mut self.taken);let retired=std::mem::take(&mut self.retired);
-        let (mut result,spare)=super::mailbox::run_reusing(input,strings,taken,retired,|entry|self.consumed(entry));
+        let mut entries=std::mem::take(&mut self.entries);
+        let (mut result,spare)=super::mailbox::run_reusing(input,strings,taken,retired,&mut entries,|entry|self.consumed(entry));
+        self.entries=entries;
         self.taken=spare;
         if matches!(input_op,ImOperation::Take) && self.publication.view.aspect.is_finite() && self.publication.view.aspect>0. {self.publication.recon_aspect=self.publication.view.aspect;}
         self.publication.discarded=result.state.discarded;self.state=std::mem::take(&mut result.state);
