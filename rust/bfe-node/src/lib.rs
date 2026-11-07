@@ -88,14 +88,24 @@ impl NativeHost {
     }
     #[napi]
     pub fn create(&self) -> Result<NativeOwner> {
+        self.create_owner(None)
+    }
+    fn create_owner(&self, _fail_after: Option<u32>) -> Result<NativeOwner> {
         boundary(|| {
             let owner = Rc::new(RefCell::new(Some(Context::new())));
-            let mut entries = self.registry.borrow_mut();
-            entries.retain(|entry| entry.strong_count() != 0);
-            entries.push(Rc::downgrade(&owner));
+            // Establish the take-once destructor before registry allocation or
+            // diagnostic failure injection. A partial construction owns a drop.
+            let native = NativeOwner { owner };
             #[cfg(feature = "lifecycle-probe")]
             CREATED.fetch_add(1, Ordering::SeqCst);
-            Ok(NativeOwner { owner })
+            #[cfg(feature = "lifecycle-probe")]
+            if _fail_after == Some(1) { return Err(Error::from_reason("Context acquisition fixture")); }
+            let mut entries = self.registry.borrow_mut();
+            entries.retain(|entry| entry.strong_count() != 0);
+            entries.push(Rc::downgrade(&native.owner));
+            #[cfg(feature = "lifecycle-probe")]
+            if _fail_after == Some(2) { return Err(Error::from_reason("Registry acquisition fixture")); }
+            Ok(native)
         })
     }
     #[napi]
@@ -160,3 +170,6 @@ fn validate(block: &[f64]) -> Result<()> {
 pub fn probe_panic() -> Result<()> {
     boundary(|| panic!("fixture"))
 }
+
+#[cfg(feature = "lifecycle-probe")]
+mod probe;

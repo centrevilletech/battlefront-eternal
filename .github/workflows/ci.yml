@@ -101,7 +101,7 @@ jobs:
       - name: Build the Linux Node host addon
         run: node tools/build-node-host.mjs --fixtures
       - name: Node host handshake and lifecycle fixtures
-        run: node --expose-gc --test tests/node-host-addon.mjs
+        run: node --expose-gc --test tests/node-host-addon.mjs tests/node-host-lifecycle.mjs
       - name: Keep the rebuilt files
         if: failure()
         uses: actions/upload-artifact@v7
