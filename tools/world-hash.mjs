@@ -96,7 +96,7 @@ for (let i = 0; i < argv.length; i++) if (argv[i] === '--plugin') plugins.push(a
 const call = (name, ...args) => { for (const plugin of plugins) plugin[name]?.(...args); };
 
 const { headlessGame,readContent } = await import('./headless-world.mjs');
-const { loadSim } = await import('../src/sim/module.js');
+const { loadWasmBackend } = await import('../src/sim/wasm/backend.js');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
@@ -108,7 +108,7 @@ const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slic
 async function battle(index) {
   const prefix = index ? `${index + 1}:` : '';
   if(corpus){const cold=corpus.startBattle(index,now,draw);if(replaying){now=cold.now;draw=cold.draw;}}
-  const game = await headlessGame(query,corpus?{read:url=>corpus.readAsset(url,readContent),simulationFactory:()=>corpus.simulationFactory(loadSim)}:{});
+  const game = await headlessGame(query,corpus?{read:url=>corpus.readAsset(url,readContent),simulationFactory:()=>corpus.simulationFactory(loadWasmBackend)}:{});
   if (ai !== 'off' && !game.ai?.native) throw Error('native AI phase did not attach');
   if (!game.liveOwner) throw Error('native live-object phase did not attach');
   // Collision, movement, rounds and items are required on the battle instance.

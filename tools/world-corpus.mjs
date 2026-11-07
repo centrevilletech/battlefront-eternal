@@ -75,8 +75,10 @@ export class WorldCorpus {
   }
   // The wrapper changes no production module. It calls the same coordinator
   // exports as WorldTick, after its normal preparation and before readback.
+  // `load` gives the battle's backend (its bridge reads the exports from it,
+  // so they are re-bound there) or, for a fixture, a bare instance.
   async simulationFactory(load) {
-    const instance=await load(),x=instance.exports;let address=null,argsBlock=null;
+    const source=await load(),x=source.exports;let address=null,argsBlock=null;
     const exports={...x,sim_call_room:(words,heap)=>{argsBlock=x.sim_call_room(words,heap);return argsBlock;},world_step_init:()=>{
       if(this.battle) {
         if(argsBlock===null)throw Error('World setup has no admission block');
@@ -97,7 +99,8 @@ export class WorldCorpus {
       }
       this.rows.push(bytes.toString('base64'));return x.world_step_run();
     }};
-    return {exports,holder:instance.holder};
+    if(typeof source.setExports==='function'){source.setExports(exports);return source;}
+    return {exports,holder:source.holder};
   }
   finish(options) {
     if(this.replay) {
