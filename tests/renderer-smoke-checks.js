@@ -8,6 +8,7 @@ import { FoliageGpuBatch } from '../src/foliage-gpu.js';
 import { motionVectors } from '../src/motion-vectors.js';
 import { Batch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
+import { loadEnvironment } from '../src/environment/module.js';
 import { Settings } from '../src/settings.js';
 import { actorMaterial, worldMaterial, lighting } from '../src/materials.js';
 import { plainProgram } from '../src/rust-render/post.js';
@@ -24,6 +25,9 @@ import { checkOwnedActorDraws } from './actor-program-checks.js';
 // native draw would test an unsupported path and can fail before Rust links.
 // Keep fixture construction synthetic so the Windows runner needs no game files.
 export async function checkRenderer(backend, manifests) {
+  // Water's surface owner instantiates the environment module, which the game
+  // compiles while a battle loads; the harness has no battle, so load it here.
+  await loadEnvironment();
   const results = [], draws = {}, links = [], shaderFamilies = [], compiledShaders = [], programKinds = new Set(), ownedIds = new Map(), ownedDraws = new Set();
   const assert = (name, ok, detail) => {
     results.push({ name, ok: Boolean(ok), detail });
