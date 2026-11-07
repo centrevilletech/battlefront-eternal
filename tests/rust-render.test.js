@@ -1,3 +1,4 @@
+import { CAMERA as CAMERA_ROW, ROLE as CAMERA_ROLE, INPUT as CAMERA_INPUT } from "../src/rust-render/camera-layout.js";
 import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -76,9 +77,10 @@ test("near producers publish one semantic packet without drawing or resuming hoo
   assert.equal(core.recording.frames[0].input.length,core.recordsAt+3*core.stride);
   assert.notEqual(core.recording.frames[0].input.buffer,core.input.buffer);
   assert.deepEqual(calls.filter(c=>c[0]==="frame_publish_frame"),[["frame_publish_frame",R.NEAR]]);
-  assert.equal(calls.some(c=>["frame","transparent_frame","resetState","setRenderTarget"].includes(c[0])),false);
+  assert.equal(calls.some(c=>["battle_frame","frame_aux_frame","resetState","setRenderTarget"].includes(c[0])),false);
   assert.equal(core.frameMeta[R.NEAR*M.LEN+M.RECORDS],3);
-  assert.deepEqual([...core.input.subarray(0,16)],camera.projectionMatrix.elements);
+  assert.deepEqual([...core.input.subarray(0,16)],[...core.cameraOutput.subarray(CAMERA_ROLE.EXTRA0*CAMERA_ROW.LEN+CAMERA_ROW.PROJECTION,CAMERA_ROLE.EXTRA0*CAMERA_ROW.LEN+CAMERA_ROW.PROJECTION+16)]);
+  assert.equal(core.cameraInput[CAMERA_INPUT.LENS],camera.fov);
   core.frame.cancel();
 });
 
@@ -87,7 +89,7 @@ test("view preparation order cannot select execution order", () => {
   core.publishView("transparent",renderer,scene,camera);
   core.publishView("far",renderer,scene,camera);
   assert.deepEqual(calls.filter(c=>c[0]==="frame_publish_frame").map(c=>c[1]),[R.TRANSPARENT,R.FAR]);
-  assert.equal(calls.some(c=>["far_frame","transparent_frame","setRenderTarget"].includes(c[0])),false);
+  assert.equal(calls.some(c=>["battle_frame","frame_aux_frame","setRenderTarget"].includes(c[0])),false);
   core.frame.cancel();
 });
 

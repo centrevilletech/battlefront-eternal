@@ -330,6 +330,66 @@
       "result": "Result<(),String>"
     },
     {
+      "name": "camera_pack_acquire_frame",
+      "args": [],
+      "result": "f64"
+    },
+    {
+      "name": "camera_pack_release_frame",
+      "args": [
+        [
+          "handle",
+          "f64"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "camera_acquire_frame",
+      "args": [],
+      "result": "f64"
+    },
+    {
+      "name": "camera_release_frame",
+      "args": [
+        [
+          "handle",
+          "f64"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "camera_import_frame",
+      "args": [
+        [
+          "handle",
+          "f64"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "camera_clipped",
+      "args": [],
+      "result": "bool"
+    },
+    {
+      "name": "camera_evicted",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "camera_pack_evicted",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "camera_pack_rejected",
+      "args": [],
+      "result": "u32"
+    },
+    {
       "name": "camera_shader_frame",
       "args": [
         [
@@ -343,8 +403,8 @@
       "name": "camera_pack_shader_frame",
       "args": [
         [
-          "pack",
-          "u32"
+          "handle",
+          "f64"
         ]
       ],
       "result": ""
@@ -461,8 +521,8 @@
       "name": "camera_lights_frame",
       "args": [
         [
-          "pack",
-          "u32"
+          "handle",
+          "f64"
         ]
       ],
       "result": ""
@@ -2040,11 +2100,6 @@
       "result": "u32"
     },
     {
-      "name": "post_chain_error_frame",
-      "args": [],
-      "result": "Option<String>"
-    },
-    {
       "name": "geometry_buffer_data",
       "args": [
         [
@@ -2774,6 +2829,18 @@
       "type": "f64",
       "pointer": "camera_packs_ptr",
       "length": "camera_packs_len"
+    },
+    {
+      "name": "camera_pack_handles",
+      "type": "f64",
+      "pointer": "camera_pack_handles_ptr",
+      "length": "camera_pack_handles_len"
+    },
+    {
+      "name": "camera_extra_handles",
+      "type": "f64",
+      "pointer": "camera_extra_handles_ptr",
+      "length": "camera_extra_handles_len"
     },
     {
       "name": "camera_mirror",

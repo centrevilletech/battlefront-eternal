@@ -102,8 +102,8 @@
         const row=owners.get(kind+':'+m.id+':'+raw[0]);if(!row)throw Error('unregistered '+key);
         flush(row);const args=[];let at=1;const randomCall=kind==='pagesniper'&&['collect','frame'].includes(name);
         for(const [n,t]of spec.args){if(randomCall&&n==='random')continue;const [value,count]=arg(m,kind,t,raw,at);args.push(value);at+=count;}
-        const checkNames=kind==='bferenderer'&&['frame','mirror_frame','view_frame'].includes(name)?['input','bones']:kind==='bferenderer'&&name==='hud_frame'?['hud_model_input','hud_input','hud_position','hud_uv','hud_mask_uv','hud_tint']:[];
-        const checks=views(row).filter(b=>checkNames.includes(b.name)).map(b=>({bank:b.name,data:blob(b.view)}));
+        // Shared-memory writes and sealed packets carry the current frame.
+        const checks=[];
         state.calls.push({kind:'call',owner:row.id,name,args,checks});
         // The numeric phase owns when random draws occur. Capture its scalar
         // service answers alongside the call, leaving the live stream intact.

@@ -1,4 +1,5 @@
 import { standinResources } from "./support/rust-standin.mjs";
+import { INPUT as CAMERA_INPUT } from "../src/rust-render/camera-layout.js";
 import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -46,7 +47,6 @@ function bridge() {
     quiet: ["set_far_map", "sort", "transparent_bucket_shown", "foliage_on"],
     methods: ({ calls }) => {
       const methods = {
-        far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; },
         geometry_buffer(...args) { calls.push(["geometry_buffer", ...args]); return 0; },
       };
       for (const name of ["add_texture", "add_program", "add_geometry", "far_table", "far_item"]) methods[name] = (...args) => { calls.push([name, ...args]); return next++; };
@@ -121,8 +121,8 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   // The renderer's call, then the multisampled image resolved (colour only),
   // and no render by three. Three's state is reset when three is next used
   // (the core's settle), once, whatever the renderer drew in between.
-  const after = calls.slice(calls.findIndex((c) => c[0] === "far_frame"));
-  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "resolveTarget"]);
+  const after = calls.slice(calls.findIndex((c) => c[0] === "frame_aux_frame"));
+  assert.deepEqual(after.map((c) => c[0]), ["frame_aux_frame", "resolveTarget"]);
   // The input: the clear colour premultiplied, the pass drawing, each item
   // drawn, the sky's matrix where it stands this frame.
   core.views();
@@ -140,7 +140,7 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   assert.equal(calls[1][1], "far", "the target three believed bound, bound again");
   calls.length = 0;
   core.cover("far", renderer, farScene, camera);
-  assert.equal(calls.filter((c) => c[0].startsWith("far_") && c[0] !== "far_frame").length, 0);
+  assert.equal(calls.filter((c) => c[0].startsWith("far_")).length, 0);
 });
 
 test("a mesh it can't draw in view: the renderer draws nothing and three the frame; the same with the pass off", () => {
@@ -153,7 +153,7 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   assert.equal(core.farInput[4], 0);
   // The phase's call (which draws nothing) and no resolve; three's state is
   // reset as three renders the frame.
-  assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "far_frame")).map((c) => c[0]), ["far_frame"]);
+  assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "frame_aux_frame")).map((c) => c[0]), ["frame_aux_frame"]);
 });
 
 test("a far bucket with no texture: the renderer samples an empty one there, as three does, and draws the frame", () => {
@@ -233,9 +233,9 @@ test("a water mirror's far scene: its sky pass cleared, the rest drawn over it u
   core.views();
   assert.deepEqual([core.farInput[4], core.farInput[5]], [1, 1], "drawn over what is there");
   assert.deepEqual([core.farInput[skyItem().slot], core.farInput[bucketItem().slot]], [0, 1]);
-  assert.deepEqual(calls.filter((c) => /^far(_mirror)?_frame$/.test(c[0])).map((c) => c[0]), ["far_mirror_frame", "far_mirror_frame"]);
+  assert.deepEqual(calls.filter(c=>c[0]==="frame_aux_frame").map(c=>c[2]),[R.MIRROR0_FAR,R.MIRROR0_FAR]);
   // The frame block's camera is the mirror's.
-  assert.deepEqual([...core.input.subarray(32, 35)], [0, -4, 10]);
+  assert.deepEqual([...core.cameraInput.subarray(CAMERA_INPUT.POSITION,CAMERA_INPUT.POSITION+3)], [0, -4, 10]);
   // The eye's own far scene afterwards: cleared again.
   renderer.autoClear = true;
   sky.visible = true;
@@ -283,7 +283,7 @@ test("a sky probe's faces: each its own phase call, the mipmaps after the last f
     const texture = core.textures.get(renderer.properties.get(target.texture).__webglTexture);
     assert.equal(core.farInput[6], i === 5 ? 1 + texture : 0, `face ${i}`);
   });
-  assert.deepEqual(calls.filter((c) => c[0] === "far_probe_frame").map((c) => c[1]), [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(calls.filter(c=>c[0]==="frame_aux_frame").map(c=>c[2]),Array.from({length:6},(_,i)=>R.PROBE0+i));
   assert.ok(far.all.some((i) => i.object === sky));
 });
 

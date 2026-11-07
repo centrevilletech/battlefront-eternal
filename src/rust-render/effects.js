@@ -258,6 +258,14 @@ class EffectsPass {
     }
   }
 
+  // Stats inspect current scene owners, without retaining old map batches.
+  // The native sniper counter includes event and GPU-prefix clipping.
+  sniperDropped(){
+    const renderers=particleRenderers.get(this.core.graphics.scene);let count=0;
+    if(renderers)for(let i=0;i<renderers.length;i++)for(const batch of renderers[i].batches.values())count+=batch.droppedCount||0;
+    return count;
+  }
+
   batches() {
     const scene = this.core.graphics.scene;
     const renderers = particleRenderers.get(scene) || [], haze = squareBatches.get(scene) || [];

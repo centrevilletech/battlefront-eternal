@@ -32,7 +32,7 @@ test('a full sniper command block degrades with fixed buffers',()=>{
  const trace=new SniperTrace(),start=new THREE.Vector3(),direction=new THREE.Vector3(0,0,1),head=new THREE.Vector3(0,0,30),def={Velocity:2000,LifeSpan:.15};
  const streaks=trace.streaks.data,flares=trace.flares.data;lighting.time.value=20;trace.begin();
  for(let i=0;i<20000;i++)trace.touch({},def,start,head,direction,false,1);
- trace.end();assert.ok(trace.dropped>0);assert.equal(trace.counts[H.RECORDS],48);
+ trace.end();assert.ok(trace.dropped>0);assert.equal(trace.droppedCount,trace.dropped+trace.counts[H.DROPPED]);assert.equal(trace.counts[H.RECORDS],48);
  assert.equal(trace.streaks.data,streaks);assert.equal(trace.flares.data,flares);assert.ok(trace.streaks.count<=512);
 });
 

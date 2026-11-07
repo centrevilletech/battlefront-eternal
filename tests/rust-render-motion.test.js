@@ -1,3 +1,4 @@
+import { ROLE as R, META as M } from "../src/rust-render/frame-layout.js";
 // Motion consumes native geometry descriptors while retaining the existing
 // current/previous pose publication boundary. GL fixtures check velocity output.
 import './fixtures/native-render-descriptors.js';
@@ -24,7 +25,7 @@ test('native motion descriptors preserve current/previous skins and a locked fir
  const gun=actorNode(actorAsset({kind:'plane'}),null);root.add(gun);root.updateMatrixWorld(true);body.skeleton.update();
  const a=motionVectors.track(body),b=motionVectors.track(gun),locked=new THREE.Scene(),mask=actorNode(gun.userData.actorAsset,null);locked.add(mask);locked.updateMatrixWorld(true);const input=packet(camera,root,locked);
  try{
-  motionVectors.render(f.renderer,input);assert.deepEqual(f.calls.filter(c=>c[0]==='motion_frame').at(-1),['motion_frame',3]);
+  motionVectors.render(f.renderer,input);assert.equal(f.core.frameMeta[R.MOTION*M.LEN+M.RECORDS],3);assert.ok(f.calls.some(c=>c[0]==='frame_aux_frame'&&c[2]===R.MOTION));
   const row=106,stride=88,out=f.core.motionInput;assert.equal(out[row+1],ACTOR.KIND.RETAINED);assert.deepEqual([out[row],out[row+stride],out[row+2*stride]],[1,1,2]);assert.deepEqual([...out.slice(row+8,row+24)],body.matrixWorld.elements);assert.deepEqual([...f.core.motionBones.slice(0,16)],[...body.skeleton.boneMatrices]);
   const previous=body.matrixWorld.toArray();body.position.x=.25;root.updateMatrixWorld(true);motionVectors.render(f.renderer,input);assert.deepEqual([...out.slice(row+24,row+40)],previous);assert.deepEqual([...out.slice(row+8,row+24)],body.matrixWorld.elements);assert.equal(f.calls.filter(c=>c[0]==='actor_motion').length,3,'warm draw retains all three descriptors');assert.equal(body.geometry,undefined);
  }finally{motionVectors.release(a);motionVectors.release(b);motionVectors.drawer=null;}

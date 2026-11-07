@@ -70,19 +70,12 @@ fn main() {
             measured_start = Instant::now();
         }
         let frame = &frames[i % frames.len()];
-        let (records, input, bones) = (&frame.records, &frame.input, &frame.bones);
-        r.core.input[..input.len()].copy_from_slice(input);
-        r.core.bones[..bones.len()].copy_from_slice(bones);
         let (t0, w0) = (thread_cpu(), Instant::now());
-        unsafe {
-            r.core.gl.clear_color(0.2, 0.2, 0.3, 1.0);
-            r.core.gl.depth_mask(true);
-            r.core.gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-        }
-        let stats = r.frame(*records).unwrap();
+        bfe_native::draw(&mut r,frame).unwrap();
         unsafe { r.core.gl.flush() };
         cpu.push(thread_cpu() - t0);
-        calls += stats.gl_calls as u64;
+        use bfe_render::frame_plan::layout::stats as Stats;
+        calls+=r.frames.stats.chunks_exact(Stats::LEN).map(|row|row[Stats::GL_CALLS] as u64).sum::<u64>();
         if std::env::var("FINISH").is_ok() {
             unsafe { r.core.gl.finish() };
         } else { unsafe {

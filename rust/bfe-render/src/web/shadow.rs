@@ -9,9 +9,6 @@ impl BfeRenderer {
     pub fn static_shadow_input_len(&self)->u32 {self.r.shadow.static_view.len() as u32}
     pub fn caster_input_ptr(&mut self) -> u32 { self.r.shadow.input.as_mut_ptr() as u32 }
     pub fn caster_input_len(&self) -> u32 { self.r.shadow.input.len() as u32 }
-    pub fn shadow_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.shadow_frame().map_err(|e| JsValue::from_str(&e))?.values())
-    }
     // A rewritten geometry's buffer (its slot) or index.
     // ShadowPass uploads mutable caster attributes through the same retained
     // geometry table as other passes. Full replacements supersede old contents.

@@ -7,6 +7,7 @@ pub mod line_resources;
 pub mod line_layout;
 pub mod canopies;
 pub mod cameras;
+pub mod leases;
 pub mod camera_lights;
 pub mod cascades;
 pub mod core;

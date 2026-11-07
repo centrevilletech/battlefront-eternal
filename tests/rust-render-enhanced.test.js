@@ -1,3 +1,4 @@
+import { CAMERA as CAMERA_ROW, ROLE as CAMERA_ROLE } from "../src/rust-render/camera-layout.js";
 import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import { INPUT as CAMERA_INPUT } from "../src/rust-render/camera-layout.js";
 import test from "node:test";
@@ -189,7 +190,7 @@ test("the frame block survives the renderer's memory growing while the Enhanced 
   const input = new Float64Array(memory.buffer, region("input"), 200);
   assert.equal(input[70], 1, "the point light counted in the memory as it is now");
   assert.deepEqual([...input.subarray(72, 75)], [4, 5, 6], "and its position written there");
-  assert.deepEqual([...input.subarray(0, 16)], camera.projectionMatrix.elements, "the camera too");
+  assert.deepEqual([...input.subarray(0,16)],[...core.cameraOutput.subarray(CAMERA_ROLE.EXTRA0*CAMERA_ROW.LEN+CAMERA_ROW.PROJECTION,CAMERA_ROLE.EXTRA0*CAMERA_ROW.LEN+CAMERA_ROW.PROJECTION+16)],"the native camera row too");
 }));
 
 // A cascade light as graphics.js's CSM makes one: its shadow's camera,
@@ -234,7 +235,7 @@ test("a cascade's pass: the casters three's shadow pass would draw, drawn by the
   scene.updateMatrixWorld(true);
   core.frame.role=R.SHADOW_STATIC0;
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
-  assert.ok(calls.some((c) => c[0] === "shadow_frame"));
+  assert.ok(calls.some(c=>c[0]==="frame_aux_frame"&&c[2]===R.SHADOW_STATIC0));
   const input = new Float64Array(memory.buffer, region("caster_input"), 4 + 2 * 151);
   assert.equal(input[1], -1, "no cache: the map is cleared");
   assert.equal(input[2], 1024);
@@ -313,3 +314,17 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
   assert.match(core.errors.join("\n"), /geometry the renderer cannot hold/);
 });
+
+test('shadow bindings reuse numeric storage across warm views and incomplete admissions',()=>withCascades(()=>{
+  const {core}=bridge({shadows:true}),uploads=[];
+  core.rust.set_shadow_maps=ids=>uploads.push(Array.from(ids));
+  const ids=core.shadowMapIds,data=core.shadowMapData,views=core.shadowMapViews;
+  let second=5;core.texture=t=>t===lighting.cascadeMaps.value[0]?3:second;
+  core.writeShadow();assert.deepEqual(uploads,[[3,5]]);
+  for(let i=0;i<100;i++)core.writeShadow();assert.equal(uploads.length,1);
+  second=-1;core.writeShadow();assert.deepEqual(uploads.at(-1),[]);
+  core.writeShadow();assert.equal(uploads.length,2);
+  second=7;core.writeShadow();assert.deepEqual(uploads.at(-1),[3,7]);
+  core.shadowMapCount=-1;core.writeShadow();assert.equal(uploads.length,4,'recovery republishes unchanged ids');
+  assert.equal(core.shadowMapIds,ids);assert.equal(core.shadowMapData,data);assert.equal(core.shadowMapViews,views);
+}));

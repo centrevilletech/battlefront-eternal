@@ -1,9 +1,11 @@
+import {packPointLights} from "../src/point-lights.js";
+import {SHADER_FRAME as CAMERA_FRAME, LIMIT as CAMERA_LIMIT} from "../src/rust-render/camera-layout.js";
 import {SurfaceOwner,stepSurface} from './helpers/surfaces.js';
 import {actorPart} from './helpers/actor-resources.js';
-import {actorAsset,glowLook,glowNode} from '../src/actor-resources.js';
+import {actorAsset,glowLook,glowNode,nativeActorSource} from '../src/actor-resources.js';
 import { LINE as LINE_DATA } from '../src/rust-render/line-layout.js';
 import { lineSource, LINE_KIND } from '../src/line-source.js';
-import { ROLE as FRAME_ROLE, STATS as FRAME_STATS, STATE as FRAME_STATE, UI as FRAME_UI } from "../src/rust-render/frame-layout.js";
+import { ROLE as FRAME_ROLE, FACTS as FRAME_FACTS, KIND as FRAME_KIND, STATS as FRAME_STATS, STATE as FRAME_STATE, UI as FRAME_UI } from "../src/rust-render/frame-layout.js";
 import { STATE, FACTS, MODE } from "../src/rust-render/post-layout.js";
 import { checkResources } from "./renderer-resource-checks.js";
 import * as THREE from 'three';
@@ -105,10 +107,37 @@ export async function checkRenderer(backend, manifests) {
   try {
     await g.rustReady;
     assert('Rust WASM initialized', Boolean(g.rust), g.rust.errors);
+    // A long page session must keep lights after the fixed bank fills. This
+    // crosses the actual JS/WASM packing and shader boundaries, not a stand-in.
+    const pairScene=new THREE.Scene(),pairCamera=new THREE.PerspectiveCamera(),point=new THREE.PointLight(0xffffff,1);
+    pairScene.add(point);pairScene.updateMatrixWorld(true);pairCamera.updateMatrixWorld(true);
+    const firstPack=packPointLights(pairScene,pairCamera,g.rust.cameras),oldHandle=firstPack.native;
+    for(let i=0;i<CAMERA_LIMIT.PACKS*2;i++){
+      const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(),light=new THREE.PointLight(0xffffff,1);
+      scene.add(light);scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
+      const pack=packPointLights(scene,camera,g.rust.cameras);g.rust.rust.camera_pack_shader_frame(pack.native);g.rust.views();
+      if(pack.count!==1||g.rust.input[CAMERA_FRAME.LIGHT_COUNT]!==1)throw Error('Recycled light pair lost its shader row');
+    }
+    assert('Long sessions reuse light packs',!g.rust.cameras.packValid(firstPack));
+    g.rust.rust.camera_pack_shader_frame(oldHandle);g.rust.views();
+    assert('Stale light generations cannot read a replacement',g.rust.input[CAMERA_FRAME.LIGHT_COUNT]===0);
+    packPointLights(pairScene,pairCamera,g.rust.cameras);g.rust.rust.camera_pack_shader_frame(firstPack.native);g.rust.views();
+    assert('An evicted scene reacquires its own lights',g.rust.input[CAMERA_FRAME.LIGHT_COUNT]===1);
+    const released=firstPack.native;g.rust.cameras.releasePack(firstPack);packPointLights(pairScene,pairCamera,g.rust.cameras);
+    assert('A delayed release preserves the replacement generation',!g.rust.rust.camera_pack_release_frame(released)&&g.rust.cameras.packValid(firstPack));
     const gl = g.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
     const coldResources=await checkResources(g.renderer,assert);
+    // Cold sky admission precedes every motion draw and may follow an unrelated
+    // program. Sampler publication must select its own program at that boundary.
+    const flyerSource=nativeActorSource(g.rust,actorAsset({kind:'plane'}));
+    gl.useProgram(null);
+    const flyerMotion=g.rust.rust.actor_flyer_motion(flyerSource.id,1,Float32Array.from(new THREE.Matrix4().elements));
+    assert('Cold sky motion admits without a GL error',flyerMotion.length===5&&gl.getError()===gl.NO_ERROR);
+    const flyerProgram=gl.getParameter(gl.CURRENT_PROGRAM);
+    assert('Cold sky motion selects its depth sampler',flyerProgram!==null&&gl.getUniform(flyerProgram,gl.getUniformLocation(flyerProgram,'sceneDepth'))===13);
+
     // Every family is discovered by the launcher from its manifest at runtime.
     // Register before fixture draws, so the Rust cache is cold for every key.
     // Register before any fixture draws so each manifest key reaches a cold
@@ -284,9 +313,7 @@ export async function checkRenderer(backend, manifests) {
       if (typeof fn !== 'function') return fn;
       return (...args) => {
         if (name === 'add_program' || name === 'add_program_lamps') programKinds.add(args[0]);
-        if(name==='post_frame')for(let i=0;i<args[0];i++)ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
-        if(name==='hud_frame')ownedDraws.add(g.rust.hudInput[1]);
-        if (name === 'battle_frame') {
+                if (name === 'battle_frame') {
           gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,poison);
           if(checkShadowAttachments){shadowHandles.clear();for(const target of [...g.shadowMaps,...g.shadowCaches])shadowHandles.add(g.renderer.properties.get(target.depthTexture).__webglTexture);}
         }
@@ -294,22 +321,16 @@ export async function checkRenderer(backend, manifests) {
         if(name==='battle_frame' || name==='frame_aux_frame'){
           g.rust.views();const roles=name==='battle_frame'?Array.from({length:FRAME_ROLE.COUNT},(_,i)=>i):[args[1]];
           for(const role of roles){const at=role*FRAME_STATS.LEN;for(let i=0;i<passDraws.length;i++)passDraws[i]+=g.rust.frameStats[at+FRAME_STATS.PASS_DRAWS+i];
-            const key=role===FRAME_ROLE.NEAR?'frame':role===FRAME_ROLE.FAR?'far_frame':role===FRAME_ROLE.TRANSPARENT?'transparent_frame':role===FRAME_ROLE.VIEW?'view_frame':role===FRAME_ROLE.POST?'post_chain_frame':null;
+            const key=role===FRAME_ROLE.NEAR?'near':role===FRAME_ROLE.FAR?'far':role===FRAME_ROLE.TRANSPARENT?'transparent':role===FRAME_ROLE.VIEW?'view':role===FRAME_ROLE.POST?'post':null;
             if(key)phaseDraws[key]=(phaseDraws[key]||0)+g.rust.frameStats[at+FRAME_STATS.PROGRAM_SWITCHES];
           }
           if(name==='battle_frame'){for(let i=0;i<g.rust.postState[STATE.STEPS];i++)ownedDraws.add(g.rust.postInput[i*221]);ownedDraws.add(g.rust.hudInput[1]);}
           else if(args[1]>=FRAME_ROLE.HUD0&&args[1]<=FRAME_ROLE.HUD7)ownedDraws.add(g.rust.hudInput[1]);
         }
-        if (name === 'post_chain_frame') {
-          g.rust.views(); value = g.rust.postStats;
-          for (let i = 0; i < g.rust.postState[STATE.STEPS]; i++) ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
-        }
         if(name==='add_owned_program')ownedIds.set(args[0],value);
         if(name==='hud_resources_frame'){g.rust.views();ownedIds.set('post-hud/hud',g.rust.hudInput[1]);}
-        if (/frame$|_segment$|near_begin$/.test(name) && value?.length) {
-          phaseDraws[name] = (phaseDraws[name] ?? 0) + value[3];
-          for (let i = 0; i < passDraws.length; i++) passDraws[i] += value[5+i] ?? 0;
-          const error = gl.getError(); if (error && error !== this.CONTEXT_LOST_WEBGL) throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
+        if(name==='battle_frame'||name==='frame_aux_frame'){
+          const error=gl.getError();if(error&&error!==gl.CONTEXT_LOST_WEBGL)throw Error(`${name}: WebGL 0x${error.toString(16)}`);
         }
         return value;
       };
@@ -445,7 +466,7 @@ export async function checkRenderer(backend, manifests) {
     assert('Alpha-to-coverage drew on a four-sample target',alphaCoverageDraws>0&&alphaSamples.has(4),{alphaCoverageDraws,samples:[...alphaSamples]});
     settings.set('antialiasing','off');compare('multisampling switched off');
     assert('Native terrain has no browser geometry or material', ground.children.length === 0 && ground.material === undefined);
-    for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_chain_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
+    for (const name of ['near','far','transparent','view','post']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
     // Motion has its own target and depth input, separate from post history.
     // Use real motion tracking with synthetic depth and two distinct view matrices.
     // Nonzero velocity proves the shader did work; exact repetition detects stale
@@ -546,7 +567,9 @@ export async function checkRenderer(backend, manifests) {
       g.renderer.setRenderTarget(retainedTarget);g.renderer.clear();
       const target=g.rust.byName.post.target(retainedTarget);
       writeScreenStep(g.rust,0,retainedProgram,retainedMaterial,retainedMesh,tintCamera,{target,size:[32,32],geometry:{id:retainedId,count:6}});
-      g.rust.rust.screen_frame(1);g.rust.stale=true;
+      const frame=g.rust.frame;frame.begin(false);frame.target(retainedTarget);
+      g.rust.frameFacts[FRAME_FACTS.CLOUDS]=1;g.rust.frameFacts[FRAME_FACTS.CLOUD_TIME]=1;g.rust.frameState[FRAME_STATE.CLOUD_LAST]=-Infinity;
+      frame.seal(FRAME_ROLE.CLOUDS,FRAME_KIND.SCREEN,{steps:1});frame.execute();
       const pixels=new Uint8Array(32*32*4);g.renderer.readRenderTargetPixels(retainedTarget,0,0,32,32,pixels);return pixels;
     };
     const retainedBefore=retainedPixels();
@@ -610,7 +633,8 @@ export async function checkRenderer(backend, manifests) {
     g.rust.rust.post_chain_begin_frame();
     const lostRead=g.upscaler.read,lostFrame=g.upscaler.frame;
     loss.loseContext();
-    g.rust.rust.post_chain_frame();
+    g.rust.rust.frame_begin_frame();g.rust.views();g.rust.frameFacts.fill(0);g.rust.frameFacts[FRAME_FACTS.MAIN]=1;
+    g.rust.rust.battle_frame(g.rust.resources.gpu);
     assert('A lost post frame never commits history',g.upscaler.read===lostRead&&g.upscaler.frame===lostFrame&&!g.upscaler.valid);
     await lost;
     // Loading and window changes can create/resize descriptors while drawing

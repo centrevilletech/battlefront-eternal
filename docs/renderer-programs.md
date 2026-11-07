@@ -471,8 +471,16 @@ are prewarmed before preparation draws. The world shader license is retained in
 
 Transparent source cases aim at authored triangles for each material feature
 set. Their simulation advances between points without drawing; settle and
-history frames produce the sampled inputs. They capture both transparent-list
-and segmented native submissions, including the mirror list. A transparent
+history frames produce the sampled inputs. They capture the native transparent GPU draws, including reflections. A transparent
 case must replay an actual world-transparent submission. Unbound samplers are
 recorded as null bindings. First-use source submissions invalidate the candidate;
 the frozen reference retains its original lazy compilation diagnostics.
+
+Loaded battle draws enter through `battle_frame`; the individual pass kernels
+are private Rust implementation details. Standalone scene menus use `frame_aux_frame`
+with a sealed semantic packet; standalone interface batches use `interface_frame`. The shader corpora record GPU submissions from
+the native frame instead of invoking per-pass draw exports. Actor, world, and whole-build
+capture tools require `BFE_SHADER_INDEX` from the native `shader-catalog` example
+and `tools/renderer-corpus/shader-index.mjs`. Multi-draw records retain their full
+argument arrays and draw IDs, and caster records compare depth publications.
+Post scheduling and history transitions have content-free Rust fixtures.

@@ -211,26 +211,6 @@ export const HELPERS_SRC = `(() => { const b = __bf, g = b.graphics;
         }
       }
     };
-  } else if (rust) {
-    // The retained post phase publishes fixed statistics without entering the
-    // scene dispatcher. Include it in capture draw accounting on new builds.
-    if (rust.rust.post_chain_frame) {
-      const post = rust.post;
-      rust.post = function (...args) {
-        G.inRust++;
-        try { return post.apply(this,args); }
-        finally { G.inRust--; G.phaseCalls++; G.frameStats.post=Array.from(this.phaseStats.post || []); }
-      };
-    }
-    const phase = rust.phase;
-    rust.phase = function (name, ...args) {
-      G.inRust++;
-      try { if (this.phaseStats) delete this.phaseStats[name]; return phase.call(this, name, ...args); }
-      finally {
-        G.inRust--; G.phaseCalls++;
-        const s = this.phaseStats && this.phaseStats[name];
-        if (s) { const acc = G.frameStats[name] ||= new Array(s.length).fill(0); for (let i = 0; i < s.length; i++) acc[i] += s[i]; }
-      }
-    };
   }
+
   return 1; })()`;

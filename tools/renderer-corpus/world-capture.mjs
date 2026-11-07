@@ -1,12 +1,15 @@
+import { installGLTracking, installGLReplay } from "./gl-replay.mjs";
+import { installFrameCapture } from "./frame-capture.mjs";
 // One default-path run. Reference, candidate and repeat reference are separate
 // applications; comparison never selects an alternate runtime implementation.
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
 import { installReplay } from './replay.mjs';
-import { installWorldTrace, installWorldReplay } from './world-replay.mjs';
-import { programLayouts } from '../../src/render-programs.js';
+import { installWorldTrace } from './world-trace.mjs';
 import { connect, loadBattle, GL_STATE, HELPERS_SRC } from './battle.mjs';
-const manifest = expand(JSON.parse(fs.readFileSync(new URL('./world-manifest.json', import.meta.url))));
+if(!process.env.BFE_SHADER_INDEX)throw Error('Supply BFE_SHADER_INDEX from the native shader catalog');
+const shaderIndex=JSON.parse(fs.readFileSync(process.env.BFE_SHADER_INDEX));
+const manifest = expand(JSON.parse(fs.readFileSync(process.env.BFE_CORPUS_MANIFEST || new URL('./world-manifest.json', import.meta.url))));
 const id = process.env.BFE_CORPUS_CASE, out = process.env.OUT;
 const role = process.env.BFE_CORPUS_ROLE;
 if (!['reference', 'candidate', 'control'].includes(role) || !out) throw Error('Supply OUT and BFE_CORPUS_ROLE');
@@ -21,13 +24,13 @@ const gpuDeaths = () => log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8')
 const c = await connect();
 const result = { role, id, contract: manifest.version, points: [] };
 try {
-  result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: `(${installWorldTrace.toString()})()` });
+  result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: `(${installWorldTrace.toString()})();(${installGLTracking.toString()})(${JSON.stringify(shaderIndex)})` });
   if (result.loaded.error || !result.loaded.spawned) throw Error(result.loaded.error || 'player not spawned');
   await c.ev(HELPERS_SRC);
   await c.ev(`window.__worldTrace.ready=true;1`);
   result.setup = await c.ev(`(() => {
     const b=__bf,g=b.graphics,R=g.renderer,gl=R.getContext();
-    const T=window.__corpus={want:false,stages:{}};
+    const T=window.__corpus={want:false,stages:{},captureFamilies:['world/']};
     const read=(name,target)=>{
       const w=target?.width || gl.drawingBufferWidth,h=target?.height || gl.drawingBufferHeight;
       const half=target?.texture.type===1016,buf=half?new Uint16Array(w*h*4):new Uint8Array(w*h*4);
@@ -36,17 +39,11 @@ try {
       const error=gl.getError();if(error)throw Error(name+' read GL '+error);
       T.stages[name]={w,h,bytes:half?2:1,buf};
     };
-    const postName=typeof g.postSteps === "function" ? "postSteps" : "finishPost";const post=g[postName];g[postName]=function(...a){if(T.want){
-      read('far',g.farTarget);read('scene',g.sceneTarget);
-      if(g.upscaling==='temporal'){read('velocity',g.upscaler.velocity);read('motion',g.upscaler.motion);read('history',g.upscaler.history[g.upscaler.read]);}
-      const water=g.scene.userData.water;
-      if(water?.reflectionFar){read('reflection',water.target);read('reflectionFar',water.reflectionFar);}
-    }return post.apply(this,a);};
-    const hud=b.hud.render;b.hud.render=function(...a){if(T.want)read('post',null);const r=hud.apply(this,a);if(T.want)read('presented',null);return r;};
+    (${installFrameCapture.toString()})();
     return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],target:[g.sceneTarget.width,g.sceneTarget.height],samples:g.sceneTarget.samples,supportedSamples:g.supportedSamples,upscaling:g.upscaling};
   })()`);
   await c.ev(`(${installReplay.toString()})()`);
-  await c.ev(`(${installWorldReplay.toString()})(${JSON.stringify(programLayouts)})`);
+  await c.ev(`(${installGLReplay.toString()})();window.__corpus.referenceBuild=${role!=='candidate'}`);
   await c.ev(`window.__corpus.captureReplay=${role === 'reference'};window.__corpus.role=${JSON.stringify(role)}`);
   if (testCase.camera === 'water') await c.ev(`(() => {
     const b=__bf,g=b.graphics,water=g.scene.userData.water,T=window.__corpus,V=b.THREE.Vector3;
@@ -91,7 +88,7 @@ try {
       for(let i=0;i<${manifest.settleFrames || 2};i++)await b.lockstep(0,true);
       if(g.upscaler?.reset)g.upscaler.reset(${k},-1);else{g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};}
       for(let i=0;i<${manifest.historyFrames};i++)await b.lockstep(0,true);
-      G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
+      G.resetFrame();T.stages={};T.records=[];T.blobs={};T.resetGLStages();T.want=true;const tick=await b.lockstep(0,true);T.want=false;
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
       let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8 || s.buf[i+1]>8 || s.buf[i+2]>8)lit++;
       // Old references can reject an unported program before another pass
@@ -153,7 +150,7 @@ try {
      for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
      programs.push({id:p.id,key:p.cacheKey,stages,attributes,uniforms});
    }
-   for(const [key,source] of window.__corpus.worldProgramSources)for(const [stage,body] of Object.entries(source)){
+   for(const source of window.__glTracking.state(gl).seenPrograms.values())if(source.key?.startsWith("world/"))for(const key of [source.key])for(const [stage,body] of Object.entries({vertex:source.vertex,fragment:source.fragment})){
      const h=await hash(text(body));shaders.push({key,stage,hash:h,source:body});
    }
    const textures=new Set();
@@ -172,7 +169,7 @@ try {
   result.gpuDeaths=gpuDeaths();
   const size=result.setup.buffer[0]===1600 && result.setup.buffer[1]===900 && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
   result.transparentOnly=testCase.camera==='world-transparent';
-  result.valid=(role!=='candidate'||!result.lateWorldSources) && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && !(role==='candidate'?p.errors:p.worldErrors).length && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
+  result.valid=(role!=='candidate'||!result.lateWorldSources) && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>(p.selfReplay||p.replay||[]).length>0 && (p.selfReplay||p.replay).every(r=>r.differing===0) && p.lit>=.2 && !(role==='candidate'?p.errors:p.worldErrors).length && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
 } catch(error) {
   result.error=String(error.stack || error);result.valid=false;
   try { result.failure=await c.ev(`(() => {

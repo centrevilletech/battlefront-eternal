@@ -16,6 +16,20 @@ impl BfeRenderer {
     pub fn camera_lights_len(&self)->u32 {self.r.cameras.light_input.len() as u32}
     pub fn camera_packs_ptr(&mut self)->u32 {self.r.cameras.packs.as_mut_ptr() as u32}
     pub fn camera_packs_len(&self)->u32 {self.r.cameras.packs.len() as u32}
+    pub fn camera_pack_handles_ptr(&mut self)->u32 {self.r.cameras.pack_leases.handles.as_mut_ptr() as u32}
+    pub fn camera_pack_handles_len(&self)->u32 {crate::cameras::layout::limit::PACKS as u32}
+    pub fn camera_pack_acquire_frame(&mut self)->f64 {self.r.cameras.pack_leases.acquire()}
+    pub fn camera_pack_release_frame(&mut self,handle:f64)->bool {self.r.cameras.pack_leases.release(handle)}
+    pub fn camera_extra_handles_ptr(&mut self)->u32 {self.r.cameras.extra_leases.handles.as_mut_ptr() as u32}
+    pub fn camera_extra_handles_len(&self)->u32 {crate::cameras::layout::limit::EXTRA_CAMERAS as u32}
+    pub fn camera_acquire_frame(&mut self)->f64 {self.r.cameras.extra_leases.acquire()}
+    pub fn camera_release_frame(&mut self,handle:f64)->bool {self.r.cameras.extra_leases.release(handle)}
+    pub fn camera_import_frame(&mut self,handle:f64)->u32 {self.r.cameras.import(handle).map(|role|role as u32).unwrap_or(u32::MAX)}
+    // Diagnostics read lifetime capacity counters without copying camera banks.
+    pub fn camera_clipped(&self)->bool {self.r.cameras.clipped}
+    pub fn camera_evicted(&self)->u32 {self.r.cameras.extra_leases.evicted}
+    pub fn camera_pack_evicted(&self)->u32 {self.r.cameras.pack_leases.evicted}
+    pub fn camera_pack_rejected(&self)->u32 {self.r.cameras.rejected_packs}
     pub fn camera_mirror_ptr(&mut self)->u32 {self.r.cameras.mirror.as_mut_ptr() as u32}
     pub fn camera_mirror_len(&self)->u32 {self.r.cameras.mirror.len() as u32}
     // Shader blocks consume the native matrices and light pack directly;
@@ -28,9 +42,9 @@ impl BfeRenderer {
         self.r.core.input[F::VIEW..F::VIEW+16].copy_from_slice(&row[C::INVERSE..C::INVERSE+16]);
         self.r.core.input[F::EYE..F::EYE+3].copy_from_slice(&row[C::WORLD+12..C::WORLD+15]);
     }
-    pub fn camera_pack_shader_frame(&mut self,pack:u32){
-        use crate::cameras::layout::{pack as K,limit as L};
-        let pack=pack as usize;if pack>=L::PACKS{self.r.core.input[crate::shader::FRAME_LIGHT_COUNT]=0.;return;}
+    pub fn camera_pack_shader_frame(&mut self,handle:f64){
+        use crate::cameras::layout::pack as K;
+        let Some(pack)=self.r.cameras.pack_leases.touch(handle)else{self.r.core.input[crate::shader::FRAME_LIGHT_COUNT]=0.;self.r.cameras.rejected_packs=self.r.cameras.rejected_packs.saturating_add(1);return;};
         let row=&self.r.cameras.packs[pack*K::LEN..(pack+1)*K::LEN];let count=(row[K::COUNT] as usize).min(16);
         self.r.core.input[crate::shader::FRAME_LIGHT_COUNT]=count as f64;self.r.core.input[crate::shader::FRAME_LIGHTS..crate::shader::FRAME_LIGHTS+count*8].copy_from_slice(&row[K::VALUES..K::VALUES+count*8]);
     }
@@ -68,7 +82,7 @@ impl BfeRenderer {
     pub fn camera_reflect_frame(&mut self){self.r.cameras.reflect();}
     pub fn camera_probe_frame(&mut self,slot:u32){self.r.cameras.probe(slot as usize);}
     pub fn camera_sky_frame(&mut self,role:u32,follow:bool){self.r.cameras.sky(role as usize,follow);}
-    pub fn camera_lights_frame(&mut self,pack:u32){self.r.cameras.lights(pack as usize);}
+    pub fn camera_lights_frame(&mut self,handle:f64){self.r.cameras.pack_lights(handle);}
     pub fn camera_shadow_configure_frame(&mut self){self.r.cameras.cascades.configure(&self.r.cameras.input);}
     pub fn camera_cascades_frame(&mut self){self.r.cameras.cascades();}
     pub fn camera_shadow_frame(&mut self,index:u32){self.r.cameras.cascades.publish(index as usize);}

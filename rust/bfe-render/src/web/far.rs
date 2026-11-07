@@ -46,11 +46,6 @@ impl BfeRenderer {
  self.r.far.terrain(&mut self.r.core, item, level, index, cells) }
     pub fn far_items(&self) -> u32 { self.r.far.items() }
 
-    // The far phase from a water's mirror camera (renderer.rs
-    // far_mirror_frame): its stats, as far_frame's.
-    pub fn far_mirror_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.far_mirror_frame().map_err(|e| JsValue::from_str(&e))?.values())
-    }
 
     // Where the page writes the vertices of items whose buffers it
     // refreshes (f32); an item's range read from the input; a buffer of its
@@ -66,10 +61,4 @@ impl BfeRenderer {
         self.remember_far_refresh(item, buffer, at, floats, flag); // recovery
  self.r.far.refresh(item, buffer, at, floats, flag) }
 
-    // A face (0-5) of a sky probe's capture (renderer.rs far_probe_frame).
-    // Probe submission is transient and must never enter the recovery journal.
-    // Each cubemap face uses the already restored resource ids and current camera.
-    pub fn far_probe_frame(&mut self, face: u32) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.far_probe_frame(face as usize).map_err(|e| JsValue::from_str(&e))?.values())
-    }
 }

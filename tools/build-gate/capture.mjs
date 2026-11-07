@@ -1,8 +1,7 @@
 // One application session of the whole-build gate. The reference session
 // records its renderer inputs once; a repeat session of the reference and the
 // candidate session replay them. Every role also reads the finished frame, so
-// builds with no stage interface (a three.js-only build) still get compared,
-// against the repeat reference's own run-to-run noise.
+// the frozen native build and candidate share one observation boundary.
 //
 // Environment: BFE_GATE_CASE, BFE_GATE_ROLE (reference | repeat | candidate),
 // OUT (the case's directory), BFE_GATE_RAW (pixel and input files, removed by
@@ -12,14 +11,16 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gateCase, gateManifest as manifest } from './cases.mjs';
 import { installReplay } from '../renderer-corpus/replay.mjs';
-import { installWorldTrace, installWorldReplay } from '../renderer-corpus/world-replay.mjs';
-import { programLayouts } from '../../src/render-programs.js';
+import {installGLTracking,installGLReplay} from "../renderer-corpus/gl-replay.mjs";
+import {installFrameCapture} from "../renderer-corpus/frame-capture.mjs";
 import { connect, loadBattle, sleep, writeSettings, SEED_SRC, CONTEXT_SRC, GL_STATE, HELPERS_SRC } from '../renderer-corpus/battle.mjs';
 
 const role = process.env.BFE_GATE_ROLE, out = process.env.OUT, raw = process.env.BFE_GATE_RAW || out;
 if (!['reference', 'repeat', 'candidate'].includes(role) || !out) throw Error('Supply OUT and BFE_GATE_ROLE');
 const testCase = gateCase(process.env.BFE_GATE_CASE);
 const stages = process.env.BFE_GATE_STAGES === '1' && testCase.kind !== 'shell';
+if(testCase.kind!=='shell'&&!process.env.BFE_SHADER_INDEX)throw Error('Battle capture requires BFE_SHADER_INDEX from the native catalog');
+const shaderIndex=testCase.kind==='shell'?null:JSON.parse(fs.readFileSync(process.env.BFE_SHADER_INDEX));
 const dir = `${out}/${role}`, rawDir = `${raw}/${role}`;
 fs.mkdirSync(dir, { recursive: true });
 fs.mkdirSync(rawDir, { recursive: true });
@@ -110,13 +111,12 @@ const c = await connect();
 try {
   if (testCase.kind === 'shell') await captureShell(c);
   else {
-    result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: `${READY_SRC}${stages ? `(${installWorldTrace.toString()})()` : ''}` });
+    result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: `${READY_SRC}(${installGLTracking.toString()})(${JSON.stringify(shaderIndex)});` });
     if (result.loaded.error || !result.loaded.spawned) throw Error(result.loaded.error || 'player not spawned');
     await c.ev(HELPERS_SRC);
-    if (stages) await c.ev('window.__worldTrace.ready=true;1');
-    result.caps = await c.ev(`(() => { const g=__bf.graphics,core=g.rust; return {rust:!!core,stageApi:!!(core&&core.rust&&core.rust.post_frame&&core.rust.hud_frame)}; })()`);
-    if (stages && !result.caps.stageApi) { result.stagesUnavailable = 'this build has no stage interface'; }
-    const replaying = stages && result.caps.stageApi;
+    result.caps = await c.ev(`(() => { const g=__bf.graphics,core=g.rust; return {rust:!!core,stageApi:!!(core&&core.rust&&core.rust.battle_frame&&core.frame.execute)}; })()`);
+    if(!result.caps.stageApi)throw Error('Capture requires the native battle frame');
+    const replaying=stages;
     if (testCase.kind === 'vehicle') {
       result.seat = await c.ev(SEAT_SRC);
       if (result.seat.error) result.notApplicable = result.seat.error;
@@ -127,17 +127,16 @@ try {
       result.setup = await c.ev(`(() => {
         const b=__bf,g=b.graphics,R=g.renderer,gl=R.getContext();
         const T=window.__corpus={want:false,stages:{}};
-        const read=(name)=>{const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight,buf=new Uint8Array(w*h*4);R.setRenderTarget(null);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,buf);
-          const error=gl.getError();if(error)throw Error(name+' read GL '+error);T.stages[name]={w,h,buf};};
-        const hud=b.hud.render;b.hud.render=function(...a){if(T.want)read('post');const r=hud.apply(this,a);if(T.want)read('presented');return r;};
+        (${installFrameCapture.toString()})();
+        T.captureFamilies=['world/','post-hud/'];
         // Light selection reads a clock; give it the same advancing value every run.
         if(g.localLights){const begin=g.localLights.begin;let now=1e9;g.localLights.begin=function(...args){begin.apply(this,args);this.now=now+=1000;};}
         return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],renderer:(()=>{const e=gl.getExtension('WEBGL_debug_renderer_info');return e?gl.getParameter(e.UNMASKED_RENDERER_WEBGL):'';})()};
       })()`);
       if (replaying) {
         await c.ev(`(${installReplay.toString()})()`);
-        await c.ev(`(${installWorldReplay.toString()})(${JSON.stringify(programLayouts)})`);
-        await c.ev(`window.__corpus.captureReplay=${role === 'reference'};window.__corpus.role=${JSON.stringify(role === 'repeat' ? 'control' : role)}`);
+        await c.ev(`(${installGLReplay.toString()})()`);
+        await c.ev(`window.__corpus.captureReplay=${role === 'reference'};window.__corpus.role=${JSON.stringify(role === 'repeat' ? 'control' : role)};window.__corpus.referenceBuild=${role!=='candidate'}`);
       }
       const drive = 'KeyW';
       if (process.env.BFE_GATE_TRACE === '1') await c.ev('window.__trace=[];1');
@@ -151,7 +150,7 @@ try {
           for(let i=0;i<${manifest.settleFrames};i++)await b.lockstep(0,true);
           g.upscaler?.invalidate?.();if(g.upscaling==='temporal')g.upscaler.frame=${k};
           for(let i=0;i<${manifest.historyFrames};i++)await b.lockstep(0,true);
-          G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
+          G.resetFrame();T.stages={};T.records=[];T.blobs={};T.resetGLStages?.();T.want=true;const tick=await b.lockstep(0,true);T.want=false;
           const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
           let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8||s.buf[i+1]>8||s.buf[i+2]>8)lit++;
           const trace=window.__trace?window.__trace.splice(0):undefined;

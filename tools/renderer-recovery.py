@@ -29,7 +29,7 @@ methods = []
 # Replacing a sampled handle is likewise external ownership, not a GL payload.
 # hud_model_* owns CPU-only presentation state outside Renderer. It survives
 # replacement directly; replaying its commands would duplicate clocks/events.
-skip = {'replay_program_draw', 'new', 'add_texture', 'near_begin', 'transparent_segment', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'frame', 'replace_sample_texture'}
+skip = {'replay_program_draw', 'new', 'add_texture', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'replace_sample_texture'}
 # Files and declarations define a reproducible API-tag order for coalescing.
 # Never parse the generated replay implementation as another registration API.
 # Existing hooks are stripped first, otherwise repeated generation would add

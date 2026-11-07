@@ -22,6 +22,10 @@ pub fn admit(meta: &Value) -> Result<(), String> {
             return Err(format!(
                 "session version 2 requires battle_frame, found per-pass {name}"
             ));
+        } else if !Command::is_known(name) {
+            // Retired exports are absent from the generated command enum.
+            // Reject them before content/resource admission, like any unknown API.
+            return Err(format!("unknown renderer command {name}"));
         }
     }
     if battles == 0 {

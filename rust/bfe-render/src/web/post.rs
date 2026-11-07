@@ -26,13 +26,4 @@ impl BfeRenderer {
     pub fn post_chain_state_len(&self) -> u32 { self.r.post_chain.state.len() as u32 }
     pub fn post_chain_begin_frame(&mut self) { self.r.post_chain.begin(); }
     pub fn post_chain_plan_frame(&mut self) -> u32 { self.r.post_chain.plan(&mut self.r.post.input) as u32 }
-    // A scalar status avoids wasm-bindgen's per-call multi-value JS tuple.
-    // Only a refused phase exports an owned error string to the host.
-    pub fn post_chain_frame(&mut self) -> bool {
-        match self.r.post_chain_frame() {
-            Ok(()) => true,
-            Err(error) => { self.r.core.fault = Some(error); false }
-        }
-    }
-    pub fn post_chain_error_frame(&mut self) -> Option<String> { self.r.core.fault.take() }
 }

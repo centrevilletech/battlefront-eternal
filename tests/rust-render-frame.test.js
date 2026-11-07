@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { Upscaler } from "../src/upscaler.js";
-import { BINDING as B, ROLE as R } from "../src/rust-render/frame-layout.js";
+import { BINDING as B, META as M, ROLE as R } from "../src/rust-render/frame-layout.js";
 import { STATE } from "../src/rust-render/post-layout.js";
 import { actorMaterial } from "../src/materials.js";
 import { ownedBasicEffect, ownedEffectProgram } from "../src/rust-render/effect-material.js";
@@ -63,7 +63,7 @@ test("cover: three's start of a render, the phase, and three's end when every pa
   assert.throws(() => core.cover("view", renderer, scene, camera), /Incomplete Rust/);
   assert.equal(before, 1, "the scene's onBeforeRender (its lights packed) before the phase");
   assert.equal(child.matrixWorld.elements[12], 1, "its world matrices brought up to date first");
-  assert.ok(calls.some((c) => c[0] === "view_frame"));
+  assert.ok(calls.some((c) => c[0] === "frame_aux_frame" && c[2] === R.VIEW));
   assert.equal(calls.filter((c) => c[0] === "blitFramebuffer").length, 0, "three's render resolves the target");
   // Every pass of the phase complete: three is left out, and what its render
   // does as it ends is done here.
@@ -85,8 +85,8 @@ test("a mirror's render of the near scene draws the near phase's passes for the 
   mirror.userData.mirror = true;
   setTarget({ name: "reflection" });
   core.publishView("mirror", renderer, scene, mirror);
-  assert.ok(calls.some((c) => c[0] === "mirror_frame"));
-  assert.ok(!calls.some((c) => c[0] === "frame"));
+  assert.ok(calls.some((c) => c[0] === "frame_aux_frame" && c[2] === R.MIRROR0_NEAR));
+  assert.ok(!calls.some((c) => c[0] === "frame_aux_frame" && c[2] === R.NEAR));
   calls.length = 0;
   assert.throws(() => core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust mirror/);
 });
@@ -220,7 +220,7 @@ test("the near scene: Rust draws every registered item", () => {
   list.opaque.push({ object: graphics.background });
   assert.equal(core.coverNear(renderer, scene, camera), true);
   assert.equal(before, 1, "three's start of a render");
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$/.test(n) && !n.startsWith("frame_") && n!=="line_frame"), ["frame", "screen_frame", "transparent_frame"]);
+  assert.deepEqual(calls.filter(c=>c[0]==="frame_aux_frame").map(c=>c[2]),[R.NEAR,R.IMAGE,R.TRANSPARENT],"standalone packets retain semantic roles");
   assert.deepEqual([...core.frameBindings.subarray(R.NEAR*B.LEN+B.CLEAR,R.NEAR*B.LEN+B.CLEAR+4)],[0,0,0,1]);
   assert.equal(core.postInput[1], -2, "into the target bound now");
   // The hologram's record, keyed as projectObject keys it.
@@ -316,8 +316,8 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   scene.add(hidden);
   scene.updateMatrixWorld(true);
   assert.equal(core.coverMirror(renderer, scene, mirror), true);
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$/.test(n) && !n.startsWith("frame_") && n!=="line_frame"), ["mirror_frame", "screen_frame", "mirror_transparent_frame"]);
-  assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
+  assert.deepEqual(calls.filter(c=>c[0]==="frame_aux_frame").map(c=>c[2]),[R.MIRROR0_NEAR,R.MIRROR0_IMAGE,R.MIRROR0_TRANSPARENT]);
+  assert.equal(core.frameMeta[R.MIRROR0_TRANSPARENT*M.LEN+M.STEPS],0,"the image has a separate packet");
   assert.equal(core.postInput[1], -2, "the image into the target bound now");
   assert.equal(core.stale, true, "three's state reset when three is next used");
   // Not the frame's camera, nor a render something three draws itself is in.
@@ -330,7 +330,7 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   calls.length = 0;
   assert.equal(core.coverMirror(renderer, scene, mirror), true);
   assert.equal(core.byName.mirrorCover.stopped, wall);
-  assert.ok(calls.some((c) => c[0] === "mirror_frame"), "the reflection still draws what is owned");
+  assert.ok(calls.some((c) => c[0] === "frame_aux_frame" && c[2] === R.MIRROR0_NEAR), "the reflection still draws what is owned");
   assert.match(core.errors.join("\n"), /Not drawn: \(unnamed\) Mesh material MeshBasicMaterial/, "the stray object is reported, not fatal");
   // Switched off alone: three's.
   wall.material.visible = false;
@@ -387,7 +387,7 @@ test('a reflection registers a newly added transparent object before the main ca
  assert.equal(core.coverMirror(renderer,scene,mirror),true);
  assert.ok(!compiled.includes(logo),'the reflected owned object never invokes the browser compiler');
  assert.ok(core.byName.effects.glows.get(logo));
- assert.ok(calls.some(c=>c[0]==='mirror_transparent_frame'));
+ assert.ok(calls.some(c=>c[0]==='frame_aux_frame'&&c[2]===R.MIRROR0_TRANSPARENT));
  const count=compiled.length;
  scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
  assert.equal(compiled.length,count,'the main view reuses resources discovered by the reflection');

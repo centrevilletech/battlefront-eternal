@@ -73,17 +73,6 @@ let lightOwner=null,lightMap=null,fogMap=null;
 export function bindLighting(owner){lightOwner=owner;if(lightMap)owner.mapLighting(lightMap);if(fogMap)owner.mapFog(fogMap);}
 export function setLighting(map){lightMap=map;if(lightOwner)lightOwner.mapLighting(map);}
 
-// The fog range that fogs nothing: it starts past any far scene.
-export const NO_FOG = Object.freeze([1e9, 2e9]);
-
-// Whether a fog range [start, end] fogs anything, as the 2004 game decides:
-// it switches Direct3D's fog on only when 0 <= start < end, and its vertex
-// shaders' fog factor is 1 (clear) when end <= start. Kashyyyk: Islands' sky
-// sets 9000 and 8000, so its far scene draws unfogged.
-export function fogs(range) {
-  return Boolean(range) && range[0] >= 0 && range[0] < range[1];
-}
-
 // The far scene's fog (map.json distance.lowRes, from the sky's
 // LowResTerrain): linear by view depth from FogNear (clear) to FogFar (the
 // colour), FogFar already stretched by 255 / alpha at import. None without a

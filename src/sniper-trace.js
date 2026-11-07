@@ -65,6 +65,9 @@ export class SniperTrace {
     this.nativeFlares=new Float32Array(b,k.flares_ptr(),L.FLARES*FLARE_STRIDE);
     if(this.streaks){bind(this.streaks,this.nativeStreaks);bind(this.flares,this.nativeFlares);}
   }
+  // Include native draw/event overflow, whose lifetime counter survives a
+  // quiet frame. Refresh first so diagnostics survive linear-memory growth.
+  get droppedCount(){this.refresh();return this.dropped+this.counts[H.DROPPED];}
   // Camera and muzzle are host resources. Pack their published transforms
   // only while a native flight record can use them; no scene query is needed
   // for an empty trace. Time still advances through the coarse draw phase.

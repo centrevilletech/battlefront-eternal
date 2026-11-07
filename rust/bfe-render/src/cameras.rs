@@ -37,6 +37,8 @@ impl Camera {
     fn look(&mut self,at:V) {let mut rotation=Matrix4::default();rotation.look_at(&self.p,&at,&self.up);self.q.set_from_rotation_matrix(&rotation);self.compose(V::new(1.,1.,1.));}
 }
 pub struct Cameras {
+    pub extra_leases:crate::leases::Leases<{L::EXTRA_CAMERAS}>,
+    pub pack_leases:crate::leases::Leases<{L::PACKS}>,pub rejected_packs:u32,
     pub settings:crate::camera_lights::LightSettings,
     pub input:Vec<f64>,pub output:Vec<f64>,pub cascades:super::cascades::Cascades,
     pub sky:Vec<f64>,pub light_input:Vec<f64>,pub packs:Vec<f64>,pub mirror:[f64;H::LEN],
@@ -48,7 +50,7 @@ impl Default for Cameras {
         let mut input=vec![0.;I::LEN];input[I::SCALE..I::SCALE+3].fill(1.);input[I::UP+1]=1.;
         input[I::QUATERNION+3]=1.;input[I::LENS+N::FOV]=60.;input[I::LENS+N::ASPECT]=1.;
         input[I::LENS+N::NEAR]=0.5;input[I::LENS+N::FAR]=200.;input[I::LENS+N::ZOOM]=1.;input[I::LENS+N::FILM_GAUGE]=35.;
-        Self{settings:crate::camera_lights::LightSettings::default(),input,output:vec![0.;R::COUNT*C::LEN],cascades:super::cascades::Cascades::default(),sky:vec![0.;L::SKY*3],
+        Self{extra_leases:crate::leases::Leases::default(),pack_leases:crate::leases::Leases::default(),rejected_packs:0,settings:crate::camera_lights::LightSettings::default(),input,output:vec![0.;R::COUNT*C::LEN],cascades:super::cascades::Cascades::default(),sky:vec![0.;L::SKY*3],
             light_input:vec![0.;L::RAW_LIGHTS*P::LEN],packs:vec![0.;L::PACKS*K::LEN],mirror:[0.;H::LEN],cameras:[Camera::default();R::COUNT],saved:[Matrix4::default();R::COUNT],shifted:[false;R::COUNT],clipped:false,last_main:[0.;I::FAR_RANGE],main_valid:false}
     }
 }
@@ -88,6 +90,35 @@ impl Cameras {
             for(at,value)in[(U::WORLD,&mut c.world),(U::INVERSE,&mut c.inverse),(U::PROJECTION,&mut c.projection),(U::PROJECTION_INVERSE,&mut c.projection_inverse)] {value.elements.copy_from_slice(&a[I::MATRICES+at..I::MATRICES+at+16]);}
         }else{c.compose(vector(a,I::SCALE));c.project();}
         self.publish(R::MAIN,c);true
+    }
+    // Interface previews and other independent scene cameras enter the same
+    // owner as battle views. Import authored pose/lens facts, never a Three
+    // projection/inverse fallback in writeFrame. Parent matrices remain scene
+    // facts until their registry owns that object's world publication.
+    pub fn import(&mut self,handle:f64)->Option<usize>{
+        let Some(slot)=self.extra_leases.touch(handle)else{self.clipped=true;return None};
+        let role=R::EXTRA0+slot;let a=&self.input;let mut c=Camera::default();
+        c.p=vector(a,I::POSITION);c.up=vector(a,I::UP);c.q=Quaternion::new(a[I::QUATERNION],a[I::QUATERNION+1],a[I::QUATERNION+2],a[I::QUATERNION+3]);
+        c.lens.copy_from_slice(&a[I::LENS..I::LENS+N::LEN]);
+        if a[I::PUBLISHED]!=0.{
+            for(at,value)in[(U::WORLD,&mut c.world),(U::INVERSE,&mut c.inverse),(U::PROJECTION,&mut c.projection),(U::PROJECTION_INVERSE,&mut c.projection_inverse)]{value.elements.copy_from_slice(&a[I::MATRICES+at..I::MATRICES+at+16]);}
+        }else{
+            c.compose(vector(a,I::SCALE));
+            if a[I::USE_LOCAL_MATRIX]!=0.{c.world.elements.copy_from_slice(&a[I::LOCAL_MATRIX..I::LOCAL_MATRIX+16]);}
+            if a[I::HAS_PARENT]!=0.{let local=c.world;let mut parent=Matrix4::default();parent.elements.copy_from_slice(&a[I::PARENT_WORLD..I::PARENT_WORLD+16]);c.world.multiply_matrices(&parent,&local);}
+            c.inverse=c.world;c.inverse.invert();
+            if a[I::ORTHOGRAPHIC]!=0.{
+                // OrthographicCamera.updateProjectionMatrix keeps the same
+                // zoom and view-offset operation order as its perspective peer.
+                let f=&c.lens;let b=&a[I::ORTHO_BOUNDS..I::ORTHO_BOUNDS+4];
+                let dx=(b[1]-b[0])/(2.*f[N::ZOOM]);let dy=(b[2]-b[3])/(2.*f[N::ZOOM]);
+                let cx=(b[1]+b[0])/2.;let cy=(b[2]+b[3])/2.;
+                let mut left=cx-dx;let mut right=cx+dx;let mut top=cy+dy;let mut bottom=cy-dy;
+                if f[N::VIEW_ENABLED]!=0.{let sx=(b[1]-b[0])/f[N::FULL_WIDTH]/f[N::ZOOM];let sy=(b[2]-b[3])/f[N::FULL_HEIGHT]/f[N::ZOOM];left+=sx*f[N::OFFSET_X];right=left+sx*f[N::WIDTH];top-=sy*f[N::OFFSET_Y];bottom=top-sy*f[N::HEIGHT];}
+                c.projection.make_orthographic(left,right,top,bottom,f[N::NEAR],f[N::FAR],WebGL);c.projection_inverse=c.projection;c.projection_inverse.invert();
+            }else{c.project();}
+        }
+        self.publish(role,c);Some(role)
     }
     // Graphics.render's far and first-person views share the main pose but
     // preserve their own lens range. Recomposition repeats Three's copy/update.
@@ -178,7 +209,17 @@ impl Cameras {
         }
         out[K::COUNT]=count as f64;
     }
+    // Scene/camera identities are host objects, but lease lifetime and stale
+    // generation rejection belong to the same owner as their numeric packs.
+    pub fn pack_lights(&mut self,handle:f64){
+        if let Some(slot)=self.pack_leases.touch(handle){self.lights(slot);}
+        else{self.rejected_packs=self.rejected_packs.saturating_add(1);}
+    }
     pub fn cascades(&mut self) {
+        // configureShadows formerly round-tripped the normalized sun through
+        // lighting and CSM shells. The settings owner already holds its bits.
+        use layout::light_output as O;
+        self.input[I::SUN..I::SUN+3].copy_from_slice(&self.settings.output[O::DIRECTION..O::DIRECTION+3]);
         let mut camera=self.cameras[R::MAIN];camera.up=V::new(0.,1.,0.);camera.lens[N::FOV]=(js_max(75.,camera.lens[N::FOV])/5.).ceil()*5.;camera.lens[N::ZOOM]=1.;camera.lens[N::FILM_GAUGE]=35.;camera.lens[N::FILM_OFFSET]=0.;camera.lens[N::VIEW_ENABLED]=0.;camera.project();camera.compose(V::new(1.,1.,1.));self.publish(R::CASCADE,camera);
         self.cascades.prepare(&self.input,camera);
         for i in 0..self.cascades.count {self.publish(R::SHADOW0+i,self.cascades.cameras[i]);}

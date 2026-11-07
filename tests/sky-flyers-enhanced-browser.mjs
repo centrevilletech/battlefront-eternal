@@ -302,6 +302,7 @@ async function geonosis(page) {
       return mesh;
     };
     const { screenProgram, writeScreenStep, TARGET_CANVAS } = await import('/src/rust-render/screen.js');
+    const {FACTS:FRAME_FACTS,STATE:FRAME_STATE,ROLE:FRAME_ROLE,KIND:FRAME_KIND}=await import('/src/rust-render/frame-layout.js');
     const flyers = __bf.skyFlyers, kind = flyers.classes.find((k) => k.def.model === 'cis_fly_droidfighter_dome');
     const camera = __bf.camera;
     const gl = __bf.renderer.getContext();
@@ -387,7 +388,8 @@ async function geonosis(page) {
       __bf.renderer.compile(pass, __bf.graphics.passCamera);
       const core=__bf.graphics.rust, program=screenProgram(core,pass.material);
       if(!program||!writeScreenStep(core,0,program,pass.material,pass,__bf.graphics.passCamera,{target:TARGET_CANVAS,size:[gl.drawingBufferWidth,gl.drawingBufferHeight]}))throw Error('Cannot register motion diagnostic');
-      core.rust.screen_frame(1);core.stale=true;
+      core.frame.begin(false);core.frameFacts[FRAME_FACTS.CLOUDS]=1;core.frameFacts[FRAME_FACTS.CLOUD_TIME]=1;core.frameState[FRAME_STATE.CLOUD_LAST]=-Infinity;
+      core.frame.seal(FRAME_ROLE.CLOUDS,FRAME_KIND.SCREEN,{steps:1});core.frame.execute();
       __bf.renderer.autoClear = true;
       pass.material.dispose();
       const moved = read();

@@ -91,14 +91,14 @@ function copyLight(rows,count,light,proxy,scene){
 // colour/intensity, range rejection and transformed first-person proxies.
 export function packPointLights(scene, camera, owner=scene.userData.nativeCameraOwner) {
   const pack=packOf(scene,camera);
-  if(pack.owner!==owner){pack.owner=owner;pack.native=owner.nextPack++;}
-  const core=owner.core;if(pack.native>=L.PACKS){pack.count=0;core.rust.camera_lights_frame(pack.native);return pack;}core.views();const a=core.cameraInput,rows=core.cameraLights;
+  owner.acquirePack(pack);
+  const core=owner.core;core.views();const a=core.cameraInput,rows=core.cameraLights;
   const lights=lightsOf(scene),proxies=scene.userData.nativeViewLights||EMPTY.lights;let count=0;
   for(let i=0;i<lights.length;i++)count=copyLight(rows,count,lights[i],null,scene);
   for(let i=0;i<proxies.length;i++)count=copyLight(rows,count,proxies[i].source,proxies[i],scene);
   a[I.LIGHT_COUNT]=count;const eye=camera.matrixWorld.elements;
   a[I.LIGHT_EYE]=eye[12];a[I.LIGHT_EYE+1]=eye[13];a[I.LIGHT_EYE+2]=eye[14];a[I.LIGHT_FAR]=camera.far;a[I.LIGHT_LAYERS]=camera.layers.mask;a.set(scene.matrixWorld.elements,I.VIEW_WORLD);
-  core.rust.camera_lights_frame(pack.native);const out=core.cameraPacks,base=pack.native*K.LEN;pack.count=out[base+K.COUNT];
+  core.rust.camera_lights_frame(pack.native);const out=core.cameraPacks,base=(pack.native%L.PACKS)*K.LEN;pack.count=out[base+K.COUNT];
   for(let i=0;i<pack.count*2;i++)pack.lights[i].fromArray(out,base+K.VALUES+i*4);
   return pack;
 }

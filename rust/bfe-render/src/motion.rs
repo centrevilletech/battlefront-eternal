@@ -204,7 +204,12 @@ impl<C: HasContext> MotionPass<C> {
     // the ordinary motion view packet; the only extra live fact is `still`.
     pub fn add_sky_extra<M:MultiDraw>(&mut self,core:&mut Core<C,M>,program:u32,geometry:u32,max:u32)->u32{
         let spec=crate::programs::spec("effects/motion-flyer").unwrap();let mut layout=vec![];for(name,columns,rows)in[("instanceMatrix",4,4),("previousMatrix",4,4),("shown",1,1)]{let loc=spec.attributes.iter().find(|(n,_)|*n==name).unwrap().1;layout.extend_from_slice(&[loc,columns,rows]);}
-        let id=self.add_extra(core,program,geometry,max,&layout);self.extras[id as usize].native=true;self.uniforms(core,program as usize);id
+        let id=self.add_extra(core,program,geometry,max,&layout);self.extras[id as usize].native=true;
+        // SkyFlyers.flyerMotion admits this descriptor before any motion draw.
+        // Its sampler locations belong to this program, even when cold import
+        // left another program (or no program) selected on the context.
+        core.state.use_program(&core.gl,&mut core.stats,core.programs[program as usize].program);
+        self.uniforms(core,program as usize);id
     }
     // The extras the page wrote, in its order (three's), into the target
     // bound now: each one's instances sent, its uniforms set, one instanced

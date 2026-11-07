@@ -5,6 +5,7 @@
 // The stand-ins expose active uniforms explicitly so a missing sampler cannot
 // pass merely because a generated shader happened to optimise it away.
 import test from "node:test";
+import { META as M, ROLE as R } from "../src/rust-render/frame-layout.js";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 
@@ -67,7 +68,8 @@ test("the storm's cloud panorama: drawn into its target by the renderer from its
   calls.length = 0;
   assert.equal(core.cover("skyClouds", renderer, pass, camera), true);
   assert.ok(calls.some((c) => c[0] === "post_target"), "its target, by its texture");
-  assert.deepEqual(calls.find((c) => c[0] === "screen_frame"), ["screen_frame", 1]);
+  assert.ok(calls.some(c=>c[0]==="frame_aux_frame"));
+  assert.equal(core.frameMeta[R.CLOUDS*M.LEN+M.STEPS],1);
   core.views();
   const step = core.postInput;
   assert.deepEqual([step[2], step[3], step[4]], [768, 384, 5], "its size, five uniforms");
@@ -95,7 +97,8 @@ test("the Low water's underwater tint: over the finished frame, blended as three
   setTarget(null);
   calls.length = 0;
   assert.equal(core.cover("underwater", renderer, scene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)), true);
-  assert.deepEqual(calls.find((c) => c[0] === "screen_frame"), ["screen_frame", 1]);
+  assert.ok(calls.some(c=>c[0]==="frame_aux_frame"));
+  assert.equal(core.frameMeta[R.UNDERWATER*M.LEN+M.STEPS],1);
   core.views();
   assert.deepEqual([...core.postInput.subarray(1, 4)], [-1, 800, 600], "the canvas, three's viewport in pixels");
   // Blended (source alpha, one minus source alpha; one, one minus source alpha), no depth.
@@ -117,7 +120,7 @@ test("underwater fog publishes its screen packet without a transparent draw call
   pass.place(renderer,scene,camera,graphics.sceneTarget);assert.equal(fogMaterial.visible,false);
   calls.length=0;core.frame.begin(true);pass.draw({renderer,scene,camera});
   assert.equal(calls.filter(c=>c[0]==="fog-copy-fact").length,1);
-  assert.equal(calls.some(c=>c[0]==="screen_frame"),false);
+  assert.equal(calls.some(c=>c[0]==="frame_aux_frame"),false);
   assert.equal(calls.filter(c=>c[0]==="frame_publish_frame").length,1);
   assert.equal(core.byName.transparent.afterPhase,undefined);
   assert.equal(renderer.properties.get(fogMaterial).currentProgram,undefined);

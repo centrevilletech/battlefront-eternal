@@ -78,8 +78,7 @@ test('native post facts survive resource registration and retain program binding
  core.byName.post.prepare();core.byName.post.begin(camera);core.byName.post.prepare();
  assert.equal(core.postFacts,facts);assert.equal(core.postStats,stats);
  assert.equal(calls.filter(c=>c[0]==='add_texture').length,registrations);
- assert.equal(calls.filter(c=>c[0]==='post_chain_frame').length,0,'publication issues no draw');
- assert.equal(calls.some(c=>c[0]==='post_frame'),false,'the old step planner is not called');
+ assert.equal(calls.filter(c=>c[0]==='battle_frame'||c[0]==='frame_aux_frame').length,0,'publication issues no draw');
  core.rust.battle_frame=()=>false;core.rust.frame_error_frame=()=> 'Synthetic post refusal';
  core.frame.begin(true);assert.throws(()=>core.frame.execute(),/Synthetic post refusal/,'a rejected native frame stays visible');
 });
@@ -132,5 +131,5 @@ test('an anisotropy revision uploads and rebinds retained static texture samples
  core.publishView('image',renderer,new THREE.Scene(),new THREE.Camera());
  assert.equal(core.texture(texture),id);
  assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,renderer.resources.gpu,renderer.resources.textureId(texture)]);
- assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='screen_frame'));
+ assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='frame_aux_frame'));
 });

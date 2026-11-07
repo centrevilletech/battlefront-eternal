@@ -1,3 +1,4 @@
+import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import {wakeFixture} from './helpers/surfaces.js';
 import './fixtures/native-render-descriptors.js';
 import {actorAsset,glowLook,glowNode} from '../src/actor-resources.js';
@@ -70,8 +71,6 @@ function bridge() {
       geometry_index() {},
       geometry_group() {},
       sort() {},
-      frame(records) { calls.push(["frame", records]); return STATS; },
-      transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; },
     }),
   });
   const gl = {
@@ -183,14 +182,12 @@ test("a mirror's render draws what blends too: the transparent phase for the mir
     // transparent phase follows it, in the mirror's render.
     const ctx=core.publishView("mirror", renderer, scene, mirror);
     core.byName.transparent.prepare(ctx);core.publishView("mirrorTransparent",renderer,scene,mirror);
-    assert.ok(calls.some(c => c[0] === "mirror_transparent_frame"), "the explicit Rust mirror phase includes transparency");
+    assert.ok(calls.some(c=>c[0]==="frame_aux_frame"&&c[2]===R.MIRROR0_TRANSPARENT), "the explicit Rust mirror phase includes transparency");
   } finally {
     renderer.getRenderTarget = target;
   }
-  const names = calls.map((c) => c[0]);
-  assert.ok(names.includes("mirror_frame"), "the near phase's passes for the mirror");
-  assert.ok(names.indexOf("mirror_transparent_frame") > names.indexOf("mirror_frame"), "then what blends");
-  assert.equal(names.includes("transparent_frame"), false, "not the frame's own");
+  const roles=calls.filter(c=>c[0]==="frame_aux_frame").map(c=>c[2]);
+  assert.deepEqual(roles,[R.MIRROR0_NEAR,R.MIRROR0_TRANSPARENT]);
   assert.equal(core.fxInput[0], 1, "the effects drawn in the reflection");
   assert.deepEqual(entry(0).slice(0, 3), [0, 0, 3]);
 });
@@ -280,7 +277,7 @@ test("an effects pass error stops the required renderer", () => {
   fill();
   assert.equal(batch.external, true);
   // A batch the pass can't read.
-  core.rust.transparent_frame = () => { throw Error("GPU draw failure"); };
+  core.rust.frame_aux_frame=()=>false;core.rust.frame_error_frame=()=>"GPU draw failure";
   assert.throws(() => frame(), /GPU draw failure/);
   assert.equal(batch.external, true, "ownership is not handed back on failure");
 });

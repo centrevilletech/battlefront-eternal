@@ -255,3 +255,30 @@ test('motion and skinned row metadata comes from the exported layout', async () 
     assert.equal(shaderIndex(bytes)[0].instanceLayout,undefined);
   }
 });
+
+// Draw IDs address rows inside a batch. Splitting its commands into single
+// draws would keep geometry while silently changing which world row is read.
+test('GPU tracking preserves a draw-ID batch and its argument offsets',async()=>{
+  const {fingerprint}=await import('../tools/renderer-corpus/shader-index.mjs');
+  const oldWindow=globalThis.window,oldGl=globalThis.WebGL2RenderingContext;
+  const vertex='void main(){int row=gl_DrawID;}',fragment='fragment',program={},calls=[];
+  const extension={multiDrawElementsWEBGL(...args){calls.push(args);}};
+  class Context {
+    getExtension(){return extension;}linkProgram(){}
+    getParameter(){return program;}
+    getAttachedShaders(){return [{type:35633,source:vertex},{type:35632,source:fragment}];}
+    getShaderParameter(shader){return shader.type;}getShaderSource(shader){return shader.source;}
+    getProgramParameter(_program,name){return name===35714?true:name===35721?1:0;}
+    getActiveAttrib(){return {name:'position',type:35665,size:1};}getAttribLocation(){return 0;}
+  }
+  Object.assign(Context.prototype,{VERTEX_SHADER:35633,FRAGMENT_SHADER:35632,LINK_STATUS:35714,ACTIVE_ATTRIBUTES:35721,ACTIVE_UNIFORMS:35718,CURRENT_PROGRAM:35725});
+  globalThis.WebGL2RenderingContext=Context;globalThis.window={__corpus:{want:true}};
+  try{
+    installGLTracking([{key:'world/batch',declared:true,kind:'World',attributes:[['position',0]],fingerprint:fingerprint(vertex)+'/'+fingerprint(fragment)}]);
+    const gl=new Context();gl.linkProgram(program);const seen=[];window.__glTracking.state(gl).capture=(...args)=>seen.push(args);
+    const counts=Int32Array.of(0,6,9),offsets=Int32Array.of(0,0,12);
+    gl.getExtension('WEBGL_multi_draw').multiDrawElementsWEBGL(4,counts,1,5123,offsets,1,2);
+    assert.equal(calls.length,1);assert.equal(seen.length,1);assert.equal(seen[0][0],'multiDrawElementsWEBGL');
+    assert.deepEqual(seen[0][1],[4,counts,1,5123,offsets,1,2]);assert.equal(seen[0][2].key,'world/batch');
+  }finally{globalThis.window=oldWindow;globalThis.WebGL2RenderingContext=oldGl;}
+});

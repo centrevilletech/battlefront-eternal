@@ -11,13 +11,9 @@ impl BfeRenderer {
     // three's order, before transparent_frame.
     pub fn transparent_keys_ptr(&mut self) -> u32 { self.r.transparent.keys.as_mut_ptr() as u32 }
     pub fn transparent_keys_len(&self) -> u32 { (MAX_THREE * KEY_STRIDE) as u32 }
-    // After transparent_frame: where each segment starts (u32, three's count + 2).
+    // Native sorting publishes segment boundaries for diagnostics.
     pub fn transparent_segments_ptr(&mut self) -> u32 { self.r.transparent.list.segments.as_mut_ptr() as u32 }
     pub fn transparent_segments_len(&self) -> u32 { self.r.transparent.list.segments.len() as u32 }
-    // Segment k, right after three drew its item k - 1: its stats.
-    pub fn transparent_segment(&mut self, k: u32) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.transparent_segment(k as usize).map_err(|e| JsValue::from_str(&e))?.values())
-    }
 
     // A blended bucket: blend as three's setBlending (enabled, equations,
     // factors), depth func, flags (1 depth test, 2 depth write, 4 colour

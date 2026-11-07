@@ -172,7 +172,6 @@ export class Graphics {
     // view distance; FarSceneRange is the far scene's reach.
     this.nearScene = [72, 300, 120, 500];
     this.farReach = [1500, 3000];
-    this.sunDirection = new THREE.Vector3(0, -1, 0);
     this.csm = null;
 
     // Render targets: the far scene's image, the near scene drawn over it,
@@ -250,7 +249,6 @@ export class Graphics {
   // The map's lights, distances, and post effect.
   setMap(map) {
     setLighting(map);
-    this.sunDirection.copy(lighting.sunDirection.value);
     if (map.distance?.nearScene?.length === 4) this.nearScene = map.distance.nearScene;
     if (map.distance?.farScene?.length === 2) this.farReach = map.distance.farScene;
     setFog(map);
@@ -773,7 +771,8 @@ export class Graphics {
     const warning = gpu.software ? "  SOFTWARE GPU" : gpu.softwareCompositing || gpu.readback ? "  SOFTWARE COMPOSITING" : "";
     const shadow = this.rust?.byName.shadow;
     const clipped = shadow ? shadow.clipped + this.rust.rust.static_depth_clipped() : 0;
-    return `3D ${this.renderSize.x}x${this.renderSize.y}${warning}${clipped ? `  SHADOW CLIPPED ${clipped}` : ""}`;
+    const native=this.rust?.rust,cameras=native?+native.camera_clipped():0,packs=native?native.camera_pack_rejected():0,sniper=this.rust?this.rust.byName.effects.sniperDropped():0;
+    return `3D ${this.renderSize.x}x${this.renderSize.y}${warning}${clipped ? `  SHADOW CLIPPED ${clipped}` : ""}${cameras?"  CAMERA CLIPPED":""}${packs?`  LIGHT PACK REJECTED ${packs}`:""}${sniper?`  SNIPER CLIPPED ${sniper}`:""}`;
   }
 
   diagnostics() {
@@ -800,6 +799,9 @@ export class Graphics {
       shadowPasses: { ...this.shadowPasses },
       // Lifetime counters distinguish dropped pass submissions from source
       // admission limits. Neither condition interrupts a displayed frame.
+      cameraCapacity: { clipped: this.rust.rust.camera_clipped(), evicted: this.rust.rust.camera_evicted() },
+      lightPackCapacity: { evicted: this.rust.rust.camera_pack_evicted(), rejected: this.rust.rust.camera_pack_rejected() },
+      sniperClipped: this.rust.byName.effects.sniperDropped(),
       shadowClipped: { draws: this.rust.byName.shadow.clipped, sources: this.rust.rust.static_depth_clipped() },
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },

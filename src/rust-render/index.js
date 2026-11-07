@@ -11,7 +11,7 @@ import { rendererModule } from "./load.js";
 import { installResources } from "../render-resources.js";
 import * as THREE from "three";
 import { lighting } from "../materials.js";
-import { packed } from "../point-lights.js";
+import { packed, packPointLights } from "../point-lights.js";
 import { worldPass } from "./world.js";
 import { instancesPass, compileFor } from "./instances.js";
 import { farPass, seaPass } from "./far.js";
@@ -149,7 +149,10 @@ export class RustRender {
     // skipped for the frame and reported once (skip()).
     this.skipped = new Set();
     // The cascades' maps last given to the renderer.
-    this.shadowMaps = "";
+    this.shadowMapCount = 0;
+    this.shadowMapIds = new Int32Array(SHADOW.CASCADES).fill(-1);
+    this.shadowMapData = new Uint32Array(SHADOW.CASCADES);
+    this.shadowMapViews = Array.from({length:SHADOW.CASCADES+1},(_,n)=>this.shadowMapData.subarray(0,n));
     this.shadowView = false;
     // Programs whose lamps come from the lamp table (a pass that gives each
     // draw its lamps, lamp lighting on), kept apart from the same three
@@ -221,7 +224,7 @@ export class RustRender {
     this.rust.rebuild(this.gl,this.resources.gpu,ids);
     this.buffer = null;
     this.views();
-    this.shadowMaps = "";
+    this.shadowMapCount = -1;
     this.byName.post.revision = -1;
     this.byName.hud.full = true;
     this.byName.water.full = true;
@@ -455,12 +458,9 @@ export class RustRender {
     if (!far) this.writeLamps();
     this.views();
     const input = this.input;
-    const nativeRole=this.cameras.roles.get(camera);
-    if(nativeRole!==undefined)this.rust.camera_shader_frame(nativeRole);
-    else {
-      input.set(camera.projectionMatrix.elements,0);input.set(camera.matrixWorldInverse.elements,16);
-      const m=camera.matrixWorld.elements;input[32]=m[12];input[33]=m[13];input[34]=m[14];
-    }
+    const nativeRole=this.cameras.shaderRole(camera);
+    this.rust.camera_shader_frame(nativeRole);
+
     for (const [name, at, size] of FRAME) {
       if (at < 35 || NATIVE_LIGHT_FIELDS.has(name)) continue;
       const v = lighting[name].value;
@@ -468,26 +468,32 @@ export class RustRender {
       else { input[at] = v.x; input[at + 1] = v.y; if (size === 3) input[at + 2] = v.z; }
     }
     this.rust.camera_global_shader_frame();
-    const pack = packed(scene, camera);
+    let pack = packed(scene, camera);
+    // A nested view can recycle an old pair's slot. The packet needs this
+    // pair's current generation, never the replacement's numeric light row.
+    if(pack.native!==undefined&&!this.cameras.packValid(pack))pack=packPointLights(scene,camera,this.cameras);
     if(pack.native!==undefined)this.rust.camera_pack_shader_frame(pack.native);
     else input[LIGHT_COUNT]=0;
 
   }
 
-  // The shadow receivers' block (shader.rs BfeShadow) as three uploads its
-  // uniforms for the near scene's receivers: each cascade light's shadow
-  // values and matrix (three's lights state, the cascade order: CSM's lights
-  // are the scene's only shadow-casting ones), the plane matrices and slices
-  // the materials share (lighting.cascadePlanes, lighting.cascades), read
-  // where three's draws would read them (after this frame's shadow pass; a
-  // mirror's, drawn before it, last frame's); and the cascades' maps. With
-  // shadows off, no maps: the renderer sends and binds nothing.
+  // Cascades publish the receiver block directly at the original shadow
+  // boundaries. Mirrors consume the preceding publication; the near scene
+  // consumes this frame's. The host supplies only live sampler identities.
   writeShadow() {
     const on = this.shadowsOn();
-    const maps = on ? lighting.cascadeMaps.value : [];
-    const ids = maps.map((t) => this.texture(t));
-    const key = ids.join(",");
-    if (key !== this.shadowMaps) { this.shadowMaps = key; this.rust.set_shadow_maps(new Uint32Array(ids.every((id) => id >= 0) ? ids : [])); }
+    const maps = lighting.cascadeMaps.value, count = on ? Math.min(maps.length,SHADOW.CASCADES) : 0;
+    let changed = count !== this.shadowMapCount, valid = true;
+    // writeShadow runs for several views. Compare numeric sampler identities
+    // in retained storage; only a changed binding crosses into Rust.
+    for(let i=0;i<count;i++){
+      const id=this.texture(maps[i]);
+      if(this.shadowMapIds[i]!==id)changed=true;
+      this.shadowMapIds[i]=id;this.shadowMapData[i]=id;
+      if(id<0)valid=false;
+    }
+    this.shadowMapCount=count;
+    if(changed)this.rust.set_shadow_maps(this.shadowMapViews[valid?count:0]);
     if (!on) return;
     if (!this.shadowView) { this.addView("shadowInput", Float64Array, () => this.rust.shadow_input_ptr(), () => this.rust.shadow_input_len()); this.shadowView = true; }
     this.views();

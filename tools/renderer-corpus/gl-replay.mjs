@@ -7,7 +7,7 @@ export function installGLTracking(index) {
   const state=gl=>{let s=contexts.get(gl);if(!s){s={textures:new WeakMap(),renderbuffers:new WeakMap(),programs:new WeakMap(),seenPrograms:new Map(),multiDraw:new WeakSet(),busy:false};contexts.set(gl,s);}return s;};
   const fp=source=>{let h=2166136261;for(let i=0;i<source.length;i++)h=Math.imul(h^source.charCodeAt(i),16777619);return (h>>>0).toString(16)+':'+source.length;};
   const binding=(gl,target)=>target===gl.TEXTURE_3D?gl.TEXTURE_BINDING_3D:target===gl.TEXTURE_2D_ARRAY?gl.TEXTURE_BINDING_2D_ARRAY:target===gl.TEXTURE_CUBE_MAP || target>=34069&&target<=34074?gl.TEXTURE_BINDING_CUBE_MAP:gl.TEXTURE_BINDING_2D;
-  const texture=(gl,target)=>{const s=state(gl),t=gl.getParameter(binding(gl,target));let r=s.textures.get(t);if(!r){r={levels:[],generated:false};s.textures.set(t,r);}return r;};
+  const texture=(gl,target)=>{const s=state(gl),t=gl.getParameter(binding(gl,target));let r=s.textures.get(t);if(!r){r={levels:[],generated:false,partial:false};s.textures.set(t,r);}return r;};
   const wrap=(name,fn)=>{original[name]=P[name];P[name]=function(...args){return fn.call(this,original[name],args);};};
   for(const name of ['texImage2D','texImage3D','compressedTexImage2D','compressedTexImage3D'])wrap(name,function(call,a){
     const result=call.apply(this,a),r=texture(this,a[0]),compressed=name.startsWith('compressed'),three=name.endsWith('3D');let width,height,depth=1,format,type,data;
@@ -20,6 +20,15 @@ export function installGLTracking(index) {
     r.levels=r.levels.filter(x=>x.target!==row.target||x.level!==row.level);r.levels.push(row);return result;
   });
   for(const name of ['texStorage2D','texStorage3D'])wrap(name,function(call,a){const result=call.apply(this,a),r=texture(this,a[0]);for(let i=0;i<a[1];i++)for(const target of a[0]===this.TEXTURE_CUBE_MAP?[34069,34070,34071,34072,34073,34074]:[a[0]])r.levels.push({target,level:i,internal:a[2],width:Math.max(1,a[3]>>i),height:Math.max(1,a[4]>>i),depth:name==='texStorage3D'?Math.max(1,a[5]>>i):1});return result;});
+  // Immutable compressed textures upload through sub-images. Freeze complete
+  // mip blocks before their borrowed WASM view can detach; refuse partial data.
+  wrap('compressedTexSubImage2D',function(call,a){
+    const result=call.apply(this,a),r=texture(this,a[0]),row=r.levels.find(x=>x.target===a[0]&&x.level===a[1]);
+    if(!row||a[2]!==0||a[3]!==0||a[4]!==row.width||a[5]!==row.height){r.partial=true;return result;}
+    const data=a[7];if(!ArrayBuffer.isView(data)){r.partial=true;return result;}
+    const start=a[8]||0,length=a[9]??(data.byteLength-start);
+    row.compressed=true;row.internal=a[6];row.data=new Uint8Array(data.buffer,data.byteOffset+start,length).slice();return result;
+  });
   wrap('generateMipmap',function(call,a){const r=texture(this,a[0]);r.generated=true;r.levels=r.levels.filter(x=>x.level===0);for(const base of r.levels.filter(x=>x.level===0)){for(let i=1;i<=Math.floor(Math.log2(Math.max(base.width,base.height,base.depth)));i++)if(!r.levels.some(x=>x.target===base.target&&x.level===i))r.levels.push({...base,level:i,width:Math.max(1,base.width>>i),height:Math.max(1,base.height>>i),depth:Math.max(1,base.depth>>i),data:null});}return call.apply(this,a);});
   for(const name of ['renderbufferStorage','renderbufferStorageMultisample'])wrap(name,function(call,a){const result=call.apply(this,a);state(this).renderbuffers.set(this.getParameter(this.RENDERBUFFER_BINDING),{samples:name.endsWith('Multisample')?a[1]:0,internal:a[name.endsWith('Multisample')?2:1],width:a[a.length-2],height:a[a.length-1]});return result;});
   // A program's uniform value as a flat array, one element per array slot, so replay can set it back without knowing the type.
@@ -66,7 +75,7 @@ export function installGLTracking(index) {
             s.busy=true;
             try{
               const source=program(gl,gl.getParameter(gl.CURRENT_PROGRAM));
-              if(source.key&&/\bgl_DrawID(?:ARB)?\b/.test(source.vertex+source.fragment))throw Error('Effects multi-draw uses draw IDs: '+source.key);
+              if(source.key&&/\bgl_DrawID(?:ARB)?\b/.test(source.vertex+source.fragment)){s.capture(name,args,source);return draw.apply(this,args);}
               const elements=name.includes('Elements'),instanced=name.includes('Instanced'),length=args[args.length-1];
               for(let i=0;i<length;i++){
                 let command,values;
@@ -117,11 +126,23 @@ export function installGLReplay() {
   const restore=a=>{applyRaster(a.r);gl.useProgram(a.program);gl.bindVertexArray(a.vao);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,a.read);gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,a.draw);gl.bindRenderbuffer(gl.RENDERBUFFER,a.renderbuffer);for(let i=0;i<a.ubo.length;i++){const[h,o,n]=a.ubo[i];if(h&&n)gl.bindBufferRange(gl.UNIFORM_BUFFER,i,h,o,n);else gl.bindBufferBase(gl.UNIFORM_BUFFER,i,h);}for(let i=0;i<a.constants.length;i++)gl.vertexAttrib4fv(i,a.constants[i]);for(const[p,v]of a.buffers)gl.bindBuffer(p,v);for(const[p,v]of a.pixel)gl.pixelStorei(p,v);for(let i=0;i<a.units.length;i++){gl.activeTexture(gl.TEXTURE0+i);const t=a.units[i];for(const[target,j]of [[gl.TEXTURE_2D,0],[gl.TEXTURE_CUBE_MAP,1],[gl.TEXTURE_3D,2],[gl.TEXTURE_2D_ARRAY,3]])gl.bindTexture(target,t[j]);gl.bindSampler(i,t[4]);}gl.activeTexture(a.active);};
   const buffer=h=>{if(!h)return null;if(buffers.has(h))return buffers.get(h);gl.bindBuffer(gl.COPY_READ_BUFFER,h);const data=new Uint8Array(gl.getBufferParameter(gl.COPY_READ_BUFFER,gl.BUFFER_SIZE));gl.getBufferSubData(gl.COPY_READ_BUFFER,0,data);const id=store(data);buffers.set(h,id);return id;};
   const check=label=>{const e=gl.getError();if(e)throw Error(label+' GL '+e);};
-  const targetFormat=()=>{const draw=get(gl.DRAW_FRAMEBUFFER_BINDING);if(!draw)return {width:gl.drawingBufferWidth,height:gl.drawingBufferHeight,internal:gl.RGBA8,samples:0};const kind=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE),handle=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);if(kind===gl.RENDERBUFFER){const meta=s.renderbuffers.get(handle);if(!meta)throw Error('Untracked stage renderbuffer');return meta;}const level=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL),meta=s.textures.get(handle)?.levels.find(x=>x.level===level);if(!meta)throw Error('Untracked stage color target');return {...meta,samples:0};};
+  const targetFormat=()=>{
+    if(!get(gl.DRAW_FRAMEBUFFER_BINDING))return {width:gl.drawingBufferWidth,height:gl.drawingBufferHeight,internal:gl.RGBA8,samples:0};
+    const describe=attachment=>{
+      const type=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,attachment,gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);if(type===gl.NONE)return null;
+      const handle=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,attachment,gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+      if(type===gl.RENDERBUFFER)return s.renderbuffers.get(handle);
+      const level=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,attachment,gl.FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL);
+      return s.textures.get(handle)?.levels.find(x=>x.level===level);
+    };
+    const color=describe(gl.COLOR_ATTACHMENT0);if(color)return {...color,samples:color.samples||0};
+    const depth=describe(gl.DEPTH_ATTACHMENT)||describe(gl.DEPTH_STENCIL_ATTACHMENT);if(!depth)throw Error('Untracked stage target');
+    return {...depth,internal:gl.RGBA8,depthInternal:depth.internal,depthOnly:true,samples:depth.samples||0};
+  };
   const simpleProgram=(v,f,attrs=[])=>{const p=gl.createProgram();for(const[type,src]of [[gl.VERTEX_SHADER,v],[gl.FRAGMENT_SHADER,f]]){const shader=gl.createShader(type);gl.shaderSource(shader,src);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));gl.attachShader(p,shader);gl.deleteShader(shader);}for(const[n,l]of attrs)gl.bindAttribLocation(p,l,n);gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p;};
-  let depthCopy;
+  let depthCopy,depthSampler;
   const texture=(handle,target)=>{
-    if(!handle)return null;const meta=s.textures.get(handle);if(!meta||!meta.levels.length)throw Error('Untracked sampled texture');gl.bindTexture(target,handle);
+    if(!handle)return null;const meta=s.textures.get(handle);if(meta?.partial)throw Error('Partial compressed texture update');if(!meta||!meta.levels.length)throw Error('Untracked sampled texture');gl.bindTexture(target,handle);
     const params=[gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER,gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T,gl.TEXTURE_BASE_LEVEL,gl.TEXTURE_MAX_LEVEL,gl.TEXTURE_COMPARE_MODE,gl.TEXTURE_COMPARE_FUNC];if(target!==gl.TEXTURE_2D)params.push(gl.TEXTURE_WRAP_R);
     const anisotropy=gl.getExtension('EXT_texture_filter_anisotropic');
     if(anisotropy)params.push(anisotropy.TEXTURE_MAX_ANISOTROPY_EXT);
@@ -136,7 +157,7 @@ export function installGLReplay() {
         if(isDepth){
           if(target!==gl.TEXTURE_2D)throw Error('Unsupported depth texture target');
           depthCopy ||= simpleProgram('#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}', '#version 300 es\nprecision highp float;uniform sampler2D source;uniform int level;out vec4 color;void main(){color=vec4(texelFetch(source,ivec2(gl_FragCoord.xy),level).r,0.,0.,1.);}');
-          const out=gl.createTexture();gl.activeTexture(gl.TEXTURE0+31);gl.bindTexture(gl.TEXTURE_2D,out);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,w,h,0,gl.RGBA,gl.FLOAT,null);gl.bindFramebuffer(gl.FRAMEBUFFER,scratch);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,out,0);gl.useProgram(depthCopy);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);gl.bindSampler(0,null);gl.uniform1i(gl.getUniformLocation(depthCopy,'source'),0);gl.uniform1i(gl.getUniformLocation(depthCopy,'level'),level.level);gl.viewport(0,0,w,h);for(const cap of caps)gl.disable(cap);gl.colorMask(true,true,true,true);native.drawArrays.call(gl,gl.TRIANGLES,0,3);gl.readPixels(0,0,w,h,gl.RGBA,gl.FLOAT,data);gl.deleteTexture(out);
+          const out=gl.createTexture();gl.activeTexture(gl.TEXTURE0+31);gl.bindTexture(gl.TEXTURE_2D,out);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,w,h,0,gl.RGBA,gl.FLOAT,null);gl.bindFramebuffer(gl.FRAMEBUFFER,scratch);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,out,0);gl.useProgram(depthCopy);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);if(!depthSampler){depthSampler=gl.createSampler();for(const[p,v]of [[gl.TEXTURE_COMPARE_MODE,gl.NONE],[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.samplerParameteri(depthSampler,p,v);}gl.bindSampler(0,depthSampler);gl.uniform1i(gl.getUniformLocation(depthCopy,'source'),0);gl.uniform1i(gl.getUniformLocation(depthCopy,'level'),level.level);gl.viewport(0,0,w,h);for(const cap of caps)gl.disable(cap);gl.colorMask(true,true,true,true);native.drawArrays.call(gl,gl.TRIANGLES,0,3);check("Depth input snapshot");gl.readPixels(0,0,w,h,gl.RGBA,gl.FLOAT,data);gl.deleteTexture(out);
         }else{
           if(target===gl.TEXTURE_3D||target===gl.TEXTURE_2D_ARRAY)gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,handle,level.level,z);else gl.framebufferTexture2D(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,level.target,handle,level.level);
           if(gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('Unrenderable sampled texture '+internal);
@@ -149,7 +170,7 @@ export function installGLReplay() {
   };
   // Records one draw: the program, bindings, raster state and every resource it reads, deduplicated by content in T.blobs.
   const capture=(name,args,source)=>{
-    if(!T.captureReplay)return;
+    if(!T.captureReplay||T.transparentOnly&&!gl.isEnabled(gl.BLEND))return;
     const indexed=name.includes('Elements'),range=name==='drawRangeElements',count=args[range?3:indexed?1:2],instances=name.endsWith('Instanced')?args[indexed?4:3]:1;
     if(count===0||instances===0)return;
     if(!source.key){if(source.alternatives.length)(T.programGaps ||= []).push({source,reason:'No declared kind/layout match'});return;}
@@ -187,10 +208,10 @@ export function installGLReplay() {
         }
       }
       for(let i=0;i<gl.getProgramParameter(program,gl.ACTIVE_UNIFORM_BLOCKS);i++){const binding=gl.getActiveUniformBlockParameter(program,i,gl.UNIFORM_BLOCK_BINDING),handle=gl.getIndexedParameter(gl.UNIFORM_BUFFER_BINDING,binding);blocks.push({name:gl.getActiveUniformBlockName(program,i),binding,buffer:buffer(handle),offset:gl.getIndexedParameter(gl.UNIFORM_BUFFER_START,binding),size:gl.getIndexedParameter(gl.UNIFORM_BUFFER_SIZE,binding)});}
-      const row={kind:'gl-effect',key:source.key,source,command:{name,args},format,raster:saved.r,uniforms,blocks,attributes,index:buffer(get(gl.ELEMENT_ARRAY_BUFFER_BINDING)),sampled};
+      const row={kind:'gl-effect',key:source.key,source,command:{name,args:args.map(a=>ArrayBuffer.isView(a)?{blob:store(a.slice())}:a)},format,raster:saved.r,uniforms,blocks,attributes,index:buffer(get(gl.ELEMENT_ARRAY_BUFFER_BINDING)),sampled};
       // The original live GPU resources establish the expected fixture. A
       // separate serialized-input draw checks that capture lost no inputs.
-      restore(saved);row.output=draw(row,T.blobs,{handle:program,live:true});row.depthOutput=draw(row,T.blobs,{handle:program,live:true},true);T.records.push(row);check('Effects draw capture');
+      restore(saved);row.output=draw(row,T.blobs,{handle:program,live:true});restore(saved);row.depthOutput=draw(row,T.blobs,{handle:program,live:true},true);T.records.push(row);check('Effects draw capture');
     }finally{restore(saved);}
   };
   // Recreates a recorded texture, mips included, with the sampler state the draw had.
@@ -209,7 +230,7 @@ export function installGLReplay() {
   // Replay-owned GL objects do not belong to the game's recovery journal.
   // Drop the helper while loss is active and recreate readback state after it.
   const canvas=b.graphics.renderer.domElement;
-  canvas.addEventListener('webglcontextlost',()=>{renderer?.free();renderer=null;programs.clear();buffers.clear();seen.clear();depthCopy=null;});
+  canvas.addEventListener('webglcontextlost',()=>{renderer?.free();renderer=null;programs.clear();buffers.clear();seen.clear();depthCopy=null;depthSampler=null;});
   canvas.addEventListener('webglcontextrestored',()=>{scratch=gl.createFramebuffer();});
   // Links the owned program for a recorded draw and verifies its stages are byte for byte the catalog's and its attribute locations the catalog's.
   const selectProgram=async(row)=>{
@@ -280,7 +301,7 @@ export function installGLReplay() {
     return moved;
   };
   // Issues the recorded draw call itself, through the module's replay entry for an owned program or directly for a browser one.
-  const issue=(row,entry)=>{const {name,args}=row.command;if(entry.id!==undefined){const indexed=name.includes('Elements'),instanced=name.endsWith('Instanced'),range=name==='drawRangeElements',mode=args[0],count=args[range?3:indexed?1:2],type=indexed?args[range?4:2]:0,offset=args[range?5:indexed?3:1],instances=instanced?args[indexed?4:3]:1;renderer.replay_program_draw(entry.id,mode,count,type,offset,instances,indexed);}else native[name].apply(gl,args);};
+  const issue=(row,entry,blobs)=>{const {name}=row.command,args=row.command.args.map(a=>a&&a.blob!==undefined?blobs[a.blob]:a);if(name.startsWith("multiDraw")){const ext=gl.getExtension("WEBGL_multi_draw");if(!ext?.[name])throw Error("Multi-draw replay unavailable");ext[name](...args);return;}if(entry.id!==undefined){const indexed=name.includes('Elements'),instanced=name.endsWith('Instanced'),range=name==='drawRangeElements',mode=args[0],count=args[range?3:indexed?1:2],type=indexed?args[range?4:2]:0,offset=args[range?5:indexed?3:1],instances=instanced?args[indexed?4:3]:1;renderer.replay_program_draw(entry.id,mode,count,type,offset,instances,indexed);}else native[name].apply(gl,args);};
   // One replayed draw over fixed colour and depth, optionally with occluders in front (depthPattern) to prove depth state is reproduced.
   const draw=(row,blobs,entry,depthPattern=false)=>{
     const {width:w,height:h,internal,samples=0}=row.format,createdBuffers=[],createdTextures=[],createdRenderbuffers=[];
@@ -288,7 +309,14 @@ export function installGLReplay() {
     gl.activeTexture(gl.TEXTURE0+31);const oldUnit31=get(gl.TEXTURE_BINDING_2D);gl.bindTexture(gl.TEXTURE_2D,outputTexture);gl.texImage2D(gl.TEXTURE_2D,0,internal,w,h,0,gl.RGBA,[gl.RGBA16F,gl.RGBA32F].includes(internal)?gl.FLOAT:gl.UNSIGNED_BYTE,null);gl.bindFramebuffer(gl.FRAMEBUFFER,output);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,outputTexture,0);
     gl.bindFramebuffer(gl.FRAMEBUFFER,drawFB);
     const renderbuffer=(attachment,format)=>{const hnd=gl.createRenderbuffer();createdRenderbuffers.push(hnd);gl.bindRenderbuffer(gl.RENDERBUFFER,hnd);if(samples)gl.renderbufferStorageMultisample(gl.RENDERBUFFER,samples,format,w,h);else gl.renderbufferStorage(gl.RENDERBUFFER,format,w,h);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,attachment,gl.RENDERBUFFER,hnd);};
-    if(samples)renderbuffer(gl.COLOR_ATTACHMENT0,internal);renderbuffer(gl.DEPTH_STENCIL_ATTACHMENT,gl.DEPTH24_STENCIL8);
+    if(samples)renderbuffer(gl.COLOR_ATTACHMENT0,internal);
+    let depthTexture;
+    if(row.format.depthOnly&&!samples){
+      depthTexture=gl.createTexture();createdTextures.push(depthTexture);gl.bindTexture(gl.TEXTURE_2D,depthTexture);
+      const depth=row.format.depthInternal,type=depth===gl.DEPTH_COMPONENT16?gl.UNSIGNED_SHORT:depth===gl.DEPTH_COMPONENT32F?gl.FLOAT:gl.UNSIGNED_INT;
+      gl.texImage2D(gl.TEXTURE_2D,0,depth,w,h,0,gl.DEPTH_COMPONENT,type,null);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,depthTexture,0);
+    }else renderbuffer(gl.DEPTH_STENCIL_ATTACHMENT,gl.DEPTH24_STENCIL8);
     if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('Incomplete stage framebuffer');
     try{
       if(!entry.live){
@@ -312,7 +340,10 @@ export function installGLReplay() {
       // depth and depth rejection with identical input depth in all roles.
       if(depthPattern){gl.enable(gl.SCISSOR_TEST);for(const[x,y,depth]of [[0,0,.2],[Math.floor(w/2),0,.8],[0,Math.floor(h/2),.5]]){gl.scissor(x,y,Math.ceil(w/2),Math.ceil(h/2));gl.clearDepth(depth);gl.clear(gl.DEPTH_BUFFER_BIT);}}
       applyRaster(row.raster);
-      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,drawFB);if(entry.live){gl.activeTexture(gl.TEXTURE0+31);gl.bindTexture(gl.TEXTURE_2D,oldUnit31);}issue(row,entry);check(row.key+" draw");
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,drawFB);if(entry.live){gl.activeTexture(gl.TEXTURE0+31);gl.bindTexture(gl.TEXTURE_2D,oldUnit31);}issue(row,entry,blobs);check(row.key+" draw");
+      // Depth-only casters need a depth image, not an unchanged colour clear.
+      // Preserve every sampled depth bit in an RGBA32F fixture publication.
+      if(depthTexture){const resource=texture(depthTexture,gl.TEXTURE_2D),depth=T.blobs[resource.levels[0].data],rgba=new Float32Array(w*h*4);for(let i=0;i<depth.length;i++){rgba[i*4]=depth[i];rgba[i*4+3]=1;}return {w,h,bytes:4,blob:store(rgba)};}
       if(samples){gl.bindFramebuffer(gl.READ_FRAMEBUFFER,drawFB);gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,output);gl.disable(gl.SCISSOR_TEST);gl.blitFramebuffer(0,0,w,h,0,0,w,h,gl.COLOR_BUFFER_BIT,gl.NEAREST);}
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER,output);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);gl.pixelStorei(gl.PACK_ALIGNMENT,1);for(const p of [gl.PACK_ROW_LENGTH,gl.PACK_SKIP_PIXELS,gl.PACK_SKIP_ROWS])gl.pixelStorei(p,0);
       const half=internal===gl.RGBA16F,float=internal===gl.RGBA32F,data=half?new Uint16Array(w*h*4):float?new Float32Array(w*h*4):new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,half?gl.HALF_FLOAT:float?gl.FLOAT:gl.UNSIGNED_BYTE,data);check(row.key+' fixture');return {w,h,bytes:half?2:float?4:1,blob:store(data)};

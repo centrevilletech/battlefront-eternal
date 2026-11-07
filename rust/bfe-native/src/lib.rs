@@ -157,12 +157,32 @@ pub fn draw(renderer: &mut Renderer<glow::Context, Ranges>, frame: &Frame) -> Re
     }
     renderer.core.input[..frame.input.len()].copy_from_slice(&frame.input);
     renderer.core.bones[..frame.bones.len()].copy_from_slice(&frame.bones);
-    unsafe {
-        renderer.core.gl.clear_color(0.2, 0.2, 0.3, 1.0);
-        renderer.core.gl.depth_mask(true);
-        renderer.core.gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-    }
-    renderer.frame(frame.records.min(bfe_render::instances::MAX_RECORDS)).map(|_| ())
+    use bfe_render::frame_plan::layout::{facts as F,meta as M,binding as B,role as R,kind as K};
+    use bfe_render::post_chain::layout::{facts as P,program as Programs};
+    // The capture contains a near-view packet, not another native draw API.
+    // The ordinary planner skips absent views and owns its clear/draw order.
+    renderer.frame_reserve();renderer.frame_begin();renderer.frames.plan.facts.fill(0.);renderer.frames.plan.facts[F::MAIN]=1.;
+    renderer.post_chain.input[P::PROGRAMS..P::PROGRAMS+Programs::COUNT].fill(u32::MAX as f64);
+    let mut viewport=[0;4];unsafe{renderer.core.gl.get_parameter_i32_slice(glow::VIEWPORT,&mut viewport);}
+    let at=R::NEAR*M::LEN;renderer.frames.meta[at+M::KIND]=K::SCENE as f64;
+    renderer.frames.meta[at+M::RECORDS]=frame.records.min(bfe_render::instances::MAX_RECORDS) as f64;
+    renderer.frames.meta[at+M::BONES]=(frame.bones.len()/16) as f64;
+    let b=&mut renderer.frames.bindings[R::NEAR*B::LEN..(R::NEAR+1)*B::LEN];b[B::TARGET]=-1.;
+    b[B::X]=viewport[0] as f64;b[B::Y]=viewport[1] as f64;b[B::WIDTH]=viewport[2] as f64;b[B::HEIGHT]=viewport[3] as f64;
+    b[B::CLEAR..B::CLEAR+4].copy_from_slice(&[0.2,0.2,0.3,1.]);
+    if !renderer.frame_publish(R::NEAR){return Err("capture packet exceeds renderer storage".into());}
+    renderer.battle_frame(&mut BoundTarget)
+
+}
+
+// The EGL/window caller already owns the bound framebuffer. This diagnostic
+// imports no page texture targets, copies, probes or multisample resolves.
+struct BoundTarget;
+impl bfe_render::frame::FrameTargets for BoundTarget {
+    fn bind(&mut self,_binding:&[f64])->Result<(),String>{Ok(())}
+    fn resolve(&mut self,_id:i32)->Result<(),String>{Ok(())}
+    fn copy(&mut self,_from:i32,_to:i32,_mask:u32)->Result<(),String>{Ok(())}
+    fn mipmap(&mut self,_sample:i32)->Result<(),String>{Ok(())}
 }
 
 mod capture;

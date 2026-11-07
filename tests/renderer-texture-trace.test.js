@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installWorldTrace } from '../tools/renderer-corpus/world-replay.mjs';
+import { installGLTracking } from '../tools/renderer-corpus/gl-replay.mjs';
 
 test('immutable compressed textures retain full mip uploads and flag partial updates',()=>{
   const savedWindow=globalThis.window,savedContext=globalThis.WebGL2RenderingContext;
@@ -13,15 +13,15 @@ test('immutable compressed textures retain full mip uploads and flag partial upd
   }
   try {
     globalThis.window={};globalThis.WebGL2RenderingContext=Context;
-    installWorldTrace();const gl=new Context(),format=0x83f1;
+    installGLTracking([]);const gl=new Context(),format=0x83f1;
     const base=new Uint8Array(32).fill(17),mip=new Uint8Array(8).fill(29);
     gl.texStorage2D(gl.TEXTURE_2D,2,format,8,8);
     gl.compressedTexSubImage2D(gl.TEXTURE_2D,0,0,0,8,8,format,base);
     gl.compressedTexSubImage2D(gl.TEXTURE_2D,1,0,0,4,4,format,mip);
-    const row=window.__worldTrace.textures.get(texture);
-    assert.deepEqual([row.w,row.h,row.count,row.format],[8,8,2,format]);
-    assert.deepEqual(row.levels.map(m=>[m.w,m.h,m.format,m.compressed]),[[8,8,format,true],[4,4,format,true]]);
-    assert.equal(row.levels[0].data,base);assert.equal(row.levels[1].data,mip);
+    const row=window.__glTracking.state(gl).textures.get(texture);
+    assert.deepEqual(row.levels.map(m=>[m.width,m.height,m.internal,m.compressed]),[[8,8,format,true],[4,4,format,true]]);
+    assert.deepEqual(row.levels[0].data,base);assert.deepEqual(row.levels[1].data,mip);
+    base.fill(0);assert.equal(row.levels[0].data[0],17,"borrowed compressed input is frozen before the next upload");
     assert.equal(row.partial,false);
     gl.compressedTexSubImage2D(gl.TEXTURE_2D,0,4,0,4,4,format,mip);
     assert.equal(row.partial,true,'partial blocks cannot be presented as a complete replay texture');

@@ -126,14 +126,23 @@ pub fn actor_settings(&mut self, cascades: u32, lamps: bool) -> Result<(),String
             let program=self.r.core.add_owned_program(&material.key).map_err(|e|e.to_string())?;let geometry=self.actor_resources.geometry(&mut self.r.core,source,&material.key,style.kind=="shock").map_err(|e|e.to_string())?;
             let descriptor=&mut self.r.instances.actor_descriptors[i];descriptor.program=program;descriptor.geometry=geometry;if let Some(blend)=descriptor.blend{self.r.instances.blend_program(blend,program);}
         }self.r.core.state.reset();Ok(()) }
+pub fn camera_pack_acquire_frame(&mut self) -> f64 { self.r.cameras.pack_leases.acquire() }
+pub fn camera_pack_release_frame(&mut self, handle: f64) -> bool { self.r.cameras.pack_leases.release(handle) }
+pub fn camera_acquire_frame(&mut self) -> f64 { self.r.cameras.extra_leases.acquire() }
+pub fn camera_release_frame(&mut self, handle: f64) -> bool { self.r.cameras.extra_leases.release(handle) }
+pub fn camera_import_frame(&mut self, handle: f64) -> u32 { self.r.cameras.import(handle).map(|role|role as u32).unwrap_or(u32::MAX) }
+pub fn camera_clipped(&mut self) -> bool { self.r.cameras.clipped }
+pub fn camera_evicted(&mut self) -> u32 { self.r.cameras.extra_leases.evicted }
+pub fn camera_pack_evicted(&mut self) -> u32 { self.r.cameras.pack_leases.evicted }
+pub fn camera_pack_rejected(&mut self) -> u32 { self.r.cameras.rejected_packs }
 pub fn camera_shader_frame(&mut self, role: u32)  { use bfe_render::cameras::layout::{camera as C,role as R,shader_frame as F};
         let role=role as usize;if role>=R::COUNT{return;}
         let row=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];
         self.r.core.input[F::PROJECTION..F::PROJECTION+16].copy_from_slice(&row[C::PROJECTION..C::PROJECTION+16]);
         self.r.core.input[F::VIEW..F::VIEW+16].copy_from_slice(&row[C::INVERSE..C::INVERSE+16]);
         self.r.core.input[F::EYE..F::EYE+3].copy_from_slice(&row[C::WORLD+12..C::WORLD+15]); }
-pub fn camera_pack_shader_frame(&mut self, pack: u32)  { use bfe_render::cameras::layout::{pack as K,limit as L};
-        let pack=pack as usize;if pack>=L::PACKS{self.r.core.input[bfe_render::shader::FRAME_LIGHT_COUNT]=0.;return;}
+pub fn camera_pack_shader_frame(&mut self, handle: f64)  { use bfe_render::cameras::layout::pack as K;
+        let Some(pack)=self.r.cameras.pack_leases.touch(handle)else{self.r.core.input[bfe_render::shader::FRAME_LIGHT_COUNT]=0.;self.r.cameras.rejected_packs=self.r.cameras.rejected_packs.saturating_add(1);return;};
         let row=&self.r.cameras.packs[pack*K::LEN..(pack+1)*K::LEN];let count=(row[K::COUNT] as usize).min(16);
         self.r.core.input[bfe_render::shader::FRAME_LIGHT_COUNT]=count as f64;self.r.core.input[bfe_render::shader::FRAME_LIGHTS..bfe_render::shader::FRAME_LIGHTS+count*8].copy_from_slice(&row[K::VALUES..K::VALUES+count*8]); }
 pub fn camera_shadow_shader_frame(&mut self)  { use bfe_render::cameras::layout::input as I;
@@ -160,7 +169,7 @@ pub fn camera_restore_frame(&mut self)  { self.r.cameras.restore(); }
 pub fn camera_reflect_frame(&mut self)  { self.r.cameras.reflect(); }
 pub fn camera_probe_frame(&mut self, slot: u32)  { self.r.cameras.probe(slot as usize); }
 pub fn camera_sky_frame(&mut self, role: u32, follow: bool)  { self.r.cameras.sky(role as usize,follow); }
-pub fn camera_lights_frame(&mut self, pack: u32)  { self.r.cameras.lights(pack as usize); }
+pub fn camera_lights_frame(&mut self, handle: f64)  { self.r.cameras.pack_lights(handle); }
 pub fn camera_shadow_configure_frame(&mut self)  { self.r.cameras.cascades.configure(&self.r.cameras.input); }
 pub fn camera_cascades_frame(&mut self)  { self.r.cameras.cascades(); }
 pub fn camera_shadow_frame(&mut self, index: u32)  { self.r.cameras.cascades.publish(index as usize); }
@@ -494,7 +503,6 @@ pub fn motion_extra(&mut self, program: u32, geometry: u32, max: u32, layout: &[
 pub fn post_target(&mut self, texture: u32) -> u32 { self.r.post.add_target(&mut self.r.core, texture) }
 pub fn post_chain_begin_frame(&mut self)  { self.r.post_chain.begin(); }
 pub fn post_chain_plan_frame(&mut self) -> u32 { self.r.post_chain.plan(&mut self.r.post.input) as u32 }
-pub fn post_chain_error_frame(&mut self) -> Option<String> { self.r.core.fault.take() }
 pub fn geometry_buffer_data(&mut self, g: u32, slot: u32, data: &[u8])  { self.r.core.geometry_buffer_data(g, slot, data) }
 pub fn geometry_index_data(&mut self, g: u32, data: &[u8])  { self.r.core.geometry_index_data(g, data) }
 pub fn geometry_buffer_sub_data(&mut self, g: u32, slot: u32, offset: i32, data: &[u8])  { self.r.core.geometry_buffer_sub_data(g, slot, offset, data) }
@@ -577,6 +585,8 @@ match name {
 "camera_sky" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.sky)),
 "camera_lights" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.light_input)),
 "camera_packs" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.packs)),
+"camera_pack_handles" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.pack_leases.handles)),
+"camera_extra_handles" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.extra_leases.handles)),
 "camera_mirror" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.mirror)),
 "camera_light_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.settings.input)),
 "camera_light_output" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.settings.output)),
@@ -653,8 +663,17 @@ actor_depth(u32,String,i32,i32),
 actor_depth_frame,
 actor_material(u32,String,bool,u32,bool,bool,Vec<i32>),
 actor_settings(u32,bool),
+camera_pack_acquire_frame,
+camera_pack_release_frame(f64),
+camera_acquire_frame,
+camera_release_frame(f64),
+camera_import_frame(f64),
+camera_clipped,
+camera_evicted,
+camera_pack_evicted,
+camera_pack_rejected,
 camera_shader_frame(u32),
-camera_pack_shader_frame(u32),
+camera_pack_shader_frame(f64),
 camera_shadow_shader_frame,
 camera_static_shadow_frame(u32),
 camera_project_frame,
@@ -668,7 +687,7 @@ camera_restore_frame,
 camera_reflect_frame,
 camera_probe_frame(u32),
 camera_sky_frame(u32,bool),
-camera_lights_frame(u32),
+camera_lights_frame(f64),
 camera_shadow_configure_frame,
 camera_cascades_frame,
 camera_shadow_frame(u32),
@@ -769,7 +788,6 @@ motion_extra(u32,u32,u32,Vec<u32>),
 post_target(u32),
 post_chain_begin_frame,
 post_chain_plan_frame,
-post_chain_error_frame,
 geometry_buffer_data(u32,u32,Vec<u8>),
 geometry_index_data(u32,Vec<u8>),
 geometry_buffer_sub_data(u32,u32,i32,Vec<u8>),
@@ -832,8 +850,17 @@ Ok(match name {
 "actor_depth_frame" => Self::actor_depth_frame,
 "actor_material" => Self::actor_material(a.u32(0)?,a.string(1)?,a.bool(2)?,a.u32(3)?,a.bool(4)?,a.bool(5)?,a.i32s(6)?),
 "actor_settings" => Self::actor_settings(a.u32(0)?,a.bool(1)?),
+"camera_pack_acquire_frame" => Self::camera_pack_acquire_frame,
+"camera_pack_release_frame" => Self::camera_pack_release_frame(a.f64(0)?),
+"camera_acquire_frame" => Self::camera_acquire_frame,
+"camera_release_frame" => Self::camera_release_frame(a.f64(0)?),
+"camera_import_frame" => Self::camera_import_frame(a.f64(0)?),
+"camera_clipped" => Self::camera_clipped,
+"camera_evicted" => Self::camera_evicted,
+"camera_pack_evicted" => Self::camera_pack_evicted,
+"camera_pack_rejected" => Self::camera_pack_rejected,
 "camera_shader_frame" => Self::camera_shader_frame(a.u32(0)?),
-"camera_pack_shader_frame" => Self::camera_pack_shader_frame(a.u32(0)?),
+"camera_pack_shader_frame" => Self::camera_pack_shader_frame(a.f64(0)?),
 "camera_shadow_shader_frame" => Self::camera_shadow_shader_frame,
 "camera_static_shadow_frame" => Self::camera_static_shadow_frame(a.u32(0)?),
 "camera_project_frame" => Self::camera_project_frame,
@@ -847,7 +874,7 @@ Ok(match name {
 "camera_reflect_frame" => Self::camera_reflect_frame,
 "camera_probe_frame" => Self::camera_probe_frame(a.u32(0)?),
 "camera_sky_frame" => Self::camera_sky_frame(a.u32(0)?,a.bool(1)?),
-"camera_lights_frame" => Self::camera_lights_frame(a.u32(0)?),
+"camera_lights_frame" => Self::camera_lights_frame(a.f64(0)?),
 "camera_shadow_configure_frame" => Self::camera_shadow_configure_frame,
 "camera_cascades_frame" => Self::camera_cascades_frame,
 "camera_shadow_frame" => Self::camera_shadow_frame(a.u32(0)?),
@@ -948,7 +975,6 @@ Ok(match name {
 "post_target" => Self::post_target(a.u32(0)?),
 "post_chain_begin_frame" => Self::post_chain_begin_frame,
 "post_chain_plan_frame" => Self::post_chain_plan_frame,
-"post_chain_error_frame" => Self::post_chain_error_frame,
 "geometry_buffer_data" => Self::geometry_buffer_data(a.u32(0)?,a.u32(1)?,a.u8s(2)?),
 "geometry_index_data" => Self::geometry_index_data(a.u32(0)?,a.u8s(1)?),
 "geometry_buffer_sub_data" => Self::geometry_buffer_sub_data(a.u32(0)?,a.u32(1)?,a.i32(2)?,a.u8s(3)?),
@@ -989,7 +1015,8 @@ Ok(match name {
 _ => return Err(format!("unknown renderer command {name}")),
 })
 }
-pub fn is_per_pass(name:&str)->bool {matches!(name,"far_mirror_frame"|"far_probe_frame"|"interface_frame"|"far_frame"|"frame"|"transparent_frame"|"fx_into_frame"|"view_frame"|"post_frame"|"mirror_frame"|"mirror_transparent_frame"|"motion_frame"|"hud_frame"|"near_begin"|"screen_frame"|"post_chain_frame"|"shadow_frame"|"transparent_segment")}
+pub fn is_per_pass(name:&str)->bool {matches!(name,"interface_frame")}
+pub fn is_known(name:&str)->bool {matches!(name,"actor_flyer"|"actor_flyer_motion"|"actor_source"|"actor_source_facts"|"actor_source_crowd"|"actor_source_crowd_add"|"actor_crowd_frame"|"actor_geometry"|"actor_effect"|"actor_motion"|"actor_skin_release"|"actor_skin_words"|"actor_skin"|"actor_skin_offset"|"actor_skin_slot"|"actor_skins_frame"|"actor_depth"|"actor_depth_frame"|"actor_material"|"actor_settings"|"camera_pack_acquire_frame"|"camera_pack_release_frame"|"camera_acquire_frame"|"camera_release_frame"|"camera_import_frame"|"camera_clipped"|"camera_evicted"|"camera_pack_evicted"|"camera_pack_rejected"|"camera_shader_frame"|"camera_pack_shader_frame"|"camera_shadow_shader_frame"|"camera_static_shadow_frame"|"camera_project_frame"|"camera_light_command_frame"|"camera_global_shader_frame"|"camera_main_frame"|"camera_derived_frame"|"camera_copy_frame"|"camera_shift_frame"|"camera_restore_frame"|"camera_reflect_frame"|"camera_probe_frame"|"camera_sky_frame"|"camera_lights_frame"|"camera_shadow_configure_frame"|"camera_cascades_frame"|"camera_shadow_frame"|"camera_invalidate_frame"|"canopies_mesh"|"effect_batch"|"effect_fixed"|"effect_multiplier"|"effect_mesh"|"effect_basin"|"effect_far_mesh"|"fx_clipped"|"fx_reserve"|"fx_add_owner"|"fx_add_batch"|"fx_batch_texture"|"fx_batch_values"|"fx_batch_interleaved"|"fx_batch_side"|"fx_batch_depth"|"fx_batch_sampler"|"fx_batch_sampler_3d"|"fx_batch_base"|"fx_add_mesh"|"fx_mesh_pass"|"fx_mesh_texture"|"fx_add_model"|"fx_model_pass"|"fx_model_texture"|"fx_model_sampler"|"far_table"|"far_item"|"far_source"|"far_range"|"far_base"|"far_instanced"|"far_cells"|"far_terrain"|"far_items"|"far_range_input"|"far_refresh"|"foliage_class"|"foliage_clear_frame"|"foliage_frame"|"foliage_selected"|"frame_lines_publish_frame"|"frame_reserve_frame"|"frame_shadow_reserve_frame"|"frame_ui_slot_frame"|"frame_overflow_frame"|"frame_begin_frame"|"frame_select_frame"|"frame_plan_frame"|"frame_publish_frame"|"frame_admit_interface_frame"|"battle_frame"|"frame_aux_frame"|"frame_error_frame"|"frame_cancel_frame"|"hud_init"|"hud_model_text"|"hud_model_asset"|"hud_model_font"|"hud_model_event"|"hud_model_observe"|"hud_model_update"|"hud_model_build"|"hud_descriptor_init"|"hud_appearance"|"hud_resources_frame"|"records_at"|"record_stride"|"inst_add_blend"|"interface_buffer_init"|"interface_upload_frame"|"ui_appearance"|"ui_resources_frame"|"line_clipped"|"line_source"|"line_frame"|"set_shadow_maps"|"add_texture"|"replace_sample_texture"|"set_far_map"|"add_program"|"add_program_lamps"|"set_lamps"|"add_owned_program"|"add_geometry"|"geometry_buffer"|"geometry_pointer"|"geometry_index"|"geometry_group"|"geometry_primitive"|"motion_record_stride"|"motion_records_at"|"motion_extra"|"post_target"|"post_chain_begin_frame"|"post_chain_plan_frame"|"geometry_buffer_data"|"geometry_index_data"|"geometry_buffer_sub_data"|"geometry_index_sub_data"|"static_depth_add"|"static_depth_replace"|"static_depth_finish"|"static_depth_clipped"|"static_terrain_layers"|"static_source"|"static_source_weights"|"static_world"|"static_world_settings"|"transparent_bucket"|"transparent_bucket_pass"|"transparent_bucket_texture"|"transparent_bucket_uniform"|"transparent_object_stride"|"transparent_object"|"transparent_object_pass"|"transparent_object_texture"|"water_surface"|"water_rings"|"water_set"|"water_instanced"|"water_source"|"water_values"|"effect_water"|"world_uses_lamps"|"add_world"|"world_texture"|"world_uniform"|"world_cells"|"sort"|"world_runs"|"world_shown"|"world_lamps")}
 pub fn execute(&mut self, host: &mut Bridge, resource_bank: &mut [Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
 match self {
 Self::actor_flyer(source,flags,fading,capacity,texture,slot,object,shadows) => { let _=host.actor_flyer(*source,*flags,*fading,*capacity,*texture,*slot,*object,*shadows)?; },
@@ -1012,8 +1039,17 @@ Self::actor_depth(source,authored,skin,map) => { let _=host.actor_depth(*source,
 Self::actor_depth_frame => { let _=host.actor_depth_frame(); },
 Self::actor_material(source,authored,skin,cascades,lamps,view,samplers) => { let _=host.actor_material(*source,authored,*skin,*cascades,*lamps,*view,samplers)?; },
 Self::actor_settings(cascades,lamps) => { let _=host.actor_settings(*cascades,*lamps)?; },
+Self::camera_pack_acquire_frame => { let _=host.camera_pack_acquire_frame(); },
+Self::camera_pack_release_frame(handle) => { let _=host.camera_pack_release_frame(*handle); },
+Self::camera_acquire_frame => { let _=host.camera_acquire_frame(); },
+Self::camera_release_frame(handle) => { let _=host.camera_release_frame(*handle); },
+Self::camera_import_frame(handle) => { let _=host.camera_import_frame(*handle); },
+Self::camera_clipped => { let _=host.camera_clipped(); },
+Self::camera_evicted => { let _=host.camera_evicted(); },
+Self::camera_pack_evicted => { let _=host.camera_pack_evicted(); },
+Self::camera_pack_rejected => { let _=host.camera_pack_rejected(); },
 Self::camera_shader_frame(role) => { let _=host.camera_shader_frame(*role); },
-Self::camera_pack_shader_frame(pack) => { let _=host.camera_pack_shader_frame(*pack); },
+Self::camera_pack_shader_frame(handle) => { let _=host.camera_pack_shader_frame(*handle); },
 Self::camera_shadow_shader_frame => { let _=host.camera_shadow_shader_frame(); },
 Self::camera_static_shadow_frame(index) => { let _=host.camera_static_shadow_frame(*index); },
 Self::camera_project_frame => { let _=host.camera_project_frame(); },
@@ -1027,7 +1063,7 @@ Self::camera_restore_frame => { let _=host.camera_restore_frame(); },
 Self::camera_reflect_frame => { let _=host.camera_reflect_frame(); },
 Self::camera_probe_frame(slot) => { let _=host.camera_probe_frame(*slot); },
 Self::camera_sky_frame(role,follow) => { let _=host.camera_sky_frame(*role,*follow); },
-Self::camera_lights_frame(pack) => { let _=host.camera_lights_frame(*pack); },
+Self::camera_lights_frame(handle) => { let _=host.camera_lights_frame(*handle); },
 Self::camera_shadow_configure_frame => { let _=host.camera_shadow_configure_frame(); },
 Self::camera_cascades_frame => { let _=host.camera_cascades_frame(); },
 Self::camera_shadow_frame(index) => { let _=host.camera_shadow_frame(*index); },
@@ -1128,7 +1164,6 @@ Self::motion_extra(program,geometry,max,layout) => { let _=host.motion_extra(*pr
 Self::post_target(texture) => { let _=host.post_target(*texture); },
 Self::post_chain_begin_frame => { let _=host.post_chain_begin_frame(); },
 Self::post_chain_plan_frame => { let _=host.post_chain_plan_frame(); },
-Self::post_chain_error_frame => { let _=host.post_chain_error_frame(); },
 Self::geometry_buffer_data(g,slot,data) => { let _=host.geometry_buffer_data(*g,*slot,data); },
 Self::geometry_index_data(g,data) => { let _=host.geometry_index_data(*g,data); },
 Self::geometry_buffer_sub_data(g,slot,offset,data) => { let _=host.geometry_buffer_sub_data(*g,*slot,*offset,data); },

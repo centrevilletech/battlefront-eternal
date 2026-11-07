@@ -1,3 +1,5 @@
+import { installGLTracking, installGLReplay } from "./gl-replay.mjs";
+import { installFrameCapture } from "./frame-capture.mjs";
 // One role of one actor corpus case: load a seeded battle in the real
 // application, capture the renderer's stages at several points, and for the
 // reference role record every Rust draw (the replay) so the candidate and the
@@ -11,17 +13,15 @@ import { installActorShock } from './actor-shock.mjs';
 import { installActorWreck } from './actor-wreck.mjs';
 import { installActorDissolve } from './actor-dissolve.mjs';
 import { installActorFocus } from './actor-focus.mjs';
-import { installViewReplay } from './view-replay.mjs';
-import { installInstanceReplay } from './instance-replay.mjs';
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
-import { installActorReplay } from './actor-replay.mjs';
-import { programLayouts } from '../../src/render-programs.js';
 import { installReplay } from './replay.mjs';
 import { replayBlobStore } from './replay-blobs.mjs';
 import { uploadReplayBlobs } from './blob-transfer.mjs';
 import { connect, loadBattle, GL_STATE, HELPERS_SRC } from './battle.mjs';
 // The case list: the settings, query and special setups (shock, wreck, dissolve...) this run applies.
+if(!process.env.BFE_SHADER_INDEX)throw Error('Supply BFE_SHADER_INDEX from the native shader catalog');
+const shaderIndex=JSON.parse(fs.readFileSync(process.env.BFE_SHADER_INDEX));
 const manifest = expand(JSON.parse(fs.readFileSync(process.env.BFE_CORPUS_MANIFEST || new URL('./manifest.json', import.meta.url))));
 const id = process.env.BFE_CORPUS_CASE, out = process.env.OUT;
 const role = process.env.BFE_CORPUS_ROLE;
@@ -38,7 +38,7 @@ const gpuDeaths = () => log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8')
 const c = await connect();
 const result = { role, id, contract: manifest.version, points: [] };
 try {
-  result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query });
+  result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc:`(${installGLTracking.toString()})(${JSON.stringify(shaderIndex)})` });
   if (result.loaded.error || !result.loaded.spawned) throw Error(result.loaded.error || 'player not spawned');
   await c.ev(HELPERS_SRC);
   // Hook the stages the comparison reads: the far and scene targets and, where
@@ -47,7 +47,7 @@ try {
   // one frame captured per point.
   result.setup = await c.ev(`(() => {
     const b=__bf,g=b.graphics,R=g.renderer,gl=R.getContext();
-    const T=window.__corpus={want:false,stages:{}};
+    const T=window.__corpus={want:false,stages:{},captureFamilies:['actors/', 'effects/']};
     const read=(name,target)=>{
       const w=target?.width || gl.drawingBufferWidth,h=target?.height || gl.drawingBufferHeight;
       const half=target?.texture.type===1016,buf=half?new Uint16Array(w*h*4):new Uint8Array(w*h*4);
@@ -56,25 +56,17 @@ try {
       const error=gl.getError();if(error)throw Error(name+' read GL '+error);
       T.stages[name]={w,h,bytes:half?2:1,buf};
     };
-    const postName=typeof g.postSteps === "function" ? "postSteps" : "finishPost";const post=g[postName];g[postName]=function(...a){if(T.want){
-      read('far',g.farTarget);read('scene',g.sceneTarget);
-      if(g.upscaling==='temporal'){read('velocity',g.upscaler.velocity);read('motion',g.upscaler.motion);read('history',g.upscaler.history[g.upscaler.read]);}
-      const water=g.scene.userData.water;
-      if(water?.reflectionFar){read('reflection',water.target);read('reflectionFar',water.reflectionFar);}
-    }return post.apply(this,a);};
-    const hud=b.hud.render;b.hud.render=function(...a){if(T.want)read('post',null);const r=hud.apply(this,a);if(T.want)read('presented',null);return r;};
+    (${installFrameCapture.toString()})();
     return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],target:[g.sceneTarget.width,g.sceneTarget.height],samples:g.sceneTarget.samples,supportedSamples:g.supportedSamples,upscaling:g.upscaling};
   })()`);
   // The replay recorder: wraps the renderer's draw entry points to log each Rust
   // draw's inputs in the reference role, and redraws logged inputs elsewhere.
   await c.ev(`(${installReplay.toString()})(${replayBlobStore.toString()})`);
+  await c.ev(`(${installGLReplay.toString()})();window.__corpus.referenceBuild=${role!=='candidate'}`);
   await c.ev(`window.__corpus.captureReplay=${role === 'reference'}`);
   // The actor family adds its own recorders (bodies, rigs, view parts) and the
   // optional synthetic setups a case asks for, each installed once before the first point.
   if(manifest.family==='actors') {
-    await c.ev(`window.__corpus.actorLayouts=${JSON.stringify(Object.fromEntries(Object.entries(programLayouts).filter(([key])=>key.startsWith('actors/') || key.startsWith('effects/'))))};(${installActorReplay.toString()})(${role !== 'candidate'})`);
-    await c.ev(`(${installInstanceReplay.toString()})(${role !== 'candidate'})`);
-    await c.ev(`(${installViewReplay.toString()})(${role !== 'candidate'})`);
     if(testCase.actorSkinnedCutout)result.actorSkinnedCutout=await c.ev(`(${installActorSkinnedCutout.toString()})()`);
     if(testCase.actorFlash)result.actorFlash=await c.ev(`(${installActorFlash.toString()})()`);
     if(testCase.actorShock)result.actorShock=await c.ev(`(${installActorShock.toString()})()`);
@@ -106,7 +98,7 @@ try {
       for(let i=0;i<${manifest.settleFrames || 2};i++)await b.lockstep(0,true);
       if(g.upscaler?.reset)g.upscaler.reset(${k},-1);else{g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};}
       for(let i=0;i<${manifest.historyFrames};i++)await b.lockstep(0,true);
-      G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
+      G.resetFrame();T.stages={};T.records=[];T.blobs={};T.resetGLStages();T.want=true;const tick=await b.lockstep(0,true);T.want=false;
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
       let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8 || s.buf[i+1]>8 || s.buf[i+2]>8)lit++;
       return {k:${k},tick,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),errors:[...g.rust.errors],gl:{...${GL_STATE},error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
@@ -130,13 +122,6 @@ try {
       const payload=JSON.parse(fs.readFileSync(`${process.env.BFE_CORPUS_RAW || out}/${id}-reference/${k}-replay.json`));
       await c.ev(`window.__corpus.payload={records:${JSON.stringify(payload.records)},blobs:{}};1`);
       await uploadReplayBlobs(c,payload.blobs);
-      // BFE_DIAG=1: first say which single draws the owned program draws differently from the recorded one
-      // (instance-replay.mjs), before the pair's own replay so a first-use difference shows too.
-      if(process.env.BFE_DIAG)point.diagDraws=await c.ev(`window.__corpus.diagDraws(window.__corpus.payload.records,window.__corpus.payload.blobs)`);
-      if(point.diagDraws?.some(d=>d.error))console.log(JSON.stringify({diagnosticErrors:point.diagDraws}));
-      // BFE_DIAG_INFO=1: what the instance rows of this point hold, before their replay (its first run is the one that has failed).
-      if(process.env.BFE_DIAG_GL)await c.ev(`window.__corpus.diagGl=true;1`);
-      if(process.env.BFE_DIAG_INFO)console.log(JSON.stringify({info:await c.ev(`window.__corpus.payload.records.filter(r=>r.kind==='instances').map(r=>({key:r.key,lamps:r.lamps.length,records:r.records.length,cascades:r.cascades.length,variants:[...new Set(r.records.map(x=>x.key+(x.lamps?':lamps':'')))],bytes:r.bytes,samples:r.samples}))`)}));
       point.replay=await c.ev(`window.__corpus.replay(window.__corpus.payload.records,window.__corpus.payload.blobs)`);
       await c.ev(`window.__corpus.payload=null;1`);
     }
@@ -176,7 +161,7 @@ try {
   // enough lit pixels and positive Rust draws at every point.
   const size=result.setup.buffer[0]===1600 && result.setup.buffer[1]===900 && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
   result.programFailures=[...new Set(result.points.flatMap(p=>p.errors.filter(error=>!/^p\d+ diffuse$/.test(error))))];
-  result.valid=!result.programFailures.length && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && p.gl.rustLost===false && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
+  result.valid=!result.programFailures.length && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>(p.selfReplay||p.replay||[]).length>0 && (p.selfReplay||p.replay).every(r=>r.differing===0) && p.lit>=.2 && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && p.gl.rustLost===false && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
 } catch(error) {
   result.error=String(error.stack || error);result.valid=false;
   if(process.env.BFE_DIAG_GL)result.firstGlError=await c.ev(`window.__corpus?.firstGlError ?? null`).catch(e=>String(e));

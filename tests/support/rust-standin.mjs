@@ -32,6 +32,7 @@ import * as THREE from "three";
 export const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export const LENGTHS = {
+  camera_extra_handles:CX.EXTRA_CAMERAS,camera_pack_handles:CX.PACKS,
   camera_light_input:CLI.LEN,camera_light_output:CLO.LEN,
   camera_input:CI.LEN,camera_output:CR.COUNT*CC.LEN,camera_windows:CX.CASCADES*CW.LEN,camera_lights:CX.RAW_LIGHTS*CL.LEN,camera_packs:CX.PACKS*CP.LEN,camera_mirror:CM.LEN,camera_sky:CX.SKY*3,
   frame_facts:F.LEN,frame_state:S.LEN,frame_bindings:R.COUNT*B.LEN,frame_meta:R.COUNT*M.LEN,frame_stats:R.COUNT*T.LEN,frame_lines:3*L.LINES*V.LEN,
@@ -75,25 +76,24 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
     return n;
   };
   const row=name=>new Float64Array(memory.buffer,region(name),length(name));
-  const nativeView = role => role===R.FAR?'far_frame':role===R.NEAR?'frame':role===R.VIEW?'view_frame':role===R.MOTION?'motion_frame':role===R.MIRROR0_NEAR?'mirror_frame':role===R.TRANSPARENT?'transparent_frame':role===R.MIRROR0_TRANSPARENT?'mirror_transparent_frame':(role>=R.HUD0&&role<=R.HUD7||role>=R.HUD8&&role<=R.HUD15)?'hud_frame':role>=R.SHADOW_STATIC0&&role<=R.SHADOW_DYNAMIC3?'shadow_frame':'screen_frame';
   const actorSources=[],actorModels=new Map();let actorHandles=0;
+  let packSequence=0,cameraSequence=0;
   const frameMethods={
     actor_source(authored,vertices,indices){calls.push(['actor_source',authored]);actorSources.push(JSON.parse(actor_source_description(authored,vertices,indices)));return actorSources.length-1;},
     actor_material(source,authored,skin,cascades,lamps,view,samplers){calls.push(['actor_material',source,authored,skin,cascades,lamps,view,samplers]);const policy=JSON.parse(actor_appearance_description(authored,skin,view?0:cascades,lamps)),facts=actorSources[source],row=new Float64Array(ACTOR.DESCRIPTOR.LEN),d=ACTOR.DESCRIPTOR;row[d.HANDLE]=actorHandles++;row[d.BLENDED]=+policy.blended;row[d.LAMPS]=+policy.lamps;row[d.HEATED]=+policy.heated;row.set(facts.bounds,d.BOUNDS);row[d.COUNT]=facts.indexCount;return row;},
     actor_effect(source,kind,shadows,view,texture,authored){calls.push(['actor_effect',source,kind,shadows,view,texture,authored]);const policy=JSON.parse(actor_effect_description(kind,shadows,view,texture,authored)),key=JSON.stringify([source,kind,shadows,view,texture,authored]);if(!actorModels.has(key))actorModels.set(key,actorModels.size);return Float64Array.of(actorModels.get(key),...actorSources[source].bounds.slice(0,3),...policy.defaults);},
-    camera_pack_shader_frame(pack){const out=row('input'),input=row('camera_packs'),at=pack*CP.LEN;out[70]=input[at+CP.COUNT];for(let i=0;i<out[70]*8;i++)out[72+i]=input[at+CP.VALUES+i];},
+    camera_acquire_frame(){const slot=cameraSequence%CX.EXTRA_CAMERAS,handle=(Math.floor(cameraSequence++/CX.EXTRA_CAMERAS)+1)*CX.EXTRA_CAMERAS+slot;row('camera_extra_handles')[slot]=handle;return handle;},
+    camera_release_frame(handle){const a=row('camera_extra_handles'),slot=handle%CX.EXTRA_CAMERAS;if(a[slot]!==handle)return false;a[slot]=-1;return true;},
+    camera_import_frame(handle){return CR.EXTRA0+handle%CX.EXTRA_CAMERAS;},
+    camera_pack_acquire_frame(){const slot=packSequence%CX.PACKS,handle=(Math.floor(packSequence++/CX.PACKS)+1)*CX.PACKS+slot;row('camera_pack_handles')[slot]=handle;return handle;},
+    camera_pack_release_frame(handle){const a=row('camera_pack_handles'),slot=handle%CX.PACKS;if(a[slot]!==handle)return false;a[slot]=-1;return true;},
+    camera_pack_shader_frame(pack){const out=row('input'),input=row('camera_packs'),at=(pack%CX.PACKS)*CP.LEN;out[70]=input[at+CP.COUNT];for(let i=0;i<out[70]*8;i++)out[72+i]=input[at+CP.VALUES+i];},
     camera_shader_frame(role){const out=row('input'),input=row('camera_output'),at=role*CC.LEN;for(let i=0;i<16;i++){out[i]=input[at+CC.PROJECTION+i];out[16+i]=input[at+CC.INVERSE+i];}for(let i=0;i<3;i++)out[32+i]=input[at+CC.WORLD+12+i];},
 
     frame_publish_frame(role){calls.push(['frame_publish_frame',role]);return true;},
-    frame_aux_frame(owner,role){
-      const meta=row('frame_meta'),at=role*M.LEN;let name=nativeView(role),args=[];
-      if(role===R.MIRROR0_SKY||role===R.MIRROR0_FAR)name='far_mirror_frame';
-      if(role>=R.PROBE0&&role<=R.PROBE23){name='far_probe_frame';args=[(role-R.PROBE0)%6];}
-      else if(role>=R.VOLUME0&&role<=R.VOLUME7){name='fx_into_frame';const b=row('frame_bindings'),offset=role*B.LEN;args=[meta[at+M.BATCH],meta[at+M.TEXTURE],b[offset+B.WIDTH],b[offset+B.HEIGHT],meta[at+M.COUNT],meta[at+M.OFFSET],meta[at+M.CAPACITY]];}
-      else if(['frame','view_frame','mirror_frame','motion_frame'].includes(name))args=[meta[at+M.RECORDS]];
-      else if(['transparent_frame','mirror_transparent_frame'].includes(name))args=[0,0];else if(name==='screen_frame')args=[meta[at+M.STEPS]];
-      const result=this[name](...args);row('frame_stats').set(Array.isArray(result)?result:stats,role*T.LEN);return true;
-    },
+    // This is transport only. Native frame_plan fixtures prove scheduling;
+    // fabricating per-phase calls here would pin a second scheduling policy.
+    frame_aux_frame(owner,role){calls.push(['frame_aux_frame',owner,role]);row('frame_stats').set(stats,role*T.LEN);return true;},
   };
   const handler = {
     get(target, name, receiver) {

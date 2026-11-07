@@ -117,9 +117,9 @@ for file in sorted(WEB.glob('*.rs')):
         if result == 'Result<Vec<u32>, String>':
             result = 'Result<bfe_render::core::Stats, String>'
             body = body.replace('?.values()', '?')
-        # Current recordings submit sealed packets. Legacy per-pass exports
-        # remain browser/test details, never native commands or metadata.
-        if 'bfe_render::core::Stats' in result or name in ['post_chain_frame','interface_frame']:
+        # Recordings submit sealed packets. Standalone interface batches belong
+        # to browser menus, rather than the native battle command stream.
+        if 'bfe_render::core::Stats' in result or name == 'interface_frame':
             per_pass.append(name)
             continue
         methods.append((name, args, result, body.strip()))
@@ -158,6 +158,7 @@ for name, args, _, _ in methods:
 pass_names=per_pass
 lines += ['_ => return Err(format!("unknown renderer command {name}")),', '})', '}',
     'pub fn is_per_pass(name:&str)->bool {matches!(name,'+'|'.join(json.dumps(name) for name in pass_names)+')}',
+    'pub fn is_known(name:&str)->bool {matches!(name,'+'|'.join(json.dumps(name) for name,_,_,_ in methods)+')}',
     'pub fn execute(&mut self, host: &mut Bridge, resource_bank: &mut [Resources]) -> Result<Option<bfe_render::core::Stats>,String> {', 'match self {']
 for name, args, result, _ in methods:
     names = [n for n, _ in args]
