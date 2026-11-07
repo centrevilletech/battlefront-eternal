@@ -695,7 +695,7 @@ export class Turret extends Building {
   // extract from before the extractor named it) has the minigun's stand
   // in, as for a hidden gunner. Null without either clip. He is drawn
   // (Crews::pose in rust/sim/src/seats/turrets.rs, the Gunner) and struck
-  // (riderShapes) in this one pose. pitch and yawVel: the drum's, unless a
+  // (the native unit sampler) in this one pose. pitch and yawVel: the drum's, unless a
   // page draws the player's own gunner at the aim it previews (the
   // presentation body batch's rider_sample).
   riderSample(clips, out, pitch = this.pitch, yawVel = this.yawVel) {
@@ -746,14 +746,6 @@ export class Turret extends Building {
   // one shows, and the class leaves him shootable.
   exposedSeat() {
     return Boolean(this.alive && this.rider?.shootable);
-  }
-
-  // The gunner's hit shapes this tick (the native unit sampler):
-  // his body in riderSample's pose at the seat, turned with the drum, as he
-  // is drawn. Written to shapes; returns their count, 0 where none shows.
-  // index: the seat's, always 0 (as Vehicle.riderShapes takes it).
-  riderShapes(index, unit, shapes) {
-    return this.f2Seats.phase.riders.shapes(unit, shapes);
   }
 
   // Where a gunner killed at the gun starts to fall from, in the world:

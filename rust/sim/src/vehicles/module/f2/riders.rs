@@ -1,8 +1,8 @@
-//! Vehicles.syncCrews and riderBody. Skeletons, clip bindings and sampler
-//! scratch persist with each actor. Publishing samples does not invalidate a
-//! Unit's lazy hit-shape cache; its existing tickCount still controls that.
+//! Vehicles.syncCrews publishes animation and death-drop facts. The unit
+//! sampler and retained rider geometry stay native. Publication never advances
+//! the unit's lazy hit-shape cache; its existing tickCount still controls that.
 use super::*;
-use crate::rig::rider::{self, RiderPoints, RiderSample, HitShape, ShapeKind, ShapePart};
+use crate::rig::rider::{self, RiderPoints, RiderSample, HitShape};
 use crate::store::block::Block;
 use three::{Matrix4, Quaternion, Vector3};
 
@@ -10,7 +10,7 @@ use three::{Matrix4, Quaternion, Vector3};
 // resolved animation aliases and completed collision/drop publication.
 pub(crate) struct Rider {
     life: f64, scale: f64, clips: Vec<F2RiderClip>,
-    points: RiderPoints, shapes: [HitShape; 10], out: F2RiderOut,
+    points: RiderPoints, shapes: [HitShape; 10], shape_count: usize, out: F2RiderOut,
     encoded: Block, previous: Block, dirty: bool,
 }
 pub(crate) struct Riders { rows: Vec<Option<Rider>>, output: Option<Block> }
@@ -89,7 +89,7 @@ pub fn turret(unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, 
 // must not sample a newer pose or advance the unit's hit-shape cache.
 pub fn drop(unit: Ref<Unit>) -> Option<Vector3> { riders().drop_point(unit) }
 
-/// SeatLease.riderShapes reads the already completed native rider sample.
+/// The unit hit test reads the already completed native rider sample.
 /// Copying it does not sample a newer pose or advance Unit.spheresTick.
 pub(crate) fn shapes(unit: Ref<Unit>, life: f64, out: &mut [crate::gen::HitShape]) -> usize { riders().shapes(unit, life, out) }
 
@@ -101,11 +101,9 @@ impl Riders {
     fn reserve(&mut self, count: usize) {
         let count = count.max(self.rows.len());
         self.rows.resize_with(count, || None);
-        let words = 5 + count * (F2RiderOut::WORDS + 10 * F2RiderShape::WORDS);
-        let heap = count * 10 * F2RiderShape::WORDS;
+        let words = BlockHeader::WORDS + count * F2RiderOut::WORDS;
         let out = self.output.get_or_insert_with(Block::default);
         out.words.reserve(words.saturating_sub(out.words.len()));
-        out.heap.reserve(heap.saturating_sub(out.heap.len()));
     }
     fn take(&mut self, unit: Ref<Unit>) -> Option<Rider> {
         let row = self.rows.get_mut(unit.slot as usize)?;
@@ -128,7 +126,7 @@ impl Riders {
     fn shapes(&self, unit: Ref<Unit>, life: f64, out: &mut [crate::gen::HitShape]) -> usize {
         let Some(row) = self.rows.get(unit.slot as usize).and_then(Option::as_ref) else { return 0 };
         if row.out.unit != unit || row.life != life { return 0; }
-        let count = row.out.shapes.len();
+        let count = row.shape_count;
         for (source, target) in row.shapes[..count].iter().zip(out) { target.set_rider(source); }
         count
     }
@@ -159,12 +157,11 @@ impl Riders {
         // A class activation installs the native unit sampler separately.
         // The rider row carries stable handles through holder changes.
         if self.rows[index].as_ref().is_none_or(|row|row.out.unit!=a.unit) {
-            let mut out = F2RiderOut { unit: a.unit, life: a.life, clip: -1, ..Default::default() };
-            out.shapes.reserve(10);
+            let out = F2RiderOut { unit: a.unit, life: a.life, clip: -1, ..Default::default() };
             self.rows[index] = Some(Rider { life: a.life, scale: a.scale, clips: Vec::with_capacity(16),
-                points: RiderPoints::default(), shapes: [HitShape::default(); 10], out,
-                encoded: Block { words: Vec::with_capacity(256), heap: Vec::with_capacity(128) },
-                previous: Block { words: Vec::with_capacity(256), heap: Vec::with_capacity(128) }, dirty: false });
+                points: RiderPoints::default(), shapes: [HitShape::default(); 10], shape_count: 0, out,
+                encoded: Block { words: Vec::with_capacity(BlockHeader::WORDS + F2RiderOut::WORDS), heap: Vec::new() },
+                previous: Block { words: Vec::with_capacity(BlockHeader::WORDS + F2RiderOut::WORDS), heap: Vec::new() }, dirty: false });
         }
         // riderSample resolves clips by holder and seat. Preserve those bindings
         // across seat moves; replacing a life must still refresh its generation.
@@ -175,10 +172,9 @@ impl Riders {
                 else { row.clips.push(clip); }
             }
         }
-        // Ten is the riderHitShapes upper bound. Reserve the publication as well
-        // as the sampling scratch so an exposed rider's first tick need not grow.
-        self.output.get_or_insert_with(Block::default).words.reserve(5 + self.rows.len() * (F2RiderOut::WORDS + 10 * F2RiderShape::WORDS));
-        self.output.get_or_insert_with(Block::default).heap.reserve(self.rows.len() * 10 * F2RiderShape::WORDS);
+        // Collision stays native. Reserve only the compact animation/drop
+        // publication, so its first changed sample cannot grow the boundary.
+        self.output.get_or_insert_with(Block::default).words.reserve(BlockHeader::WORDS + self.rows.len() * F2RiderOut::WORDS);
     }
     // riderBody/riderHitShapes share the frame used for death drops. Animal
     // clips put the pelvis on the saddle, leaving the root below.
@@ -196,7 +192,7 @@ impl Riders {
         row.out.pitch = if binding.time.is_some() || !binding.nine { 0.0 } else { pitch };
         row.out.turn = if binding.time.is_some() || !binding.nine { 0.0 } else { turn };
         row.out.time = binding.time.or_else(|| (!binding.nine).then_some(time));
-        row.out.drop = None; row.out.shapes.clear();
+        row.out.drop = None; row.shape_count = 0;
         if show && binding.clip >= 0 {
             let clip = &clips[binding.clip as usize];
             let sample = RiderSample { clip, pitch: row.out.pitch, turn: row.out.turn, time: row.out.time };
@@ -212,11 +208,9 @@ impl Riders {
                 // A synchronous death must fall from exactly the body just hit.
                 let mut drop = Vector3::default(); rider::rider_drop_point(&row.points, &mut drop); drop.apply_matrix4(&frame);
                 row.out.drop = Some(v3(&drop));
-                let count = rider::rider_hit_shapes(&row.points, &frame, Some(row.scale), &mut row.shapes);
-                for shape in &row.shapes[..count] {
-                    row.out.shapes.push(F2RiderShape { capsule: shape.kind == ShapeKind::Capsule, head: shape.part == ShapePart::Head,
-                        center: v3(&shape.center), half: v3(&shape.half_size), radius: shape.radius });
-                }
+                // Unit hit tests read this retained native prefix directly.
+                // No shape list is serialized or decoded by the host.
+                row.shape_count = rider::rider_hit_shapes(&row.points, &frame, Some(row.scale), &mut row.shapes);
             }
         }
         row.dirty = true;

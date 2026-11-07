@@ -150,12 +150,6 @@ export class SeatLease {
     return Boolean(this.turret) && this.exposed;
   }
 
-  // The rider's hit shapes this tick, written to shapes (Vehicle.riderShapes,
-  // Turret.riderShapes): their count.
-  riderShapes(unit, shapes) {
-    return (this.vehicle || this.turret)?.riderShapes?.(this.index, unit, shapes) ?? 0;
-  }
-
   // The seat's eye (a turret's gun pivot) and its aim: what the unit sees
   // and fires from while it sits (docs/ai.md unit.origin / unit.forward).
   origin(out) {

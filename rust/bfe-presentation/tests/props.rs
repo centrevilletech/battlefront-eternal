@@ -7,7 +7,7 @@ use bfe_presentation::{
         prop_frame as fr, prop_header as ph, prop_input as pi, prop_limits as lim,
         prop_output as po, trap_input as ti, trap_output as to, trap_phase as tp,
     },
-    props::{Props, PropInput, RiderInput, TrapDesc, TriggerInput},
+    props::{Props, PropInput, TrapDesc, TriggerInput},
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -293,13 +293,14 @@ fn turret_frames_retain_storage_and_reject_nonfinite_aim() {
 // 1 m up, turned a quarter about y. Returns the rider and clip handles.
 fn soldier(p: &mut Props) -> (f64, f64) {
     let names = ["DummyRoot", "bone_root", "bone_pelvis", "bone_neck", "bone_head", "bone_l_thigh", "bone_l_calf", "bone_l_foot", "bone_r_thigh", "bone_r_calf", "bone_r_foot"];
-    let rider = p.add_rider(RiderInput {
-        names: names.iter().map(|n| n.to_string()).collect(),
-        parents: (0..names.len() as i32).map(|i| i - 1).collect(),
-        poses: vec![[0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]; names.len()],
-        binds: vec![],
-        root_bind: Some([0.0; 3]),
-    });
+    use bfe_pose::{display::DisplayRig,rig::skeleton::Skeleton};
+    use three::{Quaternion,Vector3};
+    // Class binds and the pose at seizure are distinct native resources.
+    // DummyRoot keeps its class origin even when its displayed joint moved.
+    let binds:Vec<_>=(0..names.len()).map(|i|(Vector3::new(0.0,if i==0{0.0}else{0.1},0.0),Quaternion::default(),Vector3::new(1.0,1.0,1.0))).collect();
+    let skeleton=Skeleton::from_bind(names.iter().map(|n|n.to_string()).collect(),(0..names.len()as i32).map(|i|i-1).collect(),&binds,false);
+    let mut rig=DisplayRig::new(&skeleton);rig.tree.node_mut(rig.bones[0]).position.y=0.1;
+    let rider=p.add_unit_rider(&skeleton,&rig);
     let (s, c) = (std::f64::consts::FRAC_PI_4.sin() as f32, std::f64::consts::FRAC_PI_4.cos() as f32);
     let data: Vec<f32> = (0..2).flat_map(|_| [0.0, s, 0.0, c, 0.0, 1.0, 0.0]).collect();
     let clip = p.load_clip(2, 30.0, false, vec![1], data);

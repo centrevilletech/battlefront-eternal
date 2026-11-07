@@ -12,6 +12,7 @@ pub mod streams;
 pub mod scene;
 pub mod vehicles;
 pub mod feet;
+pub mod foot_limits;
 pub mod director;
 pub mod resources;
 pub mod runtime;

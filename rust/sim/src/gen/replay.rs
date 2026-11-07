@@ -5967,31 +5967,6 @@ impl F2RiderBirth {
     }
 }
 
-impl F2RiderShape {
-    /// Its fields from a value (the export of the JavaScript object).
-    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
-        object(v, path)?;
-        Ok(F2RiderShape {
-            capsule: { let p = format!("{path}.capsule"); boolean(v.get("capsule"), &p)? },
-            head: { let p = format!("{path}.head"); boolean(v.get("head"), &p)? },
-            center: { let p = format!("{path}.center"); vec3(v.get("center"), &p)? },
-            half: { let p = format!("{path}.half"); vec3(v.get("half"), &p)? },
-            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
-        })
-    }
-
-    /// Its value, as the export of the JavaScript object it stands for.
-    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
-        { let x = Value::Bool(self.capsule); fields.push(("capsule", x)); }
-        { let x = Value::Bool(self.head); fields.push(("head", x)); }
-        { let x = a.vec3(self.center); fields.push(("center", x)); }
-        { let x = a.vec3(self.half); fields.push(("half", x)); }
-        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
-        a.object("", fields)
-    }
-}
-
 impl F2RiderOut {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -6005,13 +5980,12 @@ impl F2RiderOut {
             turn: { let p = format!("{path}.turn"); num(v.get("turn"), &p)? },
             time: { let p = format!("{path}.time"); match v.get("time").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("time"), &p)?) } },
             drop: { let p = format!("{path}.drop"); match v.get("drop").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("drop"), &p)?) } },
-            shapes: { let p = format!("{path}.shapes"); { let mut out = Vec::new(); for (i, e) in list(v.get("shapes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(F2RiderShape::from_value(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(9);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
         { let x = Unit::ref_out(self.unit, cx, a); fields.push(("unit", x)); }
         { let x = Value::Num(self.life); fields.push(("life", x)); }
         { let x = Value::Bool(self.show); fields.push(("show", x)); }
@@ -6020,7 +5994,6 @@ impl F2RiderOut {
         { let x = Value::Num(self.turn); fields.push(("turn", x)); }
         { let x = match &self.time { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("time", x)); }
         { let x = match &self.drop { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("drop", x)); }
-        { let x = { let mut items = Vec::new(); for e in self.shapes.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("shapes", x)); }
         a.object("", fields)
     }
 }

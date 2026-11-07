@@ -884,6 +884,13 @@
     },
     "UnitCollisionLimits": {
       "shapes": 10
+    },
+    "FootLimits": {
+      "perBody": 64,
+      "events": 128
     }
+  },
+  "sharedRustLimits": {
+    "FootLimits": "rust/audio-control/src/foot_limits.rs"
   }
 }

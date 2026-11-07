@@ -72,40 +72,6 @@ impl F2RiderBirth {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct F2RiderShape {
-    pub capsule: bool,
-    pub head: bool,
-    pub center: Vec3,
-    pub half: Vec3,
-    pub radius: f64,
-}
-
-impl F2RiderShape {
-    pub const WORDS: usize = 9;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        row[0] = if self.capsule { 1.0 } else { 0.0 };
-        row[1] = if self.head { 1.0 } else { 0.0 };
-        row[2..2 + 3].copy_from_slice(&self.center);
-        row[5..5 + 3].copy_from_slice(&self.half);
-        row[8] = self.radius;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
-        Self {
-            capsule: row[0] != 0.0,
-            head: row[1] != 0.0,
-            center: [row[2], row[2 + 1], row[2 + 2]],
-            half: [row[5], row[5 + 1], row[5 + 2]],
-            radius: row[8],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2RiderOut {
     pub unit: Ref<Unit>,
     pub life: f64,
@@ -115,14 +81,13 @@ pub struct F2RiderOut {
     pub turn: f64,
     pub time: Option<f64>,
     pub drop: Option<Vec3>,
-    pub shapes: Vec<F2RiderShape>,
 }
 
 impl F2RiderOut {
-    pub const WORDS: usize = 15;
+    pub const WORDS: usize = 13;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
+        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
         row[0] = self.unit.slot as f64; row[0 + 1] = self.unit.gen as f64;
         row[2] = self.life;
         row[3] = if self.show { 1.0 } else { 0.0 };
@@ -131,11 +96,10 @@ impl F2RiderOut {
         row[6] = self.turn;
         match &self.time { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
         match &self.drop { Some(v) => { row[9] = 0.0; row[9 + 1..9 + 1 + 3].copy_from_slice(&(*v)); } None => { row[9] = 1.0; row[9 + 1..9 + 4].fill(0.0); } }
-        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.shapes.len() as f64; heap.reserve(self.shapes.len() * 9); for e in self.shapes.iter() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
+        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
         Self {
             unit: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
             life: row[2],
@@ -145,7 +109,6 @@ impl F2RiderOut {
             turn: row[6],
             time: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
             drop: if row[9] == 0.0 { Some([row[9 + 1], row[9 + 1 + 1], row[9 + 1 + 2]]) } else { None },
-            shapes: { let (at, n) = (word_u32(row[13]) as usize, word_u32(row[13 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(F2RiderShape::take(&row[0..], heap)); } out },
         }
     }
 

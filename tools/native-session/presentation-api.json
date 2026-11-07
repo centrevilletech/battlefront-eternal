@@ -319,16 +319,6 @@
         "result": "Result<usize, String>"
       },
       {
-        "name": "add_rider",
-        "args": [
-          [
-            "data",
-            "&str"
-          ]
-        ],
-        "result": "Result<usize, String>"
-      },
-      {
         "name": "add_turret",
         "args": [
           [

@@ -32,6 +32,7 @@
 //! Walker sound events from vehicle-feet.js. The cold height samples describe
 //! animation assets; rule sampling, arming and frame crossings are native.
 use crate::phase::{Phase, index};
+use crate::foot_limits as lim;
 use crate::engine::{NONE, FOLEY};
 use crate::layout::{foot as f, emitter as e, class as c};
 
@@ -65,7 +66,7 @@ impl Foot {
                 if pass == 1 && stomp { stomps.push((phase, if detection { armed } else { None })); } if pass == 1 && lift { lifts.push(phase); }
             } }
             for (phase, arm) in stomps { result.push(Event { at: phase, kind: 1 }); if let Some(at) = arm { result.push(Event { at, kind: 0 }); } }
-            for at in lifts { result.push(Event { at, kind: 2 }); } result.truncate(128); result
+            for at in lifts { result.push(Event { at, kind: 2 }); } result.truncate(lim::EVENTS); result
         };
         Self { point, length, detection, forward: schedule(1.0), backward: schedule(-1.0) }
     }
@@ -83,7 +84,7 @@ impl Phase {
             let point = definition.point; let m = &input[f::M0..=f::M15]; let w = 1.0 / (m[3] * point[0] + m[7] * point[1] + m[11] * point[2] + m[15]);
             let at = [(m[0] * point[0] + m[4] * point[1] + m[8] * point[2] + m[12]) * w, (m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13]) * w, (m[2] * point[0] + m[6] * point[1] + m[10] * point[2] + m[14]) * w];
             let mut state=self.foot_state[id];state.reset_generation(row[e::GENERATION]);
-            let mut events=[0u8;128];
+            let mut events=[0u8;lim::EVENTS];
             let count=definition.events(&mut state,previous,was_walking,phase,walking,at[1],dt,&mut events);
             for &kind in &events[..count] {
                 if near {self.play_class(class,if kind==1 {c::STEP0+number}else{c::HYDRAULIC},FOLEY,NONE,Some(at),None);}
@@ -105,8 +106,8 @@ impl Foot {
     /// The caller supplies the previously displayed cycle once per hull;
     /// every foot keeps only its own arming and fallback height state.
     pub fn events(&self,state:&mut State,previous:Option<f64>,was_walking:bool,
-        phase:f64,walking:bool,height:f64,dt:f64,out:&mut [u8;128])->usize {
-            let mut events = [(0.0, 0u8); 128]; let mut count = 0;
+        phase:f64,walking:bool,height:f64,dt:f64,out:&mut [u8;lim::EVENTS])->usize {
+            let mut events = [(0.0, 0u8); lim::EVENTS]; let mut count = 0;
             if self.length > 0.0 {
                 if let Some(from) = previous {
                     if walking && !was_walking { state.armed = false; if self.detection { events[0] = (0.0, 1); count = 1; } }

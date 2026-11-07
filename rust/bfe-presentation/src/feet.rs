@@ -1,7 +1,7 @@
 //! Visual Footfalls.update/fall/place and cycleHeights from vehicle-feet.js.
 //! Immutable clips are sampled at resource birth. Frames only advance fixed
 //! detectors and publish the authored primitive at the displayed matrix.
-use crate::layout::{foot_frame as f,foot_input as i,foot_event as o};
+use crate::layout::{foot_frame as f,foot_input as i,foot_event as o,foot_limits as lim};
 use audio_control::feet::{Foot,State};
 use bfe_pose::{Clip,Pose};
 use serde::Deserialize;
@@ -60,7 +60,7 @@ impl Feet {
     /// An excessive authored class is bounded at birth, never during a draw.
     pub fn add(&mut self,content:Content)->usize {
         let samples=heights(&content);let start=self.detectors.len();
-        for (k,foot) in content.feet.iter().take(64).enumerate(){self.detectors.push(Detector{
+        for (k,foot) in content.feet.iter().take(lim::PER_BODY).enumerate(){self.detectors.push(Detector{
             definition:Foot::new(foot.point,&samples[k],content.length,content.detection,content.threshold,content.hydraulic,content.centred,content.rate),
             state:State::default(),turn:foot.turn.map(|q|Quaternion::new(q[0],q[1],q[2],q[3]))});}
         self.bodies.push(Body{start,count:self.detectors.len()-start,phase:None,walking:false,generation:None});
@@ -79,7 +79,7 @@ impl Feet {
                 let mut matrix=Matrix4::default();matrix.elements.copy_from_slice(&x[i::MATRIX..i::MATRIX+16]);let mut point=v(d.definition.point);point.apply_matrix4(&matrix);
                 // Stable crossing order comes from the shared audio detector.
                 // A frame needs only down-event multiplicity for its one point.
-                let mut events=[0u8;128];let count=d.definition.events(&mut d.state,body.phase,body.walking,phase,walking,point.y,dt,&mut events);
+                let mut events=[0u8;lim::EVENTS];let count=d.definition.events(&mut d.state,body.phase,body.walking,phase,walking,point.y,dt,&mut events);
                 let out=&mut self.output[k*o::STRIDE..(k+1)*o::STRIDE];out[o::COUNT]=events[..count].iter().filter(|&&kind|kind==1).count()as f64;
                 out[o::POSITION..o::POSITION+3].copy_from_slice(&[point.x,x[i::ROOT_Y],point.z]);
                 // Authored primitive turns follow the full displayed matrix,

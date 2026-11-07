@@ -342,11 +342,6 @@ export class Vehicle {
   // animal to the rider the player sees (src/ordnance.js riderBehind); the
   // animal takes what misses him.
   shieldsRiders() { return this.healthType !== 'animal'; }
-  // A rider's hit shapes on seat i this tick (the native rider sampler): his body as the native rider phase poses and places
-  // it. Written to shapes; returns their count, 0 where none shows.
-  riderShapes(i, unit, shapes) {
-    return this.system.f2.riders.shapes(unit, shapes);
-  }
   // Where a rider killed on seat i starts to fall from, in the world: out,
   // or null where none shows (the native drop sample).
   riderDrop(i, unit, out) {

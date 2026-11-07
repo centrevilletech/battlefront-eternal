@@ -101,55 +101,6 @@ export function exportF2RiderBirth(o, cx) {
   return v;
 }
 
-export class F2RiderShapeMirror {
-  constructor() {
-    this.capsule = false;
-    this.head = false;
-    this.center = new THREE.Vector3();
-    this.half = new THREE.Vector3();
-    this.radius = NaN;
-  }
-}
-
-export function syncF2RiderShape(b, f, at, h, m) {
-  m.capsule = f[at + 0] !== 0;
-  m.head = f[at + 1] !== 0;
-  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
-  { const $v = (m.half ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
-  m.radius = f[at + 8];
-  return m;
-}
-
-export function putF2RiderShape(b, o, f, at, heap) {
-  f[at + 0] = o.capsule ? 1 : 0;
-  f[at + 1] = o.head ? 1 : 0;
-  { const $v = o.center; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
-  { const $v = o.half; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
-  f[at + 8] = o.radius;
-}
-
-export function sameF2RiderShape(a, b) {
-  if (!Object.is(a.capsule, b.capsule)) return ".capsule";
-  if (!Object.is(a.head, b.head)) return ".head";
-  if (!sameVec(a.center, b.center)) return ".center";
-  if (!sameVec(a.half, b.half)) return ".half";
-  if (!Object.is(a.radius, b.radius)) return ".radius";
-  return null;
-}
-
-export function exportF2RiderShape(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.capsule = o.capsule;
-  v.head = o.head;
-  v.center = o.center.clone();
-  v.half = o.half.clone();
-  v.radius = o.radius;
-  return v;
-}
-
 export class F2RiderOutMirror {
   constructor() {
     this.unit = null;
@@ -160,7 +111,6 @@ export class F2RiderOutMirror {
     this.turn = NaN;
     this.time = null;
     this.drop = null;
-    this.shapes = [];
   }
 }
 
@@ -173,7 +123,6 @@ export function syncF2RiderOut(b, f, at, h, m) {
   m.turn = f[at + 6];
   { const tag = f[at + 7]; if (tag === 0) { m.time = f[at + 8]; } else m.time = tag === 1 ? null : undefined; }
   { const tag = f[at + 9]; if (tag === 0) { { const $v = (m.drop ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; } } else m.drop = tag === 1 ? null : undefined; }
-  { const items = (m.shapes ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncF2RiderShape(b, f, at + 0, h, v ?? new F2RiderShapeMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -186,7 +135,6 @@ export function putF2RiderOut(b, o, f, at, heap) {
   f[at + 6] = o.turn;
   { const $x = o.time; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
   { const $x = o.drop; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; f[at + 11] = 0; f[at + 12] = 0; } else { f[at + 9] = 0; { const $v = $x; f[at + 10] = $v.x; f[at + 11] = $v.y; f[at + 12] = $v.z; } } }
-  heap.items(o.shapes, f, at + 13, 9, (f, at, v) => { putF2RiderShape(b, v, f, at + 0, heap); });
 }
 
 export function sameF2RiderOut(a, b) {
@@ -198,7 +146,6 @@ export function sameF2RiderOut(a, b) {
   if (!Object.is(a.turn, b.turn)) return ".turn";
   { const p = a.time, q = b.time; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".time"; } else { if (!Object.is(p, q)) return ".time"; } }
   { const p = a.drop, q = b.drop; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".drop"; } else { if (!sameVec(p, q)) return ".drop"; } }
-  if (!sameEach(a.shapes, b.shapes, (x, y) => sameF2RiderShape(x, y) === null)) return ".shapes";
   return null;
 }
 
@@ -215,6 +162,5 @@ export function exportF2RiderOut(o, cx) {
   v.turn = o.turn;
   v.time = o.time;
   v.drop = ((x) => (x === null || x === undefined ? x : x.clone()))(o.drop);
-  v.shapes = o.shapes.map((x) => exportF2RiderShape(x, cx));
   return v;
 }

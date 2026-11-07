@@ -316,10 +316,6 @@ impl PageProps {
     pub fn add_unit_rider(&mut self, units:&PageUnits, actor:usize)->i32 {
         units.inner.rider_source(actor).map_or(-1,|(source,rig)|self.inner.add_unit_rider(source,rig) as i32)
     }
-    pub fn add_rider(&mut self, data: &str) -> Result<usize, String> {
-        let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
-        Ok(self.inner.add_rider(input))
-    }
     pub fn add_turret(&mut self, data: &str) -> Result<usize, String> {
         let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
         Ok(self.inner.add_turret(input))
@@ -400,7 +396,6 @@ pub enum PagePropsCommand {
 load_clip(usize,f64,bool,Vec<i32>,Vec<f32>),
 add_prop(String),
 add_trap(String),
-add_rider(String),
 add_turret(String),
 present_props,
 }
@@ -409,7 +404,6 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 "load_clip"=>Self::load_clip(a.usize(0)?,a.f64(1)?,a.bool(2)?,a.i32s(3)?,a.f32s(4)?),
 "add_prop"=>Self::add_prop(a.string(0)?),
 "add_trap"=>Self::add_trap(a.string(0)?),
-"add_rider"=>Self::add_rider(a.string(0)?),
 "add_turret"=>Self::add_turret(a.string(0)?),
 "present_props"=>Self::present_props,
 _=>return Err(format!("unknown presentation command {name}")),})}
@@ -417,7 +411,6 @@ pub fn execute(&self,host:&mut PageProps)->Result<(),String>{match self{
 Self::load_clip(frames,fps,root_motion,tracks,data)=>{let _=host.load_clip(*frames,*fps,*root_motion,tracks.clone(),data.clone());},
 Self::add_prop(data)=>{let _=host.add_prop(data)?;},
 Self::add_trap(data)=>{let _=host.add_trap(data)?;},
-Self::add_rider(data)=>{let _=host.add_rider(data)?;},
 Self::add_turret(data)=>{let _=host.add_turret(data)?;},
 Self::present_props=>{let _=host.present_props();},
 }Ok(())}}

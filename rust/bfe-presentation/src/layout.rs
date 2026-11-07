@@ -924,3 +924,7 @@ pub mod camera_limits {
 pub mod unit_collision_limits {
     pub const SHAPES: usize = 10;
 }
+pub mod foot_limits {
+    pub const PER_BODY: usize = 64;
+    pub const EVENTS: usize = 128;
+}

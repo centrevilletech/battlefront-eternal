@@ -1,6 +1,6 @@
 import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
-// Vehicles.syncCrews publishes bodies from Rust. Lazy hit-shape readers copy
-// retained world samples here; they never sample a hull's JavaScript rig.
+// Vehicles.syncCrews publishes animation and death-drop facts from Rust.
+// Hit shapes stay in the native unit and vehicle owners.
 import { putF2RiderBirth, F2RiderOutMirror, syncF2RiderOut } from './sim/gen/f2-riders.js';
 import { KIND_UNIT } from './sim/gen/index.js';
 
@@ -62,7 +62,7 @@ export class F2Riders {
     this.bridge.callArgs(this.birthArgs, a); this.phase.x.f2_rider_birth();
     known.holders.add(holder);
     if (!this.rows.has(unit)) {
-      const row = new F2RiderOutMirror(); row.shapes.length = 0; this.rows.set(unit, row);
+      const row = new F2RiderOutMirror(); this.rows.set(unit, row);
     }
   }
   // Vehicles.syncCrews publishes only changed samples. Decode into retained
@@ -77,18 +77,6 @@ export class F2Riders {
       syncF2RiderOut(b, f, at, heap, this.rows.get(unit));
     }
 
-  }
-  // Unit.updateSpheres owns when the samples become its hit shapes. Do not
-  // touch spheresTick here, including across boarding and synchronous deaths.
-  shapes(unit, out) {
-    const row = this.rows.get(unit);
-    if (!row || row.life !== unit.generation) return 0;
-    for (let i = 0; i < row.shapes.length; i++) {
-      const a = row.shapes[i], b = out[i]; b.type = a.capsule ? 'capsule' : 'sphere'; b.part = a.head ? 'head' : 'body';
-      b.center.copy(a.center); b.radius = a.radius; b.yaw = 0;
-      if (a.capsule) { b.halfSize.copy(a.half); b.half = b.halfSize; } else b.half = 0;
-    }
-    return row.shapes.length;
   }
   // Vehicles.vacate consumes the completed riderDropPoint on death. A late
   // packet for another life cannot move the current actor's corpse.

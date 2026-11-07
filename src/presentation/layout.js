@@ -64,3 +64,4 @@ export const PropLimits = Object.freeze({"FEET":1024,"BODIES":1024});
 export const VehicleLimits = Object.freeze({"SLOTS":2});
 export const CameraLimits = Object.freeze({"COMMANDS":1024,"DEFINITIONS":256,"BODIES":65536,"SPAWN_SHOTS":1024,"HOLD_SECONDS":11,"IGNORED_BODIES":64,"MOTIONS":7,"MOTION_SEGMENTS":64,"MOTION_STEPS":4096,"OWNERS":2});
 export const UnitCollisionLimits = Object.freeze({"SHAPES":10});
+export const FootLimits = Object.freeze({"PER_BODY":64,"EVENTS":128});

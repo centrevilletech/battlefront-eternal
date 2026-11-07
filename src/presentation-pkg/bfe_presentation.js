@@ -904,19 +904,6 @@ export class PageProps {
      * @param {string} data
      * @returns {number}
      */
-    add_rider(data) {
-        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.pageprops_add_rider(this.__wbg_ptr, ptr0, len0);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return ret[0] >>> 0;
-    }
-    /**
-     * @param {string} data
-     * @returns {number}
-     */
     add_trap(data) {
         const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;

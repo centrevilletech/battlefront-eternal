@@ -12,9 +12,9 @@ const QUAD = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]);
 const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
 // Each batch is one interleaved instance buffer (one upload a frame): name,
 // size, offset in floats.
-const STREAK_ATTRIBUTES = [["iHead", 3, 0], ["iTail", 3, 3], ["iColor", 4, 6], ["iSize", 4, 10], ["iMisc", 4, 14]];
+const STREAK_ATTRIBUTES = [["iHead", 3, SS.HEAD], ["iTail", 3, SS.TAIL], ["iColor", 4, SS.COLOR], ["iSize", 4, SS.SIZE], ["iMisc", 4, SS.MISC]];
 const STREAK_STRIDE = SS.STRIDE;
-const FLARE_ATTRIBUTES = [["iCenter", 3, 0], ["iAxis", 3, 3], ["iColor", 4, 6], ["iParam", 4, 10]];
+const FLARE_ATTRIBUTES = [["iCenter", 3, SF.CENTER], ["iAxis", 3, SF.AXIS], ["iColor", 4, SF.COLOR], ["iParam", 4, SF.PARAM]];
 const FLARE_STRIDE = SF.STRIDE;
 
 

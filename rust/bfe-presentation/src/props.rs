@@ -72,19 +72,6 @@ pub struct PropInput {
     /// The constructor's start time into the idle.
     pub time: f64,
 }
-/// A held soldier's skeleton as riderPoints reads it: his bones' names,
-/// parents and transforms (position, quaternion, scale) when first seized,
-/// and his animator's bind lengths and DummyRoot bind (bindsOf, rootBind).
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RiderInput {
-    pub names: Vec<String>,
-    pub parents: Vec<i32>,
-    pub poses: Vec<[f64; 10]>,
-    /// Each bind length: its bone and that bone's bind position.
-    pub binds: Vec<(i32, [f64; 3])>,
-    pub root_bind: Option<[f64; 3]>,
-}
 /// A registered held skeleton, with what riderPoints samples into.
 struct Rider {
     skeleton: RiderSkeleton,
@@ -309,38 +296,6 @@ impl Props {
             q:rig.bones.iter().map(|&id|rig.tree.node(id).quaternion).collect(),
             p:rig.bones.iter().map(|&id|rig.tree.node(id).position).collect()});
         self.riders.len()-1
-    }
-    /// A held soldier's skeleton (his class's, registered at his first
-    /// seizure). Returns its handle for PropInput.RIDER.
-    pub fn add_rider(&mut self, d: RiderInput) -> usize {
-        let n = d.names.len().min(d.parents.len()).min(d.poses.len());
-        let bind: Vec<_> = d.poses[..n]
-            .iter()
-            .map(|p| (Vector3::new(p[0], p[1], p[2]), Quaternion::new(p[3], p[4], p[5], p[6]), Vector3::new(p[7], p[8], p[9])))
-            .collect();
-        let mut names = d.names;
-        names.truncate(n);
-        let mut parents = d.parents;
-        parents.truncate(n);
-        // Parents outside the skeleton hang from nothing.
-        for up in parents.iter_mut() {
-            if *up >= n as i32 {
-                *up = -1;
-            }
-        }
-        let mut skeleton = RiderSkeleton::new(&Skeleton::from_bind(names, parents, &bind, false));
-        // The animator's own bind lengths and root bind, as riderPoints reads
-        // them (the bones it was built with may stand posed by now).
-        skeleton.binds.iter_mut().for_each(|b| *b = None);
-        for &(i, at) in &d.binds {
-            if i >= 0 && (i as usize) < n {
-                skeleton.binds[i as usize] = Some(Vector3::new(at[0], at[1], at[2]));
-            }
-        }
-        skeleton.root_bind = d.root_bind.map(|at| Vector3::new(at[0], at[1], at[2]));
-        let scratch = RiderScratch::new(&skeleton);
-        self.riders.push(Rider { skeleton, q: bind.iter().map(|b| b.1).collect(), p: bind.iter().map(|b| b.0).collect(), scratch });
-        self.riders.len() - 1
     }
     /// A log trap with a pose (Trap's constructor). Its bones follow every
     /// prop's.

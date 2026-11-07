@@ -216,10 +216,6 @@ impl PageProps {
     pub fn add_unit_rider(&mut self, units:&PageUnits, actor:usize)->i32 {
         units.inner.rider_source(actor).map_or(-1,|(source,rig)|self.inner.add_unit_rider(source,rig) as i32)
     }
-    pub fn add_rider(&mut self, data: &str) -> Result<usize, JsValue> {
-        let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(self.inner.add_rider(input))
-    }
     pub fn add_turret(&mut self, data: &str) -> Result<usize, JsValue> {
         let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(self.inner.add_turret(input))

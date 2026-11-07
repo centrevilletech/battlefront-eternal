@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import {SniperTrace} from '../src/sniper-trace.js';
 import {lighting} from '../src/materials.js';
-import {SniperCounts as H} from '../src/presentation/sniper-layout.js';
+import {SniperCounts as H,SniperStreak as SS,SniperFlare as SF} from '../src/presentation/sniper-layout.js';
 
 // Frozen synthetic frames retain the original RNG order through deferred
 // impact births, duplicate head reports, sparks, smoke and final expiry.
@@ -17,8 +17,8 @@ test('native sniper phases publish the frozen flight and impact buffers',()=>{
  for(const expected of golden){const {t}=expected;lighting.time.value=t;lights.length=0;trace.begin();if(t<10.1)trace.touch(source,def,start,head,dir,t>10,1);
   if(t===10.04){trace.defer(head,(value)=>plays.push(value/4294967296),null,true);trace.headshot(head);trace.headshot(head.clone().addScalar(.1));}
   trace.end();
-  assert.deepEqual(Array.from(trace.streaks.data.slice(0,trace.streaks.count*18)),expected.streaks,`streaks at ${t}`);
-  assert.deepEqual(Array.from(trace.flares.data.slice(0,trace.flares.count*14)),expected.flares,`flares at ${t}`);
+  assert.deepEqual(Array.from(trace.streaks.data.slice(0,trace.streaks.count*SS.STRIDE)),expected.streaks,`streaks at ${t}`);
+  assert.deepEqual(Array.from(trace.flares.data.slice(0,trace.flares.count*SF.STRIDE)),expected.flares,`flares at ${t}`);
   assert.deepEqual(lights,expected.lights,`lights at ${t}`);assert.deepEqual(plays,expected.plays);assert.equal(seed,expected.seed);
  }
  }finally{Math.random=previous;}
@@ -47,8 +47,8 @@ test('native eye-view traces retain the frozen moving muzzle buffers',()=>{
   camera.position.set(index*.07,1.6,index*.03);camera.rotation.y=index*.01;camera.updateMatrixWorld(true);
   muzzle.set(.05,-.1,.8).applyMatrix4(camera.matrixWorld);hasMuzzle=index!==2;
   const {t}=expected;lighting.time.value=t;lights.length=0;trace.begin();if(t<10.1)trace.touch(source,def,start,head,dir,t>10,1);trace.end();
-  assert.deepEqual(Array.from(trace.streaks.data.slice(0,trace.streaks.count*18)),expected.streaks,`eye streaks at ${t}`);
-  assert.deepEqual(Array.from(trace.flares.data.slice(0,trace.flares.count*14)),expected.flares,`eye flares at ${t}`);
+  assert.deepEqual(Array.from(trace.streaks.data.slice(0,trace.streaks.count*SS.STRIDE)),expected.streaks,`eye streaks at ${t}`);
+  assert.deepEqual(Array.from(trace.flares.data.slice(0,trace.flares.count*SF.STRIDE)),expected.flares,`eye flares at ${t}`);
   assert.deepEqual(lights,expected.lights);assert.equal(seed,expected.seed);
  }
  }finally{Math.random=previous;}

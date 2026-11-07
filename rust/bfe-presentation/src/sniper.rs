@@ -148,8 +148,27 @@ impl Sniper {
     // Waiting reports claim the first eligible line. Compaction retains
     // arrival order, including independent flourishes after their timeout.
     fn claim_waiting(&mut self,random:&mut impl FnMut()->f64){let mut kept=0;for k in 0..self.waiting.len(){let w=self.waiting[k];let record=self.records.iter_mut().find(|r|!r.headshot&&r.landed.is_none()&&off_line(r,w.at)<1.5);if let Some(r)=record{r.headshot=true;r.head_at=Some(w.at);}else if self.now<w.until{self.waiting[kept]=w;kept+=1;}else{self.flourish(w.at,V::new(0.0,0.0,1.0),random);}}self.waiting.truncate(kept);}
-    fn streak(&mut self,head:V,tail:V,color:[f64;3],brightness:f64,core:f64,glow:f64,kind:f64,seed:f64,age:f64,opacity:f64,offset:f64,near:f64){let k=self.counts[h::STREAKS]as usize;if k>=lim::STREAKS{self.counts[h::DROPPED]+=1;return;}self.counts[h::STREAKS]+=1;let words=[head.x,head.y,head.z,tail.x,tail.y,tail.z,color[0],color[1],color[2],brightness,core,glow,kind,seed,age,opacity,offset,near];for(k,v)in words.into_iter().enumerate(){self.streaks[(self.counts[h::STREAKS]as usize-1)*streak::STRIDE+k]=v as f32;}}
-    fn flare(&mut self,b:Burst,age:f64){let k=self.counts[h::FLARES]as usize;if k>=lim::FLARES{self.counts[h::DROPPED]+=1;return;}self.counts[h::FLARES]+=1;let t=(age/b.life).min(1.0);let words=[b.at.x,b.at.y,b.at.z,0.0,0.0,0.0,b.color[0],b.color[1],b.color[2],b.brightness*(1.0-t)*(1.0-t),b.radius*(0.7+0.5*ease(t)),0.0,0.0,b.turn];for(j,v)in words.into_iter().enumerate(){self.flares[k*flare::STRIDE+j]=v as f32;}}
+    // SniperTrace's GPU attributes use generated group offsets. Component
+    // order and f32 conversion stay identical to the interleaved draw format.
+    fn streak(&mut self,head:V,tail:V,color:[f64;3],brightness:f64,core:f64,glow:f64,kind:f64,seed:f64,age:f64,opacity:f64,offset:f64,near:f64){
+        let k=self.counts[h::STREAKS]as usize;
+        if k>=lim::STREAKS{self.counts[h::DROPPED]+=1;return;}
+        self.counts[h::STREAKS]+=1;let row=&mut self.streaks[k*streak::STRIDE..][..streak::STRIDE];
+        row[streak::HEAD..streak::HEAD+3].copy_from_slice(&[head.x as f32,head.y as f32,head.z as f32]);
+        row[streak::TAIL..streak::TAIL+3].copy_from_slice(&[tail.x as f32,tail.y as f32,tail.z as f32]);
+        row[streak::COLOR..streak::COLOR+4].copy_from_slice(&[color[0]as f32,color[1]as f32,color[2]as f32,brightness as f32]);
+        row[streak::SIZE..streak::SIZE+4].copy_from_slice(&[core as f32,glow as f32,kind as f32,seed as f32]);
+        row[streak::MISC..streak::MISC+4].copy_from_slice(&[age as f32,opacity as f32,offset as f32,near as f32]);
+    }
+    fn flare(&mut self,b:Burst,age:f64){
+        let k=self.counts[h::FLARES]as usize;
+        if k>=lim::FLARES{self.counts[h::DROPPED]+=1;return;}
+        self.counts[h::FLARES]+=1;let t=(age/b.life).min(1.0);let row=&mut self.flares[k*flare::STRIDE..][..flare::STRIDE];
+        row[flare::CENTER..flare::CENTER+3].copy_from_slice(&[b.at.x as f32,b.at.y as f32,b.at.z as f32]);
+        row[flare::AXIS..flare::AXIS+3].fill(0.0);
+        row[flare::COLOR..flare::COLOR+4].copy_from_slice(&[b.color[0]as f32,b.color[1]as f32,b.color[2]as f32,(b.brightness*(1.0-t)*(1.0-t))as f32]);
+        row[flare::PARAM..flare::PARAM+4].copy_from_slice(&[(b.radius*(0.7+0.5*ease(t)))as f32,0.0,0.0,b.turn as f32]);
+    }
     fn sizes(&mut self){self.counts[h::RECORDS]=self.records.len()as u32;self.counts[h::SPARKS]=self.sparks.len()as u32;}
     /// SniperTrace.end advances all retained visuals once. Counts describe
     /// prefixes of immutable-capacity buffers consumed directly by rendering.

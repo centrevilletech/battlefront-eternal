@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {VisualFeet,cycleHeights} from '../src/presentation/feet.js';
-import {FootEvent as O} from '../src/presentation/layout.js';
+import {FootEvent as O,FootLimits as L,FootFrame as F,FootInput as I} from '../src/presentation/layout.js';
 
 // A no-cycle primitive uses the original falling/landed/rising detector.
 // Read one coarse phase, then apply only the resource event it published.
@@ -32,5 +32,11 @@ test('an oversized authored foot class is bounded at registration',()=>{
  const root=new THREE.Group();root.updateMatrixWorld(true);
  const v={root,alive:true,aiTarget:{generation:1},def:{fx:{feet:Array.from({length:4096},()=>({at:[0,0,0]})),stomp:{effect:'dust'}}}};
  const feet=new VisualFeet();feet.begin(.1);feet.write(v);feet.run();
- assert.equal(feet.rows.get(v).nodes.length,64);assert.equal(feet.output.length,64*O.STRIDE);
+ assert.equal(feet.rows.get(v).nodes.length,L.PER_BODY);assert.equal(feet.output.length,L.PER_BODY*O.STRIDE);
+ // The next class begins exactly after the bounded prefix. Rewriting the
+ // oversized body cannot overwrite its neighbour's correction record.
+ const other={...v,aiTarget:{generation:9},def:{fx:{feet:[{at:[0,0,0]}],stomp:{effect:'dust'}}}};
+ feet.write(other);const row=feet.rows.get(other);assert.equal(row.start,L.PER_BODY);
+ feet.write(v);assert.equal(feet.input[F.STRIDE+row.start*I.STRIDE+I.GENERATION],9);
+ assert.equal(feet.output.length,(L.PER_BODY+1)*O.STRIDE);
 });

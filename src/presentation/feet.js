@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import {classSetting} from '../vehicle-motion.js';
 import {presentationModule} from './module.js';
-import {FootFrame as F,FootInput as I,FootEvent as O} from './layout.js';
+import {FootFrame as F,FootInput as I,FootEvent as O,FootLimits as L} from './layout.js';
 
 const xyz=p=>[p.x,p.y,p.z],xyzw=q=>[q.x,q.y,q.z,q.w];
 // Bind transforms and clip tracks are immutable class resources. Keeping
@@ -35,7 +35,7 @@ export class VisualFeet {
   refresh(force=false){const b=this.loaded.memory.buffer;if(b===this.buffer&&!force)return;this.buffer=b;
     this.input=new Float64Array(b,this.kernel.input_ptr(),this.kernel.input_len());this.output=new Float64Array(b,this.kernel.output_ptr(),this.kernel.output_len());}
   register(v){let row=this.rows.get(v);if(row)return row;const feet=v.def?.fx?.feet||[];
-    row={start:this.kernel.add(JSON.stringify(footContent(v,feet))),nodes:feet.slice(0,64).map(foot=>v.byName?.[foot.bone]||v.root)};
+    row={start:this.kernel.add(JSON.stringify(footContent(v,feet))),nodes:feet.slice(0,L.PER_BODY).map(foot=>v.byName?.[foot.bone]||v.root)};
     this.rows.set(v,row);this.refresh(true);return row;}
   // Absent feet retain detector history but cannot emit another resource.
   // Clear presence for the whole phase before writing living hulls.
