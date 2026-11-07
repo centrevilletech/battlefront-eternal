@@ -140,6 +140,7 @@ passes resource ids and a source revision; it transports no rider or held
 matrices, sampled coordinates or duplicate bind hierarchy. Four native source
 publications span ordinary and predicted hull batches. A body retains its
 lease-birth sample independently of later source-history turnover.
+Frames with no seated or held body skip source resolution entirely.
 It hides enclosed riders, retains hidden crew after a hull's destruction
 until their next generation, and places exposed riders after animation. A
 creature's posed pelvis meets its saddle; chest sway keeps its native clock.
@@ -155,6 +156,8 @@ prefix. Direct bounds and limb readers request that same coarse batch; unchanged
 samples copy no inputs or outputs and make no native call. Body display neither
 prepares nor observes collision shapes. Both owners share the posture primitives
 and broadphase arithmetic in bfe-pose, preserving each tick's lazy observation.
+Bounds observations copy only the centre and radius. Limb readbacks wait for
+a narrowphase reader and share the retained native sample.
 The prop display owner registers a held body from the native unit skeleton
 and snapshots its current local pose once. Unkeyed grab joints retain that
 seizure pose while bind lengths retain their immutable class values. No
@@ -255,12 +258,19 @@ immutable reference and candidate builds with matched battle inputs.
 
 Cold soldier construction and soldier/droideka spawn resets use the native unit implementation
 beside its collision store. Generated mirrors retain the resource and correction
-fields that page consumers still read. Displayed gun bases and eyes publish with the native unit rows;
+fields that page consumers still read. The viewpoint's displayed gun basis and
+eye publish with its native unit row. Remote bases wait for arc effects. Held
+bolts name their source unit; the effect phase collects these and charging guns
+for one native request prefix. A new bolt's shooter search requests every
+candidate. Revisions avoid unchanged readbacks in either case.
 predicted shots resolve all firing poses in one aim batch and one collision
 resume. Preview publishes the physical gun basis separately from pending look,
 so HUD targeting retains the tick pose. Immediate pointer preview submits one
 ordered block for all pending samples, preserving per-sample pitch limits and
-posture turns without advancing movement or mutating the corrected body.
+posture turns without advancing movement or mutating the corrected body. Empty
+look frames make no native call; ordinary look computes angles without shot
+geometry. Eye-view commands also need only body angles. Third-person command
+convergence and shot publication retain their separate geometry phase.
 
 ## Cameras
 

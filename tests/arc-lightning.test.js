@@ -70,6 +70,21 @@ function camera() {
   return c;
 }
 
+// New bolts need a complete shooter search. Later displayed frames prepare
+// just held sources and charging guns once, even when several bolts share one.
+test('lightning prepares only the gun origins its displayed phase reads',()=>{
+ const a=soldier(0,0,{gun:true}),b=soldier(4,0,{gun:true}),c=soldier(8,0),units=[a,b,c],calls=[];
+ units.forEach((u,i)=>u.id=i+1);a.combat.arsenal.current(0).charging=true;
+ const registry={all:()=>units,prepareAim:list=>calls.push(list?list.map(u=>u.id):'all')};
+ const lightning=new Lightning(new THREE.Scene(),()=>new THREE.Texture(),{units:registry,settings:{get:()=> 'enhanced'},effects:{lightning:{arccaster_lightning:BOLT}}});
+ const follow=out=>b.combat.drawnGunOrigin(out);follow.unit=b;
+ lightning.spawn(BOLT,new THREE.Vector3(4,1.5,.25),new THREE.Vector3(4,2,8),1,follow);
+ lightning.spawn(BOLT,new THREE.Vector3(4,1.5,.25),new THREE.Vector3(5,2,8),1,follow);
+ assert.deepEqual(calls,['all','all']);calls.length=0;
+ lightning.update(1/60,camera());assert.deepEqual(calls,[[2,1]]);
+ a.combat.firstPerson=true;lightning.update(1/60,camera());assert.deepEqual(calls.at(-1),[2]);
+});
+
 const bolt = (start, end, follow = null, charge = 1) => ({ def: BOLT, start: start.clone(), end: end.clone(), charge, follow, life: BOLT.FadeTime });
 
 test("a jagged channel keeps its ends, has 2^depth segments, and stays within its spread", () => {

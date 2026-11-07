@@ -114,17 +114,19 @@ mod module {
     #[no_mangle]
     pub extern "C" fn body_preview_capacity() -> u32 { LOOKS as u32 }
     #[no_mangle]
-    pub extern "C" fn body_preview() {
+    pub extern "C" fn body_preview(with_aim: u32) {
         let p = owner(); let mut f = BodyPreviewFrame::take(&p.frame, &[]);
         // convergedAim restored the tick basis after sampling pending look.
         // Publish it separately: HUD targeting reads the physical gun frame.
-        let mut source=f.clone();source.aim_yaw=f.source_yaw;source.aim_pitch=f.source_pitch;
-        aim::<crate::cameras::HostMath>(&mut source);
+        if with_aim!=0 {
+            let mut source=f.clone();source.aim_yaw=f.source_yaw;source.aim_pitch=f.source_pitch;
+            aim::<crate::cameras::HostMath>(&mut source);
+            f.source_basis=source.basis;
+        }
         preview(&mut f, &p.looks);
         // The camera's scalar host math preserves the browser's last bits;
         // body/scene methods never cross this numeric boundary.
-        aim::<crate::cameras::HostMath>(&mut f);
-        f.source_basis=source.basis;
+        if with_aim!=0 {aim::<crate::cameras::HostMath>(&mut f);}
         // Both records contain scalars only; no heap can grow on this path.
         f.put(&mut p.frame, &mut Vec::new());
     }

@@ -1517,6 +1517,12 @@ export class PageUnits {
         const ret = wasm.pageunits_places_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
+    /**
+     * @param {number} count
+     */
+    prepare_aim(count) {
+        wasm.pageunits_prepare_aim(this.__wbg_ptr, count);
+    }
     present_first_person() {
         wasm.pageunits_present_first_person(this.__wbg_ptr);
     }

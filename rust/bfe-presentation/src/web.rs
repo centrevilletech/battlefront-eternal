@@ -174,6 +174,7 @@ impl PageUnits {
     pub fn collision_actors_ptr(&self)->*const u32{self.inner.collision.actors.as_ptr()}
     pub fn collision_actors_len(&self)->usize{self.inner.collision.actors.len()}
     pub fn collide_units(&mut self,count:usize){self.inner.collision_frame(count);}
+    pub fn prepare_aim(&mut self,count:usize){self.inner.aim_frame(count);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
     }

@@ -15,7 +15,7 @@ unsafe impl GlobalAlloc for Counting {
 fn leases_keep_the_native_source_revision_without_frame_allocation(){
  let vehicles=Rc::new(RefCell::new(Vehicles::default()));let props=Rc::new(RefCell::new(Props::default()));
  let mut bindings=Bindings::default();bindings.reserve(256);bindings.bind(&vehicles,&props);
- let mut input=vec![0.0;f::STRIDE+256*i::STRIDE];input[f::ACTORS]=256.0;
+ let mut input=vec![0.0;f::STRIDE+256*i::STRIDE];input[f::ACTORS]=256.0;input[f::SOURCES]=1.0;
  vehicles.borrow_mut().rig(1);let mut source=Source{shown:true,age:2.0,pitch:0.35,yaw:0.4,velocity:Vector3::new(2.0,3.0,4.0),position:Vector3::new(7.0,8.0,9.0),..Default::default()};
  source.frame=Matrix4::default();source.frame.elements[12]=7.0;
  vehicles.borrow_mut().epoch=1.0;vehicles.borrow_mut().publish(0,0,source);
@@ -34,6 +34,17 @@ fn leases_keep_the_native_source_revision_without_frame_allocation(){
  assert_eq!(input[f::STRIDE+i::RIDER_TIME],2.0);
  // Invalid foreign handles and oversized counts produce a bounded prefix.
  input[f::ACTORS]=f64::INFINITY;input[f::STRIDE+i::SOURCE_RIG]=f64::INFINITY;bindings.fill(&mut input);
+}
+
+// The no-holder frame must not even borrow the vehicle owner. Its rows may
+// still retain old words, but source resolution has no consumer this phase.
+#[test]
+fn infantry_frames_leave_source_owners_unread(){
+ let vehicles=Rc::new(RefCell::new(Vehicles::default()));let props=Rc::new(RefCell::new(Props::default()));
+ let mut bindings=Bindings::default();bindings.reserve(1);bindings.bind(&vehicles,&props);
+ let mut input=vec![0.0;f::STRIDE+i::STRIDE];input[f::ACTORS]=1.0;input[f::STRIDE+i::HELD]=7.0;
+ let _vehicle=vehicles.borrow_mut();let _prop=props.borrow_mut();
+ bindings.fill(&mut input);assert_eq!(input[f::STRIDE+i::HELD],7.0);
 }
 
 // The page has no authority body owner. Its coarse collision phase must

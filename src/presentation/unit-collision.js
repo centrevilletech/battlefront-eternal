@@ -24,13 +24,14 @@ export class UnitCollision {
   row.collisionShapes=Array.from({length:L.SHAPES},()=>{const s={type:'sphere',part:'body',center:new THREE.Vector3(),radius:NaN,halfNumber:NaN,halfSize:new THREE.Vector3(),yaw:NaN};Object.defineProperty(s,'half',{get:half});return s;});
   row.collisionList=row.collisionShapes.slice();while(row.collisionList.length)row.collisionList.pop();
   row.collisionBounds={center:new THREE.Vector3(),radius:NaN};unit.bounds=row.collisionBounds;unit.hitSet=row.collisionList;
+  row.collisionCount=0;row.collisionPendingShapes=false;
   row.collisionObservedBinding=row.collisionGeneration=row.collisionTick=NaN;
   while(this.pending.length<this.owner.rows.length)this.pending.push(null);
   // A direct bounds/limb reader requests the same coarse batch as a registry
   // query. Later bodies reuse its stamps without per-object native calls.
   const collision=this;
   Object.defineProperty(unit,'sphere',{configurable:true,get(){collision.read(row,this);return this.bounds;}});
-  unit.hitShapes=function(){collision.read(row,this);return this.hitSet;};
+  unit.hitShapes=function(){collision.read(row,this,true);return this.hitSet;};
  }
  // These are correction facts and resource handles, with no shape math.
  // Current native mount/held samples are joined when the batch observes them.
@@ -56,7 +57,8 @@ export class UnitCollision {
  // Unit.updateSpheres retained a sample until the body's next tick/life.
  // Checking the same stamp before packing also avoids unchanged input copies.
  stale(row,unit){return row.collisionObservedBinding!==row.collisionBinding||row.collisionGeneration!==unit.generation||row.collisionTick!==unit.tickCount;}
- read(row,unit){if(this.stale(row,unit))this.observe(true,null,false,row);}
+ read(row,unit,limbs=false){if(this.stale(row,unit))this.observe(true,null,false,row);
+  if(limbs&&row.collisionPendingShapes)this.publishShapes(row);}
  // Queries can precede the body display. Only requested stale rows enter
  // the fixed actor-id prefix; native work and readback use that same prefix.
  observe(riders=true,exclude=null,alive=false,requested=null){this.refresh();let count=0;
@@ -73,17 +75,23 @@ export class UnitCollision {
  }
  // Only the observed prefix publishes. Vectors and shape-list capacity are
  // retained across every posture, seat transition and pooled life.
- publish(count){const x=this.output,shapes=this.shapes,input=this.input;
+ publish(count){const x=this.output,input=this.input;
   for(let index=0;index<count;index++){const row=this.pending[index],a=row.id*I.STRIDE;
    row.collisionObservedBinding=input[a+I.BINDING];row.collisionGeneration=input[a+I.GENERATION];row.collisionTick=input[a+I.TICK];
    if(!x[row.id*O.STRIDE+O.CHANGED])continue;
-   const at=row.id*O.STRIDE,n=x[at+O.COUNT],list=row.collisionList;
+   const at=row.id*O.STRIDE;
    row.collisionBounds.center.fromArray(x,at+O.CENTER);row.collisionBounds.radius=x[at+O.RADIUS];
+   row.collisionCount=x[at+O.COUNT];row.collisionPendingShapes=true;
+  }
+ }
+ // Broadphase observations need only a centre and radius. Narrowphase
+ // readers copy the retained native limb prefix only after a bound meets.
+ publishShapes(row){this.refresh();const shapes=this.shapes,n=row.collisionCount,list=row.collisionList;
    while(list.length>n)list.pop();while(list.length<n)list.push(row.collisionShapes[list.length]);
    for(let k=0;k<n;k++){const s=list[k],a=(row.id*L.SHAPES+k)*S.STRIDE;
     s.type=TYPES[shapes[a+S.KIND]];s.part=shapes[a+S.HEAD]?'head':'body';s.center.fromArray(shapes,a+S.CENTER);
     s.radius=shapes[a+S.RADIUS];s.halfNumber=shapes[a+S.HALF];s.halfSize.fromArray(shapes,a+S.HALF_SIZE);s.yaw=shapes[a+S.YAW];
    }
-  }
+   row.collisionPendingShapes=false;
  }
 }

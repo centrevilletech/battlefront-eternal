@@ -198,6 +198,7 @@ impl PageUnits {
     pub fn collision_actors_ptr(&self)->*const u32{self.inner.collision.actors.as_ptr()}
     pub fn collision_actors_len(&self)->usize{self.inner.collision.actors.len()}
     pub fn collide_units(&mut self,count:usize){self.inner.collision_frame(count);}
+    pub fn prepare_aim(&mut self,count:usize){self.inner.aim_frame(count);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
     }
@@ -265,6 +266,7 @@ add_actor(usize,String,String),
 add_view(String,String),
 unbind_network(usize),
 collide_units(usize),
+prepare_aim(usize),
 present_units,
 present_first_person,
 place_actors(usize),
@@ -277,6 +279,7 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 "add_view"=>Self::add_view(a.string(0)?,a.string(1)?),
 "unbind_network"=>Self::unbind_network(a.usize(0)?),
 "collide_units"=>Self::collide_units(a.usize(0)?),
+"prepare_aim"=>Self::prepare_aim(a.usize(0)?),
 "present_units"=>Self::present_units,
 "present_first_person"=>Self::present_first_person,
 "place_actors"=>Self::place_actors(a.usize(0)?),
@@ -288,6 +291,7 @@ Self::add_actor(content,inverses,attachments)=>{let _=host.add_actor(*content,in
 Self::add_view(data,attachments)=>{let _=host.add_view(data,attachments)?;},
 Self::unbind_network(actor)=>{let _=host.unbind_network(*actor);},
 Self::collide_units(count)=>{let _=host.collide_units(*count);},
+Self::prepare_aim(count)=>{let _=host.prepare_aim(*count);},
 Self::present_units=>{let _=host.present_units();},
 Self::present_first_person=>{let _=host.present_first_person();},
 Self::place_actors(count)=>{let _=host.place_actors(*count);},

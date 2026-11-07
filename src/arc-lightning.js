@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
 import { sheathColor } from "./blaster-bolts.js";
+import {UnitLimits} from './presentation/layout.js';
+const EMPTY_UNITS=[];
 
 // The Enhanced look of the arc caster's lightning (Video > Bolt Caster; the
 // HUD names the weapon DN BOLT CASTER). Presentation only: the bolts are the
@@ -298,6 +300,11 @@ export class ArcLightning {
     this.shocks = new Map(); // unit -> its shock
     this.shields = new Map(); // unit -> the shock on his shield
     this.charges = new Map(); // unit -> its muzzle crackle
+    this.chargeUnits=new Array(UnitLimits.ACTORS).fill(null);
+    this.aimUnits=new Array(UnitLimits.ACTORS).fill(null);
+    while(this.chargeUnits.length)this.chargeUnits.pop();
+    while(this.aimUnits.length)this.aimUnits.pop();
+    this.readersReady=false;
     this.sparks = [];
     this.sparkPool = []; // spent sparks, reused
     this.overlays = new WeakMap(); // actor -> its shock glow
@@ -393,6 +400,7 @@ export class ArcLightning {
   // Who threw a bolt held to a gun: the soldier whose gun origin as drawn
   // is where the bolt's own hold puts its start.
   findShooter(record) {
+    this.units?.prepareAim?.();
     const at = record.bolt.follow(this.a) || this.a.copy(record.start);
     let best = null, nearest = 0.5 * 0.5;
     for (const unit of this.units?.all?.() || []) {
@@ -434,7 +442,24 @@ export class ArcLightning {
     if (hit && Math.abs(hit.distance - length) < 0.35) record.surface = hit.normal.clone();
   }
 
+  // Charging selection is shared by aim collection and drawing. Cache the
+  // bounded unit prefix so weapon selection is not repeated for the army.
+  collectAim(out) {
+    const charging=this.chargeUnits;while(charging.length)charging.pop();
+    for(const unit of this.units?.all?.()||EMPTY_UNITS){const combat=unit.combat;
+      if(!combat||unit.removed||unit.dead||combat.dead||combat.mounted||!unit.soldier)continue;
+      const weapon=combat.arsenal?.current?.(0);
+      if(!weapon?.charging||!weapon.def?.ordnance?.LightningEffect){this.charges.delete(unit);continue;}
+      if(charging.length<UnitLimits.ACTORS)charging.push(unit);
+      if(!combat.firstPerson&&!out.includes(unit)&&out.length<UnitLimits.ACTORS)out.push(unit);
+    }
+    this.readersReady=true;
+  }
   update(dt, camera) {
+    // A standalone arc owner collects the same phase as Lightning.update.
+    // The outer owner includes held bolts before preparing this shared set.
+    if(!this.readersReady){while(this.aimUnits.length)this.aimUnits.pop();this.collectAim(this.aimUnits);this.units?.prepareAim?.(this.aimUnits);}
+    this.readersReady=false;
     this.time += dt;
     this.frame++;
     this.active = true;
@@ -466,6 +491,8 @@ export class ArcLightning {
 
   // Classic is on: nothing of this look stays on show.
   clear() {
+    this.readersReady=false;
+    while(this.chargeUnits.length)this.chargeUnits.pop();
     if (!this.active) return;
     this.active = false;
     this.bolts.length = 0;
@@ -1235,7 +1262,7 @@ export class ArcLightning {
   // reaching out from it and wrapping back along the barrel, a pulsing glow,
   // and its light.
   drawCharges(dt, camera) {
-    for (const unit of this.units?.all?.() || []) {
+    for (const unit of this.chargeUnits) {
       const combat = unit.combat;
       if (!combat || unit.removed || unit.dead || combat.dead || combat.mounted || !unit.soldier) continue;
       const weapon = combat.arsenal?.current?.(0);

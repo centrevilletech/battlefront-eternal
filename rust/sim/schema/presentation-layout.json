@@ -205,7 +205,8 @@
       "firstPersonActive": 1,
       "firstPersonZoomed": 1,
       "firstPersonShown": 1,
-      "firstPersonCamera": 16
+      "firstPersonCamera": 16,
+      "sources": 1
     },
     "UnitInput": {
       "actor": 1,
@@ -357,7 +358,8 @@
       "seatVisible": 1,
       "leaseBirth": 1,
       "combatBasis": 15,
-      "combatEye": 3
+      "combatEye": 3,
+      "combatRevision": 1
     },
     "UnitNode": {
       "actor": 1,
@@ -855,7 +857,7 @@
       "yaw": 1
     }
   },
-  "version": 14,
+  "version": 15,
   "limits": {
     "UnitLimits": {
       "actors": 1024,

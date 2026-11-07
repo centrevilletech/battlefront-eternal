@@ -116,6 +116,16 @@
         "result": ""
       },
       {
+        "name": "prepare_aim",
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
         "name": "present_units",
         "args": [],
         "result": ""

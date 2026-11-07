@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ownedBasicEffect } from "./rust-render/effect-material.js";
 import { ArcLightning } from "./arc-lightning.js";
+import {UnitLimits} from './presentation/layout.js';
 
 // LightningBolt effects (the arc caster's), drawn the way the 2004 renderer
 // draws them.
@@ -70,6 +71,8 @@ export class Lightning {
     // loads.
     if (this.isEnhanced()) this.arcs();
     this.bolts = [];
+    this.aimUnits=new Array(UnitLimits.ACTORS).fill(null);
+    while(this.aimUnits.length)this.aimUnits.pop();
     this.geometry = new THREE.BufferGeometry();
     this.positions = new Float32Array(CAPACITY * 3);
     this.uvs = new Float32Array(CAPACITY * 2);
@@ -149,6 +152,14 @@ export class Lightning {
   }
 
   update(dt, camera) {
+    // Follow callbacks only read prepared gun origins. Collect their unit
+    // identities and charging guns before one native aim publication.
+    const aim=this.aimUnits,enhanced=this.isEnhanced();
+    while(aim.length)aim.pop();
+    for(const bolt of this.bolts){const unit=bolt.follow?.unit;
+      if(bolt.life>dt&&unit&&!aim.includes(unit)&&aim.length<UnitLimits.ACTORS)aim.push(unit);}
+    if(enhanced)this.arcs().collectAim(aim);
+    this.options.units?.prepareAim?.(aim);
     for (const bolt of this.bolts) {
       const def = bolt.def;
       bolt.life -= dt;
@@ -161,7 +172,7 @@ export class Lightning {
       }
       if (bolt.follow) bolt.follow(bolt.start);
     }
-    if (this.isEnhanced()) {
+    if (enhanced) {
       this.mesh.visible = false;
       this.arcs().update(dt, camera);
       this.prune();

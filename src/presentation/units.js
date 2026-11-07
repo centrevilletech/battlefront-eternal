@@ -229,6 +229,7 @@ export class PageUnits {
     this.worlds = new Array(nodes).fill(null);
     this.commandCount = 0;
     this.sequence = 0;
+    this.aimSequence=0;this.aimComplete=-1;this.aimQueue=[];
     this.views = [];
     this.weapons = [];
     this.weaponIds = new Map();
@@ -387,6 +388,7 @@ export class PageUnits {
       handle: null,
       riderClips: new WeakMap(),
       riderLease: null, riderVehicle: null, publishedLease: null, unit: null,
+      aimCombat: null, aimRevision: NaN, aimPhase:-1, inputPhase:-1, inputIndex:-1,
       bubblePosition: { position: presentation.position },
     };
     presentation.nativeDisplay=row;
@@ -396,7 +398,7 @@ export class PageUnits {
       source.pending = null;
     }
     row.handle.setBank(source.bank);
-    this.rows.push(row);
+    this.rows.push(row);this.aimQueue.push(null);
     this.bindSkin(row);
     this.byActor.set(actor, row);
     this.attachNodes(row);
@@ -413,7 +415,7 @@ export class PageUnits {
   }
   // SeatReader registers clip aliases at lease birth, including a body
   // adopted into a different class. Frame collection reads numeric handles.
-  bindRegistry(units){units.refreshShapes=(riders,exclude,alive)=>this.collision.observe(riders,exclude,alive);}
+  bindRegistry(units){units.prepareAim=units=>this.prepareAim(units);units.refreshShapes=(riders,exclude,alive)=>this.collision.observe(riders,exclude,alive);}
   bindSources(vehicles,props){
     this.sourceVehicles=vehicles;this.sourceProps=props;
     this.kernel.bind_sources(vehicles.kernel,props.kernel);
@@ -606,6 +608,7 @@ export class PageUnits {
       }
     }
     this.count = 0;
+    this.aimSequence++;
     this.frame = frame;
     this.dt = dt;
   }
@@ -617,9 +620,9 @@ export class PageUnits {
       at = F.STRIDE + this.count++ * I.STRIDE,
       s = unit.soldier,
       p = unit.presentation;
+    row.inputIndex=this.count-1;row.inputPhase=this.aimSequence;
     input.fill(0, at, at + I.STRIDE);
-    input[at + I.COMBAT_ZOOM] = unit.combat?.zoom??1;
-    input[at + I.EYE_HEIGHT] = s.eyeHeight??0;
+    if(own){input[at+I.COMBAT_ZOOM]=unit.combat?.zoom??1;input[at+I.EYE_HEIGHT]=s.eyeHeight??0;}
     input[at + I.ACTOR] = row.id;
     input[at + I.ID] = unit.id;
     input[at + I.GENERATION] = unit.generation;
@@ -694,6 +697,7 @@ export class PageUnits {
     if(row.unit!==unit&&!unit.f3)this.collision.bind(row,unit);
     row.unit = unit;
     const lease = unit.seat, vehicle = lease?.vehicle, turret = lease?.turret;
+    if(lease||unit.held)input[F.SOURCES]=1;
     input[at + I.RIDER_RESET] = row.riderLease !== lease ? 1 : 0;
     row.riderLease = lease;
     if (vehicle) row.riderVehicle = vehicle;
@@ -793,6 +797,44 @@ export class PageUnits {
     this.publishNodes();
     this.publishRows();
   }
+  // The effect phase supplies its actual readers before invoking callbacks.
+  // A new bolt's shooter search requests every candidate; persistent bolts
+  // and charging guns request only their own bodies, sharing one prefix.
+  prepareAim(units=null) {
+    if(this.aimComplete===this.aimSequence)return;
+    let count=0;
+    if(units){
+      for(let n=0;n<units.length;n++)count=this.queueAim(this.byActor.get(units[n].actor),count);
+    }else{
+      for(let n=0;n<this.count;n++)count=this.queueAim(this.rows[this.input[F.STRIDE+n*I.STRIDE+I.ACTOR]],count);
+      this.aimComplete=this.aimSequence;
+    }
+    if(!count)return;
+    this.kernel.prepare_aim(count);
+    for(let n=0;n<count;n++){const row=this.aimQueue[n];this.publishAim(row,row.id*O.STRIDE);}
+  }
+  queueAim(row,count) {
+    if(!row||row.inputPhase!==this.aimSequence||row.aimPhase===this.aimSequence||count>=this.places.length)return count;
+    const unit=row.unit,combat=unit?.combat;
+    if(!unit?.soldier||unit.removed||!unit.presentation?.state||!combat||combat.dead||combat.mounted)return count;
+    const at=F.STRIDE+row.inputIndex*I.STRIDE;
+    if(this.input[at+I.REMOVED]||this.output[row.id*O.STRIDE+O.GONE]===-1)return count;
+    row.aimPhase=this.aimSequence;this.aimQueue[count]=row;this.places[count]=row.inputIndex;
+    this.input[at+I.COMBAT_ZOOM]=combat.zoom;
+    this.input[at+I.EYE_HEIGHT]=unit.soldier.eyeHeight??0;
+    return count+1;
+  }
+  publishAim(row,out) {
+    const combat=row.unit?.combat,aim=combat?.viewAim,revision=this.output[out+O.COMBAT_REVISION];
+    if (!aim) return;
+    // Local pose animation and first-person placement can publish again
+    // without moving the gun. A transferred combat shell still gets a copy.
+    if(row.aimCombat===combat&&row.aimRevision===revision)return;
+    row.aimCombat=combat;row.aimRevision=revision;
+    aim.origin.fromArray(this.output,out+O.COMBAT_BASIS);aim.pivot.fromArray(this.output,out+O.COMBAT_BASIS+3);
+    aim.left.fromArray(this.output,out+O.COMBAT_BASIS+6);aim.up.fromArray(this.output,out+O.COMBAT_BASIS+9);
+    aim.aimDir.fromArray(this.output,out+O.COMBAT_BASIS+12);aim.eyePoint.fromArray(this.output,out+O.COMBAT_EYE);
+  }
   publishSkin(row) {
     // Only a placed row: attached skin bindings are native output too, and
     // the authored binding stands until the actor's first placement.
@@ -875,13 +917,8 @@ export class PageUnits {
         } else p.reset();
         if(row.unit)row.unit.tickCount++;
       }
+      if(this.input[at+I.OWN]){this.publishAim(row,out);row.aimPhase=this.aimSequence;}
       if (!this.output[out + O.CHANGED]) continue;
-      const aim=row.unit?.combat?.viewAim;
-      if(aim){
-        aim.origin.fromArray(this.output,out+O.COMBAT_BASIS);aim.pivot.fromArray(this.output,out+O.COMBAT_BASIS+3);
-        aim.left.fromArray(this.output,out+O.COMBAT_BASIS+6);aim.up.fromArray(this.output,out+O.COMBAT_BASIS+9);
-        aim.aimDir.fromArray(this.output,out+O.COMBAT_BASIS+12);aim.eyePoint.fromArray(this.output,out+O.COMBAT_EYE);
-      }
       if (!row.stale) this.publishSkin(row);
       p.position.set(
         this.output[out + O.POSITION],

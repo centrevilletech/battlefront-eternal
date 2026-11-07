@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Soldier} from './helpers/body.js';
 import {BodyPreview,bodyNative} from '../src/presentation/body.js';
+import {commandBodyAim} from '../src/runtime/command-body-aim.js';
 import {BodyPreviewFrameLayout as F} from '../src/sim/gen/units.js';
 
 // Frozen pointer results cover sample ordering at the prone pitch limits.
@@ -15,6 +16,36 @@ test('ordered immediate look preserves limits, reversals and source state',()=>{
   // A lock suppresses both axes without consuming source mouse history.
   body.lock=1;preview.begin(body);preview.append([[900,900]],1,3,true);preview.run();
   assert.equal(preview.aimYaw,.25);assert.equal(preview.aimPitch,.35);
+});
+
+// An idle frame has no pointer work. A moving frame consumes ordered look
+// only; command aim explicitly requests the separate gun/eye calculation.
+test('frame look preview does no aim work or native call without input',()=>{
+  const body=new Soldier({},{}),preview=new BodyPreview(body.world,bodyNative(body));
+  body.aimPitch=0;
+  const native=preview.x,calls=[];
+  preview.x={...native,body_preview(aim){calls.push(aim);return native.body_preview(aim);}};
+  for(let frame=0;frame<4;frame++){preview.begin(body);preview.run();}
+  assert.deepEqual(calls,[]);
+  preview.begin(body);preview.append([[256,0]],1,1,false);preview.run();
+  assert.deepEqual(calls,[0]);assert.equal(preview.aimYaw,-.25);
+  preview.begin(body,{zoom:1});preview.run();
+  assert.deepEqual(calls,[0,1]);assert.deepEqual(preview.basis.origin.toArray(),[-.06,1.5999999999999999,.25]);
+});
+
+// Held first-person fire sends body angles; it never used gun-to-camera
+// parallax. Keep shot geometry separate from those repeated command samples.
+test('eye-view command aim requests angles without gun geometry',()=>{
+ const body=new Soldier({},{}),preview=new BodyPreview(body.world,bodyNative(body)),native=preview.x,calls=[];
+ preview.x={...native,body_preview(aim){calls.push(aim);return native.body_preview(aim);}};
+ const combat={usesEyeView:true,camera:{position:body.position},zoom:1};
+ for(const key of ['origin','pivot','left','up','aimDir'])combat[key]=body.position.clone();
+ commandBodyAim(body,false,preview,{look:[]},1,1,false,combat);
+ assert.deepEqual(calls,[]);assert.equal(preview.angles.aimYaw,body.aimYaw);assert.equal(preview.needsReach,false);
+ commandBodyAim(body,false,preview,{look:[[256,0]]},1,1,false,combat);
+ assert.deepEqual(calls,[0]);assert.equal(preview.angles.aimYaw,body.aimYaw-.25);
+ combat.usesEyeView=false;commandBodyAim(body,false,preview,{look:[]},1,1,false,combat);
+ assert.deepEqual(calls,[0,1]);assert.equal(preview.needsReach,true);
 });
 // The native bound is checked independently of the host append limit. A
 // paused burst must keep the reserved heap and return a refusal count.

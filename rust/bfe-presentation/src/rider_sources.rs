@@ -78,10 +78,14 @@ impl Bindings {
         if !(prop>=0.0){return None;}self.props.as_ref()?.borrow().held.get(prop as usize).copied().filter(|h|h.placed)
     }
     pub fn fill(&mut self,input:&mut [f64]){
+        // Unit collection already knows whether any body has a holder.
+        // Ordinary infantry frames need no source borrow or second row walk.
+        if input[f::SOURCES]==0.0 {return;}
         let (Some(vehicles),Some(props))=(&self.vehicles,&self.props)else{return};
         let vehicles=vehicles.borrow();let props=props.borrow();
         let count=(input[f::ACTORS]as usize).min(input.len().saturating_sub(f::STRIDE)/i::STRIDE);
         for n in 0..count {let row=&mut input[f::STRIDE+n*i::STRIDE..][..i::STRIDE];
+            if row[i::SOURCE_PROP]<0.0&&row[i::RIDER_KIND]==0.0 {continue;}
             let Some(birth)=self.births.get_mut(row[i::ACTOR]as usize)else{continue};
             if row[i::SOURCE_PROP]>=0.0 {
                 row[i::HELD]=0.0;

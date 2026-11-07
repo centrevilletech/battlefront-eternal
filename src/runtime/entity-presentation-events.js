@@ -82,7 +82,9 @@ export function presentEntityEvent(game,event,registry){
     // this page draws him (a body this page doesn't know leaves it put).
     const def=game.effects.lightning?.[event.name];if(!def||!vec(event.from)||!vec(event.to))return false;
     const shooter=u&&u.generation===event.ownerGeneration?u.combat:null;
-    game.lightning?.spawn(def,new Vector3(...event.from),new Vector3(...event.to),event.charge,event.channel!=null&&shooter?out=>shooter.drawnGunOrigin(out):null);
+    let follow=null;
+    if(event.channel!=null&&shooter){follow=out=>shooter.drawnGunOrigin(out);follow.unit=u;}
+    game.lightning?.spawn(def,new Vector3(...event.from),new Vector3(...event.to),event.charge,follow);
     return true;
   }
   if(event.ownerId&&(!u||u.generation!==event.ownerGeneration))return false;

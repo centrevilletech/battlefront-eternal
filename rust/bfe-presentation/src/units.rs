@@ -288,6 +288,21 @@ impl Units {
         }
     }
 
+    /// PlayerCombat.drawnGunOrigin is used only by active arc effects.
+    /// One requested batch prepares remote bases without advancing any pose.
+    pub fn aim_frame(&mut self,count:usize) {
+        for n in 0..count.min(self.places.len()) {
+            let row=self.places[n] as usize;
+            if row>=self.actor_rows() {continue;}
+            let input=&self.input[f::STRIDE+row*i::STRIDE..][..i::STRIDE];
+            if input[i::PRESENT]==0.0||input[i::REMOVED]!=0.0 {continue;}
+            let id=input[i::ACTOR] as usize;
+            let Some(actor)=self.actors.get_mut(id) else {continue};
+            let out=&mut self.output[id*o::STRIDE..][..o::STRIDE];
+            if out[o::GONE]!=-1.0 {combat_aim(actor,input,out);}
+        }
+    }
+
     /// One presented frame, in original command order. Invalid counts fail
     /// explicitly and retain the previous outputs rather than running JS.
     pub fn frame(&mut self) {
@@ -718,23 +733,9 @@ impl Units {
                 out[o::SKIN_CHANGED] = 0.0;
                 publish_root(&mut a.rig.tree, a.rig.root, a.node_start, &mut self.nodes);
             }
-            // PlayerCombat.viewBasis and eye read the displayed pose, not the
-            // authority clock or the body's resource-shell transform.
-            let aim_key=[out[o::POSITION],out[o::POSITION+1],out[o::POSITION+2],
-                out[o::YAW],out[o::PITCH],out[o::POSTURE],out[o::AIR],
-                input[i::COMBAT_ZOOM],input[i::EYE_HEIGHT],input[i::WALKER_MODE]].map(f64::to_bits);
-            if a.aim_key!=aim_key {
-                a.aim_key=aim_key;
-            let position=vector(out,o::POSITION);
-            let mut basis=crate::aim::Basis::new::<crate::cameras::math::V8>(position,
-                out[o::YAW],out[o::PITCH],out[o::POSTURE] as usize,out[o::AIR]!=0.0);
-            let eye=if a.walker.is_some(){
-                basis.origin=Vector3::new(position.x,position.y+if input[i::WALKER_MODE]>=11.0{1.0}else{input[i::EYE_HEIGHT]},position.z);
-                basis.origin
-            }else{basis.eye(position,position,out[o::POSTURE] as usize,out[o::AIR]!=0.0,input[i::COMBAT_ZOOM])};
-            out[o::COMBAT_BASIS..o::COMBAT_BASIS+15].copy_from_slice(&basis.words());
-            write_vector(out,o::COMBAT_EYE,eye);
-            }
+            // Only the viewpoint's HUD/eye consumes a basis every frame.
+            // Remote gun origins are prepared together when effects ask.
+            if input[i::OWN]!=0.0 {combat_aim(a,input,out);}
             mark_changed(&previous, out);
             if input[i::OWN] != 0.0 {
                 state.yaw = out[o::YAW];
@@ -947,6 +948,27 @@ fn publish_skin(a: &Actor, out: &mut [f64], skin: &mut [f32]) {
         }
     }
     out[o::SKIN_CHANGED] = if skin_changed { 1.0 } else { 0.0 };
+}
+
+fn combat_aim(a:&mut Actor,input:&[f64],out:&mut [f64]) {
+    // PlayerCombat.aimBasis and eye read the displayed pose. Animation time
+    // alone never invalidates these values; retain signed-zero distinctions.
+    let key=[out[o::POSITION],out[o::POSITION+1],out[o::POSITION+2],
+        out[o::YAW],out[o::PITCH],out[o::POSTURE],out[o::AIR],
+        input[i::COMBAT_ZOOM],input[i::EYE_HEIGHT],input[i::WALKER_MODE]].map(f64::to_bits);
+    if a.aim_key==key {return;}
+    a.aim_key=key;
+    let position=vector(out,o::POSITION);
+    let mut basis=crate::aim::Basis::new::<crate::cameras::math::V8>(position,
+        out[o::YAW],out[o::PITCH],out[o::POSTURE] as usize,out[o::AIR]!=0.0);
+    // A deployed walker sees from its authored height; rolled, from its ball.
+    let eye=if a.walker.is_some(){
+        basis.origin=Vector3::new(position.x,position.y+if input[i::WALKER_MODE]>=11.0{1.0}else{input[i::EYE_HEIGHT]},position.z);
+        basis.origin
+    }else{basis.eye(position,position,out[o::POSTURE] as usize,out[o::AIR]!=0.0,input[i::COMBAT_ZOOM])};
+    out[o::COMBAT_BASIS..o::COMBAT_BASIS+15].copy_from_slice(&basis.words());
+    write_vector(out,o::COMBAT_EYE,eye);
+    out[o::COMBAT_REVISION]+=1.0;
 }
 
 // Only a touched mirror is copied by the web host. The change marker itself

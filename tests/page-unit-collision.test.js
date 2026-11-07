@@ -6,6 +6,7 @@ import {Unit} from '../src/units.js';
 import {Units} from '../src/registry.js';
 import {unitHost,presentationLoaded} from './helpers/presentation.js';
 import {PageUnits} from '../src/presentation/units.js';
+import {PlayerCombat} from '../src/combat.js';
 
 function body(walker=false){
  const soldier={position:new THREE.Vector3(),velocity:new THREE.Vector3(),aimYaw:0,aimPitch:0,posture:'stand',air:null,dive:0,diveTime:.6,groundAdjustment:0,mode:0,ballRadius:.65};
@@ -36,6 +37,47 @@ test('page droideka collision keeps deployed primitives and its folded ball',()=
  assert.deepEqual(unit.hitShapes()[1].center.toArray(),[0,1,.506]);assert.ok(unit.hitShapes().every(s=>s.part==='body'));
  soldier.mode=12;unit.tickCount++;units.query(new THREE.Vector3(),10,out);
  assert.equal(unit.hitShapes().length,1);assert.equal(unit.hitShapes()[0].radius,.65);
+});
+
+// Most broadphase candidates miss. Their native geometry remains retained,
+// but no JS limb vectors are copied until a narrowphase reader needs them.
+test('bounds queries leave limb readbacks lazy and share the native sample',()=>{
+ const {unit,host,units}=body(),collision=host.owner.collision;
+ let copies=0;const publish=collision.publishShapes.bind(collision);
+ collision.publishShapes=row=>{copies++;publish(row);};
+ units.query(new THREE.Vector3(),10,[]);
+ units.raycast(new THREE.Vector3(100,0,0),new THREE.Vector3(0,0,1),10);
+ assert.equal(copies,0);const shapes=unit.hitShapes();assert.equal(copies,1);
+ unit.hitShapes();unit.sphere;assert.equal(copies,1);
+ unit.tickCount++;units.query(new THREE.Vector3(),10,[]);assert.equal(copies,1);
+ assert.equal(unit.hitShapes(),shapes);assert.equal(copies,2);
+});
+
+// Remote arc effects are the only gun-origin consumer. A first reader
+// prepares all current actors once, without advancing animation or physics.
+test('remote combat bases publish on demand and retain unchanged readbacks',()=>{
+ const first=body(),second=body(),owner=new PageUnits(presentationLoaded);
+ const equip=unit=>{unit.combat={owner:unit,zoom:1,dead:false,mounted:false,
+  viewAim:Object.fromEntries(['origin','pivot','left','up','aimDir','eyePoint'].map(k=>[k,new THREE.Vector3()])),
+  drawnGunOrigin:PlayerCombat.prototype.drawnGunOrigin};};
+ try {
+  equip(first.unit);equip(second.unit);
+  const a=owner.attach(first.unit.actor,first.host.row.source,first.unit.presentation,first.unit);
+  const b=owner.attach(second.unit.actor,second.host.row.source,second.unit.presentation,second.unit);
+  const batches=[];let copies=0;const run=owner.kernel.prepare_aim.bind(owner.kernel),read=first.unit.combat.viewAim.origin.fromArray;
+  owner.kernel.prepare_aim=count=>{batches.push(count);run(count);};
+  first.unit.combat.viewAim.origin.fromArray=function(...args){copies++;return read.apply(this,args);};
+  const frame=()=>{owner.begin(0,1,null);owner.write(a,first.unit,1);owner.write(b,second.unit,1);owner.run();};
+  frame();assert.deepEqual(batches,[]);assert.equal(copies,0);
+  owner.prepareAim([first.unit,first.unit,second.unit]);
+  const origin=first.unit.combat.drawnGunOrigin(new THREE.Vector3());
+  assert.deepEqual(origin.toArray(),[-.06,1.5999999999999999,.25]);
+  second.unit.combat.drawnGunOrigin(new THREE.Vector3());assert.deepEqual(batches,[2]);assert.equal(copies,1);
+  owner.prepareAim([first.unit]);assert.deepEqual(batches,[2]);
+  frame();owner.prepareAim([first.unit]);first.unit.combat.drawnGunOrigin(origin);assert.deepEqual(batches,[2,1]);assert.equal(copies,1);
+  first.soldier.position.x=3;first.unit.tickCount++;frame();owner.prepareAim([first.unit]);first.unit.combat.drawnGunOrigin(origin);
+  assert.equal(origin.x,2.94);assert.deepEqual(batches,[2,1,1]);assert.equal(copies,2);
+ } finally {owner.kernel.free();}
 });
 
 // Drawing must not spend collision time on bodies nobody queried. A first

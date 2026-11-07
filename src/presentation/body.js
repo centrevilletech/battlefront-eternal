@@ -66,14 +66,17 @@ export function spawnDroideka(body,x,y,z,yaw) {
 // Pending samples never mutate the correction that replay restores next.
 // Body coordinates and displayed feet have independent clocks. Keeping both
 // lets the native eye follow correction smoothing without moving gameplay.
-function aimFields(f,at,body,combat,feet) {
+function lookFields(f,at,body) {
     f[at+F.aimYaw]=body.aimYaw; f[at+F.aimPitch]=body.aimPitch;
-    f[at+F.sourceYaw]=body.aimYaw;f[at+F.sourcePitch]=body.aimPitch;
     f[at+F.maxTurn]=body.maxTurn; f[at+F.pitchLimits]=body.pitchLimits?.[0]??-.8; f[at+F.pitchLimits+1]=body.pitchLimits?.[1]??1.1;
     f[at+F.posture]=Posture_NAMES.indexOf(body.posture); f[at+F.air]=body.air==null?1:0;
     f[at+F.air+1]=Air_NAMES.indexOf(body.air); f[at+F.dive]=body.dive; f[at+F.lock]=body.lock;
     f[at+F.tickLength]=body.tickLength; f[at+F.lookX]=body.lookX; f[at+F.lookY]=body.lookY;
     f[at+F.count]=0; f[at+F.skipped]=0;
+}
+function aimFields(f,at,body,combat,feet) {
+    lookFields(f,at,body);
+    f[at+F.sourceYaw]=body.aimYaw;f[at+F.sourcePitch]=body.aimPitch;
     f[at+F.position]=body.position.x;f[at+F.position+1]=body.position.y;f[at+F.position+2]=body.position.z;
     f[at+F.feet]=feet.x;f[at+F.feet+1]=feet.y;f[at+F.feet+2]=feet.z;
     f[at+F.zoom]=combat?.zoom??1;f[at+F.walker]=body.mode!==undefined?1:0;
@@ -107,9 +110,12 @@ export class BodyPreview {
   // Class and posture facts come from the corrected source. The same source
   // may have changed class or air state since the preceding displayed frame.
   begin(body,combat=null,feet=body.position) {
-    this.refresh();aimFields(this.frame,0,body,combat,feet);this.combat=combat;this.count=0;
+    this.body=body;this.combat=combat;this.feet=feet;this.count=0;
+    this.aimYaw=body.aimYaw;this.aimPitch=body.aimPitch;
   }
   append(looks,zoom,scale,invert,raw=true) {
+    if (!looks.length) return;
+    this.refresh();
     // Paused input bursts are bounded. The native side independently clamps
     // the count, so a malformed frame cannot read past its reserved block.
     for(let i=0;i<looks.length;i++) {
@@ -123,9 +129,20 @@ export class BodyPreview {
   run(out=this) {
     // One call consumes the ordered prefix. Returning this retained view
     // lets both frame preview and command aim reuse their result storage.
+    if (!this.count&&!this.combat) {
+      out.aimYaw=this.aimYaw;out.aimPitch=this.aimPitch;
+      this.angles.aimYaw=out.aimYaw;this.angles.aimPitch=out.aimPitch;this.needsReach=false;return out;
+    }
+    this.refresh();
+    if(this.combat)aimFields(this.frame,0,this.body,this.combat,this.feet);
+    else lookFields(this.frame,0,this.body);
+    this.frame[F.aimYaw]=this.aimYaw;this.frame[F.aimPitch]=this.aimPitch;
     this.frame[F.count]=this.count;
-    this.x.body_preview(); this.refresh();
+    this.x.body_preview(this.combat?1:0); this.refresh();
     out.aimYaw=this.frame[F.aimYaw]; out.aimPitch=this.frame[F.aimPitch];
+    // Ordinary frame preview consumes angles only. Gun geometry belongs to
+    // command/shot aim and the unit owner's separate displayed basis.
+    if(!this.combat){this.angles.aimYaw=out.aimYaw;this.angles.aimPitch=out.aimPitch;this.needsReach=false;return out;}
     const f=this.frame,b=this.basis,at=F.basis;
     b.origin.fromArray(f,at);b.pivot.fromArray(f,at+3);b.left.fromArray(f,at+6);
     b.up.fromArray(f,at+9);b.aimDir.fromArray(f,at+12);b.eyePoint.fromArray(f,F.eye);
