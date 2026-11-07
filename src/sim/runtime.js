@@ -440,25 +440,10 @@ export class SimBridge extends BlockBridge {
     if (this.x.sim_kinds() !== KIND_TABLE.length - 1) throw Error(`the simulation's module knows ${this.x.sim_kinds()} kinds, the store's JavaScript ${KIND_TABLE.length - 1}: rebuild it (npm run rust:build)`);
     // (A u32 comes back from the module as an i32: >>> 0 reads it unsigned.)
     for (const k of KIND_TABLE) if (k && this.x.sim_kind_hash(k.code) >>> 0 !== k.hash) throw Error(`the simulation's module lays ${k.name} out otherwise than the store's JavaScript: rebuild it (npm run rust:build)`);
-    this.readBlock = (pointer) => {
-      const block = this.blocks.readBlock(pointer);
-      if (this.buffer && this.buffer !== block.words.buffer) this.grown++;
-      this.f = block.words;
-      this.buffer = block.words.buffer;
-      this.u8 = this.blocks.bytes;
-      return block;
-    };
     this.memory = this.x.memory;
-    this.buffer = null;
-    this.f = null;
-    this.u8 = null;
-    this.views();
     this.strings = new StringTable(this);
     this.heap = new Heap();
     this.rows = new Float64Array(1024);
-    // How often the memory had grown when `views()` looked (debug: not in
-    // a phase; release: views are made again where it is noticed).
-    this.grown = 0;
     // What serves the module's imports, by name (a schema's imports):
     // handler(args) gives the result. Each import's arguments object, by
     // code, made the first time it is served.
@@ -609,18 +594,13 @@ export class SimBridge extends BlockBridge {
     if (this.boundaryCounters) this.boundaryCounters.inputWords += words + hw.length;
   }
 
-  // The memory's views, made again if it grew (a grown memory's old buffer
-  // is detached: its byteLength is 0).
-  views() {
-    // (Growing the memory detaches its old buffer, whose byteLength is then
-    // 0: no need to ask the memory for its buffer while it has not grown.)
-    if (this.buffer?.byteLength) return;
-    if (this.buffer) this.grown++;
-    this.blocks.refresh();
-    this.f = this.blocks.view.words;
-    this.buffer = this.f.buffer;
-    this.u8 = this.blocks.bytes;
-  }
+  // Every reader observes the backend's one view bank. A result read can
+  // refresh it just as views() can, without leaving a second cache stale.
+  get f() { return this.blocks.view.words; }
+  get buffer() { return this.blocks.view.words.buffer; }
+  get u8() { return this.blocks.bytes; }
+  get grown() { return this.blocks.view.generation - 1; }
+  views() { this.blocks.refresh(); }
 
   // Room for `bytes` more bytes of the battle's data, made as it loads so
   // play does not grow the memory (sim_reserve); returns the memory's pages.

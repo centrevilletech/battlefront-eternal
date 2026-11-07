@@ -6,7 +6,7 @@
 use super::droideka::{DroidekaDef, DroidekaParts, ModeClips};
 use super::world::CastHit;
 use crate::collision::spheres::{self, GatherCache, Gathered};
-use crate::collision::{self, broad, candidate, MISS, TERRAIN};
+use crate::collision::{self, broad, MISS, TERRAIN};
 use crate::pose::{self, Clip};
 use crate::store::word_u32;
 use std::rc::Rc;
@@ -112,13 +112,13 @@ pub fn cast(world: usize, origin: &Vector3, direction: &Vector3, far: f64) -> Op
 pub fn cast_static(world: usize, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit> {
     let s = collision::state();
     let ray = collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
-    let count = broad::world_candidates_near(s, world, &ray, far, -1, static_only, false);
+    let (candidates, enabled) = collision::cast_buffers();
+    let count = broad::world_candidates_near_into(s, world, &ray, far, -1, static_only, false, candidates);
     let flags = flags(s.worlds[world].order.len());
-    let enabled = collision::enabled();
     for (i, flag) in enabled.iter_mut().enumerate().take(count) {
-        *flag = flags[candidate(i)];
+        *flag = flags[candidates[i] as usize];
     }
-    let (code, hit) = collision::world_cast_ray(s, world, &ray, far, v8math::hypot(direction.x, direction.z), count);
+    let (code, hit) = collision::world_cast_ray_in(s, world, &ray, far, v8math::hypot(direction.x, direction.z), &candidates[..count], &enabled[..count]);
     if code == MISS {
         None
     } else {
@@ -139,16 +139,17 @@ pub fn ordnance_cast(world: usize, origin: [f64; 3], direction: [f64; 3], far: f
     };
     let s = collision::state();
     let ray = collision::Ray { ox: origin[0], oy: origin[1], oz: origin[2], dx: direction[0], dy: direction[1], dz: direction[2] };
-    let count = broad::world_candidates_near(s, world, &ray, far, ignored, static_only, moving);
+    let (candidates, enabled) = collision::cast_buffers();
+    let count = broad::world_candidates_near_into(s, world, &ray, far, ignored, static_only, moving, candidates);
     let flags = flags(s.worlds[world].order.len());
-    let enabled = collision::enabled();
-    for (i, flag) in enabled.iter_mut().enumerate().take(count) { *flag = flags[candidate(i)]; }
+    for (i, flag) in enabled.iter_mut().enumerate().take(count) { *flag = flags[candidates[i] as usize]; }
     // CollisionWorld.castMoving excludes terrain and fixed meshes as well as
     // fixed body candidates. Bolts already retained their static impact at
     // launch; treating it as a moving hit would overwrite its terrain surface.
-    let (code, h) = if moving { collision::world_cast_moving_ray(s, world, &ray, far, count) }
-        else { collision::world_cast_ray(s, world, &ray, far, v8math::hypot(direction[0], direction[2]), count) };
+    let (code, h) = if moving { collision::world_cast_moving_ray_in(s, world, &ray, far, &candidates[..count], &enabled[..count]) }
+        else { collision::world_cast_ray_in(s, world, &ray, far, v8math::hypot(direction[0], direction[2]), &candidates[..count], &enabled[..count]) };
     if code == MISS {return None;}
+    // A stale or unknown body identity is rejected rather than indexed.
     let body=if code >= 0 {Some(super::f3::body_reference(code as usize)?)}else{None};
     Some(crate::ordnance::world::Hit {distance:h.distance,point:[h.px,h.py,h.pz],normal:[h.nx,h.ny,h.nz],terrain:code==TERRAIN,body})
 }

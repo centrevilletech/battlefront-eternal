@@ -73,3 +73,22 @@ test('generated nested heaps decode at WASM and native section bases', () => {
   assert.deepEqual(a, b);
   assert.deepEqual({ ...a, acks: a.acks.map(row => ({ ...row })) }, input);
 });
+
+// Both refresh routes must update the retained views seen by phase adapters.
+test('bridge adapters and block readers share one memory view bank', async () => {
+  const bridge = new SimBridge(await loadSim());
+  const before = bridge.grown;
+  const first = bridge.f;
+  bridge.memory.grow(1);
+  const block = bridge.readBlock(0);
+  assert.equal(first.byteLength, 0);
+  assert.equal(bridge.f, block.words);
+  assert.equal(bridge.u8.buffer, block.words.buffer);
+  assert.equal(bridge.buffer, block.words.buffer);
+  assert.equal(bridge.grown, before + 1);
+  bridge.memory.grow(1);
+  bridge.views();
+  assert.equal(bridge.f, block.words);
+  assert.equal(bridge.u8.buffer, bridge.buffer);
+  assert.equal(bridge.grown, before + 2);
+});

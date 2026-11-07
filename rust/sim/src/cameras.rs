@@ -117,9 +117,9 @@ impl<M:Math> cameras::Cast for World<M> {
             dy: d.y,
             dz: d.z,
         };
-        let count =
-            c::broad::world_candidates_near(s, self.world, &ray, far, -1, static_only, false);
         let (candidates, enabled) = c::cast_buffers();
+        let count =
+            c::broad::world_candidates_near_into(s, self.world, &ray, far, -1, static_only, false, candidates);
         let flags = unsafe { &*std::ptr::addr_of!(FLAGS) };
         // Flags are paired by body slot, not by this ray's candidate order.
         // Turrets can ignore several collision pieces, hulls one.
@@ -131,13 +131,14 @@ impl<M:Math> cameras::Cast for World<M> {
                 flags.get(slot).copied().unwrap_or(0)
             };
         }
-        let (code, hit) = c::world_cast_ray(
+        let (code, hit) = c::world_cast_ray_in(
             s,
             self.world,
             &ray,
             far,
             M::hypot2(d.x, d.z),
-            count,
+            &candidates[..count],
+            &enabled[..count],
         );
         (code != c::MISS).then_some(hit.distance)
     }

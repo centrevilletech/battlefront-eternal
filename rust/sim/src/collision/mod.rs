@@ -189,10 +189,6 @@ impl Default for CollisionOwner { fn default() -> Self { Self::new() } }
 static mut OWNER: CollisionOwner = CollisionOwner::new();
 fn owner() -> &'static mut CollisionOwner { unsafe { &mut *addr_of_mut!(OWNER) } }
 pub fn state() -> &'static mut State { unsafe { &mut *addr_of_mut!(OWNER.state) } }
-pub(crate) fn candidate(c: usize) -> usize { unsafe { (*addr_of_mut!(OWNER.candidates))[c] as usize } }
-
-pub(crate) fn enabled() -> &'static mut [u8; MAX_BODIES] { unsafe { &mut *addr_of_mut!(OWNER.enabled) } }
-
 // Narrow WASM service scratch, disjoint from state()'s geometry loan.
 pub(crate) fn cast_buffers() -> (&'static mut [u32; MAX_BODIES], &'static mut [u8; MAX_BODIES]) {
     unsafe { (&mut *addr_of_mut!(OWNER.candidates), &mut *addr_of_mut!(OWNER.enabled)) }
@@ -598,10 +594,6 @@ pub fn body_raycast(s: &State, slot: usize, ray: &Ray, far: f64) -> Option<Hit> 
 /// CANDIDATES; JavaScript then says which are enabled. Every test of the
 /// JavaScript's body loop reads and changes nothing, so making them in two
 /// passes gives the same bodies in the same order.
-pub fn world_candidates_for(s: &State, world: usize, ray: &Ray, ignore: i64, static_only: bool, moving_only: bool) -> usize {
-    world_candidates_into(s, world, ray, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(OWNER.candidates) })
-}
-
 /// The same ordered candidates in caller-owned storage.
 pub fn world_candidates_into(s: &State, world: usize, ray: &Ray, ignore: i64, static_only: bool, moving_only: bool, out: &mut [u32]) -> usize {
     let w = &s.worlds[world];
@@ -619,12 +611,6 @@ pub fn world_candidates_into(s: &State, world: usize, ray: &Ray, ignore: i64, st
 /// CollisionWorld.cast over the first `count` candidates: the code (MISS,
 /// TERRAIN, STATIC or the body's slot) and the hit, its normal facing back
 /// along the ray.
-pub fn world_cast_ray(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz: f64, count: usize) -> (i32, Hit) {
-    let candidates = unsafe { &*std::ptr::addr_of!(OWNER.candidates) };
-    let enabled = unsafe { &*std::ptr::addr_of!(OWNER.enabled) };
-    world_cast_ray_in(s, world, ray, far, hypot_xz, &candidates[..count], &enabled[..count])
-}
-
 /// Cast using explicit candidate places and their enabled flags.
 pub fn world_cast_ray_in(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz: f64, candidates: &[u32], enabled: &[u8]) -> (i32, Hit) {
     let w = &s.worlds[world];
@@ -667,12 +653,6 @@ pub fn world_cast_ray_in(s: &mut State, world: usize, ray: &Ray, far: f64, hypot
 /// CollisionWorld.castMoving over the first `count` candidates (moving
 /// bodies only): the nearest one's hit (MISS or the body's slot), its normal
 /// facing back along the ray.
-pub fn world_cast_moving_ray(s: &State, world: usize, ray: &Ray, far: f64, count: usize) -> (i32, Hit) {
-    let candidates = unsafe { &*std::ptr::addr_of!(OWNER.candidates) };
-    let enabled = unsafe { &*std::ptr::addr_of!(OWNER.enabled) };
-    world_cast_moving_ray_in(s, world, ray, far, &candidates[..count], &enabled[..count])
-}
-
 /// Moving-body cast using explicit candidate places and enabled flags.
 pub fn world_cast_moving_ray_in(s: &State, world: usize, ray: &Ray, far: f64, candidates: &[u32], enabled: &[u8]) -> (i32, Hit) {
     let w = &s.worlds[world];

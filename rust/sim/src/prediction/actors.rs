@@ -3,7 +3,7 @@
 //! no gameplay or JavaScript callback runs while collision state is borrowed.
 
 use crate::collision::{
-    self, broad, candidate,
+    self, broad,
     spheres::{self, GatherCache, Gathered},
     State, MISS, TERRAIN,
 };
@@ -138,6 +138,9 @@ pub struct Session {
     gathered: Gathered,
     ground: GroundCache,
     parts: Option<DroidekaParts>,
+    // Private replay casts cannot overwrite the authoritative query bank.
+    candidates: Vec<u32>,
+    enabled: Vec<u8>,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -152,6 +155,8 @@ impl Default for Session {
             gathered: Gathered::new(),
             ground: GroundCache::default(),
             parts: None,
+            candidates: vec![0; collision::MAX_BODIES],
+            enabled: vec![0; collision::MAX_BODIES],
         }
     }
 }
@@ -374,6 +379,8 @@ impl Session {
             store_mover(s, m, dt);
         } else {
             let mut scene = ActorWorld {
+                candidates: &mut self.candidates,
+                enabled: &mut self.enabled,
                 collision,
                 world,
                 flags,
@@ -500,6 +507,8 @@ fn store_mover(s: &mut Soldier, m: &Mover, dt: f64) {
 }
 
 struct ActorWorld<'a> {
+    candidates: &'a mut [u32],
+    enabled: &'a mut [u8],
     collision: &'a mut State,
     world: usize,
     flags: &'a [u8],
@@ -517,18 +526,18 @@ impl UnitsWorld for ActorWorld<'_> {
             dz: direction.z,
         };
         let n =
-            broad::world_candidates_near(self.collision, self.world, &ray, far, -1, false, false);
-        let enabled = collision::enabled();
+            broad::world_candidates_near_into(self.collision, self.world, &ray, far, -1, false, false, self.candidates);
         for i in 0..n {
-            enabled[i] = self.flags[candidate(i)];
+            self.enabled[i] = self.flags[self.candidates[i] as usize];
         }
-        let (code, h) = collision::world_cast_ray(
+        let (code, h) = collision::world_cast_ray_in(
             self.collision,
             self.world,
             &ray,
             far,
             v8math::hypot(direction.x, direction.z),
-            n,
+            &self.candidates[..n],
+            &self.enabled[..n],
         );
         (code != MISS).then(|| CastHit {
             point: Vector3::new(h.px, h.py, h.pz),

@@ -22,7 +22,7 @@ use crate::gen::{Body, F2BodyHeader, F2BodyToggle, F2BodyPlaced};
 use crate::store::Ref;
 use super::{BodyId, Ground, Hit};
 use crate::collision::spheres::{self, box_apply_matrix4, Bounds, GatherCache, Gathered, Probes, Pushed};
-use crate::collision::{self, broad, candidate, State, MAX_BODIES, MISS, TERRAIN};
+use crate::collision::{self, broad, State, MAX_BODIES, MISS, TERRAIN};
 use bfe_content::regions::BuiltRegion;
 use bfe_content::value::Value;
 use std::collections::HashSet;
@@ -108,6 +108,9 @@ pub struct Collision {
     gathered: Gathered,
     prepared: Option<u64>,
     near: Vec<u32>,
+    // Each query context owns its cast order and eligibility scratch.
+    candidates: Vec<u32>,
+    enabled: Vec<u8>,
     points: Vec<[f64; 3]>,
 }
 
@@ -165,6 +168,8 @@ impl Collision {
             gathered: Gathered::new(),
             prepared: None,
             near: Vec::new(),
+            candidates: vec![0; MAX_BODIES],
+            enabled: vec![0; MAX_BODIES],
             points: Vec::new(),
         }
     }
@@ -352,13 +357,12 @@ impl Collision {
             None => -1,
         };
         let ray = collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
-        let count = broad::world_candidates_near(s, self.world, &ray, far, ignore, false, false);
+        let count = broad::world_candidates_near_into(s, self.world, &ray, far, ignore, false, false, &mut self.candidates);
         // The candidates' flags, as rayCandidates writes them.
-        let enabled = collision::enabled();
-        for (c, flag) in enabled.iter_mut().enumerate().take(count) {
-            *flag = self.flags[candidate(c)];
+        for (c, flag) in self.enabled.iter_mut().enumerate().take(count) {
+            *flag = self.flags[self.candidates[c] as usize];
         }
-        let (code, hit) = collision::world_cast_ray(s, self.world, &ray, far, hypot(direction.x, direction.z), count);
+        let (code, hit) = collision::world_cast_ray_in(s, self.world, &ray, far, hypot(direction.x, direction.z), &self.candidates[..count], &self.enabled[..count]);
         if code == MISS {
             return Some(None);
         }

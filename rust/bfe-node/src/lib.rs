@@ -1,12 +1,14 @@
 //! Node lifecycle and numeric block boundary. Production world stepping remains
 //! in the WASM instance until the shared simulation exposes an owned world API.
 use bfe_sim::abi::context::Context;
-use bfe_sim::gen::BlockHeader;
-use napi::{bindgen_prelude::Float64Array, Env, Error, Result, Status};
+use napi::{Env, Error, JsObject, Result, Status};
 use napi_derive::napi;
 use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
+mod blocks;
+mod lifecycle;
+use lifecycle::{Owner, OwnedContext, Scope, close};
 
 #[cfg(feature = "lifecycle-probe")]
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -14,6 +16,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 static CREATED: AtomicU32 = AtomicU32::new(0);
 #[cfg(feature = "lifecycle-probe")]
 static RELEASED: AtomicU32 = AtomicU32::new(0);
+#[cfg(feature = "lifecycle-probe")]
+static HOOKS_CREATED: AtomicU32 = AtomicU32::new(0);
+#[cfg(feature = "lifecycle-probe")]
+static HOOKS_RELEASED: AtomicU32 = AtomicU32::new(0);
 
 // Test counters contain no owners or IDs and never participate in simulation.
 #[cfg(feature = "lifecycle-probe")]
@@ -22,27 +28,12 @@ pub fn lifecycle_counts() -> Vec<u32> {
     vec![CREATED.load(Ordering::SeqCst), RELEASED.load(Ordering::SeqCst)]
 }
 
-type Owner = Rc<RefCell<Option<Context>>>;
-type Registry = Rc<RefCell<Vec<Weak<RefCell<Option<Context>>>>>>;
-
 // No raw extern-C simulation export crosses this unwind boundary. Errors stop
 // the invocation before N-API sees a result; no Rust borrow survives a call.
 fn boundary<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
     catch_unwind(AssertUnwindSafe(f))
         .unwrap_or_else(|_| Err(Error::new(Status::GenericFailure, "Native host panic")))
 }
-fn close(owner: &Owner) -> bool {
-    if let Some(context) = owner.borrow_mut().take() {
-        // No callbacks or active invocations exist in this foundation API.
-        let _ = context.dispose();
-        #[cfg(feature = "lifecycle-probe")]
-        RELEASED.fetch_add(1, Ordering::SeqCst);
-        true
-    } else {
-        false
-    }
-}
-
 #[napi(object)]
 pub struct Handshake {
     pub addon_abi: u32,
@@ -66,25 +57,17 @@ pub fn handshake() -> Handshake {
     }
 }
 
-// One registration per host, scoped to its Node environment. Only weak owner
-// references are retained, so collecting a battle releases its Context too.
+// Hosts and still-open owners retain the cleanup registration together. The
+// last one removes it; environment teardown closes only weak Context targets.
 #[napi]
 pub struct NativeHost {
-    registry: Registry,
+    scope: Rc<Scope>,
 }
 #[napi]
 impl NativeHost {
     #[napi(constructor)]
-    pub fn new(mut env: Env) -> Result<Self> {
-        boundary(|| {
-            let registry: Registry = Rc::default();
-            env.add_env_cleanup_hook(registry.clone(), |registry| {
-                for entry in registry.borrow().iter() {
-                    if let Some(owner) = entry.upgrade() { close(&owner); }
-                }
-            })?;
-            Ok(Self { registry })
-        })
+    pub fn new(env: Env) -> Result<Self> {
+        boundary(|| Ok(Self {scope: Scope::new(env)?}))
     }
     #[napi]
     pub fn create(&self) -> Result<NativeOwner> {
@@ -92,17 +75,16 @@ impl NativeHost {
     }
     fn create_owner(&self, _fail_after: Option<u32>) -> Result<NativeOwner> {
         boundary(|| {
-            let owner = Rc::new(RefCell::new(Some(Context::new())));
+            let owner = Rc::new(RefCell::new(OwnedContext {context: Some(Context::new()),
+                #[cfg(feature = "lifecycle-probe")] panic_on_close: false}));
             // Establish the take-once destructor before registry allocation or
             // diagnostic failure injection. A partial construction owns a drop.
-            let native = NativeOwner { owner };
+            let native = NativeOwner { owner, scope: RefCell::new(Some(self.scope.clone())) };
             #[cfg(feature = "lifecycle-probe")]
             CREATED.fetch_add(1, Ordering::SeqCst);
             #[cfg(feature = "lifecycle-probe")]
             if _fail_after == Some(1) { return Err(Error::from_reason("Context acquisition fixture")); }
-            let mut entries = self.registry.borrow_mut();
-            entries.retain(|entry| entry.strong_count() != 0);
-            entries.push(Rc::downgrade(&native.owner));
+            self.scope.insert(&native.owner);
             #[cfg(feature = "lifecycle-probe")]
             if _fail_after == Some(2) { return Err(Error::from_reason("Registry acquisition fixture")); }
             Ok(native)
@@ -110,58 +92,44 @@ impl NativeHost {
     }
     #[napi]
     pub fn live_owners(&self) -> u32 {
-        self.registry.borrow().iter().filter_map(Weak::upgrade)
-            .filter(|owner| owner.borrow().is_some()).count() as u32
+        self.scope.live()
     }
 }
 
 #[napi]
 pub struct NativeOwner {
     owner: Owner,
+    scope: RefCell<Option<Rc<Scope>>>,
 }
 #[napi]
 impl NativeOwner {
     #[napi]
-    pub fn close(&self) -> Result<bool> { boundary(|| Ok(close(&self.owner))) }
+    pub fn close(&self) -> Result<bool> {
+        let result = boundary(|| Ok(close(&self.owner)));
+        // Even a failed destructor may have closed the Context. Release its
+        // registration loan then, but retain it if an active borrow rejected close.
+        let _ = boundary(|| {
+            if self.owner.try_borrow().is_ok_and(|owner| owner.context.is_none()) {
+                self.scope.borrow_mut().take();
+            }
+            Ok(())
+        });
+        result
+    }
 
     // Copy into a caller-owned reusable arena. JS owns both buffers, and Rust
     // retains neither. Byte-preserving copies keep signed zero and NaN payloads.
     // This operation validates the common header, not schema-specific records.
     #[napi]
-    pub fn copy_block(&self, source: Float64Array, mut output: Float64Array) -> Result<u32> {
+    pub fn copy_block(&self, env: Env, source: JsObject, output: JsObject) -> Result<u32> {
         boundary(|| {
-            if self.owner.borrow().is_none() { return Err(Error::from_reason("Native owner closed")); }
-            validate(&source)?;
-            if output.len() < source.len() { return Err(Error::from_reason("Output arena capacity")); }
-            // The caller may pass overlapping views of its arena. memmove keeps
-            // that legal without forming simultaneous aliased Rust slices.
-            unsafe { std::ptr::copy(source.as_ptr(), output.as_mut_ptr(), source.len()); }
-            Ok(source.len() as u32)
+            if self.owner.borrow().context.is_none() {return Err(Error::from_reason("Native owner closed"));}
+            blocks::copy(env, source, output)
         })
     }
 }
 impl Drop for NativeOwner {
-    fn drop(&mut self) { close(&self.owner); }
-}
-
-// Never cast an unchecked floating count or a native address into an index.
-// Checked extents reject malformed/capacity inputs before any output is written.
-fn validate(block: &[f64]) -> Result<()> {
-    let invalid = || Error::new(Status::InvalidArg, "Invalid numeric block");
-    if block.len() < BlockHeader::WORDS || block.len() > u32::MAX as usize { return Err(invalid()); }
-    let count = |at: usize| -> Result<usize> {
-        let n = block[at];
-        if !n.is_finite() || n < 0.0 || n.fract() != 0.0 || n > block.len() as f64 { return Err(invalid()); }
-        Ok(n as usize)
-    };
-    let rows = count(BlockHeader::ROWS)?;
-    let stride = count(BlockHeader::STRIDE)?;
-    let heap = count(BlockHeader::HEAP)?;
-    let size = count(BlockHeader::HEAP_WORDS)?;
-    let retired = count(BlockHeader::RETIRED)?;
-    if retired > rows || rows.checked_mul(stride).and_then(|n| n.checked_add(BlockHeader::WORDS)) != Some(heap)
-        || heap.checked_add(size) != Some(block.len()) { return Err(invalid()); }
-    Ok(())
+    fn drop(&mut self) { let _ = boundary(|| {close(&self.owner); Ok(())}); }
 }
 
 // Exercise the actual N-API unwind boundary in the diagnostic build.

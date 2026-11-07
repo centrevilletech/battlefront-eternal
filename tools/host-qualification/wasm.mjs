@@ -22,7 +22,12 @@ export async function wasmProvider({engine,manifest}){
     const close=()=>{
       if(closed)return false;closed=true;
       for(const client of clients.values())client.receiver.dispose();clients.clear();
-      host?.dispose();host=null;world=null;game=null;instance=null;return true;
+      try { host?.dispose(); }
+      finally {
+        try { game?.dispose(); }
+        finally { host=null;world=null;game=null;instance=null; }
+      }
+      return true;
     };
     try{
       game=await createGame({headless:true,query:config.query,simulationFactory:async()=>{

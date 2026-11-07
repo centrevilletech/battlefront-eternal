@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { Clip, Pose, setAnimKernel } from '../src/anim.js';
+import { Clip, Pose, setAnimKernel, releaseAnimKernel } from '../src/anim.js';
 import { loadAnimKernel } from '../src/anim-kernel.js';
 
 // Synthetic signed quaternions and root travel retain the original f32
@@ -58,4 +58,18 @@ test('an existing pose retains its battle sampler across later construction', as
   assert.equal(pose.kernel, first);
   assert.notEqual(new Pose(1, 0).kernel, first);
   setAnimKernel(kernel);
+});
+
+test('teardown releases its sampler without clearing a newer battle', async () => {
+  const first = await loadAnimKernel(), second = await loadAnimKernel();
+  try {
+    setAnimKernel(first);const retained = new Pose(1, 0);
+    setAnimKernel(second);
+    assert.equal(releaseAnimKernel(first), false);
+    assert.equal(new Pose(1, 0).kernel, second);
+    assert.equal(releaseAnimKernel(second), true);
+    assert.equal(releaseAnimKernel(second), false);
+    assert.throws(() => new Pose(1, 0), /not ready/);
+    retained.clear();assert.equal(retained.kernel, first);
+  } finally { setAnimKernel(kernel); }
 });

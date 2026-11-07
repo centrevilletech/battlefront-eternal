@@ -32,7 +32,7 @@ impl NativeOwner {
     pub fn probe_identity(&self, text: String, speed: f64) -> Result<Identity> {
         boundary(|| {
             let owner = self.owner.borrow();
-            let cx = owner.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
+            let cx = owner.context.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
             let error = |e: bfe_sim::abi::context::Error| Error::from_reason(e.to_string());
             let string_id = cx.intern(&text.encode_utf16().collect::<Vec<_>>()).map_err(error)?;
             cx.command(COMMAND_FILL, Record::new(Fill::WORDS, |row, heap| {
@@ -59,7 +59,7 @@ impl NativeOwner {
     pub fn probe_read(&self, string_id: u32) -> Result<String> {
         boundary(|| {
             let owner = self.owner.borrow();
-            let cx = owner.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
+            let cx = owner.context.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
             let units = cx.string(StrId(string_id)).map_err(|e| Error::from_reason(e.to_string()))?;
             Ok(String::from_utf16_lossy(&units))
         })
@@ -68,7 +68,7 @@ impl NativeOwner {
     pub fn probe_speed(&self) -> Result<f64> {
         boundary(|| {
             let owner = self.owner.borrow();
-            let cx = owner.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
+            let cx = owner.context.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
             let words = cx.export(KIND_BOLT as u32, 1).map_err(|e| Error::from_reason(e.to_string()))?;
             let block = Block { words, heap: Vec::new() };let (row, heap) = block.read(0);
             let mut bolt = Bolt::default();bolt.take_full(row, heap);Ok(bolt.speed)
@@ -81,7 +81,7 @@ impl NativeOwner {
                 return Err(Error::from_reason("Invalid active-call fixture"));
             }
             let owner = self.owner.borrow();
-            let cx = owner.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
+            let cx = owner.context.as_ref().ok_or_else(|| Error::from_reason("Native owner closed"))?;
             // N-API retains the typed arena for this synchronous invocation.
             // Only atomic accesses touch its shared words while JS observes it.
             let address = signal.as_ptr() as usize;
@@ -107,4 +107,15 @@ impl NativeOwner {
             Ok(())
         })
     }
+}
+
+// Instrument only real registrations; no Context or hook is retained here.
+#[napi]
+pub fn cleanup_hook_counts() -> Vec<u32> {
+    vec![HOOKS_CREATED.load(Ordering::SeqCst), HOOKS_RELEASED.load(Ordering::SeqCst)]
+}
+#[napi]
+impl NativeOwner {
+    #[napi]
+    pub fn probe_close_panic(&self) {self.owner.borrow_mut().panic_on_close = true;}
 }

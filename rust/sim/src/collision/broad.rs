@@ -145,10 +145,6 @@ pub fn prepare(s: &mut State, world: usize) {
     }
 }
 
-pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool) -> usize {
-    world_candidates_near_into(s, world, ray, far, ignore, static_only, moving_only, unsafe { &mut *std::ptr::addr_of_mut!(super::OWNER.candidates) })
-}
-
 /// The same broad phase with caller-owned candidate storage.
 pub fn world_candidates_near_into(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool, out: &mut [u32]) -> usize {
     let length = (ray.dx * ray.dx + ray.dy * ray.dy + ray.dz * ray.dz).sqrt();
@@ -233,7 +229,14 @@ mod tests {
         *seed as f64 / 4294967296.0
     }
 
-    fn list(count: usize) -> Vec<u32> { let all: &[u32] = unsafe { &*std::ptr::addr_of!(super::super::OWNER.candidates) }; all[..count].to_vec() }
+    fn list(s: &mut State, ray: &Ray, far: Option<f64>, ignore: i64, static_only: bool) -> Vec<u32> {
+        let mut out = vec![0; s.worlds[0].order.len()];
+        let count = match far {
+            Some(far) => world_candidates_near_into(s, 0, ray, far, ignore, static_only, false, &mut out),
+            None => crate::collision::world_candidates_into(s, 0, ray, ignore, static_only, false, &mut out),
+        };
+        out.truncate(count); out
+    }
 
     #[test]
     fn keeps_the_walk_less_bodies_clear_of_the_segment() {
@@ -263,8 +266,8 @@ mod tests {
             let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
             let ray = Ray { ox: o[0], oy: o[1], oz: o[2], dx: d[0] / length, dy: d[1] / length, dz: d[2] / length };
             let (ignore, static_only) = (if i % 9 == 0 { 40 } else { -1 }, i % 4 == 1);
-            let all = list(crate::collision::world_candidates_for(&s, 0, &ray, ignore, static_only, false));
-            let some = list(world_candidates_near(&mut s, 0, &ray, far, ignore, static_only, false));
+            let all = list(&mut s, &ray, None, ignore, static_only);
+            let some = list(&mut s, &ray, Some(far), ignore, static_only);
             // In the walk's order, and only fixed bodies wholly clear of the
             // cast's segment (by more than the margin) left out.
             let mut at = 0;
@@ -290,8 +293,8 @@ mod tests {
         s.worlds[0].order.truncate(100);
         s.worlds[0].version += 1;
         let ray = Ray { ox: 0.0, oy: 100.0, oz: 0.0, dx: 0.0, dy: -1.0, dz: 0.0 };
-        let all = list(crate::collision::world_candidates_for(&s, 0, &ray, -1, false, false));
-        let some = list(world_candidates_near(&mut s, 0, &ray, 500.0, -1, false, false));
+        let all = list(&mut s, &ray, None, -1, false);
+        let some = list(&mut s, &ray, Some(500.0), -1, false);
         assert!(some.iter().all(|p| all.contains(p)) && some.iter().all(|&p| p < 100));
     }
 }

@@ -57,6 +57,14 @@ export function setAnimKernel(kernel) {
   animKernel = kernel;
 }
 
+// Teardown releases only its own installation. Another battle may have
+// installed its sampler while this one's retained poses were still alive.
+export function releaseAnimKernel(kernel) {
+  if (animKernel !== kernel) return false;
+  animKernel = null;
+  return true;
+}
+
 // Weighted pose accumulator. Add any number of clip samples, then apply.
 export class Pose {
   constructor(boneCount, rootIndex) {

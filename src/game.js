@@ -43,7 +43,7 @@ import { lighting } from "./materials.js";
 import { DeathCamera } from "./camera.js";
 
 import { DeathTrace } from "./death-trace.js";
-import { setAnimKernel } from "./anim.js";
+import { setAnimKernel, releaseAnimKernel } from "./anim.js";
 import { CollisionWorld } from "./collision.js";
 import { CommandPosts } from "./commandposts.js";
 import {HeadlessEffects} from "./effects.js";
@@ -94,6 +94,7 @@ import { selectAIMission, selectMission } from "./mission.js";
 import { commonModel } from "./interface/common-models.js";
 import { nextUrl } from "./launch.js";
 import { pageGpu } from "./gpu-info.js";
+import { loadSim } from "./sim/module.js";
 
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
@@ -102,7 +103,7 @@ import { pageGpu } from "./gpu-info.js";
 // a load failure reaches the battle's error screen.
 async function loadSimInstance(factory) {
   try {
-    return await (factory ? factory() : (await import("./sim/module.js")).loadSim());
+    return await factory();
   } catch (error) {
     throw new Error(`The Rust simulation module could not load: ${error?.message ?? error}`, { cause: error });
   }
@@ -147,7 +148,7 @@ async function attachOwnedCombat(instance) {
   return attachF3Combat(instance,{Unit,Vehicle,Soldier,Droideka,Building,Turret});
 }
 
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = null } = {}) {
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = loadSim } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 // The destruction and weather phase's Rust module, compiled before anything builds on it.
@@ -200,6 +201,14 @@ const KILL_Y = -110;
 // The soldier's bounding sphere: drops leave from its centre, and mines feel
 // its size.
 
+// The construction slot is released on both failed startup and explicit
+// battle teardown. Existing Pose handles retain their own sampler normally.
+let battleAnimation = null, battleDisposed = false;
+function releaseAnimation() {
+  if (!battleAnimation) return;
+  releaseAnimKernel(battleAnimation);
+  battleAnimation = null;
+}
 async function start() {
   // In the live display loop, catch-up after a hitch is bounded by measured
   // tick cost (35 ms of ticks per frame) and 8 ticks of kept debt. A PC that
@@ -464,6 +473,7 @@ async function start() {
   const rays = await (await import("./ray-kernel.js")).loadRayKernel(simInstance);
   const anim = await (await import("./anim-kernel.js")).loadAnimKernel(simInstance);
   setAnimKernel(anim);
+  battleAnimation = anim;
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
@@ -2042,6 +2052,7 @@ async function start() {
       client.vehiclePrediction = null; client.continuationState.clear();
     }
     release(() => { if (!headless) predictionSession.dispose(); });
+    release(releaseAnimation);
     if (failed) throw failure;
   }
   // His own soldier ahead of the worker: the acknowledged state, then every
@@ -2911,6 +2922,15 @@ async function start() {
 
   // Hooks for scripted checks in a headless browser.
   const game = {
+    // A closed battle stops driving and gives up its construction sampler.
+    // Prediction already defers owner release through an active replay.
+    dispose() {
+      if (battleDisposed) return false;
+      battleDisposed = true;
+      driving = false;
+      disposePrediction();
+      return true;
+    },
     // What every side, effect and vehicle definition was loaded from, for
     // naming definitions across threads (src/runtime/network-entity-game.js).
     // Each loaded side's effects under its own name (the registry filters
@@ -3226,7 +3246,8 @@ async function start() {
   }
   return game;
 }
-return start();
+try { return await start(); }
+catch (error) { releaseAnimation(); throw error; }
 }
 
 // Each side's hologram logo, as a factory making a fresh copy with its own
