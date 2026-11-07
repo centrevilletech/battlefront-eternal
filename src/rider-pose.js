@@ -6,7 +6,7 @@ import { Pose } from "./anim.js";
 //
 // The 2004 game puts a shown rider's collision in its own list, which
 // every round's ray reaches (docs/formats.md "Riders"). The port's riders are
-// drawn from their seat's clip (src/vehicles.js poseRider), so their hit
+// drawn from their seat's clip (rust/sim/src/vehicles/module/f2/riders.rs), so their hit
 // shapes come from the same clip at the same point in it, carried down the
 // rider's own skeleton here without touching the bones that are drawn. The
 // animator does the same sampling for the picture (the native gunner phase):

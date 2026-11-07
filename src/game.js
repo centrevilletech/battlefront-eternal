@@ -2524,7 +2524,8 @@ async function start() {
     renderedSoldier.aimPitch = soldier.aimPitch + previewPitch;
     if (held) animator.gunner(animator.clips.get(held.grab.clip) ?? null, 0, 0, held.time);
     // At a turret, his body stands at its seat in the gunner's pose, as
-    // every other page draws him and the world strikes him (Gunner.poseBody).
+    // every other page draws him and the world strikes him (the presentation
+    // body batch, rust/bfe-presentation/src/units.rs rider_sample).
     unitView.frame += 1;
     unitView.position.copy(camera.position);
     unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));

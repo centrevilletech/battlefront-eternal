@@ -36,14 +36,16 @@ Unit lifecycle flags publish before the spawned AI hook, including heroes.
 `F4Connections` qualifies admission, spawn, unspawn, team and dead-body clock
 commands by Character lifetime. Eligibility and realized bodies read the same
 native posts, transport exits and unit store as the tail. Network mailboxes and
-control mapping remain outside the phase. `Game.step` directly coordinates the
-phase entries; it does not nest them in the older step or network driver.
+control mapping remain outside the phase. `Game.step` writes the tick's inputs
+and makes one native call, `world_step_run` (`rust/sim/src/world/step.rs`),
+which runs the AI, unit, battle, ordnance, item and tail phases in order.
 
 The old battle switch, callback worlds and per-method adapters are removed.
-JavaScript retains construction, read facades and page presentation. Animated
-prop `presentStep` poses shown doors and idle clips; published creatures use
-`follow` and `presentHeld`. Those page methods cannot seize, swallow, damage or
-remove an authoritative body. Debris remains in the page frame loop.
+JavaScript retains construction and read facades. A page poses animated props,
+log traps and the bodies a creature holds in one batched presentation frame
+(`rust/bfe-presentation/src/props.rs`), from the same prop clocks the world
+steps (`rust/sim/src/battle/animated.rs`). That frame cannot seize, swallow,
+damage or remove an authoritative body. Debris remains in the page frame loop.
 Remote pages derive mobile-post presentation and announcements from replicated
 hulls because their post summaries contain only placed posts.
 Replica admission retains canonical id order so overlapping map markers draw

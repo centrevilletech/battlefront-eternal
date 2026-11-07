@@ -109,10 +109,10 @@ bot seats fire; tethers; bot bodies placed at their seats.
   therefore does not inherit the AI's difficulty curves or random stream.
 - **Presentation**: a bot's body sits at the seat's rider node and takes the
   seat's pilot pose, visible only on a seat with a pilot animation (an exposed
-  rider), exactly as the player's (`poseRider`, shared with
-  `VehicleDriver.sync`). Shown riders need `vehicles.presentRiders(dt)` after
-  units are posed, to take their node's place and turn (or the saddle, on an
-  animal); the player's keeps `driver.presentRider`. Both keep the body
+  rider), exactly as the player's (`rust/sim/src/vehicles/module/f2/riders.rs`).
+  On a page the presentation body batch (`rust/bfe-presentation/src/units.rs`)
+  places shown riders at their node's place and turn (or the saddle, on an
+  animal), the player's included. It keeps the body
   hidden on an enclosed seat every frame, as a remote soldier record (or, for
   the player's own body, each correction from the world) shows it again.
 - **Origin**: a seat's `origin` (the controller position) is its eye,

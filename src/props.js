@@ -607,7 +607,7 @@ export class Turret extends Building {
   // The gun turned toward a world point at its own rates (the tick's
   // part), then the drum and gun posed from the angles (present's). Both
   // hosts integrate; a page showing a worker's battle poses from the
-  // replicated angles alone (LiveObjects.present).
+  // replicated angles alone (rust/bfe-presentation/src/turrets.rs).
 
   // The gun's angles toward a world point (null: the drum's own pitch),
   // held inside its limits: { yaw, pitch } in its parent's frame from its
@@ -695,9 +695,10 @@ export class Turret extends Building {
   // gunner has his own clip, human_dishcannon_9pose; a bank without it (an
   // extract from before the extractor named it) has the minigun's stand
   // in, as for a hidden gunner. Null without either clip. He is drawn
-  // (TurretSeats.pose, the Gunner) and struck (riderShapes) in this one
-  // pose. pitch and yawVel: the drum's, unless a page draws the player's
-  // own gunner at the aim it previews (Gunner.poseBody).
+  // (Crews::pose in rust/sim/src/seats/turrets.rs, the Gunner) and struck
+  // (riderShapes) in this one pose. pitch and yawVel: the drum's, unless a
+  // page draws the player's own gunner at the aim it previews (the
+  // presentation body batch's rider_sample).
   riderSample(clips, out, pitch = this.pitch, yawVel = this.yawVel) {
     const clip = (this.rider && clips?.get(this.rider.clip)) || clips?.get(GUNNER_STANDIN) || null;
     if (!clip) return null;
@@ -768,8 +769,8 @@ export class Turret extends Building {
 
   // His body's points (written to s.points) and the frame that carries
   // them into the world (s.frame): the seat node's place and turn
-  // (seatPoint, seatTurn), where TurretSeats.pose and the Gunner put his
-  // body. Null where none shows.
+  // (seatPoint, seatTurn), where Crews::pose (rust/sim/src/seats/turrets.rs)
+  // and the Gunner put his body. Null where none shows.
   riderBody(unit, s) {
     const animator = unit?.animator;
     if (!this.rider || !animator) return null;

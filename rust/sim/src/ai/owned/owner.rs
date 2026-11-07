@@ -140,7 +140,7 @@ impl Battle {
         self.counters.phases=self.counters.phases.wrapping_add(1);
         self.counters.live_controllers=self.runtime.core.live.len() as u32;
         // Whole-phase diagnostics prove that the owned perception/target/fire
-        // lanes performed work without exporting per-controller snapshots.
+        // stages performed work without exporting per-controller snapshots.
         self.counters.targets=0;self.counters.combat_targets=0;self.counters.fire_requests=0;
         self.counters.candidates=0;self.counters.trackers=0;self.counters.scanned=0.;
         for &index in &self.runtime.core.live {

@@ -35,7 +35,7 @@ it did before Enhanced was added (checked by comparing whole headless battles).
 | `rust/sim/src/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
 | `rust/sim/src/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
 | `rust/sim/tests/ai_phase.rs`, `ai_combat_twin.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
-| `tools/ai-focus-probe.mjs` | Whole-battle measurements for Classic and Enhanced (below) |
+| `tools/ai-focus-probe.mjs` | Whole-battle measurements for Classic and Enhanced (below); reads the former JavaScript AI and does not run against the native AI |
 
 ## What Enhanced changes
 
@@ -167,17 +167,14 @@ and the Enhanced objective and focus numbers (`control/mod.rs`).
 
 ## Measuring
 
-```
-BFE_CONTENT_DIR=<game-data> node tools/ai-focus-probe.mjs --ai enhanced --tier medium \
-  --maps nab2,tat2,bes2,yav1,kas2,hot1,geo1,rhn1 --seeds 1,2 --minutes 5 --endless
-```
-
-Whole headless battles, the player idle at his post, every bot sampled once a
-game second. It prints, per side: where bots spend their time, the lives that
+The results below were measured with `tools/ai-focus-probe.mjs` before the AI
+moved to Rust; it and `tools/ai-stuck-probe.mjs` read the former JavaScript
+AI's state and do not run against the native AI. The probe ran
+whole headless battles, the player idle at his post, every bot sampled once a
+game second, and printed, per side: where bots spend their time, the lives that
 ever stood in their objective's capture region, captures per minute, hits per
 shot by weapon family (damage events on enemies per round, on-foot bots), and
-interrupts per minute by cause. `tools/ai-stuck-probe.mjs --ai enhanced`
-counts bots that stop moving.
+interrupts per minute by cause.
 
 Results over Theed, Mos Eisley, Cloud City, Yavin Temple, Kashyyyk Docks,
 Hoth, Geonosis and Rhen Var Harbor, seeds 1 and 2, 5 minutes each (80

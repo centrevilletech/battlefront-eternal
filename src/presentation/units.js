@@ -681,11 +681,10 @@ export class PageUnits {
       input[at + I.CORRECTION + 1] = row.actor.root.position.y - p.position.y;
       input[at + I.CORRECTION + 2] = row.actor.root.position.z - p.position.z;
     }
-    // presentRiders/presentRider supply lease facts directly to the body
-    // batch. The native owner keeps enclosure and saddle lean across frames,
-    // including a released corpse whose former hull was destroyed.
-    // A hull's explicit pilot sample belongs to lease birth, as poseRider
-    // sampled it. Stationary turret aim is refreshed by the native body phase.
+    // Lease facts go directly to the body batch. The native owner keeps
+    // enclosure and saddle lean across frames, including a released corpse
+    // whose former hull was destroyed. A hull's explicit pilot sample belongs
+    // to lease birth (rust/sim/src/vehicles/module/f2/riders.rs). Stationary turret aim is refreshed by the native body phase.
     row.unit = unit;
     const lease = unit.seat, vehicle = lease?.vehicle, turret = lease?.turret;
     input[at + I.RIDER_RESET] = row.riderLease !== lease ? 1 : 0;
@@ -885,7 +884,7 @@ export class PageUnits {
       if (this.input[at + I.REMOVED] || this.output[out + O.GONE] === -1) continue;
       const visible = this.output[out + O.SEAT_VISIBLE];
       if (visible >= 0) row.actor.root.visible = visible === 1;
-      // poseRider publishes hull birth once; placeReplica refreshes remote
+      // A rider's lease birth publishes once; placeReplica refreshes remote
       // source interpolation each frame. Keep that reset before the changed
       // guard so a stationary gunner need not republish its matrix arrays.
       if (this.output[out+O.LEASE_BIRTH] && (row.publishedLease!==row.riderLease || this.input[at+I.RIDER_KIND]===2)) {

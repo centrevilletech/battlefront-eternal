@@ -99,7 +99,7 @@ export class F2Riders {
     const row = this.rows.get(unit);
     return row && row.life === unit.generation && row.drop ? out.copy(row.drop) : null;
   }
-  // poseRider's actor and animation hooks remain presentation. Native rows
+  // The rider's actor and animation hooks remain presentation. Native rows
   // supply the sample; no world-phase node read or rig math happens here.
   present(unit) {
     const actor = unit.actor;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
-// Match the F3 census: background optimized-code installation can attribute
+// Match the unit phase's allocation census: background optimized-code installation can attribute
 // a one-off VM allocation to the boundary it interrupts. Isolate compilation
 // while retaining every generated reader, collected object and zero assertion.
 test('warm live and battle tail boundaries retain their JavaScript and native storage',()=>{

@@ -31,7 +31,7 @@ function animationBytes(bytes) {
 // A battle's vehicle pack, its flyers' clips left out. A flyer's takeoff clip
 // poses the gear, doors and foils a page draws, and the world reads it for
 // where a landed craft stands (src/flight/gear.js gearFoot) and where its
-// rounds leave foils and flaps (poseGearAt: an X-wing's lasers, the MAF's
+// rounds leave foils and flaps (rust/sim/src/flight/gear.rs: an X-wing's lasers, the MAF's
 // cannons). The world is the authority on both: a peer whose pack lacks the
 // clip (or holds another) only replays its own craft's landing elsewhere, or
 // draws its own predicted bolts from other tips, and is corrected, a

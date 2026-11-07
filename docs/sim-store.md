@@ -47,12 +47,11 @@ building the game needs no Rust, and CI rebuilds it and fails on any byte
 that differs. `src/sim/module.js` compiles it once a thread (`simModule()`)
 and makes an instance for each battle (`loadSim()`): the world worker, a
 page and plain Node (the dedicated server, `tools/world-hash.mjs`) load it
-the same way, with no `.wasm` file to serve. `createGame` makes one instance
-when the battle asks for one of its kernels, and always in a world (a
-headless game: the local worker, the dedicated server, the tools), whose
-rounds in flight it holds (below, "The rounds on the module"); it hands the
-instance to each kernel (`loadRayKernel(instance)`, `loadAnimKernel(instance)`).
-A page that asks for no kernel loads nothing.
+the same way, with no `.wasm` file to serve. `createGame` always loads one instance
+(`loadSimInstance`) and stops if it fails, on a page and in a headless world
+(the local worker, the dedicated server, the tools) alike. The instance holds
+the rounds in flight (below, "The rounds on the module"), and `createGame`
+hands it to each kernel (`loadRayKernel(instance)`, `loadAnimKernel(instance)`).
 
 The module was 141 KB of WebAssembly with the three kernels; the store and
 the first schema's code (four kinds of round and their records) make it

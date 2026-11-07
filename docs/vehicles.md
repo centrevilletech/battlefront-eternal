@@ -431,7 +431,7 @@ stands on top of the droid starfighter on Bespin: Platforms).
 
 - What is struck (`Vehicle.exposedSeat`, `SeatLease.exposed`,
   `Unit.updateSpheres`): his body as his seat poses it, from the same clip
-  and point in it that `poseRider` draws (`riderSample`), carried down his
+  and point in it that his seat draws (`riderSample`), carried down his
   own skeleton at the tick (`src/rider-pose.js`): the head as a sphere (three
   times the damage, as on foot), the torso from the pelvis up to the neck,
   each thigh and shin, and each upper arm and forearm to the middle of the
@@ -864,7 +864,8 @@ original's walker class does:
    On the page, a crewman who rode hidden inside it (every seat without a
    pilot animation: the AT-TE's pilot and side gunner, the AT-AT's and
    AT-ST's whole crew) is never drawn again in that life
-   (`Vehicles.presentRiders`): he dies with it out of sight. His body still
+   (the presentation body batch, `rust/bfe-presentation/src/units.rs`): he
+   dies with it out of sight. His body still
    dies, falls and is thrown by the blast in the simulation (the AT-TE's
    blast throws its crew 6 m up, flailing over the walker); only its drawing
    is held back. A gunner in the open (the AT-TE's main gunner) dies

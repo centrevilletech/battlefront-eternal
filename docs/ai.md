@@ -171,10 +171,13 @@ world.classesFor(team)    // the team's [[className, count], ...] that a loaded 
 `ai-nav.json`, `ai-mission.json` and each side's `ai.json` (`src/ai-data.js`
 `loadAIData`), hands that cold content and the mission calls to the native
 owner (`src/ai-world.js`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
-builds the initial roster, and returns an object with `update(dt, tick)`
-(for `enhanced` the native owner runs the Enhanced pieces,
-[ai-enhanced.md](ai-enhanced.md)). The game loop (`src/game.js`) calls
-`ai.update` once per simulation step, before the unit phase. The mode,
+builds the initial roster, and returns an object whose `prepare(dt, tick)`
+writes the AI's inputs for the next tick (for `enhanced` the native owner runs
+the Enhanced pieces, [ai-enhanced.md](ai-enhanced.md)). Each simulation step,
+`Game.step` (`src/game.js`) calls `ai.prepare` and then the native world tick
+(`world_step_run`, `rust/sim/src/world/step.rs`), which runs the AI phase
+before the unit phase. `update(dt, tick)` runs the AI phase alone, for tools
+and tests. The mode,
 difficulty and heroes are Options settings; URL parameters override them:
 `?ai=classic|enhanced|off`, `?tier=easy|medium|hard`, `?seed=`,
 `?heroes=1`.
@@ -205,7 +208,7 @@ snapshots (positions copied):
 
 Per simulation step `h` (the `step(h)` loop in `src/game.js`):
 
-1. `ai.update(h)`: the Classic scheduler ([ai-controller.md](ai-controller.md))
+1. The AI phase (`ai_world_phase`): the Classic scheduler ([ai-controller.md](ai-controller.md))
    runs the budgeted subset of UnitControllers: phase 0, perception (scan,
    acoustic broadcast), phase 1; then the deferred-LOS budget and the
    path-planner service. Controllers write requests.
@@ -360,11 +363,10 @@ extraction (`tools/extract.py`) writes them too.
 - Whole battles between bots (`tests/ai-browser.mjs`) run headless under
   Node (`tools/headless-world.mjs`), the world the world worker runs, and
   read `game.ai` there.
-- `tools/ai-stuck-probe.mjs` measures bots that stop moving in whole
-  headless battles (see "Stuck bots" below); `tests/ai-browser.mjs` fails a
-  battle where too many bots never leave their spawn.
-- `tools/fire-pace-probe.mjs` measures how often bots fire, per weapon, in
-  whole headless battles (`docs/ai-combat.md`, "Fire pace").
+- `tests/ai-browser.mjs` fails a battle where too many bots never leave
+  their spawn. The measuring probes `tools/ai-stuck-probe.mjs`,
+  `tools/fire-pace-probe.mjs` and `tools/ai-focus-probe.mjs` read the former
+  JavaScript AI's state and do not run against the native AI; the results quoted in these docs were measured with them before the port.
 
 ## Status
 
@@ -382,22 +384,18 @@ At ease, F2 Follow, F3 Move out and F4 Hold. The default battle AI is Off.
 ## Stuck bots
 
 Play-testing found large groups of bots that stopped moving, offline and on
-hosted servers. `tools/ai-stuck-probe.mjs` reproduces it: whole Classic
+hosted servers. `tools/ai-stuck-probe.mjs` reproduced it before the AI moved
+to Rust (it does not run against the native AI): whole Classic
 battles in plain Node (the world worker's and the dedicated server's code,
 faster than real time), every bot sampled once a game second. A bot is
 stuck when it has lived a whole 10 s window without leaving a 1 m ball and
 was not holding still on purpose: in a turret or passenger seat, at a snipe
 hint, at a patrol hint or the roam's wait, under a hold order, in the crew
 wait, standing in the capture region of a post it is taking, or having fired
-in the window. A stuck driver counts by its hull. The probe prints stuck
+in the window. A stuck driver counts by its hull. The probe printed stuck
 bot-seconds per minute, the most stuck at once, and the stuck bots grouped
 by AI state with examples (goal, queue, agent and helper states, path
 executor, planner slot, target, job, posture, contacts):
-
-```
-BFE_CONTENT_DIR=<game-data> node tools/ai-stuck-probe.mjs --maps nab2,bes2 --seeds 1,2 --minutes 5
-node tools/ai-stuck-probe.mjs --mode mp --army 32 --maps bes2   # the server's world, 32 a side
-```
 
 What kept bots standing, all in the shared runtime that single player (page
 or world worker) and the server both run (the flyers' pads are tested in

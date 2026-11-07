@@ -111,11 +111,12 @@ at `TurretSeats` (`src/seats.js`).
   back over the deck against the view and its gunner hanging outside the hull,
   facing away from the gun; instead the gun points out over the rail and he
   stands on the deck behind it.
-- Drawn the same on every page: bots and other people by `TurretSeats.pose`
-  (the world, and a page from the turret's record, whose turn speed is the
-  yaw's change between records, `Turret.aimFrom`); the player by
-  `Gunner.update` in the world and by `Gunner.poseBody` on his own page, at the
-  aim the page previews, so the page poses its own player at the gun in the
+- Drawn the same on every page: bots and other people by `Crews::pose`
+  (`rust/sim/src/seats/turrets.rs`) in the world, and on a page from the
+  turret's record, whose turn speed is the yaw's change between records
+  (`Turret.aimFrom`); the player by the same seat pose in the world and on his
+  own page by the presentation body batch (`rider_sample`,
+  `rust/bfe-presentation/src/units.rs`), at the aim the page previews, so the page poses its own player at the gun in the
   gunner's pose the world strikes him in.
 - Struck (`Turret.exposedSeat`, `Turret.riderShapes`, `SeatLease.exposed`):
   his posed body at the seat, in the seat node's frame

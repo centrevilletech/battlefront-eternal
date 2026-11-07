@@ -458,9 +458,10 @@ size/colour tracks, rotation and flipbook frames run there too, in
 chamber fog. This applies to all graphics presets; Performance keeps its
 simpler fog/water appearance and gains the same sprite CPU savings.
 
-Spawn randomness, burst timing, expiry and child-emitter motion remain in
-`effects.js`. Model particles and unsupported or oversized tracks use the CPU
-reference. The headless battle allocates no GPU effect resources, and no
+Spawn randomness, burst timing, expiry, child-emitter motion and model
+particles run in the presentation module's effect kernel
+(`rust/bfe-presentation/src/lib.rs`), which publishes draw records;
+`effects.js` keeps only the browser resources those records use. The headless battle allocates no GPU effect resources, and no
 gameplay state depends on shader output or GPU readback.
 
 One static nearest-sampled float texture holds authored tracks. A small

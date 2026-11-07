@@ -12,14 +12,18 @@ class jobs, combat memory and aim state. Navigation and immutable class facts
 are prepared before activation. Registration and attack-pattern caches that
 persist across battles live in the owner's process state.
 
-`AiWorld.step` supplies one generated phase header, current camera facts and
-new journal records. Rust runs `Core::decide` followed by `Core::execute` and
+Before each tick the host writes one generated phase header, current camera
+facts and new journal records into the AI exchange (`ai.prepare`, which calls
+`AiWorld.prepare` in `src/ai-world.js`). The native world tick
+(`world_step_run`, `rust/sim/src/world/step.rs`) then runs the AI phase
+(`ai_world_phase`) after squad commands and before the unit phase.
+Rust runs `Core::decide` followed by `Core::execute` and
 writes held intent into the canonical unit or seat owner. The host does not
 serialize each controller or ask JavaScript navigation, geometry, population
 or combat services between decisions. Changed identity and presentation
 notices return at the outer boundary.
 
-During `Game.step`, the native unit phase immediately follows AI and reads
+Within that tick the native unit phase immediately follows AI and reads
 its canonical controls directly. Ordinary bot intent edits join that phase's
 completed body publication instead of crossing to the host twice. Navigation avoidance, foot weapon
 tuning and selection share that boundary, including clear/restore writes whose
@@ -27,7 +31,7 @@ final values equal the prior snapshot. A synchronous observer still flushes
 the complete touched arsenal before its callback. Damage,
 lifecycle and synchronous foreign observation barriers still publish their
 touched rows immediately. A standalone AI call publishes held body input immediately because it
-promises no following unit phase. Seat steering stays with F2; seat facades
+promises no following unit phase. Seat steering stays with the vehicle phase ([sim-f2.md](sim-f2.md)); seat facades
 publish only their qualified control, lease and controller identities.
 
 ## Canonical state and callbacks
@@ -58,9 +62,9 @@ stream B and private Enhanced stream C retain separate state and draw counts;
 weapon callbacks draw from A at their actual firing point.
 
 Post-movement aim remains in the unit owner's native phase. Grenade danger
-warnings run after the battle and targeting boundary. The enclosing world
-phase coordinator still has host callbacks; owning the AI phase does not make
-the entire world tick a single native call.
+warnings (`ai_world_dangers`) run after the battle tail, at the end of the
+same native world tick. The host makes one call per tick; foreign observers
+such as sounds and presentation receive the tick's events after it returns.
 
 ## Boundary and validation
 

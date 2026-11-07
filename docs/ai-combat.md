@@ -32,7 +32,7 @@ Per simulation step `h` (docs/ai.md "Tick order"), with the control core
 and its scheduler calling the combat services (`CombatAi`,
 `rust/sim/src/ai/combat/binding.rs`):
 
-1. `ai.update(h)`, decide:
+1. The AI phase (`ai_world_phase`, run by the world tick), decide:
    - `CombatAi::ingest`: the journal's `shot` and `damage` records become
      controller alerts (`notify_targeted_shot`, `notify_damage` ->
      `controller.notify_shot(sourceCharacter, known, point)` on every
@@ -56,7 +56,7 @@ and its scheduler calling the combat services (`CombatAi`,
    - After the loop: `DeferredLos.service(world, budget)` (6, 12 on Hard,
      doubled when the planner is idle); a clear ray makes the controller's
      candidate (`record_target`).
-2. `ai.update(h)`, execute (every AI unit, every step; a LOD skip carries
+2. The same AI phase, execute (every AI unit, every step; a LOD skip carries
    its dt): `consume_fire(controller, unit, step, intent)` writes
    `intent.buttons`; `aim_point(controller, unit, dt, out)` gives Nav's
    analogs the aim-state point (state 0: the target led by the AI dt).
@@ -350,8 +350,9 @@ native owner at battle start.
 ## Fire pace
 
 How often a bot's weapon fires, by weapon family, in the 2004 game, and
-what the port measures (`tools/fire-pace-probe.mjs`, whole battles
-headless). The port's
+what the port measured before the AI moved to Rust
+(`tools/fire-pace-probe.mjs`, whole battles headless; the probe reads the
+former JavaScript AI's state and does not run against the native AI). The port's
 pace is the original's, family by family (numbers below).
 
 The clock. Offline the original runs one simulation update per rendered
@@ -416,8 +417,8 @@ s); only shorter ones follow the frame rate (the commando pistol, 7.5
 rounds a second near at 30 frames, 15 at 60). Bursts, delays and heat are
 in seconds.
 
-Measured, Medium, 90 s, seeds 1 and 2 (`node tools/fire-pace-probe.mjs
---maps nab2,tat2,geo1,kas2,bes2,hot1 --seeds 1,2 --seconds 90`): 4.5 to 18.7
+Measured, Medium, 90 s, seeds 1 and 2, on Theed, Mos Eisley, Geonosis,
+Kashyyyk Docks, Cloud City and Hoth: 4.5 to 18.7
 bot rounds a second per battle. A gap is between one shooter's fire cycles,
 a burst is cycles under 0.5 s apart (a dropped request restarts a burst at
 once, so two can run together), and the rate is per second of a standing

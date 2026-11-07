@@ -15,7 +15,7 @@ import { blastBlocked } from "./ordnance.js";
 //
 // The seats, boarding and flight (src/seats.js, src/boarding.js,
 // src/flight/) move with the hulls and are reached directly; so is what
-// only a page draws (the player's camera, presentRiders, the tow line).
+// only a page draws (the player's camera, the shown riders, the tow line).
 
 export class VehiclesWorld {
   constructor(vehicles) {

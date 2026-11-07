@@ -138,7 +138,7 @@ camera. Engine coverage (`src/vehicles.js`, `src/seats.js`, `docs/formats.md`
 
 | Feature | Status | Note |
 | --- | --- | --- |
-| Hull and turret sections, per-seat aim, limits, cameras, 9-pose riders | implemented | `Vehicle.clampAim`, `poseRider`, `VehicleCamera` |
+| Hull and turret sections, per-seat aim, limits, cameras, 9-pose riders | implemented | `Vehicle.clampAim`, `rust/sim/src/vehicles/module/f2/riders.rs`, `VehicleCamera` |
 | Riders in the open struck and killed by rounds, their seat let go (hash `2b60e217`) | implemented | `src/rider-pose.js`, `Vehicle.riderShapes`, `src/boarding.js` `leaveKilled`; placed turrets' gunners too, blasts included (`Turret.riderShapes`, `SeatLease.blastable`) |
 | Aimers, barrels taking turns, fire points, beams per barrel | implemented | `muzzleOf`, `aimSeats` |
 | Flight model (take-off, landing, MinSpeed/MidSpeed, StrafeSpeed, ceilings) | implemented | `docs/vehicles.md` |

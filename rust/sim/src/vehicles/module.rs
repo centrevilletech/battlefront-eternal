@@ -39,7 +39,7 @@ struct Posed {
     pose: HullPose,
     turn_rates: Vec<f64>,
 }
-/// Vehicles owns cold definitions, retained rigs and each independent F2 bank.
+/// Vehicles owns cold definitions, retained rigs and each independent vehicle-phase bank.
 /// Canonical bodies stay in Store. Entry services project only the field they
 /// need, so a committed hull can be observed by a nested crew death without
 /// borrowing its caller's scratch or replacing another publication bank.

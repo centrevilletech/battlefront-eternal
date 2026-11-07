@@ -79,7 +79,7 @@ finish, then separation. Native services pass the same borrowed recon authority
 and retained query scratch through damage and recursive explosions. F1's later
 ordnance and item entries join the same ownership and event machinery.
 
-JS AI remains foreign. Its post-movement aimer receives the declared movement facts at the
+The AI runs natively in the same tick (rust/sim/src/ai, [sim-ai.md](sim-ai.md)). Its post-movement aimer receives the declared movement facts at the
 original per-unit point and returns typed scalar deltas in retained storage.
 RNG callback setters bind only the touched weapon or combat stream, including
 replacements whose presence remains true. Ordinary ticks do no loadout polling.
