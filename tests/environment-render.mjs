@@ -1,7 +1,7 @@
 // Readback assertions exercise the actual pipeline, including MSAA and required
 // depth capture with soft particles off. Run against the local Vite server.
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
-const server=process.env.ENV_START_SERVER?await (await import('vite')).createServer({cacheDir:'/tmp/environment-pixel-test-cache',optimizeDeps:{entries:['index.html']},server:{watch:null,hmr:false,port:18457,strictPort:true,host:'127.0.0.1'}}):null;
+const server=process.env.ENV_START_SERVER?await (await import('vite')).createServer({cacheDir:(await import('node:path')).join((await import('node:os')).tmpdir(),'environment-pixel-test-cache'),optimizeDeps:{entries:['index.html']},server:{watch:null,hmr:false,port:18457,strictPort:true,host:'127.0.0.1'}}):null;
 if(server)await server.listen();
 const browser=await chromium.launch({args:['--no-sandbox','--disable-features=LocalNetworkAccessChecks','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const errors=[];
