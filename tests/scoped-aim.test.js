@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { PlayerCombat } from '../src/combat.js';
-import { SoldierCamera } from '../src/camera.js';
+import { SoldierCamera } from './helpers/cameras.js';
 
 for (const posture of ['stand', 'crouch', 'prone']) for (const zoomStep of [1, 2]) {
   test(`scope and fired direction agree from third person: ${posture}, zoom ${zoomStep}`, () => {

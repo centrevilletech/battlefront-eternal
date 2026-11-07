@@ -1,3 +1,4 @@
+import {presentDriver} from './helpers/cameras.js';
 import { stepPrediction, prepareHullFixture, predictHull } from './helpers/hull-prediction.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 
@@ -191,16 +192,16 @@ test('spawn clearance permits narrow side-by-side fighters while rejecting overl
 test('vehicle camera eases turns and follows motion without placing its eye behind walls',()=>{
  const {system,v,c}=fixture();v.walking=true; // Exercise the shared turret/seat camera.
  const driver=new VehicleDriver({vehicles:system,camera:system.camera,collision:c});driver.vehicle=v;
- driver.updateCamera(1/60,false);const original=system.camera.quaternion.clone();
- v.aimYaw=.7;driver.updateCamera(1/60,false);
+ presentDriver(driver, 1/60,false);const original=system.camera.quaternion.clone();
+ v.aimYaw=.7;presentDriver(driver, 1/60,false);
  const step=original.angleTo(system.camera.quaternion);
  assert.ok(step>0&&step<.4,'one frame must not snap to the new heading');
- for(let i=0;i<120;i++)driver.updateCamera(1/60,false);
+ for(let i=0;i<120;i++)presentDriver(driver, 1/60,false);
  const look=system.camera.getWorldDirection(new THREE.Vector3());
  assert.ok(look.dot(v.viewDirection(new THREE.Vector3()))>.999);
  const wall=box(0,6,-4,100,12,.1);c.addBody(wall.positions,wall.indices,wall.polygons);
  v.aimYaw=0;
- for(let i=0;i<60;i++)driver.updateCamera(1/60,false);
+ for(let i=0;i<60;i++)presentDriver(driver, 1/60,false);
  assert.ok(system.camera.position.z>-4);
 });
 
@@ -298,9 +299,9 @@ test('occupied seat and cockpit cameras show pending mouse aim without waiting f
  for (const first of [false,true]) {
   const {system,v,c}=fixture(); v.walking=true; v.driver={};
   const driver=new VehicleDriver({camera:system.camera,collision:c}); driver.vehicle=v;
-  driver.updateCamera(1/60,first);
+  presentDriver(driver, 1/60,first);
   driver.preview([],[[64,-16]],8,false);
-  driver.updateCamera(1/144,first);
+  presentDriver(driver, 1/144,first);
   const shown=driver.viewDirection(new THREE.Vector3());
   assert.ok(system.camera.getWorldDirection(new THREE.Vector3()).dot(shown)>.999999);
   assert.equal(v.aimYaw,0,'rendered look must not change simulation aim');

@@ -12,7 +12,7 @@ try{
  await page.route('**/flight-harness',r=>r.fulfill({contentType:'text/html',body:'<html><body style="margin:0;background:#081020"></body></html>'}));
  await page.goto(`${base}/flight-harness`);
  result=await page.evaluate(async()=>{
-  const {flightAcceptance}=await import('/tests/flight-acceptance.js');const THREE=await import('/node_modules/three/build/three.module.js');const {VehicleCamera}=await import('/src/vehicles.js');
+  const {flightAcceptance}=await import('/tests/flight-acceptance.js');const THREE=await import('/node_modules/three/build/three.module.js');const {VehicleCamera}=await import('/tests/helpers/cameras.js');
   const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});renderer.setSize(640,400);document.body.append(renderer.domElement);const captures=[];
   const results=flightAcceptance((f,cam)=>{
    const geometry=new THREE.ConeGeometry(2,5,4);geometry.rotateX(Math.PI/2);f.v.root.add(new THREE.Mesh(geometry,new THREE.MeshNormalMaterial()));

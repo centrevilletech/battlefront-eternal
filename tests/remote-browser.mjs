@@ -21,9 +21,9 @@ try {
     const cameraHandle = await page.waitForFunction(() => {
       if (!__bf.remotes.piloted) return false;
       const b = __bf, d = b.remotes.piloted;
-      b.setPerspective(false); b.remotes.updateCamera(1, false);
+      b.setPerspective(false); b.frame(1,true);
       const chase = b.camera.position.distanceTo(d.position);
-      b.setPerspective(true); b.remotes.updateCamera(1, true); b.remotes.present(0, true, true);
+      b.setPerspective(true); b.frame(1,true); b.remotes.present(0, true, true);
       const eye = b.camera.position.distanceTo(d.eye.clone().addScaledVector(d.aimDir, -.3));
       const hidden = !d.mesh.visible;
       b.setPerspective(false);

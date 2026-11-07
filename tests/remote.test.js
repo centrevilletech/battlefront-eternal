@@ -1,3 +1,4 @@
+import {CameraFrame,presentRemote} from './helpers/cameras.js';
 import { contentPath } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
@@ -8,11 +9,12 @@ import { RemoteDroids } from '../src/remote.js';
 
 const collision = { cast: () => null, gather: () => [] };
 function setup() {
-  const shots = [], blasts = [];
-  const remote = new RemoteDroids({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision,
+  const shots = [], blasts = [], cameraHost=new CameraFrame();
+  const remote = new RemoteDroids({cameraPhase:cameraHost.owner, scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision,
     lights: { flash() {} }, model: () => () => new THREE.Group(),
     fire: (def, at, dir) => shots.push({ def, at: at.clone(), dir: dir.clone() }), explode: (...args) => blasts.push(args) });
   remote.aimCamera = new THREE.PerspectiveCamera();
+  remote.cameraHost=cameraHost;
   return { remote, shots, blasts };
 }
 const fixture = { SwitchImmediately: 1, droid: { GeometryName: 'probe', weapons: [], EyePointOffset: [0, .5, 0] } };
@@ -45,11 +47,11 @@ for (const side of ['rep', 'cis', 'all', 'imp']) {
       checked++;
       const { remote, shots, blasts } = setup(), d = launch(remote, weapon);
       assert.equal(remote.piloted, d);
-      remote.aim(d, false); remote.updateCamera(1 / 60, false);
+      remote.aim(d, false); presentRemote(remote,1/60,false);
       assert.ok(remote.camera.position.distanceTo(d.position) < 5);
       remote.zoomStep = 1;
       assert.equal(remote.zoom, 2.5);
-      remote.updateCamera(1 / 60, false);
+      presentRemote(remote,1/60,false);
       assert.ok(remote.camera.position.distanceTo(d.eye.clone().addScaledVector(d.aimDir, -.5)) < 1e-5);
       remote.zoomStep = 0;
       const destruct = d.arsenal.current(1).def;

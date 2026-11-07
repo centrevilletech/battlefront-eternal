@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { PlayerCombat } from '../src/combat.js';
-import { SoldierCamera } from '../src/camera.js';
+import { SoldierCamera } from './helpers/cameras.js';
 
 function fixture() {
   const combat = Object.create(PlayerCombat.prototype);
@@ -30,7 +30,7 @@ test('reticle stays with displayed aim while authoritative aim arrives in uneven
         combat.aimBasis();
       }
       const authoritative = [combat.origin.toArray(), combat.aimDir.toArray()];
-      combat.viewEye(pose.position, eye, pose);
+      eye.copy(view.sampleEye(pose.position,pose));
       view.update(1 / 120, pose.position, pose.aimYaw, pose.aimPitch, 'stand', 1, firstPerson, eye);
       camera.updateMatrixWorld();
       combat.updateHud(null, pose);
@@ -43,12 +43,12 @@ test('reticle stays with displayed aim while authoritative aim arrives in uneven
 });
 
 test('predicted eye follows displayed feet despite a distant acknowledged position', () => {
-  const { combat, soldier } = fixture();
+  const { combat, soldier, view } = fixture();
   soldier.position.set(20, 3, 40); combat.aimBasis();
   const pose = Object.assign(Object.create(soldier), { position: new THREE.Vector3(24, 4, 45), aimYaw: 1.2, aimPitch: .3 });
-  const eye = combat.viewEye(pose.position, new THREE.Vector3(), pose);
+  const eye = view.sampleEye(pose.position,pose);
   assert.ok(eye.distanceTo(pose.position) < 2, 'eye is attached to the displayed body');
   const next = pose.position.clone().add(new THREE.Vector3(1, 0, 0));
-  const moved = combat.viewEye(next, new THREE.Vector3(), pose);
+  const moved = view.sampleEye(next,pose);
   assert.ok(moved.sub(eye).distanceTo(new THREE.Vector3(1, 0, 0)) < 1e-8);
 });

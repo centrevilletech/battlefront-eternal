@@ -24,7 +24,7 @@ export const EDITS = {
   ],
   '/src/game.js': [
     { anchor: "        case 'start': {", text: `        case 'start': {${enter('begin')}` },
-    { anchor: "        case 'cameraMatrix': simulationCamera.updateMatrixWorld(); break;", text: `        case 'cameraMatrix': simulationCamera.updateMatrixWorld();${exit('begin')}break;` },
+    { anchor: "        case 'cameraMatrix': break;", text: `        case 'cameraMatrix': ${exit('begin')}break;` },
     around('ai', 'ai.update(dt);'),
     // The unit owner includes fleet, seats, recon and separation. Their
     // old individual markers remain only in historical capture metadata.

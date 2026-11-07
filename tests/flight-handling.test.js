@@ -1,3 +1,4 @@
+import { VehicleCamera } from './helpers/cameras.js';
 import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
@@ -15,7 +16,7 @@ import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
 import { flightHandling } from '../src/vehicle-motion.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Vehicles, VehicleCamera } from '../src/vehicles.js';
+import { Vehicles } from '../src/vehicles.js';
 import { setting } from '../src/seats.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
 import { attachPage } from './helpers/page-presentation.js';

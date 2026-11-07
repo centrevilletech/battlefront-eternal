@@ -1,10 +1,11 @@
+import { VehicleCamera } from './helpers/cameras.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
-import { VehicleCamera } from '../src/vehicles.js';
+
 const run=(f,n,input={})=>{for(let i=0;i<n;i++)stepPrediction(f.system, 1/60,f.v,input);};
 const airborne=()=>{const f=fixture();f.system.flightEnvironment.bounds=null;run(f,1,{takeoff:true});run(f,240);return f;};
 // The X-wing's lift (TakeoffHeight 2.5, TakeoffSpeed 3, TakeoffTime 1): up

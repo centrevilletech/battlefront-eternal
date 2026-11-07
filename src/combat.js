@@ -314,11 +314,6 @@ export class PlayerCombat {
     return this.viewAim;
   }
 
-  viewEye(feet, out, pose) {
-    if (pose.eye) return pose.eye(feet, out);
-    return this.viewBasis(pose).eye(feet, out);
-  }
-
   // Which weapon is in the hand: a grenade for the whole throw (its model
   // gone once it leaves the hand), a repair tool at work, otherwise the
   // primary. A page drawing a soldier whose world is elsewhere knows his

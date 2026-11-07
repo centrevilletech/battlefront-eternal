@@ -1,3 +1,4 @@
+import {CameraFrame} from './helpers/cameras.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {encodeEntityRecord,encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
@@ -35,7 +36,7 @@ test('recon slots have independent capacity and terminal exact ACK ordering',asy
 test('shared recon presentation respects own-before-pose, reuse and terminal cleanup without simulation',async()=>{
  const {Scene,Object3D,Vector3}=await import('three');const {RemoteDroids}=await import('../src/remote.js');const {EntityRemotePresentation}=await import('../src/runtime/network-entity-remotes.js');
  let effects=0;const scene=new Scene(),def={base:'droid',GeometryName:'probe',weapons:[]};
- const remotes=new RemoteDroids({scene,camera:null,collision:{cast:()=>null},model:()=>()=>new Object3D(),lights:{flash(){effects++;}},fire(){effects++;},explode(){effects++;}});
+ const remotes=new RemoteDroids({cameraPhase:new CameraFrame().owner,scene,camera:null,collision:{cast:()=>null},model:()=>()=>new Object3D(),lights:{flash(){effects++;}},fire(){effects++;},explode(){effects++;}});
  const view=new EntityRemotePresentation(remotes,{definitions:new Map([[3,def]])});
  const own=remotes.createDroid(def,null,new Vector3(90,2,3),new Vector3(),0,1);own.networkSlot=live.id;own.networkGeneration=live.generation;remotes.droids.push(own);remotes.enter(own);
  view.receive(live,1);view.present(100);assert.equal(remotes.piloted,own);assert.equal(own.position.x,90,'coarse pose never overwrites own exact correction');assert.equal(remotes.droids.length,1);
@@ -58,7 +59,7 @@ test('recon capture reads shared owner controller slots and retains explicit dea
 
 test('another player\'s recon droid is drawn between the records bracketing the clock, then coasts at most 6 ticks',async()=>{
  const {Scene,Object3D}=await import('three');const {RemoteDroids}=await import('../src/remote.js');const {EntityRemotePresentation}=await import('../src/runtime/network-entity-remotes.js');
- const def={base:'droid',GeometryName:'probe',weapons:[]},remotes=new RemoteDroids({scene:new Scene(),camera:null,collision:{cast:()=>null},model:()=>()=>new Object3D(),lights:{flash(){}},fire(){},explode(){}});
+ const def={base:'droid',GeometryName:'probe',weapons:[]},remotes=new RemoteDroids({cameraPhase:new CameraFrame().owner,scene:new Scene(),camera:null,collision:{cast:()=>null},model:()=>()=>new Object3D(),lights:{flash(){}},fire(){},explode(){}});
  const view=new EntityRemotePresentation(remotes,{definitions:new Map([[3,def]])}),at=(tick,x,yaw)=>({...live,tick,position:[x,20,30],velocity:[60,0,0],yaw});
  for(const [tick,x,yaw]of [[100,10,3],[102,12,-3],[104,14,-2.9]])view.receive(at(tick,x,yaw),1);
  const droid=remotes.droids[0],x=tick=>{view.present(tick);return droid.position.x;};

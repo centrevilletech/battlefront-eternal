@@ -291,6 +291,8 @@ test(
       const input = new Float64Array(F.STRIDE + I.STRIDE),
         commands = new Float64Array(row.commands.length * C.STRIDE);
       pack(input, 0, F, row.frame);
+      // The envelope uses the current schema; frozen pose fields stay exact.
+      input[F.VERSION] = VERSION;
       pack(input, F.STRIDE, I, row.unit);
       row.commands.forEach((c, j) => pack(commands, j * C.STRIDE, C, c));
       return { input: Array.from(input), commands: Array.from(commands) };

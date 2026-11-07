@@ -31,6 +31,7 @@ mod audio_control;
 pub mod ai;
 pub mod battle;
 pub mod collision;
+mod cameras;
 pub mod client;
 pub mod combat;
 pub mod flight;

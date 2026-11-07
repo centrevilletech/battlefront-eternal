@@ -4,7 +4,6 @@ import { IW } from "../../interface/space.js";
 import { InterfaceCamera, dressModel } from "../../interface/models.js";
 import { ClassPreview } from "../classic/preview.js";
 import { SpawnStage } from "./stage.js";
-import { ShotDirector } from "./director.js";
 import { MAP_UNITS } from "./holomap.js";
 
 // The spawn screen in the front end's page look (src/menus/themes/page;
@@ -114,7 +113,7 @@ export class PageView {
     this.preview = new ClassPreview(port);
     this.stage = new SpawnStage({ hud });
     this.stage.setBody(this.preview.root);
-    this.director = new ShotDirector(port.cameraShots?.() || []);
+    this.director = port.cameraDirector(); this.shotOptions = {cut:false};
     this.logos = new Map(); // team -> { name, root, materials, extent }
     this.hoverTeam = null; // the team whose place the pointer is over
     this.spin = 0;
@@ -459,7 +458,7 @@ export class PageView {
     const view = this.director.update(this.covered ? 0 : dt);
     if (!view) return;
     if (view.cut && before >= 0 && this.stage.strength > 0.5 && this.stage.mode !== "grid") this.stage.changed("cut");
-    this.port.setViewShot?.(view, { cut: view.cut });
+    this.shotOptions.cut = view.cut; this.port.setViewShot(view, this.shotOptions);
   }
 
   // --- the look ---------------------------------------------------------

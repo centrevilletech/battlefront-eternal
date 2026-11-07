@@ -8,6 +8,10 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["web"]
+web = ["dep:wasm-bindgen"]
+
 [dependencies]
 bfe-pose = { path = "../bfe-pose" }
 serde = { version = "1", features = ["derive"] }
@@ -16,4 +20,4 @@ three = { path = "../three" }
 v8math = { path = "../v8math" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "=0.2.130"
+wasm-bindgen = { version = "=0.2.130", optional = true }

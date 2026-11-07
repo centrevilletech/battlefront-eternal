@@ -1,3 +1,4 @@
+import {CameraFrame} from './helpers/cameras.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Soldier} from '../src/soldier.js';import {PlayerCombat} from '../src/combat.js';import {Arsenal,Weapon} from '../src/weapons.js';import { CollisionWorld } from '../tools/collision-fixture.mjs';
@@ -162,7 +163,7 @@ test('ground pilot envelope restores body and rejects wrong lease without mutati
 
 test('worst recon own envelope includes full infantry/gamepad/strike replay in one datagram',async()=>{
  const {RemoteDroids}=await import('../src/remote.js'),{reconRandom}=await import('../src/runtime/recon-random.js'),{Scene,Vector3}=await import('three');
- const create=()=>new RemoteDroids({scene:new Scene(),camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});
+ const create=()=>new RemoteDroids({cameraPhase:new CameraFrame().owner,scene:new Scene(),camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});
  const source=unit(),target=unit();source.alive=true;source.team=target.team=1;
  const loadout=[...defs,{...defs[0],class:'spare-rifle'},{...defs[1],class:'spare-grenade'}].map(def=>({ShotDelay:.2,InitialSalvoDelay:0,ReloadTime:1,HeatPerShot:.2,HeatRecoverRate:.1,...def}));
  source.combat.arsenal=new Arsenal(loadout,{random:()=>.5});target.combat.arsenal=new Arsenal(loadout,{random:()=>.5});

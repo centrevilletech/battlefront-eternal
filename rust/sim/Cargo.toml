@@ -32,6 +32,8 @@ path = "src/bin/nav-twin.rs"
 required-features = ["nav-twin"]
 
 [dependencies]
+bfe-presentation = { path = "../bfe-presentation", default-features = false }
+serde_json = { version = "1", features = ["float_roundtrip"] }
 bfe-pose = { path = "../bfe-pose" }
 audio-control = { path = "../audio-control" }
 # The game's content as JavaScript loads it, and the JavaScript and

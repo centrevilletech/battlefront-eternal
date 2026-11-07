@@ -1,3 +1,4 @@
+import {presentGunner} from './helpers/cameras.js';
 import test from 'node:test';
 import golden from './fixtures/turret-view-golden.json' with { type: 'json' };
 import assert from 'node:assert/strict';
@@ -78,28 +79,28 @@ test('the page camera follows a turret it was never entered on, and poses its dr
   const gunner = pageGunner(t);
   const camera = gunner.camera;
   camera.position.set(100, 50, 100);
-  gunner.updateCamera(1 / 60, 1, false);
-  assert.ok(gunner.view, 'a view is made for the turret');
+  presentGunner(gunner, 1 / 60, 1, false);
+  assert.ok(gunner.cameraPhase, 'a native owner is bound');
   assert.ok(camera.position.distanceTo(t.position) < 5, `the chase camera sits by the turret (${camera.position.distanceTo(t.position).toFixed(2)} m)`);
   // The drum and gun as Turret.pose would leave them for the same angles.
   assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.drum)) < 1e-6, 'drum posed');
   assert.ok(t.gun.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.gun)) < 1e-6, 'gun at its recorded angles');
   // With a preview, the drum shows the previewed yaw.
   gunner.previewYaw = 0.3;
-  gunner.updateCamera(1 / 60, 1, false);
+  presentGunner(gunner, 1 / 60, 1, false);
   assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.preview.drum)) < 1e-6, 'drum at the previewed yaw');
   // Another turret: a fresh view.
-  const view = gunner.view;
+  const before = gunner.cameraPhase.owner.turretId;
   gunner.turret = turret();
-  gunner.updateCamera(1 / 60, 1, false);
-  assert.notEqual(gunner.view, view);
+  presentGunner(gunner, 1 / 60, 1, false);
+  assert.ok(gunner.cameraPhase.owner.turretId > before);
 });
 
 test('first person looks from the eye down the aim, the drum and gun hidden from inside the turret, and comes back', () => {
   const t = turret({ yaw: 0.4, pitch: -0.2 });
   const gunner = pageGunner(t);
   const camera = gunner.camera;
-  gunner.updateCamera(1 / 60, 1, true);
+  presentGunner(gunner, 1 / 60, 1, true);
   const look = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   const aim = t.viewDirection(new THREE.Vector3());
   assert.ok(look.angleTo(aim) < 1e-6, 'looks down the aim');
@@ -113,21 +114,21 @@ test('first person looks from the eye down the aim, the drum and gun hidden from
   assert.equal(meshes.length, 2);
   assert.ok(meshes.every((m) => m.layers.mask === 1 << 1), 'drum and gun on the hidden layer');
   assert.equal(gunner.hiddenRig, t);
-  gunner.updateCamera(1 / 60, 1, false);
+  presentGunner(gunner, 1 / 60, 1, false);
   assert.ok(meshes.every((m) => m.layers.mask === 1), 'shown again in third person');
-  gunner.updateCamera(1 / 60, 1, true);
+  presentGunner(gunner, 1 / 60, 1, true);
   gunner.turret = null;
   assert.ok(meshes.every((m) => m.layers.mask === 1), 'shown again on leaving');
   assert.equal(gunner.hiddenRig, null);
   // An eye above the turret's box (the Yavin tower's) keeps them in view.
   const above = turret({ eye: '0 3 0.5' });
   const g3 = pageGunner(above);
-  g3.updateCamera(1 / 60, 1, true);
+  presentGunner(g3, 1 / 60, 1, true);
   assert.equal(g3.hiddenRig, null, 'an eye outside the box keeps the drum and gun');
   // No authored eye (the Hoth turret's 0 0 0): the drum's pivot.
   const bare = turret({ eye: '0 0 0' });
   const g2 = pageGunner(bare);
-  g2.updateCamera(1 / 60, 1, true);
+  presentGunner(g2, 1 / 60, 1, true);
   const pivot = bare.drum.getWorldPosition(new THREE.Vector3());
   assert.ok(g2.camera.position.distanceTo(pivot) < 1e-6, 'eye at the drum pivot');
 });

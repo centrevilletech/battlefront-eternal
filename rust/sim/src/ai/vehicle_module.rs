@@ -492,7 +492,7 @@ pub extern "C" fn ai_vehicle_aux(op:u32) {
     use super::vehicles::{service::{Body,StationaryHelper}, reservations::ReservationService, steering};
     let mut input=Reader::new(sim().calls.args().0.to_vec());let mut out=Vec::new();let mut live=Live;
     match Aux::from_u8(op as u8).expect("vehicle auxiliary command") {
-        Aux::PadGet=>{let id=input.read();live.read(|s|s.pad_left.iter().find(|(h,_)|*h==id).map(|(_,t)|*t)).put(&mut out);}
+        Aux::PadGet=>{let id:u64=input.read();live.read(|s|s.pad_left.iter().find(|(h,_)|*h==id).map(|(_,t)|*t)).put(&mut out);}
         Aux::PadSet=>{let id=input.read();let time=input.read();live.write(|s|match s.pad_left.iter_mut().find(|(h,_)|*h==id){Some((_,t))=>*t=time,None=>s.pad_left.push((id,time))});}
         Aux::CounterGet=>live.read(|s|s.notifier.counter).put(&mut out),
         Aux::CounterSet=>{let value=input.read();live.write(|s|s.notifier.counter=value);}

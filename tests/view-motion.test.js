@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Clip, loadClips } from '../src/anim.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { FirstPersonView } from './helpers/presentation.js';
-import { FirstPersonMotion } from '../src/camera.js';
+import {CameraFrame,openCameraWorld} from './helpers/cameras.js';
 
 function constantClip(name, x) {
   return new Clip(name, {frames:2, tracks:[1], offset:0, flags:0, travel:[0,0,0]},
@@ -37,45 +37,30 @@ test('zero-time draws cannot advance a first-person transition',()=>{
   assert.ok(view.bones[1].position.distanceTo(before)<1e-8);
 });
 
+// These observations drive the full native camera phase, with an explicit
+// zero eye so its published position measures the motion's displacement.
+function motionFrame(motions={}){
+  const h=new CameraFrame(openCameraWorld(),undefined,{cameraMotions:motions});h.first=h.ownEyes=true;
+  return h;
+}
 test('stopping head bob settles from its current offset without a snap',()=>{
-  const motion=new FirstPersonMotion();
-  const soldier={velocity:new THREE.Vector3(2,0,0),air:null,dive:0,posture:'stand'};
-  motion.update(.15,soldier,true);const before=motion.offset.clone();
-  assert.ok(before.length()>.05);
-  soldier.velocity.set(0,0,0);motion.update(0,soldier,true);
-  assert.ok(motion.offset.distanceTo(before)<1e-8);
-  for(let i=0;i<30;i++)motion.update(1/60,soldier,true);
-  assert.ok(motion.offset.length()<1e-6);
+  const h=motionFrame();h.state.velocity.set(2,0,0);h.frame(.15);h.finish();const before=h.camera.position.clone();
+  assert.ok(before.length()>.05);h.state.velocity.set(0,0,0);h.frame(0);h.finish();assert.ok(h.camera.position.distanceTo(before)<1e-8);
+  for(let i=0;i<30;i++){h.frame(1/60);h.finish();}assert.ok(h.camera.position.length()<1e-6);
 });
-
 test('head-bob phase preserves elapsed time across cycle boundaries',()=>{
-  const soldier={velocity:new THREE.Vector3(2,0,0),air:null,dive:0,posture:'stand'};
-  const poses=[];
-  for(const fps of [30,60,144]) {
-    const motion=new FirstPersonMotion();for(let i=0;i<fps*3/2;i++)motion.update(1/fps,soldier,true);
-    poses.push(motion.offset.clone());
-  }
+  const poses=[];for(const fps of [30,60,144]){const h=motionFrame();h.state.velocity.set(2,0,0);for(let i=0;i<fps*3/2;i++){h.frame(1/fps);h.finish();}poses.push(h.camera.position.clone());}
   assert.ok(poses[0].distanceTo(poses[1])<1e-6&&poses[0].distanceTo(poses[2])<1e-6,JSON.stringify(poses));
 });
-
 test('camera motion velocity stays continuous across unequal key durations',()=>{
-  const zero=[0,0,0];
-  const motion=new FirstPersonMotion();
-  motion.play({Vec:[[1,0,0],[2,0,0]],Slope:[[.2,0,0],zero],Ore:[zero,zero],RSlope:[zero,zero],Time:[.1,.5]});
-  motion.step(.1);const position=motion.offset.x,velocity=motion.slope[0];
-  motion.step(1e-5);
-  assert.ok(Math.abs((motion.offset.x-position)/1e-5-velocity)<1e-3);
+  const z=[0,0,0],h=motionFrame({RollLeft:{Vec:[[1,0,0],[2,0,0]],Slope:[[.2,0,0],z],Ore:[z,z],RSlope:[z,z],Time:[.1,.5]}});
+  h.frame(0);h.finish();h.state.dive=-1;h.frame(.1);h.finish();const position=h.camera.position.x;h.frame(1e-5);h.finish();
+  assert.ok(Math.abs((h.camera.position.x-position)/1e-5+2)<1e-3);
 });
-
 test('a brief stair-contact fall does not trigger a landing camera plunge',()=>{
-  const zero=[0,0,0];
-  const motion=new FirstPersonMotion({Land:{Vec:[[0,-1,0],zero],Slope:[zero,zero],Ore:[zero,zero],RSlope:[zero,zero],Time:[.17,.17]}});
-  const soldier={velocity:new THREE.Vector3(0,-.5,0),air:'fall',dive:0,posture:'stand'};
-  motion.update(1/60,soldier,true);soldier.air=null;soldier.velocity.y=0;motion.update(1/60,soldier,true);
-  assert.equal(motion.keys,null);assert.equal(motion.offset.length(),0);
-  soldier.air='jump';soldier.velocity.y=-8;motion.update(.4,soldier,true);
-  soldier.air=null;soldier.velocity.y=0;motion.update(.17,soldier,true);
-  assert.ok(motion.offset.y<-.1&&motion.offset.y>-.36,`dip ${motion.offset.y}`);
+  const z=[0,0,0],h=motionFrame({Land:{Vec:[[0,-1,0],z],Slope:[z,z],Ore:[z,z],RSlope:[z,z],Time:[.17,.17]}}),s=h.state;
+  s.velocity.set(0,-.5,0);s.air='fall';h.frame(1/60);h.finish();s.air=null;s.velocity.y=0;h.frame(1/60);h.finish();assert.equal(h.camera.position.length(),0);
+  s.air='jump';s.velocity.y=-8;h.frame(.4);h.finish();s.air=null;s.velocity.y=0;h.frame(.17);h.finish();assert.ok(h.camera.position.y<-.1&&h.camera.position.y>-.36,`dip ${h.camera.position.y}`);
 });
 
 test('brief stair-contact flicker does not lower the first-person weapon',()=>{

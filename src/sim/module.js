@@ -30,8 +30,7 @@ export function simModule() {
 // A new instance for a battle. What the module imports from JavaScript
 // (a schema's imports) is served by the store's bridge once one is
 // attached (src/sim/runtime.js SimBridge): until then an import throws.
-export async function loadSim() {
-  const holder = { bridge: null };
+export function simImports(holder) {
   const bfe = {};
   for (const imp of IMPORT_SYMBOLS) {
     if (!imp) continue;
@@ -40,7 +39,18 @@ export async function loadSim() {
       holder.bridge.serve(imp.code);
     };
   }
-  const instance = await WebAssembly.instantiate(await simModule(), IMPORT_SYMBOLS.length > 1 ? { bfe } : {});
+  const cameraMath = {
+    camera_sin: Math.sin, camera_cos: Math.cos, camera_tan: Math.tan,
+    camera_atan: Math.atan, camera_atan2: Math.atan2, camera_asin: Math.asin,
+    camera_acos: Math.acos, camera_exp: Math.exp, camera_log: Math.log,
+    camera_pow: Math.pow, camera_hypot2: Math.hypot, camera_hypot: Math.hypot, camera_random: () => holder.cameraRandom(),
+  };
+  holder.cameraRandom = Math.random;
+  return { bfe, camera_math: cameraMath };
+}
+export async function loadSim() {
+  const holder = { bridge: null };
+  const instance = await WebAssembly.instantiate(await simModule(), simImports(holder));
   instance.holder = holder;
   return instance;
 }

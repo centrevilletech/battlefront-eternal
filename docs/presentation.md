@@ -1,7 +1,7 @@
 # Presentation records
 
-`rust/bfe-presentation` owns effect particles and displayed unit poses, clocks,
-world matrices and skin records. Both kernels run without a browser or GL
+`rust/bfe-presentation` owns effect particles, displayed unit, hull and prop
+poses, their clocks, world matrices, skin records and cameras. The kernels run without a browser or GL
 context. Browser bindings expose fixed buffers and resource registration. A
 module that fails to load, or a page built against another layout, is an
 explicit error; these phases have no JS path. A full store never fails a frame.
@@ -14,8 +14,10 @@ The effect phase consumes one ordered command batch. Body poses and first-person
 attachments use two batches: body poses, the host camera phase, then first-person
 matrices and attachments. Death and rider cameras consume the current body;
 first-person matrices consume that frame's pre-shake camera before effects read
-the gun, including on undrawn frames. Neither kernel calls the host. Moving the
-camera owner into Rust will allow these two phases to join.
+the gun, including on undrawn frames. Camera policy also runs in this crate.
+The own camera precedes body sampling so its motion cue reaches the arms that
+frame; death, recon and seat cameras consume the preceding body batch. Shared
+retained scene ownership is still needed to combine these memory owners.
 
 ## Layout and order
 
@@ -92,3 +94,44 @@ and first-person work. Animation measures the native pose call, with the own bod
 matrices; other drawn bodies are placed within the render span; HUD draw includes submission. These
 spans cannot be added to their enclosing phases. Performance comparisons use
 immutable reference and candidate builds with matched battle inputs.
+
+## Cameras
+
+`cameras::Phase` replaces SoldierCamera, FirstPersonMotion, CameraShake,
+DeathShot, the world DeathCamera, VehicleCamera, TurretCamera and
+updateFlightCamera. The page writes one generated CameraFrame and an ordered
+CameraCommand prefix, calls `camera_frame` once, then publishes CameraOutput.
+The exclusive priority is death, piloted recon, vehicle, turret, own soldier.
+Shake follows selection; a spawn shot overrides only the final position and
+turn. Both the pre-shake and final matrices, inverses and lens are native outputs.
+Three transform callbacks and camera update hooks do not recompute them.
+
+The camera kernel is linked into the raw simulation module to borrow its native
+collision store. Corner rays, exclusions and death booms stay inside that call.
+Two cold owners isolate the page clock from authority and private recon replay.
+Cold projection/death-start and spawn-selection commands do not advance a
+rendered frame. The spawn screen retains its HUD paint clock and cut notice;
+its numeric shot choice, follow turn, pan and push run in the kernel. Revisioned
+selection preserves a shot already submitted before a later UI event.
+
+Generated CameraLimits bound two owners, 256 definitions, 1,024 commands, 1,024
+spawn shots, seven motions with 64 segments, and 64 excluded collision bodies.
+Collision flags use stable body slots in the 65,536-body store. A full shake
+store admits four births in order; a full command queue drops its tail. A clear
+cancels pending births even after a paused burst. Invalid ids use an empty
+section or are ignored, and overlong motion steps have a fixed iteration bound.
+None of these conditions throws or grows a frame buffer. Synthetic phase tests
+include oversized paused bursts, every priority, frozen views and 1,200 frames
+under a native counting allocator.
+
+The WASM host supplies only standard scalar Math primitives and the cosmetic
+random stream. Electron and the server's V8 can round elementary functions
+differently; binding the current host's primitives preserves frozen camera bits.
+Native callers select the same scalar trait, with V8 arithmetic supplied here.
+Two- and three-argument norms keep their original argument count: appending
+a zero can change the last bit of a distant death-camera radius.
+There is no camera or scene callback. Scene handles, killer identity lookup,
+body/head facts, visibility publication, DOM, pointer lock and raw input remain
+host responsibilities. Frozen synthetic records cover motion, lenses, shake,
+both death styles, a style transition and a distant death handoff without
+requiring game files.

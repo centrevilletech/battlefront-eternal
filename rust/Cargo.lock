@@ -658,8 +658,10 @@ version = "0.1.0"
 dependencies = [
  "audio-control",
  "bfe-pose",
+ "bfe-presentation",
  "content",
  "jsrt",
+ "serde_json",
  "sim-replay",
  "three",
  "v8math",

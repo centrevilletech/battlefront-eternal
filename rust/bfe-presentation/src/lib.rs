@@ -1,6 +1,7 @@
 //! Persistent effect state, independent of the window, GL backend and clock.
 //! The host submits ordered commands once; the kernel publishes draw records.
 pub mod layout;
+pub mod cameras;
 use layout::{
     command as c, command_kind as ck, draw as d, draw_kind as dk, effect as e, event as ev,
     event_kind as ek, frame as f, header as h, status,
@@ -1081,7 +1082,7 @@ fn color_track(keys: &[Key], age: f64, c: &mut [f64; 4]) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
 mod web;
 
 pub mod unit_content;

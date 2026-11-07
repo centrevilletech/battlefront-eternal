@@ -1,3 +1,4 @@
+import {cameraTension} from './flight/camera.js';
 import * as THREE from "three";
 import { ownedBasicEffect } from "./rust-render/effect-material.js";
 import { descendantMuzzles } from "./muzzles.js";
@@ -454,6 +455,7 @@ export class Turret extends Building {
       else camera.offset = v;
     }
     this.camera = {
+      ...cameraTension(s,30),
       eye: new THREE.Vector3().fromArray(camera.eye),
       center: new THREE.Vector3().fromArray(camera.center),
       offset: new THREE.Vector3().fromArray(camera.offset),

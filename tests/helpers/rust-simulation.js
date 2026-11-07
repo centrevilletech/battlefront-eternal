@@ -1,5 +1,4 @@
-import { simModule } from '../../src/sim/module.js';
-import { IMPORT_SYMBOLS } from '../../src/sim/gen/imports.js';
+import { simModule, simImports } from '../../src/sim/module.js';
 import { SimBridge } from '../../src/sim/runtime.js';
 import { Ordnance } from '../../src/ordnance.js';
 import { KIND_ITEM, KIND_ITEMS } from '../../src/sim/gen/index.js';
@@ -9,9 +8,8 @@ import { attachItemsSim } from '../../src/items-sim.js';
 
 const module = await simModule();
 function bridge() {
-  const holder = { bridge: null }, bfe = {};
-  for (const imp of IMPORT_SYMBOLS) if (imp) bfe[imp.symbol] = () => holder.bridge.serve(imp.code);
-  const instance = new WebAssembly.Instance(module, { bfe });
+  const holder = { bridge: null };
+  const instance = new WebAssembly.Instance(module, simImports(holder));
   instance.holder = holder;
   return new SimBridge(instance, { tests: { ...ordnanceTests,
     emitter: value => typeof value?.viewDirection === 'function',

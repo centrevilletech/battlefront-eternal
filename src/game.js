@@ -25,7 +25,7 @@ import { FlightDebug } from './flight/debug.js';
 import { lockedUnit, hasMissileLock, targetingWeapon } from "./weapon-targeting.js";
 import { createChat } from "./chat.js";
 import { followBattle } from "./presence.js";
-import { Vehicle, Vehicles, VehicleDriver, VehicleCamera } from "./vehicles.js";
+import { Vehicle, Vehicles, VehicleDriver } from "./vehicles.js";
 import { VehicleEffects } from "./vehicle-effects.js";
 import { TurretSeats } from "./seats.js";
 import * as THREE from "three";
@@ -33,13 +33,13 @@ import { Debris } from "./debris.js";
 import { givePowerup, Items } from "./items.js";
 import { RemoteDroids, BODY_RADIUS as DROID_RADIUS } from "./remote.js";
 import { BLAST_BODY } from "./combat.js";
-import { CameraShake } from "./camera-shake.js";
+import { PageCameras } from "./presentation/cameras.js";
 import { resolveOrdnanceOwner } from "./ordnance-owner.js";
 import { reconRandom } from "./runtime/recon-random.js";
 import { Lightning } from "./lightning.js";
 import { lighting } from "./materials.js";
-import { DeathCamera, SoldierCamera, deadFov } from "./camera.js";
-import { DeathShot } from "./death-shot.js";
+import { DeathCamera } from "./camera.js";
+
 import { DeathTrace } from "./death-trace.js";
 import { setAnimKernel } from "./anim.js";
 import { CollisionWorld } from "./collision.js";
@@ -492,20 +492,22 @@ async function start() {
     seed: params.has("seed") ? SEED : (Math.random() * 0x100000000) >>> 0,
   }) : null;
   graphics.localLights.collision = collision;
-  const view = new SoldierCamera(camera, collision, { ...soldierDef, cameraMotions: common.cameraMotions }, { responsive: true });
+  const pageCameras = headless ? null : new PageCameras(simInstance, collision, camera, soldierDef, common.cameraMotions, false, world.spawnScreen?.cameraShots || []);
   const simulationCamera = camera.clone();
-  const simulationView = new SoldierCamera(simulationCamera, collision, soldierDef, { responsive: true });
-  const simulationEye = new THREE.Vector3();
+  const aimCameras = new PageCameras(simInstance, collision, simulationCamera, soldierDef, null, true);
+  aimCameras.displayOwner = pageCameras;
+  const simulationView = aimCameras.view;
+  const view = headless ? simulationView : pageCameras.view;
   // The zoom the world's soldier camera last had (1 in a vehicle or turret).
   let simulationZoom = 1;
   // The death camera (src/camera.js): from his death until he has a body
   // again it is the world's camera, the one the Classic AI's scheduling
   // reads, as the original's is the camera everything sees. So it steps in
   // the world tick from the world alone.
-  const deathView = new DeathCamera(collision);
+  const deathView = new DeathCamera(collision, aimCameras);
   // What the page draws meanwhile (src/death-shot.js): its own camera, from
   // the body and the killer as they are drawn, in every host.
-  const deathShot = headless ? null : new DeathShot({
+  const deathShot = headless ? null : ({
     world: collision,
     refs: {
       get units() { return units; },
@@ -939,6 +941,7 @@ async function start() {
   // Recon droids the scouts throw and fly. They know every side's fire
   // points: a droid flies on after its thrower has taken another class.
   const remotes = new RemoteDroids({
+    cameraPhase: aimCameras,
     scene,
     camera,
     collision,
@@ -973,7 +976,7 @@ async function start() {
   // it shows, measured to what the camera follows: the droid he flies, the
   // hull he drives, else his body as drawn (at a turret too). The death
   // camera follows nothing and is not shaken.
-  const cameraShake = headless ? null : new CameraShake();
+  const cameraShake = headless ? null : pageCameras.shake;
   const shakeTarget = { position: new THREE.Vector3(), radius: 0 }, shakeSphere = new THREE.Vector3();
   function cameraTarget() {
     if (deathView.active || !combat || combat.dead || playerUnit.removed) return null;
@@ -1194,7 +1197,7 @@ async function start() {
   // The first-person view: the body's arms rig with the first-person
   // weapons (src/player-body.js). The view's motions cue whichever arms he
   // has now.
-  view.motion.onCue = (seconds) => firstPersonView?.cue(seconds);
+
 
   // Droids and turrets. The droids serve whoever stands near them; E gets the
   // soldier into the turret in front of him, and out again. Turrets start as
@@ -1279,7 +1282,7 @@ async function start() {
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
     driver.onRelease = () => { controls.clear(); worldControls.clear(); };
-    driver.aimView = new VehicleCamera(simulationCamera, collision, true);
+    driver.aimView = { cameraSet: false, speedEffect: 0 };
     hud.vehicles = vehicles;
     if (live) { live.vehicleTargets = vehicles.vehicles; live.playerTeam = playerTeam; }
     hud.preload(Object.values(vehicleDef.classes).flatMap(v => [v.settings.HealthTexture, v.settings.MapTexture,
@@ -1563,7 +1566,7 @@ async function start() {
   // page that shows the player works out his warning.
   const battlefield = new Battlefield(ai?.nav?.boundary ?? await loadBoundary(`${mapDir}/ai-nav.json`));
   const leavingWarning = headless ? null : new LeavingWarning();
-  const eyePoint = new THREE.Vector3();
+
 
   // The jetpack's flames (the class's JetEffect; its effects come with the
   // body), hung from the ribcage while the soldier hovers; when he stops
@@ -1664,9 +1667,8 @@ async function start() {
       deathView.stop();
       return;
     }
-    const across = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(simulationCamera.fov) / 2) * simulationCamera.aspect);
-    const fov = simulationZoom > 1 ? simulationView.firstFov : across;
-    deathView.start(simulationCamera, soldier.position, Boolean(deathKiller), deadFov(fov, worldClock.dt));
+    deathView.start(simulationCamera, soldier.position, Boolean(deathKiller),
+      simulationZoom > 1 ? simulationView.firstFov : null, worldClock.dt);
     deathView.blame(deathKiller, battle.characters, vehicles?.vehicles);
   }
   // Online the page takes no damage itself: the server's damage and death
@@ -1913,15 +1915,20 @@ async function start() {
           unitsSim.x.f4_viewpoint_clock();
           unitsSim.sync();
           break;
-        case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
-        case 'deathCamera': deathView.update(dt, playerUnit.removed ? null : soldier.position, killerEyes()); deathView.apply(simulationCamera); break;
-        case 'remoteCamera': remotes.updateCamera(dt, firstPerson, true); break;
-        case 'driverCamera': driver.aimView.update(driver.vehicle, dt, firstPerson); break;
-        case 'gunnerCamera': gunner.updateCamera(dt, 1, firstPerson, true); break;
+        case 'eye': simulationZoom = 1; break;
+        case 'deathCamera':
+        case 'remoteCamera':
+        case 'driverCamera':
+        case 'gunnerCamera':
+        case 'camera':
+          aimCameras.hasFeet = !playerUnit.removed;
+          aimCameras.killerEyes = deathView.active ? killerEyes() : null;
+          aimCameras.frame(dt, false, soldier.position, soldier, soldier, combat,
+            combat.usesEyeView && !deathView.active && !remotes.active && !driver?.active && !gunner.active,
+            firstPerson, null, deathView, null, remotes, driver, gunner, null, "classic", null);
+          aimCameras.finish(); break;
         case 'zoom': simulationZoom = combat.zoom; break;
-        case 'camera': simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
-          soldier.air ? 'stand' : soldier.posture, combat.zoom, flag, flag ? simulationEye : null); break;
-        case 'cameraMatrix': simulationCamera.updateMatrixWorld(); break;
+        case 'cameraMatrix': break;
         case 'ai':
           // Authority sensors share foreign facts for this AI update. Page
           // prediction has no unit authority or foreign prop input span.
@@ -2627,7 +2634,7 @@ async function start() {
     // them hold, before any body is drawn (src/props.js). Held, his own
     // body is the creature's: in his clip, his root on its node.
     pageProps?.present(frozen ? 0 : dt, client?.clock ?? worldClock.tick);
-    const unitsStart = runtimeProfile?.start();
+    let unitsStart = runtimeProfile?.start();
     const held = playerUnit.held?.frame ? playerUnit.held : null;
     if (held) visual.setFromMatrixPosition(held.frame);
     const renderedSoldier = presentation.state;
@@ -2642,10 +2649,19 @@ async function start() {
     unitView.position.copy(camera.position);
     unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     const ownEyes = combat.usesEyeView && !combat.dead && !gunner.active && !driver?.active && !remotes.active;
-    // Camera motion only reads the predicted visual snapshot. Queue its
-    // arms cue before the one native animation call, then place the camera
-    // after the native body pose is available to the death camera.
-    if(!frozen)view.motion.update(dt,renderedSoldier,ownEyes);
+    // The own camera consumes only the predicted snapshot. Its motion cue
+    // precedes the body/arms batch; held, death and seat views need this
+    // frame's posed nodes, so their one camera call waits for those nodes.
+    const cameraAfterPose = deathView.active || remotes.active || driver?.active || gunner.active;
+    if (!cameraAfterPose) {
+      runtimeProfile?.finish("unitPresentation", unitsStart);
+      const ownCameraStart = runtimeProfile?.start();
+      const cue = pageCameras.frame(dt, frozen, visual, renderedSoldier, soldier, combat, ownEyes, firstPerson,
+        null, deathView, deathShot, remotes, driver, gunner, ribcage, settings.get("deathCamera"), viewShot);
+      if (cue > 0) firstPersonView?.cue(cue);
+      runtimeProfile?.finish("camera", ownCameraStart);
+      unitsStart = runtimeProfile?.start();
+    }
     pageUnits.begin(frozen?0:dt,unitView.frame,unitView);
     // The hulls in the native phase, the tethers from them, then his own
     // predicted hull over its source (a second batch: the tethers read the
@@ -2674,35 +2690,19 @@ async function start() {
     updateJetFlame(frozen ? 0 : dt);
     runtimeProfile?.finish("unitPresentation", unitsStart);
     const cameraStart = runtimeProfile?.start();
-    // In first person the eye is where the aim puts it, moving as he runs,
-    // dives, lies down, gets up, and lands.
-    if (ownEyes) combat.viewEye(visual, eyePoint, renderedSoldier);
-    // Dead, the page's death camera (src/death-shot.js), the drawn camera's
-    // only writer, from the body and the killer as drawn this frame; it
-    // doesn't shake. Alive, it watches the view it will take over.
-    if (deathView.active) deathShot.frame(frozen ? 0 : dt, camera, deathView, visual, ribcage, settings.get("deathCamera"));
-    else if (remotes.active) remotes.updateCamera(dt, firstPerson);
-    else if (driver?.active) driver.updateCamera(frozen ? 0 : dt, firstPerson);
-    else if (gunner.active) gunner.updateCamera(dt, 1, firstPerson);
-    else view.update(dt, visual, renderedSoldier.aimYaw, renderedSoldier.aimPitch, soldier.air ? "stand" : soldier.posture, combat.zoom, ownEyes, ownEyes ? eyePoint : null);
-    if (!deathView.active) deathShot.watch(camera, frozen ? 0 : dt);
+    // Held and seat cameras consume this frame's body and rig records.
+    // The native branch keeps the death, recon, vehicle and turret priority.
+    if (cameraAfterPose) pageCameras.frame(dt, frozen, visual, renderedSoldier, soldier, combat, ownEyes, firstPerson,
+      null, deathView, deathShot, remotes, driver, gunner, ribcage, settings.get("deathCamera"), viewShot);
     layBody();
     // The arms hang from the view before any shake, so they shake with the
     // world.
-    camera.updateMatrixWorld();
     const firstPersonStart=runtimeProfile?.start();
     pageUnits.finishView(camera,frozen?0:dt);
     runtimeProfile?.finish("unitPresentation",firstPersonStart);
     if (driver?.active) combat.clearCharge();
     else combat.presentCharge(frozen ? 0 : dt);
-    cameraShake?.apply(camera, frozen ? 0 : dt, deathView.active);
-    // The spawn screen's camera shot, in place of his view while it is set.
-    // Only what is drawn (and heard) moves; the world's camera stays.
-    if (viewShot) {
-      camera.position.copy(viewShot.position);
-      camera.quaternion.copy(viewShot.quaternion);
-    }
-    camera.updateMatrixWorld();
+    pageCameras.finish();
     runtimeProfile?.finish("camera", cameraStart);
     runtimeProfile?.phase("audio");
     // Paused, the audio's own clock still runs (the menu's sounds; the
@@ -3001,6 +3001,7 @@ async function start() {
     // A body of the class for the screen to draw, outside the world.
     previewBody: (className) => bodies.preview(className),
     // The mission's AddCameraShot views, in the world's frame.
+    cameraDirector: () => pageCameras.director,
     cameraShots: () => (world.spawnScreen?.cameraShots || []).map((shot) => ({ position: [...shot.position], quaternion: [...shot.quaternion] })),
     // A fresh copy of a model from the common hologram pack (the side logos
     // com_icon_republic, _cis, _imperial and _alliance; the shell_cube room),
@@ -3016,6 +3017,10 @@ async function start() {
     // moves on from the last (cut false: a drifting camera) keeps the
     // temporal upscaler's history, as the player's own view does.
     setViewShot(shot, { cut = true } = {}) {
+      if (shot?.director) {
+        if (cut || !viewShot) graphics.resetHistory?.();
+        viewShot = shot; return;
+      }
       const valid = Array.isArray(shot?.position) && shot.position.length === 3 && Array.isArray(shot?.quaternion) && shot.quaternion.length === 4 &&
         [...shot.position, ...shot.quaternion].every(Number.isFinite);
       const next = valid ? { position: new THREE.Vector3().fromArray(shot.position), quaternion: new THREE.Quaternion().fromArray(shot.quaternion).normalize() } : null;

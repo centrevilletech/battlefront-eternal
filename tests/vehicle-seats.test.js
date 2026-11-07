@@ -1,3 +1,4 @@
+import { VehicleCamera } from './helpers/cameras.js';
 import { contentURL } from './helpers/content.js';
 // Vehicle seats as the 2004 game reads them (docs/formats.md "Vehicle
 // seats"): who shows as a rider, the turret arcs, where the guns aim and fire
@@ -8,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
-import { Vehicles, VehicleCamera, VehicleDriver } from '../src/vehicles.js';
+import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 import { packWith, vehiclePacks } from '../tools/vehicle-packs.mjs';
 import { attachPage } from './helpers/page-presentation.js';
 
@@ -100,7 +101,9 @@ test('a turret seat without a node takes its pivot from its section; walker gunn
   const eye = atst.seatEye(1, new THREE.Vector3()).sub(atst.position);
   near(eye.y, 8, 1e-6, 'the AT-ST gunner\'s eye height');
   const frame = atst.seatFrame(1, new THREE.Matrix4());
-  const camera = atst.cameraRest(1, frame, new THREE.Vector3()).sub(atst.position);
+  const native = new VehicleCamera(new THREE.PerspectiveCamera(), atst.system.collision, true);
+  atst.seatIndex=1;native.update(atst,1/60,false);
+  const camera = native.camera.position.clone().sub(atst.position);
   assert.ok(camera.y > 8.5 && camera.y < 11, `the AT-ST gunner's chase camera above the head: ${camera.y}`);
   // The AT-AT gunner's section repeats its limits; the second pair holds:
   // 20 degrees up to 15 down, 25 left to 20 right.
@@ -180,8 +183,6 @@ test('the seat camera hangs from the seat: chase at TrackCenter and TrackOffset,
   v.seedPose();
   view.update(v, 1 / 60, false);
   const frame = v.seatFrame(1, new THREE.Matrix4());
-  const rest = v.cameraRest(1, frame, new THREE.Vector3());
-  assert.ok(camera.position.distanceTo(rest) < 1e-6, 'nothing in the way: the camera rests where the section puts it');
   // TrackCenter (0, 1, -1) in the aim frame and TrackOffset (0, 0, 2) behind.
   const aim = v.viewDirection(new THREE.Vector3());
   const pivot = new THREE.Vector3(0, 1, -1).applyMatrix4(frame);
@@ -198,5 +199,6 @@ test('the seat camera hangs from the seat: chase at TrackCenter and TrackOffset,
   view.cameraSet = false;
   view.update(v, 1 / 60, true);
   near(camera.fov, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(39 * DEG) / camera.aspect)), 1e-6, 'the ground driver cockpit FOV is 78');
-  assert.ok(camera.position.distanceTo(new THREE.Vector3(0, 2, 0).applyMatrix4(view.hullFrame(v, new THREE.Matrix4()))) < 1e-6);
+  const hull=new THREE.Matrix4().compose(v.position,new THREE.Quaternion().setFromEuler(new THREE.Euler(-v.tilt,v.yaw,v.roll,"YXZ")),new THREE.Vector3(1,1,1));
+  assert.ok(camera.position.distanceTo(new THREE.Vector3(0, 2, 0).applyMatrix4(hull)) < 1e-6);
 });

@@ -1,3 +1,4 @@
+import {TurretCamera, presentGunner} from './helpers/cameras.js';
 import { contentPath } from './helpers/content.js';
 import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 // The views and aim of a manned turret (src/props.js Turret, src/gunner.js
@@ -15,7 +16,7 @@ import { makeHit } from '../src/collision.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Turret, scanVector } from '../src/props.js';
 import { TurretSeats, turretAimPoint } from '../src/seats.js';
-import { Gunner, TurretCamera, previewSteer } from '../src/gunner.js';
+import { Gunner, previewSteer } from '../src/gunner.js';
 import { blankIntent } from '../src/units.js';
 import { VehicleAI } from '../src/ai/classic/vehicles/index.js';
 
@@ -220,7 +221,7 @@ test('the reticle stays on the aim point while a wall pulls the chase camera in'
   const camera = new THREE.PerspectiveCamera(); camera.aspect = 16 / 9;
   const gunner = new Gunner({ camera, collision, ordnance: null, combat: null, animator: { gunner() {}, clips: new Map() } });
   gunner.turret = t;
-  gunner.updateCamera(1 / 60, 1, false);
+  presentGunner(gunner, 1 / 60, 1, false);
   assert.ok(camera.position.distanceTo(t.cameraRest(new THREE.Vector3())) > 0.3, 'pulled in off its rest');
   const point = turretAimPoint(t, false, t.viewDirection(new THREE.Vector3()), collision, null, null, new THREE.Vector3(), { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() });
   const dir = gunner.reticleDirection(new THREE.Vector3());

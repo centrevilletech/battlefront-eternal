@@ -17,7 +17,8 @@ import { MeshBVH } from './mesh-bvh.js';
 // copies go with it when the battle ends (a dedicated server loads one
 // battle after another).
 export async function loadRayKernel(instance = null) {
-  return new RayKernel((instance ?? await loadSim()).exports);
+  instance ??= await loadSim();
+  const kernel = new RayKernel(instance.exports); kernel.instance = instance; return kernel;
 }
 
 export class RayKernel {

@@ -1,7 +1,8 @@
+import {CameraFrame} from './helpers/cameras.js';
 import test from 'node:test';import assert from 'node:assert/strict';import {Vector3} from 'three';
 import {reconRandom} from '../src/runtime/recon-random.js';
 import {RemoteDroids} from '../src/remote.js';import {captureRemoteReplay,restoreRemoteReplay} from '../src/runtime/network-remote-replay.js';
-function fixture(){const context=new RemoteDroids({scene:{add(){},remove(){}},camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});context.random=reconRandom(123,1);
+function fixture(){const context=new RemoteDroids({cameraPhase:new CameraFrame().owner,scene:{add(){},remove(){}},camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});context.random=reconRandom(123,1);
  const def={SwitchImmediately:1,droid:{weapons:[{base:'blaster',class:'probe_gun',channel:0,RoundsPerClip:0,ShotDelay:.2,ReloadTime:1,ordnance:{}}],AddHealth:-1}};
  return {context,droid:context.launch({def},new Vector3(0,2,0),new Vector3(),0,1)};}
 const controls={take:()=>false,held:()=>false};

@@ -3,14 +3,12 @@
 
 import { stepTurretPreview } from './runtime/turret-prediction.js';
 import * as THREE from "three";
-import { makeHit } from "./collision.js";
-import { cameraTension, easeAxes } from "./flight/camera.js";
 
 import { poseTurret, unseatBody, turretAimPoint } from "./seats.js";
 
 // Page view of the player at a turret. EntitySeats installs the world's lease;
-// preview() shows unacknowledged look, updateCamera() poses the drawn drum and
-// gun, and poseBody() attaches the visible rider. None steps a weapon or crew.
+// preview() shows unacknowledged look, poseBody() poses the drawn drum and
+// gun and attaches the visible rider. None steps a weapon or crew.
 // First-person eyes inside the hull hide its rig just as a cockpit does.
 
 const LOOK_SCALE = 2048; // counts x sensitivity per unit of turn rate, as for soldiers
@@ -29,9 +27,6 @@ export class Gunner {
     this.animator = animator;
     this.hiddenLayer = hiddenLayer;
     this._turret = null;
-    this.view = null;
-    this.simulationView = null;
-    this.viewTurret = null; // the turret the views were made for
     this.hiddenRig = null; // the turret whose drum and gun are hidden (first person)
     // What the page shows over the world's aim: the looks it has not taken
     // yet and the way through the tick (preview()).
@@ -41,7 +36,7 @@ export class Gunner {
     this.shownYaw = 0;
     this.shownPitch = 0;
     this.eye = new THREE.Vector3();
-    this.firstPerson = false; // the world's view: where its aim starts (updateCamera)
+    this.firstPerson = false; // the world's view: where its aim starts (the camera phase)
     this.viewFirstPerson = false; // the page's view: where its reticle's aim starts
     this.reticlePoint = new THREE.Vector3();
     this.lookX = 0;
@@ -100,16 +95,6 @@ export class Gunner {
   look(dx, dy, sensitivity, invert) {
     this.lookX += dx * sensitivity;
     this.lookY += (invert ? dy : -dy) * sensitivity;
-  }
-
-  // The views for a turret (TurretCamera, its own camera section), afresh
-  // for each turret manned: the page's, and the world's on simulation's
-  // camera where it has one.
-  viewsFor(turret) {
-    if (this.viewTurret === turret && this.view) return;
-    this.viewTurret = turret;
-    this.view = new TurretCamera(this.camera, this.collision, turret);
-    this.simulationView = this.aimCamera ? new TurretCamera(this.aimCamera, this.collision, turret) : null;
   }
 
   // The drum ahead of the world: from the aim the world last gave, steered
@@ -215,149 +200,7 @@ export class Gunner {
     return true;
   }
 
-  // The turret's camera along its aim, and the drum and gun as the page
-  // shows them: the drum at the previewed yaw, the gun at its own angles
-  // (the world's, or the worker's as replicated). simulation: the world's
-  // own view, never previewed; which perspective it has is the one the
-  // world's aim starts from (update()).
-  updateCamera(dt, zoom, firstPerson, simulation = false) {
-    const turret = this.turret;
-    if (!turret) return;
-    this.viewsFor(turret);
-    const view = simulation ? this.simulationView : this.view;
-    if (simulation) this.firstPerson = Boolean(firstPerson);
-    if (!view) return;
-    if (simulation) {
-      view.update(dt, turret, turret.yaw, turret.pitch, firstPerson, zoom);
-      return;
-    }
-    this.shownAim();
-    this.viewFirstPerson = Boolean(firstPerson);
-    const yaw = turret.yaw + this.previewYaw;
-    poseTurret(turret, yaw, this.shownPitch);
-    // First person from inside the turret's box: the drum and gun leave the
-    // view (an eye above or behind it, the Yavin tower's or the AAA's,
-    // keeps them, as a saddle keeps its hull).
-    this.hideRig(firstPerson && turret.encloses?.(this.eyePoint(this.eye)) ? turret : null);
-    // His body out of sight where the turret hides its gunner, on any page
-    // (update() keeps the world's so; a server sends no such thing).
-    const root = this.animator?.actor?.root;
-    if (root) root.visible = !turret.hidesGunner;
-    view.update(dt, turret, yaw, this.shownPitch, firstPerson, zoom);
-  }
 }
-
-// A turret seat's camera, as the 2004 game's (the seat's camera on the
-// camera section; docs/formats.md "Vehicle seats"). Behind the
-// gun, it looks along the aim with the aim frame's up, pitched down by
-// TiltValue, from TrackCenter in the aim frame plus TrackOffset in its own
-// (Turret.cameraRest); its turn follows the mouse at once (a player's aim
-// already has its final direction, as a vehicle seat's), and each of its
-// axes eases toward where it should be at MoveTension, 30/s unless the
-// class sets it. Five rays from 1.5 m up in the aim frame, the turret
-// itself left out, pull it in at walls at once; it eases back out at 6/s.
-// More than 80 m from where it should be, it jumps. In first person it is
-// at the eye looking straight down the aim. Both fields of view are the
-// class's (48 degrees across); zoomed, the first person's, narrowed by the
-// zoom.
-const RAY_ORIGIN = Object.freeze(new THREE.Vector3(0, 1.5, 0));
-const CAMERA_RATE = 30; // 1/s
-const CAMERA_SNAP = 80; // m
-const CORNER = 0.4; // m: offset of the four corner rays
-const CAMERA_SKIN = 0.08; // m: keeps the near plane off what the rays hit
-const RETURN_RATE = 6; // 1/s
-const FOV_RATE = 25; // 1/s
-const RAYS = Object.freeze([0, 0, 1, 1, 1, -1, -1, 1, -1, -1]);
-
-export class TurretCamera {
-  constructor(camera, collision, turret) {
-    this.camera = camera;
-    this.collision = collision;
-    const tension = cameraTension(turret?.desc?.settings || {}, CAMERA_RATE);
-    this.moveTension = tension.moveTension;
-    this.fov = null;
-    this.reach = 1;
-    this.fresh = true;
-    this.pivot = new THREE.Vector3();
-    this.target = new THREE.Vector3();
-    this.origin = new THREE.Vector3();
-    this.boom = new THREE.Vector3();
-    this.right = new THREE.Vector3();
-    this.up = new THREE.Vector3();
-    this.dir = new THREE.Vector3();
-    this.hit = makeHit();
-    camera.rotation.order = "YXZ";
-  }
-
-  reset() {
-    this.fresh = true;
-    this.reach = 1;
-  }
-
-  // The field of view across eases toward the view's (25/s), narrowed by a
-  // zoom; the renderer's vertical one follows the window's shape.
-  updateFov(dt, turret, zoom, firstPerson) {
-    const base = firstPerson || zoom > 1 ? turret.camera.firstFov : turret.camera.thirdFov;
-    const want = 2 * Math.atan(Math.tan(base / 2) / Math.max(zoom, 1));
-    this.fov = this.fov === null ? want : this.fov + (want - this.fov) * (1 - Math.exp(-FOV_RATE * dt));
-    const cam = this.camera;
-    const vertical = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(this.fov / 2) / (cam.aspect || 1)));
-    if (cam.fov !== vertical) {
-      cam.fov = vertical;
-      cam.updateProjectionMatrix?.();
-    }
-  }
-
-  // yaw: the aim's from the building's heading; pitch up positive.
-  update(dt, turret, yaw, pitch, firstPerson = false, zoom = 1) {
-    const cam = this.camera;
-    this.updateFov(dt, turret, zoom, firstPerson);
-    if (firstPerson) {
-      turret.cameraTurn(cam.quaternion, yaw, pitch, 0);
-      turret.eyePoint(cam.position, yaw, pitch);
-      cam.updateMatrixWorld();
-      this.fresh = true;
-      return;
-    }
-    turret.cameraRest(this.target, yaw, pitch, this.pivot);
-    turret.cameraTurn(cam.quaternion, yaw, pitch);
-    this.origin.copy(RAY_ORIGIN).applyMatrix4(turret.frameMatrix);
-    const snap = this.fresh || cam.position.distanceTo(this.target) > CAMERA_SNAP;
-    this.boom.subVectors(this.target, this.origin);
-    const reach = this.clearance(turret, cam.quaternion);
-    if (snap || reach < this.reach) this.reach = reach;
-    else this.reach += (reach - this.reach) * (1 - Math.exp(-RETURN_RATE * dt));
-    this.target.copy(this.origin).addScaledVector(this.boom, this.reach);
-    if (snap) cam.position.copy(this.target);
-    else {
-      easeAxes(cam, this.target, this.moveTension, dt);
-      // The eased spot can lag behind a new wall: check where it will draw.
-      this.boom.subVectors(cam.position, this.origin);
-      const clear = this.clearance(turret, cam.quaternion);
-      if (clear < 1) cam.position.copy(this.origin).addScaledVector(this.boom, clear);
-    }
-    this.fresh = false;
-    cam.updateMatrixWorld();
-  }
-
-  // The share of the boom (from origin) that is clear: the nearest hit of
-  // the centre ray and four to the camera's corners, the turret left out.
-  clearance(turret, q) {
-    if (this.boom.lengthSq() < 1e-8 || !this.collision) return 1;
-    this.right.set(CORNER, 0, 0).applyQuaternion(q);
-    this.up.set(0, CORNER, 0).applyQuaternion(q);
-    let reach = 1;
-    for (let k = 0; k < RAYS.length; k += 2) {
-      this.dir.copy(this.boom).addScaledVector(this.right, RAYS[k]).addScaledVector(this.up, RAYS[k + 1]);
-      const far = this.dir.length();
-      this.dir.divideScalar(far);
-      const hit = this.collision.cast(this.origin, this.dir, far + CAMERA_SKIN, this.hit, turret.bodies?.built || null);
-      if (hit) reach = Math.min(reach, Math.max(0, hit.distance - CAMERA_SKIN) / far);
-    }
-    return reach;
-  }
-}
-
 const TICK = 1 / 60;
 const wrap = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
 

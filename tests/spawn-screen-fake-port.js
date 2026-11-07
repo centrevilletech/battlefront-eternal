@@ -1,3 +1,4 @@
+import {CameraFrame,openCameraWorld} from './helpers/cameras.js';
 // A stand-in for the world's spawn port (docs/human-spawn.md "The spawn port";
 // the real one is game.js spawnPort), for the spawn screen's tests and for
 // showing the screen over a living player (src/spawn-screen/debug.js).
@@ -9,7 +10,7 @@
 // the real port's bodies, models and camera when it has them.
 
 export class FakeSpawnPort {
-  constructor({ teams = {}, rosters = {}, posts = [], human = {}, shots = [], commonModel = null, previewBody = null, setViewShot = null, autoSpawn = true, canSwitchTeams = true } = {}) {
+  constructor({ teams = {}, rosters = {}, posts = [], human = {}, shots = [], commonModel = null, previewBody = null, setViewShot = null, cameraDirector = null, autoSpawn = true, canSwitchTeams = true } = {}) {
     this.data = { teams, rosters, posts };
     this.human = { phase: "unspawned", team: 1, className: null, classIndex: 0, post: null, canSwitchTeams, ...human };
     this.shots = shots;
@@ -20,7 +21,7 @@ export class FakeSpawnPort {
     this.listeners = new Map();
     this.models = commonModel;
     this.bodies = previewBody;
-    this.viewShot = setViewShot;
+    this.viewShot = setViewShot; this.directorProvider = cameraDirector;
   }
 
   on(event, fn) {
@@ -31,6 +32,12 @@ export class FakeSpawnPort {
 
   emit(event, detail) {
     for (const fn of this.listeners.get(event) || []) fn(detail);
+  }
+
+  cameraDirector() {
+    if(this.directorProvider)return this.directorProvider();
+    this.cameraOwner ||= new CameraFrame(openCameraWorld(),undefined,{},false,this.shots).owner;
+    return this.cameraOwner.director;
   }
 
   humanState() {
@@ -186,6 +193,7 @@ export async function livePort(bf, { phase = "awaiting", team = null } = {}) {
     posts: [],
     human: { ...human, phase, team: team ?? human.team ?? 1, classIndex: human.classIndex ?? 0 },
     shots: real?.cameraShots?.() || world.spawnScreen?.cameraShots || [],
+    cameraDirector: real ? real.cameraDirector.bind(real) : null,
     commonModel: (name) => real?.commonModel?.(name) ?? null,
     previewBody: (className) => real?.previewBody?.(className) ?? null,
     setViewShot: (shot) => real?.setViewShot?.(shot),

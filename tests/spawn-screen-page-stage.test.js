@@ -1,8 +1,9 @@
+import {CameraFrame,openCameraWorld} from './helpers/cameras.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { CameraRig, Spring, BODY } from "../src/spawn-screen/page/rig.js";
-import { ShotDirector, HOLD } from "../src/spawn-screen/page/director.js";
+import { HOLD } from "../src/spawn-screen/page/director.js";
 
 const near = (a, b, e = 1e-3) => Math.abs(a - b) <= e;
 
@@ -57,8 +58,17 @@ const SHOTS = [
   { position: [100, 10, 0], quaternion: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2).toArray() }, // looking -x
 ];
 
+// Read poses only after the same coarse phase that renders the battle.
+function directorFixture(shots){
+  const h=new CameraFrame(openCameraWorld(),undefined,{},false,shots),d=h.owner.director;
+  return {get index(){return d.index;},follow:p=>d.follow(p),update(dt){
+    const record=d.update(dt);if(!record)return null;h.spawn=record;h.frame(0,true);h.finish();
+    return {cut:record.cut,position:h.camera.position.toArray(),quaternion:h.camera.quaternion.toArray()};
+  }};
+}
+
 test("the battle behind: a shot held, drifting, then a cut to the next", () => {
-  const director = new ShotDirector(SHOTS);
+  const director = directorFixture(SHOTS);
   const first = director.update(0.016);
   assert.equal(first.cut, true);
   assert.equal(director.index, 0);
@@ -69,11 +79,11 @@ test("the battle behind: a shot held, drifting, then a cut to the next", () => {
   const next = director.update(HOLD);
   assert.equal(next.cut, true);
   assert.equal(director.index, 1);
-  assert.equal(new ShotDirector([]).update(1), null, "no shots, no view");
+  assert.equal(directorFixture([]).update(1), null, "no shots, no view");
 });
 
 test("a post picked brings up the shot that sees it best, turned partway to it", () => {
-  const director = new ShotDirector(SHOTS);
+  const director = directorFixture(SHOTS);
   director.update(0.016);
   // West of the second shot, which looks -x at it.
   director.follow([60, 0, 0]);

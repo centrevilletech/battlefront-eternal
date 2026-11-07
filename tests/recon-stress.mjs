@@ -1,3 +1,4 @@
+import {CameraFrame,presentRemote} from './helpers/cameras.js';
 // Recon droid stress under Node: real extracted content, no renderer. An
 // authoritative world (the world worker's local server, or a dedicated
 // match with several players over a lossy link) feeds pages that apply its
@@ -59,6 +60,8 @@ const note=(scope,error,context)=>{
 // entity adapter, input sender and recon prediction.
 async function createPage(query){
  const page=await headlessGame(query);
+ page.remotes.cameraHost=new CameraFrame(page.collision,page.camera);
+ page.remotes.cameraPhase.displayOwner=page.remotes.cameraHost.owner;
  for(const team of [1,2])for(const {className}of page.spawnPort.roster(team)){await page.factory.prepare(className);await page.bodies.prepare(className);}
  page.validateAuthoritativeHumanTeam=team=>{if(![1,2].includes(team))throw Error('bad team');};
  page.applyAuthoritativeHumanTeam=team=>page.setHumanTeam(team,false);
@@ -103,7 +106,7 @@ function predict(client){
   client.heldGeneration===page.playerUnit.generation?client.held:[],client.replayView,client.remoteReplay);
  restoreRemoteReplay(remotes,droid,prediction.state);
  client.saved={droid,state};client.predictions++;
- remotes.present(1/60,true,false);remotes.updateCamera(1/60,false);
+ remotes.present(1/60,true,false);presentRemote(remotes,1/60,false);
 }
 // A frame's presentation (game.js frame): records, then rounds and events.
 function present(client,tick){

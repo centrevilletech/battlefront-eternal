@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { SoldierCamera } from "./camera.js";
 import { blastBlocked, blastDamage, blastDistance, falloff } from "./ordnance.js";
 import { legacyRandom } from "./ai/random.js";
 import { Arsenal } from "./weapons.js";
@@ -45,19 +44,18 @@ const FRICTION = 0.28125;
 const BOUNCE = 0.125;
 const LOOK_SCALE = 2048;
 const AIM_REACH = 512; // m
-const EYE_BACK = 0.3; // m behind the eye point in first person
-const EYE_BACK_ZOOMED = 0.5;
 const FLOOR = -500;
 const UP = new THREE.Vector3(0, 1, 0);
 
 export class RemoteDroids {
   // model(name) makes a model; explode(explosion, position, owner) sets off
   // an explosion; fire(def, origin, dir) fires a round.
-  constructor({ scene, camera, collision, water = null, lights, model, firePoints = {}, explode, fire, onFired, owner = "player" }) {
+  constructor({ scene, camera, collision, cameraPhase, water = null, lights, model, firePoints = {}, explode, fire, onFired, owner = "player" }) {
     this.onFired = onFired;
     this.owner = owner;
     this.scene = scene;
     this.camera = camera;
+    this.cameraPhase = cameraPhase;
     this.collision = collision;
     this.water = water;
     this.lights = lights;
@@ -82,7 +80,7 @@ export class RemoteDroids {
   // gameplay implementations remain shared; callers advance each context once.
   createContext(owner, { camera = null, aimCamera = new THREE.PerspectiveCamera(), random } = {}) {
     const context = new RemoteDroids({
-      scene: this.scene, camera, collision: this.collision,
+      scene: this.scene, camera, collision: this.collision, cameraPhase: this.cameraPhase,
       water: this.water, lights: this.lights, model: this.model,
       firePoints: this.firePoints, explode: this.explode, fire: this.fire, onFired: this.onFired, owner,
     });
@@ -152,17 +150,14 @@ export class RemoteDroids {
     if (!droid || droid.dead) return;
     this.piloted = droid;
     const d = droid.def;
-    const center = d.TrackCenter || d.EyePointOffset || [0, 0.5, 0];
-    this.view = this.camera ? new SoldierCamera(this.camera, this.collision, {
-      cameras: { STAND: { EyePointOffset: d.EyePointOffset || center, TrackCenter: center, TrackOffset: d.TrackOffset || [0, -0.25, 1.5], TiltValue: d.TiltValue ?? 5 } },
-      ThirdPersonFOV: d.ThirdPersonFOV ?? 48,
-      FirstPersonFOV: d.FirstPersonFOV ?? 48,
-    }) : null;
-    if (this.aimCamera) this.simulationView = new SoldierCamera(this.aimCamera, this.collision, {
-      cameras: { STAND: { EyePointOffset: d.EyePointOffset || center, TrackCenter: center, TrackOffset: d.TrackOffset || [0, -0.25, 1.5], TiltValue: d.TiltValue ?? 5 } },
-      ThirdPersonFOV: d.ThirdPersonFOV ?? 48,
-      FirstPersonFOV: d.FirstPersonFOV ?? 48,
-    });
+    // Recon continuation keeps the phase's scalar camera record in its
+    // checkpoint. Restore is a native lens command; no camera moves here.
+    const make = () => ({ fov: (d.ThirdPersonFOV ?? 48) * (Math.PI / 180), reach: 1, fresh: true,
+      applyFov: () => this.cameraPhase.projectRemote(this) });
+    this.view = this.camera ? make() : null;
+    this.simulationView = this.aimCamera ? make() : null;
+    this.cameraPhase.remoteDefinition(droid);
+    if(this.aimCamera)this.cameraPhase.bindCamera(this.aimCamera);
     this.lookX = 0;
     this.lookY = 0;
     this.zoomStep = 0;
@@ -470,14 +465,8 @@ export class RemoteDroids {
   // The camera on the flown droid: its chase camera, or its eye in first
   // person (or zoomed): 0.3 m behind the eye point along the aim (0.5 m
   // zoomed), looking along the aim.
-  updateCamera(dt, firstPerson, simulation = false) {
-    const droid = this.piloted;
-    const view = simulation ? this.simulationView : this.view;
-    if (!droid || !view) return;
-    this.firstPerson = firstPerson;
-    const zoom = this.zoom;
-    const own = firstPerson || zoom > 1;
-    const eye = own ? this.v[1].copy(droid.eye).addScaledVector(droid.aimDir, zoom > 1 ? -EYE_BACK_ZOOMED : -EYE_BACK) : null;
-    view.update(dt, droid.position, droid.yaw, droid.pitch, "stand", zoom, own, eye);
+  updateCamera(dt, firstPerson) {
+    if (!this.piloted || !this.simulationView) return;
+    this.cameraPhase.remoteFrame(this, dt, firstPerson);
   }
 }

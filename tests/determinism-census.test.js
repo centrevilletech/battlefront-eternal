@@ -30,7 +30,8 @@ const CENSUS = {
   'Math.random': {
     'src/ai/random.js': { legacy: 1 },
     'src/arc-lightning.js': { page: 58 },
-    'src/camera-shake.js': { page: 1 },
+    'src/presentation/cameras.js': { page: 1 }, // injectable cosmetic shake stream
+    'src/sim/module.js': { page: 1 }, // binds the camera's standard random primitive
     'src/commandposts.js': { page: 2 }, // the post holograms' flicker (CommandPosts.present)
     'src/presentation/effects.js': { page: 1 }, // a displayed effect's recorded birth seed
     'src/game.js': { page: 3 }, // the sky's flyers, a droid's death blasts (presentEvent)

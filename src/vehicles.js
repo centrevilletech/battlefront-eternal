@@ -2,7 +2,7 @@ import { poseFlightGear, gearFoot } from "./flight/gear.js";
 import { initFlight, standHeight } from "./flight/model.js";
 import { groundMotion } from './vehicle-motion.js';
 import { hullQuaternion, restHeight } from './vehicle-hover.js';
-import { updateFlightCamera, easeAxes, cameraTension } from './flight/camera.js';
+import { cameraTension } from './flight/camera.js';
 import { vehicleMissileDefinition } from "./weapon-targeting.js";
 import { waterDamageRule } from './vehicle-water.js';
 import * as THREE from "three";
@@ -46,24 +46,12 @@ const degrees = (v) => { const a = vector(v, null); return a && a.length >= 2 &&
 // 1.5 m up in its subject's frame.
 const SEAT_FOV = 48;
 const CAMERA_RATE = 30; // 1/s
-const RAY_ORIGIN = Object.freeze(new THREE.Vector3(0, 1.5, 0));
-const CAMERA_SNAP = 80; // m: farther than this from where it should be, the camera jumps
-const CORNER = .4; // m: offset of the four extra wall rays
-const RAYS = Object.freeze([0, 0, 1, 1, 1, -1, -1, 1, -1, -1]); // the centre ray and the four corners (right, up)
-const CAMERA_SKIN = .08; // m: keeps the near plane off what the rays hit
-const RETURN_RATE = 6; // 1/s: a camera pulled in by a wall eases back out
-const FOV_RATE = 25; // 1/s
 const AIMED = DEG; // rad: a barrel this close to its target fires at it exactly
 // m a wall probe's or spring's cached triangles reach past its sphere: a
 // hull at 30 m/s moves 0.25 m a 120 Hz step.
 const WALL_CACHE_MARGIN = 1.5;
 const TURRET_PITCH = 1.5; // rad: the port's bound on a turret's pitch when its section sets none
 
-const CHASE_CAMERA = Object.freeze({
-  hover: { fov: 85, speedFov: 0, back: 1.7, minBack: 8, up: 1.1, minUp: 2.6, lag: 9, turn: 8, lead: .22, nose: 0, steer: 0, tilt: 7, roll: .2, firstFov: 78 },
-  byName: { speederbike: { fov: 82, back: 1.9, minBack: 7, up: 1.6, minUp: 2.2, lag: 10, turn: 9, firstFov: 80 } },
-});
-const CHASE_SNAP = 80;
 const TOW_POINTS = 32; // the cable line's points: the anchor, up to 12 wraps, 16 along the sagging span to the gun
 
 // A seat as its control section describes it: the camera (EyePointOffset,
@@ -1598,20 +1586,6 @@ export class VehicleDriver {
     this.cameraSet = false;
     if (this.aimView) this.aimView.cameraSet = false;
   }
-  updateCamera(dt, firstPerson) {
-    const v = this.vehicle;
-    const view = this.cameraView ||= new VehicleCamera(this.camera, this.collision);
-    view.cameraSet = this.cameraSet;
-    view.previewDirection = this.previewVehicle === v && this.previewSeat === v.seatIndex
-      ? this.viewDirection(this.direction) : null;
-    // On an exposed seat (a rider shows) his eyes are his posed body's head,
-    // which presentRider has just placed; enclosed, the seat's EyePointOffset.
-    view.eyeNode = v.seats[v.seatIndex].view.rider && this.actor?.root.visible ? this.actor.byName?.bone_head || null : null;
-    view.update(v, dt, firstPerson);
-    this.cameraSet = view.cameraSet;
-    this.speedEffect = view.speedEffect;
-    this.hideHull(firstPerson && view.enclosed ? v : null);
-  }
   // In first person the hull he looks out of leaves the view and keeps its
   // shadow, as his body does: the original game doesn't draw a vehicle for the
   // player seeing from inside it (it drew a cockpit model instead, which the
@@ -1623,180 +1597,5 @@ export class VehicleDriver {
     layer(this.hiddenHull, 0);
     layer(v, this.hiddenLayer);
     this.hiddenHull = v;
-  }
-}
-
-const chaseSpecs = new WeakMap();
-function chaseSpec(v) {
-  let spec = chaseSpecs.get(v);
-  if (!spec) { spec = { ...CHASE_CAMERA.hover }; for (const [name, values] of Object.entries(CHASE_CAMERA.byName)) if (v.name.includes(name)) Object.assign(spec, values); chaseSpecs.set(v, spec); }
-  return spec;
-}
-
-export class VehicleCamera {
-  constructor(camera, collision, simulation = false) {
-    this.camera = camera; this.collision = collision; this.simulation = simulation;
-    this.cameraSet = false; this.speedEffect = 0; this.reach = 1; this.fov = 0;
-    this.mode = 'seat'; this.eyeNode = null; this.enclosed = false;
-    this.frame = new THREE.Matrix4(); this.inverseFrame = new THREE.Matrix4(); this.want = new THREE.Quaternion(); this.inverse = new THREE.Quaternion();
-    this.origin = new THREE.Vector3(); this.pivot = new THREE.Vector3(); this.target = new THREE.Vector3(); this.rest = new THREE.Vector3();
-    this.boom = new THREE.Vector3(); this.local = new THREE.Vector3(); this.dir = new THREE.Vector3(); this.lookAt = new THREE.Vector3();
-    this.right = new THREE.Vector3(); this.up = new THREE.Vector3(); this.axis = new THREE.Vector3(); this.q = new THREE.Quaternion();
-    this.euler = new THREE.Euler(0, 0, 0, 'YXZ'); this.hit = makeHit();
-  }
-  update(v, dt, firstPerson) {
-    if (!v) return;
-    if (v.flying && v.seatIndex === 0) return updateFlightCamera(this, v, dt, firstPerson);
-    const mode = v.seatIndex === 0 && !v.walking ? 'chase' : 'seat';
-    const fresh = !this.cameraSet || this.firstPerson !== firstPerson || this.lastVehicle !== v || this.mode !== mode;
-    this.lastVehicle = v;
-    this.firstPerson = firstPerson;
-    this.mode = mode;
-    v.viewFirstPerson = firstPerson;
-    if (this.simulation) v.aimCamera = this.camera;
-    const speed = v.velocity.length();
-    // The motion blur option's streaks: not aboard a craft (a gunner's seat
-    // included), whose views the 2004 game draws sharp at any speed.
-    const intensity = v.flying ? 0 : THREE.MathUtils.smoothstep(speed, 12, Math.max(25, v.speed * .85));
-    this.speedEffect += (intensity - this.speedEffect) * (1 - Math.exp(-4 * dt));
-    const cam = this.camera, i = v.seatIndex, view = v.seats[i].view;
-    const spec = mode === 'chase' ? chaseSpec(v) : null;
-    // The view widens with speed (speedFov at MaxSpeed, and on
-    // past it on a boost), in the chase and the cockpit alike.
-    const widen = spec ? spec.speedFov * THREE.MathUtils.clamp((v.flying ? Math.abs(v.airspeed) : speed) / Math.max(1, v.speed), 0, 1.5) : 0;
-    const fov = spec ? ((firstPerson ? spec.firstFov : spec.fov) + widen) * DEG : firstPerson ? view.firstFov : view.thirdFov;
-    this.fov = fresh ? fov : this.fov + (fov - this.fov) * (1 - Math.exp(-FOV_RATE * dt));
-    const vertical = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(this.fov / 2) / (cam.aspect || 1)));
-    if (cam.fov !== vertical) { cam.fov = vertical; cam.updateProjectionMatrix(); }
-    if (firstPerson) this.eyeView(v, i, view, cam);
-    else if (spec) this.chase(v, spec, cam, dt, fresh);
-    else this.seatChase(v, i, view, cam, dt, fresh);
-    cam.updateMatrixWorld();
-    this.cameraSet = true;
-  }
-
-  // The hull's frame with its lean: as drawn between ticks on the page, at
-  // the tick in the simulation.
-  hullFrame(v, out) {
-    if (!this.simulation) return out.copy(v.root.matrixWorld);
-    if (v.flying) return out.compose(v.position, v.quaternion, UNIT_SCALE);
-    this.euler.set(-v.tilt, v.yaw, v.roll);
-    return out.compose(v.position, this.q.setFromEuler(this.euler), UNIT_SCALE);
-  }
-
-  eyeView(v, i, view, cam) {
-    const hull = i === 0 || !view.turret;
-    if (hull) this.hullFrame(v, this.frame); else v.seatFrame(i, this.frame, !this.simulation);
-    this.up.setFromMatrixColumn(this.frame, 1);
-    if (this.eyeNode) this.eyeNode.getWorldPosition(cam.position).addScaledVector(this.up, .1);
-    else cam.position.copy(view.eye).applyMatrix4(this.frame);
-    // Inside the hull's box (a cockpit) the hull leaves the view; outside
-    // it (a saddle) it stays.
-    this.local.copy(cam.position).applyMatrix4(this.inverseFrame.copy(this.frame).invert());
-    const b = v.bounds, m = .15;
-    this.enclosed = this.local.x > b.min.x + m && this.local.x < b.max.x - m && this.local.y > b.min.y + m && this.local.y < b.max.y - m && this.local.z > b.min.z + m && this.local.z < b.max.z - m;
-    if (v.flying && i === 0) this.dir.setFromMatrixColumn(this.frame, 2).normalize();
-    else if (this.previewDirection) this.dir.copy(this.previewDirection);
-    else v.seatForward(i, this.dir);
-    lookBasis(this.dir.negate(), this.up, cam.quaternion);
-  }
-
-  chase(v, spec, cam, dt, fresh) {
-    const presented = !this.simulation;
-    const yaw = presented ? v.root.rotation.y : v.yaw;
-    const tilt = presented ? -v.root.rotation.x : v.tilt;
-    const roll = presented ? v.root.rotation.z : v.roll;
-    this.pivot.copy(v.center).applyAxisAngle(UP, yaw).add(presented ? v.visual : v.position);
-    const back = Math.max(spec.minBack, spec.back * v.size.z), up = Math.max(spec.minUp, spec.up * v.size.y);
-    // Where it rests: behind the heading (half the nose's pitch) and above.
-    const pitch = tilt * .5;
-    this.dir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    this.rest.copy(this.pivot).addScaledVector(this.dir, -back).addScaledVector(UP, up);
-    const snap = fresh || cam.position.distanceTo(this.rest) > CHASE_SNAP;
-    if (snap) cam.position.copy(this.rest);
-    else cam.position.lerp(this.rest, 1 - Math.exp(-spec.lag * dt));
-    // The walls: the boom from the hull's centre to the camera.
-    this.origin.copy(this.pivot);
-    this.boom.subVectors(cam.position, this.origin);
-    const reach = this.clearance(v, cam.quaternion);
-    if (snap || reach < this.reach) this.reach = reach;
-    else this.reach += (reach - this.reach) * (1 - Math.exp(-RETURN_RATE * dt));
-    cam.position.copy(this.origin).addScaledVector(this.boom, this.reach);
-    // What it looks at: a point ahead of the nose (a flyer: nose metres
-    // along the heading, so the view stays behind the tail looking a
-    // little past the nose) or ahead along the velocity (a hover), a
-    // little above the hull, swung a share of the way toward the look the
-    // nose is following (steer).
-    this.dir.set(Math.sin(yaw) * Math.cos(tilt), Math.sin(tilt), Math.cos(yaw) * Math.cos(tilt));
-    this.lookAt.copy(this.pivot).addScaledVector(this.dir, spec.nose).addScaledVector(v.velocity, spec.lead).addScaledVector(UP, up * .2);
-    this.dir.subVectors(this.lookAt, cam.position);
-    if (this.dir.lengthSq() < 1e-6) this.dir.set(Math.sin(yaw), 0, Math.cos(yaw));
-    const pilot = v.seats[0];
-    if (spec.steer && v.flying && v.driver && pilot.lookYaw !== null) {
-      this.dir.applyAxisAngle(UP, angle(pilot.lookYaw - v.yaw) * spec.steer);
-      this.axis.crossVectors(this.dir, UP).normalize();
-      if (this.axis.lengthSq() > 1e-6) this.dir.applyAxisAngle(this.axis, -(pilot.lookPitch - tilt) * spec.steer);
-    }
-    this.dir.normalize();
-    this.up.copy(UP);
-    // The bank rolls the view a share of the way; the barrel roll (spin)
-    // takes it all the way round with the hull.
-    const bankRoll = (roll - (v.spin || 0)) * spec.roll + (v.spin || 0);
-    if (bankRoll) this.up.applyAxisAngle(this.dir, bankRoll);
-    lookBasis(this.axis.copy(this.dir).negate(), this.up, this.want);
-    this.want.multiply(this.q.setFromAxisAngle(RIGHT, -spec.tilt * DEG));
-    if (snap) cam.quaternion.copy(this.want);
-    else cam.quaternion.slerp(this.want, 1 - Math.exp(-spec.turn * dt));
-  }
-
-  seatChase(v, i, view, cam, dt, fresh) {
-    v.seatFrame(i, this.frame, !this.simulation);
-    v.cameraTurn(i, this.frame, this.want);
-    if (this.previewDirection) {
-      lookBasis(this.dir.copy(this.previewDirection).negate(), this.up.setFromMatrixColumn(this.frame, 1), this.want);
-      this.want.multiply(this.q.setFromAxisAngle(RIGHT, -view.tilt));
-    }
-    this.pivot.copy(view.center).applyMatrix4(this.frame);
-    const snap = fresh || cam.position.distanceTo(this.pivot) > CAMERA_SNAP;
-    // Human mouse aim already has its final direction. Keep positional
-    // follow and wall recovery smooth without filtering the sight a second time.
-    if (snap || v.driver) cam.quaternion.copy(this.want);
-    else cam.quaternion.slerp(this.want, 1 - Math.exp(-view.aimTension * dt));
-    // Where it should be, then as far along the rays from the seat frame as
-    // the walls allow (pulled in at once, eased back out).
-    this.origin.copy(RAY_ORIGIN).applyMatrix4(this.frame);
-    this.target.copy(view.offset).applyQuaternion(cam.quaternion).add(this.pivot);
-    this.boom.subVectors(this.target, this.origin);
-    const reach = this.clearance(v, cam.quaternion);
-    if (snap || reach < this.reach) this.reach = reach;
-    else this.reach += (reach - this.reach) * (1 - Math.exp(-RETURN_RATE * dt));
-    this.target.copy(this.origin).addScaledVector(this.boom, this.reach);
-    if (snap) cam.position.copy(this.target);
-    else {
-      // Each camera axis eases separately, at its section's MoveTension.
-      easeAxes(cam, this.target, view.moveTension, dt);
-      // The eased spot can lag behind a new wall: check where it will draw.
-      this.boom.subVectors(cam.position, this.origin);
-      const clear = this.clearance(v, cam.quaternion);
-      if (clear < 1) cam.position.copy(this.origin).addScaledVector(this.boom, clear);
-    }
-  }
-
-  // The share of the boom (this.boom from this.origin) that is clear: the
-  // nearest hit of the centre ray and four to the camera's corners, the
-  // hull itself left out.
-  clearance(v, q) {
-    if (this.boom.lengthSq() < 1e-8) return 1;
-    this.right.set(CORNER, 0, 0).applyQuaternion(q);
-    this.up.set(0, CORNER, 0).applyQuaternion(q);
-    let reach = 1;
-    for (let k = 0; k < RAYS.length; k += 2) {
-      this.dir.copy(this.boom).addScaledVector(this.right, RAYS[k]).addScaledVector(this.up, RAYS[k + 1]);
-      const far = this.dir.length();
-      this.dir.divideScalar(far);
-      const hit = this.collision.cast(this.origin, this.dir, far + CAMERA_SKIN, this.hit, v.body);
-      if (hit) reach = Math.min(reach, Math.max(0, hit.distance - CAMERA_SKIN) / far);
-    }
-    return reach;
   }
 }
