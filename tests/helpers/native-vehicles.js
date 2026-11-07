@@ -36,6 +36,12 @@ export function nativeVehicles(system, pack) {
 }
 
 export function nativeTurrets(crews) {
+  // A synthetic page may have posed this rig before importing an authority
+  // fixture. Its published local records, rather than stale shell fields,
+  // are that fixture's cold seed pose.
+  for (const t of crews.turrets) t.rig.root.traverse(node => {
+    if (!node.matrixAutoUpdate) node.matrix.decompose(node.position,node.quaternion,node.scale);
+  });
   const data = { models: {}, collision: {}, classes: {}, spawns: [] };
   const buffer = new ArrayBuffer(0), indexBuffer = new ArrayBuffer(0);
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer, indexBuffer,

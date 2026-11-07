@@ -39,6 +39,12 @@ struct Actor {
     fire_tick: f64,
     fire_counter: f64,
     rider_lean: f64,
+    /// presentRiders keeps a hidden crewman's corpse hidden for this life.
+    enclosed: bool,
+    vanished: bool,
+    mount_generation: f64,
+    mount_id: f64,
+    rider_seat: f64,
     node_start: usize,
     skin_start: usize,
     inverses: Vec<Matrix4>,
@@ -170,6 +176,11 @@ impl Units {
             fire_tick: -1.0,
             fire_counter: 0.0,
             rider_lean: 0.0,
+            enclosed: false,
+            vanished: false,
+            mount_generation: -1.0,
+            mount_id: -1.0,
+            rider_seat: -1.0,
             node_start,
             skin_start: self.skin_count - inverses.len(),
             inverses,
@@ -377,6 +388,7 @@ impl Units {
             }
             let out = &mut self.output[id * o::STRIDE..][..o::STRIDE];
             let previous: [f64; o::STRIDE] = (&*out).try_into().unwrap();
+            out[o::LEASE_BIRTH] = 0.0;
             out[o::CHANGED] = 0.0;
             a.rig.set_parent(if input[i::HAS_POSE_PARENT] != 0.0 {
                 Some(matrix(input, i::POSE_PARENT))
@@ -388,11 +400,33 @@ impl Units {
                 a.generation = input[i::GENERATION];
                 a.pose_clock = 0.0;
                 a.rider_lean = 0.0;
+                a.enclosed = false;
+                a.vanished = false;
+                a.mount_generation = -1.0;
+                a.mount_id = -1.0;
+                a.rider_seat = -1.0;
                 a.step_offset = 0.0;
                 a.last_step = input[i::PREVIOUS_STEP];
                 a.network = false;
                 a.fire_tick = -1.0;
             }
+            // presentRiders: death may release a lease before this frame.
+            // Its last enclosed mount still decides whether the corpse shows.
+            if a.enclosed && input[i::MOUNT_ALIVE] == 0.0
+                && a.mount_generation == input[i::MOUNT_GENERATION] && a.mount_id == input[i::MOUNT_ID] {
+                a.vanished = true;
+            }
+            let seated = input[i::MOUNT_PRESENT] != 0.0;
+            if seated && (a.rider_seat != input[i::RIDER_SEAT]
+                || a.mount_generation != input[i::MOUNT_GENERATION] || a.mount_id != input[i::MOUNT_ID]) {
+                a.rider_lean = 0.0;
+            }
+            a.enclosed = seated && input[i::RIDER_KIND] == 1.0 && input[i::MOUNT_ENCLOSED] != 0.0;
+            a.mount_generation = input[i::MOUNT_GENERATION];
+            a.mount_id = input[i::MOUNT_ID];
+            a.rider_seat = if seated { input[i::RIDER_SEAT] } else { -1.0 };
+            out[o::SEAT_VISIBLE] = if a.vanished || seated && input[i::MOUNT_ENCLOSED] != 0.0 { 0.0 }
+                else if seated && input[i::DEAD] == 0.0 { 1.0 } else { -1.0 };
             out[o::GONE] = 0.0;
             out[o::GONE_BIRTH] = 0.0;
             if input[i::GONE] != 0.0 && input[i::GONE_GENERATION] != input[i::GENERATION] {
@@ -431,6 +465,22 @@ impl Units {
             } else {
                 interpolate(a, input, dt, out);
             }
+            // poseRider's birth snapshot predates this frame's hull animation.
+            // It also resets interpolation history without resetting body clips.
+            let live_turret=input[i::OWN]!=0.0 || input[i::RIDER_LIVE]!=0.0;
+            let turret_birth=input[i::RIDER_KIND]==2.0 && !live_turret;
+            let hull_birth=input[i::RIDER_KIND]==1.0 && input[i::RIDER_RESET]!=0.0 && input[i::LEASE_FACTS]!=0.0;
+            let lease_birth=hull_birth||turret_birth;
+            if lease_birth {
+                out[o::LEASE_BIRTH]=1.0;
+                let mut p=if turret_birth {let m=matrix(input,i::RIDER_MATRIX);Vector3::new(m.elements[12],m.elements[13],m.elements[14])} else {vector(input,i::LEASE_POSITION)};
+                if hull_birth {p.y+=input[i::LEASE_HEIGHT]*0.5;}
+                write_vector(out,o::POSITION,p);write_vector(out,o::VELOCITY,if turret_birth {Vector3::default()} else {vector(input,i::LEASE_VELOCITY)});
+                out[o::YAW]=if turret_birth {let m=matrix(input,i::RIDER_MATRIX);v8math::atan2(m.elements[8],m.elements[10])} else {input[i::RIDER_YAW]};
+                out[o::PITCH]=input[i::RIDER_PITCH];
+                a.step_offset=0.0;a.last_step=input[i::PREVIOUS_STEP];a.network=false;
+                a.fire_epoch=-1.0;a.fire_generation=-1.0;a.fire_tick=-1.0;
+            }
             let mut walker = [
                 input[i::WALKER_ROLL],
                 input[i::WALKER_LEAN],
@@ -458,8 +508,8 @@ impl Units {
             }
             out[o::WALKER_POSE..o::WALKER_POSE + 4].copy_from_slice(&walker);
             let mut state = SoldierState {
-                yaw: out[o::YAW] + input[i::YAW_OFFSET],
-                pitch: out[o::PITCH] + input[i::PITCH_OFFSET],
+                yaw: out[o::YAW] + if lease_birth {0.0} else {input[i::YAW_OFFSET]},
+                pitch: out[o::PITCH] + if lease_birth {0.0} else {input[i::PITCH_OFFSET]},
                 velocity: vector(out, o::VELOCITY),
                 posture: out[o::POSTURE] as usize,
                 air: out[o::AIR] as u32,
@@ -468,6 +518,11 @@ impl Units {
             };
             out[o::YAW] = state.yaw;
             out[o::PITCH] = state.pitch;
+            // presentRider, riderSample and TurretSeats.placeReplica select
+            // the pose from lease records before the single animation batch.
+            if input[i::RIDER_KIND] == 2.0 || input[i::RIDER_KIND] == 1.0 && input[i::RIDER_RESET] != 0.0 {
+                rider_sample(a, input, &mut state, out, content.clips.len());
+            }
             let held = input[i::HELD] != 0.0;
             if held {
                 let m = matrix(input, i::HELD_MATRIX);
@@ -502,7 +557,7 @@ impl Units {
                 a.animator.die(index(input[i::DEATH_CLIP]));
             }
             let mut position = vector(out, o::POSITION);
-            position.add(&vector(input, i::CORRECTION));
+            if !lease_birth { position.add(&vector(input, i::CORRECTION)); }
             a.rig.tree.node_mut(a.rig.root).position = position;
             // External owners sometimes change the root at a seat/release.
             // Recopying an unchanged quaternion would spuriously synchronize
@@ -991,6 +1046,61 @@ fn lod(frame: &[f64], input: &[f64], position: Vector3) -> u32 {
     } else {
         1
     }
+}
+
+/// vehicles.js riderSample/ninePose and props.js Turret.riderSample. Clip
+/// aliases have already resolved at resource registration, including missing
+/// clips and the held-frame stand-ins. A timed clip retains JS loop behavior.
+fn rider_sample(a: &mut Actor, input: &[f64], state: &mut SoldierState, out: &mut [f64], clips: usize) {
+    // Hull samples are retained at lease birth, including a timed stand-in.
+    // TurretSeats.placeReplica resets remote interpolation and samples the
+    // current drum every displayed frame, just as the own Gunner does.
+    let turret = input[i::RIDER_KIND] == 2.0;
+    let mut pitch = 0.0;
+    let mut turn = 0.0;
+    let timed = input[i::RIDER_TIMED] != 0.0;
+    let mut seat = None;
+    if turret {
+        // Gunner orientation is the whole seat frame, including a placed
+        // turret's slope. Its heading alone supplies soldier aimYaw.
+        let matrix = matrix(input, i::RIDER_MATRIX);
+        let mut p = Vector3::default();
+        let mut q = Quaternion::default();
+        let mut scale = Vector3::default();
+        matrix.decompose(&mut p, &mut q, &mut scale);
+        seat = Some(q);
+        state.yaw = v8math::atan2(matrix.elements[8], matrix.elements[10]);
+        state.pitch = input[i::RIDER_PITCH];
+        out[o::YAW] = state.yaw;
+        out[o::PITCH] = state.pitch;
+        // Gunner.poseBody placed only the own root. Its prediction position
+        // still feeds lighting and view helpers; replica placement resets
+        // that source position as well. Keep these two publications apart.
+        if input[i::OWN]==0.0 && input[i::RIDER_LIVE]==0.0 {write_vector(out, o::POSITION, p);}
+        if !timed {
+            pitch = -state.pitch / std::f64::consts::FRAC_PI_4;
+            let rate = input[i::RIDER_TURN_RATE];
+            turn = if rate == 0.0 { 0.0 } else { input[i::RIDER_YAW_RATE] / rate };
+        }
+    } else if !timed && input[i::RIDER_NINE] != 0.0 {
+        // The hull's pilot uses its direct pitch scale. Other seats spread
+        // the 9-pose over their own arcs, or over angular speed when free.
+        if input[i::RIDER_SEAT] == 0.0 { pitch = -input[i::RIDER_PITCH] / 0.7; }
+        else {
+            let (low, high) = (input[i::RIDER_PITCH_LIMITS], input[i::RIDER_PITCH_LIMITS + 1]);
+            pitch = if high > low { three::clamp(2.0 * ((high - input[i::RIDER_PITCH]) / (high - low) - 0.5), -1.0, 1.0) } else { 0.0 };
+            let (low, high) = (input[i::RIDER_YAW_LIMITS], input[i::RIDER_YAW_LIMITS + 1]);
+            turn = if input[i::RIDER_HAS_YAW_LIMITS] != 0.0 && high - low < 1.5 * std::f64::consts::PI {
+                let mut yaw = v8math::atan2(v8math::sin(input[i::RIDER_YAW]-input[i::RIDER_HULL_YAW]), v8math::cos(input[i::RIDER_YAW]-input[i::RIDER_HULL_YAW]));
+                if input[i::RIDER_WRAP_YAW] != 0.0 && yaw < 0.0 { yaw += 2.0 * std::f64::consts::PI; }
+                if high > low { three::clamp(2.0 * ((yaw - low) / (high - low) - 0.5), -1.0, 1.0) } else { 0.0 }
+            } else { three::clamp(input[i::RIDER_SAMPLE_YAW_RATE] / max(input[i::RIDER_TURN_RATE], 1e-3), -1.0, 1.0) };
+        }
+    }
+    let clip = input[i::RIDER_CLIP];
+    a.animator.gunner((clip >= 0.0 && clip.is_finite() && (clip as usize) < clips).then_some(Gunning {
+        clip: clip as usize, pitch, turn, time: timed.then_some(input[i::RIDER_TIME]), seat,
+    }));
 }
 
 /// seatRider from src/vehicles.js. The current hull's rider matrix is an

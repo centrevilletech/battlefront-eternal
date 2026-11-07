@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { partMaterial } from './models.js';
+import { vehicleConstruction } from './anim.js';
 import { motionVectors } from './motion-vectors.js';
 
 const IDENTITY = new THREE.Matrix4();
@@ -14,65 +15,25 @@ const IDENTITY = new THREE.Matrix4();
 // hides a turret's drum and gun by walking those bones still finds their
 // meshes. options.dispose false keeps the parts' geometry (a shared pack).
 export function vehicleBatches(rig, parts, texture, { separate = [], dispose = true } = {}) {
-  const local = rig.bones.map(b => new THREE.Matrix4().fromArray(b.local));
-  const world = new Array(local.length);
-  const resolve = i => world[i] || (world[i] = rig.bones[i].parent >= 0
-    ? resolve(rig.bones[i].parent).clone().multiply(local[i]) : local[i].clone());
-  local.forEach((_, i) => resolve(i));
-  world.push(new THREE.Matrix4()); // parts attached directly to the model
-  const names = new Map(rig.bones.map((b, i) => [b.name.toLowerCase(), i]));
-  // The nearest ancestor among the separate bones of a part's bone, or null.
-  const attachOf = (part) => {
-    if (!separate.length) return null;
-    let i = names.get((part.bone || '').toLowerCase());
-    while (i !== undefined && i >= 0) {
-      const name = rig.bones[i].name.toLowerCase();
-      if (separate.includes(name)) return name;
-      i = rig.bones[i].parent;
-    }
-    return null;
-  };
-  const groups = new Map();
-  for (const part of parts) {
-    const attach = attachOf(part);
-    const key = JSON.stringify(attach === null && !separate.length ? [part.texture, part.flags, part.scroll] : [part.texture, part.flags, part.scroll, attach]);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(part);
-  }
-  const point = new THREE.Vector3(), normal = new THREE.Vector3();
-  const batches = [];
-  for (const parts of groups.values()) {
-    const count = parts.reduce((n, p) => n + p.geometry.attributes.position.count, 0);
-    const elements = parts.reduce((n, p) => n + p.geometry.index.count, 0);
-    const positions = new Float32Array(count * 3), normals = new Float32Array(count * 3), uvs = new Float32Array(count * 2);
-    const joints = new Uint16Array(count * 4), weights = new Float32Array(count * 4), indices = new Uint32Array(elements);
-    let vertex = 0, index = 0;
-    for (const part of parts) {
-      const joint = names.get((part.bone || '').toLowerCase()) ?? rig.bones.length;
-      const matrix = world[joint];
-      const g = part.geometry, base = vertex;
-      for (let i = 0; i < g.attributes.position.count; i++, vertex++) {
-        point.fromBufferAttribute(g.attributes.position, i);
-        normal.fromBufferAttribute(g.attributes.normal, i);
-        if (!part.joints) { point.applyMatrix4(matrix); normal.transformDirection(matrix); }
-        point.toArray(positions, vertex * 3); normal.toArray(normals, vertex * 3);
-        uvs[vertex * 2] = g.attributes.uv.getX(i); uvs[vertex * 2 + 1] = g.attributes.uv.getY(i);
-        joints[vertex * 4] = part.joints?.[i] ?? joint; weights[vertex * 4] = 1;
-        // A soft skin blends three bones (the sarlacc tentacle, Jabba).
-        if (part.skinJoints) for (let k = 0; k < 3; k++) { joints[vertex * 4 + k] = part.skinJoints[i * 3 + k]; weights[vertex * 4 + k] = part.skinWeights[i * 3 + k]; }
-      }
-      for (let i = 0; i < g.index.count; i++) indices[index++] = base + g.index.getX(i);
-    }
+  // Input parts are resource records, not live nodes. Native packing owns
+  // grouping, bind-frame transforms, influences, indices and bounds.
+  const records = vehicleConstruction({ rig, separate, parts: parts.map(part => {
+    const g = part.geometry, data = [];
+    for (let i = 0; i < g.attributes.position.count; i++) data.push(g.attributes.position.getX(i),g.attributes.position.getY(i),g.attributes.position.getZ(i),
+      g.attributes.normal.getX(i),g.attributes.normal.getY(i),g.attributes.normal.getZ(i),g.attributes.uv.getX(i),g.attributes.uv.getY(i));
+    return { data, index: Array.from(g.index.array), texture: part.texture, flags: part.flags, scroll: part.scroll, bone: part.bone,
+      joints: part.joints, skinJoints: part.skinJoints, skinWeights: part.skinWeights };
+  }) }, true);
+  const batches = records.map(record => {
     const geometry = new THREE.BufferGeometry();
-    for (const [name, array, size] of [['position', positions, 3], ['normal', normals, 3], ['uv', uvs, 2], ['skinIndex', joints, 4], ['skinWeight', weights, 4]]) {
-      geometry.setAttribute(name, new THREE.BufferAttribute(array, size));
+    for (const [name,array,size] of [['position',Float32Array.from(record.positions),3],['normal',Float32Array.from(record.normals),3],
+      ['uv',Float32Array.from(record.uv),2],['skinIndex',Uint16Array.from(record.joints),4],['skinWeight',Float32Array.from(record.weights),4]]) {
+      geometry.setAttribute(name,new THREE.BufferAttribute(array,size));
     }
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeBoundingSphere();
-    // Animated barrels and feet may extend beyond the bind-pose sphere.
-    geometry.boundingSphere.radius *= 1.35;
-    batches.push({ geometry, material: partMaterial(parts[0], texture), casts: !((parts[0].flags ?? 1) & 0x84), attach: attachOf(parts[0]) });
-  }
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(record.indices),1));
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3().fromArray(record.center),record.radius);
+    return { geometry, material: partMaterial(parts[record.part],texture), casts: record.casts, attach: record.attach };
+  });
   if (dispose) for (const part of parts) part.geometry.dispose();
   return batches;
 }
@@ -81,11 +42,10 @@ export function vehicleBatches(rig, parts, texture, { separate = [], dispose = t
 // bone (vehicleBatches options.separate); options.motion false leaves the
 // meshes out of the temporal upscaler's motion pass (placed objects that
 // barely move); options.meshes collects the meshes made.
-export function attachVehicleBatches(root, bones, batches, caster, { byName = null, motion = true, meshes = null } = {}) {
-  const staticBone = new THREE.Bone();
+export function attachVehicleBatches(root, bones, batches, caster, { byName = null, motion = true, meshes = null, staticBone = new THREE.Bone(), inverses = null } = {}) {
   root.add(staticBone);
-  root.updateMatrixWorld(true);
-  const skeleton = new THREE.Skeleton([...bones, staticBone]);
+  if (!inverses) root.updateMatrixWorld(true);
+  const skeleton = new THREE.Skeleton([...bones, staticBone], inverses || []);
   for (const batch of batches) {
     const mesh = new THREE.SkinnedMesh(batch.geometry, batch.material);
     ((batch.attach && byName?.[batch.attach]) || root).add(mesh);
@@ -100,4 +60,29 @@ export function attachVehicleBatches(root, bones, batches, caster, { byName = nu
     meshes?.push(mesh);
   }
   return skeleton;
+}
+
+// Vehicle's native rig records are shared with the world builder. The host
+// only instantiates Three resource shells and connects numeric node handles.
+export function vehicleShell(vehicle, template, turnRate) {
+  const animated = new Set();
+  for (const clip of template.clips?.values() || []) for (const track of clip.tracks) if (track >= 0) animated.add(track);
+  const records = vehicleConstruction({ class: vehicle.def, rig: template.rig, muzzleTips: Array.from(template.muzzleTips || []),
+    animated: Array.from(animated), hasClips: Boolean(template.clips?.size), turnRate, wheelRadii: Array.from(template.wheelRadii || []),
+    bounds: [template.shape.localBounds.min.x,template.shape.localBounds.min.y,template.shape.localBounds.min.z,
+      template.shape.localBounds.max.x,template.shape.localBounds.max.y,template.shape.localBounds.max.z] });
+  const count = template.rig.bones.length;
+  const nodes = records.nodes.map((n, i) => {
+    const node = i === 0 ? new THREE.Group() : i <= count || i === records.staticBone ? new THREE.Bone() : new THREE.Object3D();
+    node.name = n.name;
+    node.position.fromArray(n.pose); node.quaternion.fromArray(n.pose, 3); node.scale.fromArray(n.pose, 7);
+    return node;
+  });
+  for (let i = 1; i < nodes.length; i++) nodes[records.nodes[i].parent].add(nodes[i]);
+  const root = nodes[0], bones = nodes.slice(1, count + 1);
+  root.name = vehicle.name;
+  const byName = Object.fromEntries(bones.map(b => [b.name.toLowerCase(), b]));
+  const bind = new Map(bones.map(b => [b, b.quaternion.clone()]));
+  return { root, bones, byName, bind, bindQuaternions: bones.map(b => bind.get(b)), bindPositions: bones.map(b => b.position.clone()),
+    nodes, records, staticBone: nodes[records.staticBone], inverses: records.inverses.map(matrix => new THREE.Matrix4().fromArray(matrix)) };
 }

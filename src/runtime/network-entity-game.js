@@ -16,7 +16,7 @@ import { applyOwnPlayer, decodeOwnPlayer } from './network-entity-player.js';
 import { ENTITY_POSTURES, ENTITY_SOLDIER_STATES, ENTITY_VEHICLE_STATES } from './network-entity-capture.js';
 import { assignUnitId } from './entity-identity.js';
 import { applyWorldSummary, decodeWorldSummary } from './network-entity-summary.js';
-import { unseatBody, poseTurret } from '../seats.js';
+import { unseatBody } from '../seats.js';
 import { applyChargeStep } from '../weapons.js';
 import { goneUp } from '../droideka.js';
 import { followFlightState } from '../flight/gear.js';
@@ -66,7 +66,7 @@ function recordsByKind(records) {
 // the shared SeatLease the SeatReader installs; a turret is the shared Turret
 // building. Nothing here duplicates boarding, exit, destruction or aim rules;
 // it installs what the server decided and lets the existing presentation
-// (the page's hull phase, TurretSeats.pose, poseTurret) draw it.
+// (the native hull, prop and body phases) draw it.
 export class EntityGameState {
   constructor(game, registry, { beforeApply = () => {}, onCorrection = () => {}, onApplied = () => {} } = {}) {
     Object.assign(this, { game, registry, beforeApply, onCorrection, onApplied });
@@ -87,6 +87,7 @@ export class EntityGameState {
     // last: drawn at the playout clock with its position (presentMounts).
     this.mounts = new Map();
   }
+  dispose() {this.presentation.reset();this.timeline.dispose();}
   initialize() {
     const g=this.game;
     // Content constructs the scene; state is supplied solely by the host.
@@ -156,7 +157,7 @@ export class EntityGameState {
     for(const record of by.remote){if(!this.remotes)throw Error('missing remote presentation');this.remotes.receive(record,packet.ack.epoch);}
     for(const record of by.item){if(!this.items)throw Error('missing item presentation');this.items.receive(record,packet.ack.epoch);}
     for(const record of by.combat)this.combat.receive(record,{epoch:packet.ack.epoch,tick:packet.tick});
-    if (packet.sample) this.timeline.addSnapshot(packet.sample.tick, packet.sample.poses, packet.sample.epoch, true);
+    if (packet.sample) this.timeline.addSnapshot(packet.sample.tick, packet.sample.poses, packet.sample.epoch);
     this.onApplied(packet);
   }
   applyEligibility() {
@@ -255,7 +256,7 @@ export class EntityGameState {
     if(unit.dead&&(newLife||!wasDead)){unit.presentation.deathPending=true;emitSound('actorDeath',unit.combat,0);g.presentEvent?.('died',unit);}
     if(!unit.dead&&!newLife&&record.health<wasHealth)emitSound('actorHurt',unit.combat,wasHealth-record.health);
     unit.combat.updateHeld?.();
-    // A seated body rides its mount (Vehicles.presentRiders, TurretSeats.pose);
+    // A seated body rides its mount (the native body phase);
     // its own timeline would drag it behind the hull between samples.
     if (unit.seat) this.presentation.unbind(unit.id);
     else this.presentation.bindSoldier(unit.id, unit.generation, unit.presentation);
@@ -393,7 +394,7 @@ export class EntityGameState {
   }
   // A stationary turret: its registry identity, build state and the angles the
   // tick left. The drum and gun are posed by the shared Turret.present and
-  // poseTurret; a manning body by TurretSeats.pose.
+  // the native prop phase; its gunner follows in the body phase.
   turret(record) {
     const g = this.game, turret = g.live?.buildings?.[record.building];
     if (!turret || !turret.rig) { this.deferred++; return; }
@@ -413,7 +414,6 @@ export class EntityGameState {
       if (turret.aimFrom) turret.aimFrom(record);
       else { turret.yaw = record.yaw; turret.pitch = record.pitch; turret.gunYaw = record.gunYaw; turret.gunPitch = record.gunPitch; }
     }
-    if (turret.alive) turret.present();
   }
   ownsMountAim(mount, index) {
     const own = this.game.playerUnit, lease = own.seat, previous = this.previous;
@@ -426,6 +426,7 @@ export class EntityGameState {
   remove(record) {
     const g = this.game, unit = g.units.byId(record.id); this.presentation.unbind(record.id);
     if (!unit || unit.generation !== record.generation) return;
+    this.timeline.remove(record.id);
     if (unit.vehicle) { if (unit.vehicle.alive || unit.vehicle.dying > 0) this.destroyHull(unit.vehicle); }
     else if (unit !== g.playerUnit) { if (unit.seat) this.clearSeat(unit); unit.alive = false; unit.removed = true; unit.actor.root.visible = false; unit.combat?.clearCharge?.(); }
   }
@@ -505,8 +506,9 @@ export class EntityGameState {
       if (slot.lease && slot.lease.unit !== unit) { const other = slot.lease.unit; if (other) this.clearSeat(other); else { slot.lease.released = true; slot.lease = null; } }
       reader.setLease(null, vehicle, [id, own ? 1 : 0, seat.seatIndex === 0 ? 'pilot' : 'gunner', generation], value => { slot.lease = value; }, seat.seatIndex);
       unit.targetable = false; if (unit.combat) unit.combat.mounted = true;
-      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.syncReplica?.(); }
-      else g.vehicles.placeReplicaRider(slot.lease);
+      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); }
+      unit.presentation?.reset();
+      unit.tickCount += 1;
       return;
     }
     const turret = (g.turretSeats?.turrets || []).find(t => t.aiTarget?.id === seat.vehicleId && t.aiTarget.generation === seat.vehicleGeneration);
@@ -514,15 +516,14 @@ export class EntityGameState {
     if (!turret.alive) return;
     if (turret.lease && turret.lease.unit !== unit) this.clearTurretLease(turret);
     if (own && g.gunner) {
-      // The shared Gunner adapter mans it (lease, mounted combat, views); the
-      // turret record then restores the server's drum and gun angles.
-      const yaw = turret.yaw, pitch = turret.pitch;
-      g.gunner.enter(turret, unit.soldier); if (g.combat) g.combat.mounted = true;
-      turret.yaw = yaw; turret.pitch = pitch;
+      // A page installs a lease; authority already seated the body. Native
+      // presentation consumes it with the gunner's scalar preview angles.
+      reader.setLease(turret, null, [id, 1, 'gunner', generation], value => { turret.lease = value; });
+      if (g.combat) g.combat.mounted = true;
       g.client.seats.setGunner?.(g.live.buildings.indexOf(turret));
     } else {
       reader.setLease(turret, null, [id, 0, 'gunner', generation], value => { turret.lease = value; });
-      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.placeReplica(turret.lease); }
+      if (turret.lease) { turret.lease.generation = generation; }
     }
     this.presentation.unbind(unit.id);
   }
@@ -572,19 +573,15 @@ export class EntityGameState {
   }
   present(tick) {
     this.items?.present(tick); this.remotes?.present(tick);
-    const g = this.game, dt = this.presentedTick === null ? 0 : Math.max(0, Math.min(.25, (tick - this.presentedTick) / 60));
-    this.presentedTick = tick;
-    this.presentation.update(tick, { playerId: g.playerUnit.id, vehicleId: g.driver?.active ? g.driver.vehicle.aiTarget.id : null });
+    const g = this.game;
+    this.presentation.update(tick, g.playerUnit.id, g.driver?.active ? g.driver.vehicle.aiTarget.id : null);
     this.presentMounts(tick);
-    // Vehicle.present reads the frame's dt from the pose to turn the aimers.
-    for (const vehicle of g.vehicles?.vehicles || []) if (vehicle.networkPose) vehicle.networkPose.dt = dt;
-    // Manned turrets: the drum and gun at the replicated angles, the body in the
-    // seat (TurretSeats.placeReplica). The own gunner's are the Gunner's to pose.
-    for (const turret of g.turretSeats?.turrets || []) {
+    // Turn-speed facts settle before local preview; native prop and body
+    // phases consume the replicated angles and the resulting rider rates.
+    const turrets=g.turretSeats?.turrets;
+    if(turrets)for (const turret of turrets) {
       const lease = turret.lease; if (!lease || lease.human || !turret.alive) continue;
       turret.settleTurn?.(tick);
-      poseTurret(turret, turret.yaw);
-      if (lease.unit?.soldier) g.turretSeats.placeReplica(lease);
     }
   }
 }

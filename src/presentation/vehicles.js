@@ -35,7 +35,9 @@ export class PageVehicles {
     this.rigs = new WeakMap();
     this.handles = new Map();
     // The hulls queued this frame, in order, and their rigs and slots.
-    this.queue = [];
+    this.capacity = this.kernel.entries_capacity();
+    this.queue = new Array(this.capacity * 3);
+    this.count = 0;
     this.from = new THREE.Vector3();
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     this.mismatched = 0;
@@ -115,6 +117,10 @@ export class PageVehicles {
     };
     clipNames.forEach((name, i) => (descriptor[clipKeys[i]] = this.clip(v.clips?.get(name))));
     const id = this.kernel.add_rig(exact(descriptor));
+    // Capacity grows only at rig birth. Cache it here, never by a WASM
+    // query for each hull on the frame path.
+    this.capacity = this.kernel.entries_capacity();
+    this.queue.length = this.capacity * 3;
     this.refresh(true);
     // What its records were sized to (a hull whose seats or wheels no
     // longer match is not drawn); its aimers and kicking muzzles, shared by
@@ -125,6 +131,7 @@ export class PageVehicles {
     for (const o of nodes) o.matrixAutoUpdate = o.matrixWorldAutoUpdate = false;
     v.root.updateMatrixWorld = published;
     rig = { id, pairs, aimers, muzzles, nodes, skinned, seats: seats.length, wheels: descriptor.wheels.length,
+      frames: [new THREE.Quaternion(), new THREE.Quaternion()], sides: [new Array(pairs).fill(0), new Array(pairs).fill(0)],
       slots: [0, 1].map((slot) => [this.kernel.slot_input(id, slot), this.kernel.slot_output(id, slot)]) };
     // Record offsets within a slot (vehicles.rs Rig::in_* and out_*).
     rig.inRays = pairs; rig.inSeats = pairs * 3; rig.inKicks = rig.inSeats + rig.seats * S.STRIDE; rig.inWheels = rig.inKicks + muzzles.length;
@@ -139,14 +146,15 @@ export class PageVehicles {
     const rig = this.rig(hull);
     // Another phase may have grown the memory since: views made again.
     this.refresh();
-    const at = this.queue.length / 3;
-    if (at >= this.kernel.entries_capacity()) {
+    const at = this.count;
+    if (at >= this.capacity) {
       this.mismatched++;
       return -1;
     }
     // Slot 0: the hull as the world draws it; 1: his predicted view of it.
     const slot = hull.predictionSource ? 1 : 0;
-    this.queue.push(hull, rig, slot);
+    const q = this.count++ * 3;
+    this.queue[q] = hull; this.queue[q + 1] = rig; this.queue[q + 2] = slot;
     // The entry names its rig and its slot's own record words; the kernel
     // poses nothing for any other words.
     const e = F.STRIDE + at * E.STRIDE, input = this.input;
@@ -163,7 +171,7 @@ export class PageVehicles {
   // A spawn's pose (Vehicle.render(1, 0) at the tick: no time, every seat
   // it holds at rest), drawn at once: spawns arrive between frames.
   spawned(v) {
-    const batch = this.queue.length > 0;
+    const batch = this.count > 0;
     const drawn = this.write(v, M.RENDER, 1, 0, true);
     if (!batch) this.flush();
     return drawn;
@@ -171,7 +179,7 @@ export class PageVehicles {
   write(v, mode, alpha, dt, render) {
     const e = this.entry(v, mode);
     if (e < 0) return false;
-    const x = this.input, rig = this.queue[this.queue.length - 2], slot = this.queue[this.queue.length - 1];
+    const x = this.input, rig = this.queue[(this.count - 1) * 3 + 1], slot = this.queue[(this.count - 1) * 3 + 2];
     const net = render ? null : v.networkPose, p = net ? net.position : null, q = net ? net.quaternion : null;
     // present()'s clocks: a record's sample at its own time (alpha 1, the
     // aimers turned by its dt); otherwise between ticks by alpha.
@@ -242,7 +250,7 @@ export class PageVehicles {
   // feelLegs casts), the poses, then each hull's records written back.
   flush() {
     // Entries in the queue: hull, rig and slot each.
-    const n = this.queue.length / 3;
+    const n = this.count;
     if (!n) return;
     const k = this.kernel;
     this.input[F.VERSION] = VERSION;
@@ -251,7 +259,7 @@ export class PageVehicles {
     this.refresh();
     // A build whose layout disagrees draws no hull (never a throw).
     if (this.header[H.STATUS] !== 0) {
-      this.queue.length = 0;
+      this.count = 0;
       return;
     }
     // feelLegs' casts: each ray the kernel placed from the drawn root, the
@@ -259,7 +267,7 @@ export class PageVehicles {
     const s = this.streamIn, out = this.streamOut;
     if (this.header[H.RAYS] > 0) {
       for (let q = 0; q < n; q++) {
-        const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], [at, o] = rig.slots[this.queue[q * 3 + 2]];
+        const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], pair = rig.slots[this.queue[q * 3 + 2]], at = pair[0], o = pair[1];
         if (!(out[o + O.RAYS] > 0)) continue;
         const w = v.system.world, L = v.def.fx.legs.rayLength, enabled = w.bodyEnabled(v.body);
         w.enableBody(v.body, false);
@@ -280,7 +288,7 @@ export class PageVehicles {
       // A hull skipped for a mismatch keeps last frame's pose.
       if (mode !== M.SKIP) this.writeBack(v, rig, o, mode);
     }
-    this.queue.length = 0;
+    this.count = 0;
     // Hulls past the records or with a mismatched rig, reported once.
     if (this.mismatched && !this.reported) {
       this.reported = true;
@@ -299,7 +307,7 @@ export class PageVehicles {
     if (out[o + O.ROOT_MODE] === R.EULER) root.rotation.set(out[o + O.ROTATION], out[o + O.ROTATION + 1], out[o + O.ROTATION + 2], "YXZ");
     else if (out[o + O.ROOT_MODE] === R.QUATERNION) {
       root.quaternion.set(out[o + O.QUATERNION], out[o + O.QUATERNION + 1], out[o + O.QUATERNION + 2], out[o + O.QUATERNION + 3]);
-      (v.flightFrameQ ||= new THREE.Quaternion()).set(out[o + O.FRAME], out[o + O.FRAME + 1], out[o + O.FRAME + 2], out[o + O.FRAME + 3]);
+      (v.flightFrameQ ||= rig.frames[v.predictionSource ? 1 : 0]).set(out[o + O.FRAME], out[o + O.FRAME + 1], out[o + O.FRAME + 2], out[o + O.FRAME + 3]);
     }
     for (let i = 0, b = o + rig.outNodes; i < rig.nodes.length; i++, b += N.STRIDE) {
       const m = rig.nodes[i].matrix.elements, w = rig.nodes[i].matrixWorld.elements;
@@ -314,7 +322,7 @@ export class PageVehicles {
     v.visual.set(out[o + O.VISUAL], out[o + O.VISUAL + 1], out[o + O.VISUAL + 2]);
     if (mode === M.ALIVE) { const shown = v.predictionSource || v; shown.shownWalkPhase = out[o + O.SHOWN_PHASE]; shown.shownWalkBlend = out[o + O.SHOWN_BLEND]; }
     if (out[o + O.LEG_SIDES]) {
-      const sides = (v.legSide ||= new Array(rig.pairs).fill(0));
+      const sides = (v.legSide ||= rig.sides[v.predictionSource ? 1 : 0]);
       for (let i = 0; i < rig.pairs; i++) sides[i] = out[o + rig.outSides + i];
     }
     for (let i = 0, at = o + rig.outAimers; i < rig.aimers.length; i++, at += AO.STRIDE) {

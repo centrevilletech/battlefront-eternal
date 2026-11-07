@@ -105,6 +105,7 @@ export function bodyHost(actor, clips = null, banks = null) {
     row = owner.attach(actor, source, p),
     unit = {
       id: 1,
+      tickCount: 0,
       generation: 1,
       removed: false,
       soldier: state,
@@ -130,6 +131,7 @@ export function bodyHost(actor, clips = null, banks = null) {
     p.state.aimPitch = state.aimPitch;
   };
   const begin = (dt, s, own = true) => {
+    if (row.boundLease!==unit.seat) {row.boundLease=unit.seat;owner.lease(unit,unit.seat);}
     input(s);
     owner.begin(dt, frame++, null);
     owner.write(row, unit, 1, own);
@@ -185,12 +187,14 @@ export class FirstPersonView extends ViewResources {
   }
 }
 
+import {presentTurret} from "./page-presentation.js";
 import { Unit } from "../../src/units.js";
 import { UnitCommand as C, UnitCommandKind as K } from "../../src/presentation/layout.js";
 const unitHosts = new WeakMap();
 export function unitHost(unit) {
   let h = unitHosts.get(unit);
   if (h) return h;
+  if (!unit.presentation?.previousPosition || !unit.presentation?.previousVelocity) unit.presentation = new SoldierPresentation(unit.soldier);
   const actor = unit.actor;
   actor.bones ||= [];
   if (!actor.bones.length) {
@@ -227,9 +231,11 @@ export function unitHost(unit) {
     };
   } else {
     let source = unit.animator;
-    if (!source?.clips) {
+    if (!source?.clips || !source.sets && !source.d) {
       actor.byName.DummyRoot ||= actor.bones[0];
-      source = new SoldierAnimation(actor, neutralClips(actor.bones));
+      const clips = source?.clips || neutralClips(actor.bones);
+      for (const clip of clips.values()) if (clip.speed === undefined) clip.speed = 0;
+      source = new SoldierAnimation(actor, clips);
     }
     owner = new UnitHost(presentationLoaded, true);
     row = owner.attach(actor, source, unit.presentation);
@@ -244,6 +250,8 @@ export function unitHost(unit) {
 }
 export function presentUnit(unit, dt, alpha = 1, light = null, effects = null, view = null) {
   const h = unitHost(unit);
+  if(unit.seat?.turret)presentTurret(unit.seat.turret);
+  if(h.row.boundLease!==unit.seat) {h.row.boundLease=unit.seat;h.owner.lease(unit,unit.seat);}
   h.owner.begin(dt, h.frame++, view);
   h.owner.write(h.row, unit, alpha);
   h.owner.run();

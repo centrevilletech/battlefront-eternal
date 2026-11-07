@@ -1,3 +1,5 @@
+import {Clip} from '../src/anim.js';
+import './fixtures/native-anim.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Object3D } from 'three';
@@ -272,12 +274,13 @@ test("another player's charge arrives with his soldier record and shows on his w
 test('a received turret lease places its rider without stopping snapshot application', () => {
   const f = fixture(), authority = body(1), root = new Object3D();
   root.position.set(3, 4, 5); root.rotation.y = .4; root.updateMatrixWorld(true);
-  const clip = {}, turret = Object.create(Turret.prototype), poses = [];
+  const clip = new Clip('fixture',{frames:2,tracks:[0],offset:0,flags:0,travel:[0,0,0]},Float32Array.from([0,0,0,1,0,0,0,0,0,0,1,0,0,0]),30), turret = Object.create(Turret.prototype), poses = [];
   Object.assign(turret, { state: 'built', rig: { root }, seat: root, aiTarget: { id: 71, generation: 1 },
-    lease: null, pitch: .2, yawVel: .1, turnRate: 1, rider: { clip: 'fixture', ninePose: true } });
+    lease: null, up:root.up, yaw:0, gunYaw:0, gunPitch:0, yawFactor:1, pitchFactor:0,
+    pitch: .2, yawVel: .1, turnRate: 1, rider: { clip: 'fixture', ninePose: true } });
   f.remote.animator.clips = new Map([['fixture', clip]]);
   f.remote.animator.gunner = (...args) => poses.push(args);
-  turret.present = () => {}; turret.aimFrom = () => {};
+  turret.aimFrom = () => {};
   f.game.live = { turrets: [turret], buildings: [turret] };
   f.game.turretSeats = new TurretSeats({ live: f.game.live });
   f.game.client.seats = new EntitySeats(f.game);
@@ -286,11 +289,10 @@ test('a received turret lease places its rider without stopping snapshot applica
     building: 0, state: 'built', team: 2, health: 100, yaw: 0, pitch: .2, gunYaw: 0, gunPitch: 0 }, remoteRecord(100, 0), { kind: 'seat', id: 2, generation: 1, tick: 100,
     vehicleId: 71, vehicleGeneration: 1, seatIndex: 0, leaseVersion: 1 }]);
   assert.equal(f.remote.seat.turret, turret);
-  assert.deepEqual(f.remote.soldier.position.toArray(), [3, 4, 5]);
-  assert.equal(poses.length, 1); assert.equal(poses[0][0], clip);
-  assert.ok(poses[0][4].isQuaternion);
-  f.adapter.present(100);
-  assert.equal(poses.length, 2, 'the rendered frame also places the replica');
+  f.adapter.present(100);presentUnit(f.remote,1/60);
+  assert.deepEqual(f.remote.actor.root.position.toArray(), [3,4,5]);
+  assert.ok(Math.abs(f.remote.presentation.state.aimYaw-.4)<1e-9);
+  assert.equal(poses.length,0,'a lease joins the native batch without a per-body callback');
   packet(f, authority, 101, 2);
   assert.deepEqual([...new Set(f.applied)], [100, 101]);
 });

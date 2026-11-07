@@ -168,7 +168,7 @@ if (phase === 'authority') {
     if (point.name === 'respawned') {
       assert.equal(hull.alive, true); assert.equal(hull.aiTarget.generation, point.hull.generation); assert.ok(hull.seats.every(s => s.lease === null));
     }
-    adapter.present(point.tick); local.vehicles.present(1); local.vehicles.presentRiders(1 / 60);
+    adapter.present(point.tick); local.vehicles.present(1);
     console.log(JSON.stringify({ stage: phase, checkpoint: point.name, status: 'passed', rss: process.memoryUsage().rss }));
   }
   assert.equal(adapter.deferred, 0);

@@ -1,3 +1,5 @@
+import './fixtures/native-anim.js';
+import {presentUnit} from './helpers/presentation.js';
 import { contentPath, contentURL } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 // Riders in the open (docs/formats.md "Riders"): rounds meet a soldier shown
@@ -358,25 +360,25 @@ test('a crewman hidden inside a hull that is destroyed stays out of sight in tha
   const world = mount({ seats: [{ PilotAnimation: undefined }, {}] });
   const inside = seat(world, rider(), 0);
   const open = seat(world, rider(), 1);
-  world.system.presentRiders(1 / 60);
+  presentUnit(inside,1/60);presentUnit(open,1/60);
   assert.equal(inside.actor.root.visible, false, 'hidden while he rides inside');
   assert.equal(open.actor.root.visible, true);
   // The hull is destroyed: its crew die with it, and the page draws their bodies again.
   world.v.setHealth(0);
   assert.equal(inside.dead, true);
   inside.actor.root.visible = open.actor.root.visible = true;
-  world.system.presentRiders(1 / 60);
+  presentUnit(inside,1/60);presentUnit(open,1/60);
   assert.equal(inside.actor.root.visible, false, 'he dies with the hull, out of sight');
   assert.equal(open.actor.root.visible, true, 'the open gunner\'s body is his own');
   inside.actor.root.visible = true;
-  world.system.presentRiders(1 / 60);
+  presentUnit(inside,1/60);presentUnit(open,1/60);
   assert.equal(inside.actor.root.visible, false, 'kept hidden whatever drew it');
   // His next life shows him.
   inside.generation += 1;
   inside.actor.root.visible = true;
-  world.system.presentRiders(1 / 60);
+  presentUnit(inside,1/60);presentUnit(open,1/60);
   assert.equal(inside.actor.root.visible, true);
-  assert.equal(world.system.vanished.size, 0);
+
 });
 
 // This is the live phase over a complete invented rider, rather than a

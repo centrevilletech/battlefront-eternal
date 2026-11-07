@@ -1,4 +1,6 @@
 import { VehicleCamera } from './helpers/cameras.js';
+import './fixtures/native-anim.js';
+import {bodyHost} from './helpers/presentation.js';
 import { contentURL } from './helpers/content.js';
 // Vehicle seats as the 2004 game reads them (docs/formats.md "Vehicle
 // seats"): who shows as a rider, the turret arcs, where the guns aim and fire
@@ -165,7 +167,9 @@ test('the player\'s own body stays out of sight in an enclosed cockpit (Bespin: 
     // An own correction from the world (EntityGameState.correct) shows the
     // body; the frame's presentation decides what is drawn.
     root.visible = true;
-    driver.presentRider(1 / 60);
+    const dummy=new THREE.Bone();dummy.name='DummyRoot';root.add(dummy);
+    const host=bodyHost({root,bones:[dummy],byName:{DummyRoot:dummy}});
+    host.unit.seat={vehicle:v,index:0};host.begin(1/60);host.owner.run();
     const node = v.seats[0].view.rider?.node;
     assert.equal(root.visible, Boolean(node), `${name}: the pilot shows only where his seat has a rider`);
     if (node) assert.ok(root.position.distanceTo(node.getWorldPosition(new THREE.Vector3())) < 1e-6, `${name}: at its rider node`);

@@ -48,9 +48,9 @@ orientation onto them and the light request into the light pool.
 
 ## Layout and order
 
-`rust/sim/schema/presentation-layout.json`, `ordnance-layout.json` and
-`items-layout.json` declare numeric records, command kinds and capacities.
-The ordnance and item phases have separate files. `node tools/presentation-schema.mjs` generates both languages;
+`rust/sim/schema/presentation-layout.json`, `timeline-layout.json`,
+`ordnance-layout.json` and `items-layout.json` declare numeric records, command kinds and capacities.
+Snapshot sampling, ordnance and items have separate phase files. `node tools/presentation-schema.mjs` generates both languages;
 `--check` rejects stale output. Inputs and poses use f64, while final skin matrices
 retain the renderer's f32 rounding. Resource registration resolves names, clip
 aliases, bones and banks once. Unit display and simulation share `bfe-pose`'s
@@ -93,6 +93,58 @@ and the page reports the totals once; a full network command block is applied
 early rather than lost, a slot past the table is skipped, and no frame fails.
 `ordnance-replay` replays a capture (`beginCapture` on the page) and requires
 every output bit to match.
+## Vehicles, mounts and props
+
+Vehicle construction consumes model, class and clip records. Rust builds the
+bind skeleton, muzzle markers, aimers, seat views, wheel axes and tow-leg
+geometry. It also packs rigid and soft-skinned material batches. The host
+instantiates Three resource shells from those results, including the native
+skeleton inverses; it does not rebuild the numeric rig. Collision resources,
+weapon objects and prediction facades remain host resources.
+
+The hull phase places all queued roots, then poses their rigs after the host
+answers the walker's leg rays. Each call covers the whole batch. The own
+predicted hull uses a second batch because tethers read the authoritative
+placement first. Cold registration reserves the two slots and updates the
+host's cached capacity; frame entries never query WASM individually.
+
+The unit phase consumes lease facts and published mount matrices directly.
+It hides enclosed riders, retains hidden crew after a hull's destruction
+until their next generation, and places exposed riders after animation. A
+creature's posed pelvis meets its saddle; chest sway keeps its native clock.
+Hull rider clip selection retains the lease-time sample, taken before the
+next hull phase advances its clock. A birth output also supplies the legacy
+body coordinates still read by prediction and hit shapes. These touched
+source fields publish once per lease; displayed matrices remain native.
+A stationary turret's own gunner consumes its current preview each frame.
+Replica gunners follow the current drum, refreshing their clip sample and
+source interpolation each displayed frame, as placeReplica did. The body turn
+still waits for its normal animation LOD sample. The own body follows its
+seat while its prediction position keeps feeding lighting and view helpers.
+Shared field-forwarding
+prototypes preserve live source reads without making soldiers into prototypes,
+which would box each refreshed aim value.
+
+Stationary turret drum and gun matrices join the prop phase. Its placed roots
+retain their authored matrices and scene parents. Props publish the eased
+Float32 stand pose, including unweighted bones, rather than the sampler's
+unblended target. Mesh bind inverses follow their own attached-mode frames.
+Skeleton record order can place a parent after its child (the rancor and Jabba
+use this order). Scene registration traverses parents first and maps every
+bone explicitly; numeric bone ordinals never stand in for scene node handles.
+Only changed matrix rows are copied to resource shells. Bone TRS writeback
+and Three's subsequent rig walks are absent from these page paths.
+
+The active snapshot timeline also samples in one native batch. A bounded
+ring retains 64 snapshots and 1,024 identities; sparse ids, partial packets,
+generations and discontinuities remain explicit. Hulls use normalized slerp;
+body yaw takes the shortest arc. Missing brackets coast for six ticks and
+then hold. Network pose publication reuses binding-owned arrays, and own
+predicted bodies and hulls bypass remote drawing without changing history.
+A full ring reuses its oldest snapshot, and departed identities release their
+slots. Closing a battle returns its native ring for reuse; stale callbacks
+cannot read or overwrite the next battle's samples. Additional simultaneous identities or views are
+refused and reported once rather than growing or failing a display frame.
 
 ## Storage and replay
 

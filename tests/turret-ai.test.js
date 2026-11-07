@@ -1,3 +1,4 @@
+import {presentTurret, pageProps, local} from './helpers/page-presentation.js';
 import {turretAt} from './fixtures/f3-turret.js';
 import {f3World} from './fixtures/f3-world.js';
 import {F4Live} from '../src/f4-live.js';
@@ -39,12 +40,12 @@ const barrel = (turret) => {
 test("a turret's gun points along its view, whatever its drum's bind turn", () => {
   for (const drumBind of [0, Math.PI]) {
     const turret = turretAt({ heading: 30 * DEG, drumBind });
-    turret.present();
+    presentTurret(turret);
     const { d } = barrel(turret);
     const view = turret.viewDirection(new THREE.Vector3());
     assert.ok(view.angleTo(d) < 1e-4, `bind ${drumBind}: the view is along the barrel (${view.angleTo(d)})`);
     turret.yaw = 1;
-    turret.present();
+    presentTurret(turret);
     assert.ok(turret.viewDirection(view).angleTo(barrel(turret).d) < 1e-4, `bind ${drumBind}: and stays so as the drum turns`);
   }
 });
@@ -73,7 +74,7 @@ function botAt(turret) {
     intent: { forward: 0, right: 0, turn: 0, pitch: 0, aim: new THREE.Vector3(), buttons: [0, 0] }, soldier,
     actor: { root: new THREE.Group(), byName: {} }, animator: { clips: new Map(), gunner() {}, reset() {} }, presentation: { reset() {} },
     combat: { mounted: false, dead: false, team: 1, damage() {} } };
-  turret.present();
+  presentTurret(turret);
   const system = nativeTurrets(crews);
   assert.ok(crews.man(unit, turret));
   return { crews, system, unit, seat: turret.lease.controllable };

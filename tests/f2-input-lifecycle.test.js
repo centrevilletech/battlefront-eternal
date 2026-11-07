@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import {unitOwner} from './helpers/unit-owner.js';
 import test from 'node:test';
 // Failed identities must not serialize a complete battle and its WASM views.

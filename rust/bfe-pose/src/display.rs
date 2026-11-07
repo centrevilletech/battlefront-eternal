@@ -845,7 +845,13 @@ impl Animator {
             self.turn_time = 0.0;
         }
         let c = self.clip_for(posture, self.turn.unwrap(), t);
-        let duration = clips[c].duration;
+        // SoldierAnimator.turnInPlace leaves a missing authored turn alone.
+        // A turret can rotate a body whose clip bank contains only a 9-pose.
+        let Some(clip) = clips.get(c) else {
+            self.turn = None;
+            return;
+        };
+        let duration = clip.duration;
         let step = min(dt, duration - self.turn_time);
         self.legs += (self.turn_span / duration) * max(step, 0.0);
         self.turn_time += dt;

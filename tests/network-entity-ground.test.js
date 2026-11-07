@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';import assert from 'node:assert/strict';import * as THREE from 'three';
 import {fixture} from './flight-fixture.js';

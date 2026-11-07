@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction, predictHull, registerHullFixture } from './helpers/hull-prediction.js';
 // A walker's legs and feet as a page draws them (src/vehicles.js

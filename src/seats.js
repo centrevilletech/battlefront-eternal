@@ -98,7 +98,6 @@ export class SeatLease {
     this.exitRequest = null; // { post, promote, placement } until the next batch takes it
     this.released = false;
     this.input = new SeatInput(); // this update's frozen intent (idle until the first batch)
-    this.lean = 0; // a visible rider's sway (presentation)
     this.controllable = null; // the seat as the AI drives it (SeatUnit), for a bot
     const lease = this;
     // Beam motion belongs to this particular occupancy, not to the shooter
@@ -608,6 +607,7 @@ export function turretAimPoint(turret, firstPerson, direction, collision, units,
 // This object retains the registry, foreign hooks and replicated lease views.
 const AIM_REACH = 512;
 
+const EMPTY_TURRETS = Object.freeze([]);
 export class TurretSeats {
   constructor({ live = null, ordnance = null, collision = null, units = null, onFired = null, onBoard = null, onUnboard = null } = {}) {
     this.live = live;
@@ -621,11 +621,6 @@ export class TurretSeats {
     this.time = 0;
     this.ticks = 0;
     this.seatRandom = null; // () => [0, 1): the world's seat stream (seatWeaponPolicy)
-    // placeReplica still positions received riders on the page. Its scratch
-    // survives the removal of world crew posing and is reused across packets.
-    this.seatPoint = new THREE.Vector3();
-    this.seatTurn = new THREE.Quaternion();
-    this.riderPose = { clip: null, pitch: 0, turn: 0, time: null };
     // Everything the crews ask of the rest of the battle (src/seats-world.js).
     this.world = new SeatsWorld(this);
     for (const turret of this.turrets) turret.crew = this;
@@ -633,7 +628,7 @@ export class TurretSeats {
   }
 
   get turrets() {
-    return this.live?.turrets || [];
+    return this.live?.turrets || EMPTY_TURRETS;
   }
 
   // Registers every turret with the units registry as a classifier-8 target.
@@ -659,54 +654,9 @@ export class TurretSeats {
       && turret.alive && !turret.gunner && !turret.lease);
   }
 
-  // EntitySeats supplies the bot's replicated lease and angles. Only the
-  // rendered drum and gun are posed here; the local Gunner previews its own.
-  // EntityGameState installs a page lease before its next rendered frame.
-  // Attach that replica's body to the drawn drum; the native world uses its
-  // own retained rig and never calls this presentation placement method.
-  placeReplica(lease) {
-    const turret = lease.turret;
-    const unit = lease.unit;
-    const s = unit.soldier;
-    if (turret.seatPoint) turret.seatPoint(this.seatPoint);
-    else (turret.seat || turret.rig.root).getWorldPosition(this.seatPoint);
-    s.position.copy(this.seatPoint);
-    s.previous?.copy(this.seatPoint);
-    s.settled?.copy(this.seatPoint);
-    s.velocity.set(0, 0, 0);
-    s.aimYaw = turret.seatYaw ? turret.seatYaw() : turret.facing + turret.yaw;
-    s.aimPitch = turret.pitch;
-    unit.presentation?.reset?.();
-    if (unit.actor?.root) {
-      unit.actor.root.position.copy(this.seatPoint);
-      unit.actor.root.visible = !turret.hidesGunner;
-    }
-    const pose = turret.riderSample?.(unit.animator?.clips, this.riderPose);
-    unit.animator?.gunner?.(pose?.clip ?? null, pose?.pitch, pose?.turn, pose?.time, turret.seatTurn?.(this.seatTurn) ?? null);
-    if (unit.tickCount !== undefined) unit.tickCount += 1;
-  }
-
-  present() {
-    for (const turret of this.turrets) if (turret.lease && !turret.lease.human) poseTurret(turret, turret.yaw);
-  }
-
   dispose() {
     for (const lease of [...this.leases]) this.vacate(lease, { placement: false });
     if (this.units) for (const turret of this.turrets) if (turret.aiTarget) this.units.remove(turret.aiTarget);
-  }
-}
-
-// The drum and gun nodes at a yaw and the gun's own angles, as Turret.pose
-// leaves them, without stepping the gun: the page's pose of a turret whose
-// aim it was given.
-const poseQ = new THREE.Quaternion();
-const poseE = new THREE.Euler(0, 0, 0, "YXZ");
-export function poseTurret(turret, yaw, pitch = turret.pitch) {
-  if (typeof turret.present === "function") { turret.present(yaw, pitch); return; }
-  if (turret.drum && turret.drumBind) turret.drum.quaternion.copy(turret.drumBind).multiply(poseQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw));
-  if (turret.gun && turret.gunBind) {
-    poseE.set(-(turret.gunPitch || 0), turret.gunYaw || 0, 0);
-    turret.gun.quaternion.copy(turret.gunBind).multiply(poseQ.setFromEuler(poseE));
   }
 }
 

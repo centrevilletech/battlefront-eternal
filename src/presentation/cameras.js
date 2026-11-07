@@ -368,7 +368,7 @@ export class PageCameras {
   // The phase computes both the lens and the eye-inside-box decision.
   // Hiding the rig remains a retained-scene operation on the host.
   // It happens after selection, so a stale lease cannot hide a death shot.
-  // poseBody has already placed the visible drum and gun for this frame.
+  // The native prop phase has published the drum and gun for this frame.
   gunner(a, gunner) {
     const t = gunner.turret;
     if (!this.authority) gunner.shownAim();

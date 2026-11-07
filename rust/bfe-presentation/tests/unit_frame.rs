@@ -129,6 +129,24 @@ fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
             let at = f::STRIDE + row * i::STRIDE;
             // Exercise first attach, detach and a parent move between the
             // two phases as interface layout does, without growing children.
+            // Mounts and manned turrets share this same allocation gate,
+            // including enclosure, saddle lean and missing clip handles.
+            if row % 4 == 0 {
+                units.input[at+i::MOUNT_PRESENT]=1.0;
+                units.input[at+i::MOUNT_ALIVE]=if frame%60<30 {1.0} else {0.0};
+                units.input[at+i::MOUNT_ID]=37.0;
+                units.input[at+i::MOUNT_ENCLOSED]=if row%8==0 {1.0} else {0.0};
+                units.input[at+i::RIDER]=1.0;
+                units.input[at+i::RIDER_KIND]=if row%8==0 {2.0} else {1.0};
+                units.input[at+i::LEASE_FACTS]=1.0;
+                units.input[at+i::RIDER_RESET]=if frame%100==0 {1.0} else {0.0};
+                units.input[at+i::RIDER_CLIP]=if row==28 {1e9} else {0.0};
+                units.input[at+i::RIDER_ANIMAL]=1.0;
+                units.input[at+i::RIDER_SPEED]=10.0;
+                units.input[at+i::RIDER_QUATERNION+3]=1.0;
+                units.input[at+i::RIDER_MATRIX..at+i::RIDER_MATRIX+16].copy_from_slice(&identity);
+                units.input[at+i::RIDER_MATRIX+13]=2.4;
+            }
             units.input[at + i::HAS_POSE_PARENT] = (frame % 2) as f64;
             units.input[at + i::HAS_ATTACHMENT_PARENT] = ((frame + 1) % 2) as f64;
             units.input[at + i::POSE_PARENT + 12] = frame as f64 * 0.01;

@@ -35,8 +35,8 @@ export function attachPage(system) {
 
 // The page's prop phase over `animated` props and `traps`, their bones as
 // they stand now; feet() and bodies() as LiveObjects' providers give them.
-export function pageProps({ animated = [], traps = [] }, { feet = () => {}, bodies = () => [] } = {}) {
-  return new PageProps(presentationModule(), { animated, traps }, { feet, bodies });
+export function pageProps({ animated = [], traps = [], turrets = [] }, { feet = () => {}, bodies = () => [] } = {}) {
+  return new PageProps(presentationModule(), { animated, traps, turrets }, { feet, bodies });
 }
 
 // A node's own transform as drawn: its fields, or once a phase publishes
@@ -47,4 +47,12 @@ export function local(node) {
   const position = new THREE.Vector3(), quaternion = new THREE.Quaternion();
   node.matrix.decompose(position, quaternion, scratch);
   return { position, quaternion };
+}
+
+// Synthetic turret fixtures run the same coarse prop phase as the page.
+const turretPhases = new WeakMap();
+export function presentTurret(turret) {
+  let phase = turretPhases.get(turret);
+  if (!phase) { phase = pageProps({turrets:[turret]}); turretPhases.set(turret,phase); }
+  phase.present(0,0);
 }

@@ -41,6 +41,16 @@ export function loadClips(meta, buffer, boneNames = null) {
 // Each Pose retains its battle instance, so a later battle cannot move its
 // accumulators. Unit display blending belongs to bfe-presentation instead.
 let animKernel = null;
+// The page's snapshot ring shares the battle's required native instance.
+export function animationKernel() {
+  if (!animKernel) throw Error("The native animation sampler is not ready");
+  return animKernel;
+}
+// Rigs are cold resource records from the same required native instance.
+export function vehicleConstruction(data, batches = false) {
+  if (!animKernel) throw Error("The native animation sampler is not ready");
+  return animKernel.constructVehicle(data, batches);
+}
 export function setAnimKernel(kernel) {
   if (!kernel) throw new Error("The native animation sampler is required");
   animKernel = kernel;

@@ -75,6 +75,8 @@ name = "bfe-pose"
 version = "0.1.0"
 dependencies = [
  "content",
+ "serde",
+ "serde_json",
  "three",
  "v8math",
 ]

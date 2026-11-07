@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // Optional retail regression: exercise the actual rig and gait, not just a

@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 // Optional intake/runtime contract test; retail assets remain local and ignored.
 import test from 'node:test';

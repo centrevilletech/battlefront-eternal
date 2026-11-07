@@ -1,3 +1,4 @@
+import './native-anim.js';
 import {unitOwner} from '../helpers/unit-owner.js';
 import {ClassicRandom,uniformRandom} from '../../src/ai/random.js';
 import assert from 'node:assert/strict';

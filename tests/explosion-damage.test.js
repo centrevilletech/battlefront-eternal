@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { KIND_ITEM } from '../src/sim/gen/index.js';
 import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';

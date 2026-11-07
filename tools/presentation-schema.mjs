@@ -3,11 +3,12 @@
 import {readFileSync,writeFileSync} from 'node:fs';
 
 const upper=s=>s.replace(/[A-Z]/g,(c,i)=>(i?'_':'')+c).toUpperCase();
-// One layout file per phase, so effect, unit, ordnance and item records
+// One layout file per phase, so presentation, timeline, ordnance and item records
 // regenerate independently: [schema, page module, Rust module].
 const LAYOUTS=[
  ['presentation-layout.json','src/presentation/layout.js','rust/bfe-presentation/src/layout.rs'],
  ['ordnance-layout.json','src/presentation/ordnance-layout.js','rust/bfe-presentation/src/ordnance_layout.rs'],
+ ['timeline-layout.json','src/presentation/timeline-layout.js','rust/bfe-pose/src/timeline_layout.rs'],
  ['items-layout.json','src/presentation/items-layout.js','rust/bfe-presentation/src/items_layout.rs'],
 ];
 for(const [schema,jsPath,rsPath] of LAYOUTS) {

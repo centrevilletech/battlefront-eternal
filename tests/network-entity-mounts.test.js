@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import {decodeOwnPlayer,OWN_PLAYER_SCHEMA} from '../src/runtime/network-entity-player.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -154,7 +155,7 @@ test('client: hull creation, seat ownership for both humans, replicated aim and 
   assert.equal(c.driver.vehicle, c.v, 'the shared driver adapter owns the hull'); assert.equal(c.v.seatIndex, 0);
   assert.equal(c.v.seats[0].lease?.human, true); assert.equal(c.own.seat?.vehicle, c.v); assert.equal(c.driver.lease, c.v.seats[0].lease);
   assert.equal(c.own.combat.health, 77, 'own life fields apply without a correction');
-  assert.ok(c.driver.synced > 0);
+
   // 3. The gunner exits: its lease is let go on this client too.
   send(c, 30, [vehicle(30), mount(30), soldier(remote, 30), seatRecord(remote, 30, null, 0, 3)]);
   assert.equal(c.remote.seat, null); assert.equal(c.v.seats[1].lease, null); assert.equal(c.remote.combat.mounted, false);

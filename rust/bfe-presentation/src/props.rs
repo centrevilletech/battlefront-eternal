@@ -33,6 +33,9 @@ pub struct TriggerInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PropInput {
+    /// Complete resource tree, including matrix-authored placement and meshes.
+    #[serde(default)]
+    pub scene: crate::scene::Input,
     /// The pose's DummyRoot (`dummy_?root`, else 0).
     pub root: i32,
     /// Each bone's quaternion then position as it stands.
@@ -65,6 +68,8 @@ pub struct PropInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrapDesc {
+    #[serde(default)]
+    pub scene: crate::scene::Input,
     /// The pose's DummyRoot.
     pub root: i32,
     /// Each bone's quaternion then position as it stands.
@@ -78,6 +83,7 @@ pub struct TrapDesc {
 }
 
 struct Prop {
+    scene: crate::scene::Scene,
     /// The sampler AnimatedProp keeps.
     pose: Pose,
     /// The stand pose, Float32Array storage as the JS keeps it.
@@ -111,6 +117,7 @@ struct Prop {
     body: Option<bool>,
 }
 struct Trap {
+    scene: crate::scene::Scene,
     /// The sampler Trap keeps.
     pose: Pose,
     /// Clip handles (NONE: no clip).
@@ -137,6 +144,9 @@ pub struct Props {
     pub bones: Vec<f64>,
     pub events: Vec<f64>,
     pub header: Vec<f64>,
+    turrets: Vec<crate::turrets::Turret>,
+    pub turret_input: Vec<f64>,
+    pub nodes: Vec<f64>,
 }
 
 /// A handle's clip, or None (NONE, or past the loaded ones).
@@ -166,6 +176,9 @@ impl Props {
             bones: Vec::new(),
             events: Vec::new(),
             header: vec![0.0; ph::STRIDE],
+            turrets: Vec::new(),
+            turret_input: Vec::new(),
+            nodes: Vec::new(),
         }
     }
     pub fn feet_at() -> usize {
@@ -202,6 +215,7 @@ impl Props {
         let mut bind = d.bind;
         bind.resize(bones * 7, 0.0);
         self.props.push(Prop {
+            scene: crate::scene::Scene::new(d.scene, &mut self.nodes),
             pose: Pose::new(bones, d.root),
             stand_q,
             stand_t,
@@ -231,6 +245,10 @@ impl Props {
         self.prop_input.resize(self.props.len() * pi::STRIDE, 0.0);
         self.prop_output.resize(self.props.len() * po::STRIDE, 0.0);
         self.events.resize(self.props.len() * pe::STRIDE, 0.0);
+        let row = (self.props.len()-1)*po::STRIDE;
+        let scene = &self.props.last().unwrap().scene;
+        self.prop_output[row+po::NODE_START] = scene.start as f64;
+        self.prop_output[row+po::NODE_COUNT] = scene.nodes.len() as f64;
         self.props.len() - 1
     }
     /// A log trap with a pose (Trap's constructor). Its bones follow every
@@ -239,6 +257,7 @@ impl Props {
         let bones = d.initial.len() / 7;
         self.bones.extend_from_slice(&d.initial);
         self.traps.push(Trap {
+            scene: crate::scene::Scene::new(d.scene, &mut self.nodes),
             pose: Pose::new(bones, d.root),
             trigger_clip: handle(d.trigger_clip),
             build_clip: handle(d.build_clip),
@@ -247,7 +266,20 @@ impl Props {
         });
         self.trap_input.resize(self.traps.len() * ti::STRIDE, 0.0);
         self.trap_output.resize(self.traps.len() * to::STRIDE, 0.0);
+        let row = (self.traps.len()-1)*to::STRIDE;
+        let scene = &self.traps.last().unwrap().scene;
+        self.trap_output[row+to::NODE_START] = scene.start as f64;
+        self.trap_output[row+to::NODE_COUNT] = scene.nodes.len() as f64;
         self.traps.len() - 1
+    }
+    /// TurretSeats.present and poseTurret join this phase; registration
+    /// reserves every matrix row before the page can present a frame.
+    pub fn add_turret(&mut self, d: crate::turrets::Descriptor) -> usize {
+        let turret = crate::turrets::Turret::new(d, &mut self.nodes);
+        let start = turret.scene.start;
+        self.turrets.push(turret);
+        self.turret_input.resize(self.turrets.len() * crate::layout::turret_presentation_input::STRIDE, 0.0);
+        start
     }
     /// The first PropBone of a prop's (`trap` false) or a trap's bones.
     pub fn bone_start(&self, trap: bool, index: usize) -> usize {
@@ -267,6 +299,10 @@ impl Props {
             return;
         }
         self.header[ph::STATUS] = status::OK as f64;
+        for (i, turret) in self.turrets.iter_mut().enumerate() {
+            let start = i * crate::layout::turret_presentation_input::STRIDE;
+            turret.present(&self.turret_input[start..], &mut self.nodes);
+        }
         let dt = self.input[fr::DT];
         let tick = self.input[fr::TICK];
         // Counts clamp to the records the host can have written.
@@ -285,6 +321,8 @@ impl Props {
             if posed {
                 write_posed(&trap.pose, &mut self.bones[bone * bo::STRIDE..(bone + trap.bones) * bo::STRIDE]);
             }
+            trap.scene.pose(&self.bones[bone * bo::STRIDE..(bone + trap.bones) * bo::STRIDE]);
+            trap.scene.publish(&mut self.nodes);
             self.trap_output[i * to::STRIDE + to::POSED] = posed as u8 as f64;
             bone += trap.bones;
         }
@@ -319,6 +357,8 @@ impl Props {
                 }
                 true
             };
+            p.scene.pose(out);
+            p.scene.publish(&mut self.nodes);
             // What the host writes back: the bones (if posed), its body, and
             // the clip a creature idles in before it adopts the world's.
             let o = i * po::STRIDE;

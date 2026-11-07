@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 // A hover hull on the ground (src/vehicle-hover.js): its springs carry it

@@ -3,6 +3,28 @@ import * as THREE from "three";
 const NETWORK_POSE = ['posture', 'air', 'dive', 'dead'];
 const WALKER_POSE = ["roll", "lean", "legs", "time"];
 
+// Presentation inherits live source fields without making the live soldier
+// itself a prototype. V8 tags prototype numbers; refreshing a seated body's
+// yaw and pitch would then allocate a box for each native output value.
+const SOURCE=Symbol('presentation source'),STATE_PROTOTYPES=new WeakMap();
+function displayState(soldier,position,velocity) {
+  const base=Object.getPrototypeOf(soldier)||Object.prototype;
+  let prototype=STATE_PROTOTYPES.get(base);
+  if(!prototype) {prototype=Object.create(base);STATE_PROTOTYPES.set(base,prototype);}
+  // Field descriptors are cold resources shared by every body of this type.
+  // Writes shadow a forwarded field exactly as ordinary inheritance did;
+  // reset can delete the shadow and expose the current source value again.
+  const keys=Object.keys(soldier).concat(NETWORK_POSE,WALKER_POSE,'mode','reverse');
+  for(const key of keys)if(!Object.hasOwn(prototype,key))Object.defineProperty(prototype,key,{
+    get(){return this[SOURCE][key];},
+    set(value){Object.defineProperty(this,key,{value,writable:true,enumerable:true,configurable:true});},
+  });
+  const state={position,velocity,aimYaw:NaN,aimPitch:NaN};
+  Object.setPrototypeOf(state,prototype);
+  Object.defineProperty(state,SOURCE,{value:soldier});
+  return state;
+}
+
 // Dedicated servers never interpolate a rendered frame. Keep the interface
 // used by spawn/seat transitions, with live authoritative coordinates, without
 // copying every soldier's pose before and after each physics step.
@@ -32,9 +54,10 @@ export class SoldierPresentation {
     this.previousPosition = new THREE.Vector3();
     this.previousVelocity = new THREE.Vector3();
     this.previousPose = {};
-    this.state = Object.create(soldier);
-    this.state.position = this.position;
-    this.state.velocity = this.velocity;
+    // Native publication refreshes fractional yaw directly. Reserve a
+    // double field before reset installs an integer spawn angle.
+    this.previousYaw = NaN;
+    this.state = displayState(soldier,this.position,this.velocity);
     this.reset();
   }
 

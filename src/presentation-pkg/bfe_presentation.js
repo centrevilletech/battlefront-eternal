@@ -457,33 +457,23 @@ export class PageProps {
         return ret[0] >>> 0;
     }
     /**
+     * @param {string} data
+     * @returns {number}
+     */
+    add_turret(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageprops_add_turret(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
      * @returns {number}
      */
     bodies_at() {
         const ret = wasm.pageprops_bodies_at(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {boolean} trap
-     * @param {number} index
-     * @returns {number}
-     */
-    bone_start(trap, index) {
-        const ret = wasm.pageprops_bone_start(this.__wbg_ptr, trap, index);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    bones_len() {
-        const ret = wasm.pageprops_bones_len(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    bones_ptr() {
-        const ret = wasm.pageprops_bones_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -553,6 +543,20 @@ export class PageProps {
         PagePropsFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
+    /**
+     * @returns {number}
+     */
+    nodes_len() {
+        const ret = wasm.pageprops_nodes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    nodes_ptr() {
+        const ret = wasm.pageprops_nodes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
     present_props() {
         wasm.pageprops_present_props(this.__wbg_ptr);
     }
@@ -582,6 +586,13 @@ export class PageProps {
      */
     trap_output_ptr() {
         const ret = wasm.pageprops_trap_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    turret_input_ptr() {
+        const ret = wasm.pageprops_turret_input_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
 }

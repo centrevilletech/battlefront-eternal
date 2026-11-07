@@ -60,7 +60,6 @@ export class F4Live {
     for (const unit of phase.factory.built) this.prepareUnit(unit);
     if (local) this.prepareUnit(local);
     this.installEvents();
-    if (this.live?.presentAnimated) this.live.presentAnimated = (dt,tick)=>this.presentAnimated(dt,tick);
     this.x.f4_live_publish(); this.sync();
   }
   readLayout() {
@@ -146,20 +145,14 @@ export class F4Live {
       pose:p.pose ? {root:p.pose.root,q:p.pose.q,t:p.pose.t,w:p.pose.w} : null,rootWorld:p.rig.root.matrixWorld,
       bones:p.rig.bones.map(b=>({p:b.position,q:b.quaternion,s:b.scale,world:b.matrixWorld}))};
     const handle = this.handle(this.send(ANIMATION,{prop:p,body:p.body ?? null,birth:{settings,state}},'f4_animated_birth'));
-    const shown = Object.assign(Object.create(Object.getPrototypeOf(p)),p);
-    shown.body = p.body ? {enabled:p.body.enabled} : null;
-    const binding = {object:p,shown,index,view:new F.F4AnimatedViewMirror(),victim:{unit:null,generation:0,grab:null,since:0},entry:null};
+    const binding = {object:p,index,view:new F.F4AnimatedViewMirror(),victim:{unit:null,generation:0,grab:null,since:0},entry:null};
     binding.entry = this.mirrors.bind(handle,ANIMATED,binding.view,()=>this.publishAnimated(binding));
     this.watch(binding,ANIMATED_FIELDS);
     this.animations[handle.slot] = binding;
     p.play = (slot,looping = false,tick = 0)=>this.command(binding,'play',slot,null,looping,tick);
   }
   publishAnimated(binding) {
-    const p = binding.object, v = binding.view, shown = binding.shown;
-    if (shown.slot !== v.slot || shown.started !== v.started) {
-      shown.adopted = shown.adopted === undefined ? 'first' : true;
-      shown.slot = v.slot; shown.loop = v.looping; shown.started = v.started; shown.startTime = v.startTime;
-    }
+    const p = binding.object, v = binding.view;
     p.slot = v.slot; p.time = v.time; p.weight = v.weight; p.loop = v.looping; p.hold = v.hold;
     p.started = v.started; p.startTime = v.startTime; p.openness = v.openness;
     if (p.body && v.bodyEnabled !== null) p.body.enabled = v.bodyEnabled;
@@ -167,7 +160,6 @@ export class F4Live {
       const a = binding.victim, b = v.victim; a.unit = this.phase.bindings[b.unit].unit;
       a.generation = b.generation; a.grab = p.grabs[b.grab]; a.since = b.since; p.victim = a;
     } else p.victim = null;
-    shown.victim = p.victim;
     this.remember(binding);
   }
   installEvents() {
@@ -189,24 +181,6 @@ export class F4Live {
       if (e.frame) { cache.frame.copy(e.frame); h.frame = cache.frame; } else h.frame = undefined;
       h.time = e.time === null ? undefined : e.time; unit.held = h;
     };
-  }
-  // The page owns only its shown rig. Its clocks and door tests cannot write
-  // back into the authority's native row. Held bodies draw through the original
-  // facade, whose prop identity and generation still match their native hold.
-  presentAnimated(dt, tick = 0) {
-    for (const trap of this.live.traps ?? []) trap.present(tick);
-    if (!this.animations.length) return;
-    const positions = this.live.soldiers?.() ?? [], bodies = this.live.bodies?.() ?? [];
-    for (const binding of this.animations) {
-      if (!binding) continue;
-      const p = binding.object, shown = binding.shown;
-      if (p.grabs.length) { shown.follow(dt,tick); p.presentHeld(tick); }
-      else {
-        const body = shown.body;
-        if (!this.authority()) shown.body = p.body;
-        shown.presentStep(dt,positions,bodies,Math.floor(tick)); shown.body = body;
-      }
-    }
   }
   watch(binding, fields) {
     if (!this.debug) return;

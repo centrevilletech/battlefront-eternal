@@ -259,7 +259,32 @@
       "hasPoseParent": 1,
       "poseParent": 16,
       "hasAttachmentParent": 1,
-      "attachmentParent": 16
+      "attachmentParent": 16,
+      "mountPresent": 1,
+      "mountAlive": 1,
+      "mountGeneration": 1,
+      "mountEnclosed": 1,
+      "riderSeat": 1,
+      "riderKind": 1,
+      "riderClip": 1,
+      "riderTimed": 1,
+      "riderTime": 1,
+      "riderNine": 1,
+      "riderYaw": 1,
+      "riderPitch": 1,
+      "riderTurnRate": 1,
+      "riderPitchLimits": 2,
+      "riderYawLimits": 2,
+      "riderHasYawLimits": 1,
+      "riderWrapYaw": 1,
+      "mountId": 1,
+      "leaseFacts": 1,
+      "leasePosition": 3,
+      "leaseHeight": 1,
+      "leaseVelocity": 3,
+      "riderHullYaw": 1,
+      "riderSampleYawRate": 1,
+      "riderLive": 1
     },
     "UnitCommand": {
       "sequence": 1,
@@ -308,7 +333,9 @@
       "goneBirth": 1,
       "action": 1,
       "changed": 1,
-      "stale": 1
+      "stale": 1,
+      "seatVisible": 1,
+      "leaseBirth": 1
     },
     "UnitNode": {
       "actor": 1,
@@ -374,14 +401,18 @@
       "slot": 1,
       "started": 1,
       "startTime": 1,
-      "bodyEnabled": 1
+      "bodyEnabled": 1,
+      "nodeStart": 1,
+      "nodeCount": 1
     },
     "TrapInput": {
       "phase": 1,
       "started": 1
     },
     "TrapOutput": {
-      "posed": 1
+      "posed": 1,
+      "nodeStart": 1,
+      "nodeCount": 1
     },
     "PropBone": {
       "quaternion": 4,
@@ -697,9 +728,21 @@
       "turretEnclosed": 1,
       "preEuler": 3,
       "euler": 3
+    },
+    "SceneNode": {
+      "matrix": 16,
+      "world": 16,
+      "bindInverse": 16,
+      "changed": 1
+    },
+    "TurretPresentationInput": {
+      "yaw": 1,
+      "pitch": 1,
+      "gunYaw": 1,
+      "gunPitch": 1
     }
   },
-  "version": 5,
+  "version": 10,
   "limits": {
     "UnitLimits": {
       "actors": 1024,

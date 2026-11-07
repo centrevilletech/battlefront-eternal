@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Object3D } from "three";

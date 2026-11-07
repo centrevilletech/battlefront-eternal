@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 // The shared boarding rules (src/boarding.js) as every path uses them: the
 // player's VehicleDriver, a network human through Vehicles.board, and the
 // bots. Synthetic fixtures only: a flat floor, box hulls, made-up weapons.

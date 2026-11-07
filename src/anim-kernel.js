@@ -32,6 +32,20 @@ export class AnimKernel {
     this.outByPose = [];
   }
 
+  // Cold construction returns records, never live node callbacks. The same
+  // constructor serves the page and the world's compatibility shells.
+  constructVehicle(data, batches = false) {
+    const negativeZero = '~negative zero~';
+    const json = JSON.stringify(data, (_,value) => Object.is(value,-0) ? negativeZero : value).replaceAll(`"${negativeZero}"`,'-0.0');
+    const encoded = new TextEncoder().encode(json);
+    const at = this.x.pose_construction_input(encoded.length);
+    new Uint8Array(this.memory.buffer, at, encoded.length).set(encoded);
+    const failed = batches ? this.x.pose_construct_batches() : this.x.pose_construct_vehicle();
+    const text = new TextDecoder().decode(new Uint8Array(this.memory.buffer, this.x.pose_construction_output(), this.x.pose_construction_length()));
+    if (failed) throw Error(`Vehicle resource: ${text}`);
+    return JSON.parse(text);
+  }
+
   // A clip's copy, made the first time it is sampled: its frames (f32, as
   // the extractor wrote them) and the bone each track drives, with -1
   // for one the body lacks. Copying can grow the memory.

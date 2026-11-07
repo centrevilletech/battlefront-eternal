@@ -196,9 +196,13 @@ impl PageProps {
         let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(self.inner.add_trap(input))
     }
-    pub fn bone_start(&self, trap: bool, index: usize) -> usize {
-        self.inner.bone_start(trap, index)
+    pub fn add_turret(&mut self, data: &str) -> Result<usize, JsValue> {
+        let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(self.inner.add_turret(input))
     }
+    pub fn turret_input_ptr(&self) -> *const f64 { self.inner.turret_input.as_ptr() }
+    pub fn nodes_ptr(&self) -> *const f64 { self.inner.nodes.as_ptr() }
+    pub fn nodes_len(&self) -> usize { self.inner.nodes.len() }
     pub fn feet_at(&self) -> usize {
         crate::props::Props::feet_at()
     }
@@ -222,12 +226,6 @@ impl PageProps {
     }
     pub fn trap_output_ptr(&self) -> *const f64 {
         self.inner.trap_output.as_ptr()
-    }
-    pub fn bones_ptr(&self) -> *const f64 {
-        self.inner.bones.as_ptr()
-    }
-    pub fn bones_len(&self) -> usize {
-        self.inner.bones.len()
     }
     pub fn events_ptr(&self) -> *const f64 {
         self.inner.events.as_ptr()

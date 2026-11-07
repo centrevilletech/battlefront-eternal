@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 import { contentURL } from './helpers/content.js';
 // Walkers and the droideka in deep water (src/vehicle-water.js,

@@ -148,6 +148,13 @@ fn pivot(value: Option<&Value>) -> Vector3 {
 /// The rig's inputs for a vehicle class: its definition in the battle's
 /// vehicle file (`data.classes[name]`) and its model's template.
 pub fn hull_desc(class: &Value, template: &VehicleTemplate) -> HullDesc {
+    let (animated, has_clips) = clips_animated(template.clips.as_ref());
+    hull_records(class, &template.rig, &template.muzzle_tips, animated, has_clips)
+}
+
+/// A page has decoded clip resources already. Their track indices and model
+/// records build the identical rig without manufacturing a content template.
+pub fn hull_records(class: &Value, rig: &Value, muzzle_tips: &[(String, [f64; 3])], animated: Vec<usize>, has_clips: bool) -> HullDesc {
     let settings = class.get("settings");
     let health_type = settings
         .and_then(|s| s.get("HealthType"))
@@ -160,8 +167,7 @@ pub fn hull_desc(class: &Value, template: &VehicleTemplate) -> HullDesc {
         .filter(|v| v.truthy())
         .and_then(Value::as_str)
         .unwrap_or("hover");
-    let rig_bones = bfe_content::derived::rig_bones(&template.rig);
-    let (animated, has_clips) = clips_animated(template.clips.as_ref());
+    let rig_bones = bfe_content::derived::rig_bones(rig);
     HullDesc {
         model: class
             .get("model")
@@ -178,8 +184,7 @@ pub fn hull_desc(class: &Value, template: &VehicleTemplate) -> HullDesc {
                 local: b.local.elements,
             })
             .collect(),
-        muzzle_tips: template
-            .muzzle_tips
+        muzzle_tips: muzzle_tips
             .iter()
             .map(|(n, t)| (n.clone(), Vector3::new(t[0], t[1], t[2])))
             .collect(),

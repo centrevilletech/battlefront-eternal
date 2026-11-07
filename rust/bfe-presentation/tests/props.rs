@@ -58,6 +58,7 @@ fn bones() -> Vec<f64> {
 }
 fn prop(door: bool, clip: u32, triggers: Vec<TriggerInput>, grabs: bool) -> PropInput {
     PropInput {
+        scene: Default::default(),
         root: 0,
         initial: bones(),
         bind: bones(),
@@ -161,7 +162,7 @@ fn a_trap_rests_by_its_phase_and_keeps_unweighted_bones() {
     let c = clip(&mut p);
     let mut initial = bones();
     initial.extend_from_slice(&[0.0, 0.0, 0.0, 1.0, 5.0, 5.0, 5.0]);
-    p.add_trap(TrapDesc { root: 0, initial, trigger_clip: Some(c), build_clip: None, trigger_length: 31.0 / 30.0 });
+    p.add_trap(TrapDesc { scene: Default::default(), root: 0, initial, trigger_clip: Some(c), build_clip: None, trigger_length: 31.0 / 30.0 });
     let start = p.bone_start(true, 0);
     p.trap_input[ti::PHASE] = tp::DOWN as f64;
     p.trap_input[ti::STARTED] = f64::NAN;
@@ -216,7 +217,7 @@ fn frames_do_not_allocate() {
     p.add_prop(prop(true, c, vec![TriggerInput { slot: -1, point, radius: 1.0, sound: false }], false));
     p.add_prop(prop(false, c, vec![TriggerInput { slot: 1, point, radius: 1.0, sound: true }], false));
     p.add_prop(prop(false, c, vec![], true));
-    p.add_trap(TrapDesc { root: 0, initial: bones(), trigger_clip: Some(c), build_clip: Some(c), trigger_length: 1.0 });
+    p.add_trap(TrapDesc { scene: Default::default(), root: 0, initial: bones(), trigger_clip: Some(c), build_clip: Some(c), trigger_length: 1.0 });
     let feet = vec![[0.0; 3]; lim::FEET];
     let bodies = vec![[0.0, 0.0, 0.0, 1.0]; lim::BODIES];
     TRACK.with(|t| t.set(true));
@@ -227,4 +228,60 @@ fn frames_do_not_allocate() {
     }
     TRACK.with(|t| t.set(false));
     assert_eq!(ALLOCS.with(Cell::get), 0);
+}
+
+#[test]
+fn creature_matrices_publish_the_eased_float_pose_under_its_authored_root() {
+    use bfe_presentation::{scene::{Input,Node},layout::scene_node as n};
+    use three::{Matrix4,Quaternion,Vector3};
+    let mut p=Props::new();let c=clip(&mut p);let mut desc=prop(false,c,vec![],true);
+    let identity=Matrix4::default().elements;
+    let mut placed=Matrix4::default();placed.make_translation(10.0,3.0,-7.0);
+    let node=|parent,auto,skinned|Node {parent,pose:[0.0,0.0,0.0,0.0,0.0,0.0,1.0,1.0,1.0,1.0],matrix:identity,auto,skinned};
+    let mut root=node(-1,false,false);root.matrix=placed.elements;
+    // Creature record order is not hierarchy order: the rancor's bone_root
+    // follows its spine in the skeleton table. Explicit bone handles keep
+    // that late parent above the sampled spine in the retained scene.
+    desc.initial.extend_from_slice(&[0.0,0.0,0.0,1.0,4.0,0.0,0.0]);
+    desc.bind=desc.initial.clone();
+    desc.scene=Input {nodes:vec![root,node(0,true,false),node(1,true,false),node(2,true,false),node(0,true,true)],bones:vec![1,3,2],parent:Some(identity)};
+    p.add_prop(desc);p.prop_input[pi::ADOPTED]=pa::FIRST as f64;
+    p.prop_input[pi::SLOT]=0.0;p.prop_input[pi::STARTED]=1.0;
+    frame(&mut p,1.0/60.0,25.0,&[],&[]);
+    // A newly adopted action eases from the old idle. Publishing its raw
+    // target would jump to a different pose, especially on a large creature.
+    p.prop_input[pi::ADOPTED]=pa::FOLLOWING as f64;
+    p.prop_input[pi::SLOT]=1.0;p.prop_input[pi::STARTED]=25.0;
+    frame(&mut p,1.0/60.0,26.0,&[],&[]);
+    let b=&p.bones[bo::STRIDE..];
+    let mut local=Matrix4::default();local.compose(&Vector3::new(b[4],b[5],b[6]),&Quaternion::new(b[0],b[1],b[2],b[3]),&Vector3::new(1.0,1.0,1.0));
+    let at=3*n::STRIDE;
+    assert_eq!(&p.nodes[at+n::MATRIX..at+n::MATRIX+16],&local.elements);
+    assert_eq!(&p.nodes[n::WORLD..n::WORLD+16],&placed.elements,"matrix-authored root survives publication");
+    assert_eq!(p.nodes[at+n::WORLD+12],14.0,"a late skeleton parent still carries its child");
+    assert!(b[1]>0.25,"the eased pose still retains most of the preceding idle");
+    let mesh=4*n::STRIDE;let mut world=Matrix4::default();let mut inverse=Matrix4::default();
+    world.from_array(&p.nodes[mesh+n::WORLD..],0);inverse.from_array(&p.nodes[mesh+n::BIND_INVERSE..],0);
+    world.multiply(&inverse);assert_eq!(world.elements,identity,"attached mesh binding is native too");
+}
+
+#[test]
+fn turret_frames_retain_storage_and_reject_nonfinite_aim() {
+    use bfe_presentation::{scene::{Input,Node},turrets::Descriptor,layout::{turret_presentation_input as t,scene_node as n}};
+    use three::Matrix4;
+    let matrix=Matrix4::default().elements;
+    let node=|parent,z|Node {parent,pose:[0.0,0.0,z,0.0,0.0,0.0,1.0,1.0,1.0,1.0],matrix,auto:true,skinned:false};
+    let mut p=Props::new();
+    p.add_turret(Descriptor {scene:Input {nodes:vec![node(-1,0.0),node(0,0.0),node(1,-0.5)],bones:vec![],parent:None},
+        drum:1,gun:-1,parent_turn:Some([0.0,0.0,0.0,1.0]),gun_bind:None,up:[0.0,1.0,0.0],yaw_factor:1.0,pitch_factor:0.0});
+    p.input[fr::VERSION]=layout::VERSION as f64;
+    // A full stream of new angles uses the registered storage. Corrupt
+    // aim retains the last valid frame instead of poisoning drawn matrices.
+    TRACK.with(|v|v.set(true));
+    for tick in 0..1000 {p.turret_input[t::YAW]=tick as f64*0.01;p.frame();}
+    let before=p.nodes[2*n::STRIDE+n::WORLD+12];
+    p.turret_input[t::YAW]=f64::INFINITY;p.frame();
+    TRACK.with(|v|v.set(false));
+    assert_eq!(ALLOCS.with(Cell::get),0);
+    assert_eq!(p.nodes[2*n::STRIDE+n::WORLD+12],before);
 }

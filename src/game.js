@@ -2162,6 +2162,7 @@ async function start() {
       try { action(); } catch (error) { if (!failed) { failure = error; failed = true; } }
     };
     release(restorePrediction);
+    release(() => client?.entity?.dispose());
     release(() => client?.mountedWeapons?.dispose());
     release(() => client?.weapons?.dispose());
     release(() => { if (!headless) predictionSession.reset(); });
@@ -2661,7 +2662,6 @@ async function start() {
     if (held) animator.gunner(animator.clips.get(held.grab.clip) ?? null, 0, 0, held.time);
     // At a turret, his body stands at its seat in the gunner's pose, as
     // every other page draws him and the world strikes him (Gunner.poseBody).
-    else if (gunner?.active) gunner.poseBody(renderedSoldier, actor.root);
     unitView.frame += 1;
     unitView.position.copy(camera.position);
     unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
@@ -2689,7 +2689,6 @@ async function start() {
       vehicles.page.offset=client.vehicleSmoother;client.vehiclePrediction.present(client.inputClock.alpha);vehicles.page.flush();vehicles.page.offset=null;
       driver.vehicle.visual.copy(driver.vehicle.root.position);
     }
-    if(driver?.active)driver.presentRider(frozen?0:dt);vehicles?.presentRiders(frozen?0:dt);
     const ownRow=pageUnits.byActor.get(actor);pageUnits.write(ownRow,playerUnit,playerAlpha,true);
     for(const unit of factory?.built||[])pageUnits.write(pageUnits.byActor.get(unit.actor),unit,presentAlpha);
     pageUnits.writeView(firstPersonView?.presentationRow??null,ownEyes,combat.zoom>1,combat.shown);
@@ -2740,7 +2739,6 @@ async function start() {
       // The droids posed from the tick's state (a worker's arrives as plain
       // fields), and the build holograms for a soldier with a repair weapon.
       live?.present(dt, { camera, canRepair: !combat.dead && combat.arsenal.weapons.some((w) => w.repair) });
-      turretSeats?.present();
       weather?.update(dt, camera);
       snow?.update(dt, camera);
       atmosphere?.update(dt, camera);

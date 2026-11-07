@@ -1,3 +1,4 @@
+import {presentTurret,pageProps,local} from './helpers/page-presentation.js';
 import {presentGunner} from './helpers/cameras.js';
 import test from 'node:test';
 import golden from './fixtures/turret-view-golden.json' with { type: 'json' };
@@ -5,7 +6,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Gunner, previewSteer } from '../src/gunner.js';
-import { poseTurret, TurretSeats } from '../src/seats.js';
+import { TurretSeats } from '../src/seats.js';
 import { Turret } from '../src/props.js';
 
 // A turret as the page sees one: a real Turret (its replicated angles and
@@ -83,12 +84,12 @@ test('the page camera follows a turret it was never entered on, and poses its dr
   assert.ok(gunner.cameraPhase, 'a native owner is bound');
   assert.ok(camera.position.distanceTo(t.position) < 5, `the chase camera sits by the turret (${camera.position.distanceTo(t.position).toFixed(2)} m)`);
   // The drum and gun as Turret.pose would leave them for the same angles.
-  assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.drum)) < 1e-6, 'drum posed');
-  assert.ok(t.gun.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.gun)) < 1e-6, 'gun at its recorded angles');
+  assert.ok(local(t.drum).quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.drum)) < 1e-6, 'drum posed');
+  assert.ok(local(t.gun).quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.gun)) < 1e-6, 'gun at its recorded angles');
   // With a preview, the drum shows the previewed yaw.
   gunner.previewYaw = 0.3;
   presentGunner(gunner, 1 / 60, 1, false);
-  assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.preview.drum)) < 1e-6, 'drum at the previewed yaw');
+  assert.ok(local(t.drum).quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.preview.drum)) < 1e-6, 'drum at the previewed yaw');
   // Another turret: a fresh view.
   const before = gunner.cameraPhase.owner.turretId;
   gunner.turret = turret();
@@ -135,17 +136,17 @@ test('first person looks from the eye down the aim, the drum and gun hidden from
 
 test('poseTurret keeps the recorded drum and gun angles', () => {
   const t = turret({ yaw: 1.1 }); t.gunYaw = .08; t.gunPitch = .3;
-  poseTurret(t, 1.1);
-  assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.pose.drum)) < 1e-6);
-  assert.ok(t.gun.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.pose.gun)) < 1e-6);
+  presentTurret(t);
+  assert.ok(local(t.drum).quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.pose.drum)) < 1e-6);
+  assert.ok(local(t.gun).quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.pose.gun)) < 1e-6);
 });
 
-test('TurretSeats.present poses the bots\' turrets from their replicated angles, not the player\'s', () => {
+test('the native prop frame poses every built turret from its recorded angles', () => {
   const bot = turret({ yaw: 0.7 }), human = turret({ yaw: 0.7 }), empty = turret({ yaw: 0.7 });
   bot.lease = { human: false }; human.lease = { human: true };
   const seats = new TurretSeats({ live: { turrets: [bot, human, empty] } });
-  seats.present();
-  assert.ok(bot.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.bot.drum)) < 1e-6, 'bot turret posed');
-  assert.ok(human.drum.quaternion.angleTo(new THREE.Quaternion()) < 1e-6, 'the player\'s is left to the gunner');
-  assert.ok(empty.drum.quaternion.angleTo(new THREE.Quaternion()) < 1e-6, 'an unmanned one is not touched');
+  const phase=pageProps({turrets:[bot,human,empty]});phase.present(0,0);
+  assert.ok(local(bot.drum).quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.bot.drum)) < 1e-6, 'bot turret posed');
+  assert.ok(local(human.drum).quaternion.angleTo(local(bot.drum).quaternion) < 1e-6, 'the player\'s is left to the gunner');
+  assert.ok(local(empty.drum).quaternion.angleTo(local(bot.drum).quaternion) < 1e-6, 'an unmanned one is not touched');
 });

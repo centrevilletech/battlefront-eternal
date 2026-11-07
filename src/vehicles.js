@@ -2,13 +2,12 @@ import { poseFlightGear, gearFoot } from "./flight/gear.js";
 import { initFlight, standHeight } from "./flight/model.js";
 import { groundMotion } from './vehicle-motion.js';
 import { hullQuaternion, restHeight } from './vehicle-hover.js';
-import { cameraTension } from './flight/camera.js';
 import { vehicleMissileDefinition } from "./weapon-targeting.js";
 import { waterDamageRule } from './vehicle-water.js';
 import * as THREE from "three";
-import { descendantMuzzles, vehicleMuzzleTips } from "./muzzles.js";
+import { vehicleMuzzleTips } from "./muzzles.js";
 import { makeHit } from "./collision.js";
-import { vehicleBatches, attachVehicleBatches } from "./vehicle-rig.js";
+import { vehicleBatches, attachVehicleBatches, vehicleShell } from "./vehicle-rig.js";
 import { modelPack } from "./models.js";
 import { loadClips, Pose } from "./anim.js";
 import { Weapon } from "./weapons.js";
@@ -29,94 +28,14 @@ const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const DEG = Math.PI / 180;
 const num = (v, fallback = 0) => Number.isFinite(parseFloat(v)) ? parseFloat(v) : fallback;
 const clockSeconds = () => (globalThis.performance?.now?.() ?? Date.now()) / 1000;
-const vector = (v, fallback) => v ? String(v).split(/\s+/).map(Number) : fallback;
 const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 const idle = Object.freeze({ forward: 0, right: 0, turn: 0, brake: false });
-const ZERO = Object.freeze(new THREE.Vector3());
-const vec3 = (v, fallback = null) => {
-  const a = v === undefined || v === null ? null : String(v).trim().split(/\s+/).map(Number);
-  return a && a.length >= 3 && a.slice(0, 3).every(Number.isFinite) ? new THREE.Vector3(a[0], a[1], a[2]) : fallback && fallback.clone();
-};
-const degrees = (v) => { const a = vector(v, null); return a && a.length >= 2 && Number.isFinite(a[0]) && Number.isFinite(a[1]) ? [a[0] * DEG, a[1] * DEG] : null; };
-
-// Seats, following the 2004 game (docs/formats.md "Vehicle seats").
-// Every controllable's FirstPersonFOV and ThirdPersonFOV default to 48
-// degrees across. The chase camera's section defaults ease its turn and each
-// of its axes at 30/s (AimTension, MoveTension), and start its wall rays
-// 1.5 m up in its subject's frame.
-const SEAT_FOV = 48;
-const CAMERA_RATE = 30; // 1/s
 const AIMED = DEG; // rad: a barrel this close to its target fires at it exactly
 // m a wall probe's or spring's cached triangles reach past its sphere: a
 // hull at 30 m/s moves 0.25 m a 120 Hz step.
 const WALL_CACHE_MARGIN = 1.5;
-const TURRET_PITCH = 1.5; // rad: the port's bound on a turret's pitch when its section sets none
 
 const TOW_POINTS = 32; // the cable line's points: the anchor, up to 12 wraps, 16 along the sagging span to the gun
-
-// A seat as its control section describes it: the camera (EyePointOffset,
-// TrackCenter, TrackOffset, TiltValue, how fast it turns and moves, and the
-// two fields of view), the aim's limits, the turret node, and the rider. Seat 0 is the hull's own control,
-// whose pitch is up positive; every other seat is a turret, whose pitch
-// (PitchLimits) is down positive and whose yaw (YawLimits) is measured from
-// the hull's heading, positive to the left. Limits are kept here in the
-// port's terms: yaw from the hull, pitch up positive, and null for none.
-function seatView(vehicle, seat, index) {
-  const s = seat.settings || {};
-  const eye = vec3(s.EyePointOffset, ZERO);
-  const view = {
-    eye,
-    // EyePointOffset sets TrackCenter too; a TrackCenter of its own wins.
-    center: vec3(s.TrackCenter) || eye.clone(),
-    offset: vec3(s.TrackOffset, ZERO),
-    tilt: num(s.TiltValue, 0) * DEG,
-    ...cameraTension(s, CAMERA_RATE),
-    firstFov: num(s.FirstPersonFOV, SEAT_FOV) * DEG,
-    thirdFov: num(s.ThirdPersonFOV, SEAT_FOV) * DEG,
-    turret: null, pivot: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0),
-    yawFactor: num(s.YawTurnFactor, 1), pitchFactor: num(s.PitchTurnFactor, 1),
-    turnRate: num(s.TurnRate, index > 0 ? 2 : vehicle.turnRate),
-    yawLimits: null, wrapYaw: false, pitchLimits: null, rider: null,
-  };
-  if (index === 0) {
-    // The hover class's default pitch limits are half a radian each way.
-    view.pitchLimits = vehicle.flying ? [-Math.PI, Math.PI] : degrees(s.PitchLimits) || [-.5, .5];
-  } else {
-    const pitch = degrees(s.PitchLimits);
-    view.pitchLimits = pitch && pitch[0] > -Math.PI && pitch[1] < Math.PI ? [-pitch[1], -pitch[0]] : [-TURRET_PITCH, TURRET_PITCH];
-    const yaw = degrees(s.YawLimits);
-    // A range from the left round past the back (0..pi to pi..2pi) is kept
-    // in 0..2pi; any other one inside +-pi clamps; the rest turns freely.
-    view.wrapYaw = Boolean(yaw && yaw[0] > 0 && yaw[0] <= Math.PI && yaw[1] >= Math.PI && yaw[1] < 2 * Math.PI);
-    if (yaw && (view.wrapYaw || yaw[0] > -Math.PI + 1e-4 && yaw[1] < Math.PI - 1e-4)) view.yawLimits = yaw;
-    // The turret node turns about its pivot, keeping its own up. A section
-    // without a node can name the pivot itself, in the hull's frame (the
-    // unnamed key f2aa4a90: the AT-ST gunner's is 8 m up, at the head; the
-    // cloud car gunner's 15 m behind); else it is the hull's origin.
-    const node = vehicle.byName[String(s.TurretNodeName || '').toLowerCase()] || null;
-    if (node) {
-      view.turret = node;
-      node.getWorldPosition(view.pivot);
-      view.up.set(0, 1, 0).applyQuaternion(node.getWorldQuaternion(new THREE.Quaternion()));
-    } else view.pivot.copy(vec3(s.f2aa4a90, ZERO));
-  }
-  // The rider shows wherever the seat has a pilot animation (Pilot9Pose or
-  // PilotAnimation); enclosed seats have none. It sits at PilotPosition, or
-  // at the node the creature classes name instead (hash 11ce2025). Rounds
-  // meet a shown rider unless the section sets hash 2b60e217 to 0 (the
-  // original game's pilot pose then leaves him out of collision; the
-  // snowspeeder, cloud car, gunship ball turrets and fighters do):
-  // shootable.
-  const anim = s.Pilot9Pose || s.PilotAnimation;
-  if (anim) {
-    const creature = vehicle.healthType === 'animal';
-    const name = s.PilotPosition || (creature && vehicle.byName.hp_active ? 'hp_active' : s['11ce2025']) || '';
-    const clip = String(anim).toLowerCase();
-    view.rider = { anim: clip, clip: `human_${clip}`, ninePose: Boolean(s.Pilot9Pose), node: vehicle.byName[String(name).toLowerCase()] || null,
-      shootable: num(s['2b60e217'], 1) !== 0 };
-  }
-  return view;
-}
 
 // A direction from a yaw (positive to the left, +X) and an up-positive pitch.
 function aimVector(yaw, pitch, out) {
@@ -198,7 +117,7 @@ const RIDER_STANDIN = { man_minigun: ['human_minigun_9pose', 4], drivesnowspeede
 
 // A rider's pose on seat index: his clip and where in it (the 9-pose's
 // pitch and turn, or a time), written to out { clip, pitch, turn, time };
-// null with no clip. poseRider draws it, and his hit shapes are posed from
+// null with no clip. the body phase draws it, and his hit shapes are posed from
 // the same (riderBody), so a round meets him where he is drawn.
 function riderSample(v, index, clips, out, ninePitch = null, nineTurn = 0) {
   const seat = v.seats[index];
@@ -219,29 +138,6 @@ function riderSample(v, index, clips, out, ninePitch = null, nineTurn = 0) {
   } else out.pitch = -seat.pitch / .7;
   return out;
 }
-const riderPick = { clip: null, pitch: 0, turn: 0, time: null };
-
-// A body at its seat: at the seat's rider node, aimed as the seat aims, in
-// the seat's pilot pose, shown only where the seat has a pilot animation
-// (exposed riders; enclosed seats hide theirs). The player's body goes
-// through this (VehicleDriver.sync) and so do bots'.
-function poseRider(v, index, soldier, actor, animator, clips, presentation, point) {
-  const seat = v.seats[index];
-  const rider = seat.view.rider;
-  const node = rider?.node;
-  if (node) node.getWorldPosition(point);
-  else point.copy(v.position).addScaledVector(UP, v.size.y * .5);
-  soldier.position.copy(point); soldier.previous?.copy(point); soldier.settled?.copy(point);
-  soldier.aimYaw = seat.aimYaw; soldier.aimPitch = seat.pitch;
-  soldier.velocity.copy(v.velocity);
-  presentation?.reset();
-  actor.root.position.copy(point);
-  actor.root.visible = Boolean(node);
-  const pick = riderSample(v, index, clips, riderPick);
-  if (!pick) { animator?.gunner?.(null); return; }
-  if (pick.time !== null) animator?.gunner?.(pick.clip, 0, 0, pick.time);
-  else animator?.gunner?.(pick.clip, pick.pitch, pick.turn);
-}
 
 // A rider's body on seat index as this tick poses it (src/rider-pose.js
 // riderPoints, written to points), and the frame that carries it into the
@@ -261,43 +157,6 @@ function riderBody(v, index, unit, points, frame, s) {
   return frame.compose(s.point.sub(s.riderOffset), v.root.quaternion, UNIT_SCALE);
 }
 
-// After the rider's animation is sampled: the body takes its node's place
-// and turn, so it rides the hull's lean and the turret's swing. On a creature
-// the posed pelvis goes on the saddle instead: riding clips already include
-// a ground-to-saddle root offset, and placing that root at the node adds the
-// height a second time. Returns the rider's new lean. s: scratch { point,
-// riderOffset, riderQuaternion }.
-function seatRider(v, index, actor, dt, lean, s) {
-  const seat = v.seats[index]?.view.rider?.node;
-  if (!seat || !actor.root.visible) return lean;
-  const native=actor.root.userData.presentationRow;
-  if(native){const lease=v.seats[index]?.lease;if(native.riderLease!==lease){native.riderReset=true;native.riderLease=lease;}native.riderFrame=native.handle.owner.frame;native.riderVehicle=v;native.riderNode=seat;native.riderLean=lean;return lean;}
-  if (v.healthType !== 'animal') {
-    seat.getWorldPosition(actor.root.position);
-    seat.getWorldQuaternion(actor.root.quaternion);
-    actor.root.updateMatrixWorld(true);
-    return lean;
-  }
-  const pelvis = actor.byName?.bone_pelvis;
-  if (!pelvis) return lean;
-  actor.root.quaternion.copy(v.root.quaternion);
-  const amount = Math.min(1, v.velocity.length() / Math.max(1, v.speed));
-  lean += (-v.yawRate * amount * .08 - lean) * (1 - Math.exp(-6 * dt));
-  const breath = Math.sin(v.age * 2.2 + v.hoverPhase);
-  // Small upper-body adjustments preserve the authored seat/leg pose.
-  const chest = actor.byName.bone_ribcage;
-  if (chest) {
-    chest.quaternion.multiply(s.riderQuaternion.setFromAxisAngle(RIGHT, breath * .008 + amount * .018));
-    chest.quaternion.multiply(s.riderQuaternion.setFromAxisAngle(UP, lean));
-  }
-  actor.root.updateMatrixWorld(true);
-  pelvis.getWorldPosition(s.riderOffset).sub(actor.root.position);
-  seat.getWorldPosition(s.point);
-  actor.root.position.copy(s.point).sub(s.riderOffset);
-  actor.root.updateMatrixWorld(true);
-  return lean;
-}
-
 // Immutable geometry, materials and collision BVHs are shared by class. A
 // vehicle owns only its transform, rig nodes, weapon state and health. Parked
 // vehicles sleep; simulation is bounded at 120 Hz with interpolated rendering.
@@ -313,29 +172,20 @@ export class Vehicle {
     this.flying = this.base === 'flyer';
     this.walking = this.base === 'walker' || this.base === 'commandwalker';
     const template = system.templates.get(this.def.model);
-    this.root = new THREE.Group();
-    this.root.name = name;
-    this.bones = template.rig.bones.map((d) => {
-      const bone = new THREE.Bone();
-      bone.name = d.name;
-      new THREE.Matrix4().fromArray(d.local).decompose(bone.position, bone.quaternion, bone.scale);
-      return bone;
-    });
-    template.rig.bones.forEach((d, i) => (d.parent >= 0 ? this.bones[d.parent] : this.root).add(this.bones[i]));
-    this.byName = Object.fromEntries(template.rig.bones.map((d, i) => [d.name.toLowerCase(), this.bones[i]]));
-    this.bind = new Map(this.bones.map((b) => [b, b.quaternion.clone()]));
-    this.bindQuaternions = this.bones.map((b) => this.bind.get(b));
-    this.bindPositions = this.bones.map(b => b.position.clone());
+    const motion = groundMotion(this.def, template.clips);
+    const shell = vehicleShell(this, template, motion.turnRate);
+    this.root = shell.root; this.bones = shell.bones; this.byName = shell.byName;
+    this.bind = shell.bind; this.bindQuaternions = shell.bindQuaternions; this.bindPositions = shell.bindPositions;
     this.clips = template.clips;
     // A walker's clips pose it (the walk cycle, its death); a flyer's takeoff
     // clip only its gear (src/flight/gear.js).
-    this.pose = this.clips?.size && !this.flying ? new Pose(this.bones.length, template.rig.bones.findIndex(b => b.name.toLowerCase() === 'dummyroot')) : null;
+    this.pose = this.clips?.size && !this.flying ? new Pose(this.bones.length, shell.records.poseRoot ?? -1) : null;
     // How far below its origin a craft with gear stands on it (src/flight/
     // gear.js gearFoot; null without a takeoff clip).
     this.gearFoot = this.flying ? template.gearFoot ?? null : null;
     this.walkPhase = 0;
     this.walkBlend = 0;
-    this.skeleton = attachVehicleBatches(this.root, this.bones, template.batches, system.caster);
+    this.skeleton = attachVehicleBatches(this.root, this.bones, template.batches, system.caster, { staticBone: shell.staticBone, inverses: shell.inverses });
     this.position = new THREE.Vector3();
     this.previous = new THREE.Vector3();
     this.visual = new THREE.Vector3();
@@ -379,7 +229,7 @@ export class Vehicle {
     // speed, reverseSpeed, strafeSpeed, acceleration, deceleration and
     // turnRate, as the original game reads the class (src/vehicle-motion.js):
     // a walker or animal walks at its clips' pace and turns on A/D.
-    Object.assign(this, groundMotion(this.def, this.clips));
+    Object.assign(this, motion);
     // How far over the floor a new hull is set down: a walker's feet, an
     // animal's on it, a craft at its SetAltitude. A hover rides its springs
     // (src/vehicle-hover.js).
@@ -398,97 +248,32 @@ export class Vehicle {
     // AimerPitchRate (2 and 1 rad/s by default). Each barrel's beams follow
     // that barrel (beamSource); a weapon without aimers, its fire point; one
     // without either, the hull (the seat's own).
-    const allAimers = new Set(this.def.seats.flatMap(seat => seat.weapons.flatMap(w => w.aimers.map(a => this.byName[String(a.node || "").toLowerCase()]))));
-    const geometryMuzzles = new Map();
-    const muzzleNode = (bone) => {
-      if (!bone) return null;
-      const name = Object.keys(this.byName).find(n => this.byName[n] === bone);
-      const tip = template.muzzleTips?.get(name);
-      if (!tip) return bone;
-      if (!geometryMuzzles.has(bone)) {
-        const marker = new THREE.Object3D(); marker.position.fromArray(tip); bone.add(marker);
-        geometryMuzzles.set(bone, marker);
-      }
-      return geometryMuzzles.get(bone);
-    };
-    this.seats = this.def.seats.map((seat, index) => ({ ...seat, weapons: seat.weapons.map(w => {
-      w = { ...w, def: vehicleMissileDefinition(w.def) };
-      const aimers = w.aimers.map(a => {
-        const yawLimits = degrees(a.AimerYawLimits) || [-30 * DEG, 30 * DEG];
-        return { ...a, bone: this.byName[String(a.node || "").toLowerCase()],
-          pitchLimits: (degrees(a.AimerPitchLimits) || [-45 * DEG, 45 * DEG]), yawLimits,
-          // An arc from the left round past the back is kept in 0..2pi, as a
-          // turret's is.
-          wrapYaw: yawLimits[0] > 0 && yawLimits[0] <= Math.PI && yawLimits[1] >= Math.PI && yawLimits[1] < 2 * Math.PI,
-          pitchRate: num(a.AimerPitchRate, 1), yawRate: num(a.AimerYawRate, 2),
-          yaw: 0, pitch: 0, onTarget: false,
-          // Where it points (world), whether it turned its node this frame,
-          // and the seat that turns that node as its turret (-1: none).
-          facing: new THREE.Vector3(0, 0, 1), posed: true, owner: -1, emitter: null };
-      });
-      const muzzles = [];
-      for (const a of aimers) {
-        // A parent aimer only steers when this weapon also defines child aimers.
-        if (aimers.some(other => { let b = other.bone?.parent; while (b) { if (b === a.bone) return true; b = b.parent; } return false; })) continue;
-        // So does one at a HierarchyLevel above 0 (the AT-ST's cube5): it
-        // only turns the aimers under it, and the barrel step skips it.
-        if (num(a.HierarchyLevel, 0) !== 0) continue;
-        // An aimer with barrels (BarrelNodeName, NextBarrel) fires from each
-        // in turn (the 2004 game's barrel step): from the barrel's
-        // own FirePointName, else the barrel node itself (BarrelLength
-        // further along it), which kicks back BarrelRecoil when it fires.
-        // The AT-AT pilot's chin cannons name their tips with a key the
-        // 2004 game never reads, so theirs leave from barrel_Lcannon and
-        // barrel_Rcannon.
-        if (a.barrels?.length) {
-          for (const b of a.barrels) {
-            const barrel = this.byName[String(b.BarrelNodeName || '').toLowerCase()] || null;
-            let node = this.byName[String(b.FirePointName || '').toLowerCase()] || barrel;
-            const length = num(b.BarrelLength, 0);
-            if (node && length && node === barrel) {
-              const marker = new THREE.Object3D(); marker.position.z = length; barrel.add(marker); node = marker;
-            }
-            if (!node) continue;
-            muzzles.push({ fireNode: node, sourceAimer: a, emitter: beamSource(vehicle, index, node, a), barrel,
-              recoil: b.BarrelRecoil !== undefined ? num(b.BarrelRecoil, 0) : .25 * length,
-              rest: barrel ? barrel.position.clone() : null });
+    // new Vehicle and seatView come back as native records. These facades
+    // retain weapons, effects and camera consumers until their resource
+    // owners use numeric handles directly; they do no rig construction math.
+    const node = id => id == null ? null : shell.nodes[id];
+    this.seats = this.def.seats.map((seat, index) => {
+      const record = shell.records.seats[index], view = record.view;
+      for (const key of ['eye','center','offset','pivot','up']) view[key] = new THREE.Vector3().fromArray(view[key]);
+      view.turret = node(view.turret);
+      if (view.rider) view.rider.node = node(view.rider.node);
+      const weapons = seat.weapons.map((w, i) => {
+        const rig = record.weapons[i], def = vehicleMissileDefinition(w.def);
+        const aimers = w.aimers.map((a, j) => ({ ...a, ...rig.aimers[j], bone: node(rig.aimers[j].bone),
+          yaw: 0, pitch: 0, onTarget: false, facing: new THREE.Vector3(0,0,1), posed: true, emitter: null }));
+        const muzzles = rig.muzzles.map(m => {
+          const fireNode = node(m.fireNode), sourceAimer = m.sourceAimer == null ? null : aimers[m.sourceAimer];
+          const muzzle = { fireNode, sourceAimer, emitter: beamSource(vehicle,index,fireNode,sourceAimer) };
+          if (m.barrel != null || m.rest != null || m.recoil != null) {
+            muzzle.barrel = node(m.barrel); muzzle.rest = m.rest ? new THREE.Vector3().fromArray(m.rest) : null; muzzle.recoil = m.recoil;
           }
-          continue;
-        }
-        const explicit = this.byName[String(a.FirePointName || '').toLowerCase()];
-        const descendants = explicit ? [explicit] : descendantMuzzles(a.bone, this.byName, allAimers);
-        // Hailfire launch racks carry individual missile meshes, not hp nodes.
-        if (!descendants.length && a.bone) for (const [name, bone] of Object.entries(this.byName)) {
-          if (/^missile_\d+$/.test(name) && bone.parent === a.bone) descendants.push(muzzleNode(bone));
-        }
-        const nodes = descendants.length ? descendants : [muzzleNode(a.bone)].filter(Boolean);
-        for (const node of nodes) if (!muzzles.some(m => m.fireNode === node)) {
-          muzzles.push({ fireNode: node, sourceAimer: a, emitter: beamSource(vehicle, index, node, a) });
-        }
-      }
-      if (muzzles.length > 2 && aimers.some(a => /^missile_(left|right)$/i.test(a.node))) {
-        const racks = [...new Set(muzzles.map(m => m.sourceAimer.bone))].map(bone => muzzles.filter(m => m.sourceAimer.bone === bone));
-        muzzles.splice(0, muzzles.length, ...Array.from({ length: Math.max(...racks.map(r => r.length)) }, (_, i) => racks.map(r => r[i]).filter(Boolean)).flat());
-      }
-      const turret = this.byName[String(seat.settings.TurretNodeName || '').toLowerCase()];
-      const fire = this.byName[String(seat.settings.FirePointName || '').toLowerCase()] || this.byName[String(w.def.FirePointName || '').toLowerCase()];
-      if (!muzzles.length) {
-        const nodes = fire ? [fire] : descendantMuzzles(turret, this.byName);
-        if (!nodes.length && turret) nodes.push(muzzleNode(turret));
-        // The retail Hailfire has no cannon hardpoint: the visible lower
-        // barrel is skinned to its centre body, whose forward rim is its mouth.
-        if (!nodes.length && this.def.model === 'cis_tread_hailfire' && w.def.class === 'cis_weap_walk_spider_cannon') {
-          const node = muzzleNode(this.byName.cis_hailfire_droid_center);
-          if (node) nodes.push(node);
-        }
-        for (const node of nodes) muzzles.push({ fireNode: node, emitter: beamSource(vehicle, index, node, null) });
-      }
-      return { ...w, aimers, muzzles, state: new Weapon(w.def), barrel: 0, emitter: fire ? beamSource(vehicle, index, fire, null) : null };
-    }), lease: null, aimYaw: 0, pitch: 0, lookYaw: null, lookPitch: null,
-    // The point the seat's guns turn to (aimSeats) and how fast its aim
-    // turns, for the rider's 9-pose.
-    target: null, yawRate: 0, lastYaw: null,
-    emitter: beamSource(vehicle, index, null, null) }));
+          return muzzle;
+        });
+        return { ...w, def, aimers, muzzles, state: new Weapon(def), barrel: 0, emitter: rig.fire == null ? null : beamSource(vehicle,index,node(rig.fire),null) };
+      });
+      return { ...seat, view, weapons, lease: null, aimYaw: 0, pitch: 0, lookYaw: null, lookPitch: null,
+        target: null, yawRate: 0, lastYaw: null, emitter: beamSource(vehicle,index,null,null) };
+    });
     this.seatIndex = 0;
     this.driver = null;
     // Whether the player looks from the seat's eye, and the camera his aim
@@ -536,46 +321,14 @@ export class Vehicle {
     this.wheeled = name.includes('hailfire');
     this.repulsor = !this.walking && !this.wheeled;
     this.hoverPhase = (slot.matrix.elements[12] * .13 + slot.matrix.elements[14] * .17) % (Math.PI * 2);
-    this.wheels = [];
-    // The native rims lie in local XZ: local Y is their axle. Keep the
-    // imported cant, and reverse the mirrored left axle's spin direction.
-    this.root.updateMatrixWorld(true);
-    for (const name of ['wheel_left', 'wheel_right']) {
-      const bone = this.byName[name];
-      if (!bone) continue;
-      const worldAxis = UP.clone().applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()));
-      const axis = UP.clone().multiplyScalar(Math.sign(worldAxis.dot(RIGHT)) || 1);
-      const at = bone.getWorldPosition(new THREE.Vector3());
-      this.wheels.push({ bone, axis, x: at.x, radius: template.wheelRadii.get(name) || 4, phase: 0, previous: 0 });
-    }
-    // Each seat's camera, limits, turret and rider, read in the rest pose.
-    this.seats.forEach((seat, index) => { seat.view = seatView(this, seat, index); });
-    // A walker's legs, for the tow cable: each leg's thigh, calf and foot
-    // (bone_fl_thigh and the like) in the hull's frame at rest, and the
-    // height of the pelvis they hang from (a harpoon above it struck the
-    // body, not a leg). A walker without named legs offers none.
-    this.legs = [];
-    this.legTop = this.bounds.min.y + this.size.y * .6;
-    if (this.walking) {
-      const at = (bone) => bone.getWorldPosition(new THREE.Vector3());
-      const named = Object.entries(this.byName);
-      const pelvis = named.filter(([n]) => /pelvis$/.test(n)).map(([, b]) => at(b));
-      if (pelvis.length) this.legTop = Math.min(...pelvis.map((p) => p.y));
-      const groups = new Map();
-      for (const [name, bone] of named) {
-        const m = /^(.*?)_?(thigh|calf|foot)$/.exec(name);
-        if (!m) continue;
-        const leg = groups.get(m[1]) || { name: m[1], thigh: null, calf: null, foot: null };
-        leg[m[2].toLowerCase()] = at(bone);
-        groups.set(m[1], leg);
-      }
-      for (const leg of groups.values()) if (leg.calf || leg.thigh) this.legs.push(leg);
-    }
-    // A node one seat turns as its turret while another seat's aimer turns
-    // it too (the AT-AT's head: the gunner's turret, the pilot's aimer).
-    for (const seat of this.seats) for (const w of seat.weapons) for (const a of w.aimers) {
-      a.owner = this.seats.findIndex((other) => other !== seat && other.view.turret !== null && other.view.turret === a.bone);
-    }
+    // Wheels and tow-leg geometry are cold native rig records too. The
+    // facade only connects handles and keeps the phase/prediction mirrors.
+    this.wheels = shell.records.wheels.map(w => ({ ...w, bone: shell.nodes[w.bone], axis: new THREE.Vector3().fromArray(w.axis), phase: 0, previous: 0 }));
+    this.legTop = shell.records.legTop;
+    this.legs = shell.records.legs.map(leg => ({ name: leg.name,
+      thigh: leg.thigh ? new THREE.Vector3().fromArray(leg.thigh) : null,
+      calf: leg.calf ? new THREE.Vector3().fromArray(leg.calf) : null,
+      foot: leg.foot ? new THREE.Vector3().fromArray(leg.foot) : null }));
     this.frameScratch = { q: new THREE.Quaternion(), q2: new THREE.Quaternion(), v: new THREE.Vector3(), m: new THREE.Matrix4(), frame: new THREE.Matrix4(), up: new THREE.Vector3() };
     this.beamFrom = new THREE.Vector3();
     this.aimQ = new THREE.Quaternion(); this.aimQ2 = new THREE.Quaternion();
@@ -666,7 +419,7 @@ export class Vehicle {
   // animal takes what misses him.
   shieldsRiders() { return this.healthType !== 'animal'; }
   // A rider's hit shapes on seat i this tick (src/rider-pose.js
-  // riderHitShapes): his body as poseRider poses it, where seatRider places
+  // riderHitShapes): his body as the native rider phase poses and places
   // it. Written to shapes; returns their count, 0 where none shows.
   riderShapes(i, unit, shapes) {
     if (this.system.f2) return this.system.f2.riders.shapes(unit, shapes);
@@ -1134,8 +887,7 @@ export class Vehicles {
     // s: the clock barrels kick back on. A page's wall clock; a world's is
     // its tick clock (src/game.js), as no step reads a clock of its own.
     this.clock = clockSeconds;
-    this.riderPoint = new THREE.Vector3();
-    this.rider = { point: new THREE.Vector3(), riderOffset: new THREE.Vector3(), riderQuaternion: new THREE.Quaternion(),
+    this.rider = { point: new THREE.Vector3(), riderOffset: new THREE.Vector3(),
       points: makeRiderPoints(), frame: new THREE.Matrix4(), sample: { clip: null, pitch: 0, turn: 0, time: null } };
     this.templates = new Map();
     const pack = modelPack(Object.fromEntries(Object.entries(data.models).map(([k, m]) => [k, m.parts])), buffer, indexBuffer);
@@ -1178,7 +930,6 @@ export class Vehicles {
     this.vehicles = [];
     this.acc = 0;
     this.tethers = new Map();
-    this.vanished = new Map(); // drawing only: crew who died hidden in their hull (presentRiders)
     this.hit = makeHit();
     this.center = new THREE.Vector3();
     this.direction = new THREE.Vector3();
@@ -1235,61 +986,6 @@ export class Vehicles {
 
   // Vehicles.update delegates the complete authoritative phase to Rust.
   update(dt) { this.f2.step(dt, this.ticks + 1); }
-
-  // After the units are posed for the frame: each bot's shown rider takes
-  // its node's place and turn, or its saddle on an animal (seatRider; the
-  // player's rider is VehicleDriver.presentRider). A seat with no rider
-  // node is enclosed: its body stays hidden, enforced here every frame
-  // because the one hide at seat time (poseRider) races lease setup on a
-  // remote client, after which unit presentation went on drawing the
-  // body at its last soldier position, outside the fleeing hull.
-  //
-  // Whoever sat hidden inside a hull when it was destroyed dies with it out
-  // of sight: his body never shows (the hull's blast threw the AT-TE's crew
-  // flailing 6 m above it). Only the drawing: the body still dies, falls
-  // and is thrown as the world has it. He shows again in his next life.
-  // EntityGameState installs a seat packet on the page before its next frame.
-  // Place that replica's body from its drawn rig; the world phase uses native
-  // rider writeback and never calls this presentation reader.
-  placeReplicaRider(lease) {
-    const unit = lease.unit;
-    if (!unit?.soldier || !unit.actor) return;
-    poseRider(lease.vehicle, lease.index, unit.soldier, unit.actor, unit.animator, unit.animator?.clips, unit.presentation, this.riderPoint);
-    // The hull has moved under him: his hit shapes follow (Unit.updateSpheres).
-    unit.tickCount += 1;
-  }
-
-  presentRiders(dt) {
-    for (const [unit, generation] of this.vanished) {
-      if (unit.generation !== generation || unit.removed) this.vanished.delete(unit);
-      else if (unit.actor?.root) unit.actor.root.visible = false;
-    }
-    for (const v of this.vehicles) {
-      if (!v.alive) {
-        // The crew it was last drawn with, inside.
-        for (const unit of v.insideCrew || []) if (unit.generation === v.insideCrewGenerations.get(unit)) {
-          this.vanished.set(unit, unit.generation);
-          if (unit.actor?.root) unit.actor.root.visible = false;
-        }
-        v.insideCrew = null;
-        continue;
-      }
-      const inside = v.insideCrew ||= [];
-      const generations = v.insideCrewGenerations ||= new Map();
-      inside.length = 0; generations.clear();
-      for (const seat of v.seats) {
-        const unit = seat.lease?.unit;
-        if (unit && !seat.lease.released && !seat.view.rider?.node) { inside.push(unit); generations.set(unit, unit.generation); }
-      }
-      for (const seat of v.seats) {
-        const lease = seat.lease;
-        if (!lease || lease.human || !lease.unit?.actor) continue;
-        if (!seat.view.rider?.node) { lease.unit.actor.root.visible = false; continue; }
-        if (lease.unit.alive && !lease.unit.removed) lease.unit.actor.root.visible = true;
-        lease.lean = seatRider(v, lease.index, lease.unit.actor, dt, lease.lean, this.rider);
-      }
-    }
-  }
 
   // What the player in `vehicle` is aiming at: the vehicle or turret (its
   // registry entry) or soldier under his view, out to 600 m, or null. The
@@ -1456,9 +1152,6 @@ export class VehicleDriver {
     this.hit = makeHit(); this.cameraSet = false;
     this.speedEffect = 0;
     this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
-    this.riderOffset = new THREE.Vector3();
-    this.riderQuaternion = new THREE.Quaternion();
-    this.riderLean = 0;
     this.lease = null; // the player's seat lease while he sits
     this.hiddenHull = null; // the hull left out of his first-person view
   }
@@ -1521,29 +1214,6 @@ export class VehicleDriver {
   // he sits, so soldier raycasts pass him by as they do seated bots.
   
 
-  // After the soldier's animation is sampled: the body at its seat node, or
-  // its posed pelvis on a saddle (seatRider). On an enclosed seat (no rider
-  // node) his body stays hidden, enforced every frame as presentRiders does
-  // for everyone else's: each own correction shows the body again
-  // (EntityGameState.correct), which left it standing on top of the hull
-  // (the droid starfighter on Bespin: Platforms).
-  // The page's own replicated lease arrives independently of its body packet.
-  // Attach the view body immediately; native world crews are never driven here.
-  syncReplica() {
-    const v = this.vehicle;
-    if (!v) return;
-    poseRider(v, v.seatIndex, this.soldier, this.actor, this.animator, this.clips, this.presentation, this.point);
-    // His hit shapes follow the hull (Unit.updateSpheres).
-    if (this.unit) this.unit.tickCount += 1;
-  }
-
-  presentRider(dt) {
-    const v = this.vehicle;
-    if (!v) return;
-    if (!v.seats[v.seatIndex]?.view.rider?.node) { this.actor.root.visible = false; return; }
-    this.riderLean = seatRider(v, v.seatIndex, this.actor, dt, this.riderLean, this);
-  }
-  
   // EntitySeats releases the page view after a seat packet, death or respawn.
   // The authoritative owner has already chosen promotion and exit placement.
   release(voluntary = false, killed = false) {
@@ -1569,7 +1239,7 @@ export class VehicleDriver {
     for (const seat of v.seats) if (seat.lease?.human && (seat.lease.unit === unit || seat.lease === lease)) { seat.lease.released = true; seat.lease = null; }
     unseatBody(unit);
     if (fall) dropBody(unit, fall, v.shieldsRiders() ? null : v.body);
-    this.lease = null; this.riderLean = 0;
+    this.lease = null;
     this.presentation?.reset(); this.onRelease?.();
     this.speedEffect = 0;
     this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };

@@ -1,4 +1,5 @@
 import {TurretCamera, presentGunner} from './helpers/cameras.js';
+import {presentTurret, pageProps, local} from './helpers/page-presentation.js';
 import { contentPath } from './helpers/content.js';
 import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 // The views and aim of a manned turret (src/props.js Turret, src/gunner.js
@@ -138,7 +139,7 @@ test('the drum is posed along the aim from its pivot, whatever its bind turn (th
     const t = emplacement({ drumTurn });
     t.yaw = 0.3;
     t.gunYaw = t.gunPitch = 0;
-    t.present();
+    presentTurret(t);
     t.rig.root.updateMatrixWorld(true);
     const along = new THREE.Vector3(0, 0, 1).transformDirection(t.gun.matrixWorld);
     const aim = t.viewDirection(new THREE.Vector3());

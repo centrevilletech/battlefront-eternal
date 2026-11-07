@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 // Walkers on their legs and their guns' barrels, as the original game has them

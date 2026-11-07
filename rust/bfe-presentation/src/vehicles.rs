@@ -48,11 +48,11 @@ fn or_zero(x: f64) -> f64 {
     }
 }
 /// vehicles.js aimVector.
-fn aim_vector(yaw: f64, pitch: f64) -> Vector3 {
+pub(crate) fn aim_vector(yaw: f64, pitch: f64) -> Vector3 {
     Vector3::new(math::sin(yaw) * math::cos(pitch), math::sin(pitch), math::cos(yaw) * math::cos(pitch))
 }
 /// vehicles.js lookBasis: the turn whose +Z is forward, its up near `up`.
-fn look_basis(forward: &Vector3, up: &Vector3) -> Quaternion {
+pub(crate) fn look_basis(forward: &Vector3, up: &Vector3) -> Quaternion {
     let mut z = *forward;
     z.normalize();
     let mut x = Vector3::default();

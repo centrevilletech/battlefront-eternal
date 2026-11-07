@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import {unitCommands} from './fixtures/unit-command-port.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';

@@ -1,22 +1,15 @@
-
-
-
 import { stepTurretPreview } from './runtime/turret-prediction.js';
 import * as THREE from "three";
 
-import { poseTurret, unseatBody, turretAimPoint } from "./seats.js";
+import { unseatBody, turretAimPoint } from "./seats.js";
 
 // Page view of the player at a turret. EntitySeats installs the world's lease;
-// preview() shows unacknowledged look, poseBody() poses the drawn drum and
-// gun and attaches the visible rider. None steps a weapon or crew.
+// preview() supplies unacknowledged look to the native prop and body phases;
+// the native camera phase follows their published turret and rider.
 // First-person eyes inside the hull hide its rig just as a cockpit does.
 
 const LOOK_SCALE = 2048; // counts x sensitivity per unit of turn rate, as for soldiers
 const LOOK_CLAMP = 16;
-// The gunner's pose (Turret.riderSample): scratch, kept off the Gunner, whose
-// own fields a world worker sends its page.
-const gunnerPose = { clip: null, pitch: 0, turn: 0, time: null };
-const gunnerTurn = new THREE.Quaternion();
 
 export class Gunner {
   constructor({ camera, collision, ordnance, combat, animator, hiddenLayer = 1 }) {
@@ -41,12 +34,8 @@ export class Gunner {
     this.reticlePoint = new THREE.Vector3();
     this.lookX = 0;
     this.lookY = 0;
-    this.seat = new THREE.Vector3();
     this.dir = new THREE.Vector3();
     this.target = new THREE.Vector3();
-    this.from = new THREE.Vector3();
-    this.muzzle = new THREE.Vector3();
-    this.gunDir = new THREE.Vector3();
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
   }
 
@@ -54,21 +43,19 @@ export class Gunner {
     return Boolean(this.turret);
   }
 
-  // The turret manned, set here by enter() and on a page showing a worker's
-  // battle by the seat packet (SeatReader.setGunner). Another turret, or
+  // The turret manned, supplied by the seat packet (SeatReader.setGunner). Another turret, or
   // none: what the page showed of the last one is let go.
   get turret() {
     return this._turret;
   }
   set turret(turret) {
     if (turret === this._turret) return;
+    const previous = this._turret;
+    if (previous?.humanGunner === this) { previous.humanGunner = null; previous.gunner = null; }
     this._turret = turret;
+    if (turret) { turret.humanGunner = this; turret.gunner = this; }
     this.hideRig(null);
     this.previewYaw = this.previewPitch = 0;
-    // Off the gun on a page (the seat packet let it go), his body leaves
-    // the gunner's pose poseBody gave it.
-    if (!turret && this.bodyPosed) this.animator?.gunner?.(null);
-    this.bodyPosed = false;
   }
 
   // SeatReader.clearSeat and page respawn only release presentation. The
@@ -169,35 +156,6 @@ export class Gunner {
     layer(this.hiddenRig, 0);
     layer(turret, this.hiddenLayer);
     this.hiddenRig = turret;
-  }
-
-  // His own body at the gun as the page draws it, before the animator runs
-  // (game.js frame): a page showing a worker's or a server's battle never
-  // runs update(), and was leaving its own soldier in his walking clips at
-  // the replicated seat point, arms down, while every other page drew him
-  // (TurretSeats.pose) and the world struck him (Turret.riderShapes) in the
-  // gunner's pose. Here he takes that pose at the aim the page shows (the
-  // world's with the preview over it, as the drum and gun are drawn: the
-  // previewed pitch and turn speed), at the seat node of the drum as drawn,
-  // turned with it. state: the soldier state the animator reads (aimYaw
-  // and aimPitch are set); root: his body's root. Returns whether he mans
-  // a turret.
-  poseBody(state, root) {
-    const turret = this.turret;
-    if (!turret?.seatPoint || !this.animator) return false;
-    this.shownAim();
-    poseTurret(turret, turret.yaw + this.previewYaw, this.shownPitch);
-    turret.seatPoint(this.seat);
-    if (root) {
-      root.position.copy(this.seat);
-      root.visible = !turret.hidesGunner;
-    }
-    state.aimYaw = turret.seatYaw();
-    state.aimPitch = this.shownPitch;
-    const pose = turret.riderSample(this.animator.clips, gunnerPose, this.shownPitch, this.previewState.yawVel);
-    this.animator.gunner(pose?.clip ?? null, pose?.pitch, pose?.turn, pose?.time, turret.seatTurn(gunnerTurn));
-    this.bodyPosed = true;
-    return true;
   }
 
 }

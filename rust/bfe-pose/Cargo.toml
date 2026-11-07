@@ -12,3 +12,5 @@ replay = []
 three = { path = "../three" }
 v8math = { path = "../v8math" }
 content = { path = "../content" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

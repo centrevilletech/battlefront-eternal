@@ -510,8 +510,6 @@ export class Turret extends Building {
     this.frameDir = new THREE.Vector3();
     this.frameUp = new THREE.Vector3();
     this.framePoint = new THREE.Vector3();
-    this.q = new THREE.Quaternion();
-    this.e = new THREE.Euler(0, 0, 0, "YXZ");
     this.forward = new THREE.Vector3();
     this.aim = new THREE.Vector3();
   }
@@ -610,22 +608,6 @@ export class Turret extends Building {
   // part), then the drum and gun posed from the angles (present's). Both
   // hosts integrate; a page showing a worker's battle poses from the
   // replicated angles alone (LiveObjects.present).
-
-  // The drum and gun from the aim and the gun's own angles. The drum is the
-  // aim frame's turn (by YawTurnFactor and PitchTurnFactor) about its pivot,
-  // its bind turn not kept, as the seat's update writes it; the
-  // gun is its rest pose turned by gunYaw and gunPitch. yaw, pitch: the
-  // aim's (a page shows its previewed one).
-  present(yaw = this.yaw, pitch = this.pitch) {
-    if (this.drum && this.drumParentTurn) {
-      lookBasis(aimVector(this.yawFactor * yaw, this.pitchFactor * pitch, this.frameDir), this.up, this.q);
-      this.drum.quaternion.copy(this.drumParentTurn).multiply(this.q);
-    }
-    if (!this.gun) return;
-    // Pitch up is a negative turn about the gun's x.
-    this.e.set(-this.gunPitch, this.gunYaw, 0);
-    this.gun.quaternion.copy(this.gunBind).multiply(this.q.setFromEuler(this.e));
-  }
 
   // The gun's angles toward a world point (null: the drum's own pitch),
   // held inside its limits: { yaw, pitch } in its parent's frame from its
@@ -1302,7 +1284,6 @@ export class LiveObjects {
   present(dt, viewer = null) {
     this.time += dt;
     for (const station of this.stations) if (station.alive) station.pose(dt);
-    for (const turret of this.turrets || []) if (!turret.gunner && turret.alive) turret.present();
     for (const objective of this.objectives || []) objective.present(dt);
     if (viewer) for (const hologram of this.holograms) hologram.update(dt, this.time, viewer.canRepair, viewer.camera);
   }

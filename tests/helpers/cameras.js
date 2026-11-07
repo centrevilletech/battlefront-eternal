@@ -3,7 +3,7 @@
 import * as T from 'three';
 import {PageCameras} from '../../src/presentation/cameras.js';
 import {CameraOutput as O} from '../../src/presentation/layout.js';
-import {poseTurret} from '../../src/seats.js';
+import {presentTurret} from './page-presentation.js';
 import {CollisionWorld} from '../../tools/collision-fixture.mjs';
 const owners=new WeakMap(),EMPTY_DEF={};
 export function openCameraWorld(){
@@ -54,7 +54,9 @@ export class TurretCamera {
 // Test callers publish one complete camera phase, just as game.js does.
 export function presentGunner(gunner,dt,zoom,first){
   const h=gunner.cameraPhase ||= new CameraFrame(gunner.collision,gunner.camera);
-  gunner.shownAim();poseTurret(gunner.turret,gunner.turret.yaw+gunner.previewYaw,gunner.shownPitch);
+  gunner.shownAim();
+  const turret=gunner.turret,own=turret.humanGunner;
+  turret.humanGunner=gunner;presentTurret(turret);turret.humanGunner=own;
   h.gunner=gunner;h.first=first;h.frame(dt);h.finish();
 }
 export function presentDriver(driver,dt,first){

@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import {unitCommands} from './fixtures/unit-command-port.js';
 // Flyers on their pads: an AI pilot tries a blocked takeoff again, a craft
 // whose takeoff keeps failing is left by its crew rather than destroyed, and

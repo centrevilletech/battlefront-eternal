@@ -1,123 +1,132 @@
-// Remote presentation from the snapshot ring: an entity is drawn between
-// the two snapshots that bracket render time (slerp for vehicles,
-// shortest-arc yaw for infantry). If the newer bracket is missing, it
-// extrapolates at its last velocity for at most 100 ms (6 ticks), then
-// holds. A `new` life or the discontinuity bit snaps: brackets never blend
-// across them. No coasting brakes, wall rays or speed-inferred jumps.
-import { Quaternion } from 'three';
-
-const angle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
-const poseKinds = new Set(['soldier', 'vehicle', 'droideka']);
+// Remote bodies and hulls sample the retained Rust snapshot ring in one
+// coarse call. Packet ingestion supplies numeric records; sample() below
+// only publishes the already computed row and never calls WASM per entity.
+import { animationKernel } from '../anim.js';
+import { VERSION, TimelineFrame as F, TimelineRecord as R, TimelineOutput as O, TimelineLimits as L } from '../presentation/timeline-layout.js';
+const KINDS = ['soldier','vehicle','droideka'];
+// A closed battle returns its reserved native ring. Rejoining must not keep
+// another full history alive in the shared animation module.
+const FREE_TIMELINES=new WeakMap();
+// These property names resolve only the generated transport offsets. They
+// never select interpolation policy; that belongs to the native ring.
+const FIELDS = ['classId','team','health','state','yaw','pitch','posture','weapon','fireCounter','mode','reverse','dead','shield','shieldOn','time','roll','lean','legs','power'];
+const KEYS = FIELDS.map(name => name.replace(/[A-Z]/g,c=>'_'+c).toUpperCase());
+const VECTORS = ['position','velocity','quaternion'];
+const VECTOR_KEYS = ['POSITION','VELOCITY','QUATERNION'];
+const BOOLS = new Set(['reverse','dead','shieldOn']);
+// Every binding owns its output arrays from birth. Sampling reuses them,
+// including when a packet arrives during a long pause between frames.
+const sampleRecord = () => ({
+  position:[0,0,0],velocity:[0,0,0],pathVelocity:[0,0,0],coastOrigin:[0,0,0],quaternion:[0,0,0,1],
+  dt:NaN,id:0,kind:'',generation:0,epoch:0,fromTick:NaN,toTick:NaN,extrapolatedTicks:NaN,segment:NaN,disc:false,
+  classId:0,team:0,health:0,state:0,yaw:NaN,pitch:NaN,posture:0,weapon:0,fireCounter:0,
+  mode:0,reverse:false,dead:false,shield:0,shieldOn:false,time:NaN,roll:NaN,lean:NaN,legs:NaN,power:0,yawRate:NaN,pitchRate:NaN,
+});
 export class SnapshotTimeline {
   constructor({ maxSnapshots = 64, hz = 60, extrapolateTicks = 6 } = {}) {
-    Object.assign(this, { maxSnapshots, hz, extrapolateTicks });
-    this.qa = new Quaternion(); this.qb = new Quaternion();
-    this.reset(0);
+    Object.assign(this,{maxSnapshots,hz,extrapolateTicks,kernel:animationKernel(),rows:new Map(),epoch:0,revision:0,sampledRevision:-1,overflow:0,reported:false});
+    let free=FREE_TIMELINES.get(this.kernel);
+    if(!free){free=[];FREE_TIMELINES.set(this.kernel,free);}
+    this.free=free;this.id=free.length?free.pop():this.kernel.x.timeline_new();
+    this.disposed=false;this.kernel.x.timeline_reset(this.id,0);
+    this.refresh();
   }
-  reset(epoch) { this.epoch = epoch; this.snapshots = []; this.fire = new Map(); }
-  remove(id) { for (const snap of this.snapshots) snap.poses.delete(id); this.fire.delete(id); }
-  // poses: Map<entityId, record-shaped pose> for one snapshot tick. A later
-  // part of the same tick replaces it. Poses are copied on the way in,
-  // unless `owned`: the caller made them for the timeline alone and hands
-  // them over (SnapshotClient.samplePoses), so they are kept as they are.
-  addSnapshot(tick, poses, epoch = this.epoch, owned = false) {
-    if (epoch < this.epoch) return false;
-    if (epoch > this.epoch) this.reset(epoch);
-    const snapshots = this.snapshots;
-    // The tick's place: almost always the newest, so found from the end.
-    let at = snapshots.length, existing = null;
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-      const t = snapshots[i].tick;
-      if (t === tick) { existing = snapshots[i]; break; }
-      if (t < tick) break;
-      at = i;
-    }
-    const copy = existing ? existing.poses : new Map();
-    for (const [id, record] of poses) {
-      if (!poseKinds.has(record.kind)) continue;
-      let sample = record;
-      if (!owned) {
-        sample = { ...record, position: [...record.position], velocity: [...record.velocity] };
-        if (record.quaternion) sample.quaternion = [...record.quaternion];
-      }
-      // Unwrap the u8 fire counter to a monotonic count per life; a jump
-      // over half the range is a wrap the other way and does not count.
-      if (record.fireCounter !== undefined) {
-        const key = `${id}:${record.generation}`, last = this.fire.get(key);
-        if (!last || tick >= last.tick) {
-          const total = last ? last.total + ((record.fireCounter - last.raw + 256) % 256 <= 128 ? (record.fireCounter - last.raw + 256) % 256 : 0) : record.fireCounter;
-          this.fire.set(key, { tick, raw: record.fireCounter, total });
-          sample.fireCounter = total;
-        }
-      }
-      copy.set(id, sample);
-    }
-    if (!existing) {
-      snapshots.splice(at, 0, { tick, poses: copy });
-      while (snapshots.length > this.maxSnapshots) snapshots.shift();
-    }
-    return true;
+  // Other users of the shared module may grow memory during registration.
+  // Rebind only then; ordinary frames allocate no typed views.
+  refresh() {
+    const k=this.kernel,buffer=k.memory.buffer;
+    if(this.buffer===buffer)return;
+    this.buffer=buffer;
+    this.input=new Float64Array(buffer,k.x.timeline_input(this.id),F.STRIDE+L.ENTITIES*R.STRIDE);
+    this.output=new Float64Array(buffer,k.x.timeline_output(this.id),L.ENTITIES*O.STRIDE);
   }
-  sample(id, tick, out = {}) {
-    if (!Number.isFinite(tick)) throw Error('invalid presentation tick');
-    // The brackets: its newest pose at or before `tick` and its first after
-    // it. Snapshots are in tick order and render time trails the newest by
-    // a few, so the walk goes back from the newest.
-    let a = null, aTick = 0, b = null, bTick = 0;
-    const snapshots = this.snapshots;
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-      const snap = snapshots[i], pose = snap.poses.get(id);
-      if (!pose) continue;
-      if (snap.tick > tick) { b = pose; bTick = snap.tick; continue; }
-      a = pose; aTick = snap.tick;
-      if (!b) { b = pose; bTick = snap.tick; }
-      break;
-    }
-    if (!a) return null;
-    // Never blend across a new life, a class change or a discontinuity:
-    // hold the older bracket until render time reaches the newer one.
-    if (b !== a && (b.generation !== a.generation || b.kind !== a.kind || b.disc)) b = a, bTick = aTick;
-    const blend = bTick > aTick ? Math.max(0, Math.min(1, (tick - aTick) / (bTick - aTick))) : 0;
-    const held = a === b && tick >= aTick;
-    const extra = held && (a.health > 0 || a.state === 8) ? Math.min(this.extrapolateTicks, tick - aTick) / this.hz : 0;
-    out.id = id; out.generation = a.generation; out.kind = a.kind;
-    out.fromTick = aTick; out.toTick = bTick; out.extrapolatedTicks = extra * this.hz;
-    out.segment = aTick; out.disc = !!a.disc;
-    out.position ??= [0, 0, 0]; out.velocity ??= [0, 0, 0];
-    out.pathVelocity ??= [0, 0, 0]; out.coastOrigin ??= [0, 0, 0];
-    for (let i = 0; i < 3; i++) {
-      out.velocity[i] = a.velocity[i] + (b.velocity[i] - a.velocity[i]) * blend;
-      out.position[i] = a.position[i] + (b.position[i] - a.position[i]) * blend + a.velocity[i] * extra;
-      out.pathVelocity[i] = bTick > aTick ? (b.position[i] - a.position[i]) * this.hz / (bTick - aTick) : (extra > 0 && tick - aTick < this.extrapolateTicks ? a.velocity[i] : 0);
-      out.coastOrigin[i] = a.position[i];
-    }
-    for (const name of ['classId', 'team', 'health', 'state']) out[name] = a[name];
-    if (a.kind === 'soldier' || a.kind === 'droideka') {
-      out.yaw = angle(a.yaw, b.yaw, blend); out.pitch = a.pitch + (b.pitch - a.pitch) * blend;
-      out.yawRate = bTick > aTick ? (angle(a.yaw, b.yaw, 1) - a.yaw) * this.hz / (bTick - aTick) : 0;
-      out.pitchRate = bTick > aTick ? (b.pitch - a.pitch) * this.hz / (bTick - aTick) : 0;
-      for (const name of ['posture', 'weapon', 'fireCounter']) out[name] = a[name];
-      if (a.kind === 'droideka') {
-        for (const name of ['mode', 'reverse', 'dead', 'shield', 'shieldOn']) out[name] = a[name];
-        for (const name of ['time', 'roll', 'lean', 'legs']) out[name] = a.mode === b.mode ? a[name] + (b[name] - a[name]) * blend : a[name];
+  // Queued packets can outlive a closed battle. Stale facades must never
+  // sample or overwrite a ring that now belongs to a later battle.
+  dispose() {
+    if(this.disposed)return;
+    this.reset(0);this.disposed=true;this.free.push(this.id);
+  }
+  reset(epoch) { if(this.disposed)return;this.epoch=epoch;this.rows.clear();this.revision++;this.kernel.x.timeline_reset(this.id,epoch); }
+  remove(id) { if(this.disposed)return;this.rows.delete(id);this.revision++;this.kernel.x.timeline_remove(this.id,id); }
+  // addSnapshot copies into preallocated native storage, including parts of
+  // an existing tick. Excess identities are refused whole, never a frame error.
+  addSnapshot(tick, poses, epoch = this.epoch) {
+    if(this.disposed)return false;
+    if(epoch<this.epoch)return false;
+    if(epoch>this.epoch)this.reset(epoch);
+    this.refresh();const x=this.input;let count=0;
+    x[F.VERSION]=VERSION;x[F.EPOCH]=epoch;x[F.TICK]=tick;x[F.SNAPSHOTS]=this.maxSnapshots;
+    // The map's keys and arrival order do not determine native row identity.
+    // Each retained record supplies its id and generation explicitly.
+    for(const record of poses.values()) {
+      const kind=KINDS.indexOf(record.kind);if(kind<0)continue;
+      if(count===L.ENTITIES)break;
+      const at=F.STRIDE+count++*R.STRIDE;
+      // A reused transport row must not inherit fields from a previous kind,
+      // such as a flyer quaternion on an infantry sample.
+      x.fill(0,at,at+R.STRIDE);x[at+R.SLOT]=-1;
+      x[at+R.ID]=record.id;x[at+R.GENERATION]=record.generation;x[at+R.KIND]=kind;x[at+R.DISC]=record.disc?1:0;
+      for(let i=0;i<VECTORS.length;i++) {
+        const values=record[VECTORS[i]],offset=R[VECTOR_KEYS[i]];
+        if(values)for(let k=0;k<values.length&&k<(i===2?4:3);k++)x[at+offset+k]=values[k];
       }
-      delete out.quaternion; delete out.power;
-    } else {
-      out.quaternion ??= [0, 0, 0, 1];
-      this.qa.fromArray(a.quaternion); this.qb.fromArray(b.quaternion);
-      this.qa.slerp(this.qb, blend).normalize().toArray(out.quaternion); out.power = a.power;
-      for (const name of ['yaw', 'pitch', 'yawRate', 'pitchRate', 'posture', 'weapon', 'fireCounter']) delete out[name];
+      for(let i=0;i<FIELDS.length;i++)x[at+R[KEYS[i]]]=record[FIELDS[i]]??0;
+      x[at+R.HAS_FIRE_COUNTER]=record.fireCounter===undefined?0:1;
     }
-    return out;
+    x[F.COUNT]=count;this.kernel.x.timeline_push(this.id);
+    // Native acknowledgement pairs slots by id even when an invalid or
+    // overfull record was refused earlier in this same arrival batch.
+    for(let row=0,at=F.STRIDE;row<count;row++,at+=R.STRIDE) {
+      const slot=x[at+R.SLOT];
+      if(slot>=0&&slot<L.ENTITIES)this.rows.set(x[at+R.ID],slot);
+      else {
+        this.overflow++;
+        if(!this.reported) {this.reported=true;console.warn('snapshot presentation: additional identities exceed the retained records');}
+      }
+    }
+    this.revision++;return true;
+  }
+  // A display update samples the whole population once. Subsequent sample()
+  // calls read that result; direct diagnostic reads reuse the same revision.
+  batch(tick, force = false) {
+    if(this.disposed)return;
+    if(!force&&this.sampledTick===tick&&this.sampledRevision===this.revision)return;
+    this.refresh();const x=this.input;
+    x[F.VERSION]=VERSION;x[F.TICK]=tick;x[F.HZ]=this.hz;x[F.EXTRAPOLATE]=this.extrapolateTicks;
+    this.kernel.x.timeline_present(this.id);this.sampledTick=tick;this.sampledRevision=this.revision;
+  }
+  // The id check matters when history was refused or a stale binding survived
+  // an epoch. Row position alone never identifies a replicated actor.
+  sample(id,tick,out = sampleRecord()) {
+    if(this.disposed)return null;
+    if(!Number.isFinite(tick))throw Error('invalid presentation tick');
+    this.batch(tick);
+    const slot=this.rows.get(id);if(slot===undefined)return null;
+    const at=slot*O.STRIDE,x=this.output;
+    if(!x[at+O.VALID]||x[at+O.ID]!==id)return null;
+    // Rows stay stable through partial snapshots. An epoch resets both the
+    // host index and native ring, so an old binding cannot alias a new id.
+    const kind=KINDS[x[at+O.KIND]];
+    out.dt=this.input[F.DT];out.id=id;out.kind=kind;out.generation=x[at+O.GENERATION];out.fromTick=x[at+O.FROM_TICK];out.toTick=x[at+O.TO_TICK];
+    out.extrapolatedTicks=x[at+O.EXTRAPOLATED_TICKS];out.segment=out.fromTick;out.disc=Boolean(x[at+O.DISC]);
+    for(let i=0;i<FIELDS.length;i++) {const name=FIELDS[i];out[name]=BOOLS.has(name)?Boolean(x[at+O[KEYS[i]]]):x[at+O[KEYS[i]]];}
+    for(let k=0;k<3;k++) {
+      out.position[k]=x[at+O.POSITION+k];out.velocity[k]=x[at+O.VELOCITY+k];
+      out.pathVelocity[k]=x[at+O.PATH_VELOCITY+k];out.coastOrigin[k]=x[at+O.COAST_ORIGIN+k];
+    }
+    if(kind==='vehicle')for(let k=0;k<4;k++)out.quaternion[k]=x[at+O.QUATERNION+k];
+    out.yawRate=x[at+O.YAW_RATE];out.pitchRate=x[at+O.PITCH_RATE];return out;
   }
 }
 // Binding layer only: the timeline's sample is what is drawn, with no
 // late-bracket offsets or coast clamping of its own.
+// This layer owns references and lifecycle only. Removing a lease or an own
+// predicted hull from remote drawing does not mutate retained history.
 export class SnapshotPresentation {
   constructor(timeline, { maxEntities = 768 } = {}) {
     if (!timeline?.sample) throw Error('invalid snapshot presentation');
     this.timeline = timeline; this.maxEntities = maxEntities; this.epoch = timeline.epoch;
-    this.bindings = new Map();
+    this.bindings = new Map();this.reported=false;
   }
   bindSoldier(id, generation, presentation) { return this.bind(id, generation, 'soldier', presentation); }
   bindVehicle(id, generation, vehicle) { return this.bind(id, generation, 'vehicle', vehicle); }
@@ -126,9 +135,14 @@ export class SnapshotPresentation {
     if (this.epoch !== this.timeline.epoch) this.reset(this.timeline.epoch);
     const current = this.bindings.get(id);
     if (current?.generation === generation && current.kind === kind && current.target === target) return target;
-    if (!this.bindings.has(id) && this.bindings.size >= this.maxEntities) throw Error('snapshot presentation capacity exceeded');
+    if (!this.bindings.has(id) && this.bindings.size >= this.maxEntities) {
+      if(!this.reported) {this.reported=true;console.warn('snapshot presentation: additional views exceed the binding records');}
+      return target;
+    }
     this.unbind(id);
-    this.bindings.set(id, { generation, kind, target, sample: {} });
+    // Allocate the reusable sample with the binding, before a frame reads it.
+    // A full binding table refuses another view instead of stopping the page.
+    this.bindings.set(id, { id, generation, kind, target, sample: sampleRecord() });
     return target;
   }
   unbind(id) {
@@ -136,12 +150,15 @@ export class SnapshotPresentation {
     if (binding) { binding.target.networkPose = null; binding.target.networkFire = null; }
     this.bindings.delete(id);
   }
-  reset(epoch = this.timeline.epoch) { for (const id of [...this.bindings.keys()]) this.unbind(id); this.epoch = epoch; }
-  update(tick, { playerId = null, vehicleId = null } = {}) {
+  reset(epoch = this.timeline.epoch) { for (const id of this.bindings.keys()) this.unbind(id); this.epoch = epoch; }
+  update(tick, playerId = null, vehicleId = null) {
     if (!Number.isFinite(tick)) throw Error('invalid snapshot presentation time');
     if (this.epoch !== this.timeline.epoch) this.reset(this.timeline.epoch);
-    for (const [id, binding] of this.bindings) {
-      const { target, sample } = binding;
+    // Even a frozen render clock is a new display update: the native batch
+    // publishes dt zero so aimer clocks cannot advance twice at one tick.
+    this.timeline.batch(tick,true);
+    for (const binding of this.bindings.values()) {
+      const id=binding.id,target=binding.target,sample=binding.sample;
       if (id === playerId || id === vehicleId) { target.networkPose = null; continue; }
       const pose = this.timeline.sample(id, tick, sample);
       if (!pose) { target.networkPose = null; continue; }

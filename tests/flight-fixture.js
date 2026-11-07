@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';

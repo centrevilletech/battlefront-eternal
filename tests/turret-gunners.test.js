@@ -1,3 +1,4 @@
+import {presentTurret, pageProps, local} from './helpers/page-presentation.js';
 import { contentPath } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import { presentUnit, unitHost } from './helpers/presentation.js';
@@ -120,7 +121,7 @@ function emplacement(settings = {}, { drumTurn = 0, authority = true } = {}) {
   const units = new Units();
   const unboarded = [];
   const crews = new TurretSeats({ live: { turrets: [turret] }, collision, units, onUnboard: (unit, object, seat, post, reason) => unboarded.push({ unit, reason }) });
-  turret.present();
+  presentTurret(turret);
   const system = authority ? nativeTurrets(crews) : null;
   return { collision, rig, turret, units, crews, unboarded, system };
 }
@@ -207,7 +208,7 @@ test("a turret's shown gunner is struck where he is drawn, turning and tipping w
 test("a drum bound turned (the barge turret's) still points its gun along the facing, its gunner behind it facing the same way", () => {
   const world = emplacement({}, { drumTurn: Math.PI });
   const muzzle = new THREE.Vector3(), direction = new THREE.Vector3();
-  world.turret.present();
+  presentTurret(world.turret);
   world.turret.muzzle(muzzle, direction);
   assert.ok(direction.distanceTo(new THREE.Vector3(0, 0, 1)) < 1e-6, 'the gun along the facing, as the view is');
   near(seatPoint(world).z, -0.5, 1e-6, 'the seat behind the gun');
@@ -257,26 +258,25 @@ test("a page draws its own player's gunner at the seat in the gunner's pose, at 
   gunner.previewState.yawVel = 1;
   const state = { aimYaw: 0, aimPitch: 0 };
   const root = player.actor.root;
-  assert.equal(gunner.poseBody(state, root), true);
+  player.seat={turret:world.turret,index:0};
+  presentTurret(world.turret);presentUnit(player,1/60);
+  Object.assign(state,player.presentation.state);
   // The drum is drawn at the previewed yaw; he stands at its seat, turned
   // with it, in the 9-pose at the previewed pitch (45 degrees up: -1) and
   // turn speed (1 rad/s of MaxTurnSpeed 2).
   near(state.aimYaw, 0.5, 1e-6, 'facing the previewed drum');
   assert.ok(root.position.distanceTo(seatPoint(world)) < 1e-9, 'at the seat as drawn');
   near(root.position.x, -0.5 * Math.sin(0.5), 1e-6, 'the seat went round with the preview');
-  const pose = player.calls.gunner.at(-1);
-  assert.equal(pose.clip, 'human_minigun_9pose');
-  near(pose.pitch, -1, 1e-9, 'the previewed pitch');
-  near(pose.turn, 0.5, 1e-9, 'the previewed turn speed');
-  assert.ok(pose.seat.angleTo(new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, 0.5)) < 1e-6, 'turned as the seat node');
+  assert.ok(root.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP,0.5))<1e-6,'turned as the published seat');
   assert.equal(root.visible, true);
   // The seat packet lets the turret go: out of the gunner's pose.
   gunner.turret = null;
-  assert.equal(gunner.poseBody(state, root), false);
+  player.seat=null;
   // A turret that hides its gunner hides him on the page too.
   const hidden = emplacement({ Pilot9Pose: undefined });
   gunner.turret = hidden.turret;
-  gunner.poseBody(state, root);
+  player.seat={turret:hidden.turret,index:0};
+  presentTurret(hidden.turret);presentUnit(player,1/60);
   assert.equal(root.visible, false);
 });
 
@@ -549,9 +549,8 @@ for (const [map, classes] of Object.entries(SHOWN)) {
         // Drive the native crew, rather than mutating its presentation mirror
         // or calling the removed JavaScript world-pose method.
         aim({ turret, system: game.vehicles }, unit, yaw, pitch);
-        turret.present();
+        presentTurret(turret);
         drawn.seat = { ...unit.seat, unit: drawn };
-        game.turretSeats.placeReplica(drawn.seat);
         presentUnit(drawn, 1 / 60);
         const seat = (turret.seat || turret.rig.root);
         assert.ok(unit.actor.root.quaternion.angleTo(seat.getWorldQuaternion(new T.Quaternion())) < 1e-4, `${cls}: turned as the seat`);

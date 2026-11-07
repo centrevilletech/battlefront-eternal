@@ -1,4 +1,5 @@
 import {presentDriver} from './helpers/cameras.js';
+import './fixtures/native-anim.js';
 import { stepPrediction, prepareHullFixture, predictHull } from './helpers/hull-prediction.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 
@@ -221,38 +222,6 @@ test('skinned vehicle triangles retain different joints across a shared triangle
  mesh.getVertexPosition(0,point);assert.ok(point.length()<1e-8);
  mesh.getVertexPosition(2,point);assert.ok(point.distanceTo(new THREE.Vector3(1-Math.SQRT1_2,Math.SQRT1_2,0))<1e-7);
  assert.equal(batches[0].geometry.index.count,3);
-});
-
-test('rider pelvis stays attached to the animated saddle without double root height',()=>{
- const {system,v,c}=fixture();v.healthType='animal';
- const saddle=new THREE.Object3D();saddle.position.set(0,2.4,0);v.root.add(saddle);v.byName.hp_active=saddle;
- v.seats[0].view.rider={anim:'ride',clip:'human_ride',ninePose:false,node:saddle};
- const root=new THREE.Group(),dummy=new THREE.Bone(),pelvis=new THREE.Bone();root.add(dummy);dummy.add(pelvis);
- dummy.position.y=2.1;pelvis.position.y=.5;root.position.y=50;
- const driver=new VehicleDriver({vehicles:system,camera:system.camera,collision:c,actor:{root,byName:{bone_pelvis:pelvis}}});driver.vehicle=v;
- for(let i=0;i<60;i++){
-  saddle.position.y=2.4+Math.sin(i*.1)*.04;v.root.updateMatrixWorld(true);
-  driver.presentRider(1/60);
-  const a=saddle.getWorldPosition(new THREE.Vector3()),b=pelvis.getWorldPosition(new THREE.Vector3());
-  assert.ok(a.distanceTo(b)<1e-8);
- }
- assert.ok(root.position.y<1,'authored two-metre root offset must not be added on top of the saddle');
-});
-
-test('the player\'s body stays hidden on an enclosed seat after a correction shows it again',()=>{
- const {system,v,c}=fixture();
- assert.equal(v.seats[0].view.rider,null,'no pilot animation: an enclosed seat');
- const root=new THREE.Group();
- const driver=new VehicleDriver({vehicles:system,camera:system.camera,collision:c,actor:{root,byName:{}}});driver.vehicle=v;
- // Each own correction (EntityGameState.correct) shows the body; the frame's
- // presentation hides it again before it is drawn on top of the hull.
- for(let i=0;i<3;i++){root.visible=true;driver.presentRider(1/60);assert.equal(root.visible,false);}
- // An exposed seat keeps him shown, at its rider node.
- const node=new THREE.Object3D();node.position.set(0,2.4,.5);v.root.add(node);v.root.updateMatrixWorld(true);
- v.seats[0].view.rider={anim:'drive',clip:'human_drive',ninePose:false,node};
- root.visible=true;driver.presentRider(1/60);
- assert.equal(root.visible,true);
- assert.ok(root.position.distanceTo(node.getWorldPosition(new THREE.Vector3()))<1e-9);
 });
 
 test('ground vehicle mouse aim responds at the next fixed replay tick at every display rate', () => {

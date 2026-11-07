@@ -1,3 +1,4 @@
+import {pageProps} from './helpers/page-presentation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Matrix4, Object3D } from 'three';
@@ -77,7 +78,7 @@ test('native door publishes collision at the live slot and leaves page posing se
   const world = await f3World({soldier},{prepareLive:collision=>{
     const body = collision.addBody(new Float32Array([-2,0,2,2,0,2,0,3,2]),new Uint32Array([0,1,2]),new Uint32Array([0]),null);
     door = new AnimatedProp({base:'door',matrix:new Matrix4().toArray(),animation:{clips:['open'],trigger:{action:'open',radius:4}}},rig,body,clips);
-    return {buildings:[],animated:[door],traps:[],presentAnimated(){},soldiers:()=>[],bodies:()=>[]};
+    return {buildings:[],animated:[door],traps:[],soldiers:()=>[],bodies:()=>[]};
   }});
   const live = new F4Live(world.phase,{sound(){}});
   door.step = ()=>{ throw Error('legacy door step'); };
@@ -90,7 +91,10 @@ test('native door publishes collision at the live slot and leaves page posing se
   live.step(.5,1);
   assert.equal(door.openness,.5); assert.equal(door.body.enabled,false);
   assert.equal(live.native.allocations,0); assert.equal(live.native.reallocations,0);
-  live.presentAnimated(1/60,1);
+  const shown = Object.assign(Object.create(Object.getPrototypeOf(door)),door,{body:{enabled:door.body.enabled}});
+  const page = pageProps({animated:[shown]});
+  page.present(1/60,1);
+  page.kernel.free();
   assert.equal(door.openness,.5); assert.equal(door.body.enabled,false);
   live.step(.5,2); assert.equal(door.openness,1);
 });
