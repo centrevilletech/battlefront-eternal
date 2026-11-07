@@ -67,7 +67,7 @@ fn run() -> Result<(), String> {
     std::fs::write(&args[3], scene.pixels()?).map_err(|e| e.to_string())?;
     println!(
         "{}",
-        serde_json::json!({"hash":scene.hash()?,"admitted":scene.admitted,"deferred":scene.deferred,"draws":scene.draws,"bindings":scene.bindings()})
+        serde_json::json!({"hash":scene.hash()?,"admitted":scene.admitted,"deferred":scene.deferred,"draws":scene.draws,"bindings":scene.bindings(),"schedule":scene.frame_trace()})
     );
     Ok(())
 }

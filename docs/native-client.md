@@ -41,9 +41,9 @@ native presentation outputs during playback. The window submits world, far,
 terrain, foliage, water, effects, actors, postprocessing and HUD through their
 existing Rust passes.
 
-New archives use version 2 and require the shared `battle_frame` schedule.
-Per-pass submissions are accepted only in version 1 archives; their API digest
-must still match the numeric layouts. No runtime option selects that path.
+Archives require version 2 and the shared `battle_frame` schedule. Version-1
+archives and per-pass commands are rejected before content admission. Re-record
+older sessions with the current recorder; their ABI is not translated.
 The archive stores a versioned API digest, stable owner ids, typed blob spans,
 phase calls, changed input ranges, output digests and a separate reference image.
 Matching geometry and image arguments resolve to the native loader's assets by
@@ -59,8 +59,8 @@ and presentation-output mismatches. Repeat a differing browser reference with
 `tools/native-session/control.mjs`. Remove archives after comparison and retain
 only summaries.
 
-The original near-only capture format remains supported by the headless
-`bfe-native` regression tool and the client. Full sessions require `session.json`;
+The headless `bfe-native` regression tool retains its near-only capture format.
+The client uses one window host and requires a version-2 `session.json`;
 a failed full session never switches to the near renderer. Replay currently
 carries the recorded camera and pass schedule. It does not construct an
 interactive authoritative native battle or a menu/transport service.
@@ -90,12 +90,14 @@ with the browser constructors on public synthetic inputs. Build its probe with
 `cargo build --manifest-path rust/Cargo.toml -p bfe-content-native --example static-fixture`.
 `tools/native-static-frame.mjs` records isolated browser views and invokes the
 `static-frame` binary against natively loaded content. It reports exact pixel
-counts and deltas for props, foliage, water and sky. Its temporary view/image
+counts and deltas for props, foliage, water and sky. Both sides submit the
+normal `battle_frame` packets and compare the native operation traces; component
+selection changes admitted visibility rather than draw order. Its temporary view/image
 files belong outside the repository and are removed after comparison.
 
 Near captures are validated before renderer registration: object ids must name
 earlier allocations, world bounds contain ten finite values, typed spans and
 frame/bone ranges must fit their banks. Malformed files return an admission
-error to both hosts. The hosted Windows renderer job also builds the native
+error to the headless replay tool. The hosted Windows renderer job also builds the native
 executables for MSVC and runs their device-independent tests; its WARP renderer
 check remains a separate qualification from opening a native window.

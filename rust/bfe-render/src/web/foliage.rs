@@ -35,6 +35,8 @@ impl BfeRenderer {
     }
     // The selection for this update (FoliageGpuBatch.update), drawn by the
     // next near phase; the patches selected.
+    // Scene visibility is a selection fact; it never submits a draw.
+    pub fn foliage_clear_frame(&mut self) { self.r.foliage.clear_selection(); }
     pub fn foliage_frame(&mut self) -> u32 { self.r.foliage.select() }
     pub fn foliage_selected(&self, class: u32) -> u32 { self.r.foliage.selected(class) }
 

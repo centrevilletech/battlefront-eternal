@@ -707,6 +707,9 @@ export class BfeRenderer {
         }
         return ret[0] >>> 0;
     }
+    foliage_clear_frame() {
+        wasm.bferenderer_foliage_clear_frame(this.__wbg_ptr);
+    }
     /**
      * @returns {number}
      */

@@ -132,7 +132,6 @@ dependencies = [
  "audio-control",
  "bfe-content-native",
  "bfe-environment",
- "bfe-native",
  "bfe-pose",
  "bfe-presentation",
  "bfe-render",

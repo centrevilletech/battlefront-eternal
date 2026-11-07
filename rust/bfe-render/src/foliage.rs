@@ -322,6 +322,15 @@ impl<C: HasContext> FoliagePass<C> {
         total
     }
 
+    // Hiding a scene branch retires its selected prefix, not its admitted
+    // cards. A following visible selection reuses every reserved allocation.
+    pub fn clear_selection(&mut self) {
+        for class in &mut self.classes {
+            if !class.selected.is_empty() {class.selected.clear();class.upload.clear();class.dirty=true;}
+            class.next.clear();
+        }
+    }
+
     // Each class's cards over its selected patches, as three draws them:
     // depth tested and written, both sides, alpha to coverage, no blending.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {

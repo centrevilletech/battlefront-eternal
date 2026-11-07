@@ -13,11 +13,21 @@ use bfe_content_native::{
     loader::{Blend, MaterialKind},
     Loader,
 };
-use bfe_render::{core, shader, static_layout as L};
+use bfe_render::{shader, static_layout as L};
 use glow::HasContext;
 use std::path::Path;
 use three::{CoordinateSystem, Matrix4, Vector3};
 
+// Visibility is independent of execution order. Component probes retain
+// the same semantic role bank as the normal interactive scene.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Component {
+    All,
+    Props,
+    Foliage,
+    Water,
+    Sky,
+}
 pub struct View {
     pub values: [f64; shader::FRAME_FLOATS],
 }
@@ -162,6 +172,7 @@ pub struct Scene {
     static_content: crate::static_scene::Admission,
     far_projection: [f64; 16],
     far_world_slots: Vec<usize>,
+    near_world_ids: Vec<u32>,
 }
 impl Scene {
     pub fn load(
@@ -447,6 +458,7 @@ impl Scene {
         }
         let mut far_slot = bfe_render::far::FAR_SLOTS;
         let mut far_world_slots = Vec::new();
+        let mut near_world_ids = Vec::new();
         let mut admitted = 0;
         let mut deferred = 0;
         let mut min = [f64::INFINITY; 3];
@@ -519,7 +531,7 @@ impl Scene {
             for (i, id) in layer_ids.iter().take(8).enumerate() {
                 samplers[L::SAMPLERS_LAYERS + i] = textures[*id] as i32;
             }
-            bridge.static_world(
+            let world_id = bridge.static_world(
                 source,
                 mesh.material.far,
                 if mesh.material.far {
@@ -537,6 +549,9 @@ impl Scene {
                 far_slot as u32,
                 admitted as u32,
             )?;
+            if !mesh.material.far {
+                near_world_ids.push(world_id);
+            }
             if mesh.material.far {
                 far_world_slots.push(far_slot);
                 bridge.r.far.input[far_slot] = 1.;
@@ -617,11 +632,15 @@ impl Scene {
                 static_content,
                 far_projection: projection.elements,
                 far_world_slots,
+                near_world_ids,
             },
             camera,
         ))
     }
     pub fn draw(&mut self, view: &View) -> Result<(), String> {
+        self.draw_selected(view, Component::All)
+    }
+    fn draw_selected(&mut self, view: &View, component: Component) -> Result<(), String> {
         use bfe_render::frame_plan::layout::{
             binding as b, facts as f, kind as k, meta as m, role as r, stats as t,
         };
@@ -648,17 +667,45 @@ impl Scene {
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
-        self.bridge.r.core.input[..16].copy_from_slice(&self.far_projection);
+        if component == Component::All {
+            self.bridge.r.core.input[..16].copy_from_slice(&self.far_projection);
+        }
+        for id in &self.near_world_ids {
+            self.bridge
+                .r
+                .world
+                .world_shown(*id, component == Component::All);
+        }
+        for sky in &self.static_content.skies {
+            self.bridge.r.far.input[sky.slot] =
+                if matches!(component, Component::All | Component::Sky) {
+                    1.
+                } else {
+                    0.
+                };
+        }
         for slot in &self.far_world_slots {
-            self.bridge.r.far.input[*slot] = 1.;
+            self.bridge.r.far.input[*slot] = if component == Component::All { 1. } else { 0. };
         }
         self.bridge.r.far.input[bfe_render::far::FAR_CLEAR..bfe_render::far::FAR_CLEAR + 4]
             .copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        let records = self.static_content.select(&mut self.bridge);
-        self.prepare_foliage(view);
+        let records = if matches!(component, Component::All | Component::Props) {
+            self.static_content.select(&mut self.bridge)
+        } else {
+            0
+        };
+        if matches!(component, Component::All | Component::Foliage) {
+            self.prepare_foliage(view);
+        } else {
+            self.bridge.foliage_clear_frame();
+        }
+        let water_shown = self.bridge.r.water.input[bfe_render::water::S_SHOWN];
+        if !matches!(component, Component::All | Component::Water) {
+            self.bridge.r.water.input[bfe_render::water::S_SHOWN] = 0.;
+        }
         let bones = self.bridge.r.core.input[bfe_render::instances::IN_RECORDS..]
             .chunks_exact(bfe_render::instances::REC_STRIDE)
             .take(records)
@@ -673,7 +720,9 @@ impl Scene {
         self.bridge.r.post.states[..bfe_render::post::STATE].copy_from_slice(&self.image_state);
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
         self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
-        if !self.bridge.battle_frame(&mut self.resources) {
+        let success = self.bridge.battle_frame(&mut self.resources);
+        self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
+        if !success {
             return Err(self
                 .bridge
                 .frame_error_frame()
@@ -717,83 +766,21 @@ impl Scene {
         input[bfe_render::foliage::IN_TIME] = view.values[35];
         self.bridge.foliage_frame();
     }
-    /// Isolate an admitted pass for browser/native first-frame qualification.
-    /// This borrows the same descriptors and banks as interactive drawing.
-    pub fn draw_component(&mut self, view: &View, component: &str) -> Result<(), String> {
-        if !["props", "foliage", "water", "sky"].contains(&component) {
-            return Err("unknown static component".into());
-        }
-        self.render_component(view, component)
+    /// Probe visibility uses the same packets and battle_frame as the window.
+    /// Only admitted object prefixes change; no alternate pass order exists.
+    pub fn draw_component(&mut self, view: &View, name: &str) -> Result<(), String> {
+        let component = match name {
+            "props" => Component::Props,
+            "foliage" => Component::Foliage,
+            "water" => Component::Water,
+            "sky" => Component::Sky,
+            _ => return Err("unknown static component".into()),
+        };
+        self.draw_selected(view, component)
     }
-    fn render_component(&mut self, view: &View, component: &str) -> Result<(), String> {
-        let gl = &self.bridge.r.core.gl;
-        unsafe {
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.canvas.framebuffer));
-            gl.disable(glow::SCISSOR_TEST);
-            gl.viewport(0, 0, self.size[0], self.size[1]);
-            gl.color_mask(true, true, true, true);
-            gl.depth_mask(true);
-            gl.clear_color(0.04, 0.06, 0.09, 1.0);
-            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-        }
-        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
-        for slot in &self.far_world_slots {
-            self.bridge.r.far.input[*slot] = 0.;
-        }
-        self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
-        self.bridge.r.far.input[bfe_render::far::FAR_KEEP] = 1.;
-        let far = if component == "sky" {
-            self.bridge.far_frame()?
-        } else {
-            core::Stats::default()
-        };
-        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        unsafe {
-            self.bridge.r.core.gl.depth_mask(true);
-            self.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
-        }
-        self.bridge.r.core.state.reset();
-        let records = self.static_content.select(&mut self.bridge);
-        self.prepare_foliage(view);
-        let stats = {
-            let r = &mut self.bridge.r;
-            r.core.begin_phase();
-            r.core.upload_frame(core::VIEW_NEAR);
-            r.core.upload_shadow();
-            r.core.bind_lamps();
-            r.core.opaque();
-            r.core.bind_far_map();
-            let camera = r.core.camera();
-            if component == "props" {
-                r.instances.draw(&mut r.core, &camera, records);
-            } else {
-                r.instances.draw(&mut r.core, &camera, 0);
-            }
-            if component == "foliage" {
-                r.foliage.draw(&mut r.core);
-            }
-            r.core.end_phase()?
-        };
-        let water_shown = self.bridge.r.water.input[bfe_render::water::S_SHOWN];
-        if component == "props" {
-            self.bridge.r.water.input[bfe_render::water::S_SHOWN] = 0.;
-        }
-        let transparent = if ["water", "props"].contains(&component) {
-            self.bridge.transparent_frame(0, 0)?
-        } else {
-            core::Stats::default()
-        };
-        self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
-        self.draws += u64::from(
-            far.pass_draws[core::PASS_FAR]
-                + stats.pass_draws[core::PASS_FOLIAGE]
-                + stats.pass_draws[core::PASS_INSTANCES]
-                + transparent.pass_draws[core::PASS_WATER],
-        );
-        self.draws +=
-            u64::from(stats.pass_draws[core::PASS_WORLD] + stats.pass_draws[core::PASS_TERRAIN]);
-        Ok(())
+    pub fn frame_trace(&self) -> &[f64] {
+        use bfe_render::frame_plan::layout::command as c;
+        &self.bridge.r.frames.plan.trace[..self.bridge.r.frames.plan.count * c::LEN]
     }
     /// Cold diagnostics for the isolated-view tool; never read by the frame loop.
     pub fn bindings(&self) -> serde_json::Value {

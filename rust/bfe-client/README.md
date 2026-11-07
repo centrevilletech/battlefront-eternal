@@ -1,36 +1,20 @@
-# Native client host
+# Native battle client
 
-Build from `rust/` with `cargo build --release -p bfe-client -p bfe-native`.
-Linux needs ALSA development headers, X11 and an OpenGL ES 3.0 driver.
-Run `bfe-client CAPTURE_DIR`. Click to capture relative mouse input; Escape
-releases it. Closing the window exits. Resize scales the fixed capture target.
-Focus loss clears input and pauses audio; returning focus resumes the devices.
-
-The executable replays the same `calls.json` and `blobs.bin` near-scene format
-as `bfe-native`. It does not load or simulate a live battle. Far, shadow,
-transparent, post and HUD phases are outside that format's replay contract;
-omitted registration names are reported. Frame hashes compare the resolved
-RGBA8 near target, before window scaling and composition.
-
-`--seconds 20 --hash-frame 0` runs for twenty seconds and prints the SHA-256
-of capture frame zero. The headless equivalent uses `SECS=1 HASH_FRAME=0`
-and matching `W`, `H`, `SAMPLES`. `tools/native-client-gate.sh CAPTURE_DIR`
-runs input/audio tests, a real cpal null-device test and the window comparison.
-Build test executables first with `cargo test -p bfe-client -p bfe-native --no-run`.
-`tools/native-client-capture.mjs OUTPUT_DIR` records a connected application's
-seeded battle; `CASE` selects an existing renderer corpus case. Captures contain
-game data and must stay outside the repository.
+The native executable has one winit window/context host for version-2 battle
+sessions and prepared map inspection. See [Native battle client](../../docs/native-client.md)
+for recording, content and device options. Legacy near captures use the separate
+headless `bfe-native` tool; the client rejects `calls.json` and version-1 sessions.
 
 Audio runs the existing Rust master chain through cpal. `--pcm FILE` supplies
-looping interleaved stereo f32 little-endian PCM at 48000 Hz. A renderer capture
-has no audio, so absent PCM the same chain processes silence. The device must
+looping interleaved stereo f32 little-endian PCM at 48000 Hz. Without `--pcm` or
+`--sound`, the same chain processes silence. The device must
 support stereo at 48000 Hz; startup and stream errors stop the client.
 
 `host::World` accepts generated command, look and flight records at 60 Hz,
 then publishes retained renderer input from `present(alpha)`. The window host
 bounds catch-up and keeps authority ticks separate from visual interpolation.
-`CaptureWorld` only advances captured frames; a native world/presentation owner
-can replace it. `bfe-content-native::Loader` is the prepared-content admission boundary;
+`RecordedWorld` publishes retained operation spans; a live native world can
+replace that frame producer without changing the window/device host. `bfe-content-native::Loader` is the prepared-content admission boundary;
 the earlier `content_loader` trait remains available to a future live host. No simulation
 singleton, native pointer or per-entity callback crosses this boundary.
 
@@ -67,8 +51,7 @@ credits, headphone filters and live command transport remain separate joins.
 `bfe-client --map MAP CONTENT_DIR` admits prepared map content directly, opens
 the same native window/context and lets WASD plus relative mouse move a free
 camera. Space rises; Escape releases capture. `--seconds 20` prints initial and
-final frame hashes and draw/admission counts. This inspector uses neutral
-lighting and draws opaque world geometry and terrain. Its sky, far, blended,
-actor, effects and HUD phases remain available through full-session replay;
-live scene policy awaits a native World. Sound archives can accompany this
+final frame hashes and draw/admission counts. This inspector applies map lighting and fog, and admits opaque world/terrain,
+far geometry, sky, initial prop rigs, foliage and water through `battle_frame`.
+Live scene policy awaits a native World. Sound archives can accompany this
 view using `--sound SOUND_DIR` independently of its camera clock.

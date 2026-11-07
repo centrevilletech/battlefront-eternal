@@ -8,7 +8,6 @@ default-run = "bfe-client"
 description = "Window, input and audio device host for the native renderer"
 
 [dependencies]
-bfe-native = { path = "../bfe-native" }
 bfe-render = { path = "../bfe-render" }
 audio = { path = "../audio" }
 glow = "0.18"

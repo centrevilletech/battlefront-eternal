@@ -53,6 +53,11 @@ impl Options {
         } else {
             PathBuf::from(first)
         };
+        // Select inputs before creating the event loop. calls.json belongs to
+        // the separate headless replay tool, never to a second window host.
+        if map.is_none() && !dir.join("session.json").is_file() {
+            return Err("expected a version-2 session.json archive or --map; near captures use bfe-native".into());
+        }
         let mut seconds = None;
         let mut desktop_gl = false;
         let mut root = std::env::var_os("BFE_CONTENT_DIR").map(PathBuf::from);

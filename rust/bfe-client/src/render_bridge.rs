@@ -110,10 +110,8 @@ pub fn far_instanced(&mut self, item: u32, location: u32, columns: u32, rows: i3
 pub fn far_cells(&mut self, item: u32, positions: &[f32], index: &[u32], cell_size: f64)  { self.r.far.cells(item, positions, index, cell_size) }
 pub fn far_terrain(&mut self, item: u32, level: u32, index: &[u32], cells: &[f64])  { self.r.far.terrain(&mut self.r.core, item, level, index, cells) }
 pub fn far_items(&mut self) -> u32 { self.r.far.items() }
-pub fn far_mirror_frame(&mut self) -> Result<bfe_render::core::Stats, String> { Ok(self.r.far_mirror_frame().map_err(|e| e.to_string())?) }
 pub fn far_range_input(&mut self, item: u32, at: u32)  { self.r.far.range_input(item, at) }
 pub fn far_refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32)  { self.r.far.refresh(item, buffer, at, floats, flag) }
-pub fn far_probe_frame(&mut self, face: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.far_probe_frame(face as usize).map_err(|e| e.to_string())?) }
 pub fn foliage_class(&mut self, texture: u32, grass: bool, shadows: bool, definition: &str, authored: &[f64], rows: &[f32], bounds: &[f64], map_matrix: &[f32]) -> Result<u32, String> { let def = serde_json::from_str(definition).map_err(|e| e.to_string())?;
         let cards = bfe_render::static_cards::Cards::new(grass, authored, &def).map_err(String::from)?;
         if texture as usize >= self.r.core.native_texture_count()
@@ -131,6 +129,7 @@ pub fn foliage_class(&mut self, texture: u32, grass: bool, shadows: bool, defini
         }
         Ok(self.r.foliage.add_class(&mut self.r.core, program, texture, grass, cards.wiggle, &cards.vertices, &cards.index,
             &locations, rows, bounds, map_matrix, &[1.,1.,1.], 1., 0.25)) }
+pub fn foliage_clear_frame(&mut self)  { self.r.foliage.clear_selection(); }
 pub fn foliage_frame(&mut self) -> u32 { self.r.foliage.select() }
 pub fn foliage_selected(&mut self, class: u32) -> u32 { self.r.foliage.selected(class) }
 pub fn frame_lines_publish_frame(&mut self, view: u32, count: u32)  { if let Some(row)=self.r.frames.line_counts.get_mut(view as usize){*row=(count as usize).min(bfe_render::frame_plan::layout::limit::LINES);} }
@@ -190,10 +189,6 @@ pub fn interface_upload_frame(&mut self, stream: u32, offset: usize, length: usi
         if end > offset {
             self.r.core.geometry_buffer_sub_data(stream.geometry, stream.buffer, offset as i32, &stream.data[offset..end]);
         } }
-pub fn interface_frame(&mut self, draws: usize)  { self.r.core.begin_phase();
-        self.r.interface.draw(&mut self.r.core, draws);
-        // The interface pass has no faults of its own to report.
-        let _ = self.r.core.end_phase(); }
 pub fn set_shadow_maps(&mut self, ids: &[u32])  { self.r.core.set_shadow_maps(ids) }
 pub fn add_texture(&mut self, resources: &Resources, id: u32) -> Result<u32, String> { let texture = resources.texture(id)?;
         
@@ -228,35 +223,17 @@ pub fn geometry_pointer(&mut self, g: u32, buffer: u32, location: u32, size: i32
 pub fn geometry_index(&mut self, g: u32, data: &[u8], ty: u32)  { self.r.core.geometry_index(g, data, ty) }
 pub fn geometry_group(&mut self, g: u32, start: i32, count: i32)  { self.r.core.geometry_group(g, start, count) }
 pub fn geometry_primitive(&mut self, g: u32, mode: u32, first: i32, indexed: bool, width: f32)  { self.r.core.geometry_primitive(g, mode, first, indexed, width); }
-pub fn far_frame(&mut self) -> Result<bfe_render::core::Stats, String> { Ok(self.r.far_frame().map_err(|e| e.to_string())?) }
-pub fn frame(&mut self, records: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.frame(records as usize).map_err(|e| e.to_string())?) }
-pub fn transparent_frame(&mut self, three: u32, image: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.transparent_frame(three as usize, image as usize).map_err(|e| e.to_string())?) }
-pub fn fx_into_frame(&mut self, batch: u32, target: u32, width: u32, height: u32, count: u32, at: u32, capacity: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.fx_into_frame(batch as usize, target, width as i32, height as i32, count as usize, at as usize, capacity as usize).map_err(|e| e.to_string())?) }
-pub fn view_frame(&mut self, records: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.view_frame(records as usize).map_err(|e| e.to_string())?) }
-pub fn post_frame(&mut self, steps: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.post_frame(steps as usize).map_err(|e| e.to_string())?) }
-pub fn mirror_frame(&mut self, records: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.mirror_frame(records as usize).map_err(|e| e.to_string())?) }
-pub fn mirror_transparent_frame(&mut self, three: u32, image: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.mirror_transparent_frame(three as usize, image as usize).map_err(|e| e.to_string())?) }
-pub fn motion_frame(&mut self, records: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.motion_frame(records as usize).map_err(|e| e.to_string())?) }
-pub fn hud_frame(&mut self) -> Result<bfe_render::core::Stats, String> { Ok(self.r.hud_frame().map_err(|e| e.to_string())?) }
-pub fn near_begin(&mut self, clear: &[f64], steps: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.near_begin(clear, steps as usize).map_err(|e| e.to_string())?) }
-pub fn screen_frame(&mut self, steps: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.screen_frame(steps as usize).map_err(|e| e.to_string())?) }
 pub fn motion_record_stride(&mut self) -> u32 { bfe_render::motion::REC_STRIDE as u32 }
 pub fn motion_records_at(&mut self) -> u32 { bfe_render::motion::IN_RECORDS as u32 }
 pub fn motion_extra(&mut self, program: u32, geometry: u32, max: u32, layout: &[u32]) -> u32 { self.r.motion.add_extra(&mut self.r.core, program, geometry, max, layout) }
 pub fn post_target(&mut self, texture: u32) -> u32 { self.r.post.add_target(&mut self.r.core, texture) }
 pub fn post_chain_begin_frame(&mut self)  { self.r.post_chain.begin(); }
 pub fn post_chain_plan_frame(&mut self) -> u32 { self.r.post_chain.plan(&mut self.r.post.input) as u32 }
-pub fn post_chain_frame(&mut self) -> bool { match self.r.post_chain_frame() {
-            Ok(()) => true,
-            Err(error) => { self.r.core.fault = Some(error); false }
-        } }
 pub fn post_chain_error_frame(&mut self) -> Option<String> { self.r.core.fault.take() }
-pub fn shadow_frame(&mut self) -> Result<bfe_render::core::Stats, String> { Ok(self.r.shadow_frame().map_err(|e| e.to_string())?) }
 pub fn geometry_buffer_data(&mut self, g: u32, slot: u32, data: &[u8])  { self.r.core.geometry_buffer_data(g, slot, data) }
 pub fn geometry_index_data(&mut self, g: u32, data: &[u8])  { self.r.core.geometry_index_data(g, data) }
 pub fn geometry_buffer_sub_data(&mut self, g: u32, slot: u32, offset: i32, data: &[u8])  { self.r.core.geometry_buffer_sub_data(g, slot, offset, data) }
 pub fn geometry_index_sub_data(&mut self, g: u32, offset: i32, data: &[u8])  { self.r.core.geometry_index_sub_data(g, offset, data) }
-pub fn transparent_segment(&mut self, k: u32) -> Result<bfe_render::core::Stats, String> { Ok(self.r.transparent_segment(k as usize).map_err(|e| e.to_string())?) }
 pub fn transparent_bucket(&mut self, geometry: u32, blend: &[u32], depth_func: u32, flags: u32, point_lit: bool, bounds: &[f64]) -> u32 { self.r.transparent.add_bucket(geometry, blend, depth_func, flags, point_lit, bounds) }
 pub fn transparent_bucket_pass(&mut self, b: u32, program: u32, side: u32) -> u32 { self.r.transparent.bucket_pass(b, program, side) }
 pub fn transparent_bucket_texture(&mut self, b: u32, unit: u32, texture: u32)  { self.r.transparent.bucket_texture(&self.r.core, b, unit, texture) }
@@ -387,11 +364,10 @@ far_instanced(u32,u32,u32,i32,u32,u32,u32),
 far_cells(u32,Vec<f32>,Vec<u32>,f64),
 far_terrain(u32,u32,Vec<u32>,Vec<f64>),
 far_items,
-far_mirror_frame,
 far_range_input(u32,u32),
 far_refresh(u32,u32,u32,u32,u32),
-far_probe_frame(u32),
 foliage_class(u32,bool,bool,String,Vec<f64>,Vec<f32>,Vec<f64>,Vec<f32>),
+foliage_clear_frame,
 foliage_frame,
 foliage_selected(u32),
 frame_lines_publish_frame(u32,u32),
@@ -421,7 +397,6 @@ record_stride,
 inst_add_blend(Vec<u32>,u32,u32,Vec<u32>),
 interface_buffer_init(u32,u32,Vec<u8>),
 interface_upload_frame(u32,usize,usize),
-interface_frame(usize),
 set_shadow_maps(Vec<u32>),
 add_texture(usize,u32),
 replace_sample_texture(u32,usize,u32),
@@ -436,27 +411,13 @@ geometry_pointer(u32,u32,u32,i32,u32,bool,i32,i32),
 geometry_index(u32,Vec<u8>,u32),
 geometry_group(u32,i32,i32),
 geometry_primitive(u32,u32,i32,bool,f32),
-far_frame,
-frame(u32),
-transparent_frame(u32,u32),
-fx_into_frame(u32,u32,u32,u32,u32,u32,u32),
-view_frame(u32),
-post_frame(u32),
-mirror_frame(u32),
-mirror_transparent_frame(u32,u32),
-motion_frame(u32),
-hud_frame,
-near_begin(Vec<f64>,u32),
-screen_frame(u32),
 motion_record_stride,
 motion_records_at,
 motion_extra(u32,u32,u32,Vec<u32>),
 post_target(u32),
 post_chain_begin_frame,
 post_chain_plan_frame,
-post_chain_frame,
 post_chain_error_frame,
-shadow_frame,
 geometry_buffer_data(u32,u32,Vec<u8>),
 geometry_index_data(u32,Vec<u8>),
 geometry_buffer_sub_data(u32,u32,i32,Vec<u8>),
@@ -470,7 +431,6 @@ static_source(String,Vec<f32>,Vec<u32>),
 static_source_weights(u32,Vec<u8>),
 static_world(u32,bool,f64,Vec<i32>,Vec<u32>,u32,u32,u32),
 static_world_settings(Vec<u32>,Vec<u32>),
-transparent_segment(u32),
 transparent_bucket(u32,Vec<u32>,u32,u32,bool,Vec<f64>),
 transparent_bucket_pass(u32,u32,u32),
 transparent_bucket_texture(u32,u32,u32),
@@ -545,11 +505,10 @@ Ok(match name {
 "far_cells" => Self::far_cells(a.u32(0)?,a.f32s(1)?,a.u32s(2)?,a.f64(3)?),
 "far_terrain" => Self::far_terrain(a.u32(0)?,a.u32(1)?,a.u32s(2)?,a.f64s(3)?),
 "far_items" => Self::far_items,
-"far_mirror_frame" => Self::far_mirror_frame,
 "far_range_input" => Self::far_range_input(a.u32(0)?,a.u32(1)?),
 "far_refresh" => Self::far_refresh(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32(3)?,a.u32(4)?),
-"far_probe_frame" => Self::far_probe_frame(a.u32(0)?),
 "foliage_class" => Self::foliage_class(a.u32(0)?,a.bool(1)?,a.bool(2)?,a.string(3)?,a.f64s(4)?,a.f32s(5)?,a.f64s(6)?,a.f32s(7)?),
+"foliage_clear_frame" => Self::foliage_clear_frame,
 "foliage_frame" => Self::foliage_frame,
 "foliage_selected" => Self::foliage_selected(a.u32(0)?),
 "frame_lines_publish_frame" => Self::frame_lines_publish_frame(a.u32(0)?,a.u32(1)?),
@@ -579,7 +538,6 @@ Ok(match name {
 "inst_add_blend" => Self::inst_add_blend(a.u32s(0)?,a.u32(1)?,a.u32(2)?,a.u32s(3)?),
 "interface_buffer_init" => Self::interface_buffer_init(a.u32(0)?,a.u32(1)?,a.u8s(2)?),
 "interface_upload_frame" => Self::interface_upload_frame(a.u32(0)?,a.usize(1)?,a.usize(2)?),
-"interface_frame" => Self::interface_frame(a.usize(0)?),
 "set_shadow_maps" => Self::set_shadow_maps(a.u32s(0)?),
 "add_texture" => Self::add_texture(a.owner(0)?,a.u32(1)?),
 "replace_sample_texture" => Self::replace_sample_texture(a.u32(0)?,a.owner(1)?,a.u32(2)?),
@@ -594,27 +552,13 @@ Ok(match name {
 "geometry_index" => Self::geometry_index(a.u32(0)?,a.u8s(1)?,a.u32(2)?),
 "geometry_group" => Self::geometry_group(a.u32(0)?,a.i32(1)?,a.i32(2)?),
 "geometry_primitive" => Self::geometry_primitive(a.u32(0)?,a.u32(1)?,a.i32(2)?,a.bool(3)?,a.f32(4)?),
-"far_frame" => Self::far_frame,
-"frame" => Self::frame(a.u32(0)?),
-"transparent_frame" => Self::transparent_frame(a.u32(0)?,a.u32(1)?),
-"fx_into_frame" => Self::fx_into_frame(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32(3)?,a.u32(4)?,a.u32(5)?,a.u32(6)?),
-"view_frame" => Self::view_frame(a.u32(0)?),
-"post_frame" => Self::post_frame(a.u32(0)?),
-"mirror_frame" => Self::mirror_frame(a.u32(0)?),
-"mirror_transparent_frame" => Self::mirror_transparent_frame(a.u32(0)?,a.u32(1)?),
-"motion_frame" => Self::motion_frame(a.u32(0)?),
-"hud_frame" => Self::hud_frame,
-"near_begin" => Self::near_begin(a.f64s(0)?,a.u32(1)?),
-"screen_frame" => Self::screen_frame(a.u32(0)?),
 "motion_record_stride" => Self::motion_record_stride,
 "motion_records_at" => Self::motion_records_at,
 "motion_extra" => Self::motion_extra(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32s(3)?),
 "post_target" => Self::post_target(a.u32(0)?),
 "post_chain_begin_frame" => Self::post_chain_begin_frame,
 "post_chain_plan_frame" => Self::post_chain_plan_frame,
-"post_chain_frame" => Self::post_chain_frame,
 "post_chain_error_frame" => Self::post_chain_error_frame,
-"shadow_frame" => Self::shadow_frame,
 "geometry_buffer_data" => Self::geometry_buffer_data(a.u32(0)?,a.u32(1)?,a.u8s(2)?),
 "geometry_index_data" => Self::geometry_index_data(a.u32(0)?,a.u8s(1)?),
 "geometry_buffer_sub_data" => Self::geometry_buffer_sub_data(a.u32(0)?,a.u32(1)?,a.i32(2)?,a.u8s(3)?),
@@ -628,7 +572,6 @@ Ok(match name {
 "static_source_weights" => Self::static_source_weights(a.u32(0)?,a.u8s(1)?),
 "static_world" => Self::static_world(a.u32(0)?,a.bool(1)?,a.f64(2)?,a.i32s(3)?,a.u32s(4)?,a.u32(5)?,a.u32(6)?,a.u32(7)?),
 "static_world_settings" => Self::static_world_settings(a.u32s(0)?,a.u32s(1)?),
-"transparent_segment" => Self::transparent_segment(a.u32(0)?),
 "transparent_bucket" => Self::transparent_bucket(a.u32(0)?,a.u32s(1)?,a.u32(2)?,a.u32(3)?,a.bool(4)?,a.f64s(5)?),
 "transparent_bucket_pass" => Self::transparent_bucket_pass(a.u32(0)?,a.u32(1)?,a.u32(2)?),
 "transparent_bucket_texture" => Self::transparent_bucket_texture(a.u32(0)?,a.u32(1)?,a.u32(2)?),
@@ -704,11 +647,10 @@ Self::far_instanced(item,location,columns,rows,max,count,at) => { let _=host.far
 Self::far_cells(item,positions,index,cell_size) => { let _=host.far_cells(*item,positions,index,*cell_size); },
 Self::far_terrain(item,level,index,cells) => { let _=host.far_terrain(*item,*level,index,cells); },
 Self::far_items => { let _=host.far_items(); },
-Self::far_mirror_frame => { return Ok(Some(host.far_mirror_frame()?)); },
 Self::far_range_input(item,at) => { let _=host.far_range_input(*item,*at); },
 Self::far_refresh(item,buffer,at,floats,flag) => { let _=host.far_refresh(*item,*buffer,*at,*floats,*flag); },
-Self::far_probe_frame(face) => { return Ok(Some(host.far_probe_frame(*face)?)); },
 Self::foliage_class(texture,grass,shadows,definition,authored,rows,bounds,map_matrix) => { let _=host.foliage_class(*texture,*grass,*shadows,definition,authored,rows,bounds,map_matrix)?; },
+Self::foliage_clear_frame => { let _=host.foliage_clear_frame(); },
 Self::foliage_frame => { let _=host.foliage_frame(); },
 Self::foliage_selected(class) => { let _=host.foliage_selected(*class); },
 Self::frame_lines_publish_frame(view,count) => { let _=host.frame_lines_publish_frame(*view,*count); },
@@ -738,7 +680,6 @@ Self::record_stride => { let _=host.record_stride(); },
 Self::inst_add_blend(blend,depth_flags,depth_func,passes) => { let _=host.inst_add_blend(blend,*depth_flags,*depth_func,passes); },
 Self::interface_buffer_init(geometry,buffer,data) => { let _=host.interface_buffer_init(*geometry,*buffer,data); },
 Self::interface_upload_frame(stream,offset,length) => { let _=host.interface_upload_frame(*stream,*offset,*length); },
-Self::interface_frame(draws) => { let _=host.interface_frame(*draws); },
 Self::set_shadow_maps(ids) => { let _=host.set_shadow_maps(ids); },
 Self::add_texture(resources,id) => { let _=host.add_texture(resource_bank.get(*resources).ok_or("unknown resource owner")?,*id)?; },
 Self::replace_sample_texture(id,resources,source) => { let _=host.replace_sample_texture(*id,resource_bank.get(*resources).ok_or("unknown resource owner")?,*source)?; },
@@ -753,27 +694,13 @@ Self::geometry_pointer(g,buffer,location,size,ty,normalized,stride,offset) => { 
 Self::geometry_index(g,data,ty) => { let _=host.geometry_index(*g,data,*ty); },
 Self::geometry_group(g,start,count) => { let _=host.geometry_group(*g,*start,*count); },
 Self::geometry_primitive(g,mode,first,indexed,width) => { let _=host.geometry_primitive(*g,*mode,*first,*indexed,*width); },
-Self::far_frame => { return Ok(Some(host.far_frame()?)); },
-Self::frame(records) => { return Ok(Some(host.frame(*records)?)); },
-Self::transparent_frame(three,image) => { return Ok(Some(host.transparent_frame(*three,*image)?)); },
-Self::fx_into_frame(batch,target,width,height,count,at,capacity) => { return Ok(Some(host.fx_into_frame(*batch,*target,*width,*height,*count,*at,*capacity)?)); },
-Self::view_frame(records) => { return Ok(Some(host.view_frame(*records)?)); },
-Self::post_frame(steps) => { return Ok(Some(host.post_frame(*steps)?)); },
-Self::mirror_frame(records) => { return Ok(Some(host.mirror_frame(*records)?)); },
-Self::mirror_transparent_frame(three,image) => { return Ok(Some(host.mirror_transparent_frame(*three,*image)?)); },
-Self::motion_frame(records) => { return Ok(Some(host.motion_frame(*records)?)); },
-Self::hud_frame => { return Ok(Some(host.hud_frame()?)); },
-Self::near_begin(clear,steps) => { return Ok(Some(host.near_begin(clear,*steps)?)); },
-Self::screen_frame(steps) => { return Ok(Some(host.screen_frame(*steps)?)); },
 Self::motion_record_stride => { let _=host.motion_record_stride(); },
 Self::motion_records_at => { let _=host.motion_records_at(); },
 Self::motion_extra(program,geometry,max,layout) => { let _=host.motion_extra(*program,*geometry,*max,layout); },
 Self::post_target(texture) => { let _=host.post_target(*texture); },
 Self::post_chain_begin_frame => { let _=host.post_chain_begin_frame(); },
 Self::post_chain_plan_frame => { let _=host.post_chain_plan_frame(); },
-Self::post_chain_frame => { if !host.post_chain_frame() { return Err(host.post_chain_error_frame().unwrap_or("post chain failed".into())); } return Ok(Some(host.r.core.stats)); },
 Self::post_chain_error_frame => { let _=host.post_chain_error_frame(); },
-Self::shadow_frame => { return Ok(Some(host.shadow_frame()?)); },
 Self::geometry_buffer_data(g,slot,data) => { let _=host.geometry_buffer_data(*g,*slot,data); },
 Self::geometry_index_data(g,data) => { let _=host.geometry_index_data(*g,data); },
 Self::geometry_buffer_sub_data(g,slot,offset,data) => { let _=host.geometry_buffer_sub_data(*g,*slot,*offset,data); },
@@ -787,7 +714,6 @@ Self::static_source(authored,vertices,index) => { let _=host.static_source(autho
 Self::static_source_weights(id,weights) => { let _=host.static_source_weights(*id,weights)?; },
 Self::static_world(source,far_view,low_res_scale,samplers,features,order,slot,object) => { let _=host.static_world(*source,*far_view,*low_res_scale,samplers,features,*order,*slot,*object)?; },
 Self::static_world_settings(near,far) => { let _=host.static_world_settings(near,far)?; },
-Self::transparent_segment(k) => { return Ok(Some(host.transparent_segment(*k)?)); },
 Self::transparent_bucket(geometry,blend,depth_func,flags,point_lit,bounds) => { let _=host.transparent_bucket(*geometry,blend,*depth_func,*flags,*point_lit,bounds); },
 Self::transparent_bucket_pass(b,program,side) => { let _=host.transparent_bucket_pass(*b,*program,*side); },
 Self::transparent_bucket_texture(b,unit,texture) => { let _=host.transparent_bucket_texture(*b,*unit,*texture); },
@@ -846,7 +772,6 @@ pub fn patch_argument(&mut self,index:usize,source_bytes:&[u8])->Result<(),Strin
 (Self::set_lamps(data),0)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::geometry_buffer(_,data),1)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::geometry_index(_,data,_),1)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
-(Self::near_begin(clear,_),0)=>{let dest=crate::session::bytes_mut(clear);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::motion_extra(_,_,_,layout),3)=>{let dest=crate::session::bytes_mut(layout);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::geometry_buffer_data(_,_,data),2)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::geometry_index_data(_,data),1)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},

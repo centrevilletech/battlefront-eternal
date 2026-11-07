@@ -733,11 +733,6 @@
       "result": "u32"
     },
     {
-      "name": "far_mirror_frame",
-      "args": [],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
       "name": "far_range_input",
       "args": [
         [
@@ -778,16 +773,6 @@
       "result": ""
     },
     {
-      "name": "far_probe_frame",
-      "args": [
-        [
-          "face",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
       "name": "foliage_class",
       "args": [
         [
@@ -824,6 +809,11 @@
         ]
       ],
       "result": "Result<u32, String>"
+    },
+    {
+      "name": "foliage_clear_frame",
+      "args": [],
+      "result": ""
     },
     {
       "name": "foliage_frame",
@@ -1156,16 +1146,6 @@
       "result": ""
     },
     {
-      "name": "interface_frame",
-      "args": [
-        [
-          "draws",
-          "usize"
-        ]
-      ],
-      "result": ""
-    },
-    {
       "name": "set_shadow_maps",
       "args": [
         [
@@ -1409,152 +1389,6 @@
       "result": ""
     },
     {
-      "name": "far_frame",
-      "args": [],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "frame",
-      "args": [
-        [
-          "records",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "transparent_frame",
-      "args": [
-        [
-          "three",
-          "u32"
-        ],
-        [
-          "image",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "fx_into_frame",
-      "args": [
-        [
-          "batch",
-          "u32"
-        ],
-        [
-          "target",
-          "u32"
-        ],
-        [
-          "width",
-          "u32"
-        ],
-        [
-          "height",
-          "u32"
-        ],
-        [
-          "count",
-          "u32"
-        ],
-        [
-          "at",
-          "u32"
-        ],
-        [
-          "capacity",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "view_frame",
-      "args": [
-        [
-          "records",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "post_frame",
-      "args": [
-        [
-          "steps",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "mirror_frame",
-      "args": [
-        [
-          "records",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "mirror_transparent_frame",
-      "args": [
-        [
-          "three",
-          "u32"
-        ],
-        [
-          "image",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "motion_frame",
-      "args": [
-        [
-          "records",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "hud_frame",
-      "args": [],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "near_begin",
-      "args": [
-        [
-          "clear",
-          "&[f64]"
-        ],
-        [
-          "steps",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
-      "name": "screen_frame",
-      "args": [
-        [
-          "steps",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
-    },
-    {
       "name": "motion_record_stride",
       "args": [],
       "result": "u32"
@@ -1607,19 +1441,9 @@
       "result": "u32"
     },
     {
-      "name": "post_chain_frame",
-      "args": [],
-      "result": "bool"
-    },
-    {
       "name": "post_chain_error_frame",
       "args": [],
       "result": "Option<String>"
-    },
-    {
-      "name": "shadow_frame",
-      "args": [],
-      "result": "Result<bfe_render::core::Stats, String>"
     },
     {
       "name": "geometry_buffer_data",
@@ -1832,16 +1656,6 @@
         ]
       ],
       "result": "Result<(),String>"
-    },
-    {
-      "name": "transparent_segment",
-      "args": [
-        [
-          "k",
-          "u32"
-        ]
-      ],
-      "result": "Result<bfe_render::core::Stats, String>"
     },
     {
       "name": "transparent_bucket",

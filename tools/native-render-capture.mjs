@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { connect, loadBattle } from './renderer-corpus/battle.mjs';
 import { expand, readManifest } from './renderer-corpus/manifest.mjs';
 const OUT = process.argv[2], FRAMES = Number(process.env.FRAMES || 2);
-if (!OUT || !Number.isInteger(FRAMES) || FRAMES < 1 || FRAMES > 240) throw Error('usage: node tools/native-client-capture.mjs OUTPUT_DIR (FRAMES=1..240)');
+if (!OUT || !Number.isInteger(FRAMES) || FRAMES < 1 || FRAMES > 240) throw Error('usage: node tools/native-render-capture.mjs OUTPUT_DIR (FRAMES=1..240)');
 fs.mkdirSync(OUT, { recursive: true });
 const c = await connect();
 const testCase = expand(readManifest()).cases.find(c => c.id === (process.env.CASE || 'classic-nab2'));

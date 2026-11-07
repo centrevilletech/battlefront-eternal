@@ -22,7 +22,7 @@ struct Source {
 struct Physical {
     source: usize,
     sampling: Sampling,
-    texture: glow::Texture,
+    texture: Option<glow::Texture>,
     seen: u32,
     allocation: Option<(i32, i32, i32, u32, bool)>,
     levels: u32,
@@ -41,10 +41,13 @@ struct Target {
     buffers: Vec<glow::Renderbuffer>,
 }
 
+/// The creating GL context stays current on this thread through cleanup.
+/// Logical ids belong to this bank; retired physical rows carry no GL name.
 pub struct GpuResources {
     gl: glow::Context,
     sources: Vec<Option<Source>>,
     physical: Vec<Physical>,
+    free_physical: Vec<usize>,
     samples: Vec<Sample>,
     targets: Vec<Option<Target>>,
     cache: HashMap<(u32, String), usize>,
@@ -63,6 +66,7 @@ impl GpuResources {
             gl,
             sources: Vec::new(),
             physical: Vec::new(),
+            free_physical: Vec::new(),
             samples: Vec::new(),
             targets: Vec::new(),
             cache: HashMap::new(),
@@ -168,18 +172,31 @@ impl GpuResources {
             return Ok(id);
         }
         let sampling = parse(settings)?;
+        // SAFETY: resource admission runs on the owner's current context;
+        // the returned name remains owned here until retirement or Drop.
         let texture = unsafe { self.gl.create_texture()? };
-        let id = self.physical.len();
-        self.physical.push(Physical {
+        // Logical sampler ids never recycle: a stale draw cannot acquire a
+        // new image by aliasing an old id. Only unreferenced physical rows do.
+        let row = Physical {
             source: source as usize,
             sampling,
-            texture,
+            texture: Some(texture),
             seen: 0,
             allocation: None,
             levels: 0,
             users: 0,
             anisotropy_set: false,
-        });
+        };
+        let id = if let Some(id) = self.free_physical.pop() {
+            self.physical[id] = row;
+            id
+        } else {
+            let id = self.physical.len();
+            self.free_physical
+                .reserve(id + 1 - self.free_physical.len());
+            self.physical.push(row);
+            id
+        };
         self.cache.insert(key, id);
         Ok(id)
     }
@@ -207,7 +224,7 @@ impl GpuResources {
                 .ok_or("disposed source")?
                 .desc;
             unsafe {
-                self.gl.bind_texture(d.target, Some(p.texture));
+                self.gl.bind_texture(d.target, p.texture);
                 self.gl
                     .tex_parameter_i32(d.target, glow::TEXTURE_WRAP_S, wrap(p.sampling.wrap_s));
                 self.gl
@@ -241,13 +258,15 @@ impl GpuResources {
         let next = self.physical(source, settings)?;
         if old != next {
             self.physical[next].users += 1;
-            self.physical[old].users = self.physical[old].users.saturating_sub(1);
             self.samples[id as usize].physical = next;
+            self.release_physical(old)?;
         }
         Ok(())
     }
     pub fn texture(&self, id: u32) -> Result<glow::Texture, String> {
-        Ok(self.physical[self.sample_ref(id)?.physical].texture)
+        self.physical[self.sample_ref(id)?.physical]
+            .texture
+            .ok_or("disposed physical image".into())
     }
     fn sample_ref(&self, id: u32) -> Result<&Sample, String> {
         self.samples
@@ -268,7 +287,7 @@ impl GpuResources {
             .ok_or_else(|| "unknown image source".into())
     }
     // Static descriptors pin their samplers after the loader's weak source
-    // cache releases its handle. Match GpuGpuResources::retain_sample ownership.
+    // cache releases its handle. Match GpuResources::retain_sample ownership.
     pub fn retain_sample(&mut self, id: u32) -> Result<u32, String> {
         let physical = self.sample_ref(id)?.physical;
         self.physical[physical].users += 1;
@@ -288,7 +307,7 @@ impl GpuResources {
         for i in 0..self.samples.len() {
             let s = &self.samples[i];
             if s.alive && !s.owned && self.physical[s.physical].source == id as usize {
-                self.dispose_sample(i as u32);
+                let _ = self.dispose_sample(i as u32);
             }
         }
         self.retire_source(id as usize);
@@ -307,15 +326,35 @@ impl GpuResources {
             self.sources[id] = None;
         }
     }
-    pub fn dispose_sample(&mut self, id: u32) {
-        if let Some(s) = self.samples.get_mut(id as usize) {
-            if s.alive {
-                self.physical[s.physical].users = self.physical[s.physical].users.saturating_sub(1);
-                s.alive = false;
-                let source = self.physical[s.physical].source;
-                self.retire_source(source);
+    // Texture.dispose and the browser's release_physical retire the last
+    // reference, including cache identity. Repeated disposal remains harmless;
+    // a bad reference count is a reported invariant failure, never saturation.
+    fn release_physical(&mut self, id: usize) -> Result<(), String> {
+        let p = self.physical.get_mut(id).ok_or("unknown physical image")?;
+        p.users = p.users.checked_sub(1).ok_or("image reference underflow")?;
+        if p.users == 0 {
+            if let Some(texture) = p.texture.take() {
+                // SAFETY: this owner created the live GL name on the current
+                // context; taking it prevents a second delete during Drop.
+                unsafe {
+                    self.gl.delete_texture(texture);
+                }
             }
+            self.cache.retain(|_, row| *row != id);
+            self.free_physical.push(id);
         }
+        Ok(())
+    }
+    pub fn dispose_sample(&mut self, id: u32) -> Result<(), String> {
+        let s = self.samples.get_mut(id as usize).ok_or("unknown sampler")?;
+        if s.alive {
+            s.alive = false;
+            let physical = s.physical;
+            let source = self.physical[physical].source;
+            self.release_physical(physical)?;
+            self.retire_source(source);
+        }
+        Ok(())
     }
     // world_fallback and canopy_state use the browser owner's exact image
     // descriptors. Only their byte source changes from a JS view to a slice.
@@ -379,11 +418,13 @@ impl GpuResources {
         };
         unsafe {
             if allocate && p.allocation.is_some_and(|old| immutable || old.4) {
-                gl.delete_texture(p.texture);
-                p.texture = gl.create_texture()?;
+                if let Some(texture) = p.texture.take() {
+                    gl.delete_texture(texture);
+                }
+                p.texture = Some(gl.create_texture()?);
             }
             gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(d.target, Some(p.texture));
+            gl.bind_texture(d.target, p.texture);
             gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, sampling.alignment);
             gl.tex_parameter_i32(d.target, glow::TEXTURE_WRAP_S, wrap(sampling.wrap_s));
             gl.tex_parameter_i32(d.target, glow::TEXTURE_WRAP_T, wrap(sampling.wrap_t));
@@ -943,7 +984,7 @@ impl GpuResources {
         let p = &self.physical[self.sample_ref(id)?.physical];
         let source = self.source_ref(p.source as u32)?;
         unsafe {
-            self.gl.bind_texture(source.desc.target, Some(p.texture));
+            self.gl.bind_texture(source.desc.target, p.texture);
             self.gl.tex_parameter_i32(
                 source.desc.target,
                 glow::TEXTURE_MAX_LEVEL,
@@ -958,7 +999,9 @@ impl Drop for GpuResources {
     fn drop(&mut self) {
         unsafe {
             for p in &self.physical {
-                self.gl.delete_texture(p.texture);
+                if let Some(texture) = p.texture {
+                    self.gl.delete_texture(texture);
+                }
             }
         }
         for id in 0..self.targets.len() {
@@ -1013,3 +1056,7 @@ impl crate::frame::FrameTargets for GpuResources {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "native_resources_tests.rs"]
+mod tests;

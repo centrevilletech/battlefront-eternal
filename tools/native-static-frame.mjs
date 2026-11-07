@@ -4,6 +4,8 @@
 import fs from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import crypto from 'node:crypto';
+import * as frameLayout from '../src/rust-render/frame-layout.js';
+import {FACTS as postFacts,PROGRAM as postPrograms} from '../src/rust-render/post-layout.js';
 import {connect,loadBattle} from './renderer-corpus/battle.mjs';
 import {readManifest,expand} from './renderer-corpus/manifest.mjs';
 const dir=process.argv[2];if(!dir)throw Error('usage: native-static-frame.mjs OUTPUT_DIRECTORY');fs.mkdirSync(dir,{recursive:true});
@@ -43,7 +45,7 @@ try {
  const results=[];
  for(const phase of ['sky','props','foliage','water']){
   const result=await c.ev(`(()=>{
-   const phase=${JSON.stringify(phase)},b=__bf,g=b.graphics,T=b.THREE,core=g.rust,r=core.rust,renderer=g.renderer,gl=renderer.getContext(),size=[1280,720];
+   const layout=${JSON.stringify(frameLayout)},postLayout=${JSON.stringify(postFacts)},postProgramCount=${JSON.stringify(postPrograms.COUNT)},phase=${JSON.stringify(phase)},b=__bf,g=b.graphics,T=b.THREE,core=g.rust,r=core.rust,renderer=g.renderer,gl=renderer.getContext(),size=[1280,720];
    const foliage=g.scene.userData.foliage,water=g.scene.userData.water;
    if(phase==='foliage'&&!foliage)return {skip:'no authored foliage'};
    if(phase==='water'&&!water?.lowPass)return {skip:'no authored low water'};
@@ -63,24 +65,28 @@ try {
    }else{at.copy(g.camera.position);eye.copy(at).add(new T.Vector3(0,3,0));at.add(new T.Vector3(0,2,-20));camera.near=2;camera.far=g.farCamera.far;camera.updateProjectionMatrix();}
    camera.position.copy(eye);camera.lookAt(at);camera.updateMatrixWorld(true);
    const target=new T.WebGLRenderTarget(...size,{samples:0,depthBuffer:true,stencilBuffer:true});renderer.setRenderTarget(target);renderer.setViewport(0,0,...size);
-   gl.disable(gl.SCISSOR_TEST);gl.colorMask(true,true,true,true);gl.depthMask(true);gl.clearColor(.04,.06,.09,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT|gl.STENCIL_BUFFER_BIT);
+   const farTarget=new T.WebGLRenderTarget(...size,{samples:0,depthBuffer:true});
+   const originalFar=g.farTarget,originalMap=g.background.material.uniforms.map.value;
+   g.farTarget=farTarget;g.background.material.uniforms.map.value=farTarget.texture;
+   renderer.setClearColor(new T.Color(.04,.06,.09),1);
+   core.frame.begin(true);core.views();core.postFacts.fill(0);core.postFacts.fill(0xffffffff,postLayout.PROGRAMS,postLayout.PROGRAMS+postProgramCount);
    for(const e of core.byName.world.meshes)r.world_shown(e.id,false);for(const e of core.byName.terrain.grounds)r.world_shown(e.id,false);
    core.views();for(const name of ['canopiesInput','fxInput','waterInput','transparentObjects','transparentKeys'])core[name]?.fill(0);
    for(let i=0;i<3;i++)r.frame_lines_publish_frame(i,0);
    if(core.farInput)core.farInput[7]=0;
    if(foliage){
     if(phase==='foliage'){foliage.time=0;foliage.nearEnd=()=>20000;core.byName.foliage.selectClasses(foliage,camera);}
-    else {const input=core.foliageInput;input.fill(0);input.set(camera.projectionMatrix.elements,0);input.set(camera.matrixWorldInverse.elements,16);input[42]=1;input[50]=1e20;input[51]=1;r.foliage_frame();}
+    else r.foliage_clear_frame();
    }
    core.writeFrame(phase==='sky'?g.farScene:g.scene,camera,phase==='sky'?1:0);core.views();core.input[35]=0;core.input[64]=1e8;core.input[65]=2e8;
    // No live point-light facts enter an isolated cold admission view.
    for(let i=70;i<core.recordsAt;i++)core.input[i]=0;
-   const values=Array.from(core.input.subarray(0,core.recordsAt));let records=0;const rigs=[];
-   if(phase==='sky'){
-    const keep=new Set(g.skyLayers.map(s=>s.mesh));for(const child of g.farScene.children)child.visible=keep.has(child);
-    for(const {mesh,follow} of g.skyLayers){mesh.position.copy(eye);if(follow)mesh.position.y=follow[0]*eye.y+(1-follow[0])*follow[1];mesh.updateMatrixWorld(true);}
-    core.byName.far.frame({renderer,scene:g.farScene,camera});core.views();core.farInput[5]=1;r.far_frame();
-   }else{
+   const values=Array.from(core.input.subarray(0,core.recordsAt));let records=0,bones=0;const rigs=[];
+   const keep=new Set(phase==='sky'?g.skyLayers.map(s=>s.mesh):[]);for(const child of g.farScene.children)child.visible=keep.has(child);
+   for(const {mesh,follow} of g.skyLayers){mesh.position.copy(eye);if(follow)mesh.position.y=follow[0]*eye.y+(1-follow[0])*follow[1];mesh.updateMatrixWorld(true);}
+   renderer.setRenderTarget(farTarget);core.byName.far.frame({renderer,scene:g.farScene,camera});
+   core.frame.seal(layout.ROLE.FAR,layout.KIND.FAR,null);
+   renderer.setRenderTarget(target);core.views();core.input.set(values);
     if(phase==='props'){
      const p=core.byName.instances,ctx={records:0,bones:0,skeletons:new Map()};p.listed=Infinity;p.projScreen.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);p.frustum.setFromProjectionMatrix(p.projScreen);
      for(const object of b.live.buildings){
@@ -88,10 +94,10 @@ try {
       for(const rig of models){for(const [bone,bind] of rig.bind){bone.quaternion.copy(bind.q);bone.position.copy(bind.p);}
       rig.root.updateMatrixWorld(true);
       for(const mesh of rig.meshes){let record=p.bodies.get(mesh);if(!record)record=p.registerRig(mesh);if(record&&p.inView(mesh)){p.writeBody(record,ctx);rigs.push({world:mesh.matrixWorld.elements,bind:Array.from(Float32Array.from(mesh.bindMatrixInverse.elements)),bones:Array.from(mesh.skeleton.boneMatrices)});}}}
-     }records=ctx.records;
+     }records=ctx.records;bones=ctx.bones;
     }
-    if(phase==='water'&&water.ocean){water.ocean.update(0,camera);water.ocean.material.uniforms.time.value=0;water.ocean.near.updateMatrixWorld(true);core.byName.sea.draw({camera,scene:g.scene,renderer});}
-    r.frame(records);
+
+   if(phase==='water'&&water.ocean){water.ocean.update(0,camera);water.ocean.material.uniforms.time.value=0;water.ocean.near.updateMatrixWorld(true);core.byName.sea.draw({camera,scene:g.scene,renderer});}
     if(phase==='water'&&!water.ocean){
      water.group.visible=true;water.group.position.y=0;water.group.updateMatrixWorld(true);water.lowPass.visible=true;water.tintPass.visible=false;water.mirrorPass.visible=false;
      for(const mesh of water.shore?.meshes||[])mesh.visible=false;if(water.ocean?.waves?.spray)water.ocean.waves.spray.visible=false;
@@ -99,18 +105,24 @@ try {
      const u=water.lowPass.material.uniforms;u.time.value=0;u.maskMix.value=0;u.maskA.value=water.masks?.textures[0]||u.maskA.value;u.maskB.value=u.maskA.value;u.cameraRange.value.set(camera.near,camera.far);
      core.byName.water.draw({camera,scene:g.scene,renderer});
     }
-    if(phase==='props'||phase==='water')r.transparent_frame(0,0);
-   }
+   core.frame.seal(layout.ROLE.NEAR,layout.KIND.SCENE,{records,bones});
+   core.byName.near.writeImage(camera);core.frame.seal(layout.ROLE.IMAGE,layout.KIND.SCREEN,{steps:1});
+   core.frame.seal(layout.ROLE.TRANSPARENT,layout.KIND.TRANSPARENT,{records,bones});
+   core.frame.execute();core.views();
+   const schedule=Array.from(new Float64Array(core.buffer,r.frame_trace_ptr(),r.frame_trace_len()).subarray(0,core.frameState[layout.STATE.OPERATION_COUNT]*layout.COMMAND.LEN));
+   g.farTarget=originalFar;g.background.material.uniforms.map.value=originalMap;
    const uniforms={};if(phase==='water'){const program=gl.getParameter(gl.CURRENT_PROGRAM);if(program)for(let i=0;i<gl.getProgramParameter(program,gl.ACTIVE_UNIFORMS);i++){const u=gl.getActiveUniform(program,i);if(u.type===gl.SAMPLER_2D)continue;const value=gl.getUniform(program,gl.getUniformLocation(program,u.name));uniforms[u.name]=ArrayBuffer.isView(value)?Array.from(value):[value];}}
    core.stale=true;const pixels=new Uint8Array(size[0]*size[1]*4);renderer.readRenderTargetPixels(target,0,0,...size,pixels);const error=gl.getError();
-   let encoded='';for(let k=0;k<pixels.length;k+=32768)encoded+=String.fromCharCode.apply(null,pixels.subarray(k,k+32768));target.dispose();renderer.setRenderTarget(null);
-   return {size,values,pixels:btoa(encoded),records,error,uniforms,rigs};
+   let encoded='';for(let k=0;k<pixels.length;k+=32768)encoded+=String.fromCharCode.apply(null,pixels.subarray(k,k+32768));target.dispose();farTarget.dispose();renderer.setRenderTarget(null);
+   return {size,values,pixels:btoa(encoded),records,error,uniforms,rigs,schedule};
   })()`);
   if(result.skip){results.push({phase,skip:result.skip});continue;}
   if(result.error)throw Error('browser GL error '+result.error);
   const frame={size:result.size,values:result.values,foliageRandom:draws};
   const input=dir+'/'+phase+'.json',output=dir+'/'+phase+'.rgba';fs.writeFileSync(input,JSON.stringify(frame));
   const receipt=JSON.parse(execFileSync(process.env.BFE_STATIC_FRAME||'rust/target/debug/static-frame',[process.env.BFE_CONTENT_DIR,map,input,output,phase],{encoding:'utf8',maxBuffer:16<<20}));
+  if(JSON.stringify(receipt.schedule)!==JSON.stringify(result.schedule))throw Error('battle_frame schedule differs for '+phase);
+  if(!receipt.schedule.length)throw Error('component bypassed battle_frame');
   const bindingDifferences=[];
   if(phase==='water')for(const [name,native] of Object.entries(receipt.bindings.uniforms)){const browser=result.uniforms[name];if(browser&&native.some((v,i)=>v!==browser[i]))bindingDifferences.push({name,native,browser});}
   if(phase==='props')for(const native of receipt.bindings.rigs){const browser=result.rigs.find(r=>JSON.stringify(r.world)===JSON.stringify(native.world));if(!browser)continue;for(const name of ['bones','bind']){const at=native[name].findIndex((v,i)=>v!==browser[name][i]);if(at>=0){bindingDifferences.push({name,index:at,native:native[name][at],browser:browser[name][at]});break;}}if(bindingDifferences.length)break;}

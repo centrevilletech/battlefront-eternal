@@ -1,6 +1,10 @@
-use bfe_client::{host::{Host, World, STEP}, input::Input};
-use bfe_native::Frame;
-use bfe_client::generated_input::{ClientAction as Action, ClientCommand, ClientHeld as Held, ClientLook, ClientFlightCommand};
+use bfe_client::generated_input::{
+    ClientAction as Action, ClientCommand, ClientFlightCommand, ClientHeld as Held, ClientLook,
+};
+use bfe_client::{
+    host::{Host, World, STEP},
+    input::Input,
+};
 use winit::{event::MouseButton, keyboard::KeyCode};
 
 #[test]
@@ -21,10 +25,22 @@ fn generated_command_maps_defaults_and_consumes_edges_once() {
     let (command, look) = input.take(7, 3);
     assert_eq!(command.tick, 7.0);
     assert_eq!(command.generation, 3.0);
-    assert_eq!(command.held, (1 << Held::Forward as u8) | (1 << Held::Right as u8)
-        | (1 << Held::Space as u8) | (1 << Held::Primary as u8) | (1 << Held::Secondary as u8));
-    assert_eq!(command.actions, (1 << Action::Jump as u8) | (1 << Action::FirePrimary as u8)
-        | (1 << Action::FireSecondary as u8) | (1 << Action::Zoom as u8) | (1 << Action::PreviousPrimary as u8));
+    assert_eq!(
+        command.held,
+        (1 << Held::Forward as u8)
+            | (1 << Held::Right as u8)
+            | (1 << Held::Space as u8)
+            | (1 << Held::Primary as u8)
+            | (1 << Held::Secondary as u8)
+    );
+    assert_eq!(
+        command.actions,
+        (1 << Action::Jump as u8)
+            | (1 << Action::FirePrimary as u8)
+            | (1 << Action::FireSecondary as u8)
+            | (1 << Action::Zoom as u8)
+            | (1 << Action::PreviousPrimary as u8)
+    );
     assert_eq!((look.x, look.y), (6.0, -2.0));
     assert_eq!((command.primary_count, command.secondary_count), (1, 1));
     // Round-trip the real generated layout, including the block-relative look.
@@ -33,7 +49,10 @@ fn generated_command_maps_defaults_and_consumes_edges_once() {
     command.put(&mut words, &mut heap);
     look.put(&mut words[ClientCommand::WORDS..], &mut heap);
     assert_eq!(ClientCommand::take(&words, &[]), command);
-    assert_eq!(ClientLook::take(&words[command.look_at as usize..], &[]), look);
+    assert_eq!(
+        ClientLook::take(&words[command.look_at as usize..], &[]),
+        look
+    );
     let (next, look) = input.take(8, 3);
     assert_eq!(next.actions, 0);
     assert_eq!(next.held, command.held);
@@ -67,15 +86,22 @@ fn stalled_input_is_bounded_and_releases_fire_aliases() {
 }
 
 struct Probe {
-    frame: Frame,
+    frame: u32,
     ticks: usize,
     actions: usize,
     last_sequence: f64,
     alpha: f64,
 }
 impl World for Probe {
-    type Frame = Frame;
-    fn step(&mut self, command: &ClientCommand, _look: &ClientLook, _flight: &ClientFlightCommand, _view: &bfe_client::input::ViewActions, dt: f64) -> Result<(), String> {
+    type Frame = u32;
+    fn step(
+        &mut self,
+        command: &ClientCommand,
+        _look: &ClientLook,
+        _flight: &ClientFlightCommand,
+        _view: &bfe_client::input::ViewActions,
+        dt: f64,
+    ) -> Result<(), String> {
         assert_eq!(dt, STEP);
         assert!(command.sequence > self.last_sequence);
         self.last_sequence = command.sequence;
@@ -83,12 +109,20 @@ impl World for Probe {
         self.ticks += 1;
         Ok(())
     }
-    fn present(&mut self, alpha: f64) -> &Frame { self.alpha = alpha; &self.frame }
+    fn present(&mut self, alpha: f64) -> &u32 {
+        self.alpha = alpha;
+        &self.frame
+    }
 }
 #[test]
 fn host_steps_before_presentation_and_drops_pause_backlog() {
-    let probe = Probe { frame: Frame { records: 0, input: vec![], bones: vec![] }, ticks: 0,
-        actions: 0, last_sequence: 0.0, alpha: 0.0 };
+    let probe = Probe {
+        frame: 42,
+        ticks: 0,
+        actions: 0,
+        last_sequence: 0.0,
+        alpha: 0.0,
+    };
     let mut host = Host::new(probe);
     host.input.key(KeyCode::Space, true);
     host.frame(STEP * 2.5).unwrap();
@@ -104,18 +138,35 @@ fn host_steps_before_presentation_and_drops_pause_backlog() {
 
 #[test]
 fn flyer_and_view_intentions_use_their_own_input_records() {
-    use bfe_client::{generated_input::{ClientFlightHeld as F, ClientFlightAction as A}, input::SquadOrder};
+    use bfe_client::{
+        generated_input::{ClientFlightAction as A, ClientFlightHeld as F},
+        input::SquadOrder,
+    };
     let mut input = Input::default();
-    for key in [KeyCode::KeyW, KeyCode::KeyA, KeyCode::ShiftRight, KeyCode::Space, KeyCode::CapsLock] {
+    for key in [
+        KeyCode::KeyW,
+        KeyCode::KeyA,
+        KeyCode::ShiftRight,
+        KeyCode::Space,
+        KeyCode::CapsLock,
+    ] {
         input.key(key, true);
     }
     input.mouse(MouseButton::Right, true);
     input.key(KeyCode::KeyQ, true);
     input.key(KeyCode::F3, true);
     let flight = input.take_flight();
-    assert_eq!(flight.held, (1 << F::Throttle as u8) | (1 << F::RollLeft as u8)
-        | (1 << F::Boost as u8) | (1 << F::RollLock as u8));
-    assert_eq!(flight.actions, (1 << A::Takeoff as u8) | (1 << A::Immelmann as u8) | (1 << A::TargetLock as u8));
+    assert_eq!(
+        flight.held,
+        (1 << F::Throttle as u8)
+            | (1 << F::RollLeft as u8)
+            | (1 << F::Boost as u8)
+            | (1 << F::RollLock as u8)
+    );
+    assert_eq!(
+        flight.actions,
+        (1 << A::Takeoff as u8) | (1 << A::Immelmann as u8) | (1 << A::TargetLock as u8)
+    );
     let view = input.take_view();
     assert!(view.perspective);
     assert_eq!(view.squad, Some(SquadOrder::MoveOut));

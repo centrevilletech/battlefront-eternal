@@ -398,7 +398,7 @@ impl ResourceCommand {
                 r.sample(*id, s)?;
             }
             Self::Sampling(id, s) => r.sampling(*id, s)?,
-            Self::Dispose(id) => r.dispose_sample(*id),
+            Self::Dispose(id) => r.dispose_sample(*id)?,
             Self::Upload(id) => r.upload(*id)?,
             Self::Target(d) => {
                 r.target(d)?;
@@ -495,7 +495,7 @@ impl Session {
             &std::fs::read(dir.join("session.json")).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        crate::session_format::Version::admit(&meta)?;
+        crate::session_format::admit(&meta)?;
         if !meta["errors"]
             .as_array()
             .ok_or("missing capture coverage")?
