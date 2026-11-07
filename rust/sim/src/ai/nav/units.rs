@@ -29,7 +29,7 @@ pub mod kind {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SizeType {
     Missing,
-    Text(String),
+    Text(std::rc::Rc<str>),
     /// A JavaScript number; only an integer one is used.
     Number(f64),
 }
@@ -133,6 +133,9 @@ impl Default for SoldierView {
 #[derive(Clone, Debug, PartialEq)]
 pub struct NavUnit {
     pub id: u64,
+    /// Native controller actors follow changing bodies. Attachment compares
+    /// the qualified body identity while follow queries retain the actor id.
+    pub control_identity: Option<u64>,
     pub kind: f64,
     pub position: Vec3,
     pub velocity: Vec3,
@@ -150,6 +153,7 @@ impl NavUnit {
     pub fn new(id: u64, kind: f64, position: Vec3) -> Self {
         NavUnit {
             id,
+            control_identity: None,
             kind,
             position,
             velocity: Vec3::default(),
@@ -176,19 +180,11 @@ pub struct UnitRef {
 
 /// AISizeType bits (units.js:20), compared case-insensitively.
 fn size_bit(text: &str) -> Option<u32> {
-    // The JavaScript trims and lower-cases the whole string. JS trim and
-    // toLowerCase are Unicode operations; the content's size names are
-    // ASCII, and for ASCII input these agree.
-    let t = text.trim().to_lowercase();
-    match t.as_str() {
-        "soldier" => Some(1),
-        "hover" => Some(2),
-        "small" => Some(4),
-        "medium" => Some(8),
-        "huge" => Some(16),
-        "flyer" => Some(32),
-        _ => None,
+    let text=text.trim_matches(bfe_content::js::is_js_space);
+    for (name,bit) in [("soldier",1),("hover",2),("small",4),("medium",8),("huge",16),("flyer",32)] {
+        if text.eq_ignore_ascii_case(name) {return Some(bit);}
     }
+    None
 }
 
 /// Number.isInteger, for the values the JavaScript tests that way.

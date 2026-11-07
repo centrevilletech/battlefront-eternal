@@ -668,7 +668,7 @@ impl ReconDroid {
         row[28..28 + 3].copy_from_slice(&self.target);
         row[31] = self.countdown;
         match &self.salvo { Some(v) => { row[32] = 0.0; v.put(&mut row[32 + 1..], heap); } None => { row[32] = 1.0; row[32 + 1..32 + 16].fill(0.0); } }
-        { let at = heap.len(); row[48] = at as f64; row[48 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+        { let at = heap.len(); row[48] = at as f64; row[48 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 43, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 43]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 43..at + (i + 1) * 43].copy_from_slice(&item); } }
         row[50..50 + 2].copy_from_slice(&self.selected);
     }
 
@@ -691,7 +691,7 @@ impl ReconDroid {
         self.target = [row[28], row[28 + 1], row[28 + 2]];
         self.countdown = row[31];
         self.salvo = if row[32] == 0.0 { Some(ReconSalvo::take(&row[32 + 1..], heap)) } else { None };
-        self.weapons = { let (at, n) = (word_u32(row[48]) as usize, word_u32(row[48 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 42..at + (i + 1) * 42]; out.push(Weapon::take(&row[0..], heap)); } out };
+        self.weapons = { let (at, n) = (word_u32(row[48]) as usize, word_u32(row[48 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 43..at + (i + 1) * 43]; out.push(Weapon::take(&row[0..], heap)); } out };
         self.selected = { let mut a = [0.0; 2]; a.copy_from_slice(&row[50..50 + 2]); a };
     }
 

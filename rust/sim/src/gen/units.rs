@@ -406,17 +406,51 @@ impl F3Allocation {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3NativeIntent {
+    pub forward: f64,
+    pub right: f64,
+    pub turn: f64,
+    pub pitch: f64,
+    pub buttons: [f64; 2],
+    pub aim: Option<Vec3>,
+}
+
+impl F3NativeIntent {
+    pub const WORDS: usize = 10;
+    pub const FORWARD: usize = 0;
+    pub const RIGHT: usize = 1;
+    pub const TURN: usize = 2;
+    pub const PITCH: usize = 3;
+    pub const BUTTONS: usize = 4;
+    pub const AIM: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        row[0] = self.forward;
+        row[1] = self.right;
+        row[2] = self.turn;
+        row[3] = self.pitch;
+        row[4..4 + 2].copy_from_slice(&self.buttons);
+        match &self.aim { Some(v) => { row[6] = 0.0; row[6 + 1..6 + 1 + 3].copy_from_slice(&(*v)); } None => { row[6] = 1.0; row[6 + 1..6 + 4].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        Self {
+            forward: row[0],
+            right: row[1],
+            turn: row[2],
+            pitch: row[3],
+            buttons: { let mut a = [0.0; 2]; a.copy_from_slice(&row[4..4 + 2]); a },
+            aim: if row[6] == 0.0 { Some([row[6 + 1], row[6 + 1 + 1], row[6 + 1 + 2]]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F3ControlView {
-    pub jump: bool,
-    pub crouch: bool,
-    pub prone: bool,
-    pub r#use: bool,
-    pub exit: bool,
-    pub reload: bool,
-    pub next_primary: bool,
-    pub previous_primary: bool,
-    pub next_secondary: bool,
-    pub zoom: bool,
+    pub intent: Intent,
     pub was: [f64; 2],
     pub pressed0: bool,
     pub pressed1: bool,
@@ -424,57 +458,30 @@ pub struct F3ControlView {
 }
 
 impl F3ControlView {
-    pub const WORDS: usize = 26;
-    pub const JUMP: usize = 0;
-    pub const CROUCH: usize = 1;
-    pub const PRONE: usize = 2;
-    pub const USE: usize = 3;
-    pub const EXIT: usize = 4;
-    pub const RELOAD: usize = 5;
-    pub const NEXT_PRIMARY: usize = 6;
-    pub const PREVIOUS_PRIMARY: usize = 7;
-    pub const NEXT_SECONDARY: usize = 8;
-    pub const ZOOM: usize = 9;
-    pub const WAS: usize = 10;
-    pub const PRESSED0: usize = 12;
-    pub const PRESSED1: usize = 13;
-    pub const INPUT: usize = 14;
+    pub const WORDS: usize = 46;
+    pub const INTENT: usize = 0;
+    pub const WAS: usize = 30;
+    pub const PRESSED0: usize = 32;
+    pub const PRESSED1: usize = 33;
+    pub const INPUT: usize = 34;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 26] = (&mut row[..26]).try_into().unwrap();
-        row[0] = if self.jump { 1.0 } else { 0.0 };
-        row[1] = if self.crouch { 1.0 } else { 0.0 };
-        row[2] = if self.prone { 1.0 } else { 0.0 };
-        row[3] = if self.r#use { 1.0 } else { 0.0 };
-        row[4] = if self.exit { 1.0 } else { 0.0 };
-        row[5] = if self.reload { 1.0 } else { 0.0 };
-        row[6] = if self.next_primary { 1.0 } else { 0.0 };
-        row[7] = if self.previous_primary { 1.0 } else { 0.0 };
-        row[8] = if self.next_secondary { 1.0 } else { 0.0 };
-        row[9] = if self.zoom { 1.0 } else { 0.0 };
-        row[10..10 + 2].copy_from_slice(&self.was);
-        row[12] = if self.pressed0 { 1.0 } else { 0.0 };
-        row[13] = if self.pressed1 { 1.0 } else { 0.0 };
-        self.input.put(&mut row[14..], heap);
+        let row: &mut [f64; 46] = (&mut row[..46]).try_into().unwrap();
+        self.intent.put(&mut row[0..], heap);
+        row[30..30 + 2].copy_from_slice(&self.was);
+        row[32] = if self.pressed0 { 1.0 } else { 0.0 };
+        row[33] = if self.pressed1 { 1.0 } else { 0.0 };
+        self.input.put(&mut row[34..], heap);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 26] = (&row[..26]).try_into().unwrap();
+        let row: &[f64; 46] = (&row[..46]).try_into().unwrap();
         Self {
-            jump: row[0] != 0.0,
-            crouch: row[1] != 0.0,
-            prone: row[2] != 0.0,
-            r#use: row[3] != 0.0,
-            exit: row[4] != 0.0,
-            reload: row[5] != 0.0,
-            next_primary: row[6] != 0.0,
-            previous_primary: row[7] != 0.0,
-            next_secondary: row[8] != 0.0,
-            zoom: row[9] != 0.0,
-            was: { let mut a = [0.0; 2]; a.copy_from_slice(&row[10..10 + 2]); a },
-            pressed0: row[12] != 0.0,
-            pressed1: row[13] != 0.0,
-            input: MoveInput::take(&row[14..], heap),
+            intent: Intent::take(&row[0..], heap),
+            was: { let mut a = [0.0; 2]; a.copy_from_slice(&row[30..30 + 2]); a },
+            pressed0: row[32] != 0.0,
+            pressed1: row[33] != 0.0,
+            input: MoveInput::take(&row[34..], heap),
         }
     }
 
@@ -486,14 +493,18 @@ pub struct F3Publication {
     pub arsenal: u32,
     pub combat: F3CombatView,
     pub controls: Option<F3ControlView>,
+    pub native_intent: bool,
+    pub native_controls: Option<F3NativeIntent>,
 }
 
 impl F3Publication {
-    pub const WORDS: usize = 175;
+    pub const WORDS: usize = 207;
     pub const BODY: usize = 0;
     pub const ARSENAL: usize = 103;
     pub const COMBAT: usize = 104;
     pub const CONTROLS: usize = 148;
+    pub const NATIVE_INTENT: usize = 195;
+    pub const NATIVE_CONTROLS: usize = 196;
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
     pub fn put_body(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -502,24 +513,33 @@ impl F3Publication {
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
     pub fn put_controls(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 27].fill(0.0); } }
+        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 47].fill(0.0); } }
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_native_controls(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        match &self.native_controls { Some(v) => { row[196] = 0.0; v.put(&mut row[196 + 1..], heap); } None => { row[196] = 1.0; row[196 + 1..196 + 11].fill(0.0); } }
     }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 175] = (&mut row[..175]).try_into().unwrap();
+        let row: &mut [f64; 207] = (&mut row[..207]).try_into().unwrap();
         self.body.put(&mut row[0..], heap);
         row[103] = self.arsenal as f64;
         self.combat.put(&mut row[104..], heap);
-        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 27].fill(0.0); } }
+        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 47].fill(0.0); } }
+        row[195] = if self.native_intent { 1.0 } else { 0.0 };
+        match &self.native_controls { Some(v) => { row[196] = 0.0; v.put(&mut row[196 + 1..], heap); } None => { row[196] = 1.0; row[196 + 1..196 + 11].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 175] = (&row[..175]).try_into().unwrap();
+        let row: &[f64; 207] = (&row[..207]).try_into().unwrap();
         Self {
             body: F3UnitMirror::take(&row[0..], heap),
             arsenal: word_u32(row[103]),
             combat: F3CombatView::take(&row[104..], heap),
             controls: if row[148] == 0.0 { Some(F3ControlView::take(&row[148 + 1..], heap)) } else { None },
+            native_intent: row[195] != 0.0,
+            native_controls: if row[196] == 0.0 { Some(F3NativeIntent::take(&row[196 + 1..], heap)) } else { None },
         }
     }
 
@@ -1381,36 +1401,43 @@ pub struct F3PhaseInput {
     pub key: F3UnitKey,
     pub bot_target: Option<Member>,
     pub bot_target_set: bool,
-    pub intent: Intent,
+    pub intent: Option<Intent>,
     pub remote_first_person: bool,
     pub has_network: bool,
     pub network_index: u32,
 }
 
 impl F3PhaseInput {
-    pub const WORDS: usize = 41;
+    pub const WORDS: usize = 42;
+    pub const KEY: usize = 0;
+    pub const BOT_TARGET: usize = 3;
+    pub const BOT_TARGET_SET: usize = 7;
+    pub const INTENT: usize = 8;
+    pub const REMOTE_FIRST_PERSON: usize = 39;
+    pub const HAS_NETWORK: usize = 40;
+    pub const NETWORK_INDEX: usize = 41;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 41] = (&mut row[..41]).try_into().unwrap();
+        let row: &mut [f64; 42] = (&mut row[..42]).try_into().unwrap();
         self.key.put(&mut row[0..], heap);
         match &self.bot_target { Some(v) => { row[3] = 0.0; (*v).put(&mut row[3 + 1..3 + 1 + 3], heap); } None => { row[3] = 1.0; row[3 + 1..3 + 4].fill(0.0); } }
         row[7] = if self.bot_target_set { 1.0 } else { 0.0 };
-        self.intent.put(&mut row[8..], heap);
-        row[38] = if self.remote_first_person { 1.0 } else { 0.0 };
-        row[39] = if self.has_network { 1.0 } else { 0.0 };
-        row[40] = self.network_index as f64;
+        match &self.intent { Some(v) => { row[8] = 0.0; v.put(&mut row[8 + 1..], heap); } None => { row[8] = 1.0; row[8 + 1..8 + 31].fill(0.0); } }
+        row[39] = if self.remote_first_person { 1.0 } else { 0.0 };
+        row[40] = if self.has_network { 1.0 } else { 0.0 };
+        row[41] = self.network_index as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 41] = (&row[..41]).try_into().unwrap();
+        let row: &[f64; 42] = (&row[..42]).try_into().unwrap();
         Self {
             key: F3UnitKey::take(&row[0..], heap),
             bot_target: if row[3] == 0.0 { Some(Member::take(&row[3 + 1..3 + 1 + 3], heap)) } else { None },
             bot_target_set: row[7] != 0.0,
-            intent: Intent::take(&row[8..], heap),
-            remote_first_person: row[38] != 0.0,
-            has_network: row[39] != 0.0,
-            network_index: word_u32(row[40]),
+            intent: if row[8] == 0.0 { Some(Intent::take(&row[8 + 1..], heap)) } else { None },
+            remote_first_person: row[39] != 0.0,
+            has_network: row[40] != 0.0,
+            network_index: word_u32(row[41]),
         }
     }
 
@@ -2521,6 +2548,26 @@ pub struct Intent {
 
 impl Intent {
     pub const WORDS: usize = 30;
+    pub const FORWARD: usize = 0;
+    pub const RIGHT: usize = 1;
+    pub const TURN: usize = 2;
+    pub const PITCH: usize = 3;
+    pub const JUMP: usize = 4;
+    pub const CROUCH: usize = 5;
+    pub const PRONE: usize = 6;
+    pub const USE: usize = 7;
+    pub const BUTTONS: usize = 8;
+    pub const RELOAD: usize = 10;
+    pub const NEXT_PRIMARY: usize = 11;
+    pub const PREVIOUS_PRIMARY: usize = 12;
+    pub const NEXT_SECONDARY: usize = 13;
+    pub const ZOOM: usize = 14;
+    pub const AIM: usize = 15;
+    pub const JET_DIRECTION: usize = 19;
+    pub const EXIT: usize = 23;
+    pub const BRAKE: usize = 24;
+    pub const UP: usize = 26;
+    pub const DOWN: usize = 28;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 30] = (&mut row[..30]).try_into().unwrap();

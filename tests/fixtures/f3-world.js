@@ -96,9 +96,11 @@ export async function f3World(definitions, {
   phase.random.configure(ordnance.random,ordnance.spinRandom,streams.draw('item-drop'),streams.draw('seat-weapons'));
   phase.construction.reserve(units.nextId + 128);
   for (const name of Object.keys(definitions)) phase.construction.prepare(name,4);
-  function spawn(name, x, z, networkHuman = false) {
+  function spawn(name, x, z, networkHuman = false, controller = {}) {
     const unit = factory.acquire(name);
-    unit.controller = {};
+    // Native AI fixtures supply null; ordinary movement fixtures use a
+    // foreign controller to keep their explicit synthetic input active.
+    unit.controller = controller;
     unit.networkHuman = networkHuman;
     unit.human = networkHuman;
     unit.spawn(x, 0, z, 0);

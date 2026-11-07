@@ -18,7 +18,7 @@ use super::math::{d2, f32, flat_dir, h2, same, tiny, Vec3, FLT_MAX};
 use super::planner::PathNode;
 use super::units::{has_jetpack, is_soldier, is_soldier_or_droid, kind, nominal_speed, traversal_mask, traversal_radius, NavUnit, UnitRef};
 use super::{ControlHost, Nav};
-use crate::ai::random::ClassicRandom;
+use crate::ai::random::Random;
 
 /// A resolved follow/leader target: its identity token and the fields
 /// the helpers read (goto.js:722 `resolve`, control.js:259).
@@ -49,8 +49,8 @@ pub struct Resolved {
 ///   mission formation far, else 3).
 pub trait GotoWorld {
     fn time(&self) -> f64;
-    fn random_a(&mut self) -> &mut ClassicRandom;
-    fn random_b(&mut self) -> &mut ClassicRandom;
+    fn random_a(&mut self) -> &mut dyn Random;
+    fn random_b(&mut self) -> &mut dyn Random;
     fn resolve(&mut self, r: UnitRef) -> Option<Resolved>;
     fn leader(&mut self, r: UnitRef) -> Option<NavUnit>;
     fn remembered(&mut self, target: u64) -> Option<Vec3>;
@@ -742,9 +742,9 @@ impl Nav {
             if !hit {
                 break;
             }
-            let barrier = self.barriers.list[barrier.expect("nearest names its barrier")].clone();
+            let barrier = &self.barriers.list[barrier.expect("nearest names its barrier")];
             let (mut a, mut b) = (Vec3::default(), Vec3::default());
-            let sides = super::barriers::detour(&barrier, start, probe, r, &mut a, &mut b);
+            let sides = super::barriers::detour(barrier, start, probe, r, &mut a, &mut b);
             let chosen;
             if helper.detour_side == 0.0 {
                 let da = if sides & 1 != 0 { h2(a.x, a.z, start.x, start.z) } else { f64::INFINITY };

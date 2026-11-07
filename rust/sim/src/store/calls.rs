@@ -38,13 +38,14 @@ impl Calls {
 /// its code, its length (the words after these two), its record's words
 /// and then its heap (whose offsets count from the heap's start).
 pub struct Events {
+    count:usize,
     words: Vec<f64>,
     heap: Vec<f64>,
     row: Vec<f64>,
 }
 
 impl Default for Events {
-    fn default() -> Self { Events { words: vec![0.0], heap: Vec::new(), row: Vec::new() } }
+    fn default() -> Self { Events { count:0,words: vec![0.0], heap: Vec::new(), row: Vec::new() } }
 }
 
 impl Events {
@@ -63,6 +64,7 @@ impl Events {
         self.row.resize(words, 0.0);
         self.heap.clear();
         put(&mut self.row, &mut self.heap);
+        self.count+=1;
         self.words.push(code as f64);
         self.words.push((words + self.heap.len()) as f64);
         self.words.extend_from_slice(&self.row);
@@ -76,11 +78,12 @@ impl Events {
     pub fn snapshot(&self) -> Vec<f64> { self.words.clone() }
 
     pub fn len(&self) -> usize { self.words.len() - 1 }
+    pub fn count(&self)->usize {self.count}
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     /// Forgets the events (JavaScript has handled them).
     pub fn clear(&mut self) {
-        self.words.truncate(1);
+        self.count=0;self.words.truncate(1);
         self.words[0] = 0.0;
     }
 }

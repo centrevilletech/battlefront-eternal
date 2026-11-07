@@ -409,7 +409,10 @@ function seatArsenal(weapons, lease) {
 // lease and seat: a bot moved to another seat gets a new one (the
 // original game attaches the pilot to the new control afresh).
 export class SeatUnit {
-  constructor(lease) {
+  constructor(lease) {this.initialize(lease);}
+  // Native births bind identity before F2 decodes lease references. The same
+  // cold reader setup then fills that existing facade without replacing it.
+  initialize(lease) {
     this.lease = lease;
     this.seat = lease;
     this.vehicle = lease.vehicle;

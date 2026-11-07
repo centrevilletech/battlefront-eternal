@@ -242,9 +242,9 @@ impl PathExecutor {
                 from = 1;
             }
         }
-        let additions: Vec<PathNode> = store.paths[path].nodes[from..].to_vec();
-        for n in additions {
-            store.append(self.path, n);
+        let additions=store.paths[path].nodes.len()-from;
+        for i in 0..additions {
+            let node=store.paths[path].nodes[from+i];store.append(self.path,node);
         }
         if flag_last {
             if let Some(last) = store.paths[self.path].nodes.last_mut() {

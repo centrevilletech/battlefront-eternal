@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { CommandPosts } from "../src/commandposts.js";
 import { buildRegion, inRegion } from "../src/regions.js";
-import { objectiveOffset } from "../src/ai/classic/goals.js";
 
 const at = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z).toArray();
 const v = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -67,11 +66,4 @@ test("box and cylinder sizes scale with the transform's axes; the axes are unit 
   assert.equal(inRegion(cylinder, v(3.9, 4.9, 0)), true);
   assert.equal(inRegion(cylinder, v(4.1, 0, 0)), false);
   assert.equal(inRegion(cylinder, v(0, 5.1, 0)), false);
-});
-
-test("the AI's objective offset spans the built region: a cylinder's radius on both axes", () => {
-  const post = { name: "cp1", team: 2, position: v(0, 0, 0), desc: { capture: { type: "cylinder", size: [0.1, 5, 16], matrix: at(0, 0, 0) } } };
-  let widest = 0;
-  for (let i = 0; i <= 20; i++) widest = Math.max(widest, Math.abs(objectiveOffset(post, { uniform: () => i / 20 }).x));
-  assert.ok(widest > 15, `x reached ${widest}`);
 });

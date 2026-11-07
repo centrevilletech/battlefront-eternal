@@ -57,19 +57,20 @@ impl Services {
 // NetworkRemoteWorld.finish supplies idle controls even when its owner is
 // seated or removed. Only that owner's Unit.remoteStep may consume intent.
 pub(crate) struct NativeWorld<'a> {
+    ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>,
     controls: Option<Ref<Unit>>,
     queries: &'a mut crate::battle::live::Queries,
 }
 impl<'a> NativeWorld<'a> {
-    pub(crate) fn idle(queries: &'a mut crate::battle::live::Queries) -> Self {
+    pub(crate) fn idle(queries: &'a mut crate::battle::live::Queries,ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>) -> Self {
         Self {
-            controls: None,
+            ai,controls: None,
             queries,
         }
     }
-    pub(crate) fn controlled(owner: Ref<Unit>, queries: &'a mut crate::battle::live::Queries) -> Self {
+    pub(crate) fn controlled(owner: Ref<Unit>, queries: &'a mut crate::battle::live::Queries,ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>) -> Self {
         Self {
-            controls: Some(owner),
+            ai,controls: Some(owner),
             queries,
         }
     }
@@ -234,7 +235,7 @@ impl World for NativeWorld<'_> {
         // The explicit Store borrow is released before any immediate damage.
         let (_, strings) = crate::ordnance::module::parts();
         let mut world =
-            crate::ordnance::module::JsWorld::with_services(store, strings, Some(f3::WorldServices { recon: authority, queries: self.queries }));
+            crate::ordnance::module::JsWorld::with_services(store, strings, Some(f3::WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon: authority, queries: self.queries }));
         let mut cx = unsafe {
             crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world)
         };
@@ -289,7 +290,7 @@ impl World for NativeWorld<'_> {
             DefId(def),
             a(at),
             OrdnanceOwner::OwnerSnapshot(owner),
-            Some(f3::WorldServices { recon: authority, queries: self.queries }),
+            Some(f3::WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon: authority, queries: self.queries }),
         );
     }
 }
@@ -544,7 +545,7 @@ pub extern "C" fn f3_recon_command() -> u32 {
     // no JavaScript facade is read while these operations own native rows.
     let _outer = f3::external();
     f3::with_services(|authority| {
-        let services = authority.unwrap();
+        let mut services = authority.unwrap();
         let authority = services.recon;
         let before = authority.context(&sim().store, input.key);
         match input.action {
@@ -628,7 +629,7 @@ pub extern "C" fn f3_recon_command() -> u32 {
                             return 0;
                         }
                         if input.action == F3ReconAction::Kill {
-                            authority.kill(&mut sim().store, &mut NativeWorld::idle(services.queries), droid);
+                            authority.kill(&mut sim().store, &mut NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), droid);
                         } else {
                             authority.enter(&mut sim().store, droid);
                         }
@@ -655,9 +656,9 @@ pub(crate) fn piloted_in(s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<
     if c.owner.reference() != owner || c.owner.life != unit.generation || c.retired { return None; }
     c.piloted.filter(|r| s.recon_droid.get(*r).is_some_and(|d| !d.dead))
 }
-pub(crate) fn kill_piloted(owner: Ref<Unit>, services: f3::WorldServices<'_>) {
+pub(crate) fn kill_piloted(owner: Ref<Unit>, mut services: f3::WorldServices<'_>) {
     let Some(droid) = piloted_in(&sim().store, owner) else { return };
-    services.recon.kill(&mut sim().store, &mut NativeWorld::idle(services.queries), droid);
+    services.recon.kill(&mut sim().store, &mut NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), droid);
 }
 
 /// Player and connection class realization rebinds the native context before
@@ -692,4 +693,5 @@ pub(crate) fn rebind_native(owner:Ref<Unit>, key:u32, seed:u32, services:&mut f3
 pub(crate) fn reserve_unit_slots(count:usize) {
     let contexts=&mut f3::recon_services().contexts;
     contexts.resize(count.max(contexts.len()),None);
+
 }

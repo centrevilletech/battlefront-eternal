@@ -1,3 +1,4 @@
+import {observeNativeIntent} from './f3-native-intent.js';
 import { PhaseCounters, MirrorWriteCheck } from './sim/phase-contract.js';
 import { F3UnitMirrorMirror, F3SoldierMotionMirror, F3DroidekaMotionMirror, WaterContactMirror, syncF3UnitMirror } from './sim/gen/units.js';
 
@@ -20,8 +21,10 @@ function readField(_object, field) { return field.object[field.key]; }
 // UnitFactory.build's ordinary pooled Unit and its body vectors are the mirror.
 // The generated view borrows those vectors instead of replacing them on sync.
 export class F3UnitBinding {
-  constructor(unit, key, debug = false) {
+  constructor(unit, key, debug = false, phase = null) {
+    this.phase=phase;
     this.unit = unit;
+    this.intentObserver=null;this.observeIntent();
     const view = this.view = new F3UnitMirrorMirror();
     view.key.slot = key.slot; view.key.generation = key.generation; view.key.life = key.life;
     const body = unit.soldier;
@@ -60,11 +63,20 @@ export class F3UnitBinding {
     }
   }
 
+  // External spawn replaces Intent just as Unit.spawn did. Keep its new
+  // object attached before a later controller acquires canonical ownership.
+  observeIntent() {
+    this.intentObserver?.detach();
+    this.intentObserver=this.phase ? observeNativeIntent(this,this.phase,this.unit.intent) : null;
+    if (this.intentObserver) this.unit.intent=this.nativeIntent ? this.intentObserver.intent : this.intentObserver.values;
+  }
+
   // PlayerBodies.adopt retains the Unit while its prepared body changes.
   // Debug stamps still watch that same public object after structural birth.
   retarget(unit) {
     const old = this.unit;
     this.unit = unit;
+    this.observeIntent();
     this.retargetFields(old,unit);
   }
 

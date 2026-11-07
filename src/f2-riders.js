@@ -5,7 +5,7 @@ import { AnimKernel } from './anim-kernel.js';
 import { putF2RiderBirth, F2RiderOutMirror, syncF2RiderOut } from './sim/gen/f2-riders.js';
 import { KIND_UNIT } from './sim/gen/index.js';
 
-// riderSample's imported animation aliases. Resolve these at boarding, then
+// riderSample's imported animation aliases. Resolve these during loading, then
 // retain numeric clip handles for both native samples and page presentation.
 const standins = { man_minigun: ['human_minigun_9pose', 4], drivesnowspeeder: ['human_drive', 0], drivesnowspeedergunner: ['human_drive', 0] };
 export class F2Riders {
@@ -15,7 +15,21 @@ export class F2Riders {
     this.known = new WeakMap(); this.rows = new WeakMap(); this.clips = [];
     this.birthArgs = { words: phase.x.f2_rider_birth_words(), put: putF2RiderBirth };
   }
-  // riderSample resolves names only when a unit first takes this model's seat.
+  // Native boarding never calls the page facade. Resolve every possible
+  // holder at UnitFactory construction, including dormant pad variants.
+  ensureAll(unit) {
+    for (const holder of this.phase.vehicles.vehicles) this.ensure(unit, holder);
+    for (const holder of this.phase.prepared) this.ensure(unit, holder);
+    for (const holder of this.phase.seats.crews?.turrets ?? []) this.ensure(unit, holder);
+  }
+  // PlayerBodies retains the viewpoint identity while exchanging prepared
+  // class resources. Mirrors follow that cold resource transfer too.
+  alias(from, to) {
+    const known = this.known.get(from), row = this.rows.get(from);
+    if (known) this.known.set(to, known); else this.known.delete(to);
+    if (row) this.rows.set(to, row); else this.rows.delete(to);
+  }
+  // riderSample resolves names only during construction or external boarding.
   ensure(unit, holder) {
     const animator = unit?.animator, bones = animator?.bones;
     if (!bones || !holder) return;

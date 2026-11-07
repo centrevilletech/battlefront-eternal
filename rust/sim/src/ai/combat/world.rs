@@ -22,6 +22,7 @@
 //! controller; an agent's target tracker is this package's
 //! ([`super::perception::TargetTracker`]), held on every agent.
 
+use crate::ai::{owned::scratch::List,control::world::SharedRows};
 use std::rc::Rc;
 use three::Vector3;
 
@@ -34,7 +35,7 @@ pub use super::perception::Perception;
 pub type Obj = u64;
 
 /// `{ unit, generation }`: a weak reference (perception.js:323 `refOf`).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ref {
     pub obj: Obj,
     pub generation: f64,
@@ -48,10 +49,45 @@ pub struct Sphere {
     pub radius: f64,
 }
 
+/// Perception's scalar observations borrow the current body without copying
+/// an entire combat view. Replay worlds retain their original unit reads.
+#[derive(Clone,Copy,Debug,Default,PartialEq)]
+pub struct UnitScalars {pub generation:f64,pub kind:f64,pub team:f64,pub alive:bool,pub position:Vector3,
+    pub hero:bool,pub human:bool,pub intent:bool,pub intent_buttons:bool,pub targetable_false:bool}
+impl UnitScalars {
+    pub fn of(unit:&UnitView)->Self {Self {generation:unit.generation,kind:unit.kind,team:unit.team,alive:unit.alive,position:unit.position,
+        hero:unit.hero,human:unit.human,intent:unit.intent,intent_buttons:unit.intent_buttons,targetable_false:unit.targetable_false}}
+}
+
+/// targetPriority observes only classification and tow ownership. It does
+/// not need the candidate's arsenal, posture or complete lease frame.
+#[derive(Clone,Copy,Debug,Default,PartialEq)]
+pub struct PriorityView {pub kind:f64,pub building_post:Option<Obj>,pub pilot:bool,pub vehicle:Option<Obj>,pub tow_on:bool,pub towed:Option<Obj>}
+impl PriorityView {
+    pub fn of(u:&UnitView)->Self {Self {kind:u.kind,building_post:u.building_post,pilot:u.pilot,vehicle:u.vehicle,tow_on:u.tow_on,towed:u.towed}}
+}
+/// Keep raw health presence until validTarget reaches its numeric test.
+#[derive(Clone,Debug,Default,PartialEq)]
+pub struct TargetStatus {pub alive:bool,pub targetable_false:bool,pub combat_max_health:Js,pub class_max_health:Js}
+impl TargetStatus {
+    pub fn of(u:&UnitView)->Self {Self {alive:u.alive,targetable_false:u.targetable_false,combat_max_health:u.combat_max_health.clone(),
+        class_max_health:u.class.as_ref().map(|c|c.max_health.clone()).unwrap_or_default()}}
+}
+
 /// A class's fields this package reads (`unit.classDef`), as the
 /// JavaScript values they are (undefined where the class lacks one).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClassView {
+    pub fields:Rc<ClassFields>,
+    /// Native load-time classifications; captures retain the raw source fields.
+    pub prepared_role:Option<f64>,
+    pub prepared_category:Option<f64>,
+}
+/// Immutable classDef values are shared by every scalar combat observation.
+/// Prepared classifications stay on the small view because registry kind can
+/// change category without changing any authored class field.
+#[derive(Clone,Debug,Default,PartialEq)]
+pub struct ClassFields {
     pub forward_speed: Js,
     pub max_speed: Js,
     pub max_health: Js,
@@ -62,6 +98,10 @@ pub struct ClassView {
     pub role: Js,
     /// `classDef.ai?.role`.
     pub ai_role: Js,
+}
+impl std::ops::Deref for ClassView {
+    type Target=ClassFields;
+    fn deref(&self)->&ClassFields {&self.fields}
 }
 
 /// A droideka's shield (`soldier.shield`).
@@ -110,7 +150,7 @@ pub struct WeaponView {
     /// `weapon.def`: the class at its current level.
     pub def: Rc<JsObj>,
     /// `weapon.levels` (None: missing).
-    pub levels: Option<Vec<Rc<JsObj>>>,
+    pub levels: Option<Rc<Vec<Rc<JsObj>>>>,
     pub channel: Js,
     pub clip: f64,
     pub reserve: f64,
@@ -136,6 +176,31 @@ pub struct WeaponView {
     pub floor: f64,
     /// The Enhanced aim's mark (src/ai/enhanced/aim.js playerSpread).
     pub enhanced_floor: bool,
+}
+
+/// The AI-owned settings on an actual weapon. Native edits touch only these
+/// fields, never a copied arsenal or unit body.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WeaponSettings {
+    pub spread_scale:f64, pub sniper_scale:Option<f64>, pub yaw_spread_override:Option<f64>,
+    pub kick:f64, pub floor:f64, pub enhanced_floor:bool,
+}
+impl WeaponSettings {
+    pub fn of(w:&WeaponView)->Self { Self { spread_scale:w.spread_scale,sniper_scale:w.sniper_scale,
+        yaw_spread_override:w.yaw_spread_override,kick:w.kick,floor:w.floor,enhanced_floor:w.enhanced_floor } }
+    pub fn player_spread(&mut self,def:&JsObj) {
+        self.spread_scale=1.;self.sniper_scale=Some(0.);
+        if !self.enhanced_floor {
+            self.enhanced_floor=true;
+            let threshold=def.get("SpreadThreshold");
+            let floor=-(if threshold.truthy(){threshold.num()}else{0.});
+            if floor<self.floor {self.floor=floor;self.kick=v8math::min(self.kick,floor);}
+        }
+    }
+    pub fn apply(self,w:&mut WeaponView) {
+        w.spread_scale=self.spread_scale;w.sniper_scale=self.sniper_scale;w.yaw_spread_override=self.yaw_spread_override;
+        w.kick=self.kick;w.floor=self.floor;w.enhanced_floor=self.enhanced_floor;
+    }
 }
 
 /// Which arsenal a unit holds: a soldier's (src/weapons.js Arsenal) or a
@@ -245,6 +310,49 @@ pub struct UnitView {
     pub intent_buttons: bool,
 }
 
+impl UnitView {
+    /// Scalar facts at one observation. Arsenal and body leases are native
+    /// services with their own current reads; copying this view never copies
+    /// either table or evaluates lazy geometry.
+    pub fn observation(&self)->Self {
+        Self {
+            obj:self.obj.clone(),
+            id:self.id.clone(),
+            generation:self.generation.clone(),
+            alive:self.alive.clone(),
+            team:self.team.clone(),
+            kind:self.kind.clone(),
+            human:self.human.clone(),
+            hero:self.hero.clone(),
+            trap:self.trap.clone(),
+            targetable_false:self.targetable_false.clone(),
+            collision_category:self.collision_category.clone(),
+            category:self.category.clone(),
+            position:self.position.clone(),
+            velocity:self.velocity.clone(),
+            class:self.class.clone(),
+            combat_max_health:self.combat_max_health.clone(),
+            max_health:self.max_health.clone(),
+            soldier:self.soldier.clone(),
+            arsenal:None,
+            has_origin:self.has_origin.clone(),
+            controller:self.controller.clone(),
+            character:self.character.clone(),
+            pilot:self.pilot.clone(),
+            vehicle:self.vehicle.clone(),
+            tow_on:self.tow_on.clone(),
+            towed:self.towed.clone(),
+            turret:self.turret.clone(),
+            building_post:self.building_post.clone(),
+            seat:self.seat.clone(),
+            has_lease:self.has_lease.clone(),
+            body_leases:None,
+            intent:self.intent.clone(),
+            intent_buttons:self.intent_buttons.clone(),
+        }
+    }
+}
+
 /// A cover hint as combat reads it (src/ai/classic/nav/hints.js records).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HintView {
@@ -256,7 +364,7 @@ pub struct HintView {
     pub secondary_mask: Option<f64>,
     pub side_mask: Option<f64>,
     /// `hint.siblings` (the ring's other hints, in order).
-    pub siblings: Vec<Obj>,
+    pub siblings: SharedRows<Obj>,
 }
 
 /// `world.difficulty` as the combat code reads it.
@@ -319,6 +427,8 @@ pub struct JetRequest {
 /// `perception` is this package's own (created at each bind).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Ctl {
+    /// Native Core state for charge policy callbacks.
+    pub controller_state:f64,
     pub obj: Obj,
     pub unit: Option<Obj>,
     pub generation: f64,
@@ -433,6 +543,8 @@ pub enum QueryFilter {
     NotNeutral { except: Obj, team: f64 },
     /// `u !== except && relation(team, u.team) >= 0` (protected humans).
     AllyOrNeutral { except: Obj, team: f64 },
+    /// Core queryAllies excludes neutral members before its first-thirty cap.
+    Ally {except:Obj,team:f64},
     /// `u !== except` (grenade danger; `except` may be nobody).
     Except { except: Option<Obj> },
     /// `u !== a && u !== b` (boarding's hostile check).
@@ -446,6 +558,7 @@ impl QueryFilter {
         match *self {
             QueryFilter::Hostile { except, team: t } => u != except && relation(t, team) < 0.0,
             QueryFilter::NotNeutral { except, team: t } => u != except && relation(t, team) != 0.0,
+            QueryFilter::Ally {except,team:t}=>u!=except&&relation(t,team)>0.,
             QueryFilter::AllyOrNeutral { except, team: t } => u != except && relation(t, team) >= 0.0,
             QueryFilter::Except { except } => Some(u) != except,
             QueryFilter::ExceptTwo { a, b } => u != a && Some(u) != b,
@@ -494,6 +607,30 @@ pub fn uniform(d: &mut (impl Draws + ?Sized), which: Gen) -> f64 {
     }
 }
 
+/// Perception's scan and hearing passes observe no class, lease or weapon
+/// snapshot. Keep their source read as one compact value over the body owner.
+#[derive(Clone,Copy,Debug,Default,PartialEq)]
+pub struct UnitSensor {
+    pub generation:f64,pub kind:f64,pub team:f64,pub human:bool,
+    pub position:Vector3,pub velocity:Option<Vector3>,pub controller:Option<Obj>,
+    pub collision_category:Option<f64>,
+}
+impl UnitSensor {
+    pub fn of(u:&UnitView)->Self {Self {generation:u.generation,kind:u.kind,team:u.team,human:u.human,
+        position:u.position,velocity:u.velocity,controller:u.controller,collision_category:u.collision_category}}
+}
+/// boundRadius treats an airborne soldier and every unrecognized posture as
+/// standing; its fallback sphere remains an observation at the original point.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum BoundPosture {Stand,Crouch,Prone}
+impl BoundPosture {
+    pub fn of(u:&UnitView)->Option<Self> {
+        if u.kind!=0. {return None;}
+        let s=u.soldier.as_ref()?;
+        Some(if s.air {Self::Stand}else{match s.posture.str() {Some("crouch")=>Self::Crouch,Some("prone")=>Self::Prone,_=>Self::Stand}})
+    }
+}
+
 /// What the AI's perception and combat code asks of the battle.
 pub trait World: Draws {
     // -- Clock and settings.
@@ -507,8 +644,46 @@ pub trait World: Draws {
     fn ai_stay_in_turrets(&mut self) -> bool;
 
     // -- Units.
-    fn unit(&self, u: Obj) -> &UnitView;
-    fn unit_mut(&mut self, u: Obj) -> &mut UnitView;
+    fn controller_objective(&self,c:Obj)->Option<Obj> {self.ctl(c).objective}
+    fn unit(&self, u: Obj) -> UnitView;
+    fn unit_sensor(&self,u:Obj)->UnitSensor {UnitSensor::of(&self.unit(u))}
+    /// expandedRange observes kind and the authored class speed together.
+    fn unit_weapon_motion(&self,u:Obj)->(f64,f64) {let view=self.unit(u);(view.kind,super::weapons_ai::forward_speed(&view))}
+    fn unit_bound_posture(&self,u:Obj)->Option<BoundPosture> {BoundPosture::of(&self.unit(u))}
+    fn unit_scalars(&self,u:Obj)->UnitScalars {UnitScalars::of(&self.unit(u))}
+    /// aim.leadPoint and selectedWeapon observe these before any service call.
+    fn unit_velocity(&self,u:Obj)->Option<Vector3> {self.unit(u).velocity}
+    fn unit_controller(&self,u:Obj)->Option<Obj> {self.unit(u).controller}
+    fn unit_life(&self,u:Obj)->(bool,f64) {let u=self.unit(u);(u.alive,u.generation)}
+    fn unit_priority(&self,u:Obj)->PriorityView {PriorityView::of(&self.unit(u))}
+    fn unit_target_status(&self,u:Obj)->TargetStatus {TargetStatus::of(&self.unit(u))}
+    fn unit_has_origin(&self,u:Obj)->bool {self.unit(u).has_origin}
+    /// consumeFire tests only the presence of the intent button pair.
+    fn unit_has_buttons(&self,u:Obj)->bool {let u=self.unit(u);u.intent&&u.intent_buttons}
+    fn has_arsenal(&self,u:Obj)->bool;
+    fn weapon_count(&self,u:Obj)->usize;
+    fn current_weapon(&self,u:Obj,channel:f64)->Option<usize>;
+    fn weapon(&self,u:Obj,index:usize)->Option<WeaponView>;
+    /// A captured weapon observation precedes burstRequest's early return.
+    /// Native owners can omit unused runtime fields for an idle request.
+    fn weapon_for_burst(&self,u:Obj,index:usize,_active:bool)->Option<WeaponView> {Some(self.weapon(u,index).expect("arsenal member"))}
+    /// chargeWeapon classifies level zero, independently of the charged level.
+    fn weapon_chargeable(&self,u:Obj,index:usize)->bool {
+        super::weapons_ai::charge_weapon(&self.weapon(u,index).expect("arsenal member"))
+    }
+    /// Definition-only observations do not need clocks, ammunition or spread.
+    fn weapon_definition(&self,u:Obj,index:usize)->Option<Rc<JsObj>> {self.weapon(u,index).map(|weapon|weapon.def)}
+    /// maxExpandedRange visits charge levels in their original order.
+    fn visit_weapon_levels(&self,u:Obj,index:usize,visit:&mut dyn FnMut(&JsObj)) {
+        let weapon=self.weapon(u,index).expect("arsenal member");
+        match &weapon.levels {Some(levels)=>for level in levels.iter() {visit(level)},None=>visit(&weapon.def)}
+    }
+    fn body_lease_count(&self,u:Obj)->usize;
+    fn body_lease(&self,u:Obj,index:usize)->Option<LeaseView>;
+    /// prepareSpread clears and optionally restores yaw as separate writes.
+    fn set_weapon_yaw(&mut self,u:Obj,index:usize,value:Option<f64>) {self.edit_weapon(u,index,|w|w.yaw_spread_override=value);}
+    fn weapon_settings(&self,u:Obj,index:usize)->WeaponSettings;
+    fn edit_weapon<R>(&mut self,u:Obj,index:usize,edit:impl FnOnce(&mut WeaponSettings)->R)->R;
     /// `unit.origin(out)`: where it looks from.
     fn origin(&mut self, u: Obj) -> Vector3;
     /// `unit.forward(out)`: its aim direction.
@@ -529,13 +704,15 @@ pub trait World: Draws {
     fn use_classic_random(&mut self, u: Obj);
 
     // -- The registry.
+    /// A scoped result buffer reserved at world construction.
+    fn object_buffer(&self) -> List<Obj>;
     /// `units.query(center, radius, out, filter)`: living members by their
     /// broadphase sphere, in registry order, filtered.
-    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> Vec<Obj>;
+    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> List<Obj>;
     /// `units.relation(a, b)`.
     fn relation(&mut self, a: f64, b: f64) -> f64;
     /// `units.living()`: every living member, in registry order.
-    fn living(&mut self) -> Vec<Obj>;
+    fn living(&mut self) -> List<Obj>;
     /// game.js `los(from, to, a, b)`: the segment is clear.
     fn los(&mut self, from: &Vector3, to: &Vector3, a: Option<Obj>, b: Option<Obj>) -> bool;
 
@@ -544,8 +721,11 @@ pub trait World: Draws {
     fn curves_for(&mut self, team: f64) -> Option<Curves>;
     /// A Character's team (the damage alert's source team).
     fn character_team(&self, character: Obj) -> f64;
+    fn fresh_perception(&mut self,c:Obj)->super::perception::Perception;
     fn ctl(&self, c: Obj) -> &Ctl;
     fn ctl_mut(&mut self, c: Obj) -> &mut Ctl;
+    /// Native controls receive the aliased navigation write immediately.
+    fn set_stance(&mut self,c:Obj,stance:f64) {self.ctl_mut(c).set_stance(stance);}
     /// An agent's controller.
     fn agent_controller(&self, agent: Obj) -> Obj;
     /// An agent's target tracker (every agent has one, from initAgent).
@@ -565,7 +745,7 @@ pub trait World: Draws {
     fn shared_target(&mut self, controller: Obj) -> Option<Obj>;
     /// `world.vehicles.dispatch` is bound (walkers, flyers, hovers).
     fn has_vehicle_dispatch(&self) -> bool;
-    fn vehicle_dispatch(&mut self, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Engagement;
+    fn vehicle_dispatch(&mut self, shared: &mut super::weapons_ai::Shared, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Engagement;
     /// `ai.vehicles?.mountReach ?? world.vehicles?.mountReach` is bound,
     /// and its answer.
     fn has_mount_reach(&self) -> bool;
@@ -590,7 +770,7 @@ pub trait World: Draws {
     // -- Navigation (world.nav, ai.nav).
     /// The cover hints: `world.nav.hints.query(4, center, half, 30)`, else
     /// `ai.nav.queryHints({ mask: 4, center, halfExtent, cap: 30 })`.
-    fn cover_hints(&mut self, center: &Vector3, half: f64) -> Vec<HintView>;
+    fn cover_hints(&mut self, center: &Vector3, half: f64) -> List<HintView>;
     /// The jet hints service (world.nav.jetHints), when there is one.
     fn has_jet_hints(&self) -> bool;
     fn jet_hints_excluded(&mut self, controller: Obj) -> bool;
@@ -617,7 +797,9 @@ pub trait World: Draws {
     fn agent_sync(&mut self, agent: &super::agent::CombatAgent);
     fn agent_resync(&mut self, agent: &mut super::agent::CombatAgent);
     /// `this.interrupts?.tick?.()`: an interrupt took the agent over.
-    fn interrupts_tick(&mut self, agent: Obj) -> bool;
+    // A native callback reborrows this invocation's services, including LOS;
+    // it must not reacquire a globally borrowed combat owner.
+    fn interrupts_tick(&mut self, agent: Obj,combat:&mut super::binding::CombatAi) -> bool;
     /// Agent.acceptsBoard's base policy (boardPolicy).
     fn agent_board_policy(&mut self, agent: Obj, candidate: Obj) -> bool;
     /// The agent's movement helper is there, `arrived`, `flying`, and has

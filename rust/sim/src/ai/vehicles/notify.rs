@@ -27,6 +27,13 @@ impl<T: VehicleStorage> VehicleNotify for T {}
 pub trait VehicleNotify: VehicleServices {
     /// notifier.run(vehicles) (notify.js:240): how many were told.
     fn notify<W: World + ?Sized>(&mut self, w: &mut W) -> f64 {
+        self.notify_with(w,&mut |w,controller,note|w.add_vehicle_note(controller,note))
+    }
+
+    /// A native Core consumes ordered recipients at its scheduler slot. The
+    /// selection and cap stay here, and replay hosts still write each note
+    /// through their original World operation at that same observation point.
+    fn notify_with<W: World + ?Sized>(&mut self, w: &mut W, accept:&mut impl FnMut(&mut W,u64,Ref)) -> f64 {
         let g = self.cycles_per_second(w);
         let n = 3.0 * g;
         let counter = self.read(|s| s.notifier.counter.unwrap_or(n));
@@ -38,13 +45,17 @@ pub trait VehicleNotify: VehicleServices {
             if n > 0.0 && id % n != counter {
                 continue;
             }
-            told += self.consider(w, entry);
+            told += self.consider_with(w, entry, accept);
         }
         told
     }
 
     /// notifier.consider(vehicles, entry) (notify.js:253).
     fn consider<W: World + ?Sized>(&mut self, w: &mut W, entry: u64) -> f64 {
+        self.consider_with(w,entry,&mut |w,controller,note|w.add_vehicle_note(controller,note))
+    }
+
+    fn consider_with<W: World + ?Sized>(&mut self, w: &mut W, entry:u64,accept:&mut impl FnMut(&mut W,u64,Ref)) -> f64 {
         let e = w.unit(entry);
         if !e.alive {
             return 0.0;
@@ -81,7 +92,7 @@ pub trait VehicleNotify: VehicleServices {
             if self.low_tickets(w, u.team) {
                 continue;
             }
-            w.add_vehicle_note(controller, Ref { obj: entry, generation: e.generation });
+            accept(w,controller,Ref { obj: entry, generation: e.generation });
             told += 1.0;
         }
         told

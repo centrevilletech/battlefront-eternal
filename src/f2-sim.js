@@ -10,6 +10,7 @@ import { Weapon } from './weapons.js';
 import { Vehicle } from './vehicles.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
 import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, F2PhaseFlag_INDEX, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, F2PadTeamLayout, putF2FlightIn, F2InputMirror, putF2Input, putF2PadTeam } from './sim/gen/f2.js';
+
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, VEHICLE_KEYS } from './sim/gen/index.js';
 import { json, classKeys, giveMapRules, pullPose, flightKeys } from './vehicle-phase-data.js';
@@ -74,6 +75,7 @@ class F2 extends VehicleContent {
     // A coordinated unit owner supplies the shared crossing census. Native
     // fleet fixtures can still run this phase independently without one.
     this.counters = null;
+
     this.mirrorRows = new WeakMap(); this.syncedRows = []; this.syncedCount = 0; this.syncStamp = 0;
     this.lifeScratch = new F2HullLifeMirror(); this.padScratch = new F2PadMirror();
     this.ownerScratch = new Float64Array(3);
@@ -507,6 +509,7 @@ class F2 extends VehicleContent {
     }
   }
 
+
   // CollisionWorld's enabled flags may change between vehicle phases. Safe
   // exits and synchronous damage must see them even before the first tick.
   // Retain the native byte view and copy only changed flags, including after
@@ -548,9 +551,11 @@ class F2 extends VehicleContent {
     }
   }
 
-  // Foreign target facts still name opaque collision bodies until units move.
-  // Resolve their existing identity without querying or recomputing geometry.
-  bodySlot(body) { return body ? this.bridge.refs[KIND_BODY].slotOf(body) : -1; }
+  // Firing target facts still name canonical collision bodies while units
+  // and building targets remain foreign to the hull phase.
+  bodySlot(body) {
+    return body ? this.bridge.refs[KIND_BODY].slotOf(body) : -1;
+  }
 
   // VehicleWorld queries remain synchronous where unported units or damage
   // can affect the current phase. Query result objects are reused; hooks read

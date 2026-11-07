@@ -2095,7 +2095,7 @@ export function exportMelee(o, cx) {
   return v;
 }
 
-export const WeaponLayout = Object.freeze({ words: 42, def: 0, level: 1, admitShot: 2, deployed: 3, firing: 4, timer: 5, bottomless: 6, perShot: 7, clip: 8, reserve: 9, heat: 10, overheated: 11, floor: 12, kick: 13, random: 14, spreadScale: 15, sniperScale: 16, yawSpreadOverride: 17, wait: 19, reloadLeft: 20, throwTime: 21, released: 22, hidden: 23, charging: 24, held: 25, charge: 26, limit: 27, pattern: 28, salvosLeft: 29, salvoWait: 30, salvoSeed: 31, salvoCount: 33, lockTargetId: 34, lockGeneration: 35, lockElapsed: 36, lockComplete: 37, melee: 38 });
+export const WeaponLayout = Object.freeze({ words: 43, def: 0, level: 1, admitShot: 2, deployed: 3, firing: 4, timer: 5, bottomless: 6, perShot: 7, clip: 8, reserve: 9, heat: 10, overheated: 11, floor: 12, kick: 13, random: 14, spreadScale: 15, sniperScale: 16, enhancedFloor: 17, yawSpreadOverride: 18, wait: 20, reloadLeft: 21, throwTime: 22, released: 23, hidden: 24, charging: 25, held: 26, charge: 27, limit: 28, pattern: 29, salvosLeft: 30, salvoWait: 31, salvoSeed: 32, salvoCount: 34, lockTargetId: 35, lockGeneration: 36, lockElapsed: 37, lockComplete: 38, melee: 39 });
 export const WEAPON_WORDS = WeaponLayout.words;
 export const WEAPON_OFFSETS = WeaponLayout;
 
@@ -2118,6 +2118,7 @@ export class WeaponMirror {
     this.random = false;
     this.spreadScale = NaN;
     this.sniperScale = NaN;
+    this.enhancedFloor = false;
     this.yawSpreadOverride = null;
     this.wait = NaN;
     this.reloadLeft = NaN;
@@ -2159,26 +2160,27 @@ export function syncWeapon(b, f, at, h, m) {
   m.hasRandom = f[at + 14] !== 0;
   m.spreadScale = f[at + 15];
   m.sniperScale = f[at + 16];
-  { const tag = f[at + 17]; if (tag === 0) { m.yawSpreadOverride = f[at + 18]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
-  m.wait = f[at + 19];
-  m.reloadLeft = f[at + 20];
-  m.throwTime = f[at + 21];
-  m.released = f[at + 22] !== 0;
-  m.hidden = f[at + 23] !== 0;
-  m.charging = f[at + 24] !== 0;
-  m.held = f[at + 25];
-  m.charge = f[at + 26];
-  m.limit = f[at + 27];
-  m.pattern = f[at + 28];
-  m.salvosLeft = f[at + 29];
-  m.salvoWait = f[at + 30];
-  { const tag = f[at + 31]; if (tag === 0) { m.salvoSeed = f[at + 32]; } else m.salvoSeed = tag === 1 ? null : undefined; }
-  m.salvoCount = f[at + 33];
-  m.lockTargetId = f[at + 34];
-  m.lockGeneration = f[at + 35];
-  m.lockElapsed = f[at + 36];
-  m.lockComplete = f[at + 37] !== 0;
-  { const tag = f[at + 38]; if (tag === 0) { m.melee = syncMelee(b, f, at + 39, h, m.melee ?? new MeleeMirror()); } else m.melee = tag === 1 ? null : undefined; }
+  m.enhancedFloor = f[at + 17] !== 0;
+  { const tag = f[at + 18]; if (tag === 0) { m.yawSpreadOverride = f[at + 19]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
+  m.wait = f[at + 20];
+  m.reloadLeft = f[at + 21];
+  m.throwTime = f[at + 22];
+  m.released = f[at + 23] !== 0;
+  m.hidden = f[at + 24] !== 0;
+  m.charging = f[at + 25] !== 0;
+  m.held = f[at + 26];
+  m.charge = f[at + 27];
+  m.limit = f[at + 28];
+  m.pattern = f[at + 29];
+  m.salvosLeft = f[at + 30];
+  m.salvoWait = f[at + 31];
+  { const tag = f[at + 32]; if (tag === 0) { m.salvoSeed = f[at + 33]; } else m.salvoSeed = tag === 1 ? null : undefined; }
+  m.salvoCount = f[at + 34];
+  m.lockTargetId = f[at + 35];
+  m.lockGeneration = f[at + 36];
+  m.lockElapsed = f[at + 37];
+  m.lockComplete = f[at + 38] !== 0;
+  { const tag = f[at + 39]; if (tag === 0) { m.melee = syncMelee(b, f, at + 40, h, m.melee ?? new MeleeMirror()); } else m.melee = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -2200,26 +2202,27 @@ export function putWeapon(b, o, f, at, heap) {
   f[at + 14] = o.hasRandom ? 1 : 0;
   f[at + 15] = o.spreadScale;
   f[at + 16] = o.sniperScale;
-  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f[at + 18] = 0; } else { f[at + 17] = 0; f[at + 18] = $x; } }
-  f[at + 19] = o.wait;
-  f[at + 20] = o.reloadLeft;
-  f[at + 21] = o.throwTime;
-  f[at + 22] = o.released ? 1 : 0;
-  f[at + 23] = o.hidden ? 1 : 0;
-  f[at + 24] = o.charging ? 1 : 0;
-  f[at + 25] = o.held;
-  f[at + 26] = o.charge;
-  f[at + 27] = o.limit;
-  f[at + 28] = o.pattern;
-  f[at + 29] = o.salvosLeft;
-  f[at + 30] = o.salvoWait;
-  { const $x = o.salvoSeed; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f[at + 32] = 0; } else { f[at + 31] = 0; f[at + 32] = $x; } }
-  f[at + 33] = o.salvoCount;
-  f[at + 34] = o.lockTargetId;
-  f[at + 35] = o.lockGeneration;
-  f[at + 36] = o.lockElapsed;
-  f[at + 37] = o.lockComplete ? 1 : 0;
-  { const $x = o.melee; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f[at + 39] = 0; f[at + 40] = 0; f[at + 41] = 0; } else { f[at + 38] = 0; putMelee(b, $x, f, at + 39, heap); } }
+  f[at + 17] = o.enhancedFloor ? 1 : 0;
+  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f[at + 19] = 0; } else { f[at + 18] = 0; f[at + 19] = $x; } }
+  f[at + 20] = o.wait;
+  f[at + 21] = o.reloadLeft;
+  f[at + 22] = o.throwTime;
+  f[at + 23] = o.released ? 1 : 0;
+  f[at + 24] = o.hidden ? 1 : 0;
+  f[at + 25] = o.charging ? 1 : 0;
+  f[at + 26] = o.held;
+  f[at + 27] = o.charge;
+  f[at + 28] = o.limit;
+  f[at + 29] = o.pattern;
+  f[at + 30] = o.salvosLeft;
+  f[at + 31] = o.salvoWait;
+  { const $x = o.salvoSeed; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; } else { f[at + 32] = 0; f[at + 33] = $x; } }
+  f[at + 34] = o.salvoCount;
+  f[at + 35] = o.lockTargetId;
+  f[at + 36] = o.lockGeneration;
+  f[at + 37] = o.lockElapsed;
+  f[at + 38] = o.lockComplete ? 1 : 0;
+  { const $x = o.melee; if ($x === null || $x === undefined) { f[at + 39] = $x === null ? 1 : 2; f[at + 40] = 0; f[at + 41] = 0; f[at + 42] = 0; } else { f[at + 39] = 0; putMelee(b, $x, f, at + 40, heap); } }
 }
 
 export function publishWeapon(o, m) {
@@ -2273,6 +2276,7 @@ export function sameWeapon(a, b) {
   if (!Object.is(a.hasRandom, b.hasRandom)) return ".random";
   if (!Object.is(a.spreadScale, b.spreadScale)) return ".spreadScale";
   if (!Object.is(a.sniperScale, b.sniperScale)) return ".sniperScale";
+  if (!Object.is(a.enhancedFloor, b.enhancedFloor)) return ".enhancedFloor";
   { const p = a.yawSpreadOverride, q = b.yawSpreadOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".yawSpreadOverride"; } else { if (!Object.is(p, q)) return ".yawSpreadOverride"; } }
   if (!Object.is(a.wait, b.wait)) return ".wait";
   if (!Object.is(a.reloadLeft, b.reloadLeft)) return ".reloadLeft";
@@ -2318,6 +2322,7 @@ export function exportWeapon(o, cx) {
   v.random = o.hasRandom;
   v.spreadScale = o.spreadScale;
   v.sniperScale = o.sniperScale;
+  v.enhancedFloor = o.enhancedFloor;
   v.yawSpreadOverride = o.yawSpreadOverride;
   v.wait = o.wait;
   v.reloadLeft = o.reloadLeft;
@@ -2609,7 +2614,7 @@ export function syncCombat(b, f, at, h, m) {
   { const items = (m.pendingShots ??= []), start = h + f[at + 32], n = f[at + 33]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncPendingShot(b, f, at + 0, h, v ?? new PendingShotMirror()); } items[i] = v; } }
   m.hasRandom = f[at + 34] !== 0;
   m.hasRemotes = f[at + 35] !== 0;
-  { const items = ((m.arsenal ??= {}).weapons ??= []), start = h + f[at + 36], n = f[at + 37]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 42; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
+  { const items = ((m.arsenal ??= {}).weapons ??= []), start = h + f[at + 36], n = f[at + 37]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 43; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
   { const a = ((m.arsenal ??= {}).selected ??= new Array(2)); a[0] = f[at + 38]; a[1] = f[at + 39]; }
   { const items = (m.seenList ??= []), start = h + f[at + 40], n = f[at + 41]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSeen(b, f, at + 0, h, v ?? new SeenMirror()); } items[i] = v; } }
   { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 42]; $v.y = f[at + 43]; $v.z = f[at + 44]; }
@@ -2646,7 +2651,7 @@ export function putCombat(b, o, f, at, heap) {
   heap.items(o.pendingShots, f, at + 32, 15, (f, at, v) => { putPendingShot(b, v, f, at + 0, heap); });
   f[at + 34] = o.hasRandom ? 1 : 0;
   f[at + 35] = o.hasRemotes ? 1 : 0;
-  heap.items(o.arsenal?.weapons, f, at + 36, 42, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
+  heap.items(o.arsenal?.weapons, f, at + 36, 43, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
   { const $v = o.arsenal?.selected; f[at + 38] = $v[0]; f[at + 39] = $v[1]; }
   heap.items(o.seenList, f, at + 40, 3, (f, at, v) => { putSeen(b, v, f, at + 0, heap); });
   { const $v = o.origin; f[at + 42] = $v.x; f[at + 43] = $v.y; f[at + 44] = $v.z; }

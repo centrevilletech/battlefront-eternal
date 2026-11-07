@@ -10,7 +10,7 @@ pub(super) trait Exact: std::fmt::Debug {
 }
 impl Exact for f64 { fn exact(&self, other: &Self) -> bool { sim_replay::same_number(*self, *other) } }
 macro_rules! scalar { ($($t:ty),* $(,)?) => { $(impl Exact for $t { fn exact(&self, other: &Self) -> bool { self == other } })* }; }
-scalar!(bool, usize, u64, i32, String, str, ArsenalKind);
+scalar!(super::super::enhanced::TargetKey, bool, usize, u64, i32, String, str, ArsenalKind);
 impl<T: Exact> Exact for Option<T> {
 fn exact(&self, other: &Self) -> bool { match (self, other) { (Some(a), Some(b)) => a.exact(b), (None, None) => true, _ => false } }
 fn difference(&self, other: &Self) -> Option<String> { match (self,other) { (Some(a),Some(b))=>a.difference(b),(None,None)=>None,_=>Some(format!("capture {other:?}; native {self:?}")) } }
@@ -21,6 +21,12 @@ fn difference(&self, other: &Self) -> Option<String> {
 if self.len()!=other.len() { return Some(format!("length capture {}; native {}",other.len(),self.len())); }
 for (i,(a,b)) in self.iter().zip(other).enumerate() { if let Some(d)=a.difference(b) { return Some(format!("[{i}].{d}")); } } None
 }
+}
+impl<T: Exact> Exact for crate::ai::control::world::SharedRows<T> {
+fn exact(&self, other: &Self) -> bool { self.len()==other.len() && self.iter().zip(other.iter()).all(|(a,b)| a.exact(b)) }
+}
+impl<T: Exact+Copy+Default,const N:usize> Exact for crate::ai::owned::scratch::Inline<T,N> {
+fn exact(&self,other:&Self)->bool {self.len()==other.len()&&self.iter().zip(other.iter()).all(|(a,b)|a.exact(b))}
 }
 impl<T: Exact, const N: usize> Exact for [T;N] { fn exact(&self, other: &Self) -> bool { self.iter().zip(other).all(|(a,b)| a.exact(b)) } }
 impl<T: Exact + ?Sized> Exact for Rc<T> { fn exact(&self, other: &Self) -> bool { (**self).exact(&**other) } }

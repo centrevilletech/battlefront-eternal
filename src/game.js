@@ -71,9 +71,7 @@ import { stepWorld } from './f4-world-step.js';
 import { Unit, UnitFactory } from "./units.js";
 import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
-import { createAI } from "./ai/index.js";
-import { createServiceCandidates } from "./ai/services.js";
-import { effectiveRange, firingCone, selectedWeapon, switchWeapon } from "./ai/classic/weapons-ai.js";
+import { createNativeAI as createAI } from "./ai-world-load.js";
 import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
 import { InputLead, advanceInputClock, CorrectionSmoother } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
@@ -84,8 +82,10 @@ import { FixedClock } from "./runtime/fixed-clock.js";
 import { PlayoutClock } from "./runtime/playout.js";
 import { FramePacer, ResolutionController } from "./runtime/frame-pacing.js";
 import { RuntimeProfiler } from "./runtime-profiler.js";
-import { attachPostAI, factionOf, friendlySpawn } from "./ai/classic/goals.js";
-import { callsFromMapMission, missionTeams, teamTable } from "./ai/classic/spawning.js";
+import { attachPostAI } from './post-data.js';
+import { friendlySpawn } from './spawn-post-policy.js';
+import { callsFromMapMission } from "./mission-ai-calls.js";
+import { missionTeams } from "./mission-teams.js";
 import { Trap, padOnGround, sideOfTeams } from "./traps.js";
 import { HumanSpawn, RESPAWN_DELAY, choosePost, applyAuthoritativeHumanTeam } from "./human-spawn.js";
 import { PlayerBodies } from "./player-body.js";
@@ -459,9 +459,7 @@ async function start() {
   // The terrain's water, where the map has some.
   const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather, surfaceOwner })) : null;
   const groundPositions = new Float32Array(groundBuf);
-  const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
   const rays = await (await import("./ray-kernel.js")).loadRayKernel(simInstance);
   const anim = await (await import("./anim-kernel.js")).loadAnimKernel(simInstance);
   setAnimKernel(anim);
@@ -526,6 +524,7 @@ async function start() {
   // unit played; the command posts and the HUD follow from the map. He can
   // change teams between lives (setHumanTeam).
   const teams = world.mission?.teams || {};
+  const teamFactions = missionTeams(simInstance,[],{names:Array.from({length:8},(_,team)=>teams[team]?.name??'')}).names;
   let playerTeam = policy.team;
   let enemyTeam = Number(Object.keys(teams).find((t) => Number(t) !== playerTeam) || 2);
   // The common hologram pack: the posts' side logos, and the spawn screen's
@@ -908,6 +907,11 @@ async function start() {
   combat.attach?.();
   playerUnit.team = playerTeam;
   playerUnit.removed = false;
+  // Rounds meet soldiers: damage by the soldier's health type, three times
+  // on the head (the class HitLocation default), credited to whoever fired;
+  // the player's HUD shows where it came from. A body lying dead stops a
+  // round and takes nothing.
+
   ordnance.units = units;
   ordnance.canHit = null;
 
@@ -936,7 +940,6 @@ async function start() {
         simEvents.emit('presentation',{event:value});
       } else simEvents.emit('presentation',{event:{...event,ownerId:unit.id,ownerGeneration:unit.generation}});
     };
-    if (!unit.human) unit.onMoved = (h) => ai?.aim?.(unit, h);
     unit.combat.onFired = (shot, sample = null) => {
       hud.noteShot(unit, shot.weapon);
       // An owned phase records the shot before later movement or separation.
@@ -1472,22 +1475,6 @@ async function start() {
   }
   // Sight: terrain, buildings, props, vehicles, and soldiers other than the
   // two named, between two points.
-  const losDir = new THREE.Vector3();
-  const losHit = makeHit();
-  const groundHit = { height: 0, normal: new THREE.Vector3() };
-  const losUnitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
-  const losExclude = [null, null];
-  function los(from, to, a = null, b = null) {
-    losDir.subVectors(to, from);
-    const span = losDir.length();
-    if (span < 1e-6) return true;
-    losDir.divideScalar(span);
-    const bodyOf = (unit) => unit?.vehicle?.body ?? unit?.turret?.bodies?.built ?? unit?.building?.bodies?.built ?? unit?.seat?.vehicle?.body ?? unit?.seat?.turret?.bodies?.built ?? null;
-    if (collision.cast(from, losDir, span, losHit, bodyOf(a)) && (!bodyOf(b) || losHit.body !== bodyOf(b))) return false;
-    losExclude[0] = a;
-    losExclude[1] = b;
-    return !units.raycast(from, losDir, span, losExclude, losUnitHit);
-  }
   if (AI_MODE !== "off") {
     // Every team the mission fields: both armies and the locals (Tatooine's
     // Tusken Raiders and Jawas, Naboo's Gungans, ...). A locals' class that
@@ -1508,35 +1495,27 @@ async function start() {
         if (factory.prepared(className)) for (let i = 0; i < Math.ceil(count * 1.5); i++) factory.release(factory.build(className));
       }
     }
-    // What the AI sees of the battle (docs/ai.md, "World services for AI").
+    // Cold content and retained camera facts for the native AI owner. Its
+    // geometry, weapons and lifecycle services read the canonical Rust owners.
     const aiWorld = {
+      phase:unitsSim,
+      reticlePilot:()=>driver?.active?driver.vehicle:null,
+      reticleTarget:()=>humanReticleTarget,
       get time() {
         return simTime;
       },
       random,
-      collision,
-      los,
       units,
-      relation: (a, b) => units.relation(a, b),
       posts,
       battle,
       mission: world.mission || {},
       spawns,
       camera: simulationCamera,
       events: simEvents,
-      spawnUnit,
       factory,
-      classesFor,
       vehicleSystem: vehicles,
-      turretSeats,
-      live,
-      items,
-      serviceCandidates: createServiceCandidates(units, live, vehicles),
-      mineGroundHeight: (point) => collision.ground(point.x, point.z, point.y + 100, groundHit)?.height ?? point.y,
-      weapons: { selectedWeapon, switchWeapon, effectiveRange, firingCone },
     };
     ai = await createAI(AI_MODE, aiWorld, {
-      aiSim,
       map: MAP,
       sides: Object.keys(sides),
       playerTeam,
@@ -1545,11 +1524,6 @@ async function start() {
       heroes: HEROES,
       unitScale: UNIT_SCALE,
       seed: SEED,
-      stub: { battle, units, posts, spawns, spawnUnit, los, random: () => random.uniform(), classesFor, time: () => simTime },
-    }).catch((error) => {
-      console.error(`AI (${AI_MODE}) failed to start: ${error.message}`);
-      console.error(error);
-      return null;
     });
     randomB = aiWorld.randomB;
     if (ai?.humanReady && battle.human) {
@@ -1568,14 +1542,14 @@ async function start() {
     // spawn points, weights and ValueBleed from the same file.
     posts.attachVehicles(vehicles, mission?.commandClasses);
     // The roster's bots are named as the Classic AI's would be.
-    battle.nameBots(mission?.names, (team) => factionOf(teams[team]?.name));
-    units.setTeams(missionTeams(mission?.scripts?.[mission.mission]?.calls ?? callsFromMapMission(world.mission)));
+    battle.nameBots(mission?.names, (team) => teamFactions[team]);
+    units.setTeams(missionTeams(simInstance,mission?.scripts?.[mission.mission]?.calls ?? callsFromMapMission(world.mission)));
   } else {
     // Who is whose friend (the mission's SetTeamAs*), each team's faction and
     // whom its soldiers capture for, as the spawn manager read them: for the
     // fighting, the posts, the AI and the HUD alike, here, in a world worker
     // and on a server.
-    units.setTeams(teamTable(ai.spawning.teams));
+    units.setTeams(missionTeams(simInstance,[],{roster:true}));
   }
   // Leaving the battlefield (src/battlefield.js): the map's boundary, the
   // Classic AI's or read for it. The world keeps each Character's count; the
@@ -1946,12 +1920,9 @@ async function start() {
         case 'zoom': simulationZoom = combat.zoom; break;
         case 'cameraMatrix': break;
         case 'ai':
-          // Authority sensors share foreign facts for this AI update. Page
-          // prediction has no unit authority or foreign prop input span.
-          if (headless) unitsSim.registry.beginReads();
-          try { ai.update(dt); }
-          finally { if (headless) unitsSim.registry.endReads(); }
-          break;
+          // The following native unit span consumes canonical bot intent;
+          // its completed body publication carries those controls once.
+          ai.update(dt,tick,true); break;
         case 'nativeUnits':
           // One owner advances bodies, combat, fleet and recon before
           // separation. The dormant viewpoint only supplies its scope.
@@ -1969,7 +1940,7 @@ async function start() {
         case 'items': items.update(dt, mineTargets); break;
         case 'battlefield': game.tailOwner.step(dt,tick,Boolean(game.serverWorld),tickHuman); tickHuman=null; break;
         case 'battle': presentBattle(dt); break;
-        case 'target': updateTargetHud(dt); break;
+        case 'target': updateTargetHud(dt); ai?.dangers?.(); break;
         case 'grenades': context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;
         case 'nextGrenade': {
           // Retain the selected array as a for-of loop does. Its live length
@@ -1991,7 +1962,6 @@ async function start() {
 
   function announcePost(event) {
     audio.on("post", event);
-    ai?.postEvent?.(event);
     const name = event.post.desc.displayName || event.post.label;
     const team = event.kind === "captured" ? event.by : event.from;
     const key = event.kind === "captured" ? "game.infomsg.captured" : "game.infomsg.lost";
@@ -2000,7 +1970,6 @@ async function start() {
 
   function announceMobile(event) {
     if (event.kind === "lost") announceLost(event);
-    ai?.postEvent?.(event);
   }
 
   // A command vehicle's post lost with it, announced as a post's loss is
@@ -2938,7 +2907,7 @@ async function start() {
   function sideOfTeam(team) {
     const extracted = world.spawnScreen?.teams?.[team]?.side;
     if (extracted) return extracted;
-    const named = SIDE_OF_FACTION[factionOf(teams[team]?.name)];
+    const named = SIDE_OF_FACTION[teamFactions[team]];
     if (named) return named;
     const first = playableClasses(teams[team])[0];
     return (first && factory.sideOf(first)) || null;
@@ -3348,10 +3317,11 @@ async function start() {
         humanSpawn.emit(event.kind,event.state??{team:event.team,previous:event.previous,className:event.className,post:event.post});
       },
       debug:globalThis.process?.env?.BFE_F4_DEBUG === "1"});
+    ai?.activate?.();
     unitsSim.construction.bindPlayer(battle.human,playerUnit,{local:true,combatRandom:gameplayRandom,weaponRandom:playerSpread,
       reconKey:unitsSim.recon.keys.get('local')??null,reconSeed:SEED});
+
   }
-  game.aiSim = aiSim;
   const predictionSession = headless ? null
     : (await import('./runtime/client-prediction.js')).createClientPrediction(simInstance, collision);
   game.predictionSession = predictionSession;

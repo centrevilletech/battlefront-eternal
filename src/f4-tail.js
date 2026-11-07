@@ -107,33 +107,31 @@ export class F4Tail extends F4Battle {
   handlers(){
     const p=this.phase;
     this.bridge.register({f4AIHook:args=>{
-      const character=args.characterHandle?this.ensureCharacter(args.characterHandle):null;
+      if(args.characterHandle)this.ensureCharacter(args.characterHandle);
       p.random.pull();p.sync();
-      try{
-        switch(args.op){
-          case 'requestObjective':this.spawning.objectives?.request(character);break;
-          case 'republish':this.spawning.objectives?.republish(character);break;
-          case 'spawned':this.ai?.spawned?.(character);break;
-          case 'died':this.ai?.classic?.died?.(character);break;
-          case 'attach':this.ai.classic.attach(character);break;
-          case 'detach':this.ai.classic.detach(character);break;
-          case 'post':{
-            const e=this.postEvent,a=args.post;e.post=a.post;e.kind=a.kind;e.from=a.from;e.by=a.by;e.destroyed=a.destroyed;
-            this.onPost?.(e);break;
-          }
-          case 'mobile':{
-            const e=this.mobileEvent,a=args.mobile;e.post=a.post;e.kind=a.kind;e.vehicle=a.vehicle;e.from=a.from;e.to=a.to;
-            this.onMobile?.(e);break;
-          }
-          case 'over':this.onOver?.(args.number);break;
-          case 'retarget':this.retarget?.(args.number);break;
-          case 'rejected':this.rejected?.(args.className,args.number);break;
-        }
-      }finally{p.random.push();}
+      try{this.observe(args);}finally{p.random.push();}
     }});
     const events=p.eventHandlers,spawn=events.f4Spawn,human=events.f4Human;
+    // Native lifecycle work has already finished. The same leaf observers
+    // receive its queued post/audio/HUD notices at the publication boundary.
+    events.aiNotice=event=>this.observe(event.hook);
     events.f4Spawn=event=>{spawn?.(event);this.onSpawn?.(event);};
     events.f4Human=event=>{human?.(event);this.onHuman?.(event);};
+  }
+  observe(args){
+    switch(args.op){
+      case 'post':{
+        const e=this.postEvent,a=args.post;e.post=a.post;e.kind=a.kind;e.from=a.from;e.by=a.by;e.destroyed=a.destroyed;
+        this.onPost?.(e);break;
+      }
+      case 'mobile':{
+        const e=this.mobileEvent,a=args.mobile;e.post=a.post;e.kind=a.kind;e.vehicle=a.vehicle;e.from=a.from;e.to=a.to;
+        this.onMobile?.(e);break;
+      }
+      case 'over':this.onOver?.(args.number);break;
+      case 'retarget':this.retarget?.(args.number);break;
+      case 'rejected':this.rejected?.(args.className,args.number);break;
+    }
   }
   step(dt,tick,server,commands=EMPTY_COMMANDS){
     if(this.debug)this.mirrors.check();
@@ -161,7 +159,7 @@ export class F4Tail extends F4Battle {
 
 // Command pad facts include prepared variants before their first activation.
 // Only their native fleet membership and life determine which can be read.
-function preparedPads(fleet,posts){
+export function preparedPads(fleet,posts){
   const rows=[];
   for(const post of posts.mobile?.posts??[]){
     const variants=[],known=new Set();

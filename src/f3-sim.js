@@ -5,7 +5,7 @@ import {F3DroidekaClassMirror,F3DroidekaClassLayout,putF3DroidekaClass,F3Boundar
 import * as THREE from 'three';
 import { bridgeFor } from './sim/runtime.js';
 import { KIND_UNIT, KIND_BOLT, KIND_BEAM, KIND_GRENADE, KIND_ROUND, F3BoundaryMirror, F3ChangeMirror, F3AdoptionMirror,
-  F3AcknowledgementMirror, F3AcknowledgementLayout, putF3Acknowledgement, F3PhaseInputMirror, F3PhaseNetworkMirror, F3PublicationLayout, F3UnitKeyMirror, F3MetadataMirror,
+  F3AcknowledgementMirror, F3AcknowledgementLayout, putF3Acknowledgement, F3PhaseInputMirror, IntentLayout, syncIntent, F3PhaseNetworkMirror, F3PublicationLayout, F3UnitKeyMirror, F3MetadataMirror,
   F3SoldierMotionLayout, F3DroidekaMotionLayout, syncF3Boundary, syncF3UnitMirrorDelta, syncF3CombatView, syncF3CombatViewDelta, syncF3WeaponView, F3CombatViewLayout, F3WeaponViewLayout, syncF3ControlViewDelta, F3ControlViewLayout, syncF3UnitKey, F3UnitMirrorLayout, putF3Change, putF3Adoption, putF3PhaseInput, putF3PhaseNetwork, putF3WeaponService,
   F3DamageInfoMirror, F3HitPolicyMirror, putF3HitPolicy, F3BlastBindingMirror, putF3BlastBinding, F3ImpactRulesMirror, putF3ImpactRules,
   F3AimHeaderMirror, F3AimChangeMirror, putF3AimHeader, putF3AimChange,
@@ -21,7 +21,7 @@ import { blankIntent } from './units.js';
 import { PlayerCombat } from './combat.js';
 import { F3Registry } from './f3-registry.js';
 import { UnitMuzzles } from './unit-muzzles-sim.js';
-import { weaponAI, categoryOf } from './ai/classic/weapons-ai.js';
+import { weaponAI, categoryOf } from './weapon-policy.js';
 import { botLockTarget } from './weapon-targeting.js';
 import { F3Random } from './f3-random.js';
 import { F3Owners } from './f3-owners.js';
@@ -34,6 +34,8 @@ import { F3Factory } from './f3-factory.js';
 import { applyDelta } from './f2-delta.js';
 import { deltaChanged, markDelta } from './sim/compare.js';
 import { F2DeltaLayout, F2PhaseLayout } from './sim/gen/f2.js';
+import { F4PhaseLayout } from './sim/gen/f4.js';
+import { AiPhaseBoundaryLayout } from './sim/gen/ai-phase.js';
 
 const CLIPS = ['idle','turnl','turnr','death01',null,'idle_to_leftfoot',null,'walk_leftfoot_rightfoot',
   'walk_rightfoot_leftfoot','leftfoot_to_idle','rightfoot_to_idle','fold','roll','unfold'];
@@ -110,7 +112,16 @@ class F3 {
     const hullBirth = EVENT_TABLE.find(event=>event?.name === 'f3HullBirth');
     const ownerBirth = EVENT_TABLE.find(event=>event?.name === 'f3OwnerCreated');
     const unitBirth = EVENT_TABLE.find(event=>event?.name === 'f3UnitBirth');
-    this.birthHandlers = {f3HullBirth:event=>{
+    const controllerBirth = EVENT_TABLE.find(event=>event?.name === 'aiControllerBirth');
+    const controlBirth = EVENT_TABLE.find(event=>event?.name === 'aiControlBirth');
+    const characterBirth = EVENT_TABLE.find(event=>event?.name === 'f4CharacterBirth');
+    this.birthHandlers = {f4CharacterBirth:event=>{
+      this.tailOwner.ensureCharacter(event);this.counters.outputFields += characterBirth.record.words;
+    },aiControlBirth:event=>{
+      this.aiOwner.controlBorn(event);this.counters.outputFields += controlBirth.record.words;
+    },aiControllerBirth:event=>{
+      this.aiOwner.controllerBorn(event);this.counters.outputFields += controllerBirth.record.words;
+    },f3HullBirth:event=>{
       this.hulls.created(event); this.counters.outputFields += hullBirth.record.words;
     },f3OwnerCreated:event=>{
       this.owners.created(event);this.counters.outputFields += ownerBirth.record.words;
@@ -247,7 +258,7 @@ class F3 {
     const rule = unit.walker ? waterDamageRule(unit.soldier.def) : null;
     this.adoption.droidekaWater = rule ? {interval:rule.interval,amount:rule.amount,
       upright:droidekaWaterDepth(unit.soldier.def,false),ball:droidekaWaterDepth(unit.soldier.def,true)} : null;
-    const binding = new F3UnitBinding(unit, key, this.debug);
+    const binding = new F3UnitBinding(unit, key, this.debug, this);
     binding.adoption = Object.assign(new F3AdoptionMirror(),this.adoption);
     binding.adoption.key = binding.view.key;
     binding.life = unit.generation;
@@ -256,7 +267,8 @@ class F3 {
     binding.dirty = new Uint32Array(PHASE_DELTA_WORDS / 32);
     binding.arsenal = 0;
     binding.inputJetDirection = new THREE.Vector3();
-    binding.inputNetwork = false;
+    binding.intentAim = new THREE.Vector3();binding.intentJetDirection = new THREE.Vector3();
+    binding.inputNetwork = false; binding.nativeIntent = false;
     binding.aimed = false;
     // AnimatedProp holds reuse one object and frame for this pooled body.
     // Clip handles resolve cold, rather than by name during every carry.
@@ -287,6 +299,7 @@ class F3 {
     this.random.refresh(binding);
     this.items.schedule(binding);this.items.flush();
     this.liveOwner?.prepareUnit(unit);
+    this.fleet?.riders.ensureAll(unit);
     if (passive) this.construction.resident(binding);
   }
 
@@ -628,7 +641,7 @@ class F3 {
     this.change.vector.set(x, y, z);
     this.change.value = yaw;
     this.commit();
-    unit.intent = blankIntent();
+    unit.intent = blankIntent();binding.observeIntent();
     unit.presentation.reset(); unit.animator.reset(yaw); unit.actor.root.position.copy(unit.presentation.position);
   }
   remove(unit) {
@@ -731,13 +744,17 @@ class F3 {
     // Unit.onMoved often has no new publication at all. During the native
     // span no outer notices or construction work can drain here. Check only
     // the owning versions and structural event cursor before the full reader.
-    const d = this.descriptor, f = b.f, fleet = this.fleet;
+    // AI control and F4 versions can advance during their own native phases
+    // without a Unit publication; those owners must finish their barrier too.
+    const d = this.descriptor, f = b.f, fleet = this.fleet, live = this.liveOwner, tail = this.tailOwner, ai = this.aiOwner;
     if (this.active && this.lastVersion === f[d + F3BoundaryLayout.version] &&
         this.birthEpoch === f[d + F3BoundaryLayout.eventEpoch] &&
         this.birthWords === f[d + F3BoundaryLayout.eventWords] &&
-        (!fleet || fleet.lastVersion === f[fleet.descriptor + F2PhaseLayout.version])) {
-      this.counters.outputFields += fleet ? 4 : 3;
-      this.liveOwner?.sync();this.tailOwner?.sync();
+        (!fleet || fleet.lastVersion === f[fleet.descriptor + F2PhaseLayout.version]) &&
+        (!live || live.lastVersion === f[live.descriptor + F4PhaseLayout.version]) &&
+        (!tail || !live || tail.lastVersion === f[live.descriptor + F4PhaseLayout.version]) &&
+        (!ai || ai.controlRefs.version === f[ai.descriptor + AiPhaseBoundaryLayout.controlVersion])) {
+      this.counters.outputFields += (fleet ? 4 : 3) + (live ? 1 : 0) + (tail && live ? 1 : 0) + (ai ? 1 : 0);
       return;
     }
     this.readLayout();
@@ -745,6 +762,7 @@ class F3 {
     // Hull damage and lease changes share this mirror barrier. Resolve new
     // leases before a Unit publication names them, without another export.
     if (this.fleet) this.fleet.sync();
+    this.aiOwner?.syncControls();
     if (this.lastVersion === this.layout.version) { this.liveOwner?.sync();this.tailOwner?.sync(); this.drainEvents(); this.items.flush(); this.construction.finish(); return; }
     this.lastVersion = this.layout.version;
     this.counters.unitRows += this.layout.outputRows;
@@ -785,7 +803,8 @@ class F3 {
       c.phase = this;
       // Only lifecycle changes create facades here. An ordinary publication
       // mutates the existing weapon rows read by AI and network capture.
-      if (binding.life !== this.key.life) {
+      const lifeChanged = binding.life !== this.key.life;
+      if (lifeChanged) {
         binding.life = this.key.life;
         // Native waves reset the same canonical intent as Unit.spawn. This
         // scalar mirror reset precedes the spawned AI hook, including reuse
@@ -831,6 +850,15 @@ class F3 {
           F3UnitMirrorLayout.words - F3UnitMirrorLayout.waterContact,source)) {
         binding.view.waterContact = binding.waterContact;
       }
+      // Unit.tick's optional jet direction reuses cold storage when present.
+      // A null interval must not cause the next jump to allocate a vector.
+      const nativeIntent = words[rowAt + F3PublicationLayout.nativeIntent] !== 0;
+      const ownershipChanged = binding.nativeIntent !== nativeIntent;
+      binding.nativeIntent = nativeIntent;
+      // Foreign input remains a plain writable object. Only native ownership
+      // selects the cold observer facade, keeping scalar decoding allocation-free.
+      if (ownershipChanged) binding.unit.intent=nativeIntent ? binding.intentObserver.intent : binding.intentObserver.values;
+      const intents = this.layout.controlsConsumed || nativeIntent || ownershipChanged;
       // Unit.tick consumes controls even when their native bits equal the
       // preceding baseline. Commands leave pending JS intents alone. Select
       // that generated reader here without writing into the native cache.
@@ -842,15 +870,37 @@ class F3 {
           deltaChanged(binding.dirty,heapAt,words[source + BlockHeaderLayout.heapWords],source)) {
         syncF3CombatViewDelta(b,words,combatAt,heapAt,c.state,binding.dirty,resetArsenal,source,true);
       }
+      // Changing control owners changes the row representation. Equal zero
+      // words still need restoration because the old foreign mirror can hold
+      // a different axis (for example, a rider returning to its own body).
+      // Bot input and latch state have no host consumer. The narrow held
+      // record retains the existing diagnostic/aimer reads without decoding
+      // the movement input a second time after native F3 has consumed it.
+      // Native held inputs are observed directly from this retained row.
+      // No eager field decode is needed for canonically controlled bots.
       const controlsAt = rowAt + F3PublicationLayout.controls;
-      if (this.layout.controlsConsumed && words[controlsAt] === 0) {
+      if (intents && words[controlsAt] === 0 && (!binding.nativeIntent || resetArsenal ||
+          deltaChanged(binding.dirty,controlsAt + 1,F3ControlViewLayout.words,source))) {
+        // Native input is never written by the page. An unchanged control
+        // group can retain its facade, including null aim/vector intervals.
+        // Human input still needs the full one-shot restoration each tick.
+        const intentAt = controlsAt + 1 + F3ControlViewLayout.intent;
+        const restoreIntent = !binding.nativeIntent || resetArsenal || lifeChanged;
+        if (restoreIntent || deltaChanged(binding.dirty,intentAt + IntentLayout.aim,
+            IntentLayout.jetDirection - IntentLayout.aim,source)) binding.unit.intent.aim = binding.intentAim;
+        if (restoreIntent || deltaChanged(binding.dirty,intentAt + IntentLayout.jetDirection,
+            IntentLayout.exit - IntentLayout.jetDirection,source)) binding.unit.intent.jetDirection = binding.intentJetDirection;
+        // Page-owned one-shots can differ from unchanged canonical bits.
+        // Restore those eagerly, including deleted fields on a new life.
+        // Ordinary native intents have no page writer.
+        if (!binding.nativeIntent || lifeChanged) syncIntent(b,words,intentAt,heapAt,binding.unit.intent);
         // One-shot intent buttons are consumed every tick, including equal
         // native bits. Held input and latch state only need changed stores.
         const inputAt = controlsAt + 1 + F3ControlViewLayout.input;
         if (resetArsenal || deltaChanged(binding.dirty,inputAt,F3ControlViewLayout.words - F3ControlViewLayout.input,source)) {
           binding.unit.input.jetDirection = binding.inputJetDirection;
         }
-        syncF3ControlViewDelta(b,words,controlsAt + 1,heapAt,binding.unit,binding.dirty,resetArsenal,source);
+        syncF3ControlViewDelta(b,words,controlsAt + 1,heapAt,binding.unit,binding.dirty,resetArsenal || ownershipChanged,source);
       }
       // A weapon clock does not require reassigning every Unit flag and
       // actor visibility. Debug stamps still consume the changed combat row.
@@ -921,6 +971,11 @@ class F3 {
       f3ReconShot: event => this.recon.fired(event),
       f3OwnerCreated: event => this.owners.created(event),
       f3UnitBirth: event => this.construction.created(event),
+      f4CharacterBirth: event => this.tailOwner.ensureCharacter(event),
+      aiControlBirth: event => this.aiOwner.controlBorn(event),
+      aiControllerBirth: event => this.aiOwner.controllerBorn(event),
+      aiVoice: event => this.aiOwner.notices.voice(event),
+      aiItemOwner: event => this.aiOwner.notices.itemOwner(event),
       f3LifeStreams: event => this.construction.streams(event),
       f3HullBirth: event => this.hulls.created(event),
       f3Item: event => this.items.snapshot(event),
@@ -1101,21 +1156,27 @@ class F3 {
     this.bodiesIn();
     if (this.fleet) this.fleet.prepareStep();
     this.random.push();
-    let count = 0, networks = 0, at = this.layout.input / 8;
+    let count = 0, networks = 0, nativeIntents = 0, at = this.layout.input / 8;
     for (let i = 0; i < built.length; i++) {
       const u = built[i]; if (u.removed) continue;
       const binding = this.bindings[u.id];
-      this.input.key = binding.view.key; this.input.intent = u.intent;
-      const target = botLockTarget(u);
-      this.input.botTargetSet = target !== undefined;
-      this.input.botTarget = target ?? null;
-      // Preserve even an empty networkShots list: its presence suppresses
-      // the legacy single shot. Ordinary bots append no network padding.
+      // Preserve explicit remote/network facts, including an empty shot list.
+      // Native bots otherwise need no foreign row: Rust resolves their input
+      // directly from the same canonical controller and unit generation.
       binding.inputNetwork = Boolean(u.networkShots || u.networkShot ||
         u.networkViewTick !== undefined || u.networkInputLeadTicks !== undefined || u.networkPlayoutMaxTicks !== undefined);
+      this.input.remoteFirstPerson = Boolean(u.combat.remotes?.firstPerson);
+      if (binding.nativeIntent && !binding.inputNetwork && !this.input.remoteFirstPerson) continue;
+      this.input.key = binding.view.key;
+      if (binding.nativeIntent) {
+        this.input.intent = null;this.input.botTargetSet = false;this.input.botTarget = null;nativeIntents++;
+      } else {
+        this.input.intent = u.intent;
+        const target = botLockTarget(u);
+        this.input.botTargetSet = target !== undefined;this.input.botTarget = target ?? null;
+      }
       this.input.hasNetwork = binding.inputNetwork;
       this.input.networkIndex = binding.inputNetwork ? networks++ : 0;
-      this.input.remoteFirstPerson = Boolean(u.combat.remotes?.firstPerson);
       putF3PhaseInput(b, this.input, b.f, at, this.heap); at += this.layout.inputStride; count++;
     }
     // networkShotFor consumes this sparse tail after all intent rows. Keep
@@ -1146,7 +1207,7 @@ class F3 {
     this.counters.ticks++;
     this.counters.phaseCalls++;
     this.counters.wasmCalls++;
-    this.counters.inputFields += count * this.layout.inputStride + networks * this.layout.networkWords + this.layout.separationWords + 4;
+    this.counters.inputFields += count * this.layout.inputStride - nativeIntents * IntentLayout.words + networks * this.layout.networkWords + this.layout.separationWords + 4;
     if (this.fleet) this.counters.inputFields += this.fleet.preparedWords;
     this.active = true;
     const previous = b.phaseCounters; b.phaseCounters = this.counters;

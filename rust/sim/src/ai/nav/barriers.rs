@@ -312,16 +312,20 @@ impl BarrierSet {
             cells,
             stamp: vec![0; n],
             serial: 0,
-            found: Vec::new(),
+            found: Vec::with_capacity(n),
             seg: Segment::default(),
             hit: CrossingHit::default(),
         }
     }
 
-    /// Barriers whose bounding circle meets the box, in source order
-    /// (barriers.js:153). The JavaScript returns its reused `found`
-    /// array; this returns a copy of the indices, same contents.
-    pub fn gather(&mut self, x0: f64, z0: f64, x1: f64, z1: f64) -> Vec<usize> {
+    /// Barriers whose bounding circle meets the box, in source order.
+    /// Recorded/external queries own their result; native geometry below
+    /// consumes the same retained candidates without copying the list.
+    pub fn gather(&mut self,x0:f64,z0:f64,x1:f64,z1:f64)->Vec<usize> {
+        self.gather_cached(x0,z0,x1,z1);
+        self.found.clone()
+    }
+    fn gather_cached(&mut self,x0:f64,z0:f64,x1:f64,z1:f64) {
         self.found.clear();
         self.serial = self.serial.wrapping_add(1);
         if self.serial == 0xffff_ffff {
@@ -361,13 +365,13 @@ impl BarrierSet {
             // any correct sort gives the JavaScript's order.
             self.found.sort_unstable();
         }
-        self.found.clone()
     }
 
     /// barriers.js:184. Returns (clear, the JavaScript's out.barrier).
     pub fn point_clear(&mut self, p: Vec3, r: f64, mask: u32) -> (bool, Option<usize>) {
-        let list = self.gather(p.x - r, p.z - r, p.x + r, p.z + r);
-        for bi in list {
+        self.gather_cached(p.x - r, p.z - r, p.x + r, p.z + r);
+        for at in 0..self.found.len() {
+            let bi=self.found[at];
             let b = &self.list[bi];
             if (b.flags & mask) == 0 {
                 continue;
@@ -388,8 +392,9 @@ impl BarrierSet {
             return false;
         }
         self.seg = segment(s, e);
-        let list = self.gather(v8math::min(s.x, e.x) - r, v8math::min(s.z, e.z) - r, v8math::max(s.x, e.x) + r, v8math::max(s.z, e.z) + r);
-        for bi in list {
+        self.gather_cached(v8math::min(s.x, e.x) - r, v8math::min(s.z, e.z) - r, v8math::max(s.x, e.x) + r, v8math::max(s.z, e.z) + r);
+        for at in 0..self.found.len() {
+            let bi=self.found[at];
             if (self.list[bi].flags & mask) == 0 {
                 continue;
             }
@@ -404,11 +409,12 @@ impl BarrierSet {
     /// barriers.js:213. Returns (any, barrier, distanceSq).
     pub fn nearest(&mut self, s: Vec3, e: Vec3, r: f64, mask: u32, mut work: Option<&mut Work>) -> (bool, Option<usize>, f64) {
         self.seg = segment(s, e);
-        let list = self.gather(v8math::min(s.x, e.x) - r, v8math::min(s.z, e.z) - r, v8math::max(s.x, e.x) + r, v8math::max(s.z, e.z) + r);
+        self.gather_cached(v8math::min(s.x, e.x) - r, v8math::min(s.z, e.z) - r, v8math::max(s.x, e.x) + r, v8math::max(s.z, e.z) + r);
         let mut any = false;
         let mut best = FLT_MAX;
         let mut barrier = None;
-        for bi in list {
+        for at in 0..self.found.len() {
+            let bi=self.found[at];
             if (self.list[bi].flags & mask) == 0 {
                 continue;
             }
@@ -433,11 +439,11 @@ impl BarrierSet {
         if clear {
             return true;
         }
-        let b = self.list[barrier.expect("point_clear names the blocker")].clone();
+        let b = &self.list[barrier.expect("point_clear names the blocker")];
         let mut scores = [0.0; 4];
         let mut cands = [Vec3::default(); 4];
         for i in 0..4 {
-            let (score, cand) = ejection(&b, *p, r, i);
+            let (score, cand) = ejection(b, *p, r, i);
             scores[i] = score;
             cands[i] = cand;
         }
@@ -467,10 +473,11 @@ impl BarrierSet {
         normalize(&mut dir);
         self.seg = segment(s, *e);
         let grow = 2.0 * r;
-        let list = self.gather(v8math::min(s.x, e.x) - grow, v8math::min(s.z, e.z) - grow, v8math::max(s.x, e.x) + grow, v8math::max(s.z, e.z) + grow);
+        self.gather_cached(v8math::min(s.x, e.x) - grow, v8math::min(s.z, e.z) - grow, v8math::max(s.x, e.x) + grow, v8math::max(s.z, e.z) + grow);
         let mut any = false;
         let mut normal = normal;
-        for bi in list {
+        for at in 0..self.found.len() {
+            let bi=self.found[at];
             if (self.list[bi].flags & mask) == 0 {
                 continue;
             }

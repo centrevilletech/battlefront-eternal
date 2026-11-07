@@ -188,6 +188,10 @@ impl Items {
         }
         self.current_keys[row.owned_key.0 as usize] = true;
     }
+    /// AI class jobs consume the same prepared owner keys as dispensing.
+    pub fn owned_key(&self, unit: u32, life: f64, weapon: DefId, level: u32) -> Option<crate::store::StrId> {
+        self.bindings.get(unit as usize)?.iter().find(|b| b.life == life && b.weapon == weapon && b.level == level).map(|b| b.key)
+    }
     pub fn take(&mut self, unit: u32, life: f64, weapon: DefId, level: u32) -> Frame {
         // CombatWorld.dispense borrows its buffers out before committing the
         // shooter. Recursive mine damage can then read canonical state.

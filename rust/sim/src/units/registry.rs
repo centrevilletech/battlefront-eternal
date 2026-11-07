@@ -207,6 +207,15 @@ impl Units {
         mut filter: Option<&mut dyn FnMut(Member) -> bool>,
         world: &mut dyn UnitsWorld,
     ) {
+        self.query_with(units,center,radius,out,&mut |member,_,_| {
+            filter.as_deref_mut().map_or(true,|filter|filter(member))
+        },world);
+    }
+
+    /// Native predicates see the current canonical unit after its original
+    /// sphere observation, without capturing another borrow of the unit slab.
+    pub fn query_with(&self,units:&mut Slab<Unit>,center:&Vector3,radius:f64,out:&mut Vec<Member>,
+        filter:&mut dyn FnMut(Member,Option<&Unit>,&mut dyn UnitsWorld)->bool,world:&mut dyn UnitsWorld) {
         out.clear();
         for &m in &self.list {
             let s = match m {
@@ -229,11 +238,8 @@ impl Units {
             if v3(s.center).distance_to_squared(center) > reach * reach {
                 continue;
             }
-            if let Some(f) = filter.as_deref_mut() {
-                if !f(m) {
-                    continue;
-                }
-            }
+            let unit=match m {Member::Unit(r)=>units.get(r),_=>None};
+            if !filter(m,unit,world) {continue;}
             out.push(m);
         }
     }

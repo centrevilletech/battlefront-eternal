@@ -7,6 +7,7 @@
 //! the map; the line of sight is the battle's.
 
 use three::Vector3;
+use crate::ai::owned::scratch::{Inline,List};
 use v8math::hypot;
 
 use crate::ai::nav::barriers::BarrierSet;
@@ -30,19 +31,13 @@ pub struct SupportHub {
 }
 
 /// hubsAt(graph, p, mask) (support.js:38): the hubs a point stands on.
-pub fn hubs_at(graph: &NavGraph, p: Vec3, mask: u32) -> Vec<usize> {
-    let a = graph.attach(p, mask);
-    if a.kind == 1 {
-        return vec![a.hub.expect("a hub attach names its hub")];
-    }
-    if a.kind == 2 {
-        let arc = &graph.arcs[a.arc.expect("an arc attach names its arc")];
-        return vec![arc.a, arc.b];
-    }
-    match graph.nearest_arc(p, mask) {
-        Some(i) => vec![graph.arcs[i].a, graph.arcs[i].b],
-        None => Vec::new(),
-    }
+pub fn hubs_at(graph:&NavGraph,p:Vec3,mask:u32)->Inline<usize,2> {
+    let mut out=Inline::default();
+    let a=graph.attach(p,mask);
+    if a.kind==1 {out.push(a.hub.expect("a hub attach names its hub"));return out;}
+    let arc=if a.kind==2 {a.arc}else{graph.nearest_arc(p,mask)};
+    if let Some(i)=arc {out.push(graph.arcs[i].a);out.push(graph.arcs[i].b);}
+    out
 }
 
 /// graph.word(from, table, to) (graph.js:78).
@@ -90,9 +85,8 @@ pub struct Candidate {
 /// sight of the post (`los`) in the same order and sorts what is left
 /// (`sort_by_distance`): the tests here are queries of the map's content,
 /// with nothing to observe in between.
-pub fn support_candidates(graph: Option<&NavGraph>, mut barriers: Option<&mut BarrierSet>, center: &Vector3, r: f64, mask: u32) -> Vec<Candidate> {
-    let Some(graph) = graph else { return Vec::new() };
-    let mut out = Vec::new();
+pub fn support_candidates_into(graph:Option<&NavGraph>,mut barriers:Option<&mut BarrierSet>,center:&Vector3,r:f64,mask:u32,out:&mut List<Candidate>) {
+    let Some(graph)=graph else {return};
     for hub in &graph.hubs {
         if (hub.mask & mask) == 0 {
             continue;
@@ -108,7 +102,6 @@ pub fn support_candidates(graph: Option<&NavGraph>, mut barriers: Option<&mut Ba
         }
         out.push(Candidate { hub: hub.index, hub_at: Vector3::new(hub.x, hub.y, hub.z), distance });
     }
-    out
 }
 
 /// `out.sort((a, b) => a.distance - b.distance)`: the distances are finite
@@ -124,19 +117,20 @@ pub fn sort_by_distance(list: &mut [SupportHub]) {
     }
 }
 
-/// pickSupport(graph, hubs, from, mask, random) (support.js:86) up to its
-/// draw: of the post's support hubs, those the pilot at `from` can route
-/// to, within SUPPORT_SPREAD of the nearest of them; None when none is
-/// routable. The caller picks among more than one with generator A.
-pub fn pick_candidates(graph: &NavGraph, hubs: &[SupportHub], from: &Vector3, mask: u32) -> Option<Vec<SupportHub>> {
-    let start = hubs_at(graph, Vec3::new(from.x, from.y, from.z), mask);
-    if start.is_empty() {
-        return None;
+/// The source creates routable and nearby arrays before drawing. Retain their
+/// count and first-distance cutoff instead; routing reads immutable graph data.
+pub struct Selection {start:Inline<usize,2>,cutoff:f64,pub count:usize,mask:u32}
+impl Selection {
+    pub fn new(graph:&NavGraph,hubs:&[SupportHub],from:&Vector3,mask:u32)->Option<Self> {
+        let start=hubs_at(graph,Vec3::new(from.x,from.y,from.z),mask);
+        if start.is_empty(){return None;}
+        let first=hubs.iter().find(|h|routes(graph,&start,h.hub,mask))?;
+        let cutoff=first.distance+SUPPORT_SPREAD;
+        let count=hubs.iter().filter(|h|routes(graph,&start,h.hub,mask)&&h.distance<=cutoff).count();
+        // A NaN distance excludes even the first entry, matching Array.filter.
+        Some(Self {start,cutoff,count,mask})
     }
-    let routable: Vec<SupportHub> = hubs.iter().copied().filter(|c| routes(graph, &start, c.hub, mask)).collect();
-    if routable.is_empty() {
-        return None;
+    pub fn at(&self,graph:&NavGraph,hubs:&[SupportHub],index:usize)->SupportHub {
+        *hubs.iter().filter(|h|routes(graph,&self.start,h.hub,self.mask)&&h.distance<=self.cutoff).nth(index).expect("support selection index")
     }
-    let first = routable[0].distance;
-    Some(routable.into_iter().filter(|c| c.distance <= first + SUPPORT_SPREAD).collect())
 }

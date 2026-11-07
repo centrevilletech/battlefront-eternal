@@ -150,11 +150,11 @@ impl<'a> Host<'a> {
             if v.get("arsenal").str() != Some("omitted") { equal("weapon random generator", &actual.random, &writes.random); }
         }
         if !s.get("los").is_undefined() { equal("deferred LOS", &cx.los, &self.read.los(s.get("los"))); }
-        assert_eq!(cx.shared.clusters.states.len(), s.get("clusters").items().count(), "cluster membership");
+        assert_eq!(cx.shared.clusters.borrow().states.len(), s.get("clusters").items().count(), "cluster membership");
         for v in s.get("clusters").items() {
             let key = self.read.obj(v.get("key"));
             let want = cluster(v);
-            equal("cluster", cx.shared.clusters.states.get(&key).expect("captured cluster is present"), &want);
+            equal("cluster", cx.shared.clusters.borrow().states.get(&key).expect("captured cluster is present"), &want);
         }
         assert_eq!(cx.reservations.by_hint.len(), s.get("reservations").items().count(), "reservation membership");
         for v in s.get("reservations").items() {
@@ -201,14 +201,14 @@ fn run(capture: &Capture, f: &Frame) {
     if !before.get("los").is_nullish() { cx.los = h.read.los(before.get("los")); }
     for v in before.get("clusters").items() {
         let key = h.read.obj(v.get("key"));
-        cx.shared.clusters.states.insert(key, cluster(v));
+        cx.shared.clusters.borrow_mut().states.insert(key, cluster(v));
     }
     for data in before.get("weaponData").items() {
         let data = h.read.js(data);
         let Js::Obj(data) = data else { panic!("AI weapon records are an object") };
         let Js::Obj(data) = data.get("weapons") else { panic!("AI weapon map is an object") };
         for (name, rec) in &data.fields {
-            cx.shared.weapons.register(&[(name.to_string(), Registered { ai: rec.get("ai").clone(), levels: match rec.get("levels") {
+            cx.shared.register(&[(name.to_string(), Registered { ai: rec.get("ai").clone(), levels: match rec.get("levels") {
                 Js::Arr(levels) => levels.iter().map(|l| (l.get("at").clone(), l.get("ai").clone())).collect(), _ => Vec::new(),
             } })]);
         }

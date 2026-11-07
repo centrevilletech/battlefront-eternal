@@ -1,5 +1,10 @@
 # Classic AI: controller, scheduler, agents, interrupts, patrol, squads
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 Controller part of the Classic AI (`docs/ai.md`). It covers the runtime
 architecture and state dispatch, the controller collections and AI update
 phases, clock and cadence, distance/visibility LOD and input execution, the

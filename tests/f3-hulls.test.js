@@ -5,7 +5,6 @@ import { f3World } from './fixtures/f3-world.js';
 import { fleetFixture } from './fixtures/f3-fleet.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { ClassicRandom, randomBinding, uniformRandom } from '../src/ai/random.js';
-import { useClassicRandom } from '../src/ai/classic/weapons-ai.js';
 
 const soldier = {class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]};
 
@@ -372,7 +371,7 @@ test('Classic seat attachment publishes its generator before later native mirror
   assert.equal(vs.board(unit,hull,0),true);
   const control = unit.seat.controllable, weapon = hull.seats[0].weapons[0].state;
   const random = new ClassicRandom(19), draw = uniformRandom(random), expected = new ClassicRandom(19);
-  useClassicRandom(control.combat.arsenal,random);
+  control.combat.arsenal.setRandom(draw);
   unit.combat.health = 1500;
   assert.equal(weapon.random,draw);
   world.phase.phase(0);
@@ -427,4 +426,5 @@ test('the first walker leg sample and its respawn reuse cold native storage',asy
   assert.equal(hull.alive,true);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
+
 });

@@ -4,7 +4,7 @@
 //! them), since the posts themselves are the battle package's.
 
 use super::math::{f32, Vec3};
-use crate::ai::random::ClassicRandom;
+use crate::ai::random::Random;
 
 /// hints.js:21.
 pub const POOL_CAPACITY: f64 = 350.0;
@@ -313,7 +313,7 @@ pub fn build_hints(records: &[HintRecord], posts: Option<&dyn HintPosts>, capaci
 }
 
 /// A stance from a stance mask (hints.js:179).
-pub fn pick_stance(mask: i32, random: &mut ClassicRandom) -> f64 {
+pub fn pick_stance(mask: i32, random: &mut dyn Random) -> f64 {
     if mask & 7 == 0 {
         return stance::STAND;
     }
@@ -327,7 +327,7 @@ pub fn pick_stance(mask: i32, random: &mut ClassicRandom) -> f64 {
 }
 
 /// A secondary action from the two-bit choice mask (hints.js:189).
-pub fn pick_secondary(choices: i32, random: &mut ClassicRandom) -> f64 {
+pub fn pick_secondary(choices: i32, random: &mut dyn Random) -> f64 {
     if choices & 3 == 0 {
         return -1.0;
     }
@@ -355,6 +355,13 @@ impl HintSet {
     /// center +/- half, at most `cap`, in load order (hints.js:215).
     pub fn query(&self, mask: u32, center: Vec3, half: f64, cap: f64, owner: Option<u64>, now: f64) -> Vec<usize> {
         let mut out = Vec::new();
+        self.query_into(mask, center, half, cap, owner, now, &mut out);
+        out
+    }
+
+    /// The phase supplies reserved query storage; every query replaces its result.
+    pub fn query_into(&self, mask: u32, center: Vec3, half: f64, cap: f64, owner: Option<u64>, now: f64, out: &mut Vec<usize>) {
+        out.clear();
         for h in &self.list {
             if h.bit & mask == 0 {
                 continue;
@@ -372,7 +379,6 @@ impl HintSet {
                 break;
             }
         }
-        out
     }
 
     /// hints.js:229.

@@ -83,7 +83,7 @@ impl World<'_> {
                 op,
                 character_handle: f4_core::character_handle(r),
                 ..Default::default()
-            })
+            },self.services.reborrow())
         });
     }
     fn recycle(&mut self, s: &mut Store, r: Ref<Character>) {
@@ -95,6 +95,9 @@ impl World<'_> {
             f4_core::mark_character(r);
         } else {
             f4_core::reassign(s, r);
+        }
+        if let Some(ai)=self.services.ai.as_deref_mut() {
+            if let Some(handle)=f4_core::character_handle(r) {ai.character_reassigned(r,&handle);}
         }
     }
 }
@@ -182,7 +185,17 @@ pub extern "C" fn f4_roster_init() {
     );
     let (row, heap) = sim().calls.args();
     let cfg = F4RosterSetup::take(row, heap);
-    let names = cfg.names.into_iter().map(naming).collect();
+    // Native initial Spawning.begin already advanced each private naming
+    // generator. Transfer that authority instead of reseeding from facades.
+    let native_names=if cfg.classic {
+        sim().ai.battle_mut().and_then(|battle|battle.initial_naming.take()).map(|mut initial| {
+            (0..spawning::TEAM_COUNT).map(|team| {
+                initial.teams.get_mut(team).and_then(Option::take).unwrap_or_else(||
+                    BotNames::new(initial.lists.as_ref(),sim().store.spawning.teams[team].faction))
+            }).collect()
+        })
+    }else{None};
+    let names = native_names.unwrap_or_else(||cfg.names.into_iter().map(naming).collect());
     let mut owner = State {
         classic: cfg.classic,
         players: Players::default(),
@@ -208,10 +221,11 @@ pub extern "C" fn f4_roster_init() {
     // its roster. Retiring the Character must not return that passive body.
     if let Some(local)=cfg.local {sim().store.character.get_mut(local).expect("local roster Character").unit=None;}
     f3::with_services(|services| {
+        let mut services=services.expect("native roster body services");
         let mut shell = owner.shell.take().unwrap();
         std::mem::swap(&mut shell, &mut sim().store);
         let mut world = World {
-            services: services.expect("native roster body services"),
+            services: services.reborrow(),
             names: &mut owner.names,
             born: None,
         };
@@ -254,6 +268,7 @@ pub extern "C" fn f4_roster_command() -> *const f64 {
     name[..length].copy_from_slice(&source[..length]);
     let outer = f3::external();
     f3::with_services(|services| {
+        let mut services=services.expect("native roster body services");
         let mut shell = owner.shell.take().unwrap();
         std::mem::swap(&mut shell, &mut sim().store);
         let target = input
@@ -261,7 +276,7 @@ pub extern "C" fn f4_roster_command() -> *const f64 {
             .as_ref()
             .and_then(|h| f4_core::resolve(&shell, h));
         let mut world = World {
-            services: services.expect("native roster body services"),
+            services: services.reborrow(),
             names: &mut owner.names,
             born: None,
         };

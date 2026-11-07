@@ -4,7 +4,7 @@
 //! The loader's `report(kind, detail)` calls collect in `reports`.
 
 use super::math::{f32, lowest_bit, Vec3};
-use crate::ai::random::ClassicRandom;
+use crate::ai::random::Random;
 
 /// graph.js:20.
 pub const UNUSED: u32 = 255;
@@ -204,7 +204,7 @@ impl NavGraph {
 
     /// The weighted next arc from hub `from` toward hub `to`, or None
     /// (graph.js:87). `previous` is excluded as the JavaScript excludes it.
-    pub fn select(&mut self, previous: Option<usize>, from: usize, to: usize, mask: u32, random: &mut ClassicRandom) -> Option<usize> {
+    pub fn select(&mut self, previous: Option<usize>, from: usize, to: usize, mask: u32, random: &mut dyn Random) -> Option<usize> {
         let table = self.table(mask);
         if table == NO_TABLE {
             self.reports.push(GraphReport::RouteTable { mask });
@@ -264,7 +264,7 @@ impl NavGraph {
     /// The uniform pick among the hub's other mask-compatible arcs
     /// (graph.js:135): Some(previous) when there is no other, None when
     /// the pick falls off the end, as the JavaScript returns them.
-    pub fn alternate_opt(&self, hub: usize, previous: Option<usize>, mask: u32, random: &mut ClassicRandom) -> Option<usize> {
+    pub fn alternate_opt(&self, hub: usize, previous: Option<usize>, mask: u32, random: &mut dyn Random) -> Option<usize> {
         let mut count = 0u32;
         for i in 0..8 {
             let s = self.hubs[hub].slots[i] as u32;

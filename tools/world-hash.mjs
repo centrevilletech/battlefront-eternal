@@ -69,8 +69,6 @@ const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('se
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = argv.includes('--twice') ? 2 : Number(opt('battles', 1));
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
-const aiSim = opt('ai-sim', 'js');
-if (!['rust', 'js'].includes(aiSim)) throw Error(`--ai-sim ${aiSim}: rust or js`);
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -93,16 +91,15 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, ai, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
 async function battle(index) {
   const prefix = index ? `${index + 1}:` : '';
   const game = await headlessGame(query);
-  if ((aiSim === 'rust') !== Boolean(game.aiSim)) throw Error('AI navigation does not match the requested module');
-  if (aiSim === 'rust' && (!game.aiSim.navigation || game.aiSim.navigation.planner.constructor.name !== 'NativePlanner')) throw Error('native AI navigation did not attach');
+  if (ai !== 'off' && !game.ai?.native) throw Error('native AI phase did not attach');
   if (!game.liveOwner) throw Error('native live-object phase did not attach');
   // Collision, movement, rounds and items are required on the battle instance.
   if (!game.collision.rays || !game.collision.movement || !game.ordnance.sim || !game.items.sim) throw Error('required simulation kernels did not attach');

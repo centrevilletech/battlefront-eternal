@@ -19,12 +19,17 @@ use bfe_sim::ai::random::ClassicRandom;
 fn mounted_service_effects_preserve_publication_and_saved_post_semantics() {
     use bfe_sim::ai::control::{Core, Options};
     use bfe_sim::ai::control::controller::Controller;
-    use bfe_sim::ai::control::world::{CharacterSnap, CoreEffect, TeamTable};
+    use bfe_sim::ai::control::world::{CharacterSnap, CoreEffect, TeamTable,Characters};
+    struct Roster(Vec<CharacterSnap>);
+    impl Characters for Roster {
+        fn character(&self,index:usize)->CharacterSnap {self.0[index].clone()}
+        fn character_set_objective(&mut self,index:usize,post:Option<usize>) {self.0[index].objective=post;}
+    }
 
-    let mut core = Core::new(Options::default(), TeamTable::default(), Difficulty::classic(DifficultyOptions::default()),
-        [3, 5].into_iter().enumerate().map(|(i, post)| CharacterSnap {
-            index: i, team: 1.0, human: false, unit: Some(i), objective: Some(post),
-        }).collect());
+    let mut roster=Roster([3,5].into_iter().enumerate().map(|(i,post)|CharacterSnap {
+        index:i,team:1.,human:false,unit:Some(i as u64),objective:Some(post),
+    }).collect());
+    let mut core=Core::new(Options::default(),TeamTable::default(),Difficulty::classic(DifficultyOptions::default()),roster.0.len());
     core.controllers = vec![Controller::new(0), Controller::new(1)];
     core.by_character = vec![Some(0), Some(1)];
     core.controllers[0].fire_a = true;
@@ -32,7 +37,7 @@ fn mounted_service_effects_preserve_publication_and_saved_post_semantics() {
     // publish(null) for the driver, VehicleAI.disembarkPassengers(7),
     // then abandonPad at time 50. A saved post and a null publication
     // retain the earlier queued goal; both crew cooldowns become 65.
-    core.apply_service_effects(vec![
+    core.apply_service_effects(&mut roster,vec![
         CoreEffect::Publish { character: 0, before: Some(3), after: Some(6) },
         CoreEffect::Publish { character: 1, before: Some(5), after: Some(6) },
         CoreEffect::Publish { character: 0, before: Some(6), after: None },
@@ -40,19 +45,19 @@ fn mounted_service_effects_preserve_publication_and_saved_post_semantics() {
         CoreEffect::Reboard { controller: 1, before: f64::NEG_INFINITY, after: 65.0 },
         CoreEffect::Reboard { controller: 0, before: f64::NEG_INFINITY, after: 65.0 },
     ]);
-    assert_eq!(core.characters[0].objective, None);
-    assert_eq!(core.characters[1].objective, Some(7));
+    assert_eq!(roster.0[0].objective, None);
+    assert_eq!(roster.0[1].objective, Some(7));
     for c in &core.controllers {
-        assert_eq!(c.commands.queue, vec![SourceGoal::objective(Some(6))]);
+        assert_eq!(&*c.commands.queue, &[SourceGoal::objective(Some(6))]);
         assert!(c.commands.latch && c.published);
         assert_eq!(c.reboard_at.to_bits(), 65.0f64.to_bits());
     }
     assert!(core.controllers[0].fire_a);
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.apply_service_effects(vec![
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.apply_service_effects(&mut roster,vec![
         CoreEffect::Objective { character: 0, before: Some(3), after: Some(6) },
     ]))).is_err(), "a wrong incoming objective must not be hidden by the service result");
     core.controllers[1].reboard_at = -0.0;
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.apply_service_effects(vec![
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.apply_service_effects(&mut roster,vec![
         CoreEffect::Reboard { controller: 1, before: 0.0, after: 65.0 },
     ]))).is_err(), "the cooldown precondition uses Object.is semantics");
 }
@@ -160,7 +165,7 @@ fn runtime_health_type_matches_repair_wrappers() {
     // Node's healthType uses the runtime field before ClassDef.HealthType.
     // A destroyed building's wrapper becomes BuildingRebuild at runtime.
     let mut unit = AiUnit {
-        class_def: Some(ClassSnap { health_type_name: Some("Vehicle".into()), ..Default::default() }),
+        class_def: Some(std::rc::Rc::new(ClassSnap { health_type_name: Some("Vehicle".into()), ..Default::default() })),
         ..Default::default()
     };
     assert!(same(health_type(&unit), 3.0));
@@ -229,7 +234,7 @@ fn fallback_analogs_match_the_javascript() {
             aim_yaw: Some(0.7), aim_pitch: Some(0.11), max_speed: Some(7.0), max_strafe: Some(4.5), max_turn: Some(4.0),
             ..Default::default()
         }),
-        class_def: Some(ClassSnap { max_pitch_speed: Some(0.8), ..Default::default() }),
+        class_def: Some(std::rc::Rc::new(ClassSnap { max_pitch_speed: Some(0.8), ..Default::default() })),
         ..Default::default()
     };
     let request = MoveRequest { valid: true, steering_target: Vec3::new(1.4, 2.0, 3.3), ..Default::default() };
@@ -304,4 +309,59 @@ fn live_draws_int_does_not_draw_when_degenerate() {
     assert_eq!(d.a.state, before);
     let _ = d.a_int(0.0, 1.0);
     assert_ne!(d.a.state, before);
+}
+
+
+#[test]
+fn native_subclasses_keep_source_interrupt_and_crew_wait_overrides() {
+    use bfe_sim::ai::control::{Core,Options,agents::{Agent,AgentKind},controller::Controller,world::{ForeignKind,TeamTable},policy};
+    let mut core=Core::new(Options::default(),TeamTable::default(),Difficulty::classic(Default::default()),1);
+    core.controllers.push(Controller::new(0));
+    // Combat, boarding and unboarding discard the interrupted goal. Flyers
+    // retain it and accept the crew wait; these methods need no world query.
+    for (kind,keep,wait) in [(ForeignKind::Combat,false,false),(ForeignKind::Board,false,false),(ForeignKind::Unboard,false,false),(ForeignKind::Fly,true,true)] {
+        core.controllers[0].agent=Some(Agent {fsm:Default::default(),unit:Some(1),goal:None,interrupts:Default::default(),helper:Default::default(),kind:AgentKind::Foreign(kind)});
+        assert_eq!(core.saves_on_interrupt(0,0.),keep);assert_eq!(core.accepts_secondary_wait(0),wait);
+        let input=policy::Input::read(&core.controllers[0]);
+        if kind==ForeignKind::Combat {assert_eq!(input.kind,policy::Kind::Combat);}
+        if kind==ForeignKind::Board {assert_eq!(input.kind,policy::Kind::Board);}
+        if kind==ForeignKind::Unboard {assert_eq!(input.kind,policy::Kind::Unboard);}
+    }
+}
+
+#[test]
+fn patrol_keeps_a_built_capture_when_authored_capture_is_absent() {
+    use bfe_sim::ai::control::{patrol,world::{PostSnap,RegionSnap,RegionKind,CaptureSnap,RawCapture}};
+    let mut post=PostSnap {position:Vec3::new(4.,5.,6.),region:Some(RegionSnap {
+        kind:RegionKind::Box,half:[7.,8.,9.],radius:0.,center:Vec3::new(40.,50.,60.),inverse:[0.;16],
+    }),index:0,name:None,team:1.,active:true,building_alive:None,neutralize:0.,radius:0.,speed:0.,ai:Default::default(),
+        desc_capture:None,desc_spawn_path:false,desc_spawn_points:0.,desc_ally_path:false};
+    // captureRegion's built center is a Vector3, so its Array.isArray test
+    // retains post.position while the built half extents still apply.
+    assert_eq!(patrol::capture_region(&post),Some((post.position,7.,9.)));
+    assert!(patrol::has_capture_region(&post));
+    post.desc_capture=Some(std::rc::Rc::new(RawCapture {center:Some([1.,2.,3.]),half:Some([10.,11.,12.]),matrix:None,size:None}));
+    assert_eq!(patrol::capture_region(&post),Some((Vec3::new(1.,2.,3.),10.,12.)));
+    post.ai.capture=Some(CaptureSnap {center:Vec3::new(20.,21.,22.),half:[23.,24.,25.]});
+    assert_eq!(patrol::capture_region(&post),Some((Vec3::new(20.,21.,22.),23.,25.)));
+    post.ai.capture=None;post.desc_capture=None;post.region=None;
+    assert!(!patrol::has_capture_region(&post));
+}
+
+#[test]
+fn allied_patrols_keep_objectives_without_an_ally_spawn_path() {
+    use bfe_sim::ai::control::{patrol,world::PostSnap};
+    let mut post=PostSnap {index:0,name:None,team:1.,active:true,position:Vec3::default(),building_alive:None,
+        neutralize:0.,radius:30.,speed:0.,ai:Default::default(),region:None,desc_capture:None,
+        desc_spawn_path:false,desc_spawn_points:0.,desc_ally_path:false};
+    post.ai.spawn_present=Some(true);post.ai.ally_present=Some(false);
+    let allied=|_:f64,_:f64|1.;
+    // classicBinding's predicate requires an ally path even when the post
+    // has an ordinary spawn path. The flyer-radius predicate is separate.
+    assert!(!patrol::friendly_spawn_eligible(&post,3.,true,&allied));
+    assert!(patrol::friendly_spawn_eligible(&post,1.,true,&allied));
+    post.ai.ally_present=Some(true);
+    assert!(patrol::friendly_spawn_eligible(&post,3.,true,&allied));
+    post.active=false;
+    assert!(!patrol::friendly_spawn_eligible(&post,3.,true,&allied));
 }

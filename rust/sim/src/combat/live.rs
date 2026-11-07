@@ -25,9 +25,9 @@ pub(crate) enum ArcVictim {
 pub(crate) fn arc_hit(victim: ArcVictim, amount: f64, from: Vector3, owner: Ref<Unit>, recon: Option<crate::units::f3::WorldServices<'_>>) {
     match victim {
         ArcVictim::Recon(reference) => {
-            let services = crate::units::f3::required_services!(recon,());
+            let mut services = crate::units::f3::required_services!(recon,());
             let authority = services.recon;
-            authority.hurt(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries),reference,amount);
+            authority.hurt(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),reference,amount);
             crate::recon::module::publish_active(authority);
         }
         ArcVictim::Unit(reference) => {
@@ -229,7 +229,7 @@ impl super::impacts::BlastWorld for Blast<'_> {
             droid_scale: packet.hit.scales[super::impacts::HealthScale::Droid as usize],
             push: packet.push, push_inner: packet.push_inner, push_outer: packet.push_outer,
         };
-        authority.blast(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries),explosion,*at);
+        authority.blast(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),explosion,*at);
         crate::recon::module::publish_active(authority);
     }
 }

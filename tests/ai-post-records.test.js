@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { attachPostAI, postWeight } from "../src/ai/classic/goals.js";
+import { attachPostAI } from "../src/post-data.js";
 
 const record = (name, position, atk, def = atk) => ({ name, position, values: { atk, def }, bans: 0, valueBleed: 10, spawnPath: null, allyPath: null });
 
@@ -15,7 +15,7 @@ test("an unnamed post takes the record at its place, by its world name not its r
   ];
   const mission = { posts: [record("cp5", [1, 0, 0], [100, 10, 10, 10, 10, 10]), record("", [251.8, -44.9, 83.5], [100, 0, 0, 0, 0, 100], [100, 0, 0, 0, 0, 0])] };
   attachPostAI(posts, mission, {});
-  assert.equal(postWeight(posts[0], 1, 2), 10);
-  assert.equal(postWeight(posts[1], 1, 2), 0, "the Empire is never sent to the probe droid drop");
-  assert.equal(postWeight(posts[1], 3, 5), 0);
+  assert.equal(posts[0].ai.atk[2], 10);
+  assert.equal(posts[1].ai.atk[2], 0, "the Empire is never sent to the probe droid drop");
+  assert.equal(posts[1].ai.def[5], 0);
 });

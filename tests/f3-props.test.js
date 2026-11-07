@@ -119,32 +119,23 @@ test('a built trap reaches zero health by springing and a repair starts its unti
   assert.equal(trap.phase,'reset');assert.equal(trap.started,null);assert.equal(trap.sprung,true);
 });
 
-// Published native lifecycle writes end the reused read span before the next
-// native damage service consumes it. Nested spans must also leave no lease.
-test('AI sensor spans retain facts until a native prop changes',async()=>{
+// A canonical prop command between sensor reads must be visible immediately
+// to native blast damage, without a foreign AI sensor span or prop adapter.
+test('native blast reads a prop changed between sensor queries',async()=>{
   const prop=building('station',0,2,{health:1000});prop.team=2;
   const live={buildings:[prop],animated:[]};
   const w=await f3World({soldier},{prepareLive:()=>live});
-  new F4Live(w.phase,{sound(){}});
-  const unit=w.spawn('soldier',0,0,true),registry=w.phase.registry;
+  new F4Live(w.phase);
+  const unit=w.spawn('soldier',0,0,true);
   w.units.setRelation(1,2,-1);
   w.phase.begin(w.phase.bindings[unit.id],'team');
   w.phase.change.value=1;w.phase.commit();
   w.phase.bodiesIn();
   const out=[];
-  registry.beginReads();
-  try {
-    w.units.query(unit.position,10,out);
-    assert.equal(registry.readReady,true);
-    w.units.query(unit.position,10,out);
-    assert.equal(registry.readReady,true);
-    prop.damage(100);
-    assert.equal(registry.readReady,false);
-    // Use the model centre so the fixture's floor cannot occlude the blast.
-    w.ordnance.explosion({class:'blast',Damage:20,DamageRadiusInner:10,DamageRadiusOuter:10},new Vector3(0,1,2),unit);
-    assert.equal(prop.health,880);
-    registry.beginReads();registry.endReads();
-    assert.equal(registry.readDepth,1);
-  } finally { registry.endReads(); }
-  assert.equal(registry.readDepth,0);
+  w.units.query(unit.position,10,out);
+  prop.damage(100);
+  w.units.query(unit.position,10,out);
+  // Use the model centre so the fixture's floor cannot occlude the blast.
+  w.ordnance.explosion({class:'blast',Damage:20,DamageRadiusInner:10,DamageRadiusOuter:10},new Vector3(0,1,2),unit);
+  assert.equal(prop.health,880);
 });

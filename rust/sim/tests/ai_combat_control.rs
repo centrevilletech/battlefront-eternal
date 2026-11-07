@@ -8,10 +8,10 @@ impl Objects for Ids {
     fn unit(&self, key: UKey) -> Obj { 1000 + key as u64 }
     fn character(&self, key: usize) -> Obj { 2000 + key as u64 }
     fn post(&self, key: usize) -> Obj { 3000 + key as u64 }
-    fn unit_key(&self, obj: Obj) -> UKey { usize::try_from(obj.checked_sub(1000).unwrap()).unwrap() }
+    fn unit_key(&self, obj: Obj) -> UKey { obj.checked_sub(1000).unwrap() }
     fn alert_source(&self, obj: Obj) -> AlertSource {
         if obj >= 2000 { AlertSource::Character((obj - 2000) as usize) }
-        else { AlertSource::Unit((obj - 1000) as usize) }
+        else { AlertSource::Unit(obj - 1000) }
     }
 }
 
@@ -95,4 +95,24 @@ fn returned_alerts_keep_character_and_direct_unit_identity_distinct() {
     assert_eq!(writes.target, Some(EntRef { unit: 9, generation: 12.0 }));
     assert!(writes.fire_b);
     assert_eq!(writes.aim_point.x.to_bits(), (-0.0f64).to_bits());
+}
+
+#[test]
+fn pure_queries_preserve_alerts_and_controller_requests() {
+    let mut source=Controller::new(2);source.unit=Some(2);source.generation=4.;source.range_scale=1.5;
+    source.aim_state=1.;source.aim_point=Vec3 {x:-0.,y:2.,z:3.};
+    source.target=Some(EntRef {unit:7,generation:3.});
+    let mut combat=Ctl::default();combat.fire_a=true;combat.shot.pending=true;
+    combat.character=Some(2009);combat.objective=Some(3008);
+    combat.acoustic.push(Ref {obj:1008,generation:1.});
+    combat.feed_aimer(&source,&Ids);
+    assert_eq!((combat.unit,combat.generation,combat.range_scale),(Some(1002),4.,Some(1.5)));
+    assert_eq!(combat.target,Some(Ref {obj:1007,generation:3.}));
+    assert_eq!(combat.aim_point.x.to_bits(),(-0.0f64).to_bits());
+    assert!(combat.fire_a&&combat.shot.pending);
+    assert_eq!((combat.character,combat.objective),(Some(2009),Some(3008)));
+    assert_eq!(combat.acoustic,vec![Ref {obj:1008,generation:1.}]);
+    source.fire_b=true;combat.feed_fire(&source,&Ids);
+    assert_eq!((combat.fire_a,combat.fire_b),(false,true));
+    assert!(combat.shot.pending);assert_eq!(combat.acoustic,vec![Ref {obj:1008,generation:1.}]);
 }

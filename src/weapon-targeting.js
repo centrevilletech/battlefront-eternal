@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { unitsArray, defaultRelation, lockSpan } from './targeting-facts.js';
-import { weaponAI, categoryOf, relationBit } from './ai/classic/weapons-ai.js';
+import { weaponAI, categoryOf, relationBit } from './weapon-policy.js';
 import { derivedFrom } from './combat-sources.js';
 
 const nativeWeapons = new WeakMap();

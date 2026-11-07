@@ -70,9 +70,9 @@ impl<'a> Read<'a> {
     }
     pub fn reference(&mut self, v: V) -> Option<Ref> { (!v.is_nullish()).then(|| Ref { obj: self.obj(v.get("unit")), generation: v.get("generation").num() }) }
     fn class(&mut self, v: V) -> Option<ClassView> {
-        (!v.is_nullish()).then(|| ClassView { forward_speed: self.js(v.get("ForwardSpeed")), max_speed: self.js(v.get("MaxSpeed")), max_health: self.js(v.get("MaxHealth")),
+        (!v.is_nullish()).then(|| ClassView { fields:Rc::new(ClassFields { forward_speed: self.js(v.get("ForwardSpeed")), max_speed: self.js(v.get("MaxSpeed")), max_health: self.js(v.get("MaxHealth")),
             health_type: self.js(v.get("HealthType")), jet_jump: self.js(v.get("JetJump")), jet_fuel_min_border: self.js(v.get("JetFuelMinBorder")),
-            unit_type: self.js(v.get("UnitType")), role: self.js(v.get("role")), ai_role: self.js(v.get("aiRole")) })
+            unit_type: self.js(v.get("UnitType")), role: self.js(v.get("role")), ai_role: self.js(v.get("aiRole")) }),prepared_role:None,prepared_category:None })
     }
     fn soldier(&mut self, v: V) -> Option<SoldierView> {
         (!v.is_nullish()).then(|| SoldierView { air: v.get("air").bool(), posture: self.js(v.get("posture")),
@@ -84,7 +84,7 @@ impl<'a> Read<'a> {
             controllable_controller: self.opt_obj(v.get("controllableController")), unit_controller: self.opt_obj(v.get("unitController")) })
     }
     fn weapon(&mut self, v: V) -> WeaponView {
-        WeaponView { def: self.object(v.get("def")), levels: (!v.get("levels").is_nullish()).then(|| v.get("levels").items().map(|v| self.object(v)).collect()),
+        WeaponView { def: self.object(v.get("def")), levels: (!v.get("levels").is_nullish()).then(|| Rc::new(v.get("levels").items().map(|v| self.object(v)).collect())),
             channel: self.js(v.get("channel")), clip: v.get("clip").num(), reserve: v.get("reserve").num(), rounds: self.js(v.get("rounds")), bottomless: v.get("bottomless").bool(),
             heat: v.get("heat").num(), overheated: v.get("overheated").bool(), charging: v.get("charging").bool(), held: v.get("held").num(), wait: v.get("wait").num(), limit: v.get("limit").opt_num(),
             reloading: v.get("reloading").bool(), busy: v.get("busy").bool(), spread_scale: v.get("spreadScale").num(), sniper_scale: v.get("sniperScale").opt_num(),
@@ -133,12 +133,12 @@ impl<'a> Read<'a> {
             aimer: Aimer { direction: vec(a.get("direction")), velocity: vec(a.get("velocity")), started: a.get("started").bool(), curves: AimCurves { a: c.get("A").num(), d: c.get("D").num(), b: c.get("B").num(), s: c.get("S").num() } },
             fire: self.fire(v.get("fire")), last_scan_count: v.get("lastScanCount").num(), enhanced: (!e.is_nullish()).then(|| EnhancedAimer { profile: profile(tier), skill: e.get("skill").num(),
                 direction: vec(e.get("direction")), started: e.get("started").bool(), error: [e.get("error").at(0).num(), e.get("error").at(1).num()], bias: [e.get("bias").at(0).num(), e.get("bias").at(1).num()],
-                key: e.get("key").str().map(str::to_string), last_key: e.get("lastKey").str().map(str::to_string), lost_at: e.get("lostAt").num(), acquired_at: e.get("acquiredAt").num(), ready_at: e.get("readyAt").num() }) })
+                key: e.get("key").str().map(super::super::enhanced::TargetKey::parse), last_key: e.get("lastKey").str().map(super::super::enhanced::TargetKey::parse), lost_at: e.get("lostAt").num(), acquired_at: e.get("acquiredAt").num(), ready_at: e.get("readyAt").num() }) })
     }
     pub fn ctl(&mut self, v: V) -> Ctl {
         let tier = self.tier;
         let shot = v.get("shot"); let danger = v.get("danger"); let jet = v.get("jet");
-        Ctl { obj: self.obj(v.get("self")), unit: self.opt_obj(v.get("unit")), generation: v.get("generation").num(), character: self.opt_obj(v.get("character")), objective: self.opt_obj(v.get("objective")),
+        Ctl { controller_state:0.,obj: self.obj(v.get("self")), unit: self.opt_obj(v.get("unit")), generation: v.get("generation").num(), character: self.opt_obj(v.get("character")), objective: self.opt_obj(v.get("objective")),
             perception: self.perception(v.get("perception"), tier), target: self.reference(v.get("target")), fire_a: v.get("fireA").bool(), fire_b: v.get("fireB").bool(), roll: v.get("roll").num(),
             range_scale: v.get("rangeScale").opt_num(), aim_state: v.get("aimState").num(), aim_point: vec(v.get("aimPoint")), aim_target: self.reference(v.get("aimTarget")), stance: v.get("stance").num(),
             nav_stance: v.get("navStance").opt_num(), facing: v.get("facing").bool(), wanted_mode: v.get("wantedMode").num(), dodge: v.get("dodge").opt_num(), alert_anim: v.get("alertAnim").opt_bool(),

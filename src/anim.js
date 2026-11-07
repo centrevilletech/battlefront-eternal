@@ -37,9 +37,10 @@ export function loadClips(meta, buffer, boneNames = null) {
   return clips;
 }
 
-// Vehicle, prop and rider consumers share the required native sampler.
-// Each Pose retains its battle instance, so a later battle cannot move its
-// accumulators. Unit display blending belongs to bfe-presentation instead.
+// Vehicle, prop and rider consumers share the sampler installed before a
+// battle constructs their rigs. Existing accumulators bind it when cleared.
+// Unit display blending runs directly in rust/bfe-pose and does not use this
+// host accumulator. The remaining consumers still need its clip/bone API.
 let animKernel = null;
 // The page's snapshot ring shares the battle's required native instance.
 export function animationKernel() {

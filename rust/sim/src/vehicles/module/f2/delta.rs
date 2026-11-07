@@ -120,7 +120,22 @@ impl Cache {
     pub fn prepare_retained(&mut self, slot:u32, generation:u32, width:usize,
         ranges:&[std::ops::Range<usize>],write:impl FnOnce(&mut [f64],&mut Vec<f64>)) -> Option<bool> {
         if self.identity!=Some((slot,generation)) || self.last.words.len()<crate::store::block::HEADER+width {return None;}
-        self.next.words.clear();self.next.words.extend_from_slice(&self.last.words);
+        // Acknowledgement swaps the two complete buffers. Their last mask
+        // describes the difference in either direction; restore just those
+        // words instead of copying the unchanged weapon heap for an AI intent.
+        // A changed variable-list shape still needs the complete baseline.
+        if self.next.words.len()!=self.last.words.len() {
+            self.next.words.clear();self.next.words.extend_from_slice(&self.last.words);
+        } else {
+            for (chunk,&mask) in self.delta.value.mask.iter().enumerate() {
+                let mut pending=mask;
+                while pending!=0 {
+                    let index=chunk*MASK_BITS+pending.trailing_zeros() as usize;
+                    self.next.words[index]=self.last.words[index];
+                    pending&=pending-1;
+                }
+            }
+        }
         self.next.heap.clear();
         let base=crate::store::block::HEADER;
         write(&mut self.next.words[base..base+width],&mut self.next.heap);

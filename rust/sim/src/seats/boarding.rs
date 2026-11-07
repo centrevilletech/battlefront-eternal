@@ -87,13 +87,19 @@ pub fn controlling_team(v: &Vehicle, _side: &HullSide, leases: &Slab<SeatLease>)
 /// team, anyone's) and only a free seat; a person takes `preferred` when it
 /// is free, else the first seat that is free or a bot holds.
 pub fn boarding_seat<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, v: &Vehicle, side: &HullSide, team: f64, person: bool, preferred: i32) -> i32 {
+    boarding_seat_with(&mut |a,b|w.relation(a,b),st,v,side,team,person,preferred)
+}
+/// The native AI eligibility query borrows only the relation authority.
+/// Keeping this rule shared avoids constructing an action-capable seat world
+/// merely to choose a seat; it cannot promote, kill or acquire an AI Core.
+pub fn boarding_seat_with(relation:&mut impl FnMut(f64,f64)->f64,st:&Store,v:&Vehicle,side:&HullSide,team:f64,person:bool,preferred:i32)->i32 {
     if !v.alive || v.seats.is_empty() {
         return -1;
     }
     for seat in &v.seats {
         let Some(r) = seat.lease else { continue };
         let lease = st.seat_lease.get(r).expect("a seat's lease");
-        if !lease.released && !(w.relation(team, lease.team) > 0.0) {
+        if !lease.released && !(relation(team, lease.team) > 0.0) {
             return -1;
         }
     }

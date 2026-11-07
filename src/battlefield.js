@@ -1,8 +1,8 @@
-import { Boundary } from "./ai/classic/nav/boundary.js";
+import { Boundary } from "./battle-boundary.js";
 
 // Leaving the battlefield, as the 2004 game has it (docs/formats.md,
 // "Leaving the battlefield"). The battlefield is the map's bnd_ boundary
-// (src/ai/classic/nav/boundary.js): a point is outside when no polygon holds
+// (src/battle-boundary.js): a point is outside when no polygon holds
 // it, in x and z only; a map without one (both Yavin maps) has no outside.
 //
 // Each Character's update (run while he has a body) tests what he

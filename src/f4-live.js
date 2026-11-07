@@ -127,7 +127,6 @@ export class F4Live {
       }
     }
     if (view.attacker !== undefined || binding.hasAttacker) { b.lastAttacker = view.attacker; binding.hasAttacker = true; }
-    this.phase.registry.invalidateReads();
     this.remember(binding);
   }
   bindAnimated(p) {

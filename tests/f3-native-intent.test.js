@@ -1,0 +1,47 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Vector3} from 'three';
+import {observeNativeIntent} from '../src/f3-native-intent.js';
+import {BlockHeaderLayout} from '../src/sim/gen/boundary.js';
+import {F3PublicationLayout as P,F3UnitMirrorLayout as U,F3UnitKeyLayout as K,F3NativeIntentLayout as I} from '../src/sim/gen/units.js';
+
+test('held input follows its qualified publication and preserves foreign commands',()=>{
+  const phase={bridge:{f:new Float64Array(4096)}};
+  const binding={nativeIntent:false,wordsAt:8,intentAim:new Vector3(),view:{key:{slot:0,generation:0}}};
+  let intent={forward:0,right:0,turn:0,pitch:0,buttons:[0,0],aim:null};
+  const reader=observeNativeIntent(binding,phase,intent);
+  intent.forward=.625;intent.right=-.375;intent.buttons[0]=3;
+  assert.equal(intent.forward,.625);
+  const row=()=>binding.wordsAt+BlockHeaderLayout.words+P.nativeControls+1;
+  const foreign=intent;binding.nativeIntent=true;intent=reader.intent;
+  assert.equal(intent.forward,0,'ownership restores equal zero words without a decode');
+  phase.bridge.f[row()+I.forward]=-.75;
+  phase.bridge.f[row()+I.buttons+1]=2;
+  assert.equal(intent.forward,-.75);
+  assert.deepEqual(intent.buttons,[0,2]);
+  phase.bridge.f[row()+I.aim]=1;
+  assert.equal(intent.aim,null);
+  phase.bridge.f[row()+I.aim]=0;
+  phase.bridge.f.set([1,2,3],row()+I.aim+1);
+  assert.equal(intent.aim,binding.intentAim);
+  assert.deepEqual(intent.aim.toArray(),[1,2,3]);
+  // Publication banks and memory views can move between observations.
+  binding.wordsAt=1024;
+  phase.bridge.f=new Float64Array(4096);
+  phase.bridge.f[row()+I.forward]=.25;
+  phase.bridge.f[row()+I.aim]=1;
+  assert.equal(intent.forward,.25);
+  const key=binding.wordsAt+BlockHeaderLayout.words+P.body+U.key;
+  phase.bridge.f[key+K.generation]=1;phase.bridge.f[row()+I.forward]=9;
+  assert.notEqual(intent.forward,9,'a recycled cache cannot redirect an old facade');
+  phase.bridge.f[key+K.generation]=0;phase.bridge.f[row()+I.forward]=.25;
+  reader.detach();
+  phase.bridge.f[row()+I.forward]=9;
+  assert.equal(intent.forward,.25,'retired facade never aliases a replacement cache');
+  binding.nativeIntent=false;intent=foreign;
+  intent.forward=.5;
+  assert.equal(intent.forward,.5);
+  const replacement=observeNativeIntent(binding,phase,intent);
+  assert.equal(intent.forward,.5,'class realization can rebind the retained intent object');
+  replacement.detach();
+});

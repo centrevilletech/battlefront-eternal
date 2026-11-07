@@ -37,7 +37,7 @@ resolutions the tools know (unknown keys stay as hex).
 | 19 | **Low-reinforcement voice-over** | `SetLowReinforcementsVoiceOver` (23 scripts) | 23 scripts | **missing**: no reader (`SetBleedingVoiceOver` and `SetOutOfBoundsVoiceOver` are read) | Trigger the line at the threshold |
 | 20 | **Walker pool sizes** | `AddWalkerType`/`ClearWalkers` (42 scripts) | all | **missing** as a reader; pads spawn walkers anyway | Only matters for mods that rely on the pool; low |
 
-Also seen, lower on the list: the K-wing (`all_fly_kwing`, four turret seats) and the Lambda shuttle (`imp_fly_trooptrans`) exist as classes but no pad places them, so nothing is lost; `SetStayInTurrets`, `SetDefenderSnipeRange`, `SetAllowBlindJetJumps`, `SetAIVehicleNotifyRadius`, difficulty, bleed thresholds, death regions, fly heights, bonuses, heroes, spawn delay and reinforcement counts are all read (`src/ai/classic/goals.js`, `spawning.js`, `difficulty.js`, `src/battle.js`).
+Also seen, lower on the list: the K-wing (`all_fly_kwing`, four turret seats) and the Lambda shuttle (`imp_fly_trooptrans`) exist as classes but no pad places them, so nothing is lost; `SetStayInTurrets`, `SetDefenderSnipeRange`, `SetAllowBlindJetJumps`, `SetAIVehicleNotifyRadius`, difficulty, bleed thresholds, death regions, fly heights, bonuses, heroes, spawn delay and reinforcement counts are all read (`rust/sim/src/ai/control/`, `rust/sim/src/battle/`).
 
 ## Bespin Platforms: the anti-aircraft turrets
 

@@ -1,5 +1,10 @@
 # Enhanced AI
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 Enhanced is the second battle AI, next to Classic. Classic (`src/ai/classic`,
 [ai.md](ai.md)) is the 2004 game's AI, quirks included.
 Enhanced keeps Classic's machinery (navigation, the sight scan, weapons,

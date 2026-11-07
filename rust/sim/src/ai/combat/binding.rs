@@ -15,10 +15,10 @@ use super::agent::{can_engage, Reservations};
 use super::aim::{aim_point_for, lead_point, resolve, skill_curves};
 use super::enhanced::EnhancedCombat;
 use super::perception::{
-    acoustic_response, alert_response, broadcast_acoustic, clear_candidate, hazard_response, notify_damage, notify_danger, notify_targeted_shot,
-    scan, sight_range, thin, tracker_update, Attacker, DangerState, DeferredLos, Packet, Perception, Response, TargetTracker,
+    acoustic_response, alert_response, broadcast_acoustic, clear_candidate, hazard_response, notify_damage, notify_danger_with, notify_targeted_shot,
+    scan, sight_range, thin, tracker_update, Attacker, DangerState, DeferredLos, Packet, Response, TargetTracker,
 };
-use super::weapons_ai::{consume_fire, def_at, rebuild_protected_humans, selected_weapon, sensor_range, weapon_mut, Shared};
+use super::weapons_ai::{consume_fire, def_at, rebuild_protected_humans, selected_weapon, sensor_range, Shared};
 use super::world::{Curves, Obj, Ref, World};
 
 /// The combat services' battle state.
@@ -56,7 +56,7 @@ fn event_unit<W: World + ?Sized>(w: &W, r: EventRef) -> Option<Obj> {
     match r {
         EventRef::None => None,
         EventRef::Ref(r) => resolve(w, Some(r)),
-        EventRef::Unit(u) => w.unit(u).alive.then_some(u),
+        EventRef::Unit(u) => w.unit_scalars(u).alive.then_some(u),
     }
 }
 
@@ -70,8 +70,7 @@ impl CombatAi {
 
     /// combat.js:1466 `createPerception(controller)`: a fresh perception.
     pub fn create_perception<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
-        let mut p = Perception::default();
-        p.reset();
+        let p = w.fresh_perception(controller);
         w.ctl_mut(controller).perception = Some(p);
     }
 
@@ -79,7 +78,7 @@ impl CombatAi {
     /// draw their spread from generator A.
     pub fn attach_controller<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
         if let Some(u) = w.ctl(controller).unit {
-            if w.unit(u).arsenal.is_some() {
+            if w.has_arsenal(u) {
                 w.use_classic_random(u);
             }
         }
@@ -114,10 +113,7 @@ impl CombatAi {
 
     /// classic/index.js:149 `serviceLos(world, budget)`.
     pub fn service_los<W: World + ?Sized>(&mut self, w: &mut W, budget: f64) -> bool {
-        let mut los = std::mem::take(&mut self.los);
-        let any = los.service(w, &mut self.shared, budget);
-        self.los = los;
-        any
+        self.los.service(w,&mut self.shared,budget)
     }
 
     /// classic/index.js:150 `broadcastAcoustic(unit)`.
@@ -246,7 +242,7 @@ impl CombatAi {
         self.aim_hooked = true;
         let direction = self.update_aim(w, controller, dt);
         if let Some(u) = w.ctl(controller).unit {
-            if w.unit(u).intent {
+            if w.unit_scalars(u).intent {
                 w.set_intent_aim(u, direction);
             }
         }
@@ -256,20 +252,21 @@ impl CombatAi {
     /// combat.js:1509 `updateAim(controller, dt)`.
     pub fn update_aim<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, dt: f64) -> Option<Vector3> {
         let unit = w.ctl(controller).unit?;
-        if !w.unit(unit).alive || w.ctl(controller).perception.is_none() {
+        if !w.unit_scalars(unit).alive || w.ctl(controller).perception.is_none() {
             return None;
         }
         let desired = w.forward(unit);
         let curves = curves_of(w, controller, unit);
         let weapon = selected_weapon(w, unit, Some(controller));
         let def = weapon.map(|i| def_at(w, unit, i));
-        let hero = w.unit(unit).hero;
+        let hero = w.unit_scalars(unit).hero;
         let p = w.ctl_mut(controller).perception.as_mut().unwrap();
         let (direction, scales) = p.aimer.update(&desired, dt, curves.as_ref(), def.as_deref(), hero);
         if let (Some(i), Some(s)) = (weapon, scales) {
-            let wv = weapon_mut(w, unit, i);
-            wv.spread_scale = s.spread_scale;
-            wv.sniper_scale = Some(s.sniper_scale);
+            w.edit_weapon(unit,i,|wv| {
+                wv.spread_scale = s.spread_scale;
+                wv.sniper_scale = Some(s.sniper_scale);
+            });
         }
         Some(direction)
     }
@@ -284,7 +281,7 @@ impl CombatAi {
             match *e {
                 Event::Shot { source, target } => {
                     let shooter = event_unit(w, source);
-                    let controller = shooter.and_then(|s| w.unit(s).controller);
+                    let controller = shooter.and_then(|s| w.unit_controller(s));
                     let target = event_unit(w, target).or_else(|| {
                         let c = controller?;
                         let ctl = w.ctl(c);
@@ -295,7 +292,7 @@ impl CombatAi {
                         }
                     });
                     if let (Some(shooter), Some(target)) = (shooter, target) {
-                        let at = w.unit(shooter).position;
+                        let at = w.unit_scalars(shooter).position;
                         notify_targeted_shot(w, shooter, target, &at);
                     }
                 }
@@ -304,7 +301,7 @@ impl CombatAi {
                     let attacker = event_unit(w, attacker);
                     let attacker = if let Some(a) = attacker {
                         let character = w.unit(a).character;
-                        Some(Attacker { obj: a, character, team: Some(w.unit(a).team), character_team: character.map(|c| w.character_team(c)) })
+                        Some(Attacker { obj: a, character, team: Some(w.unit_scalars(a).team), character_team: character.map(|c| w.character_team(c)) })
                     } else {
                         attacker_character.map(|c| Attacker { obj: c, character: None, team: Some(w.character_team(c)), character_team: None })
                     };
@@ -321,12 +318,17 @@ impl CombatAi {
     /// the danger broadcast of one live grenade or sticky charge; `state` is
     /// the round's (`round.aiDanger`, made at its first call).
     pub fn grenade_update<W: World + ?Sized>(&mut self, w: &mut W, state: &mut DangerState, position: &Vector3, owner: Option<Obj>, first_contact: f64) -> f64 {
+        self.grenade_update_with(w,state,position,owner,first_contact,&mut |_,_|{})
+    }
+    /// Notify the active Core before a later aim/control feed can overwrite
+    /// its pending danger with an older controller observation.
+    pub fn grenade_update_with<W:World+?Sized>(&mut self,w:&mut W,state:&mut DangerState,position:&Vector3,owner:Option<Obj>,first_contact:f64,notify:&mut impl FnMut(&mut W,Obj))->f64 {
         if first_contact < state.first_contact {
             state.first_contact = first_contact;
         }
         let d = w.difficulty();
         let skill = if d.present { d.enemy_skill.unwrap_or(14.0) } else { 14.0 };
-        notify_danger(w, state, position, owner, skill, &mut |w: &mut W, u| w.emit_vo(u, "flee", "FleeSound"))
+        notify_danger_with(w, state, position, owner, skill, &mut |w: &mut W, u| w.emit_vo(u, "flee", "FleeSound"),notify)
     }
 
     // -- The interrupt helper's responses.
@@ -356,7 +358,7 @@ pub fn curves_of<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj) -> Op
             return Some(c);
         }
     }
-    let team = w.unit(unit).team;
+    let team = w.unit_scalars(unit).team;
     w.curves_for(team)
 }
 

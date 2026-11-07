@@ -38,36 +38,70 @@ fn point(v: Vector3) -> Vec3 { Vec3 { x: v.x, y: v.y, z: v.z } }
 impl Ctl {
     /// Apply only the fields owned by control. Perception is created at
     /// bind, and its heap, fire state and aim filters remain untouched.
+    #[inline(always)]
     pub fn feed_control(&mut self, input: &CombatInput<'_>, ids: &impl Objects) {
-        self.unit = input.unit.map(|u| ids.unit(u));
-        self.generation = input.generation;
-        self.character = Some(ids.character(input.character));
+        self.character=Some(ids.character(input.source.character));
+        self.feed_requests(input,ids);
+    }
+    /// Native controllers bind Character identity once. Repeated requests
+    /// keep that qualified object rather than resolving the roster again.
+    pub fn feed_requests(&mut self,input:&CombatInput<'_>,ids:&impl Objects) {
+        let c=input.source;
+        self.controller_state=c.fsm.state;
+        self.unit = c.unit.map(|u| ids.unit(u));
+        self.generation = c.generation;
         self.objective = input.objective.map(|p| ids.post(p));
-        self.target = input.target.map(|r| ids.entity_ref(r));
-        self.fire_a = input.fire_a;
-        self.fire_b = input.fire_b;
-        self.roll = input.roll;
-        self.range_scale = Some(input.range_scale);
-        self.aim_state = input.aim_state;
-        self.aim_point = vec(input.aim_point);
-        self.aim_target = input.aim_target.map(|r| ids.entity_ref(r));
-        self.stance = input.stance;
+        self.target = c.target.map(|r| ids.entity_ref(r));
+        self.fire_a = c.fire_a;
+        self.fire_b = c.fire_b;
+        self.roll = c.roll;
+        self.range_scale = Some(c.range_scale);
+        self.aim_state = c.aim_state;
+        self.aim_point = vec(c.aim_point);
+        self.aim_target = c.aim_target.map(|r| ids.entity_ref(r));
+        self.stance = c.stance;
         self.nav_stance = input.nav_stance;
-        self.facing = input.facing;
-        self.wanted_mode = input.wanted_mode;
-        self.dodge = input.dodge;
-        self.alert_anim = input.alert_anim;
-        self.shot.pending = input.shot_pending;
-        self.shot.known = input.shot_known;
-        self.shot.point = vec(input.shot_point);
-        self.shot.source = input.shot_source.map(|s| ids.source(s));
-        self.danger.pending = input.danger_pending;
-        self.danger.point = vec(input.danger_point);
+        self.facing = c.facing;
+        self.wanted_mode = c.wanted_mode;
+        self.dodge = c.dodge;
+        self.alert_anim = c.alert_anim;
+        self.shot.pending = c.shot_pending;
+        self.shot.known = c.shot_known;
+        self.shot.point = vec(c.shot_point);
+        self.shot.source = c.shot_source.map(|s| ids.source(s));
+        self.danger.pending = c.danger_pending;
+        self.danger.point = vec(c.danger_point);
         self.acoustic.clear();
-        self.acoustic.extend(input.acoustic.iter().map(|&r| ids.entity_ref(r)));
-        self.difficulty = input.difficulty.map(|d| Curves { a: d.a, d: d.d, b: Some(d.b), s: Some(d.s) });
-        self.jet.pending = input.jet_pending;
-        self.jet.vector = vec(input.jet_vector);
+        self.acoustic.extend(c.acoustic.iter().map(|&r| ids.entity_ref(r)));
+        self.difficulty = c.difficulty.map(|d| Curves { a: d.a, d: d.d, b: Some(d.b), s: Some(d.s) });
+        self.jet.pending = c.nav_control.as_ref().map_or(c.jet_pending,|n|n.jet_pending);
+        self.jet.vector = vec(c.nav_control.as_ref().map_or(c.jet_vector,|n|n.jet_vector));
+    }
+
+    /// selectedWeapon, ranges and firingCone inspect only the current owner
+    /// and range scale. Their pure query cannot consume alerts or requests.
+    pub fn feed_query(&mut self,c:&crate::ai::control::controller::Controller,ids:&impl Objects) {
+        self.unit=c.unit.map(|u|ids.unit(u));self.generation=c.generation;
+        self.range_scale=Some(c.range_scale);
+    }
+    /// aimPointFor additionally observes the desired target and point. It
+    /// writes no controller fields; tracker and aimer storage stays retained.
+    pub fn feed_aim_query(&mut self,c:&crate::ai::control::controller::Controller,ids:&impl Objects) {
+        self.feed_query(c,ids);self.aim_state=c.aim_state;self.aim_point=vec(c.aim_point);
+        self.aim_target=c.aim_target.map(|r|ids.entity_ref(r));self.target=c.target.map(|r|ids.entity_ref(r));
+    }
+
+    /// Post-movement aim reads current difficulty and target, while Character
+    /// identity and its Enhanced skill remain bound for the controller's life.
+    pub fn feed_aimer(&mut self,c:&crate::ai::control::controller::Controller,ids:&impl Objects) {
+        self.feed_aim_query(c,ids);
+        self.difficulty=c.difficulty.map(|d|Curves {a:d.a,d:d.d,b:Some(d.b),s:Some(d.s)});
+    }
+
+    /// consumeFire reads current targeting and fire requests, and returns
+    /// only those requests. Alert queues and helper policy are not consumed.
+    pub fn feed_fire(&mut self,c:&crate::ai::control::controller::Controller,ids:&impl Objects) {
+        self.feed_aimer(c,ids);self.fire_a=c.fire_a;self.fire_b=c.fire_b;
     }
 
     /// The writes the core adopts after combat's target/aim/fire service.

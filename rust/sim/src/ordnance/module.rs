@@ -742,6 +742,8 @@ impl World for JsWorld<'_> {
     // The retained journal separates those observations from canonical flight state.
     // Gameplay collision and immediate explosion remain native operations.
     fn grenade_contact(&mut self, grenade: Ref<Grenade>) {
+        let current=self.store().grenade.contains(grenade);
+        if current {if let Some(ai)=self.recon.as_mut().and_then(|services|services.ai.as_mut()) {ai.grenade_contact(grenade);}}
         if crate::units::f3::active() {
             self.notice(F3OrdnanceEvent::GrenadeContact,Shot::Grenade(grenade)).emit(&mut sim().events);
             return;

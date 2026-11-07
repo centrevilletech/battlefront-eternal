@@ -38,18 +38,19 @@ export default {
     F3CharacterRelease: { unit: 'ref:unit', character: 'ref:character' },
     F3RemovedNotice: { key: 'rec:F3UnitKey' },
     F3Allocation: { stage: 'enum:F3AllocationStage', bytes: 'u32', reallocation: 'bool' },
-    // IntentControls.consume always publishes one-shot edges. Its held input
-    // and latch mirrors need stores only when the canonical words changed.
-    F3ControlView: { $layout:true, $delta:['was','pressed0','pressed1','input'],
-      jump: {type: 'bool', js: 'intent.jump', mirror: false}, crouch: {type: 'bool', js: 'intent.crouch', mirror: false}, prone: {type: 'bool', js: 'intent.prone', mirror: false},
-      use: {type: 'bool', js: 'intent.use', mirror: false}, exit: {type:'bool', js:'intent.exit', mirror:false}, reload: {type: 'bool', js: 'intent.reload', mirror: false},
-      nextPrimary: {type: 'bool', js: 'intent.nextPrimary', mirror: false}, previousPrimary: {type: 'bool', js: 'intent.previousPrimary', mirror: false},
-      nextSecondary: {type: 'bool', js: 'intent.nextSecondary', mirror: false}, zoom: {type: 'bool', js: 'intent.zoom', mirror: false},
+    // Foreign controls retain the complete input and latch pair. Native bots
+    // publish only held intent read by diagnostics and the external aimer;
+    // their consumed movement and fire edges have no JavaScript consumer.
+    F3NativeIntent: { $layout:true, $delta:['forward','right','turn','pitch','buttons','aim'],
+      forward:'f64', right:'f64', turn:'f64', pitch:'f64', buttons:'f64x2', aim:'vec3|null',
+    },
+    F3ControlView: { $layout:true, $delta:['intent','was','pressed0','pressed1','input'],
+      intent: 'rec:Intent',
       was: {type: 'f64x2', js: 'controls.was', mirror: false},
       pressed0: {type: 'bool', js: 'controls.pressed.0', mirror: false}, pressed1: {type: 'bool', js: 'controls.pressed.1', mirror: false},
       input: 'rec:MoveInput',
     },
-    F3Publication: { $layout:true, $delta:['body','combat'], $parts:['body','controls'], body: 'rec:F3UnitMirror', arsenal: 'u32', combat: 'rec:F3CombatView', controls: 'rec:F3ControlView|null' },
+    F3Publication: { $layout:true, $delta:['body','combat'], $parts:['body','controls','nativeControls'], body: 'rec:F3UnitMirror', arsenal: 'u32', combat: 'rec:F3CombatView', controls: 'rec:F3ControlView|null', nativeIntent:'bool', nativeControls:'rec:F3NativeIntent|null' },
     F3Acknowledgement: { $layout:true, version:'u32', eventEpoch:'u32', eventOffset:'u32' },
     F3Boundary: { $layout:true,
       $refresh: ['version', 'controlsConsumed', 'output', 'outputRows', 'outputHeap', 'outputWords',
@@ -95,7 +96,7 @@ export default {
       className:'str', position:'vec3', yaw:'f64', local:'bool' },
     // Unit.tick consumes short intent rows for every body. Only network actors
     // append rewind and trigger records; bots do not send null edge padding.
-    F3PhaseInput: { key: 'rec:F3UnitKey', botTarget: 'union:Member|null', botTargetSet: 'bool', intent: 'rec:Intent', remoteFirstPerson: 'bool', hasNetwork: 'bool', networkIndex: 'u32' },
+    F3PhaseInput: { $layout:true, key: 'rec:F3UnitKey', botTarget: 'union:Member|null', botTargetSet: 'bool', intent: 'rec:Intent|null', remoteFirstPerson: 'bool', hasNetwork: 'bool', networkIndex: 'u32' },
     F3PhaseNetwork: { network: 'rec:F3NetworkView', edgeList: 'bool', edge0: 'rec:CbEdge|null', edge1: 'rec:CbEdge|null', edge: 'rec:CbEdge|null' },
     // Ownership boundary. Slab generation names the pooled object; life names
     // its current spawn. Neither can substitute for the other.
@@ -122,7 +123,7 @@ export default {
     },
     F3ShieldView: { $delta:['value','on'], value: 'f64', on: 'bool' },
     F3UnitMirror: { $layout:true,
-      $delta: ['key','pooled','hero','human','networkHuman','team','alive','dead','deadTime','removed','character','controller','seat','held','visible',
+      $delta: ['key','pooled','team','alive','dead','deadTime','removed','character','controller','seat','held','visible',
         'targetable','tickCount','remoteActive','position','previous','settled','velocity','avoidance',
         'soldier','droideka','waterContact'],
       key: 'rec:F3UnitKey', pooled:'bool', hero:'bool', human:'bool', networkHuman:'bool|undefined', team: 'f64', alive: 'bool', dead: 'bool', deadTime: 'f64', removed: 'bool',
@@ -158,7 +159,10 @@ export default {
     F3Foreign: { waterLevel: 'f64', props: 'list:rec:F3PropFact' },
     // What a unit's controller asks each tick (units.js blankIntent), and
     // what a seat's AI adds once it drives (brake, up, down).
-    Intent: {
+    // Native bot mirrors consume only changed words. Human input restores
+    // its one-shot fields with the complete reader at the owning boundary.
+    Intent: { $layout:true, $delta:['forward','right','turn','pitch','jump','crouch','prone','use','buttons',
+      'reload','nextPrimary','previousPrimary','nextSecondary','zoom','aim','jetDirection','exit','brake','up','down'],
       forward: 'f64', right: 'f64', turn: 'f64', pitch: 'f64',
       jump: 'bool', crouch: 'bool', prone: 'bool', use: 'bool',
       buttons: 'f64x2',

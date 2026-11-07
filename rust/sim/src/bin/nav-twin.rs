@@ -56,7 +56,7 @@ fn opt_index(v: Option<usize>) -> String {
 fn unit_of(v: &Value) -> NavUnit {
     let class_def = v.get("classDef").filter(|d| !d.is_null()).map(|d| {
         let ai_size_type = match d.get("AISizeType") {
-            Some(Value::String(s)) => SizeType::Text(s.to_string()),
+            Some(Value::String(s)) => SizeType::Text(s.to_string().into()),
             Some(v) => match v.as_f64() {
                 Some(n) => SizeType::Number(n),
                 None => SizeType::Missing,
@@ -114,6 +114,7 @@ fn unit_of(v: &Value) -> NavUnit {
     });
     NavUnit {
         id: num(v.get("id")) as u64,
+        control_identity: None,
         kind: num(v.get("kind")),
         position: vec3(v.get("position")),
         velocity: vec3(v.get("velocity")),
@@ -142,10 +143,10 @@ impl GotoWorld for World {
     fn time(&self) -> f64 {
         self.time
     }
-    fn random_a(&mut self) -> &mut ClassicRandom {
+    fn random_a(&mut self) -> &mut dyn bfe_sim::ai::random::Random {
         &mut self.a
     }
-    fn random_b(&mut self) -> &mut ClassicRandom {
+    fn random_b(&mut self) -> &mut dyn bfe_sim::ai::random::Random {
         &mut self.b
     }
     fn resolve(&mut self, r: UnitRef) -> Option<Resolved> {

@@ -21,7 +21,7 @@ macro_rules! scalar {
         }
     )*};
 }
-scalar!(bool, usize, u64, String, Policy, HelperKind, ForeignKind, ObjectiveFlavor, AlertSource);
+scalar!(super::super::goals::RecruitKey, bool, usize, u64, String, Policy, HelperKind, ForeignKind, ObjectiveFlavor, AlertSource);
 
 impl<T: Exact> Exact for Option<T> {
     fn exact(&self, other: &Self) -> bool {
@@ -39,6 +39,12 @@ impl<T: Exact> Exact for Vec<T> {
     }
 }
 
+impl<T:Exact+Copy+Default,const N:usize> Exact for crate::ai::owned::scratch::Inline<T,N> {
+    fn exact(&self,other:&Self)->bool {self.len()==other.len()&&self.iter().zip(other.iter()).all(|(a,b)|a.exact(b))}
+}
+impl<T:Exact> Exact for super::SharedRows<T> {
+    fn exact(&self,other:&Self)->bool {self.len()==other.len()&&self.iter().zip(other.iter()).all(|(a,b)|a.exact(b))}
+}
 impl<T: Exact> Exact for Box<T> {
     fn exact(&self, other: &Self) -> bool { (**self).exact(&**other) }
 }
@@ -61,7 +67,9 @@ fields!(SourceGoal, kind, ref_a, ref_b, post, point, mode);
 fields!(CommandQueue, current, queue, latch, current_done);
 fields!(MoveRequest, valid, steering_target, waypoint, segment_direction, mode, lower, upper);
 fields!(SquadCommand, source, kind, time, target);
-fields!(EnhancedMemory, look_until, look_point, heard);
+impl Exact for EnhancedMemory {fn exact(&self,other:&Self)->bool {
+    self.look_until.exact(&other.look_until)&&self.look_point.exact(&other.look_point)&&self.heard_rows(|rows|other.heard_rows(|other|rows.exact(other)))
+}}
 fields!(Curves, a, d, b, s);
 fields!(CharacterSnap, index, team, human, unit, objective);
 fields!(SchedulerStats, serviced, skipped, considered, budget);

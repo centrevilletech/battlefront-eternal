@@ -12,7 +12,7 @@
 use super::bodies::{drop_body, place_on_foot, seat_body, unseat_body, CombatFlags};
 use super::boarding::{boarding_seat, can_board, claim_seat, crewed, in_flight, may_leave, seat_free};
 use super::exits::{classic_seat_exit, person_exit_point, ExitFrame, ExitSpot, HullFrame};
-use super::lease::{latch_lease, live, network_human, new_lease, person_lease, seat_role, Controls};
+use super::lease::{latch_lease, live, network_human, new_lease_with_input, person_lease, seat_role, Controls};
 use super::{unit_ref, Attacker, Holder, Reason, SeatWorld};
 use crate::gen::{ExitRequest, Post, SeatLease, SeatLeaseView, SeatUnit, Store, Unit, Vehicle};
 use crate::rig::math;
@@ -223,7 +223,8 @@ impl Hulls {
         let hover = side.hover;
         let u = st.unit.get(unit_ref(st, unit)).expect("the unit");
         let network = network_human(u);
-        let lease = new_lease(Some((unit_ref(st, unit), u.generation)), false, u.team, Some(vref), None, index as f64, role, self.time, self.ticks);
+        let Some(input)=w.lease_input() else{return false};
+        let lease = new_lease_with_input(Some((unit_ref(st, unit), u.generation)), false, u.team, Some(vref), None, index as f64, role, self.time, self.ticks, input);
         let r = w.hull_lease(st, lease);
         st.seats.leases.push(r);
         self.made.push(r);

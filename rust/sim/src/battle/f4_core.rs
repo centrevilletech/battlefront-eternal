@@ -73,13 +73,18 @@ pub(crate) fn point(s: &mut Store, r: Option<Ref<Character>>) {
 
 pub(crate) fn changed_battle() { state().core.mark_battle(); }
 
+pub(crate) fn resolve_character(store:&Store,handle:&F4Handle)->Option<Ref<Character>> {
+    if handle.kind!=F4ObjectKind::Character {return None;}
+    let reference=Ref::new(handle.slot,handle.generation);
+    (store.character.contains(reference)&&state().core.character(reference)==Some(handle)).then_some(reference)
+}
 pub(crate) fn mark_character(r:Ref<Character>){state().core.mark(r);}
 pub(crate) fn credit(victim:Option<Ref<Character>>,killer:Option<Ref<Character>>,relation:f64){state().core.credit(&mut sim().store,victim,killer,relation);}
 pub(crate) fn configure_tail(classic:bool,local:Option<Ref<Unit>>){state().classic=Some(classic);state().local=local;}
 pub(crate) fn owns_lifecycle()->bool{active() && state().classic.is_some()}
-pub(crate) fn died(unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64)->Option<Ref<Controller>>{
+pub(crate) fn died(unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64,services:crate::units::f3::WorldServices<'_>)->Option<Ref<Controller>>{
     let classic=state().classic.expect("prepared battle lifecycle");let local=state().local;
-    super::native_lifecycle::died(unit,killer,relation,classic,local)
+    super::native_lifecycle::died(unit,killer,relation,classic,local,services)
 }
 pub(crate) fn mark_mobile(){
     if !active(){return;}
@@ -113,7 +118,10 @@ pub(crate) fn prepare_tail_publications(){
     register_tail(Source::Human,HumanSpawn::EXPORT_STRIDE,heap.len());
     row.resize(Spawning::EXPORT_STRIDE,0.0);heap.clear();s.spawning.put_export(&mut row,&mut heap);
     let posts=s.command_posts.posts.len()+s.mobile_posts.posts.len();
-    register_tail(Source::Spawning,Spawning::EXPORT_STRIDE,heap.len()+posts*(SpawnPost::WORDS+4)+state().capacity*2);
+    // Cold native roster setup can fill both the manager and each team's
+    // Character lists after this reservation, plus all eight class tables.
+    let cold_teams=super::spawning::TEAM_COUNT*(SpawnTeam::WORDS+super::spawning::CLASS_CAPACITY*SpawnClass::WORDS);
+    register_tail(Source::Spawning,Spawning::EXPORT_STRIDE,heap.len()+posts*(SpawnPost::WORDS+4)+state().capacity*4+cold_teams);
 }
 fn tail_handle(kind:u32,index:u32)->F4Handle{
     use super::publication::Source;
@@ -143,7 +151,12 @@ pub(crate) fn roster_slots(s:&mut Store){
 }
 pub(crate) fn character_handle(r:Ref<Character>)->Option<F4Handle>{state().core.character(r).cloned()}
 pub(crate) fn resolve(s:&Store,h:&F4Handle)->Option<Ref<Character>>{state().core.resolve(s,h)}
-pub(crate) fn adopt(s:&mut Store,r:Ref<Character>){state().core.adopt(s,r);}
+pub(crate) fn adopt(s:&mut Store,r:Ref<Character>){
+    let handle=state().core.adopt(s,r);
+    // Native AI hooks no longer enter JS while a new roster member is
+    // attached. Admit its facade before sparse Battle/Spawning references.
+    handle.emit(&mut sim().events);
+}
 pub(crate) fn reassign(s:&Store,r:Ref<Character>){state().core.reassign(s,r);}
 pub(crate) fn recycle(s:&mut Store,r:Ref<Character>){state().core.reset_record(s,r);}
 

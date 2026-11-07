@@ -78,6 +78,7 @@ impl Seats {
         self.hulls.pending_exits.reserve(seats.saturating_sub(self.hulls.pending_exits.len()));
         self.hulls.pending_deaths.reserve(seats.saturating_sub(self.hulls.pending_deaths.len()));
         self.hulls.latched.reserve(seats.saturating_sub(self.hulls.latched.len()));
+        self.hulls.made.reserve(seats.saturating_sub(self.hulls.made.len()));
         self.changed.hulls.reserve(count.saturating_sub(self.changed.hulls.len()));
         let occupants = seats + self.crews.turrets.len();
         self.changed.leases.reserve(occupants.saturating_sub(self.changed.leases.len()));
@@ -95,6 +96,7 @@ impl Seats {
         self.crews.updating.reserve(self.crews.turrets.len());
         self.crews.shots.reserve(32);
         self.crews.latched.reserve(self.crews.turrets.len());
+        self.crews.made.reserve(self.crews.turrets.len());
         self.changed.turrets.reserve(self.crews.turrets.len());
         let occupants = self.crews.turrets.len() + self.hulls.pending_exits.capacity();
         self.changed.leases.reserve(occupants);

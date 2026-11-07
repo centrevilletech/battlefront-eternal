@@ -14,15 +14,15 @@ pub const HEALTH_TYPES: [&str; 7] = ["Person", "Animal", "Droid", "Vehicle", "Bu
 /// healthType (classes.js:250).
 pub fn health_type(unit: &AiUnit) -> f64 {
     let runtime = unit.health_type_num.is_some() || unit.health_type_name.is_some();
+    if !runtime {if let Some(value)=unit.class_def.as_ref().and_then(|c|c.prepared_health_type) {return value;}}
     let num = if runtime { unit.health_type_num } else { unit.class_def.as_ref().and_then(|c| c.health_type_num) };
     if let Some(n) = num {
         return n;
     }
     let name = if runtime { unit.health_type_name.as_deref() } else { unit.class_def.as_ref().and_then(|c| c.health_type_name.as_deref()) };
     if let Some(name) = name {
-        let lower = name.to_lowercase();
         for (i, known) in HEALTH_TYPES.iter().enumerate() {
-            if known.to_lowercase() == lower {
+            if name.eq_ignore_ascii_case(known) {
                 return i as f64;
             }
         }
@@ -47,14 +47,13 @@ pub fn unit_radius(unit: &AiUnit) -> f64 {
 
 /// remainingAmmo (classes.js:147).
 pub fn remaining_ammo(weapon: &super::world::WeaponSnap) -> f64 {
-    let rounds_ge = weapon.rounds.map(|r| r >= INT_MAX).unwrap_or(false);
-    let reserve_ge = weapon.reserve.map(|r| r >= FLT_MAX).unwrap_or(false);
-    if weapon.bottomless || rounds_ge || reserve_ge {
-        return INT_MAX;
-    }
-    v8math::trunc(v8math::fround(
-        v8math::fround(weapon.clip.unwrap_or(0.0) + weapon.reserve.unwrap_or(0.0)) * weapon.rounds.unwrap_or(1.0),
-    ))
+    remaining_ammo_values(weapon.bottomless, weapon.rounds, weapon.clip, weapon.reserve)
+}
+
+/// Shared by canonical arsenal readers and captured class-job fixtures.
+pub fn remaining_ammo_values(bottomless: bool, rounds: Option<f64>, clip: Option<f64>, reserve: Option<f64>) -> f64 {
+    if bottomless || rounds.is_some_and(|r| r >= INT_MAX) || reserve.is_some_and(|r| r >= FLT_MAX) { return INT_MAX; }
+    v8math::trunc(v8math::fround(v8math::fround(clip.unwrap_or(0.) + reserve.unwrap_or(0.)) * rounds.unwrap_or(1.)))
 }
 
 /// needs (classes.js:265).
@@ -123,17 +122,16 @@ pub struct RepairServices {
 /// tie behavior as written; sentinel 0 in slot 0.
 pub struct FloatHeap {
     capacity: usize,
-    priority: Vec<f64>,
-    items: Vec<Option<usize>>,
+    priority: [f64;21],
+    items: [Option<usize>;21],
     count: usize,
     pub dropped: usize,
 }
 
 impl FloatHeap {
     pub fn new(capacity: usize) -> Self {
-        let mut priority = vec![0.0; capacity + 1];
-        priority[0] = 0.0;
-        FloatHeap { capacity, priority, items: vec![None; capacity + 1], count: 0, dropped: 0 }
+        assert!(capacity<=20,"snipe hint heap capacity");
+        FloatHeap {capacity,priority:[0.;21],items:[None;21],count:0,dropped:0}
     }
     pub fn size(&self) -> usize {
         self.count

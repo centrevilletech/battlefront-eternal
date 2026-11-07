@@ -1,5 +1,7 @@
 //! Source-oracle twins from tools/ai-combat-twin.mjs. The input file is
-//! synthetic and requires no retail content; set BFE_AI_COMBAT_TWIN.
+//! synthetic and requires no retail content. BFE_AI_COMBAT_TWIN selects the
+//! larger source-oracle corpus; the compact golden cases always run in CI.
+use bfe_sim::ai::owned::scratch::List;
 use bfe_content::{json, Value};
 use bfe_sim::ai::combat::{aim, binding::{CombatAi, Event, EventRef}, enhanced, perception, weapons_ai};
 use bfe_sim::ai::combat::world::*;
@@ -28,12 +30,17 @@ fn js(v: &Value) -> Js {
 }
 fn obj(v:&Value)->Rc<JsObj> { let Js::Obj(o)=js(v) else { panic!("not object") };o }
 fn fixture()->Option<Value> {
-    let path=std::env::var_os("BFE_AI_COMBAT_TWIN")?;
-    let v=json::parse_bytes(&std::fs::read(path).unwrap()).unwrap();
+    let external=std::env::var_os("BFE_AI_COMBAT_TWIN");
+    let v=match &external {
+        Some(path)=>json::parse_bytes(&std::fs::read(path).unwrap()).unwrap(),
+        None=>json::parse_bytes(include_bytes!("fixtures/ai-combat-golden.json")).unwrap(),
+    };
     assert!(field(&v,"v8").as_str().unwrap().starts_with("13.6."));
-    for (key,count) in [("heaps",6),("filter",2048),("aimer",8),("ballistic",2048),("weapons",256),("buttons",2048),("priorities",144),("enhanced",9),("ingest",128)] { assert_eq!(array(field(&v,key)).len(),count,"{key} cases"); }
-    for c in array(field(&v,"enhanced")) {assert_eq!(array(field(c,"steps")).len(),256);}
-    for c in array(field(&v,"aimer")) {assert_eq!(array(c).len(),128);}
+    let counts=if external.is_some() {[("heaps",6),("filter",2048),("aimer",8),("ballistic",2048),("weapons",256),("buttons",2048),("priorities",144),("enhanced",9),("ingest",128)]}
+        else {[("heaps",6),("filter",16),("aimer",2),("ballistic",32),("weapons",32),("buttons",64),("priorities",144),("enhanced",9),("ingest",32)]};
+    for (key,count) in counts {assert_eq!(array(field(&v,key)).len(),count,"{key} cases");}
+    for c in array(field(&v,"enhanced")) {assert_eq!(array(field(c,"steps")).len(),if external.is_some(){256}else{40});}
+    for c in array(field(&v,"aimer")) {assert_eq!(array(c).len(),if external.is_some(){128}else{32});}
     Some(v)
 }
 
@@ -58,7 +65,7 @@ fn priority_heaps_match_the_source() {
             count+=1;
         }
     }
-    assert_eq!(count,7200);
+    assert_eq!(count,array(field(&data,"heaps")).iter().map(|run| array(field(run,"ops")).len()).sum::<usize>());
 }
 
 #[test]
@@ -83,7 +90,6 @@ fn classic_aim_and_ballistic_leads_match_the_source() {
         let (out,valid)=aim::ballistic_lead(&vec(field(c,"p")),&vec(field(c,"v")),&vec(field(c,"origin")),n(c,"speed"),n(c,"gravity"));
         eqv(out,vec(field(c,"out")));assert_eq!(valid,boolean(field(c,"valid")));
     }
-    assert_eq!(array(field(&data,"filter")).len(),2048);assert_eq!(array(field(&data,"ballistic")).len(),2048);
 }
 
 #[test]
@@ -111,7 +117,7 @@ fn weapon_records_triggers_and_priorities_match_the_source() {
 fn enhanced_reaction_noise_and_missing_target_ids_match_the_source() {
     let Some(data)=fixture() else { return };
     for run in array(field(&data,"enhanced")) {
-        let mut w=AimWorld {random:ClassicRandom::new(n(run,"seed")),calls:0,unit:UnitView::default(), units:Vec::new(), ctls:Vec::new(), fallback_team:1.0};
+        let mut w=AimWorld {random:ClassicRandom::new(n(run,"seed")),calls:0,unit:UnitView::default(), units:Vec::new(), ctls:Vec::new(), fallback_team:1.0,heard:None};
         let mut aimer=enhanced::EnhancedAimer::new(enhanced::profile(n(run,"tier")),n(run,"skill"));
         for c in array(field(run,"steps")) {
             let target=field(c,"target");let target=if matches!(target,Value::Null) {None} else {
@@ -121,14 +127,14 @@ fn enhanced_reaction_noise_and_missing_target_ids_match_the_source() {
             let out=aimer.update(&mut w,&vec(field(c,"desired")),n(c,"dt"),n(c,"distance"),n(c,"speedFraction"),boolean(field(c,"scoped")),n(c,"time"),boolean(field(c,"hero")));
             eqv(out,vec(field(c,"out")));assert_eq!(aimer.started,boolean(field(c,"started")));
             for i in 0..2 {eq(aimer.error[i],number(&array(field(c,"error"))[i]));eq(aimer.bias[i],number(&array(field(c,"bias"))[i]));}
-            assert_eq!(aimer.key.as_deref(),field(c,"key").as_str());assert_eq!(aimer.last_key.as_deref(),field(c,"lastKey").as_str());
+            assert_eq!(aimer.key,field(c,"key").as_str().map(enhanced::TargetKey::parse));assert_eq!(aimer.last_key,field(c,"lastKey").as_str().map(enhanced::TargetKey::parse));
             eq(aimer.lost_at,n(c,"lostAt"));eq(aimer.acquired_at,n(c,"acquiredAt"));eq(aimer.ready_at,n(c,"readyAt"));
             assert_eq!(aimer.reacting(n(c,"time")),boolean(field(c,"reacting")));eq(w.random.state as f64,n(c,"randomState"));eq(w.calls as f64,n(c,"calls"));
         }
     }
 }
 
-struct AimWorld { random:ClassicRandom,calls:usize,unit:UnitView,units:Vec<UnitView>,ctls:Vec<Ctl>,fallback_team:f64 }
+struct AimWorld { random:ClassicRandom,calls:usize,unit:UnitView,units:Vec<UnitView>,ctls:Vec<Ctl>,fallback_team:f64,heard:Option<bfe_sim::ai::owned::scratch::Pool<Obj>> }
 impl Draws for AimWorld {
     fn uniform_a(&mut self)->f64 {panic!("Enhanced aim drew from A")}
     fn uniform_b(&mut self)->f64 {panic!("Enhanced aim drew from B")}
@@ -142,8 +148,15 @@ impl World for AimWorld {
     fn mission_stay_in_turrets(&self) -> bool { panic!("unexpected world call in the aim twin") }
     fn mission_no_jet_obstacle_test(&self) -> bool { panic!("unexpected world call in the aim twin") }
     fn ai_stay_in_turrets(&mut self) -> bool { panic!("unexpected world call in the aim twin") }
-    fn unit(&self, u: Obj) -> &UnitView { if self.units.is_empty() { &self.unit } else { &self.units[(u-1) as usize] } }
-    fn unit_mut(&mut self, u: Obj) -> &mut UnitView { panic!("unexpected world call in the aim twin") }
+    fn unit(&self, u: Obj) -> UnitView { if self.units.is_empty() { self.unit.observation() } else { self.units[(u-1) as usize].observation() } }
+    fn has_arsenal(&self,u:Obj)->bool {(if self.units.is_empty() {&self.unit}else{&self.units[(u-1) as usize]}).arsenal.is_some()}
+    fn weapon_count(&self,u:Obj)->usize {(if self.units.is_empty() {&self.unit}else{&self.units[(u-1) as usize]}).arsenal.as_ref().map_or(0,|a|a.weapons.len())}
+    fn current_weapon(&self,u:Obj,channel:f64)->Option<usize> {(if self.units.is_empty() {&self.unit}else{&self.units[(u-1) as usize]}).arsenal.as_ref()?.current(channel)}
+    fn weapon(&self,u:Obj,index:usize)->Option<WeaponView> {(if self.units.is_empty() {&self.unit}else{&self.units[(u-1) as usize]}).arsenal.as_ref()?.weapons.get(index).cloned()}
+    fn body_lease_count(&self,u:Obj)->usize {(if self.units.is_empty() {&self.unit}else{&self.units[(u-1) as usize]}).body_leases.as_ref().map_or(0,Vec::len)}
+    fn body_lease(&self,u:Obj,index:usize)->Option<LeaseView> {(if self.units.is_empty() {&self.unit}else{&self.units[(u-1) as usize]}).body_leases.as_ref()?.get(index).copied().flatten()}
+    fn weapon_settings(&self,_:Obj,_:usize)->WeaponSettings {panic!("unexpected weapon read in aim twin")}
+    fn edit_weapon<R>(&mut self,_:Obj,_:usize,_:impl FnOnce(&mut WeaponSettings)->R)->R {panic!("unexpected weapon edit in aim twin")}
     fn origin(&mut self, u: Obj) -> Vector3 { panic!("unexpected world call in the aim twin") }
     fn forward(&mut self, u: Obj) -> Vector3 { panic!("unexpected world call in the aim twin") }
     fn aim_point(&mut self, u: Obj) -> Vector3 { panic!("unexpected world call in the aim twin") }
@@ -152,12 +165,18 @@ impl World for AimWorld {
     fn set_intent_aim(&mut self, u: Obj, aim: Option<Vector3>) { panic!("unexpected world call in the aim twin") }
     fn arsenal_select(&mut self, u: Obj, index: usize) -> bool { panic!("unexpected world call in the aim twin") }
     fn use_classic_random(&mut self, u: Obj) { panic!("unexpected world call in the aim twin") }
-    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> Vec<Obj> { panic!("unexpected world call in the aim twin") }
+    fn object_buffer(&self) -> List<Obj> { List::default() }
+    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> List<Obj> {
+        let mut out=self.heard.as_ref().expect("unexpected query in the aim twin").take();
+        assert_eq!(radius,6.);assert_eq!(filter,QueryFilter::Hostile {except:1,team:1.});
+        for unit in [3,4,2] {out.push_reserved(unit);}out
+    }
     fn relation(&mut self, a: f64, b: f64) -> f64 { if a==b {1.0} else {-1.0} }
-    fn living(&mut self) -> Vec<Obj> { panic!("unexpected world call in the aim twin") }
+    fn living(&mut self) -> List<Obj> { panic!("unexpected world call in the aim twin") }
     fn los(&mut self, from: &Vector3, to: &Vector3, a: Option<Obj>, b: Option<Obj>) -> bool { panic!("unexpected world call in the aim twin") }
     fn curves_for(&mut self, team: f64) -> Option<Curves> { panic!("unexpected world call in the aim twin") }
     fn character_team(&self, character: Obj) -> f64 { if character==201 {1.0} else {assert_eq!(character,202);self.fallback_team} }
+    fn fresh_perception(&mut self,_:Obj)->bfe_sim::ai::combat::perception::Perception {panic!("unexpected perception construction in aim twin")}
     fn ctl(&self, c: Obj) -> &Ctl { &self.ctls[(c-101) as usize] }
     fn ctl_mut(&mut self, c: Obj) -> &mut Ctl { &mut self.ctls[(c-101) as usize] }
     fn agent_controller(&self, agent: Obj) -> Obj { panic!("unexpected world call in the aim twin") }
@@ -168,7 +187,7 @@ impl World for AimWorld {
     fn agent_accepts_acoustic(&mut self, agent: Obj, source: Obj) -> bool { panic!("unexpected world call in the aim twin") }
     fn shared_target(&mut self, controller: Obj) -> Option<Obj> { panic!("unexpected world call in the aim twin") }
     fn has_vehicle_dispatch(&self) -> bool { panic!("unexpected world call in the aim twin") }
-    fn vehicle_dispatch(&mut self, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Engagement { panic!("unexpected world call in the aim twin") }
+    fn vehicle_dispatch(&mut self, _shared: &mut bfe_sim::ai::combat::weapons_ai::Shared, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Engagement { panic!("unexpected world call in the aim twin") }
     fn has_mount_reach(&self) -> bool { panic!("unexpected world call in the aim twin") }
     fn mount_reach(&mut self, unit: Obj, point: &Vector3) -> bool { panic!("unexpected world call in the aim twin") }
     fn current_controllable(&mut self, character: Obj) -> (bool, Option<Obj>) { panic!("unexpected world call in the aim twin") }
@@ -179,7 +198,7 @@ impl World for AimWorld {
     fn exit_pattern(&mut self, agent: Obj, state: f64) { panic!("unexpected world call in the aim twin") }
     fn tick_pattern(&mut self, agent: Obj, state: f64, dt: f64) { panic!("unexpected world call in the aim twin") }
     fn sidestep(&mut self, agent: Obj) { panic!("unexpected world call in the aim twin") }
-    fn cover_hints(&mut self, center: &Vector3, half: f64) -> Vec<HintView> { panic!("unexpected world call in the aim twin") }
+    fn cover_hints(&mut self, center: &Vector3, half: f64) -> List<HintView> { panic!("unexpected world call in the aim twin") }
     fn has_jet_hints(&self) -> bool { panic!("unexpected world call in the aim twin") }
     fn jet_hints_excluded(&mut self, controller: Obj) -> bool { panic!("unexpected world call in the aim twin") }
     fn jet_hints_find(&mut self, controller: Obj) -> Option<Obj> { panic!("unexpected world call in the aim twin") }
@@ -192,7 +211,7 @@ impl World for AimWorld {
     fn nav_in_danger_region(&mut self, unit: Obj) -> Option<bool> { panic!("unexpected world call in the aim twin") }
     fn agent_sync(&mut self, agent: &bfe_sim::ai::combat::agent::CombatAgent) { panic!("unexpected world call in the aim twin") }
     fn agent_resync(&mut self, agent: &mut bfe_sim::ai::combat::agent::CombatAgent) { panic!("unexpected world call in the aim twin") }
-    fn interrupts_tick(&mut self, agent: Obj) -> bool { panic!("unexpected world call in the aim twin") }
+    fn interrupts_tick(&mut self, agent: Obj,_:&mut bfe_sim::ai::combat::binding::CombatAi) -> bool { panic!("unexpected world call in the aim twin") }
     fn agent_board_policy(&mut self, agent: Obj, candidate: Obj) -> bool { panic!("unexpected world call in the aim twin") }
     fn has_helper(&self, agent: Obj) -> bool { panic!("unexpected world call in the aim twin") }
     fn helper_arrived(&mut self, agent: Obj) -> bool { panic!("unexpected world call in the aim twin") }
@@ -226,7 +245,7 @@ fn attributed_events_and_crew_alerts_match_the_source() {
         ];
         let mut ctls:Vec<_>=(101..106).map(|obj|Ctl {obj,shot:ShotAlert {pending:false,source:None,known:boolean(field(run,"known")),point:Vector3::new(7.0,-0.0,9.0)},..Ctl::default()}).collect();
         ctls[4].perception=Some(perception::Perception::default());ctls[4].target=Some(Ref {obj:2,generation:5.0});
-        let mut w=AimWorld {random:ClassicRandom::new(1.0),calls:0,unit:UnitView::default(),units,ctls,fallback_team:n(run,"fallbackTeam")};
+        let mut w=AimWorld {random:ClassicRandom::new(1.0),calls:0,unit:UnitView::default(),units,ctls,fallback_team:n(run,"fallbackTeam"),heard:None};
         let events:Vec<_>=array(field(run,"events")).iter().map(|e|if field(e,"kind").as_str()==Some("shot") {
             Event::Shot {source:event_ref(field(e,"source")),target:event_ref(field(e,"target"))}
         } else {Event::Damage {target:event_ref(field(e,"target")),attacker:event_ref(field(e,"attacker")),attacker_character:optional(field(e,"attackerCharacter")),
@@ -238,4 +257,27 @@ fn attributed_events_and_crew_alerts_match_the_source() {
             assert_eq!(ctl.shot.source,optional(field(want,"source")));eqv(ctl.shot.point,vec(field(want,"point")));
         }
     }
+}
+
+#[test]
+fn acoustic_recipient_callbacks_preserve_query_order_vertical_rejection_and_full_lists() {
+    let units=vec![
+        UnitView {obj:1,alive:true,generation:9.,team:1.,velocity:Some(Vector3::new(2.,0.,0.)),..Default::default()},
+        UnitView {obj:2,alive:true,team:2.,controller:Some(101),position:Vector3::new(1.,0.,0.),..Default::default()},
+        UnitView {obj:3,alive:true,team:2.,controller:Some(101),position:Vector3::new(0.,4.,0.),..Default::default()},
+        UnitView {obj:4,alive:true,team:2.,controller:Some(102),position:Vector3::new(2.,0.,0.),..Default::default()},
+    ];
+    let ctls=(101..103).map(|obj|Ctl {obj,acoustic:Vec::with_capacity(20),..Default::default()}).collect();
+    let mut world=AimWorld {random:ClassicRandom::new(1.),calls:0,unit:Default::default(),units,ctls,fallback_team:1.,heard:Some(bfe_sim::ai::owned::scratch::Pool::new(1,3))};
+    let note=Ref {obj:1,generation:9.};
+    for tick in 0..24 {
+        let mut next=0;
+        let count=perception::broadcast_acoustic_with(&mut world,1,&mut |world,controller,value| {
+            assert_eq!(controller,[102,101][next]);next+=1;assert_eq!(value,note);
+            assert_eq!(world.ctl(controller).acoustic.len(),(tick+1).min(20));
+        });
+        assert_eq!(count,2.);assert_eq!(next,2);
+    }
+    assert_eq!(world.calls,0);
+    for controller in world.ctls {assert_eq!(controller.acoustic,vec![note;20]);}
 }

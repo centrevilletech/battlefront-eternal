@@ -165,6 +165,7 @@ export default {
       random: { type: 'bool', js: 'hasRandom' },
       spreadScale: 'f64',
       sniperScale: 'f64',
+      enhancedFloor: 'bool',
       yawSpreadOverride: 'f64|null',
       wait: 'f64',
       reloadLeft: 'f64',

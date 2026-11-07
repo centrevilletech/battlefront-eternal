@@ -10,8 +10,7 @@ import * as THREE from "three";
 import { MobilePosts, commandSpawnPoint, isCommandClass } from "../src/mobile-posts.js";
 import { CommandPosts } from "../src/commandposts.js";
 
-import { ClassicRandom } from "../src/ai/random.js";
-import { friendlySpawn, selectObjective } from "../src/ai/classic/goals.js";
+import { friendlySpawn } from "../src/spawn-post-policy.js";
 import { choosePost, eligiblePosts, spawnPointAt } from "../src/human-spawn.js";
 import { entityPostNames, entitySpawnPosts } from "../src/runtime/entity-spawn-posts.js";
 
@@ -198,18 +197,4 @@ test("the human's spawn screen offers it, keeps it, and gives it up when it dies
   const choices = entitySpawnPosts(game);
   assert.equal(choices.includes(post), false, "a dead hull is not offered");
   assert.equal(choosePost(choices, 1, choices.find((p) => p.name === post.name) || null, relation).name, "cp6", "the front line instead");
-});
-
-test("objectives: the defenders' weights of 0 never draw it, the attackers can't (they spawn there)", () => {
-  const atat = hull({ at: [200, 0, 0] });
-  const mobile = new MobilePosts(system([atat]), CLASSES);
-  const cp5 = { name: "cp5", team: 2, position: { x: -100, y: 0, z: 0 }, ai: { atk: [100, 10, 10, 10, 10, 10], def: [100, 10, 10, 10, 10, 10], bans: 0, spawnPath: { present: true, points: [[0, 0, 0, 0]] }, allyPath: null, classSpawnPoints: 0, classSpawnWorld: [], capture: null } };
-  const cp6 = { ...cp5, name: "cp6", team: 1 };
-  mobile.presentEvents();
-  const posts = [cp5, cp6, ...mobile.posts];
-  const random = new ClassicRandom(3);
-  for (let i = 0; i < 200; i++) {
-    assert.notEqual(selectObjective({ posts, team: 2, faction: 1, random, relation }), mobile.posts[0], "Value_DEF_Alliance 0");
-    assert.notEqual(selectObjective({ posts, team: 1, faction: 2, random, relation }), mobile.posts[0], "the Empire spawns there");
-  }
 });

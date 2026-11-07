@@ -9,7 +9,7 @@ import { makeUnitHit } from './registry.js';
 
 import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
 const HEADER = BLOCK.words;
-import { categoryOf } from './ai/classic/weapons-ai.js';
+import { categoryOf } from './weapon-policy.js';
 
 const MEMBER_KINDS = [KIND_UNIT, KIND_VEHICLE_TARGET, KIND_TURRET_TARGET, KIND_OBJECTIVE_TARGET];
 const ZERO = Object.freeze({x:0,y:0,z:0});
@@ -33,8 +33,6 @@ export class F3Registry {
     this.defaultQuery = [];
     this.facts = [];
     this.foreignMembers = [];
-    this.readDepth = 0;
-    this.readReady = false;
     this.foreignHeader = new F3ForeignHeaderMirror();
     this.mask = new Uint8Array(phase.layout.inputCapacity);
     const b = phase.bridge;
@@ -121,13 +119,6 @@ export class F3Registry {
     while(list.length>count)list.pop();
   }
 
-  // Game.step's AI update makes several sensors over the same foreign
-  // prop facts. Poll once in that span; native prop mirror writes invalidate
-  // it immediately, and each later world phase starts with a fresh span.
-  beginReads() { this.readDepth++; this.readReady = false; }
-  endReads() { this.readDepth--; this.readReady = false; }
-  invalidateReads() { this.readReady = false; }
-
   // Unit.hitShapes has a small fixed maximum, including exposed rider limbs.
   // Keep both mirror arrays across posture changes and pooled respawns. Their
   // nested vectors must stay identical to those already held by readers.
@@ -152,7 +143,6 @@ export class F3Registry {
     // not scan the entire native-owned fleet to discover the same few props.
     const phase = this.phase, b = phase.bridge, list = this.foreignMembers, fact = this.fact;
     const deferred = phaseUnits >= 0;
-    if (!deferred && this.readDepth && this.readReady) return;
     b.views(); let count = 0, at = phase.layout.input / 8 + (deferred ? phaseUnits * phase.layout.inputStride + networks * phase.layout.networkWords : 0);
     for (let i = 0; i < list.length; i++) {
       const member = list[i];
@@ -204,7 +194,6 @@ export class F3Registry {
       phase.counters.inputFields += count * phase.foreignStride + phase.layout.foreignHeaderWords;
       return;
     }
-    if (this.readDepth) this.readReady = true;
     if (!count && !buildings) return;
     phase.x.f3_foreign(count);
     phase.counters.wasmCalls++; phase.counters.inputFields += count * phase.foreignStride + 1;

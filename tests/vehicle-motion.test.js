@@ -1,6 +1,8 @@
-import './fixtures/native-anim.js';
+import {setAnimKernel} from '../src/anim.js';
+import {loadAnimKernel} from '../src/anim-kernel.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
+
 // Vehicle speeds follow each class's ODF as the 2004 game reads it
 // (docs/vehicles.md "Movement"). The synthetic cases always run; the last
 // test pins every locally imported vehicle's top speed to its own data
@@ -16,7 +18,6 @@ import { hullQuaternion } from '../src/vehicle-hover.js';
 import { classSetting, flightSpeeds, gaitSpeed, groundMotion } from '../src/vehicle-motion.js';
 import { throttleFor } from '../src/flight/config.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
-import { pilotInput } from '../src/flight/ai.js';
 
 const run = (f, seconds, input = {}) => { for (let i = 0; i < seconds * 60; i++) stepPrediction(f.system, 1 / 60, f.v, input); };
 const airborne = (settings) => { const f = fixture(settings); f.system.flightEnvironment.bounds = null; f.v.position.y = 300; run(f, 1 / 60, { takeoff: true }); run(f, 3); return f; };
@@ -72,17 +73,7 @@ test('a gunship hovers at MidSpeed 0, backs up at its negative MinSpeed, and may
   run(f, 2);
   assert.equal(v.airspeed, 0);
   assert.notEqual(v.landingReason, 'Too fast');
-  // A pilot never asks this craft to back up: turning hard it keeps moving
-  // (standing still reads as stuck), released it travels, landing it stops.
   assert.equal(throttleFor(v.flightConfig, 0), 0);
-  const unit = { vehicle: v, steer: {} };
-  const behind = v.position.clone().addScaledVector(forward, -100);
-  const turning = pilotInput(unit, null, behind, 1 / 60, {}, {});
-  assert.ok(Math.abs(turning.turn) > .5 && turning.forward > 0, `turning hard it keeps moving: ${turning.forward}`);
-  const ahead = v.position.clone().addScaledVector(forward, 100).add(new THREE.Vector3(30, 0, 0));
-  assert.ok(pilotInput(unit, null, ahead, 1 / 60, {}, {}).forward >= .5, 'it travels rather than hovering');
-  unit.steer.land = true;
-  assert.equal(pilotInput(unit, null, null, 1 / 60, {}, {}).forward, 0);
 });
 
 test('an ordinary fighter still brakes fully for the AI, and may land at speed', () => {

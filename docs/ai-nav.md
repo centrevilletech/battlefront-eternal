@@ -1,5 +1,10 @@
 # Classic AI: navigation
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 Navigation for the Classic AI (`docs/ai.md`): the extracted planning data
 (`tools/zero_ai.py` → `public/maps/<map>/ai-nav.json` + `ai-nav.bin`) and the
 runtime under `src/ai/classic/nav/`. Behavior follows the 2004 game's route

@@ -24,7 +24,10 @@ test('everyone\'s records reach a client during play, then exact once the scores
   const world = createMultiplayerWorld(game, { armySize: 32 });
   await world.addPlayer('rec', { reliableFire: true, separateActions: true });
   const actor = world.players.get('rec'); actor.autoRespawn = true;
-  const host = createSnapshotHost({ game, world });
+  // This fixture advances seconds of play without waiting for wall time.
+  // Refill the real transport budget on that same clock so a faster world
+  // cannot starve the final record refresh of its simulated bandwidth.
+  const host = createSnapshotHost({ game, world, now:()=>game.worldClock.tick*1000/60 });
   host.addClient('rec'); host.setStarted('rec', true); host.setReady('rec');
   const client = new SnapshotClient();
   const registry = host.registry;

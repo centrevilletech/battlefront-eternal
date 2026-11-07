@@ -11,7 +11,7 @@ export class F4Roster {
   constructor(tail,game,armySize=MAX_TEAM_SIZE){
     if(armySize!==null&&(!Number.isInteger(armySize)||armySize<1||armySize>MAX_TEAM_SIZE))throw Error('invalid army size');
     this.tail=tail;this.bridge=tail.bridge;this.x=tail.x;this.counters=new PhaseCounters();this.change=new F.F4RosterCommandMirror();
-    this.classic=Boolean(game.ai?.spawning&&game.ai?.classic);
+    this.classic=Boolean(game.ai?.spawning);
     this.countRows=this.classic?[{team:1,humans:0,total:0},{team:2,humans:0,total:0}]:[{team:1,humans:0},{team:2,humans:0}];
     const spawning=game.ai?.spawning,names=[];
     if(this.classic)for(const team of spawning.teams){

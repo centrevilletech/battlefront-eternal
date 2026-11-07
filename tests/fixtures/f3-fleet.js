@@ -6,15 +6,16 @@ import { attachF2 } from '../../src/f2-sim.js';
 
 // Real native fleet construction over synthetic geometry. No map pack, actor
 // model or retail content is required to exercise incoming combat and leases.
-export function fleetFixture({positions = [0,5], health = 100, explosion = null, height = 0, weapon = null, reserve = null, respawnTime = 5, base = 'hover', legs = null, neutralPad = -1} = {}) {
+export function fleetFixture({positions = [0,5], health = 100, explosion = null, height = 0, weapon = null, reserve = null, respawnTime = 5, base = 'hover', legs = null, neutralPad = -1, exposed = false} = {}) {
   return ({instance,collision,units,ordnance}) => {
     const box = new THREE.BoxGeometry(2,2,2).translate(0,1,0);
     const shape = {positions:Array.from(box.attributes.position.array),
       indices:Array.from(box.index.array), polygons:Array(box.index.count/3).fill(0)};
     const def = {model:'tank',base,settings:{MaxHealth:health,ForwardSpeed:12,TurnRate:1},
-      seats:[{name:'BODY',settings:{},weapons:weapon ? [{def:weapon,aimers:[]}] : []}],explosion};
+      seats:[{name:'BODY',settings:exposed?{PilotPosition:'seat',Pilot9Pose:'fixture_9pose'}:{},
+        weapons:weapon ? (Array.isArray(weapon)?weapon:[weapon]).map(def=>({def,aimers:[]})) : []}],explosion};
     if(legs)def.fx={legs};
-    const data = {models:{tank:{bones:[],parts:[],sphere:[0,1,0,1]}}, collision:{tank:shape},
+    const data = {models:{tank:{bones:exposed?[{name:'seat',parent:-1,local:new THREE.Matrix4().makeTranslation(0,2,0).toArray()}]:[],parts:[],sphere:[0,1,0,1]}}, collision:{tank:shape},
       classes:{tank:def},spawns:positions.map((at,i)=>({name:`pad${i}`,team:1,post:i === neutralPad ? 'neutral' : undefined,respawnTime,
         matrix:new THREE.Matrix4().makeTranslation(Array.isArray(at)?at[0]:at,height,Array.isArray(at)?at[1]:0).toArray(),classes:{1:'tank'}}))};
     const buffer = new ArrayBuffer(0), indexBuffer = new ArrayBuffer(0);

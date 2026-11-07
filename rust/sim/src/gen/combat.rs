@@ -1624,6 +1624,7 @@ pub struct Weapon {
     pub random: bool,
     pub spread_scale: f64,
     pub sniper_scale: f64,
+    pub enhanced_floor: bool,
     pub yaw_spread_override: Option<f64>,
     pub wait: f64,
     pub reload_left: f64,
@@ -1647,7 +1648,7 @@ pub struct Weapon {
 }
 
 impl Weapon {
-    pub const WORDS: usize = 42;
+    pub const WORDS: usize = 43;
     pub const DEF: usize = 0;
     pub const LEVEL: usize = 1;
     pub const ADMIT_SHOT: usize = 2;
@@ -1665,29 +1666,30 @@ impl Weapon {
     pub const RANDOM: usize = 14;
     pub const SPREAD_SCALE: usize = 15;
     pub const SNIPER_SCALE: usize = 16;
-    pub const YAW_SPREAD_OVERRIDE: usize = 17;
-    pub const WAIT: usize = 19;
-    pub const RELOAD_LEFT: usize = 20;
-    pub const THROW_TIME: usize = 21;
-    pub const RELEASED: usize = 22;
-    pub const HIDDEN: usize = 23;
-    pub const CHARGING: usize = 24;
-    pub const HELD: usize = 25;
-    pub const CHARGE: usize = 26;
-    pub const LIMIT: usize = 27;
-    pub const PATTERN: usize = 28;
-    pub const SALVOS_LEFT: usize = 29;
-    pub const SALVO_WAIT: usize = 30;
-    pub const SALVO_SEED: usize = 31;
-    pub const SALVO_COUNT: usize = 33;
-    pub const LOCK_TARGET_ID: usize = 34;
-    pub const LOCK_GENERATION: usize = 35;
-    pub const LOCK_ELAPSED: usize = 36;
-    pub const LOCK_COMPLETE: usize = 37;
-    pub const MELEE: usize = 38;
+    pub const ENHANCED_FLOOR: usize = 17;
+    pub const YAW_SPREAD_OVERRIDE: usize = 18;
+    pub const WAIT: usize = 20;
+    pub const RELOAD_LEFT: usize = 21;
+    pub const THROW_TIME: usize = 22;
+    pub const RELEASED: usize = 23;
+    pub const HIDDEN: usize = 24;
+    pub const CHARGING: usize = 25;
+    pub const HELD: usize = 26;
+    pub const CHARGE: usize = 27;
+    pub const LIMIT: usize = 28;
+    pub const PATTERN: usize = 29;
+    pub const SALVOS_LEFT: usize = 30;
+    pub const SALVO_WAIT: usize = 31;
+    pub const SALVO_SEED: usize = 32;
+    pub const SALVO_COUNT: usize = 34;
+    pub const LOCK_TARGET_ID: usize = 35;
+    pub const LOCK_GENERATION: usize = 36;
+    pub const LOCK_ELAPSED: usize = 37;
+    pub const LOCK_COMPLETE: usize = 38;
+    pub const MELEE: usize = 39;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 42] = (&mut row[..42]).try_into().unwrap();
+        let row: &mut [f64; 43] = (&mut row[..43]).try_into().unwrap();
         row[0] = self.def.0 as f64;
         row[1] = self.level;
         row[2] = if self.admit_shot { 1.0 } else { 0.0 };
@@ -1705,30 +1707,31 @@ impl Weapon {
         row[14] = if self.random { 1.0 } else { 0.0 };
         row[15] = self.spread_scale;
         row[16] = self.sniper_scale;
-        match &self.yaw_spread_override { Some(v) => { row[17] = 0.0; row[17 + 1] = (*v); } None => { row[17] = 1.0; row[17 + 1..17 + 2].fill(0.0); } }
-        row[19] = self.wait;
-        row[20] = self.reload_left;
-        row[21] = self.throw_time;
-        row[22] = if self.released { 1.0 } else { 0.0 };
-        row[23] = if self.hidden { 1.0 } else { 0.0 };
-        row[24] = if self.charging { 1.0 } else { 0.0 };
-        row[25] = self.held;
-        row[26] = self.charge;
-        row[27] = self.limit;
-        row[28] = self.pattern;
-        row[29] = self.salvos_left;
-        row[30] = self.salvo_wait;
-        match &self.salvo_seed { Some(v) => { row[31] = 0.0; row[31 + 1] = (*v); } None => { row[31] = 1.0; row[31 + 1..31 + 2].fill(0.0); } }
-        row[33] = self.salvo_count;
-        row[34] = self.lock_target_id;
-        row[35] = self.lock_generation;
-        row[36] = self.lock_elapsed;
-        row[37] = if self.lock_complete { 1.0 } else { 0.0 };
-        match &self.melee { Some(v) => { row[38] = 0.0; v.put(&mut row[38 + 1..], heap); } None => { row[38] = 1.0; row[38 + 1..38 + 4].fill(0.0); } }
+        row[17] = if self.enhanced_floor { 1.0 } else { 0.0 };
+        match &self.yaw_spread_override { Some(v) => { row[18] = 0.0; row[18 + 1] = (*v); } None => { row[18] = 1.0; row[18 + 1..18 + 2].fill(0.0); } }
+        row[20] = self.wait;
+        row[21] = self.reload_left;
+        row[22] = self.throw_time;
+        row[23] = if self.released { 1.0 } else { 0.0 };
+        row[24] = if self.hidden { 1.0 } else { 0.0 };
+        row[25] = if self.charging { 1.0 } else { 0.0 };
+        row[26] = self.held;
+        row[27] = self.charge;
+        row[28] = self.limit;
+        row[29] = self.pattern;
+        row[30] = self.salvos_left;
+        row[31] = self.salvo_wait;
+        match &self.salvo_seed { Some(v) => { row[32] = 0.0; row[32 + 1] = (*v); } None => { row[32] = 1.0; row[32 + 1..32 + 2].fill(0.0); } }
+        row[34] = self.salvo_count;
+        row[35] = self.lock_target_id;
+        row[36] = self.lock_generation;
+        row[37] = self.lock_elapsed;
+        row[38] = if self.lock_complete { 1.0 } else { 0.0 };
+        match &self.melee { Some(v) => { row[39] = 0.0; v.put(&mut row[39 + 1..], heap); } None => { row[39] = 1.0; row[39 + 1..39 + 4].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 42] = (&row[..42]).try_into().unwrap();
+        let row: &[f64; 43] = (&row[..43]).try_into().unwrap();
         Self {
             def: DefId(word_u32(row[0])),
             level: row[1],
@@ -1747,26 +1750,27 @@ impl Weapon {
             random: row[14] != 0.0,
             spread_scale: row[15],
             sniper_scale: row[16],
-            yaw_spread_override: if row[17] == 0.0 { Some(row[17 + 1]) } else { None },
-            wait: row[19],
-            reload_left: row[20],
-            throw_time: row[21],
-            released: row[22] != 0.0,
-            hidden: row[23] != 0.0,
-            charging: row[24] != 0.0,
-            held: row[25],
-            charge: row[26],
-            limit: row[27],
-            pattern: row[28],
-            salvos_left: row[29],
-            salvo_wait: row[30],
-            salvo_seed: if row[31] == 0.0 { Some(row[31 + 1]) } else { None },
-            salvo_count: row[33],
-            lock_target_id: row[34],
-            lock_generation: row[35],
-            lock_elapsed: row[36],
-            lock_complete: row[37] != 0.0,
-            melee: if row[38] == 0.0 { Some(Melee::take(&row[38 + 1..], heap)) } else { None },
+            enhanced_floor: row[17] != 0.0,
+            yaw_spread_override: if row[18] == 0.0 { Some(row[18 + 1]) } else { None },
+            wait: row[20],
+            reload_left: row[21],
+            throw_time: row[22],
+            released: row[23] != 0.0,
+            hidden: row[24] != 0.0,
+            charging: row[25] != 0.0,
+            held: row[26],
+            charge: row[27],
+            limit: row[28],
+            pattern: row[29],
+            salvos_left: row[30],
+            salvo_wait: row[31],
+            salvo_seed: if row[32] == 0.0 { Some(row[32 + 1]) } else { None },
+            salvo_count: row[34],
+            lock_target_id: row[35],
+            lock_generation: row[36],
+            lock_elapsed: row[37],
+            lock_complete: row[38] != 0.0,
+            melee: if row[39] == 0.0 { Some(Melee::take(&row[39 + 1..], heap)) } else { None },
         }
     }
 
@@ -1979,7 +1983,7 @@ impl Combat {
         { let at = heap.len(); row[32] = at as f64; row[32 + 1] = self.pending_muzzles.len() as f64; heap.resize(at + self.pending_muzzles.len() * 15, 0.0); for (i, e) in self.pending_muzzles.iter().enumerate() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 15..at + (i + 1) * 15].copy_from_slice(&item); } }
         row[34] = if self.random { 1.0 } else { 0.0 };
         row[35] = if self.has_remotes { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[36] = at as f64; row[36 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+        { let at = heap.len(); row[36] = at as f64; row[36 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 43, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 43]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 43..at + (i + 1) * 43].copy_from_slice(&item); } }
         row[38..38 + 2].copy_from_slice(&self.selected);
         { let at = heap.len(); row[40] = at as f64; row[40 + 1] = self.seen.len() as f64; heap.resize(at + self.seen.len() * 3, 0.0); for (i, e) in self.seen.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
         row[42..42 + 3].copy_from_slice(&self.origin);
@@ -2017,7 +2021,7 @@ impl Combat {
             pending_muzzles: { let (at, n) = (word_u32(row[32]) as usize, word_u32(row[32 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 15..at + (i + 1) * 15]; out.push(PendingShot::take(&row[0..], heap)); } out },
             random: row[34] != 0.0,
             has_remotes: row[35] != 0.0,
-            weapons: { let (at, n) = (word_u32(row[36]) as usize, word_u32(row[36 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 42..at + (i + 1) * 42]; out.push(Weapon::take(&row[0..], heap)); } out },
+            weapons: { let (at, n) = (word_u32(row[36]) as usize, word_u32(row[36 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 43..at + (i + 1) * 43]; out.push(Weapon::take(&row[0..], heap)); } out },
             selected: { let mut a = [0.0; 2]; a.copy_from_slice(&row[38..38 + 2]); a },
             seen: { let (at, n) = (word_u32(row[40]) as usize, word_u32(row[40 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(Seen::take(&row[0..], heap)); } out },
             origin: [row[42], row[42 + 1], row[42 + 2]],

@@ -105,6 +105,7 @@ export class F3Factory {
       this.retired = true;
       const outgoing = p.bindings[key.slot], old = outgoing.unit, combat = old.combat;
       if (event.retiredCookie !== null) {
+        p.fleet?.riders.alias(old,outgoing.detached);
         outgoing.retarget(outgoing.detached);
         this.ready[event.retiredCookie] = outgoing;
       }
@@ -126,6 +127,7 @@ export class F3Factory {
       old.combat.onPresentation = combat.onPresentation;
       old.combat.onFired = combat.onFired;old.combat.onDamaged = combat.onDamaged;
       old.combat.onRespawn = combat.onRespawn;
+      p.fleet?.riders.alias(unit,old);
       unit.canonicalTarget = old;
       binding.retarget(old);
       unit = old;

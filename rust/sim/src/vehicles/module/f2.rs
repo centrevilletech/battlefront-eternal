@@ -44,7 +44,7 @@ fn register_hull(r: Ref<Vehicle>) {
     let mut pool = Vec::with_capacity(4);
     for _ in 0..4 {
         let mut hull = Hull::from_store(r,v,class,0);
-        hull.leg_side_storage.reserve(leg_count);
+        hull.leg_side_scratch.reserve(leg_count);
         hull.support_heights.reserve(leg_count);
         if v.flying { hull.target_scratch.reserve(if crate::units::f3::active() { s.store.units.list.len() } else { unsafe { (&*addr_of_mut!(MEMBERS)).len() } }); }
         pool.push(hull);
@@ -86,6 +86,40 @@ pub(crate) fn reserve_registry(count: usize) {
     cache.resize(count.max(cache.len()),None);
     live_seats::reserve_riders(count);
 }
+/// SeatLease.origin/forward read the retained simulation rig at their source
+/// observation point. Native AI never asks a facade to update that geometry.
+pub fn seat_origin(life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> {
+    seat_origin_owned(&sim().store,life,index)
+}
+pub fn seat_forward(life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> {
+    seat_forward_owned(&sim().store,life,index)
+}
+// Vehicle.seatEye observes retained seat geometry and a few current scalars.
+// AI already owns Store here: exchanging the entire Store and loading a
+// solver Hull for every sensor poll needlessly moves unrelated state.
+pub(crate) fn seat_origin_owned(store:&Store,life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> {
+    let row=store.vehicle.get(life.vehicle)?;
+    if row.target_generation!=life.life||index>=row.seats.len() {return None;}
+    let pose=&poses().get(life.vehicle.slot as usize)?.as_ref()?.pose;
+    let view=pose.seats.get(index)?;
+    let q=three::Quaternion::new(row.quaternion[0],row.quaternion[1],row.quaternion[2],row.quaternion[3]);
+    let seat=&row.seats[index];let aim=(index!=0).then_some((seat.aim_yaw,seat.pitch,view));
+    let frame=crate::vehicles::pose::seat_frame_values(&vec(&row.position),&q,row.flying,row.yaw,aim);
+    let mut eye=view.eye;eye.apply_matrix4(&frame);Some(eye)
+}
+// Vehicle.seatForward keeps the flyer's pilot quaternion special case and
+// the source aim-vector arithmetic for every other seat. Preserve the same
+// pose-presence gate even though this observation needs no rig mutation.
+pub(crate) fn seat_forward_owned(store:&Store,life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> {
+    let row=store.vehicle.get(life.vehicle)?;
+    if row.target_generation!=life.life||index>=row.seats.len() {return None;}
+    poses().get(life.vehicle.slot as usize)?.as_ref()?;
+    if row.flying&&index==0 {
+        let mut out=three::Vector3::new(0.,0.,1.);
+        out.apply_quaternion(&three::Quaternion::new(row.quaternion[0],row.quaternion[1],row.quaternion[2],row.quaternion[3]));Some(out)
+    }else {let seat=&row.seats[index];Some(crate::vehicles::pose::aim_vector(seat.aim_yaw,seat.pitch))}
+}
+
 // initFlight uses immutable class/gear handles. GearClip shares its clip by
 // reference count; copying this handle allocates no animation or key table.
 // Mutable flight state continues to come from the canonical vehicle row.
@@ -281,7 +315,7 @@ fn publish_posed() {
 // Vehicles.spawnSlots runs before latching. Pad choice and obstruction order
 // are observable: keep pad order, first matching class, occupant exclusion and
 // the delayed retry without resetting another hull's pending seat samples.
-fn spawns(dt: f64) {
+fn spawns(dt: f64,mut services:Option<&mut crate::units::f3::WorldServices<'_>>) {
     let descs = unsafe { &*addr_of_mut!(DESCS) };
     let header = F2Input::take(io(), &[]);
     let occupant = if crate::units::f3::active() {
@@ -311,7 +345,12 @@ fn spawns(dt: f64) {
                 find().expect("F2 construction must register its handle")
             }
         };
-        if !sim().store.vehicles.vehicles.contains(&r) { activate(r); }
+        if !sim().store.vehicles.vehicles.contains(&r) {
+            activate(r);
+            // Prepared policy follows the mixed-registry birth at this source
+            // slot, before any later AI/seat query can observe the new hull.
+            if let Some(ai)=services.as_mut().and_then(|services|services.ai.as_mut()) {ai.hull_born(r,crate::units::f3_hulls::member(r));}
+        }
         let v = sim().store.vehicle.get(r).expect("F2 variant");
         let (center, size, radius, flying) = (v.center, v.size, v.radius, v.flying);
         let m = d.matrix;
@@ -443,8 +482,8 @@ pub(crate) fn step(dt: f64, tick: f64, mut services: Option<crate::units::f3::Wo
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[F2Input::CLOCK]); }
     allocation::begin();
     if services.is_none() { sim().events.clear(); }
-    live_seats::import_phase_input();
-    { let _scope = allocation::enter(allocation::LIFECYCLE); spawns(dt); }
+    live_seats::import_phase_input(services.as_ref().is_some_and(|services|services.ai.is_some()));
+    { let _scope = allocation::enter(allocation::LIFECYCLE); spawns(dt,services.as_mut()); }
     allocation::stage(allocation::Stage::Foreign);
     foreign();
     allocation::stage(allocation::Stage::Latch);

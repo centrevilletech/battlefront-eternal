@@ -15,19 +15,27 @@ pub struct Native {
 }
 /// The AI reads the rows changed before its hook. The callback may submit a
 /// qualified objective or controller command, but never reimports the tables.
-pub(crate) fn hook(input: F4AIHook) {
+pub(crate) fn hook(input: F4AIHook,mut services:WorldServices<'_>) {
     super::f4_tail::refresh_mobile_views();
+    if services.lifecycle(&input) {
+        // Native authority finishes synchronously. The outer boundary later
+        // delivers presentation notices without reentering an AI decision.
+        if matches!(input.op,F4AIHookOp::Post|F4AIHookOp::Mobile|F4AIHookOp::Over|F4AIHookOp::Retarget|F4AIHookOp::Rejected) {
+            AiNotice {hook:input}.emit(&mut sim().events);
+        }
+        return;
+    }
     f4_core::mark_tail(&sim().store);
     f3::foreign_barrier();
     super::f4_live::count_hook();
     import_f4_aihook(&input);
 }
-pub(crate) fn request(character: Ref<Character>) {
+pub(crate) fn request(character: Ref<Character>,services:WorldServices<'_>) {
     hook(F4AIHook {
         op: F4AIHookOp::RequestObjective,
         character_handle: f4_core::character_handle(character),
         ..Default::default()
-    });
+    },services);
 }
 impl Lifecycle for Native {
     fn spawn(
@@ -108,28 +116,28 @@ impl Lifecycle for Native {
                 op: F4AIHookOp::Spawned,
                 character_handle: f4_core::character_handle(character),
                 ..Default::default()
-            });
+            },services.reborrow());
         }
         Some(unit)
     }
-    fn request_objective(&mut self, character: Ref<Character>) {
-        request(character);
+    fn request_objective(&mut self, character: Ref<Character>,services:WorldServices<'_>) {
+        request(character,services);
     }
-    fn republish(&mut self, character: Ref<Character>) {
+    fn republish(&mut self, character: Ref<Character>,services:WorldServices<'_>) {
         hook(F4AIHook {
             op: F4AIHookOp::Republish,
             character_handle: f4_core::character_handle(character),
             ..Default::default()
-        });
+        },services);
     }
-    fn post_event(&mut self, event: &PostEvent) {
+    fn post_event(&mut self, event: &PostEvent,services:WorldServices<'_>) {
         hook(F4AIHook {
             op: F4AIHookOp::Post,
             post: Some(event.clone()),
             ..Default::default()
-        });
+        },services);
     }
-    fn mobile_event(&mut self, event: &super::mobile::MobileEvent) {
+    fn mobile_event(&mut self, event: &super::mobile::MobileEvent,services:WorldServices<'_>) {
         hook(F4AIHook {
             op: F4AIHookOp::Mobile,
             mobile: Some(match *event {
@@ -153,21 +161,21 @@ impl Lifecycle for Native {
                 },
             }),
             ..Default::default()
-        });
+        },services);
     }
-    fn battle_over(&mut self, loser: f64) {
+    fn battle_over(&mut self, loser: f64,services:WorldServices<'_>) {
         hook(F4AIHook {
             op: F4AIHookOp::Over,
             number: loser,
             ..Default::default()
-        });
+        },services);
     }
 }
 /// A death only needs objective invalidation from SpawningWorld. It must not
 /// borrow the tail's observation buffers while a kill region or spawn pass
 /// already owns them.
-struct Death;
-impl super::world::PostsWorld for Death {
+struct Death<'a> {services:WorldServices<'a>}
+impl super::world::PostsWorld for Death<'_> {
     fn capture_team(&mut self, team: f64) -> f64 {
         team
     }
@@ -184,7 +192,7 @@ impl super::world::PostsWorld for Death {
         unreachable!("death query")
     }
 }
-impl super::world::SpawningWorld for Death {
+impl super::world::SpawningWorld for Death<'_> {
     fn spawn_goal(&mut self, _: &Store, _: Ref<Character>) -> Option<[f64; 3]> {
         unreachable!("death query")
     }
@@ -195,7 +203,7 @@ impl super::world::SpawningWorld for Death {
         unreachable!("death query")
     }
     fn request_objective(&mut self, s: &mut Store, r: Ref<Character>) {
-        with_store(s, || request(r));
+        with_store(s, || request(r,self.services.reborrow()));
     }
     fn republish(&mut self, _: &mut Store, _: Ref<Character>) {
         unreachable!("death query")
@@ -223,6 +231,7 @@ pub(crate) fn died(
     relation: f64,
     classic: bool,
     local: Option<Ref<Unit>>,
+    mut services:WorldServices<'_>,
 ) -> Option<Ref<Controller>> {
     let u = sim().store.unit.get(unit).expect("dead native body");
     let character = u.character;
@@ -236,17 +245,17 @@ pub(crate) fn died(
         f4_core::mark_character(r);
     }
     let credit = || f4_core::credit(character, killer, relation);
-    let spend = || {
+    let mut spend = || {
         if let Some(r) = character.filter(|_| classic) {
             let mut shell = Store::default();
             std::mem::swap(&mut shell, &mut sim().store);
-            super::spawning::on_death(&mut shell, r, &mut Death);
+            super::spawning::on_death(&mut shell, r, &mut Death {services:services.reborrow()});
             std::mem::swap(&mut shell, &mut sim().store);
             hook(F4AIHook {
                 op: F4AIHookOp::Died,
                 character_handle: f4_core::character_handle(r),
                 ..Default::default()
-            });
+            },services.reborrow());
         } else {
             super::rules::spend(&mut sim().store.battle, team, 1.0);
         }

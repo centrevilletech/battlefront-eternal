@@ -46,21 +46,22 @@ test('the owned phase separates coincident bodies and publishes only pushed rows
   assert.equal(world.phase.counters.rustReallocations,0);
 });
 
-test('camera and viewpoint exclusion are phase facts without body imports', {timeout:10000}, async() => {
+test('separation reads the camera and canonical viewpoint state without body imports', {timeout:10000}, async() => {
   const world = await crowd(['viewpoint','other']);
   const [player,other] = world.passive;
   world.phase.registerViewpoint(player);
   world.separation.global = false;world.separation.camera.set(100,0,0);
   world.phase.bodiesIn();world.phase.counters.reset();world.phase.phase(1/60);
   assert.equal(world.phase.layout.outputRows,0);assert.equal(player.tickCount,0);
-  world.separation.global = true;player.combat.damage(Infinity);
-  const imports=world.phase.counters.importCalls;
+  world.separation.global = true;player.combat.dead = true;
   world.phase.phase(1/60);
   assert.equal(world.phase.layout.outputRows,0);assert.equal(other.tickCount,0);
-  player.spawn(0,0,0,0);const before=player.tickCount;world.phase.phase(1/60);
-  assert.equal(world.phase.layout.outputRows,2);assert.equal(player.tickCount,before+1);
+  player.combat.dead = false;world.phase.phase(1/60);
+  assert.equal(world.phase.layout.outputRows,2);assert.equal(player.tickCount,1);
+  assert.equal(world.phase.counters.wasmCalls,5);
   assert.equal(world.phase.counters.phaseCalls,3);
-  assert.equal(world.phase.counters.importCalls,imports);
+  assert.equal(world.phase.counters.commandCalls,2);
+  assert.equal(world.phase.counters.importCalls,0);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
 });

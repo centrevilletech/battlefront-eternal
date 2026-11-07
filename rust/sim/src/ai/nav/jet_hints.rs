@@ -6,7 +6,7 @@
 //! small state machine of JetHintService::tick over plain inputs.
 
 use super::math::Vec3;
-use crate::ai::random::ClassicRandom;
+use crate::ai::random::Random;
 
 /// One active jet-hint job (jet-hints.js:39): the hint being used, the
 /// state (2 going to it, 3 launched from it) and when the launch began.
@@ -23,7 +23,7 @@ pub struct JetHintJob {
 /// after the hint query): random removal order, the least
 /// 2.25 * horizontal distance squared wins, ties keep the earlier pick.
 /// `hints` are indices into the service's hint list with their positions.
-pub fn find_hint(hints: &[(usize, Vec3)], position: Vec3, random: &mut ClassicRandom) -> Option<usize> {
+pub fn find_hint(hints: &[(usize, Vec3)], position: Vec3, random: &mut dyn Random) -> Option<usize> {
     let mut hints: Vec<(usize, Vec3)> = hints.to_vec();
     let mut best = None;
     let mut score = f64::INFINITY;

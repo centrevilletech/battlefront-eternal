@@ -39,7 +39,7 @@ assert.ok(variantName);
 const lateVehicle=game.vehicles.variant(slot,variantName);
 // A page receives state into presentation objects; authoritative native units
 // belong to the server even when this content fixture runs without a renderer.
-const replica=await headlessGame(query+'&battle=js&aiSim=js');
+const replica=await headlessGame(query+'');
 replica.validateAuthoritativeHumanTeam=()=>{};
 replica.applyAuthoritativeHumanTeam=team=>replica.setHumanTeam(team,false);
 Object.defineProperty(replica,'client',{value:{seats:new EntitySeats(replica)}});

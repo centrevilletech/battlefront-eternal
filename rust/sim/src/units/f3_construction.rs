@@ -7,6 +7,7 @@ use std::ptr::addr_of_mut;
 
 struct Resources {
     body: module::PreparedBody,
+    rider: Option<crate::vehicles::module::f2::riders::Rider>,
     publication:crate::vehicles::f2_delta::Cache,
     adoption: F3Adoption,
     health: crate::combat::impacts::HealthScale,
@@ -63,6 +64,7 @@ pub extern "C" fn f3_factory_stage() {
     input.adoption.key.validate(&sim().store).expect("current cold construction row");
     let resources=Resources {
         body:module::take_body(source.slot),
+        rider:crate::vehicles::module::f2::riders::take(source),
         publication:f3::take_publication(source),
         health:f3::health_scale(source.slot),
         bindings:f3::take_bindings(source.slot),
@@ -89,6 +91,7 @@ fn activate(result: Realized, retired_cookie:Option<u32>) -> Ref<Unit> {
     if let Some((cookie,_))=result.prepared {
         let resources=factory().resources[cookie as usize].take().expect("cold body services");
         module::install_body(reference,resources.body);
+        crate::vehicles::module::f2::riders::install(reference,resources.rider);
         let water=resources.adoption.droideka_water.clone();
         f3::install_native_slot(reference,resources.adoption.category,resources.health,
             resources.bindings,water,resources.publication);
@@ -121,6 +124,7 @@ pub(crate) fn realize(request: &F3PlayerRealization, mut services: f3::WorldServ
         let cookie=old.cookie;
         factory().resources[cookie as usize]=Some(Resources {
             body:module::take_body(reference.slot),adoption:old.adoption,
+            rider:crate::vehicles::module::f2::riders::take(reference),
             publication:f3::take_publication(reference),
             health:f3::health_scale(reference.slot),bindings:f3::take_bindings(reference.slot),
         });

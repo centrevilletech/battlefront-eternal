@@ -216,6 +216,20 @@ pub fn look_basis(forward: &Vector3, up: &Vector3) -> Quaternion {
     q
 }
 
+// Vehicle.seatFrame is shared by solver Hulls and canonical AI sensors.
+// A read needs only these scalars and retained seat geometry, never a loaded
+// physics working row. Keep compose/multiply order identical for both users.
+pub(crate) fn seat_frame_values(position:&Vector3,quaternion:&Quaternion,flying:bool,yaw:f64,aim:Option<(f64,f64,&SeatPose)>)->Matrix4 {
+    let mut out=Matrix4::default();let mut q=Quaternion::default();
+    if flying {q=*quaternion;}else{q.set_from_axis_angle(&UP,yaw);}
+    out.compose(position,&q,&UNIT_SCALE);
+    if let Some((aim_yaw,pitch,view))=aim {
+        let q2=look_basis(&aim_vector(angle(aim_yaw-yaw),pitch),&view.up);
+        let mut m=Matrix4::default();m.compose(&view.pivot,&q2,&UNIT_SCALE);out.multiply(&m);
+    }
+    out
+}
+
 impl Hull {
     fn pose_mut(&mut self) -> &mut HullPose {
         self.pose.as_mut().expect("a posed hull's rig")
@@ -350,24 +364,8 @@ impl Hull {
     /// vehicles.js seatFrame (at the tick): the frame a seat's camera and
     /// aim hang from: a flyer's own frame, a ground hull's heading.
     pub(crate) fn seat_frame(&self, i: usize) -> Matrix4 {
-        let mut out = Matrix4::default();
-        let mut q = Quaternion::default();
-        if self.flying {
-            q = self.quaternion;
-        } else {
-            q.set_from_axis_angle(&UP, self.yaw);
-        }
-        out.compose(&self.position, &q, &UNIT_SCALE);
-        if i == 0 {
-            return out;
-        }
-        let seat = &self.seats[i];
-        let view = &self.pose.as_ref().unwrap().seats[i];
-        let q2 = look_basis(&aim_vector(angle(seat.aim_yaw - self.yaw), seat.pitch), &view.up);
-        let mut m = Matrix4::default();
-        m.compose(&view.pivot, &q2, &UNIT_SCALE);
-        out.multiply(&m);
-        out
+        let aim=if i==0 {None}else{let seat=&self.seats[i];Some((seat.aim_yaw,seat.pitch,&self.pose.as_ref().unwrap().seats[i]))};
+        seat_frame_values(&self.position,&self.quaternion,self.flying,self.yaw,aim)
     }
 
     /// vehicles.js seatEye: a seat's eye in the world.
@@ -651,7 +649,7 @@ impl Hull {
         let mut q = Quaternion::default();
         q.set_from_euler(&three::Euler::new(r.x, r.y, r.z, EulerOrder::YXZ));
         if self.leg_side.is_none() {
-            let mut sides = std::mem::take(&mut self.leg_side_storage);
+            let mut sides = std::mem::take(&mut self.leg_side_scratch);
             sides.resize(legs.at.len(), 0.0);
             self.leg_side = Some(sides);
         }

@@ -249,47 +249,47 @@ pub struct FfWeaponBirth {
 }
 
 impl FfWeaponBirth {
-    pub const WORDS: usize = 63;
+    pub const WORDS: usize = 64;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 63] = (&mut row[..63]).try_into().unwrap();
+        let row: &mut [f64; 64] = (&mut row[..64]).try_into().unwrap();
         self.state.put(&mut row[0..], heap);
-        match &self.ordnance { Some(v) => { row[42] = 0.0; row[42 + 1] = (*v).0 as f64; } None => { row[42] = 1.0; row[42 + 1..42 + 2].fill(0.0); } }
-        row[44] = if self.tow { 1.0 } else { 0.0 };
-        row[45] = self.range;
-        row[46] = self.cable_length;
-        row[47] = self.channel;
-        row[48] = self.relation_mask as f64;
-        row[49] = self.category_mask as f64;
-        row[50] = self.weapon_node;
-        row[51] = self.fallback_node;
-        { let at = heap.len(); row[52] = at as f64; row[52 + 1] = self.direction_nodes.len() as f64; heap.resize(at + self.direction_nodes.len() * 1, 0.0); for (i, e) in self.direction_nodes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[54] = at as f64; row[54 + 1] = self.outside.len() as f64; heap.resize(at + self.outside.len() * 1, 0.0); for (i, e) in self.outside.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        self.emitter.put(&mut row[56..56 + 3], heap);
-        row[59] = self.emitter_node;
-        row[60] = self.emitter_aimer;
-        { let at = heap.len(); row[61] = at as f64; row[61 + 1] = self.muzzles.len() as f64; heap.resize(at + self.muzzles.len() * 5, 0.0); for (i, e) in self.muzzles.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
+        match &self.ordnance { Some(v) => { row[43] = 0.0; row[43 + 1] = (*v).0 as f64; } None => { row[43] = 1.0; row[43 + 1..43 + 2].fill(0.0); } }
+        row[45] = if self.tow { 1.0 } else { 0.0 };
+        row[46] = self.range;
+        row[47] = self.cable_length;
+        row[48] = self.channel;
+        row[49] = self.relation_mask as f64;
+        row[50] = self.category_mask as f64;
+        row[51] = self.weapon_node;
+        row[52] = self.fallback_node;
+        { let at = heap.len(); row[53] = at as f64; row[53 + 1] = self.direction_nodes.len() as f64; heap.resize(at + self.direction_nodes.len() * 1, 0.0); for (i, e) in self.direction_nodes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[55] = at as f64; row[55 + 1] = self.outside.len() as f64; heap.resize(at + self.outside.len() * 1, 0.0); for (i, e) in self.outside.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        self.emitter.put(&mut row[57..57 + 3], heap);
+        row[60] = self.emitter_node;
+        row[61] = self.emitter_aimer;
+        { let at = heap.len(); row[62] = at as f64; row[62 + 1] = self.muzzles.len() as f64; heap.resize(at + self.muzzles.len() * 5, 0.0); for (i, e) in self.muzzles.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 63] = (&row[..63]).try_into().unwrap();
+        let row: &[f64; 64] = (&row[..64]).try_into().unwrap();
         Self {
             state: Weapon::take(&row[0..], heap),
-            ordnance: if row[42] == 0.0 { Some(DefId(word_u32(row[42 + 1]))) } else { None },
-            tow: row[44] != 0.0,
-            range: row[45],
-            cable_length: row[46],
-            channel: row[47],
-            relation_mask: word_u32(row[48]),
-            category_mask: word_u32(row[49]),
-            weapon_node: row[50],
-            fallback_node: row[51],
-            direction_nodes: { let (at, n) = (word_u32(row[52]) as usize, word_u32(row[52 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
-            outside: { let (at, n) = (word_u32(row[54]) as usize, word_u32(row[54 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
-            emitter: BeamSource::take(&row[56..56 + 3], heap),
-            emitter_node: row[59],
-            emitter_aimer: row[60],
-            muzzles: { let (at, n) = (word_u32(row[61]) as usize, word_u32(row[61 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; out.push(FfMuzzle::take(&row[0..], heap)); } out },
+            ordnance: if row[43] == 0.0 { Some(DefId(word_u32(row[43 + 1]))) } else { None },
+            tow: row[45] != 0.0,
+            range: row[46],
+            cable_length: row[47],
+            channel: row[48],
+            relation_mask: word_u32(row[49]),
+            category_mask: word_u32(row[50]),
+            weapon_node: row[51],
+            fallback_node: row[52],
+            direction_nodes: { let (at, n) = (word_u32(row[53]) as usize, word_u32(row[53 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            outside: { let (at, n) = (word_u32(row[55]) as usize, word_u32(row[55 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            emitter: BeamSource::take(&row[57..57 + 3], heap),
+            emitter_node: row[60],
+            emitter_aimer: row[61],
+            muzzles: { let (at, n) = (word_u32(row[62]) as usize, word_u32(row[62 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; out.push(FfMuzzle::take(&row[0..], heap)); } out },
         }
     }
 
@@ -305,13 +305,13 @@ impl FfSeatBirth {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 63, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 63]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 63..at + (i + 1) * 63].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 64, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 64]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 64..at + (i + 1) * 64].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
         Self {
-            weapons: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 63..at + (i + 1) * 63]; out.push(FfWeaponBirth::take(&row[0..], heap)); } out },
+            weapons: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 64..at + (i + 1) * 64]; out.push(FfWeaponBirth::take(&row[0..], heap)); } out },
         }
     }
 
@@ -394,23 +394,23 @@ pub struct FfWeaponOut {
 }
 
 impl FfWeaponOut {
-    pub const WORDS: usize = 46;
+    pub const WORDS: usize = 47;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 46] = (&mut row[..46]).try_into().unwrap();
+        let row: &mut [f64; 47] = (&mut row[..47]).try_into().unwrap();
         self.state.put(&mut row[0..], heap);
-        row[42] = self.random_binding as f64;
-        row[43] = self.barrel;
-        { let at = heap.len(); row[44] = at as f64; row[44 + 1] = self.kicks.len() as f64; heap.resize(at + self.kicks.len() * 2, 0.0); for (i, e) in self.kicks.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v); } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        row[43] = self.random_binding as f64;
+        row[44] = self.barrel;
+        { let at = heap.len(); row[45] = at as f64; row[45 + 1] = self.kicks.len() as f64; heap.resize(at + self.kicks.len() * 2, 0.0); for (i, e) in self.kicks.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v); } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 46] = (&row[..46]).try_into().unwrap();
+        let row: &[f64; 47] = (&row[..47]).try_into().unwrap();
         Self {
             state: Weapon::take(&row[0..], heap),
-            random_binding: word_u32(row[42]),
-            barrel: row[43],
-            kicks: { let (at, n) = (word_u32(row[44]) as usize, word_u32(row[44 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(if row[0] == 0.0 { Some(row[0 + 1]) } else { None }); } out },
+            random_binding: word_u32(row[43]),
+            barrel: row[44],
+            kicks: { let (at, n) = (word_u32(row[45]) as usize, word_u32(row[45 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(if row[0] == 0.0 { Some(row[0 + 1]) } else { None }); } out },
         }
     }
 
@@ -428,14 +428,14 @@ impl FfSeatOut {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
         row[0] = if self.consumed { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 46, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 46]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 46..at + (i + 1) * 46].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 47, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 47]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 47..at + (i + 1) * 47].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
         Self {
             consumed: row[0] != 0.0,
-            weapons: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 46..at + (i + 1) * 46]; out.push(FfWeaponOut::take(&row[0..], heap)); } out },
+            weapons: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 47..at + (i + 1) * 47]; out.push(FfWeaponOut::take(&row[0..], heap)); } out },
         }
     }
 
@@ -630,43 +630,43 @@ pub struct FfShot {
 }
 
 impl FfShot {
-    pub const WORDS: usize = 67;
+    pub const WORDS: usize = 68;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 67] = (&mut row[..67]).try_into().unwrap();
+        let row: &mut [f64; 68] = (&mut row[..68]).try_into().unwrap();
         row[0] = self.hull.slot as f64; row[0 + 1] = self.hull.gen as f64;
         row[2] = self.life;
         row[3] = self.seat as f64;
         row[4] = self.weapon as f64;
         self.state.put(&mut row[5..], heap);
-        self.owner.put(&mut row[47..47 + 3], heap);
-        row[50] = self.yaw;
-        row[51] = self.pitch;
-        row[52] = self.charge;
-        row[53] = self.target_id;
-        row[54] = self.target_generation;
-        row[55..55 + 3].copy_from_slice(&self.origin);
-        row[58..58 + 3].copy_from_slice(&self.direction);
-        self.sample.put(&mut row[61..], heap);
+        self.owner.put(&mut row[48..48 + 3], heap);
+        row[51] = self.yaw;
+        row[52] = self.pitch;
+        row[53] = self.charge;
+        row[54] = self.target_id;
+        row[55] = self.target_generation;
+        row[56..56 + 3].copy_from_slice(&self.origin);
+        row[59..59 + 3].copy_from_slice(&self.direction);
+        self.sample.put(&mut row[62..], heap);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 67] = (&row[..67]).try_into().unwrap();
+        let row: &[f64; 68] = (&row[..68]).try_into().unwrap();
         Self {
             hull: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
             life: row[2],
             seat: word_u32(row[3]),
             weapon: word_u32(row[4]),
             state: Weapon::take(&row[5..], heap),
-            owner: OrdnanceOwner::take(&row[47..47 + 3], heap),
-            yaw: row[50],
-            pitch: row[51],
-            charge: row[52],
-            target_id: row[53],
-            target_generation: row[54],
-            origin: [row[55], row[55 + 1], row[55 + 2]],
-            direction: [row[58], row[58 + 1], row[58 + 2]],
-            sample: F3MountedSample::take(&row[61..], heap),
+            owner: OrdnanceOwner::take(&row[48..48 + 3], heap),
+            yaw: row[51],
+            pitch: row[52],
+            charge: row[53],
+            target_id: row[54],
+            target_generation: row[55],
+            origin: [row[56], row[56 + 1], row[56 + 2]],
+            direction: [row[59], row[59 + 1], row[59 + 2]],
+            sample: F3MountedSample::take(&row[62..], heap),
         }
     }
 
@@ -679,19 +679,19 @@ pub struct FfFired {
 }
 
 impl FfFired {
-    pub const WORDS: usize = 68;
+    pub const WORDS: usize = 69;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 68] = (&mut row[..68]).try_into().unwrap();
+        let row: &mut [f64; 69] = (&mut row[..69]).try_into().unwrap();
         self.shot.put(&mut row[0..], heap);
-        row[67] = self.events as f64;
+        row[68] = self.events as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 68] = (&row[..68]).try_into().unwrap();
+        let row: &[f64; 69] = (&row[..69]).try_into().unwrap();
         Self {
             shot: FfShot::take(&row[0..], heap),
-            events: word_u32(row[67]),
+            events: word_u32(row[68]),
         }
     }
 

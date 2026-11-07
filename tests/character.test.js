@@ -4,7 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
+import { Droideka } from '../src/droideka.js';
 import { SoldierAnimator } from './helpers/presentation.js';
+import { f3World } from './fixtures/f3-world.js';
+import { weaponDefinition } from './fixtures/client-weapons.js';
 import { FirstPersonView } from './helpers/presentation.js';
 import { Clip, loadClips } from '../src/anim.js';
 
@@ -45,6 +48,19 @@ test('roll fits recovery into physics duration and returns to a finite moving ga
   assert.notEqual(a.gait, 'idle', 'residual roll velocity must not force the idle pose');
   assert.ok(Number.isFinite(a.time));
   assert.ok(a.actor.root.quaternion.toArray().every(Number.isFinite));
+});
+
+test('native grenade actions retain their selected animation bank', async () => {
+  const grenade=weaponDefinition('grenade',1,{base:'grenade',AnimationBank:'grenade',InitialSalvoDelay:.1,
+    ordnance:{class:'grenade-round',base:'grenade',Velocity:10,LifeSpan:5}});
+  const world=await f3World({soldier:{class:'soldier',base:'soldier',MaxHealth:100,
+    weapons:[weaponDefinition('rifle',0),grenade]}});
+  const unit=world.spawn('soldier',0,0),actions=[];
+  unit.combat.arsenal.weapons[1].random=world.ordnance.random;
+  unit.combat.onPresentation=event=>{if(event.kind==='weaponAction')actions.push([event.action,event.bank,event.posture]);};
+  unit.intent.buttons[1]=1;
+  for(let tick=1;tick<=4;tick++)world.phase.phase(1/60,tick);
+  assert.ok(actions.some(([action,bank])=>action==='shoot3'&&bank==='grenade'),JSON.stringify(actions));
 });
 
 test('first-person grenade starts windup before release',()=>{

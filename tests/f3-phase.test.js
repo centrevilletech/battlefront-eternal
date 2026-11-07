@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { loadSim } from '../src/sim/module.js';
 import { SimBridge, Heap } from '../src/sim/runtime.js';
 import { KIND_UNIT, UnitMirror, SoldierMirror, DroidekaMirror, F3BoundaryMirror, F3PhaseInputMirror, F3ChangeMirror,
-  syncF3Boundary, putF3PhaseInput, putF3Change, F3AdoptionMirror, putF3Adoption, HitShapeMirror, CombatMirror } from '../src/sim/gen/index.js';
+  syncF3Boundary, putF3PhaseInput, putF3Change, F3AdoptionMirror, putF3Adoption, HitShapeMirror, CombatMirror, F3ControlViewLayout, putF3ControlView, syncF3ControlView, syncF3ControlViewDelta, syncIntent } from '../src/sim/gen/index.js';
 import { F3UnitBinding } from '../src/f3-contract.js';
 import {applyDelta,deltaBuffer} from '../src/f2-delta.js';
 import {F2DeltaLayout} from '../src/sim/gen/f2.js';
@@ -72,6 +72,13 @@ test('owned phase retains canonical gated bodies without body write-in and comma
   assert.equal(layout.outputRows,1);publications(b,layout,bindings);assert.equal(seated.team,2);assert.equal(held.team,1);
   command.key.life=0;putF3Change(b,command,b.f,layout.command/8,heap);assert.equal(x.f3_command(),0);
   command.key.life=1;command.key.generation=1;putF3Change(b,command,b.f,layout.command/8,heap);assert.equal(x.f3_command(),0);
+  // The page can omit an intent only when canonical AI owns this life.
+  // A rejected sparse row does not poison the next explicit foreign request.
+  const request=new F3PhaseInputMirror();Object.assign(request.key,{slot:1,generation:0,life:1});
+  b.views();putF3PhaseInput(b,request,b.f,layout.input/8,heap);
+  assert.equal(x.f3_step(1,1/60,NaN,1),0);
+  request.intent=seated.intent;putF3PhaseInput(b,request,b.f,layout.input/8,heap);
+  assert.equal(x.f3_step(1,1/60,NaN,1),1);
 });
 
 test('native shape sensors retain stale death poses and strict ordered ray ties',async()=>{
@@ -301,4 +308,23 @@ test('first soldier contact retains a dense polygon triangle buffer',async()=>{
   assert.ok(Number.isFinite(unit.position.y));
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
+});
+
+// A movement/input delta cannot revive a null optional intent vector or
+// rewrite an unrelated one-shot. The full reader still restores page-owned
+// requests whose canonical bits equal the preceding native publication.
+test('native control masks retain null vectors and the full reader restores page one-shots',()=>{
+  const source=unit(1),mirror=unit(2),b={},row=new Float64Array(F3ControlViewLayout.words);
+  Object.assign(source.intent,{forward:.5,reload:true,aim:null,jetDirection:null});
+  source.input.jetDirection=null;putF3ControlView(b,source,row,0,[]);
+  syncF3ControlView(b,row,0,0,mirror);
+  mirror.intent.forward=123;mirror.intent.reload=false;source.input.forward=1;
+  putF3ControlView(b,source,row,0,[]);
+  const mask=new Uint32Array(Math.ceil(row.length/32)),at=F3ControlViewLayout.input;
+  mask[at>>>5]|=1<<(at&31);
+  syncF3ControlViewDelta(b,row,0,0,mirror,mask);
+  assert.equal(mirror.input.forward,1);assert.equal(mirror.intent.forward,123);
+  assert.equal(mirror.intent.reload,false);assert.equal(mirror.intent.aim,null);assert.equal(mirror.intent.jetDirection,null);
+  syncIntent(b,row,F3ControlViewLayout.intent,0,mirror.intent);
+  assert.equal(mirror.intent.forward,.5);assert.equal(mirror.intent.reload,true);
 });

@@ -33,10 +33,10 @@ pub fn opt_num(v: V) -> Option<f64> {
 pub fn num_or_nan(v: V) -> f64 {
     v.opt_num().unwrap_or(f64::NAN)
 }
-pub fn opt_str(v: V) -> Option<String> {
+pub fn opt_str(v: V) -> Option<std::rc::Rc<str>> {
     match v.str() {
-        Some(s) => Some(s.to_string()),
-        None => v.opt_num().map(bfe_content::js::number_to_string),
+        Some(s) => Some(s.into()),
+        None => v.opt_num().map(|n| bfe_content::js::number_to_string(n).into()),
     }
 }
 pub fn quat(v: V) -> Quaternion {
@@ -144,7 +144,7 @@ pub fn class_view(v: V) -> Option<ClassView> {
         max_turn_speed: opt_num(v.get("MaxTurnSpeed")),
         max_pitch_speed: opt_num(v.get("MaxPitchSpeed")),
         max_yaw_speed: opt_num(v.get("MaxYawSpeed")),
-        vehicle_type: v.get("VehicleType").str().map(String::from),
+        vehicle_type: v.get("VehicleType").str().map(std::rc::Rc::from),
         landing_time: opt_num(v.get("LandingTime")),
         landing_speed: opt_num(v.get("LandingSpeed")),
         landed_height: opt_num(v.get("LandedHeight")),

@@ -86,21 +86,26 @@ pub fn sample(id: u32, unit: &Unit, out: &mut [HitShape]) -> usize {
         return crate::vehicles::module::f2::riders::shapes(super::f3::unit_reference(id), unit.generation, out);
     }
     let Some(body) = bodies().get_mut(id as usize).and_then(Option::as_mut) else { return 0 };
-    let owned = if let crate::store::Nullable::Value(held) = &unit.held {
-        crate::battle::f4_live::held_clip(body.reference,unit).and_then(|clip| {
-            if let crate::store::Nullable::Value(frame) = held.frame {
-                Some((clip,v8math::max(held.time.unwrap_or(0.0),0.0),frame))
-            }else{None}
-        })
-    }else{None};
-    let (clip,time,elements)=if let Some(owned)=owned {owned}else{
-        let Some(pose)=&body.pose else{return 0};let Some(clip)=pose.clip else{return 0};
-        (clip,pose.time,pose.frame)
+    let (clip,time,elements)=if let crate::store::Nullable::Value(held)=&unit.held {
+        if crate::battle::f4_live::owns_held(held.prop) {
+            let Some(clip)=crate::battle::f4_live::held_clip(body.reference,unit) else {return 0};
+            let crate::store::Nullable::Value(frame)=held.frame else {return 0};
+            (clip,Some(v8math::max(held.time.unwrap_or(0.),0.)),frame)
+        }else{
+            let Some(pose)=&body.pose else {return 0};
+            let Some(clip)=pose.clip else {return 0};
+            (clip,Some(pose.time),pose.frame)
+        }
+    }else{
+        let Some(pose)=&body.pose else {return 0};
+        let Some(clip)=pose.clip else {return 0};
+        (clip,Some(pose.time),pose.frame)
     };
     let clips=crate::pose::state();
-    let sample=RiderSample{clip:&clips.clips[clip as usize],pitch:0.0,turn:0.0,time:Some(time)};
+    let sample=RiderSample {clip:&clips.clips[clip as usize],pitch:0.,turn:0.,time};
     let mut frame=Matrix4::default();frame.from_array(&elements,0);
-    body.sampler.hit_shapes(&sample,&frame,unit.root_scale,out)
+    body.sampler.hit_shapes(&sample, &frame, unit.root_scale, out)
+
 }
 
 // OrdnanceWorld.mayStrike needs the lease's mount identity, independently of
@@ -145,4 +150,5 @@ pub(crate) fn install(reference: Ref<Unit>, body: Option<Body>) {
 pub(crate) fn reserve(count: usize) {
     let rows = bodies();
     rows.resize_with(count.max(rows.len()), || None);
+
 }

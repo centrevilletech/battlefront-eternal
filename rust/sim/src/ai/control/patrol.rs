@@ -4,6 +4,7 @@
 //! hint queries.
 
 use super::fsm::Fsm;
+use crate::ai::owned::scratch::Inline;
 use super::goals;
 use super::world::{AiWorld, Draws, PostSnap};
 use super::super::nav::math::Vec3;
@@ -29,7 +30,7 @@ pub struct Patrol {
     pub look_point: Vec3,
     pub stance: f64,
     pub expires: f64,
-    pub candidates: Vec<usize>,
+    pub candidates: Inline<usize,QUERY_OUTPUT_CAP>,
     pub centered: bool,
 }
 
@@ -44,7 +45,7 @@ impl Patrol {
             look_point: Vec3::default(),
             stance: 0.0,
             expires: 0.0,
-            candidates: Vec::new(),
+            candidates: Inline::default(),
             centered: false,
         }
     }
@@ -62,7 +63,11 @@ pub fn capture_region_pop(post: &PostSnap, population: bool) -> Option<(Vec3, f6
             return Some((capture.center, capture.half[0], capture.half[2]));
         }
     }
-    let raw = post.desc_capture.as_ref()?;
+    let Some(raw) = post.desc_capture.as_ref() else {
+        // captureRegion falls back to the placed post's built region when
+        // neither the mission policy nor the descriptor supplies one.
+        return post.region.as_ref().map(|region|(post.position,region.half[0],region.half[2]));
+    };
     let origin = if let Some(c) = raw.center {
         Vec3::new(c[0], c[1], c[2])
     } else if let Some(m) = &raw.matrix {
@@ -158,10 +163,10 @@ pub fn arrived_at_objective(
 }
 
 /// friendlySpawnEligible (patrol.js:138): Population's own when bound
-/// (goals' rule), else the map-data test over the snapshot's fields.
+/// (classicBinding's friendlySpawn), else the map-data test over the snapshot's fields.
 pub fn friendly_spawn_eligible(post: &PostSnap, team: f64, population: bool, relation: &dyn Fn(f64, f64) -> f64) -> bool {
     if population {
-        return goals::friendly_spawn_eligible(post, team, relation).is_some();
+        return goals::friendly_spawn(post, team, relation);
     }
     if post.team == 0.0 {
         return false;
@@ -180,7 +185,7 @@ pub fn same_post(hint_post: Option<usize>, post: usize) -> bool {
 }
 
 /// hintAvailable (patrol.js:219).
-pub fn hint_available(w: &mut dyn AiWorld, bind_nav: bool, hint: usize, now: f64) -> bool {
+pub fn hint_available<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, hint: usize, now: f64) -> bool {
     if bind_nav {
         return w.nav_hint_available(hint);
     }
@@ -189,13 +194,13 @@ pub fn hint_available(w: &mut dyn AiWorld, bind_nav: bool, hint: usize, now: f64
 }
 
 /// queryPatrolHints (patrol.js:245).
-pub fn query_patrol_hints(w: &mut dyn AiWorld, bind_nav: bool, population: bool, post: &PostSnap, requester: Option<super::world::UKey>) -> Vec<usize> {
+pub fn query_patrol_hints<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, population: bool, post: &PostSnap, requester: Option<super::world::UKey>) -> Inline<usize,QUERY_OUTPUT_CAP> {
     let now = w.time();
     let center = cp_center(post, population);
-    let broad: Vec<usize> = if bind_nav {
-        w.nav_query_hints(HINT_PATROL, center, QUERY_HALF_EXTENT, QUERY_BROAD_CAP, requester)
+    let broad: Inline<usize,50> = if bind_nav {
+        w.nav_query_hints(HINT_PATROL, center, QUERY_HALF_EXTENT, QUERY_BROAD_CAP, requester).into_iter().collect()
     } else {
-        let mut out = Vec::new();
+        let mut out = Inline::default();
         for i in 0..w.nav_hints_len() {
             if out.len() as f64 >= QUERY_BROAD_CAP {
                 break;
@@ -216,7 +221,7 @@ pub fn query_patrol_hints(w: &mut dyn AiWorld, bind_nav: bool, population: bool,
         out
     };
     let _ = now;
-    let mut out = Vec::new();
+    let mut out = Inline::default();
     for hint in broad {
         if out.len() >= QUERY_OUTPUT_CAP {
             break;
@@ -229,8 +234,8 @@ pub fn query_patrol_hints(w: &mut dyn AiWorld, bind_nav: bool, population: bool,
 }
 
 /// chooseHint (patrol.js:274): random order without replacement.
-pub fn choose_hint(w: &mut dyn AiWorld, bind_nav: bool, candidates: &[usize], previous: Option<usize>, now: f64, draws: &mut dyn Draws) -> Option<usize> {
-    let mut list: Vec<usize> = candidates.to_vec();
+pub fn choose_hint<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, candidates: &[usize], previous: Option<usize>, now: f64, draws: &mut dyn Draws) -> Option<usize> {
+    let mut list: Inline<usize,QUERY_OUTPUT_CAP> = candidates.iter().copied().collect();
     let mut n = list.len();
     while n > 0 {
         n -= 1;

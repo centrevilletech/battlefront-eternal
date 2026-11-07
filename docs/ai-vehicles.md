@@ -1,5 +1,10 @@
 # Classic AI: vehicles, turrets and seats
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 Vehicles, turrets and seats for the Classic AI (`docs/ai.md`). Two layers:
 
 - **Seats** (gameplay, `src/seats.js`, `src/vehicles.js`, `src/gunner.js`,

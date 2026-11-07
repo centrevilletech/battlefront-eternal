@@ -1,14 +1,14 @@
 //! The flight package's functions the battle reaches from outside a craft's
 //! own tick, replayed against cases made by the JavaScript itself
-//! (tools/sim-flight/cases.mjs): a bot pilot's stick and its altitude
+//! in the synthetic frozen fixture: a bot pilot's stick and its altitude
 //! stage, the assisted shot, a flyer missile's seeker, the transports'
 //! spawn points and a craft's class by its name. Each case's calls to the
 //! battle are answered from the case (their arguments checked bit for bit)
 //! and what comes out is compared to the last bit.
 //!
-//!   BFE_FLIGHT_CASES=CASES.bfecap cargo test -p sim --features replay --test flight_cases
-//!
-//! Without BFE_FLIGHT_CASES the test passes without replaying.
+//! Synthetic cases are frozen in the repository, with number bits and
+//! undefined preserved. An external BFECAP can extend the same checks through
+//! BFE_FLIGHT_CASES; the default CI run always exercises the frozen cases.
 #![cfg(feature = "replay")]
 
 use bfe_sim::flight::ai::{Blend, PilotEnv, PilotWorld, Request, Steer};
@@ -19,7 +19,7 @@ use bfe_sim::flight::state::{Message, Trick};
 use bfe_sim::flight::targeting::{navigate_missile, MissileTarget};
 use bfe_sim::flight::{Environment, FlightClass, FlightState, FlightWorld, Member, Team};
 use bfe_sim::vehicles::{BodyId, Ground, Hit, Hull, Polygon, VehicleWorld};
-use sim_replay::{same_number, Reader, Value, V};
+use sim_replay::{same_number, Arena, Node, Reader, Value, V};
 use three::{Matrix4, Quaternion, Vector3};
 
 fn v3(v: V) -> Vector3 {
@@ -600,43 +600,87 @@ fn tuning(case: V) -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn flight_functions_as_the_javascript() {
-    let Ok(path) = std::env::var("BFE_FLIGHT_CASES") else {
-        eprintln!("BFE_FLIGHT_CASES unset: nothing replayed");
-        return;
-    };
-    let bytes = std::fs::read(&path).expect("the cases");
-    let mut reader = Reader::new(&bytes).expect("a BFECAP file");
-    let mut tally: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
-    let mut failures = Vec::new();
-    while let Some(r) = reader.next_record() {
-        let r = r.expect("a record");
-        let Some(kind) = r.name.strip_prefix("flight.") else { continue };
-        let case = r.root();
-        let result = match kind {
-            "pilot" => pilot(case),
-            "raise" => raise(case),
-            "assist" => assist(case),
-            "missile" => missile(case),
-            "transport" => transport(case),
-            "class" => class(case),
-            "keys" => keys(case),
-            "tuning" => tuning(case),
-            other => Err(format!("no kind {other}")),
-        };
-        let t = tally.entry(kind.to_string()).or_default();
-        t.0 += 1;
-        match result {
-            Ok(()) => t.1 += 1,
-            Err(e) => failures.push(format!("case {} ({kind}): {e}", r.tick)),
+// Tags carry JavaScript values JSON itself cannot represent. All other
+// objects keep their authored key order, just like the capture arena.
+fn frozen_value(value: &bfe_content::Value, arena: &mut Arena) -> Value {
+    use bfe_content::Value as Json;
+    match value {
+        Json::Null => Value::Null,
+        Json::Bool(value) => Value::Bool(*value),
+        Json::Number(value) => Value::Num(*value),
+        Json::String(value) => Value::Str(value.to_string()),
+        Json::Array(values) => {
+            let values = values.iter().map(|v| frozen_value(v, arena)).collect();
+            arena.array(values)
+        }
+        Json::Object(object) => {
+            if object.get("$undefined").is_some() {
+                return Value::Undefined;
+            }
+            if let Some(Json::String(bits)) = object.get("$f64") {
+                assert_eq!(bits.len(), 16, "a number's eight bytes");
+                let bytes = std::array::from_fn(|i| u8::from_str_radix(&bits[i * 2..i * 2 + 2], 16).unwrap());
+                return Value::Num(f64::from_le_bytes(bytes));
+            }
+            let fields = object.entries().map(|(k, v)| (k.to_string(), frozen_value(v, arena))).collect();
+            let index = arena.nodes.len();
+            arena.nodes.push(Node::Object { class: String::new(), fields });
+            Value::Node(index as u32)
         }
     }
-    for (kind, (n, same)) in &tally {
-        eprintln!("{kind}: {n} cases, {same} the same");
+}
+
+fn check_case(kind: &str, case: V) -> Result<(), String> {
+    match kind {
+        "pilot" => pilot(case),
+        "raise" => raise(case),
+        "assist" => assist(case),
+        "missile" => missile(case),
+        "transport" => transport(case),
+        "class" => class(case),
+        "keys" => keys(case),
+        "tuning" => tuning(case),
+        other => Err(format!("no kind {other}")),
     }
-    for f in failures.iter().take(10) {
-        eprintln!("  {f}");
+}
+
+#[test]
+fn flight_functions_match_frozen_cases() {
+    let data = bfe_content::json::parse(include_str!("fixtures/flight-functions.json")).expect("synthetic flight cases");
+    let cases = match data.get("cases") {
+        Some(bfe_content::Value::Array(cases)) => cases,
+        _ => panic!("a nonempty case list"),
+    };
+    assert_eq!(cases.len(), 256, "frozen case count");
+    let mut kinds = std::collections::BTreeSet::new();
+    for (i, case) in cases.iter().enumerate() {
+        let kind = match case.get("kind") {
+            Some(bfe_content::Value::String(kind)) => kind.as_ref(),
+            _ => panic!("a case kind"),
+        };
+        kinds.insert(kind);
+        let mut arena = Arena::default();
+        let value = frozen_value(case.get("value").expect("case values"), &mut arena);
+        if let Err(error) = check_case(kind, arena.view(&value)) {
+            panic!("case {i} ({kind}): {error}");
+        }
     }
-    assert!(failures.is_empty(), "{} cases differ", failures.len());
+    assert_eq!(kinds.len(), 7, "every generated function family");
+}
+
+#[test]
+fn flight_functions_match_external_cases() {
+    let Ok(path) = std::env::var("BFE_FLIGHT_CASES") else { return };
+    let bytes = std::fs::read(&path).expect("the cases");
+    let mut reader = Reader::new(&bytes).expect("a BFECAP file");
+    let mut count = 0;
+    while let Some(record) = reader.next_record() {
+        let record = record.expect("a record");
+        let Some(kind) = record.name.strip_prefix("flight.") else { continue };
+        count += 1;
+        if let Err(error) = check_case(kind, record.root()) {
+            panic!("case {} ({kind}): {error}", record.tick);
+        }
+    }
+    assert!(count > 0, "the external corpus must contain flight cases");
 }

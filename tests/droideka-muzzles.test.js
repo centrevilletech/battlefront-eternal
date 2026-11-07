@@ -10,6 +10,7 @@ import {modelPack} from '../src/models.js';
 import {Droideka} from '../src/droideka.js';
 import {FirstPersonView} from './helpers/presentation.js';
 import {DROIDEKA_OFFSET} from '../src/firstperson.js';
+import {PlayerCombat} from '../src/combat.js';
 const root=contentURL('');
 const json=path=>JSON.parse(readFileSync(new URL(path,root)));
 const buffer=path=>{const b=readFileSync(new URL(path,root));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);};

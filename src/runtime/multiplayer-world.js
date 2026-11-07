@@ -121,7 +121,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         if (!existing.disconnectedAt) throw new Error('player already joined');
         existing.disconnectedAt = null; existing.mailbox = inputMailbox(); existing.controls = commandControls(); existing.fire = fireCommands(); existing.reliableFire = reliableFire; existing.lastInputAt = performance.now(); existing.inputsStale=false;
         existing.actions = inputActions(); existing.separateActions = separateActions;
-        if(existing.unit)existing.unit.f3.advanceLife(existing.unit);
+        if (existing.unit) existing.unit.f3.advanceLife(existing.unit);
         return this.player(id);
       }
       if (players.size >= maxPlayers) throw new Error('server full');

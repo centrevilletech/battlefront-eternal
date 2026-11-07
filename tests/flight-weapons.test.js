@@ -20,12 +20,6 @@ test('trick cannot be interrupted by landing input and respects exhausted power/
  for(let i=0;i<90;i++)tick({rollLock:true});assert.equal(f.v.trick,'');assert.ok(f.v.trickCooldown>0);tick({immelmann:true});assert.equal(f.v.trick,'');
 });
 
-test('AI landing intent descends into the landing envelope through virtual pitch',async()=>{
- const {pilotInput}=await import('../src/flight/ai.js');const f=fixture();f.v.flightState='Flying';f.v.position.y=35;f.v.airspeed=65;f.system.flightEnvironment={space:false,ceiling:200};const unit={vehicle:f.v,steer:{land:true}};
- for(let i=0;i<600&&f.v.flightState!=='Landed';i++){const intent=pilotInput(unit,null,null,1/60,{},{});stepPrediction(f.system, 1/60,f.v,{forward:intent.forward,stickY:intent.pitch,takeoff:intent.down});}
- assert.equal(f.v.flightState,'Landed');assert.equal(f.v.health,f.v.maxHealth);
-});
-
 test('Immelmann from a bank rolls smoothly into a reversed level exit',()=>{
  const f=fixture();f.v.flightState='Flying';f.v.position.y=500;f.v.airspeed=65;f.system.flightEnvironment={space:true};f.v.quaternion.set(0,0,Math.sin(Math.PI/4),Math.cos(Math.PI/4));let largest=0;
  for(let i=0;i<100;i++){const prev=f.v.quaternion.clone();stepPrediction(f.system, 1/60,f.v,{immelmann:i===0,rollLock:true});largest=Math.max(largest,prev.angleTo(f.v.quaternion));}

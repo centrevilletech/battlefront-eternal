@@ -19,7 +19,6 @@ import { Turret, scanVector } from '../src/props.js';
 import { TurretSeats, turretAimPoint } from '../src/seats.js';
 import { Gunner, previewSteer } from '../src/gunner.js';
 import { blankIntent } from '../src/units.js';
-import { VehicleAI } from '../src/ai/classic/vehicles/index.js';
 
 const DEG = Math.PI / 180;
 const near = (a, b, eps, message) => assert.ok(Math.abs(a - b) <= eps, `${message}: ${a} vs ${b}`);
@@ -197,19 +196,6 @@ test('TurretCamera: rests where the section puts it, pulled in by a wall, and in
   view.update(1 / 60, t, 0.2, -0.1, true);
   nearV(camera.position, t.eyePoint(new THREE.Vector3(), 0.2, -0.1), 1e-9, 'first person at the eye');
   assert.ok(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).angleTo(t.viewDirection(new THREE.Vector3(), 0.2, -0.1)) < 1e-6, 'straight down the aim');
-});
-
-test('a bot engages what its placed turret can aim at: the Yavin tower 35 degrees down, not up; the barge within its arc', () => {
-  const ai = new VehicleAI({ world: {} });
-  const tower = emplacement({ facing: 0, at: [0, 0, 0], settings: { PitchLimits: '-10.0 35.0', AimerPitchLimits: '-10.0 35.0' } });
-  const pivot = tower.gun.getWorldPosition(new THREE.Vector3());
-  const at = (yawDeg, pitchDeg) => pivot.clone().add(new THREE.Vector3(Math.sin(yawDeg * DEG) * Math.cos(pitchDeg * DEG), Math.sin(pitchDeg * DEG), Math.cos(yawDeg * DEG) * Math.cos(pitchDeg * DEG)).multiplyScalar(40));
-  assert.equal(ai.bodyReach(tower, at(0, -30)), true, '30 degrees down');
-  assert.equal(ai.bodyReach(tower, at(0, 30)), false, '30 degrees up');
-  assert.equal(ai.bodyReach(tower, at(0, 8)), true, '8 degrees up');
-  const barge = emplacement({ facing: 0, at: [0, 0, 0], settings: { YawLimits: '-70.0 70.0' } });
-  assert.equal(ai.bodyReach(barge, at(60, 0)), true, 'inside the arc');
-  assert.equal(ai.bodyReach(barge, at(100, 0)), false, 'outside it');
 });
 
 test('the reticle stays on the aim point while a wall pulls the chase camera in', () => {

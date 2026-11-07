@@ -276,10 +276,6 @@ pub fn post_weight(post: &PostSnap, team: f64, faction: f64) -> f64 {
 /// The attack bias (goals.js:184).
 pub const OBJECTIVE_ATTACK_BIAS: f64 = 3.0;
 
-fn standing_enemy_objective(post: &PostSnap, team: f64, relation: &dyn Fn(f64, f64) -> f64) -> bool {
-    post.building_alive == Some(true) && relation(team, owner_of(post)) < 0.0
-}
-
 /// selectObjective (goals.js:227). `posts` are the battle's posts in
 /// order; the answer is an index among them.
 pub fn select_objective(
@@ -293,33 +289,104 @@ pub fn select_objective(
     exclude_previous: bool,
     previous: Option<usize>,
 ) -> Option<usize> {
-    let list: Vec<usize> = posts.iter().enumerate().filter(|(_, p)| p.active).map(|(i, _)| i).collect();
-    let kept: Vec<bool> = list
-        .iter()
-        .map(|&i| {
-            let post = &posts[i];
-            if friendly_spawn(post, team, relation) {
-                return false;
-            }
-            !(driver && (v8math::to_int32(post.ai.bans) & v8math::to_int32(vehicle_mask)) != 0)
-                && !(exclude_previous && previous == Some(i))
-        })
-        .collect();
+    select_objective_from(posts.len(), &|i| &posts[i], &mut ObjectiveScratch::default(), team, faction,
+        draws, relation, driver, vehicle_mask, exclude_previous, previous)
+}
+
+/// Reused by the population owner so selection reads posts in place.
+#[derive(Default)]
+pub struct ObjectiveScratch {
+    list: Vec<usize>,
+    kept: Vec<bool>,
+    front: Vec<bool>,
+}
+
+impl ObjectiveScratch {
+    pub fn reserve(&mut self, count: usize) {
+        self.list.reserve(count.saturating_sub(self.list.len()));
+        self.kept.reserve(count.saturating_sub(self.kept.len()));
+        self.front.reserve(count.saturating_sub(self.front.len()));
+    }
+}
+
+pub fn select_objective_from<'a>(
+    count: usize, post: &dyn Fn(usize) -> &'a PostSnap, scratch: &mut ObjectiveScratch,
+    team: f64, faction: f64, draws: &mut dyn super::world::Draws,
+    relation: &dyn Fn(f64, f64) -> f64, driver: bool, vehicle_mask: f64,
+    exclude_previous: bool, previous: Option<usize>,
+) -> Option<usize> {
+    select_objective_rows(count, &|i| ObjectivePost::of(post(i)), scratch, team, faction,
+        draws, relation, driver, vehicle_mask, exclude_previous, previous)
+}
+
+/// Only the facts used by objective selection. Definitions stay borrowed and
+/// placed/mobile post state can be read directly from its canonical slab.
+#[derive(Clone, Copy)]
+pub struct ObjectivePost<'a> {
+    pub active: bool, pub team: f64, pub position: Vec3,
+    pub spawn: bool, pub ally: bool, pub class_spawn_points: f64,
+    pub building_alive: Option<bool>, pub bans: f64,
+    pub attack: &'a [f64], pub defend: &'a [f64],
+}
+impl<'a> ObjectivePost<'a> {
+    pub fn of(post: &'a PostSnap) -> Self {
+        Self { active: post.active, team: post.team, position: post.position,
+            spawn: post.ai.spawn_present == Some(true), ally: post.ai.ally_present == Some(true),
+            class_spawn_points: post.ai.class_spawn_points, building_alive: post.building_alive,
+            bans: post.ai.bans, attack: &post.ai.atk, defend: &post.ai.def }
+    }
+    pub(crate) fn owner(self) -> f64 { v8math::to_int32(self.team) as f64 }
+    pub(crate) fn friendly(self, team: f64, relation: &dyn Fn(f64,f64)->f64) -> bool {
+        if !self.active { return false; }
+        let owner=self.owner();
+        if owner == 0. { return false; }
+        if owner == team { return self.spawn || self.class_spawn_points > 0.; }
+        relation(owner,team)>0. && self.ally
+    }
+    pub(crate) fn weight(self, team: f64, faction: f64) -> f64 {
+        let at=|values:&[f64]| if faction>=0. && faction==v8math::trunc(faction) {
+            values.get(faction as usize).copied().unwrap_or(0.)
+        } else { 0. };
+        if team==1. { at(self.attack) } else if team==2. || team==3. && faction>0. { at(self.defend) } else { 0. }
+    }
+}
+
+pub fn select_objective_rows<'a>(
+    count: usize, post: &dyn Fn(usize) -> ObjectivePost<'a>, scratch: &mut ObjectiveScratch,
+    team: f64, faction: f64, draws: &mut dyn super::world::Draws,
+    relation: &dyn Fn(f64,f64)->f64, driver: bool, vehicle_mask: f64,
+    exclude_previous: bool, previous: Option<usize>,
+) -> Option<usize> {
+    scratch.list.clear();
+    scratch.kept.clear();
+    scratch.front.clear();
+    for i in 0..count {
+        if post(i).active { scratch.list.push(i); }
+    }
+    let list = &scratch.list;
+    for &i in list {
+        let p = post(i);
+        scratch.kept.push(!p.friendly(team, relation)
+            && !(driver && (v8math::to_int32(p.bans) & v8math::to_int32(vehicle_mask)) != 0)
+            && !(exclude_previous && previous == Some(i)));
+    }
+    let kept = &scratch.kept;
     // objectiveFront: for each spawn post, the nearest kept drawable
     // candidate, kept when it is a standing enemy objective.
-    let mut front: Vec<bool> = vec![false; list.len()];
-    for &spawn in &list {
-        let from = posts[spawn].position;
-        if !friendly_spawn(&posts[spawn], team, relation) {
+    scratch.front.resize(list.len(), false);
+    let front = &mut scratch.front;
+    for &spawn in list {
+        let from = post(spawn).position;
+        if !post(spawn).friendly(team, relation) {
             continue;
         }
         let mut best = f64::INFINITY;
         let mut nearest: Option<usize> = None;
         for (j, &i) in list.iter().enumerate() {
-            if !kept[j] || !(post_weight(&posts[i], team, faction) > 0.0) {
+            if !kept[j] || !(post(i).weight(team, faction) > 0.0) {
                 continue;
             }
-            let at = posts[i].position;
+            let at = post(i).position;
             let dx = at.x - from.x;
             let dz = at.z - from.z;
             let d = dx * dx + dz * dz;
@@ -329,13 +396,13 @@ pub fn select_objective(
             }
         }
         if let Some(j) = nearest {
-            if standing_enemy_objective(&posts[list[j]], team, relation) {
+            if post(list[j]).building_alive == Some(true) && relation(team, post(list[j]).owner()) < 0. {
                 front[j] = true;
             }
         }
     }
     let weight = |j: usize| {
-        let w = post_weight(&posts[list[j]], team, faction);
+        let w = post(list[j]).weight(team, faction);
         if front[j] { v8math::fround(w * OBJECTIVE_ATTACK_BIAS) } else { w }
     };
     let mut total = 0.0;
@@ -386,20 +453,27 @@ pub fn faction_of(name: &str) -> f64 {
 /// size table; anything else is soldier. (Navigation's own mask
 /// trims and accepts integers; this one does neither.)
 pub fn travel_mask_of(size: &super::super::nav::units::SizeType) -> f64 {
-    use super::super::nav::units::SizeType as S;
-    let name: String = match size {
-        S::Missing => return 1.0,
-        S::Text(t) => t.to_lowercase(),
-        S::Number(n) => super::js_num(*n).to_lowercase(),
-    };
-    match name.as_str() {
-        "soldier" => 1.0,
-        "hover" => 2.0,
-        "small" => 4.0,
-        "medium" => 8.0,
-        "huge" => 16.0,
-        "flyer" => 32.0,
-        _ => 1.0,
+    let super::super::nav::units::SizeType::Text(name)=size else {return 1.;};
+    for (text,mask) in [("soldier",1.),("hover",2.),("small",4.),("medium",8.),("huge",16.),("flyer",32.)] {
+        if name.eq_ignore_ascii_case(text) {return mask;}
+    }
+    1.
+}
+
+/// Native class rows retain this numeric result alongside the original
+/// AISizeType. Goal masks intentionally differ from navigation's masks.
+pub fn class_travel_mask(class:Option<&super::world::ClassSnap>)->f64 {
+    class.map_or(1.,|c|c.prepared_travel_mask.unwrap_or_else(||travel_mask_of(&c.ai_size_type)))
+}
+
+/// Enhanced recruitment clocks use the first post with each authored name.
+/// Captures can retain an obsolete name that no current post refers to.
+#[derive(Clone,Debug,PartialEq,Eq)]
+pub enum RecruitKey {Prepared {team:u64,name:u32},Captured(String)}
+impl RecruitKey {
+    pub fn of(team:f64,name:u32)->Self {
+        let team=if team==0. {0}else if team.is_nan() {f64::NAN.to_bits()}else{team.to_bits()};
+        Self::Prepared {team,name}
     }
 }
 
@@ -411,8 +485,8 @@ pub struct Objectives {
     pub enhanced: bool,
     /// post index -> last threat check (Enhanced).
     pub threat_at: Vec<(usize, f64)>,
-    /// "faction:team:role" -> last recruit (Enhanced).
-    pub recruit_at: Vec<(String, f64)>,
+    /// Team and authored-name identity -> last recruit (Enhanced).
+    pub recruit_at: Vec<(RecruitKey, f64)>,
     pub poll_at: f64,
 }
 

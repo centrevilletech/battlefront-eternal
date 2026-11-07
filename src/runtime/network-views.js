@@ -3,7 +3,7 @@ import * as THREE from 'three';
 // AI scheduling uses authoritative bodies and aim, never a client camera
 // position. The broad view conservatively covers first/third person cameras.
 export function networkViews(game, players) {
-  const world = game.ai?.classic?.ai?.world;
+  const world = game.ai?.worldData;
   if (!world) return () => {};
   const views = [];
   const direction = new THREE.Vector3(), target = new THREE.Vector3();

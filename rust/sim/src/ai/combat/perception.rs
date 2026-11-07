@@ -179,13 +179,13 @@ pub const TOWED_PRIORITY: f64 = 21.0;
 
 /// perception.js:201 `targetPriority(unit, target, controller)`.
 pub fn target_priority<W: World + ?Sized>(w: &W, unit: Obj, target: Obj, controller: Option<Obj>) -> f64 {
-    let t = w.unit(target);
+    let t = w.unit_priority(target);
     if let Some(post) = t.building_post {
-        if controller.and_then(|c| w.ctl(c).objective) == Some(post) {
+        if controller.and_then(|c|w.controller_objective(c)) == Some(post) {
             return OBJECTIVE_PRIORITY;
         }
     }
-    let u = w.unit(unit);
+    let u = w.unit_priority(unit);
     if u.pilot && u.vehicle.is_some() && u.tow_on {
         if let Some(tv) = t.vehicle {
             if u.towed == Some(tv) {
@@ -252,25 +252,21 @@ pub fn posture_radius(posture: &str) -> f64 {
 
 /// perception.js:251 `boundRadius(unit)`.
 pub fn bound_radius<W: World + ?Sized>(w: &mut W, unit: Obj) -> f64 {
-    let u = w.unit(unit);
-    if u.kind == 0.0 {
-        if let Some(s) = &u.soldier {
-            let posture = if s.air { "stand" } else { s.posture.str().unwrap_or("stand") };
-            return posture_radius(posture);
-        }
+    if let Some(posture)=w.unit_bound_posture(unit) {
+        return posture_radius(match posture {super::world::BoundPosture::Stand=>"stand",super::world::BoundPosture::Crouch=>"crouch",super::world::BoundPosture::Prone=>"prone"});
     }
     f(w.sphere(unit).radius)
 }
 
 /// perception.js:260 `sightRange(owner, target)`.
 pub fn sight_range<W: World + ?Sized>(w: &mut W, owner: Obj, target: Obj) -> f64 {
-    let m = if w.unit(owner).kind == 5.0 { 2.0 } else { 1.0 };
+    let m = if w.unit_scalars(owner).kind == 5.0 { 2.0 } else { 1.0 };
     f(f(f(f(bound_radius(w, target) * 20.0) + 30.0)) * m)
 }
 
 /// perception.js:266 `validTarget(world, unit, target)`.
 pub fn valid_target<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> bool {
-    let t = w.unit(target);
+    let t = w.unit_target_status(target);
     if !t.alive || target == unit {
         return false;
     }
@@ -280,7 +276,7 @@ pub fn valid_target<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> boo
     let max = if !t.combat_max_health.is_nullish() {
         t.combat_max_health.num()
     } else {
-        let c = t.class.as_ref().map(|c| c.max_health.clone()).unwrap_or_default();
+        let c = t.class_max_health;
         if c.is_nullish() {
             0.0
         } else {
@@ -290,7 +286,7 @@ pub fn valid_target<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> boo
     if !(max < FLT_MAX) {
         return false;
     }
-    let (a, b) = (w.unit(unit).team, w.unit(target).team);
+    let (a, b) = (w.unit_scalars(unit).team, w.unit_scalars(target).team);
     w.relation(a, b) < 0.0
 }
 
@@ -298,7 +294,7 @@ pub fn valid_target<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> boo
 /// eye and its aim point (its aim point without an eye).
 pub fn los_point<W: World + ?Sized>(w: &mut W, target: Obj) -> Vector3 {
     let mut out = w.aim_point(target);
-    if w.unit(target).has_origin {
+    if w.unit_has_origin(target) {
         let eye = w.origin(target);
         out = Vector3 { x: f(f(eye.x + out.x) * 0.5), y: f(f(eye.y + out.y) * 0.5), z: f(f(eye.z + out.z) * 0.5) };
     }
@@ -342,6 +338,15 @@ impl Default for Perception {
 }
 
 impl Perception {
+    /// createPerception replaces all gameplay state, including fields reset()
+    /// deliberately keeps. Native controllers retain only the heap storage.
+    pub fn renew(&mut self) {
+        self.heap.priority.fill(0);self.heap.priority[0]=v8math::to_int32(LOCAL_SENTINEL);
+        self.heap.items.fill(None);self.heap.count=0;self.heap.dropped=0.;
+        self.candidate=None;self.candidate_point=Vector3::default();self.aimer=Aimer::default();
+        self.fire=FireControl::default();self.last_scan_count=0.;self.enhanced=None;
+        self.reset();
+    }
     /// perception.js:310 `reset()`.
     pub fn reset(&mut self) {
         self.heap.clear();
@@ -352,7 +357,7 @@ impl Perception {
 }
 
 fn ref_of<W: World + ?Sized>(w: &W, u: Option<Obj>) -> Option<Ref> {
-    u.map(|u| Ref { obj: u, generation: w.unit(u).generation })
+    u.map(|u| Ref { obj: u, generation: w.unit_scalars(u).generation })
 }
 
 // ---------------------------------------------------------------------------
@@ -362,31 +367,31 @@ fn ref_of<W: World + ?Sized>(w: &W, u: Option<Obj>) -> Option<Ref> {
 pub fn scan<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj) -> f64 {
     let unit = w.ctl(controller).unit;
     let Some(unit) = unit else { return 0.0 };
-    if !w.unit(unit).alive || w.ctl(controller).perception.is_none() {
+    if !w.unit_scalars(unit).alive || w.ctl(controller).perception.is_none() {
         return 0.0;
     }
     w.ctl_mut(controller).perception.as_mut().unwrap().heap.clear();
     let mut special = false;
-    let mut targets: Vec<Obj> = Vec::new();
+    let mut targets = w.object_buffer();
     if let Some(shared) = w.shared_target(controller) {
         targets.push(shared);
         special = true;
     } else {
         let rs = w.ctl(controller).range_scale;
-        let mut radius = max_expanded_range(&cx.shared.weapons, w.unit(unit), rs);
+        let mut radius = max_expanded_range(w,&cx.shared.weapons,unit,rs);
         radius = if radius <= 75.0 { 75.0 } else { radius };
         radius = if 350.0 <= radius { 350.0 } else { radius };
         let eye = w.origin(unit);
-        let team = w.unit(unit).team;
+        let team = w.unit_scalars(unit).team;
         let found = w.query(&eye, radius, QueryFilter::Hostile { except: unit, team });
-        targets.extend(found.into_iter().take(SCAN_CAPACITY));
+        for target in found.into_iter().take(SCAN_CAPACITY) {targets.push(target);}
     }
     let mut queued = 0.0;
     for target in targets {
         if !valid_target(w, unit, target) {
             continue;
         }
-        if w.unit(target).collision_category == Some(16.0) {
+        if w.unit_sensor(target).collision_category == Some(16.0) {
             continue;
         }
         let l2 = if special { -1.0 } else { cone_distance_sq(w, unit, target) };
@@ -455,7 +460,7 @@ fn candidate_of<W: World + ?Sized>(w: &W, controller: Obj) -> Option<Obj> {
 /// perception.js:431 `requestLive(req)`.
 fn request_live<W: World + ?Sized>(w: &W, req: &LosRequest) -> bool {
     let c = w.ctl(req.controller);
-    let unit_alive = c.unit.is_some_and(|u| w.unit(u).alive);
+    let unit_alive = c.unit.is_some_and(|u| w.unit_scalars(u).alive);
     unit_alive && c.generation == req.generation && c.perception.is_some() && resolve(w, req.target).is_some()
 }
 
@@ -586,32 +591,32 @@ pub fn record_target<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
         p.candidate = r;
         p.candidate_point = *point;
     }
-    let t = w.unit(target);
+    let t = w.unit_sensor(target);
     if t.kind != 0.0 {
         return;
     }
     let (t_controller, t_generation, t_team, t_position) = (t.controller, t.generation, t.team, t.position);
     let now = f(w.time());
-    let Some(key) = cx.clusters.state(target, t_controller, t_generation, true) else { return };
-    let scan_at = cx.clusters.states[&key].scan_at;
+    let Some(key) = cx.clusters.borrow_mut().state(target, t_controller, t_generation, true) else { return };
+    let scan_at = cx.clusters.borrow().states[&key].scan_at;
     if !(f(scan_at + 5.0) < now) {
         return;
     }
-    cx.clusters.states.get_mut(&key).unwrap().scan_at = now;
+    cx.clusters.borrow_mut().states.get_mut(&key).unwrap().scan_at = now;
     let attacker = w.ctl(controller).unit.expect("the attacker");
     let found = w.query(&t_position, 9.0, QueryFilter::NotNeutral { except: target, team: t_team });
     let mut count = 1.0;
     for &u in found.iter().take(10) {
-        let (a, b) = (w.unit(attacker).team, w.unit(u).team);
+        let (a, b) = (w.unit_scalars(attacker).team, w.unit_scalars(u).team);
         if w.relation(a, b) > 0.0 {
             return;
         }
-        if w.unit(u).kind == 0.0 {
+        if w.unit_scalars(u).kind == 0.0 {
             count += 1.0;
         }
     }
     if count > 2.0 {
-        cx.clusters.states.get_mut(&key).unwrap().flagged_at = now;
+        cx.clusters.borrow_mut().states.get_mut(&key).unwrap().flagged_at = now;
     }
 }
 
@@ -731,7 +736,7 @@ impl TargetTracker {
         let before = self.target(w);
         let mut current = before;
         if let (Some(cur), Some(u)) = (current, unit) {
-            let (a, b) = (w.unit(u).team, w.unit(cur).team);
+            let (a, b) = (w.unit_scalars(u).team, w.unit_scalars(cur).team);
             if w.relation(a, b) >= 0.0 {
                 self.reset(w, candidate);
                 current = self.target(w);
@@ -826,7 +831,7 @@ pub fn tracker_update<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, agent: Ob
     let target = t.target(w);
     let unit = w.ctl(controller).unit;
     if let (Some(target), Some(unit)) = (target, unit) {
-        if w.unit(unit).arsenal.as_ref().is_some_and(|a| !a.weapons.is_empty()) {
+        if w.weapon_count(unit)>0 {
             dispatch(w, cx, Some(controller), unit, target, true);
         }
     }
@@ -863,7 +868,7 @@ fn clamp50(x: f64) -> f64 {
 
 /// perception.js:699 `noiseRadius(unit, sounds)`.
 pub fn noise_radius<W: World + ?Sized>(w: &W, unit: Obj) -> f64 {
-    let u = w.unit(unit);
+    let u = w.unit_sensor(unit);
     let speed = match u.velocity {
         Some(v) => f(v8math::sqrt(length_sq32(v.x, v.y, v.z))),
         None => 0.0,
@@ -878,12 +883,9 @@ pub fn noise_radius<W: World + ?Sized>(w: &W, unit: Obj) -> f64 {
     if k != 0.0 {
         return clamp50(f(speed * 2.0));
     }
-    let weapon = match &u.arsenal {
-        Some(a) => selected_weapon(w, unit, u.controller).or_else(|| a.current(0.0)),
-        None => None,
-    };
-    let wv = weapon.map(|i| &w.unit(unit).arsenal.as_ref().unwrap().weapons[i]);
-    let noise = f(weapon_noise(wv) * 0.5);
+    let weapon = if w.has_arsenal(unit) {selected_weapon(w,unit,u.controller).or_else(||w.current_weapon(unit,0.))}else{None};
+    let wv=weapon.and_then(|i|w.weapon(unit,i));
+    let noise = f(weapon_noise(wv.as_ref()) * 0.5);
     let m = clamp50(f(speed * 3.0));
     if noise <= m {
         m
@@ -895,7 +897,12 @@ pub fn noise_radius<W: World + ?Sized>(w: &W, unit: Obj) -> f64 {
 /// perception.js:721 `broadcastAcoustic(source, world, sounds)`: how many
 /// bots were told.
 pub fn broadcast_acoustic<W: World + ?Sized>(w: &mut W, source: Obj) -> f64 {
-    if !w.unit(source).alive {
+    broadcast_acoustic_with(w,source,&mut |_,_,_|{})
+}
+/// The native control owner observes only notified recipients. This keeps its
+/// bounded acoustic lists current without rescanning every controller.
+pub fn broadcast_acoustic_with<W:World+?Sized>(w:&mut W,source:Obj,notify:&mut impl FnMut(&mut W,Obj,Ref))->f64 {
+    if !w.unit_scalars(source).alive {
         return 0.0;
     }
     let raw = noise_radius(w, source);
@@ -904,14 +911,14 @@ pub fn broadcast_acoustic<W: World + ?Sized>(w: &mut W, source: Obj) -> f64 {
         return 0.0;
     }
     let (at, team, generation) = {
-        let s = w.unit(source);
+        let s = w.unit_sensor(source);
         (s.position, s.team, s.generation)
     };
     let heard = w.query(&at, r, QueryFilter::Hostile { except: source, team });
     let mut notified = 0.0;
     for &recipient in heard.iter().take(SCAN_CAPACITY) {
-        let Some(controller) = w.unit(recipient).controller else { continue };
-        let p = w.unit(recipient).position;
+        let Some(controller) = w.unit_controller(recipient) else { continue };
+        let p = w.unit_scalars(recipient).position;
         let dx = f(at.x - p.x);
         let dy = f(at.y - p.y);
         let dz = f(at.z - p.z);
@@ -920,7 +927,9 @@ pub fn broadcast_acoustic<W: World + ?Sized>(w: &mut W, source: Obj) -> f64 {
         if f(0.87) <= vertical && f(12.25) <= length_sq32(dx, dy, dz) {
             continue;
         }
-        w.ctl_mut(controller).add_acoustic(Ref { obj: source, generation });
+        let note=Ref {obj:source,generation};
+        w.ctl_mut(controller).add_acoustic(note);
+        notify(w,controller,note);
         notified += 1.0;
     }
     notified
@@ -954,6 +963,11 @@ pub fn danger_delay_range(enemy_skill: f64) -> (f64, f64) {
 /// enemySkill, onWarn)`: `warn` names the first soldier warned (the
 /// caller's shout).
 pub fn notify_danger<W: World + ?Sized>(w: &mut W, state: &mut DangerState, position: &Vector3, owner: Option<Obj>, enemy_skill: f64, warn: &mut dyn FnMut(&mut W, Obj)) -> f64 {
+    notify_danger_with(w,state,position,owner,enemy_skill,warn,&mut |_,_|{})
+}
+/// A native Core retains each warning at its original notification point.
+/// The callback visits only recipients, preserving query and shout order.
+pub fn notify_danger_with<W:World+?Sized>(w:&mut W,state:&mut DangerState,position:&Vector3,owner:Option<Obj>,enemy_skill:f64,warn:&mut dyn FnMut(&mut W,Obj),notify:&mut impl FnMut(&mut W,Obj))->f64 {
     let (lo, hi) = w.difficulty().danger_row.unwrap_or_else(|| danger_delay_range(enemy_skill));
     let delay = draw_range(w, Gen::A, lo, hi);
     let now = f(w.time());
@@ -965,7 +979,7 @@ pub fn notify_danger<W: World + ?Sized>(w: &mut W, state: &mut DangerState, posi
     let mut notified = 0.0;
     for &u in found.iter().take(SCAN_CAPACITY) {
         let (controller, human, kind) = {
-            let v = w.unit(u);
+            let v = w.unit_sensor(u);
             (v.controller, v.human, v.kind)
         };
         if controller.is_none() && !human {
@@ -977,6 +991,7 @@ pub fn notify_danger<W: World + ?Sized>(w: &mut W, state: &mut DangerState, posi
         }
         if let Some(c) = controller {
             w.ctl_mut(c).notify_danger(position);
+            notify(w,c);
             notified += 1.0;
         }
     }
@@ -988,8 +1003,8 @@ pub fn notify_danger<W: World + ?Sized>(w: &mut W, state: &mut DangerState, posi
 // Targeted-fire and damage alerts (perception.js:787).
 
 /// perception.js:812 `alertControllers(target, out)`.
-pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> Vec<Obj> {
-    let mut out: Vec<Obj> = Vec::new();
+pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> crate::ai::owned::scratch::List<Obj> {
+    let mut out = w.object_buffer();
     let mut add = |c: Option<Obj>| {
         if let Some(c) = c {
             if !out.contains(&c) {
@@ -1003,8 +1018,8 @@ pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> Vec<Obj> {
         _ => add(t.controller),
     }
     if (t.turret.is_some() || t.vehicle.is_some()) && !t.has_lease {
-        if let Some(leases) = &t.body_leases {
-            for l in leases.iter().flatten() {
+        for index in 0..w.body_lease_count(target) {
+            if let Some(l)=w.body_lease(target,index) {
                 if l.human || l.released || l.live_false {
                     continue;
                 }
@@ -1018,15 +1033,15 @@ pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> Vec<Obj> {
 /// perception.js:789 `notifyTargetedShot(world, shooter, target,
 /// shooterPosition)`: the shooter's Character is the source.
 pub fn notify_targeted_shot<W: World + ?Sized>(w: &mut W, shooter: Obj, target: Obj, shooter_position: &Vector3) -> bool {
-    if !w.unit(target).alive {
+    if !w.unit_scalars(target).alive {
         return false;
     }
     let Some(source) = w.unit(shooter).character else { return false };
-    let (a, b) = (w.unit(shooter).team, w.unit(target).team);
+    let (a, b) = (w.unit_scalars(shooter).team, w.unit_scalars(target).team);
     if !(w.relation(a, b) < 0.0) {
         return false;
     }
-    if w.unit(target).human {
+    if w.unit_scalars(target).human {
         return false;
     }
     let mut notified = false;
@@ -1059,13 +1074,13 @@ pub struct Attacker {
 /// perception.js:836 `notifyDamage(world, victim, attacker, packet, known,
 /// point)`.
 pub fn notify_damage<W: World + ?Sized>(w: &mut W, victim: Obj, attacker: Attacker, packet: Packet, known: bool, point: Option<Vector3>) -> bool {
-    if !w.unit(victim).alive {
+    if !w.unit_scalars(victim).alive {
         return false;
     }
     let source = attacker.character.unwrap_or(attacker.obj);
     let source_team = if attacker.character.is_some() { attacker.character_team } else { attacker.team };
     let team = attacker.team.or(source_team).unwrap_or(f64::NAN);
-    let vt = w.unit(victim).team;
+    let vt = w.unit_scalars(victim).team;
     if !(w.relation(vt, team) < 0.0) {
         return false;
     }
@@ -1109,12 +1124,12 @@ fn weapon_gate<W: World + ?Sized>(w: &W, controller: Obj) -> bool {
 fn source_unit<W: World + ?Sized>(w: &mut W, source: Option<Obj>) -> Option<Obj> {
     let source = source?;
     if w.is_unit(source) {
-        return if w.unit(source).alive { Some(source) } else { None };
+        return if w.unit_scalars(source).alive { Some(source) } else { None };
     }
     let (bound, u) = w.current_controllable(source);
     let u = if bound && u.is_some() { u } else { w.character_remote(source).or_else(|| w.character_unit(source)) };
     let u = u?;
-    if w.unit(u).alive {
+    if w.unit_scalars(u).alive {
         Some(u)
     } else {
         None
@@ -1123,7 +1138,7 @@ fn source_unit<W: World + ?Sized>(w: &mut W, source: Option<Obj>) -> Option<Obj>
 
 /// perception.js:903 `engageable(controller, unit, target, world, dispatch)`.
 fn engageable<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj, unit: Obj, target: Obj) -> bool {
-    if !w.unit(unit).arsenal.as_ref().is_some_and(|a| !a.weapons.is_empty()) {
+    if w.weapon_count(unit)==0 {
         return false;
     }
     let e = dispatch(w, cx, Some(controller), unit, target, false);
@@ -1133,7 +1148,7 @@ fn engageable<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj, 
 /// perception.js:913 `mountedExit(controller, world, point)`.
 fn mounted_exit<W: World + ?Sized>(w: &mut W, controller: Obj, point: &Vector3) -> bool {
     let Some(unit) = w.ctl(controller).unit else { return false };
-    if forward_speed(w.unit(unit)) != 0.0 {
+    if forward_speed(&w.unit(unit)) != 0.0 {
         return false;
     }
     if w.ai_stay_in_turrets() {
@@ -1155,7 +1170,7 @@ pub fn alert_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controlle
     let unit = w.ctl(controller).unit;
     let src = source_unit(w, shot.source);
     let (Some(unit), Some(src)) = (unit, src) else { return None };
-    let point = w.unit(src).position;
+    let point = w.unit_scalars(src).position;
     if !weapon_gate(w, controller) {
         return None;
     }
@@ -1164,19 +1179,19 @@ pub fn alert_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controlle
         _ => return None,
     }
     let r = sight_range(w, unit, src);
-    let p = w.unit(unit).position;
+    let p = w.unit_scalars(unit).position;
     let delta = Vector3 { x: point.x - p.x, y: point.y - p.y, z: point.z - p.z };
     if length_sq32(f(delta.x), f(delta.y), f(delta.z)) < f(r * r) && engageable(w, cx, controller, unit, src) {
         let exit = mounted_exit(w, controller, &point);
         return Some(Response { mode: 0.0, point, exit, alert: false });
     }
-    if w.unit(unit).kind != 0.0 {
+    if w.unit_scalars(unit).kind != 0.0 {
         return None;
     }
     let z = f(2.0 * f(uniform(w, Gen::B) - 0.5));
     let y = f(2.0 * f(uniform(w, Gen::B) - 0.5));
     let x = f(2.0 * f(uniform(w, Gen::B) - 0.5));
-    let p = w.unit(unit).position;
+    let p = w.unit_scalars(unit).position;
     Some(Response { mode: 2.0, point: Vector3 { x: f(p.x + x), y: f(p.y + y), z: f(p.z + z) }, exit: false, alert: false })
 }
 
@@ -1194,7 +1209,7 @@ pub fn hazard_response<W: World + ?Sized>(w: &mut W, controller: Obj, agent: Opt
         Some(a) if w.agent_accepts_hazard(a) => {}
         _ => return None,
     }
-    let kind = w.unit(unit).kind;
+    let kind = w.unit_scalars(unit).kind;
     if kind == 5.0 && w.nav_in_danger_region(unit).unwrap_or(false) {
         return None;
     }
@@ -1210,10 +1225,10 @@ pub fn acoustic_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, contro
     if w.ctl(controller).acoustic.is_empty() {
         return None;
     }
-    if w.unit(unit).kind == 5.0 && w.nav_in_danger_region(unit).unwrap_or(false) {
+    if w.unit_scalars(unit).kind == 5.0 && w.nav_in_danger_region(unit).unwrap_or(false) {
         return None;
     }
-    let list = w.ctl(controller).acoustic.clone();
+    let list:crate::ai::owned::scratch::Inline<Ref,20>=w.ctl(controller).acoustic.iter().copied().collect();
     for r in list {
         let Some(src) = resolve(w, Some(r)) else { continue };
         if !weapon_gate(w, controller) {
@@ -1224,11 +1239,11 @@ pub fn acoustic_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, contro
             _ => continue,
         }
         let mut range = sensor_range(w, &cx.shared.weapons, unit, controller);
-        if w.unit(unit).kind == 3.0 {
+        if w.unit_scalars(unit).kind == 3.0 {
             range = f(range * 0.5);
         }
-        let point = w.unit(src).position;
-        let p = w.unit(unit).position;
+        let point = w.unit_scalars(src).position;
+        let p = w.unit_scalars(unit).position;
         if length_sq_xz32(f(point.x - p.x), f(point.z - p.z)) < f(range * range) {
             let exit = mounted_exit(w, controller, &point);
             return Some(Response { mode: 0.0, point, exit, alert: true });

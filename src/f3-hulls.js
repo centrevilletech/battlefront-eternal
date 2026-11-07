@@ -69,6 +69,10 @@ export class F3Hulls {
     p.bridge.views();
     putF3BodyName(p.bridge,p.bodyName,p.bridge.f,p.layout.input / 8,p.heap);
     p.x.f3_body_names(1);
+    // A new variant can add collision bodies after the initial owner handoff.
+    // Finish naming that topology during construction, before the next fleet
+    // phase freezes its memory boundary or any instant hit can observe it.
+    p.bodiesIn();
   }
 
   // Vehicles.variant's structural append precedes ordinary damage/shot

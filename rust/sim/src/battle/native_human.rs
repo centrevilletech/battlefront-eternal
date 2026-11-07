@@ -24,9 +24,9 @@ pub struct Driver {
     pub fallback_path: Vec<[f64;4]>,
 }
 impl Driver {
-    pub fn auto_respawn<F:Lifecycle>(&mut self,s:&mut Store,prepared:&mut Prepared,services:WorldServices<'_>,lifecycle:&mut F,local:Option<Ref<Unit>>) {
+    pub fn auto_respawn<F:Lifecycle>(&mut self,s:&mut Store,prepared:&mut Prepared,mut services:WorldServices<'_>,lifecycle:&mut F,local:Option<Ref<Unit>>) {
         let mut none=NoHuman;
-        let mut actions=Actions{services,lifecycle,human:&mut none,local,effects:self.effects};
+        let mut actions=Actions{services:services.reborrow(),lifecycle,human:&mut none,local,effects:self.effects};
         let mut world=World{prepared,services:&mut actions,local,classic:self.classic};
         self.human.auto_respawn(s,&mut self.spawn_index,&self.fallback_path,&mut world,&Text,&mut super::f4_tail::Random(self.gameplay));
         self.human.journal(&mut sim().events);
@@ -56,13 +56,13 @@ impl HumanDriver for Driver {
         dt: f64,
         commands: &[Command],
         prepared: &mut Prepared,
-        services: WorldServices<'_>,
+        mut services: WorldServices<'_>,
         lifecycle: &mut F,
         local: Option<Ref<Unit>>,
     ) {
         let mut none = NoHuman;
         let mut actions = Actions {
-            services,
+            services:services.reborrow(),
             lifecycle,
             human: &mut none,
             local,
@@ -172,7 +172,7 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, F, NoHuman>> {
                 op: F4AIHookOp::Retarget,
                 number: team,
                 ..Default::default()
-            })
+            },self.services.services.reborrow())
         });
     }
     fn kill_player(&mut self, s: &mut Store, events: &mut Vec<super::human::Event>) {
@@ -208,6 +208,6 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, F, NoHuman>> {
             number: team,
             class_name: Some(class),
             ..Default::default()
-        });
+        },self.services.services.reborrow());
     }
 }

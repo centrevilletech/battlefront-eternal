@@ -4141,7 +4141,7 @@ export function exportMobilePosts(o, cx) {
   return v;
 }
 
-// post: from rust/sim/schema/ai.mjs, rust/sim/schema/battle.mjs, rust/sim/schema/seats.mjs.
+// post: from rust/sim/schema/battle.mjs, rust/sim/schema/seats.mjs.
 export class PostMirror {
   constructor() {
     this.name = '';

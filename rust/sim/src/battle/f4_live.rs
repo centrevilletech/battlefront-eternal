@@ -175,6 +175,7 @@ impl supply::World for Supplies<'_> {
     }
     fn hull_ammo(&mut self, s: &mut Store, r: Ref<Vehicle>, life: f64, amount: f64) -> bool {
         with_store(s, || crate::vehicles::module::f2::firing::supply_station(r, life, amount))
+
     }
     fn changed(&mut self, _: &mut Store, key: supply::Key) {
         match key { supply::Key::Unit { reference, .. } => f3::changed(reference),
@@ -373,6 +374,11 @@ pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> {
         view.victim.grab as usize
     };
     metadata.grips.get(unit.class_def.0 as usize)?.get(binding.index)?.get(grab).copied().flatten()
+}
+
+/// A prepared animation owns held geometry even when a class has no grip clip.
+pub(crate) fn owns_held(prop:Ref<Prop>)->bool {
+    unsafe { (*addr_of_mut!(METADATA)).as_ref() }.is_some_and(|m|m.animations.iter().any(|a|a.original==prop))
 }
 
 pub(crate) fn tail_input() -> F4TailInput {F4TailInput::take(&io().tail,&[])}

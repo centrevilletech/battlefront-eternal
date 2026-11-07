@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as THREE from 'three';
 import { Battlefield, LeavingWarning, boundaryFromNav } from "../src/battlefield.js";
-import { Boundary } from '../src/ai/classic/nav/boundary.js';
+import { Boundary } from '../src/battle-boundary.js';
 import { Character } from '../src/battle.js';
 
 // A square 200 m across, clockwise in x/z as the maps' are.

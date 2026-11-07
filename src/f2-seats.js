@@ -4,7 +4,7 @@ import { F2TurretInputMirror, F2TurretInputLayout, putF2TurretInput } from './si
 import { F2TurretHintMirror } from './sim/gen/f2.js';
 import { F2SeatIoLayout } from './sim/gen/f2.js';
 // Vehicles' native seat phase. These facades only publish canonical lease and
-// body rows; AI intents remain foreign input, copied once before the latch.
+// body rows; native AI intents remain in the canonical seat owner.
 import * as THREE from 'three';
 import { applyDelta, deltaBuffer } from './f2-delta.js';
 import { SeatLease, seatWeaponPolicy } from './seats.js';
@@ -19,7 +19,7 @@ import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatRelationLayout, putF2SeatRela
 import { turretSettings, turretState } from './turret-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { hasMissileLock, seatLockTarget } from './weapon-targeting.js';
-import { weaponAI, categoryOf } from './ai/classic/weapons-ai.js';
+import { weaponAI, categoryOf } from './weapon-policy.js';
 import { legacyRandom } from './ai/random.js';
 import { putSeatHullFacts, putSeatAiControl } from './sim/gen/seats.js';
 import { copyMountedWeapon } from './vehicle-phase-data.js';
@@ -76,7 +76,7 @@ class LeaseEmitters {
 }
 
 // Vehicles and TurretSeats expose scalar commands over native state.
-// AI controls remain ordinary JS intents until the next latch. These facades
+// Native AI controls never cross back as foreign input. These facades
 // do not invoke the older seat bridges or step one seat at a time.
 export class F2Seats {
   // Create typed input storage and all fixed decoders at battle setup.
@@ -182,9 +182,8 @@ export class F2Seats {
     h.units = o; h.unitCount = 0;
     // Native Unit rows already contain body flags and construction facts.
     // The seat phase reads them after movement instead of importing mirrors.
-    // A driven SeatUnit has its own intent rather than the soldier's. Import
-    // that source as a separate generated row, and let native latching decide
-    // which source owns the current occupancy.
+    // Native driven SeatUnits already share the canonical intent with F2.
+    // Only a foreign control supplies the separate generated input row.
     // A command can arrive before the first phase. Import relation pairs for
     // its touched crew so boarding and promotion need no query callback.
     h.relations = o; h.relationCount = 0;
@@ -206,18 +205,18 @@ export class F2Seats {
     for (let ui = 0; ui < this.unitCount; ui++) {
       const unit = this.units[ui];
       const c = unit.seat?.controllable;
-      if (!c) continue;
+      if (!c || c.native) continue;
       const a = this.controlIn; a.seatUnit = c; a.driven = Boolean(c.controller); a.intent = c.intent;
       putSeatAiControl(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.controlWords; h.controlCount++;
     }
     h.soldiers = o; h.soldierCount = 0;
-    // AI may change turret spread or its shared generator between phases.
-    // Publish only changed scalar settings; weapon state is never copied in.
+    // Foreign crew settings cross only when changed. Native SeatUnits edit
+    // the turret owner directly, including its shared random stream.
     h.turrets = o; h.turretCount = 0;
     if (all && this.crews) {
       for (let i = 0; i < this.crews.turrets.length; i++) {
         const turret = this.crews.turrets[i], weapon = turret.weapon;
-        if (!weapon) continue;
+        if (!weapon || turret.lease?.controllable?.native) continue;
         const row = this.turretInput; row.index = i; row.input.target = -2;
         this.phase.firing.modifiers(weapon,row.input);
         putF2TurretInput(b,row,this.turretScratch,0,this.emptyHeap);
@@ -273,7 +272,9 @@ export class F2Seats {
       // A newly boarded human needs no AI import. Bind its published lease
       // before the generated result decoder resolves that lease reference.
       const ptr = command.fast(this.bridge,a);
-      this.phase.sync();
+      // Native controller/control births precede the lease that names them.
+      // Let the shared unit barrier bind identities before F2 decodes refs.
+      if(owned.phase)owned.phase.sync();else this.phase.sync();
       this.bridge.callResult(command.result,ptr,this.result);
     }
     finally {

@@ -2,6 +2,7 @@ import { VehicleCamera } from './helpers/cameras.js';
 import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
+
 // How a craft handles and how its pilot sees it, from its own ODF as the
 // 2004 game reads it (docs/vehicles.md "Movement" and "Camera"): the
 // turn and pitch rates and their filters, the flat turn and the drawn lean,

@@ -7,7 +7,7 @@ import { FfWeaponInputMirror, exportFfWeaponInput, putFfWeaponInput, sameFfWeapo
 import { FlightClass_INDEX, FlightClass_NAMES } from "./flight.js";
 import { PcTurretMirror, PtSettingsMirror, exportPcTurret, exportPtSettings, putPcTurret, putPtSettings, samePcTurret, samePtSettings, syncPcTurret, syncPtSettings } from "./props.js";
 import { SeatEffectKind_INDEX, SeatEffectKind_NAMES, SeatReason_INDEX, SeatReason_NAMES } from "./seats.js";
-import { Air_INDEX, Air_NAMES, IntentMirror, Posture_INDEX, Posture_NAMES, SoldierMirror, exportIntent, exportMember, exportSoldier, putIntent, putMember, putSoldier, sameIntent, sameMember, sameSoldier, syncIntent, syncMember, syncSoldier } from "./units.js";
+import { Air_INDEX, Air_NAMES, IntentMirror, Posture_INDEX, Posture_NAMES, SoldierMirror, exportIntent, exportMember, exportSoldier, putIntent, putMember, putSoldier, sameIntent, sameMember, sameSoldier, syncIntent, syncIntentDelta, syncMember, syncSoldier } from "./units.js";
 
 export const F2PhaseFlag_NAMES = ["poses","cosmetic","flight","assists"];
 export const F2PhaseFlag_INDEX = new Map(F2PhaseFlag_NAMES.map((name, i) => [name, i]));
@@ -2092,9 +2092,9 @@ export function syncF2TurretBirth(b, f, at, h, m) {
   m.settings = syncPtSettings(b, f, at + 4, h, m.settings ?? new PtSettingsMirror());
   m.turret = syncPcTurret(b, f, at + 92, h, m.turret ?? new PcTurretMirror());
   { const tag = f[at + 141]; if (tag === 0) { m.weapon = syncWeapon(b, f, at + 142, h, m.weapon ?? new WeaponMirror()); } else m.weapon = tag === 1 ? null : undefined; }
-  { const tag = f[at + 184]; if (tag === 0) { m.ordnance = b.defs.ordnance.at(f[at + 185]); } else m.ordnance = tag === 1 ? null : undefined; }
-  m.channel = f[at + 186];
-  m.collide = f[at + 187] !== 0;
+  { const tag = f[at + 185]; if (tag === 0) { m.ordnance = b.defs.ordnance.at(f[at + 186]); } else m.ordnance = tag === 1 ? null : undefined; }
+  m.channel = f[at + 187];
+  m.collide = f[at + 188] !== 0;
   return m;
 }
 
@@ -2104,10 +2104,10 @@ export function putF2TurretBirth(b, o, f, at, heap) {
   heap.items(o.locks, f, at + 2, 5, (f, at, v) => { putF2TurretLockLevel(b, v, f, at + 0, heap); });
   putPtSettings(b, o.settings, f, at + 4, heap);
   putPcTurret(b, o.turret, f, at + 92, heap);
-  { const $x = o.weapon; if ($x === null || $x === undefined) { f[at + 141] = $x === null ? 1 : 2; f.fill(0, at + 142, at + 184); } else { f[at + 141] = 0; putWeapon(b, $x, f, at + 142, heap); } }
-  { const $x = o.ordnance; if ($x === null || $x === undefined) { f[at + 184] = $x === null ? 1 : 2; f[at + 185] = 0; } else { f[at + 184] = 0; f[at + 185] = b.defs.ordnance.id($x); } }
-  f[at + 186] = o.channel;
-  f[at + 187] = o.collide ? 1 : 0;
+  { const $x = o.weapon; if ($x === null || $x === undefined) { f[at + 141] = $x === null ? 1 : 2; f.fill(0, at + 142, at + 185); } else { f[at + 141] = 0; putWeapon(b, $x, f, at + 142, heap); } }
+  { const $x = o.ordnance; if ($x === null || $x === undefined) { f[at + 185] = $x === null ? 1 : 2; f[at + 186] = 0; } else { f[at + 185] = 0; f[at + 186] = b.defs.ordnance.id($x); } }
+  f[at + 187] = o.channel;
+  f[at + 188] = o.collide ? 1 : 0;
 }
 
 export function sameF2TurretBirth(a, b) {
@@ -2322,10 +2322,10 @@ export function syncF2TurretOut(b, f, at, h, m) {
   { const tag = f[at + 33]; if (tag === 0) { m.lease = b.refs[KIND_SEAT_LEASE].at(f[at + 34], f[at + 35]); } else m.lease = tag === 1 ? null : undefined; }
   { const tag = f[at + 36]; if (tag === 0) { m.gunner = b.refs[KIND_UNIT].at(f[at + 37], f[at + 38]); } else m.gunner = tag === 1 ? null : undefined; }
   { const tag = f[at + 39]; if (tag === 0) { m.weapon = syncWeapon(b, f, at + 40, h, m.weapon ?? new WeaponMirror()); } else m.weapon = tag === 1 ? null : undefined; }
-  { const $q = (m.seatTurn ??= new THREE.Quaternion()); $q._x = f[at + 82]; $q._y = f[at + 83]; $q._z = f[at + 84]; $q._w = f[at + 85]; $q._onChangeCallback(); }
-  m.samplePitch = f[at + 86];
-  m.sampleTurn = f[at + 87];
-  { const tag = f[at + 88]; if (tag === 0) { m.sampleTime = f[at + 89]; } else m.sampleTime = tag === 1 ? null : undefined; }
+  { const $q = (m.seatTurn ??= new THREE.Quaternion()); $q._x = f[at + 83]; $q._y = f[at + 84]; $q._z = f[at + 85]; $q._w = f[at + 86]; $q._onChangeCallback(); }
+  m.samplePitch = f[at + 87];
+  m.sampleTurn = f[at + 88];
+  { const tag = f[at + 89]; if (tag === 0) { m.sampleTime = f[at + 90]; } else m.sampleTime = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -2344,11 +2344,11 @@ export function putF2TurretOut(b, o, f, at, heap) {
   { const $v = o.muzzleDirection; f[at + 30] = $v.x; f[at + 31] = $v.y; f[at + 32] = $v.z; }
   { const $x = o.lease; if ($x === null || $x === undefined) { f[at + 33] = $x === null ? 1 : 2; f[at + 34] = 0; f[at + 35] = 0; } else { f[at + 33] = 0; b.refs[KIND_SEAT_LEASE].put($x, f, at + 34); } }
   { const $x = o.gunner; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; f[at + 38] = 0; } else { f[at + 36] = 0; b.refs[KIND_UNIT].put($x, f, at + 37); } }
-  { const $x = o.weapon; if ($x === null || $x === undefined) { f[at + 39] = $x === null ? 1 : 2; f.fill(0, at + 40, at + 82); } else { f[at + 39] = 0; putWeapon(b, $x, f, at + 40, heap); } }
-  { const $v = o.seatTurn; f[at + 82] = $v.x; f[at + 83] = $v.y; f[at + 84] = $v.z; f[at + 85] = $v.w; }
-  f[at + 86] = o.samplePitch;
-  f[at + 87] = o.sampleTurn;
-  { const $x = o.sampleTime; if ($x === null || $x === undefined) { f[at + 88] = $x === null ? 1 : 2; f[at + 89] = 0; } else { f[at + 88] = 0; f[at + 89] = $x; } }
+  { const $x = o.weapon; if ($x === null || $x === undefined) { f[at + 39] = $x === null ? 1 : 2; f.fill(0, at + 40, at + 83); } else { f[at + 39] = 0; putWeapon(b, $x, f, at + 40, heap); } }
+  { const $v = o.seatTurn; f[at + 83] = $v.x; f[at + 84] = $v.y; f[at + 85] = $v.z; f[at + 86] = $v.w; }
+  f[at + 87] = o.samplePitch;
+  f[at + 88] = o.sampleTurn;
+  { const $x = o.sampleTime; if ($x === null || $x === undefined) { f[at + 89] = $x === null ? 1 : 2; f[at + 90] = 0; } else { f[at + 89] = 0; f[at + 90] = $x; } }
 }
 
 export function sameF2TurretOut(a, b) {

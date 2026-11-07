@@ -1,5 +1,10 @@
 # Classic AI class jobs
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 `src/ai/classic/classes.js` supplies the real `SnipeHelper` and `MineHelper`
 through the existing `helpers` export, and pilot/support services through
 `classicBinding(ai)`. `loadClassicModules()` loads it automatically. The

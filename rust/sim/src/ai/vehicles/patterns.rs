@@ -12,7 +12,6 @@
 use three::Vector3;
 use v8math::{cos, fround, hypot, max, min, sin};
 
-use super::steering::steer_state;
 use super::service::VehicleStorage;
 use super::world::{kind, Obj, Orbit, Ref, Settings, UnitView, World};
 
@@ -109,12 +108,26 @@ fn vehicle_or_building(k: f64) -> bool {
     k == 2.0 || k == 4.0 || k == 6.0 || k == 8.0 || k == 9.0
 }
 
+/// Dispatch reads hull facts and selects a weapon, but never boards or
+/// damages a body. A running CombatAgent lends its shared weapon policy
+/// here without borrowing the whole CombatAi a second time.
+pub trait DispatchWorld {
+    fn dispatch_hull(&self, hull: Obj) -> super::world::HullView;
+    fn dispatch_choice(&mut self, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> super::world::Choice;
+}
+impl<W: World + ?Sized> DispatchWorld for W {
+    fn dispatch_hull(&self, hull: Obj) -> super::world::HullView { self.hull(hull) }
+    fn dispatch_choice(&mut self, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> super::world::Choice {
+        self.select_weapon(controller,unit,target,switch_allowed)
+    }
+}
+
 /// isAtAt(unit) (patterns.js:36): the class labelled "AT-AT" (or named
 /// imp_walk_atat).
-pub fn is_at_at<W: World + ?Sized>(w: &W, unit: &UnitView) -> bool {
+pub fn is_at_at<W: DispatchWorld + ?Sized>(w: &W, unit: &UnitView) -> bool {
     let (label, name) = match unit.vehicle {
         Some(h) => {
-            let hull = w.hull(h);
+            let hull = w.dispatch_hull(h);
             (hull.label, Some(hull.name))
         }
         None => (unit.own_label.clone(), unit.own_name.clone()),
@@ -129,8 +142,8 @@ pub fn forward_speed(unit: &UnitView) -> f64 {
 }
 
 /// selectOnly (patterns.js:23).
-fn select_only<W: World + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, target: Obj, switch_allowed: bool, out: &mut Dispatch) {
-    let choice = w.select_weapon(controller, unit.obj, target, switch_allowed);
+fn select_only<W: DispatchWorld + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, target: Obj, switch_allowed: bool, out: &mut Dispatch) {
+    let choice = w.dispatch_choice(controller, unit.obj, target, switch_allowed);
     out.aux = choice.ok;
     out.action = choice.action;
     out.in_band = choice.in_band;
@@ -138,7 +151,7 @@ fn select_only<W: World + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, t
 }
 
 /// vehicleDispatch(controller, unit, target, switchAllowed, world, out, options) (patterns.js:50).
-pub fn vehicle_dispatch<W: World + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, target: &UnitView, switch_allowed: bool, dense: bool, out: &mut Dispatch) {
+pub fn vehicle_dispatch<W: DispatchWorld + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, target: &UnitView, switch_allowed: bool, dense: bool, out: &mut Dispatch) {
     out.pattern = 0.0;
     out.probability = 0.0;
     let s = unit.kind;
@@ -167,7 +180,7 @@ pub fn vehicle_dispatch<W: World + ?Sized>(w: &mut W, controller: Obj, unit: &Un
         select_only(w, controller, unit, target.obj, switch_allowed, out);
         if t == 2.0 || t == 8.0 || t == 9.0 {
             // The AT-AT branch comes before the weapon test.
-            let body = unit.vehicle.map(|h| w.hull(h));
+            let body = unit.vehicle.map(|h| w.dispatch_hull(h));
             if is_at_at(w, target) && body.as_ref().is_some_and(|b| b.occupants == 2.0) {
                 out.pattern = 15.0;
             } else if out.aux && !body.as_ref().is_some_and(|b| b.driver) {
@@ -179,19 +192,55 @@ pub fn vehicle_dispatch<W: World + ?Sized>(w: &mut W, controller: Obj, unit: &Un
     select_only(w, controller, unit, target.obj, switch_allowed, out);
 }
 
-fn now<W: World + ?Sized>(w: &W) -> f64 {
-    w.now()
+/// Attack patterns need movement, mounted geometry and their own state.
+/// They never board, damage a hull or acquire the whole combat authority.
+pub trait PatternWorld:super::random::Draws {
+    fn pattern_now(&self)->f64;
+    fn pattern_unit(&self,unit:Obj)->UnitView;
+    fn pattern_hull(&self,hull:Obj)->super::world::HullView;
+    fn pattern_forward(&mut self,unit:Obj)->Vector3;
+    fn pattern_sphere(&mut self,unit:Obj)->super::world::Sphere;
+    fn pattern_face(&mut self,agent:Obj,posture:f64);
+    fn pattern_fire_a(&mut self,controller:Obj);
+    fn pattern_helper_goto(&mut self,agent:Obj,point:&Vector3,direct:bool);
+    fn pattern_helper_stop(&mut self,agent:Obj);
+    fn pattern_helper_follow_path(&mut self,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool);
+    fn pattern_default_delay(&mut self,agent:Obj,now:f64);
+    fn pattern_set_delay(&mut self,agent:Obj,seconds:f64,now:f64);
+    fn pattern_edit_steer<R>(&mut self,unit:Obj,edit:impl FnOnce(&mut Option<super::world::Steer>)->R)->R;
+}
+impl<W:World+?Sized> PatternWorld for W {
+    fn pattern_now(&self)->f64 {self.now()}
+    fn pattern_unit(&self,unit:Obj)->UnitView {self.unit(unit)}
+    fn pattern_hull(&self,hull:Obj)->super::world::HullView {self.hull(hull)}
+    fn pattern_forward(&mut self,unit:Obj)->Vector3 {self.forward(unit)}
+    fn pattern_sphere(&mut self,unit:Obj)->super::world::Sphere {self.sphere(unit)}
+    fn pattern_face(&mut self,agent:Obj,posture:f64) {self.face(agent,posture);}
+    fn pattern_fire_a(&mut self,controller:Obj) {self.fire_a(controller);}
+    fn pattern_helper_goto(&mut self,agent:Obj,point:&Vector3,direct:bool) {self.helper_goto(agent,point,direct);}
+    fn pattern_helper_stop(&mut self,agent:Obj) {self.helper_stop(agent);}
+    fn pattern_helper_follow_path(&mut self,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool) {self.helper_follow_path(agent,points,over,altitude);}
+    fn pattern_default_delay(&mut self,agent:Obj,now:f64) {self.default_delay(agent,now);}
+    fn pattern_set_delay(&mut self,agent:Obj,seconds:f64,now:f64) {self.set_delay(agent,seconds,now);}
+    fn pattern_edit_steer<R>(&mut self,unit:Obj,edit:impl FnOnce(&mut Option<super::world::Steer>)->R)->R {self.edit_steer(unit,edit)}
+}
+fn steer_state<W:PatternWorld+?Sized,R>(world:&mut W,unit:Obj,edit:impl FnOnce(&mut super::world::Steer)->R)->R {
+    world.pattern_edit_steer(unit,|value|edit(value.get_or_insert_with(super::world::Steer::full)))
+}
+
+fn now<W: PatternWorld + ?Sized>(w: &W) -> f64 {
+    w.pattern_now()
 }
 
 /// trackerPoint(patterns, out) (patterns.js:100). The tracker's point is a
 /// Vector3 that is always there, so a tracker's answer is its point; the
 /// target's place is reached only without a tracker, where there is none.
-fn tracker_point<W: World + ?Sized>(w: &W, p: &PatternsView) -> Option<Vector3> {
+fn tracker_point<W: PatternWorld + ?Sized>(w: &W, p: &PatternsView) -> Option<Vector3> {
     if let Some(point) = p.tracker_point {
         return Some(point);
     }
     let target = p.fresh_target.or(p.target)?;
-    Some(w.unit(target).position)
+    Some(w.pattern_unit(target).position)
 }
 
 /// The patterns' bodyForward (patterns.js:396): not normalized.
@@ -217,7 +266,7 @@ fn horizontal_distance_sq(a: &Vector3, b: &Vector3) -> f64 {
 }
 
 /// hoverPassPoint(patterns, unit, st, out) (patterns.js:116).
-fn hover_pass_point<W: World + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, toggle: bool) -> Vector3 {
+fn hover_pass_point<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, toggle: bool) -> Vector3 {
     let pos = unit.position;
     let v = unit.class.as_ref().and_then(|c| c.forward_speed).or(unit.soldier_max_speed).unwrap_or(0.0);
     let fwd = body_forward(unit);
@@ -238,9 +287,9 @@ fn hover_pass_point<W: World + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitV
     n.add_scaled_vector(&d, -along);
     normalize_xz(&mut n);
     let target = p.fresh_target;
-    let r_unit = w.sphere(unit.obj).radius;
+    let r_unit = w.pattern_sphere(unit.obj).radius;
     let r_target = match target {
-        Some(t) => w.sphere(t).radius,
+        Some(t) => w.pattern_sphere(t).radius,
         None => 0.0,
     };
     let r = (r_unit + r_target) + 2.0;
@@ -254,19 +303,19 @@ fn hover_pass_point<W: World + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitV
 }
 
 /// hoverEnter(patterns) (patterns.js:132).
-fn hover_enter<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
-    let unit = w.unit(p.control);
+fn hover_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
+    let unit = w.pattern_unit(p.control);
     { let value = true; st.edit(|s| s.toggle = value); }
     { let value = unit.position; st.edit(|s| s.entry = value); }
-    w.set_delay(p.agent, 12.0, now(w));
+    w.pattern_set_delay(p.agent, 12.0, now(w));
     hover_leg(w, p, &unit, st);
 }
 
 /// hoverLeg(patterns, unit, st) (patterns.js:141).
-fn hover_leg<W: World + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, st: &mut (impl PatternAccess + ?Sized)) {
+fn hover_leg<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, st: &mut (impl PatternAccess + ?Sized)) {
     { let value = hover_pass_point(w, p, unit, st.pattern().toggle); st.edit(|s| s.destination = value); }
     if p.helper {
-        w.helper_goto(p.agent, &st.pattern().destination, true);
+        w.pattern_helper_goto(p.agent, &st.pattern().destination, true);
     }
     { let value = horizontal_distance_sq(&unit.position, &st.pattern().destination); st.edit(|s| s.best = value); }
     { let value = now(w); st.edit(|s| s.progress_at = value); }
@@ -274,8 +323,8 @@ fn hover_leg<W: World + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, st
 }
 
 /// hoverTick(patterns) (patterns.js:152).
-fn hover_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
-    let unit = w.unit(p.control);
+fn hover_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
+    let unit = w.pattern_unit(p.control);
     let pp = unit.position;
     let q = st.pattern().destination;
     let e = st.pattern().entry;
@@ -291,7 +340,7 @@ fn hover_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl Pat
         } else if !(now(w) <= st.pattern().progress_at + 10.0) && !st.pattern().fallback {
             if let Some(q) = tracker_point(w, p) {
                 if p.helper {
-                    w.helper_goto(p.agent, &q, false);
+                    w.pattern_helper_goto(p.agent, &q, false);
                 }
             }
             { let value = true; st.edit(|s| s.fallback = value); }
@@ -299,11 +348,11 @@ fn hover_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl Pat
     }
     let t = now(w);
     steer_state(w, p.control, |st| st.moving_turn_at = Some(t));
-    w.face(p.obj, 0.0);
+    w.pattern_face(p.obj, 0.0);
 }
 
 /// attackRunPath(patterns, unit, maxFly) (patterns.js:188).
-fn attack_run_path<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), p: &PatternsView, unit: &UnitView, max_fly: f64) -> Option<[[f64; 3]; 4]> {
+fn attack_run_path<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), p: &PatternsView, unit: &UnitView, max_fly: f64) -> Option<[[f64; 3]; 4]> {
     let v = unit.class.as_ref().and_then(|c| c.max_speed).unwrap_or(30.0);
     run.write(|s| { if s.run.a.is_none() {
         s.run.a = Some(max(160.0, 4.0 * v));
@@ -325,25 +374,25 @@ fn attack_run_path<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage 
 }
 
 /// attackRunEnter(patterns, env) (patterns.js:206).
-fn attack_run_enter<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
-    w.set_delay(p.agent, 15.0, now(w));
-    let unit = w.unit(p.control);
+fn attack_run_enter<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
+    w.pattern_set_delay(p.agent, 15.0, now(w));
+    let unit = w.pattern_unit(p.control);
     if let Some(path) = attack_run_path(w, run, p, &unit, settings.max_fly_height) {
         if p.helper {
-            w.helper_follow_path(p.agent, &path, false, false);
+            w.pattern_helper_follow_path(p.agent, &path, false, false);
         }
     }
 }
 
 /// attackRunTick(patterns, env) (patterns.js:216).
-fn attack_run_tick<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
-    let unit = w.unit(p.control);
+fn attack_run_tick<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
+    let unit = w.pattern_unit(p.control);
     if let Some(target) = p.fresh_target {
-        let fwd = w.forward(p.control);
+        let fwd = w.pattern_forward(p.control);
         let mut d = Vector3::default();
-        d.sub_vectors(&w.unit(target).position, &unit.position);
+        d.sub_vectors(&w.pattern_unit(target).position, &unit.position);
         if fwd.dot(&d) > 0.5 {
-            w.fire_a(p.controller);
+            w.pattern_fire_a(p.controller);
         }
     }
     if p.helper && p.helper_arrived {
@@ -351,27 +400,27 @@ fn attack_run_tick<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage 
     }
     let speed = 0.5 * unit.class.as_ref().and_then(|c| c.max_speed).unwrap_or(30.0);
     min_speed(w, p.control, speed, now(w));
-    w.face(p.obj, 0.0);
+    w.pattern_face(p.obj, 0.0);
 }
 
 /// pursuitEnter(patterns) (patterns.js:230), dormant: no stock dispatch
 /// selects pattern 14.
-fn pursuit_enter<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
+fn pursuit_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     { let value = false; st.edit(|s| s.loop_ = value); }
     { let value = false; st.edit(|s| s.inverted = value); }
-    w.set_delay(p.agent, 10.0, now(w));
+    w.pattern_set_delay(p.agent, 10.0, now(w));
 }
 
 /// pursuitTick(patterns, env) (patterns.js:236), dormant.
-fn pursuit_tick<W: World + ?Sized>(w: &mut W, settings: &Settings, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
-    let unit = w.unit(p.control);
-    let target = p.fresh_target.map(|t| w.unit(t));
-    let fwd = w.forward(p.control);
+fn pursuit_tick<W: PatternWorld + ?Sized>(w: &mut W, settings: &Settings, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
+    let unit = w.pattern_unit(p.control);
+    let target = p.fresh_target.map(|t| w.pattern_unit(t));
+    let fwd = w.pattern_forward(p.control);
     let mut d = Vector3::default();
     if let Some(t) = &target {
         d.sub_vectors(&t.position, &unit.position);
         if fwd.dot(&d) > 0.0 || w.int(1.0, 3.0) == 1.0 {
-            w.fire_a(p.controller);
+            w.pattern_fire_a(p.controller);
         }
     }
     let v = unit.class.as_ref().and_then(|c| c.max_speed).unwrap_or(30.0);
@@ -390,7 +439,7 @@ fn pursuit_tick<W: World + ?Sized>(w: &mut W, settings: &Settings, p: &PatternsV
                 pp.y = settings.max_fly_height;
             }
             if p.helper {
-                w.helper_goto(p.agent, &pp, true);
+                w.pattern_helper_goto(p.agent, &pp, true);
             }
         }
     } else {
@@ -412,21 +461,21 @@ fn pursuit_tick<W: World + ?Sized>(w: &mut W, settings: &Settings, p: &PatternsV
 }
 
 /// orbitEnter(patterns) (patterns.js:277): the tow orbit's sides drawn.
-fn orbit_enter<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
+fn orbit_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     if p.helper {
-        w.helper_stop(p.agent);
+        w.pattern_helper_stop(p.agent);
     }
     { let value = (w.next_a() & 1) == 0; st.edit(|s| s.flip_a = value); }
     { let value = (w.next_a() & 1) == 0; st.edit(|s| s.flip_b = value); }
-    w.set_delay(p.agent, 10.0, now(w));
+    w.pattern_set_delay(p.agent, 10.0, now(w));
     orbit_request(w, p, st);
 }
 
 /// orbitRequest(patterns, st) (patterns.js:287).
-fn orbit_request<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl PatternAccess + ?Sized)) {
-    let unit = w.unit(p.control);
-    let target = p.target.map(|t| Ref { obj: t, generation: w.unit(t).generation });
-    let towed = unit.vehicle.map(|h| w.hull(h).tow_target).unwrap_or(-1.0) >= 0.0;
+fn orbit_request<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl PatternAccess + ?Sized)) {
+    let unit = w.pattern_unit(p.control);
+    let target = p.target.map(|t| Ref { obj: t, generation: w.pattern_unit(t).generation });
+    let towed = unit.vehicle.map(|h| w.pattern_hull(h).tow_target).unwrap_or(-1.0) >= 0.0;
     let orbit = Orbit {
         target,
         offset: if towed { Vector3::new(0.0, 0.0, 8.75) } else { Vector3::new(if st.pattern().flip_a { -12.5 } else { 12.5 }, 0.0, 25.0) },
@@ -437,36 +486,36 @@ fn orbit_request<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl Patt
 }
 
 /// orbitTick(patterns) (patterns.js:300).
-fn orbit_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl PatternAccess + ?Sized)) {
+fn orbit_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl PatternAccess + ?Sized)) {
     orbit_request(w, p, st);
-    w.face(p.obj, 0.0);
+    w.pattern_face(p.obj, 0.0);
 }
 
 /// orbitExit(patterns) (patterns.js:305).
-fn orbit_exit<W: World + ?Sized>(w: &mut W, p: &PatternsView) {
-    w.edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() { steer.orbit = Some(None); } });
-    w.default_delay(p.agent, now(w));
+fn orbit_exit<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView) {
+    w.pattern_edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() { steer.orbit = Some(None); } });
+    w.pattern_default_delay(p.agent, now(w));
 }
 
 /// directEnter / directTick (patterns.js:312), dormant pattern 16.
-fn direct_enter<W: World + ?Sized>(w: &mut W, p: &PatternsView) {
+fn direct_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView) {
     if p.helper {
-        w.helper_stop(p.agent);
+        w.pattern_helper_stop(p.agent);
     }
-    w.set_delay(p.agent, 10.0, now(w));
+    w.pattern_set_delay(p.agent, 10.0, now(w));
 }
 
-fn direct_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView) {
+fn direct_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView) {
     if let Some(target) = p.fresh_target {
-        let at = w.unit(target).position;
+        let at = w.pattern_unit(target).position;
         if p.helper {
-            w.helper_goto(p.agent, &at, false);
+            w.pattern_helper_goto(p.agent, &at, false);
         }
     }
 }
 
 /// minSpeed(unit, speed, time) (patterns.js:324).
-fn min_speed<W: World + ?Sized>(w: &mut W, control: Obj, speed: f64, time: f64) {
+fn min_speed<W: PatternWorld + ?Sized>(w: &mut W, control: Obj, speed: f64, time: f64) {
     steer_state(w, control, |steer| {
         steer.min_speed = Some(speed);
         steer.min_speed_at = Some(time);
@@ -474,7 +523,7 @@ fn min_speed<W: World + ?Sized>(w: &mut W, control: Obj, speed: f64, time: f64) 
 }
 
 /// enterPattern(patterns, state, env) (patterns.js:332).
-pub fn enter_pattern<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut (impl PatternAccess + ?Sized), pattern: f64) {
+pub fn enter_pattern<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut (impl PatternAccess + ?Sized), pattern: f64) {
     match pattern {
         x if x == 7.0 => hover_enter(w, p, { state.init(); state }),
         x if x == 13.0 => attack_run_enter(w, run, settings, p),
@@ -486,7 +535,7 @@ pub fn enter_pattern<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorag
 }
 
 /// tickPattern(patterns, state, dt, env) (patterns.js:348).
-pub fn tick_pattern<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut (impl PatternAccess + ?Sized), pattern: f64) {
+pub fn tick_pattern<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut (impl PatternAccess + ?Sized), pattern: f64) {
     match pattern {
         x if x == 7.0 => hover_tick(w, p, { state.init(); state }),
         x if x == 13.0 => attack_run_tick(w, run, settings, p),
@@ -501,8 +550,8 @@ pub fn tick_pattern<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage
 }
 
 /// exitPattern(patterns, state) (patterns.js:364).
-pub fn exit_pattern<W: World + ?Sized>(w: &mut W, p: &PatternsView, pattern: f64) {
-    w.edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() {
+pub fn exit_pattern<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, pattern: f64) {
+    w.pattern_edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() {
         steer.min_speed = Some(0.0);
         steer.loop_ = Some(false);
     } });
@@ -511,14 +560,14 @@ pub fn exit_pattern<W: World + ?Sized>(w: &mut W, p: &PatternsView, pattern: f64
         return;
     }
     if pattern >= 13.0 {
-        w.default_delay(p.agent, now(w));
+        w.pattern_default_delay(p.agent, now(w));
     }
 }
 
 /// sidestep(patterns, perSecond) (patterns.js:378): pattern 2's sidestep
 /// for a slow hull that can strafe, about once in 13 s.
-pub fn sidestep<W: World + ?Sized>(w: &mut W, p: &PatternsView, per_second: f64) -> bool {
-    let unit = w.unit(p.control);
+pub fn sidestep<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, per_second: f64) -> bool {
+    let unit = w.pattern_unit(p.control);
     let c = unit.class.clone().unwrap_or_default();
     if !(forward_speed(&unit) < 13.0) {
         return false;
@@ -530,7 +579,7 @@ pub fn sidestep<W: World + ?Sized>(w: &mut W, p: &PatternsView, per_second: f64)
         return false;
     }
     let side = w.int(0.0, 1.0) * 2.0 - 1.0;
-    let r = w.sphere(p.control).radius;
+    let r = w.pattern_sphere(p.control).radius;
     let distance = if r == 2.0 * r { r } else { f(r + w.uniform() * (2.0 * r - r)) };
     let yaw = unit.body_yaw;
     // The transform's right row (the 2004 game's, which is the port's left).
@@ -538,7 +587,7 @@ pub fn sidestep<W: World + ?Sized>(w: &mut W, p: &PatternsView, per_second: f64)
     let mut pp = unit.position;
     pp.add_scaled_vector(&d, side * distance);
     if p.helper {
-        w.helper_goto(p.agent, &pp, true);
+        w.pattern_helper_goto(p.agent, &pp, true);
     }
     true
 }

@@ -57,6 +57,7 @@ export function unitOwner(system,bridge) {
     if (units.byId(unit.id)!==unit) {
       add(unit);
     }
+
     unit.combat=combatSim.make({soldier,def,actor,animator,collision,ordnance,items,owner:unit});
     unit.combat.attach();
     if(old?.deaths)unit.combat.deaths=old.deaths;

@@ -10,7 +10,7 @@ use three::{Matrix4, Quaternion, Vector3};
 // rider-pose.js skeletonOf and bindsOf describe one actor life. The bind
 // arrays and sampler scratch are retained because every seated tick samples
 // the same skeleton, even when its holder or selected animation changes.
-struct Rider {
+pub(crate) struct Rider {
     life: f64, scale: f64, skeleton: RiderSkeleton, scratch: RiderScratch,
     q: Vec<Quaternion>, p: Vec<Vector3>, clips: Vec<F2RiderClip>,
     points: RiderPoints, shapes: [HitShape; 10], out: F2RiderOut,
@@ -20,6 +20,35 @@ static mut RIDERS: Vec<Option<Rider>> = Vec::new();
 static mut OUTPUT: Option<Block> = None;
 fn rows() -> &'static mut Vec<Option<Rider>> { unsafe { &mut *addr_of_mut!(RIDERS) } }
 fn output() -> &'static mut Block { unsafe { (*addr_of_mut!(OUTPUT)).get_or_insert_with(Block::default) } }
+
+// UnitFactory prepares complete rider samplers alongside inactive bodies.
+// Slot activation only moves buffers; a native first boarding cannot grow
+// the row table or publication, nor ask the host to resolve an animation.
+pub(crate) fn reserve(count: usize) {
+    let count = count.max(rows().len());
+    rows().resize_with(count, || None);
+    let words = 5 + count * (F2RiderOut::WORDS + 10 * F2RiderShape::WORDS);
+    let heap = count * 10 * F2RiderShape::WORDS;
+    let out = output();
+    out.words.reserve(words.saturating_sub(out.words.len()));
+    out.heap.reserve(heap.saturating_sub(out.heap.len()));
+}
+pub(crate) fn take(unit: Ref<Unit>) -> Option<Rider> {
+    let row = rows().get_mut(unit.slot as usize)?;
+    if row.as_ref()?.out.unit != unit { return None; }
+    row.take()
+}
+pub(crate) fn install(unit: Ref<Unit>, mut rider: Option<Rider>) {
+    if let Some(row) = rider.as_mut() { row.out.unit = unit; }
+    rows()[unit.slot as usize] = rider;
+}
+// SeatLease acquisition binds the new gameplay life before its first pose.
+// This is the native equivalent of F2Riders.ensure's generation refresh.
+pub(crate) fn life(unit: Ref<Unit>, life: f64) {
+    let Some(row) = rows().get_mut(unit.slot as usize).and_then(Option::as_mut) else { return };
+    if row.out.unit != unit { return; }
+    row.life = life; row.out.life = life;
+}
 
 #[no_mangle]
 pub extern "C" fn f2_rider_birth_words() -> u32 { F2RiderBirth::WORDS as u32 }
@@ -70,7 +99,7 @@ fn sample(unit: Ref<Unit>, hull: Option<Ref<Vehicle>>, turret: Option<Ref<Turret
     let Some(row) = rows().get_mut(unit.slot as usize).and_then(Option::as_mut) else { return };
     let Some(u) = sim().store.unit.get(unit) else { return };
     // Unit reuse must not attach the previous soldier's skeleton or clip.
-    if u.generation != row.life { return; }
+    if row.out.unit != unit || u.generation != row.life { return; }
     let Some(binding) = row.clips.iter().find(|c| c.hull == hull && c.turret == turret && c.index as usize == index) else { return };
     // riderSample uses an explicit frame for stand-ins and a nine-pose for
     // steering clips. Quirk: timed clips ignore both pitch and turn weights.
@@ -155,7 +184,8 @@ pub fn turret(unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, 
 // Vehicles.vacate reads the last completed riderDropPoint. Looking it up
 // must not sample a newer pose or advance the unit's hit-shape cache.
 pub fn drop(unit: Ref<Unit>) -> Option<Vector3> {
-    rows().get(unit.slot as usize).and_then(Option::as_ref).and_then(|r| r.out.drop.as_ref()).map(vec)
+    rows().get(unit.slot as usize).and_then(Option::as_ref)
+        .filter(|r| r.out.unit == unit).and_then(|r| r.out.drop.as_ref()).map(vec)
 }
 
 /// SeatLease.riderShapes reads the already completed native rider sample.

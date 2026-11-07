@@ -121,3 +121,30 @@ pub fn fallback_analogs(unit: &AiUnit, request: &super::controller::MoveRequest,
     }
     out
 }
+
+/// visibleOrNear (scheduler.js): offline distance uses the first camera,
+/// network distance uses every camera, and frustum tests always use every view.
+pub fn visible_or_near(unit: &AiUnit, cameras: &[CameraView], network_views: bool, lod_disabled: bool) -> bool {
+    position_visible_or_near(unit.position, unit.velocity, cameras, network_views, lod_disabled)
+}
+
+/// The same gate for canonical rows, without materializing an AI unit snapshot.
+pub fn position_visible_or_near(p: Vec3, velocity: Option<Vec3>, cameras: &[CameraView], network_views: bool, lod_disabled: bool) -> bool {
+    if lod_disabled { return true; }
+    if let Some(vel) = velocity {
+        if vel.x * vel.x + vel.y * vel.y + vel.z * vel.z >= 100.0 { return true; }
+    }
+    if cameras.is_empty() { return true; }
+    let near_count = if network_views { cameras.len() } else { 1 };
+    for camera in cameras.iter().take(near_count) {
+        let e = &camera.elements;
+        let dx = p.x - e[12];
+        let dy = p.y - e[13];
+        let dz = p.z - e[14];
+        if dx * dx + dy * dy + dz * dz <= 2025.0 { return true; }
+    }
+    for camera in cameras {
+        if camera_accepts(camera, p) { return true; }
+    }
+    false
+}

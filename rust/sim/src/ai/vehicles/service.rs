@@ -12,6 +12,9 @@
 //! mounted agent), `seat_input` / `analogs` (a seat's input step).
 
 use three::Vector3;
+use std::rc::Rc;
+use super::support_key::SupportKey;
+use crate::ai::owned::scratch::{List,Pool};
 use v8math::{abs, asin, atan2, cos, hypot, max, min, sin, trunc};
 
 use super::controllers::{self, MountedAgent, Policy, DONE};
@@ -28,6 +31,25 @@ const SUPPORT_HOLDS: f64 = 3.0;
 /// How near two hulls' footprints count as touching (index.js CONTACT_MARGIN).
 const CONTACT_MARGIN: f64 = 0.5;
 
+/// The boarding interruption test reads only bodies, its controller and
+/// the ordered nearby enemies. Combat and vehicle frames share this policy.
+pub trait BoardWorld {
+    fn board_unit(&self,unit:Obj)->UnitView;
+    fn board_controller_unit(&self,controller:Obj)->Option<Obj>;
+    fn board_enemies(&mut self,center:&Vector3,unit:Obj,team:f64)->List<Obj>;
+}
+impl<T:World+?Sized> BoardWorld for T {
+    fn board_unit(&self,unit:Obj)->UnitView {self.unit(unit)}
+    fn board_controller_unit(&self,controller:Obj)->Option<Obj> {self.controller(controller).unit}
+    fn board_enemies(&mut self,center:&Vector3,unit:Obj,team:f64)->List<Obj> {self.query(center,8.,QueryFilter::EnemiesOf {unit,team})}
+}
+/// VehicleAI.boardPathClear: no eligible enemy within eight metres. The
+/// cap follows the ordered query, even when the first eligible hit suffices.
+pub fn board_path_clear<W:BoardWorld+?Sized>(world:&mut W,controller:Option<Obj>,candidate:Obj)->bool {
+    let Some(unit)=controller.and_then(|c|world.board_controller_unit(c)) else{return true};
+    let team=world.board_unit(unit).team;let at=world.board_unit(candidate).position;
+    let mut found=world.board_enemies(&at,unit,team);found.truncate(30);found.is_empty()
+}
 /// A body a registry entry, a control or a lease names (bodyOf).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Body {
@@ -39,17 +61,26 @@ pub enum Body {
 #[derive(Clone, Debug, Default)]
 pub struct VehicleAI {
     pub reservations: Reservations,
+    pub(super) reservation_scratch:Option<Pool<super::reservations::Reservation>>,
     pub notifier: Notifier,
     /// `padLeft`: hull -> until when no bot boards it (abandonPad).
     pub pad_left: Vec<(Obj, f64)>,
-    /// `supportCache`: post -> "mask/radius" -> its support hubs.
+    /// `supportCache`: post -> numeric mask/rounded-radius identity -> hubs.
     pub support_cache: Vec<(Obj, SupportKeys)>,
+    support_prepared:Option<SupportPrepared>,
     /// The attack run's distances (patterns.js `run`).
     pub run: AttackRun,
 }
 
-/// One post's support hubs by "mask/radius" key, in the order found.
-pub type SupportKeys = Vec<(String, Vec<SupportHub>)>;
+/// One post's support hubs by rounded key, in the order found.
+pub type SupportKeys = Vec<(SupportKey, Rc<Vec<SupportHub>>)>;
+
+#[derive(Clone,Debug)]
+struct SupportPrepared {
+    keys:Vec<SupportKeys>,
+    hubs:Vec<Rc<Vec<SupportHub>>>,
+    candidates:Pool<support::Candidate>,
+}
 
 /// A hull's decay clock (`v.decay`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -95,36 +126,55 @@ fn js_space(c: char) -> bool {
 /// text, in radians, else the fallback's.
 fn degrees(value: Option<&str>, fallback: [f64; 2]) -> [f64; 2] {
     let text = value.unwrap_or("");
-    let mut parts = Vec::new();
+    let mut pair = fallback;
+    let mut count = 0;
+    let mut numbers = [0.; 2];
     let mut rest = text;
-    // split(/\s+/): the pieces between whitespace runs, an empty piece
-    // first or last where the text starts or ends with one.
+    // split(/\s+/) retains the first and last empty pieces. Number("") is
+    // zero; split_whitespace would silently remove these gameplay values.
     loop {
-        match rest.find(js_space) {
-            None => {
-                parts.push(rest);
-                break;
-            }
+        let (part, tail) = match rest.find(js_space) {
+            None => (rest, None),
             Some(i) => {
-                parts.push(&rest[..i]);
                 let tail = &rest[i..];
                 let skip = tail.find(|c: char| !js_space(c)).unwrap_or(tail.len());
-                rest = &tail[skip..];
-                if rest.is_empty() {
-                    parts.push("");
-                    break;
-                }
+                (&rest[..i], Some(&tail[skip..]))
             }
+        };
+        let number = bfe_content::js::string_to_number(part);
+        if number.is_finite() {
+            numbers[count] = number;
+            count += 1;
+            if count == 2 { pair = numbers; break; }
         }
+        match tail { Some(tail) => rest = tail, None => break }
     }
-    let numbers: Vec<f64> = parts.iter().map(|p| bfe_content::js::string_to_number(p)).filter(|n| n.is_finite()).collect();
-    let pair = if numbers.len() >= 2 { [numbers[0], numbers[1]] } else { fallback };
     [(pair[0] * std::f64::consts::PI) / 180.0, (pair[1] * std::f64::consts::PI) / 180.0]
 }
 
 impl VehicleAI {
     pub fn new() -> Self {
         VehicleAI::default()
+    }
+    /// padLeft is keyed by prepared hull identity and survives its next life.
+    pub fn prepare_pads(&mut self,hulls:usize) {self.pad_left.reserve(hulls.saturating_sub(self.pad_left.len()));}
+    /// Reserve nested weak-reference scans before controllers can run.
+    pub fn prepare_reservations(&mut self,records:usize,scopes:usize) {
+        self.reservations.records.reserve(records.saturating_sub(self.reservations.records.len()));
+        self.reservation_scratch=Some(Pool::new(scopes,records));
+    }
+
+    /// Reserve authored posts, distinct mask/radius pairs and nested LOS
+    /// callbacks before AI starts. First observations still populate the cache
+    /// at their source point, rather than testing LOS during construction.
+    pub fn prepare_support(&mut self,posts:usize,keys_per_post:usize,hubs:usize,scopes:usize) {
+        assert!(self.support_cache.is_empty(),"prepare support before its first observation");
+        self.support_cache.reserve(posts);
+        self.support_prepared=Some(SupportPrepared {
+            keys:(0..posts).map(|_|Vec::with_capacity(keys_per_post)).collect(),
+            hubs:(0..posts*keys_per_post+scopes).map(|_|Rc::new(Vec::with_capacity(hubs))).collect(),
+            candidates:Pool::new(scopes,hubs),
+        });
     }
 
     pub fn body_of_unit(u: &UnitView) -> Option<Body> {
@@ -149,16 +199,7 @@ impl VehicleAI {
     }
 
     pub fn lease_of<W: World + ?Sized>(w: &W, x: Option<Obj>) -> Option<LeaseView> {
-        let u = w.unit(x?);
-        let own = u.lease.map(|l| w.lease(l)).filter(|l| l.controllable == Some(u.obj));
-        let lease = match own {
-            Some(l) => l,
-            None => w.lease(u.seat?),
-        };
-        if lease.released || lease.human {
-            return None;
-        }
-        Some(lease)
+        mount_lease_of(w,x)
     }
 
     pub fn controller_lease<W: World + ?Sized>(w: &W, controller: Option<Obj>) -> Option<LeaseView> {
@@ -181,7 +222,7 @@ impl VehicleAI {
 
     pub fn human_aboard<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool { VehicleServices::human_aboard(self, w, entry) }
 
-    pub fn boardables<W: World + ?Sized>(&self, w: &W) -> Vec<Obj> { VehicleServices::boardables(self, w) }
+    pub fn boardables<W: World + ?Sized>(&self, w: &W) -> List<Obj> { VehicleServices::boardables(self, w) }
 
     pub fn cycles_per_second<W: World + ?Sized>(&self, w: &W) -> f64 { VehicleServices::cycles_per_second(self, w) }
 
@@ -209,7 +250,7 @@ impl VehicleAI {
 
     pub fn empty_seats<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> f64 { VehicleServices::empty_seats(self, w, sender) }
 
-    pub fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> Vec<Obj> { VehicleServices::crew_controllers(self, w, entry, source) }
+    pub fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> List<Obj> { VehicleServices::crew_controllers(self, w, entry, source) }
 
     pub fn seats_full<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool { VehicleServices::seats_full(self, w, entry) }
 
@@ -309,7 +350,7 @@ pub trait VehicleServices: VehicleStorage {
     fn seat_count<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
         match VehicleAI::body_of_unit(&w.unit(entry)) {
             None => 0.0,
-            Some(Body::Hull(h)) => w.hull(h).seats.len() as f64,
+            Some(Body::Hull(h)) => w.hull_seat_count(h) as f64,
             Some(Body::Turret(_)) => 1.0,
         }
     }
@@ -320,7 +361,7 @@ pub trait VehicleServices: VehicleStorage {
             None => 0.0,
             Some(Body::Hull(h)) => {
                 let hull = w.hull(h);
-                let human = hull.seats.iter().any(|s| s.lease.is_some_and(|l| w.lease(l).human));
+                let human = (0..w.hull_seat_count(h)).any(|i| w.hull_seat(h,i).and_then(|s|s.lease).is_some_and(|l| w.lease(l).human));
                 hull.occupants + if hull.driver && !human { 1.0 } else { 0.0 }
             }
             Some(Body::Turret(t)) => {
@@ -340,7 +381,7 @@ pub trait VehicleServices: VehicleStorage {
             None => 0.0,
             Some(Body::Hull(h)) => {
                 let hull = w.hull(h);
-                let n = hull.seats.iter().filter(|s| s.lease.is_some_and(|l| w.lease(l).human)).count() as f64;
+                let n = (0..w.hull_seat_count(h)).filter(|&i| w.hull_seat(h,i).and_then(|s|s.lease).is_some_and(|l| w.lease(l).human)).count() as f64;
                 if n != 0.0 {
                     n
                 } else if hull.driver {
@@ -367,8 +408,8 @@ pub trait VehicleServices: VehicleStorage {
     }
 
     /// boardables(): built turrets' entries, then living vehicles'.
-    fn boardables<W: World + ?Sized>(&self, w: &W) -> Vec<Obj> {
-        let mut out = Vec::new();
+    fn boardables<W: World + ?Sized>(&self, w: &W) -> List<Obj> {
+        let mut out = w.object_buffer();
         for t in w.turrets() {
             let turret = w.turret(t);
             if turret.alive {
@@ -556,10 +597,11 @@ pub trait VehicleServices: VehicleStorage {
 
     /// crewControllers(entry, source): the AI controllers aboard, but the
     /// source Character's.
-    fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> Vec<Obj> {
-        let mut out = Vec::new();
+    fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> List<Obj> {
+        let mut out = w.object_buffer();
         let Some(Body::Hull(h)) = entry.and_then(|e| VehicleAI::body_of_unit(&w.unit(e))) else { return out };
-        for seat in w.hull(h).seats {
+        for i in 0..w.hull_seat_count(h) {
+            let seat = w.hull_seat(h,i).expect("hull seat");
             let Some(lease) = seat.lease.map(|l| w.lease(l)) else { continue };
             // `lease.unit?.character === source` (undefined without a unit).
             let same = lease.unit.is_some_and(|u| w.unit(u).character == source);
@@ -726,12 +768,7 @@ pub trait VehicleServices: VehicleStorage {
 
     /// boardPathClear(controller, candidate): no eligible enemy within 8 m.
     fn board_path_clear<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
-        let Some(unit) = controller.and_then(|c| w.controller(c).unit) else { return true };
-        let team = w.unit(unit).team;
-        let at = w.unit(candidate).position;
-        let mut found = w.query(&at, 8.0, QueryFilter::EnemiesOf { unit, team });
-        found.truncate(30);
-        found.is_empty()
+        board_path_clear(w,controller,candidate)
     }
 
     /// relation(a, b).
@@ -743,31 +780,12 @@ pub trait VehicleServices: VehicleStorage {
     /// stationary one with a remembered target it could reach, or, with
     /// StayInTurrets, for any role but the repair roles.
     fn board_policy<W: World + ?Sized>(&self, w: &mut W, agent: Obj, controller: Obj, candidate: Obj) -> bool {
-        let entry = w.unit(candidate);
-        let body = VehicleAI::body_of_unit(&entry);
-        if self.nominal_speed(w, &entry) > 0.0 {
-            return true;
-        }
-        if !w.settings().stay_in_turrets {
-            let Some(memory) = w.memory_point(agent) else { return false };
-            return self.body_reach(w, body, &memory);
-        }
-        let role = w.controller(controller).unit.and_then(|u| w.unit(u).class).map_or(controllers::ROLE_OTHER, |c| c.role);
-        role != controllers::ROLE_SUPPORT && role != controllers::ROLE_PILOT
+        board_policy(w,agent,controller,candidate)
     }
 
     /// nominalSpeed(candidate): its class's MaxSpeed (walkers, flyers) or
     /// ForwardSpeed; a turret's 0.
-    fn nominal_speed<W: World + ?Sized>(&self, w: &W, candidate: &UnitView) -> f64 {
-        let Some(Body::Hull(h)) = VehicleAI::body_of_unit(candidate) else { return 0.0 };
-        let hull = w.hull(h);
-        let n = if hull.flying || hull.walking { hull.max_speed_setting } else { hull.forward_speed_setting };
-        if n.is_finite() {
-            n
-        } else {
-            hull.speed
-        }
-    }
+    fn nominal_speed<W: World + ?Sized>(&self, w: &W, candidate: &UnitView) -> f64 {nominal_speed(w,candidate)}
 
     /// targetReserved(target, team) / reserveTarget(target, unit): flyer
     /// target reservations (type 2).
@@ -782,31 +800,11 @@ pub trait VehicleServices: VehicleStorage {
     /// mountReach(unit, point): one of the control's mounts can bring its
     /// weapon to bear on `point` by angle alone.
     fn mount_reach<W: World + ?Sized>(&self, w: &mut W, unit: Option<Obj>, point: &Vector3) -> bool {
-        let lease = VehicleAI::lease_of(w, unit).or_else(|| unit.and_then(|u| w.unit(u).lease).map(|l| w.lease(l)));
-        let Some(lease) = lease else { return true };
-        let origin = Origin::Lease(lease.obj);
-        mount_angles(w, lease.vehicle, lease.turret, lease.index, origin, point)
+        mount_reach(w,unit,point)
     }
 
     /// bodyReach(body, point): any mount of a candidate reaches it.
-    fn body_reach<W: World + ?Sized>(&self, w: &mut W, body: Option<Body>, point: &Vector3) -> bool {
-        match body {
-            None => false,
-            Some(Body::Turret(t)) => mount_angles(w, None, Some(t), 0.0, Origin::TurretPivot(t), point),
-            Some(Body::Hull(h)) => {
-                let seats = w.hull(h).seats;
-                for (i, seat) in seats.iter().enumerate() {
-                    if seat.weapons == 0 {
-                        continue;
-                    }
-                    if mount_angles(w, Some(h), None, i as f64, Origin::SeatOrigin(h, i), point) {
-                        return true;
-                    }
-                }
-                false
-            }
-        }
-    }
+    fn body_reach<W: World + ?Sized>(&self, w: &mut W, body: Option<Body>, point: &Vector3) -> bool {body_reach(w,body,point)}
 
     /// unreachableFromMount(controller, point): a zero-speed control that
     /// cannot turn to the point.
@@ -822,29 +820,7 @@ pub trait VehicleServices: VehicleStorage {
     /// sharedTarget(controller): an AI gun in a walker or hover a person
     /// drives fires at the person's target when its mount reaches it.
     fn shared_target<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) -> Option<Obj> {
-        let unit = controller.and_then(|c| w.controller(c).unit);
-        let lease = VehicleAI::lease_of(w, unit)?;
-        let h = lease.vehicle?;
-        let body = w.hull(h);
-        if body.flying {
-            return None;
-        }
-        let pilot = body.seats.first().and_then(|s| s.lease).map(|l| w.lease(l));
-        let pilot = pilot.filter(|p| p.human)?;
-        if pilot.obj == lease.obj {
-            return None;
-        }
-        let target = w.human_target(h)?;
-        let t = w.unit(target);
-        let team = w.unit(unit.expect("a lease's unit")).team;
-        if !t.alive || !(w.relation(team, t.team) < 0.0) {
-            return None;
-        }
-        if mount_angles(w, lease.vehicle, lease.turret, lease.index, Origin::Lease(lease.obj), &t.position) {
-            Some(target)
-        } else {
-            None
-        }
+        shared_target(w,controller)
     }
 
     /// dispatch(controller, unit, target, switchAllowed, world, out).
@@ -964,11 +940,16 @@ pub trait VehicleServices: VehicleStorage {
         // Publish the post's cache before callbacks that may inspect or
         // populate it, just as supportPoint creates its Map first.
         self.write(|s| {
-            if !s.support_cache.iter().any(|(p,_)| *p == post) { s.support_cache.push((post,Vec::new())); }
+            if !s.support_cache.iter().any(|(p,_)|*p==post) {
+                let keys=match &mut s.support_prepared {
+                    Some(p)=>p.keys.pop().expect("prepared support post capacity"),None=>Vec::new(),
+                };
+                s.support_cache.push((post,keys));
+            }
         });
         let key_mask = w.helper_traversal(helper, false);
         let key_radius = w.helper_traversal(helper, true);
-        let key = format!("{}/{}", bfe_content::js::number_to_string(key_mask), to_fixed_1(key_radius));
+        let key = SupportKey::new(key_mask,key_radius);
         let cached = self.read(|s| s.support_cache.iter().find(|(p, _)| *p == post).and_then(|(_, m)| m.iter().find(|(k, _)| *k == key)).map(|(_, h)| h.clone()));
         let hubs = match cached {
             Some(h) => h,
@@ -981,38 +962,51 @@ pub trait VehicleServices: VehicleStorage {
                 // the line of sight to each in the same order (the queries
                 // are navigation's content: only the sight tests are the
                 // battle's calls).
-                let candidates = match w.nav() {
-                    Some(nav) => {
-                        let crate::ai::nav::Nav { graph, barriers, .. } = nav;
-                        support::support_candidates(graph.as_ref(), Some(barriers), &center, radius, mask)
-                    }
-                    None => Vec::new(),
-                };
+                let mut candidates=self.read(|s|s.support_prepared.as_ref().map(|p|p.candidates.take()).unwrap_or_default());
+                if let Some(nav)=w.nav() {
+                    let crate::ai::nav::Nav {graph,barriers,..}=nav;
+                    support::support_candidates_into(graph.as_ref(),Some(barriers),&center,radius,mask,&mut candidates);
+                }
                 let target = support::post_target(&center);
-                let mut hubs = Vec::new();
+                let mut hubs=self.write(|s|match &mut s.support_prepared {
+                    Some(p)=>{
+                        let i=p.hubs.iter().position(|h|Rc::strong_count(h)==1).expect("prepared support cache capacity");
+                        let mut h=p.hubs.swap_remove(i);Rc::get_mut(&mut h).unwrap().clear();h
+                    },None=>Rc::new(Vec::new()),
+                });
+                let prepared=self.read(|s|s.support_prepared.is_some());
+                let values=Rc::get_mut(&mut hubs).unwrap();
                 for c in candidates {
                     let eye_at = Vector3::new(c.hub_at.x, c.hub_at.y + eye, c.hub_at.z);
                     if w.los(&eye_at, &target) == Some(false) {
                         continue;
                     }
-                    hubs.push(SupportHub { hub: c.hub, distance: c.distance });
+                    if prepared {assert!(values.len()<values.capacity(),"prepared support hub capacity");}
+                    values.push(SupportHub { hub: c.hub, distance: c.distance });
                 }
-                support::sort_by_distance(&mut hubs);
-                self.write(|s| match s.support_cache.iter_mut().find(|(p, _)| *p == post) {
-                    Some((_, m)) => match m.iter_mut().find(|(k,_)| *k==key) { Some((_,value))=>*value=hubs.clone(), None=>m.push((key,hubs.clone())) },
-                    None => s.support_cache.push((post, vec![(key, hubs.clone())])),
+                support::sort_by_distance(values);
+                self.write(|s| {
+                    let (_,keys)=s.support_cache.iter_mut().find(|(p,_)|*p==post).expect("published support post");
+                    if let Some((_,value))=keys.iter_mut().find(|(k,_)|*k==key) {
+                        let old=std::mem::replace(value,hubs.clone());
+                        if let Some(p)=&mut s.support_prepared {p.hubs.push(old);}
+                    } else {
+                        if prepared {assert!(keys.len()<keys.capacity(),"prepared support key capacity");}
+                        keys.push((key,hubs.clone()));
+                    }
                 });
                 hubs
             }
         };
         let mask = v8math::to_uint32(w.helper_traversal(helper, false));
-        let near = {
-            let graph = w.nav().and_then(|n| n.graph.as_ref())?;
-            support::pick_candidates(graph, &hubs, &u.position, mask)?
+        let selection = {
+            let graph=w.nav().and_then(|n|n.graph.as_ref())?;
+            support::Selection::new(graph,&hubs,&u.position,mask)?
         };
-        let pick = if near.len() > 1 { near[w.int(0.0, (near.len() - 1) as f64) as usize] } else { near[0] };
-        let graph = w.nav().and_then(|n| n.graph.as_ref())?;
-        let hub = &graph.hubs[pick.hub];
+        let index=if selection.count>1 {w.int(0.,(selection.count-1) as f64) as usize}else{0};
+        let graph=w.nav().and_then(|n|n.graph.as_ref())?;
+        let pick=selection.at(graph,&hubs,index);
+        let hub=&graph.hubs[pick.hub];
         Some(Vector3::new(hub.x, hub.y, hub.z))
     }
 
@@ -1038,9 +1032,9 @@ pub trait VehicleServices: VehicleStorage {
     /// gets out, taking up `post`.
     fn disembark_passengers<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> f64 {
         let Some(h) = VehicleAI::controller_lease(w, controller).and_then(|l| l.vehicle) else { return 0.0 };
-        let seats = w.hull(h).seats;
         let mut n = 0.0;
-        for seat in seats.iter().skip(1) {
+        for i in 1..w.hull_seat_count(h) {
+            let seat = w.hull_seat(h,i).expect("hull seat");
             let Some(other) = seat.lease.map(|l| w.lease(l)) else { continue };
             if other.human {
                 continue;
@@ -1073,9 +1067,9 @@ pub trait VehicleServices: VehicleStorage {
             Some(entry) => entry.1 = now + 60.0,
             None => s.pad_left.push((h, now + 60.0)),
         });
-        let seats = w.hull(h).seats;
         let mut n = 0.0;
-        for seat in seats.iter().rev() {
+        for i in (0..w.hull_seat_count(h)).rev() {
+            let seat = w.hull_seat(h,i).expect("hull seat");
             let Some(other) = seat.lease.map(|l| w.lease(l)) else { continue };
             let network = other.unit.is_some_and(|u| w.unit(u).network_human);
             if other.obj == lease.obj || other.human || network {
@@ -1189,7 +1183,8 @@ fn character_of<W: World + ?Sized>(w: &W, u: Obj) -> bool {
         return true;
     }
     if let Some(h) = unit.vehicle {
-        for seat in w.hull(h).seats {
+        for i in 0..w.hull_seat_count(h) {
+            let seat = w.hull_seat(h,i).expect("hull seat");
             if let Some(l) = seat.lease {
                 if w.lease(l).unit.is_some_and(|x| w.unit(x).character.is_some()) {
                     return true;
@@ -1202,41 +1197,7 @@ fn character_of<W: World + ?Sized>(w: &W, u: Obj) -> bool {
 
 /// `n.toFixed(1)` (the support cache's key): n rounded exactly to tenths,
 /// a tie to the larger, "-" before a negative (but not -0).
-pub fn to_fixed_1(x: f64) -> String {
-    if x.is_nan() {
-        return "NaN".into();
-    }
-    let (sign, x) = if x < 0.0 { ("-", -x) } else { ("", x) };
-    if x >= 1e21 {
-        return format!("{sign}{}", bfe_content::js::number_to_string(x));
-    }
-    // x = mantissa * 2^exponent exactly; n = round(x * 10), ties up.
-    let bits = x.to_bits();
-    let raw_exp = ((bits >> 52) & 0x7ff) as i32;
-    let frac = bits & ((1u64 << 52) - 1);
-    let (mantissa, exponent) = if raw_exp == 0 { (frac, -1074) } else { (frac | (1u64 << 52), raw_exp - 1075) };
-    let num = mantissa as u128 * 10;
-    let n: u128 = if exponent >= 0 {
-        num << exponent
-    } else {
-        let k = -exponent as u32;
-        if k > 100 {
-            0
-        } else {
-            let q = num >> k;
-            let rem = num - (q << k);
-            if rem * 2 >= (1u128 << k) {
-                q + 1
-            } else {
-                q
-            }
-        }
-    };
-    let digits = n.to_string();
-    let digits = if digits.len() < 2 { format!("{}{}", "0".repeat(2 - digits.len()), digits) } else { digits };
-    let (a, b) = digits.split_at(digits.len() - 1);
-    format!("{sign}{a}.{b}")
-}
+pub use super::support_key::to_fixed_1;
 
 /// footprint(v) (index.js): a hull's collision box from above: its centre,
 /// forward and half extents across and along.
@@ -1282,28 +1243,138 @@ fn footprints_touch(a: &super::world::HullView, b: &super::world::HullView, marg
     true
 }
 
+/// Resolve immutable authored angle text once when native mounts load. Keep
+/// degrees()'s leading-empty-piece behavior and both source fallback ranges.
+pub fn prepare_mount_limits(yaw:Option<&str>,pitch:Option<&str>,vehicle:bool)->[[f64;2];2] {
+    [degrees(yaw,[-180.,180.]),degrees(pitch,if vehicle {[-90.,90.]}else{[-45.,45.]})]
+}
+
+/// Mount reach observes geometry but cannot enter a seat or reenter Core.
+/// Combat lends this narrow view while its own machine and Shared are active.
+pub trait MountWorld {
+    fn mount_unit(&self,unit:Obj)->UnitView;
+    fn mount_lease(&self,lease:Obj)->LeaseView;
+    fn mount_hull(&self,hull:Obj)->super::world::HullView;
+    fn mount_turret(&self,turret:Obj)->super::world::TurretView;
+    fn mount_seat_count(&self,hull:Obj)->usize;
+    fn mount_seat(&self,hull:Obj,index:usize)->Option<super::world::SeatView>;
+    fn mount_eye(&mut self,origin:Origin)->Vector3;
+    fn mount_hold_yaw(&mut self,turret:Obj,yaw:f64)->f64;
+}
+impl<W:World+?Sized> MountWorld for W {
+    fn mount_unit(&self,unit:Obj)->UnitView {self.unit(unit)}
+    fn mount_lease(&self,lease:Obj)->LeaseView {self.lease(lease)}
+    fn mount_hull(&self,hull:Obj)->super::world::HullView {self.hull(hull)}
+    fn mount_turret(&self,turret:Obj)->super::world::TurretView {self.turret(turret)}
+    fn mount_seat_count(&self,hull:Obj)->usize {self.hull_seat_count(hull)}
+    fn mount_seat(&self,hull:Obj,index:usize)->Option<super::world::SeatView> {self.hull_seat(hull,index)}
+    fn mount_eye(&mut self,origin:Origin)->Vector3 {self.mount_origin(origin)}
+    fn mount_hold_yaw(&mut self,turret:Obj,yaw:f64)->f64 {self.hold_yaw(turret,yaw)}
+}
+/// Boarding policy observes a candidate and its mounts without physical
+/// seat commands. Both the Core and combat use this same native rule.
+pub trait BoardPolicyWorld:MountWorld {
+    fn policy_controller_unit(&self,controller:Obj)->Option<Obj>;
+    fn policy_stay_in_turrets(&self)->bool;
+    fn policy_memory_point(&mut self,agent:Obj)->Option<Vector3>;
+}
+impl<W:World+?Sized> BoardPolicyWorld for W {
+    fn policy_controller_unit(&self,controller:Obj)->Option<Obj> {self.controller(controller).unit}
+    fn policy_stay_in_turrets(&self)->bool {self.settings().stay_in_turrets}
+    fn policy_memory_point(&mut self,agent:Obj)->Option<Vector3> {self.memory_point(agent)}
+}
+/// VehicleAI.boardPolicy keeps the speed gate before lazy target memory or
+/// mount geometry. StayInTurrets checks the current controlled class role.
+pub fn board_policy<W:BoardPolicyWorld+?Sized>(world:&mut W,agent:Obj,controller:Obj,candidate:Obj)->bool {
+    let entry=world.mount_unit(candidate);let body=VehicleAI::body_of_unit(&entry);
+    if nominal_speed(world,&entry)>0. {return true;}
+    if !world.policy_stay_in_turrets() {
+        let Some(memory)=world.policy_memory_point(agent) else{return false};
+        return body_reach(world,body,&memory);
+    }
+    let role=world.policy_controller_unit(controller).and_then(|unit|world.mount_unit(unit).class).map_or(controllers::ROLE_OTHER,|class|class.role);
+    role!=controllers::ROLE_SUPPORT&&role!=controllers::ROLE_PILOT
+}
+pub fn nominal_speed<W:MountWorld+?Sized>(world:&W,candidate:&UnitView)->f64 {
+    let Some(Body::Hull(hull))=VehicleAI::body_of_unit(candidate) else{return 0.};
+    let hull=world.mount_hull(hull);
+    let speed=if hull.flying||hull.walking {hull.max_speed_setting}else{hull.forward_speed_setting};
+    if speed.is_finite() {speed}else{hull.speed}
+}
+pub fn body_reach<W:MountWorld+?Sized>(world:&mut W,body:Option<Body>,point:&Vector3)->bool {
+    match body {
+        None=>false,
+        Some(Body::Turret(turret))=>mount_angles(world,None,Some(turret),0.,Origin::TurretPivot(turret),point),
+        Some(Body::Hull(hull))=>{
+            for index in 0..world.mount_seat_count(hull) {
+                let seat=world.mount_seat(hull,index).expect("hull seat");
+                if seat.weapons==0 {continue;}
+                if mount_angles(world,Some(hull),None,index as f64,Origin::SeatOrigin(hull,index),point) {return true;}
+            }
+            false
+        },
+    }
+}
+/// The source's leaseOf observes an owned controllable lease first, then
+/// the rider's seat. Released and human leases never become bot controls.
+pub fn mount_lease_of<W:MountWorld+?Sized>(world:&W,unit:Option<Obj>)->Option<LeaseView> {
+    let unit=world.mount_unit(unit?);
+    let own=unit.lease.map(|key|world.mount_lease(key)).filter(|lease|lease.controllable==Some(unit.obj));
+    own.or_else(||unit.seat.map(|key|world.mount_lease(key))).filter(|lease|!lease.released&&!lease.human)
+}
+/// Shared gunners use only the canonical mount and the human's lazy target.
+/// Keeping this narrow avoids acquiring combat or a second vehicle authority.
+pub trait SharedTargetWorld:MountWorld {
+    fn shared_unit(&self,controller:Obj)->Option<Obj>;
+    fn shared_human(&mut self,hull:Obj)->Option<Obj>;
+    fn shared_relation(&mut self,a:f64,b:f64)->f64;
+}
+impl<W:World+?Sized> SharedTargetWorld for W {
+    fn shared_unit(&self,controller:Obj)->Option<Obj> {self.controller(controller).unit}
+    fn shared_human(&mut self,hull:Obj)->Option<Obj> {self.human_target(hull)}
+    fn shared_relation(&mut self,a:f64,b:f64)->f64 {self.relation(a,b)}
+}
+/// VehicleAI.sharedTarget observes the human target only after confirming a
+/// separate human pilot in a ground hull, then checks its team and mount reach.
+pub fn shared_target<W:SharedTargetWorld+?Sized>(world:&mut W,controller:Option<Obj>)->Option<Obj> {
+    let unit=controller.and_then(|key|world.shared_unit(key));
+    let lease=mount_lease_of(world,unit)?;let hull=lease.vehicle?;
+    if world.mount_hull(hull).flying {return None;}
+    let pilot=world.mount_seat(hull,0).and_then(|seat|seat.lease).map(|key|world.mount_lease(key)).filter(|lease|lease.human)?;
+    if pilot.obj==lease.obj {return None;}
+    let target=world.shared_human(hull)?;let body=world.mount_unit(target);
+    let team=world.mount_unit(unit.expect("shared gunner unit")).team;
+    if !body.alive||!(world.shared_relation(team,body.team)<0.) {return None;}
+    mount_angles(world,lease.vehicle,lease.turret,lease.index,Origin::Lease(lease.obj),&body.position).then_some(target)
+}
+/// mountReach keeps leaseOf's released/human gate and its own-lease fallback.
+/// That fallback intentionally still measures a released holder's own mount.
+pub fn mount_reach<W:MountWorld+?Sized>(w:&mut W,unit:Option<Obj>,point:&Vector3)->bool {
+    let lease=mount_lease_of(w,unit).or_else(||unit.and_then(|key|w.mount_unit(key).lease).map(|key|w.mount_lease(key)));
+    let Some(lease)=lease else{return true};
+    mount_angles(w,lease.vehicle,lease.turret,lease.index,Origin::Lease(lease.obj),point)
+}
+
 /// mountAngles(lease, point) (index.js): the angular reach of one mount:
 /// the point's yaw and pitch in the body's frame from the mount's pivot,
 /// inside the mount's limits.
-pub fn mount_angles<W: World + ?Sized>(w: &mut W, vehicle: Option<Obj>, turret: Option<Obj>, index: f64, origin: Origin, point: &Vector3) -> bool {
+pub fn mount_angles<W: MountWorld + ?Sized>(w: &mut W, vehicle: Option<Obj>, turret: Option<Obj>, index: f64, origin: Origin, point: &Vector3) -> bool {
     if vehicle.is_none() && turret.is_none() {
         return true;
     }
-    let (yaw_setting, pitch_setting) = match (vehicle, turret) {
+    let (yaw_setting, pitch_setting,prepared) = match (vehicle, turret) {
         (Some(h), _) => {
-            let hull = w.hull(h);
-            let seat = if index >= 0.0 && (index as usize) < hull.seats.len() && v8math::trunc(index) == index { Some(hull.seats[index as usize].clone()) } else { None };
-            (seat.as_ref().and_then(|s| s.yaw_limits.clone()), seat.as_ref().and_then(|s| s.pitch_limits.clone()))
+            let seat = if index >= 0.0 && (index as usize) < w.mount_seat_count(h) && v8math::trunc(index) == index { w.mount_seat(h,index as usize) } else { None };
+            (seat.as_ref().and_then(|s| s.yaw_limits.clone()), seat.as_ref().and_then(|s| s.pitch_limits.clone()),seat.as_ref().and_then(|s|s.prepared_limits))
         }
         (None, Some(t)) => {
-            let turret = w.turret(t);
-            (turret.yaw_limits_setting, turret.pitch_limits_setting)
+            let turret = w.mount_turret(t);
+            (turret.yaw_limits_setting, turret.pitch_limits_setting,turret.prepared_limits)
         }
         _ => unreachable!(),
     };
-    let yaw_limits = degrees(yaw_setting.as_deref(), [-180.0, 180.0]);
-    let pitch_limits = degrees(pitch_setting.as_deref(), if vehicle.is_some() { [-90.0, 90.0] } else { [-45.0, 45.0] });
-    let o = w.mount_origin(origin);
+    let [yaw_limits,pitch_limits]=prepared.unwrap_or_else(||prepare_mount_limits(yaw_setting.as_deref(),pitch_setting.as_deref(),vehicle.is_some()));
+    let o = w.mount_eye(origin);
     let mut q = Vector3::default();
     q.sub_vectors(point, &o);
     let length = q.length();
@@ -1311,8 +1382,8 @@ pub fn mount_angles<W: World + ?Sized>(w: &mut W, vehicle: Option<Obj>, turret: 
         return true;
     }
     let yaw = match vehicle {
-        Some(h) => w.hull(h).yaw,
-        None => w.turret(turret.unwrap()).facing,
+        Some(h) => w.mount_hull(h).yaw,
+        None => w.mount_turret(turret.unwrap()).facing,
     };
     // The body's frame: the 2004 game's right row and forward.
     let x = q.x * cos(yaw) - q.z * sin(yaw);
@@ -1320,11 +1391,11 @@ pub fn mount_angles<W: World + ?Sized>(w: &mut W, vehicle: Option<Obj>, turret: 
     let a = atan2(x, z);
     let p = asin(max(-1.0, min(1.0, q.y / length)));
     if let (Some(t), None) = (turret, vehicle) {
-        let tv = w.turret(t);
+        let tv = w.mount_turret(t);
         if let Some(limits) = tv.pitch_limits {
             let held = if tv.yaw_limits.is_some() && tv.has_hold_yaw {
-                let s = sin(w.hold_yaw(t, a) - a);
-                let c = cos(w.hold_yaw(t, a) - a);
+                let s = sin(w.mount_hold_yaw(t, a) - a);
+                let c = cos(w.mount_hold_yaw(t, a) - a);
                 abs(atan2(s, c)) < 1e-6
             } else {
                 true

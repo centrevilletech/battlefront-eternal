@@ -63,9 +63,6 @@ export class F3Props {
         low:model.box ? {x:model.box[0][0],y:model.box[0][1],z:model.box[0][2]} : null,
         high:model.box ? {x:model.box[1][0],y:model.box[1][1],z:model.box[1][2]} : null} : null);
     }
-    // PropsSim and traps notify this input boundary after a foreign write.
-    // Queries may then reuse an unchanged AI span without polling all props.
-    building.f3Facts = this;
     this.fill(index, row.state);
     // Construction seeds the shared F4 row once, including station clocks and
     // the trap's prepared settings. Combat retains no second health frame.
@@ -90,8 +87,6 @@ export class F3Props {
     // Only scalar facts use this comparison row. Nested model data never needs
     // another import when health, team or target generation changes later.
   }
-
-  invalidate() { this.phase.registry.invalidateReads(); }
 
   // F4 may regenerate a prop or change its gunner before the unit span. These
   // scalars are its declared foreign inputs; model and body data stay prepared.

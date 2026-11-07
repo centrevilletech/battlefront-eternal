@@ -13,6 +13,7 @@
 // passes without replaying.
 #![cfg(feature = "replay")]
 
+use bfe_sim::ai::owned::scratch::List;
 use std::collections::{HashMap, HashSet};
 
 use bfe_content::json;
@@ -190,10 +191,11 @@ impl<'f, 'n> Rw<'f, 'n> {
                 .get("seats")
                 .items()
                 .map(|seat| SeatView {
+                    prepared_limits:None,
                     lease: self.ids.of(seat.get("lease")),
                     weapons: num_or_nan(seat.get("weapons")) as usize,
-                    yaw_limits: seat.get("yawLimits").str().map(String::from),
-                    pitch_limits: seat.get("pitchLimits").str().map(String::from),
+                    yaw_limits: seat.get("yawLimits").str().map(std::rc::Rc::from),
+                    pitch_limits: seat.get("pitchLimits").str().map(std::rc::Rc::from),
                 })
                 .collect();
             let decay = h.get("decay");
@@ -202,16 +204,16 @@ impl<'f, 'n> Rw<'f, 'n> {
                 obj: o,
                 entry: self.ids.of(h.get("entry")).expect("hull entry"),
                 alive: h.get("alive").truthy(),
-                name: h.get("name").str().unwrap_or("").to_string(),
+                name: h.get("name").str().unwrap_or("").into(),
                 flying: h.get("flying").truthy(),
                 walking: h.get("walking").truthy(),
                 grounded: h.get("grounded").truthy(),
-                flight_state: h.get("flightState").str().map(String::from),
+                flight_state: h.get("flightState").str().map(std::rc::Rc::from),
                 gear: num_or_nan(h.get("gear")),
                 speed: num_or_nan(h.get("speed")),
                 max_speed_setting: parse_float(h.get("maxSpeed")),
                 forward_speed_setting: parse_float(h.get("forwardSpeed")),
-                label: h.get("label").str().map(String::from),
+                label: h.get("label").str().map(std::rc::Rc::from),
                 position: vec3(h.get("position")),
                 velocity: vec3(h.get("velocity")),
                 yaw: num_or_nan(h.get("yaw")),
@@ -240,14 +242,15 @@ impl<'f, 'n> Rw<'f, 'n> {
             let o = self.obj(t.get("self")).expect("turret");
             let limits = |v: V| if v.len() >= 2 { Some([num_or_nan(v.at(0)), num_or_nan(v.at(1))]) } else { None };
             let view = TurretView {
+                prepared_limits:None,
                 obj: o,
                 entry: self.ids.of(t.get("entry")),
                 alive: t.get("alive").truthy(),
                 gunner: t.get("gunner").truthy(),
                 lease: self.ids.of(t.get("lease")),
                 facing: num_or_nan(t.get("facing")),
-                yaw_limits_setting: t.get("yawLimitsSetting").str().map(String::from),
-                pitch_limits_setting: t.get("pitchLimitsSetting").str().map(String::from),
+                yaw_limits_setting: t.get("yawLimitsSetting").str().map(std::rc::Rc::from),
+                pitch_limits_setting: t.get("pitchLimitsSetting").str().map(std::rc::Rc::from),
                 pitch_limits: limits(t.get("pitchLimits")),
                 yaw_limits: if t.get("yawLimits").is_nullish() { None } else { limits(t.get("yawLimits")).or(Some([f64::NAN, f64::NAN])) },
                 has_hold_yaw: t.get("holdYaw").truthy(),
@@ -284,7 +287,7 @@ impl<'f, 'n> Rw<'f, 'n> {
                 velocity: vec3_of(u.get("velocity")).unwrap_or_default(),
                 body_yaw,
                 class: class_view(u.get("classDef")),
-                class_name: u.get("className").str().map(String::from),
+                class_name: u.get("className").str().map(std::rc::Rc::from),
                 soldier: u.get("soldier").truthy(),
                 soldier_max_speed: opt_num(u.get("soldierMaxSpeed")),
                 walker: u.get("walker").truthy(),
@@ -298,14 +301,14 @@ impl<'f, 'n> Rw<'f, 'n> {
                 controller: self.ids.of(u.get("controller")),
                 character: self.ids.of(u.get("character")),
                 up_y: opt_num(u.get("upY")),
-                own_label: u.get("ownLabel").str().map(String::from),
-                own_name: u.get("ownName").str().map(String::from),
+                own_label: u.get("ownLabel").str().map(std::rc::Rc::from),
+                own_name: u.get("ownName").str().map(std::rc::Rc::from),
             };
             let steer = steer_of(&mut self.ids, u.get("steer"));
             self.steer.insert(o, steer);
             self.intents.insert(o, intent_of(u.get("intent")));
             if u.has("weapons") && !u.get("weapons").is_undefined() {
-                let list = u.get("weapons").items().map(|w| WeaponView { base: w.get("base").str().map(String::from), channel: num_or_nan(w.get("channel")) }).collect();
+                let list = u.get("weapons").items().map(|w| WeaponView { base: w.get("base").str().map(std::rc::Rc::from), channel: num_or_nan(w.get("channel")) }).collect();
                 self.weapons.insert(o, list);
             }
             self.units.insert(o, view);
@@ -514,20 +517,20 @@ impl World for Rw<'_, '_> {
     fn character_controller(&self, c: Obj) -> Option<Obj> {
         self.characters.get(&c).unwrap_or_else(|| panic!("no view of character {}", self.ids.name(c))).1
     }
-    fn hulls(&self) -> Vec<Obj> {
-        self.hull_order.clone()
+    fn hulls(&self) -> List<Obj> {
+        self.hull_order.clone().into()
     }
-    fn turrets(&self) -> Vec<Obj> {
-        self.turret_order.clone()
+    fn turrets(&self) -> List<Obj> {
+        self.turret_order.clone().into()
     }
-    fn weapons(&self, control: Obj) -> Option<Vec<WeaponView>> {
-        self.weapons.get(&control).cloned()
+    fn tow_weapon(&self,control:Obj)->Option<(usize,f64)> {
+        self.weapons.get(&control)?.iter().enumerate().find(|(_,w)|w.base.as_deref()==Some("towcableweapon")).map(|(index,w)|(index,w.channel))
     }
     fn reinforcements(&self, team: f64) -> Option<f64> {
         self.reinforcements.iter().find(|(t, _)| *t == team).and_then(|(_, v)| *v)
     }
-    fn human_units(&mut self) -> Vec<Obj> {
-        self.human_units.clone()
+    fn human_units(&mut self) -> List<Obj> {
+        self.human_units.clone().into()
     }
     fn has_planner(&self) -> bool {
         self.has_planner
@@ -544,15 +547,16 @@ impl World for Rw<'_, '_> {
     fn hint_link(&self, _hint: Obj) -> Option<Obj> {
         None
     }
-    fn steer(&mut self, control: Obj) -> &mut Option<Steer> {
-        self.steer.entry(control).or_insert(None)
+    fn edit_steer<R>(&mut self,control:Obj,edit:impl FnOnce(&mut Option<Steer>)->R)->R {
+        edit(self.steer.entry(control).or_insert(None))
     }
-    fn intent(&mut self, control: Obj) -> Option<&mut SeatIntent> {
-        self.intents.get_mut(&control).and_then(|i| i.as_mut())
+    fn write_vehicle_intent(&mut self,control:Obj,value:SeatIntent) {
+        if let Some(intent)=self.intents.get_mut(&control).and_then(|i|i.as_mut()) {*intent=value;}
     }
-    fn decay(&mut self, hull: Obj) -> &mut Option<Decay> {
-        self.decay.entry(hull).or_insert(None)
+    fn read_decay(&mut self,hull:Obj)->Option<Decay> {
+        *self.decay.entry(hull).or_insert(None)
     }
+    fn write_decay(&mut self,hull:Obj,value:Decay) {self.decay.insert(hull,Some(value));}
 
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> {
         let call = self.call("collision.cast")?;
@@ -565,8 +569,8 @@ impl World for Rw<'_, '_> {
         }
         self.hit_of(call.result())
     }
-    fn query(&mut self, center: &Vector3, radius: f64, _filter: QueryFilter) -> Vec<Obj> {
-        let Some(call) = self.call("units.query") else { return Vec::new() };
+    fn query(&mut self, center: &Vector3, radius: f64, _filter: QueryFilter) -> List<Obj> {
+        let Some(call) = self.call("units.query") else { return List::default() };
         self.check_vec("query center", call.arg(0), center);
         self.check_num("query radius", call.arg(1), radius);
         let found: Vec<V> = call.result().items().collect();
@@ -959,16 +963,16 @@ impl AgentHost for Rw<'_, '_> {
     fn helper_failed(&mut self, _agent: Obj) -> bool {
         self.helper_failed
     }
-    fn posts(&self) -> Vec<Obj> {
-        self.post_order.clone()
+    fn posts(&self) -> bfe_sim::ai::owned::scratch::List<Obj> {
+        self.post_order.clone().into()
     }
-    fn query_hints(&mut self, center: &Vector3, requester: Obj, now: f64) -> Option<Vec<HintView>> {
+    fn query_hints(&mut self, center: &Vector3, requester: Obj, now: f64) -> Option<bfe_sim::ai::owned::scratch::Inline<HintView,1>> {
         let call = self.call("nav.queryHints")?;
         let q = call.arg(0);
         self.check_vec("queryHints center", q.get("center"), center);
         self.check_obj("queryHints requester", q.get("requester"), Some(requester));
         self.check_num("queryHints now", q.get("now"), now);
-        let mut out = Vec::new();
+        let mut out = bfe_sim::ai::owned::scratch::Inline::default();
         for h in call.result().items() {
             let name = h.get("name").str().unwrap_or("?").to_string();
             let obj = self.ids.named(format!("hint:{name}"));
@@ -1071,7 +1075,7 @@ fn service_of(w: &mut Rw, s: V) -> VehicleAI {
                     .items()
                     .map(|h| bfe_sim::ai::vehicles::support::SupportHub { hub: num_or_nan(h.get("hub")) as usize, distance: num_or_nan(h.get("distance")) })
                     .collect();
-                keys.push((k.at(0).str().unwrap_or("").to_string(), hubs));
+                keys.push((bfe_sim::ai::vehicles::support_key::SupportKey::parse(k.at(0).str().unwrap_or("")), std::rc::Rc::new(hubs)));
             }
             vai.support_cache.push((post, keys));
         }
@@ -1128,7 +1132,7 @@ fn compare_service(w: &mut Rw, vai: &VehicleAI, s: V) {
             for k in entry.at(1).items() {
                 let key = k.at(0).str().unwrap_or("");
                 let hubs: Vec<(f64, f64)> = k.at(1).items().map(|h| (num_or_nan(h.get("hub")), num_or_nan(h.get("distance")))).collect();
-                let found = vai.support_cache.iter().find(|(p, _)| *p == post).and_then(|(_, ks)| ks.iter().find(|(kk, _)| kk == key));
+                let found = vai.support_cache.iter().find(|(p, _)| *p == post).and_then(|(_, ks)| ks.iter().find(|(kk, _)| *kk == bfe_sim::ai::vehicles::support_key::SupportKey::parse(key)));
                 match found {
                     None => w.fail(format!("support cache: the port has no {key}")),
                     Some((_, list)) => {

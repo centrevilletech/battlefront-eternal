@@ -5,7 +5,7 @@
 use super::barriers::BarrierSet;
 use super::graph::NavGraph;
 use super::math::{d2, f32, normalize, Vec3};
-use crate::ai::random::ClassicRandom;
+use crate::ai::random::Random;
 
 /// GraphCursor (cursor.js:16).
 #[derive(Clone, Debug)]
@@ -43,7 +43,7 @@ impl GraphCursor {
     }
 
     /// Route from start to end (cursor.js:33).
-    pub fn init(&mut self, graph: &mut NavGraph, start: Vec3, end: Vec3, mask: u32, clearance: f64, random: &mut ClassicRandom) -> bool {
+    pub fn init(&mut self, graph: &mut NavGraph, start: Vec3, end: Vec3, mask: u32, clearance: f64, random: &mut dyn Random) -> bool {
         self.exact = end;
         self.mask = mask;
         self.clearance = clearance;
@@ -194,7 +194,7 @@ impl GraphCursor {
     }
 
     /// Next hub (cursor.js:167).
-    pub fn advance(&mut self, graph: &mut NavGraph, random: &mut ClassicRandom) -> bool {
+    pub fn advance(&mut self, graph: &mut NavGraph, random: &mut dyn Random) -> bool {
         // cursor.js:168: current === primary || current === secondary,
         // with nulls comparing equal, as Option equality does.
         if self.current == self.primary || self.current == self.secondary {
@@ -222,7 +222,7 @@ impl GraphCursor {
     }
 
     /// A random point on the hub's shell (cursor.js:188).
-    pub fn shell(&self, graph: &NavGraph, hub: usize, random: &mut ClassicRandom) -> Vec3 {
+    pub fn shell(&self, graph: &NavGraph, hub: usize, random: &mut dyn Random) -> Vec3 {
         let hub = &graph.hubs[hub];
         let r = v8math::max(0.0, f32(hub.radius - self.clearance));
         let z = f32(random.uniform() - 0.5) * 2.0;
@@ -239,7 +239,7 @@ impl GraphCursor {
     }
 
     /// Replace a waypoint that sits inside a barrier (cursor.js:205).
-    pub fn retry(&mut self, graph: &NavGraph, barriers: &mut BarrierSet, radius: f64, random: &mut ClassicRandom) -> bool {
+    pub fn retry(&mut self, graph: &NavGraph, barriers: &mut BarrierSet, radius: f64, random: &mut dyn Random) -> bool {
         if !self.regenerable() {
             return false;
         }

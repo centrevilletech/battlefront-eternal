@@ -7,7 +7,8 @@
 use super::fsm::Fsm;
 use super::world::{AiWorld, AlertSource, ControlObs, EntRef, HelperObs, Policy, UKey};
 use super::super::nav::math::Vec3;
-use std::collections::HashMap;
+use std::{collections::HashMap,rc::Rc,cell::RefCell};
+use crate::ai::owned::scratch::Inline;
 
 /// Source-goal kinds (controller.js:30 GOAL).
 pub mod goal {
@@ -150,6 +151,8 @@ pub struct SourceGoal {
     pub mode: f64,
 }
 
+impl Default for SourceGoal {fn default()->Self {Self::new(goal::NONE)}}
+
 impl SourceGoal {
     pub fn new(kind: f64) -> Self {
         SourceGoal { kind, ref_a: None, ref_b: None, post: None, point: None, mode: 0.0 }
@@ -191,7 +194,7 @@ pub const COMMAND_CAPACITY: usize = 5;
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommandQueue {
     pub current: SourceGoal,
-    pub queue: Vec<SourceGoal>,
+    pub queue: Inline<SourceGoal,{COMMAND_CAPACITY+2}>,
     pub latch: bool,
     pub current_done: bool,
 }
@@ -204,7 +207,7 @@ impl Default for CommandQueue {
 
 impl CommandQueue {
     pub fn new() -> Self {
-        CommandQueue { current: SourceGoal::new(goal::NONE), queue: Vec::new(), latch: false, current_done: false }
+        CommandQueue { current: SourceGoal::new(goal::NONE), queue: Inline::default(), latch: false, current_done: false }
     }
     pub fn count(&self) -> usize {
         self.queue.len()
@@ -253,16 +256,11 @@ impl CommandQueue {
     /// controller.js:251: a record of kind 0 ends the scan and drops
     /// everything after it.
     pub fn remove_kind(&mut self, kind: f64) {
-        let mut kept = Vec::new();
-        for goal in self.queue.drain(..) {
-            if goal.kind == goal::NONE {
-                break;
-            }
-            if goal.kind != kind {
-                kept.push(goal);
-            }
-        }
-        self.queue = kept;
+        let mut ended=false;
+        self.queue.retain(|goal| {
+            if goal.kind==goal::NONE {ended=true;}
+            !ended&&goal.kind!=kind
+        });
     }
     pub fn current_copy(&self) -> SourceGoal {
         let kind = self.current.kind;
@@ -271,12 +269,12 @@ impl CommandQueue {
 }
 
 /// refOf (controller.js:343) over a snapshot: None without a unit.
-pub fn ref_of(w: &dyn AiWorld, unit: Option<UKey>) -> Option<EntRef> {
-    unit.map(|key| EntRef { unit: key, generation: w.unit(key).generation })
+pub fn ref_of<W:AiWorld+?Sized>(w: &W, unit: Option<UKey>) -> Option<EntRef> {
+    unit.map(|key| EntRef { unit: key, generation: w.unit_scalars(key).generation })
 }
 
 /// resolveRef (controller.js:347).
-pub fn resolve_ref(w: &dyn AiWorld, r: Option<EntRef>) -> Option<UKey> {
+pub fn resolve_ref<W:AiWorld+?Sized>(w: &W, r: Option<EntRef>) -> Option<UKey> {
     let r = r?;
     let u = w.unit(r.unit);
     if u.generation != r.generation || !u.alive {
@@ -286,7 +284,7 @@ pub fn resolve_ref(w: &dyn AiWorld, r: Option<EntRef>) -> Option<UKey> {
 }
 
 /// sameRef (controller.js:353).
-pub fn same_ref(w: &dyn AiWorld, a: Option<EntRef>, b: Option<EntRef>) -> bool {
+pub fn same_ref<W:AiWorld+?Sized>(w: &W, a: Option<EntRef>, b: Option<EntRef>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a.unit == b.unit && a.generation == b.generation,
         _ => a == b || (resolve_ref(w, a).is_none() && resolve_ref(w, b).is_none()),
@@ -340,37 +338,45 @@ pub struct SquadCommand {
 /// (enhanced/agents.js memoryOf). The heard map's iteration order is
 /// insertion order (its cleanup walks it); keys are "id:generation"
 /// as numbers here (unit id bits, generation).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug,PartialEq)]
 pub struct EnhancedMemory {
-    pub look_until: f64,
-    pub look_point: Vec3,
-    pub heard: Vec<((u64, u64), f64)>,
-    heard_at: HashMap<(u64, u64), usize>,
+    pub look_until:f64,
+    pub look_point:Vec3,
+    heard:Rc<RefCell<Heard>>,
 }
-
+#[derive(Clone,Debug,Default,PartialEq)]
+struct Heard {rows:Vec<((u64,u64),f64)>,indices:HashMap<(u64,u64),usize>}
+// Capture snapshots remain independent. Native service requests explicitly
+// share their controller's one heard-map authority instead.
+impl Clone for EnhancedMemory {
+    fn clone(&self)->Self {Self {look_until:self.look_until,look_point:self.look_point,heard:Rc::new(RefCell::new(self.heard.borrow().clone()))}}
+}
 impl EnhancedMemory {
-    pub fn new() -> Self {
-        EnhancedMemory { look_until: f64::NEG_INFINITY, look_point: Vec3::default(), heard: Vec::new(), heard_at: HashMap::new() }
+    pub fn new()->Self {Self {look_until:f64::NEG_INFINITY,look_point:Vec3::default(),heard:Rc::new(RefCell::new(Heard::default()))}}
+    pub fn renew(&mut self) {
+        self.look_until=f64::NEG_INFINITY;self.look_point=Vec3::default();
+        let mut h=self.heard.borrow_mut();h.rows.clear();h.indices.clear();
     }
-    pub fn heard_get(&self, key: (u64, u64)) -> Option<f64> {
-        self.heard_at.get(&key).map(|&i| self.heard[i].1)
+    pub fn share(&self)->Self {Self {look_until:self.look_until,look_point:self.look_point,heard:self.heard.clone()}}
+    pub fn reserve(&mut self,capacity:usize) {
+        let mut h=self.heard.borrow_mut();let rows=h.rows.len();let indices=h.indices.len();
+        h.rows.reserve(capacity.saturating_sub(rows));h.indices.reserve(capacity.saturating_sub(indices));
     }
-    pub fn heard_set(&mut self, key: (u64, u64), at: f64) {
-        if let Some(&i) = self.heard_at.get(&key) {
-            self.heard[i].1 = at;
-        } else {
-            self.heard_at.insert(key, self.heard.len());
-            self.heard.push((key, at));
-        }
+    pub fn heard_rows<R>(&self,read:impl FnOnce(&Vec<((u64,u64),f64)>)->R)->R {read(&self.heard.borrow().rows)}
+    pub fn heard_get(&self,key:(u64,u64))->Option<f64> {
+        let h=self.heard.borrow();h.indices.get(&key).map(|&i|h.rows[i].1)
     }
-    /// The cleanup when the map passes 32 (enhanced/agents.js): delete
-    /// the entries at least `recheck` old, in insertion order.
-    pub fn heard_prune(&mut self, now: f64, recheck: f64) {
-        if self.heard.len() <= 32 {
-            return;
-        }
-        self.heard.retain(|(_, at)| now - at < recheck);
-        self.heard_at = self.heard.iter().enumerate().map(|(i, (k, _))| (*k, i)).collect();
+    pub fn heard_set(&mut self,key:(u64,u64),at:f64) {
+        let mut h=self.heard.borrow_mut();
+        if let Some(&i)=h.indices.get(&key) {h.rows[i].1=at;}
+        else {let i=h.rows.len();h.indices.insert(key,i);h.rows.push((key,at));}
+    }
+    /// Cleanup visits source insertion order after the map passes 32 entries.
+    pub fn heard_prune(&mut self,now:f64,recheck:f64) {
+        let mut h=self.heard.borrow_mut();if h.rows.len()<=32 {return;}
+        let Heard {rows,indices}=&mut *h;
+        rows.retain(|(_,at)|now-at<recheck);indices.clear();
+        for (i,(key,_)) in rows.iter().enumerate() {indices.insert(*key,i);}
     }
 }
 
@@ -467,8 +473,8 @@ impl Controller {
             shot_known: false,
             shot_point: Vec3::default(),
             shot_source: None,
-            acoustic: Vec::new(),
-            vehicle_notes: Vec::new(),
+            acoustic: Vec::with_capacity(ALERT_ACOUSTIC_CAP),
+            vehicle_notes: Vec::with_capacity(VEHICLE_NOTE_CAP),
             command_pending: false,
             command_record: None,
             last_command: None,
@@ -491,11 +497,11 @@ impl Controller {
         }
     }
 
-    pub fn live(&self, w: &dyn AiWorld) -> bool {
+    pub fn live<W:AiWorld+?Sized>(&self, w: &W) -> bool {
         match self.unit {
             Some(key) => {
-                let u = w.unit(key);
-                u.alive && u.generation == self.generation
+                // UnitController.live checks only the bound body life.
+                w.unit_live(key,self.generation)
             }
             None => false,
         }
@@ -537,8 +543,8 @@ impl Controller {
         }
     }
 
-    pub fn request_facing(&mut self, w: &dyn AiWorld) {
-        let kind = self.unit.map(|k| w.unit(k).kind);
+    pub fn request_facing<W:AiWorld+?Sized>(&mut self, w: &W) {
+        let kind = self.unit.map(|k| w.unit_scalars(k).kind);
         if kind == Some(0.0) || kind == Some(3.0) {
             self.facing = true;
         }

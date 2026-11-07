@@ -3,12 +3,13 @@
 //! core against. The state is hand-built values (agents have no store
 //! key); this file is their other half, field for field.
 
+use crate::ai::owned::scratch::List;
 use super::agents::{Agent, AgentKind, Direct, Helper, Interrupts, Mine, ObjectiveAgent, ObjectiveFlavor, ServiceState, Snipe};
 use super::classes::{Futile, RepairServices, Reservation};
 use super::controller::{CommandQueue, Controller, EnhancedMemory, MoveRequest, SourceGoal, SquadCommand};
 use super::difficulty::{Curves, Difficulty, DifficultyOptions};
 use super::fsm::Fsm;
-use super::goals::{MissionControls, Objectives};
+use super::goals::{self,MissionControls, Objectives};
 use super::patrol::Patrol;
 use super::scheduler::{Scheduler, SchedulerStats};
 use super::world::*;
@@ -42,6 +43,7 @@ fn hkey(v: V) -> HKey {
 
 /// The phase's foreign tables and identity maps.
 pub struct Tables {
+    pub characters:Vec<CharacterSnap>,
     pub units: Vec<AiUnit>,
     pub posts: Vec<PostSnap>,
     pub hints: Vec<HintSnap>,
@@ -142,7 +144,7 @@ fn weapon_read(v: V) -> WeaponSnap {
         rounds: num_opt(v.get("rounds")),
         bottomless: v.get("bottomless").bool(),
         def_ammo: num_opt(v.get("defAmmo")),
-        def_class: v.get("defClass").str().map(|s| s.to_string()),
+        def_class: v.get("defClass").str().map(Rc::from),
         max_items: num_opt(v.get("maxItems")),
         item_base: v.get("itemBase").str().map(|s| s.to_string()),
         item_class: v.get("itemClass").str().map(|s| s.to_string()),
@@ -154,7 +156,7 @@ fn weapon_read(v: V) -> WeaponSnap {
     }
 }
 
-fn class_read(v: V) -> Option<ClassSnap> {
+fn class_read(v: V) -> Option<Rc<ClassSnap>> {
     if v.is_nullish() {
         return None;
     }
@@ -168,11 +170,12 @@ fn class_read(v: V) -> Option<ClassSnap> {
             Some([[lo.at(0).num(), lo.at(1).num(), lo.at(2).num()], [hi.at(0).num(), hi.at(1).num(), hi.at(2).num()]])
         }
     };
-    Some(ClassSnap {
+    Some(Rc::new(ClassSnap {
+        prepared_travel_mask:None,prepared_role:None,prepared_health_type:None,
         role: num_opt(v.get("role")),
         unit_type: v.get("unitType").str().map(|s| s.to_string()),
         ai_size_type: match v.get("sizeText").str() {
-            Some(t) => SizeType::Text(t.to_string()),
+            Some(t) => SizeType::Text(t.to_string().into()),
             None => match num_opt(v.get("sizeNum")) {
                 Some(n) => SizeType::Number(n),
                 None => SizeType::Missing,
@@ -191,7 +194,7 @@ fn class_read(v: V) -> Option<ClassSnap> {
         health_type_num: num_opt(v.get("healthNum")),
         health_type_name: v.get("healthName").str().map(|s| s.to_string()),
         base: v.get("base").str().map(|s| s.to_string()),
-    })
+    }))
 }
 
 fn intent_read(v: V) -> crate::gen::Intent {
@@ -283,7 +286,7 @@ fn ref_read(v: V) -> Option<EntRef> {
     if u < 0.0 {
         return None;
     }
-    Some(EntRef { unit: u as usize, generation: v.get("g").num() })
+    Some(EntRef { unit: u as UKey, generation: v.get("g").num() })
 }
 
 fn goal_read(v: V) -> Option<SourceGoal> {
@@ -430,7 +433,7 @@ fn agent_read(v: V) -> Option<Agent> {
                 };
                 let snipe = v.get("snipe");
                 let mine = v.get("mine");
-                AgentKind::Objective(Box::new(ObjectiveAgent {
+                AgentKind::Objective(ObjectiveAgent {
                     flavor,
                     enhanced,
                     post: num_opt(v.get("post")).filter(|&p| p >= 0.0).map(|p| p as usize),
@@ -494,13 +497,13 @@ fn agent_read(v: V) -> Option<Agent> {
                             })
                         }
                     },
-                }))
+                })
             }
         }
     };
     Some(Agent {
         fsm: Fsm { state: v.get("state").num(), pending: v.get("pending").num() },
-        unit: num_opt(v.get("unit")).filter(|&p| p >= 0.0).map(|p| p as usize),
+        unit: num_opt(v.get("unit")).filter(|&p| p >= 0.0).map(|p| p as UKey),
         goal: goal_read(v.get("goal")),
         interrupts: Interrupts {
             checked_at: v.get("interrupts").get("checkedAt").num(),
@@ -517,7 +520,7 @@ fn controller_read(v: V) -> Controller {
     let commands = v.get("commands");
     let mut c = Controller::new(character);
     c.fsm = Fsm { state: v.get("state").num(), pending: v.get("pending").num() };
-    c.unit = num_opt(v.get("unit")).filter(|&p| p >= 0.0).map(|p| p as usize);
+    c.unit = num_opt(v.get("unit")).filter(|&p| p >= 0.0).map(|p| p as UKey);
     c.generation = v.get("generation").num();
     c.agent = agent_read(v.get("agent"));
     c.commands = CommandQueue {
@@ -549,7 +552,7 @@ fn controller_read(v: V) -> Controller {
     c.shot_pending = v.get("shot").get("pending").bool();
     c.shot_known = v.get("shot").get("known").bool();
     c.shot_point = arr3(v.get("shot").get("point"));
-    c.shot_source = num_opt(v.get("shot").get("unit")).map(|u| AlertSource::Unit(u as usize)).or_else(||
+    c.shot_source = num_opt(v.get("shot").get("unit")).map(|u| AlertSource::Unit(u as UKey)).or_else(||
         num_opt(v.get("shot").get("source")).filter(|&p| p >= 0.0).map(|p| AlertSource::Character(p as usize)));
     c.acoustic = v.get("acoustic").items().filter_map(ref_read).collect();
     c.vehicle_notes = v.get("vehicleNotes").items().filter_map(ref_read).collect();
@@ -643,7 +646,7 @@ fn post_read(v: V, index: usize) -> PostSnap {
                     Some([x.at(0).num(), x.at(1).num(), x.at(2).num()])
                 }
             };
-            Some(RawCapture {
+            Some(Rc::new(RawCapture {
                 center: a3(d.get("center")),
                 matrix: {
                     let m = d.get("matrix");
@@ -651,7 +654,7 @@ fn post_read(v: V, index: usize) -> PostSnap {
                 },
                 size: a3(d.get("size")),
                 half: a3(d.get("half")),
-            })
+            }))
         }
     };
     let six = |x: V| -> [f64; 6] {
@@ -663,7 +666,7 @@ fn post_read(v: V, index: usize) -> PostSnap {
     };
     PostSnap {
         index,
-        name: v.get("name").str().map(|s| s.to_string()),
+        name: v.get("name").str().map(Rc::from),
         team: v.get("team").num(),
         active: v.get("active").bool(),
         position: arr3(v.get("position")),
@@ -743,9 +746,9 @@ fn unit_read(v: V, key: UKey) -> AiUnit {
         velocity: arr3_opt(v.get("velocity")),
         soldier: soldier_read(v.get("soldier")),
         class_def: class_read(v.get("classDef")),
-        class_name: v.get("className").str().map(|s| s.to_string()),
+        class_name: v.get("className").str().map(Rc::from),
         health_type_num: num_opt(v.get("healthTypeNum")),
-        health_type_name: v.get("healthTypeName").str().map(|s| s.to_string()),
+        health_type_name: v.get("healthTypeName").str().map(Rc::from),
         weapons: v.get("weapons").items().map(weapon_read).collect(),
         combat_health: num_opt(v.get("combatHealth")),
         health: num_opt(v.get("health")),
@@ -769,7 +772,7 @@ fn unit_read(v: V, key: UKey) -> AiUnit {
         origin: arr3_opt(v.get("origin")),
         aim_point: arr3_opt(v.get("aimPoint")),
         building_alive: v.get("buildingAlive").opt_bool(),
-        repair_aliases: Vec::new(),
+        repair_aliases: SharedRows::Empty,
     }
 }
 
@@ -874,7 +877,7 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
             objective: num_opt(c.get("objective")).map(|p| p as usize),
         })
         .collect();
-    let mut core = Core::new(options, teams, difficulty, characters);
+    let mut core = Core::new(options, teams, difficulty, characters.len());
     let roster: Vec<usize> = s.get("roster").items().map(|c| c.num() as usize).collect();
     core.controllers = s.get("controllers").items().map(controller_read).collect();
     core.roster = roster.clone();
@@ -936,7 +939,12 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
         core.objectives = Objectives {
             enhanced: obj.get("enhanced").bool(),
             threat_at: obj.get("threatAt").items().map(|e| (e.at(0).num() as usize, e.at(1).num())).collect(),
-            recruit_at: obj.get("recruitAt").items().map(|e| (e.at(0).str().unwrap_or("").to_string(), e.at(1).num())).collect(),
+            recruit_at: obj.get("recruitAt").items().map(|e| {
+                let key=e.at(0).str().unwrap_or("");
+                let prepared=key.split_once(':').and_then(|(team,name)|s.get("posts").items().position(|p|p.get("name").str().unwrap_or("undefined")==name)
+                    .map(|index|goals::RecruitKey::of(bfe_content::js::string_to_number(team),index as u32)));
+                (prepared.unwrap_or_else(||goals::RecruitKey::Captured(key.to_owned())),e.at(1).num())
+            }).collect(),
             poll_at: obj.get("pollAt").num(),
         };
     }
@@ -951,6 +959,7 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
         }
     }
     let mut tables = Tables {
+        characters,
         units,
         posts: s.get("posts").items().enumerate().map(|(i, p)| post_read(p, i)).collect(),
         hints: s
@@ -974,8 +983,8 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
             .map(|it| ItemSnap {
                 gone: it.get("gone").bool(),
                 mine: it.get("mine").bool(),
-                def_base: it.get("defBase").str().map(|x| x.to_string()),
-                def_class: it.get("defClass").str().map(|x| x.to_string()),
+                def_base: it.get("defBase").str().map(Rc::from),
+                def_class: it.get("defClass").str().map(Rc::from),
                 position: arr3(it.get("position")),
                 radius: num_opt(it.get("radius")),
                 team: it.get("team").num(),
@@ -1068,7 +1077,7 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
     }
     for (i, u) in s.get("units").items().enumerate() {
         tables.units[i].repair_aliases = [u.get("building"), u.get("vehicle")].into_iter()
-            .filter_map(|alias| handle_of(alias).and_then(|h| tables.unit_handles.get(&h).copied())).collect();
+            .filter_map(|alias| handle_of(alias).and_then(|h| tables.unit_handles.get(&h).map(|&key|key as UKey))).collect();
     }
     for (i, c) in s.get("controllers").items().enumerate() {
         let self_v = c.get("self");
@@ -1380,6 +1389,10 @@ impl<'f> Draws for ServedDraws<'f> {
     }
 }
 
+impl Characters for Served<'_> {
+    fn character(&self,index:usize)->CharacterSnap {self.tables.characters[index].clone()}
+    fn character_set_objective(&mut self,index:usize,post:Option<usize>) {self.tables.characters[index].objective=post;}
+}
 impl<'f> AiWorld for Served<'f> {
     fn time(&self) -> f64 {
         self.tables.time
@@ -1387,18 +1400,28 @@ impl<'f> AiWorld for Served<'f> {
     fn paused(&self) -> bool {
         self.tables.paused
     }
-    fn unit(&self, key: UKey) -> &AiUnit {
-        &self.tables.units[key as usize]
+    fn unit(&self, key: UKey) -> AiUnit {
+        self.tables.units[key as usize].clone()
     }
-    fn unit_mut(&mut self, key: UKey) -> &mut AiUnit {
-        &mut self.tables.units[key as usize]
+    fn intent_command(&mut self,key:UKey,command:crate::ai::owned::intent::Command) {
+        command.unit(&mut self.tables.units[key as usize].intent);
     }
+    fn unit_sphere_radius(&mut self,key:UKey)->Option<f64> {self.tables.units[key as usize].sphere_radius}
+    fn unit_forward(&mut self,key:UKey)->Option<Vec3> {self.tables.units[key as usize].forward}
+    fn unit_aim_point(&mut self,key:UKey)->Option<Vec3> {self.tables.units[key as usize].aim_point}
+    fn unit_has_origin_forward(&self,key:UKey)->bool {let u=&self.tables.units[key as usize];u.origin.is_some()&&u.forward.is_some()}
+    fn unit_key(&self,index:usize)->UKey {self.tables.units[index].key}
     fn units_len(&self) -> usize {
         self.tables.units.len()
     }
-    fn post(&self, index: usize) -> &PostSnap {
-        &self.tables.posts[index]
+    fn post(&self, index: usize) -> PostSnap {
+        self.tables.posts[index].clone()
     }
+    fn post_name_id(&self,index:usize)->u32 {
+        let name=self.tables.posts[index].name.as_deref().unwrap_or("undefined");
+        self.tables.posts.iter().position(|p|p.name.as_deref().unwrap_or("undefined")==name).unwrap() as u32
+    }
+    fn objective_post(&self,index:usize)->super::goals::ObjectivePost<'_> {super::goals::ObjectivePost::of(&self.tables.posts[index])}
     fn posts_len(&self) -> usize {
         self.tables.posts.len()
     }
@@ -1412,8 +1435,17 @@ impl<'f> AiWorld for Served<'f> {
         self.tables.lod_disabled
     }
 
-    fn units_query(&mut self, center: Vec3, radius: f64, filter: &mut dyn FnMut(&AiUnit) -> bool) -> Vec<UKey> {
-        let Some(call) = self.call("units.query") else { return Vec::new() };
+    fn unit_buffer(&self)->List<UKey> {List::default()}
+    fn predicate_buffer(&self)->List<(UKey,bool)> {List::default()}
+    fn index_buffer(&self)->List<usize> {List::default()}
+    fn weight_buffer(&self)->List<f64> {List::default()}
+    fn objective_buffer(&self)->List<Option<usize>> {List::default()}
+    fn recruit_buffer(&self)->List<(f64,usize)> {List::default()}
+    fn sort_recruits(&mut self,rows:&mut Vec<(f64,usize)>) {jsrt::sort::js_sort(rows,&mut |a,b|a.0-b.0);}
+    fn crew_occupants(&self,character:usize)->List<usize> {self.tables.crews[character].as_ref().map(|c|c.occupants.clone()).unwrap_or_default().into()}
+
+    fn units_query(&mut self, center: Vec3, radius: f64, filter: &mut dyn FnMut(&AiUnit) -> bool) -> List<UKey> {
+        let Some(call) = self.call("units.query") else { return List::default() };
         self.check_vec("query center", call.arg(0), center);
         self.check(check_num("query radius", call.arg(1), radius));
         // The filter's recorded answers, re-run against the port's.
@@ -1431,8 +1463,8 @@ impl<'f> AiWorld for Served<'f> {
         call.result().items().filter_map(|u| self.unit_of(u)).collect()
     }
 
-    fn service_candidates(&mut self, center: Vec3, radius: f64) -> Vec<UKey> {
-        let Some(call) = self.call("world.serviceCandidates") else { return Vec::new() };
+    fn service_candidates(&mut self, center: Vec3, radius: f64) -> List<UKey> {
+        let Some(call) = self.call("world.serviceCandidates") else { return List::default() };
         self.check_vec("serviceCandidates center", call.arg(0), center);
         self.check(check_num("serviceCandidates radius", call.arg(1), radius));
         let out = call.result().items().filter_map(|u| self.unit_of(u)).collect::<Vec<_>>();
@@ -1440,12 +1472,11 @@ impl<'f> AiWorld for Served<'f> {
         if out.len() != n {
             self.fail("serviceCandidates: a candidate outside the state table".to_string());
         }
-        out
+        out.into()
     }
 
-    fn items(&self) -> &[ItemSnap] {
-        &self.tables.items
-    }
+    fn items_len(&self)->usize {self.tables.items.len()}
+    fn item(&self,index:usize)->ItemSnap {self.tables.items[index].clone()}
 
     fn crew(&mut self, character: usize) -> Option<CrewSnap> {
         self.tables.crews.get(character).cloned().flatten()
@@ -1522,8 +1553,8 @@ impl<'f> AiWorld for Served<'f> {
         let Some(call) = self.call("combat.rebuildProtected") else { return };
         self.extra(call, None);
     }
-    fn combat_ingest(&mut self) -> Vec<AlertState> {
-        let Some(call) = self.call("combat.ingest") else { return Vec::new() };
+    fn combat_ingest(&mut self) -> List<AlertState> {
+        let Some(call) = self.call("combat.ingest") else { return List::default() };
         call.extra()
             .get("alerts")
             .items()
@@ -1568,8 +1599,8 @@ impl<'f> AiWorld for Served<'f> {
         self.extra(call, None);
         call.result().truthy()
     }
-    fn combat_broadcast_acoustic(&mut self, unit: UKey) -> Vec<(usize, EntRef)> {
-        let Some(call) = self.call("combat.broadcastAcoustic") else { return Vec::new() };
+    fn combat_broadcast_acoustic(&mut self, unit: UKey) -> List<(usize, EntRef)> {
+        let Some(call) = self.call("combat.broadcastAcoustic") else { return List::default() };
         self.check_unit("broadcastAcoustic unit", call.arg(0), unit);
         call.extra()
             .get("adds")
@@ -1727,15 +1758,15 @@ impl<'f> AiWorld for Served<'f> {
 
     // -- vehicles -----------------------------------------------------------
 
-    fn vehicles_notify(&mut self) -> Vec<(usize, EntRef)> {
-        let Some(call) = self.call("vehicles.notify") else { return Vec::new() };
+    fn vehicles_notify(&mut self) -> List<(usize, EntRef)> {
+        let Some(call) = self.call("vehicles.notify") else { return List::default() };
         call.extra()
             .get("adds")
             .items()
             .filter_map(|e| Some((e.at(0).num() as usize, self.ref_of(e.at(1))?)))
             .collect()
     }
-    fn vehicles_request_exit(&mut self, controller: usize) {
+    fn vehicles_request_exit(&mut self,_core:&mut Core,controller:usize) {
         let Some(call) = self.call("vehicles.requestExit") else { return };
         self.check_controller("requestExit controller", call.arg(0), controller);
         self.extra(call, Some(controller));
@@ -1782,8 +1813,8 @@ impl<'f> AiWorld for Served<'f> {
         self.extra(call, None);
         call.result().num()
     }
-    fn vehicles_crew_controllers(&mut self, vehicle: UKey, _except: usize) -> Vec<usize> {
-        let Some(call) = self.call("vehicles.crewControllers") else { return Vec::new() };
+    fn vehicles_crew_controllers(&mut self, vehicle: UKey, _except: usize) -> List<usize> {
+        let Some(call) = self.call("vehicles.crewControllers") else { return List::default() };
         self.check_unit("crewControllers vehicle", call.arg(0), vehicle);
         self.extra(call, None);
         call.result().items().filter_map(|c| self.controller_of(c)).collect()
@@ -1890,12 +1921,12 @@ impl<'f> AiWorld for Served<'f> {
         self.extra(call, Some(controller));
         call.result().opt_bool()
     }
-    fn vehicles_board_tick(&mut self, controller: usize, _dt: f64) {
+    fn vehicles_board_tick(&mut self,_core:&mut Core, controller: usize, _dt: f64) {
         let Some(call) = self.call("vehicles.boardTick") else { return };
         self.check_agent("boardTick agent", call.arg(0), controller);
         self.extra(call, Some(controller));
     }
-    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol> {
+    fn vehicles_patrol_mounted(&mut self,_core:&mut Core, controller: usize, patrol: Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol> {
         let call = self.call("vehicles.patrolMounted")?;
         self.check_foreign_shared(call, shared);
         let before = call.extra().get("patrolBefore");
@@ -1959,21 +1990,10 @@ impl<'f> AiWorld for Served<'f> {
     fn vehicles_policy_agent(&mut self, policy: Policy, state: f64) -> bool {
         policy == Policy::Fly && state == 7.0
     }
-    fn vehicles_seat_analogs(&mut self, controller: usize, dt: f64, aim: Option<Vec3>, _stepped: bool) -> [f64; 4] {
-        // The scheduler calls ai.analogs for every body; the vehicle
-        // adapter's wrapper routes a seat's to the vehicle service
-        // inside that one call.
-        let Some(call) = self.call("ai.analogs") else { return [0.0; 4] };
-        self.check_vec_opt("seat analogs aim", call.arg(2), aim);
-        self.check(check_num("seat analogs dt", call.arg(3), dt));
-        self.extra(call, Some(controller));
-        let out = call.out(4);
-        [out.get("forward").num(), out.get("right").num(), out.get("turn").num(), out.get("pitch").num()]
-    }
 
     // -- foreign agents -----------------------------------------------------
 
-    fn foreign_agent_create(&mut self, controller: usize, kind: ForeignKind, shared: &ForeignShared) -> (ForeignTick, Option<ControlObs>) {
+    fn foreign_agent_create(&mut self,_core:&mut Core, controller: usize, kind: ForeignKind, shared: &ForeignShared) -> (ForeignTick, Option<ControlObs>) {
         let Some(call) = self.call("foreign.create") else { return (Default::default(), None) };
         self.check_foreign_shared(call, shared);
         let want = match kind {
@@ -1994,7 +2014,7 @@ impl<'f> AiWorld for Served<'f> {
             self.tables.controls.get(controller).copied().flatten(),
         )
     }
-    fn foreign_agent_tick(&mut self, controller: usize, dt: f64, phase: f64, shared: &ForeignShared) -> ForeignTick {
+    fn foreign_agent_tick(&mut self,_core:&mut Core, controller: usize, dt: f64, phase: f64, shared: &ForeignShared) -> ForeignTick {
         let Some(call) = self.call("foreign.tick") else { return Default::default() };
         self.check_foreign_shared(call, shared);
         self.check_agent("foreign.tick agent", call.arg(0), controller);
@@ -2003,7 +2023,7 @@ impl<'f> AiWorld for Served<'f> {
         self.extra(call, Some(controller));
         self.foreign_tick_after(call, controller)
     }
-    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> (Option<ForeignShared>, Vec<CoreEffect>) {
+    fn foreign_agent_exit(&mut self,_core:&mut Core, controller: usize, shared: &ForeignShared) -> (Option<ForeignShared>, Vec<CoreEffect>) {
         let Some(call) = self.call("foreign.exit") else { return (None, Vec::new()) };
         self.check_foreign_shared(call, shared);
         self.check_agent("foreign.exit agent", call.arg(0), controller);
@@ -2169,8 +2189,8 @@ impl<'f> AiWorld for Served<'f> {
         self.extra(call, None);
         call.result().truthy()
     }
-    fn nav_query_hints(&mut self, mask: f64, center: Vec3, half_extent: f64, cap: f64, requester: Option<UKey>) -> Vec<usize> {
-        let Some(call) = self.call("nav.queryHints") else { return Vec::new() };
+    fn nav_query_hints(&mut self, mask: f64, center: Vec3, half_extent: f64, cap: f64, requester: Option<UKey>) -> List<usize> {
+        let Some(call) = self.call("nav.queryHints") else { return List::default() };
         let q = call.arg(0);
         self.check(check_num("queryHints mask", q.get("mask"), mask));
         self.check_vec("queryHints center", q.get("center"), center);
@@ -2191,8 +2211,8 @@ impl<'f> AiWorld for Served<'f> {
     fn nav_hints_len(&self) -> usize {
         self.tables.hints.len()
     }
-    fn nav_hint(&self, hint: usize) -> &HintSnap {
-        &self.tables.hints[hint]
+    fn nav_hint(&self, hint: usize) -> HintSnap {
+        self.tables.hints[hint].clone()
     }
     fn nav_hint_available(&mut self, hint: usize) -> bool {
         let Some(call) = self.call("nav.hintAvailable") else { return true };
@@ -2216,7 +2236,7 @@ impl<'f> AiWorld for Served<'f> {
         // markHint walks the hint's link chain (nav classicBinding).
         let linked = self.tables.hints[hint].linked.clone();
         self.tables.hints[hint].reserved_at = Some(now);
-        for h in linked {
+        for &h in linked.iter() {
             self.tables.hints[h].reserved_at = Some(now);
         }
     }
@@ -2243,13 +2263,13 @@ impl<'f> AiWorld for Served<'f> {
     fn network_secondary_active(&self) -> bool {
         self.tables.network_secondary
     }
-    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> (Option<HelperObs>, Vec<CoreEffect>) {
+    fn nav_navigation_input(&mut self, _core:&mut crate::ai::control::Core, controller: usize, step: f64, aim: Option<Vec3>,_facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>) {
         let Some(call) = self.call("ai.navigationInput") else { return (None, Vec::new()) };
         self.check(check_num("navigationInput step", call.arg(3), step));
         self.check_vec_opt("navigationInput aim", call.arg(4), aim);
         (self.extra(call, Some(controller)), self.core_effects(call))
     }
-    fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> ([f64; 4], Vec<CoreEffect>) {
+    fn nav_analogs(&mut self, _core:&mut crate::ai::control::Core, controller: usize, aim: Option<Vec3>, step: f64,_facing:bool) -> ([f64; 4], Vec<CoreEffect>) {
         let Some(call) = self.call("ai.analogs") else { return ([0.0; 4], Vec::new()) };
         self.check_vec_opt("analogs aim", call.arg(2), aim);
         self.check(check_num("analogs step", call.arg(3), step));
@@ -2375,7 +2395,7 @@ impl<'f> Served<'f> {
     fn foreign_tick_after(&mut self, call: &Call, controller: usize) -> ForeignTick {
         let x = call.extra();
         if let Some(u) = self.unit_of(x.get("unit")) {
-            let unit = &mut self.tables.units[u];
+            let unit = &mut self.tables.units[u as usize];
             unit.position = arr3(x.get("position"));
             unit.seat = x.get("seat").bool();
             unit.seat_vehicle_pos = arr3_opt(x.get("seatVehiclePos"));
@@ -2391,6 +2411,7 @@ impl<'f> Served<'f> {
         self.tables.helper_prefix.resize(self.tables.helper_prefix.len().max(controller + 1), String::new());
         self.tables.helper_prefix[controller] = prefix.to_string();
         ForeignTick {
+            replaced:false,
             state: x.get("state").num(), pending: x.get("pending").num(), helper,
             interrupts: Interrupts {
                 checked_at: x.get("interrupts").get("checkedAt").num(),
@@ -2543,7 +2564,7 @@ impl Cmp {
 
 /// Rewrite the capture end state's unit indices into the port's table
 /// indices (the end table is rebuilt; units match by id+generation).
-fn remap(theirs: &mut Core, map: &[Option<usize>]) {
+fn remap(theirs: &mut Core, tables:&mut Tables, map: &[Option<usize>]) {
     let m = |k: UKey| -> UKey { map.get(k as usize).copied().flatten().map(|i| i as UKey).unwrap_or(u32::MAX as UKey) };
     fn ref_map(r: &mut EntRef, m: &dyn Fn(UKey) -> UKey) {
         r.unit = m(r.unit);
@@ -2556,7 +2577,7 @@ fn remap(theirs: &mut Core, map: &[Option<usize>]) {
             ref_map(r, m);
         }
     }
-    for c in &mut theirs.characters {
+    for c in &mut tables.characters {
         c.unit = c.unit.map(&m);
     }
     for c in &mut theirs.controllers {
@@ -2582,7 +2603,7 @@ fn remap(theirs: &mut Core, map: &[Option<usize>]) {
             }
         }
         if let Some(a) = &mut c.agent {
-            a.unit = a.unit.map(|u| m(u as UKey) as usize);
+            a.unit = a.unit.map(m);
             if let Some(g) = &mut a.goal {
                 goal_map(g, &m);
             }
@@ -2749,7 +2770,7 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
         other => return Err(format!("{}: not an AI frame ({other})", frame.place())),
     }
     served.finish()?;
-    let (mut theirs, their_tables) = read_state(frame.after(), None);
+    let (mut theirs, mut their_tables) = read_state(frame.after(), None);
     // The end table's indices in the port's, by the units' handles
     // (ids repeat: a seat controllable carries its occupant's).
     let their_handles: HashMap<usize, (String, HKey)> = their_tables.unit_handles.iter().map(|(h, &i)| (i, h.clone())).collect();
@@ -2771,7 +2792,7 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
         }
         inv
     };
-    remap(&mut theirs, &map);
+    remap(&mut theirs, &mut their_tables, &map);
     let mut cmp = Cmp { errs: Vec::new() };
     cmp.eq("roster", &theirs.roster, &core.roster);
     cmp.eq("live", &theirs.live, &core.live);
@@ -2780,8 +2801,8 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
     for (i, (a, b)) in theirs.controllers.iter().zip(core.controllers.iter()).enumerate() {
         compare_controller(&mut cmp, &format!("controllers[{i}]"), a, b);
     }
-    cmp.chk(theirs.characters.len() == core.characters.len(), "character counts differ".to_string());
-    for (i, (a, b)) in theirs.characters.iter().zip(core.characters.iter()).enumerate() {
+    cmp.chk(their_tables.characters.len() == served.tables.characters.len(), "character counts differ".to_string());
+    for (i, (a, b)) in their_tables.characters.iter().zip(served.tables.characters.iter()).enumerate() {
         cmp.eq(&format!("characters[{i}]"), a, b);
     }
     cmp.eq("scheduler", &theirs.scheduler, &core.scheduler);

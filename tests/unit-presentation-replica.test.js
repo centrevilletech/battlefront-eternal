@@ -112,7 +112,7 @@ test('a unit off the field draws nothing, whatever its body was last told', asyn
   const page = await battle(false), unit = page.factory.build('deka');
   unit.spawn(0, 0, 0, 0);
   unit.soldier.shield.on = true;
-  presentUnit(unit,0.5,1);
+  presentUnit(unit,0.5, 1);
   assert.equal(unit.actor.root.visible, true);
   assert.equal(unit.bubble.mesh.visible, true);
   // A packet that removes it but leaves its body shown (as a dedicated

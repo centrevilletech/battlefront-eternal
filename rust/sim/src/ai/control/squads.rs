@@ -28,6 +28,24 @@ pub const VO_BANK: [(f64, &str, &str); 13] = [
     (0x60 as f64, "GunnerGetOut", "tac_moveout"),
 ];
 
+/// The two authored banks share the same finite command table. Resolve
+/// property text here so emitting a command never builds a String in a tick.
+pub const VO_PROPERTIES:[[&str;2];13]=[
+    ["AISCFieldMoveOutSound", "SCFieldMoveOutSound"],
+    ["AISCFieldHoldSound", "SCFieldHoldSound"],
+    ["AISCFieldFollowSound", "SCFieldFollowSound"],
+    ["AISCDriverGetInSound", "SCDriverGetInSound"],
+    ["AISCDriverGetOutSound", "SCDriverGetOutSound"],
+    ["AISCPassengerMoveOutSound", "SCPassengerMoveOutSound"],
+    ["AISCPassengerStopSound", "SCPassengerStopSound"],
+    ["AISCPassengerGetInSound", "SCPassengerGetInSound"],
+    ["AISCPassengerGetOutSound", "SCPassengerGetOutSound"],
+    ["AISCGunnerAllClearSound", "SCGunnerAllClearSound"],
+    ["AISCGunnerSteadySound", "SCGunnerSteadySound"],
+    ["AISCGunnerGetInSound", "SCGunnerGetInSound"],
+    ["AISCGunnerGetOutSound", "SCGunnerGetOutSound"],
+];
+
 /// Command -> bank offset, per context (squads.js:75): 0 unboarded, 1
 /// other boarded control, 2 (never selected), 3 mounted turret.
 pub fn vo_offset(kind: f64, context: f64) -> Option<f64> {
@@ -49,16 +67,17 @@ pub fn vo_offset(kind: f64, context: f64) -> Option<f64> {
 /// A bank entry (squads.js:84 voEntry).
 pub struct VoEntry {
     pub offset: f64,
-    pub property: String,
+    pub property: &'static str,
     pub suffix: &'static str,
 }
 
 pub fn vo_entry(kind: f64, context: f64, human: bool) -> Option<VoEntry> {
     let offset = vo_offset(kind, context)?;
-    let (_, name, suffix) = VO_BANK.iter().find(|(o, _, _)| *o == offset)?;
+    let index=VO_BANK.iter().position(|(value,_,_)|*value==offset)?;
+    let (_,_,suffix)=VO_BANK[index];
     Some(VoEntry {
         offset: if human { offset + 0x68 as f64 } else { offset },
-        property: format!("{}{name}Sound", if human { "SC" } else { "AISC" }),
+        property: VO_PROPERTIES[index][usize::from(human)],
         suffix,
     })
 }

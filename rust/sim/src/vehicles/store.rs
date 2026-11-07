@@ -104,10 +104,10 @@ impl Hull {
         // storage needed by standOnLegs on this or a later gameplay life.
         match &v.leg_side {
             Some(source) => {
-                if self.leg_side.is_none() { self.leg_side = Some(std::mem::take(&mut self.leg_side_storage)); }
+                if self.leg_side.is_none() { self.leg_side = Some(std::mem::take(&mut self.leg_side_scratch)); }
                 self.leg_side.as_mut().unwrap().clone_from(source);
             }
-            None => if let Some(mut old) = self.leg_side.take() { old.clear(); self.leg_side_storage = old; },
+            None => if let Some(mut old) = self.leg_side.take() { old.clear(); self.leg_side_scratch = old; },
         }
         self.seat_index = v.seat_index as usize;
         self.driver = v.driver.is_some();

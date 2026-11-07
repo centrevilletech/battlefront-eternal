@@ -1,5 +1,6 @@
 //! Foreign calls served in order, with their arguments and writable state
 //! checked before applying the fields the foreign implementation owns.
+use crate::ai::owned::scratch::List;
 use super::*;
 
 impl Host<'_> {
@@ -103,8 +104,20 @@ impl World for Host<'_> {
     fn mission_stay_in_turrets(&self) -> bool { self.bound.get("mission").get("stayInTurrets").bool() }
     fn mission_no_jet_obstacle_test(&self) -> bool { self.bound.get("mission").get("noJetObstacleTest").bool() }
     fn ai_stay_in_turrets(&mut self) -> bool { self.call("ai.stayInTurrets").result().bool() }
-    fn unit(&self, u: Obj) -> &UnitView { self.units.get(&u).unwrap_or_else(|| panic!("unit {u} has no captured view")) }
-    fn unit_mut(&mut self, u: Obj) -> &mut UnitView { self.units.get_mut(&u).unwrap_or_else(|| panic!("unit {u} has no captured view")) }
+    fn unit(&self, u: Obj) -> UnitView { self.units.get(&u).unwrap_or_else(|| panic!("unit {u} has no captured view")).observation() }
+    fn has_arsenal(&self,u:Obj)->bool {self.units[&u].arsenal.is_some()}
+    fn weapon_count(&self,u:Obj)->usize {self.units[&u].arsenal.as_ref().map_or(0,|a|a.weapons.len())}
+    fn current_weapon(&self,u:Obj,channel:f64)->Option<usize> {self.units[&u].arsenal.as_ref()?.current(channel)}
+    fn weapon(&self,u:Obj,index:usize)->Option<WeaponView> {self.units[&u].arsenal.as_ref()?.weapons.get(index).cloned()}
+    fn body_lease_count(&self,u:Obj)->usize {self.units[&u].body_leases.as_ref().map_or(0,Vec::len)}
+    fn body_lease(&self,u:Obj,index:usize)->Option<LeaseView> {self.units[&u].body_leases.as_ref()?.get(index).copied().flatten()}
+    fn weapon_settings(&self,u:Obj,index:usize)->WeaponSettings {
+        WeaponSettings::of(&self.units[&u].arsenal.as_ref().expect("arsenal").weapons[index])
+    }
+    fn edit_weapon<R>(&mut self,u:Obj,index:usize,edit:impl FnOnce(&mut WeaponSettings)->R)->R {
+        let weapon=&mut self.units.get_mut(&u).expect("captured unit").arsenal.as_mut().expect("arsenal").weapons[index];
+        let mut settings=WeaponSettings::of(weapon);let result=edit(&mut settings);settings.apply(weapon);result
+    }
     fn origin(&mut self, u: Obj) -> Vector3 { let call = self.call("unit.origin"); self.check_obj(call.arg(0), Some(u)); vec(call.out(1)) }
     fn forward(&mut self, u: Obj) -> Vector3 { let call = self.call("unit.forward"); self.check_obj(call.arg(0), Some(u)); vec(call.out(1)) }
     fn aim_point(&mut self, u: Obj) -> Vector3 { let call = self.call("unit.aimPoint"); self.check_obj(call.arg(0), Some(u)); vec(call.out(1)) }
@@ -112,16 +125,17 @@ impl World for Host<'_> {
     fn set_intent_buttons(&mut self, u: Obj, b0: f64, b1: f64) { self.writes.get_mut(&u).unwrap().buttons = Some([b0,b1]); }
     fn set_intent_aim(&mut self, u: Obj, aim: Option<Vector3>) { self.writes.get_mut(&u).unwrap().aim = aim; }
     fn arsenal_select(&mut self, u: Obj, index: usize) -> bool {
-        if self.unit(u).arsenal.as_ref().unwrap().kind == ArsenalKind::Seat {
+        if self.units[&u].arsenal.as_ref().unwrap().kind == ArsenalKind::Seat {
             // seatArsenal.select is local and always acknowledges its member.
-            return self.unit(u).arsenal.as_ref().unwrap().weapons.get(index).is_some();
+            return self.units[&u].arsenal.as_ref().unwrap().weapons.get(index).is_some();
         }
         let call = self.call("arsenal.select");
         self.check_obj(call.arg(0), Some(self.writes[&u].weapons[index]));
         self.effects(call); call.result().bool()
     }
     fn use_classic_random(&mut self, u: Obj) { for b in &mut self.writes.get_mut(&u).unwrap().random { *b = true; } }
-    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> Vec<Obj> {
+    fn object_buffer(&self) -> List<Obj> { List::default() }
+    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> List<Obj> {
         let call = self.call("units.query"); self.vector(call.arg(0), center); self.num(call.arg(1), radius);
         for v in call.extra().get("tried").items() {
             let u = self.read.obj(v.get("unit"));
@@ -144,12 +158,13 @@ impl World for Host<'_> {
         for pair in self.teams.get("alliances").items() { if pair.at(0).str() == Some(&key) { return pair.at(1).num(); } }
         self.teams.get("relations").at(a as usize).at(b as usize).opt_num().unwrap_or(-1.0)
     }
-    fn living(&mut self) -> Vec<Obj> { self.living.clone() }
+    fn living(&mut self) -> List<Obj> { self.living.clone().into() }
     fn los(&mut self, from: &Vector3, to: &Vector3, a: Option<Obj>, b: Option<Obj>) -> bool {
         let call = self.call("world.los"); self.vector(call.arg(0), from); self.vector(call.arg(1), to); self.check_obj(call.arg(2), a); self.check_obj(call.arg(3), b); call.result().bool()
     }
     fn curves_for(&mut self, team: f64) -> Option<Curves> { let c = self.call("ai.curvesFor"); self.num(c.arg(0),team); curves(c.result()) }
     fn character_team(&self, c: Obj) -> f64 { self.characters[&c].2 }
+    fn fresh_perception(&mut self,_:Obj)->Perception {let mut p=Perception::default();p.reset();p}
     fn ctl(&self, c: Obj) -> &Ctl { self.ctls.get(&c).unwrap_or_else(|| panic!("controller {c} has no captured view")) }
     fn ctl_mut(&mut self, c: Obj) -> &mut Ctl { self.ctls.get_mut(&c).unwrap_or_else(|| panic!("controller {c} has no captured view")) }
     fn agent_controller(&self, a: Obj) -> Obj { self.agents[&a].controller }
@@ -167,7 +182,7 @@ impl World for Host<'_> {
         self.read.opt_obj(call.result())
     }
     fn has_vehicle_dispatch(&self) -> bool { self.bound.get("dispatchHook").bool() }
-    fn vehicle_dispatch(&mut self, c: Obj, u: Obj, target: Obj, switch: bool) -> Engagement {
+    fn vehicle_dispatch(&mut self, _shared: &mut crate::ai::combat::weapons_ai::Shared, c: Obj, u: Obj, target: Obj, switch: bool) -> Engagement {
         let call = self.call("vehicles.dispatch"); self.check_obj(call.arg(0),Some(c)); self.check_obj(call.arg(1),Some(u)); self.check_obj(call.arg(2),Some(target)); self.boolean(call.arg(3),switch);
         self.effects(call);
         let out = call.out(4);
@@ -189,8 +204,8 @@ impl World for Host<'_> {
     fn exit_pattern(&mut self, a: Obj, state: f64) { let c=self.pattern_call("vehicles.exitPattern",a).clone(); self.num(c.arg(1),state); self.effects(&c); }
     fn tick_pattern(&mut self, a: Obj, state: f64, dt: f64) { let c=self.pattern_call("vehicles.tickPattern",a).clone(); self.num(c.arg(1),state); self.num(c.arg(2),dt); self.effects(&c); }
     fn sidestep(&mut self, a: Obj) { let c=self.pattern_call("vehicles.sidestep",a).clone(); self.effects(&c); }
-    fn cover_hints(&mut self, center: &Vector3, half: f64) -> Vec<HintView> {
-        if !self.bound.get("hintsQuery").bool() { assert!(!self.bound.get("queryHints").bool(),"queryHints fallback contract is missing"); return Vec::new(); }
+    fn cover_hints(&mut self, center: &Vector3, half: f64) -> List<HintView> {
+        if !self.bound.get("hintsQuery").bool() { assert!(!self.bound.get("queryHints").bool(),"queryHints fallback contract is missing"); return List::default(); }
         let c=self.call("nav.hints.query"); self.num(c.arg(1),4.0); self.vector(c.arg(2),center); self.num(c.arg(3),half); self.num(c.arg(4),30.0);
         c.extra().get("hints").items().map(|h| self.read.hint(h).unwrap()).collect()
     }
@@ -206,7 +221,7 @@ impl World for Host<'_> {
     fn nav_in_danger_region(&mut self, _: Obj) -> Option<bool> { self.no_nav("inDangerRegion") }
     fn agent_sync(&mut self, a: &CombatAgent) { let v=self.agents.get_mut(&a.obj).unwrap(); v.combat=Some(a.clone()); }
     fn agent_resync(&mut self, a: &mut CombatAgent) { *a=self.agents[&a.obj].combat.clone().unwrap(); }
-    fn interrupts_tick(&mut self, _: Obj) -> bool { let c=self.call("interrupts.tick"); self.effects(c); c.result().bool() }
+    fn interrupts_tick(&mut self, _: Obj,_:&mut CombatAi) -> bool { let c=self.call("interrupts.tick"); self.effects(c); c.result().bool() }
     fn agent_board_policy(&mut self, _: Obj, candidate: Obj) -> bool { let c=self.call("agent.boardPolicy"); self.check_obj(c.arg(0),Some(candidate)); c.result().bool() }
     fn has_helper(&self, a: Obj) -> bool { self.agents[&a].helper.is_some() }
     fn helper_arrived(&mut self, a: Obj) -> bool { self.agents[&a].helper.as_ref().unwrap().arrived }

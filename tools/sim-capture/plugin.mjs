@@ -368,22 +368,13 @@ export function battle({ game: g, index, options }) {
   game = g;
   buildSystems();
   refreshIdentity();
-  // The AI's two generators, A and B (src/ai/index.js), told apart from the
-  // rest by the states game.randomState() reports for them: found in a
-  // shallow walk of game.ai's own data (no getters read).
-  const states = game.randomState?.() ?? {};
-  const walked = new Set(), queue = [[game.ai, 0]];
-  while (queue.length) {
-    const [o, depth] = queue.shift();
-    if (!o || typeof o !== 'object' || walked.has(o) || depth > 3) continue;
-    walked.add(o);
-    if (o instanceof ClassicRandom) {
-      // (Over the provisional label a draw while loading gave it.)
-      if (o.state === states.ai) labels.set(o, 'A');
-      else if (o.state === states.game) labels.set(o, 'B');
-      continue;
-    }
-    for (const desc of Object.values(Object.getOwnPropertyDescriptors(o))) if ('value' in desc && desc.value && typeof desc.value === 'object') queue.push([desc.value, depth + 1]);
+  // Native AI exposes its shared stream facades explicitly. Walking the
+  // owner reaches the WASM memory views and cannot discover native draws.
+  // These labels cover JS callers of A/B; native per-draw capture is separate.
+  const world = game.ai?.worldData;
+  if (world) {
+    labels.set(world.random, 'A');
+    labels.set(world.randomB, 'B');
   }
   // Explosion presentation and item blasts have separate owners. Count their
   // real public boundaries without requiring an obsolete ordnance.explode alias.

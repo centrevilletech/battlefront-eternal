@@ -368,6 +368,18 @@ impl UnitsWorld for ModuleWorld<'_> {
         if unit.controller.is_none() {
             return;
         }
+        if self.recon.as_ref().is_some_and(|services|services.ai.is_some()) {
+            let services=self.recon.as_mut().unwrap();
+            // The current row must be available to native aim observations.
+            // Intent and weapon edits mark their own changes; this read does
+            // not need to turn every moved bot into a full body publication.
+            out_and_back(id,unit,false,|| {
+                let reference=unit_ref(id);
+                let key=F3UnitKey::of(reference,sim().store.unit.get(reference).unwrap());
+                assert!(services.aim(&key,h),"active native AI aimer loan");
+            });
+            return;
+        }
         // The actual Classic/Enhanced aimers need facing and movement, not
         // a second decode of every normal, water clock and weapon buffer.
         // Other completed units and immediate damage still flush below.
@@ -380,6 +392,7 @@ impl UnitsWorld for ModuleWorld<'_> {
             posture: match &unit.soldier { UnitBody::Soldier(s) => Some(s.posture), _ => None },
             tick_count: unit.tick_count,
         };
+
         let mut answer = None;
         out_and_back(id, unit, false, || {
             super::f3::before_hook();
@@ -412,7 +425,8 @@ impl UnitsWorld for ModuleWorld<'_> {
             let services = crate::units::f3::required_services!(self.recon.as_mut(),());
             let authority = &mut *services.recon;
             out_and_back(id, unit, true, || {
-                authority.step(&mut sim().store, &mut crate::recon::module::NativeWorld::controlled(unit_ref(id), services.queries),
+                authority.step(&mut sim().store, &mut crate::recon::module::NativeWorld::controlled(unit_ref(id), services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),
+
                     key, super::f3::tick(), h,input).unwrap_or_else(|_|{crate::units::f3::fail();false});
                 crate::recon::module::publish_active(authority);
             });

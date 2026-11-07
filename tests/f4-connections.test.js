@@ -9,6 +9,7 @@ import {F4Roster} from '../src/f4-roster.js';
 import {F4Connections} from '../src/f4-connections.js';
 import {HumanSpawnMirror} from '../src/sim/gen/index.js';
 import {f3World} from './fixtures/f3-world.js';
+import {nativeSpawning} from './fixtures/f4-spawning.js';
 import {weaponDefinition} from './fixtures/client-weapons.js';
 
 async function fixture(){
@@ -68,20 +69,22 @@ test('unspawn and a removed-body clock do not spend tickets or advance gameplay 
   connections.command('state',player);assert.equal(unit.deadTime,4);assert.equal(player.spawn.phase,'awaiting');
 });
 
-test('a native hero birth publishes canonical flags before the spawned AI hook',async()=>{
+test('a native hero birth publishes canonical flags and binds its native AI controller',async()=>{
   const definitions={hero:{class:'hero',base:'soldier',MaxHealth:1000000,weapons:[]}};
   const posts=new CommandPosts(null,{commandPosts:[{name:'home',team:1,matrix:new Matrix4().toArray(),hologram:[0,0,0]}]},{headless:true,playerTeam:1});
-  const battle=new Battle({posts,teams:{1:{units:1,reinforcements:100},2:{units:0,reinforcements:100}},own:1,foe:2});
-  battle.populate(2);const character=battle.characters[0];character.hero=true;character.className='hero';
+  const battle=new Battle({posts,teams:{1:{units:2,reinforcements:100},2:{units:0,reinforcements:100}},own:1,foe:2});
   const w=await f3World(definitions,{prepareLive:()=>({buildings:[],animated:[],traps:[]})});
-  w.factory.sides.rep.units=definitions;new F4Live(w.phase,{sound(){}});
-  const human=new HumanSpawnMirror();human.className='hero';let observed=false;
-  const tail=new F4Tail(w.phase,battle,{posts,human,gameplay:w.ordnance.random,ai:{spawned(c){
-    observed=true;assert.equal(c.unit.hero,true);assert.equal(c.unit.human,false);
-    assert.equal(c.unit.networkHuman,undefined);
-  }}});
+  w.factory.sides.rep.units=definitions;
+  const {spawning,random,owner,ai}=nativeSpawning(w,battle,posts,{
+    calls:[['SetUnitCount',[1,2]],['SetUnitCount',[2,0]],['AddUnitClass',[1,'hero',2]]]});
+  const character=spawning.characters.find(c=>!c.human);character.hero=true;character.className='hero';
+  new F4Live(w.phase,{sound(){}});
+  const human=new HumanSpawnMirror();human.className='hero';
+  const tail=new F4Tail(w.phase,battle,{posts,spawning,human,random,gameplay:w.ordnance.random,ai});
+  owner.activate();
   const unit=tail.spawnUnit(character,'hero',posts.posts[0],[0,0,0],0);
-  assert.equal(observed,true);assert.equal(unit.hero,true);
+  assert.equal(unit.hero,true);assert.equal(unit.human,false);assert.equal(unit.networkHuman,undefined);
+  assert.equal(unit.controller,character.controller);assert.equal(unit.controller.native,true);
 });
 
 test('a connection outside prepared capacity rejects without stopping the next tail',async()=>{

@@ -1,5 +1,10 @@
 # Classic AI: population, spawning, difficulty and objectives
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 Population of the Classic AI (`docs/ai.md`). Behavior follows the 2004 game:
 difficulty, spawning, class choice and player commands; the spawn release
 equation and the per-post queue; objectives, mission controls and interrupt

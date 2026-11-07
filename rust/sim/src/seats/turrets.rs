@@ -16,7 +16,7 @@
 use super::bodies::{drop_body, place_on_foot, seat_body, unseat_body};
 use super::exits::{classic_seat_exit, ExitFrame, ExitSpot};
 use super::hulls::RiderFacts;
-use super::lease::{latch_lease, live, network_human, new_lease, person_lease, take, take_reload, Controls};
+use super::lease::{latch_lease, live, network_human, new_lease_with_input, person_lease, take, take_reload, Controls};
 use super::{unit_ref, Attacker, Holder, Reason, SeatWorld};
 use crate::gen::{Body, Post, SeatLease, SeatRole, SeatUnit, Store, Turret};
 use crate::rig::math;
@@ -564,7 +564,8 @@ impl Crews {
         }
         let u = st.unit.get(unit_ref(st, unit)).unwrap();
         let tref = self.turrets[turret].turret;
-        let lease = new_lease(Some((unit_ref(st, unit), u.generation)), false, u.team, None, Some(tref), 0.0, SeatRole::Gunner, st.turret_seats.time, st.turret_seats.ticks);
+        let Some(input)=w.lease_input() else{return false};
+        let lease = new_lease_with_input(Some((unit_ref(st, unit), u.generation)), false, u.team, None, Some(tref), 0.0, SeatRole::Gunner, st.turret_seats.time, st.turret_seats.ticks, input);
         let r = foreign!(self, st, w, w.crew_lease(st, lease));
         st.seats.leases.push(r);
         self.made.push(r);

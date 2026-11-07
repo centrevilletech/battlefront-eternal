@@ -100,6 +100,16 @@ pub struct Nav {
 }
 
 impl Nav {
+    /// PathPlanner/BarrierSearch retain their full logical limits from load.
+    /// A later obstacle or longer route must not grow the search arena during
+    /// an AI tick; detour scratch visits at most four corners per barrier.
+    pub fn prepare_owned(&mut self) {
+        self.queue.reserve(self.capacity.max(0.).ceil() as usize);
+        let nodes=self.search.node_capacity.max(0.).ceil() as usize;
+        self.search.nodes.reserve(nodes);
+        self.search.closed.reserve(nodes);
+        self.search.scratch.reserve(self.barriers.list.len().saturating_mul(4).saturating_add(1));
+    }
     /// index.js:18. `hint_capacity` is loadNav's option of that name.
     pub fn new(json: &Value, bin: Option<&[u8]>, posts: Option<&dyn HintPosts>, hint_capacity: Option<f64>, pools: PlannerOptions) -> Result<Self, String> {
         let data = load_nav(json, bin, posts, hint_capacity)?;
@@ -297,14 +307,14 @@ impl Nav {
     pub fn control_attach(&mut self, control: usize, unit: Option<&NavUnit>) {
         let same = {
             let c = &self.controls[control];
-            unit.map(|u| u.id) == c.unit && unit.and_then(|u| u.generation) == Some(c.generation)
+            unit.map(|u| u.control_identity.unwrap_or(u.id)) == c.unit && unit.and_then(|u| u.generation) == Some(c.generation)
         };
         if same {
             return;
         }
         self.control_reset(control);
         let c = &mut self.controls[control];
-        c.unit = unit.map(|u| u.id);
+        c.unit = unit.map(|u| u.control_identity.unwrap_or(u.id));
         c.generation = unit.and_then(|u| u.generation).unwrap_or(-1.0);
     }
 
@@ -510,6 +520,11 @@ impl Nav {
     /// The hint query (index.js:75).
     pub fn query_hints(&self, mask: u32, center: Vec3, half_extent: f64, cap: f64, requester: Option<u64>, now: f64) -> Vec<usize> {
         self.hints.query(mask, center, half_extent, cap, requester, now)
+    }
+
+    /// Retained hint-query output for the native phase's class and patrol jobs.
+    pub fn query_hints_into(&self, mask: u32, center: Vec3, half_extent: f64, cap: f64, requester: Option<u64>, now: f64, out: &mut Vec<usize>) {
+        self.hints.query_into(mask, center, half_extent, cap, requester, now, out);
     }
 
     pub fn hint_available(&self, hint: usize, now: f64) -> bool {

@@ -121,6 +121,9 @@ impl Reason {
 pub trait SeatWorld {
     fn publish_hulls(&mut self, _st: &mut crate::gen::Store, _hulls: &mut hulls::Hulls) {}
     fn resume_hulls(&mut self, _st: &mut crate::gen::Store, _hulls: &mut hulls::Hulls) {}
+    /// Native owners reserve channel buffers cold. Exhaustion declines this
+    /// acquisition like an unavailable seat, without a frame-path panic.
+    fn lease_input(&mut self)->Option<crate::gen::SeatInput> {Some(lease::idle_input())}
     fn hull_lease(&mut self, st: &mut crate::gen::Store, lease: SeatLease) -> Ref<SeatLease> { st.seat_lease.insert(lease) }
 
     /// A live crew command publishes its writes before a foreign call and

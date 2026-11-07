@@ -9,7 +9,7 @@ use three::Vector3;
 
 use super::aim::resolve;
 use super::binding::CombatAi;
-use super::weapons_ai::{consume_fire, def_at, selected_weapon, sniper_weapon, weapon_mut};
+use super::weapons_ai::{consume_fire, def_at, selected_weapon, sniper_weapon};
 use super::world::{uniform, Draws, Gen, Obj, World};
 
 const DEG: f64 = std::f64::consts::PI / 180.0;
@@ -54,17 +54,31 @@ pub struct EnhancedAimer {
     pub error: [f64; 2],
     pub bias: [f64; 2],
     /// The target being aimed at, as `${id}:${generation}`.
-    pub key: Option<String>,
-    pub last_key: Option<String>,
+    pub key: Option<TargetKey>,
+    pub last_key: Option<TargetKey>,
     pub lost_at: f64,
     pub acquired_at: f64,
     pub ready_at: f64,
 }
 
-/// `${id}:${generation}` as JavaScript formats it.
-fn key_of(id: Option<f64>, generation: f64) -> String {
-    let id = id.map(jsrt::numfmt::number_to_string).unwrap_or_else(|| "undefined".into());
-    format!("{id}:{}", jsrt::numfmt::number_to_string(generation))
+/// Equality of the source's numeric `${id}:${generation}` keys. Missing ids
+/// remain distinct from every number; signed zero and NaN follow String().
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct TargetKey {id:Option<u64>,generation:u64}
+impl TargetKey {
+    pub fn of(id:Option<f64>,generation:f64)->Self {
+        fn bits(n:f64)->u64 {if n==0. {0}else if n.is_nan() {f64::NAN.to_bits()}else{n.to_bits()}}
+        Self {id:id.map(bits),generation:bits(generation)}
+    }
+    pub fn text(self)->String {
+        let id=self.id.map(|n|jsrt::numfmt::number_to_string(f64::from_bits(n))).unwrap_or_else(||"undefined".into());
+        format!("{id}:{}",jsrt::numfmt::number_to_string(f64::from_bits(self.generation)))
+    }
+    /// Capture and temporary adapter input; native aiming never formats keys.
+    pub fn parse(text:&str)->Self {
+        let (id,generation)=text.split_once(':').expect("numeric Enhanced target key");
+        Self::of(if id=="undefined" {None}else{Some(bfe_content::js::string_to_number(id))},bfe_content::js::string_to_number(generation))
+    }
 }
 
 impl EnhancedAimer {
@@ -102,14 +116,14 @@ impl EnhancedAimer {
     pub fn observe<W: World + ?Sized>(&mut self, w: &mut W, target: Option<Obj>, now: f64) {
         let key = target.map(|t| {
             let u = w.unit(t);
-            key_of(u.id, u.generation)
+            TargetKey::of(u.id, u.generation)
         });
         self.observe_key(w, key, now);
     }
 
     /// An already resolved target identity, for adapters whose unit
     /// facade still supplies the source object's id and generation.
-    pub fn observe_key<W: Draws + ?Sized>(&mut self, w: &mut W, key: Option<String>, now: f64) {
+    pub fn observe_key<W: Draws + ?Sized>(&mut self, w: &mut W, key: Option<TargetKey>, now: f64) {
         if key == self.key {
             return;
         }
@@ -118,7 +132,7 @@ impl EnhancedAimer {
             self.lost_at = now;
             return;
         };
-        self.key = Some(key.clone());
+        self.key = Some(key);
         if Some(&key) == self.last_key.as_ref() && now - self.lost_at < RETAIN {
             return;
         }
@@ -195,18 +209,7 @@ impl EnhancedAimer {
 /// the player's spread floor.
 pub fn player_spread<W: World + ?Sized>(w: &mut W, unit: Obj, index: usize) {
     let def = def_at(w, unit, index);
-    let wv = weapon_mut(w, unit, index);
-    wv.spread_scale = 1.0;
-    wv.sniper_scale = Some(0.0);
-    if !wv.enhanced_floor {
-        wv.enhanced_floor = true;
-        let t = def.get("SpreadThreshold");
-        let floor = -(if t.truthy() { t.num() } else { 0.0 });
-        if floor < wv.floor {
-            wv.floor = floor;
-            wv.kick = v8math::min(wv.kick, floor);
-        }
-    }
+    w.edit_weapon(unit,index,|wv|wv.player_spread(&def));
 }
 
 /// aim.js:192 `enhancedCombat(world, { tier, seed })`'s state: the profile,
@@ -262,7 +265,7 @@ impl EnhancedCombat {
     /// aim.js:214 `updateAim(controller, dt)`.
     pub fn update_aim<W: World + ?Sized>(&mut self, w: &mut W, cx: &CombatAi, controller: Obj, dt: f64) -> Option<Vector3> {
         let unit = w.ctl(controller).unit?;
-        if !w.unit(unit).alive || w.ctl(controller).perception.is_none() {
+        if !w.unit_scalars(unit).alive || w.ctl(controller).perception.is_none() {
             return None;
         }
         self.ensure_aimer(w, controller);
@@ -300,7 +303,7 @@ impl EnhancedCombat {
             Some(i) => u.kind == 0.0 && sniper_weapon(&cx.shared.weapons, Some(&def_at(w, unit, i))),
             None => false,
         };
-        let hero = w.unit(unit).hero;
+        let hero = w.unit_scalars(unit).hero;
         let speed_fraction = if top > 0.0 { v8math::min(speed / top, 1.0) } else { 0.0 };
         let now = w.time();
         let direction = Self::with_aimer(w, controller, |w, a| a.update(w, &desired, dt, distance, speed_fraction, scoped, now, hero));
@@ -340,7 +343,7 @@ impl EnhancedCombat {
         self.hooked = true;
         let direction = self.update_aim(w, cx, controller, dt);
         if let Some(u) = w.ctl(controller).unit {
-            if w.unit(u).intent {
+            if w.unit_scalars(u).intent {
                 w.set_intent_aim(u, direction);
             }
         }

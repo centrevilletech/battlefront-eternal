@@ -3,7 +3,8 @@
 //! its controller's two fire requests become trigger presses.
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use crate::ai::owned::scratch::Inline;
+use std::{rc::Rc,cell::RefCell};
 use three::Vector3;
 
 use super::aim::{is_cannon, is_launcher, lead_point, resolve};
@@ -41,6 +42,9 @@ pub struct WeaponAi {
     pub trigger_single: bool,
     pub zoom_max: f64,
     pub action: f64,
+    /// Immutable definition flags used by consumeFire and prepareSpread.
+    pub cannon: bool,
+    pub authored_yaw: bool,
 }
 
 /// A side's ai.json weapon record as registerAIData keeps it (its `ai`,
@@ -51,18 +55,38 @@ pub struct Registered {
     pub levels: Vec<(Js, Js)>,
 }
 
+const TRAIT_TRIGGER_SINGLE:u8=1;
+const TRAIT_CANNON:u8=2;
+const TRAIT_AUTHORED_YAW:u8=4;
+const TRAIT_SNIPER:u8=8;
+fn weapon_traits(ai:&WeaponAi)->u8 {
+    (if ai.trigger_single {TRAIT_TRIGGER_SINGLE}else{0})|
+    (if ai.cannon {TRAIT_CANNON}else{0})|
+    (if ai.authored_yaw {TRAIT_AUTHORED_YAW}else{0})|
+    (if ai.trigger_single&&ai.zoom_max>=6. {TRAIT_SNIPER}else{0})
+}
+#[derive(Clone,Debug)]
+struct Prepared {
+    // Retaining the definition prevents reuse of its numeric address key.
+    _definition:Rc<JsObj>,ai:WeaponAi,traits:u8,
+}
+
 /// weapons-ai.js:61-62: the weapons' AI records by class name. The
 /// JavaScript's map is the process's and is never cleared (quirks
 /// P16-1); a battle holds its own here.
 #[derive(Clone, Debug, Default)]
 pub struct WeaponAiTable {
     pub registered: HashMap<String, Registered>,
+    prepared:HashMap<usize,Prepared>,
+    sealed:bool,
 }
 
 impl WeaponAiTable {
     /// weapons-ai.js:151 `registerAIData(aiJson)`: every weapon record
     /// with an `ai` (the later side's wins a shared name).
     pub fn register(&mut self, weapons: &[(String, Registered)]) -> usize {
+        assert!(!self.sealed,"AI weapon records are loaded before native play");
+        self.prepared.clear();
         let mut n = 0;
         for (name, rec) in weapons {
             if !rec.ai.truthy() {
@@ -96,7 +120,33 @@ impl WeaponAiTable {
 
     /// weapons-ai.js:67 `weaponAI(def)`: its own `ai`, else the registered
     /// record of its class, else the engine defaults and its flags.
-    pub fn weapon_ai(&self, def: &JsObj) -> WeaponAi {
+    /// Resolve all definition names once, retaining the objects so pointer
+    /// identity cannot be recycled while a prepared numeric record is live.
+    pub fn prepare_class(&mut self,class:&crate::combat::defs::WeaponClass) {
+        self.prepared.reserve(class.levels.len());
+        for level in &class.levels {
+            let record=self.read_weapon_ai(&level.obj);
+            self.prepared.insert(Rc::as_ptr(&level.obj) as usize,Prepared {_definition:level.obj.clone(),ai:record,traits:weapon_traits(&record)});
+        }
+    }
+    pub fn seal(&mut self) {self.sealed=true;}
+    /// A subsequent battle loads new sides before services share the table.
+    /// registerAIData clears prepared records at its usual observation point.
+    pub(crate) fn resume(&mut self) {self.sealed=false;}
+    pub fn weapon_ai(&self,def:&JsObj)->WeaponAi {
+        if let Some(record)=self.prepared.get(&(def as *const JsObj as usize)) {return record.ai;}
+        assert!(!self.sealed,"native AI weapon definition was not prepared");
+        self.read_weapon_ai(def)
+    }
+    // consumeFire and prepareSpread need only immutable flags. Returning a
+    // byte avoids copying every range, mask and barrage number for that read.
+    fn traits(&self,def:&JsObj)->u8 {
+        if let Some(record)=self.prepared.get(&(def as *const JsObj as usize)) {return record.traits;}
+        assert!(!self.sealed,"native AI weapon definition was not prepared");
+        weapon_traits(&self.read_weapon_ai(def))
+    }
+    fn read_weapon_ai(&self, def: &JsObj) -> WeaponAi {
+
         let own = def.get("ai");
         let rec: Option<Js> = if own.is_nullish() { self.registered_ai(def) } else { Some(own.clone()) };
         let rec = rec.filter(|r| r.truthy());
@@ -205,6 +255,8 @@ impl WeaponAiTable {
             trigger_single,
             zoom_max: f(zoom_max),
             action,
+            cannon: is_cannon(Some(def)),
+            authored_yaw: def.get("YawSpread").truthy(),
         }
     }
 }
@@ -339,6 +391,7 @@ pub fn category_of(u: &UnitView) -> f64 {
             return c;
         }
     }
+    if let Some(category)=u.class.as_ref().and_then(|c|c.prepared_category) {return category;}
     let raw = u.class.as_ref().map(|c| c.health_type.clone()).unwrap_or_default();
     let text = if raw.is_nullish() { String::new() } else { js_string(&raw) };
     match text.to_lowercase().as_str() {
@@ -396,24 +449,17 @@ pub fn effective_range(table: &WeaponAiTable, kind: f64, range_scale: Option<f64
 
 /// weapons-ai.js:242 `expandedRange(unit, controller, def)`.
 pub fn expanded_range(table: &WeaponAiTable, u: &UnitView, range_scale: Option<f64>, def: &JsObj) -> f64 {
-    f(effective_range(table, u.kind, range_scale, def) + f(forward_speed(u) * 5.0))
+    expanded_motion_range(table,u.kind,forward_speed(u),range_scale,def)
+}
+fn expanded_motion_range(table:&WeaponAiTable,kind:f64,speed:f64,range_scale:Option<f64>,def:&JsObj)->f64 {
+    f(effective_range(table,kind,range_scale,def)+f(speed*5.0))
 }
 
 /// weapons-ai.js:248 `maxExpandedRange(unit, controller)`.
-pub fn max_expanded_range(table: &WeaponAiTable, u: &UnitView, range_scale: Option<f64>) -> f64 {
-    let mut best = 0.0;
-    let Some(arsenal) = &u.arsenal else { return best };
-    for w in &arsenal.weapons {
-        let levels: Vec<&Rc<JsObj>> = match &w.levels {
-            Some(l) => l.iter().collect(),
-            None => vec![&w.def],
-        };
-        for level in levels {
-            let r = expanded_range(table, u, range_scale, level);
-            if best <= r {
-                best = r;
-            }
-        }
+pub fn max_expanded_range<W:World+?Sized>(w:&W,table:&WeaponAiTable,unit:Obj,range_scale:Option<f64>)->f64 {
+    let mut best=0.;let (kind,speed)=w.unit_weapon_motion(unit);
+    for i in 0..w.weapon_count(unit) {
+        w.visit_weapon_levels(unit,i,&mut |level| {let r=expanded_motion_range(table,kind,speed,range_scale,level);if best<=r {best=r;}});
     }
     best
 }
@@ -421,15 +467,14 @@ pub fn max_expanded_range(table: &WeaponAiTable, u: &UnitView, range_scale: Opti
 /// weapons-ai.js:544 `selectedWeapon(unit, controller)`: the current
 /// weapon of the AI's channel (the arsenal index; no fallback).
 pub fn selected_weapon<W: World + ?Sized>(w: &W, unit: Obj, controller: Option<Obj>) -> Option<usize> {
-    let u = w.unit(unit);
-    let arsenal = u.arsenal.as_ref()?;
+    if !w.has_arsenal(unit) {return None;}
     let channel = controller.and_then(|c| w.ctl(c).perception.as_ref().map(|p| p.fire.channel)).unwrap_or(0.0);
-    arsenal.current(channel)
+    w.current_weapon(unit,channel)
 }
 
 /// The unit's weapon `index`'s current def.
 pub fn def_at<W: World + ?Sized>(w: &W, unit: Obj, index: usize) -> Rc<JsObj> {
-    w.unit(unit).arsenal.as_ref().expect("an arsenal").weapons[index].def.clone()
+    w.weapon_definition(unit,index).expect("arsenal member")
 }
 
 /// weapons-ai.js:262 `sensorRange(unit, controller)`.
@@ -438,7 +483,8 @@ pub fn sensor_range<W: World + ?Sized>(w: &W, table: &WeaponAiTable, unit: Obj, 
         Some(i) => {
             let def = def_at(w, unit, i);
             let rs = w.ctl(controller).range_scale;
-            expanded_range(table, w.unit(unit), rs, &def)
+            let (kind,speed)=w.unit_weapon_motion(unit);
+            expanded_motion_range(table,kind,speed,rs,&def)
         }
         None => 0.0,
     }
@@ -461,7 +507,7 @@ pub fn upper_band<W: World + ?Sized>(w: &W, table: &WeaponAiTable, unit: Obj, co
     let Some(i) = selected_weapon(w, unit, Some(controller)) else { return 0.0 };
     let def = def_at(w, unit, i);
     let a = table.weapon_ai(&def);
-    let e = f(effective_range(table, w.unit(unit).kind, w.ctl(controller).range_scale, &def) - 10.0);
+    let e = f(effective_range(table, w.unit_scalars(unit).kind, w.ctl(controller).range_scale, &def) - 10.0);
     let hi = if e <= a.optimal_range { a.optimal_range } else { e };
     let s = f(sight - 10.0);
     if s <= hi {
@@ -547,9 +593,9 @@ fn max_health_of(u: &UnitView) -> f64 {
 pub fn weapon_utility<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, owner: Obj, weapon: usize, target: Obj) -> (bool, f64) {
     let def = def_at(w, owner, weapon);
     let ordnance = def.get("ordnance").clone();
-    let owner_kind = w.unit(owner).kind;
+    let owner_kind = w.unit_scalars(owner).kind;
     let owner_soldier = owner_kind == 0.0;
-    let owner_hero = w.unit(owner).hero;
+    let owner_hero = w.unit_scalars(owner).hero;
     let t = w.unit(target);
     let target_kind = t.kind;
     let accept = |score: f64| (true, f(score));
@@ -563,29 +609,29 @@ pub fn weapon_utility<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, owner
     if t.trap {
         return (false, 0.0);
     }
-    if owner_soldier && target_kind == 0.0 && table.weapon_ai(&def).category_mask & shl1(category_of(t)) == 0 {
+    if owner_soldier && target_kind == 0.0 && table.weapon_ai(&def).category_mask & shl1(category_of(&t)) == 0 {
         return (false, 0.0);
     }
     if !ordnance.truthy() {
         return (false, 0.0);
     }
-    let category = category_of(t);
+    let category = category_of(&t);
     let radius = w.sphere(target).radius;
     let mut damage = f(f(ordnance.get("Damage").or(0.0)) * type_scale(&ordnance, category));
     damage = f(blast_damage(ordnance.get("ExplosionImpact"), category, radius) + damage);
     damage = f(blast_damage(ordnance.get("ExplosionExpire"), category, radius) + damage);
-    let wv = &w.unit(owner).arsenal.as_ref().unwrap().weapons[weapon];
-    let cap = capacity(wv);
+    let wv = w.weapon(owner,weapon).expect("arsenal member");
+    let cap = capacity(&wv);
     let value = f((if cap <= 50.0 { cap } else { 50.0 }) * damage);
     let t = w.unit(target);
-    if f(max_health_of(t) * 0.5) < value {
+    if f(max_health_of(&t) * 0.5) < value {
         return accept(damage);
     }
     let ok = owner_kind;
     if (ok == 6.0 || ok == 2.0 || ok == 8.0 || ok == 7.0) && damage > 0.0 {
         return accept(damage);
     }
-    if target_kind != 6.0 && target_kind != 2.0 && (!(max_health_of(t) < FLT_MAX) || !(target_kind == 9.0 || target_kind == 8.0)) {
+    if target_kind != 6.0 && target_kind != 2.0 && (!(max_health_of(&t) < FLT_MAX) || !(target_kind == 9.0 || target_kind == 8.0)) {
         return (false, 0.0);
     }
     if !(damage > 0.0) {
@@ -678,7 +724,7 @@ fn grenade_priority(clusters: &mut Clusters, controller_roll: Option<f64>, targe
 /// world)`.
 pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: Option<Obj>, unit: Obj, target: Option<Obj>, switch_allowed: bool) -> Choice {
     let mut out = Choice::default();
-    let count = w.unit(unit).arsenal.as_ref().map_or(0, |a| a.weapons.len());
+    let count = w.weapon_count(unit);
     let Some(target) = target else { return out };
     if count == 0 {
         return out;
@@ -687,7 +733,7 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
     let origin = w.origin(unit);
     let aim = w.aim_point(target);
     let d2 = length_sq32(f(aim.x - origin.x), f(aim.y - origin.y), f(aim.z - origin.z));
-    let owner_soldier = w.unit(unit).kind == 0.0;
+    let owner_soldier = w.unit_scalars(unit).kind == 0.0;
     let range_scale = controller.map(|c| w.ctl(c).range_scale).unwrap_or(None);
     let roll = controller.map(|c| w.ctl(c).roll);
     let mut best: Option<usize> = None;
@@ -695,7 +741,7 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
     let mut best_big = false;
     let mut best_in_band = false;
     for i in 0..count {
-        if !(ammo_count(&w.unit(unit).arsenal.as_ref().unwrap().weapons[i]) > 0.0) {
+        if !(ammo_count(&w.weapon(unit,i).expect("arsenal member")) > 0.0) {
             continue;
         }
         let (ok, score) = weapon_utility(w, &cx.weapons, unit, i, target);
@@ -703,17 +749,18 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
             continue;
         }
         let def = def_at(w, unit, i);
-        let cap = capacity(&w.unit(unit).arsenal.as_ref().unwrap().weapons[i]);
+        let cap = capacity(&w.weapon(unit,i).expect("arsenal member"));
         let big = cap > 20.0;
         let better = best_score < score;
         let a = cx.weapons.weapon_ai(&def);
-        let range = effective_range(&cx.weapons, w.unit(unit).kind, range_scale, &def);
+        let range = effective_range(&cx.weapons, w.unit_scalars(unit).kind, range_scale, &def);
         if d2 <= f(a.min_range * a.min_range) || f(range * range) <= d2 {
             // Out of the band: a fallback while nothing in band is found.
             if best_in_band {
                 continue;
             }
-            let far = expanded_range(&cx.weapons, w.unit(unit), range_scale, &def);
+            let (kind,speed)=w.unit_weapon_motion(unit);
+            let far=expanded_motion_range(&cx.weapons,kind,speed,range_scale,&def);
             if !(d2 < f(far * far)) {
                 continue;
             }
@@ -726,7 +773,7 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
         }
         let mut take = !best_in_band || (if best_big { big && better } else { big || better });
         let t = w.unit(target);
-        if grenade_priority(&mut cx.clusters, roll, t, &def, owner_soldier, now) {
+        if grenade_priority(&mut cx.clusters.borrow_mut(), roll, &t, &def, owner_soldier, now) {
             take = true;
         }
         if take {
@@ -787,7 +834,7 @@ pub struct FireControl {
     pub sniper_deadline: f64,
     pub burst: Burst,
     pub weapon_target: Option<Ref>,
-    pub protected: Vec<Ref>,
+    pub protected: Inline<Ref,8>,
 }
 
 impl Default for FireControl {
@@ -802,7 +849,7 @@ impl Default for FireControl {
             sniper_deadline: 0.0,
             burst: Burst::default(),
             weapon_target: None,
-            protected: Vec::new(),
+            protected: Inline::default(),
         }
     }
 }
@@ -828,10 +875,28 @@ impl FireControl {
 
 /// What the combat services share across controllers: the weapons' AI
 /// records, the cluster timestamps.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug,Default)]
 pub struct Shared {
-    pub weapons: WeaponAiTable,
-    pub clusters: Clusters,
+    pub weapons:Rc<WeaponAiTable>,
+    pub clusters:Rc<RefCell<Clusters>>,
+}
+impl Clone for Shared {
+    fn clone(&self)->Self {Self {weapons:self.weapons.clone(),clusters:Rc::new(RefCell::new(self.clusters.borrow().clone()))}}
+}
+impl Shared {
+    /// Native vehicle dispatch and combat use the same cluster authority. A
+    /// scope borrows it only for the pure edit, never across a world query.
+    pub fn share(&self)->Self {Self {weapons:self.weapons.clone(),clusters:self.clusters.clone()}}
+    pub fn register(&mut self,records:&[(String,Registered)])->usize {
+        Rc::get_mut(&mut self.weapons).expect("AI records load before native services bind").register(records)
+    }
+    pub fn prepare_class(&mut self,class:&crate::combat::defs::WeaponClass) {
+        Rc::get_mut(&mut self.weapons).expect("AI classes load before native services bind").prepare_class(class);
+    }
+    pub fn begin(&mut self,targets:usize) {
+        Rc::get_mut(&mut self.weapons).expect("AI load completes before native services bind").seal();
+        self.clusters.borrow_mut().states.reserve(targets);
+    }
 }
 
 fn fire_mut<W: World + ?Sized>(w: &mut W, controller: Obj) -> Option<&mut FireControl> {
@@ -841,7 +906,7 @@ fn fire_mut<W: World + ?Sized>(w: &mut W, controller: Obj) -> Option<&mut FireCo
 /// weapons-ai.js:558 `switchWeapon(controller, unit, index)`.
 pub fn switch_weapon<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, index: usize) -> bool {
     let has_fire = w.ctl(controller).perception.is_some();
-    let channel = match w.unit(unit).arsenal.as_ref().and_then(|a| a.weapons.get(index)) {
+    let channel = match w.weapon(unit,index) {
         Some(wv) => wv.channel.clone(),
         None => return false,
     };
@@ -859,7 +924,7 @@ pub fn switch_weapon<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, i
 
 /// weapons-ai.js:587 `setTarget(controller, unit, target, world)`.
 pub fn set_target<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller: Obj, unit: Option<Obj>, target: Option<Obj>) {
-    let r = target.map(|t| Ref { obj: t, generation: w.unit(t).generation });
+    let r = target.map(|t| Ref { obj: t, generation: w.unit_scalars(t).generation });
     w.ctl_mut(controller).target = r;
     if w.ctl(controller).perception.is_none() {
         return;
@@ -869,13 +934,13 @@ pub fn set_target<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controlle
     let mut kept = target;
     if let Some(t) = target {
         let a = table.weapon_ai(&def_at(w, unit, index));
-        let (ut, tt) = (w.unit(unit).team, w.unit(t).team);
+        let (ut, tt) = (w.unit_scalars(unit).team, w.unit_scalars(t).team);
         let rel = w.relation(ut, tt);
-        if a.relation_mask & relation_bit(rel) == 0 || a.category_mask & shl1(category_of(w.unit(t))) == 0 {
+        if a.relation_mask & relation_bit(rel) == 0 || a.category_mask & shl1(category_of(&w.unit(t))) == 0 {
             kept = None;
         }
     }
-    let kr = kept.map(|k| Ref { obj: k, generation: w.unit(k).generation });
+    let kr = kept.map(|k| Ref { obj: k, generation: w.unit_scalars(k).generation });
     fire_mut(w, controller).unwrap().weapon_target = kr;
 }
 
@@ -935,14 +1000,15 @@ pub fn consume_fire<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: O
             }
         }
         let def = def_at(w, unit, index);
-        if charge_weapon(&w.unit(unit).arsenal.as_ref().unwrap().weapons[index]) {
+        if w.weapon_chargeable(unit,index) {
             request = charge_request(w, controller, unit, index, request, now);
-        } else if !cx.weapons.weapon_ai(&def).trigger_single {
-            if is_cannon(Some(&def)) {
+        } else {
+            let traits=cx.weapons.traits(&def);
+            if traits&TRAIT_TRIGGER_SINGLE!=0 {
+                request = semiauto_request(w, &cx.weapons, controller, unit, index, request, now);
+            } else if traits&TRAIT_CANNON!=0 {
                 request = burst_request(w, &cx.weapons, controller, unit, index, request, now);
             }
-        } else {
-            request = semiauto_request(w, &cx.weapons, controller, unit, index, request, now);
         }
         if request && protected_veto(w, controller, unit, Some(index)) {
             request = false;
@@ -956,8 +1022,7 @@ pub fn consume_fire<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: O
     press_button(&mut fire.buttons[a], request);
     press_button(&mut fire.buttons[b], false);
     let (b0, b1) = (fire.buttons[0].count, fire.buttons[1].count);
-    let u = w.unit(unit);
-    if u.intent && u.intent_buttons {
+    if w.unit_has_buttons(unit) {
         w.set_intent_buttons(unit, b0, b1);
     }
     request
@@ -969,19 +1034,24 @@ pub fn charge_weapon(wv: &super::world::WeaponView) -> bool {
         Some(l) if !l.is_empty() => l[0].clone(),
         _ => wv.def.clone(),
     };
-    if is_launcher(Some(&def)) {
+    charge_definition(&def)
+}
+
+/// chargeWeapon uses immutable level-zero facts, prepared at class load.
+pub fn charge_definition(def:&JsObj)->bool {
+    if is_launcher(Some(def)) {
         return false;
     }
     if !(def.get("MaxPressedTime").num() > 0.0) {
         return false;
     }
-    is_cannon(Some(&def)) || def.get("base").is_str("grenade")
+    is_cannon(Some(def)) || def.get("base").is_str("grenade")
 }
 
 /// weapons-ai.js:716 `chargeRequest`.
 fn charge_request<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, index: usize, mut request: bool, now: f64) -> bool {
-    let wv = w.unit(unit).arsenal.as_ref().unwrap().weapons[index].clone();
-    let kind = w.unit(unit).kind;
+    let wv = w.weapon(unit,index).expect("arsenal member");
+    let kind = w.unit_scalars(unit).kind;
     if request {
         let gravity = weapon_gravity(&wv);
         let last_release = w.ctl(controller).perception.as_ref().unwrap().fire.last_release;
@@ -1040,7 +1110,7 @@ fn weapon_gravity(wv: &super::world::WeaponView) -> f64 {
 
 /// weapons-ai.js:747 `semiautoRequest`.
 fn semiauto_request<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller: Obj, unit: Obj, index: usize, mut request: bool, now: f64) -> bool {
-    let wv = w.unit(unit).arsenal.as_ref().unwrap().weapons[index].clone();
+    let wv = w.weapon(unit,index).expect("arsenal member");
     if sniper_weapon(table, Some(&wv.def)) {
         request = sniper_gate(w, controller, &wv, request, now);
     }
@@ -1068,8 +1138,7 @@ fn semiauto_request<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, control
 pub fn sniper_weapon(table: &WeaponAiTable, def: Option<&JsObj>) -> bool {
     match def {
         Some(d) => {
-            let a = table.weapon_ai(d);
-            a.trigger_single && a.zoom_max >= 6.0
+            table.traits(d)&TRAIT_SNIPER!=0
         }
         None => false,
     }
@@ -1101,11 +1170,12 @@ fn weapon_idle(wv: &super::world::WeaponView) -> bool {
 
 /// weapons-ai.js:790 `burstRequest`.
 fn burst_request<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller: Obj, unit: Obj, index: usize, request: bool, now: f64) -> bool {
-    let wv = w.unit(unit).arsenal.as_ref().unwrap().weapons[index].clone();
+    let wv=w.weapon_for_burst(unit,index,request);
     if !request {
         fire_mut(w, controller).unwrap().burst.state = 0.0;
         return false;
     }
+    let wv=wv.expect("arsenal member");
     let heat = f(wv.heat);
     let ammo = ammo_count(&wv);
     let a = table.weapon_ai(&wv.def);
@@ -1174,7 +1244,7 @@ pub fn facing_and_range<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, con
     }
     let index = selected_weapon(w, unit, Some(controller)).expect("facingAndRange after firingCone: a weapon");
     let def = def_at(w, unit, index);
-    let range = v8math::min(effective_range(table, w.unit(unit).kind, w.ctl(controller).range_scale, &def), harpoon_reach(&def));
+    let range = v8math::min(effective_range(table, w.unit_scalars(unit).kind, w.ctl(controller).range_scale, &def), harpoon_reach(&def));
     let origin = w.origin(unit);
     let d2 = length_sq32(f(point.x - origin.x), f(point.y - origin.y), f(point.z - origin.z));
     d2 < f(range * range)
@@ -1202,7 +1272,7 @@ pub fn firing_cone<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controll
     let ry = f(point.y - origin.y);
     let rz = f(point.z - origin.z);
     let def = def_at(w, unit, index);
-    if sniper_weapon(table, Some(&def)) && w.unit(unit).kind == 0.0 {
+    if sniper_weapon(table, Some(&def)) && w.unit_scalars(unit).kind == 0.0 {
         return perp_sq(rx, ry, rz, &fwd) < 0.0625;
     }
     let n = normalize_or_x(rx, ry, rz);
@@ -1234,9 +1304,9 @@ fn perp_sq(rx: f64, ry: f64, rz: f64, d: &Vector3) -> f64 {
 
 /// weapons-ai.js:925 `rebuildProtectedHumans(world)`.
 pub fn rebuild_protected_humans<W: World + ?Sized>(w: &mut W) {
-    let mut humans = Vec::new();
+    let mut humans = w.object_buffer();
     for u in w.living() {
-        if w.unit(u).human {
+        if w.unit_scalars(u).human {
             humans.push(u);
         }
     }
@@ -1244,7 +1314,7 @@ pub fn rebuild_protected_humans<W: World + ?Sized>(w: &mut W) {
         return;
     }
     for u in w.living() {
-        if let Some(c) = w.unit(u).controller {
+        if let Some(c) = w.unit_controller(u) {
             if let Some(p) = w.ctl_mut(c).perception.as_mut() {
                 p.fire.protected.clear();
             }
@@ -1258,7 +1328,7 @@ pub fn rebuild_protected_humans<W: World + ?Sized>(w: &mut W) {
         let near = w.query(&position, 50.0, QueryFilter::AllyOrNeutral { except: human, team });
         let n = near.len().min(20);
         for &u in near.iter().take(n) {
-            if let Some(c) = w.unit(u).controller {
+            if let Some(c) = w.unit_controller(u) {
                 if let Some(p) = w.ctl_mut(c).perception.as_mut() {
                     if p.fire.protected.len() < 8 {
                         p.fire.protected.push(Ref { obj: human, generation });
@@ -1315,20 +1385,15 @@ pub fn sniper_yaw(distance_sq: f64) -> f64 {
 /// weapons-ai.js:985 `prepareSpread(controller, unit, weapon)`.
 pub fn prepare_spread<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller: Obj, unit: Obj, weapon: Option<usize>) {
     let Some(index) = weapon else { return };
-    weapon_mut(w, unit, index).yaw_spread_override = None;
+    w.set_weapon_yaw(unit,index,None);
     let def = def_at(w, unit, index);
-    if w.unit(unit).human || def.get("YawSpread").truthy() || !sniper_weapon(table, Some(&def)) {
-        return;
-    }
+    if w.unit_scalars(unit).human {return;}
+    let traits=table.traits(&def);
+    if traits&TRAIT_AUTHORED_YAW!=0 || traits&TRAIT_SNIPER==0 {return;}
     let Some(target) = resolve(w, w.ctl(controller).target) else { return };
-    let p = w.unit(unit).position;
-    let q = w.unit(target).position;
+    let p = w.unit_scalars(unit).position;
+    let q = w.unit_scalars(target).position;
     let d2 = length_sq32(f(p.x - q.x), f(p.y - q.y), f(p.z - q.z));
-    let s = weapon_mut(w, unit, index).sniper_scale.unwrap_or(0.0);
-    weapon_mut(w, unit, index).yaw_spread_override = Some(f(f(s) * sniper_yaw(d2)) * (180.0 / std::f64::consts::PI));
-}
-
-/// A unit's weapon at `index`, to write its AI settings.
-pub fn weapon_mut<W: World + ?Sized>(w: &mut W, unit: Obj, index: usize) -> &mut super::world::WeaponView {
-    &mut w.unit_mut(unit).arsenal.as_mut().expect("an arsenal").weapons[index]
+    let s = w.weapon_settings(unit,index).sniper_scale.unwrap_or(0.0);
+    w.set_weapon_yaw(unit,index,Some(f(f(s) * sniper_yaw(d2)) * (180.0 / std::f64::consts::PI)));
 }

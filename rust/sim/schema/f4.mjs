@@ -59,5 +59,5 @@ export default {
     F4TrapView: { $layout: true, state: 'rec:TrState', attacker: 'union:Attacker' },
   },
   imports: { f4AIHook: {args:'F4AIHook',result:null} },
-  events: { f4Spawn: 'F4SpawnNotice', f4Human: 'HsEvent', f4Effect: 'F4Effect', f4Sound: 'F4Sound', f4Serve: 'F4Serve', f4Held: 'F4Held' },
+  events: { f4CharacterBirth: 'F4Handle', f4Spawn: 'F4SpawnNotice', f4Human: 'HsEvent', f4Effect: 'F4Effect', f4Sound: 'F4Sound', f4Serve: 'F4Serve', f4Held: 'F4Held' },
 };

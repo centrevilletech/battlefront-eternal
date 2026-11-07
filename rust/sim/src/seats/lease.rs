@@ -51,6 +51,12 @@ pub fn idle_input() -> SeatInput {
 /// tick })` (seats.js:87): `unit` with the generation it is granted to.
 #[allow(clippy::too_many_arguments)]
 pub fn new_lease(unit: Option<(Ref<Unit>, f64)>, human: bool, team: f64, vehicle: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: f64, role: SeatRole, time: f64, tick: f64) -> SeatLease {
+    new_lease_with_input(unit,human,team,vehicle,turret,index,role,time,tick,idle_input())
+}
+
+/// A live owner supplies retained button storage at the same constructor slot.
+#[allow(clippy::too_many_arguments)]
+pub fn new_lease_with_input(unit: Option<(Ref<Unit>, f64)>, human: bool, team: f64, vehicle: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: f64, role: SeatRole, time: f64, tick: f64, input: SeatInput) -> SeatLease {
     SeatLease {
         unit: unit.map(|(reference, _)| reference),
         generation: unit.map_or(0.0, |(_, generation)| generation),
@@ -65,7 +71,7 @@ pub fn new_lease(unit: Option<(Ref<Unit>, f64)>, human: bool, team: f64, vehicle
         was: [0.0, 0.0],
         exit_request: None,
         released: false,
-        input: idle_input(),
+        input,
         controllable: None,
     }
 }
@@ -373,4 +379,26 @@ pub fn latch_lease(leases: &mut Slab<SeatLease>, units: &mut Slab<Unit>, control
     };
     lease.was = was;
     played
+}
+
+/// SeatInput owns two channel lists. Retain them until a retired lease's last
+/// publication has been encoded, then reuse them for a later acquisition.
+#[derive(Default)]
+pub struct InputPool {rows:Vec<SeatInput>,capacity:usize}
+impl InputPool {
+    pub fn reserve(&mut self,capacity:usize) {
+        if capacity<=self.capacity {return;}
+        self.rows.reserve(capacity.saturating_sub(self.rows.len()));
+        for _ in self.capacity..capacity {self.rows.push(idle_input());}
+        self.capacity=capacity;
+    }
+    pub fn acquire(&mut self)->Option<SeatInput> {
+        let mut input=self.rows.pop()?;
+        let mut held=std::mem::take(&mut input.held);held.resize(2,false);held.fill(false);
+        let mut pressed=std::mem::take(&mut input.pressed);pressed.resize(2,false);pressed.fill(false);
+        Some(SeatInput {held,pressed,aim:[0.,0.,1.],..SeatInput::default()})
+    }
+    pub fn recycle(&mut self,input:SeatInput) {
+        if self.rows.len()<self.capacity {self.rows.push(input);}
+    }
 }

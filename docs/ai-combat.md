@@ -1,5 +1,10 @@
 # Classic AI: perception, aim, firing and combat
 
+Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
+now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
+the former implementation and document its behavioral contract.
+
+
 Combat part of the Classic AI (`docs/ai.md`). It covers perception, targets,
 memory and weapon eligibility; aim dynamics, physical spread and firing
 decisions; range and pattern selection, pattern states and timers; the

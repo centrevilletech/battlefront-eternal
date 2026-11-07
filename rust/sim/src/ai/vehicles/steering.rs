@@ -256,7 +256,7 @@ pub fn hover_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Optio
     steer_state(w, unit.obj, |_| ());
     let mut factor = 1.0;
     let mut req = request.copied();
-    let huge = c.ai_size_type.as_deref().unwrap_or("").to_lowercase() == "huge";
+    let huge = c.ai_size_type.as_deref().unwrap_or("").eq_ignore_ascii_case("huge");
     if let (Some(r), false) = (request.filter(|r| r.valid), huge) {
         let v = unit.velocity;
         let d_len = 1.5 * hypot3(v.x, v.y, v.z);
@@ -496,16 +496,16 @@ pub fn orbit_input<W: World + ?Sized>(w: &mut W, unit: &UnitView) -> Option<Requ
     let mut result = OrbitResult::default();
     orbit_steer(&me.position, &fwd, &hull.position, &hull.matrix, &orbit, &mut result);
     if result.tow_pass {
-        for seat in &me.seats {
+        for i in 0..w.hull_seat_count(v) {
+            let seat = w.hull_seat(v,i).expect("hull seat");
             let Some(lease) = seat.lease.map(|l| w.lease(l)) else { continue };
             let network = lease.unit.is_some_and(|u| w.unit(u).network_human);
             let control = if !lease.human && !network { lease.controllable } else { None };
             let Some(control) = control else { continue };
             let controller = w.unit(control).controller;
-            let Some(weapons) = w.weapons(control) else { continue };
-            let Some(tow) = weapons.iter().position(|wv| wv.base.as_deref() == Some("towcableweapon")) else { continue };
+            let Some((tow,channel))=w.tow_weapon(control) else {continue};
             let Some(controller) = controller else { continue };
-            if w.controller(controller).fire_channel != Some(weapons[tow].channel) {
+            if w.controller(controller).fire_channel != Some(channel) {
                 w.switch_weapon(controller, control, tow);
             }
         }

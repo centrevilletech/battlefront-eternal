@@ -25,7 +25,7 @@ export const EDITS = {
   '/src/game.js': [
     { anchor: "        case 'start': {", text: `        case 'start': {${enter('begin')}` },
     { anchor: "        case 'cameraMatrix': break;", text: `        case 'cameraMatrix': ${exit('begin')}break;` },
-    around('ai', 'ai.update(dt);'),
+    around('ai', '          ai.update(dt,tick,true);'),
     // The unit owner includes fleet, seats, recon and separation. Their
     // old individual markers remain only in historical capture metadata.
     around('unitTick', '          unitsSim.phase(dt, tick);'),
@@ -34,7 +34,7 @@ export const EDITS = {
     around('items', "        case 'items': items.update(dt, mineTargets); break;"),
     around('battlefield', "        case 'battlefield': game.tailOwner.step(dt,tick,Boolean(game.serverWorld),tickHuman); tickHuman=null; break;"),
     around('battle', "        case 'battle': presentBattle(dt); break;"),
-    around('targetHud', "        case 'target': updateTargetHud(dt); break;"),
+    around('targetHud', "        case 'target': updateTargetHud(dt); ai?.dangers?.(); break;"),
     { anchor: "        case 'grenades': context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;", text: `        case 'grenades': ${enter('aiGrenades')}context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;` },
     { anchor: '          if (context.grenadeIndex >= context.grenades.length) { context.grenades = null; return false; }', text: `          if (context.grenadeIndex >= context.grenades.length) { ${exit('aiGrenades')}context.grenades = null; return false; }` },
     around('spawnFlush', "        case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;"),
@@ -53,10 +53,6 @@ export const EDITS = {
   '/src/weapons.js': [
     { anchor: 'export function seededRandom(seed) {\n  let a = seed >>> 0;\n',
       text: 'export function seededRandom(seed) {\n  const draws = seededRandomOf(seed);\n  return globalThis.__bfeDraw ? globalThis.__bfeDraw.seeded(seed, draws) : draws;\n}\nfunction seededRandomOf(seed) {\n  let a = seed >>> 0;\n' },
-  ],
-  '/src/ai/enhanced/aim.js': [
-    { anchor: '  const random = new ClassicRandom((seed ^ 0x51ed270b) >>> 0);\n',
-      text: '  const random = new ClassicRandom((seed ^ 0x51ed270b) >>> 0);\n  globalThis.__bfeDraw?.named(random, "C");\n' },
   ],
 };
 

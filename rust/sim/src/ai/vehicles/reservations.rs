@@ -10,6 +10,7 @@
 //! record instead of adding one.
 
 use super::world::{Obj, Ref, World};
+use crate::ai::owned::scratch::List;
 
 /// reservations.js:125.
 pub const RESERVATION_LIFE: f64 = 3.0;
@@ -122,15 +123,22 @@ pub fn free_capacity<W: World + ?Sized>(reservations: &mut Reservations, w: &W, 
 /// outside a state borrow, including weak-reference validation. A nested
 /// refresh or insertion therefore remains visible to the resumed call.
 pub trait ReservationService: super::service::VehicleStorage {
-    fn reservation_live<W: World + ?Sized>(&mut self, w: &W) -> Vec<Reservation> {
+    fn reservation_rows(&self)->List<Reservation> {
+        self.read(|s| {
+            let mut rows=s.reservation_scratch.as_ref().map_or_else(List::default,|pool|pool.take());
+            for &row in &s.reservations.records {rows.push(row);}
+            rows
+        })
+    }
+    fn reservation_live<W: World + ?Sized>(&mut self, w: &W) -> List<Reservation> {
         let now = w.now();
-        let records = self.read(|s| s.reservations.records.clone());
+        let records = self.reservation_rows();
         for r in records {
             if !(now < r.time + RESERVATION_LIFE && resolve(w, &r.candidate).is_some() && resolve(w, &r.owner).is_some()) {
                 self.write(|s| s.reservations.records.retain(|current| *current != r));
             }
         }
-        self.read(|s| s.reservations.records.clone())
+        self.reservation_rows()
     }
     fn reservation_find<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) -> Option<Reservation> {
         self.reservation_live(w).into_iter().find(|r| r.kind == kind && resolve(w, &r.candidate) == Some(candidate) && resolve(w, &r.owner) == Some(owner))
@@ -155,7 +163,10 @@ pub trait ReservationService: super::service::VehicleStorage {
             candidate: Ref { obj: candidate, generation: w.unit(candidate).generation },
             owner: Ref { obj: owner, generation: w.unit(owner).generation }, time: w.now(), kind,
         };
-        self.write(|s| s.reservations.records.push(record));
+        self.write(|s| {
+            if s.reservation_scratch.is_some() {assert!(s.reservations.records.len()<s.reservations.records.capacity(),"AI reservations exceed reserved capacity");}
+            s.reservations.records.push(record);
+        });
     }
 }
 impl<T: super::service::VehicleStorage + ?Sized> ReservationService for T {}

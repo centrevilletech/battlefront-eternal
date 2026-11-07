@@ -41,6 +41,12 @@ pub(crate) fn refresh_mobile_views(){
     super::fleet_posts::refresh_posts(&mut sim().store,&mut state.owner.prepared.pads);
     super::f4_core::mark_mobile();
 }
+/// Cold native roster construction follows tail content preparation. Bind
+/// its new human before any lifecycle or human-spawn phase can observe it.
+pub(crate) fn initial_human(character:Option<crate::store::Ref<Character>>) {
+    let state=state();state.owner.prepared.local_character=character;
+    state.human.human.prepared.character=character;
+}
 struct Text;
 impl super::stats::Text for Text {
     fn nonempty(&self, id: StrId) -> bool {
@@ -239,7 +245,7 @@ pub extern "C" fn f4_tail() {
     }
     let outer = f3::external();
     f3::with_services(|services| {
-        let services = services.expect("native battle body services");
+        let mut services = services.expect("native battle body services");
         let mut shell = state.shell.take().unwrap();
         std::mem::swap(&mut shell, &mut sim().store);
         let mut lifecycle = Native {
@@ -250,7 +256,7 @@ pub extern "C" fn f4_tail() {
             character: if input.server { None } else { state.owner.prepared.local_character },
         };
         let mut actions = Actions {
-            services,
+            services:services.reborrow(),
             lifecycle: &mut lifecycle,
             human: &mut state.human,
             local: state.owner.local,
@@ -280,7 +286,7 @@ pub extern "C" fn f4_tail() {
 /// readers. Mutating services still install the canonical Store at AI hooks.
 pub(crate) fn spawning<T>(
     s: &mut Store,
-    services: crate::units::f3::WorldServices<'_>,
+    mut services: crate::units::f3::WorldServices<'_>,
     run: impl FnOnce(
         &mut Store,
         &mut dyn super::world::SpawningWorld,
@@ -294,7 +300,7 @@ pub(crate) fn spawning<T>(
         character: state.owner.prepared.local_character,
     };
     let mut actions = Actions {
-        services,
+        services:services.reborrow(),
         lifecycle: &mut lifecycle,
         human: &mut state.human,
         local,
@@ -325,11 +331,11 @@ pub(crate) fn auto_respawn(services:f3::WorldServices<'_>) {
 /// choices. Network spawn points use the connection ordinal's fixed uniform;
 /// choosing a fallback post uses one half, never a gameplay RNG draw.
 pub(crate) fn connection_spawn(character:crate::store::Ref<Character>, previous:Option<crate::store::Ref<Unit>>,
-    class:StrId, post:Option<StrId>,ordinal:f64,services:f3::WorldServices<'_>)->Option<(crate::store::Ref<Unit>,StrId)> {
+    class:StrId, post:Option<StrId>,ordinal:f64,mut services:f3::WorldServices<'_>)->Option<(crate::store::Ref<Unit>,StrId)> {
     let state=state();let team=sim().store.character.get(character)?.team;
     if !state.human.human.prepared.rosters.get(team as usize).is_some_and(|r|r.contains(&class)) {return None;}
     let mut lifecycle=Native{local:None,character:None};let mut human=super::native_human::NoHuman;
-    let mut actions=Actions{services,lifecycle:&mut lifecycle,human:&mut human,local:None,effects:state.effects};
+    let mut actions=Actions{services:services.reborrow(),lifecycle:&mut lifecycle,human:&mut human,local:None,effects:state.effects};
     let mut world=super::owned_world::World{prepared:&mut state.owner.prepared,services:&mut actions,local:None,classic:state.owner.classic};
     let choices=&mut state.human.human.choices;
     // Landed transports use the original ground-normal admission test.

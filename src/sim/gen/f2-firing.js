@@ -338,41 +338,41 @@ export class FfWeaponBirthMirror {
 
 export function syncFfWeaponBirth(b, f, at, h, m) {
   m.state = syncWeapon(b, f, at + 0, h, m.state ?? new WeaponMirror());
-  { const tag = f[at + 42]; if (tag === 0) { m.ordnance = b.defs.ordnance.at(f[at + 43]); } else m.ordnance = tag === 1 ? null : undefined; }
-  m.tow = f[at + 44] !== 0;
-  m.range = f[at + 45];
-  m.cableLength = f[at + 46];
-  m.channel = f[at + 47];
-  m.relationMask = f[at + 48] >>> 0;
-  m.categoryMask = f[at + 49] >>> 0;
-  m.weaponNode = f[at + 50];
-  m.fallbackNode = f[at + 51];
-  { const items = (m.directionNodes ??= []), start = h + f[at + 52], n = f[at + 53]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.outside ??= []), start = h + f[at + 54], n = f[at + 55]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  m.emitter = syncBeamSource(b, f, at + 56, h, m.emitter);
-  m.emitterNode = f[at + 59];
-  m.emitterAimer = f[at + 60];
-  { const items = (m.muzzles ??= []), start = h + f[at + 61], n = f[at + 62]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncFfMuzzle(b, f, at + 0, h, v ?? new FfMuzzleMirror()); } items[i] = v; } }
+  { const tag = f[at + 43]; if (tag === 0) { m.ordnance = b.defs.ordnance.at(f[at + 44]); } else m.ordnance = tag === 1 ? null : undefined; }
+  m.tow = f[at + 45] !== 0;
+  m.range = f[at + 46];
+  m.cableLength = f[at + 47];
+  m.channel = f[at + 48];
+  m.relationMask = f[at + 49] >>> 0;
+  m.categoryMask = f[at + 50] >>> 0;
+  m.weaponNode = f[at + 51];
+  m.fallbackNode = f[at + 52];
+  { const items = (m.directionNodes ??= []), start = h + f[at + 53], n = f[at + 54]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.outside ??= []), start = h + f[at + 55], n = f[at + 56]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  m.emitter = syncBeamSource(b, f, at + 57, h, m.emitter);
+  m.emitterNode = f[at + 60];
+  m.emitterAimer = f[at + 61];
+  { const items = (m.muzzles ??= []), start = h + f[at + 62], n = f[at + 63]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncFfMuzzle(b, f, at + 0, h, v ?? new FfMuzzleMirror()); } items[i] = v; } }
   return m;
 }
 
 export function putFfWeaponBirth(b, o, f, at, heap) {
   putWeapon(b, o.state, f, at + 0, heap);
-  { const $x = o.ordnance; if ($x === null || $x === undefined) { f[at + 42] = $x === null ? 1 : 2; f[at + 43] = 0; } else { f[at + 42] = 0; f[at + 43] = b.defs.ordnance.id($x); } }
-  f[at + 44] = o.tow ? 1 : 0;
-  f[at + 45] = o.range;
-  f[at + 46] = o.cableLength;
-  f[at + 47] = o.channel;
-  f[at + 48] = o.relationMask;
-  f[at + 49] = o.categoryMask;
-  f[at + 50] = o.weaponNode;
-  f[at + 51] = o.fallbackNode;
-  heap.items(o.directionNodes, f, at + 52, 1, (f, at, v) => { f[at + 0] = v; });
-  heap.items(o.outside, f, at + 54, 1, (f, at, v) => { f[at + 0] = v; });
-  putBeamSource(b, o.emitter, f, at + 56, heap);
-  f[at + 59] = o.emitterNode;
-  f[at + 60] = o.emitterAimer;
-  heap.items(o.muzzles, f, at + 61, 5, (f, at, v) => { putFfMuzzle(b, v, f, at + 0, heap); });
+  { const $x = o.ordnance; if ($x === null || $x === undefined) { f[at + 43] = $x === null ? 1 : 2; f[at + 44] = 0; } else { f[at + 43] = 0; f[at + 44] = b.defs.ordnance.id($x); } }
+  f[at + 45] = o.tow ? 1 : 0;
+  f[at + 46] = o.range;
+  f[at + 47] = o.cableLength;
+  f[at + 48] = o.channel;
+  f[at + 49] = o.relationMask;
+  f[at + 50] = o.categoryMask;
+  f[at + 51] = o.weaponNode;
+  f[at + 52] = o.fallbackNode;
+  heap.items(o.directionNodes, f, at + 53, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.outside, f, at + 55, 1, (f, at, v) => { f[at + 0] = v; });
+  putBeamSource(b, o.emitter, f, at + 57, heap);
+  f[at + 60] = o.emitterNode;
+  f[at + 61] = o.emitterAimer;
+  heap.items(o.muzzles, f, at + 62, 5, (f, at, v) => { putFfMuzzle(b, v, f, at + 0, heap); });
 }
 
 export function sameFfWeaponBirth(a, b) {
@@ -426,12 +426,12 @@ export class FfSeatBirthMirror {
 }
 
 export function syncFfSeatBirth(b, f, at, h, m) {
-  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 63; v = syncFfWeaponBirth(b, f, at + 0, h, v ?? new FfWeaponBirthMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 64; v = syncFfWeaponBirth(b, f, at + 0, h, v ?? new FfWeaponBirthMirror()); } items[i] = v; } }
   return m;
 }
 
 export function putFfSeatBirth(b, o, f, at, heap) {
-  heap.items(o.weapons, f, at + 0, 63, (f, at, v) => { putFfWeaponBirth(b, v, f, at + 0, heap); });
+  heap.items(o.weapons, f, at + 0, 64, (f, at, v) => { putFfWeaponBirth(b, v, f, at + 0, heap); });
 }
 
 export function sameFfSeatBirth(a, b) {
@@ -557,17 +557,17 @@ export class FfWeaponOutMirror {
 
 export function syncFfWeaponOut(b, f, at, h, m) {
   m.state = syncWeapon(b, f, at + 0, h, m.state ?? new WeaponMirror());
-  m.randomBinding = f[at + 42] >>> 0;
-  m.barrel = f[at + 43];
-  { const items = (m.kicks ??= []), start = h + f[at + 44], n = f[at + 45]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  m.randomBinding = f[at + 43] >>> 0;
+  m.barrel = f[at + 44];
+  { const items = (m.kicks ??= []), start = h + f[at + 45], n = f[at + 46]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
 
 export function putFfWeaponOut(b, o, f, at, heap) {
   putWeapon(b, o.state, f, at + 0, heap);
-  f[at + 42] = o.randomBinding;
-  f[at + 43] = o.barrel;
-  heap.items(o.kicks, f, at + 44, 2, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } } });
+  f[at + 43] = o.randomBinding;
+  f[at + 44] = o.barrel;
+  heap.items(o.kicks, f, at + 45, 2, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } } });
 }
 
 export function sameFfWeaponOut(a, b) {
@@ -599,13 +599,13 @@ export class FfSeatOutMirror {
 
 export function syncFfSeatOut(b, f, at, h, m) {
   m.consumed = f[at + 0] !== 0;
-  { const items = (m.weapons ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 46; v = syncFfWeaponOut(b, f, at + 0, h, v ?? new FfWeaponOutMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 47; v = syncFfWeaponOut(b, f, at + 0, h, v ?? new FfWeaponOutMirror()); } items[i] = v; } }
   return m;
 }
 
 export function putFfSeatOut(b, o, f, at, heap) {
   f[at + 0] = o.consumed ? 1 : 0;
-  heap.items(o.weapons, f, at + 1, 46, (f, at, v) => { putFfWeaponOut(b, v, f, at + 0, heap); });
+  heap.items(o.weapons, f, at + 1, 47, (f, at, v) => { putFfWeaponOut(b, v, f, at + 0, heap); });
 }
 
 export function sameFfSeatOut(a, b) {
@@ -894,15 +894,15 @@ export function syncFfShot(b, f, at, h, m) {
   m.seat = f[at + 3] >>> 0;
   m.weapon = f[at + 4] >>> 0;
   m.state = syncWeapon(b, f, at + 5, h, m.state ?? new WeaponMirror());
-  m.owner = syncOrdnanceOwner(b, f, at + 47, h, m.owner);
-  m.yaw = f[at + 50];
-  m.pitch = f[at + 51];
-  m.charge = f[at + 52];
-  m.targetId = f[at + 53];
-  m.targetGeneration = f[at + 54];
-  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 55]; $v.y = f[at + 56]; $v.z = f[at + 57]; }
-  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 58]; $v.y = f[at + 59]; $v.z = f[at + 60]; }
-  m.sample = syncF3MountedSample(b, f, at + 61, h, m.sample ?? new F3MountedSampleMirror());
+  m.owner = syncOrdnanceOwner(b, f, at + 48, h, m.owner);
+  m.yaw = f[at + 51];
+  m.pitch = f[at + 52];
+  m.charge = f[at + 53];
+  m.targetId = f[at + 54];
+  m.targetGeneration = f[at + 55];
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 56]; $v.y = f[at + 57]; $v.z = f[at + 58]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 59]; $v.y = f[at + 60]; $v.z = f[at + 61]; }
+  m.sample = syncF3MountedSample(b, f, at + 62, h, m.sample ?? new F3MountedSampleMirror());
   return m;
 }
 
@@ -912,15 +912,15 @@ export function putFfShot(b, o, f, at, heap) {
   f[at + 3] = o.seat;
   f[at + 4] = o.weapon;
   putWeapon(b, o.state, f, at + 5, heap);
-  putOrdnanceOwner(b, o.owner, f, at + 47, heap);
-  f[at + 50] = o.yaw;
-  f[at + 51] = o.pitch;
-  f[at + 52] = o.charge;
-  f[at + 53] = o.targetId;
-  f[at + 54] = o.targetGeneration;
-  { const $v = o.origin; f[at + 55] = $v.x; f[at + 56] = $v.y; f[at + 57] = $v.z; }
-  { const $v = o.direction; f[at + 58] = $v.x; f[at + 59] = $v.y; f[at + 60] = $v.z; }
-  putF3MountedSample(b, o.sample, f, at + 61, heap);
+  putOrdnanceOwner(b, o.owner, f, at + 48, heap);
+  f[at + 51] = o.yaw;
+  f[at + 52] = o.pitch;
+  f[at + 53] = o.charge;
+  f[at + 54] = o.targetId;
+  f[at + 55] = o.targetGeneration;
+  { const $v = o.origin; f[at + 56] = $v.x; f[at + 57] = $v.y; f[at + 58] = $v.z; }
+  { const $v = o.direction; f[at + 59] = $v.x; f[at + 60] = $v.y; f[at + 61] = $v.z; }
+  putF3MountedSample(b, o.sample, f, at + 62, heap);
 }
 
 export function sameFfShot(a, b) {
@@ -972,13 +972,13 @@ export class FfFiredMirror {
 
 export function syncFfFired(b, f, at, h, m) {
   m.shot = syncFfShot(b, f, at + 0, h, m.shot ?? new FfShotMirror());
-  m.events = f[at + 67] >>> 0;
+  m.events = f[at + 68] >>> 0;
   return m;
 }
 
 export function putFfFired(b, o, f, at, heap) {
   putFfShot(b, o.shot, f, at + 0, heap);
-  f[at + 67] = o.events;
+  f[at + 68] = o.events;
 }
 
 export function sameFfFired(a, b) {

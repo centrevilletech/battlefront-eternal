@@ -9,7 +9,7 @@ import { Weapon } from './weapons.js';
 import { rigNodes, copyMountedWeapon } from './vehicle-phase-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { seatLockTarget } from './weapon-targeting.js';
-import { categoryOf, weaponAI } from './ai/classic/weapons-ai.js';
+import { categoryOf, weaponAI } from './weapon-policy.js';
 import { putFfBirth, putFfSupply, putFfWeaponInput, putFfWeaponChange, FfInputsLayout, FfWeaponInputLayout, FfWeaponChangeLayout, FfHullOutMirror, FfSeatOutMirror, FfWeaponOutMirror, syncFfHullOut, FfCableOutMirror, syncFfCableOut, FfSupplyResultMirror, syncFfSupplyResult, FfPhaseMirror, syncFfPhase } from './sim/gen/f2-firing.js';
 
 const zero = new Vector3();
@@ -88,13 +88,13 @@ export class F2Firing {
   adopt(v) {
     const b = this.bridge, nodes = rigNodes(v), node = n => n ? nodes.indexOf(n) : -1;
     const named = name => v.byName[(name || '').toLowerCase()];
-    const seats = v.seats.map(s => ({ weapons: s.weapons.map(w => {
+    const seats = v.seats.map(s => ({ weapons: s.weapons.map((w, index) => {
       registerWeaponClass(b, w.state.levels[0]);
       if (w.def.ordnance) this.vs.ordnance.sim.defId(w.def.ordnance);
       const emitter = (w.muzzles.length ? w.emitter : w.aimers[0]?.emitter ?? w.emitter) ?? s.emitter;
       const state = { ...w.state, level: w.state.levels.indexOf(w.state.def), admits: false, hasRandom: Boolean(w.state.random), melee: null };
       return { state, ordnance: w.def.ordnance ?? null, tow: w.def.ordnance?.base === 'towcable', range: Math.max(20, w.def.LockOnRange || 0),
-        cableLength: Math.max(10, w.def.ordnance?.CableLength || 60), channel: w.state.channel ?? 0, relationMask: weaponAI(w.def).relationMask, categoryMask: weaponAI(w.def).categoryMask,
+        cableLength: Math.max(10, w.def.ordnance?.CableLength || 60), channel: w.state.channel ?? index, relationMask: weaponAI(w.def).relationMask, categoryMask: weaponAI(w.def).categoryMask,
         weaponNode: node(named(w.def.FirePointName)), fallbackNode: node(named(w.aimers[0]?.FirePointName || w.aimers[0]?.node || w.def.FirePointName)),
         directionNodes: w.aimers.map(a => node(named(a.FirePointName))), outside: w.aimers.map(a => num(a.FireOutsideLimits ?? s.settings?.FireOutsideLimits)),
         emitter, emitterNode: node(emitter?.node), emitterAimer: w.aimers.indexOf(emitter?.aimer),
@@ -127,8 +127,9 @@ export class F2Firing {
     out.floor = weapon.floor; out.spreadScale = weapon.spreadScale;
     out.sniperScale = weapon.sniperScale; out.yawSpreadOverride = weapon.yawSpreadOverride;
   }
-  // seatLockTarget and AI spread/channel edits remain foreign until AI owns
-  // native rows. Canonical lease triggers and aim are deliberately omitted.
+  // Native SeatUnits tune the canonical weapon and freeze their target in
+  // F3. Importing their mirrors would send owned facts back to the owner.
+  // Other seats retain explicit foreign modifiers and lock hints.
   // The cache is committed only after native latch reads the pending batch.
   input(at) {
     const start = at, out = this.frozen, b = this.bridge;
@@ -136,7 +137,9 @@ export class F2Firing {
     for (let vi = 0; vi < this.vs.vehicles.length; vi++) {
       const v = this.vs.vehicles[vi];
       for (let si = 0; si < v.seats.length; si++) {
-        const seat = v.seats[si], l = seat.lease, picked = seatLockTarget(l);
+        const seat = v.seats[si], l = seat.lease;
+        if (l?.controllable?.native) continue;
+        const picked = seatLockTarget(l);
         out.target = picked === undefined ? -2 : picked === null ? -1 : this.vs.units.all().indexOf(picked);
         for (let c = 0; c < seat.weapons.length; c++) {
           const w = seat.weapons[c].state;

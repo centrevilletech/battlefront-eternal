@@ -287,8 +287,8 @@ pub fn ballistic_lead(p: &Vector3, v: &Vector3, origin: &Vector3, speed: f64, gr
 pub fn lead_point<W: World + ?Sized>(w: &mut W, h: f64, shooter: Obj, target: Obj, weapon: Option<&JsObj>) -> (Vector3, bool) {
     let mut lead_p = w.aim_point(target);
     let zero = Vector3::default();
-    let tv = w.unit(target).velocity.unwrap_or(zero);
-    let sv = w.unit(shooter).velocity.unwrap_or(zero);
+    let tv = w.unit_velocity(target).unwrap_or(zero);
+    let sv = w.unit_velocity(shooter).unwrap_or(zero);
     // leadRel.subVectors(tv, sv).multiplyScalar(f(h))
     let fh = f(h);
     let rel = Vector3 { x: (tv.x - sv.x) * fh, y: (tv.y - sv.y) * fh, z: (tv.z - sv.z) * fh };
@@ -309,15 +309,15 @@ pub fn drop_correct<W: World + ?Sized>(w: &mut W, point: &Vector3, shooter: Obj,
 /// aim.js:443 `selectedWeapon(unit)`: the arsenal's current weapon of the
 /// unit's controller's channel, else of channel 0 (the arsenal index).
 pub fn selected_weapon_aim<W: World + ?Sized>(w: &W, unit: Obj) -> Option<usize> {
-    let u = w.unit(unit);
-    let arsenal = u.arsenal.as_ref()?;
-    let channel = u.controller.and_then(|c| w.ctl(c).perception.as_ref().map(|p| p.fire.channel)).unwrap_or(0.0);
-    arsenal.current(channel).or_else(|| arsenal.current(0.0))
+    let controller = w.unit_controller(unit);
+    if !w.has_arsenal(unit) {return None;}
+    let channel = controller.and_then(|c| w.ctl(c).perception.as_ref().map(|p| p.fire.channel)).unwrap_or(0.0);
+    w.current_weapon(unit,channel).or_else(||w.current_weapon(unit,0.))
 }
 
 /// The def of a unit's weapon at `index`.
 pub fn weapon_def<W: World + ?Sized>(w: &W, unit: Obj, index: usize) -> Rc<JsObj> {
-    w.unit(unit).arsenal.as_ref().expect("an arsenal").weapons[index].def.clone()
+    w.weapon_definition(unit,index).expect("arsenal member")
 }
 
 /// aim.js:423 `aimPointFor(controller, unit, dt, out)`: the point the
@@ -349,8 +349,8 @@ pub fn aim_point_for<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, d
 /// (aim.js:437, perception.js:318 and every `resolve` of these files).
 pub fn resolve<W: World + ?Sized>(w: &W, r: Option<super::world::Ref>) -> Option<Obj> {
     let r = r?;
-    let u = w.unit(r.obj);
-    if u.alive && u.generation == r.generation {
+    let (alive,generation) = w.unit_life(r.obj);
+    if alive && generation == r.generation {
         Some(r.obj)
     } else {
         None

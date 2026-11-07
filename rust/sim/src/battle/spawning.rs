@@ -66,6 +66,8 @@ impl Draws for jsrt::rng::ClassicRandom {
 /// it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Arg {
+    Null,
+    Bool(bool),
     Num(f64),
     Str(String),
     Other,
@@ -122,14 +124,9 @@ pub fn bonus_mask(name: Option<&str>) -> f64 {
 fn number(arg: Option<&Arg>) -> f64 {
     match arg {
         Some(Arg::Num(x)) => *x,
-        Some(Arg::Str(s)) => {
-            let t = s.trim();
-            if t.is_empty() {
-                0.0
-            } else {
-                t.parse::<f64>().unwrap_or(f64::NAN)
-            }
-        }
+        Some(Arg::Null) => 0.0,
+        Some(Arg::Bool(value)) => if *value {1.0}else{0.0},
+        Some(Arg::Str(s)) => bfe_content::js::string_to_number(s),
         Some(Arg::Other) => f64::NAN,
         None => f64::NAN,
     }

@@ -152,13 +152,13 @@ impl Session {
             // None means first contact has not happened. Preserve that state
             // while keeping a spare backing buffer for the next initialization.
             if h.has_legs {
-                if self.hull.leg_side.is_none() { self.hull.leg_side = Some(std::mem::take(&mut self.hull.leg_side_storage)); }
+                if self.hull.leg_side.is_none() { self.hull.leg_side = Some(std::mem::take(&mut self.hull.leg_side_scratch)); }
                 let sides = self.hull.leg_side.as_mut().unwrap(); sides.clear(); sides.extend_from_slice(legs);
             }
             else if let Some(mut sides) = self.hull.leg_side.take() {
                 // predictVehicle restores absence before first contact. Keep
                 // capacity, but discard old values so resize initializes zeros.
-                sides.clear(); self.hull.leg_side_storage = sides;
+                sides.clear(); self.hull.leg_side_scratch = sides;
             }
             let pose = self.hull.pose.as_mut().ok_or(INVALID)?;
             pose.walk_phase = h.walk_phase; pose.walk_blend = h.walk_blend;

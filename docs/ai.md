@@ -3,14 +3,13 @@
 This file is the working contract for the **Classic** AI in this repository,
 the 2004 game's bot behavior written in our own code: the runtime objects the
 AI reads and writes, the tick order, and the extracted data. Enhanced AI
-(`?ai=enhanced`) is a separate mode built on this machinery in
-`src/ai/enhanced`, without changing any Classic file; see
+(`?ai=enhanced`) is a separate mode built on the same native machinery; see
 [ai-enhanced.md](ai-enhanced.md).
 
 Rules that apply to every change:
 
 - Behavior is the original game's, written in our own code. Never paste
-  retail code or retail binary tables into the repo; write behavior up as JS
+  retail code or retail binary tables into the repo; implement behavior in Rust
   from its described semantics.
 - Retail-derived output (anything generated from `data/game/`) goes under
   `public/maps/`, `public/sides/`, or `public/common/`, all gitignored. Tracked
@@ -23,8 +22,10 @@ Rules that apply to every change:
 
 ## Area documents
 
-Each area documents its module APIs and data schemas in its own file. Code
-paths are under `src/ai/classic/` unless noted.
+The [native ownership contract](sim-ai.md) describes the current implementation
+in `rust/sim/src/ai/` and its generated host boundary. Each area below records
+the behavioral contract. JavaScript paths and API examples in those documents
+refer to the former implementation; the bot modules have been deleted.
 
 | Area | Document | Code |
 | --- | --- | --- |

@@ -5,7 +5,7 @@
 
 use super::combat::{CombatDefs, Edge};
 use super::defs::{DefTable, Js, JsObj, WeaponClass};
-use super::weapons::{arm, Admission, Arsenal, Shot, ShotKind, WeaponDraws};
+use super::weapons::{arm, Admission, Shot, ShotKind, WeaponDraws};
 use super::world::{ArcTarget, CastHit, CombatWorld, DamageInfo, Droid, LockPick, Presentation};
 use crate::abi::sim;
 use crate::gen::*;
@@ -274,35 +274,7 @@ pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, c
 
 /// weapons.js Arsenal.select (:517).
 pub(crate) fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
-    if i >= c.weapons.len() {
-        return false;
-    }
-    let channel = word_u32(c.weapons[i].channel(&defs.weapons)) as usize;
-    let arsenal = Arsenal {
-        weapons: &mut c.weapons,
-        selected: &mut c.selected,
-    };
-    let mut at = 0;
-    for w in &arsenal.weapons[..i] {
-        if w.in_channel(&defs.weapons, channel as f64) {
-            at += 1;
-        }
-    }
-    if !arsenal.weapons[i].in_channel(&defs.weapons, channel as f64) {
-        return false;
-    }
-    let old = arsenal.current(&defs.weapons, channel);
-    if old == Some(i) {
-        return true;
-    }
-    if let Some(o) = old {
-        if c.weapons[o].busy() {
-            return false;
-        }
-        c.weapons[o].deselect();
-    }
-    c.selected[channel] = at as f64;
-    true
+    super::weapons::select(c,&defs.weapons,i)
 }
 
 /// A field the battle sets on a combat (src/f3-combat.js CombatFacade's
@@ -543,10 +515,10 @@ impl CombatWorld for JsWorld<'_> {
 
     fn remote_kill(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat) {
         self.changing(unit, combat, |authority| {
-            let services = authority.unwrap();
+            let mut services = authority.unwrap();
             let authority = services.recon;
             let reference = sim().store.recon_droid.at(droid.0).expect("live remote droid").0;
-            authority.kill(&mut sim().store, &mut crate::recon::module::NativeWorld::idle(services.queries), reference);
+            authority.kill(&mut sim().store, &mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), reference);
             crate::recon::module::publish_active(authority);
         });
         return;
@@ -560,7 +532,7 @@ impl CombatWorld for JsWorld<'_> {
         let (class, immediate) = crate::recon::module::weapon(definition);
         let (origin, velocity) = (*origin, *velocity);
         self.changing(unit, combat, |authority| {
-            let services = authority.unwrap();
+            let mut services = authority.unwrap();
             let authority = services.recon;
             let token = admission
                 .and_then(|t| authority.reservation(t))
@@ -569,7 +541,7 @@ impl CombatWorld for JsWorld<'_> {
                 if authority
                     .launch(
                         &mut sim().store,
-                        &mut crate::recon::module::NativeWorld::idle(services.queries),
+                        &mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),
                         context,
                         token,
                         class,
@@ -828,9 +800,9 @@ impl CombatWorld for JsWorld<'_> {
             relation: if killer.is_some() { crate::units::f3::relation(attacker_team, unit.team) } else { 0.0 },
         };
         let mut controller = None;
-        self.changing(unit, combat, |_| {
+        self.changing(unit, combat, |services| {
             if crate::battle::f4_core::owns_lifecycle() {
-                controller=crate::battle::f4_core::died(credit.unit,credit.killer,credit.relation);
+                controller=crate::battle::f4_core::died(credit.unit,credit.killer,credit.relation,crate::units::f3::required_services!(services,()));
             } else {
                 crate::units::f3::foreign_barrier();
                 controller=import_f3_death_credit(&credit).controller;

@@ -162,6 +162,19 @@ pub struct Helper {
     pub direct: Direct,
 }
 
+impl Helper {
+    /// VehicleAI.analogs reads the helper's own hasPath property. The native
+    /// Ground/Fly observer also reports executor state, but those JS classes
+    /// never define that property; their controller supplies the executor.
+    pub fn has_path_property(&self)->bool {
+        match self.kind {
+            None|Some(HelperKind::Ground|HelperKind::Fly)=>false,
+            Some(HelperKind::Direct)=>self.direct.has_path,
+            Some(_)=>self.obs.has_path,
+        }
+    }
+}
+
 impl Default for Helper {
     fn default() -> Self {
         Helper { kind: None, obs: HelperObs::default(), direct: Direct::default() }
@@ -177,7 +190,7 @@ pub enum AgentKind {
     Hold { countdown: f64, look_point: Vec3 },
     Board { vehicle: Option<EntRef> },
     Unboard,
-    Objective(Box<ObjectiveAgent>),
+    Objective(ObjectiveAgent),
     Foreign(ForeignKind),
     MissingCombat,
 }
@@ -205,13 +218,7 @@ impl Agent {
             Some(_) => self.helper.obs.status,
         }
     }
-    pub fn helper_has_path(&self) -> bool {
-        match self.helper.kind {
-            None => false,
-            Some(HelperKind::Direct) => self.helper.direct.has_path,
-            Some(_) => self.helper.obs.has_path,
-        }
-    }
+    pub fn helper_has_path(&self) -> bool { self.helper.has_path_property() }
     pub fn helper_arrived(&self) -> bool {
         match self.helper.kind {
             None => false,

@@ -104,6 +104,11 @@ pub(crate) fn map() -> Option<&'static mut MapRules> {
     unsafe { (*addr_of_mut!(MAP)).as_mut() }
 }
 
+/// Pilot steering and the fleet observe the same immutable flight facts.
+pub(crate) fn flight_environment()->&'static Environment {
+    unsafe {(*addr_of_mut!(FLIGHT_ENV)).as_ref()}.expect("the flight environment (veh_flight_env)")
+}
+
 // navigateMissile and the hull phase share FLIGHT_CLASSES' live tunings.
 // Copy its numeric row; F1 does not create or cache a second tuning table.
 pub(crate) fn flight_tuning(class: FlightClass) -> Tuning {
@@ -966,7 +971,7 @@ fn hull_point(slot: u32) -> Option<(bool, BodyId, Vector3)> {
 
 impl FlightWorld for JsWorld<'_> {
     fn environment(&mut self) -> &Environment {
-        unsafe { (*addr_of_mut!(FLIGHT_ENV)).as_ref() }.expect("the flight environment (veh_flight_env)")
+        flight_environment()
     }
 
     fn tuning(&mut self, class: FlightClass) -> Tuning {

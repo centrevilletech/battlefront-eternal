@@ -11,6 +11,7 @@
 //! [`AgentHost`]; [`Fsm`] is the machine's state and pending state.
 
 use three::Vector3;
+use crate::ai::owned::scratch::{List,Inline};
 use v8math::{cos, sin};
 
 use super::controllers::DONE;
@@ -69,10 +70,10 @@ pub trait AgentHost: World {
     fn helper_arrived(&mut self, agent: Obj) -> bool;
     fn helper_failed(&mut self, agent: Obj) -> bool;
     /// The battle's posts (`world.posts.posts`), in order.
-    fn posts(&self) -> Vec<Obj>;
+    fn posts(&self) -> List<Obj>;
     /// `this.ai.nav?.queryHints?.({ mask: 32, center, halfExtent: 80, cap:
     /// 1, requester, now })` (None: no queryHints).
-    fn query_hints(&mut self, center: &Vector3, requester: Obj, now: f64) -> Option<Vec<HintView>>;
+    fn query_hints(&mut self, center: &Vector3, requester: Obj, now: f64) -> Option<Inline<HintView,1>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +288,7 @@ impl FlyAgent {
     }
     fn transport<W: World + ?Sized>(w: &W, cx: &AgentCx) -> bool {
         let t = cx.unit.and_then(|u| w.unit(u).class).and_then(|c| c.vehicle_type);
-        t.as_deref().unwrap_or("").to_lowercase() == "transport"
+        t.as_deref().unwrap_or("").eq_ignore_ascii_case("transport")
     }
     fn airborne<W: World + ?Sized>(w: &W, cx: &AgentCx) -> bool {
         Self::flyer(w, cx).is_some_and(|v| !v.grounded)

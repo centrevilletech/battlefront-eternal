@@ -307,9 +307,9 @@ impl BarrierSearch {
         let to = Vec3::new(x, y, z);
         let (hit, barrier, _distance_sq) = barriers.nearest(from, to, self.radius, self.mask, Some(work));
         if hit {
-            let barrier = barriers.list[barrier.expect("nearest names its barrier")].clone();
+            let barrier = &barriers.list[barrier.expect("nearest names its barrier")];
             let (mut left, mut right) = (Vec3::default(), Vec3::default());
-            let sides = detour(&barrier, from, to, self.radius, &mut left, &mut right);
+            let sides = detour(barrier, from, to, self.radius, &mut left, &mut right);
             if sides & 1 != 0 {
                 self.expand(barriers, work, parent, left.x, left.y, left.z, depth + 1.0);
             }

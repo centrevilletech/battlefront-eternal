@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { categoryOf, relationBit, weaponAI } from "./ai/classic/weapons-ai.js";
+import { categoryOf, relationBit, weaponAI } from "./weapon-policy.js";
 
 const EMPTY_DEFINITION = Object.freeze({});
 export const unitDefinition = (unit) => {
@@ -139,4 +139,3 @@ export function findReticleTarget({ origin, dir, units, weapon, viewer = null, r
   }
   return best;
 }
-

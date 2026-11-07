@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Matrix4 } from 'three';
 import { CommandPosts } from '../src/commandposts.js';
-import { Boundary } from '../src/ai/classic/nav/boundary.js';
+import { Boundary } from '../src/battle-boundary.js';
 import { F4Live } from '../src/f4-live.js';
 import { F4Roster } from '../src/f4-roster.js';
 import { F4Tail } from '../src/f4-tail.js';

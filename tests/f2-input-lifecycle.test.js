@@ -195,6 +195,7 @@ test('live F2 private hull replay leaves the native authority input untouched', 
     u.human = u.networkHuman = true;
     same(system.board(u, v), true);
     const before = observe(v);
+
     const command = { tick: 1, sequence: 1, epoch: 1, generation: 1, down: [], actions: [], look: [[400, 100]], mouseScale: 1 };
     const clone = predictHull(v, [command], 0, command.generation);
     assert.notEqual(clone.seats[0].aimYaw, v.seats[0].aimYaw);

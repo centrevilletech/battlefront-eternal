@@ -30,7 +30,8 @@
 // the battle is over nobody spawns: team and spawn choices are ignored and
 // the screen doesn't open again.
 
-import { activePosts, friendlySpawn, humanSpawnPost, ownerOf, postAI } from "./ai/classic/goals.js";
+import { postAI } from './post-data.js';
+import { activePosts,friendlySpawn,humanSpawnPost,ownerOf } from './spawn-post-policy.js';
 import { legacyRandom } from "./ai/random.js";
 
 export const RESPAWN_DELAY = 4; // s from a death to the screen (combat.js)

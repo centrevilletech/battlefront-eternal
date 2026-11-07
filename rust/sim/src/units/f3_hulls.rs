@@ -134,6 +134,10 @@ pub(crate) fn refresh(id: u32) {
 }
 // VehicleTarget keeps its native hull identity independently of registry id.
 // Only a matching prepared member can resolve through this reverse index.
+pub(crate) fn matches_binding(reference:Ref<Vehicle>,member:Option<Member>)->bool {
+    hulls().rows.get(reference.slot as usize).and_then(Option::as_ref)
+        .is_some_and(|row|row.hull==reference&&row.member==member&&sim().store.vehicle.contains(reference))
+}
 pub(crate) fn member(r: Ref<Vehicle>) -> Member { binding(r).member.expect("active hull member") }
 pub(crate) fn for_member(member: Member) -> Option<Ref<Vehicle>> {
     let r = hulls().members.get(super::registry::target_id(member) as usize).copied().flatten()?;

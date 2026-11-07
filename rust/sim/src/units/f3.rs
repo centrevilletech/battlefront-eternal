@@ -50,6 +50,17 @@ struct State {
     // aimers. Keep their references for one outer publication; explicit
     // damage, lifecycle and seat barriers can still flush them immediately.
     completed: Vec<Ref<Unit>>,
+    // AI holds axes and aim in canonical input. Publishing those changes
+    // must not re-encode an unchanged body, arsenal or every weapon clock.
+    intent_changed: Vec<Ref<Unit>>,
+    intent_marked: Vec<Option<u32>>,
+    // AI tuning can clear and restore a value before the next unit phase.
+    // Retain its touch without encoding an otherwise unchanged full arsenal.
+    weapon_marked: Vec<Option<u32>>,
+    // Foreign rows name only current qualified bodies. Prepared slot lookup
+    // restores the canonical factory order without a per-body host record.
+    phase_inputs: Vec<Option<usize>>,
+    phase_input_slots: Vec<usize>,
     publication_ready: Vec<Ref<Unit>>,
     publication_marks: Vec<Option<u32>>,
     acknowledgement:[f64;F3Acknowledgement::WORDS],
@@ -65,6 +76,7 @@ struct State {
     health: Vec<crate::combat::impacts::HealthScale>,
     categories: Vec<u32>,
     bot_targets: Vec<Option<Option<Member>>>,
+    native_intents:Vec<Option<Ref<Unit>>>,
     hidden_crew: Vec<Option<(Ref<Unit>,f64)>>,
     missile_classes: Vec<Option<FlightClass>>,
     network: Vec<F3NetworkView>,
@@ -86,6 +98,8 @@ struct State {
     // Draw callbacks are construction bindings. A phase exchanges the small
     // generated states directly, including the shared AI generator at aimers.
     random_states: Vec<f64>,
+    shared_random: Vec<Option<crate::ai::random::SharedRandom>>,
+    shared_bindings: Vec<u32>,
     random_epoch:[f64;F3RandomEpoch::WORDS],
     random_globals: [f64; F3RandomGlobals::WORDS],
     random_bindings: Vec<Vec<u32>>,
@@ -121,12 +135,16 @@ pub(crate) fn external() -> External {
     if outer { begin_events(); state().running = true; }
     External(outer)
 }
-impl External {pub(crate) fn is_outer(&self)->bool{self.0}}
-impl Drop for External {
-    fn drop(&mut self) {
+impl External {
+    pub(crate) fn is_outer(&self)->bool {self.0}
+    /// Game.step immediately enters the native unit owner after AI. Ordinary
+    /// held controls can wait for that owner's completed body publication;
+    /// damage, construction and synchronous foreign barriers stay immediate.
+    pub(crate) fn before_units(mut self) {self.finish(false);}
+    fn finish(&mut self,publish_intents:bool) {
         if self.0 {
-            // The F1 export returned its authority borrow before this guard.
-            // Sparse recon views therefore precede the final event descriptor.
+            // The native export returned its authority borrow before this
+            // guard. Recon views precede the final structural descriptor.
             with_services(|authority| {
                 if let Some(services) = authority {
                     let authority = services.recon;
@@ -134,10 +152,12 @@ impl Drop for External {
                     crate::recon::module::publish(authority);
                 }
             });
-            publish_changed(); state().running = false;
+            flush_completed();publish_changed_at(None,publish_intents);
+            state().running=false;self.0=false;
         }
     }
 }
+impl Drop for External {fn drop(&mut self) {self.finish(true);}}
 
 // Unit.tick and Unit.spawn consume or reset controls. Scalar commands between
 // ticks do neither: publishing their old native input would erase the next AI
@@ -188,18 +208,37 @@ pub(crate) fn item_target_input(index: usize) -> F3ItemTarget {
 /// recursive damage. The outer entry takes both resources once; nested F1,
 /// prop and recon services reborrow them without another global acquisition.
 pub struct WorldServices<'a> {
+    pub ai: Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>,
     pub recon: &'a mut crate::recon::Authority,
     pub queries: &'a mut crate::battle::live::Queries,
 }
 impl WorldServices<'_> {
+    /// A nested service reborrows the already active Core, never a global
+    /// AI owner. False means this outer entry has no native AI phase bound.
+    pub(crate) fn aim(&mut self,key:&F3UnitKey,dt:f64)->bool {
+        let Some(ai)=self.ai.as_mut() else{return false};ai.aim(key,dt,self.recon,self.queries);true
+    }
+    pub(crate) fn lifecycle(&mut self,hook:&F4AIHook)->bool {
+        let Some(ai)=self.ai.as_mut() else{return false};ai.lifecycle(hook,self.recon,self.queries);true
+    }
+
     pub(crate) fn reborrow(&mut self) -> WorldServices<'_> {
         WorldServices {
+            ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),
             recon: self.recon,
             queries: self.queries,
         }
     }
 }
 pub(crate) fn with_services<T>(run: impl FnOnce(Option<WorldServices<'_>>) -> T) -> T {
+    with_bare_services(|services|match services {
+        Some(services)=>crate::ai::owned::entry::with_callbacks(services.recon,services.queries,|services|run(Some(services))),
+        None=>run(None),
+    })
+}
+/// The AI phase already owns its Core. It takes physical services without
+/// first installing another callback scope over that enclosing AI instance.
+pub(crate) fn with_bare_services<T>(run:impl FnOnce(Option<WorldServices<'_>>)->T)->T {
     if !active() { return run(None); }
     // A foreign callback cannot acquire the phase's services again. Report
     // the rejected boundary without trapping the entire battle instance.
@@ -208,6 +247,7 @@ pub(crate) fn with_services<T>(run: impl FnOnce(Option<WorldServices<'_>>) -> T)
     state().recon_borrowed = true;
     let mut queries = std::mem::take(&mut state().prop_queries);
     let result = run(Some(WorldServices {
+        ai:None,
         recon: &mut authority,
         queries: &mut queries,
     }));
@@ -349,6 +389,10 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
             snapshot,
             publication: Vec::new(),
             completed: Vec::with_capacity(RESERVED_UNITS),
+            intent_changed: Vec::with_capacity(RESERVED_UNITS),
+            intent_marked: Vec::with_capacity(RESERVED_UNITS),
+            weapon_marked: Vec::with_capacity(RESERVED_UNITS),
+            phase_inputs: Vec::new(),phase_input_slots: Vec::with_capacity(RESERVED_UNITS),
             publication_ready: Vec::with_capacity(RESERVED_UNITS),
             publication_marks: Vec::new(),
             acknowledgement:[0.;F3Acknowledgement::WORDS],
@@ -361,7 +405,7 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
             bodies: Vec::new(),
             health: Vec::new(),
             categories: Vec::new(),
-            bot_targets: Vec::new(),
+            bot_targets: Vec::new(),native_intents:Vec::new(),
             hidden_crew: Vec::new(),
             missile_classes: Vec::new(),
             network: Vec::new(), arsenals: Vec::new(),
@@ -373,6 +417,8 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
             event_epoch: 0, running: false, failed:false, controls_consumed: false,
             history: crate::combat::history::History::new(48),
             random_states,
+            shared_random:vec![None;RANDOM_CAPACITY],
+            shared_bindings:Vec::with_capacity(3),
             random_epoch:[0.;F3RandomEpoch::WORDS],
             random_globals: [NO_STREAM as f64; F3RandomGlobals::WORDS],
             random_bindings: Vec::new(),
@@ -406,6 +452,22 @@ fn descriptor() -> *const f64 {
     let event_ptr = sim().events.ptr() as u32;
     let event_words = sim().events.len() as u32;
     let s = state();
+    // AI decisions and mounted fire consume the same generators directly.
+    // Refresh only those bound rows at publication; an older seed cache must
+    // never overwrite draws made between F3 weapon updates.
+    for &id in &s.shared_bindings {
+        let at=id as usize*F3RandomState::WORDS;
+        let mut row=F3RandomState::take(&s.random_states[at..],&[]);
+        let seed=s.shared_random[id as usize].as_ref().unwrap().seed();
+        if row.state!=seed {
+            // AI can draw between unit phases without entering random_next.
+            // Publish that change before the JS stream facade checks its epoch.
+            let epoch=&mut s.random_epoch[F3RandomEpoch::REVISION];
+            *epoch=(*epoch as u32).wrapping_add(1) as f64;
+            row.state=seed;
+        }
+        row.put(&mut s.random_states[at..],&mut s.block.heap);
+    }
     s.layout.controls_consumed=s.controls_consumed;
     s.layout.events = event_ptr;
     s.layout.event_words = event_words;
@@ -426,13 +488,13 @@ fn encode_publication(reference:Ref<Unit>, body_only:bool) -> bool {
     let unit=sim().store.unit.get(reference).expect("owned publication row");
     let s=state();
     if body_only {
-        stage_body(&mut s.snapshot,reference,unit);stage_controls(&mut s.snapshot,unit);
+        stage_body(&mut s.snapshot,reference,unit);stage_controls(&mut s.snapshot,reference,unit);
         let base=crate::store::block::HEADER;
         if let Some(changed)=s.publication[reference.slot as usize].prepare_retained(
             reference.slot,reference.gen,F3Publication::WORDS,
             &[base+F3Publication::BODY..base+F3Publication::ARSENAL,
               base+F3Publication::CONTROLS..base+F3Publication::WORDS],
-            |row,heap|{s.snapshot.put_body(row,heap);s.snapshot.put_controls(row,heap)}) {
+            |row,heap|{s.snapshot.put_body(row,heap);s.snapshot.put_controls(row,heap);s.snapshot.put_native_controls(row,heap)}) {
             return changed;
         }
     }
@@ -453,6 +515,24 @@ fn acknowledge_publication() {
 }
 fn queue_publication(reference:Ref<Unit>,body_only:bool) -> bool {
     let changed=encode_publication(reference,body_only);
+    queue_encoded(reference,changed)
+}
+// A narrow write still compares against the same acknowledged cache. Later
+// full damage/movement publication can safely replace an unread intent delta.
+fn queue_intent_publication(reference:Ref<Unit>)->bool {
+    // A previous unread full row can carry damage, death or movement. A
+    // retained baseline alone cannot represent that suffix, so restage it.
+    if state().publication_marks[reference.slot as usize]==Some(reference.gen) {return queue_publication(reference,false);}
+    let unit=sim().store.unit.get(reference).expect("owned AI input row");
+    let s=state();stage_controls(&mut s.snapshot,reference,unit);
+    let base=crate::store::block::HEADER;
+    let changed=s.publication[reference.slot as usize].prepare_retained(reference.slot,reference.gen,F3Publication::WORDS,
+        &[base+F3Publication::CONTROLS..base+F3Publication::WORDS],|row,heap|{
+            s.snapshot.put_controls(row,heap);s.snapshot.put_native_controls(row,heap);row[F3Publication::NATIVE_INTENT]=f64::from(s.snapshot.native_intent);
+        });
+    queue_encoded(reference,changed.unwrap_or_else(||encode_publication(reference,false)))
+}
+fn queue_encoded(reference:Ref<Unit>,changed:bool)->bool {
     let s=state();let slot=reference.slot as usize;
     let pending=s.publication_marks[slot]==Some(reference.gen);
     if changed && !pending {
@@ -475,7 +555,7 @@ pub(crate) fn publish(reference: Ref<Unit>) {
 // across unread barriers; source and victim updates share one consumed epoch.
 pub(crate) fn publish_changed() {
     flush_completed();
-    publish_changed_at(None);
+    publish_changed_at(None,true);
 }
 fn flush_completed() {
     for i in 0..state().completed.len() {
@@ -490,18 +570,40 @@ fn completed_tick(reference: Ref<Unit>) {
     state().owner.unmark(reference);
     state().completed.push(reference);
 }
-fn publish_changed_at(body_only:Option<Ref<Unit>>) {
+fn publish_changed_at(body_only:Option<Ref<Unit>>,publish_intents:bool) {
     crate::battle::f4_core::publish();
     crate::battle::f4_live::publish();
     crate::vehicles::module::f2::publish_pending();
+    crate::ai::owned::entry::publish_controls();
     let _allocations=crate::allocations::at(F3AllocationStage::Publication);
     acknowledge_publication();
     let mut changed=false;
     for i in 0..state().owner.changed().len() {
         let reference=state().owner.changed()[i];
-        changed|=queue_publication(reference,body_only==Some(reference));
+        let weapon=state().weapon_marked[reference.slot as usize]==Some(reference.gen);
+        changed|=queue_publication(reference,body_only==Some(reference)&&!weapon);
     }
-    state().owner.clear_changed();
+    let mut retained=0;
+    for i in 0..state().intent_changed.len() {
+        let reference=state().intent_changed[i];
+        let live=sim().store.unit.contains(reference);
+        let full=state().owner.is_marked(reference);
+        if live&&!full {
+            if !publish_intents {
+                // Keep first-touch order and generation stamps until the
+                // following unit span. A full lifecycle row supersedes it.
+                state().intent_changed[retained]=reference;retained+=1;continue;
+            }
+            changed|=if state().weapon_marked[reference.slot as usize]==Some(reference.gen) {
+                queue_publication(reference,false)
+            }else{queue_intent_publication(reference)};
+        }
+        let weapon=&mut state().weapon_marked[reference.slot as usize];
+        if *weapon==Some(reference.gen) {*weapon=None;}
+        let stamp=&mut state().intent_marked[reference.slot as usize];
+        if *stamp==Some(reference.gen) {*stamp=None;}
+    }
+    state().intent_changed.truncate(retained);state().owner.clear_changed();
     if changed {write_publication();} else {descriptor();}
 }
 fn write_publication() {
@@ -538,7 +640,7 @@ pub(crate) fn before_hook() {
     // Aimers consume only their declared current movement and their own
     // previous combat. Other completed weapon clocks wait for the outer
     // barrier; actual damage/lifecycle writers remain in the changed queue.
-    publish_changed_at(None);
+    publish_changed_at(None,true);
 }
 
 /// Construction-only adoption. Refusing an unknown generation never creates
@@ -568,13 +670,17 @@ pub extern "C" fn f3_adopt() -> u32 {
     let history_capacity = sim().store.units.list.len().max(capacity);
     state().pushers.reserve(history_capacity);
     reserve_history();
-    { let s = state(); s.completed.reserve(capacity.saturating_sub(s.completed.len())); }
+    { let s = state(); s.completed.reserve(capacity.saturating_sub(s.completed.len())); s.intent_changed.reserve(capacity.saturating_sub(s.intent_changed.len())); }
     let size = state().categories.len().max(capacity).max(slot as usize + 1);
+    state().intent_marked.resize(size,None);
+    state().weapon_marked.resize(size,None);
+    state().phase_inputs.resize(size,None);
+    { let s=state();s.phase_input_slots.reserve(size.saturating_sub(s.phase_input_slots.len())); }
     state().categories.resize(size, 0);
     prepare_bounds(size);invalidate_bounds(slot);
     state().items.reserve_unit(size);
     state().categories[slot as usize] = adoption.category;
-    state().bot_targets.resize(size, None);
+    state().bot_targets.resize(size, None);state().native_intents.resize(size,None);
     state().hidden_crew.resize(size, None);
     state().network.resize_with(size, F3NetworkView::default);
     state().arsenals.resize(size, 0);
@@ -705,59 +811,80 @@ fn step(count: u32, dt: f64, level: f64, mut recon: Option<crate::units::f3::Wor
     }
     foreign_rows(offset,foreign.count);
     building_rows(offset + foreign.count as usize * F3PropFact::WORDS, foreign.buildings);
-    // Read every input before Unit.tick can enter an aimer or death hook.
-    // Those hooks may reuse scalar/sensor scratch without changing which
-    // intents belong to the current phase.
+    // F3.phase prepares mounted hints before updating the first body.
+    // Keep that snapshot point: a later shot can replace a controller.
+    if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {crate::vehicles::module::f2::firing::freeze_ai_targets(&**ai);}
+    // Foreign requests are indexed before any callbacks can reuse input memory.
+    // Omitted native bots resolve current Core ownership before any body
+    // advances, never the page's hint alone. Empty standalone phases
+    // retain the existing no-new-request behavior for unowned bodies.
+    for i in 0..state().phase_input_slots.len() {
+        let slot=state().phase_input_slots[i];state().phase_inputs[slot]=None;
+    }
+    state().phase_input_slots.clear();
     for i in 0..count as usize {
-        let at = i * F3PhaseInput::WORDS;
-        let input = F3PhaseInput::take(&state().input[at..at + F3PhaseInput::WORDS], &[]);
-        let reference = input.key.reference();
-        if state()
-            .owner
-            .intent(
-                &mut sim().store,
-                F3IntentCommand {
-                    key: input.key,
-                    intent: input.intent,
-                },
-            )
-            .is_err()
-        {
-            crate::allocations::end();
-            state().running = false;
-            return 0;
+        let at=i*F3PhaseInput::WORDS;
+        let key=F3UnitKey::take(&state().input[at+F3PhaseInput::KEY..at+F3PhaseInput::KEY+F3UnitKey::WORDS],&[]);
+        if key.validate(&sim().store).is_err() {state().running=false;finish_allocations(allocations);return 0;}
+        let slot=key.slot as usize;
+        if state().phase_inputs.get(slot).is_none() || state().phase_inputs[slot].is_some() ||
+            state().phase_input_slots.len()==state().phase_input_slots.capacity() {
+            state().running=false;finish_allocations(allocations);return 0;
         }
-        state().bot_targets[reference.slot as usize] = input.bot_target_set.then_some(input.bot_target);
-        // networkShotFor has no edge for a bot. Read only the sparse tail
-        // for actors with trigger/history facts, before callbacks reuse input.
-        let network = if input.has_network {
-            if input.network_index>=foreign.network {
+        state().phase_inputs[slot]=Some(at);state().phase_input_slots.push(slot);
+    }
+    // Explicit rows also include passive human/rider bodies, which the body
+    // tick list deliberately excludes. Preserve their source input order;
+    // append only omitted native bots, whose requests are already canonical.
+    let built=state().owner.built().len();
+    for i in 0..count as usize+built {
+        let (reference,mut input)=if i<count as usize {
+            let at=i*F3PhaseInput::WORDS;
+            let input=F3PhaseInput::take(&state().input[at..at+F3PhaseInput::WORDS],&[]);
+            (input.key.reference(),Some(input))
+        }else{
+            let reference=state().owner.built()[i-count as usize];
+            if state().phase_inputs[reference.slot as usize].is_some() {continue;}
+            let Some(unit)=sim().store.unit.get(reference) else {continue};
+            if unit.removed {continue;}
+            (reference,None)
+        };
+        let ai_owned=recon.as_ref().and_then(|services|services.ai.as_ref()).is_some_and(|ai|ai.owns_intent(&sim().store,reference));
+        if !ai_owned {
+            let Some(input)=input.as_mut() else {
+                if recon.as_ref().is_some_and(|services|services.ai.is_some()) {
+                    state().running=false;finish_allocations(allocations);return 0;
+                }
+                continue;
+            };
+            // Missing intent is accepted only for an independently verified
+            // canonical AI owner; a foreign row cannot acquire that authority.
+            let Some(intent)=input.intent.take() else {state().running=false;finish_allocations(allocations);return 0;};
+            if state().owner.intent(&mut sim().store,F3IntentCommand {key:F3UnitKey {slot:input.key.slot,generation:input.key.generation,life:input.key.life},intent}).is_err() {
                 state().running=false;finish_allocations(allocations);return 0;
             }
+        }
+        state().bot_targets[reference.slot as usize] = if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {
+            let hint=ai.weapon_hint(&sim().store,reference,None);hint.bot.then_some(hint.target)
+        }else{input.as_ref().filter(|input|input.bot_target_set).map(|input|input.bot_target)};
+        let network=if let Some(input)=input.as_ref().filter(|input|input.has_network) {
+            if input.network_index>=foreign.network {state().running=false;finish_allocations(allocations);return 0;}
             let at=network_at+input.network_index as usize*F3PhaseNetwork::WORDS;
             Some(F3PhaseNetwork::take(&state().input[at..at+F3PhaseNetwork::WORDS],&[]))
-        } else { None };
-        state().network[reference.slot as usize] = network.as_ref().map(|r|F3NetworkView {
+        }else{None};
+        state().network[reference.slot as usize]=network.as_ref().map(|r|F3NetworkView {
             view:r.network.view,lead:r.network.lead,playout:r.network.playout,
             fire0:r.network.fire0,fire1:r.network.fire1,view0:r.network.view0,view1:r.network.view1,
         }).unwrap_or_default();
-        sim().store.unit.get_mut(reference).unwrap().remotes_active = crate::recon::module::active(reference);
-        if let Some(context) = crate::recon::module::context(reference) {
-            sim().store.recon_context.get_mut(context).unwrap().first_person = input.remote_first_person;
+        sim().store.unit.get_mut(reference).unwrap().remotes_active=crate::recon::module::active(reference);
+        if let Some(context)=crate::recon::module::context(reference) {
+            sim().store.recon_context.get_mut(context).unwrap().first_person=input.as_ref().is_some_and(|input|input.remote_first_person);
         }
-        state().infos[reference.slot as usize].remote = crate::recon::module::context(reference).is_some();
-        // networkShotFor treats a present empty list differently from no
-        // list. The fixed pair retains that distinction without allocating
-        // a Vec for every network soldier on every tick.
-        state().edges[reference.slot as usize] = network.map(|input| Edges {
-            shots: None,
-            shot: input.edge.as_ref().map(crate::combat::module::edge),
-            fixed: input.edge_list.then(|| {
-                [
-                    input.edge0.as_ref().map(crate::combat::module::edge),
-                    input.edge1.as_ref().map(crate::combat::module::edge),
-                ]
-            }),
+        state().infos[reference.slot as usize].remote=crate::recon::module::context(reference).is_some();
+        // An empty shot list remains present and suppresses a legacy edge.
+        state().edges[reference.slot as usize]=network.map(|input|Edges {
+            shots:None,shot:input.edge.as_ref().map(crate::combat::module::edge),
+            fixed:input.edge_list.then(||[input.edge0.as_ref().map(crate::combat::module::edge),input.edge1.as_ref().map(crate::combat::module::edge)]),
         }).unwrap_or_default();
     }
     let _tick_allocations = crate::allocations::at(F3AllocationStage::Other);
@@ -810,7 +937,7 @@ fn step(count: u32, dt: f64, level: f64, mut recon: Option<crate::units::f3::Wor
     // owners after hulls/seats, before the world's separation pass.
     if let Some(services) = recon.as_mut() {
         let authority = &mut *services.recon;
-        authority.finish(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries),
+        authority.finish(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),
             state().tick,dt).unwrap_or_else(|_|fail());
         crate::recon::module::publish_active(authority);
         crate::recon::module::publish(authority);
@@ -1081,7 +1208,7 @@ fn command(mut recon: Option<crate::units::f3::WorldServices<'_>>) -> u32 {
     let body_only = (matches!(command.action, F3Action::Look | F3Action::LookRaw |
         F3Action::BodyAir | F3Action::BodySpawn | F3Action::DeadTime | F3Action::ConsumeContact)
         && state().publication_marks[reference.slot as usize] != Some(reference.gen)).then_some(reference);
-    publish_changed_at(body_only);
+    publish_changed_at(body_only,true);
     u32::from(!state().failed)
 }
 
@@ -1128,6 +1255,29 @@ pub(crate) fn finish_aimer() {
             !apply_setting(change.key.reference(),change.action,change.field,change.index,change.value) {fail();return;}
         changed(change.key.reference());
     }
+}
+
+/// Bind the bare AI generator once at native world construction. Unit fire
+/// consumes this same authority between decisions, rather than a copied seed.
+pub fn bind_ai_stream(id:u32,stream:crate::ai::random::SharedRandom) {
+    assert!(id<RANDOM_CAPACITY as u32,"native AI random binding");
+    let at=id as usize*F3RandomState::WORDS;
+    let mut row=F3RandomState::take(&state().random_states[at..],&[]);
+    row.state=stream.seed();row.present=true;
+    row.put(&mut state().random_states[at..],&mut state().block.heap);
+    if state().shared_random[id as usize].is_none() {state().shared_bindings.push(id);}
+    state().shared_random[id as usize]=Some(stream);
+}
+/// useClassicRandom changes the arsenal's spread generators only. Combat's
+/// chunks roll retains its gameplay stream, independently of bot attachment.
+pub fn use_ai_stream(key:&F3UnitKey,id:u32) {
+    assert!(state().shared_random.get(id as usize).is_some_and(Option::is_some),"prepared native AI random stream");
+    let changed={let unit=key.validate_mut(&mut sim().store).expect("current AI weapon owner");
+        let mut changed=false;
+        for weapon in &mut unit.combat.weapons {changed|=!weapon.random;weapon.random=true;}changed};
+    let bindings=&mut state().random_bindings[key.slot as usize];
+    for binding in bindings.iter_mut().skip(1) { *binding=id; }
+    if changed {self::changed(key.reference());}
 }
 
 /// ClassicRandom.uniform (ai/random.js). The numeric binding keeps the shared
@@ -1186,9 +1336,7 @@ fn draw_stream(stream: u32) -> f64 { (random_next(stream) >> 9) as f64 / 8388608
 /// Preserve the lazy channel stamp before advancing either representation.
 pub(crate) fn random_next(stream: u32) -> u32 {
     if stream>=RANDOM_CAPACITY as u32 {fail();return 0;}
-
-    // ClassicRandom changes only on an actual draw. The shared epoch lets
-    // an aimer skip scanning all streams when no preceding weapon drew.
+    // The epoch covers both fractional weapon draws and raw spawn draws.
     let epoch=&mut state().random_epoch[F3RandomEpoch::REVISION];
     *epoch=(*epoch as u32).wrapping_add(1) as f64;
     let at = stream as usize * F3RandomState::WORDS;
@@ -1198,9 +1346,12 @@ pub(crate) fn random_next(stream: u32) -> u32 {
         state().random_sequence += 1;
         row.sequence = state().random_sequence;
     }
-    let mut generator = jsrt::rng::ClassicRandom::from_state(row.state);
-    let value = generator.next_u32();
-    row.state = generator.state;
+    let value=if let Some(mut shared)=state().shared_random[stream as usize].clone() {
+        let value=crate::ai::random::Random::next(&mut shared);row.state=shared.seed();value
+    }else{
+        let mut generator=jsrt::rng::ClassicRandom::from_state(row.state);
+        let value=generator.next_u32();row.state=generator.state;value
+    };
     row.put(&mut state().random_states[at..], &mut state().block.heap);
     value
 }
@@ -1306,7 +1457,7 @@ fn stage(out: &mut F3Publication, reference: Ref<Unit>, unit: &Unit) {
     for (o, w) in v.weapons.iter_mut().zip(&c.weapons) {
         *o = weapon_view_with_defs(w,&defs.weapons);
     }
-    stage_controls(out,unit);
+    stage_controls(out,reference,unit);
 }
 // Unit.onMoved precedes combat. Its body and consumed movement controls can
 // change while the arsenal and weapon heap retain their last consumed bits.
@@ -1319,22 +1470,21 @@ fn stage_body(out:&mut F3Publication,reference:Ref<Unit>,unit:&Unit) {
     if let Some(visible) = crate::vehicles::module::f2::live_seats::visible(unit) { out.body.visible &= visible; }
     if unit.dead && state().hidden_crew[reference.slot as usize] == Some((reference,unit.generation)) { out.body.visible = false; }
 }
-fn stage_controls(out:&mut F3Publication,unit:&Unit) {
-    // Unit.tick consumes one-shot controls but leaves held buttons and axes
-    // with its controller. Publish those consumed edges without replacing
-    // the intent object that the next AI update will write.
-    let i = &unit.intent;
-    let controls = out.controls.get_or_insert_with(F3ControlView::default);
-    controls.jump = i.jump;
-    controls.crouch = i.crouch;
-    controls.prone = i.prone;
-    controls.r#use = i.r#use;
-    controls.exit = i.exit;
-    controls.reload = i.reload;
-    controls.next_primary = i.next_primary;
-    controls.previous_primary = i.previous_primary;
-    controls.next_secondary = i.next_secondary;
-    controls.zoom = i.zoom;
+fn stage_controls(out:&mut F3Publication,reference:Ref<Unit>,unit:&Unit) {
+    // Native F3 consumes bot controls directly. Only the held fields that
+    // JavaScript still reads leave this owner; input and latch rows remain
+    // native. Foreign controls keep their complete restoration contract.
+    let i=&unit.intent;
+    out.native_intent=state().native_intents[reference.slot as usize]==Some(reference);
+    if out.native_intent {
+        out.controls=None;
+        out.native_controls=Some(F3NativeIntent {forward:i.forward,right:i.right,turn:i.turn,pitch:i.pitch,
+            buttons:i.buttons,aim:i.aim});
+        return;
+    }
+    out.native_controls=None;
+    let controls=out.controls.get_or_insert_with(F3ControlView::default);
+    controls.intent=i.clone();
     controls.was = unit.controls.was;
     controls.pressed0 = unit.controls.pressed.first().copied().unwrap_or(false);
     controls.pressed1 = unit.controls.pressed.get(1).copied().unwrap_or(false);
@@ -1908,6 +2058,22 @@ pub(crate) fn health_scale(slot: u32) -> crate::combat::impacts::HealthScale {
 pub(crate) fn friendly_fire() -> bool {
     state().friendly_fire
 }
+// AI commands mutate only Intent; they do not invalidate lazy geometry.
+// Keep a separate touched list so a concurrent lifecycle/weapon/body write
+// wins the full publication without being mislabeled as an input-only edit.
+pub(crate) fn intent_changed(reference:Ref<Unit>) {
+    // Keep first-touch order while rejecting duplicates in constant time.
+    // A retired storage generation cannot suppress its replacement's touch.
+    let s=state();let stamp=&mut s.intent_marked[reference.slot as usize];
+    if *stamp==Some(reference.gen) {return;}
+    *stamp=Some(reference.gen);s.intent_changed.push(reference);
+}
+// AI prepareSpread keeps its separate clear/restore writes. Only encoding
+// waits for the following unit phase; synchronous barriers still flush it.
+pub(crate) fn weapon_changed(reference:Ref<Unit>) {
+    state().weapon_marked[reference.slot as usize]=Some(reference.gen);
+    intent_changed(reference);
+}
 pub(crate) fn changed(reference: Ref<Unit>) {
     // Seat placement can advance tickCount outside Unit.tick. Its qualified
     // touch must retire an earlier shared bounds sample before JS observes it.
@@ -2025,18 +2191,23 @@ pub(crate) fn reserve_native_slots(count:usize) {
     s.publication.resize_with(count,||crate::vehicles::f2_delta::Cache::new(0));
     s.publication_marks.resize(count,None);
     s.completed.reserve(count.saturating_sub(s.completed.len()));
+    s.intent_changed.reserve(count.saturating_sub(s.intent_changed.len()));
+    s.intent_marked.resize(count,None);
+    s.weapon_marked.resize(count,None);
+    s.phase_inputs.resize(count,None);
+    s.phase_input_slots.reserve(count.saturating_sub(s.phase_input_slots.len()));
     s.publication_ready.reserve(count.saturating_sub(s.publication_ready.len()));
     s.categories.resize(count,0);s.health.resize(count,crate::combat::impacts::HealthScale::Person);
-    s.bot_targets.resize(count,None);s.hidden_crew.resize(count,None);
+    s.bot_targets.resize(count,None);s.native_intents.resize(count,None);s.hidden_crew.resize(count,None);
     s.network.resize_with(count,F3NetworkView::default);s.arsenals.resize(count,0);
     s.edges.resize_with(count,Edges::default);s.infos.resize_with(count,UnitsPhaseUnit::default);
     s.random_bindings.resize_with(count,Vec::new);
     s.foreign.resize_with(count.max(s.foreign.len()),F3PropFact::default);
     s.items.reserve_unit(count);s.pushers.reserve(count);
     super::f3_hulls::reserve_members(count);
-    prepare_bounds(count);
     // Prepared future births may become flight targets without a JS registry add.
     crate::vehicles::module::f2::reserve_registry(count);
+    prepare_bounds(count);
 }
 pub(crate) fn take_bindings(slot:u32)->Vec<u32> {
     std::mem::take(&mut state().random_bindings[slot as usize])
@@ -2050,7 +2221,7 @@ pub(crate) fn install_native_slot(reference:Ref<Unit>, category:u32,
     publication.invalidate();s.publication[slot]=publication;
     s.categories[slot]=category;s.health[slot]=health;s.random_bindings[slot]=bindings;
     s.infos[slot].unit=slot as f64;s.infos[slot].droideka_water=water;
-    s.hidden_crew[slot]=None;s.bot_targets[slot]=None;s.network[slot]=F3NetworkView::default();
+    s.hidden_crew[slot]=None;s.bot_targets[slot]=None;s.native_intents[slot]=None;s.network[slot]=F3NetworkView::default();
     s.arsenals[slot]=s.arsenals[slot].wrapping_add(1);
 }
 pub(crate) fn discard_publication(reference:Ref<Unit>) {
@@ -2097,3 +2268,15 @@ pub(crate) fn take_publication(reference:Ref<Unit>) -> crate::vehicles::f2_delta
     std::mem::replace(&mut state().publication[reference.slot as usize],
         crate::vehicles::f2_delta::Cache::new(0))
 }
+
+/// UnitController.bind/unbind owns the right to publish held intent fields.
+/// External human commands keep their pending JS input until Unit.tick takes
+/// it; native bot commands expose their canonical intent at the outer return.
+pub(crate) fn native_intent(reference:Ref<Unit>,owned:bool) {
+    state().native_intents[reference.slot as usize]=owned.then_some(reference);
+    changed(reference);
+}
+
+/// Encoded outer payload size, without another export or body traversal.
+pub(crate) fn output_words()->u32 {state().layout.output_words}
+pub(crate) fn publication_version()->u32 {state().layout.version}

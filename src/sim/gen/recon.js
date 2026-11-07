@@ -963,7 +963,7 @@ export function syncReconDroid(b, f, at, h, m) {
   { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 28]; $v.y = f[at + 29]; $v.z = f[at + 30]; }
   m.countdown = f[at + 31];
   { const tag = f[at + 32]; if (tag === 0) { m.salvo = syncReconSalvo(b, f, at + 33, h, m.salvo ?? new ReconSalvoMirror()); } else m.salvo = tag === 1 ? null : undefined; }
-  { const items = (m.weapons ??= []), start = h + f[at + 48], n = f[at + 49]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 42; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 48], n = f[at + 49]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 43; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
   { const a = (m.selected ??= new Array(2)); a[0] = f[at + 50]; a[1] = f[at + 51]; }
   return m;
 }
@@ -987,7 +987,7 @@ export function syncFullReconDroid(b, f, at, h, m) {
   { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 28]; $v.y = f[at + 29]; $v.z = f[at + 30]; }
   m.countdown = f[at + 31];
   { const tag = f[at + 32]; if (tag === 0) { m.salvo = syncReconSalvo(b, f, at + 33, h, m.salvo ?? new ReconSalvoMirror()); } else m.salvo = tag === 1 ? null : undefined; }
-  { const items = (m.weapons ??= []), start = h + f[at + 48], n = f[at + 49]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 42; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 48], n = f[at + 49]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 43; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
   { const a = (m.selected ??= new Array(2)); a[0] = f[at + 50]; a[1] = f[at + 51]; }
   return m;
 }
@@ -1011,7 +1011,7 @@ export function putReconDroid(b, o, f, at, heap) {
   { const $v = o.target; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; }
   f[at + 31] = o.countdown;
   { const $x = o.salvo; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 48); } else { f[at + 32] = 0; putReconSalvo(b, $x, f, at + 33, heap); } }
-  heap.items(o.weapons, f, at + 48, 42, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
+  heap.items(o.weapons, f, at + 48, 43, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
   { const $v = o.selected; f[at + 50] = $v[0]; f[at + 51] = $v[1]; }
 }
 
@@ -1034,7 +1034,7 @@ export function putFullReconDroid(b, o, f, at, heap) {
   { const $v = o.target; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; }
   f[at + 31] = o.countdown;
   { const $x = o.salvo; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 48); } else { f[at + 32] = 0; putReconSalvo(b, $x, f, at + 33, heap); } }
-  heap.items(o.weapons, f, at + 48, 42, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
+  heap.items(o.weapons, f, at + 48, 43, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
   { const $v = o.selected; f[at + 50] = $v[0]; f[at + 51] = $v[1]; }
 }
 

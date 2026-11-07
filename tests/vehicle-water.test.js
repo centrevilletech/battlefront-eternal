@@ -82,7 +82,8 @@ function atst(level) {
   const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision, water: pool(level),
     data: { ...data, blockers: null, spawns: [{ name: 'test', matrix: new THREE.Matrix4().makeTranslation(-20, 0, 0).toArray(), team: 1, post: '', classes: { 1: 'imp_walk_atst' } }] },
     buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin'),
-    texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {}, fire() { return null; }, lights: { flash() {} } } });
+    texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {}, fire() { return null; }, lights: { flash() {} } },
+    });
   const v = system.vehicles[0];
   registerHullFixture(system, { data: system.data, buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin') });
   // Occupied walkers keep updating at rest, just as the driven fixture did.
@@ -106,8 +107,9 @@ test('an AT-ST wades in on the bed; water over its sphere wears it down, shallow
   assert.ok(Math.abs(v.maxHealth - v.health - 600) <= 20, `lost ${v.maxHealth - v.health} in the second second`);
   for (let t = 0; t < 60 * 20 && v.alive; t++) stepPrediction(system, 1 / 60, v);
   assert.equal(v.alive, false);
-  // Native death releases the crew synchronously. The old onDestroyed
-  // callback was achievement bookkeeping, not a page prediction event.
-  assert.equal(v.driver, null);
+  assert.equal(v.health,0);
+  // Native destruction owns crew release and achievement credit. Its old
+  // JavaScript gameplay callback no longer observes the hull phase.
+  assert.ok(v.seats.every(seat=>seat.lease===null),'the dead hull releases every native lease');
   system.dispose();
 });

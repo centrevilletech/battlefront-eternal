@@ -46,7 +46,6 @@ const { CollisionWorld } = await import('./collision-fixture.mjs');
 const { setting } = await import('../src/seats.js');
 const { classSetting } = await import('../src/vehicle-motion.js');
 const { scanVector } = await import('../src/props.js');
-const { routeWords } = await import('../src/ai/classic/nav/data.js');
 const { vehicleBatches } = await import('../src/vehicle-rig.js');
 const { gearFoot } = await import('../src/flight/gear.js');
 const { spawnPlacedItems } = await import('../src/placed-items.js');
@@ -54,6 +53,18 @@ const { ENGINE } = await import('../src/soldier.js');
 const { createEntityRegistry } = await import('../src/runtime/network-entity-registry.js');
 const { INPUT_CODES, DEFAULT_BINDING_PROFILES } = await import('../src/runtime/network-entity-input.js');
 const THREE = await import('three');
+
+// Binary content IO only: dump the authored little-endian routing words,
+// without constructing a planning graph or making a route decision.
+function routeWords(bin,routes) {
+  if(!routes)return null;
+  const bytes=bin instanceof ArrayBuffer?new Uint8Array(bin):new Uint8Array(bin.buffer,bin.byteOffset,bin.byteLength);
+  const offset=routes.byteOffset??0,count=routes.count;
+  if(!(offset>=0&&offset+count*4<=bytes.byteLength))throw Error('AI routing words exceed their content buffer');
+  const view=new DataView(bytes.buffer,bytes.byteOffset+offset,count*4),words=new Uint32Array(count);
+  for(let i=0;i<count;i++)words[i]=view.getUint32(i*4,true);
+  return words;
+}
 
 // ---------------------------------------------------------------------------
 // Canonical text (rust/content/src/dump.rs).
@@ -260,7 +271,7 @@ export function loadBattle(map, query) {
       }
     }
   }
-  // The AI's data (src/ai/index.js loadAIData), for Object.keys(sides).
+  // The AI's cold data (src/ai-data.js loadAIData), for Object.keys(sides).
   const nav = L.optionalJson(`${mapDir}/ai-nav.json`);
   const aiMission = L.optionalJson(`${mapDir}/ai-mission.json`);
   const classData = Object.fromEntries(Object.keys(sides).map((name) => [name, L.optionalJson(`/sides/${name}/ai.json`)]));

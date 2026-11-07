@@ -160,6 +160,7 @@ impl Weapon {
             random: false,
             spread_scale: 1.0,
             sniper_scale: 0.0,
+            enhanced_floor: false,
             yaw_spread_override: None,
             wait: 0.0,
             reload_left: 0.0,
@@ -824,4 +825,28 @@ impl Arsenal<'_> {
             self.weapons[i].update(i as u32, class, dt, selected, &trigger, reload, aim, draws, out);
         }
     }
+}
+
+/// Arsenal.select, shared by native AI and the unit command boundary.
+pub fn select(c: &mut crate::gen::Combat, defs: &WeaponDefs, i: usize) -> bool {
+    if i >= c.weapons.len() {
+        return false;
+    }
+    let channel = crate::store::word_u32(c.weapons[i].channel(defs)) as usize;
+    let arsenal = Arsenal { weapons: &mut c.weapons, selected: &mut c.selected };
+    let mut at = 0;
+    for w in &arsenal.weapons[..i] { if w.in_channel(defs, channel as f64) { at += 1; } }
+    if !arsenal.weapons[i].in_channel(defs, channel as f64) { return false; }
+    let old = arsenal.current(defs, channel);
+    if old == Some(i) {
+        return true;
+    }
+    if let Some(o) = old {
+        if c.weapons[o].busy() {
+            return false;
+        }
+        c.weapons[o].deselect();
+    }
+    c.selected[channel] = at as f64;
+    true
 }

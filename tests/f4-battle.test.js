@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { F3_BOUNDARY_REFRESH_WORDS } from '../src/sim/gen/units.js';
 import { F4Live } from '../src/f4-live.js';
 import { F4Battle } from '../src/f4-battle.js';
 import { f3World } from './fixtures/f3-world.js';
@@ -12,11 +13,10 @@ test('native battle commands retain scoreboard objects and publish only touched 
   const battle = battleFixture({posts:[]}), [a,b] = battle.characters;
   const owned = new F4Battle(world.phase,battle,{debug:true});
   const words = live.native.outputWords, mirrored = owned.mirrors.words, commands = live.native.commands;
-  const phaseWords = world.phase.counters.outputFields;
   battle.credit(b,a,-1);
   assert.equal(live.native.outputWords - words,owned.mirrors.words - mirrored);
   assert.equal(live.native.commands - commands,1);
-  assert.equal(owned.counters.outputFields,owned.mirrors.words - mirrored + world.phase.counters.outputFields - phaseWords);
+  assert.equal(owned.counters.outputFields,owned.mirrors.words - mirrored + F3_BOUNDARY_REFRESH_WORDS);
   assert.equal(battle.characters[0],a); assert.equal(battle.characters[1],b);
   assert.equal(a.kills,1); assert.equal(b.deaths,1);
   assert.equal(a.record.slots[0].victims.get(b),1);

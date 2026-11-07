@@ -29,5 +29,7 @@ test('units, combats and controllers keep one layout through a battle', { skip: 
   assert.ok(units.some((u) => u.alive) && units.some((u) => u.networkHuman) && units.some((u) => u.walker), 'soldiers, droidekas and the player were in the battle');
   assert.equal(layouts(units).size, 1, 'units');
   assert.equal(layouts(units.map((u) => u.combat)).size, 1, 'combats');
-  assert.equal(layouts([...game.ai.classic.controllers.values()]).size, 1, 'controllers');
+  const controllers=game.ai.owner.controllerRefs.frames;
+  assert.ok(controllers.some(controller=>controller.simGen>0),'native bot identities were published');
+  assert.equal(layouts(controllers).size, 1, 'controller identity facades');
 });

@@ -88,3 +88,30 @@ fn borrowed_publications_retain_unread_words_and_one_writer_heap() {
         row[0] = 7.0; row[1] = -0.0; heap.extend([17.0, 19.0]);
     }));
 }
+
+// Intent-only barriers may follow an acknowledged full row, an unread full
+// row, or a resized weapon heap. Compare every retained bit after repeated
+// swaps, including changes outside the next intent range and NaN payloads.
+#[test]
+fn retained_intents_restore_unread_and_acknowledged_heap_changes() {
+    let mut cache=Cache::new(4096);
+    let mut expected=Vec::new();
+    for cycle in 0..120 {
+        let size=if cycle%3==0 {2000} else {1900};
+        let committed=cycle%2==0;
+        cache.prepare(2,1,3,|row,heap| {
+            row.copy_from_slice(&[cycle as f64,-0.0,17.]);
+            for i in 0..size {heap.push(if i%11==0 {f64::from_bits(0x7ff8000000000001+cycle)} else {(i+cycle as usize) as f64});}
+        });
+        if committed {cache.commit();}
+        expected.clone_from(&cache.last.words);
+        assert_eq!(cache.prepare_retained(2,1,3,&[HEADER..HEADER+1],|row,_|row[0]=99.),Some(expected[HEADER].to_bits()!=99f64.to_bits()));
+        expected[HEADER]=99.;
+        assert_eq!(cache.next.words.iter().map(|v|v.to_bits()).collect::<Vec<_>>(),expected.iter().map(|v|v.to_bits()).collect::<Vec<_>>());
+        cache.commit();
+        let changed=expected[HEADER+1].to_bits()!=0f64.to_bits();
+        assert_eq!(cache.prepare_retained(2,1,3,&[HEADER+1..HEADER+2],|row,_|row[1]=0.),Some(changed));
+        expected[HEADER+1]=0.;cache.commit();
+        assert_eq!(cache.last.words.iter().map(|v|v.to_bits()).collect::<Vec<_>>(),expected.iter().map(|v|v.to_bits()).collect::<Vec<_>>());
+    }
+}

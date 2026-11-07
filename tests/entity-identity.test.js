@@ -4,7 +4,7 @@ import { Vector3 } from 'three';
 import { Units } from '../src/registry.js';
 import { assignUnitId } from '../src/runtime/entity-identity.js';
 
-test('out-of-order replica admission retains canonical radar blend order', () => {
+test('out-of-order replica admission retains canonical registry order', () => {
   const units = new Units(), list = units.list;
   const make = id => {
     const unit = units.add({generation:1,team:1,kind:0,alive:true,removed:false,
@@ -12,10 +12,8 @@ test('out-of-order replica admission retains canonical radar blend order', () =>
     return assignUnitId(units,unit,id);
   };
   const high = make(80), low = make(2), middle = make(40);
-  // The Rust HUD receives this canonical insertion sequence. Sparse replica
-  // admissions must preserve it without replacing the shared list object.
   assert.equal(units.list,list);
-  assert.deepEqual([...units.all()],[low,middle,high]);
+  assert.deepEqual(units.list,[low,middle,high]);
   assignUnitId(units,high,3);
   assert.deepEqual(units.list,[low,high,middle]);
   assert.equal(units.byId(80),null);assert.equal(units.byId(3),high);

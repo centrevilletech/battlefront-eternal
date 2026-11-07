@@ -36,12 +36,9 @@
 import * as THREE from 'three';
 import { seats, hullExport, seatState, crewState } from './seats.mjs';
 import { f2Spec } from './f2.mjs';
-import { vehicleAI } from './vehicle-ai.mjs';
 import { battle, battlePhase } from './battle.mjs';
 import { flightSpec } from './flight.mjs';
 import { humanSpawn } from './human-spawn.mjs';
-import { ai, aiPolicy } from './ai.mjs';
-import { aiCombat } from './ai-combat.mjs';
 import { traps } from './traps.mjs';
 import { props } from './props.mjs';
 import { animated } from './animated.mjs';
@@ -293,32 +290,6 @@ const vehicles = {
   ],
 };
 
-// AI navigation's planner (P13): each request and service, with the
-// queue the store declares (rust/sim/schema/nav.mjs) and the scalars a
-// replay checks while the search's own state is not declared yet. The
-// barriers the search tests are the map's content, which a replay loads
-// with the map; what a service publishes is on the owners (also not
-// declared yet), so the frame records the pools and the served count a
-// publish moves. The full request-level gate, native against these
-// calls recorded from battles, is tools/nav-twin.mjs.
-const navPlannerState = (game, args, cap) => {
-  const planner = game.ai.nav.planner;
-  return {
-    planner: cap.export('pathPlanner', planner),
-    pools: { paths: planner.pools.paths.used, nodes: planner.pools.nodes.used },
-    searching: !planner.search.finished,
-    served: planner.served,
-  };
-};
-const navPlanner = {
-  frames: [
-    { method: 'navPlanner.request', target: (game) => game.ai.nav.planner,
-      state: navPlannerState, boundaries: () => [] },
-    { method: 'navPlanner.service', target: (game) => game.ai.nav.planner,
-      state: navPlannerState, boundaries: () => [] },
-  ],
-};
-
 // Nothing but the tick records (every phase's draws and the fingerprints):
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
@@ -333,8 +304,5 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // The battle package (flip F4): the posts, the battle's rules, leaving the
 // battlefield and the spawn manager, and (battlePhase) the battle phase
 // whole (tools/sim-capture/battle.mjs).
-// The AI in vehicles (P14): the vehicle service's calls, the seats'
-// steering, the vehicle patterns, the notifier and decay, and the boarding
-// and flyer agents (tools/sim-capture/vehicle-ai.mjs).
 const f2 = f2Spec({ hullExport, seatState, crewState, poseState, tetherState, boundaries: spawnBoundaries });
-export const SPECS = { f2, ordnance, items, vehicles, ticks, navPlanner, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons };
+export const SPECS = { f2, ordnance, items, vehicles, ticks, flight, flightMissiles, seats, battle, battlePhase, humanSpawn, traps, props, animated, liveObjects, turrets, debris, weapons };

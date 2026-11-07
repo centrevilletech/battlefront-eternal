@@ -12,11 +12,11 @@ use three::Vector3;
 /// native factory operation and finishes before returning its reference.
 pub trait Lifecycle {
     fn spawn(&mut self, character:Ref<Character>, class:Option<StrId>, post:SpawnPost, at:[f64;3], yaw:Option<f64>, services:WorldServices<'_>) -> Option<Ref<Unit>>;
-    fn request_objective(&mut self, character:Ref<Character>);
-    fn republish(&mut self, character:Ref<Character>);
-    fn post_event(&mut self, event:&PostEvent);
-    fn mobile_event(&mut self, event:&MobileEvent);
-    fn battle_over(&mut self, loser:f64);
+    fn request_objective(&mut self, character:Ref<Character>, services:WorldServices<'_>);
+    fn republish(&mut self, character:Ref<Character>, services:WorldServices<'_>);
+    fn post_event(&mut self, event:&PostEvent, services:WorldServices<'_>);
+    fn mobile_event(&mut self, event:&MobileEvent, services:WorldServices<'_>);
+    fn battle_over(&mut self, loser:f64, services:WorldServices<'_>);
 }
 /// HumanSpawn retains its own event/selection buffers. It reborrows native
 /// services only at the tail slot, after post/rule/Character work finishes.
@@ -98,10 +98,10 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_,F,H> {
         with_store(s,||self.lifecycle.spawn(r,class,post,at,yaw,self.services.reborrow()))
     }
     fn request_objective(&mut self,s:&mut Store,r:Ref<Character>) {
-        with_store(s,||{self.lifecycle.request_objective(r);});
+        with_store(s,||{self.lifecycle.request_objective(r,self.services.reborrow());});
     }
     fn republish(&mut self,s:&mut Store,r:Ref<Character>) {
-        with_store(s,||{self.lifecycle.republish(r);});
+        with_store(s,||{self.lifecycle.republish(r,self.services.reborrow());});
     }
     fn cast_spawn(&mut self,from:Vector3,direction:Vector3,span:f64,body:Ref<Body>)->Option<Vector3> {
         crate::units::native::ordnance_cast(f3::collision_world(),array(from),array(direction),span,Some(body),true,false)
@@ -114,13 +114,13 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_,F,H> {
         }; F4Effect{name,position}.emit(&mut sim().events);
     }
     fn post_event(&mut self,s:&mut Store,event:&PostEvent) {
-        with_store(s,||{self.lifecycle.post_event(event);});
+        with_store(s,||{self.lifecycle.post_event(event,self.services.reborrow());});
     }
     fn mobile_event(&mut self,s:&mut Store,event:&MobileEvent) {
-        with_store(s,||{self.lifecycle.mobile_event(event);});
+        with_store(s,||{self.lifecycle.mobile_event(event,self.services.reborrow());});
     }
     fn battle_over(&mut self,s:&mut Store,loser:f64) {
-        with_store(s,||{self.lifecycle.battle_over(loser);});
+        with_store(s,||{self.lifecycle.battle_over(loser,self.services.reborrow());});
     }
     fn human_tail(&mut self,s:&mut Store,dt:f64,commands:&[super::human::Command],prepared:&mut super::owned_world::Prepared) {
         self.human.step(s,dt,commands,prepared,self.services.reborrow(),self.lifecycle,self.local);

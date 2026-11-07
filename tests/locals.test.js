@@ -1,9 +1,9 @@
-import { contentPath } from './helpers/content.js';
 import {ownBattle} from './fixtures/f4-owned-battle.js';
 import {f3World} from './fixtures/f3-world.js';
 import {F4Live} from '../src/f4-live.js';
 import {F4Tail} from '../src/f4-tail.js';
 import {HumanSpawnMirror} from '../src/sim/gen/index.js';
+import { contentPath } from './helpers/content.js';
 // Locals (teams 3 and up: Tatooine's Tusken Raiders and Jawas, Naboo's
 // Gungans, Endor's Ewoks, Kashyyyk's Wookiees, Geonosis' Geonosians): the
 // mission's relations, factions and capture teams; command posts; the
@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import * as THREE from "three";
-import { missionTeams } from "../src/ai/classic/spawning.js";
+import { missionTeams as nativeMissionTeams } from "../src/mission-teams.js";
+import { loadSim } from '../src/sim/module.js';
+const missionInstance=await loadSim();
+const missionTeams=calls=>nativeMissionTeams(missionInstance,calls);
 import { Units } from "../src/registry.js";
 import { CommandPosts } from "../src/commandposts.js";
 import { Battle } from "../src/battle.js";

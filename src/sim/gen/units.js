@@ -286,22 +286,99 @@ export function exportF3Allocation(o, cx) {
   return v;
 }
 
-export const F3ControlViewLayout = Object.freeze({ words: 26, jump: 0, crouch: 1, prone: 2, use: 3, exit: 4, reload: 5, nextPrimary: 6, previousPrimary: 7, nextSecondary: 8, zoom: 9, was: 10, pressed0: 12, pressed1: 13, input: 14 });
+export const F3NativeIntentLayout = Object.freeze({ words: 10, forward: 0, right: 1, turn: 2, pitch: 3, buttons: 4, aim: 6 });
+export const F3_NATIVE_INTENT_WORDS = F3NativeIntentLayout.words;
+export const F3_NATIVE_INTENT_OFFSETS = F3NativeIntentLayout;
+
+export class F3NativeIntentMirror {
+  constructor() {
+    this.forward = NaN;
+    this.right = NaN;
+    this.turn = NaN;
+    this.pitch = NaN;
+    this.buttons = [NaN, NaN];
+    this.aim = null;
+  }
+}
+
+export function syncF3NativeIntent(b, f, at, h, m) {
+  m.forward = f[at + 0];
+  m.right = f[at + 1];
+  m.turn = f[at + 2];
+  m.pitch = f[at + 3];
+  { const a = (m.buttons ??= new Array(2)); a[0] = f[at + 4]; a[1] = f[at + 5]; }
+  { const tag = f[at + 6]; if (tag === 0) { { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; } } else m.aim = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function syncF3NativeIntentDelta(b, f, at, h, m, d, force = false, base = 0) {
+  at |= 0; h |= 0; base |= 0;
+  if (force) return syncF3NativeIntent(b, f, at, h, m);
+  const origin = at - base, end = origin + 10, first = origin >>> 5, last = (end - 1) >>> 5;
+  for (let word = first; word <= last; word++) {
+    let bits = d[word] >>> 0;
+    if (word === first) bits &= 0xffffffff << (origin & 31);
+    if (word === last && (end & 31)) bits &= 0xffffffff >>> (32 - (end & 31));
+    while (bits) {
+      const bit = 31 - Math.clz32(bits & -bits);
+      switch ((word << 5) + bit - origin) {
+        case 0:
+          { m.forward = f[at + 0]; break; }
+        case 1:
+          { m.right = f[at + 1]; break; }
+        case 2:
+          { m.turn = f[at + 2]; break; }
+        case 3:
+          { m.pitch = f[at + 3]; break; }
+      }
+      bits &= bits - 1;
+    }
+  }
+  if ((force || (deltaChanged(d, at + 4, 2, base)))) { { const a = (m.buttons ??= new Array(2)); a[0] = f[at + 4]; a[1] = f[at + 5]; } }
+  if ((force || (deltaChanged(d, at + 6, 4, base)))) { { const tag = f[at + 6]; if (tag === 0) { { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; } } else m.aim = tag === 1 ? null : undefined; } }
+  return m;
+}
+
+export function putF3NativeIntent(b, o, f, at, heap) {
+  f[at + 0] = o.forward;
+  f[at + 1] = o.right;
+  f[at + 2] = o.turn;
+  f[at + 3] = o.pitch;
+  { const $v = o.buttons; f[at + 4] = $v[0]; f[at + 5] = $v[1]; }
+  { const $x = o.aim; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; } else { f[at + 6] = 0; { const $v = $x; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; } } }
+}
+
+export function sameF3NativeIntent(a, b) {
+  if (!Object.is(a.forward, b.forward)) return ".forward";
+  if (!Object.is(a.right, b.right)) return ".right";
+  if (!Object.is(a.turn, b.turn)) return ".turn";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  if (!sameArray(a.buttons, b.buttons, 2)) return ".buttons";
+  { const p = a.aim, q = b.aim; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aim"; } else { if (!sameVec(p, q)) return ".aim"; } }
+  return null;
+}
+
+export function exportF3NativeIntent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.forward = o.forward;
+  v.right = o.right;
+  v.turn = o.turn;
+  v.pitch = o.pitch;
+  v.buttons = [...o.buttons];
+  v.aim = ((x) => (x === null || x === undefined ? x : x.clone()))(o.aim);
+  return v;
+}
+
+export const F3ControlViewLayout = Object.freeze({ words: 46, intent: 0, was: 30, pressed0: 32, pressed1: 33, input: 34 });
 export const F3_CONTROL_VIEW_WORDS = F3ControlViewLayout.words;
 export const F3_CONTROL_VIEW_OFFSETS = F3ControlViewLayout;
 
 export class F3ControlViewMirror {
   constructor() {
-    this.jump = false;
-    this.crouch = false;
-    this.prone = false;
-    this.use = false;
-    this.exit = false;
-    this.reload = false;
-    this.nextPrimary = false;
-    this.previousPrimary = false;
-    this.nextSecondary = false;
-    this.zoom = false;
+    this.intent = new IntentMirror();
     this.was = [NaN, NaN];
     this.pressed0 = false;
     this.pressed1 = false;
@@ -310,70 +387,49 @@ export class F3ControlViewMirror {
 }
 
 export function syncF3ControlView(b, f, at, h, m) {
-  (m.intent ??= {}).jump = f[at + 0] !== 0;
-  (m.intent ??= {}).crouch = f[at + 1] !== 0;
-  (m.intent ??= {}).prone = f[at + 2] !== 0;
-  (m.intent ??= {}).use = f[at + 3] !== 0;
-  (m.intent ??= {}).exit = f[at + 4] !== 0;
-  (m.intent ??= {}).reload = f[at + 5] !== 0;
-  (m.intent ??= {}).nextPrimary = f[at + 6] !== 0;
-  (m.intent ??= {}).previousPrimary = f[at + 7] !== 0;
-  (m.intent ??= {}).nextSecondary = f[at + 8] !== 0;
-  (m.intent ??= {}).zoom = f[at + 9] !== 0;
-  { const a = ((m.controls ??= {}).was ??= new Array(2)); a[0] = f[at + 10]; a[1] = f[at + 11]; }
-  ((m.controls ??= {}).pressed ??= [])[0] = f[at + 12] !== 0;
-  ((m.controls ??= {}).pressed ??= [])[1] = f[at + 13] !== 0;
-  m.input = syncMoveInput(b, f, at + 14, h, m.input ?? new MoveInputMirror());
+  m.intent = syncIntent(b, f, at + 0, h, m.intent ?? new IntentMirror());
+  { const a = ((m.controls ??= {}).was ??= new Array(2)); a[0] = f[at + 30]; a[1] = f[at + 31]; }
+  ((m.controls ??= {}).pressed ??= [])[0] = f[at + 32] !== 0;
+  ((m.controls ??= {}).pressed ??= [])[1] = f[at + 33] !== 0;
+  m.input = syncMoveInput(b, f, at + 34, h, m.input ?? new MoveInputMirror());
   return m;
 }
 
 export function syncF3ControlViewDelta(b, f, at, h, m, d, force = false, base = 0) {
   at |= 0; h |= 0; base |= 0;
-  (m.intent ??= {}).jump = f[at + 0] !== 0;
-  (m.intent ??= {}).crouch = f[at + 1] !== 0;
-  (m.intent ??= {}).prone = f[at + 2] !== 0;
-  (m.intent ??= {}).use = f[at + 3] !== 0;
-  (m.intent ??= {}).exit = f[at + 4] !== 0;
-  (m.intent ??= {}).reload = f[at + 5] !== 0;
-  (m.intent ??= {}).nextPrimary = f[at + 6] !== 0;
-  (m.intent ??= {}).previousPrimary = f[at + 7] !== 0;
-  (m.intent ??= {}).nextSecondary = f[at + 8] !== 0;
-  (m.intent ??= {}).zoom = f[at + 9] !== 0;
-  if ((force || (deltaChanged(d, at + 10, 2, base)))) { { const a = ((m.controls ??= {}).was ??= new Array(2)); a[0] = f[at + 10]; a[1] = f[at + 11]; } }
-  if ((force || (deltaChanged(d, at + 12, 1, base)))) { ((m.controls ??= {}).pressed ??= [])[0] = f[at + 12] !== 0; }
-  if ((force || (deltaChanged(d, at + 13, 1, base)))) { ((m.controls ??= {}).pressed ??= [])[1] = f[at + 13] !== 0; }
-  if ((force || (deltaChanged(d, at + 14, 12, base)))) { m.input = syncMoveInput(b, f, at + 14, h, m.input ?? new MoveInputMirror()); }
+  if (force) return syncF3ControlView(b, f, at, h, m);
+  const origin = at - base, end = origin + 46, first = origin >>> 5, last = (end - 1) >>> 5;
+  for (let word = first; word <= last; word++) {
+    let bits = d[word] >>> 0;
+    if (word === first) bits &= 0xffffffff << (origin & 31);
+    if (word === last && (end & 31)) bits &= 0xffffffff >>> (32 - (end & 31));
+    while (bits) {
+      const bit = 31 - Math.clz32(bits & -bits);
+      switch ((word << 5) + bit - origin) {
+        case 32:
+          { ((m.controls ??= {}).pressed ??= [])[0] = f[at + 32] !== 0; break; }
+        case 33:
+          { ((m.controls ??= {}).pressed ??= [])[1] = f[at + 33] !== 0; break; }
+      }
+      bits &= bits - 1;
+    }
+  }
+  if ((force || (deltaChanged(d, at + 0, 30, base)))) { m.intent = syncIntentDelta(b, f, at + 0, h, m.intent, d, force, base); }
+  if ((force || (deltaChanged(d, at + 30, 2, base)))) { { const a = ((m.controls ??= {}).was ??= new Array(2)); a[0] = f[at + 30]; a[1] = f[at + 31]; } }
+  if ((force || (deltaChanged(d, at + 34, 12, base)))) { m.input = syncMoveInput(b, f, at + 34, h, m.input ?? new MoveInputMirror()); }
   return m;
 }
 
 export function putF3ControlView(b, o, f, at, heap) {
-  f[at + 0] = o.intent?.jump ? 1 : 0;
-  f[at + 1] = o.intent?.crouch ? 1 : 0;
-  f[at + 2] = o.intent?.prone ? 1 : 0;
-  f[at + 3] = o.intent?.use ? 1 : 0;
-  f[at + 4] = o.intent?.exit ? 1 : 0;
-  f[at + 5] = o.intent?.reload ? 1 : 0;
-  f[at + 6] = o.intent?.nextPrimary ? 1 : 0;
-  f[at + 7] = o.intent?.previousPrimary ? 1 : 0;
-  f[at + 8] = o.intent?.nextSecondary ? 1 : 0;
-  f[at + 9] = o.intent?.zoom ? 1 : 0;
-  { const $v = o.controls?.was; f[at + 10] = $v[0]; f[at + 11] = $v[1]; }
-  f[at + 12] = o.controls?.pressed?.[0] ? 1 : 0;
-  f[at + 13] = o.controls?.pressed?.[1] ? 1 : 0;
-  putMoveInput(b, o.input, f, at + 14, heap);
+  putIntent(b, o.intent, f, at + 0, heap);
+  { const $v = o.controls?.was; f[at + 30] = $v[0]; f[at + 31] = $v[1]; }
+  f[at + 32] = o.controls?.pressed?.[0] ? 1 : 0;
+  f[at + 33] = o.controls?.pressed?.[1] ? 1 : 0;
+  putMoveInput(b, o.input, f, at + 34, heap);
 }
 
 export function sameF3ControlView(a, b) {
-  if (!Object.is(a.intent?.jump, b.intent?.jump)) return ".jump";
-  if (!Object.is(a.intent?.crouch, b.intent?.crouch)) return ".crouch";
-  if (!Object.is(a.intent?.prone, b.intent?.prone)) return ".prone";
-  if (!Object.is(a.intent?.use, b.intent?.use)) return ".use";
-  if (!Object.is(a.intent?.exit, b.intent?.exit)) return ".exit";
-  if (!Object.is(a.intent?.reload, b.intent?.reload)) return ".reload";
-  if (!Object.is(a.intent?.nextPrimary, b.intent?.nextPrimary)) return ".nextPrimary";
-  if (!Object.is(a.intent?.previousPrimary, b.intent?.previousPrimary)) return ".previousPrimary";
-  if (!Object.is(a.intent?.nextSecondary, b.intent?.nextSecondary)) return ".nextSecondary";
-  if (!Object.is(a.intent?.zoom, b.intent?.zoom)) return ".zoom";
+  { const d = sameIntent(a.intent, b.intent); if (d) return ".intent" + d; }
   if (!sameArray(a.controls?.was, b.controls?.was, 2)) return ".was";
   if (!Object.is(a.controls?.pressed?.[0], b.controls?.pressed?.[0])) return ".pressed0";
   if (!Object.is(a.controls?.pressed?.[1], b.controls?.pressed?.[1])) return ".pressed1";
@@ -386,16 +442,7 @@ export function exportF3ControlView(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.jump = o.intent?.jump;
-  v.crouch = o.intent?.crouch;
-  v.prone = o.intent?.prone;
-  v.use = o.intent?.use;
-  v.exit = o.intent?.exit;
-  v.reload = o.intent?.reload;
-  v.nextPrimary = o.intent?.nextPrimary;
-  v.previousPrimary = o.intent?.previousPrimary;
-  v.nextSecondary = o.intent?.nextSecondary;
-  v.zoom = o.intent?.zoom;
+  v.intent = exportIntent(o.intent, cx);
   v.was = [...o.controls?.was];
   v.pressed0 = o.controls?.pressed?.[0];
   v.pressed1 = o.controls?.pressed?.[1];
@@ -403,7 +450,7 @@ export function exportF3ControlView(o, cx) {
   return v;
 }
 
-export const F3PublicationLayout = Object.freeze({ words: 175, body: 0, arsenal: 103, combat: 104, controls: 148, bodyWords: 103, controlsWords: 27 });
+export const F3PublicationLayout = Object.freeze({ words: 207, body: 0, arsenal: 103, combat: 104, controls: 148, nativeIntent: 195, nativeControls: 196, bodyWords: 103, controlsWords: 47, nativeControlsWords: 11 });
 export const F3_PUBLICATION_WORDS = F3PublicationLayout.words;
 export const F3_PUBLICATION_OFFSETS = F3PublicationLayout;
 
@@ -413,6 +460,8 @@ export class F3PublicationMirror {
     this.arsenal = 0;
     this.combat = new F3CombatViewMirror();
     this.controls = null;
+    this.nativeIntent = false;
+    this.nativeControls = null;
   }
 }
 
@@ -421,6 +470,8 @@ export function syncF3Publication(b, f, at, h, m) {
   m.arsenal = f[at + 103] >>> 0;
   m.combat = syncF3CombatView(b, f, at + 104, h, m.combat ?? new F3CombatViewMirror());
   { const tag = f[at + 148]; if (tag === 0) { m.controls = syncF3ControlView(b, f, at + 149, h, m.controls ?? new F3ControlViewMirror()); } else m.controls = tag === 1 ? null : undefined; }
+  m.nativeIntent = f[at + 195] !== 0;
+  { const tag = f[at + 196]; if (tag === 0) { m.nativeControls = syncF3NativeIntent(b, f, at + 197, h, m.nativeControls ?? new F3NativeIntentMirror()); } else m.nativeControls = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -430,6 +481,8 @@ export function syncF3PublicationDelta(b, f, at, h, m, d, force = false, base = 
   m.arsenal = f[at + 103] >>> 0;
   if ((force || (deltaChanged(d, at + 104, 44, base) || deltaChanged(d, h + f[at + 146], f[at + 147] * 42, base)))) { m.combat = syncF3CombatViewDelta(b, f, at + 104, h, m.combat, d, force, base); }
   { const tag = f[at + 148]; if (tag === 0) { const fresh = !m.controls || deltaChanged(d, at + 148, 1, base); m.controls = syncF3ControlViewDelta(b, f, at + 149, h, m.controls ?? new F3ControlViewMirror(), d, force || fresh, base); } else m.controls = tag === 1 ? null : undefined; }
+  m.nativeIntent = f[at + 195] !== 0;
+  { const tag = f[at + 196]; if (tag === 0) { const fresh = !m.nativeControls || deltaChanged(d, at + 196, 1, base); m.nativeControls = syncF3NativeIntentDelta(b, f, at + 197, h, m.nativeControls ?? new F3NativeIntentMirror(), d, force || fresh, base); } else m.nativeControls = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -437,7 +490,9 @@ export function putF3Publication(b, o, f, at, heap) {
   putF3UnitMirror(b, o.body, f, at + 0, heap);
   f[at + 103] = o.arsenal;
   putF3CombatView(b, o.combat, f, at + 104, heap);
-  { const $x = o.controls; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f.fill(0, at + 149, at + 175); } else { f[at + 148] = 0; putF3ControlView(b, $x, f, at + 149, heap); } }
+  { const $x = o.controls; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f.fill(0, at + 149, at + 195); } else { f[at + 148] = 0; putF3ControlView(b, $x, f, at + 149, heap); } }
+  f[at + 195] = o.nativeIntent ? 1 : 0;
+  { const $x = o.nativeControls; if ($x === null || $x === undefined) { f[at + 196] = $x === null ? 1 : 2; f.fill(0, at + 197, at + 207); } else { f[at + 196] = 0; putF3NativeIntent(b, $x, f, at + 197, heap); } }
 }
 
 export function putF3Publication_body(b, o, f, at, heap) {
@@ -445,7 +500,11 @@ export function putF3Publication_body(b, o, f, at, heap) {
 }
 
 export function putF3Publication_controls(b, o, f, at, heap) {
-  { const $x = o.controls; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f.fill(0, at + 149, at + 175); } else { f[at + 148] = 0; putF3ControlView(b, $x, f, at + 149, heap); } }
+  { const $x = o.controls; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f.fill(0, at + 149, at + 195); } else { f[at + 148] = 0; putF3ControlView(b, $x, f, at + 149, heap); } }
+}
+
+export function putF3Publication_nativeControls(b, o, f, at, heap) {
+  { const $x = o.nativeControls; if ($x === null || $x === undefined) { f[at + 196] = $x === null ? 1 : 2; f.fill(0, at + 197, at + 207); } else { f[at + 196] = 0; putF3NativeIntent(b, $x, f, at + 197, heap); } }
 }
 
 export function sameF3Publication(a, b) {
@@ -453,6 +512,8 @@ export function sameF3Publication(a, b) {
   if (!Object.is(a.arsenal, b.arsenal)) return ".arsenal";
   { const d = sameF3CombatView(a.combat, b.combat); if (d) return ".combat" + d; }
   { const p = a.controls, q = b.controls; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".controls"; } else { { const d = sameF3ControlView(p, q); if (d) return ".controls" + d; } } }
+  if (!Object.is(a.nativeIntent, b.nativeIntent)) return ".nativeIntent";
+  { const p = a.nativeControls, q = b.nativeControls; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".nativeControls"; } else { { const d = sameF3NativeIntent(p, q); if (d) return ".nativeControls" + d; } } }
   return null;
 }
 
@@ -465,6 +526,8 @@ export function exportF3Publication(o, cx) {
   v.arsenal = o.arsenal;
   v.combat = exportF3CombatView(o.combat, cx);
   v.controls = ((x) => (x === null || x === undefined ? x : exportF3ControlView(x, cx)))(o.controls);
+  v.nativeIntent = o.nativeIntent;
+  v.nativeControls = ((x) => (x === null || x === undefined ? x : exportF3NativeIntent(x, cx)))(o.nativeControls);
   return v;
 }
 
@@ -1650,12 +1713,16 @@ export function exportF3PlayerSpawn(o, cx) {
   return v;
 }
 
+export const F3PhaseInputLayout = Object.freeze({ words: 42, key: 0, botTarget: 3, botTargetSet: 7, intent: 8, remoteFirstPerson: 39, hasNetwork: 40, networkIndex: 41 });
+export const F3_PHASE_INPUT_WORDS = F3PhaseInputLayout.words;
+export const F3_PHASE_INPUT_OFFSETS = F3PhaseInputLayout;
+
 export class F3PhaseInputMirror {
   constructor() {
     this.key = new F3UnitKeyMirror();
     this.botTarget = null;
     this.botTargetSet = false;
-    this.intent = new IntentMirror();
+    this.intent = null;
     this.remoteFirstPerson = false;
     this.hasNetwork = false;
     this.networkIndex = 0;
@@ -1666,10 +1733,10 @@ export function syncF3PhaseInput(b, f, at, h, m) {
   m.key = syncF3UnitKey(b, f, at + 0, h, m.key ?? new F3UnitKeyMirror());
   { const tag = f[at + 3]; if (tag === 0) { m.botTarget = syncMember(b, f, at + 4, h, m.botTarget); } else m.botTarget = tag === 1 ? null : undefined; }
   m.botTargetSet = f[at + 7] !== 0;
-  m.intent = syncIntent(b, f, at + 8, h, m.intent ?? new IntentMirror());
-  m.remoteFirstPerson = f[at + 38] !== 0;
-  m.hasNetwork = f[at + 39] !== 0;
-  m.networkIndex = f[at + 40] >>> 0;
+  { const tag = f[at + 8]; if (tag === 0) { m.intent = syncIntent(b, f, at + 9, h, m.intent ?? new IntentMirror()); } else m.intent = tag === 1 ? null : undefined; }
+  m.remoteFirstPerson = f[at + 39] !== 0;
+  m.hasNetwork = f[at + 40] !== 0;
+  m.networkIndex = f[at + 41] >>> 0;
   return m;
 }
 
@@ -1677,17 +1744,17 @@ export function putF3PhaseInput(b, o, f, at, heap) {
   putF3UnitKey(b, o.key, f, at + 0, heap);
   { const $x = o.botTarget; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 3] = 0; putMember(b, $x, f, at + 4, heap); } }
   f[at + 7] = o.botTargetSet ? 1 : 0;
-  putIntent(b, o.intent, f, at + 8, heap);
-  f[at + 38] = o.remoteFirstPerson ? 1 : 0;
-  f[at + 39] = o.hasNetwork ? 1 : 0;
-  f[at + 40] = o.networkIndex;
+  { const $x = o.intent; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f.fill(0, at + 9, at + 39); } else { f[at + 8] = 0; putIntent(b, $x, f, at + 9, heap); } }
+  f[at + 39] = o.remoteFirstPerson ? 1 : 0;
+  f[at + 40] = o.hasNetwork ? 1 : 0;
+  f[at + 41] = o.networkIndex;
 }
 
 export function sameF3PhaseInput(a, b) {
   { const d = sameF3UnitKey(a.key, b.key); if (d) return ".key" + d; }
   { const p = a.botTarget, q = b.botTarget; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".botTarget"; } else { if (!sameMember(p, q)) return ".botTarget"; } }
   if (!Object.is(a.botTargetSet, b.botTargetSet)) return ".botTargetSet";
-  { const d = sameIntent(a.intent, b.intent); if (d) return ".intent" + d; }
+  { const p = a.intent, q = b.intent; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".intent"; } else { { const d = sameIntent(p, q); if (d) return ".intent" + d; } } }
   if (!Object.is(a.remoteFirstPerson, b.remoteFirstPerson)) return ".remoteFirstPerson";
   if (!Object.is(a.hasNetwork, b.hasNetwork)) return ".hasNetwork";
   if (!Object.is(a.networkIndex, b.networkIndex)) return ".networkIndex";
@@ -1702,7 +1769,7 @@ export function exportF3PhaseInput(o, cx) {
   v.key = exportF3UnitKey(o.key, cx);
   v.botTarget = ((x) => (x === null || x === undefined ? x : exportMember(x, cx)))(o.botTarget);
   v.botTargetSet = o.botTargetSet;
-  v.intent = exportIntent(o.intent, cx);
+  v.intent = ((x) => (x === null || x === undefined ? x : exportIntent(x, cx)))(o.intent);
   v.remoteFirstPerson = o.remoteFirstPerson;
   v.hasNetwork = o.hasNetwork;
   v.networkIndex = o.networkIndex;
@@ -2287,55 +2354,24 @@ export function syncF3UnitMirror(b, f, at, h, m) {
 
 export function syncF3UnitMirrorDelta(b, f, at, h, m, d, force = false, base = 0) {
   at |= 0; h |= 0; base |= 0;
-  if (force) return syncF3UnitMirror(b, f, at, h, m);
-  const origin = at - base, end = origin + 103, first = origin >>> 5, last = (end - 1) >>> 5;
-  for (let word = first; word <= last; word++) {
-    let bits = d[word] >>> 0;
-    if (word === first) bits &= 0xffffffff << (origin & 31);
-    if (word === last && (end & 31)) bits &= 0xffffffff >>> (32 - (end & 31));
-    while (bits) {
-      const bit = 31 - Math.clz32(bits & -bits);
-      switch ((word << 5) + bit - origin) {
-        case 3:
-          { m.pooled = f[at + 3] !== 0; break; }
-        case 4:
-          { m.hero = f[at + 4] !== 0; break; }
-        case 5:
-          { m.human = f[at + 5] !== 0; break; }
-        case 6:
-        case 7:
-          { { const tag = f[at + 6]; if (tag === 0) { m.networkHuman = f[at + 7] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; } break; }
-        case 8:
-          { m.team = f[at + 8]; break; }
-        case 9:
-          { m.alive = f[at + 9] !== 0; break; }
-        case 10:
-          { m.dead = f[at + 10] !== 0; break; }
-        case 11:
-          { m.deadTime = f[at + 11]; break; }
-        case 12:
-          { m.removed = f[at + 12] !== 0; break; }
-        case 22:
-        case 23:
-          { { const tag = f[at + 22]; if (tag === 0) { m.held = f[at + 23] !== 0; } else m.held = tag === 1 ? null : undefined; } break; }
-        case 24:
-          { m.visible = f[at + 24] !== 0; break; }
-        case 25:
-        case 26:
-          { { const tag = f[at + 25]; if (tag === 0) { m.targetable = f[at + 26] !== 0; } else m.targetable = tag === 1 ? null : undefined; } break; }
-        case 27:
-          { m.tickCount = f[at + 27]; break; }
-        case 28:
-        case 29:
-          { { const tag = f[at + 28]; if (tag === 0) { m.remoteActive = f[at + 29] !== 0; } else m.remoteActive = tag === 1 ? null : undefined; } break; }
-      }
-      bits &= bits - 1;
-    }
-  }
   if ((force || (deltaChanged(d, at + 0, 3, base)))) { m.key = syncF3UnitKey(b, f, at + 0, h, m.key ?? new F3UnitKeyMirror()); }
+  if ((force || (deltaChanged(d, at + 3, 1, base)))) { m.pooled = f[at + 3] !== 0; }
+  m.hero = f[at + 4] !== 0;
+  m.human = f[at + 5] !== 0;
+  { const tag = f[at + 6]; if (tag === 0) { m.networkHuman = f[at + 7] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
+  if ((force || (deltaChanged(d, at + 8, 1, base)))) { m.team = f[at + 8]; }
+  if ((force || (deltaChanged(d, at + 9, 1, base)))) { m.alive = f[at + 9] !== 0; }
+  if ((force || (deltaChanged(d, at + 10, 1, base)))) { m.dead = f[at + 10] !== 0; }
+  if ((force || (deltaChanged(d, at + 11, 1, base)))) { m.deadTime = f[at + 11]; }
+  if ((force || (deltaChanged(d, at + 12, 1, base)))) { m.removed = f[at + 12] !== 0; }
   if ((force || (deltaChanged(d, at + 13, 3, base)))) { { const tag = f[at + 13]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 14], f[at + 15]); } else m.character = tag === 1 ? null : undefined; } }
   if ((force || (deltaChanged(d, at + 16, 3, base)))) { { const tag = f[at + 16]; if (tag === 0) { m.controller = b.refs[KIND_CONTROLLER].at(f[at + 17], f[at + 18]); } else m.controller = tag === 1 ? null : undefined; } }
   if ((force || (deltaChanged(d, at + 19, 3, base)))) { { const tag = f[at + 19]; if (tag === 0) { m.seat = b.refs[KIND_SEAT_LEASE].at(f[at + 20], f[at + 21]); } else m.seat = tag === 1 ? null : undefined; } }
+  if ((force || (deltaChanged(d, at + 22, 2, base)))) { { const tag = f[at + 22]; if (tag === 0) { m.held = f[at + 23] !== 0; } else m.held = tag === 1 ? null : undefined; } }
+  if ((force || (deltaChanged(d, at + 24, 1, base)))) { m.visible = f[at + 24] !== 0; }
+  if ((force || (deltaChanged(d, at + 25, 2, base)))) { { const tag = f[at + 25]; if (tag === 0) { m.targetable = f[at + 26] !== 0; } else m.targetable = tag === 1 ? null : undefined; } }
+  if ((force || (deltaChanged(d, at + 27, 1, base)))) { m.tickCount = f[at + 27]; }
+  if ((force || (deltaChanged(d, at + 28, 2, base)))) { { const tag = f[at + 28]; if (tag === 0) { m.remoteActive = f[at + 29] !== 0; } else m.remoteActive = tag === 1 ? null : undefined; } }
   if ((force || (deltaChanged(d, at + 30, 3, base)))) { { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 30]; $v.y = f[at + 31]; $v.z = f[at + 32]; } }
   if ((force || (deltaChanged(d, at + 33, 3, base)))) { { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 33]; $v.y = f[at + 34]; $v.z = f[at + 35]; } }
   if ((force || (deltaChanged(d, at + 36, 3, base)))) { { const $v = (m.settled ??= new THREE.Vector3()); $v.x = f[at + 36]; $v.y = f[at + 37]; $v.z = f[at + 38]; } }
@@ -3258,6 +3294,10 @@ export function exportF3Foreign(o, cx) {
   return v;
 }
 
+export const IntentLayout = Object.freeze({ words: 30, forward: 0, right: 1, turn: 2, pitch: 3, jump: 4, crouch: 5, prone: 6, use: 7, buttons: 8, reload: 10, nextPrimary: 11, previousPrimary: 12, nextSecondary: 13, zoom: 14, aim: 15, jetDirection: 19, exit: 23, brake: 24, up: 26, down: 28 });
+export const INTENT_WORDS = IntentLayout.words;
+export const INTENT_OFFSETS = IntentLayout;
+
 export class IntentMirror {
   constructor() {
     this.forward = NaN;
@@ -3304,6 +3344,64 @@ export function syncIntent(b, f, at, h, m) {
   { const tag = f[at + 24]; if (tag === 0) { m.brake = f[at + 25] !== 0; } else m.brake = tag === 1 ? null : undefined; }
   { const tag = f[at + 26]; if (tag === 0) { m.up = f[at + 27]; } else m.up = tag === 1 ? null : undefined; }
   { const tag = f[at + 28]; if (tag === 0) { m.down = f[at + 29]; } else m.down = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function syncIntentDelta(b, f, at, h, m, d, force = false, base = 0) {
+  at |= 0; h |= 0; base |= 0;
+  if (force) return syncIntent(b, f, at, h, m);
+  const origin = at - base, end = origin + 30, first = origin >>> 5, last = (end - 1) >>> 5;
+  for (let word = first; word <= last; word++) {
+    let bits = d[word] >>> 0;
+    if (word === first) bits &= 0xffffffff << (origin & 31);
+    if (word === last && (end & 31)) bits &= 0xffffffff >>> (32 - (end & 31));
+    while (bits) {
+      const bit = 31 - Math.clz32(bits & -bits);
+      switch ((word << 5) + bit - origin) {
+        case 0:
+          { m.forward = f[at + 0]; break; }
+        case 1:
+          { m.right = f[at + 1]; break; }
+        case 2:
+          { m.turn = f[at + 2]; break; }
+        case 3:
+          { m.pitch = f[at + 3]; break; }
+        case 4:
+          { m.jump = f[at + 4] !== 0; break; }
+        case 5:
+          { m.crouch = f[at + 5] !== 0; break; }
+        case 6:
+          { m.prone = f[at + 6] !== 0; break; }
+        case 7:
+          { m.use = f[at + 7] !== 0; break; }
+        case 10:
+          { m.reload = f[at + 10] !== 0; break; }
+        case 11:
+          { m.nextPrimary = f[at + 11] !== 0; break; }
+        case 12:
+          { m.previousPrimary = f[at + 12] !== 0; break; }
+        case 13:
+          { m.nextSecondary = f[at + 13] !== 0; break; }
+        case 14:
+          { m.zoom = f[at + 14] !== 0; break; }
+        case 23:
+          { m.exit = f[at + 23] !== 0; break; }
+        case 24:
+        case 25:
+          { { const tag = f[at + 24]; if (tag === 0) { m.brake = f[at + 25] !== 0; } else m.brake = tag === 1 ? null : undefined; } break; }
+        case 26:
+        case 27:
+          { { const tag = f[at + 26]; if (tag === 0) { m.up = f[at + 27]; } else m.up = tag === 1 ? null : undefined; } break; }
+        case 28:
+        case 29:
+          { { const tag = f[at + 28]; if (tag === 0) { m.down = f[at + 29]; } else m.down = tag === 1 ? null : undefined; } break; }
+      }
+      bits &= bits - 1;
+    }
+  }
+  if ((force || (deltaChanged(d, at + 8, 2, base)))) { { const a = (m.buttons ??= new Array(2)); a[0] = f[at + 8]; a[1] = f[at + 9]; } }
+  if ((force || (deltaChanged(d, at + 15, 4, base)))) { { const tag = f[at + 15]; if (tag === 0) { { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; } } else m.aim = tag === 1 ? null : undefined; } }
+  if ((force || (deltaChanged(d, at + 19, 4, base)))) { { const tag = f[at + 19]; if (tag === 0) { { const $v = (m.jetDirection ??= new THREE.Vector3()); $v.x = f[at + 20]; $v.y = f[at + 21]; $v.z = f[at + 22]; } } else m.jetDirection = tag === 1 ? null : undefined; } }
   return m;
 }
 

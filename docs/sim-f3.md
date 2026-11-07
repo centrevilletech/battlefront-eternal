@@ -27,11 +27,16 @@ refresh only output cursors, event epochs and result counters. An aimer with
 unchanged unit/fleet versions and birth cursor skips that descriptor decode.
 Within a changed combat row, unchanged weapons and motion scalars retain their
 decoded values. Reload/throw notification latches and deferred muzzle shots have
-no foreign gameplay reader and stay entirely in the native combat row. Consumed controls always refresh because JS
-can write the next intent independently of the retained publication words.
+no foreign gameplay reader and stay entirely in the native combat row. Foreign
+controls refresh consumed one-shots because JS can write their next intent
+independently of retained publication words. Canonically controlled bots publish
+only observed held inputs; consumed movement and trigger latches stay native.
 Unit, combat and weapon mirrors use ordinary scalar properties and retain their
-pooled body/vector objects. Generated readers update changed groups in place;
-no per-instance getters or scalar view classes sit on the hot reader path.
+pooled body/vector objects. Generated readers update changed groups in place.
+Native bot held inputs are an observer facade over the generated retained row;
+reading axes, button counts or aim samples its current publication bank. These
+fields have no eager per-tick decode. Foreign commands keep writable backing
+values, and replacement facades detach from the old bank before rebinding.
 Weapon facades still use the same qualified command setters. A weapon getter
 decodes its complete retained row once per changed publication, without a WASM
 call. Unobserved weapon rows need no JavaScript decode; reading after several
@@ -245,9 +250,3 @@ The completed control reader always consumes one-shot intent buttons. Native
 MoveInput and latch mirrors follow their dirty groups, preserving the reserved
 jet-direction vector across absent intervals. Page prediction uses its separate
 input object and keeps its existing writes.
-
-The remaining JS AI update brackets a foreign-fact read span. Its first sensor
-polls props; subsequent sensors reuse those facts. Prop and trap lifecycle
-publications invalidate the span immediately, and the unit phase always polls
-its own input boundary. The native AI coordinator removes this read-span hook
-when it replaces those JS sensors.

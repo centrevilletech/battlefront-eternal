@@ -4,50 +4,9 @@
 //! controllers, agents, goals), with perception, combat and aim (`combat`).
 
 pub mod combat;
-mod aim_module;
-#[cfg(target_arch = "wasm32")]
-mod awareness_module;
-#[cfg(target_arch = "wasm32")]
-mod controller_driver_module;
-#[cfg(target_arch = "wasm32")]
-mod dispatch_module;
-#[cfg(target_arch = "wasm32")]
-mod cover_module;
-mod cover_state_module;
-#[cfg(target_arch = "wasm32")]
-mod pattern_module;
-#[cfg(target_arch = "wasm32")]
-mod pattern_geometry_module;
-mod pattern_state_module;
-#[cfg(target_arch = "wasm32")]
-mod combat_agent_module;
-#[cfg(target_arch = "wasm32")]
-mod combat_agent_geometry_module;
-mod combat_agent_state_module;
-mod fire_module;
-mod fsm_module;
-#[cfg(target_arch = "wasm32")]
-mod fire_service_module;
-#[cfg(target_arch = "wasm32")]
-mod weapon_module;
-#[cfg(target_arch = "wasm32")]
-mod range_module;
-#[cfg(target_arch = "wasm32")]
-mod binding_module;
-mod binding_state_module;
 pub mod control;
-pub mod module;
-mod navigation_module;
-mod perception_module;
-#[cfg(target_arch = "wasm32")]
-mod scheduler_module;
-#[cfg(target_arch = "wasm32")]
-mod sight_module;
-#[cfg(target_arch = "wasm32")]
-mod tracker_module;
 pub mod nav;
 pub mod random;
+pub mod phase;
+pub mod owned;
 pub mod vehicles;
-
-#[cfg(target_arch = "wasm32")]
-pub mod vehicle_module;

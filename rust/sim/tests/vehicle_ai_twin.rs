@@ -5,7 +5,7 @@
 // mounted controller's request becomes (controllers.js, index.js
 // mountedState), and Number.prototype.toFixed(1) as the support cache's
 // key uses it. BFE_VAI_TWIN names the generator's output directory; without
-// it the test passes without checking.
+// it the compact synthetic golden cases run in CI.
 
 use bfe_content::{json, Value};
 use bfe_sim::ai::vehicles::controllers::{mounted_state, Policy};
@@ -35,9 +35,13 @@ fn same_vec(a: &Vector3, b: &Vector3) -> bool {
 
 #[test]
 fn vehicle_ai_twin() {
-    let Some(dir) = std::env::var_os("BFE_VAI_TWIN") else { return };
-    let path = std::path::Path::new(&dir).join("twin.json");
-    let twin = json::parse_bytes(&std::fs::read(&path).expect("twin.json")).expect("parse twin.json");
+    let twin=match std::env::var_os("BFE_VAI_TWIN") {
+        Some(dir)=>{
+            let path=std::path::Path::new(&dir).join("twin.json");
+            json::parse_bytes(&std::fs::read(path).expect("twin.json")).expect("parse twin.json")
+        }
+        None=>json::parse_bytes(include_bytes!("fixtures/vehicle-ai-golden.json")).expect("vehicle AI golden"),
+    };
     let mut failures = Vec::new();
 
     let orbits = twin.get("orbit").and_then(|v| v.as_array()).expect("orbit");
@@ -82,6 +86,10 @@ fn vehicle_ai_twin() {
     for c in fixed {
         let x = bits(c.get("x").unwrap());
         let mine = to_fixed_1(x);
+        let key=bfe_sim::ai::vehicles::support_key::SupportKey::new(63.,x);
+        let text=format!("63/{mine}");
+        assert_eq!(key,bfe_sim::ai::vehicles::support_key::SupportKey::parse(&text));
+        assert_eq!(key.to_string(),text);
         let theirs = c.get("text").and_then(|v| v.as_str()).unwrap();
         if mine != theirs && failures.len() < 20 {
             failures.push(format!("toFixed(1) of {x:e}: JavaScript {theirs}, port {mine}"));

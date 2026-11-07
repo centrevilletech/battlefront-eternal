@@ -4,7 +4,7 @@ import { buildActor } from "./actor.js";
 import { loadClips } from "./anim.js";
 import { SoldierAnimation } from "./animator.js";
 import { PlayerCombat } from "./combat.js";
-import { Droideka, ShieldBubble } from "./droideka.js";
+import { Droideka, ShieldBubble, goneUp } from "./droideka.js";
 import { heatMaterial } from "./destruction-debris.js";
 import { givePowerup } from "./items.js";
 import { ENGINE, Soldier } from "./soldier.js";
@@ -26,6 +26,7 @@ import { RIDER_SHAPES } from "./rider-pose.js";
 // same class takes a free body of that class back, its generation bumped so
 // that old references to it go stale.
 
+// A body lies 4 s where it fell, then is gone (the soldier's dead state).
 const JET_EFFECT_BONE = "bone_ribcage";
 
 // What rounds strike on a soldier, per posture, in its frame (x its left, y
@@ -201,6 +202,7 @@ export class Unit {
     this.tickCount = 0;
     this.jetFlame = null;
     this.bubble = null;
+    this.poseClock = 0; // s of animation not yet applied
     // The page's: the life whose body has gone up, and how long ago
     // ({ generation, t }); the body's own materials while it dissolves.
     this.gone = null;
@@ -402,6 +404,7 @@ export class Unit {
     this.hero = Boolean(def.hero || def.IsHero);
     this.rootScale = def.CollisionRootScale ?? 1;
     this.spheresTick = -1;
+    this.poseClock = 0;
     this.shadowNear = undefined;
     this.jetFlame?.stop();
     this.jetFlame = null;

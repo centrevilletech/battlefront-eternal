@@ -19,6 +19,8 @@
 //! (tools/sim-capture/vehicle-ai.mjs) name them the same.
 
 use three::Vector3;
+use std::rc::Rc;
+use crate::ai::owned::scratch::List;
 
 use super::random::Draws;
 use crate::vehicles::{BodyId, Hit};
@@ -58,7 +60,7 @@ pub mod kind {
 pub struct ClassView {
     /// `AISizeType`, as the string it is (a number written as JavaScript's
     /// String() would).
-    pub ai_size_type: Option<String>,
+    pub ai_size_type: Option<Rc<str>>,
     pub forward_speed: Option<f64>,
     pub strafe_speed: Option<f64>,
     pub turn_rate: Option<f64>,
@@ -71,7 +73,7 @@ pub struct ClassView {
     pub max_pitch_speed: Option<f64>,
     pub max_yaw_speed: Option<f64>,
     /// `VehicleType` (lower case where the view made it; may be null).
-    pub vehicle_type: Option<String>,
+    pub vehicle_type: Option<Rc<str>>,
     pub landing_time: Option<f64>,
     pub landing_speed: Option<f64>,
     pub landed_height: Option<f64>,
@@ -98,7 +100,7 @@ pub struct UnitView {
     pub body_yaw: f64,
     pub class: Option<ClassView>,
     /// `unit.className` (a string, else None).
-    pub class_name: Option<String>,
+    pub class_name: Option<Rc<str>>,
     /// `unit.soldier` is there.
     pub soldier: bool,
     /// `unit.soldier?.maxSpeed`.
@@ -121,20 +123,21 @@ pub struct UnitView {
     pub up_y: Option<f64>,
     /// isAtAt's reads where the unit has no hull: `(unit.def ??
     /// unit.classDef)`'s `label ?? settings?.Label`, and `unit.name`.
-    pub own_label: Option<String>,
-    pub own_name: Option<String>,
+    pub own_label: Option<Rc<str>>,
+    pub own_name: Option<Rc<str>>,
 }
 
 /// A seat of a hull as the vehicle AI reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SeatView {
+    pub prepared_limits:Option<[[f64;2];2]>,
     pub lease: Option<Obj>,
     /// `seat.weapons.length`.
     pub weapons: usize,
     /// The seat's `YawLimits` and `PitchLimits` settings, as written
     /// (None: undefined).
-    pub yaw_limits: Option<String>,
-    pub pitch_limits: Option<String>,
+    pub yaw_limits: Option<Rc<str>>,
+    pub pitch_limits: Option<Rc<str>>,
 }
 
 /// A hull (src/vehicles.js Vehicle) as the vehicle AI reads it.
@@ -144,18 +147,18 @@ pub struct HullView {
     /// Its registry entry (`aiTarget`).
     pub entry: Obj,
     pub alive: bool,
-    pub name: String,
+    pub name: Rc<str>,
     pub flying: bool,
     pub walking: bool,
     pub grounded: bool,
-    pub flight_state: Option<String>,
+    pub flight_state: Option<Rc<str>>,
     pub gear: f64,
     pub speed: f64,
     /// `def.settings.MaxSpeed` / `ForwardSpeed` as Number.parseFloat reads them.
     pub max_speed_setting: f64,
     pub forward_speed_setting: f64,
     /// `def.label ?? def.settings?.Label ?? null`.
-    pub label: Option<String>,
+    pub label: Option<Rc<str>>,
     pub position: Vector3,
     pub velocity: Vector3,
     pub yaw: f64,
@@ -185,6 +188,7 @@ pub struct HullView {
 /// A turret (src/props.js Turret) as the vehicle AI reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TurretView {
+    pub prepared_limits:Option<[[f64;2];2]>,
     pub obj: Obj,
     pub entry: Option<Obj>,
     pub alive: bool,
@@ -192,8 +196,8 @@ pub struct TurretView {
     pub lease: Option<Obj>,
     pub facing: f64,
     /// `desc.settings` YawLimits / PitchLimits as written.
-    pub yaw_limits_setting: Option<String>,
-    pub pitch_limits_setting: Option<String>,
+    pub yaw_limits_setting: Option<Rc<str>>,
+    pub pitch_limits_setting: Option<Rc<str>>,
     /// `pitchLimits` when it is an array, and `yawLimits` (its arc).
     pub pitch_limits: Option<[f64; 2]>,
     pub yaw_limits: Option<[f64; 2]>,
@@ -504,7 +508,7 @@ pub struct PostView {
 }
 
 /// A landing hint as the flyer agent reads it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct HintView {
     pub obj: Obj,
     pub position: Vector3,
@@ -516,7 +520,7 @@ pub struct HintView {
 /// A weapon of a control's arsenal as the tow pass reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeaponView {
-    pub base: Option<String>,
+    pub base: Option<Rc<str>>,
     pub channel: f64,
 }
 
@@ -560,6 +564,10 @@ pub trait World: Draws {
     // ---- views
     fn unit(&self, u: Obj) -> UnitView;
     fn hull(&self, h: Obj) -> HullView;
+    /// Native hosts override these with direct F2 seat reads. Replay views
+    /// retain their recorded seat table without imposing a live snapshot.
+    fn hull_seat_count(&self, h: Obj) -> usize { self.hull(h).seats.len() }
+    fn hull_seat(&self, h: Obj, index: usize) -> Option<SeatView> { self.hull(h).seats.get(index).cloned() }
     fn turret(&self, t: Obj) -> TurretView;
     fn lease(&self, l: Obj) -> LeaseView;
     fn controller(&self, c: Obj) -> ControllerView;
@@ -568,15 +576,17 @@ pub trait World: Draws {
     fn character_unit(&self, character: Obj) -> Option<Obj>;
     fn character_controller(&self, character: Obj) -> Option<Obj>;
     /// The battle's hulls (Vehicles.vehicles), in order.
-    fn hulls(&self) -> Vec<Obj>;
+    fn object_buffer(&self) -> List<Obj> { List::default() }
+    fn hulls(&self) -> List<Obj>;
     /// The battle's turrets (TurretSeats.turrets), in order.
-    fn turrets(&self) -> Vec<Obj>;
-    /// A control's arsenal (`combat.arsenal.weapons`), when it has one.
-    fn weapons(&self, control: Obj) -> Option<Vec<WeaponView>>;
+    fn turrets(&self) -> List<Obj>;
+    /// The first tow-cable weapon, as (arsenal index, channel). Native owners
+    /// inspect their current arsenal without building a weapon table.
+    fn tow_weapon(&self,control:Obj)->Option<(usize,f64)>;
     /// `battle.reinforcements[team]`.
     fn reinforcements(&self, team: f64) -> Option<f64>;
     /// The living human units (ai.humanUnits()), in roster order.
-    fn human_units(&mut self) -> Vec<Obj>;
+    fn human_units(&mut self) -> List<Obj>;
     /// `world.nav?.planner` / `world.nav?.graph` are there.
     fn has_planner(&self) -> bool;
     fn has_graph(&self) -> bool;
@@ -588,26 +598,19 @@ pub trait World: Draws {
     /// A hint's `link` (the next of its ring).
     fn hint_link(&self, hint: Obj) -> Option<Obj>;
 
-    // ---- state of the vehicle AI's own kept on other objects
-    /// A control's steering bag (`unit.steer`).
-    fn steer(&mut self, control: Obj) -> &mut Option<Steer>;
-    /// A control's intent's vehicle fields (`unit.intent`; None: no intent).
-    fn intent(&mut self, control: Obj) -> Option<&mut SeatIntent>;
-    /// A hull's decay clock (`v.decay`).
-    fn decay(&mut self, hull: Obj) -> &mut Option<super::service::Decay>;
-
-    /// Scoped state edits allow live adapters to publish before a callback.
-    fn edit_steer<R>(&mut self, control: Obj, f: impl FnOnce(&mut Option<Steer>) -> R) -> R { f(self.steer(control)) }
-    fn read_decay(&mut self, hull: Obj) -> Option<super::service::Decay> { *self.decay(hull) }
-    fn write_decay(&mut self, hull: Obj, value: super::service::Decay) { *self.decay(hull) = Some(value); }
-    fn write_vehicle_intent(&mut self, control: Obj, value: SeatIntent) { if let Some(intent) = self.intent(control) { *intent = value; } }
+    /// Scoped steering and decay edits finish before another owner callback.
+    /// Vehicle intent fields write directly into F2's full intent row.
+    fn edit_steer<R>(&mut self, control: Obj, f: impl FnOnce(&mut Option<Steer>) -> R) -> R;
+    fn read_decay(&mut self, hull: Obj) -> Option<super::service::Decay>;
+    fn write_decay(&mut self, hull: Obj, value: super::service::Decay);
+    fn write_vehicle_intent(&mut self, control: Obj, value: SeatIntent);
 
     // ---- calls: collision, registry, line of sight
     /// CollisionWorld.cast (into its hit scratch), leaving out `ignore`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit>;
     /// units.query(center, radius, out, filter): the members found, in the
     /// registry's order.
-    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> Vec<Obj>;
+    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> List<Obj>;
     /// world.relation(a, b).
     fn relation(&mut self, a: f64, b: f64) -> f64;
     /// The notifier uses the world's relations, independently of AI policy.

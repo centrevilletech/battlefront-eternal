@@ -24,6 +24,8 @@ pub const ABI: u32 = 1;
 
 pub struct Sim {
     pub store: Store,
+    /// One native AI owner shares this instance's canonical entity rows.
+    pub ai: crate::ai::owned::owner::Owner,
     pub strings: Strings,
     /// A sync block per kind, by code.
     pub blocks: Vec<Block>,
@@ -38,6 +40,7 @@ impl Sim {
     pub fn new() -> Self {
         Sim {
             store: Store::default(),
+            ai: Default::default(),
             strings: Strings::default(),
             blocks: (0..=KINDS).map(|_| Block::default()).collect(),
             calls: Calls::default(),
@@ -255,5 +258,6 @@ fn memory_pages() -> u32 { 0 }
 /// tests and tools that reuse one).
 #[no_mangle]
 pub extern "C" fn sim_reset() {
+    sim().ai.finish();
     sim().store = Store::default();
 }

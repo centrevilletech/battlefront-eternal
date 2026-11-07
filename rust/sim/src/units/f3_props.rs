@@ -94,6 +94,29 @@ pub(crate) fn member(target: RepairTarget) -> Option<Member> {
     props.index(target).and_then(|index| props.entries.get(index)).and_then(|entry| entry.member)
 }
 
+/// AI cold content must name the same prop, registry entry and F4 owner.
+/// Matching an enum variant alone would accept another building's handle.
+pub(crate) fn matches_binding(target:RepairTarget,member:Option<Member>,owner:&F4Handle)->bool {
+    let props=f3::props();
+    props.index(target).and_then(|index|props.entries.get(index))
+        .is_some_and(|entry|entry.member==member&&entry.owner==*owner)
+}
+
+/// Game.los compares a target with its authored built body, even when the
+/// building currently shows a wreck. The qualified prop binding owns it.
+pub(crate) fn built_body(target:RepairTarget)->Option<Ref<Body>> {
+    let props=f3::props();let entry=props.entries.get(props.index(target)?)?;
+    entry.bodies[0]
+}
+
+/// Trap.sphere and position use the authored build pad even while logs swing.
+/// Its static frame already belongs to the same canonical prop binding.
+pub(crate) fn trap_geometry(target:RepairTarget)->Option<(crate::ai::combat::world::Sphere,three::Matrix4)> {
+    let props=f3::props();let entry=props.entries.get(props.index(target)?)?;
+    let (center,radius)=entry.trap_sphere?;
+    Some((crate::ai::combat::world::Sphere {center,radius},entry.settings.matrix))
+}
+
 /// EntityWorldCapture.turret reads authored building order and canonical
 /// health/life. A turret with no mixed registry target has no wire identity.
 pub(crate) fn wire_turret(reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)> {
@@ -177,6 +200,7 @@ pub extern "C" fn f3_building() {
     // Install their geometry from the prepared native model, avoiding a second
     // JS sphere query for every unchanged building during each world tick.
     if let Some(member) = input.member {
+        bind(&mut all.member_slots, super::registry::target_id(member), index);
         let entry = &all.entries[index];
         let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame().sphere(&entry.settings));
         let mut position = Vector3::default();
@@ -340,8 +364,8 @@ impl props::World for BuildingWorld<'_> {
         };
         F3PropDamage {
             index: self.index as u32, amount, attacker: entry.attacker(),
-            // Game's damage journal reads the occupied target's team, while
-            // friendly-fire policy above reads the building's authored team.
+            // Damage credit samples the occupied target's team; policy uses
+            // the building's authored team earlier in the hit.
             has_direction: direction.is_some(), direction: direction.unwrap_or([0.0; 3]), untyped, typed, generic, position: a(position), team, generation: frame.target_generation,
         }.emit(&mut sim().events);
     }
@@ -434,6 +458,7 @@ fn mutate(index: usize, amount: f64, attacker: Option<Attacker>, hit: Option<Hit
     world.leaf(&frame, F3PropEffectKind::Publish);
 }
 struct QueryWorld<'a> {
+    ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>,
     recon: &'a mut crate::recon::Authority,
     owner: OrdnanceOwner,
 }
@@ -501,20 +526,20 @@ impl live::World for QueryWorld<'_> {
     fn damage(&mut self, queries: &mut live::Queries, index: usize, amount: f64, _: props::Identity, info: Option<live::Damage>) {
         let buildings = f3::props().entries.len();
         if index >= buildings {
-            super::f3_hulls::mutate(super::f3_hulls::reference(index - buildings), amount, Some(self.owner), WorldServices { recon:self.recon, queries });
+            super::f3_hulls::mutate(super::f3_hulls::reference(index - buildings), amount, Some(self.owner), WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon:self.recon, queries });
             return;
         }
         let (_, _, attacker) = crate::combat::live::owner_facts(self.owner);
         let hit = info.map(|i| HitInfo { direction: i.direction, amount: i.amount, typed: i.typed, generic: i.generic.num() });
-        mutate(index, amount, Some(attacker), hit, WorldServices { recon: self.recon, queries });
+        mutate(index, amount, Some(attacker), hit, WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon: self.recon, queries });
     }
     fn set_health(&mut self, queries: &mut live::Queries, index: usize, value: Field) {
         let buildings = f3::props().entries.len();
         if index >= buildings {
-            super::f3_hulls::mutate(super::f3_hulls::reference(index - buildings), value.num(), None, WorldServices { recon:self.recon, queries });
+            super::f3_hulls::mutate(super::f3_hulls::reference(index - buildings), value.num(), None, WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon:self.recon, queries });
             return;
         }
-        mutate(index, value.num(), None, None, WorldServices { recon: self.recon, queries });
+        mutate(index, value.num(), None, None, WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon: self.recon, queries });
     }
     fn may_enter(&mut self, _: &mut live::Queries, _: usize) -> bool { unreachable!("native seat admission service"); }
 }
@@ -522,7 +547,7 @@ impl live::World for QueryWorld<'_> {
 // order. Its strict score comparison preserves equal-distance ties.
 pub(crate) fn lock_on(eye: Vector3, direction: Vector3, definition: &live::Definition, current: Option<RepairTarget>, held: bool, team: f64, services: WorldServices<'_>) -> Option<RepairTarget> {
     let current = current.and_then(|r| f3::props().index(r));
-    let mut world = QueryWorld { recon: services.recon, owner: OrdnanceOwner::Null };
+    let mut world = QueryWorld { ai:services.ai,recon: services.recon, owner: OrdnanceOwner::Null };
     // LiveObjects.lockOn visits buildings before the fleet, keeping a held
     // current target first even when it comes from the later hull sequence.
     let count = f3::props().entries.len() + super::f3_hulls::count();
@@ -541,7 +566,7 @@ pub(crate) fn lock_key(target: RepairTarget) -> StrId {
 // repair or nested explosion may have changed the earlier acquisition result.
 pub(crate) fn repair(target: Option<RepairTarget>, definition: &live::Definition, team: f64, services: WorldServices<'_>) -> bool {
     let target = target.and_then(|r| f3::props().index(r));
-    let mut world = QueryWorld { recon: services.recon, owner: OrdnanceOwner::Null };
+    let mut world = QueryWorld { ai:services.ai,recon: services.recon, owner: OrdnanceOwner::Null };
     services.queries.repair(target, definition, team, &mut world)
 }
 // LiveObjects.blast reads the live construction sequence after every nested
@@ -551,7 +576,7 @@ pub(crate) fn blast(packet: BlastPacket, position: Vector3, owner: OrdnanceOwner
         damage: Field::Num(packet.hit.damage), damage_radius_inner: Field::Num(packet.inner),
         damage_radius_outer: Field::Num(packet.outer), scales: packet.hit.scales.map(Field::Num),
     };
-    let mut world = QueryWorld { recon: services.recon, owner };
+    let mut world = QueryWorld { ai:services.ai,recon: services.recon, owner };
     let mut index = 0;
     while index < f3::props().entries.len() {
         let target = index;

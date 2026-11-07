@@ -207,6 +207,7 @@ test('vehicle camera eases turns and follows motion without placing its eye behi
 });
 
 
+
 test('skinned vehicle triangles retain different joints across a shared triangle',async()=>{
  const {vehicleBatches,attachVehicleBatches}=await import('../src/vehicle-rig.js');
  const rig={bones:[{name:'hip',parent:-1,local:identity().toArray()},{name:'leg',parent:0,local:identity().makeTranslation(1,0,0).toArray()}]};
