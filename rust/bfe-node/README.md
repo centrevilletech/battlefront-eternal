@@ -1,17 +1,18 @@
-# Native store arenas
+# Native world and store arenas
 
-The addon wraps the existing thread-affine simulation Context. It reports
-`nativeWorld: false` and `nativePublication: false`; world stepping and packet
-publication are not exposed. The handshake and staging ABI stay at 1 until
-those entries and the generated operation table are available together.
+The addon wraps the existing thread-affine simulation Context, including its
+world boundaries. Method presence alone does not claim a native world. Entries
+without a native body fail `Unavailable` and leave their owner usable. World
+and publication readiness are separate handshake capabilities.
 
 `new NativeHost().create({inputWords, outputWords})` reserves addon arenas at
 admission. Omitting the argument reserves 8192 words for each arena. The
 existing Context methods still allocate cold store replies and decode buffers;
-this API does not claim an allocation-free native world tick.
+the fixed step rows themselves reuse addon storage reserved at admission.
 
-- `operation(code, args, out)` accepts a generated one-row sync block. Only the
-  existing native `echo` and `fill` commands are admitted. No command calls JS.
+- `operation(code, args, out)` accepts a generated one-row sync block using
+  the generated `OPERATION_*` IDs. Scalars precede the record row and heap.
+  The Context admits only its native table; no operation calls JS.
 - `importKind(kind, flags, block)` and `exportKind(kind, mode, out)` use the
   generated Store layouts, flags and modes. Common headers, row strides,
   counts and slab slots are checked before calling the shared decoder.
@@ -39,7 +40,48 @@ counters and diagnostics exist in production builds. A caught operation panic
 poisons its owner; diagnostics and close remain available. Explicit close, GC
 and environment cleanup release the Context and retained arenas exactly once.
 The `lifecycle-probe` feature adds fault injection and teardown fixtures only.
+Its replay probes feed recorded cold assets and observations through Context;
+the map smoke always calls the production step method and rejects refused ticks.
 
 After building the fixture addon, run the additional boundary cases with
 `node --expose-gc --test rust/bfe-node/tests/arenas.mjs`. The existing addon and
 lifecycle fixtures remain under `tests/node-host-*.mjs`.
+
+
+World calls use raw generated rows: `stepInit(setup)` takes four words and
+`step(input, out)` uses the generated input and output row sizes (currently
+23 and 24 words, including player ingress and its event barrier). A short output retains
+the completed result; only a retry with identical input bits may deliver it.
+`readBank(bank, out)` follows the same retained-capacity rule, including banks
+whose read consumes changes. `reserve({inputWords, outputWords, publicationBytes})` is an explicit
+admission boundary that can grow numeric arenas and packet span locations.
+Every owner reserves at least one fixed input/output row during creation, plus
+a 64 KiB publication byte window unless `publicationBytes` selects another size.
+Context writes operation and publication replies into those retained buffers;
+the addon does not clone an intermediate reply. Operation and publication
+inputs larger than the reserved input arena fail before dispatch; call
+`reserve` at admission before submitting their larger generated heaps.
+
+`publish({session, words}, out)` accepts a publication session pool key and a
+`WireWorldFacts` row with its generated heap. It returns `{words, packets}`.
+The numeric result remains a generated `WirePublicationOutput` block. Each
+`WireSpan.offset` indexes `packets` and its length is unchanged. Shared packet
+parts, own packets, status text, record payloads and fault text all use that
+same indexing rule; repeated byte spans share one buffer. Every buffer has
+exactly the span's size and owns a single copy made with
+`Env::create_arraybuffer`. Buffers survive the owner, later publications and
+transfer to another Worker. A short numeric output returns an empty packet
+array and retains the whole result for delivery at admission.
+
+`publicationReservedBytes` and `publicationUsedBytes` in diagnostics count
+retained publication bytes and packet span locations separately from numeric
+arena words. Closing an owner frees both stores. A panic caught by Context
+returns `GenericFailure` on the initiating addon call; subsequent operations
+fail `Poisoned`. Diagnostics and idempotent close remain available.
+
+The handshake reads `provided()` from the linked simulation. `nativeWorld` and
+`nativePublication` reflect its step and publication bodies independently.
+`operationTable` is absent when operations are unavailable, and otherwise is
+the complete generated boundary fingerprint (including the operation table,
+record layouts and encoders), also exposed as `schema`. Addon ABI 2 identifies
+the complete world boundary alongside the existing store-arena surface.

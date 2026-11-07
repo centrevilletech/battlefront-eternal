@@ -26,15 +26,15 @@ test('collected hosts remove hooks and open owners retain their cleanup scope', 
   after = addon.cleanupHookCounts();assert.equal(after[0] - after[1], before[0] - before[1]);
 });
 
-test('addon handshake identifies the exact build without claiming native battles', () => {
+test('addon handshake identifies the exact build and linked native capabilities', () => {
   const hello = addon.handshake();
-  assert.equal(hello.addonAbi, 1);
+  assert.equal(hello.addonAbi, metadata.addonABI);
   assert.equal(hello.storeAbi, 1);
   assert.equal(hello.schema, metadata.schema);
   assert.equal(hello.engineBuild, metadata.engineBuild);
   assert.equal(hello.napiMinimum, 8);
-  assert.equal(hello.nativeWorld, false);
-  assert.equal(hello.nativePublication, false);
+  assert.equal(hello.nativeWorld, metadata.nativeWorld);
+  assert.equal(hello.nativePublication, metadata.nativePublication);
 });
 
 test('Rust panics stop at the N-API boundary', () => {
@@ -136,3 +136,9 @@ test('shared source or destination is rejected before any numeric memory access'
 
 // Keep the provider's arena tests in the existing native CI entrypoint.
 await import('./node-host-backend.mjs');
+
+// Exercise the same numeric world boundary before and after native readiness.
+await import('../rust/bfe-node/tests/world.mjs');
+
+// Store-arena regressions share the world boundary's retained block storage.
+await import('../rust/bfe-node/tests/arenas.mjs');

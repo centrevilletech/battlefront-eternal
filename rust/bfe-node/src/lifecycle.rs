@@ -10,6 +10,7 @@ use std::rc::{Rc, Weak};
 pub(super) struct OwnedContext {
     pub context: Option<Context>,
     pub arenas: super::operations::Arenas,
+    pub publication: super::world::Packets,
     pub poisoned: bool,
     #[cfg(feature = "lifecycle-probe")]
     pub panic_on_close: bool,
@@ -96,6 +97,7 @@ pub(super) fn close(owner: &Owner) -> bool {
     let context = {
         let mut owner = owner.borrow_mut();
         owner.arenas.release();
+        owner.publication = super::world::Packets::default();
         owner.context.take()
     };
     if let Some(context) = context {

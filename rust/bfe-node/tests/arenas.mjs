@@ -100,7 +100,7 @@ test('malformed headers, operation rows, kind layouts and huge counts fail befor
     assert.throws(() => owner.operation(COMMAND_ECHO, args, out));
     assert.ok(out.every(n => n === 73));
   }
-  assert.throws(() => owner.operation(0xffffffff, echo(), out), /Unsupported/);
+  assert.throws(() => owner.operation(0xffffffff, echo(), out), /Unsupported|Unavailable/);
   assert.throws(() => owner.operation(COMMAND_FILL, block([KIND_BOLT, 1e9]), out), /capacity/);
   assert.throws(() => owner.importKind(KIND_BOLT, 1, block([0, 0])), /layout/);
   const hugeSlot = new Float64Array(BlockHeader.words + BOLT_FULL_STRIDE);

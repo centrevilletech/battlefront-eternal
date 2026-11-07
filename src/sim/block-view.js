@@ -48,10 +48,11 @@ export class WasmBlocks {
 
 // Native results use independently owned arenas, never numeric addresses. A
 // successful call replaces its borrowed publication without allocation. Separate
-// operation, kind and event banks keep observer reentry from overwriting events.
+// operation, kind, event, step, publication and read banks keep observer reentry
+// from overwriting a result from another operation class.
 export class NativeBlocks {
   constructor(words = 8192) {
-    this.banks = [new BlockView(),new BlockView(),new BlockView()];
+    this.banks = Array.from({length:6},()=>new BlockView());
     this.view = this.banks[0];
     this.closed = false;
     this.reserve(words);

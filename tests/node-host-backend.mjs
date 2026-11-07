@@ -4,31 +4,43 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {Worker} from 'node:worker_threads';
+import {once} from 'node:events';
+import {fileURLToPath} from 'node:url';
+import {createQualificationBackend,qualificationBackend} from '../tools/host-qualification/native.mjs';
 import {NativeBackend,loadNativeSim} from '../src/sim/native-backend.js';
 import {HOST_SCHEMA} from '../src/sim/host-schema.js';
 import {hostSimulation} from '../src/sim/host-runtime.js';
 import {BlockHeaderLayout as H} from '../src/sim/gen/boundary.js';
 import {COMMAND_TABLE,KIND_TABLE,COMMAND_ECHO,KIND_BOLT} from '../src/sim/gen/index.js';
+import {WorldTickInputLayout,WorldTickOutputLayout,WorldTickOutputMirror,WorldTickInputMirror,syncWorldTickInput,syncWorldTickOutput} from '../src/sim/gen/world.js';
+import {WireWorldFactsLayout} from '../src/sim/gen/wire-store.js';
+import {WirePublicationOutputMirror,syncWirePublicationOutput} from '../src/sim/gen/wire-publish.js';
 const addon=createRequire(import.meta.url)('../.host-addon/bfe-node.node');
 const metadata=JSON.parse(readFileSync(new URL('../.host-addon/target.json',import.meta.url)));
 const ECHO=COMMAND_TABLE[COMMAND_ECHO];
+const worldFixture=JSON.parse(readFileSync(new URL('../.host-addon/world-fixtures.json',import.meta.url)));
+const worldRecord={Mirror:WorldTickOutputMirror,sync:syncWorldTickOutput};
 const echo=(events=0)=>({value:41,at:{x:1,y:2,z:3},count:0,note:null,events});
 const bytes=block=>new Uint8Array(block.words.buffer,block.words.byteOffset+block.base*8,block.length*8).slice();
 const snapshot=block=>block.words.slice(block.base,block.base+block.length);
 
-test('native factory owns independent contexts and keeps world selection unavailable',async()=>{
+test('native factory owns independent contexts and reports the linked world capabilities',async()=>{
   const first=await loadNativeSim(addon,{},metadata),second=await loadNativeSim(addon);
   try {
     assert.equal(first.getBridge(),first.bridge);
-    assert.deepEqual(first.capabilities,{backend:'native',nativeWorld:false,nativePublication:false});
+    const hello=addon.handshake();
+    assert.deepEqual(first.capabilities,{backend:'native',nativeWorld:hello.nativeWorld,nativePublication:hello.nativePublication});
     assert.equal(first.exports,undefined);assert.equal(first.memory,undefined);
     const a=first.bridge.strings,b=second.bridge.strings;
     const text='owner\0\ud800\udc00\udfff';
     assert.equal(a.id(text),b.id('another owner'));
     assert.equal(a.at(a.id(text)),text);assert.equal(b.at(b.id('another owner')),'another owner');
     const uncached=first.intern('\ud800 lone \udfff');assert.equal(a.at(uncached),'\ud800 lone \udfff');
-    assert.throws(()=>first.prepare('world'),/world operations unavailable/);
-    assert.throws(()=>hostSimulation({schema:HOST_SCHEMA,worldBackend:'native'},metadata,addon),/unavailable/);
+    assert.throws(()=>first.prepare('world'),/owner admission unavailable/);
     first.close();assert.equal(second.bridge.command('echo',echo()).value,42);
   } finally {first.close();second.close();}
   assert.equal(first.host.liveOwners(),0);assert.equal(second.host.liveOwners(),0);
@@ -135,7 +147,9 @@ test('input admission faults execute no command and numeric arenas keep payload 
     assert.throws(()=>backend.importKind(KIND_BOLT,1,new Float64Array(new SharedArrayBuffer(104))),/Float64Array/);
     const input=b.callArgs(ECHO.args,echo());backend.endAdmission();const view=backend.blocks.view;
     assert.equal(backend.operation(COMMAND_ECHO,input),view);
-    backend.beginAdmission();backend.enter();assert.throws(()=>backend.reserve({outputWords:64}),/requires admission/);backend.leave();
+    backend.beginAdmission();backend.enter();assert.throws(()=>backend.reserve({outputWords:64}),/requires admission/);
+    assert.equal(backend.span(1),backend.fault);assert.equal(backend.fault.pending,false);
+    assert.throws(()=>backend.intern('active admission'),/require admission/);backend.leave();
   } finally {backend.close();}
 });
 
@@ -169,5 +183,170 @@ test('event delivery survives nested operation and store reads without losing or
       assert.equal(b.drain({}),b.busy);
     }}),3);
     assert.equal(values.length,3);assert.equal(b.drain({}),0);
+  } finally {backend.close();}
+});
+
+test('host selection rejects an unavailable advertised native target before owner acquisition',()=>{
+  const hello=addon.handshake(),target='linux-x64-gnu';
+  const manifest={schema:HOST_SCHEMA,engineBuild:hello.engineBuild,addonABI:hello.addonAbi,
+    operationTable:hello.operationTable,targets:[{target,addonABI:hello.addonAbi}]};
+  let acquired=0;
+  const observed={handshake:()=>({...hello,nativeWorld:false,nativePublication:false}),get NativeHost(){acquired++;throw Error('must not acquire');}};
+  const before=addon.lifecycleCounts();
+  assert.throws(()=>hostSimulation(manifest,target,observed),/Native world operations unavailable/);
+  assert.equal(acquired,0);assert.deepEqual(addon.lifecycleCounts(),before);
+  const unsupported=hostSimulation(manifest,'linux-arm64',{handshake(){throw Error('unsupported target inspected addon');}});
+  assert.equal(typeof unsupported,'function');
+  assert.equal(unsupported,hostSimulation({schema:HOST_SCHEMA,targets:[]},'linux-arm64'));
+  assert.throws(()=>hostSimulation(manifest,target,null),/addon missing/);
+  assert.throws(()=>hostSimulation({...manifest,engineBuild:'wrong'},target,observed),/build mismatch/);
+  assert.throws(()=>hostSimulation({...manifest,schema:'wrong'},target,observed),/schema mismatch/);
+  assert.throws(()=>hostSimulation({...manifest,operationTable:'wrong'},target,observed),/operation table mismatch/);
+});
+
+test('real native entries refuse unadmitted ticks and sessions without poisoning the owner',()=>{
+  const backend=new NativeBackend(addon),b=backend.bridge,input=Float64Array.from(worldFixture.input);
+  try {
+    backend.stepInit(Float64Array.from(worldFixture.setup));
+    const output=b.decode(worldRecord,backend.step(input));
+    assert.equal(output.accepted,false,'an empty Context must not invent an accepted tick');
+    assert.deepEqual(output.clock,syncWorldTickInput(b,input,0,0,new WorldTickInputMirror()).clock);
+    assert.equal(backend.pending,0);
+    assert.throws(()=>backend.publish(1,new Float64Array(WireWorldFactsLayout.words)),/InvalidKind|no such publication session/);
+    assert.equal(backend.pending,0);assert.equal(backend.readBank(1).length,0);
+    assert.equal(b.command('echo',echo()).value,42);
+    const views=backend.blocks.banks.slice();
+    assert.equal(backend.close(),true);assert.equal(backend.close(),false);
+    for(const view of views){assert.equal(view.words,null);assert.equal(view.length,0);}
+    assert.equal(backend.host.liveOwners(),0);
+    assert.throws(()=>backend.step(input),/closed/);assert.throws(()=>backend.publish(1,input),/closed/);
+    assert.throws(()=>backend.readBank(1),/closed/);
+  } finally {backend.close();}
+});
+
+test('native qualification and its production-worker entry refuse before gameplay import or readiness',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'native-host-')),engine=join(root,'engine');
+  let worker;
+  try {
+    await mkdir(join(root,'server/src'),{recursive:true});await mkdir(engine);
+    await writeFile(join(root,'package.json'),'{"type":"module"}');
+    const hello=addon.handshake(),target='linux-x64-gnu';
+    const manifest={schema:HOST_SCHEMA,engineBuild:hello.engineBuild,addonABI:hello.addonAbi,
+      operationTable:hello.operationTable,targets:[{target,addonABI:hello.addonAbi}]};
+    // The fixture supplies only the package loader. The real selection seam
+    // must refuse before the provider can import any game or content module.
+    const source=`import {createRequire} from 'node:module';
+import {hostSimulation} from ${JSON.stringify(new URL('../src/sim/host-runtime.js',import.meta.url).href)};
+const real=createRequire(import.meta.url)(${JSON.stringify(fileURLToPath(new URL('../.host-addon/bfe-node.node',import.meta.url)))});
+const addon={NativeHost:real.NativeHost,handshake:()=>({...real.handshake(),nativeWorld:false,nativePublication:false})};
+export async function loadHostRuntime(){const manifest=${JSON.stringify(manifest)};
+return {manifest,simulationFactory:hostSimulation(manifest,${JSON.stringify(target)},addon),worldBackend:'native'};}`;
+    await writeFile(join(root,'server/src/host-runtime.js'),source);
+    const before=addon.lifecycleCounts();
+    assert.equal(qualificationBackend,'native');
+    await assert.rejects(createQualificationBackend({engine,manifest}),/Native world operations unavailable/);
+    worker=new Worker(new URL('../tools/host-qualification/native.mjs',import.meta.url),{workerData:{engine}});
+    const [message]=await Promise.race([once(worker,'message'),once(worker,'error').then(([error])=>{throw error;})]);
+    assert.equal(message.type,'error');assert.match(message.message,/Native world operations unavailable/);
+    assert.deepEqual(addon.lifecycleCounts(),before);
+  } finally {await worker?.terminate();await rm(root,{recursive:true,force:true});}
+});
+
+test('a short step reply is delivered once after explicit admission growth',()=>{
+  const backend=new NativeBackend(addon,{inputWords:WorldTickInputLayout.words,outputWords:H.words});
+  const input=Float64Array.from(worldFixture.input);
+  try {
+    backend.stepInit(Float64Array.from(worldFixture.setup));
+    const required=H.words+WorldTickOutputLayout.words,result=backend.step(input);
+    assert.equal(result,backend.fault);assert.equal(result.required,required);assert.equal(result.pending,true);
+    assert.throws(()=>backend.readBank(1),/Busy/);
+    backend.endAdmission();assert.equal(backend.retryPending(),result);
+    assert.throws(()=>backend.reserve({outputWords:required}),/requires admission/);
+    backend.beginAdmission();backend.reserve({inputWords:64,outputWords:required});
+    const output=backend.bridge.decode(worldRecord,backend.retryPending());
+    assert.equal(output.accepted,false);assert.equal(backend.pending,0);
+    assert.equal(backend.memoryDiagnostics().poisoned,false);
+  } finally {backend.close();}
+  assert.equal(backend.host.liveOwners(),0);
+});
+
+test('owned publication packets pass through the bank, admission retry, close and transfer',()=>{
+  const backend=new NativeBackend(addon,{outputWords:1}),facts=new Float64Array(WireWorldFactsLayout.words);
+  // This is the addon's packet-delivery fixture, not an executable world or a
+  // readiness override. Production publish still calls Context::world_publish.
+  backend.runPublish=(_request,out)=>backend.owner.probePacketBuffers(out,false);
+  try {
+    const fault=backend.publish(0,facts);
+    assert.equal(fault,backend.fault);assert.equal(fault.pending,true);assert.ok(fault.required>1);
+    assert.equal(backend.packets,null);
+    assert.throws(()=>backend.step(new Float64Array(WorldTickInputLayout.words)),/Busy/);
+    backend.endAdmission();assert.equal(backend.retryPending(),fault);
+    backend.beginAdmission();backend.reserve({inputWords:16384,outputWords:fault.required});
+    const block=backend.retryPending(),packets=backend.packets;
+    const output=backend.bridge.decode({Mirror:WirePublicationOutputMirror,sync:syncWirePublicationOutput},block);
+    const part=output.shared[0].parts[0],packet=backend.packet(part);
+    assert.equal(packet.buffer,packets[part.offset]);assert.deepEqual([...packet],[0,1,255]);
+    assert.equal(backend.packet(output.own[0].span).buffer,packet.buffer);
+    assert.equal(backend.packet(output.records[0].payload).byteLength,2);
+    assert.ok(Object.is(output.epoch,-0));
+    const saved=bytes(block);backend.bridge.command('echo',echo());assert.deepEqual(bytes(block),saved);
+    assert.throws(()=>backend.packet({offset:part.offset,length:part.length+1}),/Invalid native packet/);
+    backend.close();assert.deepEqual([...packet],[0,1,255]);
+    const moved=structuredClone(packets,{transfer:packets});
+    assert.ok(packets.every(buffer=>buffer.byteLength===0));
+    assert.deepEqual(moved.map(buffer=>[...new Uint8Array(buffer)]),[[0,1,255],[3,4],[5],[6]]);
+  } finally {backend.close();}
+});
+
+test('native world faults clear bridge loans and poisoned owners still close once',()=>{
+  const backend=new NativeBackend(addon);
+  try {
+    assert.throws(()=>backend.owner.probeContextPanic(),{code:'GenericFailure'});
+    for(const invoke of [()=>backend.step(new Float64Array(WorldTickInputLayout.words)),
+      ()=>backend.publish(0,new Float64Array(WireWorldFactsLayout.words)),()=>backend.readBank(1)]) {
+      assert.throws(invoke,/Poisoned/);assert.equal(backend.pending,0);assert.equal(backend.pendingInput,null);
+    }
+    assert.equal(backend.close(),true);assert.equal(backend.close(),false);
+    assert.equal(backend.host.liveOwners(),0);
+  } finally {backend.close();}
+});
+
+test('target selection binds a fresh native owner for each battle and never retries WASM',async()=>{
+  const hello=addon.handshake(),target='linux-x64-gnu';
+  const manifest={schema:HOST_SCHEMA,engineBuild:hello.engineBuild,addonABI:hello.addonAbi,
+    operationTable:hello.operationTable,targets:[{target,addonABI:hello.addonAbi}]};
+  const before=addon.lifecycleCounts(),factory=hostSimulation(manifest,target,addon);
+  assert.deepEqual(addon.lifecycleCounts(),before);
+  const first=await factory(),second=await factory();
+  try {assert.notEqual(first.owner,second.owner);assert.notEqual(first.bridge,second.bridge);}
+  finally {first.close();second.close();}
+  const failed=hostSimulation(manifest,target,{handshake:()=>hello,NativeHost:class {constructor(){throw Error('Native acquisition refused');}}});
+  await assert.rejects(failed(),/Native acquisition refused/);
+  assert.equal(first.host.liveOwners(),0);assert.equal(second.host.liveOwners(),0);
+});
+
+test('WorldTick uses the generated native row and releases its operation on close',()=>{
+  const backend=new NativeBackend(addon);
+  try {
+    const row=syncWorldTickInput(backend.bridge,Float64Array.from(worldFixture.input),0,0,new WorldTickInputMirror());
+    const operation=backend.world({water:null}),input=operation.input;
+    const result=backend.bridge.decode(worldRecord,operation.step(row));
+    assert.equal(result.accepted,false);assert.equal(operation.input,input);
+    operation.finish();backend.close();assert.equal(operation.input,null);
+    assert.throws(()=>operation.step(row),/closed/);
+    assert.equal(backend.host.liveOwners(),0);
+  } finally {backend.close();}
+});
+
+test('generated native operations use operation IDs and reserve packet bytes only at admission',()=>{
+  const backend=new NativeBackend(addon,{publicationBytes:16}),b=backend.bridge;
+  try {
+    assert.equal(b.decode(ECHO.result,b.operation('echo',[],echo())).value,42);
+    assert.throws(()=>b.command('relay',echo()),/No native operation relay/);
+    assert.throws(()=>b.operation('wireHostOp',[]),/scalar count/);
+    const before=backend.memoryDiagnostics().publicationReservedBytes;
+    backend.reserve({publicationBytes:128*1024});
+    assert.ok(backend.memoryDiagnostics().publicationReservedBytes>before);
+    backend.endAdmission();assert.throws(()=>backend.reserve({publicationBytes:256*1024}),/requires admission/);
   } finally {backend.close();}
 });

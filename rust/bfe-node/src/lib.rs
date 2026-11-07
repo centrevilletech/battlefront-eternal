@@ -1,5 +1,5 @@
-//! Node lifecycle and numeric block boundary. Production world stepping remains
-//! in the WASM instance until the shared simulation exposes an owned world API.
+//! Thread-affine world and store boundaries over the shared simulation Context.
+//! Readiness comes from its linked bodies; every owner keeps its own arenas.
 use bfe_sim::abi::context::Context;
 use napi::{Env, Error, Result, Status};
 use napi_derive::napi;
@@ -8,6 +8,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 mod blocks;
 mod operations;
+mod world;
 mod lifecycle;
 use lifecycle::{Owner, OwnedContext, Scope, close};
 
@@ -38,19 +39,24 @@ pub struct Handshake {
     pub schema: String,
     pub engine_build: String,
     pub napi_minimum: u32,
+    pub operation_table: Option<String>,
     pub native_world: bool,
     pub native_publication: bool,
 }
 #[napi]
 pub fn handshake() -> Handshake {
+    let provided = bfe_sim::abi::context_step::provided();
     Handshake {
-        addon_abi: 1,
+        addon_abi: 2,
         store_abi: 1,
         schema: env!("BFE_SCHEMA_FINGERPRINT").into(),
         engine_build: env!("BFE_ENGINE_BUILD").into(),
         napi_minimum: 8,
-        native_world: false,
-        native_publication: false,
+        // The complete generated boundary fingerprint covers OPERATION_TABLE
+        // and every arena record it encodes. An absent table has no identity.
+        operation_table: provided.operations.then(|| env!("BFE_SCHEMA_FINGERPRINT").into()),
+        native_world: provided.step,
+        native_publication: provided.publication,
     }
 }
 
@@ -72,7 +78,7 @@ impl NativeHost {
     }
     fn create_owner(&self, reserve: Option<operations::Reserve>, _fail_after: Option<u32>) -> Result<NativeOwner> {
         boundary(|| {
-            let owner = Rc::new(RefCell::new(OwnedContext {context: Some(Context::new()), arenas: operations::Arenas::default(), poisoned: false,
+            let owner = Rc::new(RefCell::new(OwnedContext {context: Some(Context::new()), arenas: operations::Arenas::default(), publication: world::Packets::default(), poisoned: false,
                 #[cfg(feature = "lifecycle-probe")] panic_on_close: false}));
             // Establish the take-once destructor before registry allocation or
             // diagnostic failure injection. A partial construction owns a drop.
@@ -83,7 +89,7 @@ impl NativeHost {
             self.scope.insert(&native.owner);
             #[cfg(feature = "lifecycle-probe")]
             if _fail_after == Some(2) { return Err(Error::from_reason("Registry acquisition fixture")); }
-            native.invoke(|owner| owner.arenas.reserve(reserve))?;
+            native.invoke(|owner| world::reserve_owner(owner, reserve))?;
             #[cfg(feature = "lifecycle-probe")]
             if _fail_after == Some(3) { return Err(Error::from_reason("Arena acquisition fixture")); }
             #[cfg(feature = "lifecycle-probe")]

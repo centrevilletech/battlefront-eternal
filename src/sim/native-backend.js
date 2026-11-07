@@ -1,30 +1,43 @@
-// The native provider owns one real Context. Only store arenas are available
-// until the shared world coordinator and publication entries are exposed.
+// One Context owns the simulation banks. The linked simulation advertises its
+// available entries; cold game attachments require their own owner admission.
 import {NativeBlocks} from './block-view.js';
 import {BlockBridge, Heap, StringTable} from './bridge-core.js';
 import {BlockHeaderLayout as H} from './gen/boundary.js';
-import {COMMAND_TABLE, EVENT_TABLE, KIND_TABLE} from './gen/index.js';
+import {COMMAND_TABLE, EVENT_TABLE, KIND_TABLE, OPERATION_TABLE} from './gen/index.js';
 import {HOST_SCHEMA} from './host-schema.js';
+import {WorldTickInputLayout,WorldTickOutputLayout,WorldTickSetupLayout,putWorldTickInput,putWorldTickSetup} from './gen/world.js';
 
-const OPERATION = 1, EXPORT = 2, EVENTS = 3;
+const OPERATION = 1, EXPORT = 2, EVENTS = 3, STEP = 4, PUBLISH = 5, READ = 6;
 const MAX_WORDS = 4 * 1024 * 1024;
+const MAX_PUBLICATION_BYTES=64*1024*1024,NO_SCALARS=Object.freeze([]);
 const unavailable = () => { throw Error('Native world operations unavailable'); };
-function capacity(words) {
-  if (!Number.isSafeInteger(words) || words < 0 || words > MAX_WORDS) throw RangeError('Invalid native arena capacity');
+function capacity(words,maximum=MAX_WORDS) {
+  if (!Number.isSafeInteger(words) || words < 0 || words > maximum) throw RangeError('Invalid native arena capacity');
   return words;
+}
+
+// Selection validates metadata before acquiring a Context. An advertised
+// target must match its bundle even when its world bodies are unavailable.
+export function nativeIdentity(addon, identity = {}) {
+  const hello=addon.handshake();
+  if (hello.addonAbi!==2 || hello.storeAbi!==1 || hello.napiMinimum!==8 ||
+      identity.addonABI!==undefined && hello.addonAbi!==identity.addonABI ||
+      identity.storeABI!==undefined && hello.storeAbi!==identity.storeABI ||
+      identity.napiMinimum!==undefined && hello.napiMinimum!==identity.napiMinimum) throw Error('Native host ABI mismatch');
+  if (hello.schema!==HOST_SCHEMA || identity.schema!==undefined && identity.schema!==HOST_SCHEMA) throw Error('Native host schema mismatch');
+  if (identity.engineBuild!==undefined && hello.engineBuild!==identity.engineBuild) throw Error('Native host build mismatch');
+  if (identity.operationTable!==undefined && hello.operationTable!==identity.operationTable) throw Error('Native operation table mismatch');
+  return hello;
 }
 
 export class NativeBackend {
   constructor(addon, reserve = {}, identity = {}) {
     // Reject mismatched layouts before acquiring a Context. A factory error
     // stops startup; it never changes the selected provider.
-    const hello = addon.handshake();
-    if (hello.addonAbi !== 1 || hello.storeAbi !== 1 || hello.napiMinimum !== 8) throw Error('Native host ABI mismatch');
-    if (hello.schema !== HOST_SCHEMA || identity.schema !== undefined && identity.schema !== HOST_SCHEMA) throw Error('Native host schema mismatch');
-    if (identity.engineBuild !== undefined && hello.engineBuild !== identity.engineBuild) throw Error('Native host build mismatch');
+    const hello = nativeIdentity(addon,identity);
     // Arena support is independent of world readiness. Do not infer a usable
     // world from an addon target or from methods this provider has not bound.
-    this.capabilities = Object.freeze({backend:'native', nativeWorld:false, nativePublication:false});
+    this.capabilities = Object.freeze({backend:'native', nativeWorld:hello.nativeWorld===true, nativePublication:hello.nativePublication===true});
     this.identity = Object.freeze(hello);
     this.closed = this.closing = false; this.active = 0; this.admitting = true;
     this.pending = 0; this.pendingInput = null; this.first = this.second = 0; this.inputLength = 0;
@@ -33,18 +46,30 @@ export class NativeBackend {
     this.fault = {ok:false, kind:'capacity', arena:'input', required:0, pending:false};
     this.input = new Float64Array(capacity(reserve.inputWords ?? 8192));
     this.inputViews = new Map(); this.blocks = new NativeBlocks(capacity(reserve.outputWords ?? 8192));
+    this.packets=null; this.stepOutput=this.blocks.banks[STEP-1].words.subarray(H.words);
+    this.publicationRequest={session:0,words:null};
+    this.worldOperations=new Set();
+    this.publicationBytes=capacity(reserve.publicationBytes??65536,MAX_PUBLICATION_BYTES);
     this.host = new addon.NativeHost(); this.owner = null;
     try {
-      this.owner = this.host.create({inputWords:this.input.length, outputWords:this.blocks.view.words.length});
+      this.owner = this.host.create({inputWords:this.input.length, outputWords:this.blocks.view.words.length,publicationBytes:this.publicationBytes});
       // Bind once. Neither row loops nor repeated operations inspect addon
       // methods or choose a backend; Rust receives one complete numeric block.
       this.run = this.owner.operation.bind(this.owner);
       this.export = this.owner.exportKind.bind(this.owner);
       this.takeEvents = this.owner.events.bind(this.owner);
+      // These entries exist even when Context returns Unavailable. Capability
+      // flags describe real bodies, independently of the method shape.
+      this.initStep=this.owner.stepInit.bind(this.owner);
+      this.runStep=this.owner.step.bind(this.owner);
+      this.runPublish=this.owner.publish.bind(this.owner);
+      this.runRead=this.owner.readBank.bind(this.owner);
       this.bridge = new NativeBridge(this);
+      if(this.input.length>=WorldTickInputLayout.words)this.span(WorldTickInputLayout.words);
     } catch (error) { this.owner?.close(); this.blocks.close(); throw error; }
   }
   getBridge(options = {}) { this.open();return this.bridge.identify(options); }
+  readBlock(block) {this.open();return this.blocks.readBlock(block);}
   beginAdmission() {
     this.open(); if (this.active) throw Error('Native owner busy');
     this.admitting = true;
@@ -52,10 +77,11 @@ export class NativeBackend {
   endAdmission() { this.open(); this.admitting = false; }
   // Reservation is a caller decision at admission. A short reply is retained
   // by the addon; reserve never invokes it and retry never replays its work.
-  reserve({inputWords=this.input.length, outputWords=this.blocks.view.words.length} = {}) {
+  reserve({inputWords=this.input.length, outputWords=this.blocks.view.words.length,publicationBytes=this.publicationBytes} = {}) {
     this.open();
     if (!this.admitting || this.active) throw Error('Native arena growth requires admission');
-    capacity(inputWords); capacity(outputWords);
+    capacity(inputWords); capacity(outputWords);capacity(publicationBytes,MAX_PUBLICATION_BYTES);
+    this.owner.reserve({inputWords,outputWords,publicationBytes});this.publicationBytes=Math.max(this.publicationBytes,publicationBytes);
     if (inputWords > this.input.length) {
       const input = new Float64Array(inputWords); input.set(this.input);
       this.input = input;
@@ -63,6 +89,7 @@ export class NativeBackend {
       this.bridge.rows = new Float64Array(inputWords);
     }
     this.blocks.reserve(outputWords);
+    this.stepOutput=this.blocks.banks[STEP-1].words.subarray(H.words);
   }
   // A retained short reply locks mutations on both sides of the boundary.
   // Checking here also protects its input bytes from the next encoder.
@@ -78,7 +105,7 @@ export class NativeBackend {
     if (length > this.input.length) return this.short('input', length);
     let view = this.inputViews.get(length);
     if (!view) {
-      if (!this.admitting) return this.short('input', length);
+      if (!this.admitting || this.active) return this.short('input', length);
       view = this.input.subarray(0, length); this.inputViews.set(length, view);
     }
     return view;
@@ -117,6 +144,37 @@ export class NativeBackend {
     return this.deliver();
   }
   events() { this.idle(); this.pending = EVENTS; return this.deliver(); }
+  stepInit(setup) {
+    this.idle();this.validate(setup,0,setup.length);
+    return this.initStep(setup);
+  }
+  // World inputs are generated rows, not command blocks. Preserve the exact
+  // request while a short output is retained so retry cannot repeat a tick.
+  step(input) {
+    this.idle();this.validate(input,0,input.length);
+    const row=this.span(input.length);if(row===this.fault)return row;
+    row.set(input);this.pendingInput=row;this.pending=STEP;return this.deliver();
+  }
+  // The numeric result is borrowed; packets owns exact ArrayBuffers. A caller
+  // retains that array before the next publication, then transfers it freely.
+  publish(session,facts) {
+    this.idle();this.validate(facts,0,facts.length);
+    const row=this.span(facts.length);if(row===this.fault)return row;
+    row.set(facts);this.pendingInput=row;this.first=session;this.pending=PUBLISH;
+    this.publicationRequest.session=session;this.publicationRequest.words=row;
+    return this.deliver();
+  }
+  // Bank IDs select typed owner publications, never native addresses. Reads
+  // have a separate loan so store/event observers cannot replace these words.
+  readBank(bank) {this.idle();this.first=bank;this.pending=READ;return this.deliver();}
+  // The addon rewrites WireSpan.offset to an index in its owned packet array.
+  // Returning a view does not copy the packet again; its buffer can transfer
+  // or outlive this owner without borrowing the encoder's next publication.
+  packet(span) {
+    this.open();const packet=this.packets?.[span.offset];
+    if(!(packet instanceof ArrayBuffer)||packet.byteLength!==span.length)throw Error('Invalid native packet span');
+    return new Uint8Array(packet);
+  }
   deliver() {
     const bank=this.blocks.banks[this.pending-1],output=bank.words;
     // The owner leaves output untouched when it returns a required size.
@@ -125,14 +183,30 @@ export class NativeBackend {
     try {
       if (this.pending === OPERATION) written = this.run(this.first, this.pendingInput, output);
       else if (this.pending === EXPORT) written = this.export(this.first, this.second, output);
-      else written = this.takeEvents(output);
-    } catch (error) { this.pending = 0; throw error; }
+      else if(this.pending===EVENTS) written = this.takeEvents(output);
+      else if(this.pending===STEP) {
+        written=this.runStep(this.pendingInput,this.stepOutput);
+        if(written>this.stepOutput.length)return this.short('output',written+H.words);
+        if(written!==WorldTickOutputLayout.words)throw Error('Invalid native world result extent');
+        // BlockBridge decodes every generated result through one header.
+        output[H.rows]=1;output[H.stride]=WorldTickOutputLayout.words;
+        output[H.heap]=H.words+written;output[H.heapWords]=0;output[H.retired]=0;
+        written+=H.words;
+      } else if(this.pending===PUBLISH) {
+        const reply=this.runPublish(this.publicationRequest,output);
+        written=reply.words;
+        if(written<=output.length)this.packets=reply.packets;
+      } else {
+        written=this.runRead(this.first,output);
+      }
+    } catch (error) { this.pending = 0; this.pendingInput=null;this.publicationRequest.words=null;throw error; }
     if (written > output.length) return this.short('output', written);
     this.pending = 0; this.pendingInput = null;
+    this.publicationRequest.words=null;
     return this.blocks.publish(written,bank);
   }
-  // A capacity reply has already consumed the operation. The addon matches
-  // this request and copies its retained result instead of executing it again.
+  // Replies, including completed steps, are retained. Delivery waits for
+  // admission, so a retry can never repeat a completed tick or publication.
   retryPending() {
     this.open();
     if (!this.pending) throw Error('No pending native result');
@@ -158,7 +232,7 @@ export class NativeBackend {
   // repeated generated encoders from allocating or entering this method.
   intern(text) {
     this.idle();
-    if (!this.admitting) throw Error('New native strings require admission');
+    if (!this.admitting || this.active) throw Error('New native strings require admission');
     const units = new Array(text.length);
     for(let i=0;i<text.length;i++) units[i] = text.charCodeAt(i);
     return this.owner.intern(units);
@@ -173,8 +247,14 @@ export class NativeBackend {
   // These are actual owner counters, available even after close. The addon
   // deliberately excludes Context allocations it cannot account for yet.
   memoryDiagnostics() { return this.owner.diagnostics(); }
-  prepare() { this.open(); return unavailable(); }
-  world() { this.open(); return unavailable(); }
+  prepare(category) {
+    this.open();if(!this.capabilities.nativeWorld)return unavailable();
+    throw Error(`Native owner admission unavailable: ${category}`);
+  }
+  world(phase) {
+    this.open();if(!this.capabilities.nativeWorld)return unavailable();
+    const operation=new NativeWorldOperation(this,phase);this.worldOperations.add(operation);return operation;
+  }
   publisher() { this.open(); return unavailable(); }
   enter() { this.open(); this.active++; }
   leave() { if (--this.active === 0 && this.closing) this.release(); }
@@ -185,14 +265,40 @@ export class NativeBackend {
     this.closing = true; if (!this.active) this.release(); return true;
   }
   release() {
-    try { this.owner.close(); }
+    try {for(const operation of this.worldOperations)operation.close();this.owner.close();}
     finally {
       this.closed = true; this.pending = 0; this.pendingInput = null; this.inputViews.clear(); this.input = null;
+      this.packets=null;this.stepOutput=null;
+      this.publicationRequest.words=null;
+      this.worldOperations.clear();
       this.blocks.close(); this.bridge.closed = true;
       this.bridge.rows = null; this.bridge.heap.clear();
       this.bridge.strings.ids.clear(); this.bridge.strings.list.length = 0;
       this.bridge.refs.length = 0; this.bridge.defs = {};
     }
+  }
+}
+
+// WorldTick supplies only its generated facts. Context owns input ingress and
+// phase completion; native observers take typed banks after the call returns.
+class NativeWorldOperation {
+  constructor(backend,{water}) {
+    this.backend=backend;this.input=new Float64Array(WorldTickInputLayout.words);
+    const setup=new Float64Array(WorldTickSetupLayout.words);
+    putWorldTickSetup(backend.bridge,{water:Boolean(water),waterTime:water?.simulationTime??0,
+      waterHeight:water?.height??0,waterBob:Boolean(water?.bobbing)},setup,0,backend.bridge.heap);
+    backend.stepInit(setup);
+  }
+  step(row) {
+    if(!this.backend)throw Error('Native world operation closed');
+    putWorldTickInput(this.backend.bridge,row,this.input,0,this.backend.bridge.heap);
+    return this.backend.step(this.input);
+  }
+  // No foreign phase loan is opened: World::step finishes its owned phases.
+  finish() {if(!this.backend)throw Error('Native world operation closed');this.backend.open();}
+  close() {
+    if(!this.backend)return false;
+    this.backend.worldOperations.delete(this);this.backend=null;this.input=null;return true;
   }
 }
 
@@ -207,6 +313,7 @@ export class NativeBridge extends BlockBridge {
     this.rows = new Float64Array(backend.input.length);
     this.draining = false;this.busy = Object.freeze({ok:false,kind:'busy'});
     this.commandCodes = new Map(COMMAND_TABLE.filter(Boolean).map(c=>[c.name,c.code]));
+    this.operationCodes = new Map(OPERATION_TABLE.filter(Boolean).map(o=>[o.name,o.code]));
   }
   callArgs(record, value) {
     this.backend.idle();
@@ -221,9 +328,23 @@ export class NativeBridge extends BlockBridge {
   command(name, args, into = null) {
     const command = COMMAND_TABLE[typeof name === 'number' ? name : this.commandCodes.get(name)];
     if (!command) throw Error(`No native command ${name}`);
-    if (this.callArgs(command.args,args) === this.backend.fault) return this.backend.fault;
-    const result = this.backend.operation(command.code);
+    const result = this.operation(command.name,NO_SCALARS,args);
     return result === this.backend.fault ? result : command.result ? this.decode(command.result,result,into) : undefined;
+  }
+  // Generated operation IDs differ from command IDs. The scalar prefix and
+  // record share one relative heap; a call crosses N-API only after packing.
+  operation(name, scalars, value = null) {
+    this.backend.idle();
+    const operation=OPERATION_TABLE[typeof name==='number'?name:this.operationCodes.get(name)];
+    if(!operation)throw Error(`No native operation ${name}`);
+    if(scalars.length!==operation.scalars.length)throw RangeError('Invalid native scalar count');
+    const words=scalars.length+(operation.record?.words??0);
+    if(words>this.rows.length)return this.backend.short('input',H.words+words);
+    this.heap.clear();
+    for(let i=0;i<scalars.length;i++)this.rows[i]=scalars[i];
+    if(operation.record)operation.record.put(this,value,this.rows,scalars.length,this.heap);
+    const input=this.backend.arguments(this.rows,words,this.heap.words);
+    return input===this.backend.fault?input:this.backend.operation(operation.code);
   }
   // Raw blocks let cold content producers use the full generated layout. The
   // following convenience methods use those very same put/sync functions.
@@ -301,8 +422,8 @@ export class NativeBridge extends BlockBridge {
   close() { return this.backend.close(); }
 }
 
-// This factory has createGame's existing signature. Selecting it does not
-// advertise a ready world; prepare fails until real world entries are bound.
+// A factory invocation acquires one owner. Host selection has already checked
+// readiness; cold probe callers can still exercise an unavailable Context.
 export async function loadNativeSim(addon, reserve, identity) {
   return new NativeBackend(addon,reserve,identity);
 }

@@ -147,3 +147,82 @@ pub fn lifecycle_counts_into(mut output: Uint32Array) -> Result<()> {
     output[3] = HOOKS_RELEASED.load(Ordering::SeqCst);
     Ok(())
 }
+
+#[napi]
+impl NativeOwner {
+    // The gate is inside the same step boundary as production and then calls
+    // the real Context entry, including its Unavailable refusal. The shared
+    // signal is rooted for this invocation and never retained by the owner.
+    #[napi]
+    pub fn probe_step(&self, env: Env, input: JsObject, out: JsObject, signal: Uint32Array, milliseconds: u32) -> Result<u32> {
+        if signal.len() < 2 || milliseconds == 0 || milliseconds > 5000 {
+            return Err(Error::from_reason("Invalid step gate fixture"));
+        }
+        self.step_with(env, input, out, || {
+            // SAFETY: Uint32Array elements are aligned for AtomicU32. The
+            // caller uses Atomics exclusively until this native call returns.
+            let started = unsafe {&*(signal.as_ptr() as *const AtomicU32)};
+            let release = unsafe {&*(signal.as_ptr().add(1) as *const AtomicU32)};
+            started.store(1, Ordering::SeqCst);
+            let deadline = Instant::now() + Duration::from_millis(milliseconds as u64);
+            while release.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {std::hint::spin_loop();}
+            started.store(2, Ordering::SeqCst);
+        })
+    }
+    #[napi]
+    pub fn probe_context_panic(&self) -> Result<()> {
+        self.invoke(|owner| {
+            let result = owner.context.as_ref().unwrap().world_replay_panic();
+            super::world::context_result(owner, result)
+        })
+    }
+
+    // The world smoke admits recorded cold bytes through Context's harness
+    // entry. It never installs a second world implementation in the addon.
+    #[napi]
+    pub fn probe_world_admit(&self, env: Env, admission: String, out: napi::JsObject) -> Result<u32> {
+        self.invoke(|owner| {
+            owner.arenas.idle()?;
+            let output = super::blocks::arena(env, &out)?;
+            use bfe_sim::gen::WorldTickSetup;
+            if output.length < WorldTickSetup::WORDS { return Ok(WorldTickSetup::WORDS as u32); }
+            let value = admission.parse().map_err(|_| Error::from_reason("Invalid replay admission JSON"))?;
+            let result = owner.context.as_ref().unwrap().world_replay_admit(&value);
+            let setup = super::world::context_result(owner, result)?;
+            let mut words = [0.; WorldTickSetup::WORDS];
+            setup.put(&mut words, &mut Vec::new());
+            Ok(output.write(&words))
+        })
+    }
+
+    #[napi]
+    pub fn probe_world_prepare(&self, frame: String) -> Result<()> {
+        self.invoke(|owner| {
+            owner.arenas.idle()?;
+            let value = frame.parse().map_err(|_| Error::from_reason("Invalid replay frame JSON"))?;
+            let result = owner.context.as_ref().unwrap().world_replay_prepare(&value);
+            super::world::context_result(owner, result)
+        })
+    }
+
+    // Only observations produced by Context leave this entry. The smoke feeds
+    // expected fingerprints to its comparator, never to the native world.
+    #[napi]
+    pub fn probe_world_observe(&self, env: Env, frame: String, outputs: napi::JsObject) -> Result<String> {
+        self.invoke(|owner| {
+            owner.arenas.idle()?;
+            let value = frame.parse().map_err(|_| Error::from_reason("Invalid replay frame JSON"))?;
+            let input = super::blocks::arena(env, &outputs)?;
+            use bfe_sim::gen::WorldTickOutput;
+            input.read(|words| {
+                if words.len() % WorldTickOutput::WORDS != 0 {
+                    return Err(Error::from_reason("Invalid replay output rows"));
+                }
+                let rows: Vec<_> = words.chunks_exact(WorldTickOutput::WORDS)
+                    .map(|row| WorldTickOutput::take(row, &[])).collect();
+                let result = owner.context.as_ref().unwrap().world_replay_publish(&value, &rows);
+                super::world::context_result(owner, result).map(|observation| observation.to_string())
+            })
+        })
+    }
+}
