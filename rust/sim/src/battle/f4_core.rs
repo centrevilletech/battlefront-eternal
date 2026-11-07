@@ -209,27 +209,6 @@ impl State {
     }
 }
 
-// facade shims
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn active() -> bool { active_in(&mut crate::abi::cold().battle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn publish() { publish_in(crate::abi::world()) }
-
-
-
-
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn achievement(character: Option<Ref<Character>>, op: F4CommandOp) { achievement_in(crate::abi::world(), character, op) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn mark_character(r:Ref<Character>) { mark_character_in(&mut crate::abi::cold().battle, r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn owns_lifecycle() ->bool { owns_lifecycle_in(&mut crate::abi::cold().battle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn died(unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64,services:crate::units::f3::WorldServices<'_>) ->Option<Ref<Controller>> { died_in(crate::abi::world(), unit, killer, relation, services) }
-
-
-
 
 #[cfg(target_arch = "wasm32")]
 mod exports {

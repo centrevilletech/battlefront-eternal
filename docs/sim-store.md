@@ -70,6 +70,11 @@ nothing measurable (interleaved 40-second runs, three of each: page CPU
 it). A `.wasm` asset would save the decode and some of the compile; it is
 worth it when the module is several times larger, measured then.
 
+`sim_reset` is a store-only helper for tools: it finishes AI and replaces the
+canonical generated Store. Collision, movement, pose, fleet and the other
+phase, input, wire and page owners retain their state. Start a new battle
+with a new World or WASM instance.
+
 ## The authoritative world tick
 
 `WorldTickInput` is a reserved generated command record. The host prepares

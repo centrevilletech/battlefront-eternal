@@ -701,8 +701,6 @@ pub(crate) fn reserve_unit_slots_in(world_ctx: &mut crate::world::owner::World, 
 }
 
 pub(crate) fn piloted_in(units:&crate::units::owner::Units,s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>>{ piloted_in_in(f3::recon_services_ref(units), s, owner) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn kill_piloted(owner: Ref<Unit>, services: f3::WorldServices<'_>){ kill_piloted_in(crate::abi::world(), owner, services) }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]

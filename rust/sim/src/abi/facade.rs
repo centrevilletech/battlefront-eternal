@@ -7,7 +7,8 @@ static mut WORLD: World = World::COLD;
 static mut EXCHANGE: ImportExchange = ImportExchange::new();
 
 pub(crate) fn cold() -> &'static mut World {
-    // One WASM instance runs on one thread; no shared native world uses this cell.
+    // SAFETY: each cell belongs to one single-threaded WASM instance.
+    // Callers end Rust loans before callbacks or another export can reenter.
     unsafe { &mut *addr_of_mut!(WORLD) }
 }
 pub(crate) fn world() -> &'static mut World {
@@ -16,6 +17,7 @@ pub(crate) fn world() -> &'static mut World {
     world
 }
 pub(crate) fn exchange() -> &'static mut ImportExchange {
-    // The argument loan ends before dispatch, so recursive imports reuse the bank.
+    // SAFETY: the argument loan ends before dispatch. Recursive imports
+    // reuse this instance-local bank only after that loan has ended.
     unsafe { &mut *addr_of_mut!(EXCHANGE) }
 }

@@ -472,7 +472,3 @@ pub(crate) fn origin(unit: &Unit, combat: &crate::gen::Combat) -> [f64; 3] {
     };
     [p.x, p.y + height, p.z]
 }
-
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn damage(reference: Ref<Unit>, amount: f64, attacker: Attacker, services: f3::WorldServices<'_>){ damage_in(crate::abi::world(), reference, amount, attacker, services) }

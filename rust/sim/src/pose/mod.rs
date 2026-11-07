@@ -15,11 +15,6 @@ impl State {
     pub const fn new() -> Self { Self { clips: Vec::new(), poses: Vec::new(), construction_input: Vec::new(), construction_output: Vec::new() } }
 }
 
-/// The module's state. One thread: JavaScript calls in one at a time.
-pub fn state() -> &'static mut State {
-    &mut crate::abi::cold().pose
-}
-
 pub(crate) fn clip_data_in(state: &mut State, id: u32) -> &mut [f32] { &mut state.clips[id as usize].data }
 
 pub(crate) fn clip_tracks_in(state: &mut State, id: u32) -> &mut [i32] { &mut state.clips[id as usize].tracks }

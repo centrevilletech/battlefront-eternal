@@ -499,8 +499,6 @@ impl Collision {
 impl Collision {
     // facade shims: prediction retains private flags until its callers convert.
     #[cfg(target_arch = "wasm32")]
-    pub(crate) unsafe fn share_flags(&mut self, _flags: *mut u8) { self.use_world_flags(); }
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fn use_world_flags(&mut self) { self.authoritative = true; }
     pub fn take_changes(&mut self, s: &mut State, out: &mut Vec<f64>) {
         #[cfg(target_arch = "wasm32")]

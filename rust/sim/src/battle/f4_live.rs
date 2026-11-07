@@ -90,7 +90,7 @@ pub fn f4_animated_birth_in(w: &mut Root) -> Option<&[f64]> {
     let flag = input.body.and_then(|body| {
         let collision = crate::vehicles::module::collision_world_in(w).expect("prepared animated collision");
         let kernel = collision.kernel_slot(body.slot)?;
-        crate::collision::state().worlds[f3::collision_world_in(&w.units)].order.iter().position(|&slot| slot as usize == kernel)
+        w.collision.state.worlds[f3::collision_world_in(&w.units)].order.iter().position(|&slot| slot as usize == kernel)
     });
     metadata_mut(&mut w.battle).animations.push(Animation { handle: handle.clone(), original: input.prop, flag, index });
     return_handle(w, handle)
@@ -423,29 +423,11 @@ impl State {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_animation_count() -> usize { wire_animation_count_in(&mut crate::abi::cold().battle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_animation(index: usize) -> Option<[f64; 7]> { wire_animation_in(&mut crate::abi::cold().battle, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_trap_count() -> usize { wire_trap_count_in(&mut crate::abi::cold().battle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_trap(index: usize) -> Option<[f64; 3]> { wire_trap_in(&mut crate::abi::cold().battle, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn publish() { publish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> { held_clip_in(&mut crate::abi::cold().battle, r, unit) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn owns_held(prop:Ref<Prop>) ->bool { owns_held_in(&mut crate::abi::cold().battle, prop) }
-
-
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {
     use super::*;
-    pub(crate) fn descriptor(w: &mut Root) -> *const f64 { descriptor_words(w).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    // facade shims
+
     #[no_mangle]
     pub extern "C" fn f4_live_init() -> *const f64 { f4_live_init_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
@@ -469,7 +451,5 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn f4_viewpoint_clock() { f4_viewpoint_clock_in(crate::abi::facade::world()) }
 }
-#[cfg(target_arch = "wasm32")]
-pub(crate) use exports::descriptor;
 
 impl super::stats::TextWorld for Logs<'_, '_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }

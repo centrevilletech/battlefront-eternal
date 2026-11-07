@@ -697,46 +697,6 @@ impl Scheduler {
     }
 }
 
-// facade shims: callers outside the fleet bindings still enter through WASM.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn reserve_registry(count: usize) { reserve_registry_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
-pub fn seat_origin(life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> { seat_origin_in(crate::abi::world(), life, index) }
-#[cfg(target_arch = "wasm32")]
-pub fn seat_forward(life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> { seat_forward_in(crate::abi::world(), life, index) }
-#[cfg(target_arch = "wasm32")]
-pub fn flight_keys_for(r: Ref<Vehicle>) -> (Config, Option<GearClip>) { flight_keys_for_in(&crate::abi::world().fleet,r) }
-#[cfg(target_arch = "wasm32")]
-pub fn store_flight(hull: &Hull) { store_flight_in(crate::abi::world(), hull) }
-#[cfg(target_arch = "wasm32")]
-pub fn take_hull(r: Ref<Vehicle>, index: usize) -> Hull { take_hull_in(crate::abi::world(), r, index) }
-#[cfg(target_arch = "wasm32")]
-pub fn recycle(hull: Hull) { recycle_in(crate::abi::world(), hull) }
-#[cfg(target_arch = "wasm32")]
-pub fn active() -> bool { active_in(&crate::abi::world().fleet) }
-#[cfg(target_arch = "wasm32")]
-pub fn mark(r: Ref<Vehicle>) { mark_in(&mut crate::abi::world().fleet,r) }
-#[cfg(target_arch = "wasm32")]
-pub fn stored(hull: &Hull) { stored_in(&mut crate::abi::world().fleet,hull) }
-#[cfg(target_arch = "wasm32")]
-pub fn mark_changed(r: Ref<Vehicle>) { mark_changed_in(&mut crate::abi::world().fleet,r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn has_pending()->bool { has_pending_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn pending() { pending_in(&mut crate::abi::world().fleet) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn revision(r: Ref<Vehicle>) -> u64 { revision_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn publish_pending() { publish_pending_in(crate::abi::world()) }
-
-#[cfg(target_arch = "wasm32")]
-pub fn publish() { publish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub fn respawn_clock(hull: usize) { respawn_clock_in(crate::abi::world(), hull) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn step(dt: f64, tick: f64, services: Option<crate::units::f3::WorldServices<'_>>) { step_in(crate::abi::world(), dt, tick, services) }
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

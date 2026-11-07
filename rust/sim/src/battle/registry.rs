@@ -58,25 +58,3 @@ impl Registry {
         }
     }
 }
-
-#[cfg(target_arch = "wasm32")]
-struct NativeTargets;
-#[cfg(target_arch = "wasm32")]
-impl Targets for NativeTargets {
-    fn member(&mut self, s: &Store, key: Key) -> Member {
-        let id = crate::units::registry::target_id(key);
-        // The tail may hold the Store shell locally. Hull reads take that
-        // explicit store instead of refreshing through the module global.
-        if let Some(member) = crate::units::f3_hulls::battle_member(s, key) { return member; }
-        if let Some(member) = crate::units::f3_props::battle_member(s, key) { return member; }
-        let f = crate::units::f3::prepared_target(id).expect("prepared non-soldier target");
-        Member { alive: f.alive, team: f.team, position: f.position, ..Member::default() }
-    }
-}
-#[cfg(target_arch = "wasm32")]
-impl Registry {
-    pub fn visit_native(&self, s: &mut Store, player: Option<Ref<Unit>>, mounted: bool,
-        visit: &mut dyn FnMut(&mut Store, Member)) {
-        self.visit(s, player, mounted, &mut NativeTargets, visit);
-    }
-}

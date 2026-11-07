@@ -117,25 +117,3 @@ pub(crate) fn raycast_in(world_ctx: &mut crate::world::owner::World, origin: &Ve
 }
 fn vec(a: [f64;3]) -> Vector3 { Vector3::new(a[0],a[1],a[2]) }
 fn array(v: Vector3) -> [f64;3] { [v.x,v.y,v.z] }
-
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn count() -> usize{ count_in(&crate::abi::world().sim) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn key(index: usize) -> Member{ key_in(&crate::abi::world().sim, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn life(member: Member) -> f64{ life_in(crate::abi::world(), member) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn mounted_sample(owner: OrdnanceOwner, mount: Member) -> F3MountedSample{ mounted_sample_in(crate::abi::world(), owner, mount) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_shot(sample: &F3MountedSample){ wire_shot_in(crate::abi::world(), sample) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn aim(member: Member) -> Vector3{ aim_in(crate::abi::world(), member) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn flight(index: usize, craft: u32) -> crate::flight::Member{ flight_in(crate::abi::world(), index, craft) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn target(member: Member, viewer: Option<Member>, shapes: bool, with_aim: bool) -> F2TurretTarget{ target_in(crate::abi::world(), member, viewer, shapes, with_aim) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn hull_target(viewer: Ref<Vehicle>, index: usize, shapes: bool, with_aim: bool) -> FfTargetFacts{ hull_target_in(crate::abi::world(), viewer, index, shapes, with_aim) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn raycast(origin: &Vector3, direction: &Vector3, far: f64, exclude: Option<u32>) -> Option<f64>{ raycast_in(crate::abi::world(), origin, direction, far, exclude) }

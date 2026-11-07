@@ -687,7 +687,3 @@ pub(crate) fn water_crossing_in(_world_ctx: &mut crate::world::owner::World, fro
     point.y = level;
     water.over(point.x,point.z).then_some(a3(point))
 }
-
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn unit_sphere(unit: Ref<Unit>) -> ([f64;3],f64){ unit_sphere_in(crate::abi::world(), unit) }

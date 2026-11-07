@@ -210,5 +210,3 @@ impl<F: Lifecycle> PlayerServices for World<'_, Actions<'_, '_, F, NoHuman>> {
         },self.services.services.reborrow());
     }
 }
-
-// facade shims

@@ -659,38 +659,8 @@ pub(crate) fn battle_member_in(world_ctx: &mut crate::world::owner::World, s: &S
         ..crate::battle::world::Member::default()})
 }
 
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_building(index: usize) -> Option<crate::wire::store_world::Building>{ wire_building_in(&crate::abi::world().units,&crate::abi::world().battle, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn member(target: RepairTarget) -> Option<Member>{ member_in(crate::abi::world(), target) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn matches_binding(target:RepairTarget,member:Option<Member>,owner:&F4Handle)->bool{ matches_binding_in(crate::abi::world(), target, member, owner) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn built_body(target:RepairTarget)->Option<Ref<Body>>{ built_body_in(crate::abi::world(), target) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn trap_geometry(target:RepairTarget)->Option<(crate::ai::combat::world::Sphere,three::Matrix4)>{ trap_geometry_in(crate::abi::world(), target) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_turret(reference: Ref<Turret>) -> Option<(usize, Member, props::Building, f64)>{ wire_turret_in(&crate::abi::world().units,&crate::abi::world().battle,&crate::abi::world().sim.store, reference) }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn count() -> usize{ count_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn owner(index: usize) -> F4Handle{ owner_in(crate::abi::world(), index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn needs_regeneration(index: usize) -> bool{ needs_regeneration_in(crate::abi::world(), index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn regenerate(index: usize, dt: f64, services: WorldServices<'_>){ regenerate_in(crate::abi::world(), index, dt, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn command_hit(index:usize,value:f64,attacker:Option<Attacker>,hit:Option<F4HitInfo>,services:WorldServices<'_>){ command_hit_in(crate::abi::world(), index, value, attacker, hit, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn trap_show(index: usize, trap: &mut traps::Trap, built: bool, services: WorldServices<'_>){ trap_show_in(crate::abi::world(), index, trap, built, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn lock_key(target: RepairTarget) -> StrId{ lock_key_in(crate::abi::world(), target) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn battle_building(r: Ref<Building>) -> (bool, Attacker){ battle_building_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn battle_member(s: &Store, key: Member) -> Option<crate::battle::world::Member>{ battle_member_in(crate::abi::world(), s, key) }
+
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]

@@ -1154,25 +1154,6 @@ impl Fleet {
 pub(crate) fn collision_world() -> Option<&'static mut Collision> { collision_world_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn map() -> Option<&'static mut MapRules> { map_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn flight_tuning(class: FlightClass) -> Tuning { flight_tuning_in(crate::abi::world(), class) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) { wire_walk_in(&crate::abi::world().fleet, reference) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { wire_seat_history_in(&crate::abi::world().fleet, reference, index) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> { prediction_hull_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn read_flight(hull: &mut Hull) { read_flight_in(crate::abi::world(), hull) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn store_hull(hull: &Hull) { store_hull_in(crate::abi::world(), hull) }
-
-impl<'a> JsWorld<'static, 'a> {
-    // facade shims: external physical callers still enter through WASM.
-    #[cfg(target_arch = "wasm32")]
-    pub fn new(craft: u32) -> Self { Self::new_in(crate::abi::world(), craft) }
-}
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]

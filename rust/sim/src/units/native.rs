@@ -97,7 +97,6 @@ fn v3(p: [f64; 3]) -> Vector3 {
     Vector3::new(p[0], p[1], p[2])
 }
 
-
 pub fn cast_in(world_ctx: &mut crate::world::owner::World, world: usize, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
     cast_static_in(world_ctx, world, origin, direction, far, false)
 }
@@ -158,9 +157,3 @@ pub(crate) fn ordnance_cast_parts_in(collision_owner: &mut collision::CollisionO
     let body=if code >= 0 {Some(fleet.collision.as_ref()?.kernel_reference(code as usize)?)}else{None};
     Some(crate::ordnance::world::Hit {distance:h.distance,point:[h.px,h.py,h.pz],normal:[h.nx,h.ny,h.nz],terrain:code==TERRAIN,body})
 }
-
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub fn cast(world: usize, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit>{ cast_in(crate::abi::world(), world, origin, direction, far) }
-#[cfg(target_arch = "wasm32")]
-pub fn ordnance_cast(world: usize, origin: [f64; 3], direction: [f64; 3], far: f64, ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit>{ ordnance_cast_in(crate::abi::world(), world, origin, direction, far, ignore, static_only, moving) }

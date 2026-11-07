@@ -115,16 +115,11 @@ impl State {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_character(store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> { wire_character_in(&mut crate::abi::cold().battle, store, handle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_view(store: &Store, handle: &F4Handle) -> Option<&'static F4ConnectionView> { wire_view_in(&mut crate::abi::cold().battle, store, handle) }
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {
     use super::*;
-    // facade shims
+
     #[no_mangle]
     pub extern "C" fn f4_connections_init(capacity:u32) { f4_connections_init_in(crate::abi::facade::world(), capacity) }
     #[no_mangle]

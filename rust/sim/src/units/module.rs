@@ -558,11 +558,6 @@ pub(super) fn with_registry_in<T>(w: &mut crate::world::owner::World, run: impl 
     result
 }
 
-#[cfg(target_arch = "wasm32")]
-impl ModuleWorld<'static, 'static> {
-    pub(crate) fn sensor(world: usize) -> Self { Self::sensor_in(crate::abi::world(),world) }
-}
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

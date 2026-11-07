@@ -20,7 +20,9 @@ use super::world::*;
 use super::Cx;
 use crate::abi::Sim;
 use crate::gen::*;
-use crate::store::calls::{import_out, Calls};
+use crate::store::calls::Calls;
+#[cfg(target_arch = "wasm32")]
+use crate::store::calls::import_out;
 use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, StrId, Strings, Vec3};
 
 /// Ordnance and Items retain independent water bits beside their definition
@@ -399,6 +401,9 @@ fn point_of(a: PointAnswer) -> Option<Vec3> {
 }
 
 impl World for JsWorld<'_, '_> {
+    fn admit_fire(&mut self) -> bool {
+        crate::units::f3::admit_ordnance_fire_in(&mut self.w.units)
+    }
     fn store(&self) -> &Store { &self.w.sim.store }
     fn store_mut(&mut self) -> &mut Store { &mut self.w.sim.store }
     fn strings_mut(&mut self) -> &mut Strings { &mut self.w.sim.strings }
@@ -460,7 +465,9 @@ impl World for JsWorld<'_, '_> {
             // A pure explosion needs no query frame. Borrow a buffer only
             // when a fat ray actually starts a sweep, and retain it thereafter.
             if self.near_frame.is_none() {
-                let (frame,buffer) = crate::units::f3::take_ordnance_query_in(&mut self.w.units);
+                // An exhausted chain has no further unit hits. Returning an
+                // empty owned list neither allocates nor enters a host import.
+                let Some((frame,buffer)) = crate::units::f3::take_ordnance_query_in(&mut self.w.units) else { return Some(Vec::new()); };
                 self.near_frame = Some(frame); self.near = buffer;
             }
             let mut near = std::mem::take(&mut self.near);

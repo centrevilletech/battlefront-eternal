@@ -1269,7 +1269,6 @@ pub fn f2_turret_words(which: u32) -> u32 {
     match which { 0 => F2TurretBirth::WORDS as u32, _ => F2TurretLife::WORDS as u32 }
 }
 
-
 /// Turret construction keeps its geometry and weapon in the native instance.
 
 pub(crate) fn f2_turret_adopt_in(world_ctx: &mut crate::world::owner::World) {
@@ -1632,7 +1631,6 @@ impl LockQuery for TurretQuery<'_> {
 /// Collision body identities arrive with topology changes, never per crew.
 pub fn f2_body_words() -> u32 { F2Bodies::WORDS as u32 }
 
-
 pub(crate) fn f2_bodies_in(world_ctx: &mut crate::world::owner::World) {
     let a = { let (row, heap) = world_ctx.sim.calls.args(); F2Bodies::take(row, heap) };
     for row in a.bodies {
@@ -1710,63 +1708,6 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn visible(unit: &Unit) -> Option<bool> { let w = crate::abi::world(); visible_in(&mut w.fleet, &w.sim.store,unit) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn reserve_unit_slots(count: usize) { reserve_unit_slots_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn adopt_unit(unit: Ref<Unit>, actor: bool, no_enter: f64) { adopt_unit_in(crate::abi::world(), unit, actor, no_enter) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn bind_random(unit: Ref<Unit>, lease: Ref<SeatLease>, binding: u32) -> bool { bind_random_in(crate::abi::world(), unit, lease, binding) }
-#[cfg(target_arch = "wasm32")]
-pub fn command(a: F2SeatCommand) -> F2SeatResult { command_in(crate::abi::world(), a) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn destroyed_with(index: usize, services: Option<crate::units::f3::WorldServices<'_>>) { destroyed_with_in(crate::abi::world(), index, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn release_with(index: usize, services: Option<crate::units::f3::WorldServices<'_>>) { release_with_in(crate::abi::world(), index, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn exposed(lease: &SeatLease) -> bool { exposed_in(&crate::abi::world().fleet,&crate::abi::world().sim.store, lease) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn turret_body(r: Ref<Turret>) -> Option<Ref<Body>> { turret_body_in(&crate::abi::world().fleet, r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_turret_count() -> usize { wire_turret_count_in(&crate::abi::world().fleet) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_own_turret(store: &Store, reference: Ref<Turret>, own: &mut crate::wire::store_own::Capture,
-    defs: &crate::combat::defs::WeaponDefs) -> Result<(), &'static str> { wire_own_turret_in(&crate::abi::world().fleet,&crate::abi::world().units,&crate::abi::world().battle, store, reference, own, defs) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_turret(index: usize, store: &Store, states: [crate::store::StrId; 3])
-    -> Option<crate::wire::store_capture::Turret> { wire_turret_in(&crate::abi::world().fleet,&crate::abi::world().units,&crate::abi::world().battle, index, store, states) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn leave_killed(unit: Ref<Unit>, services: crate::units::f3::WorldServices<'_>) { leave_killed_in(crate::abi::world(), unit, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn leave_voluntary(unit: Ref<Unit>, services: crate::units::f3::WorldServices<'_>) { leave_voluntary_in(crate::abi::world(), unit, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn turret_gunner(r: Ref<Turret>) -> Option<Ref<Unit>> { turret_gunner_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn battle_team(s: &Store, r: Ref<Turret>) -> Option<f64> { battle_team_in(&crate::abi::world().fleet, s, r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn turret_team(r: Ref<Turret>, fallback: f64) -> Option<f64> { turret_team_in(crate::abi::world(), r, fallback) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn turret_life(r: Ref<Turret>, alive: bool, attacker: Attacker, life: f64, center: Vector3, radius: f64) { turret_life_in(crate::abi::world(), r, alive, attacker, life, center, radius) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn turret_destroyed(r: Ref<Turret>, services: crate::units::f3::WorldServices<'_>) { turret_destroyed_in(crate::abi::world(), r, services) }
-
-
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn idle_turrets(dt: f64) { idle_turrets_in(crate::abi::world(), dt) }
-#[cfg(target_arch = "wasm32")]
-pub fn beam_gone(r: Ref<SeatLease>) -> bool { beam_gone_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub fn beam_local(r: Ref<SeatLease>, origin: [f64; 3]) -> Option<[f64; 3]> { beam_local_in(crate::abi::world(), r, origin) }
-#[cfg(target_arch = "wasm32")]
-pub fn beam_pose(r: Ref<SeatLease>, local: [f64; 3], position: &mut [f64; 3], direction: &mut [f64; 3]) { beam_pose_in(crate::abi::world(), r, local, position, direction) }
-
-#[cfg(target_arch = "wasm32")]
-pub fn animal(hull: Ref<Vehicle>) -> bool { animal_in(&mut crate::abi::world().fleet,hull) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn battle_mount(turret: Ref<Turret>) -> Option<([f64; 3], Option<(crate::store::DefId, f64)>)> { battle_mount_in(crate::abi::world(), turret) }
 
 #[cfg(target_arch = "wasm32")]
 mod exports {
@@ -1778,7 +1719,6 @@ mod exports {
     /// Collision body identities arrive with topology changes, never per crew.
     #[no_mangle]
     pub extern "C" fn f2_body_words() -> u32 { super::f2_body_words() }
-    // facade shims: callers outside the fleet bindings still enter through WASM.
     #[no_mangle]
     pub extern "C" fn f2_seats_init() -> *const f64 { f2_seats_init_in(crate::abi::facade::world()).as_ptr() }
     #[no_mangle]

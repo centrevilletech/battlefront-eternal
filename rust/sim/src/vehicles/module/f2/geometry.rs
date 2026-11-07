@@ -72,7 +72,6 @@ impl Geometry {
     }
 }
 
-// facade shims: callers outside the fleet bindings still enter through WASM.
 
 pub(super) fn words_in(geometry: &Geometry) -> &[f64] { &geometry.output.as_ref().expect("prepared geometry output").words }
 /// The same bank for a native host reading by name; None before the first pose.

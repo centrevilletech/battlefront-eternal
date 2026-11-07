@@ -132,6 +132,7 @@ pub(super) struct State {
     // frame borrows its own retained fat-ray query rather than cloning it.
     ordnance_queries: Vec<Vec<Ref<Unit>>>,
     ordnance_depth: usize,
+    ordnance_refused: u32,
 }
 /// The scalar command row a native caller fills before f3_command_in
 /// (the host's F3Change mirror, src/f3-sim.js begin/commit).
@@ -484,6 +485,7 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
             arc: Vec::with_capacity(RESERVED_UNITS * 2),
             ordnance_queries: (0..64).map(|_| Vec::with_capacity(RESERVED_UNITS)).collect(),
             ordnance_depth: 0,
+            ordnance_refused: 0,
         });
     }
     #[cfg(target_arch = "wasm32")]
@@ -1347,7 +1349,6 @@ fn apply_setting_in(world_ctx: &mut crate::world::owner::World, reference:Ref<Un
 pub(crate) fn fail_in(units: &mut super::owner::Units) {if active_in(units) {units.state.as_mut().expect("prepared unit service").failed=true;units.state.as_mut().expect("prepared unit service").layout.accepted=false;}}
 macro_rules! required_services {
     ($units:expr; $value:expr,$fallback:expr)=>{match $value {Some(services)=>services,None=>{$crate::units::f3::fail_in($units);return $fallback;}}};
-    ($value:expr,$fallback:expr)=>{match $value {Some(services)=>services,None=>{$crate::units::f3::fail();return $fallback;}}};
 }
 pub(crate) use required_services;
 
@@ -1399,8 +1400,15 @@ pub(crate) fn take_melee_in(units: &mut super::owner::Units, _unit: Ref<Unit>) -
 pub(crate) fn put_melee_in(units: &mut super::owner::Units, _unit: Ref<Unit>, scratch: crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey>) { units.state.as_mut().expect("prepared unit service").put_melee(_unit, scratch) }
 pub(crate) fn take_arc_in(units: &mut super::owner::Units, _unit: Ref<Unit>) -> Vec<crate::combat::live::ArcVictim> { units.state.as_mut().expect("prepared unit service").take_arc(_unit) }
 pub(crate) fn put_arc_in(units: &mut super::owner::Units, _unit: Ref<Unit>, targets: Vec<crate::combat::live::ArcVictim>) { units.state.as_mut().expect("prepared unit service").put_arc(_unit, targets) }
-pub(crate) fn take_ordnance_query_in(units: &mut super::owner::Units) -> (usize, Vec<Ref<Unit>>) { units.state.as_mut().expect("prepared unit service").take_ordnance_query() }
+pub(crate) fn take_ordnance_query_in(units: &mut super::owner::Units) -> Option<(usize, Vec<Ref<Unit>>)> { units.state.as_mut().expect("prepared unit service").take_ordnance_query() }
 pub(crate) fn put_ordnance_query_in(units: &mut super::owner::Units, depth: usize, query: Vec<Ref<Unit>>) { units.state.as_mut().expect("prepared unit service").put_ordnance_query(depth, query) }
+pub(crate) fn admit_ordnance_fire_in(units: &mut super::owner::Units) -> bool {
+    units.state.as_mut().is_none_or(|state| {
+        if state.ordnance_depth < state.ordnance_queries.len() { return true; }
+        state.ordnance_refused = state.ordnance_refused.saturating_add(1);
+        false
+    })
+}
 pub(crate) fn random_gameplay_in(units: &mut super::owner::Units) -> f64 { units.state.as_mut().expect("prepared unit service").random_gameplay() }
 pub(crate) fn random_spin_in(units: &mut super::owner::Units) -> f64 { units.state.as_mut().expect("prepared unit service").random_spin() }
 pub(crate) fn random_drop_in(units: &mut super::owner::Units) -> f64 { units.state.as_mut().expect("prepared unit service").random_drop() }
@@ -2353,16 +2361,29 @@ impl State {
     fn put_arc(&mut self, _unit: Ref<Unit>, targets: Vec<crate::combat::live::ArcVictim>) {
         self.arc = targets;
     }
-    fn take_ordnance_query(&mut self) -> (usize, Vec<Ref<Unit>>) {
+    fn take_ordnance_query(&mut self) -> Option<(usize, Vec<Ref<Unit>>)> {
         let depth = self.ordnance_depth;
+        let Some(query) = self.ordnance_queries.get_mut(depth) else {
+            self.ordnance_refused = self.ordnance_refused.saturating_add(1);
+            return None;
+        };
         self.ordnance_depth += 1;
-        (depth, std::mem::take(&mut self.ordnance_queries[depth]))
+        Some((depth, std::mem::take(query)))
     }
     fn put_ordnance_query(&mut self, depth: usize, mut query: Vec<Ref<Unit>>) {
-        assert_eq!(self.ordnance_depth,depth + 1);
+        // A refused query never enters the stack. Reject an invalid return
+        // without replacing another frame's retained storage or panicking.
+        if depth.checked_add(1) != Some(self.ordnance_depth) {
+            self.ordnance_refused = self.ordnance_refused.saturating_add(1);
+            return;
+        }
+        let Some(slot) = self.ordnance_queries.get_mut(depth) else {
+            self.ordnance_refused = self.ordnance_refused.saturating_add(1);
+            return;
+        };
         query.clear();
         self.ordnance_depth = depth;
-        self.ordnance_queries[depth] = query;
+        *slot = query;
     }
     fn random_gameplay(&mut self) -> f64 {
         let globals = F3RandomGlobals::take(&self.random_globals, &[]);
@@ -2496,131 +2517,6 @@ pub(crate) fn with_history_in<T>(w: &mut crate::world::owner::World, run: impl F
 // Read-only dispenser questions do not initialize or mutate the item owner.
 pub(crate) fn items_read(units: &super::owner::Units) -> &super::f3_items::Items { &units.state.as_ref().expect("prepared unit service").items }
 
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn active() -> bool{ active_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn external() -> FacadeExternal { FacadeExternal(Some(external_in(crate::abi::world()))) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn control_span(consumed: bool) -> FacadeControlSpan { FacadeControlSpan(Some(control_span_in(crate::abi::world(), consumed))) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn collision_world() -> usize{ collision_world_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn tick() -> f64{ tick_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn registered_viewpoint() -> Option<Ref<Unit>>{ registered_viewpoint_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn viewpoint() -> Ref<Unit>{ viewpoint_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn built() -> &'static [Ref<Unit>]{ built_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn unit_revision() -> u64{ unit_revision_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn hide_destroyed_crew(reference: Ref<Unit>){ hide_destroyed_crew_in(crate::abi::world(), reference) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn unit_reference(slot: u32) -> Ref<Unit>{ unit_reference_in(&crate::abi::world().units, slot) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn recon_services() -> &'static mut crate::recon::module::Services{ recon_services_in(&mut crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn foreign_barrier(){ foreign_barrier_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn items() -> &'static mut super::f3_items::Items{ items_in(&mut crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn world_camera(position: [f64;3]){ world_camera_in(&mut crate::abi::world().units, position) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn publish_changed(){ publish_changed_in(crate::abi::world()) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn viewpoint_count(count: f64){ viewpoint_count_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn spawn_occupant() -> Option<three::Vector3>{ spawn_occupant_in(crate::abi::world()) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn fail(){ fail_in(&mut crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub fn bind_ai_stream(id:u32,stream:crate::ai::random::SharedRandom){ bind_ai_stream_in(&mut crate::abi::world().units, id, stream) }
-#[cfg(target_arch = "wasm32")]
-pub fn use_ai_stream(key:&F3UnitKey,id:u32){ use_ai_stream_in(crate::abi::world(), key, id) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn empty_text() -> crate::store::StrId{ empty_text_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn seat_binding() -> u32{ seat_binding_in(&mut crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn random_binding(binding: u32) -> f64{ random_binding_in(&mut crate::abi::world().units, binding) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn random_next(stream: u32) -> u32{ random_next_in(&mut crate::abi::world().units, stream) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_visible(reference: Ref<Unit>, unit: &Unit) -> bool{ wire_visible_in(&crate::abi::world().units,&crate::abi::world().fleet,&crate::abi::world().sim.store, reference, unit) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn raycast( origin: [f64; 3], direction: [f64; 3], far: f64, exclude: super::registry::Exclude, riders: bool, masked: bool, ) -> Option<super::registry::UnitHit>{ raycast_in(crate::abi::world(), origin, direction, far, exclude, riders, masked) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn target(id: u32) -> Option<&'static F3PropFact>{ target_in(crate::abi::world(), id) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn prepared_target(id: u32) -> Option<&'static F3PropFact>{ prepared_target_in(&crate::abi::world().units, id) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn relation(a:f64,b:f64) -> f64{ relation_in(&crate::abi::world().units, a, b) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn network(slot: u32) -> &'static F3NetworkView{ network_in(&crate::abi::world().units, slot) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn intent_changed(reference:Ref<Unit>){ intent_changed_in(&mut crate::abi::world().units, reference) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn ai_changed(reference:Ref<Unit>){ ai_changed_in(&mut crate::abi::world().units, reference) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn changed(reference: Ref<Unit>){ changed_in(crate::abi::world(), reference) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn with_rows<T>(run: impl FnOnce(&mut Store,&mut Ownership)->T) -> T{ { let w = crate::abi::world(); with_rows_in(&mut w.sim.store, w.units.state.as_mut().expect("prepared unit service"), run) } }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn acquire_native(class: crate::store::StrId) -> Option<Ref<Unit>>{ acquire_native_in(crate::abi::world(), class) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn construct_native(class: crate::store::StrId, services: WorldServices<'_>) -> Option<Ref<Unit>>{ construct_native_in(crate::abi::world(), class, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn realize_player_native(character:Ref<Character>, previous:Option<Ref<Unit>>, class:crate::store::StrId, at:[f64;3], yaw:f64, local:bool, services:WorldServices<'_>) -> Option<Ref<Unit>>{ realize_player_native_in(crate::abi::world(), character, previous, class, at, yaw, local, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn spawn_native(unit: Ref<Unit>, character: Ref<Character>, at:[f64;3], yaw:f64, services:WorldServices<'_>){ spawn_native_in(crate::abi::world(), unit, character, at, yaw, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn remove_native(reference:Ref<Unit>, services:WorldServices<'_>){ remove_native_in(crate::abi::world(), reference, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn unspawn_native(reference:Ref<Unit>){ unspawn_native_in(crate::abi::world(), reference) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn advance_removed_clock(reference:Ref<Unit>,dt:f64){ advance_removed_clock_in(crate::abi::world(), reference, dt) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn native_intent(reference:Ref<Unit>,owned:bool){ native_intent_in(crate::abi::world(), reference, owned) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn settled()->bool{ settled_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn output_words()->u32{ output_words_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn publication_version()->u32{ publication_version_in(&crate::abi::world().units) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable){ refresh_weapon_masks_in(crate::abi::world(), table) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn with_services<T>(run: impl FnOnce(Option<WorldServices<'_>>) -> T) -> T { with_services_in(crate::abi::world(), |_, services| run(services)) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn with_bare_services<T>(run: impl FnOnce(Option<WorldServices<'_>>) -> T) -> T { with_bare_services_in(crate::abi::world(), |_, services| run(services)) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) struct FacadeExternal(Option<External>);
-#[cfg(target_arch = "wasm32")]
-impl FacadeExternal {
-    pub(crate) fn is_outer(&self) -> bool { self.0.as_ref().is_some_and(External::is_outer) }
-    pub(crate) fn before_units(mut self) { self.0.take().unwrap().before_units(crate::abi::world()); }
-}
-#[cfg(target_arch = "wasm32")]
-impl Drop for FacadeExternal { fn drop(&mut self) { if let Some(guard) = self.0.take() { guard.finish(crate::abi::world(), true); } } }
-#[cfg(target_arch = "wasm32")]
-pub(crate) struct FacadeControlSpan(Option<ControlSpan>);
-#[cfg(target_arch = "wasm32")]
-impl Drop for FacadeControlSpan { fn drop(&mut self) { if let Some(guard) = self.0.take() { guard.finish(crate::abi::world()); } } }
-#[cfg(target_arch = "wasm32")]
-impl WorldServices<'_> {
-    pub(crate) fn lifecycle(&mut self, hook: &F4AIHook) -> bool { self.lifecycle_in(crate::abi::world(), hook) }
-}
 
 // Native readers borrow these banks directly. Only the linear-memory host
 // binds addresses after the bank has reached its retained publication point.
@@ -2695,6 +2591,43 @@ pub use exports::{f3_init, f3_adopt, f3_weapon_services, f3_step, f3_command, f3
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod native_banks {
     use super::*;
+    #[test]
+    fn nested_ordnance_refuses_at_capacity_and_reuses_every_frame_after_unwind() {
+        let mut w = crate::world::owner::World::new();
+        f3_init_in(&mut w, 0, f64::NAN, 0);
+        let mut frames = Vec::new();
+        for depth in 0..64 {
+            let (frame, query) = take_ordnance_query_in(&mut w.units).unwrap();
+            assert_eq!(frame, depth);
+            assert_eq!(query.capacity(), RESERVED_UNITS);
+            frames.push((frame, query));
+        }
+        let first_buffer = frames[0].1.as_ptr();
+        // A nested fire is refused before even reading its definition. An
+        // invalid definition here would panic if the guard ran too late.
+        let args = FireArgs::default();
+        let mut world = crate::ordnance::module::JsWorld::with_services(&mut w, None);
+        let result = crate::ordnance::Cx::new(&mut world).fire_round(args.def, args.origin, args.direction,
+            args.owner, args.visual, args.ignore_body, args.emitter, args.channel, args.target_id, args.target_generation);
+        assert!(result.is_none());
+        world.finish();
+        assert_eq!(w.units.state.as_ref().unwrap().ordnance_refused, 1);
+        assert!(take_ordnance_query_in(&mut w.units).is_none());
+        assert!(take_ordnance_query_in(&mut w.units).is_none());
+        assert_eq!(w.units.state.as_ref().unwrap().ordnance_depth, 64);
+        for (frame, query) in frames.into_iter().rev() { put_ordnance_query_in(&mut w.units, frame, query); }
+        assert!(admit_ordnance_fire_in(&mut w.units));
+        let (frame, query) = take_ordnance_query_in(&mut w.units).unwrap();
+        assert_eq!(frame, 0);
+        assert_eq!(query.as_ptr(), first_buffer);
+        assert_eq!(query.capacity(), RESERVED_UNITS);
+        put_ordnance_query_in(&mut w.units, frame, query);
+        put_ordnance_query_in(&mut w.units, usize::MAX, Vec::new());
+        let state = w.units.state.as_ref().unwrap();
+        assert_eq!(state.ordnance_depth, 0);
+        assert_eq!(state.ordnance_refused, 4);
+    }
+
     #[test]
     fn native_publication_keeps_widths_and_counts_without_linear_memory_addresses() {
         let mut w = crate::world::owner::World::new();

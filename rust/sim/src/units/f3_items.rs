@@ -432,14 +432,6 @@ pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, 
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn targets(count: u32){ targets_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn world_targets() -> Option<u32>{ world_targets_in(crate::abi::world()) }
-
-#[cfg(target_arch = "wasm32")]
-impl Items { pub fn changed(&mut self, key: StrId, removed: bool) { self.changed_in(&mut crate::abi::world().sim, key, removed); } }
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

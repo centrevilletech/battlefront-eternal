@@ -346,11 +346,3 @@ impl Seats {
         }
     }
 }
-
-/// Scalar commands release the instance before any synchronous foreign hook.
-pub fn command(args: crate::gen::F2SeatCommand) -> crate::gen::F2SeatResult {
-    #[cfg(target_arch = "wasm32")]
-    { crate::vehicles::module::f2::live_seats::command(args) }
-    #[cfg(not(target_arch = "wasm32"))]
-    { let _ = args; unreachable!("F2 seat scalar commands require a WASM instance") }
-}

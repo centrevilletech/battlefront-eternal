@@ -1071,34 +1071,6 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
     }
 }
 
-// facade shims: callers outside the fleet bindings still enter through WASM.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_weapons<T>(hull: Ref<Vehicle>, life: f64, seat: usize,
-    capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> { wire_weapons_in(&crate::abi::world().fleet, hull, life, seat, capture) }
-
-#[cfg(target_arch = "wasm32")]
-pub fn retire(r: Ref<Vehicle>) { retire_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub fn inputs(data: &[f64]) -> usize { let w = crate::abi::world(); inputs_in(&w.units,crate::world::deferred_in(&w.tick),&mut w.fleet.firing, &mut w.sim.strings, data) }
-#[cfg(target_arch = "wasm32")]
-pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) { freeze_ai_targets_in(crate::abi::world(), ai) }
-#[cfg(target_arch = "wasm32")]
-pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) { policy_in(crate::abi::world(), r, seat, player, random) }
-#[cfg(target_arch = "wasm32")]
-pub fn flight_locks() { flight_locks_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub fn emitter_gone(source: BeamSource) -> Option<bool> { emitter_gone_in(crate::abi::world(), source) }
-#[cfg(target_arch = "wasm32")]
-pub fn emitter_local(source: BeamSource, origin: [f64; 3]) -> Option<[f64; 3]> { emitter_local_in(crate::abi::world(), source, origin) }
-#[cfg(target_arch = "wasm32")]
-pub fn emitter_pose(source: BeamSource, local: [f64; 3], position: &mut [f64; 3], direction: &mut [f64; 3]) -> bool { emitter_pose_in(crate::abi::world(), source, local, position, direction) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn supply(hull: Ref<Vehicle>, amount: f64, powerup: bool) -> bool { supply_in(crate::abi::world(), hull, amount, powerup) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn supply_station(hull: Ref<Vehicle>,life:f64,amount:f64)->bool { supply_station_in(crate::abi::world(), hull, life, amount) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn first_weapon(hull:Ref<Vehicle>,seat:usize)->Option<(crate::store::DefId,f64)> { first_weapon_in(crate::abi::world(), hull, seat) }
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

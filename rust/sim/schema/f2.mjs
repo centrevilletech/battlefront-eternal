@@ -72,7 +72,7 @@ export default {
   },
   commands: {
     // Detached scalar dispatch decodes before lending the owner to a reentrant hook.
-    f2Seat: { args: 'F2SeatCommand', result: 'F2SeatResult', rust: 'vehicles::f2_seats::command', owned: 'vehicles::module::f2::live_seats::command_in', detached: true },
+    f2Seat: { args: 'F2SeatCommand', result: 'F2SeatResult', rust: 'vehicles::module::f2::live_seats::command_in', owned: 'vehicles::module::f2::live_seats::command_in', detached: true },
   },
   events: { f3Seat:'F3SeatNotice', f3Turret:'F2TurretEvent' },
   imports: { f2TurretHint: { args:'F2TurretHintQuery', result:'F2TurretHint' }, f2Foreign: { args: 'VehNumber', result: null }, f2SeatAction: { args: 'F2SeatAction', result: 'F2SeatAnswer' }, f2TurretDraw: { args: 'F2TurretDraw', result: 'VehNumber' }, f2TurretTarget: { args: 'F2TurretTargetQuery', result: 'F2TurretTarget' } },

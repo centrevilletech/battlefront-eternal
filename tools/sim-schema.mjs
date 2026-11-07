@@ -869,8 +869,8 @@ const EXPORT_OPERATIONS = [
   { name: 'inputMailboxView', rust: 'input::module::input_mailbox_view_in', scalars: ['u32'], record: 'InputViewUpdate', answers: false },
   // The publication's edge results and its host operations (ACK acceptance is
   // host op 4); pool keys cross as the scalar the export took as a pointer.
-  { name: 'wireEdgesRun', rust: 'wire::edges::wire_edges_run_in', scalars: ['usize'], record: 'WeCall', answers: true, unsafe: true },
-  { name: 'wireHostOp', rust: 'wire::host::wire_host_op_in', scalars: ['usize', 'u32', 'u32', 'f64', 'f64'], record: null, answers: 'scalar', unsafe: true },
+  { name: 'wireEdgesRun', rust: 'wire::edges::wire_edges_run_in', scalars: ['usize'], record: 'WeCall', answers: true },
+  { name: 'wireHostOp', rust: 'wire::host::wire_host_op_in', scalars: ['usize', 'u32', 'u32', 'f64', 'f64'], record: null, answers: 'scalar' },
   // A connected player's input receipt, reliable fire edge and action message.
   { name: 'playersInput', rust: 'players::module::players_input_in', scalars: ['u32', 'f64', 'f64', 'u32'], record: null, answers: false },
   { name: 'playersFire', rust: 'players::module::players_fire_in', scalars: ['u32'], record: 'PlayerFire', answers: 'scalar' },
@@ -940,10 +940,11 @@ function rustCalls(model) {
     lines.push(`/// Runs ${c.name} from the generated call block without retaining its store loan.`,
       '#[cfg(target_arch = "wasm32")]', '#[no_mangle]', `pub extern "C" fn ${symbol}() -> *const f64 {`,
       `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return std::ptr::null(); }`,
-      `    let args = { let sim = crate::abi::sim(); let (row, heap) = sim.calls.args(); ${c.args}::take(row, heap) };`);
-    if (c.result) lines.push(`    let result = crate::${c.rust}(args);`, '    let sim = crate::abi::sim();',
-      `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
-    else lines.push(`    crate::${c.rust}(args);`, '    std::ptr::null()');
+      '    let w = crate::abi::facade::world();',
+      `    let args = { let (row, heap) = w.sim.calls.args(); ${c.args}::take(row, heap) };`);
+    if (c.result) lines.push(`    let result = crate::${c.owned}(w, args);`,
+      `    w.sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    w.sim.calls.block.ptr()');
+    else lines.push(`    crate::${c.owned}(w, args);`, '    std::ptr::null()');
     lines.push('}', '');
   }
   // The operation table (EXPORT_OPERATIONS above): ids, shapes and the

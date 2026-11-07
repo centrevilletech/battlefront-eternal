@@ -104,9 +104,6 @@ mod tests {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn native_observe(id:f64,generation:f64,live:f64) { native_observe_in(crate::abi::world(),id,generation,live); }
-
 #[cfg(test)]
 mod owner_tests {
     use super::*;

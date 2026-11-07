@@ -76,31 +76,3 @@ impl Observations {
             class_label: self.classes.get(unit.class_def.0 as usize).copied().flatten().expect("prepared statistics class").label })
     }
 }
-
-#[cfg(target_arch = "wasm32")]
-struct NativeMounts<'a> { facts: &'a Observations }
-#[cfg(target_arch = "wasm32")]
-impl Mounts for NativeMounts<'_> {
-    fn mount(&mut self, s: &Store, r: Ref<SeatLease>) -> Option<Mount> {
-        let lease = s.seat_lease.get(r)?;
-        if let Some(r) = lease.vehicle {
-            let vehicle = s.vehicle.get(r)?;
-            let favourite = self.facts.vehicle_favourite(s, r).expect("prepared current statistics hull");
-            let seat = lease.index;
-            let weapon = if seat >= 0.0 && seat.is_finite() && seat.fract() == 0.0 {
-                crate::vehicles::module::f2::firing::first_weapon(r, seat as usize)
-            } else { None };
-            return Some(Mount { position: vehicle.position, weapon, vehicle: Some(favourite) });
-        }
-        let (position, weapon) = crate::vehicles::module::f2::live_seats::battle_mount(lease.turret?)?;
-        Some(Mount { position, weapon, vehicle: None })
-    }
-}
-#[cfg(target_arch = "wasm32")]
-impl Observations {
-    /// Battle rules use F2's canonical mount readers directly; no export,
-    /// import, generated mirror or foreign weapon query is involved.
-    pub fn native_observe(&self, s: &Store, unit: Option<Ref<Unit>>) -> Option<Seen> {
-        self.observe(s, unit, &mut NativeMounts { facts: self })
-    }
-}

@@ -374,7 +374,7 @@ pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
 #[cfg(target_arch = "wasm32")]
 mod exports {
     use super::*;
-    // facade shims
+
     #[no_mangle]
     pub extern "C" fn f4_roster_init() { f4_roster_init_in(crate::abi::facade::world()) }
     #[no_mangle]

@@ -949,13 +949,6 @@ impl Content {
     }
 }
 
-// facade shims: retained for unconverted callers.
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn defs() -> Rc<CombatDefs>{ defs_in(&mut crate::abi::world().combat) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn zoom(c: &mut Combat) -> f64{ zoom_in(&mut crate::abi::world().combat, c) }
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

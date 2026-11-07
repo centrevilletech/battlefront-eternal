@@ -44,8 +44,6 @@ pub(crate) const IO_LEN: usize = 64;
 /// banks inline, so their addresses stay fixed for the instance.
 pub const MAX_BODIES: usize = 1 << 16;
 
-
-
 /// Return codes of the world casts.
 pub const MISS: i32 = -2;
 pub const TERRAIN: i32 = -3;
@@ -192,12 +190,11 @@ impl Default for CollisionOwner { fn default() -> Self { Self::new() } }
 
 // Instance-local WASM entry storage. Field projections keep service loans
 // disjoint: a geometry loan must not also borrow the gather cache bank.
+// SAFETY: these field loans are instance-local; callers do not retain
+// an overlapping geometry or owner loan across a callback.
 fn owner() -> &'static mut CollisionOwner { unsafe { &mut *addr_of_mut!(crate::abi::cold().collision) } }
+// SAFETY: legacy callers borrow only geometry and release it before reentry.
 pub fn state() -> &'static mut State { unsafe { &mut *addr_of_mut!(crate::abi::cold().collision.state) } }
-// Narrow WASM service scratch, disjoint from state()'s geometry loan.
-pub(crate) fn cast_buffers() -> (&'static mut [u32; MAX_BODIES], &'static mut [u8; MAX_BODIES]) {
-    unsafe { (&mut *addr_of_mut!(crate::abi::cold().collision.candidates), &mut *addr_of_mut!(crate::abi::cold().collision.enabled)) }
-}
 
 /// Math.min(a, b): NaN if either is, and -0 below +0.
 #[inline(always)]

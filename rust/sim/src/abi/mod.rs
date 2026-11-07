@@ -101,15 +101,6 @@ pub(crate) fn cold() -> &'static mut crate::world::owner::World {
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn world() -> &'static mut crate::world::owner::World { cold() }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) use facade::exchange;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn exchange() -> &'static mut crate::store::calls::ImportExchange {
-    panic!("WASM import exchange called by native host")
-}
-
-/// The instance's exchange core. One WASM thread calls in at a time.
-pub fn sim() -> &'static mut Sim { &mut world().sim }
 pub fn sim_abi() -> u32 { ABI }
 
 /// How many kinds the module knows, and each one's layout hash: the
@@ -237,8 +228,9 @@ fn memory_pages() -> u32 { core::arch::wasm32::memory_size(0) as u32 }
 #[cfg(not(target_arch = "wasm32"))]
 fn memory_pages() -> u32 { 0 }
 
-/// Empties the store (a battle gets an instance of its own; this is for
-/// tests and tools that reuse one).
+/// Store-only reset for tool fixtures: finish AI and replace generated rows.
+/// Collision, movement, pose, phase owners, wire and page resources retain
+/// their state. A new battle needs a new World or WASM instance.
 pub(crate) fn sim_reset_in(w: &mut crate::world::owner::World) -> () { w.ai.finish(); w.sim.store = Store::default(); }
 
 #[cfg(target_arch = "wasm32")]

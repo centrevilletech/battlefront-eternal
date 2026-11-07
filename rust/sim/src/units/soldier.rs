@@ -135,9 +135,3 @@ pub fn tick_soldier_in(movement: &mut crate::movement::MovementOwner, collision:
     s.look_x = 0.0;
     s.look_y = 0.0;
 }
-
-// facade shims: retained for unconverted callers.
-#[cfg(target_arch = "wasm32")]
-pub fn prepare(s: &mut Soldier, world: usize) { prepare_in(&mut crate::abi::world().movement, s, world); }
-#[cfg(target_arch = "wasm32")]
-pub fn tick_soldier(s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, pass_through: i64) { let w = crate::abi::world(); tick_soldier_in(&mut w.movement, &mut w.collision.state, s, input, dt, world, pass_through); }

@@ -134,6 +134,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     /// `target_generation`: a missile's target (None: none given).
     #[allow(clippy::too_many_arguments)]
     pub fn fire_round(&mut self, def: DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, visual: Option<Vec3>, ignore_body: Option<Ref<Body>>, emitter: BeamSource, channel: f64, target_id: Option<f64>, target_generation: Option<f64>) -> Option<Shot> {
+        if !self.w.admit_fire() { return None; }
         match base_of(self.ord(def)) {
             Base::Beam => {
                 self.beam_fire(def, origin, direction, owner, ignore_body, emitter, channel);

@@ -392,19 +392,6 @@ impl State {
     }
 }
 
-// facade shims
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn wire_roster(team: usize) -> &'static [StrId] { wire_roster_in(&mut crate::abi::cold().battle, team) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn refresh_mobile_views() { refresh_mobile_views_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn owns_player(unit:crate::store::Ref<Unit>) ->bool { owns_player_in(crate::abi::world(), unit) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn auto_respawn(services:f3::WorldServices<'_>) { auto_respawn_in(crate::abi::world(), services) }
-
-
-
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

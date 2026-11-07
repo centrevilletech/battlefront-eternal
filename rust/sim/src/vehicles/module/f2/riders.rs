@@ -131,8 +131,6 @@ impl Riders {
         for (source, target) in row.shapes[..count].iter().zip(out) { target.set_rider(source); }
         count
     }
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn publish(&mut self) -> *const f64 { self.publish_words().as_ptr() }
     pub(super) fn words(&self) -> &[f64] { &self.output.as_ref().expect("prepared rider output").words }
     pub(super) fn publish_words(&mut self) -> &[f64] {
         let mut count = 0;
@@ -220,21 +218,6 @@ impl Riders {
         row.dirty = true;
     }
 }
-
-// facade shims: callers outside the fleet bindings still enter through WASM.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn take(unit: Ref<Unit>) -> Option<Rider> { take_in(crate::abi::world(), unit) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn install(unit: Ref<Unit>, rider: Option<Rider>) { install_in(crate::abi::world(), unit, rider) }
-
-#[cfg(target_arch = "wasm32")]
-pub fn hull(r: Ref<Vehicle>, write_body: bool) { hull_in(crate::abi::world(), r, write_body) }
-#[cfg(target_arch = "wasm32")]
-pub fn turret(unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, turn: Quaternion, pitch: f64, yaw: f64) { turret_in(crate::abi::world(), unit, turret, show, point, turn, pitch, yaw) }
-#[cfg(target_arch = "wasm32")]
-pub fn drop(unit: Ref<Unit>) -> Option<Vector3> { drop_in(crate::abi::world(), unit) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn shapes(unit: Ref<Unit>, life: f64, out: &mut [crate::gen::HitShape]) -> usize { shapes_in(crate::abi::world(), unit, life, out) }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]

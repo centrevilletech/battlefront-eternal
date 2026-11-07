@@ -174,11 +174,6 @@ impl BodyPoses {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn rider_points(reference: Ref<Unit>, sample: &RiderSample, out: &mut crate::rig::rider::RiderPoints) -> bool{ rider_points_in(&mut crate::abi::world().units, reference, sample, out) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn held_root(reference: Ref<Unit>, clip: u32, time: f64) -> Option<(Vector3, Quaternion)>{ held_root_in(crate::abi::world(), reference, clip, time) }
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

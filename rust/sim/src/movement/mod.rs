@@ -17,10 +17,9 @@ pub mod scene;
 pub mod soldier;
 
 use crate::collision::spheres::{GatherCache, Gathered};
-use crate::collision::{state, MAX_BODIES};
+use crate::collision::MAX_BODIES;
 use scene::{GroundCache, Scene};
 use soldier::{Air, Input, Mover, Posture, Trig, PART_CACHES, V3};
-use std::ptr::addr_of_mut;
 
 // The exchange slots (src/movement-kernel.js mirrors them).
 pub const POSITION: usize = 0;
@@ -84,15 +83,13 @@ impl MovementOwner {
     pub const fn new() -> Self { Self { movers: None,
         #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
         native_copies: native::Copies::new(), io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
+    // Pointer discovery cannot allocate: the host may already have read the WASM
+    // memory buffer before calling either pointer export. Pools initialize only
+    // when a mover is constructed, where the host refreshes its views afterward.
     pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
     pub fn flags_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.flags }
 }
 impl Default for MovementOwner { fn default() -> Self { Self::new() } }
-// Pointer discovery cannot allocate: the host may already have read the WASM
-// memory buffer before calling either pointer export. Pools initialize only
-// when a mover is constructed, where the host refreshes its views afterward.
-fn owner() -> &'static mut MovementOwner { unsafe { &mut *addr_of_mut!(crate::abi::cold().movement) } }
-
 fn v3(v: &[f64; IO_LEN], at: usize) -> V3 {
     V3::new(v[at], v[at + 1], v[at + 2])
 }
@@ -164,16 +161,9 @@ pub(crate) fn input(v: &[f64; IO_LEN]) -> Input {
     }
 }
 
-/// One tick of mover `id` from the state it holds (Soldier.tick): the
-/// sines and cosines it reads, as V8 computes them, once each.
-///
-/// The JavaScript takes Math.sin and Math.cos of the aim's yaw wherever it
-/// needs them: of the yaw before the tick's turn while it drives, of the
-/// turned yaw from there on (the jump, the jetpack's kick, every body
-/// sphere's place in the collision pass), and a hovering jet's pitch.
-pub fn advance(id: u32, input: &Input, dt: f64) { owner().advance(state(), id, input, dt); }
-
-/// The same tick using an explicit mover and collision scene.
+/// Soldier.tick using an explicit mover and collision scene. Yaw sines and
+/// cosines match Math.sin/Math.cos before and after the turn, including the
+/// jump, jetpack kick, body spheres and hovering pitch.
 pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scene) {
     let yaw = m.aim_yaw;
     let mut trig = Trig { sin0: v8math::sin(yaw), cos0: v8math::cos(yaw), sin_pitch: 0.0, cos_pitch: 0.0, sin1: 0.0, cos1: 0.0 };
@@ -191,27 +181,6 @@ pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scen
         trig.cos1 = trig.cos0;
     }
     m.finish(rest, input, dt, &trig, scene);
-}
-
-/// A new mover of world `world`, its class's numbers set by `class`; its id.
-pub fn new_mover(world: usize, class: impl FnOnce(&mut Mover)) -> u32 { owner().new_mover(world, class) }
-
-/// Reserve movement's physics scratch before Soldier.tick starts.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn reserve_mover(id: u32, polygons: usize, triangles: usize, candidates: usize) {
-    owner().reserve_mover(id, polygons, triangles, candidates);
-}
-
-// Soldier.touchPolygons shares geometry-keyed triangle storage across movers.
-// Body membership is cold; prepare actual polygon sizes before contact.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn prepare_world_gathers(world: usize) {
-    owner().prepare_world_gathers(crate::collision::state(), world);
-}
-
-/// Mover `id`, whose state a caller loads before `advance` and reads after.
-pub fn mover(id: u32) -> &'static mut Mover {
-    owner().mover(id)
 }
 
 /// The class assignments shared by legacy and owned construction.
@@ -262,6 +231,8 @@ impl MovementOwner {
         ms.gathered.reserve(polygons, triangles);
         for cache in &mut ms.caches[id as usize] { cache.reserve(candidates, candidates, candidates); }
     }
+    // Soldier.touchPolygons shares geometry-keyed storage across movers.
+    // Body membership is cold; prepare polygon sizes before contact.
     pub fn prepare_world_gathers(&mut self, collision: &crate::collision::State, world: usize) {
         self.movers.get_or_insert_with(Movers::default).gathered.prepare_dense(collision, world, 16);
     }

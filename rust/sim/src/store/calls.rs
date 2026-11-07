@@ -158,10 +158,10 @@ impl ImportExchange {
 }
 
 // The import bank is independent of semantic state across host callbacks.
-pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { crate::abi::exchange().out(words, put); }
-pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::exchange().read(take) }
-pub fn import_args_ptr() -> *const f64 { crate::abi::exchange().ptr() }
-pub fn import_room(words: usize, heap: usize) -> *mut f64 { crate::abi::exchange().room(words, heap) }
+#[cfg(target_arch = "wasm32")]
+pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { crate::abi::facade::exchange().out(words, put); }
+#[cfg(target_arch = "wasm32")]
+pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::facade::exchange().read(take) }
 
 const _: () = assert!(HEADER == 5);
 

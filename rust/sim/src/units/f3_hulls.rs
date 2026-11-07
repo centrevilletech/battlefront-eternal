@@ -79,15 +79,15 @@ pub(crate) fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Veh
     let v = world_ctx.sim.store.vehicle.get_mut(r).unwrap();
     v.target_id = id as f64;
     let body = v.body;
-    let collision = fleet::collision_world_in(world_ctx).expect("prepared fleet collision");
-    let state = crate::collision::state();
+    let collision = world_ctx.fleet.collision.as_mut().expect("prepared fleet collision");
+    let state = &mut world_ctx.collision.state;
     let kernel = collision.kernel_slot(body.slot).expect("prepared hull body");
     let world = &mut state.worlds[collision.world];
     let at = world.prepared.iter().position(|&slot| slot as usize == kernel).expect("inactive body");
     world.prepared.remove(at);
     world.order.push(kernel as u32); world.version += 1;
     state.bodies[kernel].offset = serial as f64 * 0x1000000 as f64;
-    collision.enable_body(state,body.slot,false).expect("activated body place");
+    collision.enable_body_in(state,world_ctx.movement.flags_mut(),body.slot,false).expect("activated body place");
     F3HullBirth {hull:r,member_id:id,index:index as u32,body_serial:serial}.emit(&mut world_ctx.sim.events);
     refresh_in(world_ctx, id);
 }
@@ -271,7 +271,7 @@ impl HullDamageWorld for HullDamage<'_, '_> {
         notice_in(self.w, reference_in(&self.w.sim, index), F3HullEvent::Damaged, amount, *attacker);
     }
     fn set_damage_body(&mut self, body: u32, enabled: bool) {
-        fleet::collision_world_in(self.w).expect("fleet collision").enable_body(crate::collision::state(), body, enabled).expect("hull collision body");
+        self.w.fleet.collision.as_mut().expect("fleet collision").enable_body_in(&self.w.collision.state, self.w.movement.flags_mut(), body, enabled).expect("hull collision body");
     }
     fn start_respawn(&mut self, index: usize) { f2::respawn_clock_in(self.w, index); }
     fn destroy_hull_crew(&mut self, index: usize) { f2::live_seats::destroyed_with_in(self.w, index, Some(self.services.reborrow())); }
@@ -330,40 +330,7 @@ fn notice_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, event:
 fn vec(a: [f64; 3]) -> Vector3 { Vector3::new(a[0], a[1], a[2]) }
 fn array(v: Vector3) -> [f64; 3] { [v.x, v.y, v.z] }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn activate(r: Ref<Vehicle>, index: usize){ activate_in(crate::abi::world(), r, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn refresh(id: u32){ refresh_in(crate::abi::world(), id) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn matches_binding(reference:Ref<Vehicle>,member:Option<Member>)->bool{ matches_binding_in(crate::abi::world(), reference, member) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn member(r: Ref<Vehicle>) -> Member{ member_in(&crate::abi::world().units, r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn for_member(member: Member) -> Option<Ref<Vehicle>>{ for_member_in(crate::abi::world(), member) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn battle_member(s: &Store, key: Member) -> Option<crate::battle::world::Member>{ battle_member_in(&mut crate::abi::world().units, s, key) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn mutate(r: Ref<Vehicle>, value: f64, attacker: Option<OrdnanceOwner>, services: WorldServices<'_>){ mutate_in(crate::abi::world(), r, value, attacker, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn sphere(r: Ref<Vehicle>, blast: bool) -> (Vector3, f64){ sphere_in(crate::abi::world(), r, blast) }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) struct DamageWorld<'a> { pub services: WorldServices<'a>, pub hull: Ref<Vehicle> }
-#[cfg(target_arch = "wasm32")]
-impl DamageWorld<'_> { fn with<T>(&mut self, run: impl FnOnce(&mut HullDamage<'_, '_>) -> T) -> T { run(&mut HullDamage::new(crate::abi::world(), self.hull, self.services.reborrow())) } }
-#[cfg(target_arch = "wasm32")]
-impl HullDamageWorld for DamageWorld<'_> {
-    fn commit_hull(&mut self, hull: &Hull) { self.with(|world| world.commit_hull(hull)); }
-    fn resume_hull(&mut self, hull: &mut Hull) { self.with(|world| world.resume_hull(hull)); }
-    fn damaged_hull(&mut self, index: usize, amount: f64, attacker: &OrdnanceOwner) { self.with(|world| world.damaged_hull(index, amount, attacker)); }
-    fn set_damage_body(&mut self, body: u32, enabled: bool) { self.with(|world| world.set_damage_body(body, enabled)); }
-    fn start_respawn(&mut self, index: usize) { self.with(|world| world.start_respawn(index)); }
-    fn destroy_hull_crew(&mut self, index: usize) { self.with(|world| world.destroy_hull_crew(index)); }
-    fn destroyed_hull(&mut self, index: usize) { self.with(|world| world.destroyed_hull(index)); }
-    fn release_hull_crew(&mut self, index: usize) { self.with(|world| world.release_hull_crew(index)); }
-    fn explode_hull(&mut self, index: usize, final_explosion: bool, at: &Vector3) { self.with(|world| world.explode_hull(index, final_explosion, at)); }
-    fn hull_effect(&mut self, name: &str, at: &Vector3) { self.with(|world| world.hull_effect(name, at)); }
-}
 
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]

@@ -934,6 +934,8 @@ impl Gathers {
 // A narrow facade loan for vehicle collision services, never a whole-owner
 // borrow. Native owned callers use their explicit gather bank instead.
 pub(crate) fn caches() -> &'static mut Vec<GatherCache> {
+    // SAFETY: this cache field is disjoint from the geometry loan used by
+    // the legacy vehicle callers; no cache loan survives a host callback.
     unsafe { &mut *std::ptr::addr_of_mut!(crate::abi::cold().collision.gathers.caches) }
 }
 

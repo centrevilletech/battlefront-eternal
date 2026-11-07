@@ -164,6 +164,10 @@ pub trait World {
     fn strings_mut(&mut self) -> &mut crate::store::Strings;
     fn definitions(&self) -> &super::defs::Defs;
 
+    /// A live world can refuse a nested shot before it changes any rows.
+    /// Fixture worlds without a retained query budget admit every shot.
+    fn admit_fire(&mut self) -> bool { true }
+
     // The rounds (OrdnanceWorld).
 
     /// collision.cast; `ignore_body` and `static_only` as passed (undefined: not passed).

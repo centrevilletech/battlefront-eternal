@@ -102,25 +102,3 @@ pub(crate) fn return_victims(battle: &mut BattleOwner, h: &F4Handle, victims: Ve
     let h = live_in(battle).traps.current(h).expect("current trap"); let mut victims = Some(victims);
     live_in(battle).traps.command(&h, |t| t.victims = victims.take().unwrap());
 }
-
-// facade shims
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn live() -> &'static mut Live { live_in(&mut crate::abi::cold().battle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn reset() { reset_in(&mut crate::abi::cold().battle) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn adopt(building: F4BuildingBirth, trap: Option<F4TrapBirth>, hulls: usize) -> F4Handle { adopt_in(&mut crate::abi::cold().battle, building, trap, hulls) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn frame(h: &F4Handle) -> props::Building { frame_in(&mut crate::abi::cold().battle, h) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn attacker(h: &F4Handle) -> Attacker { attacker_in(&mut crate::abi::cold().battle, h) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn trap(h: &F4Handle) -> Option<traps::Trap> { trap_in(&mut crate::abi::cold().battle, h) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn set_attacker(h: &F4Handle, attacker: Attacker) { set_attacker_in(&mut crate::abi::cold().battle, h, attacker) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn put_frame(h: &F4Handle, frame: &props::Building) { put_frame_in(&mut crate::abi::cold().battle, h, frame) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn put_trap(h: &F4Handle, trap: traps::Trap) { put_trap_in(&mut crate::abi::cold().battle, h, trap) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn station(h: &F4Handle) -> (props::Station, props::Settings, Option<props::Supply>) { station_in(&mut crate::abi::cold().battle, h) }

@@ -1114,11 +1114,11 @@ pub fn cmd_relay(_w0: f64, _w1: f64, _w2: f64, _w3: f64, _w4: f64, _w5: f64, _w6
 #[no_mangle]
 pub extern "C" fn cmd_f2_seat_block() -> *const f64 {
     if !crate::abi::command_available(COMMAND_F2_SEAT) { return std::ptr::null(); }
-    let args = { let sim = crate::abi::sim(); let (row, heap) = sim.calls.args(); F2SeatCommand::take(row, heap) };
-    let result = crate::vehicles::f2_seats::command(args);
-    let sim = crate::abi::sim();
-    sim.calls.result(F2SeatResult::WORDS, |row, heap| result.put(row, heap));
-    sim.calls.block.ptr()
+    let w = crate::abi::facade::world();
+    let args = { let (row, heap) = w.sim.calls.args(); F2SeatCommand::take(row, heap) };
+    let result = crate::vehicles::module::f2::live_seats::command_in(w, args);
+    w.sim.calls.result(F2SeatResult::WORDS, |row, heap| result.put(row, heap));
+    w.sim.calls.block.ptr()
 }
 
 pub const OPERATION_ECHO: u32 = 1;
@@ -1175,10 +1175,10 @@ pub fn run_operation<'a>(w: &'a mut crate::world::owner::World, op: u32, args: &
         OPERATION_WIRE_EDGES_RUN => {
             let record = &args[1..];
             w.sim.calls.result(WeCall::WORDS, |row, heap| { row.copy_from_slice(&record[..WeCall::WORDS]); heap.extend_from_slice(&record[WeCall::WORDS..]); });
-            unsafe { crate::wire::edges::wire_edges_run_in(w, args[0] as usize) }
+            crate::wire::edges::wire_edges_run_in(w, args[0] as usize)
         }
         OPERATION_WIRE_HOST_OP => {
-            let value = unsafe { crate::wire::host::wire_host_op_in(w, args[0] as usize, args[1] as u32, args[2] as u32, args[3], args[4]) };
+            let value = crate::wire::host::wire_host_op_in(w, args[0] as usize, args[1] as u32, args[2] as u32, args[3], args[4]);
             w.sim.calls.result(1, |row, _| row[0] = value as f64);
             Some(&w.sim.calls.block.words[..])
         }
