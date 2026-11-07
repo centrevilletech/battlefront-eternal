@@ -24,7 +24,8 @@ export class CameraOwner {
     for(let i=0;i<(g.csm?.lights.length||0);i++)this.bind(g.csm.lights[i].shadow.camera,R.SHADOW0+i);
     for(let i=0;i<(g.cascadeWindows?.length||0);i++)this.bindWindow(g.cascadeWindows[i],i);
     this.configureShadows();this.seedLights();bindLighting(this);if(g.environmentFacts)this.environment(g.environmentFacts);
-    g.camera.updateProjectionMatrix=()=>this.project(g.camera);
+    // The front end builds this renderer without a battle camera.
+    if(g.camera)g.camera.updateProjectionMatrix=()=>this.project(g.camera);
     this.bind(g.cascadeCamera,R.CASCADE);this.bind(g.shadowCamera,R.SHADOW_DYNAMIC);this.bind(g.staticShadowCamera,R.SHADOW_STATIC);
   }
   // Derived shells carry layers and resource references for scene consumers.
