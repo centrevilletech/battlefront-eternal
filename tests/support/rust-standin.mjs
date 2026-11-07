@@ -29,6 +29,14 @@ import { FACTS as F, STATE as S, BINDING as B, META as M, ROLE as R, LINE as V, 
 import { INPUT as CI, CAMERA as CC, CASCADE as CW, LIGHT as CL, PACK as CP, MIRROR as CM, ROLE as CR, LIMIT as CX, LIGHT_INPUT as CLI, LIGHT_OUTPUT as CLO } from "../../src/rust-render/camera-layout.js";
 import * as THREE from "three";
 
+import { readFileSync } from "node:fs";
+import { initSync, BfeScene } from "../../src/rust-pkg/bfe_render.js";
+import { SceneNode, SceneGroup, SceneWorldChange } from "../../src/rust-render/scene-layout.js";
+
+// Visibility fixtures use the real CPU-only producer. Only GPU registration
+// and submission are stood in; there is no JavaScript scene-selection twin.
+const sceneWasm = initSync({ module: readFileSync(new URL("../../src/rust-pkg/bfe_render_bg.wasm", import.meta.url)) });
+
 export const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export const LENGTHS = {
@@ -51,22 +59,78 @@ export const LAYOUT = { records_at: 200, record_stride: 100, transparent_object_
 
 export const QUIET = ["camera_global_shader_frame","camera_shader_frame","camera_pack_shader_frame","transparent_bucket_shown", "foliage_on"];
 
-export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 24 } = {}) {
+// Shader-upload fixtures submit individual phases. Supply the scene-fact
+// publication normally performed by coverNear/cover before those calls; the
+// production native selector still makes every visibility and ordering choice.
+export function prepareSceneFixture(core) {
+  if(core.renderer.renderLists)core.registry.items = core.renderer.renderLists.get(core.graphics.scene, 0);
+  const publish = core.publishView;
+  core.publishView = function(name, renderer, scene, camera, ...args) {
+    if (scene && camera) {
+      if (scene === core.graphics.scene) {
+        if(name === "near" || name === "mirror" || name === "transparent" || name === "mirrorTransparent")core.prepareScene(renderer, scene, camera, renderer.getRenderTarget());
+        core.registry.select(scene, camera, 0);
+      }
+    }
+    return publish.call(this, name, renderer, scene, camera, ...args);
+  };
+  return core;
+}
+
+export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 25 } = {}) {
   const calls = [];
+  const nativeScene=new BfeScene();
   const memory = { buffer: new ArrayBuffer(memoryBytes) };
   const sizes = { ...LENGTHS, ...lengths }, values = { ...LAYOUT, ...layout }, silent = new Set(quiet);
   const length = (name) => { const n = sizes[name] ?? 1024; return typeof n === "function" ? n() : n; };
-  const regions = new Map();
+  const regions = new Map(), regionBytes = new Map();
   let next = 0;
   const region = (name) => {
-    if (!regions.has(name)) {
+    const bytes=Math.ceil(Math.max(length(name),1024)*8/16)*16;
+    if (!regions.has(name) || regionBytes.get(name)<bytes) {
+      const previous=regions.get(name),oldBytes=regionBytes.get(name)||0;
       regions.set(name, next);
-      next += Math.ceil(Math.max(length(name), 1024) * 8 / 16) * 16;
+      regionBytes.set(name,bytes);next += bytes;
       if (next > memory.buffer.byteLength) throw new Error(`stand-in memory too small for ${name}`);
+      if(oldBytes)new Uint8Array(memory.buffer,regions.get(name),oldBytes).set(new Uint8Array(memory.buffer,previous,oldBytes));
     }
     return regions.get(name);
   };
   if (typeof methods === "function") methods = methods({ calls, region });
+  for (const name of ["changes", "world_changes", "view", "output", "order", "facts", "visible", "groups", "lines", "motion_events", "canopy_bounds", "canopy_view", "canopy_output", "canopy_states"]) sizes["scene_" + name] = () => nativeScene["scene_" + name + "_len"]();
+  const sceneArray = name => new Float64Array(sceneWasm.memory.buffer, nativeScene["scene_" + name + "_ptr"](), nativeScene["scene_" + name + "_len"]());
+  methods = {
+    scene_canopy_reserve: (count,generation) => nativeScene.scene_canopy_reserve(count,generation),
+    scene_canopy_select: () => {
+      for (const name of ["canopy_bounds", "canopy_view"]) {
+        const target = sceneArray(name);
+        target.set(new Float64Array(memory.buffer, region("scene_" + name), target.length));
+      }
+      const count = nativeScene.scene_canopy_select();
+      const output = sceneArray("canopy_output");
+      new Float64Array(memory.buffer, region("scene_canopy_output"), output.length).set(output);
+      const states = new Float32Array(sceneWasm.memory.buffer, nativeScene.scene_canopy_states_ptr(), nativeScene.scene_canopy_states_len());
+      new Float32Array(memory.buffer, region("scene_canopy_states"), states.length).set(states);
+      return count;
+    },
+    scene_reserve: count => nativeScene.scene_reserve(count),
+    scene_groups_reserve:count=>nativeScene.scene_groups_reserve(count),
+    scene_select: (count,groups=0,worlds=0) => {
+      const changes = sceneArray("changes");
+      changes.set(new Float64Array(memory.buffer, region("scene_changes"), Math.min(count * SceneNode.STRIDE, changes.length)));
+      sceneArray("view").set(new Float64Array(memory.buffer, region("scene_view"), nativeScene.scene_view_len()));
+      const groupInput=sceneArray("groups");groupInput.set(new Float64Array(memory.buffer,region("scene_groups"),Math.min(groups*SceneGroup.STRIDE,groupInput.length)));
+      const worldInput=sceneArray("world_changes");worldInput.set(new Float64Array(memory.buffer,region("scene_world_changes"),Math.min(worlds*SceneWorldChange.STRIDE,worldInput.length)));
+      const selected = nativeScene.scene_select(count,groups,worlds);
+      for (const name of ["output", "order", "facts", "lines", "motion_events"]) {
+        const source = sceneArray(name);
+        new Float64Array(memory.buffer, region("scene_" + name), source.length).set(source);
+      }
+      const visible=new Uint32Array(sceneWasm.memory.buffer,nativeScene.scene_visible_ptr(),nativeScene.scene_visible_len());
+      new Uint32Array(memory.buffer,region("scene_visible"),visible.length).set(visible);
+      return selected;
+    }, ...methods,
+  };
   const counts = new Map();
   const generic = (name) => (...args) => {
     if (!silent.has(name)) calls.push(name === "add_texture" ? [name] : [name, ...args]);
@@ -214,6 +278,8 @@ export function standinResources(renderer, calls) {
       release_skin_image:(...args)=>{calls.push(["release_skin_image",...args]);},
       effect_data:(...args)=>{calls.push(["effect_data",...args]);return native();},
       effect_noise:kind=>{calls.push(["effect_noise",kind]);return native();},
+      canopy_state:(width,pixels)=>{calls.push(["canopy_state",width,pixels]);return native();},
+      update_canopy_state:(id,pixels)=>{calls.push(["update_canopy_state",id,pixels]);},
       fountain_atlas:native,effect_pixels(){},snow_pixels(){},weather_cover:()=>{},dispose_sample(){} },
     lightningSample(texture){return this.staticSample(texture);},
     effectTarget(kind){return {nativeTarget:native(),texture:native(),depthTexture:-1,width:1,height:1,samples:0};},

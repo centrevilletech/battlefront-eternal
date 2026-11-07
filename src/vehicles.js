@@ -1,3 +1,4 @@
+import {sceneComponent,sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorDescription} from './actor-resources.js';
 import { lineSource, LINE_KIND } from './line-source.js';
 import { gearFoot } from "./flight/gear.js";
@@ -268,7 +269,7 @@ export class Vehicle {
     this.boundRadius = this.size.length() * .5;
     this.lastAttacker = null; // who last damaged it, for kill credit
     this.aiTarget = new VehicleTarget(this); // its entry in the units registry
-    this.root.visible = false;
+    sceneProperty(this.root,"visible",false);
     this.body.enabled = false;
     system.scene.add(this.root);
   }
@@ -288,13 +289,13 @@ export class Vehicle {
   get arsenal() { return this; }
   current(channel) { return this.seat.weapons[channel]?.state || null; }
   viewDirection(out) { return out.set(Math.sin(this.aimYaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.aimYaw) * Math.cos(this.pitch)); }
-  sphere(out) { out.copy(this.center).applyMatrix4(this.matrix); return this.radius; }
+  sphere(out) { sceneTransform(out.copy(this.center).applyMatrix4(this.matrix)); return this.radius; }
   // What a blast measures to (src/ordnance.js): the model's bounding sphere,
   // placed with the hull, at least as wide as its collision box.
   blastSphere(out) {
     const sphere = this.system.templates.get(this.def.model)?.rig.sphere;
-    if (!sphere) { out.copy(this.center).applyMatrix4(this.matrix); return 0.5 * this.size.length(); }
-    out.set(sphere[0], sphere[1], sphere[2]).applyMatrix4(this.matrix);
+    if (!sphere) { sceneTransform(out.copy(this.center).applyMatrix4(this.matrix)); return 0.5 * this.size.length(); }
+    sceneTransform(out.set(sphere[0], sphere[1], sphere[2]).applyMatrix4(this.matrix));
     return Math.max(sphere[3], 0.5 * this.size.length());
   }
 
@@ -355,12 +356,12 @@ export class Vehicle {
   seatOrigin(i, out) { return this.seatEye(this.seats[i] ? i : 0, out); }
   seatEye(i, out, presented = false) {
     if (this.system.f2 && !presented) return out.copy(this.f2Pose.seats[i].eye);
-    return out.copy(this.seats[i].view.eye).applyMatrix4(this.seatFrame(i, this.frameScratch.frame, presented));
+    return sceneTransform(out.copy(this.seats[i].view.eye).applyMatrix4(this.seatFrame(i, this.frameScratch.frame, presented)));
   }
   // A seat's aim direction.
   seatForward(i, out) {
     if (this.system.f2) return out.copy(this.f2Pose.seats[this.seats[i] ? i : 0].forward);
-    if (this.flying && i === 0) return out.set(0, 0, 1).applyQuaternion(this.quaternion);
+    if (this.flying && i === 0) return sceneTransform(out.set(0, 0, 1).applyQuaternion(this.quaternion));
     const seat = this.seats[i] || this.seats[0];
     return out.set(Math.sin(seat.aimYaw) * Math.cos(seat.pitch), Math.sin(seat.pitch), Math.cos(seat.aimYaw) * Math.cos(seat.pitch));
   }
@@ -416,7 +417,7 @@ export class Vehicle {
   }
   spawn(team) {
     this.team = team;
-    this.position.setFromMatrixPosition(this.slot.matrix);
+    sceneTransform(this.position.setFromMatrixPosition(this.slot.matrix));
     this.yaw = Math.atan2(this.slot.matrix.elements[8], this.slot.matrix.elements[10]);
     this.aimYaw = this.previousYaw = this.yaw;
     this.pitch = this.tilt = this.roll = this.previousTilt = this.previousRoll = 0;
@@ -428,14 +429,14 @@ export class Vehicle {
     this.altitude = 0;
     this.throttle = this.airspeed = this.tiltRate = this.stateTime = 0;
     this.bank = 0;
-    if (this.flying) { this.quaternion.setFromAxisAngle(UP, this.yaw); initFlight(this); }
+    if (this.flying) { sceneTransform(this.quaternion.setFromAxisAngle(UP, this.yaw)); initFlight(this); }
     this.towTarget = -1; this.towWinding = this.towAngle = 0; this.towLeg = ''; this.towLocal.set(0, 0, 0);
     this.floorY = NaN;
     this.velocity.set(0, 0, 0);
     for (const wheel of this.wheels) wheel.phase = wheel.previous = 0;
     this.health = this.maxHealth;
     this.system.world.enableBody(this.body, true);
-    this.alive = this.root.visible = true;
+    this.alive = sceneProperty(this.root,"visible",true);
     this.dying = 0;
     this.driver = null;
     this.seatIndex = 0;
@@ -457,14 +458,14 @@ export class Vehicle {
     this.from.copy(this.position).addScaledVector(UP, 4);
     const floor = this.system.world.cast(this.from, DOWN, 12, this.hit, this.body);
     if (floor && !this.walking && !this.flying) {
-      this.position.y = floor.point.y + restHeight(this.def);
+      sceneComponent(this.position,"y","=",floor.point.y + restHeight(this.def));
       this.alignGround(floor.normal, 1);
       this.support = 1;
     } else if (floor) {
       // A craft with gear stands on its feet (src/flight/model.js
       // standHeight); any other hull rests its hover height up.
       const stand = this.flying ? standHeight(this) : null;
-      this.position.y = floor.point.y + (this.creature ? 0 : stand !== null ? stand : -this.bounds.min.y + this.hover);
+      sceneComponent(this.position,"y","=",floor.point.y + (this.creature ? 0 : stand !== null ? stand : -this.bounds.min.y + this.hover));
       if (this.creature) this.alignGround(floor.normal, 1);
     }
     this.previousTilt = this.tilt; this.previousRoll = this.roll;
@@ -482,10 +483,10 @@ export class Vehicle {
   // with its pitch and roll, as drawn. Its quaternion, as replicated, stays
   // its heading alone (the lean travels as tilt and roll).
   syncBody() {
-    if (!this.flying) this.quaternion.setFromEuler(this.rotation.set(0, this.yaw, 0));
-    this.matrix.compose(this.position, this.flying ? this.quaternion : hullQuaternion(this, this.q), UNIT_SCALE);
+    if (!this.flying) sceneTransform(this.quaternion.setFromEuler(sceneTransform(this.rotation.set(0, this.yaw, 0))));
+    sceneTransform(this.matrix.compose(this.position, this.flying ? this.quaternion : hullQuaternion(this, this.q), UNIT_SCALE));
     this.system.world.moveBody(this.body, this.matrix);
-    this.itemTarget.center.copy(this.center).applyMatrix4(this.matrix);
+    sceneTransform(this.itemTarget.center.copy(this.center).applyMatrix4(this.matrix));
   }
 
   alignGround(normal, blend) {
@@ -570,7 +571,7 @@ export class Vehicle {
   cameraRest(i, frame, out) {
     const view = this.seats[i].view;
     this.cameraTurn(i, frame, this.frameScratch.q2);
-    return out.copy(view.offset).applyQuaternion(this.frameScratch.q2).add(this.frameScratch.v.copy(view.center).applyMatrix4(frame));
+    return sceneTransform(out.copy(view.offset).applyQuaternion(this.frameScratch.q2)).add(sceneTransform(this.frameScratch.v.copy(view.center).applyMatrix4(frame)));
   }
 
   // A shot another host fired (a network record's muzzle point): the barrel
@@ -593,7 +594,7 @@ export class Vehicle {
 
   // Where a weapon with no fire point node fires from: the hull's nose.
   nose(out) {
-    return out.set(this.center.x, this.center.y + .5, this.center.z + this.size.z * .5).applyMatrix4(this.matrix);
+    return sceneTransform(out.set(this.center.x, this.center.y + .5, this.center.z + this.size.z * .5).applyMatrix4(this.matrix));
   }
 
   // Where a beam from one of seat i's barrels (its fire point's node and its
@@ -791,7 +792,7 @@ export class Vehicles {
     const tether = this.tethers.get(source);
     const turret = source.seats[tether?.seat ?? 1]?.view.turret || source.seats.find((s) => s.view.turret)?.view.turret;
     if (turret) return turret.getWorldPosition(out);
-    return out.copy(source.center).applyMatrix4(presented ? source.root.matrixWorld : source.matrix);
+    return sceneTransform(out.copy(source.center).applyMatrix4(presented ? source.root.matrixWorld : source.matrix));
   }
 
   // The page's frame: each held cable as a line from the anchor on the
@@ -805,7 +806,7 @@ export class Vehicles {
       let tether = this.tethers.get(v);
       if (!tether) { tether = { source: v, target: null, def: null, line: null, start: new THREE.Vector3(), end: new THREE.Vector3(), seat: 1 }; this.tethers.set(v, tether); }
       const target = this.vehicles[v.towTarget];
-      if (v.towTarget < 0 || !target?.alive) { if (tether.line) tether.line.visible = false; continue; }
+      if (v.towTarget < 0 || !target?.alive) { if (tether.line) sceneProperty(tether.line,"visible",false); continue; }
       if (!tether.line) {
         tether.line=lineSource(LINE_KIND.TOW,TOW_POINTS);
         tether.position=tether.line.userData.lineSource.positions;
@@ -814,7 +815,7 @@ export class Vehicles {
       }
       tether.target = target;
       const frame = presented ? target.root.matrixWorld : target.matrix;
-      tether.end.copy(v.towLocal).applyMatrix4(frame);
+      sceneTransform(tether.end.copy(v.towLocal).applyMatrix4(frame));
       this.towGun(v, tether.start, presented);
       // The wraps: a point on the legs' circle every quarter circuit, at
       // the anchor's height, in the direction the cable has wound.
@@ -824,7 +825,7 @@ export class Vehicles {
       n=putTowPoint(tether.position,n,tether.end);
       for (let k = 1; k <= quarters; k++) {
         const a = v.towAngle - Math.sign(v.towWinding) * (Math.abs(v.towWinding) - k * Math.PI / 2);
-        this.center.set(target.center.x, v.towLocal.y, target.center.z).applyMatrix4(frame);
+        sceneTransform(this.center.set(target.center.x, v.towLocal.y, target.center.z).applyMatrix4(frame));
         this.center.x += Math.sin(a) * radius; this.center.z += Math.cos(a) * radius;
         n=putTowPoint(tether.position,n,this.center);
       }
@@ -838,7 +839,7 @@ export class Vehicles {
       }
       tether.line.userData.lineSource.count=n;
       tether.line.userData.lineSource.serial++;
-      tether.line.visible = true;
+      sceneProperty(tether.line,"visible",true);
     }
   }
 
@@ -916,7 +917,7 @@ export class VehicleDriver {
   // any other seat along its view.
   reticleDirection(out) {
     const v = this.vehicle;
-    if (seatControl(v, v?.seatIndex) === 'flight') return out.set(0, 0, 1).applyQuaternion(v.flightFrameQ || v.quaternion);
+    if (seatControl(v, v?.seatIndex) === 'flight') return sceneTransform(out.set(0, 0, 1).applyQuaternion(v.flightFrameQ || v.quaternion));
     return this.viewDirection(out);
   }
   // The player's body as a unit (main.js makes it combat.owner), or null.
@@ -959,8 +960,8 @@ export class VehicleDriver {
     this.speedEffect = 0;
     this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.combat.mounted = false;
-    this.actor.root.visible = true;
-    this.actor.root.rotation.set(0, this.soldier.aimYaw, 0);
+    sceneProperty(this.actor.root,"visible",true);
+    sceneTransform(this.actor.root.rotation.set(0, this.soldier.aimYaw, 0));
     this.animator.gunner?.(null);
     // Dead, his death clip plays on (a page showing a world worker's or a
     // server's battle lets go of the seat after his death arrived).
@@ -978,7 +979,7 @@ export class VehicleDriver {
   // a skiff) stays.
   hideHull(v) {
     if (this.hiddenHull === v) return;
-    const layer = (hull, value) => hull?.root.traverse((object) => { if (object.userData.actorAsset) object.layers.set(value); });
+    const layer = (hull, value) => hull?.root.traverse((object) => { if (object.userData.actorAsset) sceneLayer(object.layers,"set",value); });
     layer(this.hiddenHull, 0);
     layer(v, this.hiddenLayer);
     this.hiddenHull = v;

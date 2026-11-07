@@ -1,7 +1,8 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { lighting } from "./materials.js";
+import { SceneCanopyHeader as H, SceneCanopySelection as S } from "./rust-render/scene-layout.js";
 
-const NEAR = 140, FAR = 220;
 const MAX_GROUPS = 12;
 const LEAVES = 8 * 84 + 4 * 60;
 
@@ -16,24 +17,16 @@ function random(seed) {
 export class TreeCanopies {
   constructor(graphics, data, texture) {
     this.graphics = graphics;
-    this.groups = [];
-    this.frustum = new THREE.Frustum();
-    this.viewProjection = new THREE.Matrix4();
+    sceneProperty(this,"groups",[]);
     this.states = new Float32Array(data.instances.length * 4);
     this.stateVersion = 0;
     this.stateMap = null;
     // Native source/sampler policy is installed after the asynchronous renderer
     // exists. Authored state rows have their own CPU owner during cold loading.
     graphics.rustReady?.then(core => {
+      core.registry.registerCanopies(this);
       this.stateMap = core.resources.gpu.canopy_state(this.groups.length, this.states);
     });
-    this.active = [];
-    this.candidates = [];
-    this.orderByDistance = (a, b) => a.distance - b.distance;
-    this.lastCamera = null;
-    this.lastMatrix = new THREE.Matrix4();
-    this.lastProjection = new THREE.Matrix4();
-    this.lastEnabled = null;
     // Whether any canopy is near. Changed leaf slots are copied to Rust
     // as [dirtyFirst, dirtyEnd); the browser does not upload these attributes.
     this.drawn = false;
@@ -47,7 +40,7 @@ export class TreeCanopies {
       const matrix = new THREE.Matrix4().fromArray(source.matrix);
       const inverse = matrix.clone().invert();
       const local = new THREE.Box3(new THREE.Vector3(...source.bounds[0]), new THREE.Vector3(...source.bounds[1]));
-      const world = local.clone().applyMatrix4(matrix);
+      const world = sceneTransform(local.clone().applyMatrix4(matrix));
       const sphere = world.getBoundingSphere(new THREE.Sphere());
       const rand = random(71387 + index * 9127);
       const centers = [], sizes = [], shades = [];
@@ -69,7 +62,7 @@ export class TreeCanopies {
           const size = 2.7 + rand() * 1.1;
           const p = branch.clone().multiply(radius).multiplyScalar(shell * (0.25 + 0.25 * (i % 4))).add(center);
           const margin = size * 0.65;
-          p.clamp(local.min.clone().addScalar(margin), local.max.clone().addScalar(-margin)).applyMatrix4(matrix);
+          sceneTransform(p.clamp(local.min.clone().addScalar(margin), local.max.clone().addScalar(-margin)).applyMatrix4(matrix));
           centers.push(p.x, p.y, p.z);
           sizes.push(size, size * (0.9 + rand() * 0.35));
           branch.transformDirection(matrix);
@@ -115,48 +108,30 @@ export class TreeCanopies {
     }
   }
 
+  // The native selector owns culling, stable distance order and slot changes.
+  // Resource publication copies only its changed slots into retained leaf arrays.
   update(camera) {
-    const enabled = this.graphics.settings.get("treeDetail") !== "original";
-    if (camera === this.lastCamera && this.lastEnabled === enabled && this.lastMatrix.equals(camera.matrixWorld)
-      && this.lastProjection.equals(camera.projectionMatrix)) return;
-    this.lastCamera = camera; this.lastEnabled = enabled; this.lastMatrix.copy(camera.matrixWorld); this.lastProjection.copy(camera.projectionMatrix);
-    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    const candidates = this.candidates;
-    candidates.length = 0;
-    if (enabled) for (const group of this.groups) {
-      if (!this.frustum.intersectsSphere(group.sphere)) continue;
-      group.distance = group.sphere.center.distanceToSquared(camera.position);
-      if (Math.sqrt(group.distance) - group.sphere.radius < FAR) candidates.push(group);
-    }
-    candidates.sort(this.orderByDistance);
-    const count = Math.min(candidates.length, MAX_GROUPS);
-    let changed = count !== this.active.length;
-    // Camera motion changes selection, not the leaves themselves. Upload only
-    // slots whose group changed; repeated far/near/reflection views often use
-    // exactly the same selection. Keep draw ordering and every leaf intact.
+    const core = this.graphics.rust;
+    const count = core.registry.selectCanopies(this, camera), selected = core.sceneCanopyOutput;
     for (let i = 0; i < count; i++) {
-      const group = candidates[i];
-      if (group === this.active[i]) continue;
-      changed = true;
-      this.centers.set(group.centers, i * LEAVES * 3);
-      this.sizes.set(group.sizes, i * LEAVES * 2);
-      this.shades.set(group.shades, i * LEAVES * 3);
-      this.active[i] = group;
-      this.dirtyFirst = Math.min(this.dirtyFirst, i * LEAVES);
-      this.dirtyEnd = Math.max(this.dirtyEnd, (i + 1) * LEAVES);
+      const at = H.STRIDE + i * S.STRIDE;
+      if (!selected[at + S.CHANGED]) continue;
+      const group = this.groups[selected[at + S.ID]], first = selected[at + S.FIRST];
+      this.centers.set(group.centers, first * 3);
+      this.sizes.set(group.sizes, first * 2);
+      this.shades.set(group.shades, first * 3);
     }
+    // Dirty upload spans accumulate until the existing resource consumer takes
+    // them. Selection itself emits those spans before any leaf bytes are read.
+    this.dirtyFirst = Math.min(this.dirtyFirst, selected[H.DIRTY]);
+    this.dirtyEnd = Math.max(this.dirtyEnd, selected[H.DIRTY + 1]);
     this.instanceCount = count * LEAVES;
-    // Nothing to draw (Original tree detail, or no canopy near): no draw at all.
-    this.drawn = count > 0;
-
-    if (changed) {
-      this.active.length = count;
-      this.states.fill(0);
-      for (const group of this.active) this.states[group.index * 4] = 1;
-      this.stateVersion++;
-      if (this.stateMap !== null) this.graphics.rust.resources.gpu.update_canopy_state(this.stateMap, this.states);
+    this.drawn = selected[H.SHOWN] !== 0;
+    if (selected[H.CHANGED]) {
+      this.states.set(core.sceneCanopyStates);
+      this.stateVersion = selected[H.VERSION];
+      this.graphics.rust.resources.gpu.update_canopy_state(this.stateMap, this.states);
     }
-
   }
 
   // The instances whose leaves changed since the renderer last took them

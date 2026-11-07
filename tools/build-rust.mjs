@@ -269,7 +269,7 @@ export async function main(args) {
       hostSchema(check);
       if (process.exitCode) problems.push("the store's generated code is stale: node tools/sim-schema.mjs");
     }
-    if (name === 'sim' || name === 'presentation') {
+    if (name === 'sim' || name === 'presentation' || name === 'renderer') {
       const schema = spawnSync(process.execPath, [join(ROOT, 'tools/presentation-schema.mjs'), ...(check ? ['--check'] : [])], { stdio: 'inherit' });
       if (schema.status) throw Error('presentation schema is stale');
     }

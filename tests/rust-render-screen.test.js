@@ -116,8 +116,8 @@ test("underwater fog publishes its screen packet without a transparent draw call
   fogMaterial.uniforms={cameraRange:{value:new THREE.Vector2(.1,100)},tint:{value:new THREE.Color()},time:{value:0},sceneColor:{value:new THREE.Texture()},sceneDepth:{value:new THREE.Texture()}};fogMaterial.depthTest=false;fogMaterial.depthWrite=false;
   const fog=new THREE.Mesh(new THREE.PlaneGeometry(2,2),fogMaterial);scene.add(fog);scene.userData.water={underwaterFog:fog,captureSurface(){calls.push(["fog-copy-fact"]);}};
   const pass=core.byName.fog;
-  pass.place(renderer,scene,new THREE.PerspectiveCamera(),null);assert.equal(fogMaterial.visible,false);
-  pass.place(renderer,scene,camera,graphics.sceneTarget);assert.equal(fogMaterial.visible,false);
+  pass.place(renderer,scene,new THREE.PerspectiveCamera(),null);assert.equal(fogMaterial.visible,true);
+  pass.place(renderer,scene,camera,graphics.sceneTarget);assert.equal(fogMaterial.visible,true);
   calls.length=0;core.frame.begin(true);pass.draw({renderer,scene,camera});
   assert.equal(calls.filter(c=>c[0]==="fog-copy-fact").length,1);
   assert.equal(calls.some(c=>c[0]==="frame_aux_frame"),false);

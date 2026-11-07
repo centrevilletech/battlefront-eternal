@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from './render-resources.js';
 import * as THREE from 'three';
@@ -24,10 +25,16 @@ export class FountainWater {
       fountainWaters.set(mesh,this);this.models.push(row);return row;
     };
     graphics.scene.traverse(mesh=>{if(mesh.isMesh&&basins.some(b=>b.texture===mesh.name)){
-      this.original.push({mesh,visible:mesh.visible,order:mesh.renderOrder});source(mesh);
+      this.original.push({mesh,visible:mesh.visible,order:mesh.renderOrder});
+      // Classic and enhanced appearances have independent native identities.
+      // Hiding the authored surface must not hide its replacement's source.
+      const anchor=new THREE.Object3D();anchor.name=mesh.name;sceneProperty(anchor,"matrixAutoUpdate",false);
+      sceneTransform(anchor.matrix.copy(mesh.matrix));sceneProperty(anchor,"visible",false);sceneProperty(anchor,"renderOrder",-17);
+      mesh.parent.add(anchor);const row=source(anchor);sceneProperty(row,"geometry",mesh.geometry);
+      row.original=mesh;
     }});
-    if(tier){this.tier=new THREE.Object3D();this.tier.name='fountain-tier-water';this.tier.renderOrder=-16.9;
-      this.tier.visible=false;source(this.tier,true);graphics.scene.add(this.tier);}
+    if(tier){this.tier=new THREE.Object3D();this.tier.name='fountain-tier-water';sceneProperty(this.tier,"renderOrder",-16.9);
+      sceneProperty(this.tier,"visible",false);source(this.tier,true);graphics.scene.add(this.tier);}
   }
   // Ports FountainWater's shared resource setup. Rust owns disc topology,
   // material slots, sampler units and the copy target's attachments.
@@ -39,9 +46,9 @@ export class FountainWater {
   }
   setEnabled(enabled) {
     if(enabled===this.enabled)return;this.enabled=enabled;
-    for(const row of this.models)row.active=enabled;
-    for(const o of this.original){o.mesh.visible=enabled?false:o.visible;o.mesh.renderOrder=enabled?-17:o.order;}
-    if(this.tier)this.tier.visible=enabled;
+    for(const row of this.models){row.active=enabled;sceneProperty(row.mesh,"visible",enabled);}
+    for(const o of this.original){sceneProperty(o.mesh,"visible",enabled?false:o.visible);sceneProperty(o.mesh,"renderOrder",enabled?-17:o.order);}
+    if(this.tier)sceneProperty(this.tier,"visible",enabled);
   }
   update(time) {
     this.time=time;this.captured=false;const v=this.values,top=lighting.ambientTop.value;
@@ -64,5 +71,5 @@ export class FountainWater {
     this.values[ROW.CAMERA_RANGE]=camera.near;this.values[ROW.CAMERA_RANGE+1]=camera.far;
   }
   reflect(){this.captured=false;}
-  dispose(){this.setEnabled(false);for(const row of this.models){delete row.mesh.userData.effectModel;fountainWaters.delete(row.mesh);}this.tier?.removeFromParent();if(this.resources)this.resources.disposeEffectTarget(this.surface);}
+  dispose(){this.setEnabled(false);for(const row of this.models){delete row.mesh.userData.effectModel;fountainWaters.delete(row.mesh);if(row.original)row.mesh.removeFromParent();}this.tier?.removeFromParent();if(this.resources)this.resources.disposeEffectTarget(this.surface);}
 }

@@ -205,6 +205,11 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
             span.offset=packet.data.len();span.capacity=needed;packet.data.resize(span.offset+needed,0);
         }
     }
+    // Generated browser/native bindings share these bounded lifecycle entries.
+    // Packet state remains private to its owner rather than a host-side mirror.
+    pub fn frame_ui_slot(&mut self,role:usize){self.frames.ui_role=role.min(R::COUNT);}
+    pub fn frame_overflow(&mut self){self.frames.clipped=true;}
+    pub fn frame_cancel(&mut self){self.frames.collecting=false;self.post_chain.invalidate();}
     // game.frame starts a new transaction, including sky-only callbacks.
     // Reset validity/counts rather than clearing megabytes of retained payload.
     pub fn frame_begin(&mut self) {

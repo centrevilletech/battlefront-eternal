@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import {retainRecord,releaseRecord} from '../runtime/network-records.js';
 import { Vector3 } from "three";
 import { DEFAULT_SNAPSHOT_BOUNDS } from "../runtime/snapshot-codec.js";
@@ -343,11 +344,11 @@ export class ItemPresentation {
         z = v[at + V.POSITION + 2];
       // Items.place: the model at the item with the kernel's orientation (Quaternion.set tells
       // three, as copy did).
-      view.position.set(x, y, z);
+      sceneTransform(view.position.set(x, y, z));
       const mesh = view.mesh;
       if (mesh) {
-        mesh.position.set(x, y, z);
-        mesh.quaternion.set(v[at + V.QUATERNION], v[at + V.QUATERNION + 1], v[at + V.QUATERNION + 2], v[at + V.QUATERNION + 3]);
+        sceneTransform(mesh.position.set(x, y, z));
+        sceneTransform(mesh.quaternion.set(v[at + V.QUATERNION], v[at + V.QUATERNION + 1], v[at + V.QUATERNION + 2], v[at + V.QUATERNION + 3]));
       }
       // Items.presentLight: the light request goes to the pool at the drawn position, in draw
       // order.

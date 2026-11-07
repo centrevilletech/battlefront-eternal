@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {EFFECT} from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import {lighting} from './materials.js';
@@ -20,12 +21,12 @@ const FLARE_STRIDE = SF.STRIDE;
 // Native SniperTrace publishes borrowed interleaved rows. Resource admission
 // owns capsule/flare topology and material policy, with no Three CPU shell.
 function instanced(attributes,stride,layout,data,name,order){
- const mesh=new THREE.Object3D();mesh.name=name;mesh.frustumCulled=false;mesh.renderOrder=order;mesh.visible=false;
+ const mesh=new THREE.Object3D();mesh.name=name;sceneProperty(mesh,"frustumCulled",false);sceneProperty(mesh,"renderOrder",order);sceneProperty(mesh,"visible",false);
  const batch={mesh,data:null,arrays:{interleaved:null},capacity:0,count:0,attributes,stride,nativeKind:layout.ID,variant:0,texture:null,values:new Float64Array(layout.LENGTH),family:layout===EFFECT.SNIPER_STREAKS?'sniperStreaks':'sniperFlares'};
  mesh.userData.effectBatch=batch;bind(batch,data);return batch;
 }
 function bind(batch,data){batch.data=batch.arrays.interleaved=data;batch.capacity=data.length/batch.stride;}
-function upload(batch){batch.mesh.visible=batch.count>0&&!batch.external;}
+function upload(batch){sceneProperty(batch.mesh,"visible",batch.count>0);}
 
 export class SniperTrace {
   constructor(lights=null,view=null,muzzle=null){
@@ -134,7 +135,7 @@ export class SniperTrace {
   apply(){for(let i=0;i<this.counts[H.EVENTS];i++){const at=i*E.STRIDE,kind=this.events[at+E.KIND];
     if(kind===EK.RELEASE){this.callbacks.delete(this.events[at+E.TOKEN]);continue;}
     if(kind===EK.CALLBACK){const token=this.events[at+E.TOKEN],play=this.callbacks.get(token);this.callbacks.delete(token);play?.(this.events[at+E.SEED]<0?null:this.events[at+E.SEED]);this.refresh();continue;}
-    this.position.fromArray(this.events,at+E.POSITION);for(let k=0;k<3;k++)this.rgb[k]=this.events[at+E.COLOR+k];
+    sceneTransform(this.position.fromArray(this.events,at+E.POSITION));for(let k=0;k<3;k++)this.rgb[k]=this.events[at+E.COLOR+k];
     if(kind===EK.LIGHT)this.lights?.add?.(this.position,this.rgb,this.events[at+E.REACH]);
     else this.lights?.flash?.(this.position,this.rgb,this.events[at+E.REACH],this.events[at+E.TIME]);
   }}

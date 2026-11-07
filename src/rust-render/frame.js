@@ -1,3 +1,4 @@
+import {sceneLayer,sceneProperty,sceneTransform} from "./scene-changes.js";
 // Graphics.render and BattleHud.render still calculate view inputs during the
 // scene transition. This host seals named packets; Rust alone orders passes.
 import * as THREE from "three";
@@ -231,12 +232,12 @@ export class BattleFrame {
   mirror(water,camera) {
     if(!water)return;
     const core=this.core,g=core.graphics,r=core.renderer,w=water;
-    w.farGroup.visible=false;
-    if(w.ocean){w.group.visible=false;w.underwaterFog.visible=false;return;}
-    core.cameras.main(camera);w.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);w.frustum.setFromProjectionMatrix(w.matrix);
+    sceneProperty(w.farGroup,"visible",false);
+    if(w.ocean){sceneProperty(w.group,"visible",false);sceneProperty(w.underwaterFog,"visible",false);return;}
+    core.cameras.main(camera);sceneTransform(w.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));w.frustum.setFromProjectionMatrix(w.matrix);
     let visible=false;if(w.frustum.intersectsBox(w.bounds))for(const box of w.cellBounds)if(w.frustum.intersectsBox(box)){visible=true;break;}
     const below=camera.position.y<w.level,farVisible=!below&&w.farInView(camera);
-    w.group.visible=visible;w.farGroup.visible=farVisible;w.mirrorPass.visible=w.farMirror.visible=false;
+    sceneProperty(w.group,"visible",visible);sceneProperty(w.farGroup,"visible",farVisible);sceneProperty(w.mirrorPass,"visible",sceneProperty(w.farMirror,"visible",false));
     w.surfaceUniforms.cameraRange.value.set(camera.near,camera.far);
     w.resizeReflection();w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
     core.views();const f=core.frameFacts;
@@ -244,9 +245,9 @@ export class BattleFrame {
     f[F.MIRROR_NEAR]=+(w.reflectionFar&&w.quality.planarNear);f[F.MIRROR_LEVEL]=w.level;f[F.MIRROR_SIZE]=w.target.width;f[F.MIRROR_SIZE+1]=w.target.height;
     camera.position.toArray(f,F.MIRROR_EYE);w.forward.toArray(f,F.MIRROR_FORWARD);
     this.waterFacts(w,camera);core.rust.frame_select_frame();core.views();
-    w.underwaterFog.visible=!!core.frameState[S.FOG];
+    sceneProperty(w.underwaterFog,"visible",!!core.frameState[S.FOG]);
     if(!core.frameState[S.MIRROR_ELIGIBLE])return;
-    if(core.frameState[S.MIRROR_HELD]){w.mirrorPass.visible=w.farMirror.visible=true;return;}
+    if(core.frameState[S.MIRROR_HELD]){sceneProperty(w.mirrorPass,"visible",sceneProperty(w.farMirror,"visible",true));return;}
     const mirror=w.mirror;
     core.views();core.cameraInput[CI.WATER_LEVEL]=w.level;core.cameraInput[CI.NEAR_REFLECTION]=+!!w.reflectionFar;
     core.rust.camera_reflect_frame();core.views();
@@ -257,10 +258,10 @@ export class BattleFrame {
     core.views();core.frameFacts[F.MIRROR_CLIP_VALID]=1;
     const layers=g.skyLayers,n=Math.min(layers.length,256),sky=g.sky;
     const sx=sky?.position.x,sy=sky?.position.y,sz=sky?.position.z;
-    for(let i=0;i<n;i++){const mesh=layers[i].mesh;mesh.position.toArray(this.skyPositions,i*3);this.skyMasks[i]=mesh.layers.mask;this.skyVisible[i]=+mesh.visible;mesh.position.copy(mirror.position);}
+    for(let i=0;i<n;i++){const mesh=layers[i].mesh;mesh.position.toArray(this.skyPositions,i*3);this.skyMasks[i]=mesh.layers.mask;this.skyVisible[i]=+mesh.visible;sceneTransform(mesh.position.copy(mirror.position));}
     // A standalone sky is represented in skyLayers by the loader. Preserve
     // its legacy follow position as well when a synthetic scene omits it.
-    if(sky)sky.position.copy(mirror.position);
+    if(sky)sceneTransform(sky.position.copy(mirror.position));
 
     const bg=g.background.material.uniforms.map.value,farMap=lighting.farMap.value,soft=particleDepth.enabled.value,rings=w.rings.visible;
     this.resolution.copy(lighting.resolution.value);
@@ -269,26 +270,26 @@ export class BattleFrame {
     let skyCount=0;for(let i=0;i<n;i++)if(this.skyVisible[i])skyCount++;
     try {
       if(skyCount){
-        core.cameras.read(mirror,CR.MIRROR_PLAIN);core.cameras.roles.set(mirror,CR.MIRROR_PLAIN);mirror.layers.set(5);
-        for(let i=0;i<n;i++)if(this.skyVisible[i])layers[i].mesh.layers.enable(5);
+        core.cameras.read(mirror,CR.MIRROR_PLAIN);core.cameras.roles.set(mirror,CR.MIRROR_PLAIN);sceneLayer(mirror.layers,"set",5);
+        for(let i=0;i<n;i++)if(this.skyVisible[i])sceneLayer(layers[i].mesh.layers,"enable",5);
         this.role=R.MIRROR0_SKY;core.cover("farMirror",r,g.farScene,mirror);
-        for(let i=0;i<n;i++)if(this.skyVisible[i])layers[i].mesh.visible=false;
-        mirror.layers.set(0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
+        for(let i=0;i<n;i++)if(this.skyVisible[i])sceneProperty(layers[i].mesh,"visible",false);
+        sceneLayer(mirror.layers,"set",0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
       }
       core.views();core.frameFacts[F.MIRROR_SKY]=+(skyCount>0);
       this.role=R.MIRROR0_FAR;core.cover("farMirror",r,g.farScene,mirror);
-      for(let i=0;i<n;i++){layers[i].mesh.layers.mask=this.skyMasks[i];layers[i].mesh.visible=!!this.skyVisible[i];}
+      for(let i=0;i<n;i++){sceneProperty(layers[i].mesh.layers,"mask",this.skyMasks[i]);sceneProperty(layers[i].mesh,"visible",!!this.skyVisible[i]);}
       if(near){
-        w.group.visible=false;w.rings.visible=false;particleDepth.enabled.value=0;
+        sceneProperty(w.group,"visible",false);sceneProperty(w.rings,"visible",false);particleDepth.enabled.value=0;
         lighting.resolution.value.set(w.target.width,w.target.height);lighting.farMap.value=w.reflectionFar.texture;g.background.material.uniforms.map.value=w.reflectionFar.texture;
         g.updateScene();this.target(w.target);this.role=R.MIRROR0_NEAR;core.coverMirror(r,g.scene,mirror);
       }
     }finally{
-      w.group.visible=visible;w.mirrorPass.visible=w.farMirror.visible=true;w.rings.visible=rings;
+      sceneProperty(w.group,"visible",visible);sceneProperty(w.mirrorPass,"visible",sceneProperty(w.farMirror,"visible",true));sceneProperty(w.rings,"visible",rings);
       lighting.farMap.value=farMap;lighting.resolution.value.copy(this.resolution);particleDepth.enabled.value=soft;g.background.material.uniforms.map.value=bg;
       this.target(null);
-      for(let i=0;i<n;i++){const mesh=layers[i].mesh;mesh.position.fromArray(this.skyPositions,i*3);mesh.layers.mask=this.skyMasks[i];mesh.visible=!!this.skyVisible[i];}
-      if(sky)sky.position.set(sx,sy,sz);mirror.layers.set(0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
+      for(let i=0;i<n;i++){const mesh=layers[i].mesh;sceneTransform(mesh.position.fromArray(this.skyPositions,i*3));sceneProperty(mesh.layers,"mask",this.skyMasks[i]);sceneProperty(mesh,"visible",!!this.skyVisible[i]);}
+      if(sky)sceneTransform(sky.position.set(sx,sy,sz));sceneLayer(mirror.layers,"set",0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
     }
   }
   // Surface containment is still a camera/math fact. Rust selects the low

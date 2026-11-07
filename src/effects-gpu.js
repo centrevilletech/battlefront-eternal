@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { Draw as D, Effect as E } from './presentation/layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
@@ -15,8 +16,8 @@ export class AnalyticParticleBatch {
     // owns its quad, material and sampler descriptors, including emitter data.
     this.nativeKind=EFFECT.ANALYTIC.ID;this.family='analytic';this.variant=blending==='additive'?1:0;
     this.texture=texture;this.owner=owner;this.values=new Float64Array(0);
-    this.mesh=new THREE.Object3D();this.mesh.visible=false;
-    this.mesh.frustumCulled=false; this.mesh.renderOrder=10;
+    this.mesh=new THREE.Object3D();sceneProperty(this.mesh,"visible",false);
+    sceneProperty(this.mesh,"frustumCulled",false); sceneProperty(this.mesh,"renderOrder",10);
     this.mesh.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);
     this.arrays={}; this.records=[]; this.slots=[]; this.epochs=[]; this.count=0;
     this.grow(16384); this.begin();
@@ -46,7 +47,7 @@ export class AnalyticParticleBatch {
   end() {
     // Release dead references; capacity is the historical peak as with CPU batches.
     this.records.length=this.slots.length=this.epochs.length=this.count;
-    this.mesh.visible=this.count>0&&!this.external;
+    sceneProperty(this.mesh,"visible",this.count>0);
     this.unread=Math.min(this.unread??0,this.dirty);
   }
 }

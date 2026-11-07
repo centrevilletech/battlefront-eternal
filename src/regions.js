@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
 // World regions (wrld regn: TYPE, XFRM, SIZE) as the 2004 game builds and
@@ -49,7 +50,7 @@ export function buildRegion(region) {
 // Whether a built region holds a world point.
 export function inRegion(built, point, scratch = new THREE.Vector3()) {
   if (built.type === "sphere") return scratch.copy(point).sub(built.center).length() < built.radius;
-  scratch.copy(point).applyMatrix4(built.inverse);
+  sceneTransform(scratch.copy(point).applyMatrix4(built.inverse));
   const [a, b, c] = built.half;
   if (built.type === "cylinder") return Math.hypot(scratch.x, scratch.z) < built.radius && Math.abs(scratch.y) < b;
   if (built.type === "box") return Math.abs(scratch.x) < a && Math.abs(scratch.y) < b && Math.abs(scratch.z) < c;

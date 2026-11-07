@@ -1,3 +1,4 @@
+import {sceneTransform} from '../../rust-render/scene-changes.js';
 import { KIND_UNIT, KIND_UNITS, KIND_VEHICLE_TARGET, KIND_TURRET_TARGET, KIND_OBJECTIVE_TARGET,
   F3SensorMirror, F3SensorResultMirror, F3ShapeViewMirror, F3SensorShapeMirror, HitShapeMirror,
   F3PropFactMirror, F3TargetBoxMirror, F3RelationFactMirror, putF3RelationFact, putF3PropFact, syncF3SensorResult, syncF3ShapeView, syncF3BoundsView, refreshF3BoundsView, F3_BOUNDS_VIEW_REFRESH_WORDS } from '../gen/index.js';
@@ -177,12 +178,12 @@ export class F3Registry {
       putF3PropFact(b, fact, b.f, at, phase.heap); at += phase.foreignStride; count++;
       prior.id = member.id; prior.alive = alive; prior.dead = dead; prior.team = team;
       prior.health = health; prior.category = category; prior.kind = kind; prior.life = life; prior.body = body;
-      prior.position.copy(position); prior.bounds.center.copy(center); prior.bounds.radius = sphere.radius;
+      sceneTransform(prior.position.copy(position)); prior.bounds.center.copy(center); prior.bounds.radius = sphere.radius;
       prior.velocity.copy(velocity); prior.rollRate = rollRate;
       // The saved box owns its comparison vectors. Aliasing the live matrix
       // here would hide a later turn before the next changed-fact comparison.
       prior.box = box ? this.boxes[member.id] : null;
-      if (box) { prior.box.min.copy(box.min); prior.box.max.copy(box.max); prior.box.matrix.copy(box.matrix); }
+      if (box) { prior.box.min.copy(box.min); prior.box.max.copy(box.max); sceneTransform(prior.box.matrix.copy(box.matrix)); }
     }
     const buildings = phase.liveOwner ? 0 : phase.props.foreign(at);
     this.foreignHeader.count = count; this.foreignHeader.buildings = buildings; this.foreignHeader.network = networks;

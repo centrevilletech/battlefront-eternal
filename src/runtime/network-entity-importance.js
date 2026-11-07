@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 // Scheduling uses authoritative simulation state only. Client pose/velocity is
 // never accepted as an interest hint. This ranks records; it is not visibility
 // culling and never removes the low-priority starvation floor.
@@ -28,7 +29,7 @@ export function entityUpdateInterval(record,{position,velocity=[0,0,0],forward}=
   if(['seat','tombstone','combat'].includes(record.kind))return 2;
   if(record.health===0&&!thrownCorpse(record))return 30;
   if(!position||!record.position)return record.kind==='summary'?30:12;
-  const delta=record.position.map((n,i)=>n-position[i]);
+  const delta=sceneTransform(record.position.map((n,i)=>n-position[i]));
   const distance=Math.hypot(...delta),inverse=distance>1e-6?1/distance:0;
   const closing=Math.max(0,delta.reduce((sum,n,i)=>sum+n*((velocity?.[i]||0)-(record.velocity?.[i]||0)),0)*inverse);
   const view=forward?delta.reduce((sum,n,i)=>sum+n*forward[i],0)*inverse:0;

@@ -1,3 +1,4 @@
+import {sceneTransform} from '../../rust-render/scene-changes.js';
 import * as THREE from 'three';
 import { Arsenal } from '../../weapons.js';
 import { valueWords } from './weapon-content-sim.js';
@@ -273,7 +274,7 @@ export class F3Recon {
     // The simulation camera is state used by remote correction capture.
     // Publishing its native pose avoids running chase rays or three.js
     // camera interpolation again in the authoritative JavaScript world.
-    context.aimCamera.position.copy(event.camera.position);context.aimCamera.quaternion.copy(event.camera.rotation);
+    sceneTransform(context.aimCamera.position.copy(event.camera.position));sceneTransform(context.aimCamera.quaternion.copy(event.camera.rotation));
     context.viewState.reach = event.camera.reach;context.viewState.fresh = event.camera.fresh;context.viewState.fov = event.camera.fov;
     context.simulationView = event.piloted ? context.viewState : null;
     context.droids.length = event.droids.length;
@@ -287,7 +288,7 @@ export class F3Recon {
   droidState(event) {
     const droid = event.droid;
     for (let i = 0; i < DROID_FIELDS.length; i++) { const name = DROID_FIELDS[i];droid[name] = event[name]; }
-    droid.position.copy(event.position);droid.velocity.copy(event.velocity);
+    sceneTransform(droid.position.copy(event.position));droid.velocity.copy(event.velocity);
     droid.eye.copy(event.eye);droid.aimDir.copy(event.aim);droid.target.copy(event.target);
     droid.salvo = event.salvo ? droid.salvoStorage : null;
     if (event.salvo) {

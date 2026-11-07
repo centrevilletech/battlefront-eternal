@@ -15,6 +15,11 @@ test('native multiplayer input lanes execute short clicks and delayed choices an
     const options = { team: 1, separateActions: true, reliableFire: true };
     await world.addPlayer('input', options);
     let p = world.players.get('input');
+    // Drive the host clock explicitly: a busy test runner must not expire
+    // live input between these consecutive native ticks.
+    // The players owner keeps lastInputAt natively; the host supplies time.
+    const hostAt = performance.now();
+    const advance = () => world.step(hostAt);
     assert.ok(game.liveOwner && game.tailOwner, 'native phases own the world');
     p.actions.enableOutcomes(); p.fire.enableOutcomes();
     const tick = game.worldClock.tick + 1, generation = p.unit.generation;
@@ -22,16 +27,16 @@ test('native multiplayer input lanes execute short clicks and delayed choices an
     assert.ok(world.input('input', { epoch: 1, sequence: 20, tick, generation, down: [], actions: [], look: [] }));
     assert.ok(world.fire('input', { epoch: 1, id: 1, tick, generation, button: 0, pressed: true }));
     assert.ok(world.fire('input', { epoch: 1, id: 2, tick, generation, button: 0, pressed: false }));
-    world.step();
+    advance();
     assert.equal(p.actions.ack, 0);
     assert.deepEqual(p.fire.buttons, [1, 0]);
     assert.deepEqual(p.fire.drainOutcomes(), [{ id: 1, status: 'consumed' }]);
-    world.step();
+    advance();
     assert.equal(p.actions.ack, 1); assert.deepEqual(p.fire.buttons, [0, 0]);
     assert.deepEqual(p.actions.drainOutcomes(), [{ id: 1, status: 'consumed' }]);
     assert.deepEqual(p.fire.drainOutcomes(), [{ id: 2, status: 'consumed' }]);
     assert.ok(world.actions('input', { epoch: 1, id: 2, tick, generation, actions: [], human: [{ kind: 'suicide' }] }));
-    world.step();
+    advance();
     assert.equal(p.unit.alive, false); assert.equal(p.actions.ack, 2); assert.equal(p.mailbox.ack, 20);
     assert.deepEqual(p.actions.drainOutcomes(), [{ id: 2, status: 'consumed' }]);
     const previous = p.actions;

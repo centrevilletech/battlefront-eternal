@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
@@ -60,7 +61,7 @@ const ROW=EFFECT.JET_PARTICLES;
 export class FountainJets {
   constructor(scene,spray,graphics,{foam=null,tier=false}={}) {
     this.scene=scene;this.graphics=graphics;this.spray=spray;this.foam=foam;this.tier=tier;
-    this.levels=new Float32Array(FOUNTAINS);this.lows=new Float32Array(FOUNTAINS);this.visible=new Float32Array(FOUNTAINS);
+    this.levels=new Float32Array(FOUNTAINS);this.lows=new Float32Array(FOUNTAINS);sceneProperty(this,"visible",new Float32Array(FOUNTAINS));
     this.resources=null;this.behind=null;this.atlas=-1;this.samples=new Int32Array(3);this.samples.fill(-1);
     this.batches=[];this.meshes=[];this.targets=[];
     // FountainJets used geometry.userData.perFountain to select the active
@@ -68,7 +69,7 @@ export class FountainJets {
     const part=(name,kind,variant)=>{
       const batch={nativeKind:kind,family:'jets',variant,texture:null,count:0,capacity:FOUNTAINS,visibility:'anchor',arrays:{},
         values:new Float64Array(ROW.LENGTH),jetsOwner:this,prepareResources:resources=>this.prepareResources(resources)};
-      const mesh=batch.mesh=new THREE.Object3D();mesh.userData.effectBatch=batch;mesh.name=name;mesh.frustumCulled=false;mesh.visible=false;
+      const mesh=batch.mesh=new THREE.Object3D();mesh.userData.effectBatch=batch;mesh.name=name;sceneProperty(mesh,"frustumCulled",false);sceneProperty(mesh,"visible",false);
       this.batches.push(batch);return batch;
     };
     const particles=(name,group,before=false)=>part(name,EFFECT.JET_PARTICLES.ID,(group<<2)|(before?1:0)|(tier?2:0));
@@ -82,7 +83,7 @@ export class FountainJets {
         values:new Float64Array(EFFECT.JET_COMPOSITE.LENGTH),volumeBatch:inner,target:null,
         prepareResources:resources=>{this.prepareResources(resources);composite.target=resources.effectTarget(EFFECT_TARGET.SPRAY);this.targets.push(composite.target);return Int32Array.of(composite.target.texture);},
         prepare:(renderer,scene,camera)=>this.prepareSpray(renderer,camera,composite)};
-      const mesh=composite.mesh=new THREE.Object3D();mesh.userData.effectBatch=composite;mesh.name=name;mesh.frustumCulled=false;mesh.visible=false;
+      const mesh=composite.mesh=new THREE.Object3D();mesh.userData.effectBatch=composite;mesh.name=name;sceneProperty(mesh,"frustumCulled",false);sceneProperty(mesh,"visible",false);
       composite.owner=this;inner.composite=composite;return composite;
     };
     const rows=[particles('fountain-pool',0)];
@@ -92,7 +93,7 @@ export class FountainJets {
     rows.push(particles('fountain-jets-near',2,true));
     if(tier)rows.push(film('fountain-overflow-near',true));
     rows.push(ropes('fountain-ropes-near',true),soft('fountain-spray-before',true));
-    for(let k=0;k<rows.length;k++){const batch=rows[k],mesh=batch.mesh;mesh.renderOrder=9+k*.05;this.meshes.push(mesh);scene.add(mesh);fountainJets.set(mesh,this);}
+    for(let k=0;k<rows.length;k++){const batch=rows[k],mesh=batch.mesh;sceneProperty(mesh,"renderOrder",9+k*.05);this.meshes.push(mesh);scene.add(mesh);fountainJets.set(mesh,this);}
     this.rows=rows;
   }
   // All procedural geometry, atlas bytes, shader selection, constants and
@@ -129,7 +130,7 @@ export class FountainJets {
       for(let i=0;i<FOUNTAINS;i++)this.spray.sources[i].toArray(v,ROW.SOURCES+i*4);
       v.set(this.levels,ROW.LEVELS);v.set(this.lows,ROW.LOWS);v.set(this.visible,ROW.VISIBLE);v[ROW.FRAG_SCALE]=v[ROW.FRAG_SCALE+1]=1;
     }
-    for(const row of this.rows)row.mesh.visible=shown>0;
+    for(const row of this.rows)sceneProperty(row.mesh,"visible",shown>0);
   }
   dispose() {
     for(const mesh of this.meshes)mesh.removeFromParent();

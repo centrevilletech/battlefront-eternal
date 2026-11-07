@@ -1,3 +1,4 @@
+import {sceneTransform} from '../../rust-render/scene-changes.js';
 import {PHASE_DELTA_WORDS, BlockHeaderLayout} from '../gen/boundary.js';
 import {F3CombatField_VALUE as C} from '../gen/combat.js';
 import {F3DroidekaClassMirror,F3DroidekaClassLayout,putF3DroidekaClass,F3BoundaryLayout,
@@ -645,7 +646,7 @@ class F3 {
     this.change.value = yaw;
     this.commit();
     unit.intent = blankIntent();binding.observeIntent();
-    unit.presentation.reset(); unit.animator.reset(yaw); unit.actor.root.position.copy(unit.presentation.position);
+    unit.presentation.reset(); unit.animator.reset(yaw); sceneTransform(unit.actor.root.position.copy(unit.presentation.position));
   }
   remove(unit) {
     this.begin(this.bindings[unit.id], 'remove');
@@ -704,7 +705,7 @@ class F3 {
     if (!unit.held) return;
     this.begin(this.bindings[unit.id], 'letGo'); this.commit();
     unit.animator?.gunner?.(null); const root = unit.actor?.root;
-    if (root) root.rotation.set(0, root.rotation.y, 0);
+    if (root) sceneTransform(root.rotation.set(0, root.rotation.y, 0));
   }
   // Game.spawnUnit's post-spawn hero flag and network lifecycle metadata
   // are explicit commands. They never write a body back into the instance.
@@ -1233,7 +1234,7 @@ class F3 {
         // Other motion fields arrive once through the completed publication.
         const body = unit.soldier;
         body.aimYaw = a.aimYaw; body.aimPitch = a.aimPitch;
-        body.position.copy(a.position); body.velocity.copy(a.velocity);
+        sceneTransform(body.position.copy(a.position)); body.velocity.copy(a.velocity);
         if (!unit.walker) body.posture = a.posture;
         unit.tickCount = a.tickCount;
         binding.aimed = true;

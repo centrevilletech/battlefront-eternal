@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { programLayouts } from '../src/render-programs.js';
-import { ownedWorldProgram, compileUnowned } from '../src/rust-render/world-programs.js';
+import { ownedWorldProgram } from '../src/rust-render/world-programs.js';
 
 function fixture(s) {
   const lights = [...Array.from({length:s.points},()=>({isPointLight:true,layers:{test:()=>true}})),
@@ -37,13 +37,6 @@ test('an uncensused feature combination fails instead of selecting a near match'
   assert.deepEqual(calls,[]);
 });
 
-test('loader compilation excludes world shells and restores them even on failure',()=>{
-  const material={userData:{bfeFamily:'world'}},object={material,userData:{}};
-  const scene={traverse(fn){fn(object);}};
-  const renderer={compile(){assert.equal(object.material,null);throw Error('fixture failure');}};
-  assert.throws(()=>compileUnowned(renderer,scene,{}),/fixture failure/);
-  assert.equal(object.material,material);
-});
 
 test('a far material selects the new shadow setup without a material version change',()=>{
   const entries=Object.entries(programLayouts).filter(([,p])=>p.selector);

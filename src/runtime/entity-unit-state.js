@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 // Explicit presentation state beside a body's motion record. Every weapon is
 // covered (including the secondary thrower); renderers never run its gameplay.
 const NUMBERS=['heat','wait','reloadLeft','throwTime','charge','held','lockElapsed'];
@@ -79,7 +80,7 @@ export function applyUnitState(game,record,registry){
   const arsenal=unit.combat.arsenal;
   const resolved=state.weapons.map(s=>{const w=arsenal.weapons.find(w=>w.name===s.name);if(!w||!w.levels[s.level])throw Error('Missing unit weapon prerequisite');return w;});
   unit.hero=state.hero;unit.targetable=state.targetable;
-  unit.actor.root.visible=state.visible;unit.combat.blowApart=state.blowApart;unit.combat.repairLock=state.repairLock;
+  sceneProperty(unit.actor.root,"visible",state.visible);unit.combat.blowApart=state.blowApart;unit.combat.repairLock=state.repairLock;
   // A dead droid blown apart is gone for this life (Unit.goUp), even if its
   // blow-apart event never arrived.
   if(unit.dead&&state.blowApart)unit.goUp?.();

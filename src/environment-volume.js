@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
@@ -61,7 +62,7 @@ export class EnvironmentVolume {
     for(let i=0;i<4;i++)v[EFFECT.VOLUME.REFLECTION_MATRIX+i*5]=1;
     this.volumeSamples=new Int32Array(2);this.volumeSamples.fill(-1);
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;this.mesh.name='environment-volumes';
-    this.mesh.frustumCulled=false;this.mesh.renderOrder=10;this.mesh.visible=false;
+    sceneProperty(this.mesh,"frustumCulled",false);sceneProperty(this.mesh,"renderOrder",10);sceneProperty(this.mesh,"visible",false);
     environmentVolumes.set(this.mesh,this);scene.add(this.mesh);
   }
   // Ports EnvironmentVolume.prepare. Target descriptors remain native; only
@@ -77,7 +78,7 @@ export class EnvironmentVolume {
   }
   update(time,volumes) {
     const batch=this.volumeBatch,v=batch.values,a=batch.arrays;
-    this.mesh.visible=volumes.length>0;batch.count=Math.min(volumes.length,batch.capacity);
+    sceneProperty(this.mesh,"visible",volumes.length>0);batch.count=Math.min(volumes.length,batch.capacity);
     v[EFFECT.VOLUME.VOLUME_TIME]=time;v.set(this.wakes.host.wakePoints,EFFECT.VOLUME.WAKES);v.set(this.wakes.host.wakeMotion,EFFECT.VOLUME.MOTION);
     const reflection=this.reflectionUniforms;
     if(reflection.reflectionMatrix)v.set(reflection.reflectionMatrix.value.elements,EFFECT.VOLUME.REFLECTION_MATRIX);

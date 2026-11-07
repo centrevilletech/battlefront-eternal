@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { SurfaceHost } from "./environment/surfaces.js";
@@ -224,7 +225,7 @@ export class Foliage {
       const axisZ = new THREE.Vector3().crossVectors(axisX, axisY).normalize();
       m.makeBasis(axisX, axisY, axisZ).setPosition(position);
       const sphere = kind.grass && !inst.terrain ? null : kind.bounds.getBoundingSphere(new THREE.Sphere());
-      if (sphere) sphere.applyMatrix4(m);
+      if (sphere) sceneTransform(sphere.applyMatrix4(m));
       kind.instances.push({
         position,
         matrix: m,

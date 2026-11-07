@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorLook} from './actor-resources.js';
 import { ownedEffectMaterial } from "./rust-render/effect-material.js";
 import * as THREE from "three";
@@ -194,13 +195,13 @@ export function selectLights(material, object, geometry, scene, camera) {
   if (object.isSkinnedMesh) {
     const sphere = object.boundingSphere;
     if (sphere && object.userData.poseSphere) {
-      maskCenter.copy(sphere.center).applyMatrix4(object.matrixWorld);
-      mask = sphereLightMask(pack, maskCenter, sphere.radius * object.matrixWorld.getMaxScaleOnAxis());
+      sceneTransform(maskCenter.copy(sphere.center).applyMatrix4(object.matrixWorld));
+      mask = sphereLightMask(pack, maskCenter, sphere.radius * sceneTransform(object.matrixWorld.getMaxScaleOnAxis()));
     }
   } else if (!object.isInstancedMesh) {
     if (!geometry.boundingBox) geometry.computeBoundingBox();
     maskBox.copy(geometry.boundingBox);
-    if (!object.matrixWorld.equals(IDENTITY)) maskBox.applyMatrix4(object.matrixWorld);
+    if (!object.matrixWorld.equals(IDENTITY)) sceneTransform(maskBox.applyMatrix4(object.matrixWorld));
     mask = lightMask(pack, maskBoxes);
   }
   setLightMask(material, pack, mask);
@@ -231,7 +232,7 @@ let neutral = null;
 function neutralTexture() {
   if (!neutral) {
     neutral = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
-    neutral.needsUpdate = true;
+    sceneProperty(neutral,"needsUpdate",true);
   }
   return neutral;
 }

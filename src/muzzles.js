@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import {actorPoint,actorPointCount} from './actor-resources.js';
 import * as THREE from "three";
 
@@ -70,7 +71,7 @@ export function vehicleMuzzleTips(rig, parts) {
       const name = joint !== undefined ? rig.bones[joint]?.name.toLowerCase() : part.bone?.toLowerCase();
       if (!points.has(name)) continue;
       const p=actorPoint(part.asset,i,new THREE.Vector3());
-      if (joint !== undefined) p.applyMatrix4(inverse[joint]);
+      if (joint !== undefined) sceneTransform(p.applyMatrix4(inverse[joint]));
       points.get(name).push(p);
     }
   }

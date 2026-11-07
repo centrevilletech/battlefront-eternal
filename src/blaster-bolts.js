@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from "./rust-render/effect-layout.js";
 import * as THREE from "three";
 import { texturePixels } from "./texture-pixels.js";
@@ -38,8 +39,8 @@ export class BlasterBatch {
     this.values[EFFECT.BLASTER.PIXEL_ANGLE] = 0.002;
     this.mesh = new THREE.Object3D();
     this.mesh.name = "blaster-bolts";
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 11;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",11);
     const size = new THREE.Vector2();
     this.mesh.onBeforeRender = (renderer, scene, camera) => {
       particleDepth.capture(renderer, scene, camera);
@@ -93,7 +94,7 @@ export class BlasterBatch {
   // The renderer reads the active prefix directly. No attribute versions or
   // secondary Three upload ranges are published by Batch.end.
   end() {
-    this.mesh.visible = this.count > 0 && !this.external;
+    sceneProperty(this.mesh,"visible",this.count > 0);
   }
 }
 

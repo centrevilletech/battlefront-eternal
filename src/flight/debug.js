@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "../rust-render/scene-changes.js";
 import { lineSource, LINE_KIND } from '../line-source.js';
 import * as THREE from 'three';
 import { FLIGHT_CLASSES } from './config.js';
@@ -23,8 +24,8 @@ export class FlightDebug {
     this.lines = lineSource(LINE_KIND.FLIGHT,128); scene.add(this.lines);
   }
   update(v, cameraTarget) {
-    this.axes.visible = this.lines.visible = Boolean(v?.flying); if (!v?.flying) return;
-    this.axes.position.copy(v.root.position); this.axes.quaternion.copy(v.root.quaternion);
+    sceneProperty(this.axes,"visible",sceneProperty(this.lines,"visible",Boolean(v?.flying))); if (!v?.flying) return;
+    sceneTransform(this.axes.position.copy(v.root.position)); sceneTransform(this.axes.quaternion.copy(v.root.quaternion));
     this.readout.textContent = JSON.stringify({ state: v.flightState, speed: v.airspeed, rates: [v.tiltRate, v.yawRate, v.flightRollRate], stick: [v.stickX, v.stickY], bank: v.bank, rollLock: v.rollLock, power: v.power, lock: v.flightLockState, timer: v.flightLockTimer, landing: v.landingReason }, null, 2);
     const p=v.root.position,q=v.root.quaternion,source=this.lines.userData.lineSource;
     source.count=0;
@@ -32,7 +33,7 @@ export class FlightDebug {
     this.end.copy(p);this.end.y-=v.flightConfig.landingHeight;this.segment(p,this.end);
     if(cameraTarget)this.segment(p,cameraTarget);
     const radius=Math.tan(v.flightConfig.lockCone*Math.PI/180)*60;
-    for(let i=0;i<16;i++){this.end.set(Math.cos(i*Math.PI/8)*radius,Math.sin(i*Math.PI/8)*radius,60).applyQuaternion(q).add(p);this.segment(p,this.end);}
+    for(let i=0;i<16;i++){sceneTransform(this.end.set(Math.cos(i*Math.PI/8)*radius,Math.sin(i*Math.PI/8)*radius,60).applyQuaternion(q)).add(p);this.segment(p,this.end);}
     source.serial++;
   }
   // FlightDebug's line helper writes the bounded source directly, without

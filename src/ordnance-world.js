@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import { resolveOrdnanceOwner } from "./ordnance-owner.js";
 import { legacyRandom } from "./ai/random.js";
 import { strikeable } from "./registry.js";
@@ -126,13 +127,13 @@ export class OrdnanceWorld {
   // A beam's start in its source's frame, for the beam to follow it, or null
   // for a source that does not move.
   beamLocalOrigin(source, origin) {
-    return source?.matrix ? origin.clone().applyMatrix4(source.matrix.clone().invert()) : null;
+    return source?.matrix ? sceneTransform(origin.clone().applyMatrix4(source.matrix.clone().invert())) : null;
   }
 
   // A following beam's start and direction now: its local start through the
   // source's frame, and the source's view direction where it has one.
   beamPose(source, localOrigin, position, direction) {
-    position.copy(localOrigin).applyMatrix4(source.matrix);
+    sceneTransform(position.copy(localOrigin).applyMatrix4(source.matrix));
     source.viewDirection?.(direction);
   }
 

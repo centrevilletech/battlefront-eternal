@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "../rust-render/scene-changes.js";
 import * as THREE from "three";
 import { EffectResources } from "../effects.js";
 import { presentationProfile } from "../presentation-profile.js";
@@ -47,8 +48,8 @@ export class EffectHandle {
       (velocity && !this.velocity.equals(velocity))
     )
       this.dirty = true;
-    this.position.copy(position);
-    if (quaternion) this.quaternion.copy(quaternion);
+    sceneTransform(this.position.copy(position));
+    if (quaternion) sceneTransform(this.quaternion.copy(quaternion));
     if (velocity) this.velocity.copy(velocity);
   }
   get tint() {
@@ -100,9 +101,9 @@ export class EffectHandle {
     for (const em of this.emitters) {
       const box = em.def.spawner.offset;
       const offset = (em.offset ||= new THREE.Vector3());
-      offset
+      sceneTransform(offset
         .set((box[0][0] + box[0][1]) * 0.5, (box[1][0] + box[1][1]) * 0.5, (box[2][0] + box[2][1]) * 0.5)
-        .applyQuaternion(this.quaternion);
+        .applyQuaternion(this.quaternion));
       const authored = (em.authored ||= new THREE.Vector3());
       authored.copy(offset).add(this.position);
       let frame = frames[0];
@@ -110,11 +111,11 @@ export class EffectHandle {
         if (authored.distanceToSquared(frame.position) >= authored.distanceToSquared(frames[i].position))
           frame = frames[i];
       const axis = (em.axis ||= new THREE.Vector3());
-      axis.set(-1, 0, 0).applyQuaternion(this.quaternion);
+      sceneTransform(axis.set(-1, 0, 0).applyQuaternion(this.quaternion));
       em.nozzleTurn ||= new THREE.Quaternion();
       em.nozzleTurn.setFromUnitVectors(axis, frame.direction);
       em.nozzleOffset ||= new THREE.Vector3();
-      em.nozzleOffset.copy(frame.position).sub(this.position).sub(offset.applyQuaternion(em.nozzleTurn));
+      em.nozzleOffset.copy(frame.position).sub(this.position).sub(sceneTransform(offset.applyQuaternion(em.nozzleTurn)));
     }
     this.nozzleDirty = true;
   }
@@ -361,10 +362,10 @@ export class PageEffects extends EffectResources {
           this.scene.add(mesh);
         }
         pool.used++;
-        mesh.visible = true;
-        mesh.position.fromArray(draws, at + D.POSITION);
-        mesh.quaternion.fromArray(draws, at + D.TURN);
-        mesh.scale.setScalar(draws[at + D.SIZE]);
+        sceneProperty(mesh,"visible",true);
+        sceneTransform(mesh.position.fromArray(draws, at + D.POSITION));
+        sceneTransform(mesh.quaternion.fromArray(draws, at + D.TURN));
+        sceneTransform(mesh.scale.setScalar(draws[at + D.SIZE]));
         mesh.userData.material.color.setRGB(draws[at + D.COLOR], draws[at + D.COLOR + 1], draws[at + D.COLOR + 2]);
         mesh.userData.material.opacity = draws[at + D.COLOR + 3];
         continue;
@@ -409,7 +410,7 @@ export class PageEffects extends EffectResources {
     this.renderer.end();
     this.gpu?.end();
     for (const pool of this.meshes.values())
-      for (let i = pool.used; i < pool.list.length; i++) pool.list[i].visible = false;
+      for (let i = pool.used; i < pool.list.length; i++) sceneProperty(pool.list[i],"visible",false);
     let kept = 0;
     for (let i = 0; i < this.effects.length; i++) {
       const effect = this.effects[i];

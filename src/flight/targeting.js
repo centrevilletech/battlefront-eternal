@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 // OrdnanceWorld's remaining foreign seeker service. Hull assist and lock
 // acquisition run inside the native world/prediction owners.
 import { FLIGHT_CLASSES } from './config.js';
@@ -17,6 +18,6 @@ export function navigateMissile(r,target,dt) {
   const acceleration=omega.cross(r.velocity.clone().normalize()).multiplyScalar(tuning.missileNavigation*closing);
   const wanted=r.velocity.clone().addScaledVector(acceleration,dt).normalize();
   const from=r.velocity.clone().normalize(),angle=from.angleTo(wanted),cap=tuning.missileTurnRate*dt;
-  if(angle>1e-7){const q=new THREE.Quaternion().setFromUnitVectors(from,wanted);q.slerpQuaternions(new THREE.Quaternion(),q.clone(),Math.min(1,cap/angle));r.velocity.applyQuaternion(q);}
+  if(angle>1e-7){const q=new THREE.Quaternion().setFromUnitVectors(from,wanted);q.slerpQuaternions(new THREE.Quaternion(),q.clone(),Math.min(1,cap/angle));sceneTransform(r.velocity.applyQuaternion(q));}
 
 }

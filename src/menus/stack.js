@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import { menuSound } from "./sounds.js";
 
 // The screens the player has gone through, the top one live: pushing enters
@@ -125,7 +126,7 @@ export class ScreenStack {
   pointerMove(x, y) {
     this.pointer.x = x;
     this.pointer.y = y;
-    this.pointer.visible = true;
+    sceneProperty(this.pointer,"visible",true);
     const top = this.top;
     if (!top) return;
     if (this.pointer.held && this.dragging) {

@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
@@ -33,7 +34,7 @@ export class StormSky {
    for(let i=0;i<bytes.length;i++)bytes[i]=random()*255;
    this.noise=new THREE.Data3DTexture(bytes,64,64,64);
    this.noise.format=THREE.RedFormat;this.noise.minFilter=this.noise.magFilter=THREE.LinearFilter;
-   this.noise.wrapS=this.noise.wrapT=this.noise.wrapR=THREE.RepeatWrapping;this.noise.unpackAlignment=1;this.noise.needsUpdate=true;
+   this.noise.wrapS=this.noise.wrapT=this.noise.wrapR=THREE.RepeatWrapping;this.noise.unpackAlignment=1;sceneProperty(this.noise,"needsUpdate",true);
    this.target=new THREE.WebGLRenderTarget(768,384,{depthBuffer:false});
    this.target.texture.wrapS=THREE.RepeatWrapping;
    Object.assign(uniforms,{cloudMap:{value:this.target.texture},cloudReady:{value:0},volumeNoise:{value:this.noise},eyePosition:{value:new THREE.Vector3()},
@@ -41,7 +42,7 @@ export class StormSky {
    this.cloudPass=ownedFullScreenPass('effects/storm-clouds',uniforms);this.cloudPass.material.userData.bfeNoShadows=true;this.passCamera=new THREE.Camera();
    // Drawn in the dome's place, just after it (world.js), so the models on
    // its horizon draw over the panorama as they draw over the dome.
-   this.sky=ownedFullScreenPass('effects/storm-sky',uniforms);this.sky.name='storm-volume-clouds';this.sky.renderOrder=SKY_ORDER+.5;
+   this.sky=ownedFullScreenPass('effects/storm-sky',uniforms);this.sky.name='storm-volume-clouds';sceneProperty(this.sky,"renderOrder",SKY_ORDER+.5);
    this.horizonMaterials=new Map();this.replaced=[];
    this.sky.onBeforeRender=(renderer,scene,camera)=>{uniforms.viewRotation.value.copy(camera.matrixWorld);uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);};
    this.positions=surfaceHost.stormPositions;this.tangents=surfaceHost.stormTangents;
@@ -51,22 +52,22 @@ export class StormSky {
      arrays:{position:this.positions,tangent:this.tangents,edge:this.edges,width:this.widths,energy:this.energies},values:new Float64Array(EFFECT.STORM_LIGHTNING.LENGTH)};
    for(const [key,name,field]of [['position','stormPositions','positions'],['tangent','stormTangents','tangents'],['edge','stormEdges','edges'],['width','stormWidths','widths'],['energy','stormEnergies','energies']]){surfaceHost.bindArray(this.boltSource.arrays,key,name);surfaceHost.bindArray(this,field,name);}
    this.bolt.userData.effectFar=this.boltSource;
-   this.bolt.name='storm-lightning';this.bolt.frustumCulled=false;this.bolt.renderOrder=8;
-   this.sky.visible=this.bolt.visible=false;graphics.farScene.add(this.sky,this.bolt);
+   this.bolt.name='storm-lightning';sceneProperty(this.bolt,"frustumCulled",false);sceneProperty(this.bolt,"renderOrder",8);
+   sceneProperty(this.sky,"visible",sceneProperty(this.bolt,"visible",false));graphics.farScene.add(this.sky,this.bolt);
    graphics.rust.byName.far.admitEffect(this.bolt,this.boltSource);
  }
  setEnabled(enabled) {
    if(this.enabled===enabled)return;
-   this.enabled=enabled;this.sky.visible=enabled;this.bolt.visible=false;
+   this.enabled=enabled;sceneProperty(this.sky,"visible",enabled);sceneProperty(this.bolt,"visible",false);
    if(enabled){
      // Every part of the dome gives way to the panorama; the models on its
      // horizon stay, in the storm's light.
      const graphics=this.graphics,layers=graphics.skyLayers?.length?graphics.skyLayers:graphics.sky?[{mesh:graphics.sky,layer:0}]:[];
      this.replaced=layers.map(({mesh,layer})=>({mesh,layer,visible:mesh.visible,material:mesh.material}));
-     for(const {mesh,layer,material} of this.replaced){if(layer)mesh.material=this.horizonMaterial(material);else mesh.visible=false;}
+     for(const {mesh,layer,material} of this.replaced){if(layer)sceneProperty(mesh,"material",this.horizonMaterial(material));else sceneProperty(mesh,"visible",false);}
      this.cloudGeneration=(this.cloudGeneration||0)+1;
    } else {
-     for(const {mesh,layer,visible,material} of this.replaced){if(layer)mesh.material=material;else mesh.visible=visible;}
+     for(const {mesh,layer,visible,material} of this.replaced){if(layer)sceneProperty(mesh,"material",material);else sceneProperty(mesh,"visible",visible);}
      this.replaced=[];this.restoreLight();this.uniforms.lightningFlash.value=0;
    }
  }
@@ -101,7 +102,7 @@ export class StormSky {
    }
    const flash=result[RESULT.STORM_FLASH];
    this.boltSource.values[EFFECT.STORM_LIGHTNING.LIGHTNING_FLASH]=flash;
-   this.uniforms.lightningFlash.value=flash;this.bolt.visible=flash>.005;
+   this.uniforms.lightningFlash.value=flash;sceneProperty(this.bolt,"visible",flash>.005);
    if(flash>0){
      this.graphics.rust.cameras.flash(flash);
      this.previousFlash=flash;

@@ -1,3 +1,4 @@
+import {Family} from './scene.js';
 import {nativeActorSource} from '../actor-resources.js';
 import {ACTOR} from './actor-layout.js';
 // EffectsPass publishes live presentation rows into effects.rs. Native
@@ -100,10 +101,7 @@ function lateOf(record, late) {
 
 // The order of the nearest Group above an object, as three's projectObject
 // passes it down (0 without one).
-function groupOrderOf(object) {
-  for (let o = object.parent; o; o = o.parent) if (o.isGroup) return o.renderOrder;
-  return 0;
-}
+
 
 class EffectsPass {
   constructor(core) {
@@ -130,12 +128,12 @@ class EffectsPass {
     this.shadows = core.shadowsOn();
     this.linkQueue = [];
     this.ownedInitial = true;
-    this.collectOwned = (root) => root.traverse((mesh) => {
+    this.collectOwned = (mesh) => {
       if(mesh.userData.effectModel?.family!=="ocean"&&mesh.userData.effectModel&&!this.glows.has(mesh))this.registerNativeModel(mesh.userData.effectModel);
       if(mesh.userData.effectMesh&&!this.shaderMeshes.has(mesh))this.registerDynamic(mesh.userData.effectMesh);
       const batch=mesh.userData.effectBatch;
       if(batch && batch.family!=="arcView" && !this.byBatch.has(batch) && !this.waiting.has(batch)) this.waiting.set(batch,()=>this.registerBatch(batch,batch.family,null));
-    });
+    };
     this.batchCount = -1;
     this.waiting = new Map(); // batch -> its registration, run in beforeSort once its geometry is ready
     this.frame = 0;this.clipped=0;this.nativeCapacity=1<<20;
@@ -169,8 +167,8 @@ class EffectsPass {
       const queued = this.linkQueue.pop();
       if (queued) ownedProgram(this.core, queued, null);
       const collect = this.collectOwned;
-      if (this.ownedInitial) { collect(scene); this.ownedInitial = false; }
-      else for (const root of added || []) collect(root);
+      for(const object of added||[])collect(object);
+      this.batches();this.lightning();
 
     } catch (error) {
       this.core.errors.push(`effects before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
@@ -317,7 +315,7 @@ class EffectsPass {
     }
     if(batch.waterOwner){batch.waterOwner.prepareResources(core);batch.values.set(core.rust.water_values(batch.waterOwner.sourceId,batch.nativeKind));}
     const owner=kind==="analytic"?this.owner(batch.owner):-1;
-    if(owner>=MAX_OWNERS){batch.external=true;batch.mesh.visible=false;this.clipped++;return null;}
+    if(owner>=MAX_OWNERS){this.clipped++;return null;}
     const id = core.rust.effect_batch(batch.nativeKind, batch.variant, core.shadowsOn(), texture, batch.capacity, owner, samplers);
     const interleaved = Boolean(batch.data);
     const attributes=interleaved||core.rust.effect_fixed(id)?[]:EFFECT_INPUTS[batch.nativeKind];
@@ -337,7 +335,7 @@ class EffectsPass {
     record.prepareJets=()=>{const c=this.context;record.jets.prepare(c.renderer,c.camera);};
     if(spec.into)return record;
     if(batch.volumeBatch){record.volume=this.registerNativeBatch(batch.volumeBatch,"volume");record.volume.source=batch;}
-    if(!batch.visibility){batch.external = true;batch.mesh.visible = false;}
+    core.registry.bind(batch.mesh,Family.EFFECT,record);
     this.records.push(record); return record;
   }
 
@@ -366,7 +364,7 @@ class EffectsPass {
       core.buffer=null;core.views();
       record={id,native:true,mesh:lightning.mesh,attributes:LIGHTNING,values:[],source:lightning};this.meshes.set(lightning.map,record);
     }
-    lightning.external=true;lightning.mesh.visible=false;
+    if(!record.sceneBound){this.core.registry.bind(lightning.mesh,Family.EFFECT,record);record.sceneBound=true;}
     const pair=this.classicPair ||= {lightning:null,record:null};pair.lightning=lightning;pair.record=record;return pair;
   }
 
@@ -382,7 +380,7 @@ class EffectsPass {
     const record={id,mesh,source,attributes,stride:attributes.reduce((sum,a)=>sum+a[1],0),values:[],valueCount:source.values.length,native:true,from:this.frame};
     record.before=()=>source.prepare?.(this.context.camera);
     this.shaderMeshes.set(mesh,record);this.shaderMeshList.push(record);
-    if(!source.visibility){source.external=true;mesh.visible=false;}
+    core.registry.bind(mesh,Family.EFFECT,record);
     return record;
   }
 
@@ -407,7 +405,7 @@ class EffectsPass {
       if(source.repeat&&owner.map!=null)owner.map=core.resources.gpu.repeat_sample(owner.map);const texture=owner.map==null?-1:core.texture(owner.map),asset=nativeActorSource(core,source.asset);
       const facts=core.rust.actor_effect(asset.id,source.nativeKind,core.shadowsOn(),view,texture,JSON.stringify(source.authored||{}));if(!facts.length){this.clipped++;return null;}source.center=Array.from(facts.slice(ACTOR.MODEL.CENTER,ACTOR.MODEL.CENTER+3));source.values.set(facts.subarray(ACTOR.MODEL.LEN));
       const record={native:true,source,mesh,model:facts[ACTOR.MODEL.HANDLE],valueCount:source.values.length,values:[],shader:false,data:source.values};
-      record.before=()=>this.prepareGlow(source,this.context.camera,this.context.scene);this.glows.set(mesh,record);this.glowList.push(record);core.buffer=null;core.views();return record;
+      record.before=()=>this.prepareGlow(source,this.context.camera,this.context.scene);this.glows.set(mesh,record);this.glowList.push(record);core.registry.bind(mesh,Family.EFFECT,record);core.buffer=null;core.views();return record;
     }
     if(source.family==='water'){
       owner.prepareResources(core);
@@ -415,11 +413,11 @@ class EffectsPass {
       source.center=facts.slice(1,4);source.values.set(facts.subarray?facts.subarray(4):facts.slice(4));
       const record={native:true,source,mesh,model:facts[0],valueCount:source.values.length,values:[],shader:false,data:source.values};
       record.before=()=>source.prepare(this.context.camera);
-      this.glows.set(mesh,record);this.glowList.push(record);return;
+      this.glows.set(mesh,record);this.glowList.push(record);core.registry.bind(mesh,Family.WATER,record);return record;
     }
     const samples=owner.prepareResources(core.resources),samplers=new Int32Array(samples.length);
     for(let i=0;i<samples.length;i++)samplers[i]=samples[i]>=0?core.texture(samples[i]):-1;
-    const geometry=mesh.geometry,position=geometry?.attributes.position;
+    const geometry=source.geometry??mesh.geometry,position=geometry?.attributes.position;
     const vertices=new Float32Array(position?position.count*3:0);
     if(position)for(let i=0;i<position.count;i++){vertices[i*3]=position.getX(i);vertices[i*3+1]=position.getY(i);vertices[i*3+2]=position.getZ(i);}
     const index=geometry?.index?.array,indices=index?new Uint32Array(index):new Uint32Array(0);
@@ -428,18 +426,12 @@ class EffectsPass {
     source.center=facts.slice(1);
     const record={native:true,source,mesh,model:facts[0],valueCount:owner.values.length,values:[],shader:false,data:owner.values};
     record.before=()=>owner.capture(this.context.renderer,this.context.camera);
-    this.glows.set(mesh,record);this.glowList.push(record);
+    this.glows.set(mesh,record);this.glowList.push(record);core.registry.bind(mesh,Family.EFFECT,record);
   }
 
   // Shown as three would show it: in the scene, it and its parents visible,
   // in the camera's layers.
-  shown(mesh, camera) {
-    const scene = this.core.graphics.scene;
-    if (!mesh.layers.test(camera.layers)) return false;
-    let o = mesh.parent;
-    for (; o && o !== scene; o = o.parent) if (!o.visible) return false;
-    return o === scene;
-  }
+  shown(mesh,camera){return this.core.registry.shown(mesh);}
 
   // As three starts the frame's render of the near scene, before it sorts
   // it (particle-depth.js requester): the copy of the scene's depth asked
@@ -454,6 +446,7 @@ class EffectsPass {
     for (const record of this.records) {
       const b = record.batch, mode = copiesOf(record);
       if (!mode || b.count <= 0 || !b.mesh.visible && (record.hiddenBy === "material" || record.hiddenBy === "anchor") || !this.shown(record.mesh, camera)) continue;
+      this.keyOf(record.mesh,record.key);
       if (particleDepth.request(record.key, mode === "always")) { record.requested = true; requested.push(record); }
     }
 
@@ -462,15 +455,7 @@ class EffectsPass {
   // three's sort key for an object (but z, which the renderer works out):
   // group order, render order, its bounding sphere's centre through its
   // world matrix, its id; into out from `at`.
-  keyOf(object, out, at = 0) {
-    const geometry=object.geometry,c=object.userData.effectModel?.center;
-    if(c)center.set(c[0],c[1],c[2],1);
-    else if(geometry){if(!geometry.boundingSphere)geometry.computeBoundingSphere();center.copy(geometry.boundingSphere.center);}
-    else center.set(0,0,0,1);
-    center.applyMatrix4(object.matrixWorld);
-    out[at] = groupOrderOf(object); out[at + 1] = object.renderOrder;
-    out[at + 2] = center.x; out[at + 3] = center.y; out[at + 4] = center.z; out[at + 5] = object.id;
-  }
+  keyOf(object,out,at=0){this.core.registry.key(object,out,at);}
 
   draw(ctx) {
     this.drawFrame(ctx);

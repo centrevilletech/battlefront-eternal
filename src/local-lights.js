@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { texturePixels } from "./texture-pixels.js";
 
@@ -128,9 +129,9 @@ export class LocalLights {
         bright++; r += data[at]; g += data[at + 1]; bl += data[at + 2];
       }
       if (bright < 2) continue;
-      vector(a,"position",i0).applyMatrix4(matrix);
-      vector(b,"position",i1).applyMatrix4(matrix);
-      vector(c,"position",i2).applyMatrix4(matrix);
+      sceneTransform(vector(a,"position",i0).applyMatrix4(matrix));
+      sceneTransform(vector(b,"position",i1).applyMatrix4(matrix));
+      sceneTransform(vector(c,"position",i2).applyMatrix4(matrix));
       n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
       const area = n.length() / 2;
       if (area < 1e-5) continue;

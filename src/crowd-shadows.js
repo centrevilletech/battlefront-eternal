@@ -1,3 +1,4 @@
+import {sceneLayer,sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from 'three';
 import {ACTOR} from './rust-render/actor-layout.js';
 import {actorNode,actorLook,nativeActorSource,releaseActorSkin} from './actor-resources.js';
@@ -9,7 +10,7 @@ export class CrowdShadows {
  constructor(graphics){this.graphics=graphics;this.slots=[];this.bones=[];this.inverses=[];this.mesh=null;this.skeleton=null;this.draws=0;this.core=null;}
  begin(){if(this.core)return;const core=this.graphics.rust,id=core.rust.actor_source_crowd();this.core=core;
   const asset={nativeSource:id,description:JSON.parse(core.rust.actor_source_facts(id))};
-  this.mesh=actorNode(asset,actorLook('dynamic'),true);this.mesh.name='crowd-shadows';this.mesh.userData.shadowOnly=true;this.mesh.frustumCulled=false;this.mesh.layers.set(this.graphics.hiddenLayer??1);this.graphics.scene.add(this.mesh);this.graphics.caster(this.mesh);
+  this.mesh=actorNode(asset,actorLook('dynamic'),true);this.mesh.name='crowd-shadows';this.mesh.userData.shadowOnly=true;sceneProperty(this.mesh,"frustumCulled",false);sceneLayer(this.mesh.layers,"set",this.graphics.hiddenLayer??1);this.graphics.scene.add(this.mesh);this.graphics.caster(this.mesh);
   core.addView('actorCrowdInput',Float64Array,()=>core.rust.actor_crowd_input_ptr(),()=>core.rust.actor_crowd_input_len());
  }
  // One cold native admission owns all of this unit's body/weapon streams.
@@ -23,7 +24,7 @@ export class CrowdShadows {
   this.begin();const facts=core.rust.actor_source_crowd_add(body.id,boneBase,boneBase+boneCount,Uint32Array.from(sources),Uint32Array.from(entries),Uint32Array.from(groups),Float64Array.from(matrices));if(!facts.length)return null;
   const slot={unit,actor,weapons,boneBase,boneCount:actor.bones.length,shown:false,span:facts[1]};for(let i=0;i<weapons.length;i++)weapons[i].span=facts[2+i];
   for(const bone of actor.bones){this.bones.push(bone);this.inverses.push(ZERO);}for(const weapon of weapons){this.bones.push(actor.hand);this.inverses.push(ZERO);}
-  const retire=node=>{if(!node)return;node.castShadow=false;this.graphics.casters.delete(node);};retire(actor.shadow);for(const w of weapons)for(const node of w.meshes)retire(node);
+  const retire=node=>{if(!node)return;sceneProperty(node,"castShadow",false);this.graphics.casters.delete(node);};retire(actor.shadow);for(const w of weapons)for(const node of w.meshes)retire(node);
   this.slots.push(slot);this.rebindSkeleton();if(facts[0]){this.mesh.removeFromParent();this.graphics.scene.add(this.mesh);this.graphics.casters.delete(this.mesh);this.graphics.caster(this.mesh);}core.buffer=null;core.views();return slot;
  }
  // Bone inverses remain actual pose data. They do not allocate or describe a
@@ -35,6 +36,6 @@ export class CrowdShadows {
    if(shown)drawn++;
    for(let i=0;i<slot.weapons.length;i++){const w=slot.weapons[i],on=shown&&w.group.visible;if(on!==w.shown){w.shown=on;input[ACTOR.CROWD_INPUT.FLAGS+w.span]=+on;input[ACTOR.CROWD_INPUT.DIRTY]=1;inverses[w.entry].copy(on?IDENTITY:ZERO);}}
   }
-  core.rust.actor_crowd_frame();this.draws=drawn;this.mesh.castShadow=drawn>0&&!!this.graphics.csm;
+  core.rust.actor_crowd_frame();this.draws=drawn;sceneProperty(this.mesh,"castShadow",drawn>0&&!!this.graphics.csm);
  }
 }

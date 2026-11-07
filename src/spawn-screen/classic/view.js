@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../../rust-render/scene-changes.js";
 import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
@@ -342,7 +343,7 @@ export class ClassicView {
     const canvas = renderer.domElement;
     this.camera.setView(canvas.clientWidth / Math.max(canvas.clientHeight, 1), this.hud.height);
     this.camera.place(512, this.hud.height / 2, this.room.position);
-    this.room.scale.setScalar(ROOM_SCALE);
+    sceneTransform(this.room.scale.setScalar(ROOM_SCALE));
     renderInterface(renderer, this.roomScene, this.camera.camera, "classic-spawn");
   }
 
@@ -357,7 +358,7 @@ export class ClassicView {
     const canSwitch = this.model.canSwitchTeams && !this.hud.covered;
     for (const [team, logo] of this.logos) {
       const own = team === this.model.team;
-      logo.root.visible = canSwitch;
+      sceneProperty(logo.root,"visible",canSwitch);
       if (!canSwitch) continue;
       // The swap runs from the other place to this one, linearly.
       const to = own ? layout.logos.own : layout.logos.other;
@@ -365,8 +366,8 @@ export class ClassicView {
       const size = own ? lerp(layout.logos.small, layout.logos.big, t) : lerp(layout.logos.big, layout.logos.small, t);
       const alpha = own ? lerp(LOGO_DIM, 1, t) : lerp(1, LOGO_DIM, t);
       this.camera.place(lerp(from.x, to.x, t), lerp(from.y, to.y, t), logo.root.position);
-      logo.root.scale.setScalar(size * LOGO_UNITS);
-      logo.root.rotation.y = this.spin;
+      sceneTransform(logo.root.scale.setScalar(size * LOGO_UNITS));
+      sceneComponent(logo.root.rotation,"y","=",this.spin);
       for (const material of logo.materials) {
         paintArray(material,LOOK.COLOR,own?GREEN:RED);
         material.values[LOOK.OPACITY] = alpha;

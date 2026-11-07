@@ -18,9 +18,10 @@ export function installActorWreck(reference) {
  for(const {mesh,material} of rows){
   const map=material.uniforms?.map?.value;
   if(map?.version>0 && map.image)g.renderer.initTexture(map);
-  // The frozen browser cache can currently point at this shared material's
-  // rigid debris program. Prepare this actual rig before taking its record.
-  if(reference)g.renderer.compile({traverse:fn=>fn(mesh),traverseVisible:()=>{}},g.camera,g.scene);
+  // Older frozen sources can hold a rigid debris program for this material.
+  // Source-owned actor shells go directly through the native resource owner.
+  const owned=material.userData?.actorShader || material.userData?.bfeProgram || material.userData?.bfeFamily;
+  if(reference && !owned)g.renderer.compile({traverse:fn=>fn(mesh),traverseVisible:()=>{}},g.camera,g.scene);
   if(!mesh.isSkinnedMesh || !g.rust.byName.instances.registerRig(mesh))throw Error('Wreck rig registration failed');
   registered++;
  }

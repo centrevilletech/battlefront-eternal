@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 // Authored model bytes are also read by muzzle, debris and collision queries.
 // Rendering sees only a native source identity; no BufferGeometry/Attribute or
 // material descriptor is retained in this cold asset I/O and pose-node boundary.
@@ -24,8 +25,8 @@ export function lightActor(look,sun,darken,lighten,brightness){const v=look.valu
 // it. They have no mesh resources. Attached bind inverses use Three's existing
 // math method, exactly as they did on the former SkinnedMesh pose shell.
 export function actorNode(asset,appearance,skin=false){
-  const node=new THREE.Object3D();node.userData.actorAsset=asset;node.material=appearance;node.frustumCulled=true;
-  const facts=actorDescription(asset),b=facts.bounds;node.boundingSphere=new THREE.Sphere(new THREE.Vector3(b[0],b[1],b[2]),b[3]);
+  const node=new THREE.Object3D();node.userData.actorAsset=asset;sceneProperty(node,"material",appearance);sceneProperty(node,"frustumCulled",true);
+  const facts=actorDescription(asset),b=facts.bounds;node.userData.nativeIndexCount=facts.indexCount;sceneProperty(node,"boundingSphere",new THREE.Sphere(new THREE.Vector3(b[0],b[1],b[2]),b[3]));
   node.userData.bindBounds=new THREE.Box3(new THREE.Vector3(b[4],b[5],b[6]),new THREE.Vector3(b[7],b[8],b[9]));
   node.getVertexPosition=skinnedActorPoint;
   if(skin){node.isSkinnedMesh=true;node.bindMode=THREE.AttachedBindMode;node.bindMatrix=new THREE.Matrix4();node.bindMatrixInverse=new THREE.Matrix4();node.bind=bindActor;node.updateMatrixWorld=THREE.SkinnedMesh.prototype.updateMatrixWorld;}
@@ -72,8 +73,8 @@ export function actorWeight(asset,index){return asset.authored.kind==='rig'?asse
 const skinVertex=new THREE.Vector3(),skinPoint=new THREE.Vector3(),skinMatrix=new THREE.Matrix4();
 // Droideka's axle/muzzle and debris shape queries are real CPU consumers. This
 // accessor reads authored points and the existing pose; no drawing calls it.
-function skinnedActorPoint(index,out){const asset=this.userData.actorAsset;actorPoint(asset,index,out);if(!this.skeleton)return out;skinVertex.copy(out).applyMatrix4(this.bindMatrix);out.set(0,0,0);const r=asset.authored;
- for(let i=0;i<4;i++){const weight=r.kind==='rig'?r.weights[index*4+i]:i===0?1:0;if(weight===0)continue;const joint=r.kind==='rig'?r.joints[index*4+i]:actorJoint(asset,index);skinMatrix.multiplyMatrices(this.skeleton.bones[joint].matrixWorld,this.skeleton.boneInverses[joint]);skinPoint.copy(skinVertex).applyMatrix4(skinMatrix);out.addScaledVector(skinPoint,weight);}return out.applyMatrix4(this.bindMatrixInverse);
+function skinnedActorPoint(index,out){const asset=this.userData.actorAsset;actorPoint(asset,index,out);if(!this.skeleton)return out;sceneTransform(skinVertex.copy(out).applyMatrix4(this.bindMatrix));out.set(0,0,0);const r=asset.authored;
+ for(let i=0;i<4;i++){const weight=r.kind==='rig'?r.weights[index*4+i]:i===0?1:0;if(weight===0)continue;const joint=r.kind==='rig'?r.joints[index*4+i]:actorJoint(asset,index);skinMatrix.multiplyMatrices(this.skeleton.bones[joint].matrixWorld,this.skeleton.boneInverses[joint]);sceneTransform(skinPoint.copy(skinVertex).applyMatrix4(skinMatrix));out.addScaledVector(skinPoint,weight);}return sceneTransform(out.applyMatrix4(this.bindMatrixInverse));
 }
 
 export function publishActorSkin(core,skeleton,serial){const skin=actorSkin(core,skeleton);if(!skin)return null;if(!core.actorSkinViews){core.addView('actorBones',Float32Array,()=>core.rust.actor_bones_ptr(),()=>core.rust.actor_bones_len());core.addView('actorSkinInput',Float64Array,()=>core.rust.actor_skin_input_ptr(),()=>core.rust.actor_skin_input_len());core.actorSkinViews=true;}core.views();if(skin.serial!==serial){core.actorBones.set(skeleton.boneMatrices,skin.offset);core.actorSkinInput[skin.slot]=serial;skin.serial=serial;}return skin;}

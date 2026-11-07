@@ -1,3 +1,4 @@
+import {sceneTransform} from "../../rust-render/scene-changes.js";
 import * as THREE from "three";
 
 // The page spawn screen's camera (stage.js): it looks at the soldier from a
@@ -165,13 +166,13 @@ export class CameraRig {
     const elevation = ELEVATION + pitch;
     const d = this.distance * dolly;
     this.pivot.set(0, PIVOT + crane, 0);
-    camera.position.set(
+    sceneTransform(camera.position.set(
       Math.sin(yaw) * Math.cos(elevation) * d,
       PIVOT + crane + Math.sin(elevation) * d,
       Math.cos(yaw) * Math.cos(elevation) * d,
-    );
+    ));
     camera.up.set(0, 1, 0);
-    camera.lookAt(this.pivot);
+    sceneTransform(camera.lookAt(this.pivot));
     if (camera.aspect !== this.aspect) camera.aspect = this.aspect;
     camera.updateProjectionMatrix();
     const m = camera.projectionMatrix.elements;

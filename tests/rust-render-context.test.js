@@ -1,3 +1,4 @@
+import { prepareSceneFixture } from "./support/rust-standin.mjs";
 // The event fixture tests ownership during loss, not GPU rasterization.
 // Materials stay claimed by Rust while drawing is suspended; restore cannot
 // reveal them to Three as a substitute renderer. The external texture owner
@@ -15,7 +16,7 @@ test('context loss suspends drawing without releasing materials, then Rust rebui
   const { BfeRenderer, memory, calls } = standinModule();
   const { renderer, graphics, scene } = standinThree(calls);
   graphics.warmup = () => calls.push(["warmup"]);
-  const core = new RustRender(graphics, { memory }, BfeRenderer);
+  const core = prepareSceneFixture(new RustRender(graphics, { memory }, BfeRenderer));
   const material = new THREE.ShaderMaterial();material.visible = false;
   scene.add(new THREE.Mesh(new THREE.BufferGeometry(), material));
   const texture = new THREE.Texture(), id = core.texture(texture);
@@ -26,7 +27,7 @@ test('context loss suspends drawing without releasing materials, then Rust rebui
   renderer.domElement.dispatchEvent(lost);
   assert.equal(lost.defaultPrevented, true);
   assert.equal(core.contextLost, true);
-  assert.equal(material.visible, false);
+  assert.equal(material.visible, false, "authored visibility survives loss");
   assert.deepEqual(core.errors, []);
   // The new context provides different physical handles under the same logical
   // slot. Existing frame records must not need to be rebuilt to use that slot.

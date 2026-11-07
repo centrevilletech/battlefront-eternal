@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeGround } from './collision.js';
@@ -44,9 +45,9 @@ class SquareBatch {
     this.capacity = records.center.length / 4; this.count = 0;
     this.mesh = new THREE.Object3D();
     this.mesh.name = name;
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-    this.mesh.renderOrder = 10;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"visible",false);
+    sceneProperty(this.mesh,"renderOrder",10);
     this.mesh.onBeforeRender = (renderer, s, camera) => particleDepth.capture(renderer, s, camera);
     scene.add(this.mesh);
     let root = scene;
@@ -62,7 +63,7 @@ class SquareBatch {
       this.values[EFFECT.SQUARE.AXIS_U + i] = result[at + SQUARE.AXIS_U + i];
       this.values[EFFECT.SQUARE.AXIS_V + i] = result[at + SQUARE.AXIS_V + i];
     }
-    this.mesh.visible = n > 0 && !this.external;
+    sceneProperty(this.mesh,"visible",n > 0);
   }
   dispose() { this.mesh.removeFromParent();  }
 }

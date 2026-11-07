@@ -15,6 +15,7 @@ const LAYOUTS=[
  ['ordnance-layout.json','src/presentation/ordnance-layout.js','rust/bfe-presentation/src/ordnance_layout.rs'],
  ['timeline-layout.json','src/presentation/timeline-layout.js','rust/bfe-pose/src/timeline_layout.rs'],
  ['items-layout.json','src/presentation/items-layout.js','rust/bfe-presentation/src/items_layout.rs'],
+ ['scene-layout.json','src/rust-render/scene-layout.js','rust/bfe-render/src/scene_layout.rs'],
 ];
 for(const [schema,jsPath,rsPath] of LAYOUTS) {
 const {version, records = {}, enums = {}, limits = {}, sharedRustLimits = {}} = JSON.parse(readFileSync(new URL('../rust/sim/schema/'+schema, import.meta.url), 'utf8'));

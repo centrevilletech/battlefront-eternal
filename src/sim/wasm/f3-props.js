@@ -1,3 +1,4 @@
+import {sceneProperty} from '../../rust-render/scene-changes.js';
 // LiveObjects' foreign health/life facts and touched prop publications. Native
 // queries and Building's native kernel own combat traversal and recursive damage;
 // this bridge retains ordinary prop objects for the unported world and page.
@@ -160,7 +161,7 @@ export class F3Props {
     b.state = shown;this.shown[index]=shown;
     for (let k = 0; k < LOOKS.length; k++) {
       const on = LOOKS[k] === shown;
-      if (looks[k]) looks[k].root.visible = on;
+      if (looks[k]) sceneProperty(looks[k].root,"visible",on);
       if (bodies[k]) bodies[k].enabled = on;
     }
     if (b.hologram) {
@@ -171,12 +172,12 @@ export class F3Props {
     if (this.traps[index]) {
       // Trap.show keeps the logs visible and shows its separate pad only when
       // unbuilt. Its pad can have another placement from the log rig itself.
-      if (looks[0]) looks[0].root.visible = true;
-      if (b.pad) b.pad.root.visible = shown === 'unbuilt';
+      if (looks[0]) sceneProperty(looks[0].root,"visible",true);
+      if (b.pad) sceneProperty(b.pad.root,"visible",shown === 'unbuilt');
     }
     if (this.objectives[index]) {
       b.dying = old === 'built' && shown === 'destroyed' && b.span > 0 && looks[0] ? b.span : 0;
-      if (b.dying) { looks[0].root.visible = true; b.time = 0; }
+      if (b.dying) { sceneProperty(looks[0].root,"visible",true); b.time = 0; }
     }
   }
 

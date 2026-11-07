@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 // Soldier animation clips decoded from the game's zaa_ banks by the extractor.
 // Each clip stores, per skeleton bone, frames of [qx, qy, qz, qw, tx, ty, tz]
 // at 30 fps. Looping clips repeat their first frame as their last.
@@ -103,8 +104,8 @@ export class Pose {
       if (this.w[i] <= 1e-6) continue;
       const oi = i * 7;
       const bone = bones[i];
-      bone.quaternion.set(out[oi], out[oi + 1], out[oi + 2], out[oi + 3]);
-      bone.position.set(out[oi + 4], out[oi + 5], out[oi + 6]);
+      sceneTransform(bone.quaternion.set(out[oi], out[oi + 1], out[oi + 2], out[oi + 3]));
+      sceneTransform(bone.position.set(out[oi + 4], out[oi + 5], out[oi + 6]));
     }
   }
 }

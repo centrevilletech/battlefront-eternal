@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
@@ -42,7 +43,7 @@ export class WaterShore {
         visibility:'anchor',arrays:{shore:this.host.shore,phase:this.host.phases},values:new Float64Array(EFFECT.WATER_SHORE.LENGTH),serial:0};
       this.host.bindArray(batch.arrays,'shore','shore');this.host.bindArray(batch.arrays,'phase','phases');
       batch.values[EFFECT.WATER_SHORE.HEIGHT]=water.height;batch.values[EFFECT.WATER_SHORE.SPLASH]=splash;
-      const mesh=batch.mesh=new THREE.Object3D();mesh.renderOrder=-17;mesh.frustumCulled=false;mesh.userData.effectBatch=batch;
+      const mesh=batch.mesh=new THREE.Object3D();sceneProperty(mesh,"renderOrder",-17);sceneProperty(mesh,"frustumCulled",false);mesh.userData.effectBatch=batch;
       mesh.onBeforeRender=(renderer,scene,camera)=>{
         const v=batch.values;v.set(mesh.matrixWorld.elements,EFFECT.WATER_SHORE.MODEL_MATRIX);
         v.set(camera.projectionMatrix.elements,EFFECT.WATER_SHORE.PROJECTION_MATRIX);v.set(camera.matrixWorldInverse.elements,EFFECT.WATER_SHORE.VIEW_MATRIX);
@@ -81,7 +82,7 @@ export class WaterShore {
   }
   prepareFrame() {
     const quality = this.graphics.settings.get('waterQuality');
-    this.group.visible = quality === 'high' || quality === 'ultra';
+    sceneProperty(this.group,"visible",quality === 'high' || quality === 'ultra');
     this.host.frame[FRAME.SHORE_QUALITY] = quality === 'ultra' ? 2 : quality === 'high' ? 1 : 0;
   }
   publishFrame() {

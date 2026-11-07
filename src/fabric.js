@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 // Discover separate hanging pieces inside the importer's material bucket.
 // Weld only for connectivity: UV/normal seams stay intact in the draw data.
@@ -54,7 +55,7 @@ export function fabricGeometry(source) {
 
 export function addFabricWind(mesh) {
   const original = mesh.geometry;
-  mesh.geometry = fabricGeometry(original);
+  sceneProperty(mesh,"geometry",fabricGeometry(original));
   original.dispose();
   const depth = new THREE.Material();
   depth.name = "depth:fabric";

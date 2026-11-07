@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorLook,actorPoint,actorPointCount} from './actor-resources.js';
 import * as THREE from "three";
 import { motionVectors } from "./motion-vectors.js";
@@ -40,7 +41,7 @@ export function pieceShape(object) {
   object.traverse((mesh) => {
     const asset=mesh.userData.actorAsset;if(!asset)return;
     local.multiplyMatrices(toObject,mesh.matrixWorld);
-    for(let i=0;i<actorPointCount(asset);i++)vertices.push(actorPoint(asset,i,v).applyMatrix4(local).clone());
+    for(let i=0;i<actorPointCount(asset);i++)vertices.push(sceneTransform(actorPoint(asset,i,v).applyMatrix4(local)).clone());
   });
   const box = new THREE.Box3().setFromPoints(vertices);
   if (box.isEmpty()) box.set(new THREE.Vector3(-0.1, -0.1, -0.1), new THREE.Vector3(0.1, 0.1, 0.1));
@@ -140,7 +141,7 @@ export class DebrisPieces {
     const object = make();
     object.traverse((mesh) => {
       if (!mesh.userData.actorAsset) return;
-      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(heatMaterial) : heatMaterial(mesh.material);
+      sceneProperty(mesh,"material",Array.isArray(mesh.material) ? mesh.material.map(heatMaterial) : heatMaterial(mesh.material));
       mesh.receiveShadow = true;
       motionVectors.track(mesh);
     });
@@ -151,7 +152,7 @@ export class DebrisPieces {
   }
 
   release(name, object) {
-    object.visible = false;
+    sceneProperty(object,"visible",false);
     if (!object.parent) this.scene.add(object);
     if (!this.free.has(name)) this.free.set(name, []);
     this.free.get(name).push(object);
@@ -170,7 +171,7 @@ export class DebrisPieces {
     look.soot = r[record + PIECE.SOOT];
     look.dissolve = 0;
     look.tear.set(r[record + PIECE.TEAR], r[record + PIECE.TEAR + 1], r[record + PIECE.TEAR + 2], r[record + PIECE.TEAR + 3]);
-    object.visible = true;
+    sceneProperty(object,"visible",true);
     const piece = { uid: r[record + PIECE.UID], name, object, shadows: true };
     this.shadows(piece, true);
     this.pieces.push(piece);
@@ -190,11 +191,11 @@ export class DebrisPieces {
     piece.object.traverse((mesh) => {
       if (!mesh.userData.actorAsset) return;
       if (on && mesh.userData.castShadowSaved !== undefined) {
-        mesh.castShadow = mesh.userData.castShadowSaved;
+        sceneProperty(mesh,"castShadow",mesh.userData.castShadowSaved);
         delete mesh.userData.castShadowSaved;
       } else if (!on && mesh.userData.castShadowSaved === undefined) {
         mesh.userData.castShadowSaved = mesh.castShadow;
-        mesh.castShadow = false;
+        sceneProperty(mesh,"castShadow",false);
       }
     });
   }
@@ -225,7 +226,7 @@ export class DebrisPieces {
   // The map's light where a piece lies, asked for by the phase at a place.
   sample(piece, x, y, z) {
     if (!this.lightAt) return;
-    const light = this.lightAt(this.position.set(x, y, z), this.light);
+    const light = this.lightAt(sceneTransform(this.position.set(x, y, z)), this.light);
     const look = piece.object.userData.heated;
     look.sun = light.sun;
     look.darken = light.darken;
@@ -240,8 +241,8 @@ export class DebrisPieces {
   place(piece, r, at) {
     const object = piece.object, look = object.userData.heated;
     if (r[at + PIECE.MOVED]) {
-      object.quaternion.set(r[at + PIECE.QUATERNION], r[at + PIECE.QUATERNION + 1], r[at + PIECE.QUATERNION + 2], r[at + PIECE.QUATERNION + 3]);
-      object.position.set(r[at + PIECE.POSITION], r[at + PIECE.POSITION + 1], r[at + PIECE.POSITION + 2]);
+      sceneTransform(object.quaternion.set(r[at + PIECE.QUATERNION], r[at + PIECE.QUATERNION + 1], r[at + PIECE.QUATERNION + 2], r[at + PIECE.QUATERNION + 3]));
+      sceneTransform(object.position.set(r[at + PIECE.POSITION], r[at + PIECE.POSITION + 1], r[at + PIECE.POSITION + 2]));
     }
     look.heat = r[at + PIECE.HEAT];
     if (r[at + PIECE.DISSOLVE] > 0) look.dissolve = r[at + PIECE.DISSOLVE];

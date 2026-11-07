@@ -11,7 +11,7 @@ test('renderer preparation waits for the bridge and settles both adoption draws'
     rustReady: new Promise(resolve => { ready = resolve; }),
     render(time) { events.push(['scene', time]); },
   };
-  graphics.rust = { graphics };
+  graphics.rust = { graphics, byName: { lines: { async warm(settle) { events.push("utilities");await settle(); } } } };
   let settle;
   const prepared = Graphics.prototype.prepareRenderer.call(graphics,
     () => { events.push('settle'); return new Promise(resolve => { settle = resolve; }); },
@@ -27,6 +27,10 @@ test('renderer preparation waits for the bridge and settles both adoption draws'
   prepared.then(() => { finished = true; });
   await Promise.resolve();
   assert.equal(finished, false, 'the session cannot start while GPU preparation is outstanding');
+  settle();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events,[['scene',0],'hud','settle',['scene',0],'hud','settle','utilities','settle']);
+  assert.equal(finished,false,'utility variants must finish linking before the session starts');
   settle();
   await prepared;
   assert.equal(finished, true);

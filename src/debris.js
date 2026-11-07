@@ -1,3 +1,4 @@
+import {sceneComponent,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
 // A droid blowing apart, as far as the 2004 game was traced.
@@ -81,16 +82,16 @@ export class Debris {
           _box.getCenter(_middle);
           lift = Math.min(..._box.getSize(_size).toArray()) / 2;
           thin = _size.x <= _size.y && _size.x <= _size.z ? 0 : _size.y <= _size.z ? 1 : 2;
-          for (const child of mesh.children) child.position.sub(_middle);
+          for (const child of mesh.children) sceneTransform(child.position.sub(_middle));
         } else _middle.set(0, 0, 0);
       }
       bone.updateWorldMatrix(true, false);
-      bone.matrixWorld.decompose(mesh.position, mesh.quaternion, mesh.scale);
+      sceneTransform(bone.matrixWorld.decompose(mesh.position, mesh.quaternion, mesh.scale));
       if (centre) {
-        mesh.position.copy(_middle.applyMatrix4(bone.matrixWorld));
-        mesh.position.y = Math.max(mesh.position.y, floor + _size.y / 2);
+        sceneTransform(mesh.position.copy(sceneTransform(_middle.applyMatrix4(bone.matrixWorld))));
+        sceneComponent(mesh.position,"y","=",Math.max(mesh.position.y, floor + _size.y / 2));
       }
-      mesh.scale.set(1, 1, 1);
+      sceneTransform(mesh.scale.set(1, 1, 1));
       this.scene.add(mesh);
       const d = this.out.subVectors(mesh.position, origin);
       d.y += LIFT * d.length();
@@ -128,8 +129,8 @@ export class Debris {
         if (s && s.t < SETTLE) {
           s.t = Math.min(s.t + dt, SETTLE);
           const w = s.t / SETTLE, e = w * w * (3 - 2 * w);
-          p.mesh.quaternion.slerpQuaternions(s.from, s.to, e);
-          p.position.y = s.y0 + (s.y1 - s.y0) * e;
+          sceneTransform(p.mesh.quaternion.slerpQuaternions(s.from, s.to, e));
+          sceneComponent(p.position,"y","=",s.y0 + (s.y1 - s.y0) * e);
           p.smoke?.move(p.position);
         }
         continue;
@@ -137,10 +138,10 @@ export class Debris {
       p.flight += dt;
       p.velocity.y += GRAVITY * dt;
       p.previous.copy(p.position);
-      p.position.addScaledVector(p.velocity, dt);
-      p.mesh.rotateX(p.omega.x * dt);
-      p.mesh.rotateY(p.omega.y * dt);
-      p.mesh.rotateZ(p.omega.z * dt);
+      sceneTransform(p.position.addScaledVector(p.velocity, dt));
+      sceneTransform(p.mesh.rotateX(p.omega.x * dt));
+      sceneTransform(p.mesh.rotateY(p.omega.y * dt));
+      sceneTransform(p.mesh.rotateZ(p.omega.z * dt));
       this.bounce(p);
       if (p.trail) p.trail.move(p.position, null, p.velocity);
       p.smoke?.move(p.position);
@@ -169,7 +170,7 @@ export class Debris {
     const v = p.velocity;
     const d = v.dot(n);
     if (d >= 0) return;
-    p.position.copy(hit.point).addScaledVector(n, Math.max(0.05, p.lift));
+    sceneTransform(p.position.copy(hit.point)).addScaledVector(n, Math.max(0.05, p.lift));
     const most = p.chunk.ChunkTerrainCollisions ?? 0;
     if (p.hits < most && typeof p.chunk.ChunkTerrainEffect === "string") this.effects.play(p.chunk.ChunkTerrainEffect, hit.point);
     p.hits += 1;
@@ -188,7 +189,7 @@ export class Debris {
   rest(p, floor = -Infinity) {
     if (p.lift > 0 && Number.isFinite(floor)) {
       const q = p.mesh.quaternion;
-      const axis = _axis.copy(AXES[p.thin]).applyQuaternion(q);
+      const axis = sceneTransform(_axis.copy(AXES[p.thin]).applyQuaternion(q));
       const target = new THREE.Quaternion().setFromUnitVectors(axis, axis.y < 0 ? DOWN : UP).multiply(q);
       const turned = _turned.copy(q);
       q.copy(target);

@@ -1,11 +1,12 @@
-// Rust draws every battle phase. Three supplies scene updates, compiled GLSL,
-// and CPU descriptors. Rust owns texture storage and targets. This core
+// Rust draws every battle phase. Three supplies scene updates and CPU
+// descriptors. Rust owns texture storage and targets. This core
 // registers those resources, publishes frame
 // inputs, and treats incomplete coverage or a failed program as a fatal error.
 import { INPUT as CAMERA_INPUT } from "./camera-layout.js";
 import { CameraOwner } from "./cameras.js";
 import { BattleFrame } from "./frame.js";
-import { actorFailure, isActorMaterial } from "./actors.js";
+import { RetainedScene, Family } from "./scene.js";
+import { isActorMaterial } from "./actors.js";
 import { rendererFailure } from "./failure.js";
 import { rendererModule } from "./load.js";
 import { installResources } from "../render-resources.js";
@@ -13,7 +14,7 @@ import * as THREE from "three";
 import { lighting } from "../materials.js";
 import { packed, packPointLights } from "../point-lights.js";
 import { worldPass } from "./world.js";
-import { instancesPass, compileFor } from "./instances.js";
+import { instancesPass } from "./instances.js";
 import { farPass, seaPass } from "./far.js";
 import { terrainPass } from "./terrain.js";
 import { transparentPass } from "./transparent.js";
@@ -48,19 +49,6 @@ const FRAME = [
   ["fogColor", 60, 3], ["cascadeFar", 63, 1], ["fade", 64, 2], ["resolution", 66, 2], ["fogRange", 68, 2],
 ];
 const NATIVE_LIGHT_FIELDS=new Set(["cascadeNear","cascadeFar","sunDirection","sunColor","ambient","ambientTop","ambientBottom","characterAmbient","fogColor","fogRange","shadowStrength"]);
-const FRAME_NAMES = new Set(FRAME.map(([name]) => name));
-// A material's uniform that is one of the frame's values under another name
-// (the same object: fabric.js's fabricTime is lighting.time) reads the frame
-// block's member instead: its declaration becomes a #define of the member.
-const FRAME_BY_VALUE = new Map(FRAME.filter(([name]) => lighting[name]).map(([name, , size]) => [lighting[name], { name, size }]));
-const UNIFORM_SIZES = { 0x1406: 1, 0x8b50: 2, 0x8b51: 3, 0x8b5c: 16 };
-// add_program's kinds whose programs shader.rs makes shadow receivers of
-// (world, skinned, rigid), and the instanced ones among them.
-const RECEIVER_KINDS = new Set([0, 1, 2]), INSTANCED_KINDS = new Set([1, 2]);
-// A shadow receiver's uniforms the BfeShadow block gives it (shader.rs), and
-// the lamps' (materials.js DYNAMIC).
-const SHADOW_UNIFORM = /^(cascadeMaps|directionalShadowMatrix|cascadePlanes|cascades)$|^directionalLightShadows\[\d+\]\./;
-const LAMP_UNIFORMS = new Set(["localLightPositions", "localLightColors", "localLightCount"]);
 // The shadow block's float layout (shader.rs SHADOW_*): per cascade its
 // shadow values (8: intensity, bias, normal bias, radius, map size, pad),
 // matrix (16), plane matrix (12: three columns of four) and slice (4).
@@ -132,7 +120,6 @@ export class RustRender {
     if (this.recording) this.rust = recorder(this.rust, this.recording);
     this.buffer = null;
     this.viewSpecs = [];
-    this.programs = new Map(); // three's program -> Rust's program
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
     this.textureSources = [];
     this.nativeSamples = new Map();
@@ -154,10 +141,7 @@ export class RustRender {
     this.shadowMapData = new Uint32Array(SHADOW.CASCADES);
     this.shadowMapViews = Array.from({length:SHADOW.CASCADES+1},(_,n)=>this.shadowMapData.subarray(0,n));
     this.shadowView = false;
-    // Programs whose lamps come from the lamp table (a pass that gives each
-    // draw its lamps, lamp lighting on), kept apart from the same three
-    // programs' others; the lamp table's sources and their indices there.
-    this.lampPrograms = new Map();
+    // Retained lamp sources and their indices supply owned actor programs.
     this.lampSources = 0;
     this.lampIndex = new Map();
     this.lampOut = { indices: [-1, -1, -1, -1], count: 0 };
@@ -186,7 +170,8 @@ export class RustRender {
     // (beforeSort): hooked first, so that what hooks in after it
     // (particle-depth.js's copier) sees what they registered.
     this.passes = [];
-    if (graphics.scene) this.watchScene(graphics.scene);
+    this.registry = new RetainedScene(this);
+    this.sceneContext = {renderer:this.renderer,scene:graphics.scene,camera:graphics.camera};
     // The passes, in the renderer's order.
     this.phases = Object.fromEntries(Object.keys(VIEWS).map((name) => [name, []]));
     // A mirror draws the near phase's passes, then the transparent phase's;
@@ -202,6 +187,7 @@ export class RustRender {
     bindInterfaceRenderer(this.renderer, this.interface);
     this.cameras = new CameraOwner(this);
     this.frame = new BattleFrame(this);
+    for (const scene of [graphics.scene, graphics.farScene, graphics.viewScene]) if (scene) this.registry.admit(scene);
   }
 
   // The scene and texture owners keep their CPU resources. Rust replays its
@@ -210,7 +196,6 @@ export class RustRender {
     this.stale = false;
     const renderer = this.renderer, ids = new Uint32Array(this.textureSources.length);
     this.graphics.warmup();
-    for (const entry of this.byName.transparent.taken.values()) entry.program = renderer.properties.get(entry.material).currentProgram;
     this.textures.clear();
     this.sampleTextures = new WeakMap();
     for (let id = 0; id < this.textureSources.length; id++) {
@@ -248,21 +233,9 @@ export class RustRender {
     return this.renderer.shadowMap.enabled && Boolean(this.graphics.csm) && lighting.cascadeMaps.value.length > 0;
   }
 
-  // Shadow and motion walks need the materials and layers hidden by the
-  // colour passes. Reveal them only for those Rust walks, then hide them.
-  reveal(fn) {
-
-    for (const pass of this.passes) pass.reveal?.(true);
-    try {
-      return fn();
-    } finally {
-      for (const pass of this.passes) pass.reveal?.(false);
-    }
-  }
-
   // Transparent candidates retained as roots enter the battle scene.
   nearList(renderer, scene) {
-    return this.sceneItems ?? null;
+    return this.registry.items;
   }
 
   // A typed view of the renderer's memory, kept as this[name]: a Type over
@@ -329,74 +302,6 @@ export class RustRender {
     this.stale=true;
   }
 
-
-  // Rust's program for three's (made once), or null when the renderer can't
-  // give it what it reads. kind: the pass's (add_program's); material: one
-  // that draws with it, whose shared frame values must be the frame's;
-  // policy: { uniforms, material }, what the pass gives a program of the
-  // kind besides the frame block (per draw or per instance), and which of
-  // those come from a draw's material (the renderer is told their names).
-  // cache: where it is kept (made once each): a pass that keeps what it last
-  // set in a program's uniforms passes a cache of its own, so that no other
-  // pass sets them behind its back.
-  // The Enhanced inputs a program may read beyond its pass's own: a shadow
-  // receiver's (the BfeShadow block; receiveShadow too for an instance, from
-  // its row) when its pass feeds shadows (policy.shadows: it gives a draw's
-  // receiveShadow and reveals the casters it hides), and the lamps' while
-  // lamps are on only when its pass feeds them (policy.lamps). Anything else
-  // fails registration.
-  program(threeProgram, kind, material, policy, cache = this.programs) {
-    if (isActorMaterial(material)) throw actorFailure("Actor materials require an owned descriptor");
-    const lampsOn = Boolean(this.graphics.settings.get("lampLighting"));
-    // A pass that gives its draws their lamps: its programs read them from the
-    // lamp table (add_program_lamps), kept apart from three's same programs.
-    const fed = lampsOn && Boolean(policy.lamps) && RECEIVER_KINDS.has(kind);
-    if (fed && cache === this.programs) cache = this.lampPrograms;
-    let entry = cache.get(threeProgram);
-    if (entry !== undefined) return entry;
-    entry = null;
-    const gl = this.gl, p = threeProgram.program;
-    const names = [], aliases = [];
-    const shadows = Boolean(policy.shadows) && RECEIVER_KINDS.has(kind) && this.shadowsOn();
-    const lamps = !lampsOn || fed;
-    let ok = true, why = "";
-    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-      const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
-      names.push(name);
-      if (FRAME_NAMES.has(name)) {
-        // A frame value this material keeps of its own can't come from the block.
-        if (!["projectionMatrix", "viewMatrix", "cameraPosition"].includes(name) && material.uniforms?.[name] !== lighting[name]) ok = false;
-      } else if (SHADOW_UNIFORM.test(name) || (name === "receiveShadow" && INSTANCED_KINDS.has(kind))) {
-        if (!shadows) { ok = false; why = " (shadows)"; }
-      } else if (LAMP_UNIFORMS.has(name) && !lamps) {
-        ok = false; why = " (lamps)";
-      } else if (!policy.uniforms.has(name)) {
-        const member = FRAME_BY_VALUE.get(material.uniforms?.[name]);
-        if (member && u.size === 1 && UNIFORM_SIZES[u.type] === member.size) aliases.push([name, member.name]);
-        else ok = false;
-      }
-      if (!ok) this.fail(new Error(`Program ${threeProgram.id} (${material.name || material.type}) cannot bind ${name}${why}`));
-    }
-    if (ok) {
-      const attributes = [];
-      for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
-        const a = gl.getActiveAttrib(p, i);
-        attributes.push(`${a.name}:${gl.getAttribLocation(p, a.name)}`);
-      }
-      const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
-      const source = (shader) => aliases.reduce((text, [name, member]) => text.replace(new RegExp(`^\\s*uniform\\s+(?:(?:highp|mediump|lowp)\\s+)?\\w+\\s+${name}\\s*;\\s*$`, "m"), `#define ${name} ${member}`), gl.getShaderSource(shader));
-      try {
-        const lamped = fed && names.some((name) => LAMP_UNIFORMS.has(name));
-        const add = lamped ? this.rust.add_program_lamps : this.rust.add_program;
-        entry = { id: add.call(this.rust, kind, source(vs), source(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
-          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names), aliased: aliases.length > 0, lamps: lamped };
-      } catch (error) {
-        this.fail(error);
-      }
-    }
-    cache.set(threeProgram, entry);
-    return entry;
-  }
 
   // A geometry's groups, consecutive ranges of one material merged.
   groups(geometry) {
@@ -537,66 +442,65 @@ export class RustRender {
   }
 
 
-  // The scene's onBeforeRender, as three starts a render of it (before it
-  // lists and sorts it): each pass's beforeSort(renderer, scene, camera,
-  // target, added), which can register what is new and hide it from three
-  // before three lists it, so that the renderer draws it from its first
-  // frame. added: for the frame's own render, what was added to the scene
-  // since the last one (the scene itself the first time; every object of it
-  // is told of its children added), else null.
-  watchScene(scene) {
-    const previous = scene.onBeforeRender, watched = new WeakSet();
-    let added = null;
-    const onAdded = ({ child }) => { added?.push(child); this.byName.instances?.noteAdded(child); };
-    const onRemoved=({child})=>this.byName.instances?.noteRemoved(child);
-    const watch = (root) => root.traverse((o) => { if (!watched.has(o)) { watched.add(o); o.addEventListener("childadded", onAdded); o.addEventListener("childremoved", onRemoved); } });
-    scene.onBeforeRender = (...args) => {
-      previous?.apply(scene, args);
-      if (this.contextLost) return;
-      const [renderer, , camera, target] = args;
-      let roots = null;
-      // A reflection can see a newly created logo or rig before the main view.
-      if (camera === this.graphics.camera && target === this.graphics.sceneTarget || camera.userData?.mirror === true) {
-        roots = added ?? [scene];
-        added = [];
-        for (const root of roots) watch(root);
-      }
-      if (roots?.length) this.registerItems(renderer, scene, camera, roots);
-      for (const pass of this.passes) pass.beforeSort?.(...args, roots);
-    };
-  }
-
-  // Discover scene resources without asking three to submit a draw. Keep
-  // candidates between frames; the near walk supplies the camera's order.
-  registerItems(renderer, scene, camera, roots) {
-    const list = this.sceneItems ??= { opaque: [], transmissive: [], transparent: [] };
-    const known = this.knownItems ??= new WeakSet();
-    const fresh = [];
-    for (const root of roots) root.traverse((object) => {
-      if (!(object.isMesh || object.isSprite) || object === this.graphics.background || known.has(object)) return;
-      known.add(object);
+  // Sparse lifecycle admission precedes each view publication. The observer
+  // has already captured topology at child/property mutation boundaries; only
+  // newly admitted resources are inspected here, never the live scene tree.
+  prepareScene(renderer, scene, camera, target) {
+    const registry=this.registry;
+    registry.admitIfNew(scene,scene===this.graphics.scene?0:scene===this.graphics.farScene?Family.FAR:Family.VIEW);
+    const fresh=registry.fresh,freshCount=fresh.length;
+    const list = registry.items, admitted=registry.admission;admitted.length=freshCount;
+    for(let i=0;i<freshCount;i++)admitted[i]=fresh[i];
+    for (let i = 0; i < freshCount; i++) {
+      const node = fresh[i], object = node.object;
+      node.freshQueued = false;
+      this.byName.far.admitAnchor(object);
+      if(node.scope&Family.VIEW)this.byName.view.admit(object);
+      if (!node.main) continue;
+      if(object.userData.actorWhole||object.userData.shadowOnly){registry.claim(object);continue;}
+      this.byName.instances.admit(object);
+      if(object===this.graphics.background){registry.claim(object);continue;}
+      if (!(object.isMesh || object.isSprite)) continue;
       const material = object.material;
-      if (!material || Array.isArray(material) || !material.visible) return;
-      // Caster proxies and source-owned actors have no browser program to
-      // discover. Their passes register the declared descriptor directly.
-      if (object.userData.shadowOnly || isActorMaterial(material)) return;
-      if (material.userData.bfeFamily !== "world" && !ownsEffectSource(material) && !renderer.properties.get(material).currentProgram) fresh.push([object, material]);
-      if (material.transparent) list.transparent.push({ object, material, geometry: object.geometry, group: null });
-    });
-    if (fresh.length) compileFor(renderer, fresh, camera, scene);
-    this.byName.effects.listed({ renderer, scene, camera });
-    const transparent = this.byName.transparent;
-    for (const item of list.transparent) {
-      if (transparent.taken.has(item.object) || !transparent.candidate(item)) continue;
-      const entry = (item.material.userData.bfeFamily === "world" || item.material.isShaderMaterial && "WORLD_SPACE" in (item.material.defines || {})) ? transparent.registerBucket(item) : transparent.registerObject(item, true);
-      if (entry) transparent.taken.set(item.object, entry);
+      if (!material || Array.isArray(material)) continue;
+      if (object.userData.shadowOnly || isActorMaterial(material)) continue;
+      if (material.transparent && !node.listed) { list.transparent.push(node.item); node.listed = true; }
+    }
+    fresh.copyWithin(0, freshCount); fresh.length -= freshCount;
+    if (scene === this.graphics.scene) {
+      const transparent = this.byName.transparent;
+      // registerItems admitted only changed resources. Retain that boundary:
+      // unchanged views must not rescan every transparent/effect candidate.
+      // Pending textures and effects already have their pass-owned retry sets.
+      if (freshCount) {
+        const context=this.sceneContext;context.renderer=renderer;context.scene=scene;context.camera=camera;
+        this.byName.effects.listed(context);
+        for (let i = 0; i < list.transparent.length; i++) {
+          const item = list.transparent[i];
+          if (!item.material || transparent.taken.has(item.object) || !transparent.candidate(item)) continue;
+          const entry = item.material.userData.bfeFamily === "world" || item.material.isShaderMaterial && "WORLD_SPACE" in (item.material.defines || {}) ? transparent.registerBucket(item) : transparent.registerObject(item, true);
+          if (entry) transparent.taken.set(item.object, entry);
+        }
+      }
+      for (const pass of this.passes) pass.beforeSort?.(renderer, scene, camera, target, registry.added);
+      for(let i=0;i<registry.added.length;i++){const node=registry.admitIfNew(registry.added[i]);if(node)node.addedQueued=false;}
+      registry.added.length = 0;
+      // Admission resolves the remaining generic colour owner. The selector
+      // therefore emits complete native draw ids without a second JS filter.
+      for(let i=0;i<admitted.length;i++){
+        const node=admitted[i],object=node.object;
+        if(!node.main || !(node.families&Family.NEAR))continue;
+        const material=object.material,entry=transparent.taken.get(object);
+        if(material?.transparent && !(material.transmission>0) && entry){registry.bind(object,Family.NEAR,entry,entry.id);continue;}
+        registry.claim(object);
+        if(ownsEffectSource(material) || transparent.retry.has(object))continue;
+        this.skip(object,material,"unclaimed scene resource");
+      }
     }
   }
 
-
-
-  // Prepare one semantic view without issuing draws. The frame bank snapshots
-  // these live prefixes before another camera overwrites the working inputs.
+  // Publish one retained semantic view. Native execution consumes its sealed
+  // packet after all required scene and presentation inputs are available.
   publishView(name, renderer, scene, camera, walked = null, values = null) {
     if (this.contextLost) return;
     if (this.resources.failure) throw this.resources.failure;
@@ -661,6 +565,7 @@ export class RustRender {
     try {
       if (scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
       scene.onBeforeRender(renderer, scene, camera, target);
+      this.prepareScene(renderer, scene, camera, target);
       const passes = this.phases[name];
       for (const pass of passes) pass.complete = false;
       this.publishView(name, renderer, scene, camera);

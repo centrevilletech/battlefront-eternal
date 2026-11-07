@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {ACTOR} from './rust-render/actor-layout.js';
 import {actorPoint,actorPointCount,actorJoint} from './actor-resources.js';
 import * as THREE from "three";
@@ -261,7 +262,7 @@ export class Destruction {
     this.stations.forEach((station, i) => {
       const look = station.looks?.destroyed;
       const [lo, hi] = look?.model?.box || station.looks?.built?.model?.box || DEFAULT_BOX;
-      box.set(new THREE.Vector3(...lo), new THREE.Vector3(...hi)).applyMatrix4(station.matrix);
+      sceneTransform(box.set(new THREE.Vector3(...lo), new THREE.Vector3(...hi)).applyMatrix4(station.matrix));
       station.center(centre);
       const at = i * STATION.STRIDE;
       h.stationConfig.set(box.min.toArray(), at + STATION.MIN);
@@ -353,7 +354,7 @@ export class Destruction {
     const bones = actor.bones;
     const { rest, centres } = this.bindPose(actor, bind);
     const nodeIndex = bones.indexOf(node);
-    const centre = (shape?.center || new THREE.Vector3()).clone().applyMatrix4(rest[nodeIndex]);
+    const centre = sceneTransform((shape?.center || new THREE.Vector3()).clone().applyMatrix4(rest[nodeIndex]));
     let best = -1, nearest = Infinity;
     centres.forEach((at, i) => {
       const d = at ? at.distanceToSquared(centre) : Infinity;
@@ -383,7 +384,7 @@ export class Destruction {
     for(let i=0;i<actorPointCount(geometry);i++){
       const b=actorJoint(geometry,i);
       if (b >= bones.length) continue;
-      sums[b].add(actorPoint(geometry,i,v).applyMatrix4(rest[b]));
+      sums[b].add(sceneTransform(actorPoint(geometry,i,v).applyMatrix4(rest[b])));
       counts[b]++;
     }
     pose = { rest, centres: sums.map((sum, i) => (counts[i] >= 12 ? sum.divideScalar(counts[i]) : null)) };
@@ -415,7 +416,7 @@ export class Destruction {
     c[CMD.SOUND] = sound ? 1 : 0;
     // Its pieces take its place, for the rest of its life (Unit.goUp); a
     // droideka's body dissolves under the blast meanwhile.
-    actor.root.visible = false;
+    sceneProperty(actor.root,"visible",false);
     unit.goUp?.();
   }
 
@@ -559,7 +560,7 @@ export class Destruction {
     } else if (kind === EK.HIDE) {
       const unit = this.slots[a]?.unit;
       if (!unit) return;
-      unit.actor.root.visible = false;
+      sceneProperty(unit.actor.root,"visible",false);
       unit.goUp?.();
     } else if (kind === EK.SITE_START) this.wreck(a);
     else if (kind === EK.SITE_END) this.cool(a);
@@ -580,7 +581,7 @@ export class Destruction {
         const source = mesh.userData.unheated || mesh.material;
         const heated = Array.isArray(source) ? source.map((m) => this.heated(m)) : this.heated(source);
         mesh.userData.unheated = source;
-        mesh.material = heated;
+        sceneProperty(mesh,"material",heated);
         mesh.userData.heated = site.look;
         site.meshes.push(mesh);
       });
@@ -605,7 +606,7 @@ export class Destruction {
     if (at < 0) return;
     const [site] = this.sites.splice(at, 1);
     for (const mesh of site.meshes) {
-      if (mesh.userData.unheated) mesh.material = mesh.userData.unheated;
+      if (mesh.userData.unheated) sceneProperty(mesh,"material",mesh.userData.unheated);
       delete mesh.userData.unheated;
       delete mesh.userData.heated;
     }

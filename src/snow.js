@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
@@ -82,9 +83,9 @@ export class Snow {
     v[EFFECT.SNOW.COVER_CELL]=this.cover.cell;v[EFFECT.SNOW.COVER_SIZE]=size;
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = 'map-snow';
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-    this.mesh.renderOrder = 20;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"visible",false);
+    sceneProperty(this.mesh,"renderOrder",20);
     this.mesh.onBeforeRender = (renderer, s, camera) => particleDepth.capture(renderer, s, camera);
     scene.add(this.mesh);
     this.stats = { boxes: 0, flakes: 0 };
@@ -120,7 +121,7 @@ export class Snow {
     }
     this.cover.queries=r[RESULT.QUERIES];
     const boxes=r[RESULT.BOXES];this.count=r[RESULT.INSTANCES];
-    this.mesh.visible = r[RESULT.COVERED] === 1 && boxes > 0;
+    sceneProperty(this.mesh,"visible",r[RESULT.COVERED] === 1 && boxes > 0);
     this.stats.boxes = boxes; this.stats.flakes = r[RESULT.INSTANCES];
   }
   // The native descriptor fixes format/type/filter and derives dimensions

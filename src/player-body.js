@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {releaseActorSkin} from './actor-resources.js';
 import { PageUnits } from "./presentation/units.js";
 import { loadClips } from "./anim.js";
@@ -154,7 +155,7 @@ export class PlayerBodies {
       maxFlyHeight: c.maxFlyHeight,
     });
     c.scene.add(actor.root);
-    actor.root.visible = false;
+    sceneProperty(actor.root,"visible",false);
     const presentation = new (c.headless ? HeadlessSoldierPresentation : SoldierPresentation)(soldier);
     const combatOptions = {
       soldier, def, actor, animator,
@@ -234,7 +235,7 @@ export class PlayerBodies {
       def, data: data.body, walkerData: data.walker, texture: side.texture, graphics, collision: c.collision,
       clips: loadClips(c.animMeta, c.animBuf, data.body.def.bones.map((bone) => bone.name)), animMeta: c.animMeta,
     });
-    actor.shadow.visible = false;
+    sceneProperty(actor.shadow,"visible",false);
     const [ax, ay, az] = PREVIEW_AIM;
     soldier.aimYaw = Math.atan2(ax, az);
     soldier.aimPitch = Math.atan2(ay, Math.hypot(ax, az));
@@ -272,7 +273,7 @@ export class PlayerBodies {
         } else if (soldier.time >= length && mode !== 12) {
           soldier.time -= length;
         }
-        const p=previewUnit.presentation;p.position.copy(soldier.position);p.velocity.copy(soldier.velocity);p.state.mode=soldier.mode;p.state.roll=soldier.roll;p.state.lean=soldier.lean;p.state.legs=soldier.legs;p.state.time=soldier.time;
+        const p=previewUnit.presentation;sceneTransform(p.position.copy(soldier.position));p.velocity.copy(soldier.velocity);p.state.mode=soldier.mode;p.state.roll=soldier.roll;p.state.lean=soldier.lean;p.state.legs=soldier.legs;p.state.time=soldier.time;
         pose(dt);
       };
     } else {
@@ -301,7 +302,7 @@ export class PlayerBodies {
         pose(dt);
       };
     }
-    actor.root.visible = true;
+    sceneProperty(actor.root,"visible",true);
     update(0);
     return {
       object: actor.root,

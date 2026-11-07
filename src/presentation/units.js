@@ -1,3 +1,5 @@
+import {sceneProperty,sceneTransform} from "../rust-render/scene-changes.js";
+import {sceneNodes} from "../rust-render/scene-changes.js";
 // Unit poses and first-person attachments are two record batches, split by
 // the current JS camera phase. Each changed row is published once.
 // Event hooks queue commands; none calls WebAssembly for an individual actor.
@@ -27,7 +29,8 @@ const NODE = N.STRIDE,
   NODE_WORLD = N.WORLD,
   NODE_EULER = N.EULER,
   NODE_EULER_SYNC = N.EULER_SYNC,
-  NODE_VERSION = N.LOCAL_VERSION;
+  NODE_VERSION = N.LOCAL_VERSION,
+  NODE_WORLD_VERSION = N.WORLD_VERSION;
 const POSTURES = ["stand", "crouch", "prone"],
   AIR = [null, "jump", "fall", "thrown", "jet"];
 const GAITS = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
@@ -60,7 +63,7 @@ function nativeUpdate() {
 }
 function nativeSkeletonUpdate() {
   if (this.presentationSkinDirty) {
-    if (this.boneTexture) this.boneTexture.needsUpdate = true;
+    if (this.boneTexture) sceneProperty(this.boneTexture,"needsUpdate",true);
     this.presentationSkinDirty = false;
   }
 }
@@ -88,8 +91,8 @@ function ownTree(objects, row) {
     // update's boundary) and skinned meshes (whose update would rewrite the
     // native bind inverse) take an own method, so bones and attachments
     // keep their class's shape for the renderer's walks.
-    object.matrixAutoUpdate = false;
-    object.matrixWorldAutoUpdate = false;
+    sceneProperty(object,"matrixAutoUpdate",false);
+    sceneProperty(object,"matrixWorldAutoUpdate",false);
     if (object === objects[0] || object.isSkinnedMesh) {
       object.updateMatrixWorld = nativeUpdate;
       object.updateWorldMatrix = nativeUpdate;
@@ -222,11 +225,13 @@ export class PageUnits {
     this.rotations = new Array(nodes).fill(null);
     // The local version each node's Three fields were last written from.
     this.versions = new Float64Array(nodes);
+    this.worldVersions = new Float64Array(nodes);
     // Each node's Three matrices stay ordinary arrays, written from the
     // native records when it is placed. Typed views in Matrix4.elements
     // would make every Three matrix reader polymorphic.
     this.locals = new Array(nodes).fill(null);
     this.worlds = new Array(nodes).fill(null);
+    this.worldNodes=new Array(nodes).fill(null);
     this.commandCount = 0;
     this.sequence = 0;
     this.aimSequence=0;this.aimComplete=-1;this.aimQueue=[];
@@ -274,12 +279,16 @@ export class PageUnits {
       const object = row.objects[i],
         id = row.start + i;
       if (object) {
+        object.userData.presentationNode=id;this.worldNodes[id]=sceneNodes.get(object)||null;
+        this.worldVersions[id]=-1;
         this.positions[id] = object.position;
         this.quaternions[id] = object.quaternion;
         this.scales[id] = object.scale;
         this.rotations[id] = object.rotation;
         this.locals[id] = object.matrix.elements;
         this.worlds[id] = object.matrixWorld.elements;
+        // Retained draw worlds have no bone consumer. Resolve transport
+        // targets cold so pose publication never probes the registry per bone.
         object.matrixWorldNeedsUpdate = false;
       }
     }
@@ -309,10 +318,24 @@ export class PageUnits {
     for (let i = 0; i < count; i++) {
       const id = changed[i];
       if (positions[id] === null) continue;
-      this.publishLocal(data, id, false);
+      // refreshRow can append to a phase's changed prefix and publish it again.
+      // Local and world receipts independently suppress rows already imported.
+      if (data[id * NODE + NODE_VERSION] !== this.versions[id]) this.publishLocal(data, id, false);
+      const version=data[id * NODE + NODE_WORLD_VERSION];
+      if(version===this.worldVersions[id])continue;
+      this.worldVersions[id]=version;
       const world = worlds[id],
         at = id * NODE + NODE_WORLD;
-      for (let k = 0; k < 16; k++) world[k] = data[at + k];
+      const worldNode=this.worldNodes[id];
+      if(worldNode)worldNode.worldVersion++;
+      // Rust's world receipt already proved these values changed. Publish the
+      // retained draw row and readback in one copy, without another identity
+      // lookup or sixteen scalar comparisons against the previous native pose.
+      if(worldNode && (worldNode.families || worldNode.object.isLOD)){
+        const retained=worldNode.world;
+        for(let k=0;k<16;k++){const value=data[at+k];retained[k]=value;world[k]=value;}
+        worldNode.nativeWorld=true;worldNode.owner.touch(worldNode,false);
+      }else for (let k = 0; k < 16; k++) world[k] = data[at + k];
     }
   }
   publishLocal(data, id, force) {
@@ -539,7 +562,7 @@ export class PageUnits {
       holding = this.header[H.FIRST_PERSON_HOLDING];
     view.holding = holding < 0 ? null : this.weapons[holding];
     view.wasActive = !!this.header[H.FIRST_PERSON_STATE + 6];
-    view.root.visible = !!this.header[H.FIRST_PERSON_VISIBLE];
+    sceneProperty(view.root,"visible",!!this.header[H.FIRST_PERSON_VISIBLE]);
     if (!view.wasActive) return;
     view.time = this.header[H.FIRST_PERSON_STATE + 2];
     view.blend = this.header[H.FIRST_PERSON_STATE + 3];
@@ -549,7 +572,7 @@ export class PageUnits {
         : null;
     for (let i = 0; i < row.weaponRows.length; i++) {
       const item = row.weaponRows[i];
-      item.held.group.visible = item.name === model;
+      sceneProperty(item.held.group,"visible",item.name === model);
     }
     // The collision query and lighting uniforms still belong to the host.
     // The native matrix phase has already placed this hand in the world.
@@ -565,7 +588,7 @@ export class PageUnits {
       if (!held.flashFresh) held.flashLeft -= dt;
       held.flashFresh = false;
       const t = held.flashLeft / Math.max(held.flashLength, 1e-3);
-      held.flash.visible = held.flashLeft > 0 && held.group.visible;
+      sceneProperty(held.flash,"visible",held.flashLeft > 0 && held.group.visible);
       held.flash.userData.material.opacity = held.flashAlpha * Math.min(2 * Math.max(t, 0), 1);
     }
   }
@@ -763,7 +786,7 @@ export class PageUnits {
       unit.undraw();
       return -1;
     }
-    if (gone > 0) unit.actor.root.visible = true;
+    if (gone > 0) sceneProperty(unit.actor.root,"visible",true);
     return gone;
   }
   finishRemote(unit, dt, light, effects) {
@@ -895,14 +918,14 @@ export class PageUnits {
         state = p.state;
       if (this.input[at + I.REMOVED] || this.output[out + O.GONE] === -1) continue;
       const visible = this.output[out + O.SEAT_VISIBLE];
-      if (visible >= 0) row.actor.root.visible = visible === 1;
+      if (visible >= 0) sceneProperty(row.actor.root,"visible",visible === 1);
       // A rider's lease birth publishes once; placeReplica refreshes remote
       // source interpolation each frame. Keep that reset before the changed
       // guard so a stationary gunner need not republish its matrix arrays.
       if (this.output[out+O.LEASE_BIRTH] && (row.publishedLease!==row.riderLease || this.input[at+I.RIDER_KIND]===2)) {
         row.publishedLease=row.riderLease;
         const s=p.soldier;
-        s.position.set(this.output[out+O.POSITION],this.output[out+O.POSITION+1],this.output[out+O.POSITION+2]);
+        sceneTransform(s.position.set(this.output[out+O.POSITION],this.output[out+O.POSITION+1],this.output[out+O.POSITION+2]));
         s.previous?.copy(s.position);s.settled?.copy(s.position);
         s.velocity.set(this.output[out+O.VELOCITY],this.output[out+O.VELOCITY+1],this.output[out+O.VELOCITY+2]);
         s.aimYaw=this.output[out+O.YAW];s.aimPitch=this.output[out+O.PITCH];
@@ -911,7 +934,7 @@ export class PageUnits {
           // recreating inherited state properties here would allocate boxed
           // numbers on every remote-gunner frame.
           p.networkFire=null;p.networkFired=false;p.deathPending=false;
-          p.position.copy(s.position);p.velocity.copy(s.velocity);
+          sceneTransform(p.position.copy(s.position));p.velocity.copy(s.velocity);
           p.previousPosition.copy(s.position);p.previousVelocity.copy(s.velocity);
           p.previousYaw=s.aimYaw;p.tickYaw=0;
           p.previousStep=p.lastStep=s.groundAdjustment||0;p.stepOffset=0;
@@ -921,11 +944,11 @@ export class PageUnits {
       if(this.input[at+I.OWN]){this.publishAim(row,out);row.aimPhase=this.aimSequence;}
       if (!this.output[out + O.CHANGED]) continue;
       if (!row.stale) this.publishSkin(row);
-      p.position.set(
+      sceneTransform(p.position.set(
         this.output[out + O.POSITION],
         this.output[out + O.POSITION + 1],
         this.output[out + O.POSITION + 2],
-      );
+      ));
       p.velocity.set(
         this.output[out + O.VELOCITY],
         this.output[out + O.VELOCITY + 1],

@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import { Character } from '../battle.js';
 import { InputMailbox } from './transport.js';
 import { humanCommands } from './commands.js';
@@ -41,7 +42,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     return connections.command('spawn',p,className,postName);
   }
   function unspawn(p) {
-    connections.command('unspawn',p);p.unit.actor.root.visible=false;
+    connections.command('unspawn',p);sceneProperty(p.unit.actor.root,"visible",false);
   }
   function characterHandle(p) { return p.spectator ? null : game.tailOwner.entries.get(p.character).handle; }
   // The presses each body fired this tick, on the host's own unit object

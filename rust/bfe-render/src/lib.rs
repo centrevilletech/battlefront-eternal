@@ -29,6 +29,8 @@ pub mod interface_scene;
 pub mod instances;
 pub mod lights;
 pub mod math;
+pub mod scene;
+pub mod scene_canopies;
 pub mod motion;
 pub mod post;
 pub mod post_chain;

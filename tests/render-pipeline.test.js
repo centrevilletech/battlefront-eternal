@@ -4,7 +4,12 @@ import * as THREE from 'three';
 import { Controls } from '../src/input.js';
 import { LocalLights } from '../src/local-lights.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
+import { readFileSync } from 'node:fs';
+import { RustRender } from '../src/rust-render/index.js';
+import { SceneCanopyHeader as H, SceneCanopySelection as S } from '../src/rust-render/scene-layout.js';
+import { standinModule, standinThree } from './support/rust-standin.mjs';
 import { RenderProfiler } from '../src/render-profiler.js';
+globalThis.location ??= {search:''};
 
 test('controls retain axes, simultaneous bindings, short clicks and focus cleanup',()=>{
   const oldWindow=globalThis.window,oldDocument=globalThis.document;
@@ -40,18 +45,29 @@ test('lamp selection matches full stable sort and occlusion before and after mov
   }
 });
 
-test('canopy selection and every uploaded leaf match the original equations',()=>{
+test('canopy selection and every uploaded leaf match frozen view histories',async()=>{
   let enabled=true;
-  const graphics={scene:new THREE.Scene(),farScene:new THREE.Scene(),settings:{get:()=>enabled?'enhanced':'original'}};
+  const { BfeRenderer, memory, calls } = standinModule();
+  const { graphics } = standinThree(calls);
+  graphics.settings = {get:()=>enabled?'enhanced':'original'};
+  const core = new RustRender(graphics, {memory}, BfeRenderer);
+  graphics.rust = core; graphics.rustReady = Promise.resolve(core);
+  core.resources.gpu.canopy_state = () => 1;
+  core.resources.gpu.update_canopy_state = () => {};
+  const frozen = JSON.parse(readFileSync(new URL('./fixtures/canopy-selection.json',import.meta.url)));
   const instances=Array.from({length:20},(_,i)=>({matrix:new THREE.Matrix4().makeTranslation((i%5-2)*25,0,-30-Math.floor(i/5)*40).toArray(),bounds:[[-4,0,-4],[4,12,4]]}));
   const trees=new TreeCanopies(graphics,{instances,texture:'leaves'},()=>new THREE.Texture());
-  const camera=new THREE.PerspectiveCamera(75,1,.1,1000),frustum=new THREE.Frustum(),matrix=new THREE.Matrix4();
+  await graphics.rustReady;
+  const camera=new THREE.PerspectiveCamera(75,1,.1,1000);
 
   for(let frame=0;frame<80;frame++) {
     enabled=frame%19!==0;camera.position.set(Math.sin(frame*.2)*50,6,Math.cos(frame*.1)*20);camera.rotation.y=Math.sin(frame*.13)*.9;camera.fov=frame%2?50:80;camera.updateProjectionMatrix();camera.updateMatrixWorld();
-    frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
-    const expected=enabled?trees.groups.filter(g=>frustum.intersectsSphere(g.sphere)&&g.sphere.center.distanceTo(camera.position)-g.sphere.radius<220).sort((a,b)=>a.sphere.center.distanceToSquared(camera.position)-b.sphere.center.distanceToSquared(camera.position)).slice(0,12):[];
-    trees.update(camera);assert.deepEqual(trees.active,expected);assert.equal(trees.instanceCount,expected.length*912);
+    const expected = frozen.frames[frame].ids.map(id=>trees.groups[id]);
+    trees.update(camera);
+    const selected = Array.from({length:core.sceneCanopyOutput[H.COUNT]},(_,i)=>core.sceneCanopyOutput[H.STRIDE+i*S.STRIDE+S.ID]);
+    assert.deepEqual(selected,frozen.frames[frame].ids,`selected sources at frame ${frame}`);
+    assert.equal(trees.stateVersion,frozen.frames[frame].version,`state publication at frame ${frame}`);
+    assert.equal(trees.instanceCount,expected.length*912);
     for(const [field,size] of [['centers',3],['sizes',2],['shades',3]]) {
       assert.deepEqual(trees[field].slice(0,expected.length*912*size),new Float32Array(expected.flatMap(g=>g[field])));
     }

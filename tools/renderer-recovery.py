@@ -44,7 +44,7 @@ for path in sorted(web.glob('*.rs')):
     # it must not rewrite arbitrary Rust expressions or private helpers.
     for m in re.finditer(r'pub fn (\w+)\((.*?)\)\s*(?:->\s*([^\{]+))?\{', text, re.S):
         name, args, ret = m.group(1), m.group(2), (m.group(3) or '').strip()
-        if name.startswith(('hud_model_', 'static_source', 'water_source', 'actor_source')) or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
+        if name.startswith(('hud_model_', 'static_source', 'water_source', 'actor_source', 'scene_')) or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
         parsed = []
         for arg in args.split(','):
             arg = arg.strip()
@@ -337,7 +337,9 @@ fields = {'world':['input','input_active'], 'core':['input','bones','shadow_inpu
 for owner,names in fields.items():
     out.append(f'        // Preserve {owner} input storage; replay must not reset the live frame values.')
     for name in names: out.append(f'        self.r.{owner}.{name} = std::mem::take(&mut old.{owner}.{name});')
-out += ['        // Temporal CPU ownership survives reconstruction, but old history cannot.',
+out += ['        // Scene identity and sparse changes are CPU state, not GPU registrations.',
+        '        self.r.scene = std::mem::take(&mut old.scene);',
+        '        // Temporal CPU ownership survives reconstruction, but old history cannot.',
         '        self.r.cameras = std::mem::take(&mut old.cameras);',
         '        self.r.cameras.invalidate();',
         '        self.r.post_chain = std::mem::take(&mut old.post_chain);',

@@ -1,3 +1,4 @@
+import {sceneTransform} from "../../../rust-render/scene-changes.js";
 // Owned semantic capture on the battle's shared module. This layer reads
 // object fields and content identities; Rust selects layouts and writes bytes.
 import { bridgeFor } from '../../runtime.js';
@@ -142,7 +143,7 @@ export function createWireSemanticBridge(bridge) {
       for (const key of ['at', 'x', 'y', 'z']) list(words, s[key].toArray().map(num));
     }
     words.push(+!!state.camera);
-    if (state.camera) { const c = state.camera; list(words, Array.isArray(c.position) ? c.position.map(num) : []); list(words, Array.isArray(c.quaternion) ? c.quaternion.map(num) : []); words.push(num(c.aspect), num(c.fov), num(c.reach), flag(c.fresh)); }
+    if (state.camera) { const c = state.camera; list(words, Array.isArray(c.position) ? sceneTransform(c.position.map(num)) : []); list(words, Array.isArray(c.quaternion) ? sceneTransform(c.quaternion.map(num)) : []); words.push(num(c.aspect), num(c.fov), num(c.reach), flag(c.fresh)); }
     return run(8, words)[0];
   }
 

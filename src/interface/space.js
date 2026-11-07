@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import * as THREE from "three";
 
 // The 2004 interface's space, which the HUD, the spawn screen, the
@@ -41,7 +42,7 @@ export function anchorMatrix(ax, ay, safe, H, out = new THREE.Matrix4()) {
 
 // Where a point of a group (x, y, z under m) shows, in interface units.
 export function planePoint(m, x, y, z, H) {
-  const p = new THREE.Vector3(x, y, z).applyMatrix4(m);
+  const p = sceneTransform(new THREE.Vector3(x, y, z).applyMatrix4(m));
   const k = PLANE / Math.max(-p.z, 1e-3);
   return { x: p.x * k + IW / 2, y: (384 - p.y * k) * (H / 768) };
 }

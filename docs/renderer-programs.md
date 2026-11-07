@@ -9,7 +9,12 @@ spawn rooms, the projector, motes and holomap surfaces. Its skinning source
 license is retained in `shaders/interface/NOTICE`.
 Those passes register Rust source directly. They have no source switch,
 compiled-three-program bridge, or shader fallback. Registration errors throw a
-message naming the variant. Line utilities still use three's compiler on first use.
+message naming the variant. The `utility` family owns twenty-four no-map line
+variants: plain/RGB/RGBA inputs, solid/blended alpha, cutout and premultiplication.
+Their expanded sources retain the three.js license in `shaders/utility/NOTICE`.
+Tow cables and flight/debug helpers prewarm those keys and reuse retained dynamic
+buffers. Both Three compiler entry points are guarded on the battle renderer;
+no pass imports linked browser source or active uniform/attribute reflection.
 
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
@@ -53,6 +58,23 @@ holds, cascade refreshes and the complete target/clear/copy/resolve schedule.
 schedule without browser scene or drawing callbacks. Mirror packets retain the
 previous shadow inputs; the main shadow refresh follows their execution.
 
+`scene.rs` retains qualified node and parent identities, sibling order,
+authored visibility/layers, material groups, bounds and pass resources. Cold
+admission and coalesced mutation rows use the generated `scene-layout.json`
+boundary. Native queries own the near, far coverage, actor, first-person,
+shadow, motion and line selections. Hidden parents suppress descendants;
+layer mismatches do not. Painter keys preserve authored object/material IDs,
+f64 no-divide clip depth and each producer's original ordering contract.
+Static world/depth resources retain their own cell culling.
+
+Selection storage is reserved with content and clips deterministic prefixes
+with telemetry when a consumer fills. Material/geometry replacement updates
+only admitted users. Motion source visibility and detached-pool retirement
+produce retained lifecycle events. Line selections survive intervening queries.
+Context recovery moves the same CPU registry into the rebuilt renderer.
+
+Matrix, camera/light and skin-history preparation still reads presentation
+facades; resource descriptors also remain host inputs.
 The native camera owner imports the gameplay camera's f64 publication and owns
 far/first-person views, CSM splits and held windows, shadow cameras, oblique
 water clipping, cube probe views and sky following. The light owner computes
@@ -60,8 +82,7 @@ map/environment colours, point-light packs and storm flashes. Matrix and light
 shader blocks read their native publications directly. Mirrors retain the
 preceding shadow matrices until a selected shadow pass publishes its update.
 Camera shells expose readbacks to audio, controls and existing scene consumers;
-scene discovery, visibility, model-view matrices and render hooks still depend
-on those graph consumers. Derived shells never recompute camera matrices.
+model-view matrices and render hooks still depend on those graph consumers. Derived shells never recompute camera matrices.
 
 Scene preparation still reads scene transforms and descriptors.
 The host snapshots only live record/bone/FX prefixes into retained native view

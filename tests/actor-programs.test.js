@@ -3,24 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {actorMaterial} from '../src/materials.js';
 import {warmActorPrograms} from '../src/rust-render/actors.js';
-import {compileUnowned} from '../src/rust-render/world-programs.js';
 import {programLayouts} from '../src/render-programs.js';
-
-test('browser preparation excludes owned actor shells and keeps scene lighting',()=>{
- const scene=new THREE.Scene(),owned=new THREE.Object3D();owned.userData.actorAsset={};
- const browser=new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshBasicMaterial()),light=new THREE.PointLight();
- const shadow=new THREE.Mesh(new THREE.BoxGeometry(),new THREE.Material());shadow.userData.shadowOnly=true;
- scene.add(owned,browser,light,shadow);
- const visited=[],renderer={compile(root,camera,target){
-  assert.equal(target,scene);root.traverse(o=>{if(o.material || o.isLight)visited.push(o);});
-  const lights=[];const collect=o=>{if(o.isLight)lights.push(o);};
-  target.traverseVisible(collect);if(root!==target)root.traverseVisible(collect);
-  assert.deepEqual(lights,[light],'a filtered compile must count each scene light once');
- }};
- compileUnowned(renderer,scene,new THREE.PerspectiveCamera());
- assert.ok(visited.includes(browser));assert.ok(visited.includes(light));assert.ok(!visited.includes(owned));assert.ok(!visited.includes(shadow));
-});
-
 
 test('actor warmup settles each new program and reuses the cache',async()=>{
  const calls=[],settled=[],target={},core={graphics:{settings:{get:()=>false},csm:null},renderer:{getRenderTarget:()=>target,resetState(){},setRenderTarget(t){assert.equal(t,target);}},rust:{add_owned_program(key){calls.push(key);return calls.length;}}};

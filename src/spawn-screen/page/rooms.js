@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../../rust-render/scene-changes.js";
 import {interfaceNode} from '../../interface/resources.js';
 import {repeatImage} from '../../interface/images.js';
 import {LOOK,paintArray} from '../../rust-render/interface-material.js';
@@ -23,7 +24,7 @@ export class GridRoom {
   // map: the shell_cube texture (or null, until it loads).
   constructor(map) {
     map=repeatImage(map);
-    this.material = interfaceMaterial("room", {
+    sceneProperty(this,"material",interfaceMaterial("room", {
       uniforms: {
         map: { value: map },
         time: { value: 0 },
@@ -35,10 +36,10 @@ export class GridRoom {
       side: THREE.BackSide,
       depthTest: false,
       depthWrite: false,
-    });
+    }));
     this.mesh = interfaceNode({kind:"box",width:ROOM.width,height:ROOM.height,depth:ROOM.depth},this.material);
-    this.mesh.position.set(0, ROOM.height / 2, ROOM.back + ROOM.depth / 2);
-    this.mesh.frustumCulled = false;
+    sceneTransform(this.mesh.position.set(0, ROOM.height / 2, ROOM.back + ROOM.depth / 2));
+    sceneProperty(this.mesh,"frustumCulled",false);
     this.scene = new THREE.Scene();
     this.scene.add(this.mesh);
   }
@@ -67,16 +68,16 @@ export class GridRoom {
 
 export class StageFloor {
   constructor() {
-    this.material = interfaceMaterial("floor", {
+    sceneProperty(this,"material",interfaceMaterial("floor", {
       uniforms: { color: { value: new THREE.Color(1, 1, 1) }, time: { value: 0 }, strength: { value: 0 } },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
-    });
+    }));
     this.mesh = interfaceNode({kind:"circle",radius:7.5,segments:96,transforms:[["rotateX",-Math.PI/2]]},this.material);
-    this.mesh.position.y = -0.005;
-    this.mesh.renderOrder = -3;
+    sceneComponent(this.mesh.position,"y","=",-0.005);
+    sceneProperty(this.mesh,"renderOrder",-3);
   }
 
   colors({ color }) {

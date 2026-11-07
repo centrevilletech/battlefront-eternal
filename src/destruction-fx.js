@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { particleDepth } from "./particle-depth.js";
@@ -67,9 +68,9 @@ class Pool {
     for(let i=0;i<attributes;i++)this.arrays['a'+i]=arrays[i];
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = name;
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = renderOrder;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",renderOrder);
+    sceneProperty(this.mesh,"visible",false);
     this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
     destructionPools.set(this.mesh, this);
     scene.add(this.mesh);
@@ -83,7 +84,7 @@ class Pool {
     this.emitted = emitted;
     this.dropped = dropped;
     if (dirty >= 0 && dirty < this.unread) this.unread = dirty;
-    this.mesh.visible = count > 0 && !this.external;
+    sceneProperty(this.mesh,"visible",count > 0);
   }
 
   dispose() {
@@ -116,9 +117,9 @@ class Arcs {
     this.arrays={position:this.positions,tangent:this.tangents,meta:this.meta};
     this.mesh=new THREE.Object3D();this.mesh.userData.effectMesh=this;
     this.mesh.name = "destruction-arcs";
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 12;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",12);
+    sceneProperty(this.mesh,"visible",false);
     destructionArcs.set(this.mesh, this);
     scene.add(this.mesh);
   }
@@ -130,7 +131,7 @@ class Arcs {
     this.spawned = spawned;
     this.vertex = vertex;
     this.index = index;
-    this.mesh.visible=index>0&&!this.external;
+    sceneProperty(this.mesh,"visible",index>0);
   }
 
   dispose() {

@@ -1,3 +1,5 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
+import { publishSceneWorld } from "../rust-render/scene.js";
 // Resource shells are made once. Numeric tree records own their transforms
 // afterwards, including skinned meshes parented under a moving drum.
 import { poseOf } from './unit-content.js';
@@ -20,7 +22,7 @@ export function tree(root, bones = []) {
 // stops Three's scene walk; mesh updates cannot rewrite the bind inverse.
 export function ownTree(row) {
   for (const o of row.objects) {
-    o.matrixAutoUpdate = o.matrixWorldAutoUpdate = false;
+    sceneProperty(o,"matrixAutoUpdate",sceneProperty(o,"matrixWorldAutoUpdate",false));
     if (o === row.objects[0] || o.isSkinnedMesh) o.updateMatrixWorld = o.updateWorldMatrix = published;
   }
 }
@@ -30,6 +32,7 @@ export function publishTree(row, records) {
   for (let i = 0, at = row.start; i < row.objects.length; i++, at += N.STRIDE) {
     if (!records[at + N.CHANGED]) continue;
     const o = row.objects[i], m = o.matrix.elements, w = o.matrixWorld.elements;
+    publishSceneWorld(o, records, at + N.WORLD);
     for (let k = 0; k < 16; k++) { m[k] = records[at + N.MATRIX + k]; w[k] = records[at + N.WORLD + k]; }
     if (o.isSkinnedMesh) {
       const inverse = o.bindMatrixInverse.elements;

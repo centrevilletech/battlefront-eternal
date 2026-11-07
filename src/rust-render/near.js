@@ -1,6 +1,6 @@
 // Draw the battle scene in Rust: opaque passes, far image, then ordered
-// transparency. The walk validates that every visible item has a Rust owner.
-// Three scene shells still supply transforms and resource descriptor facts.
+// transparency. Retained scene facts select the remaining transparent inputs.
+// Three still maintains scene transforms, target allocation and resolve state.
 import * as THREE from "three";
 import { writeScreenStep } from "./screen.js";
 import { plainProgram, plainProgramKnown } from "./post.js";
@@ -8,8 +8,6 @@ import { plainProgram, plainProgramKnown } from "./post.js";
 // post.rs's step layout, and its target for the framebuffer bound now.
 const MAX_UNIFORMS = 12;
 const ATTRIBUTES = "position:0,uv:1";
-// The transparent pass's records a frame (transparent.rs MAX_OBJECTS).
-const MAX_ITEMS = 512;
 
 export class NearPass {
   constructor(core) {
@@ -18,14 +16,8 @@ export class NearPass {
     this.phase = "near";
     // Mirror views use the same producer with a different semantic role.
     this.scenePhase = "near";
-    this.frustum = new THREE.Frustum();
-    this.screen = new THREE.Matrix4();
-    this.point = new THREE.Vector4();
     // This frame's walk: the transparent pass's items (kept from frame to
     // frame), how many, and what stopped it (for the measurement tools).
-    this.pool = [];
-    this.items = [];
-    this.stopped = null;
     this.drawn = 0;
   }
 
@@ -53,19 +45,16 @@ export class NearPass {
     try {
       if (scene.matrixWorldAutoUpdate === true) scene.updateMatrixWorld();
       if (camera.parent === null && camera.matrixWorldAutoUpdate === true) camera.updateMatrixWorld();
-      this.screen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      this.frustum.setFromProjectionMatrix(this.screen);
+      core.prepareScene(renderer, scene, camera, target);
       scene.onBeforeRender(renderer, scene, camera, target);
       if (!core.primed) {
         core.primed = true;
         core.publishView(this.scenePhase, renderer, scene, camera, null, { priming: true });
       }
-      this.items.length = 0;
-      this.stopped = null;
-      this.walk(scene, camera, 0);
+      const items = core.registry.near(scene, camera);
       renderer.info.render.frame++;
       if (renderer.info.autoReset) renderer.info.reset();
-      const ctx=core.publishView(this.scenePhase, renderer, scene, camera, this.items);
+      const ctx=core.publishView(this.scenePhase, renderer, scene, camera, items);
       core.frame.sceneTail(ctx,this);
       core.resolve(target);
       scene.onAfterRender(renderer, scene, camera);
@@ -82,73 +71,6 @@ export class NearPass {
   ours(renderer, scene, camera, target) {
     const graphics = this.core.graphics;
     return target === graphics.sceneTarget && camera === graphics.camera && scene === graphics.scene;
-  }
-
-  // projectObject's walk: a hidden object hides its subtree; one on other
-  // layers is not listed, but its children may be; a group's render order
-  // orders what is listed below it; an LOD picks its level. An item three
-  // would list that no pass claims is skipped and reported once (the core's
-  // skip()), so the frame still draws everything that is owned.
-  // Match projectObject's visibility, layer and Group render-order rules.
-  // Claimed world/instance/effect/line objects already have retained Rust records;
-  // only remaining blended mesh/sprite objects need transient sort items.
-  // Hidden subtrees stay hidden even if a child retains an old registration.
-  // The walk is always true: only the pass's configuration (cover) can stop it.
-  walk(object, camera, groupOrder) {
-    if (object.visible === false) return true;
-    if (object.layers.test(camera.layers)) {
-      if (object.isGroup) groupOrder = object.renderOrder;
-      else if (object.isLOD) { if (object.autoUpdate === true) object.update(camera); }
-      else if (object.isSprite) {
-        if (object.material.visible && (!object.frustumCulled || this.frustum.intersectsSprite(object))) this.item(object, object.material, groupOrder);
-      } else if (object.isMesh || object.isLine || object.isPoints) {
-        const material = object.material;
-        if (Array.isArray(material)) {
-          // Each group with a shown material is an item of three's own.
-          for (const group of object.geometry.groups) {
-            const m = material[group.materialIndex];
-            if (m && m.visible && (!object.frustumCulled || this.frustum.intersectsObject(object))) { this.unclaimed(object, m, "multi-material mesh"); break; }
-          }
-        } else if (material.visible && (!object.frustumCulled || this.frustum.intersectsObject(object))) this.item(object, material, groupOrder);
-      }
-    }
-    const children = object.children;
-    for (let i = 0; i < children.length; i++) this.walk(children[i], camera, groupOrder);
-    return true;
-  }
-
-  // One unclaimed object: remembered for the measurement tools and reported
-  // once by the core.
-  unclaimed(object, material, why) {
-    this.stopped = object;
-    this.core.skip(object, material, why);
-  }
-
-  item(object, material, groupOrder) {
-    if (object === this.core.graphics.background) return true;
-    if (object.isLine) {
-      if (this.core.byName.lines.owns(object)) return true;
-      this.unclaimed(object, material, "line no pass owns"); return false;
-    }
-    if (!material.transparent || material.transmission > 0 || this.items.length >= MAX_ITEMS) { this.unclaimed(object, material, material.transparent ? "no free transparent record" : "opaque object no pass owns"); return false; }
-    // z as projectObject takes it: a sprite's position, else the centre of
-    // its bounding sphere (the object's own, where it has one), through its
-    // world matrix, then the camera's projection and view (no divide).
-    const point = this.point;
-    if (object.isSprite) point.setFromMatrixPosition(object.matrixWorld);
-    else {
-      let sphere;
-      if (object.boundingSphere !== undefined) { if (object.boundingSphere === null) object.computeBoundingSphere(); sphere = object.boundingSphere; }
-      else { if (object.geometry.boundingSphere === null) object.geometry.computeBoundingSphere(); sphere = object.geometry.boundingSphere; }
-      point.set(sphere.center.x, sphere.center.y, sphere.center.z, 1).applyMatrix4(object.matrixWorld);
-    }
-    point.applyMatrix4(this.screen);
-    const item = this.pool[this.items.length] ??= {};
-    item.object = object; item.material = material; item.geometry = object.geometry; item.group = null;
-    item.groupOrder = groupOrder; item.renderOrder = object.renderOrder; item.z = point.z; item.id = object.id;
-    if (!this.core.byName.transparent.takes(item)) { this.unclaimed(object, material, "the transparent pass cannot take it"); return false; }
-    this.items.push(item);
-    return true;
   }
 
   // The far scene's image as a post step into the target bound now (post.rs):

@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import * as THREE from "three";
 import { sheathColor, textureHue, vivid } from "../blaster-bolts.js";
 import {
@@ -484,7 +485,7 @@ export class PageOrdnance {
           rgb[0] = c[at + C.B];
           rgb[1] = c[at + C.B + 1];
           rgb[2] = c[at + C.B + 2];
-          host.lights.add(this.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]), rgb, c[at + C.S0], c[at + C.S1]);
+          host.lights.add(sceneTransform(this.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2])), rgb, c[at + C.S0], c[at + C.S1]);
           break;
         }
         case CK.TOUCH:
@@ -503,8 +504,8 @@ export class PageOrdnance {
           break;
         case CK.MESH: {
           const mesh = sources[c[at + C.SOURCE]].mesh;
-          mesh.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]);
-          if (c[at + C.S0]) mesh.quaternion.set(c[at + C.D], c[at + C.D + 1], c[at + C.D + 2], c[at + C.D + 3]);
+          sceneTransform(mesh.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]));
+          if (c[at + C.S0]) sceneTransform(mesh.quaternion.set(c[at + C.D], c[at + C.D + 1], c[at + C.D + 2], c[at + C.D + 3]));
           break;
         }
         case CK.TRAIL:
@@ -523,8 +524,8 @@ export class PageOrdnance {
         }
         case CK.NET_MESH: {
           const mesh = this.netObjects[c[at + C.SOURCE]].mesh;
-          mesh.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]);
-          mesh.quaternion.set(c[at + C.D], c[at + C.D + 1], c[at + C.D + 2], c[at + C.D + 3]);
+          sceneTransform(mesh.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]));
+          sceneTransform(mesh.quaternion.set(c[at + C.D], c[at + C.D + 1], c[at + C.D + 2], c[at + C.D + 3]));
           break;
         }
         case CK.NET_TRAIL:
@@ -541,9 +542,9 @@ export class PageOrdnance {
   // arguments are scratch objects the handle copies from, so a trail costs
   // no allocation; a round without an orientation or velocity passes none.
   trail(trail, c, at) {
-    this.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]);
+    sceneTransform(this.position.set(c[at + C.A], c[at + C.A + 1], c[at + C.A + 2]));
     let quaternion, velocity;
-    if (c[at + C.S0]) quaternion = this.quaternion.set(c[at + C.D], c[at + C.D + 1], c[at + C.D + 2], c[at + C.D + 3]);
+    if (c[at + C.S0]) quaternion = sceneTransform(this.quaternion.set(c[at + C.D], c[at + C.D + 1], c[at + C.D + 2], c[at + C.D + 3]));
     if (c[at + C.S1]) velocity = this.velocity.set(c[at + C.E], c[at + C.E + 1], c[at + C.E + 2]);
     trail.move(this.position, quaternion, velocity);
   }

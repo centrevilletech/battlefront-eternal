@@ -1,3 +1,6 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
+import {Family,Mode,shareSceneWorld} from './rust-render/scene.js';
+import {SceneMotionHeader as H,SceneMotionEvent as E,SceneSelection as Selected,SceneCapacity,SceneMotionKind as K} from './rust-render/scene-layout.js';
 import * as THREE from "three";
 
 
@@ -35,12 +38,12 @@ export const motionUniforms = shared;
 export class MotionVectors {
   constructor() {
     this.scene = new THREE.Scene();
-    this.scene.matrixWorldAutoUpdate = false;
+    sceneProperty(this.scene,"matrixWorldAutoUpdate",false);
     this.proxies = new Set();
     this.extras = new Set();
     this.skeletons = new Map();
     this.frame = 0;
-    this.eye = new THREE.Vector3();
+    this.prepared=new Array(SceneCapacity.NODES).fill(null);this.preparedCount=0;
     this.at = new THREE.Vector3();
     this.was = new THREE.Vector3();
     this.nextOrder=0;
@@ -52,11 +55,11 @@ export class MotionVectors {
   // few pixels rely on the upscaler's history clipping instead.
   track(source, { far = FAR } = {}) {
     if (!source?.userData.actorAsset || source.userData.motion) return null;
-    const proxy=new THREE.Object3D();proxy.boundingSphere=source.boundingSphere;
+    const proxy=new THREE.Object3D();sceneProperty(proxy,"boundingSphere",source.boundingSphere);
     proxy.userData.order=this.nextOrder++;proxy.userData.previousModel=new THREE.Matrix4();proxy.userData.previousBindInverse=new THREE.Matrix4();
     if(source.skeleton){proxy.isSkinnedMesh=true;proxy.skeleton=source.skeleton;proxy.bindMatrix=source.bindMatrix;proxy.bindMatrixInverse=new THREE.Matrix4().copy(source.bindMatrixInverse);}
-    proxy.matrixAutoUpdate = false;
-    proxy.matrixWorldAutoUpdate = false;
+    sceneProperty(proxy,"matrixAutoUpdate",false);
+    sceneProperty(proxy,"matrixWorldAutoUpdate",false);
     proxy.userData.source = source;
     proxy.userData.far = far;
     proxy.userData.seen = -1;
@@ -71,9 +74,10 @@ export class MotionVectors {
   // ships: the far scene's, which the near scene's depth can't place). It
   // draws while visible, with the camera the proxies draw with.
   addExtra(object) {
-    object.matrixAutoUpdate = false;
+    sceneProperty(object,"matrixAutoUpdate",false);
     this.extras.add(object);
     this.scene.add(object);
+    if(this.drawer)this.drawer.queueExtra(object);
   }
 
   removeExtra(object) {
@@ -84,17 +88,6 @@ export class MotionVectors {
   // Every mesh of a model.
   trackAll(object, options) {
     object.traverse((child) => { if (child.userData.actorAsset) this.track(child, options); });
-  }
-
-  // Drawn by the main camera this frame: shown all the way up to the scene,
-  // and drawn on its default layer (a first-person body is not).
-  shown(source, root) {
-    if (!source.layers.isEnabled(0)) return false;
-    for (let object = source; object; object = object.parent) {
-      if (!object.visible) return false;
-      if (object === root) return true;
-    }
-    return null;
   }
 
   // The bones as they were last frame, in three's bone-texture layout (four
@@ -111,24 +104,15 @@ export class MotionVectors {
 
   // Before drawing: which proxies draw, where they are, and where they were.
   prepare(root, camera) {
-    this.eye.setFromMatrixPosition(camera.matrixWorld);
-    let drawn = 0;
-    for (const proxy of this.proxies) {
-      const source = proxy.userData.source;
-      const shown = this.shown(source, root);
-      if (shown === null) {
-        // Detached: a soldier's pooled model is reattached later; one gone
-        // for good is let go.
-        proxy.visible = false;
-        if (++proxy.userData.detached > 600) this.release(proxy);
-        continue;
-      }
-      proxy.userData.detached = 0;
-      const far = proxy.userData.far;
-      proxy.visible = shown && this.at.setFromMatrixPosition(source.matrixWorld).distanceToSquared(this.eye) < far * far;
-      if (!proxy.visible) { proxy.userData.seen = -1; continue; }
-      drawn++;
-      proxy.matrixWorld.copy(source.matrixWorld);
+    const core=this.drawer.core,registry=core.registry;
+    const count=registry.select(this.scene,camera,Family.MOTION,Mode.MOTION_PREPARE,camera.layers.mask,0,root);
+    core.views();const events=core.sceneMotionEvents[H.EVENTS];
+    for(let i=0;i<events;i++){const at=H.STRIDE+i*E.STRIDE,node=registry.nodes[core.sceneMotionEvents[at+E.SLOT]];if(node?.generation!==core.sceneMotionEvents[at+E.GENERATION])continue;if(core.sceneMotionEvents[at+E.KIND]===K.RELEASE)this.release(node.object);else node.object.userData.seen=-1;}
+    this.preparedCount=count;
+    for(let i=0;i<count;i++){
+      core.views();const proxy=registry.nodes[core.sceneOutput[i*Selected.STRIDE+Selected.SLOT]].object;this.prepared[i]=proxy;
+      const source=proxy.userData.source;this.at.setFromMatrixPosition(source.matrixWorld);
+      sceneTransform(proxy.matrixWorld.copy(source.matrixWorld));shareSceneWorld(proxy,source);
       const previous = proxy.userData.previousModel;
       // First drawn now, or moved too far to be motion (a respawn, a pooled
       // soldier's new life): no motion this frame.
@@ -145,13 +129,13 @@ export class MotionVectors {
         }
       }
     }
-    return drawn;
+    return count;
   }
 
   // After drawing: this frame becomes the last one.
   commit() {
-    for (const proxy of this.proxies) {
-      if (!proxy.visible) continue;
+    for(let i=0;i<this.preparedCount;i++){
+      const proxy=this.prepared[i];
       const source = proxy.userData.source;
       proxy.userData.previousModel.copy(source.matrixWorld);
       proxy.userData.seen = this.frame;
@@ -184,10 +168,9 @@ export class MotionVectors {
     shared.previousViewProjection.value.copy(previous);
     shared.sceneDepth.value = depth;
     shared.depthRange.value.set(camera.near, camera.far);
-    let drawn = this.prepare(root, camera);
-    for (const extra of this.extras) if (extra.visible) drawn++;
-    // The view scene to mark fixed, when it shows anything.
-    const locked = viewScene && view && viewScene.children.some((child) => child.visible && !child.isLight) ? viewScene : null;
+    const prepared=this.prepare(root,camera);
+    const drawn=prepared+this.drawer.core.sceneMotionEvents[H.EXTRAS];
+    const locked=viewScene&&view?viewScene:null;
     if (!this.drawer.cover(renderer, this, { target, camera, viewScene: locked, view, depth })) this.drawer.core.fail(new Error(`Incomplete Rust motion: ${this.drawer.why}`));
 
     return drawn;

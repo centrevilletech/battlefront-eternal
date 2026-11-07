@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { Pose } from "./anim.js";
 import { Building } from "./props.js";
@@ -64,9 +65,9 @@ export class Trap extends Building {
     const node = t.node && rig?.byName?.[t.node];
     if (node) {
       rig.root.updateMatrixWorld(true);
-      this.point.applyMatrix4(node.matrixWorld);
-    } else this.point.applyMatrix4(this.matrix);
-    this.effectAt = new THREE.Vector3(...(t.deathEffectOffset || [0, 0, 0])).applyMatrix4(this.matrix);
+      sceneTransform(this.point.applyMatrix4(node.matrixWorld));
+    } else sceneTransform(this.point.applyMatrix4(this.matrix));
+    this.effectAt = sceneTransform(new THREE.Vector3(...(t.deathEffectOffset || [0, 0, 0])).applyMatrix4(this.matrix));
     // The pad's sphere (where repair weapons, the AI and blasts find it:
     // the 2004 game sets the trap's sphere to the pad's).
     this.origin = this.position.clone();
@@ -93,18 +94,18 @@ export class Trap extends Building {
     const at = matrix || new THREE.Matrix4().makeTranslation(...pad.at).premultiply(this.matrix);
     this.padMatrix = at;
     if (this.pad) {
-      this.pad.root.matrix.copy(at);
+      sceneTransform(this.pad.root.matrix.copy(at));
       this.pad.root.matrixWorldNeedsUpdate = true;
     }
     const sphere = this.pad?.model?.sphere;
     if (sphere) {
-      this.padSphere.center.set(sphere[0], sphere[1], sphere[2]).applyMatrix4(at);
+      sceneTransform(this.padSphere.center.set(sphere[0], sphere[1], sphere[2]).applyMatrix4(at));
       this.padSphere.radius = sphere[3];
     } else this.padSphere.center.setFromMatrixPosition(at);
     // Where the AI and the HUD find it: every point the 2004 game gives
     // of a trap is the pad's (its hardpoint position included).
-    this.position.copy(this.padSphere.center);
-    if (this.hologram) this.hologram.group.position.set(...(pad.hologram || [0, 0, 0])).applyMatrix4(at);
+    sceneTransform(this.position.copy(this.padSphere.center));
+    if (this.hologram) sceneTransform(sceneTransform(this.hologram.group.position.set(...(pad.hologram || [0, 0, 0]))).applyMatrix4(at));
   }
 
   // Only built and unbuilt: the logs are always drawn; the pad and the
@@ -112,8 +113,8 @@ export class Trap extends Building {
   show(state) {
     if (state === "destroyed") state = "unbuilt";
     this.state = state;
-    if (this.rig) this.rig.root.visible = true;
-    if (this.pad) this.pad.root.visible = state === "unbuilt";
+    if (this.rig) sceneProperty(this.rig.root,"visible",true);
+    if (this.pad) sceneProperty(this.pad.root,"visible",state === "unbuilt");
     for (const [name, body] of Object.entries(this.bodies || {})) if (body) body.enabled = name === state;
     if (this.hologram) {
       const on = state === "unbuilt";

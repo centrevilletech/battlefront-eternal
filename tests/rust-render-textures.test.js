@@ -43,7 +43,7 @@ test('a lazy source replaces its retained Rust binding without changing the draw
 test('registering a new HUD sampler cannot detach the frame inputs being written', async()=>{
  const {Batch}=await import('../src/interface/batch.js');
  const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
- const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
+ const backing=new WebAssembly.Memory({initial:512});memory.buffer=backing.buffer;
  const core=new RustRender(graphics,{memory},BfeRenderer),batch=new Batch(),texture=new THREE.Texture();
  batch.begin();batch.quad(new THREE.Matrix4(),0,0,10,10,texture,[0,0,1,1],[1,1,1,1]);batch.end();
  const add=core.rust.add_texture.bind(core.rust);let grew=false;
@@ -65,7 +65,7 @@ test('native post facts survive resource registration and retain program binding
  Object.assign(graphics,{quarterTarget:target(),bloomTarget:target(),bloomScratch:target(),postTarget:target(),aaTarget:target(),
   renderSize:new THREE.Vector2(800,600),outputSize:new THREE.Vector2(800,600),postRevision:0,vehicleMotion:0,vehicleTurn:0,blur:null,
   upscaler:new Upscaler({extensions:{has:()=>true}})});
- const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
+ const backing=new WebAssembly.Memory({initial:512});memory.buffer=backing.buffer;
  const core=new RustRender(graphics,{memory},BfeRenderer),add=core.rust.add_texture.bind(core.rust);
  core.rust.add_texture=(...args)=>{const id=add(...args);backing.grow(1);memory.buffer=backing.buffer;return id;};
  const camera=new THREE.PerspectiveCamera();camera.position.set(1,2,3);camera.updateMatrixWorld();
@@ -89,7 +89,7 @@ test('native post facts survive resource registration and retain program binding
 test('a screen pass prepares a pending image before taking shared views',async()=>{
  const {writeScreenStep}=await import('../src/rust-render/screen.js');
  const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
- const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
+ const backing=new WebAssembly.Memory({initial:512});memory.buffer=backing.buffer;
  const texture=new THREE.Texture();delete renderer.properties.get(texture).__webglTexture;
  renderer.initTexture=t=>{if(t!==texture)renderer.properties.get(t).__webglTexture={};};
  const core=new RustRender(graphics,{memory},BfeRenderer),add=core.rust.add_texture.bind(core.rust);

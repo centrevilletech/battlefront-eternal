@@ -1,3 +1,5 @@
+import {sceneLayer,sceneProperty,sceneTransform} from "../src/rust-render/scene-changes.js";
+import {prepareSceneFixture} from "./support/rust-standin.mjs";
 import { CAMERA as CAMERA_ROW, ROLE as CAMERA_ROLE } from "../src/rust-render/camera-layout.js";
 import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import { INPUT as CAMERA_INPUT } from "../src/rust-render/camera-layout.js";
@@ -12,14 +14,6 @@ const { RustRender } = await import("../src/rust-render/index.js");
 const { lighting } = await import("../src/materials.js");
 globalThis.__pointLights = await import("../src/point-lights.js");
 
-const WORLD = 0, SKINNED = 1, EFFECT = 4;
-// A shadow receiver's active uniforms as three's GLSL for a zero material
-// lists them with shadows on (SwiftShader's list, two cascades).
-const RECEIVER = [["projectionMatrix", GL.FLOAT_MAT4], ["viewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["receiveShadow", GL.BOOL],
-  ["directionalLightShadows[0].shadowMapSize", GL.FLOAT_VEC2], ["directionalLightShadows[1].shadowMapSize", GL.FLOAT_VEC2],
-  ["cascades[0]", GL.FLOAT_VEC2], ["directionalShadowMatrix[0]", GL.FLOAT_MAT4], ["cascadePlanes[0]", GL.FLOAT_MAT3], ["cascadeMaps[0]", 0x8b62]];
-const LAMPS = [["localLightPositions[0]", GL.FLOAT_VEC4], ["localLightColors[0]", GL.FLOAT_VEC3], ["localLightCount", GL.FLOAT]];
-
 // The bridge over stand-ins, with three's shadow maps on (two cascades) or
 // off, and lamps on or off; the near scene's material a program is for.
 function bridge({ shadows = false, lamps = false } = {}) {
@@ -30,7 +24,7 @@ function bridge({ shadows = false, lamps = false } = {}) {
     matrix: new THREE.Matrix4().makeTranslation(i + 1, 2, 3) } })) } : null;
   const three = standinThree(calls, { graphics: { csm, settings: { get: (k) => settings.get(k) ?? false } } });
   three.renderer.shadowMap.enabled = shadows;
-  const core = new RustRender(three.graphics, { memory }, BfeRenderer);
+  const core = prepareSceneFixture(new RustRender(three.graphics, { memory }, BfeRenderer));
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const material = new THREE.ShaderMaterial();
   for (const [name, value] of Object.entries(lighting)) material.uniforms[name] = value;
@@ -49,53 +43,6 @@ function withCascades(fn) {
 
 
 
-test("a shadow receiver's program is the renderer's only from a pass that feeds shadows, with shadows on", () => withCascades(() => {
-  const { core, material } = bridge({ shadows: true });
-  // A world draw's receiveShadow is the pass's own value (world.js MATERIAL); an instance's is its row's.
-  const feeds = { uniforms: new Set(["map", "receiveShadow"]), material: new Set(["receiveShadow"]), shadows: true };
-  const instanced = { uniforms: new Set(["map"]), material: new Set(), shadows: true };
-  const not = { uniforms: new Set(["map", "receiveShadow"]), material: new Set(["receiveShadow"]) };
-  assert.ok(core.program(fakeProgram(RECEIVER), WORLD, material, feeds), "world: the block and the maps are the core's; receiveShadow the pass's");
-  assert.ok(core.program(fakeProgram(RECEIVER), SKINNED, material, instanced), "an instance's receiveShadow is its row's");
-  assert.throws(() => core.program(fakeProgram(RECEIVER), WORLD, material, instanced), /Program/);
-  const p = fakeProgram(RECEIVER);
-  assert.throws(() => core.program(p, WORLD, material, not), /Program/);
-  assert.ok(core.errors.some(e => e.includes(`Program ${p.id}`) && e.endsWith("(shadows)")));
-  assert.throws(() => core.program(fakeProgram(RECEIVER), EFFECT, material, feeds), /Program/);
-}));
-
-test("with shadows off nothing of the shadow block is the renderer's to give", () => {
-  const { core, material } = bridge({ shadows: false });
-  const feeds = { uniforms: new Set(["map"]), material: new Set(), shadows: true };
-  assert.throws(() => core.program(fakeProgram(RECEIVER), WORLD, material, feeds), /Program/);
-});
-
-test("with lamps on a DYNAMIC program is the renderer's only from a pass that feeds lamps", () => {
-  const { core, material } = bridge({ lamps: true });
-  const uniforms = new Set(["map", "localLightPositions", "localLightColors", "localLightCount"]);
-  const p = fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]);
-  assert.throws(() => core.program(p, SKINNED, material, { uniforms, material: new Set() }), /Program/);
-  assert.ok(core.errors.some(e => e.includes("localLightPositions (lamps)")));
-  assert.ok(core.program(fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]), SKINNED, material, { uniforms, material: new Set(), lamps: true }));
-  // Lamps off (Classic): unread placeholders, as before.
-  const classic = bridge({ lamps: false });
-  assert.ok(classic.core.program(fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]), SKINNED, classic.material, { uniforms, material: new Set() }));
-});
-
-test("reveal: three's own render runs with what each pass hid shown, hidden again after", () => {
-  const { core } = bridge();
-  const log = [];
-  core.addPass({ name: "a", phase: "near", reveal: (on) => log.push(["a", on]) });
-  core.addPass({ name: "b", phase: "far", reveal: (on) => log.push(["b", on]) });
-  const result = core.reveal(() => { log.push(["render"]); return 7; });
-  assert.equal(result, 7);
-  assert.deepEqual(log, [["a", true], ["b", true], ["render"], ["a", false], ["b", false]]);
-  // Hidden again even when the render throws.
-  log.length = 0;
-  assert.throws(() => core.reveal(() => { throw new Error("boom"); }));
-  assert.deepEqual(log, [["a", true], ["b", true], ["a", false], ["b", false]]);
-  });
-
 test("native static anchors never expose material descriptors during shadow traversal", () => {
   const { core } = bridge();
   const world = core.byName.world;
@@ -103,7 +50,8 @@ test("native static anchors never expose material descriptors during shadow trav
   Object.defineProperty(anchor, "material", {get(){throw Error("static material shell read");}});
   Object.defineProperty(anchor, "geometry", {get(){throw Error("static geometry shell read");}});
   world.meshes.push({mesh:anchor,id:0,stale:false});
-  core.reveal(() => world.draw());
+  assert.equal(typeof core.reveal,"undefined");
+  world.draw();
 });
 
 test("shadow resources and scalar metadata reach the native shadow publisher", () => withCascades(() => {
@@ -124,20 +72,6 @@ test("Classic: no shadow block written and no maps given", () => {
   const { core, calls } = bridge({ shadows: false });
   core.writeShadow();
   assert.equal(calls.filter((c) => c[0] === "set_shadow_maps" || c[0] === "shadow_input_ptr").length, 0);
-});
-
-test("with lamps on, a pass that gives lamps gets a program reading them from the lamp table, kept apart from three's", () => {
-  const { core, calls, material } = bridge({ lamps: true });
-  const uniforms = new Set(["map", "localLightPositions", "localLightColors", "localLightCount"]);
-  const three = fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]);
-  const fed = core.program(three, SKINNED, material, { uniforms, material: new Set(), lamps: true });
-  assert.ok(fed && fed.lamps);
-  assert.equal(calls.filter((c) => c[0] === "add_program_lamps").length, 1);
-  assert.throws(() => core.program(three, SKINNED, material, { uniforms, material: new Set() }), /Program/);
-  assert.equal(core.program(three, SKINNED, material, { uniforms, material: new Set(), lamps: true }), fed, "made once");
-  // A program reading no lamps is an ordinary one even from such a pass.
-  const plain = core.program(fakeProgram([["map", GL.SAMPLER_2D]]), SKINNED, material, { uniforms, material: new Set(), lamps: true });
-  assert.ok(plain && !plain.lamps);
 });
 
 test("the lamp table: every lamp source, given again only when there are more", () => {
@@ -177,7 +111,7 @@ test("the frame block survives the renderer's memory growing while the Enhanced 
   const { core, memory, region, scene, camera, renderer, graphics } = bridge({ shadows: true, lamps: true });
   graphics.localLights = { sources: [{ position: new THREE.Vector3(1, 2, 3), radius: 6, color: new THREE.Vector3(1, 1, 1) }], select: () => [] };
   const light = new THREE.PointLight(0xffffff, 1, 10);
-  light.position.set(4, 5, 6);
+  sceneTransform(light.position.set(4, 5, 6));
   scene.add(light);
   scene.updateMatrixWorld(true);
   core.rust.camera_lights_frame=()=>core.cameraPacks.set([1,4,5,6,10,1,1,1,0]);
@@ -199,8 +133,8 @@ function cascade(size = 1024) {
   const light = new THREE.DirectionalLight();
   light.userData.nativeCascade=0;
   lighting.cascadePlanes.value[0]??=new THREE.Matrix3();
-  light.position.set(0, 10, 0);
-  light.target.position.set(0, 0, 0);
+  sceneTransform(light.position.set(0, 10, 0));
+  sceneTransform(light.target.position.set(0, 0, 0));
   light.updateMatrixWorld(true);
   light.target.updateMatrixWorld(true);
   const depthTexture = new THREE.DepthTexture(size, size);
@@ -215,8 +149,8 @@ function caster() {
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
   geometry.setIndex([0, 1, 2]);
   const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.FrontSide }));
-  mesh.castShadow = true;
-  mesh.frustumCulled = false;
+  sceneProperty(mesh,"castShadow",true);
+  sceneProperty(mesh,"frustumCulled",false);
   mesh.customDepthMaterial = new THREE.Material();
   mesh.customDepthMaterial.userData.bfeProgram="actors/depth-solid";
   return mesh;
@@ -227,10 +161,10 @@ test("a cascade's pass: the casters three's shadow pass would draw, drawn by the
   const light = cascade(), mesh = caster();
   scene.add(mesh);
   const hidden = caster();
-  hidden.visible = false;
+  sceneProperty(hidden,"visible",false);
   scene.add(hidden);
   const other = caster();
-  other.layers.set(5);
+  sceneLayer(other.layers,"set",5);
   scene.add(other);
   scene.updateMatrixWorld(true);
   core.frame.role=R.SHADOW_STATIC0;
@@ -280,7 +214,7 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   const index = mesh.geometry.index;
   index.addUpdateRange(6, 3);
   index.addUpdateRange(3, 3);
-  index.needsUpdate = true;
+  sceneProperty(index,"needsUpdate",true);
   assert.deepEqual(pass(), [["geometry_index_sub_data", 12, 24]], "elements 3 to 8 at their bytes, into the index as made");
   assert.equal(index.updateRanges.length, 2, "three's ranges left for three");
   assert.deepEqual(pass(), [], "nothing again while its version stands");
@@ -288,25 +222,25 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   // the ranges no longer say all that changed, so all of it, as far as the
   // draw reads it.
   mesh.geometry.setDrawRange(0, 6);
-  index.needsUpdate = true;
-  index.needsUpdate = true;
+  sceneProperty(index,"needsUpdate",true);
+  sceneProperty(index,"needsUpdate",true);
   assert.deepEqual(pass(), [["geometry_index_sub_data", 0, 24]], "the six drawn");
   mesh.geometry.setDrawRange(0, 12);
   assert.deepEqual(pass(), [["geometry_index_sub_data", 24, 24]], "the rest once a draw reads it");
   index.clearUpdateRanges();
-  index.needsUpdate = true;
+  sceneProperty(index,"needsUpdate",true);
   assert.deepEqual(pass(), [["geometry_index_sub_data", 0, 48]], "no ranges: all of it the draw reads");
   // A vertex source's range, in elements (a vertex's three floats each).
   const position = mesh.geometry.attributes.position;
   position.addUpdateRange(3, 6);
-  position.needsUpdate = true;
+  sceneProperty(position,"needsUpdate",true);
   assert.deepEqual(pass(), [["geometry_buffer_sub_data", 0, 12, 24]], "slot 0, its bytes from the fourth float");
-  position.needsUpdate = true;
-  position.needsUpdate = true;
+  sceneProperty(position,"needsUpdate",true);
+  sceneProperty(position,"needsUpdate",true);
   assert.deepEqual(pass(), [["geometry_buffer_sub_data", 0, 0, 36]], "marked twice: all of it");
   // An array of another size: all of it, into an index made again.
   index.array = new Uint32Array(24);
-  index.needsUpdate = true;
+  sceneProperty(index,"needsUpdate",true);
   assert.deepEqual(pass(), [["geometry_index_data", 96]]);
   // Another index altogether: three makes buffers for it, so three draws the pass.
   mesh.geometry.setIndex([0, 1, 2]);

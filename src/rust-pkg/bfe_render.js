@@ -2458,6 +2458,287 @@ export class BfeRenderer {
         }
     }
     /**
+     * @returns {number}
+     */
+    scene_bounds_updates() {
+        const ret = wasm.bferenderer_scene_bounds_updates(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_bounds_len() {
+        const ret = wasm.bferenderer_scene_canopy_bounds_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_bounds_ptr() {
+        const ret = wasm.bferenderer_scene_canopy_bounds_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_output_len() {
+        const ret = wasm.bferenderer_scene_canopy_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_output_ptr() {
+        const ret = wasm.bferenderer_scene_canopy_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     * @param {number} generation
+     */
+    scene_canopy_reserve(count, generation) {
+        wasm.bferenderer_scene_canopy_reserve(this.__wbg_ptr, count, generation);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_select() {
+        const ret = wasm.bferenderer_scene_canopy_select(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_states_len() {
+        const ret = wasm.bferenderer_scene_canopy_states_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_states_ptr() {
+        const ret = wasm.bferenderer_scene_canopy_states_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_view_len() {
+        const ret = wasm.bferenderer_scene_canopy_view_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_view_ptr() {
+        const ret = wasm.bferenderer_scene_canopy_view_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_changes_len() {
+        const ret = wasm.bferenderer_scene_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_changes_ptr() {
+        const ret = wasm.bferenderer_scene_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_clipped() {
+        const ret = wasm.bferenderer_scene_clipped(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_drawable_visits() {
+        const ret = wasm.bferenderer_scene_drawable_visits(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_facts_len() {
+        const ret = wasm.bferenderer_scene_facts_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_facts_ptr() {
+        const ret = wasm.bferenderer_scene_facts_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_groups_len() {
+        const ret = wasm.bferenderer_scene_groups_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_groups_ptr() {
+        const ret = wasm.bferenderer_scene_groups_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    scene_groups_reserve(count) {
+        wasm.bferenderer_scene_groups_reserve(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_lines_len() {
+        const ret = wasm.bferenderer_scene_lines_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_lines_ptr() {
+        const ret = wasm.bferenderer_scene_lines_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_motion_events_len() {
+        const ret = wasm.bferenderer_scene_motion_events_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_motion_events_ptr() {
+        const ret = wasm.bferenderer_scene_motion_events_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_order_len() {
+        const ret = wasm.bferenderer_scene_order_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_order_ptr() {
+        const ret = wasm.bferenderer_scene_order_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_output_len() {
+        const ret = wasm.bferenderer_scene_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_output_ptr() {
+        const ret = wasm.bferenderer_scene_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_queries() {
+        const ret = wasm.bferenderer_scene_queries(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_rejected() {
+        const ret = wasm.bferenderer_scene_rejected(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    scene_reserve(count) {
+        wasm.bferenderer_scene_reserve(this.__wbg_ptr, count);
+    }
+    /**
+     * @param {number} changes
+     * @param {number} groups
+     * @param {number} worlds
+     * @returns {number}
+     */
+    scene_select(changes, groups, worlds) {
+        const ret = wasm.bferenderer_scene_select(this.__wbg_ptr, changes, groups, worlds);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_view_len() {
+        const ret = wasm.bferenderer_scene_view_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_view_ptr() {
+        const ret = wasm.bferenderer_scene_view_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_visibility_builds() {
+        const ret = wasm.bferenderer_scene_visibility_builds(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_visibility_visits() {
+        const ret = wasm.bferenderer_scene_visibility_visits(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_visible_len() {
+        const ret = wasm.bferenderer_scene_visible_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_visible_ptr() {
+        const ret = wasm.bferenderer_scene_visible_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_world_changes_len() {
+        const ret = wasm.bferenderer_scene_world_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_world_changes_ptr() {
+        const ret = wasm.bferenderer_scene_world_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} texture
      */
     set_far_map(texture) {
@@ -3202,6 +3483,265 @@ export class BfeRenderer {
     }
 }
 if (Symbol.dispose) BfeRenderer.prototype[Symbol.dispose] = BfeRenderer.prototype.free;
+
+export class BfeScene {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        BfeSceneFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_bfescene_free(ptr, 0);
+    }
+    constructor() {
+        const ret = wasm.bfescene_new();
+        this.__wbg_ptr = ret;
+        BfeSceneFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_bounds_len() {
+        const ret = wasm.bfescene_scene_canopy_bounds_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_bounds_ptr() {
+        const ret = wasm.bfescene_scene_canopy_bounds_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_output_len() {
+        const ret = wasm.bfescene_scene_canopy_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_output_ptr() {
+        const ret = wasm.bfescene_scene_canopy_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     * @param {number} generation
+     */
+    scene_canopy_reserve(count, generation) {
+        wasm.bfescene_scene_canopy_reserve(this.__wbg_ptr, count, generation);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_select() {
+        const ret = wasm.bfescene_scene_canopy_select(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_states_len() {
+        const ret = wasm.bfescene_scene_canopy_states_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_states_ptr() {
+        const ret = wasm.bfescene_scene_canopy_states_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_view_len() {
+        const ret = wasm.bfescene_scene_canopy_view_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_canopy_view_ptr() {
+        const ret = wasm.bfescene_scene_canopy_view_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_changes_len() {
+        const ret = wasm.bfescene_scene_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_changes_ptr() {
+        const ret = wasm.bfescene_scene_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_facts_len() {
+        const ret = wasm.bfescene_scene_facts_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_facts_ptr() {
+        const ret = wasm.bfescene_scene_facts_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_groups_len() {
+        const ret = wasm.bfescene_scene_groups_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_groups_ptr() {
+        const ret = wasm.bfescene_scene_groups_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    scene_groups_reserve(count) {
+        wasm.bfescene_scene_groups_reserve(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_lines_len() {
+        const ret = wasm.bfescene_scene_lines_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_lines_ptr() {
+        const ret = wasm.bfescene_scene_lines_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_motion_events_len() {
+        const ret = wasm.bfescene_scene_motion_events_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_motion_events_ptr() {
+        const ret = wasm.bfescene_scene_motion_events_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_order_len() {
+        const ret = wasm.bfescene_scene_order_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_order_ptr() {
+        const ret = wasm.bfescene_scene_order_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_output_len() {
+        const ret = wasm.bfescene_scene_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_output_ptr() {
+        const ret = wasm.bfescene_scene_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_queries() {
+        const ret = wasm.bfescene_scene_queries(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    scene_reserve(count) {
+        wasm.bfescene_scene_reserve(this.__wbg_ptr, count);
+    }
+    /**
+     * @param {number} changes
+     * @param {number} groups
+     * @param {number} worlds
+     * @returns {number}
+     */
+    scene_select(changes, groups, worlds) {
+        const ret = wasm.bfescene_scene_select(this.__wbg_ptr, changes, groups, worlds);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_view_len() {
+        const ret = wasm.bfescene_scene_view_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_view_ptr() {
+        const ret = wasm.bfescene_scene_view_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_visible_len() {
+        const ret = wasm.bfescene_scene_visible_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_visible_ptr() {
+        const ret = wasm.bfescene_scene_visible_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_world_changes_len() {
+        const ret = wasm.bfescene_scene_world_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_world_changes_ptr() {
+        const ret = wasm.bfescene_scene_world_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) BfeScene.prototype[Symbol.dispose] = BfeScene.prototype.free;
 
 export class GpuResources {
     __destroy_into_raw() {
@@ -4940,6 +5480,9 @@ function __wbg_get_imports() {
 const BfeRendererFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_bferenderer_free(ptr, 1));
+const BfeSceneFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_bfescene_free(ptr, 1));
 const GpuResourcesFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_gpuresources_free(ptr, 1));

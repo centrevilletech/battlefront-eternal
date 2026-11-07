@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { EFFECT } from "./rust-render/effect-layout.js";
 import { ArcLightning } from "./arc-lightning.js";
@@ -82,9 +83,9 @@ export class Lightning {
     this.nativeKind=EFFECT.LIGHTNING.ID;this.arrays={position:this.positions,uv:this.uvs,color:this.colors};
     this.values=new Float64Array(0);this.maps=new Map();this.map=null;
     this.mesh=new THREE.Object3D();
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 5;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",5);
+    sceneProperty(this.mesh,"visible",false);
     scene.add(this.mesh);
     let root = scene;
     while (root.parent) root = root.parent;
@@ -158,7 +159,7 @@ export class Lightning {
       if (bolt.follow) bolt.follow(bolt.start);
     }
     if (enhanced) {
-      this.mesh.visible = false;
+      sceneProperty(this.mesh,"visible",false);
       this.arcs().update(dt, camera);
       this.prune();
       return;

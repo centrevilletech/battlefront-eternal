@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { STATIC } from "./rust-render/static-layout.js";
 import { ownWorldMaterial } from "./rust-render/world-programs.js";
 import * as THREE from "three";
@@ -39,7 +40,7 @@ function admitStatic(graphics, record, verts, indices, textureFor, look, order) 
   const map = textureFor(record.texture), bump = record.bump ? textureFor(record.bump) : null;
   const mesh = new THREE.Object3D();
   mesh.name = record.texture;
-  mesh.matrixAutoUpdate = false;
+  sceneProperty(mesh,"matrixAutoUpdate",false);
   mesh.userData.worldOrder = order;
   if (look.far) {
     graphics.rust.byName.far.admit(mesh, record, vertices, index, map, bump);
@@ -63,7 +64,7 @@ function admitGround(graphics, map, record, verts, indices, textureFor, order) {
   const index = indices.subarray(first, first + record.indexCount);
   const source = core.rust.static_source(JSON.stringify(record), vertices, index);
   const ground = new THREE.Group();
-  ground.name = record.texture; ground.matrixAutoUpdate = false; ground.userData.worldOrder = order;
+  ground.name = record.texture; sceneProperty(ground,"matrixAutoUpdate",false); ground.userData.worldOrder = order;
   graphics.scene.add(ground);
   const sample = texture => core.texture(core.resources.staticSample(texture));
   const [layer0, layer1] = record.layers || [record.texture];
@@ -75,7 +76,7 @@ function admitGround(graphics, map, record, verts, indices, textureFor, order) {
   const low = map.distance?.lowRes;
   if (low?.texture) {
     const far = new THREE.Object3D();
-    far.name = "far-terrain"; far.matrixAutoUpdate = false; far.userData.worldOrder = order + 1;
+    far.name = "far-terrain"; sceneProperty(far,"matrixAutoUpdate",false); far.userData.worldOrder = order + 1;
     const samples = samplers.slice(); samples[0] = samples[2] = sample(textureFor(low.texture)); samples[3] = neutral;
     core.byName.far.admit(far, { ...record, far: true, lowResScale: low.scale }, vertices, index, null, null, new Uint8Array(), samples, source);
     graphics.farScene.add(far);
@@ -84,11 +85,11 @@ function admitGround(graphics, map, record, verts, indices, textureFor, order) {
     const mask = core.rust.static_terrain_layers(source, weights);
     for (let i = 0; i < 8; i++) if (mask & (1 << i)) samplers[4 + i] = sample(textureFor(record.layers[i]));
     core.byName.terrain.admit(ground, record, vertices, index, weights, samplers, source);
-    ground.visible = true;
+    sceneProperty(ground,"visible",true);
   };
   if (!record.weights) finish(new Uint8Array());
   else {
-    ground.visible = false;
+    sceneProperty(ground,"visible",false);
     fetch(`/maps/${map.name}/${record.weights}`).then(r => r.ok ? r.arrayBuffer() : null)
       .then(bytes => finish(bytes ? new Uint8Array(bytes) : new Uint8Array()))
       .catch(error => { console.warn(`terrain layers: ${error.message}`); finish(new Uint8Array()); });
@@ -133,8 +134,8 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     if (look.kind === "sky") {
       // Drawn first, around the eye, without depth: the dome, then the
       // models on its horizon in the sky config's order (graphics.js).
-      mesh.renderOrder = SKY_ORDER + (record.skyLayer || 0);
-      mesh.frustumCulled = false;
+      sceneProperty(mesh,"renderOrder",SKY_ORDER + (record.skyLayer || 0));
+      sceneProperty(mesh,"frustumCulled",false);
       if (material.transparent) {
         // Blended, but drawn in the sky's order before the far scene's
         // geometry rather than with the transparent things after it.
@@ -152,7 +153,7 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     // The map's meshes never move (the sky, above, follows the eye): skip
     // recomposing their matrices every frame. Their vertices are in the
     // world already: the shader skips the model and normal matrices.
-    mesh.matrixAutoUpdate = false;
+    sceneProperty(mesh,"matrixAutoUpdate",false);
     if (mesh.matrix.equals(IDENTITY)) for (const m of [].concat(mesh.material)) if (m?.defines) m.defines.WORLD_SPACE = "";
     if (look.far) {
       ownWorldMaterial(material, geometry);

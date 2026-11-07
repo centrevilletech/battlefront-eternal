@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {glowLook} from './actor-resources.js';
 import * as THREE from 'three';
 import {PageEffects} from './presentation/effects.js';
@@ -38,7 +39,7 @@ export class EnvironmentEffects {
     const texture=name=>textures.get(name?.toLowerCase())||null;
     const model=name=>{const parts=packed.get(name);if(!parts)return null;return()=>{
       const material=glowLook(texture(parts[0].texture));
-      const group=modelGroup(parts,()=>material);group.userData.material=material;return group;};};
+      const group=modelGroup(parts,()=>material);sceneProperty(group.userData,"material",material);return group;};};
     const environment=new EnvironmentEffects({graphics,settings,data,texture,model,presentationLoaded,surfaceOwner});
     await environment.classic.warmup(graphics.renderer,graphics.camera);
     return environment;
@@ -51,7 +52,7 @@ export class EnvironmentEffects {
     this.instances=data.instances.map(item=>{
       const matrix=new THREE.Matrix4().fromArray(item.matrix),position=new THREE.Vector3().setFromMatrixPosition(matrix),quaternion=new THREE.Quaternion().setFromRotationMatrix(matrix);
       const fountain=item.effect==='waterfountain',pipe=item.effect==='prop_steampipe',classic=!ENHANCED.has(item.effect);
-      const direction=(pipe?FORWARD:UP).clone().applyQuaternion(quaternion);
+      const direction=sceneTransform((pipe?FORWARD:UP).clone().applyQuaternion(quaternion));
       const volume={position:position.clone(),direction,extent:new THREE.Vector3(...(fountain?[10,1.5,10]:pipe?[2.5,4,2.5]:[6,5.5,6])),kind:fountain?2:pipe?1:0};
       if(!fountain&&!pipe&&["hp_steam_1","hp_steam_5"].includes(item.hardpoint))volume.extent.set(7,6,7);
       const jet=fountain?{position:position.clone(),direction:UP,extent:new THREE.Vector3(5,5.3,5),kind:3}:null;

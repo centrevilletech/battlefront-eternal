@@ -1,3 +1,4 @@
+import {sceneComponent,sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from "./render-resources.js";
@@ -131,7 +132,7 @@ export class Water extends WaterState {
     this.farGroup = new THREE.Group();
     this.farGroup.name = "far-water";
     this.farGroup.add(...[this.farTint, this.farMirror, this.farLow].filter(Boolean));
-    this.farGroup.visible = false;
+    sceneProperty(this.farGroup,"visible",false);
     graphics.farScene?.add(this.farGroup);
     // Reflection selection still consumes the authored water bounds. This
     // collision/culling fact has no vertex layout or GPU resource ownership.
@@ -162,9 +163,9 @@ export class Water extends WaterState {
         depthWrite: false,
       }),
     );
-    this.underwater.frustumCulled = false;
+    sceneProperty(this.underwater,"frustumCulled",false);
     this.underwater.material.userData.bfeNoShadows = true;
-    this.underwater.material.visible = true;
+    sceneProperty(this.underwater.material,"visible",true);
     this.underwaterScene = new THREE.Scene();
     this.underwaterScene.add(this.underwater);
     this.passCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -183,9 +184,9 @@ export class Water extends WaterState {
         transparent: true, blending: THREE.NoBlending, depthTest: false, depthWrite: false,
       }),
     );
-    this.underwaterFog.frustumCulled = false;
-    this.underwaterFog.renderOrder = 1e8;
-    this.underwaterFog.visible = false;
+    sceneProperty(this.underwaterFog,"frustumCulled",false);
+    sceneProperty(this.underwaterFog,"renderOrder",1e8);
+    sceneProperty(this.underwaterFog,"visible",false);
     this.underwaterFog.onBeforeRender = (renderer, scene, camera) => this.captureSurface(renderer, camera);
     graphics.scene.add(this.underwaterFog);
 
@@ -204,9 +205,9 @@ export class Water extends WaterState {
   // Native water descriptors are independent of the scene node. Far snapshots
   // use the same typed values with their own camera and view-range facts.
   surfaceAnchor(row,order,far=false) {
-    const mesh=new THREE.Object3D();mesh.renderOrder=order;mesh.frustumCulled=false;
+    const mesh=new THREE.Object3D();sceneProperty(mesh,"renderOrder",order);sceneProperty(mesh,"frustumCulled",false);
     const source={family:'water',nativeKind:row.ID,row,owner:this,mesh,far,center:null,values:new Float64Array(row.LENGTH)};
-    mesh.userData.effectModel=source;if(far){mesh.name='far-water';mesh.layers.set(this.graphics.eyeLayer??4);}
+    mesh.userData.effectModel=source;if(far){mesh.name='far-water';sceneLayer(mesh.layers,"set",this.graphics.eyeLayer??4);}
     source.prepare=camera=>this.prepareSurface(source,camera);this.nativeSources.push(source);return mesh;
   }
   // Raw authored bytes enter once. Only Rust knows surface topology, catalog
@@ -274,7 +275,7 @@ export class Water extends WaterState {
     view.near = Math.max(camera.near, 0.1);
     view.far = end;
     view.updateProjectionMatrix();
-    this.farFrustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(view.projectionMatrix, camera.matrixWorldInverse));
+    this.farFrustum.setFromProjectionMatrix(sceneTransform(this.matrix.multiplyMatrices(view.projectionMatrix, camera.matrixWorldInverse)));
     if (!this.farFrustum.intersectsBox(this.bounds)) return false;
     return this.cellBounds.some((box) => this.farFrustum.intersectsBox(box));
   }
@@ -292,18 +293,18 @@ export class Water extends WaterState {
     this.quality = WATER_QUALITIES[name] || WATER_QUALITIES.high;
     if (this.oceanSurface) {
       const active = Boolean(this.ocean);
-      this.oceanSurface.near.visible = this.oceanSurface.far.visible = active;
+      sceneProperty(this.oceanSurface.near,"visible",sceneProperty(this.oceanSurface.far,"visible",active));
       if (active) return; // textured ocean does not need planar reflection targets
     }
     const enhanced = this.quality.scale > 0;
-    if (this.lowPass) this.lowPass.visible = !enhanced;
-    this.tintPass.visible = enhanced || !this.lowPass;
-    this.mirrorPass.visible = enhanced || !this.lowPass;
-    if (!enhanced) this.underwaterFog.visible = false;
+    if (this.lowPass) sceneProperty(this.lowPass,"visible",!enhanced);
+    sceneProperty(this.tintPass,"visible",enhanced || !this.lowPass);
+    sceneProperty(this.mirrorPass,"visible",enhanced || !this.lowPass);
+    if (!enhanced) sceneProperty(this.underwaterFog,"visible",false);
     // The far scene's passes follow (their quality uniforms are these).
-    if (this.farLow) this.farLow.visible = this.lowPass.visible;
-    this.farTint.visible = this.tintPass.visible;
-    this.farMirror.visible = this.mirrorPass.visible;
+    if (this.farLow) sceneProperty(this.farLow,"visible",this.lowPass.visible);
+    sceneProperty(this.farTint,"visible",this.tintPass.visible);
+    sceneProperty(this.farMirror,"visible",this.mirrorPass.visible);
     if (enhanced && !this.surfaceBuffer) {
       this.surfaceBuffer = new THREE.WebGLRenderTarget(1, 1, {
         depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
@@ -355,7 +356,7 @@ export class Water extends WaterState {
   }
 
   ringMesh(map) {
-    const row=EFFECT.WATER_RINGS,mesh=new THREE.Object3D();mesh.renderOrder=-18;mesh.frustumCulled=false;
+    const row=EFFECT.WATER_RINGS,mesh=new THREE.Object3D();sceneProperty(mesh,"renderOrder",-18);sceneProperty(mesh,"frustumCulled",false);
     const source={mesh,nativeKind:row.ID,texture:map,positions:this.host.positions,arrays:{position:this.host.positions,uv:this.host.uvs,alpha:this.host.alpha},
       values:new Float64Array(row.LENGTH),visibility:'anchor',vertex:0,index:0,indexCapacity:RIPPLE_MAX*RIPPLE_SEGMENTS*6};
     source.prepare=camera=>{source.values.set(camera.projectionMatrix.elements,row.PROJECTION_MATRIX);source.values.set(camera.matrixWorldInverse.elements,row.MODEL_VIEW_MATRIX);};
@@ -393,7 +394,7 @@ export class Water extends WaterState {
     this.host.refresh();
     const r = this.host.result;
     this.time = r[RESULT.TIME]; this.wave = r[RESULT.WAVE];
-    this.group.position.y = this.farGroup.position.y = this.wave;
+    sceneComponent(this.group.position,"y","=",sceneComponent(this.farGroup.position,"y","=",this.wave));
     this.surfaceUniforms.time.value=this.time;
     const quads=r[RESULT.QUADS],rings=this.rings.userData.effectMesh;rings.vertex=quads*4;rings.index=quads*6;
     if (this.ocean) this.ocean.publishFrame(r, camera);

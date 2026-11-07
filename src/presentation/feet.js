@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 // Vehicle feet are numeric native state; the page binds authored nodes and
 // applies emitted stomp resources. Registration is cold and keeps fixed views.
 import * as THREE from 'three';
@@ -54,7 +55,7 @@ export class VisualFeet {
   // are final native output and are not recomputed from drawn Three nodes.
   apply(v,effects){const row=this.rows.get(v);if(!row||!v.alive)return;const effect=v.def.fx.stomp.effect;
     for(let k=0;k<row.nodes.length;k++){const at=(row.start+k)*O.STRIDE,count=this.output[at+O.COUNT];if(!count)continue;
-      this.position.fromArray(this.output,at+O.POSITION);const turn=this.output[at+O.HAS_TURN]?this.turn.fromArray(this.output,at+O.TURN):null;
+      sceneTransform(this.position.fromArray(this.output,at+O.POSITION));const turn=this.output[at+O.HAS_TURN]?this.turn.fromArray(this.output,at+O.TURN):null;
       for(let n=0;n<count;n++)effects.play(effect,this.position,UP,null,turn);
     }}
 }

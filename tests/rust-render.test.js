@@ -1,3 +1,5 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../src/rust-render/scene-changes.js";
+import {prepareSceneFixture} from "./support/rust-standin.mjs";
 import { CAMERA as CAMERA_ROW, ROLE as CAMERA_ROLE, INPUT as CAMERA_INPUT } from "../src/rust-render/camera-layout.js";
 import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
@@ -50,7 +52,7 @@ function bridge() {
   const background = new THREE.Object3D();
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   standinResources(renderer,calls);
-  const core = new RustRender(graphics, { memory }, BfeRenderer);
+  const core = prepareSceneFixture(new RustRender(graphics, { memory }, BfeRenderer));
   calls.length = 0; // These assertions cover phase calls after source prewarming.
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, region("transparent_segments"), values.length).set(values); };
@@ -118,10 +120,10 @@ test("objects the transparent pass draws leave three's list as records with thre
   const pass = core.byName.transparent;
   const material = ownedBasicEffect('basic', { visible: true, transparent: true, color: 0x336699, opacity: 0.25 });
   const holo = new THREE.Mesh(new THREE.BufferGeometry(), material), other = new THREE.Object3D();
-  holo.position.set(1, 2, 3);
+  sceneTransform(holo.position.set(1, 2, 3));
   holo.updateMatrixWorld(true);
   let prepared = 0;
-  holo.onBeforeRender = (_renderer, _scene, view) => { assert.equal(view, camera); prepared++; holo.position.x = 9; holo.updateMatrixWorld(true); };
+  holo.onBeforeRender = (_renderer, _scene, view) => { assert.equal(view, camera); prepared++; sceneComponent(holo.position,"x","=",9); holo.updateMatrixWorld(true); };
   // Registered in an earlier frame, three's program for it unchanged since.
   const program = { id: 3 };
   renderer.properties.get(material).currentProgram = program;
@@ -161,7 +163,7 @@ test("the ground admits authored native descriptors and publishes visibility", (
   assert.equal(group.material,undefined);
   calls.length=0; core.publishView("near",renderer,scene,camera);
   assert.equal(calls.some(c=>c[0]==="static_world"),false);
-  group.visible=false; core.publishView("near",renderer,scene,camera);
+  sceneProperty(group,"visible",false); core.publishView("near",renderer,scene,camera);
   assert.deepEqual(calls.find(c=>c[0]==="world_shown"),["world_shown",id,false]);
 });
 

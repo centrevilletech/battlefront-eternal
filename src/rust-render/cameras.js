@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./scene-changes.js";
 // Graphics' camera shells expose native publications to audio, controls and
 // the scene consumers awaiting registry admission. They never solve a view.
 import * as THREE from "three";
@@ -40,7 +41,7 @@ export class CameraOwner {
   bind(camera,role,derived=true){
     if(!camera)return;
     this.bindings.set(camera,role);this.shells[role]=camera;
-    if(derived){camera.matrixAutoUpdate=false;camera.matrixWorldAutoUpdate=false;camera.updateMatrixWorld=noop;camera.updateWorldMatrix=noop;camera.updateProjectionMatrix=noop;}
+    if(derived){sceneProperty(camera,"matrixAutoUpdate",false);sceneProperty(camera,"matrixWorldAutoUpdate",false);camera.updateMatrixWorld=noop;camera.updateWorldMatrix=noop;camera.updateProjectionMatrix=noop;}
   }
   packValid(pack){this.core.views();return pack.owner===this&&pack.native>=0&&this.core.cameraPackHandles[pack.native%L.PACKS]===pack.native;}
   acquirePack(pack){
@@ -154,9 +155,9 @@ export class CameraOwner {
     if(role===undefined||!camera)return;
     this.roles.set(camera,role);
     const core=this.core;core.views();const a=core.cameraOutput,at=role*C.LEN;
-    camera.position.fromArray(a,at+C.POSITION);camera.up.fromArray(a,at+C.UP);
+    sceneTransform(camera.position.fromArray(a,at+C.POSITION));camera.up.fromArray(a,at+C.UP);
     const q=camera.quaternion;q._x=a[at+C.QUATERNION];q._y=a[at+C.QUATERNION+1];q._z=a[at+C.QUATERNION+2];q._w=a[at+C.QUATERNION+3];
-    camera.matrix.fromArray(a,at+C.WORLD);camera.matrixWorld.fromArray(a,at+C.WORLD);
+    sceneTransform(camera.matrix.fromArray(a,at+C.WORLD));sceneTransform(camera.matrixWorld.fromArray(a,at+C.WORLD));
     // CubeCamera's parent is an Object3D. Only its six children carry lens,
     // inverse and projection fields; the parent publishes pose alone.
     if(camera.isCamera){
@@ -183,7 +184,7 @@ export class CameraOwner {
   sky(layers,role,follow=true){
     const core=this.core;core.views();const a=core.cameraInput,n=Math.min(layers.length,L.SKY);a[I.SKY_COUNT]=n;
     for(let i=0;i<n;i++){const f=layers[i].follow,at=I.SKY_FOLLOW+i*Y.LEN;a[at+Y.FOLLOW]=+!!f;a[at+Y.SCALE]=f?.[0]??0;a[at+Y.OFFSET]=f?.[1]??0;}
-    core.rust.camera_sky_frame(role,follow);for(let i=0;i<n;i++)layers[i].mesh.position.fromArray(core.cameraSky,i*3);
+    core.rust.camera_sky_frame(role,follow);for(let i=0;i<n;i++)sceneTransform(layers[i].mesh.position.fromArray(core.cameraSky,i*3));
   }
   // Completion and invalidation change these flags natively. Readback
   // accessors observe that publication even before another view is prepared.
@@ -211,7 +212,7 @@ export class CameraOwner {
     for(let i=0;i<csm.lights.length;i++){
       const at=i*W.LEN,light=csm.lights[i],window=g.cascadeWindows[i],camera=light.shadow.camera;
       window.center.fromArray(out,at+W.CENTER);window.half=out[at+W.HALF];
-      light.position.fromArray(out,at+W.POSITION);light.target.position.fromArray(out,at+W.TARGET);
+      sceneTransform(light.position.fromArray(out,at+W.POSITION));sceneTransform(light.target.position.fromArray(out,at+W.TARGET));
       // Translation-only light/target facades are retained for scene readers.
       light.matrixWorld.elements[12]=light.position.x;light.matrixWorld.elements[13]=light.position.y;light.matrixWorld.elements[14]=light.position.z;
       light.target.matrixWorld.elements[12]=light.target.position.x;light.target.matrixWorld.elements[13]=light.target.position.y;light.target.matrixWorld.elements[14]=light.target.position.z;
@@ -238,9 +239,9 @@ export function shadowShells(g,preset){
     const csm={lights:[],shadowMapSize:preset.size,maxFar:preset.far,lightNear:1,lightFar:3000,lightMargin:400,
       remove(){for(const light of this.lights){g.scene.remove(light);g.scene.remove(light.target);}},dispose:noop};
     for(let i=0;i<preset.cascades;i++){
-      const light=new THREE.DirectionalLight(0xffffff,3);light.castShadow=true;light.userData.nativeCascade=i;
+      const light=new THREE.DirectionalLight(0xffffff,3);sceneProperty(light,"castShadow",true);light.userData.nativeCascade=i;
       light.shadow.mapSize.set(preset.size,preset.size);light.shadow.bias=-.015/2999;light.shadow.normalBias=0;light.shadow.camera.near=1;light.shadow.camera.far=3000;
-      light.matrixAutoUpdate=light.matrixWorldAutoUpdate=false;light.target.matrixAutoUpdate=light.target.matrixWorldAutoUpdate=false;
+      sceneProperty(light,"matrixAutoUpdate",sceneProperty(light,"matrixWorldAutoUpdate",false));sceneProperty(light.target,"matrixAutoUpdate",sceneProperty(light.target,"matrixWorldAutoUpdate",false));
       g.rust?.cameras.bind(light.shadow.camera,R.SHADOW0+i);g.scene.add(light);g.scene.add(light.target);csm.lights.push(light);
       const window={center:new THREE.Vector3(),half:0,held:false,dirty:true,moved:false,invalidate(){g.rust?.rust.camera_invalidate_frame(i);}};g.cascadeWindows.push(window);g.rust?.cameras.bindWindow(window,i);
     }

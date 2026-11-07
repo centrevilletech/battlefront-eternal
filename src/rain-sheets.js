@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
@@ -10,7 +11,7 @@ export class RainSheets {
     this.values=new Float64Array(EFFECT.RAIN_SHEETS.LENGTH);this.resources=null;
     this.samples=new Int32Array(2);this.samples.fill(-1);
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;this.mesh.name='rain-sheets';
-    this.mesh.frustumCulled=false;this.mesh.renderOrder=19;this.mesh.visible=false;
+    sceneProperty(this.mesh,"frustumCulled",false);sceneProperty(this.mesh,"renderOrder",19);sceneProperty(this.mesh,"visible",false);
     this.mesh.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);scene.add(this.mesh);
   }
   // Ports RainSheets' shared uniforms without retaining per-name wrappers.

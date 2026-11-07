@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 // Rust decodes PNG sources; scene objects retain texture descriptors.
 import * as THREE from "three";
 import { pngImage, decodePng } from "./texture-decode.js";
@@ -39,7 +40,7 @@ export class PngTextureLoader {
       texture.image = { data: image.data, width: image.width, height: image.height };
       setPngSource(texture, image, path);
       // Publish metadata before observers, which can upload synchronously.
-      texture.needsUpdate = true;
+      sceneProperty(texture,"needsUpdate",true);
       await onLoad?.(texture);
       // World loading awaits its paced GPU upload. Interface preloads keep
       // the worker rows until first use; no drawing-thread decode is needed.

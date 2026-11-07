@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { particleDepth } from "./particle-depth.js";
@@ -38,9 +39,9 @@ class WakePool {
     this.streams=Object.values(this.arrays);this.widths=Object.values(ATTRIBUTES);
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = `jetpack-wake-${this.spec.name}`;
-    this.mesh.visible = false;
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = kind === 1 ? 8 : 11;
+    sceneProperty(this.mesh,"visible",false);
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",kind === 1 ? 8 : 11);
     this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
     jetpackWakes.set(this.mesh, this);
     scene.add(this.mesh);
@@ -81,12 +82,12 @@ class WakePool {
       }
       this.dirty = true;
     }
-    this.mesh.visible = this.count > 0 && !this.external;
+    sceneProperty(this.mesh,"visible",this.count > 0);
   }
 
   clear() {
     this.count = 0;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"visible",false);
     this.dirty = false;
   }
 }
@@ -139,12 +140,12 @@ export class JetpackWake {
         previous.phase[kind] = Math.max(0, total - births);
         for (let n = 0; n < births; n++) {
           const fraction = dt > 0 ? THREE.MathUtils.clamp((n + 1 - phase) / (dt * rate), 0, 1) : 1;
-          this.position.lerpVectors(start, nozzle.position, fraction);
+          sceneTransform(this.position.lerpVectors(start, nozzle.position, fraction));
           this.direction.lerpVectors(oldDirection, nozzle.direction, fraction).normalize();
           if (pool.emit(this.time - dt + fraction * dt, this.position, this.direction, velocity, nozzle.radius || 0.034, throttle, this.random)) this.emitted++;
         }
       }
-      previous.position.copy(nozzle.position);
+      sceneTransform(previous.position.copy(nozzle.position));
       previous.direction.copy(nozzle.direction);
       previous.ready = true;
     }

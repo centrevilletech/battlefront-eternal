@@ -1,3 +1,4 @@
+import {sceneProperty} from "../../../rust-render/scene-changes.js";
 import * as THREE from "three";
 import { nineSlice } from "../../../interface/shapes.js";
 
@@ -80,7 +81,7 @@ function standIn(name) {
   const texture = new THREE.DataTexture(data, size, size);
   texture.magFilter = THREE.LinearFilter;
   texture.minFilter = THREE.LinearFilter;
-  texture.needsUpdate = true;
+  sceneProperty(texture,"needsUpdate",true);
   STAND_INS.set(name, texture);
   return texture;
 }

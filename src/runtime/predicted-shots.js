@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import * as THREE from 'three';
 import { emitSound } from '../audio/events.js';
 import { infantryFireBlocked } from '../combat-input.js';
@@ -225,7 +226,7 @@ export class PredictedShots {
       }
       bolt.drawn=Math.min(bolt.flown,Math.max(bolt.def.LaserLength||1,bolt.def.GlowLength||0,bolt.def.BlurLength||0));
       bolt.ended=age>=shot.life;bolt.fade=fade;
-      bolt.position.copy(shot.origin).addScaledVector(shot.direction,bolt.flown);
+      sceneTransform(bolt.position.copy(shot.origin)).addScaledVector(shot.direction,bolt.flown);
     }
   }
   // Inside Ordnance.present's batch: the flying cosmetics as real bolts.

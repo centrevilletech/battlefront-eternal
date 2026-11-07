@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from 'three';
 import { EFFECT } from './rust-render/effect-layout.js';
 import { StormSky } from './storm-sky.js';
@@ -22,14 +23,14 @@ export class EnhancedOcean {
     }else this.storm=null;
     const row=storm?EFFECT.OCEAN_SPRAY_STORM:EFFECT.OCEAN_SPRAY;
     const batch=this.batch={nativeKind:row.ID,family:'oceanSpray',variant:0,texture:null,count:384,capacity:384,arrays:{},values:new Float64Array(row.LENGTH),visibility:'anchor',waterOwner:owner};
-    this.spray=batch.mesh=new THREE.Object3D();this.spray.userData.effectBatch=batch;this.spray.name='ocean-crest-spray';this.spray.frustumCulled=false;this.spray.renderOrder=19;
+    this.spray=batch.mesh=new THREE.Object3D();this.spray.userData.effectBatch=batch;this.spray.name='ocean-crest-spray';sceneProperty(this.spray,"frustumCulled",false);sceneProperty(this.spray,"renderOrder",19);
     batch.prepareResources=resources=>{owner.prepareResources(graphics.rust);return Int32Array.of(owner.maskSample);};
     this.haze=storm?owner.anchor(EFFECT.OCEAN_HAZE,true,10):null;
     // The source object is retained too; no per-frame wrapper allocation.
     const source={mesh:this.spray,row,values:batch.values};
     this.spray.onBeforeRender=(renderer,scene,camera)=>{particleDepth.capture(renderer,scene,camera);owner.prepareSource(source,camera);};
   }
-  setEnabled(enabled){this.spray.visible=enabled;if(this.haze)this.haze.visible=enabled;this.storm?.setEnabled(enabled);if(this.probe)this.probe.enabled=enabled;}
+  setEnabled(enabled){sceneProperty(this.spray,"visible",enabled);if(this.haze)sceneProperty(this.haze,"visible",enabled);this.storm?.setEnabled(enabled);if(this.probe)this.probe.enabled=enabled;}
   update(time,camera,height,result){if(this.uniforms)this.uniforms.time.value=time;this.storm?.update(time,camera,result);this.probe?.update(time,camera);}
   dispose(){this.storm?.dispose();this.probe?.dispose();this.spray.removeFromParent();this.haze?.removeFromParent();}
 }

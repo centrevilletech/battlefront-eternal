@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import {actorAsset,actorNode} from './actor-resources.js';
 import * as THREE from 'three';
 import { partMaterial } from './models.js';
@@ -67,7 +68,7 @@ export function vehicleShell(vehicle, template, turnRate) {
   const nodes = records.nodes.map((n, i) => {
     const node = i === 0 ? new THREE.Group() : i <= count || i === records.staticBone ? new THREE.Bone() : new THREE.Object3D();
     node.name = n.name;
-    node.position.fromArray(n.pose); node.quaternion.fromArray(n.pose, 3); node.scale.fromArray(n.pose, 7);
+    sceneTransform(node.position.fromArray(n.pose)); sceneTransform(node.quaternion.fromArray(n.pose, 3)); sceneTransform(node.scale.fromArray(n.pose, 7));
     return node;
   });
   for (let i = 1; i < nodes.length; i++) nodes[records.nodes[i].parent].add(nodes[i]);

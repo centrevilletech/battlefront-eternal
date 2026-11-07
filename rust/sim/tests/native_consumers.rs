@@ -87,18 +87,100 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
         2
     );
 
-    // The real mailbox retains its own state; Context has no stateless copy.
-    // An entry larger than the reserved batch is refused without stalling.
-    let mut strings=bfe_sim::store::Strings::default();
-    let mut mailbox=bfe_sim::input::owner::Mailbox::new(1.,4.,Vec::new(),&mut strings).unwrap();
-    mailbox.state.queue.push(ImEntry {sequence:1.,tick:1.,generation:1.,actions:vec![jump;2049],
-        down:17.,look_total:Some([-0.,12.5]),..Default::default()});
-    let out=mailbox.run(ImInput {op:ImOperation::Take,tick:2.,generation:1.,..Default::default()},&mut strings);
-    assert!(out.error.is_none());assert!(out.command.as_ref().unwrap().actions.is_empty());
-    assert!(mailbox.state.queue.is_empty());assert_eq!(mailbox.state.ack,1.);
-    assert_eq!(mailbox.state.down,Some(17.));assert_eq!(mailbox.state.look_total,[-0.,12.5]);
-    let recovered=mailbox.run(ImInput {op:ImOperation::Take,tick:3.,generation:1.,..Default::default()},&mut strings);
+    let mut strings = bfe_sim::store::Strings::default();
+    let mut mailbox = bfe_sim::input::owner::Mailbox::new(1., 4., Vec::new(), &mut strings).unwrap();
+    mailbox.state = ImState { capacity: 4., ..Default::default() };
+    let request = ImInput {
+            op: ImOperation::Take,
+            tick: 2.0,
+            generation: 1.0,
+            state: ImState {
+                capacity: 4.0,
+                // Each admitted entry fits; a paused burst is split across
+                // takes before it can exceed the reserved action batch.
+                queue: vec![ImEntry {
+                    sequence: 1.0,
+                    tick: 1.0,
+                    generation: 1.0,
+                    actions: vec![jump; 2048],
+                    down: 17.0,
+                    look_total: Some([-0.0, 12.5]),
+                    ..Default::default()
+                }, ImEntry {
+                    sequence: 2.0,
+                    tick: 1.0,
+                    generation: 1.0,
+                    actions: vec![jump],
+                    down: 34.0,
+                    look_total: Some([-0.0, 25.0]),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+    mailbox.state = request.state.clone();
+    let out = mailbox.run(request, &mut strings);
+    assert!(out.error.is_none());
+    assert_eq!(out.command.as_ref().unwrap().actions, vec![jump; 2048]);
+    assert_eq!(mailbox.state.queue.len(), 1);
+    assert_eq!(mailbox.state.queue[0].sequence, 2.0);
+    assert_eq!(mailbox.state.ack, 1.0);
+    assert_eq!(mailbox.state.down, Some(17.0));
+    assert_eq!(mailbox.state.look_total, [-0.0, 12.5]);
+    let recovered = mailbox.run(ImInput {
+            op: ImOperation::Take,
+            tick: 3.0,
+            generation: 1.0,
+            ..Default::default()
+        }, &mut strings);
     assert!(recovered.error.is_none());
+    assert_eq!(recovered.command.unwrap().actions, vec![jump]);
+    assert!(mailbox.state.queue.is_empty());
+    assert_eq!(mailbox.state.ack, 2.0);
+    assert_eq!(mailbox.state.down, Some(34.0));
+    assert_eq!(mailbox.state.look_total, [-0.0, 25.0]);
+
+    // Native admission rejects an oversized record before queue or held state
+    // can change. Retained malformed rows still retire once during a take.
+    let mut mailbox = bfe_sim::input::owner::Mailbox::new(1., 4., Vec::new(), &mut strings).unwrap();
+    let entry = ImEntry {
+        sequence: 1.0, tick: 1.0, generation: 1.0,
+        actions: vec![jump; 2049], down: 17.0,
+        look_total: Some([-0.0, 12.5]), ..Default::default()
+    };
+    let oversized = mailbox.run(ImInput {
+        op: ImOperation::Push, entry: Some(entry.clone()), ..Default::default()
+    }, &mut strings);
+    assert!(oversized.error.is_some());
+    assert!(oversized.command.is_none());
+    assert!(mailbox.state.queue.is_empty());
+    assert_eq!(mailbox.state.ack, 0.0);
+    assert_eq!(mailbox.state.down, None);
+    assert_eq!(mailbox.state.look_total, [0.0, 0.0]);
+
+    // Corrupt retained data must not stall the next tick or grow its command
+    // scratch. Keep the original watermarks while omitting the oversized data.
+    mailbox.state.queue.push(entry);
+    let mut retired = mailbox.run(ImInput {
+        op: ImOperation::Take, tick: 2.0, generation: 1.0, ..Default::default()
+    }, &mut strings);
+    assert!(retired.error.is_none());
+    let command = retired.command.as_ref().unwrap();
+    assert!(command.actions.is_empty() && command.look.is_empty()
+        && command.human.is_empty() && command.fire.is_empty());
+    assert!(mailbox.state.queue.is_empty());
+    assert_eq!(mailbox.state.ack, 1.0);
+    assert_eq!(mailbox.state.down, Some(17.0));
+    assert_eq!(mailbox.state.look_total, [-0.0, 12.5]);
+    mailbox.recycle(&mut retired);
+    let recovered = mailbox.run(ImInput {
+        op: ImOperation::Take, tick: 3.0, generation: 1.0, ..Default::default()
+    }, &mut strings);
+    assert!(recovered.error.is_none());
+    assert!(recovered.command.as_ref().unwrap().actions.is_empty());
+    assert!(mailbox.state.queue.is_empty());
+    assert_eq!(mailbox.state.ack, 1.0);
 
     // InputMailbox.take defers the next valid command before exceeding its
     // fixed scratch. Both commands must survive a paused burst, in order.

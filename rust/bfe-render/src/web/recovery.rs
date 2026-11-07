@@ -1678,6 +1678,8 @@ impl BfeRenderer {
         // Preserve transparent input storage; replay must not reset the live frame values.
         self.r.transparent.keys = std::mem::take(&mut old.transparent.keys);
         self.r.transparent.objects = std::mem::take(&mut old.transparent.objects);
+        // Scene identity and sparse changes are CPU state, not GPU registrations.
+        self.r.scene = std::mem::take(&mut old.scene);
         // Temporal CPU ownership survives reconstruction, but old history cannot.
         self.r.cameras = std::mem::take(&mut old.cameras);
         self.r.cameras.invalidate();

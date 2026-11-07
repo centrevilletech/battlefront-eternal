@@ -1,3 +1,4 @@
+import {sceneComponent} from "../rust-render/scene-changes.js";
 import {pageNetworkFor} from './page-network.js';
 import { EntityInputSender } from './network-entity-sender.js';
 import { encodeSnapshotAckKeepalive } from './network-entity-input.js';
@@ -252,7 +253,7 @@ export class NetworkSession {
     this.dispose(error); this.status(error.message, true); this.onError(error);
   }
   dispose(error=Error('Disconnected from server'), { preserveRotation=false }={}) {
-    if(!preserveRotation){clearTimeout(this.rotationTimer);if(this.rotation)this.rotation.cancelled=true;this.transport?.cancelMatchProbe?.();this.lifecycle?.removeEventListener('pagehide',this.onPageHide);}
+    if(!preserveRotation){clearTimeout(this.rotationTimer);if(this.rotation)sceneComponent(this.rotation,"cancelled","=",true);this.transport?.cancelMatchProbe?.();this.lifecycle?.removeEventListener('pagehide',this.onPageHide);}
     if(this.closed)return;this.closed=true;
     let failure, failed = false;
     try {

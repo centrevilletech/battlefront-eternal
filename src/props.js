@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {cameraTension} from './flight/camera.js';
 import * as THREE from "three";
 import {actorAsset,glowNode,glowLook} from "./actor-resources.js";
@@ -113,11 +114,11 @@ class BuildHologram {
   constructor(at, look, image) {
     this.look = look;
     this.group = new THREE.Group();
-    this.group.position.fromArray(at);
+    sceneTransform(this.group.position.fromArray(at));
     this.color = new THREE.Color().setRGB(...(look.color || [255, 255, 255]).map((c) => c / 255));
     this.icon = new THREE.Group();
-    this.icon.position.y = look.height;
-    this.icon.scale.setScalar(look.size);
+    sceneComponent(this.icon.position,"y","=",look.height);
+    sceneTransform(this.icon.scale.setScalar(look.size));
     this.group.add(this.icon);
     this.materials = [];
     if (image) {
@@ -142,8 +143,8 @@ class BuildHologram {
     }
     const distance = camera.position.distanceTo(this.group.position);
     const reach = THREE.MathUtils.clamp((look.visibleDistance - distance) / (look.visibleDistance * 0.1), 0, 1);
-    this.group.visible = this.on && shown && reach > 0;
-    this.icon.rotation.y = time * look.rotateRate * Math.PI * 2;
+    sceneProperty(this.group,"visible",this.on && shown && reach > 0);
+    sceneComponent(this.icon.rotation,"y","=",time * look.rotateRate * Math.PI * 2);
     for (const material of this.materials) material.opacity = look.imageIntensity * this.flicker * this.fade * reach;
     this.beam.material.opacity = 0.35 * look.beamIntensity * this.fade * reach;
   }
@@ -188,7 +189,7 @@ export class Building {
 
   show(state) {
     this.state = state;
-    for (const [name, look] of Object.entries(this.looks)) if (look) look.root.visible = name === state;
+    for (const [name, look] of Object.entries(this.looks)) if (look) sceneProperty(look.root,"visible",name === state);
     for (const [name, body] of Object.entries(this.bodies)) if (body) body.enabled = name === state;
     if (this.hologram) {
       const on = state === "unbuilt";
@@ -211,7 +212,7 @@ export class Building {
       out.set((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
       radius = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
     } else out.set(0, 1, 0);
-    out.applyMatrix4(this.matrix);
+    sceneTransform(out.applyMatrix4(this.matrix));
     return radius;
   }
 
@@ -225,7 +226,7 @@ export class Building {
   blastSphere(out) {
     const sphere = this.looks[this.state]?.model?.sphere;
     if (!sphere) return this.sphere(out);
-    out.set(sphere[0], sphere[1], sphere[2]).applyMatrix4(this.matrix);
+    sceneTransform(out.set(sphere[0], sphere[1], sphere[2]).applyMatrix4(this.matrix));
     return sphere[3];
   }
 }
@@ -310,24 +311,24 @@ export class PowerupStation extends Building {
   pose(dt = 0) {
     if (dt > 0) this.step(dt);
     const rig = this.rig, idle = this.idle;
-    this.turner.rotation.y = idle.yaw;
+    sceneComponent(this.turner.rotation,"y","=",idle.yaw);
     if (this.mode === "active") {
       if (this.wobbleNode) {
         const bind = rig.bind.get(this.wobbleNode);
-        this.wobbleNode.quaternion.copy(bind.q);
-        this.wobbleNode.position.copy(bind.p);
-        this.wobbleNode.position.y += 0.04 * (Math.cos(2 * Math.PI * this.active) - 1);
+        sceneTransform(this.wobbleNode.quaternion.copy(bind.q));
+        sceneTransform(this.wobbleNode.position.copy(bind.p));
+        sceneComponent(this.wobbleNode.position,"y","+=",0.04 * (Math.cos(2 * Math.PI * this.active) - 1));
       }
       this.arms.forEach((arm, i) => {
-        arm.quaternion.copy(rig.bind.get(arm).q).multiply(this.q.setFromAxisAngle(this.axisX, 0.15 * Math.sin(2 * Math.PI * (this.active + i))));
+        sceneTransform(arm.quaternion.copy(rig.bind.get(arm).q)).multiply(this.q.setFromAxisAngle(this.axisX, 0.15 * Math.sin(2 * Math.PI * (this.active + i))));
       });
       if (this.spin) {
-        this.spin.quaternion.copy(rig.bind.get(this.spin).q).multiply(this.q.setFromAxisAngle(this.axisZ, Math.PI * Math.sin(2 * Math.PI * this.active)));
+        sceneTransform(this.spin.quaternion.copy(rig.bind.get(this.spin).q)).multiply(this.q.setFromAxisAngle(this.axisZ, Math.PI * Math.sin(2 * Math.PI * this.active)));
       }
     } else if (!idle.waiting && this.wobbleNode) {
       const bind = rig.bind.get(this.wobbleNode);
-      this.wobbleNode.quaternion.copy(bind.q).multiply(this.q.setFromAxisAngle(this.axisZ, Math.sin(idle.rate * idle.t) * this.wobble));
-      this.wobbleNode.position.copy(bind.p);
+      sceneTransform(this.wobbleNode.quaternion.copy(bind.q)).multiply(this.q.setFromAxisAngle(this.axisZ, Math.sin(idle.rate * idle.t) * this.wobble));
+      sceneTransform(this.wobbleNode.position.copy(bind.p));
     }
   }
 
@@ -475,11 +476,11 @@ export class Turret extends Building {
     rig.root.updateMatrixWorld(true);
     const rootInverse = new THREE.Matrix4().copy(rig.root.matrixWorld).invert();
     this.pivot = this.drum
-      ? this.drum.getWorldPosition(new THREE.Vector3()).applyMatrix4(rootInverse)
+      ? sceneTransform(this.drum.getWorldPosition(new THREE.Vector3()).applyMatrix4(rootInverse))
       : new THREE.Vector3().fromArray(scanVector(s.f2aa4a90) || [0, 0, 0]);
     const rootTurn = rig.root.getWorldQuaternion(new THREE.Quaternion()).invert();
     this.up = this.drum
-      ? new THREE.Vector3(0, 1, 0).applyQuaternion(rootTurn.clone().multiply(this.drum.getWorldQuaternion(new THREE.Quaternion()))).normalize()
+      ? sceneTransform(new THREE.Vector3(0, 1, 0).applyQuaternion(rootTurn.clone().multiply(this.drum.getWorldQuaternion(new THREE.Quaternion())))).normalize()
       : new THREE.Vector3(0, 1, 0);
     this.drumParentTurn = this.drum?.parent
       ? rootTurn.clone().multiply(this.drum.parent.getWorldQuaternion(new THREE.Quaternion())).invert()
@@ -521,7 +522,7 @@ export class Turret extends Building {
   aimFrame(out, yaw = this.yaw, pitch = this.pitch) {
     const root = this.rig.root;
     root.updateMatrixWorld(true);
-    this.framePoint.copy(this.pivot).applyMatrix4(root.matrixWorld);
+    sceneTransform(this.framePoint.copy(this.pivot).applyMatrix4(root.matrixWorld));
     this.frameUp.copy(this.up).transformDirection(root.matrixWorld);
     lookBasis(this.viewDirection(this.frameDir, yaw, pitch), this.frameUp, this.frameTurn);
     return out.compose(this.framePoint, this.frameTurn, ONE);
@@ -531,7 +532,7 @@ export class Turret extends Building {
   // first person, and the plane the chase camera's aim starts at.
   eyePoint(out, yaw = this.yaw, pitch = this.pitch) {
     if (this.f2Seats) return out.copy(this.f2Pose.eye);
-    return out.copy(this.camera.eye).applyMatrix4(this.aimFrame(this.frameMatrix, yaw, pitch));
+    return sceneTransform(out.copy(this.camera.eye).applyMatrix4(this.aimFrame(this.frameMatrix, yaw, pitch)));
   }
 
   // The chase camera's turn: along the aim with the frame's up, pitched down
@@ -551,9 +552,9 @@ export class Turret extends Building {
   // pivot: also given TrackCenter alone, when wanted.
   cameraRest(out, yaw = this.yaw, pitch = this.pitch, pivot = null) {
     this.cameraTurn(restTurn, yaw, pitch);
-    this.framePoint.copy(this.camera.center).applyMatrix4(this.frameMatrix);
+    sceneTransform(this.framePoint.copy(this.camera.center).applyMatrix4(this.frameMatrix));
     pivot?.copy(this.framePoint);
-    return out.copy(this.camera.offset).applyQuaternion(restTurn).add(this.framePoint);
+    return sceneTransform(out.copy(this.camera.offset).applyQuaternion(restTurn)).add(this.framePoint);
   }
 
   // Where a person's aim at this turret starts (the original game's player aim
@@ -578,7 +579,7 @@ export class Turret extends Building {
   encloses(point) {
     const box = this.looks?.built?.model?.box;
     if (!box) return false;
-    const p = aimEye.copy(point).applyMatrix4(inverseScratch.copy(this.matrix).invert());
+    const p = sceneTransform(aimEye.copy(point).applyMatrix4(inverseScratch.copy(this.matrix).invert()));
     const [lo, hi] = box, m = 0.15;
     return p.x > lo[0] + m && p.x < hi[0] - m && p.y > lo[1] + m && p.y < hi[1] - m && p.z > lo[2] + m && p.z < hi[2] - m;
   }
@@ -764,7 +765,7 @@ const inverseScratch = new THREE.Matrix4();
 // where it sends +z): what is left of a node's bind turn once the aim
 // takes over its heading.
 function withoutHeading(q) {
-  const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const forward = sceneTransform(new THREE.Vector3(0, 0, 1).applyQuaternion(q));
   const heading = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.atan2(forward.x, forward.z));
   return heading.invert().multiply(q);
 }
@@ -847,7 +848,7 @@ export class ObjectivePost extends Building {
     super.show(state);
     this.dying = was === "built" && state === "destroyed" && this.span > 0 && this.looks.built ? this.span : 0;
     if (this.dying) {
-      this.looks.built.root.visible = true;
+      sceneProperty(this.looks.built.root,"visible",true);
       this.time = 0;
     }
   }
@@ -859,7 +860,7 @@ export class ObjectivePost extends Building {
       this.dying = Math.max(this.dying - dt, 0);
       this.time += dt;
       this.posed(this.deathClip, this.time, false);
-      if (!(this.dying > 0)) rig.root.visible = false;
+      if (!(this.dying > 0)) sceneProperty(rig.root,"visible",false);
     } else if (this.alive && this.idleClip) {
       this.time += dt;
       this.posed(this.idleClip, this.time, true);
@@ -875,8 +876,8 @@ export class ObjectivePost extends Building {
     for (let i = 0; i < bones.length; i++) {
       const w = pose.w[i];
       if (w <= 1e-6) continue;
-      bones[i].quaternion.fromArray(pose.q, i * 4).normalize();
-      bones[i].position.set(pose.t[i * 3] / w, pose.t[i * 3 + 1] / w, pose.t[i * 3 + 2] / w);
+      sceneTransform(bones[i].quaternion.fromArray(pose.q, i * 4)).normalize();
+      sceneTransform(bones[i].position.set(pose.t[i * 3] / w, pose.t[i * 3 + 1] / w, pose.t[i * 3 + 2] / w));
     }
   }
 }
@@ -1005,8 +1006,8 @@ export class LiveObjects {
       const rig = buildRig(model, pack.get(name) || [], texture, true, { batches: batches.get(key) || null, separate, caster });
       batches.set(key, rig.batches);
       rig.model = model;
-      rig.root.matrixAutoUpdate = false;
-      rig.root.matrix.fromArray(matrix);
+      sceneProperty(rig.root,"matrixAutoUpdate",false);
+      sceneTransform(rig.root.matrix.fromArray(matrix));
       scene.add(rig.root);
       return rig;
     };
@@ -1189,7 +1190,7 @@ export class LiveObjects {
     for (const turret of this.turrets) {
       if (!turret.alive || (turret.gunner && !may?.(turret))) continue;
       // The turret's bounding sphere: about 2.25 m across its drum and gun.
-      c.set(0, 1.65, 0.32).applyMatrix4(turret.matrix);
+      sceneTransform(c.set(0, 1.65, 0.32).applyMatrix4(turret.matrix));
       const reach = 2.25;
       const toC = c.clone().sub(eye);
       const t = toC.dot(dir);

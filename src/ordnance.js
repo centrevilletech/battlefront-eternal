@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import { OrdnanceWorld } from "./ordnance-world.js";
 import { mountedMuzzle } from "./muzzles.js";
 import * as THREE from "three";
@@ -161,7 +162,7 @@ export class Ordnance {
     if (this.right.lengthSq() < 1e-8) this.right.set(1, 0, 0);
     this.right.normalize();
     this.up.crossVectors(forward, this.right);
-    round.quaternion.setFromRotationMatrix(this.basis.makeBasis(this.right, this.up, forward));
+    sceneTransform(round.quaternion.setFromRotationMatrix(this.basis.makeBasis(this.right, this.up, forward)));
   }
 
   update(dt) {

@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { DEPTH_BUFFER_BIT } from "./render-resources.js";
 import * as THREE from "three";
 
@@ -169,7 +170,7 @@ export class ParticleDepth {
   // copy, the requests, then the copier at the earliest; hidden otherwise.
   place(renderer, scene, camera, target) {
     const copier = this.copier;
-    if (target !== this.source || camera !== this.camera || !this.pending) { copier.visible = false; return; }
+    if (target !== this.source || camera !== this.camera || !this.pending) { sceneProperty(copier,"visible",false); return; }
     this.armed = false;
     this.requests = 0;
     this.screen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -179,7 +180,7 @@ export class ParticleDepth {
       fn(camera);
     }
     this.placing = false;
-    copier.visible = false;
+    sceneProperty(copier,"visible",false);
     if (!this.requests) return;
     const e = this.earliest, z = e[2], cx = e[4], cy = e[5], cz = e[6];
     // z as three's projectObject takes it (the centre through the world
@@ -194,20 +195,21 @@ export class ParticleDepth {
       for (let i = 0; i < 64 && !placed; i++, t *= 2) {
         const k = t / g2;
         m.makeTranslation(cx + gx * k, cy + gy * k, cz + gz * k);
-        placed = p.set(0, 0, 0, 1).applyMatrix4(m).applyMatrix4(this.screen).z > z;
+        placed = sceneTransform(sceneTransform(p.set(0, 0, 0, 1).applyMatrix4(m)).applyMatrix4(this.screen)).z > z;
       }
     }
     if (placed) {
-      this.group.renderOrder = e[0];
-      copier.renderOrder = e[1];
+      sceneProperty(this.group,"renderOrder",e[0]);
+      sceneProperty(copier,"renderOrder",e[1]);
     } else {
       // Unplaceable (a degenerate view): first in the list, as before.
       m.identity();
-      this.group.renderOrder = -Number.MAX_VALUE;
-      copier.renderOrder = 0;
+      sceneProperty(this.group,"renderOrder",-Number.MAX_VALUE);
+      sceneProperty(copier,"renderOrder",0);
     }
-    copier.matrix.copy(m);
-    copier.visible = true;
+    sceneTransform(m);
+    sceneTransform(copier.matrix.copy(m));
+    sceneProperty(copier,"visible",true);
     this.armed = true;
   }
 

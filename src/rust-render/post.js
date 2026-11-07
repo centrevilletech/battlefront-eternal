@@ -12,78 +12,19 @@ const SAMPLER = 32, SAMPLER_3D = 33;
 // Where post.rs's triangle has its position and uv.
 const ATTRIBUTES = "position:0,uv:1";
 
-// A uniform's GL type as post.rs takes it: floats 1-4, int (bool too) 5,
-// mat3 9, mat4 16, sampler 32, sampler3D 33; 0: one it can't set.
-export function uniformType(gl, type) {
-  switch (type) {
-    case gl.FLOAT: return 1;
-    case gl.FLOAT_VEC2: return 2;
-    case gl.FLOAT_VEC3: return 3;
-    case gl.FLOAT_VEC4: return 4;
-    case gl.INT: case gl.BOOL: return 5;
-    case gl.FLOAT_MAT3: return 9;
-    case gl.FLOAT_MAT4: return 16;
-    case gl.SAMPLER_2D: return SAMPLER;
-    case gl.SAMPLER_3D: return SAMPLER_3D;
-    default: return 0;
-  }
-}
-
-// Rust's program for three's program of a material, as three compiled it,
-// with its uniforms ({ name, type } in slot order); null when it has one the
-// renderer can't set; undefined until three has made it.
-const plainPrograms = new WeakMap();
-// Whether plainProgram has made (or refused) the renderer's program for
-// three's current one of a material, so that calling it makes no program.
+// Screen passes bind declared catalog layouts. A source-free material without
+// a key is unsupported at admission; no browser program can supply its source.
 export function plainProgramKnown(core, material) {
-  if (material.userData?.bfeProgram) return core.ownedPrograms?.has(material.userData.bfeProgram) || false;
-  const threeProgram = core.renderer.properties.get(material).currentProgram;
-  return !threeProgram || plainPrograms.has(threeProgram);
+  return core.ownedPrograms?.has(material.userData?.bfeProgram) || false;
 }
-
-// A uniform the program reads for nothing it draws, left at zero: an unlit
-// zero material's packed point lights (materials.js), which its vertex
-// shader adds up into a value its fragment shader never reads (three sets
-// them to whatever the last lit draw chose). At zero, the loop over them
-// does not run.
-const unread = (material, name) => (name === "zeroLights" || name === "zeroLightCount") && Boolean(material?.defines) && "UNLIT" in material.defines;
-// attributes: "name:location,..." where the pass's vertex arrays have them,
-// or null for three's own attributes at locations 0, 1... (entry.attributes,
-// for core.geometry).
 export function plainProgram(core, material, attributes) {
   if (ownsEffectSource(material)) {
     const entry = ownedEffectProgram(core, material, PLAIN);
     if (attributes !== null && entry.attributes.map(([n,l]) => `${n}:${l}`).join(",") !== attributes) throw Error(`Attribute layout for ${entry.key}: ${attributes}`);
     return entry;
   }
-  if (material.userData?.bfeProgram) return ownedProgram(core, material.userData.bfeProgram, attributes);
-  const threeProgram = core.renderer.properties.get(material).currentProgram;
-  if (!threeProgram) return undefined;
-  let entry = plainPrograms.get(threeProgram);
-  if (entry !== undefined) return entry;
-  entry = null;
-  const gl = core.gl, p = threeProgram.program;
-  let locations = null;
-  if (attributes === null) {
-    locations = [];
-    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) locations.push([gl.getActiveAttrib(p, i).name, i]);
-    attributes = locations.map(([name, location]) => `${name}:${location}`).join(",");
-  }
-  const uniforms = [];
-  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-    const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
-    if (!unread(material, name)) uniforms.push({ name, type: uniformType(gl, u.type), size: u.size });
-  }
-  if (uniforms.every((u) => u.type && u.size === 1)) {
-    const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
-    try {
-      entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes, uniforms.map((u) => u.name).join(",")), uniforms, attributes: locations };
-    } catch (error) {
-      core.fail(error);
-    }
-  } else core.errors.push(`plain p${threeProgram.id}: ${uniforms.filter((u) => !u.type || u.size !== 1).map((u) => u.name).join(" ")}`);
-  plainPrograms.set(threeProgram, entry);
-  return entry;
+  if (!material.userData?.bfeProgram) core.fail(Error("Screen material has no owned program"));
+  return ownedProgram(core, material.userData.bfeProgram, attributes);
 }
 
 // A uniform's value as three would set it for a full-screen pass (the

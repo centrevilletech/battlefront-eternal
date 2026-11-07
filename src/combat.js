@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 
 
 import { weaponMuzzle } from "./muzzles.js";
@@ -115,7 +116,7 @@ export class PlayerCombat {
         actor.materials.push(material);
         return material;
       });
-      group.visible = false;
+      sceneProperty(group,"visible",false);
       // Register the held model before adding its luminous muzzle flash.
       // Its bone attachment and hidden first-person layer keep the world
       // weapon's shadow aligned with the body in either camera mode.
@@ -132,14 +133,14 @@ export class PlayerCombat {
       let muzzle = null;
       if (point) {
         muzzle = new THREE.Object3D();
-        muzzle.position.fromArray(point);
+        sceneTransform(muzzle.position.fromArray(point));
         group.add(muzzle);
       }
       if (point && flashModel) {
         flash = flashModel();
-        flash.position.fromArray(point);
-        flash.scale.setScalar(FLASH_SCALE);
-        flash.visible = false;
+        sceneTransform(flash.position.fromArray(point));
+        sceneTransform(flash.scale.setScalar(FLASH_SCALE));
+        sceneProperty(flash,"visible",false);
         group.add(flash);
       }
       this.held.set(name, { group, flash, muzzle, flashLeft: 0, flashLength: 0, flashAlpha: 1 });
@@ -271,7 +272,7 @@ export class PlayerCombat {
     // touched only when that model changes.
     const model = !this.dead && !hide ? name : null;
     if (model !== this.heldModel) {
-      for (const [key, held] of this.held) held.group.visible = key === model;
+      for (const [key, held] of this.held) sceneProperty(held.group,"visible",key === model);
       this.heldModel = model;
     }
     // The weapon in the hand, for the first-person view, and its bank for
@@ -393,7 +394,7 @@ export class PlayerCombat {
     const held = this.held.get(weapon.def.GeometryName);
     if (!held?.muzzle) return null;
     held.muzzle.updateWorldMatrix(true, false);
-    held.muzzle.matrixWorld.decompose(this.at.position, this.at.quaternion, this.at.scale);
+    sceneTransform(held.muzzle.matrixWorld.decompose(this.at.position, this.at.quaternion, this.at.scale));
     return this.at;
   }
 
@@ -426,7 +427,7 @@ export class PlayerCombat {
     this.hud.setScope(zoom > 1 && this.firstPerson ? blaster?.def.ScopeTexture : null);
     const far = this.worldPoint.copy(droid.eye).addScaledVector(droid.aimDir, RETICLE_REACH);
     (this.hudCamera || this.camera).updateMatrixWorld();
-    const p = this.screen.copy(far).applyMatrix4((this.hudCamera || this.camera).matrixWorldInverse);
+    const p = sceneTransform(this.screen.copy(far).applyMatrix4((this.hudCamera || this.camera).matrixWorldInverse));
     if (p.z >= 0) {
       this.hud.setReticle(null);
       return;
@@ -492,7 +493,7 @@ export class PlayerCombat {
       far.addScaledVector(aim.aimDir, RETICLE_REACH);
     }
     (this.hudCamera || this.camera).updateMatrixWorld();
-    const p = this.screen.copy(far).applyMatrix4((this.hudCamera || this.camera).matrixWorldInverse);
+    const p = sceneTransform(this.screen.copy(far).applyMatrix4((this.hudCamera || this.camera).matrixWorldInverse));
     if (p.z >= 0) {
       this.hud.setReticle(null);
       return;

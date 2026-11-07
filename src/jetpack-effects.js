@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from 'three';
 import { JetpackVolume } from './jetpack-volume.js';
 import { JetpackWake } from './jetpack-wake.js';
@@ -42,8 +43,8 @@ export class JetpackEffects {
     this.lightPosition.set(0,0,0);
     for(let i=0;i<this.nozzles.length;i++) {
       const jet=this.nozzles[i],frame=nozzleFrames?.[i];
-      if(frame){jet.position.copy(frame.position);jet.direction.copy(frame.direction).normalize();jet.radius=frame.radius??.034;}
-      else{jet.position.copy(jet.local).applyQuaternion(quaternion).add(position);jet.direction.copy(jet.localDirection).applyQuaternion(quaternion).normalize();}
+      if(frame){sceneTransform(jet.position.copy(frame.position));jet.direction.copy(frame.direction).normalize();jet.radius=frame.radius??.034;}
+      else{sceneTransform(sceneTransform(jet.position.copy(jet.local)).applyQuaternion(quaternion)).add(position);sceneTransform(jet.direction.copy(jet.localDirection).applyQuaternion(quaternion)).normalize();}
       this.targetTail.copy(jet.position).addScaledVector(jet.direction,.58);
       if(!jet.ready){jet.tail.copy(this.targetTail);jet.ready=true;}
       jet.tail.lerp(this.targetTail,1-Math.exp(-dt/.055));

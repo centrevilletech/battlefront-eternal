@@ -8,6 +8,14 @@ export function requireRustDraws(renderer) {
   if (guarded.has(renderer)) return;
   guarded.add(renderer);
   renderer.battleThreeCalls = 0;
+  renderer.battleCompileCalls = 0;
+  // Source ownership is complete even for helpers created during play. Both
+  // compiler entry points must fail before Three can reflect a battle program.
+  const compile = () => {
+    renderer.battleCompileCalls++;
+    throw new Error("Battle attempted a three.js compile; an owned program is required");
+  };
+  renderer.compile = renderer.compileAsync = compile;
   renderer.render = () => {
     renderer.battleThreeCalls++;
     throw new Error("Battle attempted a three.js draw; a Rust pass is required");

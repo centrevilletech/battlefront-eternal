@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { VisualFeet } from "./presentation/feet.js";
 
@@ -118,7 +119,7 @@ export function damageBurns(entry, health, maxHealth) {
 // stood; a piece that would start below the ground starts on it (Debris,
 // floor). Null for a hull without that bone (the root carries its pieces).
 const _carrier = new THREE.Object3D();
-_carrier.matrixAutoUpdate = false;
+sceneProperty(_carrier,"matrixAutoUpdate",false);
 export function bodyCarrier(v) {
   const body = v.byName?.bone_root;
   if (!body || !v.bones || !v.bindQuaternions || !v.bindPositions) return null;
@@ -129,8 +130,8 @@ export function bodyCarrier(v) {
     _bind.premultiply(_local.compose(v.bindPositions[i], v.bindQuaternions[i], bone.scale));
   }
   body.updateWorldMatrix(true, false);
-  _carrier.matrix.copy(body.matrixWorld).multiply(_local.copy(_bind).invert());
-  _carrier.matrixWorld.copy(_carrier.matrix);
+  sceneTransform(_carrier.matrix.copy(body.matrixWorld)).multiply(_local.copy(_bind).invert());
+  sceneTransform(_carrier.matrixWorld.copy(_carrier.matrix));
   return _carrier;
 }
 
@@ -328,7 +329,7 @@ export class VehicleEffects {
     const bones = v.bones?.length ? v.bones : [v.root];
     const bone = bones[Math.floor(this.random() * bones.length) % bones.length] || v.root;
     bone.updateWorldMatrix(true, false);
-    bone.matrixWorld.decompose(_position, _quaternion, _scale);
+    sceneTransform(bone.matrixWorld.decompose(_position, _quaternion, _scale));
     this.effects.play(name, _position, null, null, _quaternion);
   }
 

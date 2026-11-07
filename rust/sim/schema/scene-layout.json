@@ -1,0 +1,188 @@
+{
+  "version": 7,
+  "records": {
+    "SceneNode": {
+      "slot": 1,
+      "generation": 1,
+      "parent": 1,
+      "parentGeneration": 1,
+      "sibling": 1,
+      "flags": 1,
+      "layers": 1,
+      "renderOrder": 1,
+      "objectId": 1,
+      "materialId": 1,
+      "families": 1,
+      "resource": 1,
+      "sphere": 4,
+      "world": 16,
+      "range": 3,
+      "pose": 7,
+      "instanceOrder": 1,
+      "lodAuto": 1,
+      "lodIndex": 1,
+      "lodDistance": 1,
+      "lodHysteresis": 1,
+      "groupFirst": 1,
+      "groupCount": 1,
+      "motionSource": 2,
+      "motionFar": 1
+    },
+    "SceneWorldChange": {"slot": 1, "generation": 1, "world": 16},
+    "SceneView": {
+      "root": 1,
+      "generation": 1,
+      "layers": 1,
+      "families": 1,
+      "mode": 1,
+      "projection": 16,
+      "view": 16,
+      "eye": 3,
+      "zoom": 1,
+      "outputLimit": 1,
+      "motionRoot": 2
+    },
+    "SceneSelection": {
+      "slot": 1,
+      "generation": 1,
+      "resource": 1,
+      "groupOrder": 1,
+      "renderOrder": 1,
+      "depth": 1,
+      "objectId": 1,
+      "materialId": 1,
+      "first": 1,
+      "count": 1,
+      "group": 1,
+      "materialIndex": 1,
+      "flags": 1
+    },
+    "ScenePoseRef": {
+      "owner": 1,
+      "id": 1,
+      "generation": 1,
+      "nodeStart": 1,
+      "nodeCount": 1,
+      "skinStart": 1,
+      "skinCount": 1
+    },
+    "SceneFact": {
+      "groupOrder": 1,
+      "center": 3,
+      "epoch": 1,
+      "generation": 1,
+      "inView": 1
+    },
+    "SceneFactsHeader": {
+      "clipped": 1,
+      "epoch": 1
+    },
+    "SceneGroup": {
+      "slot": 1,
+      "owner": 1,
+      "generation": 1,
+      "materialId": 1,
+      "materialIndex": 1,
+      "visible": 1,
+      "first": 1,
+      "count": 1
+    },
+    "SceneLineHeader": {
+      "count": 1
+    },
+    "SceneMotionHeader": {
+      "events": 1,
+      "extras": 1
+    },
+    "SceneMotionEvent": {
+      "kind": 1,
+      "slot": 1,
+      "generation": 1
+    },
+    "SceneCanopyView": {
+      "generation": 1,
+      "camera": 1,
+      "enabled": 1,
+      "layers": 1,
+      "nodeLayers": 1,
+      "projection": 16,
+      "view": 16,
+      "world": 16,
+      "eye": 3
+    },
+    "SceneCanopyHeader": {
+      "count": 1,
+      "changed": 1,
+      "version": 1,
+      "shown": 1,
+      "dirty": 2
+    },
+    "SceneCanopySelection": {
+      "id": 1,
+      "generation": 1,
+      "distance": 1,
+      "first": 1,
+      "count": 1,
+      "changed": 1
+    }
+  },
+  "limits": {
+    "SceneCapacity": {
+      "nodes": 65536,
+      "changes": 65536,
+      "selected": 65536,
+      "groups": 262144
+    },
+    "SceneFlags": {
+      "alive": 1,
+      "visible": 2,
+      "materialVisible": 4,
+      "group": 8,
+      "culled": 16,
+      "sprite": 32,
+      "transparent": 64,
+      "castShadow": 128,
+      "subtreeOwner": 256,
+      "claimedTree": 512,
+      "materialArray": 1024,
+      "nativeCull": 2048,
+      "motionSource": 4096
+    },
+    "SceneFamily": {
+      "near": 1,
+      "far": 2,
+      "instance": 4,
+      "view": 8,
+      "line": 16,
+      "shadow": 32,
+      "motion": 64,
+      "extra": 128,
+      "sea": 256,
+      "water": 512,
+      "effect": 1024
+    },
+    "SceneMode": {
+      "scene": 0,
+      "opaque": 1,
+      "transparent": 2,
+      "shadow": 3,
+      "proxy": 4,
+      "extra": 5,
+      "far": 6,
+      "view": 7,
+      "instance": 8,
+      "locked": 9,
+      "motionPrepare": 10
+    },
+    "SceneMotionKind": {
+      "clear": 1,
+      "release": 2
+    },
+    "SceneCanopyLimits": {
+      "groups": 65536,
+      "selected": 12,
+      "leaves": 912,
+      "far": 220
+    }
+  }
+}

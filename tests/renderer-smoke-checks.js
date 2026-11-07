@@ -28,6 +28,7 @@ import { ownedBasicEffect, ownedEffectMaterial } from '../src/rust-render/effect
 import { programLayouts } from '../src/render-programs.js';
 import { interfaceFixture, shellInterfaceFixture } from './renderer-interface-checks.js';
 import { checkOwnedActorDraws } from './actor-program-checks.js';
+import { checkOwnedUtilityDraws } from './utility-program-checks.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
 // This is a Rust-only driver test, not a parity comparison with Three.
@@ -547,13 +548,9 @@ export async function checkRenderer(backend, manifests) {
     // Overlapping VBO/EBO writes include shorter suffix-preserving ranges; replay
     // must reproduce the final contents, not merely the latest call per offset.
     const retainedGeometry=new THREE.PlaneGeometry(2,2);
-    const retainedMaterial=new THREE.ShaderMaterial({
-      vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
-      fragmentShader:'void main(){gl_FragColor=vec4(1.0,.25,.125,1.0);}',
-      depthTest:false,depthWrite:false,
-    });
-    const retainedMesh=new THREE.Mesh(retainedGeometry,retainedMaterial),retainedScene=new THREE.Scene();retainedScene.add(retainedMesh);
-    g.renderer.compile(retainedScene,tintCamera);
+    const retainedMaterial=new THREE.MeshBasicMaterial({color:0xff4020,depthTest:false,depthWrite:false});
+    retainedMaterial.userData.bfeProgram='interface/basic';
+    const retainedMesh=new THREE.Mesh(retainedGeometry,retainedMaterial);
     const retainedProgram=plainProgram(g.rust,retainedMaterial,'position:0');
     const retainedId=g.rust.geometry(retainedGeometry,{id:retainedProgram.id,attributes:[['position',0]]});
     const bytes=a=>new Uint8Array(a.buffer,a.byteOffset,a.byteLength);
@@ -710,6 +707,8 @@ export async function checkRenderer(backend, manifests) {
     // stand in for backend coverage even when another pass produced visible pixels.
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
     await shellInterfaceFixture(assert);
+    const utilityDraws = await checkOwnedUtilityDraws();
+    assert('Owned utility draws match their frozen source and recover exactly',utilityDraws.ok,utilityDraws);
     const actorDraws = await checkOwnedActorDraws();
     assert('Owned actor bodies, rigs, held and view parts, shock and dissolve draw', actorDraws.ok, actorDraws);
 // Return all family and phase evidence, including the backend/draw mode,

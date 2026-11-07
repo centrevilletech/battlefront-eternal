@@ -42,12 +42,10 @@ class CanopiesPass {
     }
     // Whether three would draw it in this render: leaves to draw, the mesh
     // and its parents shown, on the camera's layers (never culled).
-    let shown = canopies.drawn && mesh.layers.test(ctx.camera.layers);
-    for (let n = mesh.parent; shown && n && n !== ctx.scene; n = n.parent) if (!n.visible) shown = false;
     input[C.SHADOWS] = core.graphics.csm ? 1 : 0;
     input[C.TEXTURE] = texture;
     input[C.INSTANCES] = Math.min(canopies.instanceCount, entry.max);
-    input[C.SHOWN] = shown ? 1 : 0;
+    input[C.SHOWN] = canopies.drawn ? 1 : 0;
   }
 
   // Register the fixed program and card geometry before the first leaf draw.

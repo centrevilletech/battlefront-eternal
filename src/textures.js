@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { PngTextureLoader } from "./texture-images.js";
 import { basisImage } from "./texture-decode.js";
@@ -128,5 +129,5 @@ function fill(texture, loaded) {
   // already share the game's unflipped orientation and raw colour values.
   texture.flipY = false;
   texture.colorSpace = THREE.NoColorSpace;
-  texture.needsUpdate = true;
+  sceneProperty(texture,"needsUpdate",true);
 }

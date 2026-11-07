@@ -34,12 +34,9 @@ function views(core) {
   core.views();
 }
 
-// Rust's program for a full-screen material (post.js plainProgram), when a
-// step can draw it: no more uniforms than a step holds, and a state a step
-// has (no stencil, polygon offset or alpha to coverage, its colour written,
-// a blending the renderer sets). null when never. Making it can make a program
-// of the renderer's:
-// only inside a phase, whose end resets three's state.
+// screenProgram validates an owned layout against the screen-step limits.
+// No stencil, polygon offset or alpha coverage can enter this draw contract;
+// registration reports unsupported state before a native phase submits it.
 export function screenProgram(core, material, attributes = ATTRIBUTES) {
   const program = plainProgram(core, material, attributes);
   if (!program) return program;
@@ -189,6 +186,7 @@ class FogPass {
     const core = this.core, fog = this.composite();
     if (!fog) return;
     if (!ownsEffectSource(fog.material)) { core.fail(Error("Fog material has no catalog program")); return; }
+    core.registry.claim(fog);
     const current = fog.material;
     if (this.made.has(current)) return;
     const program = screenProgram(core, fog.material);
@@ -215,7 +213,7 @@ class FogPass {
     }
     const take = !core.contextLost && fog.visible && fog.parent === scene && camera === graphics.camera
       && target === graphics.sceneTarget && this.made.has(fog.material);
-    fog.material.visible = !ownsEffectSource(fog.material) && !take;
+    core.registry.claim(fog);
     if (take) this.pending = true;
   }
 

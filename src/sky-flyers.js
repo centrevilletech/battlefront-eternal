@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import {actorDescription,actorNode} from "./actor-resources.js";
 import {ACTOR} from "./rust-render/actor-layout.js";
@@ -89,7 +90,7 @@ export class SkyFlyers {
     this.motion = motion;
     this.group = new THREE.Group();
     this.group.name = "sky-flyers";
-    this.group.matrixAutoUpdate = false;
+    sceneProperty(this.group,"matrixAutoUpdate",false);
     this.classes = [];
     this.time = 0;
     this.stepped = false;
@@ -147,7 +148,7 @@ export class SkyFlyers {
     // SkyFlyers.build publishes borrowed environment arrays and authored model
     // facts. Native far/motion descriptors own every VBO, sampler and raster rule.
     const mesh=(part,arrays,order,fading=false,moving=false,map=null)=>{
-      const m=actorNode(part.asset,null);m.name=def.model;m.frustumCulled=false;m.matrixAutoUpdate=false;m.renderOrder=order;m.count=count;
+      const m=actorNode(part.asset,null);m.name=def.model;sceneProperty(m,"frustumCulled",false);sceneProperty(m,"matrixAutoUpdate",false);sceneProperty(m,"renderOrder",order);m.count=count;
       const source={asset:part.asset,flags:part.flags??1,map,arrays,capacity:count,fading,moving,owner:this,values:new Float64Array(ACTOR.FLYER.LEN)};
       m.userData[moving?'flyerMotion':'flyerSource']=source;if(moving){m.userData.order=0;m.onBeforeRender=()=>this.motionFrame();}return m;
     };
@@ -215,21 +216,21 @@ export class SkyFlyers {
     for (const kind of this.classes) {
       const at = kind.index * SKY_RESULT.STRIDE;
       if (!r[at + SKY_RESULT.ON]) {
-        for (const m of kind.meshes) m.visible = false;
+        for (const m of kind.meshes) sceneProperty(m,"visible",false);
         continue;
       }
       const solids = r[at + SKY_RESULT.SOLIDS], fadings = r[at + SKY_RESULT.FADINGS];
       for (const m of kind.draws) {
         m.count = solids;
-        m.visible = solids > 0;
+        sceneProperty(m,"visible",solids > 0);
         m.userData.flyerSource.values[ACTOR.FLYER.REACH]=far;
       }
       for (const m of kind.fades) {
         m.count = fadings;
-        m.visible = fadings > 0;
+        sceneProperty(m,"visible",fadings > 0);
         m.userData.flyerSource.values[ACTOR.FLYER.REACH]=far;
       }
-      for (const m of kind.motions) m.visible = true;
+      for (const m of kind.motions) sceneProperty(m,"visible",true);
 
     }
   }

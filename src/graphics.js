@@ -1,7 +1,7 @@
+import {sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { prepareActors, warmActorPrograms } from "./rust-render/actors.js";
-import { compileUnowned, prewarmWorldPrograms } from "./rust-render/world-programs.js";
+import { prewarmWorldPrograms } from "./rust-render/world-programs.js";
 import { requireRustDraws } from "./rust-render/draw-guard.js";
-import { requireLinkedPrograms } from "./rust-render/failure.js";
 import { loadRustRenderer } from "./rust-render/load.js";
 import { warmEffectPrograms } from "./rust-render/effect-material.js";
 import * as THREE from "three";
@@ -19,38 +19,10 @@ import { pageGpu, rendererName } from "./gpu-info.js";
 import { lighting, setFog, setLighting } from "./materials.js";
 import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
 
-// scene.updateMatrixWorld(), but hidden subtrees (pooled soldiers, unheld
-// guns, idle effect meshes: about half the scene) are skipped and refreshed
-// when shown. Classes with their own update (cameras) keep it.
-const updateObject = THREE.Object3D.prototype.updateMatrixWorld;
-// Graphics.cullOffView: a soldier's reach from 1 m above his root (body,
-// raised gun, a body thrown in death).
-const cullFrustum = new THREE.Frustum(), cullMatrix = new THREE.Matrix4();
-const cullSphere = new THREE.Sphere(new THREE.Vector3(), 5);
-function updateVisible(object, force) {
-  // Native unit roots install a no-op update too. This existing owner
-  // boundary stops their tree without inspecting every scene node's data.
-  if (object.updateMatrixWorld !== updateObject && !object.isSkinnedMesh) { object.updateMatrixWorld(force); return; }
-  if (object.matrixAutoUpdate) object.updateMatrix();
-  if (object.matrixWorldNeedsUpdate || force) {
-    if (object.matrixWorldAutoUpdate === true) {
-      if (object.parent === null) object.matrixWorld.copy(object.matrix);
-      else object.matrixWorld.multiplyMatrices(object.parent.matrixWorld, object.matrix);
-    }
-    object.matrixWorldNeedsUpdate = false;
-    force = true;
-  }
-  if (object.isSkinnedMesh) {
-    if (object.bindMode === THREE.AttachedBindMode) object.bindMatrixInverse.copy(object.matrixWorld).invert();
-    else if (object.bindMode === THREE.DetachedBindMode) object.bindMatrixInverse.copy(object.bindMatrix).invert();
-  }
-  const children = object.children;
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
-    if (child.visible) updateVisible(child, force);
-    else child.matrixWorldNeedsUpdate = true;
-  }
-}
+// Graphics.cullOffView retains its broad gameplay-root sphere until native
+// presentation owns that lazy-placement boundary.
+const cullFrustum=new THREE.Frustum(),cullMatrix=new THREE.Matrix4();
+const cullSphere=new THREE.Sphere(new THREE.Vector3(),5);
 
 // The frame, laid out like the 2004 game's. Everything is in gamma space, as
 // Direct3D 9 drew it: textures are not decoded from sRGB, light adds and
@@ -88,7 +60,6 @@ export class Graphics {
     this.settings = settings;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     requireRustDraws(this.renderer);
-    requireLinkedPrograms(this.renderer);
     // Where the browser offers it, shader programs link on the driver's own
     // threads instead of on the GPU process's main thread, which also
     // serves every other canvas on the page: the loading screen's keeps
@@ -111,7 +82,7 @@ export class Graphics {
     // Every renderer.render() would re-walk the scene and recompose every
     // matrix (thousands of bones), and water renders this scene twice a
     // frame. updateScene() does it once per frame instead.
-    this.scene.matrixWorldAutoUpdate = false;
+    sceneProperty(this.scene,"matrixWorldAutoUpdate",false);
     this.sceneFrame = -1;
     this.frameCount = 0;
     // Soldiers' roots (game.js, each frame) that the near scene's own pass
@@ -138,7 +109,7 @@ export class Graphics {
     // mirrors that render the far scene too (water.js's far water). Layer 3
     // is the sky probe's (sky-probe.js), 5 the water mirror's sky pass.
     this.eyeLayer = 4;
-    this.farCamera.layers.enable(this.eyeLayer);
+    sceneLayer(this.farCamera.layers,"enable",this.eyeLayer);
     this.shadowCamera = new THREE.PerspectiveCamera();
     this.staticShadowCamera = new THREE.PerspectiveCamera();
     this.cascadeCamera = new THREE.PerspectiveCamera();
@@ -197,7 +168,7 @@ export class Graphics {
     // levels at most.
     this.background = ownedFullScreenPass("effects/far-image", { map: { value: this.farTarget.texture } });
     this.background.material.depthTest = true;
-    this.background.renderOrder = 1e9;
+    sceneProperty(this.background,"renderOrder",1e9);
     this.scene.add(this.background);
     // Three supplies resource objects and compiled sources to the required
     // battle renderer. Loading errors propagate to the loading screen.
@@ -237,7 +208,7 @@ export class Graphics {
       if (key === "antialiasing") this.applyAntialiasing();
       if (key === "shadows") this.applyShadows();
       if (key === "lampLighting") for(const scene of [this.scene,this.viewScene,this.farScene]) scene.traverse(object=>{
-        for(const material of [].concat(object.material||[]))material.needsUpdate=true;
+        for(const material of [].concat(object.material||[]))sceneProperty(material,"needsUpdate",true);
       });
       if (key === "viewDistance") this.applyDistance();
       if (key === "bumpMapping") this.applyBump();
@@ -281,7 +252,7 @@ export class Graphics {
     if (texture.anisotropy !== wanted) {
       texture.anisotropy = wanted;
       // A texture still loading picks the setting up when it uploads.
-      if (texture.image) texture.needsUpdate = true;
+      if (texture.image) sceneProperty(texture,"needsUpdate",true);
     }
   }
 
@@ -291,7 +262,7 @@ export class Graphics {
   // for a few blurred texels far away).
   caster(object, { far = 0 } = {}) {
     this.casters.add(object);
-    object.castShadow = Boolean(this.csm);
+    sceneProperty(object,"castShadow",Boolean(this.csm));
     object.traverse((mesh) => this.depthMaterial(mesh));
     if (far > 0) { object.userData.shadowFar = far; this.distantCasters.add(object); }
     return object;
@@ -304,7 +275,7 @@ export class Graphics {
     for (const object of this.distantCasters) {
       if (!object.parent || !this.casters.has(object)) { this.distantCasters.delete(object); continue; }
       const far = object.userData.shadowFar;
-      object.castShadow = at.setFromMatrixPosition(object.matrixWorld).distanceToSquared(eye) < far * far;
+      sceneProperty(object,"castShadow",at.setFromMatrixPosition(object.matrixWorld).distanceToSquared(eye) < far * far);
     }
   }
 
@@ -314,7 +285,7 @@ export class Graphics {
     if (this.sceneFrame === this.frameCount) return;
     this.sceneFrame = this.frameCount;
     if (this.placeUnits) this.placeUnits(this.scene);
-    updateVisible(this.scene, false);
+    const registry=this.rust.registry;registry.worlds.update(registry.admitIfNew(this.scene));
   }
 
   // A soldier wholly out of the camera's view is hidden for the near
@@ -333,80 +304,26 @@ export class Graphics {
       cullSphere.center.copy(root.position);
       cullSphere.center.y += 1;
       if (cullFrustum.intersectsSphere(cullSphere)) continue;
-      root.visible = false;
+      sceneProperty(root,"visible",false);
       this.offView.push(root);
     }
   }
 
   restoreOffView() {
-    for (const root of this.offView) root.visible = true;
+    for (const root of this.offView) sceneProperty(root,"visible",true);
     this.offView.length = 0;
   }
 
-  // warmup() a program or so at a time, `settle()` awaited after each
-  // `batch` new ones (the page waits for the GPU to get through them): the
-  // GPU process links them on the thread that also draws the loading
-  // screen, which a whole warmup holds for a few hundred milliseconds. An
-  // object whose subtree has one material compiles whole; else its own
-  // material alone and then each child. What holds a light is left to
-  // warmup() (compiled apart, its light would count twice or not at all),
-  // which ends it and finds the rest made.
-  async warmupPaced(settle, batch = 1) {
+  // warmupPaced links each owned family under the loading screen. Lines also
+  // prewarm their finite variants: a cable or debug helper can appear later.
+  async warmupPaced(settle) {
     await this.rustReady;
+    const before = this.rust.shaderPrograms?.length ?? 0, started = performance.now();
     await warmActorPrograms(this.rust, settle);
     await warmEffectPrograms(this.rust, settle);
     await this.rust.byName.post.warm(settle);
-    const { renderer } = this;
-    const count = () => renderer.info.programs?.length ?? 0;
-    const before = count(), started = performance.now();
-    let settled = before;
-    const compile = (object, scene, camera, target) => {
-      const current = renderer.getRenderTarget(), owned = [];
-      object.traverse((mesh) => {
-        const materials = [].concat(mesh.material || []);
-        if (materials.some((m) => m.userData?.bfeProgram)) {
-          owned.push([mesh, mesh.material]);
-          mesh.material = materials.filter((m) => !m.userData?.bfeProgram);
-        }
-      });
-      try {
-        renderer.setRenderTarget(target);
-        compileUnowned(renderer, object, camera, scene);
-      } finally {
-        for (const [mesh, material] of owned) mesh.material = material;
-        renderer.setRenderTarget(current);
-      }
-    };
-    const visit = async (object, scene, camera, target) => {
-      if (object.isLight) return;
-      const materials = new Set();
-      let lit = false;
-      object.traverse((o) => {
-        lit ||= Boolean(o.isLight);
-        for (const material of [].concat(o.material || [])) materials.add(material);
-      });
-      if (!lit && materials.size <= 1) {
-        if (materials.size) compile(object, scene, camera, target);
-      } else {
-        const children = object.children;
-        if (object.material && !lit) {
-          object.children = [];
-          try { compile(object, scene, camera, target); } finally { object.children = children; }
-        }
-        for (const child of [...children]) await visit(child, scene, camera, target);
-      }
-      if (count() - settled >= batch) {
-        await settle();
-        settled = count();
-      }
-    };
-    for (const [scene, camera, target] of [[this.scene, this.camera, this.sceneTarget], [this.viewScene, this.viewCamera, this.sceneTarget], [this.farScene, this.farCamera, this.farTarget]]) {
-      for (const object of [...(scene?.children || [])]) await visit(object, scene, camera, target);
-    }
-    if (count() > settled) await settle();
-    // rest: the programs warmup() still had to make, all at once.
     const rest = this.warmup().programs;
-    return { programs: count() - before, rest, ms: performance.now() - started };
+    return { programs: (this.rust.shaderPrograms?.length ?? 0) - before, rest, ms: performance.now() - started };
   }
 
   // Compile and adopt scene resources through Rust under the loading screen.
@@ -420,43 +337,28 @@ export class Graphics {
       draw();
       await settle();
     }
+    // Preserve the existing scene programs' admission identities. Utility
+    // variants link after preparation has discovered world and HUD resources,
+    // while the loading screen still owns the context and before play begins.
+    await this.rust.byName.lines.warm(settle);
   }
 
-  // Compile every program the scenes can draw, before play starts. Three
-  // otherwise compiles a program the first time it draws with it, so the
-  // first frame, and any later frame that meets something new (a material
-  // coming into view, a first bolt), stalls on shader compilation; on
-  // Windows/ANGLE each one costs tens of milliseconds. compile() also visits
-  // hidden objects (pooled soldiers, effects not playing yet). Actor and
-  // depth variants register directly from their owned catalog.
+  // warmup prepares source-owned actor and shadow resources, including hidden
+  // pooled casters. Program counts describe the native catalog, not Three.
   warmup() {
-    const { renderer } = this;
+    const before = this.rust.shaderPrograms?.length ?? 0, started = performance.now();
+    const renderer = this.renderer, target = renderer.getRenderTarget();
     this.rust.byName.post.programs();
-    const before = renderer.info.programs?.length ?? 0, started = performance.now();
-    const target = renderer.getRenderTarget();
-    // compile() visits invisible materials too. Source-owned material shells
-    // carry no browser GLSL and must never enter three's compiler.
-    const owned = [];
-    for (const scene of [this.scene, this.viewScene, this.farScene]) scene?.traverse((object) => {
-      const materials = [].concat(object.material || []);
-      if (materials.some((m) => m.userData?.bfeProgram)) {
-        owned.push([object, object.material]);
-        object.material = materials.filter((m) => !m.userData?.bfeProgram);
-      }
-    });
+    // warmup keeps setRenderTarget's cold admission order. Samplers and
+    // attachments settle before shadow targets and the first scene draw.
     try {
-      this.rust.frame.target(this.sceneTarget);
+      renderer.setRenderTarget(this.sceneTarget);
+      this.rust.settle();
       prepareActors(this.rust);
-      compileUnowned(renderer, this.scene, this.camera);
-      compileUnowned(renderer, this.viewScene, this.viewCamera);
-      this.rust.frame.target(this.farTarget);
-      compileUnowned(renderer, this.farScene, this.farCamera);
+      renderer.setRenderTarget(this.farTarget);
       if (this.csm) this.rust.byName.shadow.prepare();
-    } finally {
-      for (const [object, material] of owned) object.material = material;
-      renderer.setRenderTarget(target);
-    }
-    return { programs: (renderer.info.programs?.length ?? 0) - before, ms: performance.now() - started };
+    } finally { renderer.setRenderTarget(target); }
+    return { programs: (this.rust.shaderPrograms?.length ?? 0) - before, ms: performance.now() - started };
   }
 
   // Every caster names a source-owned depth variant. The hardware depth
@@ -579,11 +481,11 @@ export class Graphics {
       lighting.cascadePlanes.value = this.shadowMaps.map(() => new THREE.Matrix3());
     }
     this.rust?.cameras.configureShadows();
-    for (const object of this.casters) object.castShadow = Boolean(preset);
+    for (const object of this.casters) sceneProperty(object,"castShadow",Boolean(preset));
     // Materials recompile for the new shadow setup on their next draw.
     this.scene.traverse((object) => {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) if (material) material.needsUpdate = true;
+      for (const material of materials) if (material) sceneProperty(material,"needsUpdate",true);
     });
   }
 
@@ -643,9 +545,9 @@ export class Graphics {
     core.rust.frame_select_frame();core.views();
     const dynamicCamera = this.shadowCamera, staticCamera = this.staticShadowCamera;
     core.cameras.copy(dynamicCamera,CAMERA_ROLE.MAIN,CAMERA_ROLE.SHADOW_DYNAMIC);
-    dynamicCamera.layers.enable(this.hiddenLayer);
+    sceneLayer(dynamicCamera.layers,"enable",this.hiddenLayer);
     core.cameras.copy(staticCamera,CAMERA_ROLE.MAIN,CAMERA_ROLE.SHADOW_STATIC);
-    staticCamera.layers.set(this.staticLayer);
+    sceneLayer(staticCamera.layers,"set",this.staticLayer);
     for (let i = 0; i < csm.lights.length; i++) {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
       if (core.frameState[S.SHADOW_STATIC+i]) {
@@ -676,13 +578,6 @@ export class Graphics {
     if(sources.length!==count)changed=true;sources.length=count;
     if(changed){this.viewLights=sources.map(source=>({source,shown:source.visible,layers:source.layers.mask}));}
     this.viewScene.userData.nativeViewLights=this.viewLights;
-  }
-
-  // fn run by one of three's own renders that must see everything the Rust
-  // renderer took from three (rust-render/index.js reveal): the shadow pass's
-  // casters, the motion pass's first-person mask.
-  reveal(fn) {
-    return this.rust.reveal(fn);
   }
 
   setVehicleMotion(amount, turn) {
@@ -723,7 +618,7 @@ export class Graphics {
     this.rust.cameras.derived(far,CAMERA_ROLE.FAR);
     if (temporal) this.upscaler.shift(far);
     this.rust.cameras.sky(this.skyLayers,CAMERA_ROLE.MAIN);
-    if(this.sky&&!this.skyLayers.length)this.sky.position.copy(camera.position);
+    if(this.sky&&!this.skyLayers.length)sceneTransform(this.sky.position.copy(camera.position));
     this.rust.frame.target(this.farTarget);
     this.rust.cover("far", renderer, this.farScene, far);
 
@@ -732,7 +627,7 @@ export class Graphics {
     this.updateScene();
     if (temporal) this.upscaler.shift(camera);
     this.rust.frame.target(this.sceneTarget);
-    if (this.csm) this.reveal(this.rust.frame.shadowProducer);
+    if (this.csm) this.rust.frame.shadowProducer();
     this.particleDepth.begin(this.sceneTarget, camera, Boolean(this.settings.get("softParticles")));
     // Every visible item must belong to a Rust pass.
     this.rust.coverNear(renderer, this.scene, camera);
@@ -756,7 +651,7 @@ export class Graphics {
     if (temporal) {
       const motion=this.rust.frame.motionInput;
       motion.viewScene=viewShown?this.viewScene:null;motion.depth=this.particleDepth.target.depthTexture;
-      this.reveal(this.rust.frame.motionProducer);
+      this.rust.frame.motionProducer();
       this.upscaler.restore();
     }
 

@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 // Exact pilot correction for hover, wheeled and walking ground hulls. Geometry,
 // class constants, support probes and seat limits are verified prerequisites.
 // Schema 10 adds a hover's pitch and roll rates and ground factor
@@ -23,7 +24,7 @@ function readGroundCorrection(v,bytes) {
  const number=()=>{const n=view.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('nonfinite ground correction');return n;};
  for(const key of numbers)values[key]=number();
  for(const key of ['position','velocity','quaternion'])values[key]=Array.from({length:key==='quaternion'?4:3},number);
- if(Math.abs(values.quaternion.reduce((sum,n)=>sum+n*n,0)-1)>1e-6)throw Error('invalid ground orientation');
+ if(Math.abs(sceneTransform(values.quaternion.reduce((sum,n)=>sum+n*n,0))-1)>1e-6)throw Error('invalid ground orientation');
  for(const key of ['alive','sleeping']){const n=bytes[at++];if(n>1)throw Error('invalid ground flags');values[key]=!!n;}
  for(const key of seatFields){const kind=bytes[at++],n=number();if(kind>2)throw Error('invalid ground seat');seat[key]=kind===2?undefined:kind===1?null:n;}
  if(!v.previous?.isVector3||!v.tickFrom?.isVector3)throw Error('missing ground presentation history');

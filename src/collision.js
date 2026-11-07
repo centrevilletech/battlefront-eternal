@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { MovementKernel } from "./sim/wasm/movement-kernel.js";
 import { CastRay as CR } from "./presentation/layout.js";
@@ -101,7 +102,7 @@ export class CollisionWorld {
     this.polygonPool = [];
     this.polygonUsed = 0;
     // The gather's polygons by number once its list is long (polygon()).
-    this.groups = new PolygonIndex();
+    sceneProperty(this,"groups",new PolygonIndex());
     this.grouped = false;
     this.list = [];
     this.bodies = [];
@@ -204,9 +205,9 @@ export class CollisionWorld {
   }
 
   moveBody(body, matrix) {
-    body.matrix.copy(matrix);
+    sceneTransform(body.matrix.copy(matrix));
     body.inverse.copy(matrix).invert();
-    body.bounds.copy(body.localBounds).applyMatrix4(matrix);
+    sceneTransform(body.bounds.copy(body.localBounds).applyMatrix4(matrix));
     this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse);
   }
 
@@ -388,9 +389,9 @@ export class CollisionWorld {
     out.b.copy(tri.b);
     out.c.copy(tri.c);
     if (this.gatherMatrix) {
-      out.a.applyMatrix4(this.gatherMatrix);
-      out.b.applyMatrix4(this.gatherMatrix);
-      out.c.applyMatrix4(this.gatherMatrix);
+      sceneTransform(out.a.applyMatrix4(this.gatherMatrix));
+      sceneTransform(out.b.applyMatrix4(this.gatherMatrix));
+      sceneTransform(out.c.applyMatrix4(this.gatherMatrix));
     }
     return out;
   }

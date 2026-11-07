@@ -1,3 +1,4 @@
+import {sceneProperty} from '../../rust-render/scene-changes.js';
 import {BlockHeaderLayout as BLOCK} from '../gen/boundary.js';
 import {NO_RANDOM_STREAM} from '../gen/boundary.js';
 // The mounted weapon boundary: definitions and emitter identities at birth,
@@ -237,7 +238,7 @@ export class F2Firing {
         }
         t.target = row.target; t.def = row.source.seats[row.seat].weapons[row.weapon].def; t.seat = row.seat; t.length = row.length;
         t.start.copy(row.start); t.end.copy(row.end);
-        if (row.source.towTarget < 0 && t.line) t.line.visible = false;
+        if (row.source.towTarget < 0 && t.line) sceneProperty(t.line,"visible",false);
       }
     }
   }

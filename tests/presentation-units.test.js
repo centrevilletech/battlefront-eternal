@@ -660,6 +660,10 @@ test("remote actors are placed by the scene update only once drawn, while their 
       assert.deepEqual(Array.from(other.actor.skeleton.boneMatrices), Array.from(shown.actor.skeleton.boneMatrices));
       assert.deepEqual(other.actor.bones[3].quaternion.toArray(), shown.actor.bones[3].quaternion.toArray());
     }
+    // Lazy placement can revisit the same phase prefix. Already-published
+    // worlds must remain read-only until their next actual native change.
+    for(const {row} of all)for(const object of row.objects)if(object)Object.freeze(object.matrixWorld.elements);
+    assert.doesNotThrow(()=>bridge.publishChanged());
   } finally {
     bridge.kernel.free();
   }

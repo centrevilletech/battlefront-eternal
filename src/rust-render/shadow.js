@@ -1,3 +1,5 @@
+import {sceneLayer,sceneProperty,sceneTransform} from "./scene-changes.js";
+import {Family,Mode,S as Selected} from './scene.js';
 import {ACTOR} from './actor-layout.js';
 import {nativeActorSource,actorSkin,publishActorSkin} from '../actor-resources.js';
 import {actorSample,isActorMaterial} from './actors.js';
@@ -119,14 +121,14 @@ class ShadowPass {
       let node = this.nativeNodes.get(row.id);
       if (!node && !row.active && row.source !== null) continue;
       if (!node) {
-        node = new THREE.Object3D(); node.name = `native-static-depth:${row.id}`;node.matrixAutoUpdate = false;
+        node = new THREE.Object3D(); node.name = `native-static-depth:${row.id}`;sceneProperty(node,"matrixAutoUpdate",false);
         node.userData.nativeShadow = { native: row.id };
         this.nativeNodes.set(row.id, node);
         g.caster(node);
       }
       const parent = row.source === null ? g.scene : roots.get(row.source);
       if (parent && node.parent !== parent) parent.add(node);
-      node.layers.set(row.layer);node.visible = row.active;
+      sceneLayer(node.layers,"set",row.layer);sceneProperty(node,"visible",row.active);core.registry.bind(node,Family.SHADOW,node.userData.nativeShadow);
     }
     this.found.clear();
     for (const window of g.cascadeWindows) window.invalidate();
@@ -161,7 +163,7 @@ class ShadowPass {
     } finally {
       this.request = null;
     }
-    if (this.done) { shadow.needsUpdate = false; this.drawn++; } else this.left++;
+    if (this.done) { sceneProperty(shadow,"needsUpdate",false); this.drawn++; } else this.left++;
     return this.done;
   }
 
@@ -176,7 +178,7 @@ class ShadowPass {
     const shadowCamera = shadow.camera, frustum = shadow.getFrustum();
     this.draws.length = 0;
     this.why = null;
-    this.walk(scene, camera, shadowCamera, frustum, renderer);
+    this.publishCasters(scene, camera, shadowCamera, renderer);
     const target = this.why ? -1 : core.texture(shadow.map.depthTexture);
     const source = from ? core.texture(from.depthTexture) : -1;
     // The pass is written into a buffer of the page's first: a value's texture
@@ -234,48 +236,20 @@ class ShadowPass {
 
   // three's renderObject, for one cascade: each caster the pass camera's
   // layers see (candidates) in the cascade's frustum, in scene order.
-  walk(scene, camera, shadowCamera, frustum, renderer) {
-    const core = this.core;
-    for (const object of this.candidates(scene, camera, renderer)) {
-      if (this.why) return;
-      if(object.userData.actorAsset){if(!object.frustumCulled||frustum.intersectsObject(object))this.addActor(object,shadowCamera,renderer);continue;}
-      if (object.userData.nativeShadow) { this.draws.push(object.userData.nativeShadow); continue; }
-      if (object.frustumCulled && !frustum.intersectsObject(object)) continue;
-      if (!object.isMesh) { core.skip(object, object.material, "a line or points caster"); continue; }
-      object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object.matrixWorld);
-      if (object.isSkinnedMesh) this.bones(object, renderer);
-      const material = object.material, geometry = object.geometry;
-      if (Array.isArray(material)) {
-        for (const group of geometry.groups) {
-          const m = material[group.materialIndex];
-          if (m && m.visible) this.add(object, geometry, m, group, camera, shadowCamera, renderer);
-        }
-      } else if (material.visible) this.add(object, geometry, material, null, camera, shadowCamera, renderer);
+  publishCasters(scene,camera,shadowCamera,renderer){
+    const core=this.core,registry=core.registry,count=registry.select(scene,shadowCamera,Family.SHADOW,Mode.SHADOW,camera.layers.mask,this.capacity);
+    this.clipped+=registry.lastClipped;
+    for(let i=0;i<count;i++){
+      core.views();const at=i*Selected.STRIDE,node=registry.nodes[core.sceneOutput[at+Selected.SLOT]],object=node.object;
+      if(this.why)return;
+      if(object.userData.actorAsset){this.addActor(object,shadowCamera,renderer);continue;}
+      if(object.userData.nativeShadow){this.draws.push(object.userData.nativeShadow);continue;}
+      if(!object.isMesh){core.skip(object,object.material,'a line or points caster');continue;}
+      object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse,object.matrixWorld);
+      if(object.isSkinnedMesh)this.bones(object,renderer);
+      const group=core.sceneOutput[at+Selected.GROUP],mi=core.sceneOutput[at+Selected.MATERIAL_INDEX];
+      this.add(object,object.geometry,group<0?object.material:object.material[mi],group<0?null:object.geometry.groups[group],camera,shadowCamera,renderer);
     }
-  }
-
-  // The casters a pass camera's layers see this frame: shown (with every
-  // parent, a hidden object hiding its subtree), on those layers, casting.
-  // One walk of the scene a frame and set of layers (three walks it for each
-  // cascade): the frame's other cascades test the same list against their
-  // own frustum. Nothing between a frame's cascade passes shows, hides or
-  // moves a caster.
-  candidates(scene, camera, renderer) {
-    const frame = renderer.info.render.frame, mask = camera.layers.mask;
-    let entry = this.found.get(mask);
-    if (!entry || entry.frame !== frame || entry.scene !== scene) {
-      entry = { frame, scene, list: entry?.list ?? [] };
-      entry.list.length = 0;
-      const collect = (object) => {
-        if (object.visible === false) return;
-        if (object.castShadow && object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints || object.userData.nativeShadow || object.userData.actorAsset)) entry.list.push(object);
-        const children = object.children;
-        for (let i = 0; i < children.length; i++) collect(children[i]);
-      };
-      collect(scene);
-      this.found.set(mask, entry);
-    }
-    return entry.list;
   }
 
   // Actor depth slots and resources are cold native descriptors. A live view
@@ -299,7 +273,7 @@ class ShadowPass {
     if (this.why) return;
     const depth = object.customDepthMaterial;
     if (!depth) { this.core.skip(object, material, "no custom depth material"); return; }
-    depth.visible = material.visible;
+    sceneProperty(depth,"visible",material.visible);
     depth.wireframe = material.wireframe;
     depth.side = material.shadowSide ?? SHADOW_SIDE[material.side];
     depth.alphaMap = material.alphaMap;
@@ -325,7 +299,7 @@ class ShadowPass {
     const g = this.geometry(geometry, program, end > start ? end : 0);
     if (g === null) { this.core.skip(object, material, "geometry the renderer cannot hold"); return; }
     if (end - start > 0 && end - start !== Infinity) {
-      this.draws.push({ program, geometry: g, start, count: end - start, side: depth.side, mirrored: object.matrixWorld.determinant() < 0, object, depth });
+      this.draws.push({ program, geometry: g, start, count: end - start, side: depth.side, mirrored: sceneTransform(object.matrixWorld.determinant()) < 0, object, depth });
     }
     object.onAfterShadow(renderer, object, camera, shadowCamera, geometry, depth, group);
   }

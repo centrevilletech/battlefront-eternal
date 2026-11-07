@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
@@ -66,7 +67,7 @@ export class Weather {
     // None of them is culled by three: the drops fill the view, and their
     // visibility is the phase's call (it hides all of them until the cover cache
     // holds every cell around the eye).
-    for(const mesh of [this.mesh,this.mist]){mesh.frustumCulled=false;mesh.visible=false;mesh.renderOrder=20;mesh.onBeforeRender=(r,s,c)=>{if(this.enhanced)particleDepth.capture(r,s,c);};scene.add(mesh);}
+    for(const mesh of [this.mesh,this.mist]){sceneProperty(mesh,"frustumCulled",false);sceneProperty(mesh,"visible",false);sceneProperty(mesh,"renderOrder",20);mesh.onBeforeRender=(r,s,c)=>{if(this.enhanced)particleDepth.capture(r,s,c);};scene.add(mesh);}
     // The splashes and the mid-distance sheets, drawn only in the Enhanced rain.
     this.impacts=new RainImpacts({scene,locations:this.host.locations,normals:this.host.normals});
     this.sheets=new RainSheets(scene,this);
@@ -98,7 +99,7 @@ export class Weather {
     v[EFFECT.RAIN.COVER_CELL]=this.cover.cell;v[EFFECT.RAIN.COVER_SIZE]=size;
     this.mistBatch.values.set(v);this.mistBatch.values[EFFECT.RAIN.EFFECT]=1;
     if(this.resources){this.resources.gpu.weather_cover(this.samples[0],size,heights);this.imageBuffer=this.host.buffer;}
-    this.mist.visible=false;this.impacts.mesh.visible=false;
+    sceneProperty(this.mist,"visible",false);sceneProperty(this.impacts.mesh,"visible",false);
   }
   // The frame: the camera's place and the time go to the phase, which advances
   // the clock, the camera's motion, the cover cache and the splashes; what it
@@ -119,9 +120,9 @@ export class Weather {
     this.mistBatch.values.set(v);this.mistBatch.values[EFFECT.RAIN.EFFECT]=1;this.sheets.publishFrame();
     if(r[RESULT.CHANGED]&&this.resources)this.resources.gpu.effect_pixels(this.samples[0],this.cover.heights);
     this.cover.queries=r[RESULT.COVER_QUERIES];
-    this.mesh.visible=r[RESULT.COVERED]===1;
-    this.mist.visible=r[RESULT.MIST_VISIBLE]===1;
-    this.sheets.mesh.visible=r[RESULT.SHEETS_VISIBLE]===1;
+    sceneProperty(this.mesh,"visible",r[RESULT.COVERED]===1);
+    sceneProperty(this.mist,"visible",r[RESULT.MIST_VISIBLE]===1);
+    sceneProperty(this.sheets.mesh,"visible",r[RESULT.SHEETS_VISIBLE]===1);
     this.impacts.synced(r[RESULT.IMPACT_TIME],r[RESULT.IMPACTS_SHOWN]===1,r[RESULT.IMPACTS_CHANGED]===1,r[RESULT.IMPACTS_NEXT],r[RESULT.IMPACTS_QUERIES]);
   }
   // Stable native sampler identity survives mode changes. Resizing publishes

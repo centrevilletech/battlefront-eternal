@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { ownedBasicEffect } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { radarRelation } from "./targeting-facts.js";
@@ -97,10 +98,10 @@ class Hologram {
     this.post = post;
     this.look = look;
     this.group = new THREE.Group();
-    this.group.position.copy(post.anchor);
+    sceneTransform(this.group.position.copy(post.anchor));
     this.logo = new THREE.Group();
-    this.logo.position.y = look.height;
-    this.logo.scale.setScalar(look.size);
+    sceneComponent(this.logo.position,"y","=",look.height);
+    sceneTransform(this.logo.scale.setScalar(look.size));
     this.group.add(this.logo);
     this.logos = logos;
     this.logoMeshes = new Map();
@@ -134,8 +135,8 @@ class Hologram {
         depthWrite: false,
       }),
     );
-    this.flare.scale.setScalar(1.6);
-    this.flare.position.y = 0.15;
+    sceneTransform(this.flare.scale.setScalar(1.6));
+    sceneComponent(this.flare.position,"y","=",0.15);
     this.group.add(this.flare);
     // Explicit emission halo keeps saturated team colors glowing even when
     // their translucent core falls below the scene bloom's white threshold.
@@ -145,13 +146,13 @@ class Hologram {
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
     this.halo = new THREE.Sprite(haloMaterial);
-    this.halo.scale.set(2.6, Math.max(look.height * 1.4, 2.6), 1);
-    this.halo.position.y = look.height * 0.45;
+    sceneTransform(this.halo.scale.set(2.6, Math.max(look.height * 1.4, 2.6), 1));
+    sceneComponent(this.halo.position,"y","=",look.height * 0.45);
     this.group.add(this.halo);
     // Lights the world per vertex like the game's point lights: N.L times
     // (1 - d^2 / r^2) of the colour.
     this.light = new THREE.PointLight(this.color, look.lightIntensity, look.lightRadius, 1);
-    this.light.position.y = 1;
+    sceneComponent(this.light.position,"y","=",1);
     this.group.add(this.light);
   }
 
@@ -170,7 +171,7 @@ class Hologram {
   update(dt, time, relation, teamNames, camera) {
     const look = this.look;
     const owner = this.post.team;
-    this.group.visible = this.post.active !== false;
+    sceneProperty(this.group,"visible",this.post.active !== false);
     if (!this.group.visible) return;
     // Dark while a change is about to land; the new owner's logo fades in.
     const landing = this.post.remaining() <= this.post.rules.holoTurnOnTime;
@@ -189,12 +190,12 @@ class Hologram {
     const distance = camera.position.distanceTo(this.group.position);
     const reach = THREE.MathUtils.clamp((look.visibleDistance - distance) / (look.visibleDistance * 0.1), 0, 1);
 
-    this.logo.rotation.y = time * look.rotateRate * Math.PI * 2;
+    sceneComponent(this.logo.rotation,"y","=",time * look.rotateRate * Math.PI * 2);
     const side = owner ? (teamNames[owner] || "").toLowerCase() : null;
     if (side) this.logoFor(side);
     for (const [name, logo] of this.logoMeshes) {
       if (!logo) continue;
-      logo.visible = name === side;
+      sceneProperty(logo,"visible",name === side);
       if (logo.visible) {
         logo.userData.material.color.copy(this.color);
         logo.userData.material.opacity = look.imageIntensity * this.flicker * this.fade * reach;
@@ -205,11 +206,11 @@ class Hologram {
     const emission = this.fade * this.flicker * reach;
     this.halo.material.color.copy(this.color);
     this.halo.material.opacity = 0.48 * emission;
-    this.halo.visible = reach > 0 && (this.settings?.get("bloom") ?? true);
+    sceneProperty(this.halo,"visible",reach > 0 && (this.settings?.get("bloom") ?? true));
     this.beam.material.opacity = 0.35 * look.beamIntensity * emission;
     this.flare.material.opacity = 0.6 * (look.flareIntensity ?? 1) * emission;
-    this.beam.visible = reach > 0;
-    this.flare.visible = reach > 0;
+    sceneProperty(this.beam,"visible",reach > 0);
+    sceneProperty(this.flare,"visible",reach > 0);
     this.light.color.copy(this.color);
     this.light.intensity = look.lightIntensity * (owner ? 0.4 + 0.6 * this.fade : 1);
   }
@@ -228,7 +229,7 @@ function haloTexture() {
   sharedHalo = new THREE.DataTexture(data, size, size);
   sharedHalo.magFilter = THREE.LinearFilter;
   sharedHalo.minFilter = THREE.LinearFilter;
-  sharedHalo.needsUpdate = true;
+  sceneProperty(sharedHalo,"needsUpdate",true);
   return sharedHalo;
 }
 
@@ -242,7 +243,7 @@ export function gradientTexture() {
   const texture = new THREE.DataTexture(data, 4, 64);
   texture.flipY = true;
   texture.magFilter = texture.minFilter = THREE.LinearFilter;
-  texture.needsUpdate = true;
+  sceneProperty(texture,"needsUpdate",true);
   return texture;
 }
 

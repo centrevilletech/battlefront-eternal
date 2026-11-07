@@ -1,3 +1,4 @@
+import {sceneComponent,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
 const NETWORK_POSE = ['posture', 'air', 'dive', 'dead'];
@@ -67,7 +68,7 @@ export class SoldierPresentation {
     this.networkFired = false;
     this.deathPending = false;
     this.clearNetworkState();
-    this.position.copy(s.position);
+    sceneTransform(this.position.copy(s.position));
     this.velocity.copy(s.velocity);
     this.previousPosition.copy(s.position);
     this.previousVelocity.copy(s.velocity);
@@ -110,7 +111,7 @@ export class SoldierPresentation {
     const s = this.soldier;
     this.networkFired = false;
     alpha = THREE.MathUtils.clamp(alpha, 0, 1);
-    this.position.lerpVectors(this.previousPosition, s.position, alpha);
+    sceneTransform(this.position.lerpVectors(this.previousPosition, s.position, alpha));
     this.velocity.lerpVectors(this.previousVelocity, s.velocity, alpha);
     this.state.aimYaw = s.aimYaw - this.tickYaw * (1 - alpha);
     this.state.aimPitch = s.aimPitch;
@@ -127,7 +128,7 @@ export class SoldierPresentation {
     this.stepOffset = THREE.MathUtils.clamp(this.stepOffset + step - this.lastStep, -0.45, 0.45);
     this.lastStep = step;
     this.stepOffset *= Math.exp(-Math.max(dt, 0) / 0.075);
-    this.position.y -= this.stepOffset;
+    sceneComponent(this.position,"y","-=",this.stepOffset);
     return this.state;
   }
 }

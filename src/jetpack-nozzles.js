@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import {actorPoint,actorJoint,actorWeight} from './actor-resources.js';
 import * as THREE from "three";
 
@@ -50,10 +51,10 @@ export class JetpackNozzles {
       if (rim.some(v => Math.abs(normal.dot(v.point.clone().sub(rim[0].point))) > .0005)) continue;
       if (normal.y > 0) normal.negate();
       const bindToBone = actor.skeleton.boneInverses[boneIndex].clone().multiply(actor.body.bindMatrix);
-      const localCenter = center.clone().applyMatrix4(bindToBone);
+      const localCenter = sceneTransform(center.clone().applyMatrix4(bindToBone));
       const localDirection = normal.clone().transformDirection(bindToBone);
       let radius = 0;
-      for (const v of rim) radius += v.point.clone().applyMatrix4(bindToBone).distanceTo(localCenter);
+      for (const v of rim) radius += sceneTransform(v.point.clone().applyMatrix4(bindToBone)).distanceTo(localCenter);
       radius /= rim.length;
       // Reject a flat box edge or unrelated bottom geometry: an outlet is a
       // nearly circular ring, not the whole lower boundary of the backpack.
@@ -74,11 +75,11 @@ export class JetpackNozzles {
         frame.bone.updateWorldMatrix(true, false);
         updatedBone = frame.bone;
       }
-      frame.rimCenter.copy(frame.localCenter).applyMatrix4(frame.bone.matrixWorld);
+      sceneTransform(frame.rimCenter.copy(frame.localCenter).applyMatrix4(frame.bone.matrixWorld));
       frame.direction.copy(frame.localDirection).transformDirection(frame.bone.matrixWorld);
       // Start 2 mm inside the mouth so filtering cannot expose a detached gap.
-      frame.position.copy(frame.rimCenter).addScaledVector(frame.direction, -0.002);
-      frame.radius = frame.localRadius * frame.bone.matrixWorld.getMaxScaleOnAxis();
+      sceneTransform(frame.position.copy(frame.rimCenter)).addScaledVector(frame.direction, -0.002);
+      frame.radius = frame.localRadius * sceneTransform(frame.bone.matrixWorld.getMaxScaleOnAxis());
     }
     return this.frames;
   }

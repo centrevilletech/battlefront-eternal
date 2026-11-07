@@ -1,3 +1,4 @@
+import {sceneLayer,sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
 import { unseatBody, turretAimPoint } from "./seats.js";
@@ -70,7 +71,7 @@ export class Gunner {
     if (this.combat) this.combat.mounted = false;
     this.animator?.gunner?.(null);
     const root = this.animator?.actor?.root;
-    if (turret.hidesGunner && root && !this.combat?.blowApart) root.visible = true;
+    if (turret.hidesGunner && root && !this.combat?.blowApart) sceneProperty(root,"visible",true);
     this.hideRig(null);
   }
 
@@ -116,7 +117,7 @@ export class Gunner {
     const layer = (t, value) => {
       if (!t?.rig?.root) return;
       const parts = [t.drum, t.gun].filter(Boolean);
-      for (const part of parts.length ? parts : [t.rig.root]) part.traverse((object) => { if (object.isMesh) object.layers.set(value); });
+      for (const part of parts.length ? parts : [t.rig.root]) part.traverse((object) => { if (object.isMesh) sceneLayer(object.layers,"set",value); });
     };
     layer(this.hiddenRig, 0);
     layer(turret, this.hiddenLayer);

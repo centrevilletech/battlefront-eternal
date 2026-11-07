@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from '../../rust-render/scene-changes.js';
 import {BlockView} from '../block-view.js';
 import {BlockHeaderLayout as BLOCK} from '../gen/boundary.js';
 import {NO_RANDOM_STREAM} from '../gen/boundary.js';
@@ -507,7 +508,7 @@ export class F2Seats {
         }
         if (out.posed && out.gunner) {
           const u = out.gunner; u.presentation?.reset?.();
-          if (u.actor?.root) { u.actor.root.position.copy(u.soldier.position); u.actor.root.visible = !t.hidesGunner; }
+          if (u.actor?.root) { sceneTransform(u.actor.root.position.copy(u.soldier.position)); sceneProperty(u.actor.root,"visible",!t.hidesGunner); }
 
         }
       }

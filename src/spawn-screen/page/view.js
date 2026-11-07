@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../../rust-render/scene-changes.js";
 import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
@@ -729,7 +730,7 @@ export class PageView {
       const bounds = new THREE.Box3().setFromObject(root);
       const size = bounds.getSize(new THREE.Vector3());
       const pivot = new THREE.Group();
-      root.position.sub(bounds.getCenter(new THREE.Vector3()));
+      sceneTransform(root.position.sub(bounds.getCenter(new THREE.Vector3())));
       pivot.add(root);
       this.logos.set(team, { name, root: pivot, materials, extent: Math.max(size.x, size.y, 1e-3) });
       this.logoScene.add(pivot);
@@ -750,9 +751,9 @@ export class PageView {
   renderAfter(renderer) {
     if (!this.shown) return;
     const covered = this.hud.covered;
-    this.stage.projector.visible = !covered;
-    this.stage.map.root.visible = !covered;
-    this.stage.floor.mesh.visible = !covered && this.stage.mode !== "grid";
+    sceneProperty(this.stage.projector,"visible",!covered);
+    sceneProperty(this.stage.map.root,"visible",!covered);
+    sceneProperty(this.stage.floor.mesh,"visible",!covered && this.stage.mode !== "grid");
     this.stage.after(renderer);
     const place = this.place;
     if (covered || !place?.logos) return;
@@ -762,7 +763,7 @@ export class PageView {
     for (const [team, logo] of this.logos) {
       const own = team === this.model.team;
       const at = place.logos[team];
-      logo.root.visible = Boolean(at);
+      sceneProperty(logo.root,"visible",Boolean(at));
       if (!at) continue;
       // The other team's wakes under the pointer while it may be joined.
       const woken = !own && this.hoverTeam === team && this.model.canSwitchTeams;
@@ -771,8 +772,8 @@ export class PageView {
       // the camera's plane), the other team's smaller, growing in as the
       // logos swap.
       const size = (at.size * (768 / Math.max(this.hud.height, 1))) / logo.extent;
-      logo.root.scale.setScalar(size * (own ? 1 : woken ? 0.92 : 0.8) * (0.8 + 0.2 * Math.min(t, 1)));
-      logo.root.rotation.y = this.spin * (own ? 1 : woken ? -2.5 : -0.6);
+      sceneTransform(logo.root.scale.setScalar(size * (own ? 1 : woken ? 0.92 : 0.8) * (0.8 + 0.2 * Math.min(t, 1))));
+      sceneComponent(logo.root.rotation,"y","=",this.spin * (own ? 1 : woken ? -2.5 : -0.6));
       for (const material of logo.materials) {
         paintArray(material,LOOK.COLOR,own?GREEN:RED);
         material.values[LOOK.OPACITY] = own || woken ? 1 : 0.55;

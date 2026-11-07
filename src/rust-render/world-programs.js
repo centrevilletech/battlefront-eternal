@@ -22,22 +22,6 @@ export function ownWorldMaterial(material, geometry) {
   delete material.onBeforeCompile;
 }
 
-// Three's loader still compiles unported families, including depth materials.
-// Owned material shells supply resource values but never enter that compiler.
-export function compileUnowned(renderer, object, camera, scene=object) {
-  const removed = [];
-  try { object.traverse(o => {
-    const materials=Array.isArray(o.material)?o.material:[o.material];
-    const owned=materials.some(m=>m?.userData?.bfeFamily || m?.userData?.actorShader || m?.userData?.bfeProgram);
-    if(o.userData.shadowOnly || owned){
-      if(owned && materials.some(m=>m && !m.userData.bfeFamily && !m.userData.actorShader && !m.userData.bfeProgram))throw Error('Mixed owned/unowned material array');
-      removed.push([o,o.material]);o.material=null;
-    }
-  });
-  return renderer.compile(object, camera, scene); }
-  finally { for (const [o, material] of removed) o.material = material; }
-}
-
 export function ownedWorldProgram(core, material, scene = core.graphics.scene, camera = core.graphics.camera, side = material.side) {
   const entries = core.worldMaterialPrograms ||= new WeakMap();
   const existing = entries.get(material), shadowState=core.graphics.csm, lampLighting=Boolean(core.graphics.settings.get("lampLighting"));

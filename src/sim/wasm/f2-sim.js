@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from '../../rust-render/scene-changes.js';
 import {BlockHeaderLayout as BLOCK} from '../gen/boundary.js';
 // One whole ground/flight phase. Ordinary ticks import foreign inputs only.
 import * as THREE from 'three';
@@ -352,7 +353,7 @@ class F2 extends VehicleContent {
       for (let i = 0; i < rows; i++) {
         const life = syncF2HullLife(b, f, base + BLOCK.words + i * stride, h, this.lifeScratch), v = life.vehicle;
         const changed = v.aiTarget.generation !== life.generation;
-        v.aiTarget.generation = life.generation; v.root.visible = life.visible;
+        v.aiTarget.generation = life.generation; sceneProperty(v.root,"visible",life.visible);
         if (v.flying && changed) {
           v.flightClass = life.flightClass; v.minSpeed = life.minSpeed; v.midSpeed = life.midSpeed;
           v.boostSpeed = life.boostSpeed; v.speed = life.speed; v.turnRate = life.turnRate;
@@ -374,7 +375,7 @@ class F2 extends VehicleContent {
         applyDelta(b.f, at, heap, v.f2PoseWords);
         const row = syncF2Pose(b, v.f2PoseWords, 5, v.f2PoseWords[2] | 0, v.f2Pose);
         v.age = row.age; v.walkPhase = row.walkPhase; v.walkBlend = row.walkBlend; v.visual.copy(row.visual);
-        v.root.position.copy(row.visual);
+        sceneTransform(v.root.position.copy(row.visual));
         // Keep the root fields observable without invoking three.js Euler
         // callbacks. World consumers read native seat geometry; the page computes
         // its independent render rig from replicated state.
@@ -526,7 +527,7 @@ class F2 extends VehicleContent {
       const min = body.bounds.min, max = body.bounds.max;
       min.x = f[o + PLACED.min]; min.y = f[o + PLACED.min + 1]; min.z = f[o + PLACED.min + 2];
       max.x = f[o + PLACED.max]; max.y = f[o + PLACED.max + 1]; max.z = f[o + PLACED.max + 2];
-      body.matrix.fromArray(f, o + PLACED.matrix);
+      sceneTransform(body.matrix.fromArray(f, o + PLACED.matrix));
       body.inverse.fromArray(f, o + PLACED.inverse);
     }
   }

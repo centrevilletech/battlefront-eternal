@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 
@@ -28,9 +29,9 @@ export class DeathTrace {
     this.mesh=new THREE.Object3D();this.mesh.userData.effectMesh=this;
     // Found by this name by a renderer that draws it itself (src/rust-render/effects.js).
     this.mesh.name = "death-trace";
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 990;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",990);
+    sceneProperty(this.mesh,"visible",false);
     scene.add(this.mesh);
     this.dir = new THREE.Vector3();
     this.side = new THREE.Vector3();
@@ -62,11 +63,11 @@ export class DeathTrace {
       p[at] = end.x - side.x; p[at + 1] = end.y - side.y; p[at + 2] = end.z - side.z;
       p[at + 3] = end.x + side.x; p[at + 4] = end.y + side.y; p[at + 5] = end.z + side.z;
     }
-    this.mesh.visible = true;
+    sceneProperty(this.mesh,"visible",true);
   }
 
   hide() {
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"visible",false);
   }
 
   dispose() {

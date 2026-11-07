@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import {retainRecord,releaseRecord} from './network-records.js';
 import {Vector3} from 'three';
 
@@ -64,7 +65,7 @@ export class EntityRemotePresentation {
   for(const {samples,view}of this.slots.values())if(view&&this.remotes.piloted!==view){
    let a=samples.get(0),b=a;for(let i=0;i<samples.length;i++){const sample=samples.get(i);if(sample.tick<=tick)a=b=sample;else{b=sample;break;}}
    const f=b.tick>a.tick?Math.max(0,Math.min(1,(tick-a.tick)/(b.tick-a.tick))):0,extra=a===b&&tick>a.tick&&a.health>0?Math.min(EXTRAPOLATE,tick-a.tick)/60:0;
-   view.position.fromArray(a.position).lerp(this.scratch.fromArray(b.position),f).addScaledVector(this.scratch.fromArray(a.velocity),extra);
+   sceneTransform(view.position.fromArray(a.position)).lerp(this.scratch.fromArray(b.position),f).addScaledVector(this.scratch.fromArray(a.velocity),extra);
    view.velocity.fromArray(a.velocity).lerp(this.scratch.fromArray(b.velocity),f);view.yaw=angle(a.yaw,b.yaw,f);view.pitch=a.pitch+(b.pitch-a.pitch)*f;view.health=a.health;view.team=a.team;
    this.remotes.place(view);
   }

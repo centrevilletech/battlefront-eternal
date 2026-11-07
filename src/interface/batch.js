@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import * as THREE from "three";
 import {actorAsset} from "../actor-resources.js";
 import {surfaceMaterial} from "../rust-render/interface-material.js";
@@ -32,10 +33,10 @@ export class Batch {
     this.tint = new Float32Array(QUADS * 16);
     this.asset=actorAsset({kind:"uiBatch",count:QUADS});
     this.mesh=new THREE.Object3D();this.mesh.userData.interfaceBatch=this;
-    this.mesh.userData.actorAsset=this.asset;this.mesh.frustumCulled=false;
+    this.mesh.userData.actorAsset=this.asset;sceneProperty(this.mesh,"frustumCulled",false);
     this.drawGroups=[];this.looks=[];this.first=0;this.last=0;this.serial=0;
     this.materials = new Map();
-    this.groups = Array.from({ length: QUADS }, () => ({ start: 0, count: 0, materialIndex: 0 }));
+    sceneProperty(this,"groups",Array.from({ length: QUADS }, () => ({ start: 0, count: 0, materialIndex: 0 })));
     this.count = 0;
     // Quads whose corners changed since the last upload. The arrays are
     // what the GPU holds, so a corner written with the value already there

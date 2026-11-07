@@ -21,3 +21,12 @@ test('three draws fail and named interface scenes require a Rust owner', () => {
   assert.deepEqual(calls, []);
   assert.throws(() => renderInterface(renderer, scene, camera, 'battle'), /Unknown interface screen/);
 });
+
+// Both compiler entry points are guarded before any source or reflection can
+// be borrowed. Counter increments make an attempted first-use compile visible.
+test('owned battle programs reject synchronous and asynchronous Three compilation',()=>{
+ const renderer={};requireRustDraws(renderer);
+ assert.throws(()=>renderer.compile(),/owned program is required/);
+ assert.throws(()=>renderer.compileAsync(),/owned program is required/);
+ assert.equal(renderer.battleCompileCalls,2);
+});

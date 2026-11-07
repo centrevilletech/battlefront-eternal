@@ -1,3 +1,4 @@
+import {sceneLayer} from "./rust-render/scene-changes.js";
 import * as THREE from 'three';
 
 // The map's own sky (its dome and the models on its horizon, drawn as the far
@@ -16,9 +17,9 @@ export class SkyProbe {
     this.graphics=graphics;this.slot=slot;this.generation=++generation;
     this.target=null;this.size=size;this.texture=-1;this.resources=null;
     this.camera=new THREE.CubeCamera(0.05,50,null);
-    for (const face of this.camera.children) face.layers.set(PROBE_LAYER);
+    for (const face of this.camera.children) sceneLayer(face.layers,"set",PROBE_LAYER);
     this.layers = graphics.skyLayers?.length ? graphics.skyLayers : graphics.sky ? [{ mesh: graphics.sky, follow: null }] : [];
-    for (const { mesh } of this.layers) mesh.layers.enable(PROBE_LAYER);
+    for (const { mesh } of this.layers) sceneLayer(mesh.layers,"enable",PROBE_LAYER);
     this.enabled = false;
     this.captures = 0;
   }
@@ -33,7 +34,7 @@ export class SkyProbe {
 
 
   dispose() {
-    for (const { mesh } of this.layers) mesh.layers.disable(PROBE_LAYER);
+    for (const { mesh } of this.layers) sceneLayer(mesh.layers,"disable",PROBE_LAYER);
     this.layers = [];
     if(this.resources)this.resources.disposeEffectTarget(this.target);
   }

@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import {actorAsset,glowNode,glowLook} from './actor-resources.js';
 
@@ -39,7 +40,7 @@ export function attachBlade(group, base, def, texture) {
   const core = texture(def.Texture);
   if (!core) return null;
   const blade = new THREE.Group();
-  blade.position.fromArray(base);
+  sceneTransform(blade.position.fromArray(base));
   group.add(blade);
   const cameraLocal = new THREE.Vector3();
   const right = new THREE.Vector3();
@@ -48,15 +49,15 @@ export function attachBlade(group, base, def, texture) {
   for (const [map, width, opacity] of [[core, .08, 1], [texture("lightsabreglow"), .16, 100 / 255]]) {
     if (!map) continue;
     const mesh = glowNode(actorAsset({kind:'plane',width,height:length}),glowLook(map,0xffffff,opacity));
-    mesh.position.copy(axis).multiplyScalar(length / 2);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+    sceneTransform(mesh.position.copy(axis)).multiplyScalar(length / 2);
+    sceneTransform(mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis));
     mesh.onBeforeRender = (_renderer, _scene, camera) => {
       camera.getWorldPosition(cameraLocal);
       blade.worldToLocal(cameraLocal);
       right.crossVectors(axis, cameraLocal).normalize();
       if (right.lengthSq() < 1e-9) return;
       normal.crossVectors(right, axis).normalize();
-      mesh.quaternion.setFromRotationMatrix(basis.makeBasis(right, axis, normal));
+      sceneTransform(mesh.quaternion.setFromRotationMatrix(basis.makeBasis(right, axis, normal)));
       mesh.updateMatrixWorld(true);
     };
     blade.add(mesh);

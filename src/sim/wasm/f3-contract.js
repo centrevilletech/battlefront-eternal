@@ -1,3 +1,4 @@
+import {sceneProperty} from '../../rust-render/scene-changes.js';
 import {observeNativeIntent} from './f3-native-intent.js';
 import { PhaseCounters, MirrorWriteCheck } from '../phase-contract.js';
 import { F3UnitMirrorMirror, F3SoldierMotionMirror, F3DroidekaMotionMirror, WaterContactMirror, syncF3UnitMirror } from '../gen/units.js';
@@ -148,7 +149,7 @@ export class F3UnitBinding {
     unit.waterContact = view.waterContact;
     if (unit.combat.remotes) unit.combat.remotes.authorityActive = view.remoteActive === true;
     if (view.held === null || view.held === undefined) unit.held = view.held;
-    if (unit.actor) unit.actor.root.visible = view.visible;
+    if (unit.actor) sceneProperty(unit.actor.root,"visible",view.visible);
     this.published();
   }
 

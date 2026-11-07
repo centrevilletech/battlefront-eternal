@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import { ScreenStack } from "../menus/stack.js";
 import { MenuScreen } from "../menus/screen.js";
 import { Button, Rows } from "../menus/widgets.js";
@@ -239,7 +240,7 @@ export function createPauseMenu({ hud, settings, controls = null, strings = {}, 
       // it goes where the mouse is once the mouse moves.
       stack.pointer.x = 512;
       stack.pointer.y = hud.height / 2;
-      stack.pointer.visible = true;
+      sceneProperty(stack.pointer,"visible",true);
       stack.push(screen);
       // Each time, from RESUME GAME (the pointer takes it from there).
       screen.focused = { widget: rows, item: 0 };

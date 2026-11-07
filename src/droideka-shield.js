@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorAsset,actorNode} from './actor-resources.js';
 import {EFFECT} from './rust-render/effect-layout.js';
 import * as THREE from "three";
@@ -38,18 +39,18 @@ export class ShieldBubble {
       const source={mesh,asset,owner,family:'actorEffect',visibility:'anchor',values:new Float64Array(row.LENGTH),nativeKind:row.ID,center:null,authored:look,repeat:true};
       source.prepareActor=camera=>this.prepareActor(source,row,camera);mesh.userData.effectModel=source;return mesh;
     };
-    this.mesh=make(EFFECT.ACTOR_SHIELD,80,48);this.mesh.name='droideka-shield';this.mesh.visible=false;this.mesh.renderOrder=4;scene.add(this.mesh);
-    this.aura=make(EFFECT.ACTOR_AURA,48,24);this.aura.name='droideka-shield-aura';this.aura.renderOrder=4;this.aura.visible=false;
+    this.mesh=make(EFFECT.ACTOR_SHIELD,80,48);this.mesh.name='droideka-shield';sceneProperty(this.mesh,"visible",false);sceneProperty(this.mesh,"renderOrder",4);scene.add(this.mesh);
+    this.aura=make(EFFECT.ACTOR_AURA,48,24);this.aura.name='droideka-shield-aura';sceneProperty(this.aura,"renderOrder",4);sceneProperty(this.aura,"visible",false);
     // Parenting makes external visibility/layer changes apply to both shells.
     this.mesh.add(this.aura);
-    this.aura.scale.setScalar(1.035);
+    sceneTransform(this.aura.scale.setScalar(1.035));
   }
 
   place(droideka, position = droideka.position) {
     const [x, y, z] = droideka.shield?.def.ShieldOffset || [0, 1, 0];
     const yaw = droideka.aimYaw;
     this.offset.set(Math.cos(yaw) * x + Math.sin(yaw) * z, y, -Math.sin(yaw) * x + Math.cos(yaw) * z);
-    this.mesh.position.copy(position).add(this.offset);
+    sceneTransform(this.mesh.position.copy(position)).add(this.offset);
   }
 
   // Called only when gameplay actually absorbs damage; source is optional.
@@ -88,8 +89,8 @@ export class ShieldBubble {
     this.birth += dt;
     const duration = enhanced ? (on ? 0.24 : 0.26) : (on ? this.look.FadeIn : this.look.FadeOut);
     this.fade = THREE.MathUtils.clamp(this.fade + (on ? dt : -dt) / Math.max(duration || 0.15, 1e-3), 0, 1);
-    this.mesh.visible = this.fade > 0;
-    this.aura.visible = enhanced && this.mesh.visible;
+    sceneProperty(this.mesh,"visible",this.fade > 0);
+    sceneProperty(this.aura,"visible",enhanced && this.mesh.visible);
     this.place(droideka, position);
     const f = this.fade;
     // Native classic curve grows through 1.06 and settles to 1, shrinking off.
@@ -99,7 +100,7 @@ export class ShieldBubble {
     const pop = enhanced ? (on ? this.fromPop + (1 - this.fromPop) * expansion : this.fromPop * (0.7 + 0.3 * progress)) : classic;
     this.pop = f > 0 ? pop : 0;
     const radius = shield?.def.ShieldRadius ?? this.look.Radius ?? 1.25;
-    this.mesh.scale.set(radius * Math.max(pop, 0.001), (this.look.Height ?? radius) * Math.max(pop, 0.001), radius * Math.max(pop, 0.001));
+    sceneTransform(this.mesh.scale.set(radius * Math.max(pop, 0.001), (this.look.Height ?? radius) * Math.max(pop, 0.001), radius * Math.max(pop, 0.001)));
     this.flash *= Math.exp(-10 * dt);
     this.enhanced=enhanced;this.charge=shield?.max>0?THREE.MathUtils.clamp(shield.value/shield.max,0,1):0;
   }
@@ -108,7 +109,7 @@ export class ShieldBubble {
   hide() {
     this.on = false;
     this.fade = this.pop = 0;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"visible",false);
   }
 
   // ShieldBubble.onBeforeRender's inside test is a view fact. Generated rows

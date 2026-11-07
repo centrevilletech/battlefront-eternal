@@ -371,7 +371,8 @@
       "world": 16,
       "euler": 3,
       "eulerSync": 1,
-      "localVersion": 1
+      "localVersion": 1,
+      "worldVersion": 1
     },
     "UnitHeader": {
       "version": 1,
@@ -857,7 +858,7 @@
       "yaw": 1
     }
   },
-  "version": 15,
+  "version": 16,
   "limits": {
     "UnitLimits": {
       "actors": 1024,

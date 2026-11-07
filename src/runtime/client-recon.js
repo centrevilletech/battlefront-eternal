@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 // Transport for ClientPrediction's private F3 recon session. The retained
 // source checkpoint is republished before packet application; neither this
 // host nor the displayed RemoteDroids resource advances a controller tick.
@@ -57,9 +58,9 @@ export class ClientRecon {
     // PerspectiveCamera always owns a numeric aspect. A nullable numeric
     // expression would force its double through a tagged temporary each frame.
     if(c.aimCamera)s.aspect=c.aimCamera.aspect;else s.aspect=1;
-    if(s.hasCamera){s.camera.position.copy(c.aimCamera.position);s.camera.rotation.copy(c.aimCamera.quaternion);
+    if(s.hasCamera){sceneTransform(s.camera.position.copy(c.aimCamera.position));sceneTransform(s.camera.rotation.copy(c.aimCamera.quaternion));
       s.camera.fov=c.simulationView.fov;s.camera.reach=c.simulationView.reach;s.camera.fresh=c.simulationView.fresh;}
-    else{s.camera.position.set(0,0,0);s.camera.rotation.set(0,0,0,1);s.camera.fov=0;s.camera.reach=1;s.camera.fresh=true;}
+    else{sceneTransform(s.camera.position.set(0,0,0));sceneTransform(s.camera.rotation.set(0,0,0,1));s.camera.fov=0;s.camera.reach=1;s.camera.fresh=true;}
     s.viewFirst=view.firstPerson;s.hasViewAspect=view.aspect!=null;s.viewAspect=view.aspect??0;
     s.hasWaterLevel=c.water?.level!=null;s.waterLevel=c.water?.level??0;
     // A live salvo borrows its registered definition and fixed vectors.
@@ -106,7 +107,7 @@ export class ClientRecon {
     d.poseMissing=s.needsAim;
     c.lookX=s.lookX;c.lookY=s.lookY;c.zoomStep=s.zoom?1:0;c.firstPerson=s.firstPerson;c.random.stateWords[0]=s.seed;
     c.piloted=s.piloted&&!d.dead?d:null;c.view=c.piloted?this.renderView:null;c.simulationView=c.piloted?this.simView:null;
-    if(s.hasCamera&&c.simulationView&&c.aimCamera){c.aimCamera.position.copy(s.camera.position);c.aimCamera.quaternion.copy(s.camera.rotation);
+    if(s.hasCamera&&c.simulationView&&c.aimCamera){sceneTransform(c.aimCamera.position.copy(s.camera.position));sceneTransform(c.aimCamera.quaternion.copy(s.camera.rotation));
       c.aimCamera.aspect=s.aspect;c.simulationView.fov=s.camera.fov;c.simulationView.reach=s.camera.reach;c.simulationView.fresh=s.camera.fresh;}
     // Salvos are semantic resources. Native predictions can create one on a
     // destruct edge, so reserve its fixed vectors at this droid's admission.

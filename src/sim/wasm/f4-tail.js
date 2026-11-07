@@ -1,3 +1,4 @@
+import {sceneTransform} from '../../rust-render/scene-changes.js';
 // The battle-tail boundary follows items. Posts, statistics and spawn clocks
 // stay native; AI sees touched mirrors before returning scalar commands.
 import { isCommandClass,MobilePost } from '../../mobile-posts.js';
@@ -69,7 +70,7 @@ export class F4Tail extends F4Battle {
   spawnUnit(character,className,post,point,yaw=0) {
     const p=this.phase,b=this.bridge,row=this.spawnCommand,active=p.active;
     row.target=this.entries.get(character).handle;row.post=this.posts.get(post).handle;row.className=className;
-    row.position.set(point[0],point[1],point[2]);row.yaw=yaw;
+    sceneTransform(row.position.set(point[0],point[1],point[2]));row.yaw=yaw;
     p.random.push();p.active=true;let slot;
     try {b.callArgs(SPAWN,row);slot=this.x.f4_unit_spawn();}finally{p.active=active;}
     p.random.pull();p.sync();return slot<0?null:p.bindings[slot].unit;

@@ -1,3 +1,5 @@
+import {sceneProperty,sceneTransform} from "../rust-render/scene-changes.js";
+import { publishSceneWorld } from "../rust-render/scene.js";
 // The page's hulls in one native phase (rust/bfe-presentation vehicles.rs),
 // which replaces Vehicle.present's pose (the root between ticks or at its
 // record's sample, poseCrew, the gear, seats, barrels, wheels and a dying
@@ -135,7 +137,7 @@ export class PageVehicles {
     const pairs = legs ? legs.pairs.length : 0;
     const aimers = v.seats.flatMap((seat) => seat.weapons.flatMap((w) => w.aimers));
     const muzzles = v.seats.flatMap((seat) => seat.weapons.flatMap((w) => w.muzzles.filter((m) => m.barrel && m.rest)));
-    for (const o of nodes) o.matrixAutoUpdate = o.matrixWorldAutoUpdate = false;
+    for (const o of nodes) sceneProperty(o,"matrixAutoUpdate",sceneProperty(o,"matrixWorldAutoUpdate",false));
     v.root.updateMatrixWorld = published;
     rig = { id, pairs, aimers, muzzles, nodes, skinned, seats: seats.length, wheels: descriptor.wheels.length,
       frames: [new THREE.Quaternion(), new THREE.Quaternion()], sides: [new Array(pairs).fill(0), new Array(pairs).fill(0)],
@@ -253,7 +255,7 @@ export class PageVehicles {
     const e = this.entry(v, M.DYING);
     if (e < 0) return false;
     // presentDying shows the root again; the rest is the kernel's.
-    v.root.visible = true;
+    sceneProperty(v.root,"visible",true);
     const x = this.input;
     x[e + E.POSITION] = v.position.x; x[e + E.POSITION + 1] = v.position.y; x[e + E.POSITION + 2] = v.position.z;
     x[e + E.TILT] = v.tilt; x[e + E.YAW] = v.yaw; x[e + E.ROLL] = v.roll; x[e + E.DYING] = v.dying;
@@ -302,13 +304,14 @@ export class PageVehicles {
   // what each posed seat's aimers shoot by (shotDirection).
   writeBack(v, rig, o, mode) {
     const out = this.streamOut, root = v.root;
-    root.position.set(out[o + O.POSITION], out[o + O.POSITION + 1], out[o + O.POSITION + 2]);
-    if (out[o + O.ROOT_MODE] === R.EULER) root.rotation.set(out[o + O.ROTATION], out[o + O.ROTATION + 1], out[o + O.ROTATION + 2], "YXZ");
+    sceneTransform(root.position.set(out[o + O.POSITION], out[o + O.POSITION + 1], out[o + O.POSITION + 2]));
+    if (out[o + O.ROOT_MODE] === R.EULER) sceneTransform(root.rotation.set(out[o + O.ROTATION], out[o + O.ROTATION + 1], out[o + O.ROTATION + 2], "YXZ"));
     else if (out[o + O.ROOT_MODE] === R.QUATERNION) {
-      root.quaternion.set(out[o + O.QUATERNION], out[o + O.QUATERNION + 1], out[o + O.QUATERNION + 2], out[o + O.QUATERNION + 3]);
+      sceneTransform(root.quaternion.set(out[o + O.QUATERNION], out[o + O.QUATERNION + 1], out[o + O.QUATERNION + 2], out[o + O.QUATERNION + 3]));
       (v.flightFrameQ ||= rig.frames[v.predictionSource ? 1 : 0]).set(out[o + O.FRAME], out[o + O.FRAME + 1], out[o + O.FRAME + 2], out[o + O.FRAME + 3]);
     }
     for (let i = 0, b = o + rig.outNodes; i < rig.nodes.length; i++, b += N.STRIDE) {
+      publishSceneWorld(rig.nodes[i], out, b + N.WORLD);
       const m = rig.nodes[i].matrix.elements, w = rig.nodes[i].matrixWorld.elements;
       for (let j = 0; j < 16; j++) { m[j] = out[b + j]; w[j] = out[b + N.WORLD + j]; }
     }

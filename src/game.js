@@ -1,3 +1,4 @@
+import {sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {lightActor as setActorLight,glowLook,actorDescription} from './actor-resources.js';
 import { SurfaceOwner } from './environment/module.js';
 import { SurfaceFrame } from './environment/frame.js';
@@ -559,7 +560,7 @@ async function start() {
   const ramp = (x) => THREE.MathUtils.clamp(x / (2 * BAND), 0, 1);
   function regionWeight(region, p) {
     const { built } = region;
-    local.copy(p).applyMatrix4(built.inverse);
+    sceneTransform(local.copy(p).applyMatrix4(built.inverse));
     const [, b, c] = built.half;
     const a = built.type === "box" ? built.half[0] : built.radius;
     if (region.type === "sphere") return ramp(a + BAND - local.length());
@@ -652,7 +653,7 @@ async function start() {
     return () => {
       const material=glowLook(anyTexture(parts[0].texture));
       const group = modelGroup(parts, () => material);
-      group.userData.material = material;
+      sceneProperty(group.userData,"material",material);
       return group;
     };
   };
@@ -864,7 +865,7 @@ async function start() {
   let body = bodies.get(UNIT);
   let { actor, clips, soldier, animator, presentation, healthType, bubble, droidekaTrail, jetpackEffects, jetpackNozzles, ribcage, firstPersonView } = body;
   let sideItems = body.sideData.items || {};
-  actor.root.visible = true;
+  sceneProperty(actor.root,"visible",true);
   combat = body.combat;
   // The player's body is a unit like any other; main.js steps it.
   const playerUnit = units.add(new Unit({ side: SIDE, className: UNIT, def: soldierDef, actor, soldier, animator, combat, presentation, walker, human: true }));
@@ -962,13 +963,13 @@ async function start() {
     if (deathView.active || !combat || combat.dead || playerUnit.removed) return null;
     const droid = remotes.piloted, hull = driver?.active ? driver.vehicle : null;
     if (droid) {
-      shakeTarget.position.copy(droid.position);
+      sceneTransform(shakeTarget.position.copy(droid.position));
       shakeTarget.radius = DROID_RADIUS;
     } else if (hull) {
-      shakeTarget.position.copy(hull.root.position);
+      sceneTransform(shakeTarget.position.copy(hull.root.position));
       shakeTarget.radius = hull.blastSphere(shakeSphere);
     } else {
-      shakeTarget.position.copy(visual);
+      sceneTransform(shakeTarget.position.copy(visual));
       shakeTarget.radius = (BLAST_BODY[soldier.air ? "stand" : soldier.posture] || BLAST_BODY.stand)[1];
     }
     return shakeTarget;
@@ -1027,7 +1028,7 @@ async function start() {
     combat.health = 0;
     combat.deathTime = RESPAWN_DELAY;
     combat.updateHeld();
-    actor.root.visible = false;
+    sceneProperty(actor.root,"visible",false);
     presentation.reset();
     animator.reset(yaw);
     view.reset();
@@ -1530,7 +1531,7 @@ async function start() {
     const hot = active || jetpackEffects?.throttle > 0;
     if (hot) {
       ribcage.updateWorldMatrix(true, false);
-      ribcage.matrixWorld.decompose(flameAt, flameTurn, flameScale);
+      sceneTransform(ribcage.matrixWorld.decompose(flameAt, flameTurn, flameScale));
     }
     jetpackEffects?.update(dt, {
       active, position: flameAt, quaternion: flameTurn, velocity: soldier.velocity,
@@ -1558,7 +1559,7 @@ async function start() {
     bodyLaid = [actor, hidden];
     const layer = hidden ? graphics.hiddenLayer : 0;
     // The body's shadow proxy (actor.js) draws only in the shadow pass.
-    actor.root.traverse((object) => object.layers.set(object === actor.shadow ? graphics.hiddenLayer : layer));
+    actor.root.traverse((object) => sceneLayer(object.layers,"set",object === actor.shadow ? graphics.hiddenLayer : layer));
   }
   function setPerspective(first) {
     firstPerson = first;
@@ -1687,13 +1688,13 @@ async function start() {
     if(headless)throw Error('native authority cannot adopt a shown body');
     if (!next || next === body || !combat.dead) return false;
     const old = body;
-    old.actor.root.visible = false;
-    if (old.bubble) old.bubble.mesh.visible = false;
+    sceneProperty(old.actor.root,"visible",false);
+    if (old.bubble) sceneProperty(old.bubble.mesh,"visible",false);
     old.droidekaTrail?.clear();
     old.jetpackEffects?.clear();
     if (jetFlame) { jetFlame.stop(); jetFlame = null; }
     if (old.firstPersonView) graphics.viewScene.remove(old.firstPersonView.root);
-    next.soldier.position.copy(soldier.position);
+    sceneTransform(next.soldier.position.copy(soldier.position));
     next.soldier.velocity.set(0, 0, 0);
     next.soldier.aimYaw = soldier.aimYaw;
     next.soldier.aimPitch = soldier.aimPitch;
@@ -1940,7 +1941,7 @@ async function start() {
     if (!target || combat.dead || weapon.reloading || weapon.busy || weapon.wait > 0) return;
     target.aimPoint(hudAim);
     // Follow the target's displayed pose between simulation ticks too.
-    if (target.vehicle?.root) hudAim.copy(target.vehicle.center).applyMatrix4(target.vehicle.root.matrixWorld);
+    if (target.vehicle?.root) sceneTransform(hudAim.copy(target.vehicle.center).applyMatrix4(target.vehicle.root.matrixWorld));
     else if (target.presentation?.position) hudAim.add(target.presentation.position).sub(target.position);
     hudAim.project(camera);
     if (hudAim.z < -1 || hudAim.z > 1) return;
@@ -2464,7 +2465,7 @@ async function start() {
     const held = playerUnit.held?.frame ? playerUnit.held : null;
     if (held) visual.setFromMatrixPosition(held.frame);
     const renderedSoldier = presentation.state;
-    actor.root.position.copy(visual);
+    sceneTransform(actor.root.position.copy(visual));
     renderedSoldier.aimYaw = game.ownPreview.renderedYaw;
     renderedSoldier.aimPitch = game.ownPreview.renderedPitch;
     if (held) animator.gunner(animator.clips.get(held.grab.clip) ?? null, 0, 0, held.time);
@@ -2472,8 +2473,8 @@ async function start() {
     // every other page draws him and the world strikes him (the presentation
     // body batch, rust/bfe-presentation/src/units.rs rider_sample).
     unitView.frame += 1;
-    unitView.position.copy(camera.position);
-    unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    sceneTransform(unitView.position.copy(camera.position));
+    unitView.frustum.setFromProjectionMatrix(sceneTransform(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)));
     const ownEyes = combat.usesEyeView && !combat.dead && !gunner.active && !driver?.active && !remotes.active;
     // The own camera consumes only the predicted snapshot. Its motion cue
     // precedes the body/arms batch; held, death and seat views need this
@@ -2581,7 +2582,7 @@ async function start() {
     if (walker && goneUp(renderedSoldier)) playerUnit.goUp();
     const ownGone = pageUnits.finishGone(playerUnit);
     if (ownGone > 0) playerUnit.dissolve(ownGone, settings.get("destructionEffects") === "enhanced");
-    if (actor.shadow) actor.shadow.visible = !ownGone;
+    if (actor.shadow) sceneProperty(actor.shadow,"visible",!ownGone);
     firstPersonView?.light(soldierLight);
     runtimeProfile?.finish("hudBuild", hudStart);
     runtimeProfile?.phase("render");
@@ -3153,7 +3154,7 @@ async function start() {
             animator=playerUnit.animator;walker=playerUnit.walker;presentation=playerUnit.presentation;combat=playerUnit.combat;
             visual=presentation.position;view.setDef(soldierDef);simulationView.setDef(soldierDef);
           }
-          presentation.reset();view.reset();simulationView.reset();deathView.stop();actor.root.visible=true;
+          presentation.reset();view.reset();simulationView.reset();deathView.stop();sceneProperty(actor.root,"visible",true);
         }
         simEvents.emit("spawn",{target:units.ref(event.unit),team:event.team,position:event.position,className:event.className,post:event.post});
       },
@@ -3194,7 +3195,7 @@ function hologramLogos(logos, models, texture) {
     factories.set(sideName, () => {
       const material=glowLook(texture(parts[0].texture));
       const group = modelGroup(parts, () => material);
-      group.userData.material = material;
+      sceneProperty(group.userData,"material",material);
       return group;
     });
   }

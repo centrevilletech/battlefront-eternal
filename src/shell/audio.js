@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import { ShellMusicRow as M, ShellMusicOp as OP } from "../audio/shell-music-layout.js";
 import { listenSounds } from "../audio/events.js";
 import { SoundData } from "../audio/data.js";
@@ -44,7 +45,7 @@ export class ShellMusic {
     this.handle = null; this.current = null;
     // Resolve authored string membership only while loading. Runtime frames
     // use stable group and asset indices, with no filtering or track lists.
-    this.groups = new Map();
+    sceneProperty(this,"groups",new Map());
     const members = [];
     const add = (name, index) => {
       let id = this.groups.get(name);

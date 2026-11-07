@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from 'three';
 import { setLightMask } from './materials.js';
 import { lightMask, packed } from './point-lights.js';
@@ -69,7 +70,7 @@ export function cullStaticColor(mesh, parts, triangleCells) {
       view.span = ranges ? end - view.first : 0;
       view.drawn = 0;
       for (let k = 0; k < ranges; k++) view.drawn += view.counts[k];
-      view.matrix.copy(matrix); view.valid = true;
+      sceneTransform(view.matrix.copy(matrix)); view.valid = true;
     }
     if (multiDraw === undefined && renderer) multiDraw = renderer.extensions.has("WEBGL_multi_draw") ? renderer.extensions.get("WEBGL_multi_draw") : null;
     if (material?.userData.pointLit) { const pack = packed(scene, camera); setLightMask(material, pack, lightMask(pack, boxes, view.visible)); }
@@ -116,7 +117,7 @@ function cellStates(matrix, frustum) {
   let view;
   if (cellViews.length < 4) cellViews.push(view = { matrix: new THREE.Matrix4(), states: new Uint8Array(cellBoxes.length) });
   else view = cellViews[cellNext++ % cellViews.length];
-  view.matrix.copy(matrix);
+  sceneTransform(view.matrix.copy(matrix));
   const planes = frustum.planes, states = view.states;
   for (let c = 0; c < cellBoxes.length; c++) {
     const { min, max } = cellBoxes[c];

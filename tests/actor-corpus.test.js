@@ -96,3 +96,15 @@ test('wreck replay retains its heated presentation when the live station cools',
   assert.equal(root.visible,true);assert.equal(rendered,1);
  }finally{globalThis.__bf=previous;}
 });
+
+
+// Native heated shells must retain the historical fixture without entering
+// the guarded browser compiler. warmup and rig admission supply the owned key.
+test('owned wreck fixtures register their heated rig without browser compilation',()=>{
+ const previous=globalThis.__bf,heated={userData:{actorShader:'dynamic'}},look={heat:.85},mesh={isSkinnedMesh:true,material:heated,userData:{heated:look}};
+ const root={visible:false},site={meshes:[mesh],look,centre:new THREE.Vector3()},station={looks:{destroyed:{root}}};
+ let warmed=false,registered=0;
+ const graphics={camera:new THREE.PerspectiveCamera(),scene:{},renderer:{compile(){assert.fail('Owned wreck entered the browser compiler');}},rust:{byName:{instances:{registerRig(object){assert.equal(object,mesh);assert.equal(warmed,true);registered++;return {};}}}},warmup(){warmed=true;},render(){}};
+ globalThis.__bf={THREE,graphics,destruction:{stations:[station],wreck(){return site;}}};
+ try{assert.equal(installActorWreck(true).registered,1);assert.equal(registered,1);assert.equal(root.visible,true);}finally{globalThis.__bf=previous;}
+});

@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from 'three';
 import { EFFECT } from './rust-render/effect-layout.js';
 import { lighting } from './materials.js';
@@ -25,7 +26,7 @@ export class OceanSurface {
   // The page retains scene/camera facts. Ocean meshes carry no geometry,
   // material, texture descriptor or uniform table for the renderer to inspect.
   anchor(row,sceneFar,order=0) {
-    const mesh=new THREE.Object3D();mesh.name='native-ocean';mesh.frustumCulled=false;mesh.position.y=this.height;mesh.renderOrder=order;mesh.visible=false;
+    const mesh=new THREE.Object3D();mesh.name='native-ocean';sceneProperty(mesh,"frustumCulled",false);sceneComponent(mesh.position,"y","=",this.height);sceneProperty(mesh,"renderOrder",order);sceneProperty(mesh,"visible",false);
     const source={family:'ocean',owner:this,mesh,row,nativeKind:row.ID,values:new Float64Array(row.LENGTH),far:true,sceneFar,center:null};
     source.prepare=camera=>this.prepareSource(source,camera);mesh.userData.effectModel=source;this.sources.push(source);return mesh;
   }
@@ -67,7 +68,7 @@ export class OceanSurface {
   applyMode() {
     this.enhanced=this.graphics.settings?.get('oceanEffects')==='enhanced';
     if(this.enhanced&&!this.waves){this.waves=new EnhancedOcean(this,{storm:this.stormy,look:this.look,surfaceHost:this.host});this.nearEnhanced.add(this.waves.spray);if(this.waves.haze)this.farEnhanced.add(this.waves.haze);}
-    this.nearClassic.visible=this.farClassic.visible=!this.enhanced;this.nearEnhanced.visible=this.farEnhanced.visible=this.enhanced;
+    sceneProperty(this.nearClassic,"visible",sceneProperty(this.farClassic,"visible",!this.enhanced));sceneProperty(this.nearEnhanced,"visible",sceneProperty(this.farEnhanced,"visible",this.enhanced));
     this.near=this.enhanced?this.nearEnhanced:this.nearClassic;this.far=this.enhanced?this.farEnhanced:this.farClassic;
     this.waves?.setEnabled(this.enhanced);if(this.core)this.prepareAuxiliary(this.core);
   }
@@ -75,7 +76,7 @@ export class OceanSurface {
   // Probe and cloud captures keep their existing presentation boundaries.
   publishFrame(result,camera) {
     this.time=result[RESULT.OCEAN_TIME];this.camera=camera;
-    this.near.position.set(result[RESULT.OCEAN_X],this.height,result[RESULT.OCEAN_Z]);this.far.position.copy(this.near.position);
+    sceneTransform(this.near.position.set(result[RESULT.OCEAN_X],this.height,result[RESULT.OCEAN_Z]));sceneTransform(this.far.position.copy(this.near.position));
     if(this.enhanced)this.waves.update(this.time,camera,this.height,result);
   }
   dispose(){for(const mesh of [this.nearClassic,this.nearEnhanced,this.farClassic,this.farEnhanced])mesh.removeFromParent();this.unsubscribe?.();this.waves?.dispose();if(this.core)this.core.resources.gpu.dispose_sample(this.maskSample);}

@@ -1,3 +1,6 @@
+import {Family,Mode} from '../src/rust-render/scene.js';
+import {sceneComponent,sceneProperty,sceneTransform} from "../src/rust-render/scene-changes.js";
+import {prepareSceneFixture} from "./support/rust-standin.mjs";
 import './fixtures/native-render-descriptors.js';
 import {actorAsset,glowLook,glowNode} from '../src/actor-resources.js';
 import { presentationModule } from "./helpers/page-presentation.js";
@@ -26,7 +29,7 @@ import { GL, fakeProgram as program, standinModule, standinThree } from "./suppo
 function bridge() {
   const { BfeRenderer, memory, calls } = standinModule();
   const { renderer, graphics, scene, camera, properties, setTarget } = standinThree(calls);
-  const core = new RustRender(graphics, { memory }, BfeRenderer);
+  const core = prepareSceneFixture(new RustRender(graphics, { memory }, BfeRenderer));
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   return { core, calls, gl: renderer.getContext(), graphics, renderer, scene, camera, memory, properties, setTarget };
 }
@@ -54,7 +57,7 @@ test("cover: three's start of a render, the phase, and three's end when every pa
   const { core, calls, renderer } = bridge();
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   const child = new THREE.Object3D();
-  child.position.set(1, 2, 3);
+  sceneTransform(child.position.set(1, 2, 3));
   scene.add(child);
   let before = 0, after = 0, complete = false;
   scene.onBeforeRender = () => before++;
@@ -101,7 +104,7 @@ test("foliage: Rust selects every registered card class", async () => {
   core.publishView("near", renderer, scene, core.graphics.camera);
   assert.equal(foliage.drawer, core.byName.foliage, "the near phase attaches the drawer");
   const camera = new THREE.PerspectiveCamera();
-  camera.position.set(4, 5, 6);
+  sceneTransform(camera.position.set(4, 5, 6));
   camera.updateMatrixWorld(true);
   foliage.drawer.select(foliage, camera);
   const added = calls.find((c) => c[0] === "foliage_class");
@@ -150,7 +153,7 @@ test("HUD numeric descriptors retain the batch and publish only changed vertex s
   const input=core.hudInput, IN={GROUPS:0,UPLOAD:41,VIEWPORT:43,FIRST:45};
   assert.deepEqual([input[IN.GROUPS],input[IN.UPLOAD],input[IN.UPLOAD+1]],[1,0,8]);
   assert.deepEqual([...input.subarray(IN.FIRST,IN.FIRST+5)],[0,12,-2,0,0]);
-  assert.deepEqual([...core.hudPosition.subarray(12,24)],[...batch.position.subarray(12,24)]);
+  assert.deepEqual([...core.hudPosition.subarray(12,24)],[...sceneTransform(batch.position.subarray(12,24))]);
   frame(30);
   assert.deepEqual([input[IN.UPLOAD],input[IN.UPLOAD+1]],[4,8]);
   frame(30);
@@ -159,7 +162,7 @@ test("HUD numeric descriptors retain the batch and publish only changed vertex s
 
 test("an error in a pass stops rendering with the GPU in the error", () => {
  const {core,renderer,scene,camera,calls}=bridge();
- const material=new THREE.ShaderMaterial();material.visible=false;scene.add(new THREE.Mesh(new THREE.BufferGeometry(),material));
+ const material=new THREE.ShaderMaterial();sceneProperty(material,"visible",false);scene.add(new THREE.Mesh(new THREE.BufferGeometry(),material));
  renderer.compile = () => {};
  core.addPass({name:"broken",phase:"view",draw(){throw Error("broken pass");}});
  assert.throws(()=>core.cover("view",renderer,scene,camera), /Battle renderer failed on unknown GPU: broken pass/);
@@ -187,11 +190,12 @@ test("an owned basic mesh registers from its catalog program, with a program of 
 function nearBridge() {
   const { BfeRenderer, memory, calls } = standinModule();
   const background = new THREE.Mesh(partGeometry(), new THREE.ShaderMaterial({ uniforms: { map: { value: null } }, depthTest: false, depthWrite: false }));
-  background.frustumCulled = false;
+  sceneProperty(background,"frustumCulled",false);
   const three = standinThree(calls, { graphics: { background } });
   three.scene.add(background);
   three.properties.get(background.material).currentProgram = program([["map", GL.SAMPLER_2D]], ["position", "uv"]);
-  const core = new RustRender(three.graphics, { memory }, BfeRenderer);
+  background.material.userData.bfeProgram="effects/far-image";
+  const core = prepareSceneFixture(new RustRender(three.graphics, { memory }, BfeRenderer));
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   three.renderer.setRenderTarget(three.graphics.sceneTarget);
   calls.length = 0;
@@ -206,11 +210,11 @@ test("the near scene: Rust draws every registered item", () => {
   // and a hologram the transparent pass takes, in view.
   const hidden = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ visible: false }));
   const behind = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
-  behind.position.set(0, 0, 50);
+  sceneTransform(behind.position.set(0, 0, 50));
   const material = new THREE.MeshBasicMaterial({ transparent: true });
   const holo = new THREE.Mesh(partGeometry(), material);
-  holo.position.set(1, 0, -5);
-  holo.renderOrder = 2;
+  sceneTransform(holo.position.set(1, 0, -5));
+  sceneProperty(holo,"renderOrder",2);
   scene.add(hidden, behind, holo);
   scene.updateMatrixWorld(true);
   const threeProgram = { id: 3 };
@@ -224,8 +228,8 @@ test("the near scene: Rust draws every registered item", () => {
   assert.deepEqual([...core.frameBindings.subarray(R.NEAR*B.LEN+B.CLEAR,R.NEAR*B.LEN+B.CLEAR+4)],[0,0,0,1]);
   assert.equal(core.postInput[1], -2, "into the target bound now");
   // The hologram's record, keyed as projectObject keys it.
-  const z = new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld)
-    .applyMatrix4(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)).z;
+  const z = sceneTransform(sceneTransform(new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld))
+    .applyMatrix4(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))).z;
   assert.deepEqual([...core.transparentObjects.subarray(0, 6)], [1, 7, 0, 2, z, holo.id]);
   assert.equal(renderer.info.render.frame, 1);
   assert.ok(calls.some((c) => c[0] === "resolveTarget"), "the target resolved");
@@ -238,11 +242,11 @@ test("the near scene: an item no pass claims is skipped and reported once, the f
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
   wall.name = "stray-wall";
   properties.get(wall.material).currentProgram = program([], ["position"]);
-  wall.position.set(0, 0, -5);
+  sceneTransform(wall.position.set(0, 0, -5));
   scene.add(wall);
   scene.updateMatrixWorld(true);
   assert.equal(core.coverNear(renderer, scene, camera), true);
-  assert.equal(core.byName.near.stopped, wall);
+  assert.equal(core.registry.admitIfNew(wall).families & Family.NEAR,0);
   assert.ok(calls.some((c) => c[0] === "frame_publish_frame"), "everything owned is still drawn");
   assert.equal(core.failure, undefined, "no sticky failure: later frames still render");
   assert.equal(core.errors.length, 1);
@@ -278,18 +282,19 @@ test("a command post's beam, hidden until the player comes near: registered from
   const { core, calls, renderer, scene, camera, graphics } = bridge();
   const material = ownedBasicEffect("basic", { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, map: new THREE.Texture() });
   const beam = new THREE.Mesh(partGeometry(), material);
-  beam.visible = false;
+  sceneProperty(beam,"visible",false);
   scene.add(beam);
   const lightning = new THREE.Mesh(partGeometry(), ownedBasicEffect("basic", { transparent: true, map: new THREE.Texture() }));
   lightning.geometry.getAttribute("position").setUsage(THREE.DynamicDrawUsage);
   scene.add(lightning);
   // three starts the frame's render of the near scene.
+  core.prepareScene(renderer,scene,camera,graphics.sceneTarget);
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
   const entry = core.byName.transparent.taken.get(beam);
   assert.ok(entry, `registered before it is ever drawn (${core.errors.join("; ")})`);
   assert.equal(calls.filter((c) => c[0] === "transparent_object").length, 1, "not the lightning, whose vertices change");
   // The player comes near: three lists it, and the pass takes it at once.
-  beam.visible = true;
+  sceneProperty(beam,"visible",true);
   const transparent = core.byName.transparent;
   transparent.frameNo++;
   const item = { object: beam, material, geometry: beam.geometry, group: null, groupOrder: 0, renderOrder: 0, z: 1, id: beam.id };
@@ -301,6 +306,7 @@ test("a command post's beam, hidden until the player comes near: registered from
   scene.add(holder);
   const logo = new THREE.Mesh(partGeometry(), ownedBasicEffect("basic", { transparent: true, map: new THREE.Texture() }));
   holder.add(logo);
+  core.prepareScene(renderer,scene,camera,graphics.sceneTarget);
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
   assert.ok(core.byName.transparent.taken.get(logo), "registered when added");
 });
@@ -324,32 +330,17 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   assert.throws(() => core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust/);
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
   properties.get(wall.material).currentProgram = program([], ["position"]);
-  wall.position.set(0, 0, -5);
+  sceneTransform(wall.position.set(0, 0, -5));
   scene.add(wall);
   scene.updateMatrixWorld(true);
   calls.length = 0;
   assert.equal(core.coverMirror(renderer, scene, mirror), true);
-  assert.equal(core.byName.mirrorCover.stopped, wall);
+  assert.equal(core.registry.admitIfNew(wall).families & Family.NEAR,0);
   assert.ok(calls.some((c) => c[0] === "frame_aux_frame" && c[2] === R.MIRROR0_NEAR), "the reflection still draws what is owned");
   assert.match(core.errors.join("\n"), /Not drawn: \(unnamed\) Mesh material MeshBasicMaterial/, "the stray object is reported, not fatal");
   // Switched off alone: three's.
-  wall.material.visible = false;
+  sceneProperty(wall.material,"visible",false);
   });
-
-test("scene discovery leaves source-free actor and caster materials to their Rust owners", () => {
-  const { core, scene, camera, renderer } = bridge();
-  const caster = new THREE.Mesh(partGeometry(), new THREE.Material());
-  caster.userData.shadowOnly = true;
-  const actor = new THREE.Mesh(partGeometry(), actorMaterial("dynamic"));
-  actor.material.visible = true; // The shadow/motion walk can reveal its shell.
-  const browser = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
-  scene.add(caster, actor, browser);
-  const compiled = [];
-  renderer.compile = root => root.traverse(mesh => compiled.push(mesh));
-  core.byName.effects.listed = () => {};
-  core.registerItems(renderer, scene, camera, [scene]);
-  assert.deepEqual(compiled, [browser]);
-});
 
 test("first-person arcs publish their instanced data as a sorted owned view draw", async () => {
   const { ArcBatch } = await import("../src/arc-lightning.js");
@@ -380,8 +371,8 @@ test('a reflection registers a newly added transparent object before the main ca
  renderer.compile=list=>list.traverse(o=>{compiled.push(o);properties.get(o.material).currentProgram=program([['modelViewMatrix',GL.FLOAT_MAT4],['diffuse',GL.FLOAT_VEC3],['opacity',GL.FLOAT]],['position']);});
  scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
  const logo=glowNode(actorAsset({kind:'plane'}),glowLook(null));
- const group=new THREE.Group();group.userData.material=logo.material;group.add(logo);
- logo.position.z=-5;scene.add(group);
+ const group=new THREE.Group();sceneProperty(group.userData,"material",logo.material);group.add(logo);
+ sceneComponent(logo.position,"z","=",-5);scene.add(group);
  const mirror=camera.clone();mirror.userData.mirror=true;mirror.updateMatrixWorld(true);
  setTarget({name:'reflection',samples:0,width:8,height:4});
  assert.equal(core.coverMirror(renderer,scene,mirror),true);
@@ -391,4 +382,24 @@ test('a reflection registers a newly added transparent object before the main ca
  const count=compiled.length;
  scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
  assert.equal(compiled.length,count,'the main view reuses resources discovered by the reflection');
+});
+
+
+// A copied depth target may first allocate while writing a transparent draw.
+// Moving the backing buffer detaches old views exactly as WASM growth does.
+test('transparent hooks retain written rows after renderer memory growth',()=>{
+ const {core,scene,camera,renderer,memory}=bridge(),pass=core.byName.transparent;
+ const first=new THREE.Mesh(partGeometry(),ownedBasicEffect('basic',{transparent:true,depthWrite:false,map:new THREE.Texture()}));
+ const second=new THREE.Mesh(partGeometry(),ownedBasicEffect('basic',{transparent:true,depthWrite:false,map:new THREE.Texture()}));
+ first.position.set(1,0,-4);second.position.set(2,0,-5);scene.add(first,second);scene.updateMatrixWorld(true);
+ core.prepareScene(renderer,scene,camera,core.graphics.sceneTarget);
+ const before=memory.buffer;
+ second.onBeforeRender=()=>{memory.buffer=structuredClone(memory.buffer,{transfer:[memory.buffer]});};
+ const items=[{object:first,material:first.material,geometry:first.geometry,groupOrder:0,renderOrder:0,z:0,id:first.id},{object:second,material:second.material,geometry:second.geometry,groupOrder:0,renderOrder:0,z:0,id:second.id}];
+ pass.take(items,{renderer,scene,camera});
+ assert.equal(before.byteLength,0);assert.equal(core.transparentObjects[0],2);
+ const stride=core.rust.transparent_object_stride();
+ assert.deepEqual([...core.transparentObjects.slice(6,22)],first.matrixWorld.elements);
+ assert.deepEqual([...core.transparentObjects.slice(6+stride,22+stride)],second.matrixWorld.elements);
+ assert.equal(items.length,0);
 });

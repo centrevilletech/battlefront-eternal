@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 // A flyer's landing gear, gear doors and S-foils, drawn from its animation
 // bank's "takeoff" clip (tools/zero_vehicle.py; docs/vehicles.md "Landing
 // gear"): the clip's first frame is the craft landed (gear down, doors open,
@@ -42,7 +43,7 @@ export function gearFoot(rig, batches, clip) {
   const posed = bones.map((b) => ({ position: b.position.clone(), quaternion: b.quaternion.clone() }));
   pose.apply(posed);
   const root = rig.bones.findIndex((bone) => ROOT.test(bone.name));
-  if (root >= 0) { posed[root].position.copy(bones[root].position); posed[root].quaternion.copy(bones[root].quaternion); }
+  if (root >= 0) { sceneTransform(posed[root].position.copy(bones[root].position)); sceneTransform(posed[root].quaternion.copy(bones[root].quaternion)); }
   const local = posed.map((b, i) => new THREE.Matrix4().compose(b.position, b.quaternion, bones[i].scale));
   const chain = (locals) => {
     const world = new Array(count);

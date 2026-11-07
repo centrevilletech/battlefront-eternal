@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import {PerspectiveCamera} from 'three';
 // Mutable droid/controller fields for a replay checkpoint. The caller must also
 // retain its independent RNG and camera state; this is not the complete wire
@@ -23,7 +24,7 @@ export function restoreRemoteReplay(context,droid,state){
  context.strikes=context.strikes.filter(item=>item!==droid);if(droid.salvo)context.strikes.push(droid);
  if(state.camera&&!context.aimCamera)context.aimCamera=new PerspectiveCamera();
  if(state.piloted&&!droid.dead){if(context.piloted!==droid||state.camera&&!context.simulationView)context.enter(droid);}else if(context.piloted===droid)context.exit();
- if(state.camera&&context.simulationView){context.aimCamera.position.fromArray(state.camera.position);context.aimCamera.quaternion.fromArray(state.camera.quaternion);context.aimCamera.aspect=state.camera.aspect;for(const key of ['fov','reach','fresh'])context.simulationView[key]=state.camera[key];context.simulationView.applyFov(state.camera.aspect);context.aimCamera.updateMatrixWorld();}
+ if(state.camera&&context.simulationView){sceneTransform(context.aimCamera.position.fromArray(state.camera.position));sceneTransform(context.aimCamera.quaternion.fromArray(state.camera.quaternion));context.aimCamera.aspect=state.camera.aspect;for(const key of ['fov','reach','fresh'])context.simulationView[key]=state.camera[key];context.simulationView.applyFov(state.camera.aspect);context.aimCamera.updateMatrixWorld();}
  for(const key of ['lookX','lookY','zoomStep','firstPerson'])context[key]=state[key];
  if(state.randomSeed!==undefined){if(!context.random||!('seed' in context.random))throw Error('recon replay requires independent seeded stream');context.random.seed=state.randomSeed;}
  return droid;

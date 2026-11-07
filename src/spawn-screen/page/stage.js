@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../../rust-render/scene-changes.js";
 import {interfaceNode,interfacePointsNode} from '../../interface/resources.js';
 import {releaseImage} from '../../interface/images.js';
 import {LOOK,paint,paintArray} from '../../rust-render/interface-material.js';
@@ -122,7 +123,7 @@ export class SpawnStage {
       depthTest: false,
       depthWrite: false,
     }));
-    this.vignette.frustumCulled = false;
+    sceneProperty(this.vignette,"frustumCulled",false);
     this.vignetteScene = new THREE.Scene();
     this.vignetteScene.add(this.vignette);
     this.screenCamera = new THREE.Camera();
@@ -139,9 +140,9 @@ export class SpawnStage {
     this.glowMaterial = additive(this.drawn ? dotTexture() : null);
     const flat = (size, material, y) => {
       const mesh = interfaceNode({kind:"plane",width:size,height:size},material);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = y;
-      mesh.renderOrder = -2;
+      sceneComponent(mesh.rotation,"x","=",-Math.PI / 2);
+      sceneComponent(mesh.position,"y","=",y);
+      sceneProperty(mesh,"renderOrder",-2);
       projector.add(mesh);
       return mesh;
     };
@@ -156,14 +157,14 @@ export class SpawnStage {
       side: THREE.DoubleSide,
     });
     const column = interfaceNode({kind:"uiCylinder",top:COLUMN.top,bottom:COLUMN.radius,height:COLUMN.height,segments:48,open:true},this.columnMaterial);
-    column.position.y = COLUMN.height / 2;
-    column.renderOrder = 2;
+    sceneComponent(column.position,"y","=",COLUMN.height / 2);
+    sceneProperty(column,"renderOrder",2);
     projector.add(column);
     this.motes = Array.from({ length: MOTES }, (_, i) => ({ a: Math.random() * Math.PI * 2, r: 0.15 + Math.random() * 0.4, y: (i / MOTES) * COLUMN.height, speed: 0.25 + Math.random() * 0.45 }));
     this.moteMaterial = interfacePoints({ map: this.glowMaterial.map, size: 0.06, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
     this.points = interfacePointsNode(MOTES,this.moteMaterial);
-    this.points.frustumCulled = false;
-    this.points.renderOrder = 3;
+    sceneProperty(this.points,"frustumCulled",false);
+    sceneProperty(this.points,"renderOrder",3);
     projector.add(this.points);
     this.scene.add(projector);
 
@@ -201,7 +202,7 @@ export class SpawnStage {
     this.map.colors({ tint: hologram?.slice(0, 3), back, beam: beam?.slice(0, 3) });
     this.light = { key, rim };
     this.lit = null;
-    this.floor.mesh.visible = this.mode !== "grid";
+    sceneProperty(this.floor.mesh,"visible",this.mode !== "grid");
   }
 
   // The rest framing: his body fills `figure` ({ x, top, bottom } in NDC)
@@ -245,8 +246,8 @@ export class SpawnStage {
   // His body (the preview's root): stood at the origin, a metre a metre.
   setBody(root, scale = 1) {
     if (root.parent !== this.figure) this.figure.add(root);
-    root.position.set(0, 0, 0);
-    root.scale.setScalar(scale);
+    sceneTransform(root.position.set(0, 0, 0));
+    sceneTransform(root.scale.setScalar(scale));
   }
 
   // The body's materials (a new class's): lit in the look's light and built
@@ -354,15 +355,15 @@ export class SpawnStage {
         this.spinVelocity *= Math.exp(-6 * dt);
       }
     }
-    this.figure.rotation.y = this.spin;
+    sceneComponent(this.figure.rotation,"y","=",this.spin);
     if (this.building < BUILD) {
       this.building += dt;
       this.applyBuild();
     }
     this.lightBody();
 
-    this.ring.rotation.z = this.time * TURN;
-    this.inner.rotation.z = -this.time * TURN * 1.7;
+    sceneComponent(this.ring.rotation,"z","=",this.time * TURN);
+    sceneComponent(this.inner.rotation,"z","=",-this.time * TURN * 1.7);
     this.ringMaterial.values[LOOK.OPACITY] = 0.9 * s * Math.min(flare, 1.6);
     this.ringInner.values[LOOK.OPACITY] = 0.55 * s;
     this.glowMaterial.values[LOOK.OPACITY] = 0.5 * s * flare;

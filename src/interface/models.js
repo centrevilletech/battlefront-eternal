@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import { surfaceMaterial } from "../rust-render/interface-material.js";
 import * as THREE from "three";
 import {repeatImage} from "./images.js";
@@ -74,8 +75,8 @@ export function dressModel(object, parts, texture, options = {}) {
     const scroll = mesh.userData.scroll ?? part.scroll ?? null;
     if (scroll) map=repeating(map);
     const material = interfaceMaterial({ map, scroll, ...options });
-    mesh.material = material;
-    mesh.frustumCulled = false;
+    sceneProperty(mesh,"material",material);
+    sceneProperty(mesh,"frustumCulled",false);
     materials.push(material);
   });
   return materials;
@@ -95,8 +96,8 @@ export function dressBody(object) {
       made.push(dressed);
       return dressed;
     };
-    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
-    mesh.frustumCulled = false;
+    sceneProperty(mesh,"material",Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material));
+    sceneProperty(mesh,"frustumCulled",false);
   }
   return made;
 }

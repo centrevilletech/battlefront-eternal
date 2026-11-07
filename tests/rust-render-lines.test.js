@@ -1,3 +1,5 @@
+import {sceneProperty} from "../src/rust-render/scene-changes.js";
+import {prepareSceneFixture} from "./support/rust-standin.mjs";
 // The host publishes domain arrays; native fixtures check immutable geometry
 // and raster bytes. The backend fixture verifies the resulting GPU draws.
 import test from 'node:test';
@@ -11,8 +13,8 @@ globalThis.location??={search:''};
 function fixture(){
  const {BfeRenderer,memory,calls}=standinModule(),three=standinThree(calls);
  three.renderer.compile=scene=>scene.traverse(object=>{three.renderer.properties.get(object.material).currentProgram=fakeProgram([],['position']);});
- const core=new RustRender(three.graphics,{memory},BfeRenderer),pass=core.byName.lines;
- const discover=added=>pass.beforeSort(three.renderer,three.scene,three.camera,three.graphics.sceneTarget,added);
+ const core=prepareSceneFixture(new RustRender(three.graphics,{memory},BfeRenderer)),pass=core.byName.lines;
+ const discover=()=>core.prepareScene(three.renderer,three.scene,three.camera,three.graphics.sceneTarget);
  return {core,pass,calls,discover,...three};
 }
 test('cables and helpers admit native descriptors once and publish one bounded view call',()=>{
@@ -31,8 +33,8 @@ test('cables and helpers admit native descriptors once and publish one bounded v
  assert.equal(f.calls.some(c=>c[0]==='geometry_buffer_data'),false);
 });
 test('hidden parents suppress native line facts and placements keep authored ordering',()=>{
- const f=fixture(),line=lineSource(LINE_KIND.TOW,32),group=new THREE.Group();group.renderOrder=5;line.renderOrder=17;group.add(line);f.scene.add(group);
+ const f=fixture(),line=lineSource(LINE_KIND.TOW,32),group=new THREE.Group();sceneProperty(group,"renderOrder",5);sceneProperty(line,"renderOrder",17);group.add(line);f.scene.add(group);
  f.discover([group]);f.pass.prepare({camera:f.camera},2);
  const at=D.VIEW.LEN;assert.equal(f.core.lineInput[at+D.ROW.GROUP_ORDER],5);assert.equal(f.core.lineInput[at+D.ROW.RENDER_ORDER],17);
- group.visible=false;f.discover([]);f.pass.prepare({camera:f.camera},2);assert.equal(f.core.lineInput[D.VIEW.COUNT],0);
+ sceneProperty(group,"visible",false);f.discover([]);f.pass.prepare({camera:f.camera},2);assert.equal(f.core.lineInput[D.VIEW.COUNT],0);
 });

@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import { damageDirection } from '../combat-input.js';
 import { radarRelation } from '../targeting-facts.js';
 // Damage/death notifications never apply health. Health and dead state remain
@@ -18,7 +19,7 @@ export function decodeFeedback(record){
  if(![3,4].includes(record.schema)||record.payload?.length!==78)throw Error('invalid feedback payload');
  const v=new DataView(record.payload.buffer,record.payload.byteOffset,record.payload.byteLength);let at=0;const u=()=>{const n=v.getUint32(at,true);at+=4;return n;};
  const result={...record,expiryTick:u(),targetId:u(),targetGeneration:u(),attackerId:u(),attackerGeneration:u(),position:[]};
- for(let i=0;i<3;i++){const n=v.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('invalid feedback position');result.position.push(n);}
+ for(let i=0;i<3;i++){const n=v.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('invalid feedback position');sceneTransform(result.position.push(n));}
  result.team=v.getInt32(at,true);at+=4;result.attackerTeam=v.getInt32(at,true);at+=4;
  const flags=v.getUint16(at,true);at+=2;if(flags>1)throw Error('invalid feedback flags');
  const source=[];for(let i=0;i<3;i++){const n=v.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('invalid feedback source');source.push(n);}

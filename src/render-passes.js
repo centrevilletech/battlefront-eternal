@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { bindProgram } from "./rust-render/programs.js";
 
@@ -15,6 +16,6 @@ export function ownedFullScreenPass(key, uniforms) {
   material.blending = THREE.NoBlending;
   bindProgram(material, key);
   const pass = new THREE.Mesh(triangle, material);
-  pass.frustumCulled = false;
+  sceneProperty(pass,"frustumCulled",false);
   return pass;
 }

@@ -24,14 +24,3 @@ export async function loadRenderer(graphics, load) {
     throw rendererFailure(graphics.renderer, cause);
   }
 }
-
-// Three compiles material shells until shader ownership moves to Rust. Its
-// diagnostic callback must stop loading too, rather than only logging a link.
-export function requireLinkedPrograms(renderer) {
-  // Three owns compilation of remaining material shells. Its default logging
-  // would allow loading to finish with an unusable program, so throw here.
-  renderer.debug.checkShaderErrors = true;
-  renderer.debug.onShaderError = (gl, program) => {
-    throw rendererFailure(renderer, new Error(`Shader program failed to link: ${gl.getProgramInfoLog(program) || "driver rejected program"}`));
-  };
-}

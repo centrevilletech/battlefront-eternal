@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { Arsenal } from "./weapons.js";
 import { captureOrdnanceOwner } from "./ordnance-owner.js";
@@ -84,7 +85,7 @@ export class RemoteDroids {
   }
 
   exit() {
-    if (this.piloted?.mesh) this.piloted.mesh.visible = !this.piloted.dead;
+    if (this.piloted?.mesh) sceneProperty(this.piloted.mesh,"visible",!this.piloted.dead);
     this.piloted = null;
     this.view = null;
     this.simulationView = null;
@@ -102,8 +103,8 @@ export class RemoteDroids {
 
   place(droid) {
     if (!droid.mesh) return;
-    droid.mesh.position.copy(droid.position);
-    droid.mesh.rotation.set(0, droid.yaw, 0);
+    sceneTransform(droid.mesh.position.copy(droid.position));
+    sceneTransform(droid.mesh.rotation.set(0, droid.yaw, 0));
   }
 
   // Cosmetic hover only: leave the retail spring, collision and eye alone.
@@ -112,12 +113,12 @@ export class RemoteDroids {
     for (const droid of this.droids) {
       if (!droid.mesh) continue;
       this.place(droid);
-      droid.mesh.visible = !droid.dead && !(droid === this.piloted && (firstPerson || this.zoom > 1));
+      sceneProperty(droid.mesh,"visible",!droid.dead && !(droid === this.piloted && (firstPerson || this.zoom > 1)));
       if (!enhanced) continue;
       const t = this.hoverTime + droid.position.x * 0.13 + droid.position.z * 0.09;
-      droid.mesh.position.y += Math.sin(t * 2.6) * 0.045;
-      droid.mesh.rotation.x = Math.sin(t * 1.7) * 0.025;
-      droid.mesh.rotation.z = Math.sin(t * 2.1) * 0.035;
+      sceneComponent(droid.mesh.position,"y","+=",Math.sin(t * 2.6) * 0.045);
+      sceneComponent(droid.mesh.rotation,"x","=",Math.sin(t * 1.7) * 0.025);
+      sceneComponent(droid.mesh.rotation,"z","=",Math.sin(t * 2.1) * 0.035);
     }
   }
 

@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from '../../../rust-render/scene-changes.js';
 // One camera phase over reusable generated records. These bindings gather
 // retained scene/input facts and publish the native result; no view decides
 // policy or advances a clock in JavaScript.
@@ -72,7 +73,7 @@ class ShakeHandle {
 }
 export class PageCameras {
   constructor(instance, collision, camera, def, motions, authority = false, shots = []) {
-    this.automaticEye = true; this.authority = authority; camera.rotation.order = "YXZ"; this.bindCamera(camera);
+    this.automaticEye = true; this.authority = authority; sceneComponent(camera.rotation,"order","=","YXZ"); this.bindCamera(camera);
     this.instance = instance; this.x = instance.exports; this.collision = collision; this.camera = camera;
     this.encoder = new TextEncoder(); this.ids = new WeakMap(); this.commandCount = 0; this.skipped = 0;
     const keys = Array.from({length:L.MOTIONS}, (_, index) => motions?.[MOTIONS[index]] || { Vec: [], Slope: [], Ore: [], RSlope: [], Time: [] });
@@ -229,14 +230,14 @@ export class PageCameras {
     if (o[O.TRACE_VISIBLE]) deathShot.trace.show(this.from.fromArray(o, O.TRACE_FROM), this.to.fromArray(o, O.TRACE_TO), !!o[O.TRACE_FRIENDLY], o[O.TRACE_HEAD], o[O.TRACE_FADE], o[O.TRACE_SINCE], camera);
     else deathShot.trace.hide();
     }
-    camera.position.fromArray(o, O.PRE_POSITION); publishTurn(camera,o,O.PRE_QUATERNION,O.PRE_EULER); camera.up.fromArray(o, O.UP);
+    sceneTransform(camera.position.fromArray(o, O.PRE_POSITION)); publishTurn(camera,o,O.PRE_QUATERNION,O.PRE_EULER); camera.up.fromArray(o, O.UP);
     camera.fov = o[O.FOV]; camera.near = o[O.NEAR]; camera.far = o[O.FAR];
-    camera.matrix.fromArray(o, O.PRE_MATRIX); camera.matrixWorld.fromArray(o, O.PRE_MATRIX); camera.matrixWorldInverse.fromArray(o, O.PRE_INVERSE);
+    sceneTransform(camera.matrix.fromArray(o, O.PRE_MATRIX)); sceneTransform(camera.matrixWorld.fromArray(o, O.PRE_MATRIX)); camera.matrixWorldInverse.fromArray(o, O.PRE_INVERSE);
     camera.projectionMatrix.fromArray(o, O.PROJECTION); camera.projectionMatrixInverse.fromArray(o, O.PROJECTION_INVERSE);
     nativeView(camera,o,O.PRE_MATRIX,O.PRE_INVERSE);
     this.view.fov = o[O.SOLDIER_FOV]; this.view.reach = o[O.SOLDIER_REACH]; this.view.fresh = !!o[O.SOLDIER_FRESH];
     if (this.authority && deathView.active) {
-      deathView.time = o[O.WORLD_DEATH_TIME]; deathView.position.fromArray(o, O.WORLD_DEATH_POSITION); deathView.quaternion.fromArray(o, O.WORLD_DEATH_QUATERNION);
+      deathView.time = o[O.WORLD_DEATH_TIME]; sceneTransform(deathView.position.fromArray(o, O.WORLD_DEATH_POSITION)); sceneTransform(deathView.quaternion.fromArray(o, O.WORLD_DEATH_QUATERNION));
       deathView.previousPosition.fromArray(o, O.WORLD_PREVIOUS_POSITION); deathView.previousQuaternion.fromArray(o, O.WORLD_PREVIOUS_QUATERNION); deathView.body.fromArray(o, O.WORLD_DEATH_BODY);
     } else if (!this.authority) { deathShot.active = !!o[O.DEATH_ACTIVE]; deathShot.time = o[O.DEATH_TIME]; deathShot.known = !!o[O.DEATH_KNOWN]; }
     if (this.authority && remotes.active && remotes.simulationView) {
@@ -262,7 +263,7 @@ export class PageCameras {
       else {
         gunner.viewFirstPerson = firstPerson;
         gunner.hideRig(firstPerson && o[O.TURRET_ENCLOSED] ? gunner.turret : null);
-        const root = gunner.animator?.actor?.root; if (root) root.visible = !gunner.turret.hidesGunner;
+        const root = gunner.animator?.actor?.root; if (root) sceneProperty(root,"visible",!gunner.turret.hidesGunner);
       }
     }
     if (!this.warned && (this.skipped || o[O.SKIPPED])) { this.warned = true; console.warn("camera presentation capacity reached"); }
@@ -276,8 +277,8 @@ export class PageCameras {
   finish() {
     this.refresh();
     const o = this.output, c = this.camera;
-    c.position.fromArray(o, O.POSITION); publishTurn(c,o,O.QUATERNION,O.EULER);
-    c.matrix.fromArray(o, O.MATRIX); c.matrixWorld.fromArray(o, O.MATRIX); c.matrixWorldInverse.fromArray(o, O.INVERSE);
+    sceneTransform(c.position.fromArray(o, O.POSITION)); publishTurn(c,o,O.QUATERNION,O.EULER);
+    sceneTransform(c.matrix.fromArray(o, O.MATRIX)); sceneTransform(c.matrixWorld.fromArray(o, O.MATRIX)); c.matrixWorldInverse.fromArray(o, O.INVERSE);
     nativeView(c,o,O.MATRIX,O.INVERSE,false);
   }
   // Remote definitions are registered by immutable content identity.
@@ -313,7 +314,7 @@ export class PageCameras {
     a[F.PROJECT_ONLY]=1;a[F.REMOTE_FOV]=fov;
     this.x.camera_frame(this.handle); this.refresh();const o=this.output;
     camera.fov=o[O.FOV];camera.projectionMatrix.fromArray(o,O.PROJECTION);camera.projectionMatrixInverse.fromArray(o,O.PROJECTION_INVERSE);
-    camera.matrix.fromArray(o,O.MATRIX);camera.matrixWorld.fromArray(o,O.MATRIX);camera.matrixWorldInverse.fromArray(o,O.INVERSE);
+    sceneTransform(camera.matrix.fromArray(o,O.MATRIX));sceneTransform(camera.matrixWorld.fromArray(o,O.MATRIX));camera.matrixWorldInverse.fromArray(o,O.INVERSE);
   }
   // RemoteContext.updateCamera also runs during private prediction replay.
   // Continuation scalars belong to that context, not the shown recon lease.
@@ -328,8 +329,8 @@ export class PageCameras {
     vector(a,F.REMOTE_FEET,d.position);a[F.REMOTE_YAW]=d.yaw;a[F.REMOTE_PITCH]=d.pitch;a[F.REMOTE_ZOOM]=zoom;a[F.REMOTE_FIRST]=own?1:0;a[F.REMOTE_HAS_EYE]=own?1:0;
     vector(a,F.REMOTE_EYE,d.eye);vector(a,F.REMOTE_AIM,d.aimDir);a[F.REMOTE_BACK]=zoom>1?0.5:0.3;
     this.x.camera_frame(this.handle); this.refresh();const o=this.output;
-    camera.position.fromArray(o,O.POSITION);publishTurn(camera,o,O.QUATERNION,O.EULER);camera.up.fromArray(o,O.UP);camera.fov=o[O.FOV];camera.near=o[O.NEAR];camera.far=o[O.FAR];
-    camera.matrix.fromArray(o,O.MATRIX);camera.matrixWorld.fromArray(o,O.MATRIX);camera.matrixWorldInverse.fromArray(o,O.INVERSE);camera.projectionMatrix.fromArray(o,O.PROJECTION);camera.projectionMatrixInverse.fromArray(o,O.PROJECTION_INVERSE);
+    sceneTransform(camera.position.fromArray(o,O.POSITION));publishTurn(camera,o,O.QUATERNION,O.EULER);camera.up.fromArray(o,O.UP);camera.fov=o[O.FOV];camera.near=o[O.NEAR];camera.far=o[O.FAR];
+    sceneTransform(camera.matrix.fromArray(o,O.MATRIX));sceneTransform(camera.matrixWorld.fromArray(o,O.MATRIX));camera.matrixWorldInverse.fromArray(o,O.INVERSE);camera.projectionMatrix.fromArray(o,O.PROJECTION);camera.projectionMatrixInverse.fromArray(o,O.PROJECTION_INVERSE);
     saved.fov=o[O.REMOTE_FOV];saved.reach=o[O.REMOTE_REACH];saved.fresh=!!o[O.REMOTE_FRESH];context.firstPerson=first;
   }
   // DeathCamera.start is a semantic lifecycle edge, independent of drawing.
@@ -339,7 +340,7 @@ export class PageCameras {
   beginDeath(death,from,feet,killed,hfov,deadDt) {
     const a=this.base(from,0);a[F.DEATH_ACTIVE]=1;a[F.WORLD_START]=1;vector(a,F.FEET,feet);a[F.WORLD_DEATH_KILLED]=killed?1:0;a[F.DERIVE_DEATH_FOV]=hfov===null?1:0;a[F.DEATH_HFOV]=hfov??0;a[F.START_DEAD_DT]=deadDt;
     this.x.camera_frame(this.handle); this.refresh();const o=this.output;
-    death.time=0;death.hfov=o[O.WORLD_DEATH_HFOV];death.position.fromArray(o,O.WORLD_DEATH_POSITION);death.quaternion.fromArray(o,O.WORLD_DEATH_QUATERNION);death.previousPosition.copy(death.position);death.previousQuaternion.copy(death.quaternion);death.body.fromArray(o,O.WORLD_DEATH_BODY);death.anchor.fromArray(o,O.WORLD_DEATH_ANCHOR);
+    death.time=0;death.hfov=o[O.WORLD_DEATH_HFOV];sceneTransform(death.position.fromArray(o,O.WORLD_DEATH_POSITION));sceneTransform(death.quaternion.fromArray(o,O.WORLD_DEATH_QUATERNION));death.previousPosition.copy(death.position);death.previousQuaternion.copy(death.quaternion);death.body.fromArray(o,O.WORLD_DEATH_BODY);death.anchor.fromArray(o,O.WORLD_DEATH_ANCHOR);
   }
   // VehicleDriver.updateCamera formerly queried seatFrame and seatForward.
   // Canonical F2 seat records are already native and must retain their tick.

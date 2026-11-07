@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../../rust-render/scene-changes.js";
 import {interfaceNode,pickablePlane,planeHitDistance} from '../../interface/resources.js';
 import {canvasImage,releaseImage} from '../../interface/images.js';
 import {LOOK,paintArray} from '../../rust-render/interface-material.js';
@@ -132,7 +133,7 @@ export class HoloMap {
     this.target=hud.renderer.resources.interfaceTarget(TEXTURE);
     const circle={kind:"circle",radius:1,segments:96};
     this.back=interfaceNode(circle,interfaceBasic({color:0x000000,transparent:true,opacity:0.55,depthWrite:false,side:THREE.DoubleSide}));
-    this.back.renderOrder = 4;
+    sceneProperty(this.back,"renderOrder",4);
     this.faceMaterial = interfaceMaterial("face", {
       uniforms: { map: { value: this.target.texture }, tint: { value: new THREE.Color(1, 1, 1) }, time: { value: 0 }, strength: { value: 0 } },
       transparent: true,
@@ -141,12 +142,12 @@ export class HoloMap {
       side: THREE.DoubleSide,
     });
     this.face = interfaceNode(circle,this.faceMaterial);
-    this.face.position.z = 0.002;
-    this.face.renderOrder = 5;
+    sceneComponent(this.face.position,"z","=",0.002);
+    sceneProperty(this.face,"renderOrder",5);
     this.rimMaterial = this.drawn ? additive(rimTexture()) : interfaceBasic();
     this.rim = interfaceNode({kind:"plane",width:2/.86,height:2/.86},this.rimMaterial);
-    this.rim.position.z = 0.004;
-    this.rim.renderOrder = 6;
+    sceneComponent(this.rim.position,"z","=",0.004);
+    sceneProperty(this.rim,"renderOrder",6);
     this.disc.add(this.back, this.face, this.rim);
     this.pinTexture = this.drawn ? pinTexture() : null;
     this.dotTexture = this.drawn ? dotTexture() : null;
@@ -160,7 +161,7 @@ export class HoloMap {
       side: THREE.DoubleSide,
     });
     this.beam=interfaceNode({kind:"uiCylinder",top:1,bottom:.05,height:1,segments:48,open:true,transforms:[["translateY",.5]]},this.beamMaterial);
-    this.beam.renderOrder = 3;
+    sceneProperty(this.beam,"renderOrder",3);
     this.root.add(this.beam);
 
     // The projector: a cone (style "cone", the 2005 game's) or a low
@@ -171,20 +172,20 @@ export class HoloMap {
       uniforms: { color: { value: new THREE.Color(0.2, 0.23, 0.27) }, rim: { value: new THREE.Color(1, 1, 1) } },
     });
     this.cone = interfaceNode({kind:"uiCylinder",top:0,bottom:.26,height:.34,segments:6},this.metal);
-    this.cone.position.y = 0.07 + 0.17;
+    sceneComponent(this.cone.position,"y","=",0.07 + 0.17);
     this.base = interfaceNode({kind:"uiCylinder",top:.3,bottom:.36,height:.07,segments:6},this.metal);
-    this.base.position.y = 0.035;
+    sceneComponent(this.base.position,"y","=",0.035);
     this.glowRingMaterial = this.drawn ? additive(this.dotTexture) : interfaceBasic();
     this.pool = interfaceNode({kind:"plane",width:1.6,height:1.6,transforms:[["rotateX",-Math.PI/2]]},this.glowRingMaterial);
-    this.pool.position.y = 0.003;
-    this.pool.renderOrder = 2;
+    sceneComponent(this.pool.position,"y","=",0.003);
+    sceneProperty(this.pool,"renderOrder",2);
     this.bandMaterial = additive(null);
     this.band = interfaceNode({kind:"ring",inner:.2,outer:.26,segments:6,transforms:[["rotateX",-Math.PI/2],["rotateY",Math.PI/6]]},this.bandMaterial);
-    this.band.position.y = 0.072;
-    this.band.renderOrder = 7;
+    sceneComponent(this.band.position,"y","=",0.072);
+    sceneProperty(this.band,"renderOrder",7);
     this.lampMaterial = this.drawn ? additive(this.dotTexture) : interfaceBasic();
     this.lamp = interfaceNode({kind:"plane",width:.42,height:.42},this.lampMaterial);
-    this.lamp.renderOrder = 7;
+    sceneProperty(this.lamp,"renderOrder",7);
     this.projector.add(this.pool, this.base, this.band, this.cone, this.lamp);
     this.root.add(this.projector);
     this.style("cone");
@@ -194,9 +195,9 @@ export class HoloMap {
   style(kind) {
     this.kind = kind;
     const cone = kind === "cone";
-    this.cone.visible = cone;
+    sceneProperty(this.cone,"visible",cone);
     this.lampHeight = cone ? 0.42 : 0.09;
-    this.lamp.position.y = this.lampHeight;
+    sceneComponent(this.lamp.position,"y","=",this.lampHeight);
   }
 
   // The look's colours: tint (the hologram), back (the dark under it, with
@@ -219,20 +220,20 @@ export class HoloMap {
   // (y 0) under it, its cone of light up to the disc.
   place(center, radius, toward) {
     this.radius = radius;
-    this.root.position.set(0, 0, 0);
-    this.disc.position.copy(center);
+    sceneTransform(this.root.position.set(0, 0, 0));
+    sceneTransform(this.disc.position.copy(center));
     const flat = new THREE.Vector3(toward.x, center.y, toward.z);
-    this.disc.lookAt(flat);
-    this.disc.rotateX(-TILT);
-    this.disc.scale.setScalar(radius);
-    this.projector.position.set(center.x, 0, center.z + radius * 0.25);
+    sceneTransform(this.disc.lookAt(flat));
+    sceneTransform(this.disc.rotateX(-TILT));
+    sceneTransform(this.disc.scale.setScalar(radius));
+    sceneTransform(this.projector.position.set(center.x, 0, center.z + radius * 0.25));
     const foot = new THREE.Vector3(center.x, this.lampHeight, center.z + radius * 0.25);
     const up = new THREE.Vector3().subVectors(center, foot);
     const length = up.length();
-    this.beam.position.copy(foot);
-    this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up.normalize());
-    this.beam.scale.set(radius * 0.9, length, radius * 0.9);
-    this.lamp.lookAt(toward);
+    sceneTransform(this.beam.position.copy(foot));
+    sceneTransform(this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up.normalize()));
+    sceneTransform(this.beam.scale.set(radius * 0.9, length, radius * 0.9));
+    sceneTransform(this.lamp.lookAt(toward));
     this.root.updateMatrixWorld(true);
   }
 
@@ -280,23 +281,23 @@ export class HoloMap {
       seen.add(post.name);
       let pin = this.pins.get(post.name);
       if (!pin) pin = this.addPin(post.name);
-      pin.root.position.set(at[0], at[1], 0.006);
+      sceneTransform(pin.root.position.set(at[0], at[1], 0.006));
       const height = post.name === picked ? PIN.picked : post.name === hovered ? PIN.hover : own(post.name) ? PIN.own : PIN.rest;
       pin.height += (height - pin.height) * Math.min(dt * PIN_RATE, 1);
       const pulse = post.name === picked ? 1 + 0.18 * Math.sin(this.time * 5) : 1;
       // The planes span x (across) and z (out of the disc).
-      pin.beam.scale.set(PIN.width * (post.name === picked ? 1.5 : 1), 1, Math.max(pin.height * pulse, 1e-3));
-      pin.cross.scale.copy(pin.beam.scale);
-      pin.dot.scale.setScalar(post.name === picked ? 0.16 : 0.09);
+      sceneTransform(pin.beam.scale.set(PIN.width * (post.name === picked ? 1.5 : 1), 1, Math.max(pin.height * pulse, 1e-3)));
+      sceneTransform(pin.cross.scale.copy(pin.beam.scale));
+      sceneTransform(pin.dot.scale.setScalar(post.name === picked ? 0.16 : 0.09));
       const color = this.hud.postColor?.(post, team, true) ?? [1, 1, 1, 1];
       for (const material of pin.materials) paintArray(material,LOOK.COLOR,color);
-      pin.ring.visible = post.name === picked;
-      pin.ring.rotation.z = this.time * 1.6;
+      sceneProperty(pin.ring,"visible",post.name === picked);
+      sceneComponent(pin.ring.rotation,"z","=",this.time * 1.6);
       pin.waveAge += dt;
-      pin.wave.visible = pin.waveAge < WAVE;
+      sceneProperty(pin.wave,"visible",pin.waveAge < WAVE);
       if (pin.wave.visible) {
         const t = pin.waveAge / WAVE;
-        pin.wave.scale.setScalar(1 + 6 * t);
+        sceneTransform(pin.wave.scale.setScalar(1 + 6 * t));
         pin.wave.material.values[LOOK.OPACITY] = (1 - t) * (1 - t);
       }
     }
@@ -329,14 +330,14 @@ export class HoloMap {
     const plane={kind:"plane",width:1,height:1,transforms:[["translateY",.5],["rotateX",Math.PI/2]]};
     const beam = pickablePlane(plane,beamMaterial);
     const cross = pickablePlane(plane,beamMaterial);
-    cross.rotation.z = Math.PI / 2;
+    sceneComponent(cross.rotation,"z","=",Math.PI / 2);
     const dot = interfaceNode({kind:"plane",width:1,height:1},dotMaterial);
     const ring = interfaceNode({kind:"ring",inner:.075,outer:.09,segments:40,thetaLength:Math.PI*1.6},ringMaterial);
     // A ripple running out from it as it is picked (ping()).
     const waveMaterial = additive(null);
     const wave = interfaceNode({kind:"ring",inner:.08,outer:.095,segments:48},waveMaterial);
-    wave.visible = false;
-    for (const mesh of [beam, cross, dot, ring, wave]) mesh.renderOrder = 8;
+    sceneProperty(wave,"visible",false);
+    for (const mesh of [beam, cross, dot, ring, wave]) sceneProperty(mesh,"renderOrder",8);
     root.add(beam, cross, dot, ring, wave);
     this.disc.add(root);
     const pin = { root, beam, cross, dot, ring, wave, waveAge: Infinity, height: 0, materials: [beamMaterial, dotMaterial, ringMaterial, waveMaterial] };
@@ -353,15 +354,15 @@ export class HoloMap {
     this.faceMaterial.values[LOOK.STRENGTH] = s * (1 + 0.35 * this.flare);
     this.beamMaterial.values[LOOK.TIME] = this.time;
     this.beamMaterial.values[LOOK.STRENGTH] = s * (1 + 1.5 * this.flare);
-    this.rim.rotation.z = -this.time * 0.08;
+    sceneComponent(this.rim.rotation,"z","=",-this.time * 0.08);
     this.rimMaterial.values[LOOK.OPACITY] = 0.75 * s;
     this.lampMaterial.values[LOOK.OPACITY] = (0.8 + 0.2 * Math.sin(this.time * 3.1)) * s;
     this.glowRingMaterial.values[LOOK.OPACITY] = 0.35 * s;
     this.bandMaterial.values[LOOK.OPACITY] = (0.6 + 0.3 * Math.sin(this.time * 2.3)) * s;
     // Rising out of the floor as it lights.
-    this.projector.scale.set(1, 0.05 + 0.95 * s, 1);
+    sceneTransform(this.projector.scale.set(1, 0.05 + 0.95 * s, 1));
     // Unfolding as it lights.
-    this.disc.scale.setScalar(this.radius * (0.6 + 0.4 * s));
+    sceneTransform(this.disc.scale.setScalar(this.radius * (0.6 + 0.4 * s)));
   }
 
   // A ray (a THREE.Raycaster) onto the disc: the point of the map it meets,

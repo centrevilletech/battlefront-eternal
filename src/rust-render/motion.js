@@ -1,3 +1,4 @@
+import {Family,Mode,S} from './scene.js';
 import {ACTOR} from './actor-layout.js';
 import {nativeActorSource} from '../actor-resources.js';
 // The motion pass (motion.rs): the temporal upscaler's motion of the bodies
@@ -52,17 +53,13 @@ class MotionPass {
     this.input = false;
     this.pending = null;
     this.complete = false;
-    this.frustum = new THREE.Frustum();
-    this.screen = new THREE.Matrix4();
-    this.viewFrustum = new THREE.Frustum();
-    this.viewScreen = new THREE.Matrix4();
-    this.proxies = [];
     this.records = [];
     this.skeletons = new Map();
     // The sky's ships' meshes drawn this frame, in three's order, and each
     // one's registration (null: never the renderer's).
     this.extras = [];
     this.extraEntries = new Map();
+    this.pendingExtras=new Set();
     this.scratch = new Float64Array(EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM);
     this.drawn = 0;
     this.left = 0;
@@ -72,7 +69,8 @@ class MotionPass {
 
   // The motion pass draws for motion-vectors.js from now on.
   register() {
-    motionVectors.drawer = this;
+    motionVectors.drawer = this;this.core.registry.admit(motionVectors.scene,null,true,Family.MOTION|Family.EXTRA);
+    for(const object of motionVectors.extras)this.queueExtra(object);
   }
 
 
@@ -91,17 +89,9 @@ class MotionPass {
     this.skeletons.clear();
     let bones = 0;
     // The proxies three's render would list, in its order.
-    this.screen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    this.frustum.setFromProjectionMatrix(this.screen);
-    const proxies = this.proxies;
-    proxies.length = 0;
-    for (const proxy of motion.proxies) {
-      if (!proxy.visible || !proxy.layers.test(camera.layers)) continue;
-      if (proxy.frustumCulled && !this.frustum.intersectsObject(proxy)) continue;
-      proxies.push(proxy);
-    }
-    proxies.sort((a, b) => a.renderOrder - b.renderOrder || a.userData.order - b.userData.order || a.id - b.id);
-    for (const proxy of proxies) {
+    const registry=core.registry,selected=registry.select(motion.scene,camera,Family.MOTION,Mode.PROXY);
+    for(let i=0;i<selected;i++){
+      core.views();const proxy=registry.nodes[core.sceneOutput[i*S.STRIDE+S.SLOT]].object;
       const source = proxy.userData.source;
       let descriptor=proxy.userData.nativeMotion;
       if(descriptor===undefined){descriptor=core.rust.actor_motion(nativeActorSource(core,source.userData.actorAsset).id,!!source.skeleton,false);proxy.userData.nativeMotion=descriptor;}
@@ -153,22 +143,18 @@ class MotionPass {
   // (shown, on the camera's layers; never culled), in its order: render
   // order, material, z (its bounding sphere's centre through the camera, as
   // projectObject takes it), id. False when one isn't the renderer's (yet).
+  queueExtra(object){this.pendingExtras.add(object);}
   extrasOf(motion, camera) {
-    const list = this.extras, point = this.point ??= new THREE.Vector3();
-    list.length = 0;
-    for (const mesh of motion.extras) {
-      if (!mesh.visible || !mesh.layers.test(camera.layers)) continue;
-      if (mesh.frustumCulled && !this.frustum.intersectsObject(mesh)) continue;
-      const entry = this.extra(mesh, camera);
-      if (!entry) { this.extraWhy = entry === undefined ? "no program yet" : "unsupported"; return false; }
-      if (list.length >= MAX_EXTRAS) { this.extraWhy = "too many"; return false; }
-      if (mesh.boundingSphere !== undefined) { if (mesh.boundingSphere === null) mesh.computeBoundingSphere(); point.copy(mesh.boundingSphere.center); }
-      else { if (mesh.geometry.boundingSphere === null) mesh.geometry.computeBoundingSphere(); point.copy(mesh.geometry.boundingSphere.center); }
-      entry.z = point.applyMatrix4(mesh.matrixWorld).applyMatrix4(this.screen).z;
-      list.push(mesh);
+    // SkyFlyers has populated its instance matrices by this first view. Cold
+    // bounds must use that publication, rather than the empty birth buffers.
+    for(const object of this.pendingExtras)this.extra(object,camera);
+    this.pendingExtras.clear();
+    const core=this.core,registry=core.registry,list=this.extras;list.length=0;
+    const count=registry.select(motion.scene,camera,Family.EXTRA,Mode.EXTRA);
+    for(let i=0;i<count;i++){core.views();const mesh=registry.nodes[core.sceneOutput[i*S.STRIDE+S.SLOT]].object;
+      const entry=this.extra(mesh,camera);if(!entry){this.extraWhy='unsupported';return false;}
+      if(list.length>=MAX_EXTRAS){this.extraWhy='too many';return false;}list.push(mesh);
     }
-    const entries = this.extraEntries;
-    list.sort((a, b) => a.renderOrder - b.renderOrder || a.userData.order - b.userData.order || entries.get(a).z - entries.get(b).z || a.id - b.id);
     return true;
   }
 
@@ -179,20 +165,18 @@ class MotionPass {
   // null for one the renderer can't draw as three does (blended, tested or
   // not instanced by plain float attributes).
   extra(mesh,camera){let entry=this.extraEntries.get(mesh);if(entry!==undefined)return entry;const source=mesh.userData.flyerMotion;if(!source)return null;const core=this.core;
-    const row=core.rust.actor_flyer_motion(nativeActorSource(core,source.asset).id,source.capacity,source.arrays.matrices),meta=ACTOR.MOTION_META;mesh.boundingSphere.center.fromArray(row,meta.BOUNDS);mesh.boundingSphere.radius=row[meta.BOUNDS+3];entry={id:row[meta.HANDLE],source,max:Math.min(source.capacity,256),z:0};this.extraEntries.set(mesh,entry);core.buffer=null;core.views();return entry;
+    const row=core.rust.actor_flyer_motion(nativeActorSource(core,source.asset).id,source.capacity,source.arrays.matrices),meta=ACTOR.MOTION_META;mesh.boundingSphere.center.fromArray(row,meta.BOUNDS);mesh.boundingSphere.radius=row[meta.BOUNDS+3];entry={id:row[meta.HANDLE],source,max:Math.min(source.capacity,256),z:0};this.extraEntries.set(mesh,entry);const node=core.registry.admitIfNew(mesh);if(node)core.registry.touch(node);core.buffer=null;core.views();return entry;
   }
   // Locked view masks share the actor's native geometry and a fixed program.
   lockedParts(viewScene,view,locked,records){
-    const core=this.core,frustum=this.viewFrustum.setFromProjectionMatrix(this.viewScreen.multiplyMatrices(view.projectionMatrix,view.matrixWorldInverse));
-    this.lockedCamera=view;this.lockedRecords=records;return this.visitLocked(viewScene);
-  }
-  visitLocked(node){if(!node.visible)return true;const core=this.core,view=this.lockedCamera,records=this.lockedRecords,frustum=this.viewFrustum;
-      if(node.userData.actorAsset&&node.layers.test(view.layers)&&(!node.frustumCulled||frustum.intersectsObject(node))){
-        let descriptor=node.userData.lockedMotion;if(descriptor===undefined){descriptor=core.rust.actor_motion(nativeActorSource(core,node.userData.actorAsset).id,false,true);node.userData.lockedMotion=descriptor;}
-        if(descriptor===undefined||records.length>=MAX_RECORDS){this.maskWhy='locked actor capacity';return false;}
-        const row=node.userData.lockedRow??={kind:KIND_LOCKED,object:node,bones:-1};row.descriptor=descriptor;records.push(row);
-      }
-      for(let i=0;i<node.children.length;i++)if(!this.visitLocked(node.children[i]))return false;return true;
+    const core=this.core,registry=core.registry,count=registry.select(viewScene,view,Family.VIEW,Mode.LOCKED);
+    for(let i=0;i<count;i++){core.views();const node=registry.nodes[core.sceneOutput[i*S.STRIDE+S.SLOT]].object;
+      if(!node.userData.actorAsset)continue;
+      let descriptor=node.userData.lockedMotion;if(descriptor===undefined){descriptor=core.rust.actor_motion(nativeActorSource(core,node.userData.actorAsset).id,false,true);node.userData.lockedMotion=descriptor;}
+      if(descriptor===undefined||records.length>=MAX_RECORDS){this.maskWhy='locked actor capacity';return false;}
+      const row=node.userData.lockedRow??={kind:KIND_LOCKED,object:node,bones:-1};row.descriptor=descriptor;records.push(row);
+    }
+    return true;
   }
 
   // The phase: the frame's values, the records and their bones written for

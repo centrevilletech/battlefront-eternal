@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
@@ -14,11 +15,11 @@ export class FountainSpray {
     // own descriptor is admitted. They contain no raster or sampler policy.
     this.sources=Array.from({length:5},()=>new THREE.Vector4());
     this.arrays={seed};this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
-    this.mesh.name='fountain-wake-spray';this.mesh.frustumCulled=false;this.mesh.visible=false;this.mesh.renderOrder=11;
+    this.mesh.name='fountain-wake-spray';sceneProperty(this.mesh,"frustumCulled",false);sceneProperty(this.mesh,"visible",false);sceneProperty(this.mesh,"renderOrder",11);
     this.mesh.onBeforeRender=(r,s,c)=>{this.values[EFFECT.SPRAY.HAS_DEPTH]=particleDepth.capture(r,s,c,true)?1:0;};scene.add(this.mesh);
   }
   update(time,fountains) {
-    const v=this.values;v[EFFECT.SPRAY.SPRAY_TIME]=time;this.mesh.visible=fountains.length>0;
+    const v=this.values;v[EFFECT.SPRAY.SPRAY_TIME]=time;sceneProperty(this.mesh,"visible",fountains.length>0);
     v.set(this.wakes.host.wakePoints,EFFECT.SPRAY.WAKES);v.set(this.wakes.host.wakeMotion,EFFECT.SPRAY.MOTION);
     for(const source of this.sources)source.w=0;
     for(let i=0;i<fountains.length;i++){const f=fountains[i];this.sources[f.slot]?.set(f.position.x,f.position.y,f.position.z,1);}

@@ -1,3 +1,4 @@
+import {sceneTransform} from "../rust-render/scene-changes.js";
 import * as THREE from "three";
 import { LightFrame as F, LightCommand as C, LightOutput as O, LightHeader as H,
   LightHandle as T, LightLimits as L, LightKind as K } from "./page-layout.js";
@@ -84,7 +85,7 @@ export class LightPool {
     const out = this.output;
     for (let i = 0; i < this.lights.length; i++) {
       const light = this.lights[i], at = i * O.STRIDE;
-      light.position.set(out[at + O.POSITION], out[at + O.POSITION + 1], out[at + O.POSITION + 2]);
+      sceneTransform(light.position.set(out[at + O.POSITION], out[at + O.POSITION + 1], out[at + O.POSITION + 2]));
       light.color.setRGB(out[at + O.RGB], out[at + O.RGB + 1], out[at + O.RGB + 2]);
       light.intensity = out[at + O.SCALE]; light.distance = out[at + O.RADIUS];
     }

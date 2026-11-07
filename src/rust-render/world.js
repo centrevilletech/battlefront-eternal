@@ -46,6 +46,7 @@ class WorldPass {
       shadow.admitNative(JSON.parse(core.rust.static_depth_finish()),shadow.nativeRoots);
     }
     mesh.userData.nativeSource=source;
+    this.core.registry.claim(mesh);
     this.nativePending.push({ mesh, source, tree: Boolean(record.treeCanopies), map, bump });
     return source;
   }
@@ -88,12 +89,7 @@ class WorldPass {
     }
   }
 
-  // Native depth traversal needs no material reveal. Compile pending colour
-  // descriptors here because the first shadow pass precedes the near phase.
-  reveal(on) {
-    if (on && this.nativePending.length) this.prepareNative();
-    if (on) this.updateSettings();
-  }
+
 }
 
 export function worldPass(core) {

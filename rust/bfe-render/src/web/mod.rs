@@ -5,6 +5,8 @@ mod line_resources;
 // Here the core's bindings and each phase's; each pass's own are in a file
 // of their own here, a `#[wasm_bindgen] impl BfeRenderer` block each.
 mod recovery;
+mod scene;
+pub use scene::BfeScene;
 mod canopies;
 mod cameras;
 mod actor_resources;

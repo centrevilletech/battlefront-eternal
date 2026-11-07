@@ -1,3 +1,4 @@
+import {sceneTransform} from "../../../rust-render/scene-changes.js";
 // Registry callbacks and decoded publication views stay at the boundary.
 // The native producer owns payload bytes, event IDs and queue decisions.
 import { bridgeFor } from '../../runtime.js';
@@ -80,7 +81,7 @@ export class WireCombat {
     const fact = this.fact;
     fact.id = record.id; fact.generation = record.generation; fact.tick = record.tick; fact.schema = record.schema;
     fact.payload.offset = 0; fact.payload.length = record.payload.length;
-    fact.hasPosition = !!view.position; fact.position.set(view.position?.[0] ?? 0, view.position?.[1] ?? 0, view.position?.[2] ?? 0);
+    fact.hasPosition = !!view.position; sceneTransform(fact.position.set(view.position?.[0] ?? 0, view.position?.[1] ?? 0, view.position?.[2] ?? 0));
     fact.ownerTag = view.ownerId === undefined ? 0 : view.ownerId === null ? 1 : 2;
     fact.owner = typeof view.ownerId === 'number' ? view.ownerId : NaN;
     fact.speed = typeof view.speed === 'number' ? view.speed : NaN; fact.life = typeof view.life === 'number' ? view.life : NaN;

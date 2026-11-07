@@ -1,3 +1,4 @@
+import {sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorAsset,actorDescription,actorNode} from './actor-resources.js';
 import * as THREE from "three";
 import { actorMaterial } from "./materials.js";
@@ -31,7 +32,7 @@ export function buildActor(actor, actorBuf, actorIndexBuf, textureFor, graphics,
     // Animation sets every bone's quaternion every frame; three would also
     // recompute its Euler angles each time (a rotation matrix and atan2s per
     // bone), and nothing reads a bone's Euler rotation.
-    bone.quaternion._onChange(NO_EULER);
+    sceneTransform(bone.quaternion._onChange(NO_EULER));
     byName[desc.name] = bone;
     return bone;
   });
@@ -51,7 +52,7 @@ export function buildActor(actor, actorBuf, actorIndexBuf, textureFor, graphics,
   // inside, prone and dying included. Skinned bounds computed from one pose
   // go stale as the clips play; with culling off, every soldier on the map
   // was drawn in the view, the reflection and all four shadow cascades.
-  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 2.2);
+  sceneProperty(body,"boundingSphere",new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 2.2));
   // ...which also bounds which point lights can reach it (materials.js).
   body.userData.poseSphere = true;
   body.receiveShadow = true;
@@ -70,8 +71,8 @@ export function buildActor(actor, actorBuf, actorIndexBuf, textureFor, graphics,
   // it for distant soldiers.
   const shadow=actorNode(asset,materials[0],true);shadow.userData.actorWhole=true;
   shadow.name = "body-shadow";
-  shadow.boundingSphere = body.boundingSphere;
-  shadow.layers.set(graphics.hiddenLayer ?? 1);
+  sceneProperty(shadow,"boundingSphere",body.boundingSphere);
+  sceneLayer(shadow.layers,"set",graphics.hiddenLayer ?? 1);
   root.add(shadow);
   shadow.bind(skeleton, body.bindMatrix);
   graphics.caster(shadow);

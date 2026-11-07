@@ -1,41 +1,19 @@
-import { EFFECT, EFFECT_INPUTS } from './effect-layout.js';
-import {nativeActorSource} from "../actor-resources.js";
-import {ACTOR} from "./actor-layout.js";
-import { STATIC } from "./static-layout.js";
-import { staticFeatures } from "./geometry-types.js";
-import { ownedWorldProgram } from "./world-programs.js";
-// The far pass (far.rs): the far scene (graphics.farScene, seen from the
-// far camera into graphics.farTarget), drawn by the renderer in place of
-// three's render of it. graphics.js asks the core to cover the far phase
-// first (index.js cover(): three's start of render, the phase, three's end);
-// when this pass drew it all, three doesn't render the far scene. A water's
-// mirror (water.js reflect) asks the same for its far scene (the farMirror
-// phase: the mirror camera, its sky pass and then the rest drawn over it).
-//
-// Each frame (draw(), in the far phase) it walks the far scene as three's
-// projectObject does (what is shown, on the camera's layers) and finds each
-// mesh three would draw among its items, registering one the first time its
-// material has a program (graphics.warmup compiles them at load; else three
-// draws it once first). The far terrain is one item for all its runs. When
-// every mesh three would draw is an item, the renderer clears the target as
-// three would and draws them in three's order (complete); else (a mesh it
-// can't draw yet) it draws nothing and three draws the frame. Nothing is
-// hidden from three: whichever renderer draws each render of the far scene
-// (the eye's, a water mirror's, the sky probe's), the other has it all.
-//
-// A material that reads only the frame's shared values gets a program with
-// the frame block; any other (the water's, which keeps a time of its own) a
-// plain one, all of whose uniforms the page writes each frame. The map's
-// zero materials' own values are fixed at registration; any other
-// material's are written each frame.
-import * as THREE from "three";
-import { compileFor, unbuilt } from "./instances.js";
-import { ownedEffectProgram } from "./effect-material.js";
-import { ownsEffectSource } from "./programs.js";
-import { lighting } from "../materials.js";
-import { VIEW_FAR } from "./index.js";
+import * as THREE from 'three';
+import {Family,Mode,S} from './scene.js';
+import {sceneProperty,sceneTransform} from './scene-changes.js';
+import {ownedEffectProgram} from './effect-material.js';
+import {ownsEffectSource} from './programs.js';
+import {ownedWorldProgram} from './world-programs.js';
+import {VIEW_FAR} from './index.js';
+import {EFFECT,EFFECT_INPUTS} from './effect-layout.js';
+import {nativeActorSource} from '../actor-resources.js';
+import {ACTOR} from './actor-layout.js';
+import {STATIC} from './static-layout.js';
+import {staticFeatures} from './geometry-types.js';
+import {lighting} from '../materials.js';
 
-
+// FarPass retains only numeric descriptors and sparse view placements. Native
+// resource owners retain topology, samplers, raster policy and cell culling.
 // add_program's kinds (web/mod.rs).
 const WORLD = 0, PLAIN = 3;
 // The far input's layout and the uniform sources and item flags (far.rs).
@@ -56,12 +34,6 @@ const IDENTITY = new THREE.Matrix4();
 // The layer a near-scene item the pass draws goes on (no camera renders it:
 // graphics.js uses 1, 2 and 4, sky-probe.js 3, water.js 5; instances.js's
 // flying parts this one too).
-const HIDDEN_LAYER = 30;
-// core.program's policy for a program with the frame block: every uniform it
-// reads besides the block is the far pass's to set (none through the core's
-// table).
-const ANY = { uniforms: { has: () => true }, material: { has: () => false } };
-
 // A uniform's value as the floats three would upload, appended to `out`;
 // false when it isn't one.
 function floatsOf(value, out) {
@@ -111,31 +83,9 @@ class FarPass {
     this.core = core;
     this.name = "far";
     this.phase = "far";
-    this.items = new Map(); // object -> its items (one a material and program)
-    this.all = []; // every item
-    this.tables = new Map(); // Rust program -> its uniform table, or null
-    this.plainPrograms = new Map(); // three's program -> a plain Rust program, or null
-    this.failed = new WeakMap(); // object -> the material it couldn't be an item with
-    // The map's far buckets that share a vertex array (share()): mesh -> {
-    // its layout's key, where its index starts }; layout -> its geometry.
-    this.sharing = null;
-    this.layouts = new Map();
-    this.nextSlot = SLOTS;
-    // This frame's meshes ({ object, material, item }), the first `count`.
-    this.found = [];
-    this.count = 0;
-    this.scratch = [];
-    this.color = new THREE.Color();
-    this.frustum = new THREE.Frustum();
-    this.matrix = new THREE.Matrix4();
-    // Ownership diagnostics: an unclaimed visible far mesh makes the
-    // required phase incomplete.
-    this.complete = false;
-    this.mode = "incomplete";
-    this.unclaimed = 0;
-    // The near scene's items (drawNear): mesh -> its own layers' mask, while
-    // it is hidden from three.
-    this.hidden = new Map();
+    this.tables=new Map();this.scratch=[];
+    this.all=[];this.nextSlot=SLOTS;this.found=[];this.count=0;
+    this.color=new THREE.Color();this.complete=false;this.mode='incomplete';this.unclaimed=0;
     this.nativePending = [];
   }
 
@@ -149,7 +99,7 @@ class FarPass {
     source ??= core.rust.static_source(JSON.stringify(record), vertices, index);
     if (weights.length) core.rust.static_source_weights(source, weights);
     this.nativePending.push({ item, source, tree: Boolean(record.treeCanopies), scale: record.lowResScale || 1, samplers, map, bump });
-    this.all.push(item);
+    this.all.push(item);core.registry.bind(object,Family.FAR,item);
     return item;
   }
 
@@ -160,7 +110,7 @@ class FarPass {
     const slot=this.nextSlot;this.nextSlot+=17+source.values.length;
     const facts=core.rust.effect_water(source.owner.sourceId,source.nativeKind,true,source.sceneFar===false?core.shadowsOn():false,slot,object.id);
     source.center=facts.slice(1,4);source.values.set(facts.subarray?facts.subarray(4):facts.slice(4));
-    const item={id:facts[0],slot,native:true,object,water:source};object.userData.nativeFar=item;this.all.push(item);
+    const item={id:facts[0],slot,native:true,object,water:source};object.userData.nativeFar=item;this.all.push(item);core.registry.bind(object,source.sceneFar===false?Family.SEA:Family.FAR,item);
   }
 
   // StormSky's borrowed environment streams have native geometry/raster
@@ -172,7 +122,7 @@ class FarPass {
     this.nextSlot+=17+source.values.length;this.nextVertex=vertex+capacity*stride;
     const id=core.rust.effect_far_mesh(source.nativeKind,core.shadowsOn(),slot,vertex,object.id);
     const item={id,slot,native:true,object,effect:source,vertex,attributes,capacity,serial:NaN};
-    object.userData.nativeFar=item;this.all.push(item);core.buffer=null;core.views();
+    object.userData.nativeFar=item;this.all.push(item);core.registry.bind(object,Family.FAR,item);core.buffer=null;core.views();
   }
 
   // Flyer resources use a native recipe; only the environment arrays and
@@ -180,7 +130,7 @@ class FarPass {
   admitFlyer(object,source){const core=this.core,slot=this.nextSlot,capacity=Math.min(source.capacity,256);this.nextSlot+=17+ACTOR.FLYER.LEN+capacity*20;
     source.map=core.resources.staticSample(source.map);const texture=source.map==null?-1:core.texture(source.map);
     const id=core.rust.actor_flyer(nativeActorSource(core,source.asset).id,source.flags,source.fading,capacity,texture,slot,object.id,core.shadowsOn());
-    const item={id,slot,native:true,object,flyer:source,capacity};object.userData.nativeFar=item;this.all.push(item);core.buffer=null;core.views();}
+    const item={id,slot,native:true,object,flyer:source,capacity};object.userData.nativeFar=item;this.all.push(item);core.registry.bind(object,Family.FAR,item);core.buffer=null;core.views();}
 
   prepareNative() {
     const core = this.core;
@@ -231,132 +181,19 @@ class FarPass {
     // (registering can move the module's memory).
     const texture = cube?.renderTarget?.texture;
     this.mipmaps=nativeProbe?(nativeProbe.last?1+core.texture(nativeProbe.target.texture):0):texture?.generateMipmaps?1+core.texture(texture):0;
-    if (!this.sharing) this.share(scene);
-    this.walk(scene, camera, 0);
-    this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    for (let i = 0; i < this.count; i++) {
-      const f = this.found[i];
-      if (f.item) continue;
-      if (f.object.frustumCulled && !f.object.isGroup && !this.frustum.intersectsObject(f.object)) continue;
-      this.unclaimed++;
+    const registry=core.registry,count=registry.select(scene,camera,Family.FAR,Mode.FAR);
+    for(let i=0;i<count;i++){core.views();const object=registry.nodes[core.sceneOutput[i*S.STRIDE+S.SLOT]].object,item=object.userData.nativeFar||core.registry.admitIfNew(object).records[Family.FAR];
+      if(!item){core.skip(object,object.material,'far resource has no native descriptor');this.unclaimed++;continue;}
+      const found=this.found[this.count]??={};found.object=object;found.item=item;this.count++;
     }
     const complete = this.unclaimed === 0;
-    if (complete) this.prepare(renderer, scene, camera);
+
+    if(complete)this.prepare(renderer,scene,camera);
     this.write(renderer, complete);
     this.complete = complete;
     this.mode = complete ? "full" : "incomplete";
   }
 
-  // The near phase's part (a mirror's too): the near scene's meshes the pass
-  // draws in three's place, the Enhanced ocean's surface (ocean-surface.js:
-  // its near mesh, which shares its material with the far one), drawn after
-  // the near scene's opaque passes (far.rs draw_near). Registered as any far
-  // item; hidden from three by its layers from the next frame on (three
-  // listed it in this render already: it draws it this once), its own layers
-  // kept and tested against the camera's as three would.
-  // The near ocean shares the far machinery but has the near camera range.
-  // Register it before drawing rather than forcing a native first-use pass.
-  // Its transparent ordering still belongs to the authored scene material.
-  adoptNear(scene, camera) {
-    const sea = this.core.graphics.scene.userData.water?.oceanSurface?.near;
-    if (!sea || this.hidden.has(sea)) return;
-    const native=sea.userData.effectModel;if(native?.family==="ocean"){if(!sea.userData.nativeFar)this.admitWater(sea,native);return;}
-    this.camera = camera;
-    this.scene = scene;
-    this.count = 0;
-    this.find(sea, sea.material, 0);
-    if (!this.found[0].item) this.core.fail(new Error("Unregistered ocean surface"));
-    this.hidden.set(sea, sea.layers.mask);
-    sea.layers.set(HIDDEN_LAYER);
-  }
-
-  drawNear(ctx) {
-    const { renderer, scene, camera } = ctx, core = this.core;
-    this.near = true;
-    this.count = 0;
-    this.unclaimed = 0;
-    this.camera = camera;
-    this.scene = scene;
-    this.mipmaps = 0;
-    const sea = core.graphics.scene.userData.water?.oceanSurface?.near ?? null;
-    let draw = false;
-    if (sea) {
-      const native=sea.userData.effectModel?.family==="ocean";
-      let shown = native || Boolean(sea.material?.visible || ownsEffectSource(sea.material));
-      for (let n = sea; shown && n && n !== scene; n = n.parent) if (!n.visible) shown = false;
-      if (shown && (this.ownLayers(sea) & camera.layers.mask) !== 0) {
-        if(native){if(!sea.userData.nativeFar)this.admitWater(sea,sea.userData.effectModel);const f=this.found[this.count]??={};f.object=sea;f.item=sea.userData.nativeFar;this.count++;}else this.find(sea,sea.material,0);
-        const item = this.found[this.count - 1].item;
-        if (item) {
-          if (!native&&!this.hidden.has(sea)) { this.hidden.set(sea, sea.layers.mask); sea.layers.set(HIDDEN_LAYER); }
-          draw = true;
-        }
-      }
-    }
-    if (draw) this.prepare(renderer, scene, camera);
-    this.write(renderer, draw);
-  }
-
-  // A mesh's own layers' mask (kept while it is hidden).
-  ownLayers(mesh) {
-    return this.hidden.get(mesh) ?? mesh.layers.mask;
-  }
-
-
-  // The far scene as three's projectObject walks it: each mesh it would draw
-  // (shown, on the camera's layers), with its group order; the terrain whole.
-  // Mirror/probe traversal preserves visibility and parent render order.
-  // A resource missed here cannot be silently left to the browser renderer;
-  // validation reports the unsupported object before the frame is submitted.
-  walk(object, camera, groupOrder) {
-    if (object.visible === false) return;
-    if (object.layers.test(camera.layers)) {
-      if (object.isGroup) groupOrder = object.renderOrder;
-      const water=object.userData.effectModel;
-      if(water?.far&&!object.userData.nativeFar)this.admitWater(object,water);
-      if(object.userData.flyerSource&&!object.userData.nativeFar)this.admitFlyer(object,object.userData.flyerSource);
-      if (object.userData.nativeFar) {
-        const f = this.found[this.count] ??= {};
-        f.object = object; f.item = object.userData.nativeFar;
-        this.count++;
-      }
-      if (object.isMesh || object.isLine || object.isPoints || object.isSprite) {
-        const material = object.material;
-        if (Array.isArray(material) ? material.some((m) => m?.visible || ownsEffectSource(m)) : material?.visible || ownsEffectSource(material)) this.find(object, material, groupOrder);
-      }
-    }
-    const children = object.children;
-    for (let i = 0; i < children.length; i++) this.walk(children[i], camera, groupOrder);
-  }
-
-  // Its item for the material and program it has now, registered if it can be.
-  find(object, material, groupOrder) {
-    if (material && !ownsEffectSource(material) && material.userData.bfeFamily !== "world" && !Array.isArray(material) && unbuilt(this.core.renderer, material)) {
-      const mesh = object;
-      compileFor(this.core.renderer, [[mesh, material]], this.camera, this.scene);
-    }
-    const program = ownsEffectSource(material) ? material.userData.bfeProgram : material?.userData?.bfeFamily === "world" ? ownedWorldProgram(this.core, material, this.scene, this.camera) : material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
-    let item = null;
-    for (const i of this.items.get(object) || []) if (i.material === material && i.threeProgram === program) { item = i; break; }
-    if (!item && program && this.failed.get(object) !== material) {
-      // null: never (as it is); undefined: not yet (a texture still loading).
-      item = this.registerItem(object, material, program, groupOrder, this.camera);
-      if (item) { let list = this.items.get(object); if (!list) this.items.set(object, list = []); list.push(item); this.all.push(item); } else if (item === null) this.failed.set(object, material);
-      item ||= null;
-    }
-    // This frame's meshes, in entries kept from frame to frame.
-    const f = this.found[this.count] ??= {};
-    f.object = object; f.material = material; f.item = item;
-    this.count++;
-  }
-
-  // An item for a remaining sky, blended or dynamic far mesh; null
-  // when the renderer can't draw it as three would, undefined when it can't
-  // yet (a texture three hasn't made yet).
-  // Import the material program once, including its actual active uniforms.
-  // Some far shaders consume the shared frame block; others need object/camera
-  // values supplied separately. Keep that distinction instead of zeroing an
-  // unrecognised uniform merely because the object is far from the camera.
   registerItem(object, material, threeProgram, groupOrder, camera) {
     const core = this.core, rust = core.rust, gl = core.gl;
     const mesh = object;
@@ -367,7 +204,7 @@ class FarPass {
     if (Array.isArray(material) || !(material.isShaderMaterial || ownsEffectSource(material) || material.userData?.bfeFamily === "world") || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
     // three draws a two-sided blended material in two passes.
     if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
-    if (mesh.matrixWorld.determinant() < 0) return null;
+    if (sceneTransform(mesh.matrixWorld.determinant()) < 0) return null;
     const geometry = mesh.geometry;
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length) return null;
     // Unindexed (a full-screen triangle, the storm's bolt): drawn through an
@@ -389,14 +226,11 @@ class FarPass {
       const types = { 1: gl.FLOAT, 2: gl.FLOAT_VEC2, 3: gl.FLOAT_VEC3, 4: gl.FLOAT_VEC4, 5: gl.INT, 9: gl.FLOAT_MAT3, 16: gl.FLOAT_MAT4, 32: gl.SAMPLER_2D, 33: gl.SAMPLER_3D, 34: gl.SAMPLER_2D_SHADOW, 35: gl.SAMPLER_CUBE };
       for (const u of program.uniforms) active.push({ name: u.name, type: types[u.type], size: u.size });
     } else {
-      const p = threeProgram.program;
-      if (threeProgram.owned) active.push(...threeProgram.inputs.map(u => ({...u, name:u.name.replace(/\[0\]$/, "")})));
-      for (let i = 0, n = threeProgram.owned ? 0 : gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-        const u = gl.getActiveUniform(p, i);
-        active.push({ name: u.name.replace(/\[0\]$/, ""), type: u.type, size: u.size });
-      }
+      if (!threeProgram.owned) return null;
+      for (const u of threeProgram.inputs) active.push({...u, name:u.name.replace(/\[0\]$/, "")});
       shared = active.every(({ name }) => !FRAME_NAMES.has(name) || name in CAMERA || material.uniforms?.[name] === lighting[name]);
-      program = threeProgram.owned ? threeProgram : shared ? core.program(threeProgram, WORLD, material, ANY) : this.plainProgram(threeProgram);
+      program = threeProgram;
+
     }
     if (!program) return null;
     const own = shared ? active.filter(({ name }) => !FRAME_NAMES.has(name)) : active;
@@ -494,9 +328,8 @@ class FarPass {
     // pass's vertices, and the slot saying they were written anew.
     const rangeAt = unindexed ? at : -1;
     if (unindexed) at += 2;
-    const share = this.sharing?.get(mesh);
     const made = unindexed ? this.unindexedGeometry(geometry, program) : null;
-    const g = share ? this.layoutGeometry(share.key, geometry, program) : made ? made.g
+    const g = made ? made.g
       : core.geometry(geometry, instanced ? { id: program.id, attributes: program.attributes.filter(([name]) => !perInstance(name)) } : program);
     if (g === null || g === undefined) return null;
     const refresh = [];
@@ -519,7 +352,6 @@ class FarPass {
       new Float64Array([groupOrder, object.renderOrder, material.id, mesh.id]), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]), slot);
     for (const [index, kind, floats, from] of sources) rust.far_source(id, index, kind, new Float32Array(floats || []), from);
     for (const i of instances) rust.far_instanced(id, i.location, i.columns, i.rows, i.max, countAt, i.at);
-    if (share) rust.far_base(id, share.base);
     for (const r of refresh) rust.far_refresh(id, r.slot, r.at, r.floats, refreshAt);
     if (unindexed) {
       rust.far_range_input(id, rangeAt);
@@ -530,10 +362,10 @@ class FarPass {
       const index = geometry.index.array;
       rust.far_cells(id, positions, index instanceof Uint32Array ? index : Uint32Array.from(index), 48);
     } else {
-      // Its own index's range (a shared geometry's whole index is others' too).
+      // Preserve each descriptor's authored index range.
       const range = geometry.drawRange, count = geometry.index.count;
       const start = Math.max(0, range.start), end = Math.min(count, range.start + range.count);
-      if (share || start !== 0 || end !== count) rust.far_range(id, start, Math.max(0, end - start));
+      if (start !== 0 || end !== count) rust.far_range(id, start, Math.max(0, end - start));
     }
     this.nextSlot = at;
     // Its hooks that set uniforms (the far water's range), for one whose
@@ -570,114 +402,15 @@ class FarPass {
     return { g, buffers };
   }
 
-  // The map's far buckets (zero materials, their vertices in the world) that
-  // read the same attributes laid out alike share one vertex array: their
-  // vertices in one buffer and their indices in one, each bucket's offset to
-  // its vertices and starting where the last ended (far.rs base), so a row
-  // of them in three's order binds nothing between draws. Made once, for
-  // every bucket with a program when the far pass first draws (warmup made
-  // them); a bucket that comes later keeps a geometry of its own.
-  // Terrain levels and placed meshes may share one backing geometry. Cache
-  // that allocation while retaining each item's independent range and bounds.
-  // Otherwise a camera's last culling result could become another view's base.
-  share(scene) {
-    this.sharing = new Map();
-    const renderer = this.core.renderer, groups = new Map();
-    scene.traverse((o) => {
-      const m = o.material;
-      if (!o.isMesh || o.isInstancedMesh || !m || Array.isArray(m) || !m.name?.startsWith("zero:")) return;
-      if (!("FAR" in m.defines) || !("WORLD_SPACE" in m.defines)) return;
-      const program = renderer.properties.get(m).currentProgram;
-      const key = program && this.layoutKey(o.geometry, program);
-      if (!key) return;
-      let list = groups.get(key);
-      if (!list) groups.set(key, list = []);
-      list.push(o);
-    });
-    for (const [key, list] of groups) {
-      if (list.length < 2) continue;
-      const stride = list[0].geometry.attributes.position.data.stride;
-      let vertices = 0, indices = 0;
-      for (const o of list) { vertices += o.geometry.attributes.position.data.count; indices += o.geometry.index.count; }
-      const vertex = new Float32Array(vertices * stride), index = new Uint32Array(indices);
-      let v = 0, i = 0;
-      for (const o of list) {
-        const data = o.geometry.attributes.position.data, own = o.geometry.index.array;
-        vertex.set(data.array, v * stride);
-        for (let k = 0; k < own.length; k++) index[i + k] = own[k] + v;
-        this.sharing.set(o, { key, base: i });
-        v += data.count;
-        i += own.length;
-      }
-      this.layouts.set(key, { vertex, index, stride, g: null });
-    }
-  }
-
-  // The layout a bucket's program reads its attributes in (each from one
-  // interleaved buffer of floats: name, location, size, offset), or null.
-  layoutKey(geometry, threeProgram) {
-    const gl = this.core.gl, p = threeProgram.program, parts = [];
-    let data = null;
-    if (!(geometry.index?.array instanceof Uint32Array) || geometry.groups.length) return null;
-    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
-      const name = gl.getActiveAttrib(p, i).name, a = geometry.attributes[name];
-      if (!a?.isInterleavedBufferAttribute || !(a.data.array instanceof Float32Array) || (data && a.data !== data)) return null;
-      data = a.data;
-      parts.push(`${name}:${gl.getAttribLocation(p, name)}:${a.itemSize}:${a.offset}:${a.normalized}`);
-    }
-    return data ? `${data.stride}|${parts.sort().join(",")}` : null;
-  }
-
-  // A layout's geometry, made the first time a bucket of it registers.
-  // Attribute layouts belong to the linked program, not just the BufferGeometry.
-  // The same source mesh can be compiled with different active attributes.
-  // A cached VAO is reusable only for the same explicit layout key.
-  layoutGeometry(key, geometry, program) {
-    const layout = this.layouts.get(key), rust = this.core.rust;
-    if (layout.g !== null) return layout.g;
-    const g = rust.add_geometry();
-    const buffer = rust.geometry_buffer(g, new Uint8Array(layout.vertex.buffer));
-    for (const [name, location] of program.attributes) {
-      const a = geometry.attributes[name];
-      rust.geometry_pointer(g, buffer, location, a.itemSize, 0x1406, a.normalized, layout.stride * 4, a.offset * 4);
-    }
-    rust.geometry_index(g, new Uint8Array(layout.index.buffer), 0x1405);
-    layout.g = g;
-    layout.vertex = layout.index = null;
-    return g;
-  }
-
 
   // What a sampler three is given no texture for reads: three's empty
   // texture, one texel of zeros.
   emptyTexture() {
     if (!this.empty) {
       this.empty = new THREE.DataTexture(new Uint8Array(4), 1, 1);
-      this.empty.needsUpdate = true;
+      sceneProperty(this.empty,"needsUpdate",true);
     }
     return this.empty;
-  }
-
-  // A plain program (Kind::Plain) for three's: its GLSL as it is.
-  plainProgram(threeProgram) {
-    let entry = this.plainPrograms.get(threeProgram);
-    if (entry !== undefined) return entry;
-    entry = null;
-    const core = this.core, gl = core.gl, p = threeProgram.program;
-    const attributes = [];
-    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
-      const a = gl.getActiveAttrib(p, i);
-      attributes.push(`${a.name}:${gl.getAttribLocation(p, a.name)}`);
-    }
-    const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
-    try {
-      entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes.join(","), ""),
-        attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }) };
-    } catch (error) {
-      core.fail(error);
-    }
-    this.plainPrograms.set(threeProgram, entry);
-    return entry;
   }
 
   // What this frame's items read that can register anything (and so grow
@@ -708,6 +441,33 @@ class FarPass {
     }
   }
 
+
+  // Cold descriptor admission is shared by mirror/probe/main queries. No
+  // camera walk, hidden-layer rewrite or browser compiler discovers resources.
+  admitAnchor(object){
+    if(object.userData.nativeFar)return;
+    if(object.isMesh&&(ownsEffectSource(object.material)||object.material?.userData?.bfeFamily==="world")){
+      const known=this.core.registry.admitIfNew(object);if(!(known.scope&Family.FAR)||known.records[Family.FAR])return;
+      let group=known.parent;while(group&&!group.object.isGroup)group=group.parent;
+      const g=this.core.graphics,program=object.material.userData.bfeFamily==="world"?ownedWorldProgram(this.core,object.material,g.farScene,g.farCamera):null;
+      const item=this.registerItem(object,object.material,program,group?.object.renderOrder||0,g.farCamera);
+      if(item){this.all.push(item);this.core.registry.bind(object,Family.FAR,item);}return;
+    }
+    const source=object.userData.effectModel;
+    if(source?.far){if(source.family==='water'||source.family==='ocean')this.admitWater(object,source);else this.admitEffect(object,source);}
+    else if(source?.family==='ocean')this.admitWater(object,source);
+    else if(object.userData.flyerSource)this.admitFlyer(object,object.userData.flyerSource);
+  }
+  adoptNear(){const sea=this.core.graphics.scene.userData.water?.oceanSurface?.near;if(sea)this.admitAnchor(sea);}
+  drawNear(ctx){
+    const {renderer,scene,camera}=ctx,core=this.core;this.near=true;this.count=0;this.camera=camera;this.scene=scene;this.mipmaps=0;
+    const count=core.registry.select(scene,camera,Family.SEA,Mode.SEA);
+    for(let i=0;i<count;i++){core.views();const object=core.registry.nodes[core.sceneOutput[i*S.STRIDE+S.SLOT]].object;
+      const found=this.found[this.count]??={};found.object=object;found.item=object.userData.nativeFar||core.registry.admitIfNew(object).records[Family.FAR];this.count++;
+    }
+    this.write(renderer,this.count>0);
+  }
+
   // This frame's input: whether the renderer draws, the clear colour, then
   // each item's slots.
   // Write current values into the registered sources, preserving sampler ids.
@@ -730,7 +490,7 @@ class FarPass {
     const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
     input[CLEAR] = this.color.r * pre; input[CLEAR + 1] = this.color.g * pre; input[CLEAR + 2] = this.color.b * pre; input[CLEAR + 3] = alpha;
     for (const item of this.all) input[item.slot] = 0;
-    const floats = this.scratch;
+    const floats=this.scratch;
     for (let i = 0; i < this.count; i++) {
       const item = this.found[i].item;
       if (!item) continue;
@@ -775,6 +535,7 @@ class FarPass {
       }
     }
   }
+
 
   // A texture's new contents, uploaded as three would before a draw.
   upload(texture) {

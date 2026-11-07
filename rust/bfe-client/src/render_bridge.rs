@@ -377,8 +377,8 @@ pub fn foliage_selected(&mut self, class: u32) -> u32 { self.r.foliage.selected(
 pub fn frame_lines_publish_frame(&mut self, view: u32, count: u32)  { if let Some(row)=self.r.frames.line_counts.get_mut(view as usize){*row=(count as usize).min(bfe_render::frame_plan::layout::limit::LINES);} }
 pub fn frame_reserve_frame(&mut self)  { self.r.frame_reserve(); }
 pub fn frame_shadow_reserve_frame(&mut self)  { self.r.frame_shadow_reserve(); }
-pub fn frame_ui_slot_frame(&mut self, role: u32)  { self.r.frames.ui_role=role as usize; }
-pub fn frame_overflow_frame(&mut self)  { self.r.frames.mark_overflow(); }
+pub fn frame_ui_slot_frame(&mut self, role: u32)  { self.r.frame_ui_slot(role as usize); }
+pub fn frame_overflow_frame(&mut self)  { self.r.frame_overflow(); }
 pub fn frame_begin_frame(&mut self)  { self.r.frame_begin(); }
 pub fn frame_select_frame(&mut self)  { self.r.frames.plan.select(); }
 pub fn frame_plan_frame(&mut self)  { self.r.frames.plan.select();self.r.frames.plan.plan(); }
@@ -387,7 +387,7 @@ pub fn frame_admit_interface_frame(&mut self, role: u32)  { self.r.frame_admit_i
 pub fn battle_frame(&mut self, resources: &mut GpuResources) -> bool { match self.r.battle_frame(resources) {Ok(())=>true,Err(error)=>{self.r.core.fault=Some(error);false}} }
 pub fn frame_aux_frame(&mut self, resources: &mut GpuResources, role: u32) -> bool { match self.r.frame_aux(resources,role as usize){Ok(())=>true,Err(error)=>{self.r.core.fault=Some(error);false}} }
 pub fn frame_error_frame(&mut self) -> Option<String> { self.r.core.fault.take() }
-pub fn frame_cancel_frame(&mut self)  { self.r.frames.collecting=false;self.r.post_chain.invalidate(); }
+pub fn frame_cancel_frame(&mut self)  { self.r.frame_cancel(); }
 pub fn hud_init(&mut self, index: &[u32])  { self.r.hud.init(&mut self.r.core, index) }
 pub fn hud_model_text(&mut self, text: &str, uppercase: bool) -> u32 { self.hud_model.add_text(text, uppercase) }
 pub fn hud_model_asset(&mut self, id: u32, texture: i32, width: f64, height: f64, ready: bool)  { if let Some(asset) = self.hud_model.assets.get_mut(id as usize) {
@@ -519,6 +519,19 @@ pub fn motion_extra(&mut self, program: u32, geometry: u32, max: u32, layout: &[
 pub fn post_target(&mut self, texture: u32) -> u32 { self.r.post.add_target(&mut self.r.core, texture) }
 pub fn post_chain_begin_frame(&mut self)  { self.r.post_chain.begin(); }
 pub fn post_chain_plan_frame(&mut self) -> u32 { self.r.post_chain.plan(&mut self.r.post.input) as u32 }
+pub fn scene_canopy_reserve(&mut self, count: u32, generation: u32)  { self.r.scene.canopies.reserve(count as usize,generation); }
+pub fn scene_canopy_select(&mut self) -> u32 { self.r.scene.canopies.select() as u32 }
+pub fn scene_reserve(&mut self, count: u32)  { self.r.scene.reserve(count as usize); }
+pub fn scene_groups_reserve(&mut self, count: u32)  { self.r.scene.reserve_groups(count as usize); }
+pub fn scene_queries(&mut self) -> u32 { self.r.scene.queries.min(u32::MAX as u64) as u32 }
+pub fn scene_select(&mut self, changes: u32, groups: u32, worlds: u32) -> u32 { self.r.scene.apply_worlds(worlds as usize);self.r.scene.apply(changes as usize);self.r.scene.apply_groups(groups as usize);
+        self.r.scene.select() as u32 }
+pub fn scene_visibility_visits(&mut self) -> u32 { self.r.scene.visibility_visits.min(u32::MAX as u64) as u32 }
+pub fn scene_drawable_visits(&mut self) -> u32 { self.r.scene.drawable_visits.min(u32::MAX as u64) as u32 }
+pub fn scene_visibility_builds(&mut self) -> u32 { self.r.scene.visibility_builds.min(u32::MAX as u64) as u32 }
+pub fn scene_bounds_updates(&mut self) -> u32 { self.r.scene.bounds_updates.min(u32::MAX as u64) as u32 }
+pub fn scene_rejected(&mut self) -> u32 { self.r.scene.rejected.min(u32::MAX as u64) as u32 }
+pub fn scene_clipped(&mut self) -> u32 { self.r.scene.clipped.min(u32::MAX as u64) as u32 }
 pub fn geometry_buffer_data(&mut self, g: u32, slot: u32, data: &[u8])  { self.r.core.geometry_buffer_data(g, slot, data) }
 pub fn geometry_index_data(&mut self, g: u32, data: &[u8])  { self.r.core.geometry_index_data(g, data) }
 pub fn geometry_buffer_sub_data(&mut self, g: u32, slot: u32, offset: i32, data: &[u8])  { self.r.core.geometry_buffer_sub_data(g, slot, offset, data) }
@@ -643,6 +656,20 @@ match name {
 "post_states" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.post.states)),
 "post_chain_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.post_chain.input)),
 "post_chain_state" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.post_chain.state)),
+"scene_canopy_bounds" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.canopies.bounds)),
+"scene_canopy_view" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.canopies.view)),
+"scene_canopy_output" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.canopies.output)),
+"scene_canopy_states" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.scene.canopies.states)),
+"scene_groups" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.group_changes)),
+"scene_changes" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.changes)),
+"scene_view" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.view)),
+"scene_motion_events" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.motion_events)),
+"scene_lines" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.line_output)),
+"scene_output" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.output)),
+"scene_order" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.scene_order)),
+"scene_visible" => Ok(crate::session::bytes_mut::<u32>(&mut self.r.scene.visible)),
+"scene_facts" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.facts)),
+"scene_world_changes" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.scene.world_changes)),
 "static_shadow_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.shadow.static_view)),
 "caster_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.shadow.input)),
 "transparent_keys" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.transparent.keys)),
@@ -806,6 +833,18 @@ motion_extra(u32,u32,u32,Vec<u32>),
 post_target(u32),
 post_chain_begin_frame,
 post_chain_plan_frame,
+scene_canopy_reserve(u32,u32),
+scene_canopy_select,
+scene_reserve(u32),
+scene_groups_reserve(u32),
+scene_queries,
+scene_select(u32,u32,u32),
+scene_visibility_visits,
+scene_drawable_visits,
+scene_visibility_builds,
+scene_bounds_updates,
+scene_rejected,
+scene_clipped,
 geometry_buffer_data(u32,u32,Vec<u8>),
 geometry_index_data(u32,Vec<u8>),
 geometry_buffer_sub_data(u32,u32,i32,Vec<u8>),
@@ -995,6 +1034,18 @@ Ok(match name {
 "post_target" => Self::post_target(a.u32(0)?),
 "post_chain_begin_frame" => Self::post_chain_begin_frame,
 "post_chain_plan_frame" => Self::post_chain_plan_frame,
+"scene_canopy_reserve" => Self::scene_canopy_reserve(a.u32(0)?,a.u32(1)?),
+"scene_canopy_select" => Self::scene_canopy_select,
+"scene_reserve" => Self::scene_reserve(a.u32(0)?),
+"scene_groups_reserve" => Self::scene_groups_reserve(a.u32(0)?),
+"scene_queries" => Self::scene_queries,
+"scene_select" => Self::scene_select(a.u32(0)?,a.u32(1)?,a.u32(2)?),
+"scene_visibility_visits" => Self::scene_visibility_visits,
+"scene_drawable_visits" => Self::scene_drawable_visits,
+"scene_visibility_builds" => Self::scene_visibility_builds,
+"scene_bounds_updates" => Self::scene_bounds_updates,
+"scene_rejected" => Self::scene_rejected,
+"scene_clipped" => Self::scene_clipped,
 "geometry_buffer_data" => Self::geometry_buffer_data(a.u32(0)?,a.u32(1)?,a.u8s(2)?),
 "geometry_index_data" => Self::geometry_index_data(a.u32(0)?,a.u8s(1)?),
 "geometry_buffer_sub_data" => Self::geometry_buffer_sub_data(a.u32(0)?,a.u32(1)?,a.i32(2)?,a.u8s(3)?),
@@ -1036,7 +1087,7 @@ _ => return Err(format!("unknown renderer command {name}")),
 })
 }
 pub fn is_per_pass(name:&str)->bool {matches!(name,"interface_frame")}
-pub fn is_known(name:&str)->bool {matches!(name,"actor_flyer"|"actor_flyer_motion"|"actor_source"|"actor_source_facts"|"actor_source_crowd"|"actor_source_crowd_add"|"actor_crowd_frame"|"actor_geometry"|"actor_effect"|"actor_motion"|"actor_skin_release"|"actor_skin_words"|"actor_skin"|"actor_skin_offset"|"actor_skin_slot"|"actor_skins_frame"|"actor_depth"|"actor_depth_frame"|"actor_material"|"actor_settings"|"camera_pack_acquire_frame"|"camera_pack_release_frame"|"camera_acquire_frame"|"camera_release_frame"|"camera_import_frame"|"camera_clipped"|"camera_evicted"|"camera_pack_evicted"|"camera_pack_rejected"|"camera_shader_frame"|"camera_pack_shader_frame"|"camera_shadow_shader_frame"|"camera_static_shadow_frame"|"camera_project_frame"|"camera_light_command_frame"|"camera_global_shader_frame"|"camera_main_frame"|"camera_derived_frame"|"camera_copy_frame"|"camera_shift_frame"|"camera_restore_frame"|"camera_reflect_frame"|"camera_probe_frame"|"camera_sky_frame"|"camera_lights_frame"|"camera_shadow_configure_frame"|"camera_cascades_frame"|"camera_shadow_frame"|"camera_invalidate_frame"|"canopies_mesh"|"resource_diagnostics"|"effect_batch"|"effect_fixed"|"effect_multiplier"|"effect_mesh"|"effect_basin"|"effect_far_mesh"|"fx_clipped"|"fx_reserve"|"fx_add_owner"|"fx_add_batch"|"fx_batch_texture"|"fx_batch_values"|"fx_batch_interleaved"|"fx_batch_side"|"fx_batch_depth"|"fx_batch_sampler"|"fx_batch_sampler_3d"|"fx_batch_base"|"fx_add_mesh"|"fx_mesh_pass"|"fx_mesh_texture"|"fx_add_model"|"fx_model_pass"|"fx_model_texture"|"fx_model_sampler"|"effect_settings"|"far_table"|"far_item"|"far_source"|"far_range"|"far_base"|"far_instanced"|"far_cells"|"far_terrain"|"far_items"|"far_range_input"|"far_refresh"|"foliage_class"|"foliage_clear_frame"|"foliage_frame"|"foliage_selected"|"frame_lines_publish_frame"|"frame_reserve_frame"|"frame_shadow_reserve_frame"|"frame_ui_slot_frame"|"frame_overflow_frame"|"frame_begin_frame"|"frame_select_frame"|"frame_plan_frame"|"frame_publish_frame"|"frame_admit_interface_frame"|"battle_frame"|"frame_aux_frame"|"frame_error_frame"|"frame_cancel_frame"|"hud_init"|"hud_model_text"|"hud_model_asset"|"hud_model_font"|"hud_model_event"|"hud_model_observe"|"hud_model_update"|"hud_model_build"|"hud_descriptor_init"|"hud_appearance"|"hud_resources_frame"|"records_at"|"record_stride"|"inst_add_blend"|"interface_buffer_init"|"interface_upload_frame"|"ui_appearance"|"ui_resources_frame"|"line_clipped"|"line_source"|"line_frame"|"set_shadow_maps"|"add_texture"|"replace_sample_texture"|"set_far_map"|"add_program"|"add_program_lamps"|"set_lamps"|"add_owned_program"|"add_geometry"|"geometry_buffer"|"geometry_pointer"|"geometry_index"|"geometry_group"|"geometry_primitive"|"motion_record_stride"|"motion_records_at"|"motion_extra"|"post_target"|"post_chain_begin_frame"|"post_chain_plan_frame"|"geometry_buffer_data"|"geometry_index_data"|"geometry_buffer_sub_data"|"geometry_index_sub_data"|"static_depth_add"|"static_depth_replace"|"static_depth_finish"|"static_depth_clipped"|"static_terrain_layers"|"static_source"|"static_source_weights"|"static_world"|"static_world_settings"|"transparent_bucket"|"transparent_bucket_pass"|"transparent_bucket_texture"|"transparent_bucket_uniform"|"transparent_object_stride"|"transparent_object"|"transparent_object_pass"|"transparent_object_texture"|"water_surface"|"water_rings"|"water_set"|"water_instanced"|"water_source"|"water_values"|"effect_water"|"world_uses_lamps"|"add_world"|"world_texture"|"world_uniform"|"world_cells"|"sort"|"world_runs"|"world_shown"|"world_lamps")}
+pub fn is_known(name:&str)->bool {matches!(name,"actor_flyer"|"actor_flyer_motion"|"actor_source"|"actor_source_facts"|"actor_source_crowd"|"actor_source_crowd_add"|"actor_crowd_frame"|"actor_geometry"|"actor_effect"|"actor_motion"|"actor_skin_release"|"actor_skin_words"|"actor_skin"|"actor_skin_offset"|"actor_skin_slot"|"actor_skins_frame"|"actor_depth"|"actor_depth_frame"|"actor_material"|"actor_settings"|"camera_pack_acquire_frame"|"camera_pack_release_frame"|"camera_acquire_frame"|"camera_release_frame"|"camera_import_frame"|"camera_clipped"|"camera_evicted"|"camera_pack_evicted"|"camera_pack_rejected"|"camera_shader_frame"|"camera_pack_shader_frame"|"camera_shadow_shader_frame"|"camera_static_shadow_frame"|"camera_project_frame"|"camera_light_command_frame"|"camera_global_shader_frame"|"camera_main_frame"|"camera_derived_frame"|"camera_copy_frame"|"camera_shift_frame"|"camera_restore_frame"|"camera_reflect_frame"|"camera_probe_frame"|"camera_sky_frame"|"camera_lights_frame"|"camera_shadow_configure_frame"|"camera_cascades_frame"|"camera_shadow_frame"|"camera_invalidate_frame"|"canopies_mesh"|"resource_diagnostics"|"effect_batch"|"effect_fixed"|"effect_multiplier"|"effect_mesh"|"effect_basin"|"effect_far_mesh"|"fx_clipped"|"fx_reserve"|"fx_add_owner"|"fx_add_batch"|"fx_batch_texture"|"fx_batch_values"|"fx_batch_interleaved"|"fx_batch_side"|"fx_batch_depth"|"fx_batch_sampler"|"fx_batch_sampler_3d"|"fx_batch_base"|"fx_add_mesh"|"fx_mesh_pass"|"fx_mesh_texture"|"fx_add_model"|"fx_model_pass"|"fx_model_texture"|"fx_model_sampler"|"effect_settings"|"far_table"|"far_item"|"far_source"|"far_range"|"far_base"|"far_instanced"|"far_cells"|"far_terrain"|"far_items"|"far_range_input"|"far_refresh"|"foliage_class"|"foliage_clear_frame"|"foliage_frame"|"foliage_selected"|"frame_lines_publish_frame"|"frame_reserve_frame"|"frame_shadow_reserve_frame"|"frame_ui_slot_frame"|"frame_overflow_frame"|"frame_begin_frame"|"frame_select_frame"|"frame_plan_frame"|"frame_publish_frame"|"frame_admit_interface_frame"|"battle_frame"|"frame_aux_frame"|"frame_error_frame"|"frame_cancel_frame"|"hud_init"|"hud_model_text"|"hud_model_asset"|"hud_model_font"|"hud_model_event"|"hud_model_observe"|"hud_model_update"|"hud_model_build"|"hud_descriptor_init"|"hud_appearance"|"hud_resources_frame"|"records_at"|"record_stride"|"inst_add_blend"|"interface_buffer_init"|"interface_upload_frame"|"ui_appearance"|"ui_resources_frame"|"line_clipped"|"line_source"|"line_frame"|"set_shadow_maps"|"add_texture"|"replace_sample_texture"|"set_far_map"|"add_program"|"add_program_lamps"|"set_lamps"|"add_owned_program"|"add_geometry"|"geometry_buffer"|"geometry_pointer"|"geometry_index"|"geometry_group"|"geometry_primitive"|"motion_record_stride"|"motion_records_at"|"motion_extra"|"post_target"|"post_chain_begin_frame"|"post_chain_plan_frame"|"scene_canopy_reserve"|"scene_canopy_select"|"scene_reserve"|"scene_groups_reserve"|"scene_queries"|"scene_select"|"scene_visibility_visits"|"scene_drawable_visits"|"scene_visibility_builds"|"scene_bounds_updates"|"scene_rejected"|"scene_clipped"|"geometry_buffer_data"|"geometry_index_data"|"geometry_buffer_sub_data"|"geometry_index_sub_data"|"static_depth_add"|"static_depth_replace"|"static_depth_finish"|"static_depth_clipped"|"static_terrain_layers"|"static_source"|"static_source_weights"|"static_world"|"static_world_settings"|"transparent_bucket"|"transparent_bucket_pass"|"transparent_bucket_texture"|"transparent_bucket_uniform"|"transparent_object_stride"|"transparent_object"|"transparent_object_pass"|"transparent_object_texture"|"water_surface"|"water_rings"|"water_set"|"water_instanced"|"water_source"|"water_values"|"effect_water"|"world_uses_lamps"|"add_world"|"world_texture"|"world_uniform"|"world_cells"|"sort"|"world_runs"|"world_shown"|"world_lamps")}
 pub fn execute(&mut self, host: &mut Bridge, resource_bank: &mut [Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
 match self {
 Self::actor_flyer(source,flags,fading,capacity,texture,slot,object,shadows) => { let _=host.actor_flyer(*source,*flags,*fading,*capacity,*texture,*slot,*object,*shadows)?; },
@@ -1186,6 +1237,18 @@ Self::motion_extra(program,geometry,max,layout) => { let _=host.motion_extra(*pr
 Self::post_target(texture) => { let _=host.post_target(*texture); },
 Self::post_chain_begin_frame => { let _=host.post_chain_begin_frame(); },
 Self::post_chain_plan_frame => { let _=host.post_chain_plan_frame(); },
+Self::scene_canopy_reserve(count,generation) => { let _=host.scene_canopy_reserve(*count,*generation); },
+Self::scene_canopy_select => { let _=host.scene_canopy_select(); },
+Self::scene_reserve(count) => { let _=host.scene_reserve(*count); },
+Self::scene_groups_reserve(count) => { let _=host.scene_groups_reserve(*count); },
+Self::scene_queries => { let _=host.scene_queries(); },
+Self::scene_select(changes,groups,worlds) => { let _=host.scene_select(*changes,*groups,*worlds); },
+Self::scene_visibility_visits => { let _=host.scene_visibility_visits(); },
+Self::scene_drawable_visits => { let _=host.scene_drawable_visits(); },
+Self::scene_visibility_builds => { let _=host.scene_visibility_builds(); },
+Self::scene_bounds_updates => { let _=host.scene_bounds_updates(); },
+Self::scene_rejected => { let _=host.scene_rejected(); },
+Self::scene_clipped => { let _=host.scene_clipped(); },
 Self::geometry_buffer_data(g,slot,data) => { let _=host.geometry_buffer_data(*g,*slot,data); },
 Self::geometry_index_data(g,data) => { let _=host.geometry_index_data(*g,data); },
 Self::geometry_buffer_sub_data(g,slot,offset,data) => { let _=host.geometry_buffer_sub_data(*g,*slot,*offset,data); },

@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
 // Command vehicles as command posts, as the 2004 game makes them
@@ -67,10 +68,10 @@ const scratch = { local: new THREE.Vector3(), from: new THREE.Vector3(), directi
 // The world point of a class spawn point on a vehicle now: [x, y, z, yaw].
 export function commandSpawnPoint(vehicle, point, collision = vehicle?.system?.collision) {
   const { local, from, direction, hit } = scratch;
-  local.set(point[0], point[1], point[2]).applyMatrix4(vehicle.matrix);
+  sceneTransform(local.set(point[0], point[1], point[2]).applyMatrix4(vehicle.matrix));
   const yaw = vehicle.yaw + (point[3] ?? 0) * DEG;
   // Back toward the hull's collision centre to the first static surface.
-  from.copy(vehicle.center).applyMatrix4(vehicle.matrix);
+  sceneTransform(from.copy(vehicle.center).applyMatrix4(vehicle.matrix));
   direction.subVectors(local, from);
   const span = direction.length();
   if (collision && span > 1e-6) {

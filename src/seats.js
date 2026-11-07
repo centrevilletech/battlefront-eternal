@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 
 import { makeUnitHit } from "./registry.js";
 
@@ -197,13 +198,13 @@ export function dropBody(unit, position, mount = null) {
   const s = unit.soldier;
   if (!s?.position) return;
   s.passThrough = mount;
-  s.position.copy(position);
+  sceneTransform(s.position.copy(position));
   s.previous?.copy(position);
   s.settled?.copy(position);
   s.velocity?.set(0, 0, 0);
   s.grounded = false;
   unit.presentation?.reset?.();
-  unit.actor?.root?.position?.copy?.(position);
+  sceneTransform(unit.actor?.root?.position?.copy?.(position));
   if (unit.tickCount !== undefined) unit.tickCount += 1;
 }
 
@@ -244,7 +245,7 @@ export function unseatBody(unit) {
   // A seat turned the body with its node (the hull's heading, a reclined
   // seat's lean, an animal's tilt); out of it, every way out (a destroyed
   // hull's crew included), it stands upright, facing its aim.
-  unit.actor?.root?.rotation?.set?.(0, unit.soldier?.aimYaw ?? 0, 0);
+  sceneTransform(unit.actor?.root?.rotation?.set?.(0, unit.soldier?.aimYaw ?? 0, 0));
 }
 
 const scratchCenter = new THREE.Vector3();
@@ -577,7 +578,7 @@ export function turretOrigin(turret, out) {
     turret.rig?.root?.updateMatrixWorld?.(true);
     return node.getWorldPosition(out);
   }
-  return out.set(0, 1.65, 0.32).applyMatrix4(turret.matrix);
+  return sceneTransform(out.set(0, 1.65, 0.32).applyMatrix4(turret.matrix));
 }
 
 // The point a person's aim at a turret meets (the original game's player aim

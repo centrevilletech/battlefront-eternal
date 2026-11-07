@@ -1,3 +1,4 @@
+import {sceneProperty} from "../rust-render/scene-changes.js";
 import {interfaceBasic} from '../rust-render/interface-material.js';
 import {rendererModule} from '../rust-render/load.js';
 import * as THREE from "three";
@@ -32,7 +33,7 @@ export function commonModel(pack, name, texture) {
   });
   group.name = String(name);
   group.userData.materials = materials;
-  group.userData.material = materials[0] || null;
+  sceneProperty(group.userData,"material",materials[0] || null);
   return group;
 }
 

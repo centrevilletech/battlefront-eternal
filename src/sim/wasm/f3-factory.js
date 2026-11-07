@@ -1,3 +1,4 @@
+import {sceneTransform} from '../../rust-render/scene-changes.js';
 import { KIND_UNIT, KIND_CHARACTER, F3ColdStageMirror, F3ColdStageLayout, putF3ColdStage,
   F3PlayerBindingMirror, F3PlayerBindingLayout, putF3PlayerBinding,
   F3PlayerSpawnMirror, F3PlayerSpawnLayout, putF3PlayerSpawn } from '../gen/index.js';
@@ -85,7 +86,7 @@ export class F3Factory {
     const p = this.phase, row = this.spawn;
     if (p.active) throw Error('external player spawn inside the owned phase');
     row.character = character;row.previous = previous;row.className = className;
-    row.position.copy(position);row.yaw = yaw;row.local = local;
+    sceneTransform(row.position.copy(position));row.yaw = yaw;row.local = local;
     p.bridge.callArgs(this.spawnArgs,row);
     const slot = p.x.f3_factory_player_spawn();
     p.counters.wasmCalls++;p.counters.lifecycleCalls++;p.counters.inputFields += this.spawnArgs.words;

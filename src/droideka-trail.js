@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
@@ -55,9 +56,9 @@ export class DroidekaTrail {
     this.streams=Object.values(this.arrays);
     this.mesh = new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = "droideka-rolling-dust";
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 9;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",9);
+    sceneProperty(this.mesh,"visible",false);
     this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
     droidekaTrails.set(this.mesh, this);
     scene.add(this.mesh);
@@ -78,7 +79,7 @@ export class DroidekaTrail {
 
   clear() {
     this.count = this.carry = 0;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"visible",false);
   }
 
   update(dt, soldier, { dead = soldier.dead, position = soldier.position } = {}) {
@@ -138,7 +139,7 @@ export class DroidekaTrail {
         array[to + 2] = this.records[from + 2]; array[to + 3] = this.records[from + 3];
       }
     }
-    this.mesh.visible = this.count > 0 && !this.external;
+    sceneProperty(this.mesh,"visible",this.count > 0);
   }
 
   dispose() {

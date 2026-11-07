@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import {actorPoint,actorPointCount,actorJoint} from './actor-resources.js';
 import * as THREE from "three";
 import {registerBody,spawnDroideka} from "./presentation/body.js";
@@ -112,11 +113,11 @@ export class Droideka {
       const asset=body.userData.actorAsset;
       const toBone = new THREE.Matrix4().multiplyMatrices(body.skeleton.boneInverses[index], body.bindMatrix);
       const points = [];
-      for(let i=0;i<actorPointCount(asset);i++)if(actorJoint(asset,i)===index)points.push(actorPoint(asset,i,new THREE.Vector3()).applyMatrix4(toBone));
+      for(let i=0;i<actorPointCount(asset);i++)if(actorJoint(asset,i)===index)points.push(sceneTransform(actorPoint(asset,i,new THREE.Vector3()).applyMatrix4(toBone)));
       const tips = barrelTips(points, "x", 1, "z");
       return tips.length ? tips.map((point, i) => {
         const muzzle = new THREE.Object3D(); muzzle.name = `${gun.name}_barrel_${i}`;
-        muzzle.position.copy(point); bone.add(muzzle); return muzzle;
+        sceneTransform(muzzle.position.copy(point)); bone.add(muzzle); return muzzle;
       }) : [gun];
     });
     // Collision muzzles use a small, independent skeleton. Render LOD and
@@ -153,7 +154,7 @@ export class Droideka {
 
   sampleMuzzles(dt) {
     if (!this.muzzleActor) return;
-    this.muzzleActor.root.position.copy(this.position);
+    sceneTransform(this.muzzleActor.root.position.copy(this.position));
     this.muzzleAnimator.update(dt, this);
     this.muzzleActor.root.updateMatrixWorld(true);
   }
@@ -249,7 +250,7 @@ export class DroidekaAnimator {
       const count=actorPointCount(actor.body.userData.actorAsset);
       const points = [];
       for (let i = 0; i < count; i++) {
-        actor.body.getVertexPosition(i, vertex).applyMatrix4(toParent);
+        sceneTransform(actor.body.getVertexPosition(i, vertex).applyMatrix4(toParent));
         bounds.expandByPoint(vertex);
         points.push(vertex.clone());
       }
@@ -269,7 +270,7 @@ export class DroidekaAnimator {
         for (const p of points) radius = Math.max(radius, Math.hypot(p.y - this.pivot.y, p.z - this.pivot.z));
         this.rollCenter.y = Math.max(droideka.ballRadius, radius);
       }
-      actor.bones.forEach((bone, i) => { bone.quaternion.copy(this.bind[i].q); bone.position.copy(this.bind[i].p); });
+      actor.bones.forEach((bone, i) => { sceneTransform(bone.quaternion.copy(this.bind[i].q)); sceneTransform(bone.position.copy(this.bind[i].p)); });
       this.pose.clear();
       actor.root.updateMatrixWorld(true);
     }
@@ -319,8 +320,8 @@ export class DroidekaAnimator {
     for (let i = 0; i < this.actor.bones.length; i++) {
       if (pose.w[i] > 1e-6) continue;
       const bone = this.actor.bones[i];
-      bone.quaternion.copy(this.bind[i].q);
-      bone.position.copy(this.bind[i].p);
+      sceneTransform(bone.quaternion.copy(this.bind[i].q));
+      sceneTransform(bone.position.copy(this.bind[i].p));
     }
     pose.apply(this.actor.bones);
     // The legs trail the body: DummyRoot turned by the lag, the spine
@@ -329,14 +330,14 @@ export class DroidekaAnimator {
       ? THREE.MathUtils.smoothstep(d.time / Math.max(d.length(), 1e-3), 0.35, 1)
       : mode === UNFOLD ? 1 - THREE.MathUtils.smoothstep(d.time / Math.max(d.length(), 1e-3), 0, 0.3) : 0;
     const lag = d.legs * (1 - folded);
-    if (this.root >= 0) this.actor.bones[this.root].quaternion.premultiply(this.q.setFromAxisAngle(UP, lag));
-    for (const i of this.spine) this.actor.bones[i].quaternion.multiply(this.q.setFromAxisAngle(this.axisX, -lag / 3));
+    if (this.root >= 0) sceneTransform(this.actor.bones[this.root].quaternion.premultiply(this.q.setFromAxisAngle(UP, lag)));
+    for (const i of this.spine) sceneTransform(this.actor.bones[i].quaternion.multiply(this.q.setFromAxisAngle(this.axisX, -lag / 3)));
     // The blasters and head follow vertical aim together; feet keep the
     // walking pose. Fade the correction at the folding clip boundaries.
     const aiming = d.dead || mode === BALL ? 0 : mode === FOLD
       ? 1 - THREE.MathUtils.smoothstep(d.time / Math.max(d.length(), 1e-3), 0, 0.25)
       : mode === UNFOLD ? THREE.MathUtils.smoothstep(d.time / Math.max(d.length(), 1e-3), 0.7, 1) : 1;
-    if (this.spine.length && aiming) this.actor.bones[this.spine[0]].quaternion.premultiply(this.q.setFromAxisAngle(this.axisX, -d.aimPitch * aiming));
+    if (this.spine.length && aiming) sceneTransform(this.actor.bones[this.spine[0]].quaternion.premultiply(this.q.setFromAxisAngle(this.axisX, -d.aimPitch * aiming)));
     if (this.ball >= 0 && mode >= FOLD) {
       const ball = this.actor.bones[this.ball];
       // Bring the folded shell above the contact point gradually, so the
@@ -345,23 +346,23 @@ export class DroidekaAnimator {
       if (mode === BALL) {
         this.spinRotation.setFromAxisAngle(this.axisZ, d.lean)
           .multiply(this.q.setFromAxisAngle(this.axisX, d.roll - this.rollOrigin));
-        ball.position.sub(this.pivot).applyQuaternion(this.spinRotation).add(this.pivot);
-        ball.quaternion.premultiply(this.spinRotation);
+        sceneTransform(sceneTransform(ball.position.sub(this.pivot)).applyQuaternion(this.spinRotation)).add(this.pivot);
+        sceneTransform(ball.quaternion.premultiply(this.spinRotation));
       }
-      ball.position.add(this.offset);
+      sceneTransform(ball.position.add(this.offset));
     }
     if (this.transition > 0) {
       this.transition = Math.max(0, this.transition - dt);
       const blend = THREE.MathUtils.smoothstep(1 - this.transition / 0.16, 0, 1);
       this.actor.bones.forEach((bone, i) => {
-        bone.quaternion.slerpQuaternions(this.from[i].q, bone.quaternion, blend);
-        bone.position.lerpVectors(this.from[i].p, bone.position, blend);
+        sceneTransform(bone.quaternion.slerpQuaternions(this.from[i].q, bone.quaternion, blend));
+        sceneTransform(bone.position.lerpVectors(this.from[i].p, bone.position, blend));
       });
     }
     this.facing = d.aimYaw;
     this.legs = d.legs;
     const root = this.actor.root;
-    root.rotation.set(0, d.aimYaw, 0);
+    sceneTransform(root.rotation.set(0, d.aimYaw, 0));
   }
 }
 

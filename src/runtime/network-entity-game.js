@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "../rust-render/scene-changes.js";
 import {RecordMap,PacketLease,retainRecord,releaseRecord} from './network-records.js';
 import {NetKind as NK,NetLimits as NL,NetRecord as NR} from './network-layout.js';
 import * as THREE from 'three';
@@ -27,7 +28,7 @@ import { followFlightState } from '../flight/gear.js';
 // Same off-field presentation cleanup as Unit.remove, without returning the
 // detached ownership proxy to the gameplay factory pool a second time.
 function hideOwnershipProxy(unit) {
-  unit.alive = false; unit.removed = true; unit.actor.root.visible = false;
+  unit.alive = false; unit.removed = true; sceneProperty(unit.actor.root,"visible",false);
   if (unit.character?.unit === unit) unit.character.unit = null;
   unit.character = null;
   unit.jetFlame?.stop(); unit.jetFlame = null;
@@ -76,7 +77,7 @@ export class EntityGameState {
   initialize() {
     const g=this.game;
     // Content constructs the scene; state is supplied solely by the host.
-    for(const unit of g.units.all())if(unit.soldier){unit.alive=false;unit.removed=true;unit.actor.root.visible=false;}
+    for(const unit of g.units.all())if(unit.soldier){unit.alive=false;unit.removed=true;sceneProperty(unit.actor.root,"visible",false);}
     for(const vehicle of g.vehicles?.vehicles || [])this.destroyHull(vehicle);
     this.baseline();
   }
@@ -215,7 +216,7 @@ export class EntityGameState {
     if (newLife && unit.seat) this.clearSeat(unit);
     unit.generation = record.generation; unit.team = unit.combat.team = record.team; unit.removed = false;
     unit.dead = unit.combat.dead = s.dead = state === 'dead' || state === 'thrownDead'; unit.alive = !unit.dead;
-    unit.combat.health = record.health; s.position.fromArray(record.position); s.velocity.fromArray(record.velocity);
+    unit.combat.health = record.health; sceneTransform(s.position.fromArray(record.position)); s.velocity.fromArray(record.velocity);
     s.aimYaw = record.yaw; s.aimPitch = record.pitch; s.posture = ENTITY_POSTURES[record.posture];
     // A body still flying after a blast killed it keeps the thrown pose.
     s.air = state === 'thrownDead' ? 'thrown' : AIRBORNE.has(state) ? state : null;
@@ -230,7 +231,7 @@ export class EntityGameState {
     if (newLife) { unit.presentation.reset(); unit.animator.reset(s.aimYaw); unit.combat.blowApart = false; }
     // A droid blown apart stays gone for this life (Unit.goUp), whatever the
     // later records of its lingering body say.
-    if (unit.dead && unit.combat.blowApart) unit.goUp?.(); else unit.actor.root.visible = true;
+    if (unit.dead && unit.combat.blowApart) unit.goUp?.(); else sceneProperty(unit.actor.root,"visible",true);
     if(unit.dead&&(newLife||!wasDead)){unit.presentation.deathPending=true;emitSound('actorDeath',unit.combat,0);g.presentEvent?.('died',unit);}
     if(!unit.dead&&!newLife&&record.health<wasHealth)emitSound('actorHurt',unit.combat,wasHealth-record.health);
     unit.combat.updateHeld?.();
@@ -255,7 +256,7 @@ export class EntityGameState {
     if (newLife && unit.seat) this.clearSeat(unit);
     unit.generation = record.generation; unit.team = unit.combat.team = record.team; unit.removed = false;
     unit.dead = unit.combat.dead = d.dead = record.dead; unit.alive = !record.dead;
-    unit.combat.health = record.health; d.position.fromArray(record.position); d.velocity.fromArray(record.velocity);
+    unit.combat.health = record.health; sceneTransform(d.position.fromArray(record.position)); d.velocity.fromArray(record.velocity);
     d.aimYaw = record.yaw; d.aimPitch = record.pitch;
     for (const key of ['mode','time','reverse','roll','lean','legs']) d[key] = record[key];
     d.previous.copy(d.position); d.settled.copy(d.position);
@@ -266,7 +267,7 @@ export class EntityGameState {
     // Gone up (its clip played out, its final blast and pieces gone off):
     // the body dissolves and stays gone for this life (Unit.goUp), whatever
     // the later records and summaries of its lingering life say.
-    if (goneUp(record)) unit.goUp?.(); else unit.actor.root.visible = true;
+    if (goneUp(record)) unit.goUp?.(); else sceneProperty(unit.actor.root,"visible",true);
     unit.combat.updateHeld?.();
     if (unit.dead && (newLife || !wasDead)) { emitSound('actorDeath', unit.combat, 0); g.presentEvent?.('died', unit); }
     if (!unit.dead && !newLife && record.health < wasHealth) emitSound('actorHurt', unit.combat, wasHealth - record.health);
@@ -303,7 +304,7 @@ export class EntityGameState {
     // craft's follows the flight state its records carry (src/flight/gear.js).
     if (!newLife && this.ownsMountAim(vehicle, 0)) { if (vehicle.flying) followFlightState(vehicle, false); return; }
     vehicle.team = record.team; vehicle.health = record.health;
-    vehicle.position.fromArray(record.position); vehicle.velocity.fromArray(record.velocity); vehicle.quaternion.fromArray(record.quaternion);
+    sceneTransform(vehicle.position.fromArray(record.position)); vehicle.velocity.fromArray(record.velocity); sceneTransform(vehicle.quaternion.fromArray(record.quaternion));
     if (vehicle.flying) { vehicle.flightState = state; followFlightState(vehicle, true); }
     else {
       const q = vehicle.quaternion;
@@ -314,7 +315,7 @@ export class EntityGameState {
     // Semantic hull creation skips the simulation/baseline tick capture. Seed
     // shared presentation history before a pilot correction can restore it.
     if (newLife || !vehicle.tickFrom) vehicle.resetPresentationHistory();
-    vehicle.power = record.power; vehicle.root.visible = vehicle.alive;
+    vehicle.power = record.power; sceneProperty(vehicle.root,"visible",vehicle.alive);
     vehicle.syncBody(); this.presentation.bindVehicle(record.id, record.generation, vehicle);
     // A mount can be acknowledged before its hull exists. Reuse its retained
     // exact-life pose when the hull arrives; unchanged heartbeats may be deduped.
@@ -382,7 +383,7 @@ export class EntityGameState {
     if (!unit || unit.generation !== record.generation) return;
     this.timeline.remove(record.id);
     if (unit.vehicle) { if (unit.vehicle.alive || unit.vehicle.dying > 0) this.destroyHull(unit.vehicle); }
-    else if (unit !== g.playerUnit) { if (unit.seat) this.clearSeat(unit); unit.alive = false; unit.removed = true; unit.actor.root.visible = false; unit.combat?.clearCharge?.(); }
+    else if (unit !== g.playerUnit) { if (unit.seat) this.clearSeat(unit); unit.alive = false; unit.removed = true; sceneProperty(unit.actor.root,"visible",false); unit.combat?.clearCharge?.(); }
   }
   // A hull the server destroyed: dead, hidden, no collision, every lease let
   // go at once (Vehicle.setHealth's lease loop), the own driver released. The
@@ -392,7 +393,7 @@ export class EntityGameState {
     const g = this.game;
     vehicle.alive = false; vehicle.health = 0; vehicle.dying = 0;
     if (vehicle.body) vehicle.body.enabled = false;
-    vehicle.root.visible = false;
+    sceneProperty(vehicle.root,"visible",false);
     if (vehicle.flying) vehicle.flightState = 'Destroyed';
     const driver = g.driver;
     if (driver?.vehicle === vehicle) driver.release();
@@ -413,14 +414,14 @@ export class EntityGameState {
   dyingHull(vehicle, record) {
     if (vehicle.alive) this.destroyHull(vehicle);
     vehicle.aiTarget.generation = record.generation;
-    vehicle.position.fromArray(record.position); vehicle.quaternion.fromArray(record.quaternion);
+    sceneTransform(vehicle.position.fromArray(record.position)); sceneTransform(vehicle.quaternion.fromArray(record.quaternion));
     if (!vehicle.flying) {
       const q = vehicle.quaternion;
       vehicle.yaw = vehicle.previousYaw = Math.atan2(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
     }
     vehicle.previous.copy(vehicle.position);
     vehicle.dying = record.power / 1000;
-    vehicle.root.visible = vehicle.dying > 0;
+    sceneProperty(vehicle.root,"visible",vehicle.dying > 0);
   }
   // The unit's current lease let go, whichever mount holds it.
   clearSeat(unit) {
@@ -520,7 +521,7 @@ export class EntityGameState {
       remoteLifecycle: data.remote ? this.receiver.get('remote',data.remote.id) : null });
     if (context.team !== g.playerTeam) g.applyAuthoritativeHumanTeam(context.team);
     unit.dead = unit.soldier.dead = unit.combat.dead; unit.alive = !unit.dead && !unit.removed;
-    unit.actor.root.visible = !unit.removed; unit.tickCount++; unit.combat.updateHeld?.(); unit.presentation.afterStep();
+    sceneProperty(unit.actor.root,"visible",!unit.removed); unit.tickCount++; unit.combat.updateHeld?.(); unit.presentation.afterStep();
     if (context.reset) { unit.presentation.reset(); unit.animator.reset(unit.soldier.aimYaw); }
     if(unit.dead&&!unit.removed&&(!wasDead||context.reset)){unit.animator.die?.();g.presentEvent?.('died',unit);}
     this.previous = context; this.onCorrection(context, packet); return true;

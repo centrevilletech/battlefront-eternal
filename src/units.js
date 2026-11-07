@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { JetpackNozzles } from "./jetpack-nozzles.js";
 import { buildActor } from "./actor.js";
@@ -238,8 +239,8 @@ export class Unit {
     this.combat.reset();
     this.presentation.reset();
     this.animator.reset(yaw);
-    this.actor.root.visible = true;
-    this.actor.root.position.copy(this.presentation.position);
+    sceneProperty(this.actor.root,"visible",true);
+    sceneTransform(this.actor.root.position.copy(this.presentation.position));
     this.alive = true;
     this.dead = false;
     this.deadTime = 0;
@@ -296,13 +297,13 @@ export class Unit {
     this.held = null;
     if (this.combat) this.combat.mounted = false;
     this.animator?.gunner?.(null);
-    this.actor?.root?.rotation.set(0, this.actor.root.rotation.y, 0);
+    sceneTransform(this.actor?.root?.rotation.set(0, this.actor.root.rotation.y, 0));
   }
 
   // Nothing of it drawn: its body, a droideka's shield, a jet flame, a
   // weapon's charge glow.
   undraw() {
-    this.actor.root.visible = false;
+    sceneProperty(this.actor.root,"visible",false);
     this.restoreLook();
     this.bubble?.hide();
     this.jetFlame?.stop();
@@ -323,7 +324,7 @@ export class Unit {
     const body = this.actor.body;
     if (!this.ownMaterials) {
       this.ownMaterials = body.material;
-      body.material = Array.isArray(body.material) ? body.material.map((material) => heatMaterial(material)) : heatMaterial(body.material);
+      sceneProperty(body,"material",Array.isArray(body.material) ? body.material.map((material) => heatMaterial(material)) : heatMaterial(body.material));
       body.userData.heated = { heat: 0, tear: new THREE.Vector4(0, 0.9, 0, 0.6), base: 0, scale: 0.6, soot: 0, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
     }
     const look = body.userData.heated;
@@ -343,19 +344,19 @@ export class Unit {
   // Its own materials back on the body (after a dissolve).
   restoreLook() {
     if (!this.ownMaterials) return;
-    this.actor.body.material = this.ownMaterials;
+    sceneProperty(this.actor.body,"material",this.ownMaterials);
     delete this.actor.body.userData.heated;
     this.ownMaterials = null;
   }
 
   castShadows(near) {
     this.shadowNear = near;
-    if (this.actor.shadow) this.actor.shadow.visible = near;
+    if (this.actor.shadow) sceneProperty(this.actor.shadow,"visible",near);
     for (const held of this.combat?.held?.values?.() ?? []) {
       held.group?.traverse((mesh) => {
         if (!mesh.userData.actorAsset) return;
-        if (!near) { mesh.userData.castShadowNear ??= mesh.castShadow; mesh.castShadow = false; }
-        else if (mesh.userData.castShadowNear !== undefined) { mesh.castShadow = mesh.userData.castShadowNear; delete mesh.userData.castShadowNear; }
+        if (!near) { mesh.userData.castShadowNear ??= mesh.castShadow; sceneProperty(mesh,"castShadow",false); }
+        else if (mesh.userData.castShadowNear !== undefined) { sceneProperty(mesh,"castShadow",mesh.userData.castShadowNear); delete mesh.userData.castShadowNear; }
       });
     }
   }
@@ -369,7 +370,7 @@ export class Unit {
       const at = (this.flameAt ||= new THREE.Vector3());
       const turn = (this.flameTurn ||= new THREE.Quaternion());
       const scale = (this.flameScale ||= new THREE.Vector3());
-      bone.matrixWorld.decompose(at, turn, scale);
+      sceneTransform(bone.matrixWorld.decompose(at, turn, scale));
       if (!this.jetFlame) this.jetFlame = effects?.play(name, at, null, this.soldier.velocity, turn) || null;
       else this.jetFlame.move(at, turn, this.soldier.velocity);
       this.jetFlame?.attachNozzles?.(this.actor.jetpackNozzles?.update());
@@ -539,7 +540,7 @@ export class UnitFactory {
       def, data: body, walkerData: this.walkerData(className), texture, graphics: c.graphics, collision: c.collision,
       clips: this.clipsFor(body.def.bones), animMeta: c.animMeta, headless:c.headless, maxFlyHeight: c.maxFlyHeight ?? 200,
     });
-    actor.root.visible = false;
+    sceneProperty(actor.root,"visible",false);
     // The body's bind-pose box, for the path planner's clearance: a quarter
     // of its horizontal diagonal (docs/ai-nav.md).
     let box=actor.body.userData.bindBounds;

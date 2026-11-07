@@ -1,3 +1,4 @@
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { categoryOf, relationBit, weaponAI } from "./weapon-policy.js";
 
@@ -46,7 +47,7 @@ export function lockSpan(origin, dir, unit, out = { angle: Math.PI, distance: In
   const vehicle = unit.vehicle;
   if (vehicle?.bounds && vehicle.matrix) {
     spanInverse.copy(vehicle.matrix).invert();
-    const o = spanLocal.copy(origin).applyMatrix4(spanInverse), d = spanForward.copy(dir).transformDirection(spanInverse);
+    const o = sceneTransform(spanLocal.copy(origin).applyMatrix4(spanInverse)), d = spanForward.copy(dir).transformDirection(spanInverse);
     const { min, max } = vehicle.bounds;
     out.distance = spanNear.copy(o).clamp(min, max).distanceTo(o);
     // The slabs: does the view itself pass through the box?

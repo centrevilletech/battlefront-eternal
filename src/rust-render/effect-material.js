@@ -1,3 +1,4 @@
+import {sceneProperty} from "./scene-changes.js";
 import * as THREE from "three";
 import { programLayouts } from "../render-programs.js";
 import { ownedProgram, bindProgram } from "./programs.js";
@@ -16,7 +17,7 @@ export function ownedEffectMaterial(key, parameters) {
   material.forceSinglePass = true;
   Object.assign(material, parameters);
   bindProgram(material, key);
-  material.visible = parameters.visible ?? false;
+  sceneProperty(material,"visible",parameters.visible ?? true);
   return material;
 }
 

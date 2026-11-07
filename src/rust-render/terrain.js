@@ -14,6 +14,7 @@ class TerrainPass {
   }
 
   admit(group, record, vertices, index, weights, samplers, source = null) {
+    this.core.registry.claim(group,true);
     const previous = this.entries.get(group);
     if (previous) { previous.stale = true; this.core.rust.world_shown(previous.id, false); }
     source ??= this.core.rust.static_source(JSON.stringify(record), vertices, index);
@@ -38,8 +39,7 @@ class TerrainPass {
     if (this.pending.length) this.prepareNative();
     for (const entry of this.grounds) {
       if (entry.stale) continue;
-      let shown = true;
-      for (let o = entry.group; o && o !== ctx.scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      const shown = this.core.registry.shown(entry.group);
       if (shown !== entry.shown) { entry.shown = shown; this.core.rust.world_shown(entry.id, shown); }
     }
   }

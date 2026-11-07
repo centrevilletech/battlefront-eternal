@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../../rust-render/scene-changes.js";
 import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
@@ -557,9 +558,9 @@ export class ClassicView {
   place(entry, team) {
     const { x, y, size, alpha } = entry.flight.state;
     this.interface.place(x, y, entry.root.position);
-    entry.root.scale.setScalar(Math.max(size, 1e-3) * LOGO_UNITS);
-    entry.root.rotation.y = entry.flight.spin;
-    entry.root.visible = alpha > 0.001;
+    sceneTransform(entry.root.scale.setScalar(Math.max(size, 1e-3) * LOGO_UNITS));
+    sceneComponent(entry.root.rotation,"y","=",entry.flight.spin);
+    sceneProperty(entry.root,"visible",alpha > 0.001);
     for (const material of entry.materials) {
       paintArray(material,LOOK.COLOR,this.colour(team));
       material.values[LOOK.OPACITY] = alpha;
@@ -575,11 +576,11 @@ export class ClassicView {
     this.interface.setView(canvas.clientWidth / Math.max(canvas.clientHeight, 1), this.hud.height);
     const page = this.model.page;
     for (const [team, logo] of this.logos) {
-      logo.root.visible = page === TABLE || (page === DETAILS && team === this.model.subject?.side);
+      sceneProperty(logo.root,"visible",page === TABLE || (page === DETAILS && team === this.model.subject?.side));
       if (logo.root.visible) this.place(logo, team);
     }
     for (const icon of this.icons) {
-      icon.root.visible = page === AWARDS;
+      sceneProperty(icon.root,"visible",page === AWARDS);
       if (icon.root.visible) this.place(icon, icon.team);
     }
     renderer.clearDepth();

@@ -1,3 +1,4 @@
+import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { EFFECT } from "./rust-render/effect-layout.js";
 import { particleDepth } from "./particle-depth.js";
@@ -35,8 +36,8 @@ class Batch {
     this.texture = texture;
     this.values = new Float64Array(EFFECT.CPU.LENGTH);
     this.mesh = new THREE.Object3D();
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 10;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",10);
     // Only the first three arguments: the fourth is the geometry, which
     // capture() would read as "required" and blit depth even when disabled.
     this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
@@ -102,7 +103,7 @@ class Batch {
   // The renderer reads the active prefix directly. No attribute versions or
   // secondary Three upload ranges are published by Batch.end.
   end() {
-    this.mesh.visible = this.count > 0 && !this.external;
+    sceneProperty(this.mesh,"visible",this.count > 0);
   }
 }
 

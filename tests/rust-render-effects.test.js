@@ -1,3 +1,5 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "../src/rust-render/scene-changes.js";
+import {prepareSceneFixture} from "./support/rust-standin.mjs";
 import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import {wakeFixture} from './helpers/surfaces.js';
 import './fixtures/native-render-descriptors.js';
@@ -104,11 +106,11 @@ function bridge() {
   list.opaque.push({ object: background });
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   standinResources(renderer,calls);
-  const core = new RustRender(graphics, { memory }, BfeRenderer);
+  const core = prepareSceneFixture(new RustRender(graphics, { memory }, BfeRenderer));
   graphics.rust=core;
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   // A frame's transparent phase, as the transparent pass runs it.
-  const frame=()=>{core.byName.effects.collectOwned(scene);return core.publishView("transparent",renderer,scene,camera);};
+  const frame=()=>{return core.publishView("transparent",renderer,scene,camera);};
   // three has drawn a material once: its program (and its programs by side).
   const drawn = (material, current, programs = [current]) => {
     if(!material)return;
@@ -143,10 +145,10 @@ test("a CPU batch registers an owned program before any three draw and writes ea
   assert.ok(added,"registered cold without a browser descriptor");
   assert.equal(added[1],EFFECT.CPU.ID);assert.equal(added[2],3);
   assert.equal(batch.geometry,undefined);assert.equal(batch.material,undefined);
-  assert.equal(core.fxInput[0],1);assert.equal(batch.external,true);
-  assert.equal(batch.mesh.visible,false);
+  assert.equal(core.fxInput[0],1);assert.equal(batch.external,undefined);
+  assert.equal(batch.mesh.visible,true);
   fill(3);
-  assert.equal(batch.mesh.visible, false);
+  assert.equal(batch.mesh.visible, true);
   frame();
   const data = core.fxData;
   assert.equal(core.fxInput[0], 1, "one draw");
@@ -167,11 +169,11 @@ test("a mirror's render draws what blends too: the transparent phase for the mir
   fill(2);
   drawn(batch.material, CPU_PROGRAM);
   core.publishView("transparent", renderer, scene, core.graphics.camera);
-  assert.equal(batch.external, true, "registered by the frame's own render");
+  assert.equal(batch.external, undefined, "registered by the frame's own render");
   // water.js's mirror: a camera of its own drawing into a target of its own.
   const mirror = new THREE.PerspectiveCamera();
   mirror.userData.mirror = true;
-  mirror.position.set(0, -2, 0);
+  sceneTransform(mirror.position.set(0, -2, 0));
   mirror.updateMatrixWorld(true);
   const reflection = { name: "reflection", width: 400, height: 300 };
   const target = renderer.getRenderTarget;
@@ -246,13 +248,13 @@ test("an analytic batch: its owner's emitters, and its instances from the first 
 
 test('native glow models share source handles and publish current values and matrices',()=>{
  const {core,calls,scene,frame,entry}=bridge(),asset=actorAsset({kind:'plane',width:1,height:1}),look=glowLook(null,0xffffff,.75);look.color.setRGB(1,.5,.25);
- const group=new THREE.Group(),part=glowNode(asset,look),other=glowNode(asset,look);group.position.set(1,2,-6);group.add(part,other);scene.add(group);scene.updateMatrixWorld(true);frame();
+ const group=new THREE.Group(),part=glowNode(asset,look),other=glowNode(asset,look);sceneTransform(group.position.set(1,2,-6));group.add(part,other);scene.add(group);scene.updateMatrixWorld(true);frame();
  assert.equal(core.fxInput[0],2);assert.equal(entry(0)[1],entry(1)[1]);assert.deepEqual(Array.from(core.fxMatrices.slice(0,16)),part.matrixWorld.elements);assert.equal(calls.filter(c=>c[0]==='actor_source').length,1);assert.equal(part.geometry,undefined);assert.equal(look.isMaterial,undefined);
- const row=EFFECT.ACTOR_GLOW;assert.deepEqual(Array.from(core.fxData.slice(row.DIFFUSE,row.DIFFUSE+3)),[1,.5,.25]);assert.equal(core.fxData[row.OPACITY],.75);other.visible=false;frame();assert.equal(core.fxInput[0],1);group.visible=false;frame();assert.equal(core.fxInput[0],0);
+ const row=EFFECT.ACTOR_GLOW;assert.deepEqual(Array.from(core.fxData.slice(row.DIFFUSE,row.DIFFUSE+3)),[1,.5,.25]);assert.equal(core.fxData[row.OPACITY],.75);sceneProperty(other,"visible",false);frame();assert.equal(core.fxInput[0],1);sceneProperty(group,"visible",false);frame();assert.equal(core.fxInput[0],0);
 });
 
 test('native glow admission carries shadow policy as a cold input',()=>{
- const {calls,scene,frame}=bridge(),node=glowNode(actorAsset({kind:'plane'}),glowLook(null));node.position.z=-5;scene.add(node);scene.updateMatrixWorld(true);frame();assert.ok(calls.some(c=>c[0]==='actor_effect'&&c[2]===EFFECT.ACTOR_GLOW.ID));assert.equal(calls.some(c=>c[0]==='fx_add_model'),false);
+ const {calls,scene,frame}=bridge(),node=glowNode(actorAsset({kind:'plane'}),glowLook(null));sceneComponent(node.position,"z","=",-5);scene.add(node);scene.updateMatrixWorld(true);frame();assert.ok(calls.some(c=>c[0]==='actor_effect'&&c[2]===EFFECT.ACTOR_GLOW.ID));assert.equal(calls.some(c=>c[0]==='fx_add_model'),false);
 });
 
 test("glow and command-post shaders keep separate owned uniform caches", async () => {
@@ -276,11 +278,11 @@ test("an effects pass error stops the required renderer", () => {
   drawn(batch.material, CPU_PROGRAM);
   frame();
   fill();
-  assert.equal(batch.external, true);
+  assert.equal(batch.external, undefined);
   // A batch the pass can't read.
   core.rust.frame_aux_frame=()=>false;core.rust.frame_error_frame=()=>"GPU draw failure";
   assert.throws(() => frame(), /GPU draw failure/);
-  assert.equal(batch.external, true, "ownership is not handed back on failure");
+  assert.equal(batch.external, undefined, "ownership is not handed back on failure");
 });
 
 test("the scene's depth: asked for as three starts the render, before the first draw whose onBeforeRender would take it, and taken there", async () => {
@@ -318,6 +320,7 @@ test("the scene's depth: asked for as three starts the render, before the first 
       volume.update(1.6, 1, [nozzle(-0.2), nozzle(0.2)]);
       fill(n);
       depth.begin(target, camera, soft);
+      core.prepareScene(renderer,scene,camera,target);
       scene.onBeforeRender(renderer, scene, camera, target);
     };
     render(false);
@@ -369,7 +372,7 @@ test("the scene's depth: asked for as three starts the render, before the first 
 
 test('new native glow sources are admitted before their first main view',()=>{
  const {core,calls,scene,camera,renderer,frame}=bridge(),target=core.graphics.sceneTarget;scene.onBeforeRender(renderer,scene,camera,target);
- const holder=new THREE.Group(),node=glowNode(actorAsset({kind:'plane'}),glowLook(null));node.position.z=-5;scene.add(holder);holder.add(node);scene.updateMatrixWorld(true);scene.onBeforeRender(renderer,scene,camera,target);
+ const holder=new THREE.Group(),node=glowNode(actorAsset({kind:'plane'}),glowLook(null));sceneComponent(node.position,"z","=",-5);scene.add(holder);holder.add(node);scene.updateMatrixWorld(true);core.prepareScene(renderer,scene,camera,target);scene.onBeforeRender(renderer,scene,camera,target);
  assert.ok(calls.some(c=>c[0]==='actor_effect'));assert.equal(node.geometry,undefined);frame();assert.equal(core.fxInput[0],1);
 });
 
@@ -381,7 +384,7 @@ test("native basin and tier descriptors share an ordered opaque copy and restore
   const blits = [];
   renderer.state = { bindFramebuffer() {} };
   renderer.getContext().blitFramebuffer = (...args) => blits.push(args);
-  const basinGeometry = new THREE.CircleGeometry(2, 12).rotateX(-Math.PI / 2).translate(0, 0, -6);
+  const basinGeometry = sceneTransform(new THREE.CircleGeometry(2, 12).rotateX(-Math.PI / 2)).translate(0, 0, -6);
   const basin = new THREE.Mesh(basinGeometry, new THREE.MeshBasicMaterial());
   basin.name = "nab2_prop_fountain_water";
   scene.add(basin);

@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from '../../rust-render/scene-changes.js';
 import {BlockHeaderLayout as BLOCK} from '../gen/boundary.js';
 // Vehicles.syncCrews publishes animation and death-drop facts from Rust.
 // Hit shapes stay in the native unit and vehicle owners.
@@ -90,8 +91,8 @@ export class F2Riders {
     const actor = unit.actor;
     if (!actor) return;
     const row = this.rows.get(unit), rider = unit.seat?.vehicle?.seats[unit.seat.index]?.view.rider;
-    unit.presentation?.reset?.(); actor.root.position.copy(unit.soldier.position);
-    actor.root.visible = row?.show ?? Boolean(rider?.node);
+    unit.presentation?.reset?.(); sceneTransform(actor.root.position.copy(unit.soldier.position));
+    sceneProperty(actor.root,"visible",row?.show ?? Boolean(rider?.node));
     const clip = row && row.clip >= 0 ? this.clips[row.clip] : null;
     if (!clip) unit.animator?.gunner?.(null);
     else if (row.time !== null) unit.animator?.gunner?.(clip, 0, 0, row.time);

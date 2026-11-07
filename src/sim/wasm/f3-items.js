@@ -1,3 +1,4 @@
+import {sceneProperty} from '../../rust-render/scene-changes.js';
 import * as THREE from 'three';
 import { KIND_ITEM, F3ItemClassMirror, F3DispenserBindingMirror, F3UnitItemsMirror,
   putF3ItemClass, putF3DispenserBinding, putF3UnitItems } from '../gen/index.js';
@@ -13,7 +14,7 @@ const AMMO_GAIN = ['PersonAmmo','AnimalAmmo','DroidAmmo','VehicleAmmo','Building
 export class F3Items {
   constructor(phase, items) {
     this.phase = phase;this.items = items;
-    this.groups = new Map();this.keys = new Map();this.projected = new Map();this.lists = new Map();
+    sceneProperty(this,"groups",new Map());this.keys = new Map();this.projected = new Map();this.lists = new Map();
     this.classRow = new F3ItemClassMirror();this.binding = new F3DispenserBindingMirror();
     this.classArgs = {words:phase.layout.itemClassWords,put:putF3ItemClass};
     this.bindingArgs = {words:phase.layout.dispenserWords,put:putF3DispenserBinding};

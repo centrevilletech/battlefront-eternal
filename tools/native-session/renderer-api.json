@@ -2115,6 +2115,98 @@
       "result": "u32"
     },
     {
+      "name": "scene_canopy_reserve",
+      "args": [
+        [
+          "count",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_canopy_select",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_reserve",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_groups_reserve",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_queries",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_select",
+      "args": [
+        [
+          "changes",
+          "u32"
+        ],
+        [
+          "groups",
+          "u32"
+        ],
+        [
+          "worlds",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "scene_visibility_visits",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_drawable_visits",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_visibility_builds",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_bounds_updates",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_rejected",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_clipped",
+      "args": [],
+      "result": "u32"
+    },
+    {
       "name": "geometry_buffer_data",
       "args": [
         [
@@ -3096,6 +3188,90 @@
       "type": "f64",
       "pointer": "post_chain_state_ptr",
       "length": "post_chain_state_len"
+    },
+    {
+      "name": "scene_canopy_bounds",
+      "type": "f64",
+      "pointer": "scene_canopy_bounds_ptr",
+      "length": "scene_canopy_bounds_len"
+    },
+    {
+      "name": "scene_canopy_view",
+      "type": "f64",
+      "pointer": "scene_canopy_view_ptr",
+      "length": "scene_canopy_view_len"
+    },
+    {
+      "name": "scene_canopy_output",
+      "type": "f64",
+      "pointer": "scene_canopy_output_ptr",
+      "length": "scene_canopy_output_len"
+    },
+    {
+      "name": "scene_canopy_states",
+      "type": "f32",
+      "pointer": "scene_canopy_states_ptr",
+      "length": "scene_canopy_states_len"
+    },
+    {
+      "name": "scene_groups",
+      "type": "f64",
+      "pointer": "scene_groups_ptr",
+      "length": "scene_groups_len"
+    },
+    {
+      "name": "scene_changes",
+      "type": "f64",
+      "pointer": "scene_changes_ptr",
+      "length": "scene_changes_len"
+    },
+    {
+      "name": "scene_view",
+      "type": "f64",
+      "pointer": "scene_view_ptr",
+      "length": "scene_view_len"
+    },
+    {
+      "name": "scene_motion_events",
+      "type": "f64",
+      "pointer": "scene_motion_events_ptr",
+      "length": "scene_motion_events_len"
+    },
+    {
+      "name": "scene_lines",
+      "type": "f64",
+      "pointer": "scene_lines_ptr",
+      "length": "scene_lines_len"
+    },
+    {
+      "name": "scene_output",
+      "type": "f64",
+      "pointer": "scene_output_ptr",
+      "length": "scene_output_len"
+    },
+    {
+      "name": "scene_order",
+      "type": "f64",
+      "pointer": "scene_order_ptr",
+      "length": "scene_order_len"
+    },
+    {
+      "name": "scene_visible",
+      "type": "u32",
+      "pointer": "scene_visible_ptr",
+      "length": "scene_visible_len"
+    },
+    {
+      "name": "scene_facts",
+      "type": "f64",
+      "pointer": "scene_facts_ptr",
+      "length": "scene_facts_len"
+    },
+    {
+      "name": "scene_world_changes",
+      "type": "f64",
+      "pointer": "scene_world_changes_ptr",
+      "length": "scene_world_changes_len"
     },
     {
       "name": "static_shadow_input",

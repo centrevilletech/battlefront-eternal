@@ -1,3 +1,4 @@
+import {sceneComponent,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorNode,actorPoint,actorPointCount,lightActor} from './actor-resources.js';
 import * as THREE from "three";
 import { barrelTips, weaponMuzzle } from "./muzzles.js";
@@ -57,8 +58,8 @@ export class FirstPersonView {
     this.forcedSet = set;
     this.offset = offset || OFFSET;
     this.root = new THREE.Group();
-    this.root.matrixAutoUpdate = false;
-    this.root.visible = false;
+    sceneProperty(this.root,"matrixAutoUpdate",false);
+    sceneProperty(this.root,"visible",false);
     this.materials = [];
     this.collision = collision;
     this.sunSeen = 1;
@@ -81,7 +82,7 @@ export class FirstPersonView {
       const material = partMaterial(part, texture);
       this.materials.push(material);
       const mesh = actorNode(part.asset,material);
-      mesh.frustumCulled = false;
+      sceneProperty(mesh,"frustumCulled",false);
       (this.byName[(part.bone || "").toLowerCase()] || this.root).add(mesh);
       this.rigParts.push(mesh);
     }
@@ -101,11 +102,11 @@ export class FirstPersonView {
         for(let i=0;i<actorPointCount(asset);i++)points.push(actorPoint(asset,i,new THREE.Vector3()));
       }
       return barrelTips(points, "z", index === 0 ? 1 : -1, "x").map(point => {
-        const fire = new THREE.Object3D(); fire.position.copy(point); bone.add(fire);
+        const fire = new THREE.Object3D(); sceneTransform(fire.position.copy(point)); bone.add(fire);
         let flash = null;
         if (flashModel) {
-          flash = flashModel(); flash.scale.setScalar(FLASH_SCALE * 0.5); flash.visible = false;
-          if (index === 1) flash.rotation.y = Math.PI;
+          flash = flashModel(); sceneTransform(flash.scale.setScalar(FLASH_SCALE * 0.5)); sceneProperty(flash,"visible",false);
+          if (index === 1) sceneComponent(flash.rotation,"y","=",Math.PI);
           fire.add(flash);
         }
         return { fire, flash, group: this.root, flashLeft: 0, flashLength: 0, flashAlpha: 1 };
@@ -129,19 +130,19 @@ export class FirstPersonView {
         this.materials.push(material);
         return material;
       });
-      group.traverse((child) => (child.frustumCulled = false));
-      group.visible = false;
+      group.traverse((child) => (sceneProperty(child,"frustumCulled",false)));
+      sceneProperty(group,"visible",false);
       const point = weaponMuzzle(this.models.get(name), this.firePoints[name] || this.firePoints[def.GeometryName], def);
       const fire = new THREE.Object3D();
-      if (point) fire.position.fromArray(point);
+      if (point) sceneTransform(fire.position.fromArray(point));
       group.add(fire);
       let flash = null;
       if (point && this.flashModel) {
         flash = this.flashModel();
-        flash.position.fromArray(point);
-        flash.scale.setScalar(FLASH_SCALE);
-        flash.visible = false;
-        flash.traverse((child) => (child.frustumCulled = false));
+        sceneTransform(flash.position.fromArray(point));
+        sceneTransform(flash.scale.setScalar(FLASH_SCALE));
+        sceneProperty(flash,"visible",false);
+        flash.traverse((child) => (sceneProperty(child,"frustumCulled",false)));
         group.add(flash);
       }
       this.hand.add(group);
@@ -163,7 +164,7 @@ export class FirstPersonView {
     if (!held) return null;
     held.fire.updateWorldMatrix(true, false);
     const at = (this.at ||= { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), scale: new THREE.Vector3() });
-    held.fire.matrixWorld.decompose(at.position, at.quaternion, at.scale);
+    sceneTransform(held.fire.matrixWorld.decompose(at.position, at.quaternion, at.scale));
     return at;
   }
 
@@ -182,7 +183,7 @@ export class FirstPersonView {
     held.flashLength = d.FlashLength || 0.1;
     held.flashLeft = held.flashLength;
     held.flashFresh = true;
-    held.flash.visible = held.group.visible;
+    sceneProperty(held.flash,"visible",held.group.visible);
     const [r, g, b, a = 255] = d.FlashColor || [255, 255, 255, 255];
     held.flashAlpha = a / 255;
     held.flash.userData.material.color.setRGB(r / 255, g / 255, b / 255);

@@ -1288,7 +1288,10 @@ fn publish_nodes(
             write_vector(row, n::SCALE, node.scale);
             row[n::MATRIX..n::MATRIX + 16].copy_from_slice(&node.matrix.elements);
         }
-        row[n::WORLD..n::WORLD + 16].copy_from_slice(&node.matrix_world.elements);
+        if world_changed {
+            row[n::WORLD_VERSION] += 1.0;
+            row[n::WORLD..n::WORLD + 16].copy_from_slice(&node.matrix_world.elements);
+        }
         changed[count] = (start + index) as u32;
         count += 1;
     }

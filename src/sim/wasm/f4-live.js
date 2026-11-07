@@ -1,3 +1,4 @@
+import {sceneTransform} from '../../rust-render/scene-changes.js';
 // LiveObjects' one native phase. Construction loads geometry and definition
 // facts once; ordinary ticks write dt/tick and consume changed mirrors only.
 import { Matrix4 } from 'three';
@@ -172,7 +173,7 @@ export class F4Live {
       const unit = binding.unit, cache = this.units[e.key.slot];
       if (!e.prop) {
         unit.held = null; unit.animator?.gunner?.(null); const root = unit.actor?.root;
-        if (root) root.rotation.set(0,root.rotation.y,0); return;
+        if (root) sceneTransform(root.rotation.set(0,root.rotation.y,0)); return;
       }
       const prop = this.animations[e.prop.slot];
       if (!prop || prop.entry.handle.generation !== e.prop.generation) return;

@@ -1,3 +1,4 @@
+import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorNode,actorLook} from './actor-resources.js';
 import {ACTOR} from './rust-render/actor-layout.js';
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
@@ -129,9 +130,9 @@ export class ArcBatch {
     this.arrays={interleaved:null};
     this.mesh = new THREE.Object3D(); this.mesh.userData.effectBatch=this;
     this.mesh.name = "arc-lightning";
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 12;
-    this.mesh.visible = false;
+    sceneProperty(this.mesh,"frustumCulled",false);
+    sceneProperty(this.mesh,"renderOrder",12);
+    sceneProperty(this.mesh,"visible",false);
     arcBatches.set(this.mesh, this);
     const size = new THREE.Vector2();
     this.mesh.onBeforeRender = (renderer, scene, camera) => {
@@ -185,7 +186,7 @@ export class ArcBatch {
   // keep: shown even empty (its program is built by the first draw or the
   // loading's warm-up).
   end() {
-    this.mesh.visible=this.count>0&&!this.external;
+    sceneProperty(this.mesh,"visible",this.count>0);
   }
 }
 
@@ -234,7 +235,7 @@ export class ArcLightning {
     }
     // The effect batch stays shown empty during preparation. Shock programs
     // register from the actor catalog and need no temporary skinned mesh.
-    this.batch.mesh.visible = true;
+    sceneProperty(this.batch.mesh,"visible",true);
     this.warming = 90;
     const beforeWarm=this.batch.mesh.onBeforeRender;
     this.batch.mesh.onBeforeRender=(renderer,scene,camera,geometry,material,group)=>{
@@ -514,8 +515,8 @@ export class ArcLightning {
     const parent = object.parent;
     if (parent !== null) this.place(parent);
     if (object.matrixAutoUpdate) object.updateMatrix();
-    if (parent === null) object.matrixWorld.copy(object.matrix);
-    else object.matrixWorld.multiplyMatrices(parent.matrixWorld, object.matrix);
+    if (parent === null) sceneTransform(object.matrixWorld.copy(object.matrix));
+    else sceneTransform(object.matrixWorld.multiplyMatrices(parent.matrixWorld, object.matrix));
     this.placed.set(object, this.frame);
     return object.matrixWorld;
   }
@@ -906,8 +907,8 @@ export class ArcLightning {
     // is on a hidden one).
     const overlay = this.overlay(actor);
     if (overlay) {
-      overlay.visible = intensity > 0.01 && actor.body.visible;
-      overlay.layers.mask = actor.body.layers.mask;
+      sceneProperty(overlay,"visible",intensity > 0.01 && actor.body.visible);
+      sceneProperty(overlay.layers,"mask",actor.body.layers.mask);
       const u=overlay.material.values,r=ACTOR.LOOK;
       u[r.SHOCK_TIME]= this.time;
       u[r.INTENSITY]= intensity * 0.7;
@@ -972,8 +973,8 @@ export class ArcLightning {
     out.lerpVectors(grip, at.position, t);
     this.right ||= new THREE.Vector3();
     this.upward ||= new THREE.Vector3();
-    this.right.set(1, 0, 0).applyQuaternion(camera.quaternion);
-    this.upward.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    sceneTransform(this.right.set(1, 0, 0).applyQuaternion(camera.quaternion));
+    sceneTransform(this.upward.set(0, 1, 0).applyQuaternion(camera.quaternion));
     return out.addScaledVector(this.right, o[0]).addScaledVector(this.upward, o[1]);
   }
 
@@ -1169,11 +1170,11 @@ export class ArcLightning {
   endShock(shock) {
     this.shocks.delete(shock.unit);
     for (const joint of shock.twitch || []) {
-      if (joint.on && joint.bone.quaternion.equals(joint.applied)) joint.bone.quaternion.copy(joint.base);
+      if (joint.on && joint.bone.quaternion.equals(joint.applied)) sceneTransform(joint.bone.quaternion.copy(joint.base));
       joint.on = false;
     }
     const overlay = this.overlays.get(shock.unit.actor);
-    if (overlay) overlay.visible = false;
+    if (overlay) sceneProperty(overlay,"visible",false);
   }
 
   // His shock glow, built the first time he is shocked.
@@ -1185,15 +1186,15 @@ export class ArcLightning {
     if (body?.isSkinnedMesh && body.skeleton) {
       overlay=actorNode(body.userData.actorAsset,actorLook('shock'),true);
       overlay.name = "arc-shock";
-      overlay.boundingSphere = body.boundingSphere;
-      overlay.renderOrder = 6;
-      overlay.visible = false;
-      overlay.castShadow = false;
+      sceneProperty(overlay,"boundingSphere",body.boundingSphere);
+      sceneProperty(overlay,"renderOrder",6);
+      sceneProperty(overlay,"visible",false);
+      sceneProperty(overlay,"castShadow",false);
       overlay.receiveShadow = false;
       (body.parent || actor.root).add(overlay);
-      overlay.position.copy(body.position);
-      overlay.quaternion.copy(body.quaternion);
-      overlay.scale.copy(body.scale);
+      sceneTransform(overlay.position.copy(body.position));
+      sceneTransform(overlay.quaternion.copy(body.quaternion));
+      sceneTransform(overlay.scale.copy(body.scale));
       overlay.bind(body.skeleton, body.bindMatrix);
     }
     this.overlays.set(actor, overlay);
