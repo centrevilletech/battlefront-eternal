@@ -258,7 +258,7 @@ export function exportPlayerActions(o, cx) {
   return v;
 }
 
-export const PlayerLanesLayout = Object.freeze({ words: 9, actionsReceived: 0, actionsAck: 1, actionsDiscarded: 2, fireReceived: 3, fireButtons: 4, stale: 6, outcomes: 7, outcomesLength: 8 });
+export const PlayerLanesLayout = Object.freeze({ words: 10, actionsReceived: 0, actionsAck: 1, actionsDiscarded: 2, fireReceived: 3, fireButtons: 4, stale: 6, faults: 7, outcomes: 8, outcomesLength: 9 });
 export const PLAYER_LANES_WORDS = PlayerLanesLayout.words;
 export const PLAYER_LANES_OFFSETS = PlayerLanesLayout;
 
@@ -270,6 +270,7 @@ export class PlayerLanesMirror {
     this.fireReceived = NaN;
     this.fireButtons = [NaN, NaN];
     this.stale = false;
+    this.faults = NaN;
     this.outcomes = [];
   }
 }
@@ -281,7 +282,8 @@ export function syncPlayerLanes(b, f, at, h, m) {
   m.fireReceived = f[at + 3];
   { const a = (m.fireButtons ??= new Array(2)); a[0] = f[at + 4]; a[1] = f[at + 5]; }
   m.stale = f[at + 6] !== 0;
-  { const items = (m.outcomes ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
+  m.faults = f[at + 7];
+  { const items = (m.outcomes ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -292,7 +294,8 @@ export function putPlayerLanes(b, o, f, at, heap) {
   f[at + 3] = o.fireReceived;
   { const $v = o.fireButtons; f[at + 4] = $v[0]; f[at + 5] = $v[1]; }
   f[at + 6] = o.stale ? 1 : 0;
-  heap.items(o.outcomes, f, at + 7, 2, (f, at, v) => { putIaOutcome(b, v, f, at + 0, heap); });
+  f[at + 7] = o.faults;
+  heap.items(o.outcomes, f, at + 8, 2, (f, at, v) => { putIaOutcome(b, v, f, at + 0, heap); });
 }
 
 export function samePlayerLanes(a, b) {
@@ -302,6 +305,7 @@ export function samePlayerLanes(a, b) {
   if (!Object.is(a.fireReceived, b.fireReceived)) return ".fireReceived";
   if (!sameArray(a.fireButtons, b.fireButtons, 2)) return ".fireButtons";
   if (!Object.is(a.stale, b.stale)) return ".stale";
+  if (!Object.is(a.faults, b.faults)) return ".faults";
   if (!sameEach(a.outcomes, b.outcomes, (x, y) => sameIaOutcome(x, y) === null)) return ".outcomes";
   return null;
 }
@@ -317,6 +321,7 @@ export function exportPlayerLanes(o, cx) {
   v.fireReceived = o.fireReceived;
   v.fireButtons = [...o.fireButtons];
   v.stale = o.stale;
+  v.faults = o.faults;
   v.outcomes = o.outcomes.map((x) => exportIaOutcome(x, cx));
   return v;
 }

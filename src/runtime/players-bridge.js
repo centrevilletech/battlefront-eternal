@@ -83,6 +83,8 @@ export class LaneView {
   get ack() { return this.read().actionsAck; }
   get discarded() { return this.read().actionsDiscarded; }
   get buttons() { return Array.from(this.read().fireButtons); }
+  // How many ticks the players' phase degraded, for every player.
+  get faults() { return this.read().faults; }
   enableOutcomes() { this.players.enableOutcomes(this.handle); return this; }
   drainOutcomes() { return this.read(true).outcomes.map(o => ({ id: o.id, status: o.status })); }
 }

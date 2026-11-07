@@ -64,7 +64,7 @@ fn retire_recon(w: &mut World, key: u32) {
 /// samples, and the actions and spawn choices the controls and the choice
 /// loop consume. False when the take itself was refused (an overflowing
 /// burst), which the source treated as a fault of the tick.
-fn take(w: &mut World, p: &mut Player, tick: f64, generation: f64, command: &mut Command) -> bool {
+fn take(w: &mut World, p: &mut Player, tick: f64, generation: f64, command: &mut Command, faults: &mut u32) -> bool {
     use crate::input::owner::view_flags as flags;
     let Some(mailbox) = w.input.mailboxes.get_mut(p.mailbox) else { return false };
     let ok = mailbox.take_command(tick, generation, &mut w.sim.strings);
@@ -76,7 +76,6 @@ fn take(w: &mut World, p: &mut Player, tick: f64, generation: f64, command: &mut
         mouse_scale: (bits & flags::MOUSE_SCALE != 0).then_some(view.mouse_scale),
         invert_mouse: bits & flags::INVERT_MOUSE != 0,
         first_person: mailbox.present(2).then_some(bits & flags::FIRST_PERSON != 0),
-        aspect: view.aspect,
         view_tick: (bits & flags::VIEW_TICK != 0).then_some(view.view_tick),
         flight: bits & flags::FLIGHT != 0,
         sensitivity: (bits & flags::SENSITIVITY != 0).then_some(view.sensitivity),
@@ -96,7 +95,11 @@ fn take(w: &mut World, p: &mut Player, tick: f64, generation: f64, command: &mut
         p.controls.accept(epoch, tick, generation, mailbox.down(), &p.actions_taken);
     } else {
         p.human_taken.clear();
-        p.human_taken.extend(taken.human.iter().cloned());
+        // The mailbox bounds a take to 16 choices a queued packet; the list
+        // was reserved for that, so the tick path never grows it.
+        let room = p.human_taken.capacity();
+        p.human_taken.extend(taken.human.iter().take(room).cloned());
+        if taken.human.len() > room { *faults = faults.wrapping_add(1); }
         p.controls.accept(epoch, tick, generation, mailbox.down(), &taken.actions);
     }
     ok
@@ -143,7 +146,7 @@ pub fn run(w: &mut World, input: &WorldTickInput) {
         let p = players.pool.get_mut(key).unwrap();
         let Some(unit) = body(w, p) else { i += 1; continue };
         let generation = w.sim.store.unit.get(unit).map_or(0.0, |u| u.generation);
-        if !take(w, p, tick, generation, &mut command) { players.faults = players.faults.wrapping_add(1); }
+        if !take(w, p, tick, generation, &mut command, &mut players.faults) { players.faults = players.faults.wrapping_add(1); }
         // The choices judge the life the tick began with (`u.alive`), while a
         // spawn reads the current body: a class change replaces it mid-list.
         let was_alive = alive(w, unit);

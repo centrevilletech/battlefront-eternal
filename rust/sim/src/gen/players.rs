@@ -215,33 +215,36 @@ pub struct PlayerLanes {
     pub fire_received: f64,
     pub fire_buttons: [f64; 2],
     pub stale: bool,
+    pub faults: f64,
     pub outcomes: Vec<IaOutcome>,
 }
 
 impl PlayerLanes {
-    pub const WORDS: usize = 9;
+    pub const WORDS: usize = 10;
     pub const ACTIONS_RECEIVED: usize = 0;
     pub const ACTIONS_ACK: usize = 1;
     pub const ACTIONS_DISCARDED: usize = 2;
     pub const FIRE_RECEIVED: usize = 3;
     pub const FIRE_BUTTONS: usize = 4;
     pub const STALE: usize = 6;
-    pub const OUTCOMES: usize = 7;
-    pub fn outcomes_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[7] as usize; let length = row[8] as usize; heap[start..start + length * 2].chunks_exact(2) }
+    pub const FAULTS: usize = 7;
+    pub const OUTCOMES: usize = 8;
+    pub fn outcomes_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[8] as usize; let length = row[9] as usize; heap[start..start + length * 2].chunks_exact(2) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
         row[0] = self.actions_received;
         row[1] = self.actions_ack;
         row[2] = self.actions_discarded;
         row[3] = self.fire_received;
         row[4..4 + 2].copy_from_slice(&self.fire_buttons);
         row[6] = if self.stale { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.outcomes.len() as f64; heap.reserve(self.outcomes.len() * 2); for e in self.outcomes.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        row[7] = self.faults;
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.outcomes.len() as f64; heap.reserve(self.outcomes.len() * 2); for e in self.outcomes.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
         Self {
             actions_received: row[0],
             actions_ack: row[1],
@@ -249,7 +252,8 @@ impl PlayerLanes {
             fire_received: row[3],
             fire_buttons: { let mut a = [0.0; 2]; a.copy_from_slice(&row[4..4 + 2]); a },
             stale: row[6] != 0.0,
-            outcomes: { let (at, n) = (word_u32(row[7]) as usize, word_u32(row[7 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(IaOutcome::take(&row[0..], heap)); } out },
+            faults: row[7],
+            outcomes: { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(IaOutcome::take(&row[0..], heap)); } out },
         }
     }
 

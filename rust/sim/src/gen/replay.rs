@@ -11396,19 +11396,21 @@ impl PlayerLanes {
             fire_received: { let p = format!("{path}.fireReceived"); num(v.get("fireReceived"), &p)? },
             fire_buttons: { let p = format!("{path}.fireButtons"); numbers::<2>(v.get("fireButtons"), &p)? },
             stale: { let p = format!("{path}.stale"); boolean(v.get("stale"), &p)? },
+            faults: { let p = format!("{path}.faults"); num(v.get("faults"), &p)? },
             outcomes: { let p = format!("{path}.outcomes"); { let mut out = Vec::new(); for (i, e) in list(v.get("outcomes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(IaOutcome::from_value(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
         { let x = Value::Num(self.actions_received); fields.push(("actionsReceived", x)); }
         { let x = Value::Num(self.actions_ack); fields.push(("actionsAck", x)); }
         { let x = Value::Num(self.actions_discarded); fields.push(("actionsDiscarded", x)); }
         { let x = Value::Num(self.fire_received); fields.push(("fireReceived", x)); }
         { let x = { let items = self.fire_buttons.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("fireButtons", x)); }
         { let x = Value::Bool(self.stale); fields.push(("stale", x)); }
+        { let x = Value::Num(self.faults); fields.push(("faults", x)); }
         { let x = { let mut items = Vec::new(); for e in self.outcomes.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("outcomes", x)); }
         a.object("", fields)
     }

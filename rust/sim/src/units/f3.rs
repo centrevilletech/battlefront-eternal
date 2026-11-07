@@ -145,7 +145,8 @@ pub(crate) fn native_intent_owned_in(units: &super::owner::Units, reference: Ref
 }
 /// The connections' rows for this tick (players::rows), bounded by the
 /// reserved room; the next unit phase reads them after the host's rows.
-pub(crate) fn connection_rows_in(units: &mut super::owner::Units, rows: &[F3PhaseInput], tails: &[F3PhaseNetwork]) {
+/// Returns how many rows did not fit (a degraded tick, counted by the caller).
+pub(crate) fn connection_rows_in(units: &mut super::owner::Units, rows: &[F3PhaseInput], tails: &[F3PhaseNetwork]) -> usize {
     let state = units.state.as_mut().expect("prepared unit service");
     let mut heap = Vec::new();
     let count = rows.len().min(ROWS_WORDS / (F3PhaseInput::WORDS + F3PhaseNetwork::WORDS));
@@ -155,6 +156,16 @@ pub(crate) fn connection_rows_in(units: &mut super::owner::Units, rows: &[F3Phas
     for (i, tail) in tails.iter().enumerate() { tail.put(&mut state.rows[at + i * F3PhaseNetwork::WORDS..], &mut heap); }
     state.rows_count = count as u32;
     state.rows_network = tails.len() as u32;
+    rows.len() - count
+}
+/// The connection rows the last players' phase wrote: rows and network tails.
+pub(crate) fn connection_rows_written_in(units: &super::owner::Units) -> (u32, u32) {
+    let state = units.state.as_ref().expect("prepared unit service");
+    (state.rows_count, state.rows_network)
+}
+#[cfg(test)]
+pub(crate) fn adopt_for_test_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Unit>) {
+    world_ctx.units.state.as_mut().expect("prepared unit service").owner.adopt(&world_ctx.sim.store, reference).unwrap();
 }
 /// A recon context by its connection's key (F3Recon.contexts).
 pub(crate) fn recon_context_by_key_in(world_ctx: &mut crate::world::owner::World, key: u32) -> Option<Ref<ReconContext>> {

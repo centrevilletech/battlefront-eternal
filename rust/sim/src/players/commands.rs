@@ -21,7 +21,6 @@ pub struct Command {
     pub mouse_scale: Option<f64>,
     pub invert_mouse: bool,
     pub first_person: Option<bool>,
-    pub aspect: f64,
     pub view_tick: Option<f64>,
     pub flight: bool,
     pub sensitivity: Option<f64>,

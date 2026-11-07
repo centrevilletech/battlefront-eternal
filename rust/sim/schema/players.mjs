@@ -18,9 +18,11 @@ export default {
     PlayerActions: { $layout: true, entry: 'rec:IaEntry', sameEpoch: 'bool', payloadValid: 'bool', humanValid: 'bool',
       human: 'list:rec:IaHuman', tick: 'f64', at: 'f64' },
     // The reliable lanes as the host reads them (edge receipts, the
-    // diagnostics' counters and the tests' button state).
+    // diagnostics' counters and the tests' button state), with the count of
+    // the ticks the players' phase degraded (a refused take, a full press
+    // ring, a truncated row list) for every player.
     PlayerLanes: { $layout: true, actionsReceived: 'f64', actionsAck: 'f64', actionsDiscarded: 'f64', fireReceived: 'f64',
-      fireButtons: 'f64x2', stale: 'bool', outcomes: 'list:rec:IaOutcome' },
+      fireButtons: 'f64x2', stale: 'bool', faults: 'f64', outcomes: 'list:rec:IaOutcome' },
     // A player whose connection changed during a tick: his body, class,
     // team and spawn screen, or his retirement at the end of his grace.
     PlayerView: { $layout: true, handle: 'u32', deleted: 'bool', unit: 'ref:unit|null', className: 'str|null', team: 'f64',

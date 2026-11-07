@@ -476,19 +476,121 @@ fn native_player_admission_refuses_excess_and_never_revives_a_retired_handle() {
     let mut strings = Strings::default();
     let mut players = Players::new();
     players.activate(&mut strings, 256);
-    let first = players.admit(Player::new(1, 1000.)).unwrap();
+    let first = players.admit(Player::new(1, 1000., 4)).unwrap();
     for mailbox in 2..=PLAYER_CAPACITY {
-        assert!(players.admit(Player::new(mailbox, 1000.)).is_some());
+        assert!(players.admit(Player::new(mailbox, 1000., 4)).is_some());
     }
     // Repeated excess admissions leave the accepted prefix and its order.
     for mailbox in 0..4096 {
-        assert!(players.admit(Player::new(mailbox, 1000.)).is_none());
+        assert!(players.admit(Player::new(mailbox, 1000., 4)).is_none());
     }
     assert_eq!(players.order.len(), PLAYER_CAPACITY);
     assert!(players.remove(first));
-    let replacement = players.admit(Player::new(5000, 1001.)).unwrap();
+    let replacement = players.admit(Player::new(5000, 1001., 4)).unwrap();
     assert_ne!(replacement, first);
     assert!(players.pool.get(first).is_none());
     assert_eq!(players.pool.get(replacement).unwrap().mailbox, 5000);
     assert_eq!(players.order.last(), Some(&replacement));
+}
+
+#[test]
+fn retained_mailbox_refuses_out_of_range_view_fields_and_keeps_a_zero_view_tick_present() {
+    use bfe_sim::input::owner::{view_flags as flags, Mailbox};
+    use bfe_sim::store::Strings;
+    let mut strings = Strings::default();
+    let key = strings.intern_str("KeyW");
+    let mut mailbox = Mailbox::new(1., 4., vec![key], &mut strings).unwrap();
+    let names = ["mouseScale", "invertMouse", "firstPerson", "aspect", "viewTick", "flightSettings", "gamepad"]
+        .map(|name| strings.intern_str(name));
+    let entry = |view: WiView, fields: &[usize]| ImEntry {
+        identity: 1., sequence: 1., tick: 1., generation: 1., down: 1., codes: vec![key],
+        view: fields.iter().map(|&i| ImField { key: names[i], value: i as f64 }).collect(),
+        publication: view, ..Default::default()
+    };
+    let push = |mailbox: &mut Mailbox, entry: ImEntry, strings: &mut Strings| mailbox.run(ImInput {
+        op: ImOperation::Push, entry: Some(entry), epoch_matches: true, ..Default::default()
+    }, strings);
+    // Every view field's range (the host's invalidCommand), checked again at
+    // the native boundary: a refusal counts, keeps the queue and names why.
+    let bad: Vec<(u16, WiView, &str)> = vec![
+        (flags::MOUSE_SCALE, WiView { mouse_scale: f64::NAN, ..Default::default() }, "invalid view input"),
+        (flags::MOUSE_SCALE, WiView { mouse_scale: 0., ..Default::default() }, "invalid view input"),
+        (flags::ASPECT, WiView { aspect: -1., ..Default::default() }, "invalid view input"),
+        (flags::VIEW_TICK, WiView { view_tick: -1., ..Default::default() }, "invalid view tick"),
+        (flags::VIEW_TICK, WiView { view_tick: f64::INFINITY, ..Default::default() }, "invalid view tick"),
+        (flags::VIEW_TICK, WiView { view_tick: 4294967296., ..Default::default() }, "invalid view tick"),
+        (flags::SENSITIVITY, WiView { sensitivity: 0., ..Default::default() }, "invalid flight settings"),
+        (flags::SENSITIVITY, WiView { sensitivity: 10.5, ..Default::default() }, "invalid flight settings"),
+        (flags::CURVE, WiView { curve: 0.05, ..Default::default() }, "invalid flight settings"),
+        (flags::GAMEPAD, WiView { axes: [0., 1.5, 0., 0.], ..Default::default() }, "invalid gamepad input"),
+        (flags::GAMEPAD, WiView { buttons: 65536., ..Default::default() }, "invalid gamepad input"),
+        (2048, WiView::default(), "invalid view input"),
+    ];
+    for (bit, view, reason) in bad {
+        let count = mailbox.rejected;
+        let out = push(&mut mailbox, entry(WiView { flags: f64::from(bit), ..view }, &[]), &mut strings);
+        assert!(!out.accepted, "{reason}");
+        let error = out.error.expect(reason);
+        assert!(strings.units(error).iter().copied().eq(reason.encode_utf16()), "{reason}");
+        assert_eq!(mailbox.rejected, count + 1);
+        assert!(mailbox.state.queue.is_empty());
+    }
+    // A view tick of zero and a small mouse scale are present by their flag
+    // bits, never by their values (a zero is not an absent field).
+    let present = WiView { flags: f64::from(flags::VIEW_TICK | flags::MOUSE_SCALE), view_tick: 0., mouse_scale: 0.5, ..Default::default() };
+    assert!(push(&mut mailbox, entry(present, &[0, 4]), &mut strings).accepted);
+    assert!(mailbox.take_command(1., 1., &mut strings));
+    assert!(mailbox.present(4) && mailbox.present(0) && !mailbox.present(2));
+    let view = &mailbox.publication.view;
+    assert_eq!(view.flags as u16 & (flags::VIEW_TICK | flags::MOUSE_SCALE), flags::VIEW_TICK | flags::MOUSE_SCALE);
+    assert_eq!(view.view_tick, 0.);
+    assert_eq!(view.mouse_scale, 0.5);
+    // A stop forgets the view tick and the game pad with the queue; the mouse
+    // scale outlives it, as the host's clear left it.
+    mailbox.clear_command(&mut strings);
+    assert!(!mailbox.present(4) && mailbox.present(0));
+    assert_eq!(mailbox.publication.view.flags as u16 & (flags::VIEW_TICK | flags::GAMEPAD), 0);
+    assert_eq!(mailbox.publication.view.flags as u16 & flags::MOUSE_SCALE, flags::MOUSE_SCALE);
+}
+
+#[test]
+fn retained_mailbox_defers_an_oversized_burst_and_refuses_a_full_queue_without_faulting() {
+    use bfe_sim::input::owner::Mailbox;
+    use bfe_sim::store::Strings;
+    let mut strings = Strings::default();
+    let jump = strings.intern_str("jump");
+    let mut mailbox = Mailbox::new(1., 4., vec![], &mut strings).unwrap();
+    let entry = |sequence: f64, presses: usize| ImEntry {
+        identity: sequence, sequence, tick: sequence, generation: 1., down: 1., actions: vec![jump; presses], ..Default::default()
+    };
+    let push = |mailbox: &mut Mailbox, entry: ImEntry, strings: &mut Strings| mailbox.run(ImInput {
+        op: ImOperation::Push, entry: Some(entry), epoch_matches: true, ..Default::default()
+    }, strings);
+    for sequence in 1..=4 { assert!(push(&mut mailbox, entry(f64::from(sequence), 1500), &mut strings).accepted); }
+    // A paused client's fifth packet finds the queue full: refused and
+    // counted, where nothing may throw on the server's tick.
+    let out = push(&mut mailbox, entry(5., 1), &mut strings);
+    assert!(!out.accepted && out.error.is_some());
+    assert_eq!(mailbox.rejected, 1);
+    assert_eq!(mailbox.state.queue.len(), 4);
+    // One tick takes as many due packets as the press budget admits and
+    // defers the rest in order; a deferral is not a fault of the tick.
+    assert!(mailbox.take_command(10., 1., &mut strings));
+    assert_eq!(mailbox.taken().actions.len(), 1500);
+    assert_eq!(mailbox.state.ack, 1.);
+    assert_eq!(mailbox.state.queue.len(), 3);
+    assert!(mailbox.take_command(11., 1., &mut strings));
+    assert_eq!(mailbox.state.ack, 2.);
+    assert!(mailbox.take_command(12., 1., &mut strings));
+    assert!(mailbox.take_command(13., 1., &mut strings));
+    assert_eq!(mailbox.state.ack, 4.);
+    assert!(mailbox.state.queue.is_empty());
+    // The host hears of every natively consumed packet once, in order.
+    let mut result = mailbox.run(ImInput { op: ImOperation::Take, tick: 14., generation: 1., ..Default::default() }, &mut strings);
+    mailbox.lend_consumed(&mut result);
+    assert_eq!(result.retired, vec![1., 2., 3., 4.]);
+    mailbox.recycle(&mut result);
+    let mut again = mailbox.run(ImInput { op: ImOperation::Take, tick: 15., generation: 1., ..Default::default() }, &mut strings);
+    mailbox.lend_consumed(&mut again);
+    assert!(again.retired.is_empty());
 }

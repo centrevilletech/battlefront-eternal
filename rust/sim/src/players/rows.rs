@@ -3,7 +3,7 @@
 //! rows for network humans) and the network pilots' flight keys
 //! (src/f2-sim.js prepareStep's flight rows). The host still writes rows
 //! for bodies it drives itself; these are written beside them.
-use super::owner::{Flight, Players, Shot};
+use super::owner::{Flight, Players, Shot, UnitShadow};
 use crate::flight::model::FlightInput;
 use crate::gen::*;
 use crate::world::owner::World;
@@ -31,9 +31,12 @@ pub fn write(w: &mut World, players: &mut Players) {
         let Some(u) = w.sim.store.unit.get(r) else { continue };
         if u.removed { continue; }
         let shadow = &mut players.shadows[slot];
+        // The connection left this body (its life ended, or a bot took the
+        // slot): what the controls kept on it goes with it, so the bot gets
+        // no connection row and the row list stays within its 65.
+        if u.network_human != Some(true) { if shadow.network.is_some() || shadow.intent.is_some() || !matches!(shadow.flight, Flight::Absent) { *shadow = UnitShadow::default(); } continue; }
         let has_network = shadow.network.is_some();
         let fresh = std::mem::replace(&mut shadow.fresh, false);
-        if !(u.network_human == Some(true) || has_network) { continue; }
         if native && !has_network && !remote_first_person { continue; }
         // The host's unit object kept what the controls wrote until the
         // next publication; the row carries that, else the published intent.
@@ -46,7 +49,7 @@ pub fn write(w: &mut World, players: &mut Players) {
     for i in 0..players.scratch.len() {
         let r = players.scratch[i];
         let Some(u) = w.sim.store.unit.get(r) else { continue };
-        if u.removed { continue; }
+        if u.removed || u.network_human != Some(true) { continue; }
         let Some(facts) = players.shadows.get(r.slot as usize).and_then(|s| s.network) else { continue };
         let [first, second] = facts.shots;
         players.tails.push(F3PhaseNetwork {
@@ -56,7 +59,8 @@ pub fn write(w: &mut World, players: &mut Players) {
             edge_list: true, edge0: first.as_ref().map(|s| edge(s, 0.0)), edge1: second.as_ref().map(|s| edge(s, 1.0)), edge: None,
         });
     }
-    crate::units::f3::connection_rows_in(&mut w.units, &players.rows, &players.tails);
+    let dropped = crate::units::f3::connection_rows_in(&mut w.units, &players.rows, &players.tails);
+    if dropped > 0 { players.faults = players.faults.wrapping_add(1); }
 }
 
 /// vehicle-phase-data.js flightKeys of `{}`: every key undefined.
@@ -84,5 +88,36 @@ pub fn flights(w: &mut World, players: &Players) {
             }
         });
         crate::vehicles::module::network_flight_in(w, hull, keys);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::owner::NetworkFacts;
+
+    // A network human's body gets a connection row with its facts; when the
+    // connection leaves and a bot's life reuses the slot, the facts go and
+    // the bot gets no row.
+    #[test]
+    fn a_bot_reusing_a_connections_slot_gets_no_connection_row() {
+        let mut w = World::new();
+        crate::units::f3::f3_init_in(&mut w, 0, f64::NAN, 0);
+        let r = w.sim.store.unit.insert(Unit { alive: true, generation: 1.0, network_human: Some(true), ..Default::default() });
+        crate::units::f3::adopt_for_test_in(&mut w, r);
+        let mut players = Players::new();
+        players.shadow(r.slot).network = Some(NetworkFacts { shots: [None, None], view: Some(3.0), lead: Some(1.0), playout: Some(10.0) });
+        write(&mut w, &mut players);
+        assert_eq!(crate::units::f3::connection_rows_written_in(&w.units), (1, 1));
+        assert_eq!(players.faults, 0);
+        // His life ends and a bot takes the slot.
+        { let u = w.sim.store.unit.get_mut(r).unwrap(); u.generation = 2.0; u.network_human = Some(false); }
+        write(&mut w, &mut players);
+        assert_eq!(crate::units::f3::connection_rows_written_in(&w.units), (0, 0));
+        assert!(players.shadows[r.slot as usize].network.is_none());
+        // Another connection's life in the slot starts from blank facts.
+        { let u = w.sim.store.unit.get_mut(r).unwrap(); u.generation = 3.0; u.network_human = Some(true); }
+        write(&mut w, &mut players);
+        assert_eq!(crate::units::f3::connection_rows_written_in(&w.units), (1, 0));
     }
 }

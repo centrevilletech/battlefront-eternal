@@ -164,12 +164,14 @@ pub struct Player {
 
 impl Player {
     /// addPlayer's fresh record: awake now, lanes empty, team select on.
-    pub fn new(mailbox: usize, at: f64) -> Self {
+    /// `capacity`: his mailbox's, whose take yields at most 16 choices a
+    /// queued packet (InputMailbox.take's humanEntry bound).
+    pub fn new(mailbox: usize, at: f64, capacity: usize) -> Self {
         Self {
             mailbox, character: None, spectator: false, reliable_fire: false, separate_actions: false, team_select: true,
             auto_respawn: false, ordinal: 0.0, team: 0.0, recon_key: None, disconnected_at: None, last_input_at: at,
             inputs_stale: false, input_lead_ticks: None, controls: Controls::new(), fire: Self::fire_lane(), actions: Self::actions_lane(),
-            actions_taken: Vec::with_capacity(64), human_taken: Vec::with_capacity(16), looks: Vec::with_capacity(2048), changed: true, applied: false, stopped: false,
+            actions_taken: Vec::with_capacity(64), human_taken: Vec::with_capacity(16 * capacity.max(1)), looks: Vec::with_capacity(2048), changed: true, applied: false, stopped: false,
         }
     }
     /// `new FireCommands()`: a take yields at most one shot a button.
@@ -275,16 +277,16 @@ mod tests {
         let mut players = Players::new();
         let mut strings = Strings::default();
         players.activate(&mut strings, 4);
-        let a = players.admit(Player::new(1, 0.0)).unwrap();
-        let b = players.admit(Player::new(2, 0.0)).unwrap();
-        let c = players.admit(Player::new(3, 0.0)).unwrap();
+        let a = players.admit(Player::new(1, 0.0, 4)).unwrap();
+        let b = players.admit(Player::new(2, 0.0, 4)).unwrap();
+        let c = players.admit(Player::new(3, 0.0, 4)).unwrap();
         players.shadow(9).flight = Flight::Empty;
         assert!(players.remove(b));
         assert!(!players.remove(b));
         assert_eq!(players.order, vec![a, c]);
         assert!(matches!(players.shadow(9).flight, Flight::Empty));
         assert_eq!(players.names().flight_codes("takeoff").1[0], Some(players.names().space));
-        let d = players.admit(Player::new(4, 0.0)).unwrap();
+        let d = players.admit(Player::new(4, 0.0, 4)).unwrap();
         assert_eq!(players.order, vec![a, c, d]);
     }
 }

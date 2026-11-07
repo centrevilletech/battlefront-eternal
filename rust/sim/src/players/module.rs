@@ -22,7 +22,8 @@ pub fn players_create_in(w: &mut World) -> u32 {
     let setup = PlayerSetup::take(row, heap);
     // His mailbox must already be admitted: the phase takes from it by key.
     if w.input.mailboxes.get(setup.mailbox as usize).is_none() { return 0; }
-    let mut p = Player::new(setup.mailbox as usize, setup.at);
+    let capacity = w.input.mailboxes.get(setup.mailbox as usize).map_or(0.0, |m| m.state.capacity).clamp(0.0, 4096.0) as usize;
+    let mut p = Player::new(setup.mailbox as usize, setup.at, capacity);
     p.character = setup.character;
     p.spectator = setup.spectator;
     p.reliable_fire = setup.reliable_fire;
@@ -147,7 +148,7 @@ pub fn players_lanes_in(w: &mut World, handle: u32, lane: u32, drain: u32) -> Op
     let players = &mut w.input.players;
     let p = players.pool.get_mut(handle as usize)?;
     let mut lanes = PlayerLanes { actions_received: p.actions.received, actions_ack: p.actions.ack, actions_discarded: p.actions.discarded,
-        fire_received: p.fire.state.received, fire_buttons: p.fire.state.buttons, stale: p.inputs_stale, outcomes: Vec::new() };
+        fire_received: p.fire.state.received, fire_buttons: p.fire.state.buttons, stale: p.inputs_stale, faults: f64::from(players.faults), outcomes: Vec::new() };
     // The receipts are lent to the record while it is encoded, then the
     // emptied list goes back so the next receipts allocate nothing.
     let source = if lane == 0 { p.actions.outcomes.as_mut() } else { p.fire.state.outcomes.as_mut() };

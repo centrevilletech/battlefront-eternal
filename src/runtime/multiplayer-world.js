@@ -122,6 +122,8 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       if (!spectator && !autoSpawn) unspawn(p);
       p.handle = native.create({ mailbox: p.mailbox.handle, character: characterHandle(p), spectator, reliableFire, separateActions, teamSelect: p.teamSelect,
         autoRespawn: false, ordinal: p.ordinal, team, reconKey, at: performance.now() });
+      // Refused natively (the match's capacity): release what admission took, as the no-eligible-spawn refusal does.
+      if (!p.handle) { if (!spectator) { if (autoSpawn) unspawn(p); roster.release(character); } p.mailbox.dispose(); players.delete(id); throw new Error('no player capacity'); }
       byHandle.set(p.handle, p);
       // The reliable lanes and the local world's respawn policy live natively.
       p.fire = new LaneView(native, p.handle, 1); p.actions = new LaneView(native, p.handle, 0);
