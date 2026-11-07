@@ -124,7 +124,7 @@ player. The droid's own blaster bolts were drawn.
   (`Combat.explode`), and only the world ran that; a page, which never steps
   the world, drew its own copy of the soldier, never shaken, for any
   explosion (grenades and mortars too). The shake is now the page's
-  (`src/camera-shake.js`): `CombatPresentation` calls `onExplosion` for each
+  (`rust/bfe-presentation/src/cameras/shake.rs`): `CombatPresentation` calls `onExplosion` for each
   explosion it shows, and the page shakes its view by what its camera
   follows (the droid he flies, the hull he drives, else his body as drawn),
   as the original game does (docs/formats.md, "Camera shake": two shakes

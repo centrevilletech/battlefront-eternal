@@ -1,12 +1,13 @@
 # Enhanced AI
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
-the former implementation and document its behavioral contract.
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+Rust names where the port keeps one, usually the JavaScript name in
+snake_case; object-shaped examples document the behavioral contract.
 
 
-Enhanced is the second battle AI, next to Classic. Classic (`src/ai/classic`,
-[ai.md](ai.md)) is the 2004 game's AI, quirks included.
+Enhanced is the second battle AI, next to Classic. Classic ([ai.md](ai.md))
+is the 2004 game's AI, quirks included.
 Enhanced keeps Classic's machinery (navigation, the sight scan, weapons,
 vehicles, class jobs, squad commands, chatter) and replaces the decisions
 players asked to change: weak allies, bots that never reach their command
@@ -17,23 +18,23 @@ Choose it in Options, Game, BATTLE AI (OFF, CLASSIC, ENHANCED; it applies on
 Restart battle), or with `?ai=enhanced`. DIFFICULTY's EASY, NORMAL and ELITE
 are Enhanced's Easy, Normal and Hard.
 
-Classic is unchanged. No file under `src/ai/classic` changed for Enhanced;
-Enhanced plugs in through the Classic entry point's own extension options
-(`createClassicAI` `agents` and `combat`, `ClassicSpawning` `objectives`,
-the difficulty object). A Classic battle with a given seed plays exactly as
+Classic is unchanged. Enhanced is a flag on the same native core: it
+selects the Enhanced difficulty, objective selector, objective agents, aim
+and spawn-post choice where Classic's would run (`Difficulty`,
+`Objectives::enhanced`, `CombatAi`'s Enhanced combat). A Classic battle with a given seed plays exactly as
 it did before Enhanced was added (checked by comparing whole headless battles).
 
 ## Files
 
 | File | What |
 | --- | --- |
-| `src/ai/enhanced/index.js` | Exports, and `enhancedOptions(world, { tier, seed })` for `createClassicAI` |
-| `src/ai/enhanced/difficulty.js` | `EnhancedDifficulty`: one skill for both teams; decision cycle by tier |
-| `src/ai/enhanced/objectives.js` | `EnhancedObjectives` (the objective draw, defense) and `EnhancedSpawning` (spawn posts) |
-| `src/ai/enhanced/agents.js` | Trooper, scout and repair agents that keep going for their post |
-| `src/ai/enhanced/aim.js` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides |
-| `src/ai/index.js` | `createAI("enhanced", ...)` picks the Enhanced pieces |
-| `tests/ai-enhanced.test.js` | `node --test tests/ai-enhanced.test.js` |
+| `src/ai-world-load.js` | `createNativeAI("enhanced", ...)` sets the native owner's `enhanced` flag |
+| `rust/sim/src/ai/control/difficulty.rs` | the Enhanced flavor of `Difficulty`: one skill for both teams; decision cycle by tier |
+| `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | `Objectives` with `enhanced` set (the objective draw, defense, recruitment), `Core::enhanced_objectives_tick` |
+| `rust/sim/src/battle/spawning.rs` | the Enhanced spawn-post choice |
+| `rust/sim/src/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
+| `rust/sim/src/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
+| `rust/sim/tests/ai_phase.rs`, `ai_combat_twin.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
 | `tools/ai-focus-probe.mjs` | Whole-battle measurements for Classic and Enhanced (below) |
 
 ## What Enhanced changes
@@ -160,8 +161,9 @@ scope now halves the error, as a player's scope shrinks his. A second sweep
 per tier at twice the initial error, over those maps plus Cloud City and Yavin
 Temple, gave Normal 20% / 16% rifle hits, Hard 25% / 21% and Easy 18% / 13%;
 Easy was widened a little more for the table above. These are starting
-points for play-testing, all in `AIM_PROFILES`, `AIM_MODEL`,
-`ENHANCED_OBJECTIVES` and `ENHANCED_FOCUS`.
+points for play-testing, all in the aim profiles and model
+(`rust/sim/src/ai/combat/enhanced.rs`, `profile` and the model constants)
+and the Enhanced objective and focus numbers (`control/mod.rs`).
 
 ## Measuring
 

@@ -67,11 +67,10 @@ JavaScript foliage sweep above has been removed with that selector; foliage
 selection now runs in the required Rust renderer and is measured in drawn frames.
 
 The script loads the real collision geometry and live-prop states, performs
-warmups, and reports medians and p95. `PERF_ROUNDS`, `PERF_CYCLES`, and
-`PERF_FRAMES` control sample counts. Optional `PERF_REFERENCE_COLLISION` and
-`PERF_REFERENCE_FOLIAGE` paths select reference ES modules exporting
-`CollisionWorld` and `Foliage`; their normal imports must resolve from their
-location. Providing a reference adds interleaved A/B timing and output checks.
+warmups, and reports medians and p95. `PERF_ROUNDS` and `PERF_CYCLES`
+control sample counts. An optional `PERF_REFERENCE_COLLISION` path selects a
+reference ES module exporting `CollisionWorld`; its normal imports must
+resolve from its location. Providing a reference adds interleaved A/B timing and output checks.
 
 Behavior regressions do not need reference files:
 
@@ -83,9 +82,9 @@ node tests/foliage.mjs
 
 The query test compares 700 randomized gathers, clearance probes, and rays
 against brute-force geometry, including toggled and ignored live bodies and
-terrain. Foliage tests retain the prior card equations as an output oracle and
-compare 49,195 visible cards across camera pitch/yaw, distance settings, grass,
-vines, trees, and zero/30/60/144-Hz updates. Existing traversal tests preserve
+terrain. The foliage checks cover authored card construction and the import
+data the Rust renderer's foliage selection reads; they no longer compare a
+JavaScript-selected card population. Existing traversal tests preserve
 arch clearance, stairs, low ceilings, tall walls, and thin-wall collision.
 
 ## Old GPUs at full screen
@@ -298,7 +297,7 @@ world space rather than view space.
   on the measured view.
 - **Fewer passes:** FXAA over a plain frame reads the scene's image instead
   of a copy of it; FXAA reads its five-pixel cross before the diagonals.
-- **FXAA (FAST)** (`fxaa.js`): FXAA 3.11's console path, 2.9 ms against 7.6
+- **FXAA (FAST)** (`rust/bfe-render/shaders/post-hud/fxaa-fast.frag`): FXAA 3.11's console path, 2.9 ms against 7.6
   at 960x540. The Performance preset uses it.
 - **BC1/BC3 where BC7 is unpacked** (`rust/bfe-render/src/texture_format.rs`, `gpu-info.js`):
   `unpacksBc7` matches Mesa's names for Intel before Ivy Bridge. GPU memory
@@ -586,9 +585,10 @@ The rays are the largest of the four, and they come from all over the step:
 a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
 soldier's steps and ground, rounds in flight. The collision module of
 `rust/sim` (once the crate `rust/rays`) computes them, and the sphere queries
-after them, in Rust compiled to WebAssembly: in the
-offline world worker unless the battle's query has `rays=js`, and on a page
-or a dedicated server when asked (`rays=wasm`, `BFE_RAYS=wasm`).
+after them, in Rust compiled to WebAssembly, on the page, the world worker
+and the dedicated server alike. When these measurements were taken the
+JavaScript path was still selectable; that path and its switches have since
+been removed.
 
 ### What it computes, and how it is loaded
 
@@ -621,9 +621,8 @@ WebAssembly when it held the rays alone; 141 KB, 199 KB as base64 and 73 KB
 compressed, now that the simulation's module holds the movement, the pose
 sampler and the entity store too, docs/sim-store.md). That file is
 committed, so building the game needs no Rust. game.js imports
-`src/sim/module.js` only for a battle that asks for one of its kernels, so
-Vite makes it a chunk of its own that the page and the world worker share,
-and the default bundle loads nothing more. The world
+`src/sim/module.js` dynamically for every battle, so Vite makes it a chunk
+of its own that the page and the world worker share. The world
 worker, the page and plain Node (the dedicated server, which copies `src/` as
 it is; `tools/world-hash.mjs`) all load it the same way, with
 `WebAssembly.compile` and `instantiate`: there is no wasm file to bundle,
@@ -646,19 +645,24 @@ between the terrain's grid and its tree), comes in from JavaScript.
 WebAssembly has no fused multiply-add unless asked for, and Rust never
 contracts f64 operations by itself.
 
-- `tests/ray-kernel.test.js` compares every cast, castMoving and ground probe
+While the JavaScript path existed, these checks compared the two (the
+JavaScript twin has since been removed; `tests/ray-kernel.test.js` now
+checks the module against recorded results, and `tools/check-ray-kernel.mjs`
+runs that test):
+
+- `tests/ray-kernel.test.js` compared every cast, castMoving and ground probe
   with the JavaScript's, field by field with `Object.is`, the body by
   identity, on a made-up world whose bodies switch on and off, move, come and
   go.
-- `tools/check-ray-kernel.mjs` does the same in a running battle on every map,
-  with gathers, overlaps and terrainNear too, and also answers every query the
-  battle itself makes and runs every hull's wall probes both ways, from its
+- `tools/check-ray-kernel.mjs` did the same in a running battle on every map,
+  with gathers, overlaps and terrainNear too, and also answered every query the
+  battle itself made and ran every hull's wall probes both ways, from its
   loading on: 168,000 answers of its own on each of the 17 maps, 170,000 to
   560,000 of the battle's queries a map and 6,000 to 22,000 wall-probe runs
   on each map with hulls, every one the same.
-- `tools/world-hash.mjs --rays wasm` fingerprints a battle cast this way.
-  The branch's start, this branch without `rays=wasm`, and this branch with
-  it gave the same fingerprint for every tick: 2,400 ticks on 24 maps, sides,
+- `tools/world-hash.mjs` fingerprinted a battle cast this way.
+  The branch's start, this branch with the JavaScript collision, and this
+  branch with the module gave the same fingerprint for every tick: 2,400 ticks on 24 maps, sides,
   seeds and modes (Naboo Plains, Dune Sea, Bespin Platforms and Hoth in
   several of each, seven other maps, acknowledgements, a page's interval and
   shots judged rewound), and 6,000 to 9,000 ticks on seven more. With the
@@ -731,8 +735,8 @@ share of Bespin Platforms' step fell from 4.0% to 1.3%.
 The module's memory grows as it makes these structures, and growing it
 empties every typed-array view made over it before: each answer is read
 through a view made after the calls before it. `tests/ray-kernel.test.js`
-makes every call grow the memory and compares every kind of query with the
-JavaScript's.
+makes calls grow the memory and checks the answers against recorded
+results (it compared them with the JavaScript's while that path existed).
 
 ### Measurements
 
@@ -823,8 +827,8 @@ on the emulated laptop about the same on Naboo Plains and Bespin Platforms
 and 1.3 fewer on Dune Sea, where the world ran 15% more ticks a second for it
 to show.
 
-A query's `rays=wasm` also gives the page a module of its own, through which
-its collision world answers: about 9 to 12 casts, 10 to 13 ground probes and
+At the time, a query's `rays=wasm` (since removed) also gave the page a
+module of its own, through which its collision world answers: about 9 to 12 casts, 10 to 13 ground probes and
 10 to 13 gathers a frame, nearly all from replaying his own soldier. In one
 battle on the emulated laptop with only the page's queries switched between
 the module and the JavaScript every 5 seconds (16 periods, about 1,230 frames
@@ -835,10 +839,10 @@ no cheaper than the JavaScript's cache), and its render phase was 0.4 to
 Plains, 8.15 against 7.73 on Bespin Platforms, whose mean was 10.21 against
 8.61 with a heavier tail), though that phase makes no collision query in
 these settings and the module's memory lies outside the JavaScript heap.
-Why is not known yet; it matters before the page's replay runs in the
-module. The page therefore keeps the JavaScript unless its query asks.
+Why was not established before the page moved to the module; the page now
+always uses it.
 
-As shipped (the offline world worker with the collision's module and the
+As shipped then (the offline world worker with the collision's module and the
 soldiers' movement in it by default, the page in JavaScript), against
 everything in JavaScript (`rays=js&movement=js`), on the emulated laptop
 (one build, the same recordings):
@@ -866,28 +870,19 @@ bfeserver runs the same world in Node: its world thread calls the engine's
 as it does in a page's worker, from `src/sim-wasm.js`, which the host
 runtime copies with the rest of `src/` (compiled once a thread in about
 10 ms; each battle's own instance and copies, 3 to 12 MB a map, made in 7 to
-20 ms as it loads). A server opts in with `BFE_RAYS=wasm` in its
-environment: under Node the engine takes it when the battle's query says
-neither `rays=wasm` nor `rays=js` (a query's `rays` would also reach the
-players, whose pages load the battle's query). Nothing in the server
-changes, and its default stays the JavaScript.
+20 ms as it loads). The module is required: there is no environment
+switch and no JavaScript fallback.
 
 If the module cannot be compiled or instantiated (no WebAssembly, no memory
-for it), the battle loads with the JavaScript and the server logs it once. If
-a query fails inside the module during a battle (a fault in it, or memory it
-cannot grow), the collision world drops the module and answers that query
-and every later one in JavaScript, and logs it once.
+for it), the battle does not start and the error reaches its error screen
+or the server's log; a query that fails inside the module stops that query.
 
-Neither changes a tick. The module answers each query as the JavaScript
-does, to the last bit, so a tick's outcome does not depend on which one
-answered: a server using the module and pages that do not (or the other way
-round) compute the same world, and a page's replay of its own player against
-its own collision world makes the same corrections either way. The proofs
-are the ones above, run on both paths in the same process:
-`tests/ray-kernel.test.js` (and a query failing in the module half way
-through a battle), `tools/check-ray-kernel.mjs` on every map, and
-`tools/world-hash.mjs`, which forces one path or the other (`--rays wasm`,
-else `rays=js`) whatever the environment says.
+While both paths existed, the module answered each query as the JavaScript
+did, to the last bit, so a server and its pages computed the same world
+whichever one answered. Today `tests/ray-kernel.test.js` (which
+`tools/check-ray-kernel.mjs` runs) checks the module against recorded
+results, and `tools/world-hash-matrix.mjs --against` checks real battles
+against frozen fingerprints.
 
 ### What porting more would take
 
@@ -934,6 +929,13 @@ array-like part of the step. Each of its sines, arc tangents, powers and
 hypots would need V8's last bits; its iteration and sort orders would have to
 be kept; and the page's prediction, which runs the same soldier and hull code,
 would need the same module.
+
+This analysis predates later ports: the hulls and their hover springs
+(`rust/sim/src/vehicles`), the AI (`rust/sim/src/ai`), snapshot capture and
+encoding (`rust/sim/src/wire`), the hit history
+(`rust/sim/src/combat/history.rs`) and the page's prediction
+(`rust/sim/src/prediction`, `rust/sim/src/client`) now run in the same
+module.
 
 ## The battle renderer in Rust
 
@@ -1157,12 +1159,11 @@ soldier every frame, over each command the world has not acknowledged yet
 step on Naboo Plains and a twentieth on Dune Sea and Bespin Platforms, and on
 the page about half of what the replay cost.
 
-`rust/sim/src/movement` runs the whole tick in the ray kernel's module, for a
-battle whose query has `movement=wasm` (which loads the ray kernel with it):
-the world worker's ticks (and a dedicated server's) and the page's replay
-alike, each with its own instance of the module. The offline world worker
-uses it unless the battle's query has `movement=js` or `rays=js`; a page and
-a dedicated server keep the JavaScript unless asked.
+`rust/sim/src/movement` runs the whole tick in the ray kernel's module: the
+world worker's ticks (and a dedicated server's) and the page's replay alike,
+each with its own instance of the module. When the measurements below were
+taken it was selected per battle (`movement=wasm`); that switch and the
+JavaScript path have since been removed.
 
 ### What it computes, and how it is called
 
@@ -1209,8 +1210,8 @@ the server's do.
   classes on a course (stairs, walls, ramps, a low slab, a tower, terrain,
   props switching on and off, two moving hulls) for 1,500 ticks, then
   scripted climbs, a crawl, a fall and dives.
-- `tools/world-hash.mjs --movement wasm` gave the same fingerprint as the
-  default for every tick: 2,400 ticks on 24 maps, sides, seeds and modes
+- `tools/world-hash.mjs`, with the kernel selected, gave the same
+  fingerprint as the JavaScript tick for every tick: 2,400 ticks on 24 maps, sides, seeds and modes
   (Naboo Plains, Dune Sea, Bespin Platforms and Hoth in several of each, seven
   other maps, acknowledgements, a page's interval and shots judged rewound),
   and 6,000 to 9,000 ticks on seven more.
@@ -1278,9 +1279,9 @@ against 1.17 on Bespin Platforms and 0.45 against 0.69 on Hoth.
   of the page's simulation phase is taking in the world's packets, which this
   leaves as it was.
 - Droidekas walk by their own clips and collision pass (src/droideka.js),
-  still in JavaScript, as are the hulls.
-- The kernel stays behind `movement=wasm`; making it the default goes with
-  the ray kernel's.
+  still in JavaScript. The hulls have since moved to `rust/sim/src/vehicles`.
+- The kernel is now the only movement path, as the ray kernel is the only
+  collision path.
 
 ## Texture storage lifetime
 

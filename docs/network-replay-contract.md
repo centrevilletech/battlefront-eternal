@@ -1,9 +1,12 @@
 # Shared simulation and network replay
 
 Single player, the authoritative server and client prediction must use the same
-simulation methods. Fix movement in `Soldier.tick`, vehicle motion in
-`Vehicle.tick` / `stepFlight`, and recoil in `PlayerCombat.updateKick`. Do not
-copy those rules into a networking adapter. Prediction supplies recorded input,
+simulation methods. Fix movement in `rust/sim/src/movement` (the port of
+`Soldier.tick`), vehicle motion in `rust/sim/src/vehicles` and
+`rust/sim/src/flight/model.rs` (`Vehicle.tick`, `stepFlight`), and recoil in
+`rust/sim/src/combat/combat.rs` (`PlayerCombat.updateKick`). Prediction
+(`rust/sim/src/prediction`, `rust/sim/src/client`) replays those same Rust
+rules. Do not copy them into a networking adapter. Prediction supplies recorded input,
 steps those methods at their normal fixed timestep, and suppresses publication
 of predicted collision bodies or authoritative damage.
 

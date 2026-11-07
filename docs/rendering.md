@@ -412,9 +412,9 @@ bounds. The original silhouette supplies approximate forest shadows; enhanced
 individual sprays do not add shadow draws. The native foliage textures remain
 the source-detail limit, and headless validation is not a hardware FPS claim.
 
-Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.mjs`,
-`python3 tests/test_foliage_export.py`, and `node tests/foliage-browser.mjs`
-(with `PLAYWRIGHT_MODULE` when needed). GPU pixel checks verify a glow behind
+Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.mjs` and
+`python3 tests/test_foliage_export.py`. When the canopies were added, GPU pixel
+checks (since removed with the browser foliage material) verified a glow behind
 leaves is occluded, a glow in front remains visible, and transparent leaf holes
 remain open. Canopy checks cover footprint containment, the draw budget,
 Original/Enhanced switching, retained unmatched cards, and reculling after
@@ -814,7 +814,7 @@ in a worker instead (runtime-architecture.md).
 Checks: `node --test tests/*.test.js` (510), `tests/rendering.mjs` (138),
 `tests/environment-render.mjs`,
 `ocean-storm-browser`, `rain-enhanced-browser`, `weather-browser`,
-`visual-assets`, `bolt-render`, `effects-gpu-browser`, `foliage-browser`,
+`visual-assets`, `bolt-render`, `effects-gpu-browser`,
 `runtime-cadence-browser`, `runtime-profiler-browser`, `theed-camera-browser`,
 `droideka-shield-render`, `jetpack-volume-render`, `vehicles-browser`,
 `vehicle-motion-render`, `tauntaun-browser`. Updated expectations: static culling
@@ -1157,8 +1157,8 @@ by three's depth material (which also sampled every caster's colour texture)
 and read back through sixteen `texture2D` fetches and sixteen unpacks a
 pixel. The cascades are now `DepthTexture`s in the GPU's comparison mode
 (`sampler2DShadow`): the caster pass writes the depth attachment alone, with
-a depth material of this port's own (`graphics.js`, `depthVertexShader`) that
-does the transform and, for cut-outs, the alpha test and nothing else; the
+a depth program of this port's own (now drawn by `rust/bfe-render`, with the
+static casters in `rust/bfe-render/src/static_depth.rs`) that does the transform and, for cut-outs, the alpha test and nothing else; the
 colour attachment is one byte a texel and never written.
 
 The receiver filter is the same 4x4 tent (texels base-1 to base+2 an axis,

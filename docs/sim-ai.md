@@ -119,13 +119,16 @@ again before accepting an omitted request, so a stale page cannot turn missing
 input into authority. Boundary counters count the words actually written.
 
 `tests/ai-world*.test.js` exercises the actual native owner with synthetic
-content. The native `ai_phase`, `ai_native_phase`, controller, vehicle and
-combat tests cover policy, missing services and lifecycle ordering. External
+content. The native tests in `rust/sim/tests/` (`ai_phase.rs`,
+`ai_native_phase.rs`, `ai_control_twin.rs`, `vehicle_ai_twin.rs`,
+`ai_combat_twin.rs`, `ai_combat_control.rs`) cover policy, missing services
+and lifecycle ordering. External
 capture replays and world hashes supplement these fixtures; retail content
 and captured battle data stay outside the repository.
 
-The detailed AI documents describe behavioral contracts. Their older
-JavaScript function names identify the operations from which the Rust code
-was ported; they are not runtime import paths. Page weapon prediction still
+The detailed AI documents describe behavioral contracts. Function names in
+them are the Rust names where the port keeps one (usually the JavaScript
+name in snake_case); where a game class name such as `UnitFlyAgent` appears,
+it names the original game's behavior, not a runtime import path. Page weapon prediction still
 uses `src/ai/random.js`, and HUD target previews share the cold
 `src/weapon-policy.js` cache. These helpers do not schedule or steer bots.

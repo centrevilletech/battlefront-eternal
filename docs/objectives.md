@@ -80,8 +80,8 @@ by name).
    uniformly through the region's box, each `explosion`, `med_explosion`
    or `small_explosion` at random; then up to 64 soldiers and vehicles whose
    origin is inside are killed outright, no one credited. Single player or
-   the host only. The port: `src/objectives.js` `killRegion`, from
-   `src/game.js` `objectiveDestroyed`.
+   the host only. The port: `rust/sim/src/battle/objectives.rs` (`killRegion`),
+   from `objectiveDestroyed` in `rust/sim/src/battle/phase.rs`.
 4. From then on the post iterators skip it: it is no
    spawn point, no AI objective, adds no `ValueBleed` and counts neither as
    held nor as neutral, so a team left with nothing else starts its 20 s
@@ -93,7 +93,7 @@ by name).
 
 A post is drawn with its class's `MapTexture` at its `MapScale`: the
 objectives' `hud_dest_icon` at 3.0 against the capture posts' flag at 2.5
-(`src/hud.js` `postIcon`).
+(`postIcon`, `rust/bfe-render/src/hud_model/map.rs`).
 
 ## Voice-over
 
@@ -138,14 +138,14 @@ port's own; the other two fix port bugs):
 
 - **Drawn more often, on the front:** a standing enemy objective weighs 3
   times its authored value in the objective draw (`OBJECTIVE_ATTACK_BIAS`,
-  `src/ai/classic/goals.js`) while it is on the team's front: the
+  `rust/sim/src/ai/control/goals.rs`) while it is on the team's front: the
   candidate nearest one of the posts the team spawns at (a command
   walker's post included). Further back it keeps its authored value, so
   the posts in front of it are drawn as the original draws them.
 - **Shot first:** to a bot whose objective it is, the building ranks as
   its top match-up (priority 20, an armed building's, rather than a
   building's 1) in the sight scan and the target tracker
-  (`targetPriority`, `src/ai/classic/perception.js`), so it fires on the
+  (`targetPriority`, `rust/sim/src/ai/combat/perception.rs`), so it fires on the
   generator rather than on every soldier along the way.
 - **Hoth's probe droid drop weighs nothing:** the post records are joined
   to the runtime posts by the runtime name, and the unnamed post (the probe
@@ -159,7 +159,7 @@ port's own; the other two fix port bugs):
   and the walker stood driverless. Only a bot in a later seat moves up
   (`Vehicles.promote`).
 - **Not repaired by bots:** no bot takes an objective as a repair job
-  (`src/ai/services.js`). Four pilots' fusion cutters (60 health a tick)
+  (`rust/sim/src/ai/owned/services.rs`). Four pilots' fusion cutters (60 health a tick)
   restored the generator to full faster than the Empire's infantry hurt
   it. A player's fusion cutter still repairs one.
 
@@ -206,10 +206,8 @@ Empire's spawn at cp1 has stopped.
 
 ## Checks
 
-- `tests/objectives.test.js`: damage, no regeneration or rebuild, the death
-  animation's span, the post's loss (once, inactive, team kept, no bleed,
-  no spawns, the no-post countdown), the kill region, the target and the
-  Info line.
+- `rust/sim/tests/f4_live.rs`: a destroyed objective does not regenerate,
+  and commands for its old kind are rejected.
 - `tools/objective-probe.mjs <map> [ticks] [--destroy]`: a headless battle
   on the prepared data, with the objectives' health every 30 s, how many
   bots have one as their sight candidate, how many are sent to it and how

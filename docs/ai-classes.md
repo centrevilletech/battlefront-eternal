@@ -1,18 +1,21 @@
 # Classic AI class jobs
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
-the former implementation and document its behavioral contract.
+runs in `rust/sim/src/ai/` (ported from JavaScript); API examples below
+document its behavioral contract.
 
 
-`src/ai/classic/classes.js` supplies the real `SnipeHelper` and `MineHelper`
-through the existing `helpers` export, and pilot/support services through
-`classicBinding(ai)`. `loadClassicModules()` loads it automatically. The
-existing Trooper, Scout and Repair agents keep their state dispatch, Scout
-60 to 100 second deadline, five-second pilot job scan and interrupt policies.
+`rust/sim/src/ai/control/classes.rs` holds the class jobs' data and pure
+helpers (the repair service book, health types, ammo and placement
+arithmetic, the snipe priority heap); the control core
+(`rust/sim/src/ai/control/mod.rs`) runs the snipe and mine helpers and the
+pilot/support services. The Trooper, Scout and Repair agents keep their
+state dispatch, Scout 60 to 100 second deadline, five-second pilot job scan
+and interrupt policies.
 
-`src/ai/classic/nav/jet-hints.js` is installed as `ClassicNav.jetHints`.
-Combat's pattern 11 already calls `find`, `enter`, `tick` and `exit`.
+The jet-hint helper is `rust/sim/src/ai/nav/jet_hints.rs`, with its running
+jobs in `rust/sim/src/ai/owned/jets.rs`. Combat's pattern 11 calls its find,
+enter, tick and exit.
 
 ## Behavior
 
@@ -50,18 +53,18 @@ Combat's pattern 11 already calls `find`, `enter`, `tick` and `exit`.
 ## World adapters
 
 Normal units, weapons, mission controls and hints use the interfaces in
-`docs/ai.md`. Additional inputs:
+`docs/ai.md`. Additional inputs, served by the core's and combat's worlds
+(`rust/sim/src/ai/control/world.rs`, `rust/sim/src/ai/combat/world.rs`):
 
 | Field | Contract |
 | --- | --- |
-| `world.items` | Shared Items service (`items`, `owned`), or an array of item records. Items provide position, owner, team, def, gone and radius. |
-| `world.serviceCandidates(center, radius)` | Optional array of registry units and stable building/vehicle wrappers, including dead rebuildable structures. Filtering and cap50 happen in Classes. Without it only living registry units are scanned. |
+| items (`items_len`, `item`) | Shared Items service (`items`, `owned`), or an array of item records. Items provide position, owner, team, def, gone and radius. |
+| `service_candidates(center, radius)` | Registry units and stable building/vehicle wrappers, including dead rebuildable structures (`rust/sim/src/ai/owned/services.rs`). Filtering and cap50 happen in Classes. |
 | service candidate | position, generation, team, alive, kind, health/maxHealth (or combat equivalents), radius/sphere, healthType, optional human/humanPiloted, velocity, forward, combat.arsenal. |
 | `healthType` | Numeric0 person,1 animal,2 droid,3 vehicle,4 building,5 rebuild,6 build; classDef.HealthType strings work for ordinary types. |
 | `candidate.building` / `.vehicle` | Shared gameplay object, for comparison with `combat.repairTarget`. Wrappers must retain identity and expose live health/team fields. |
-| `world.mineGroundHeight(point)` | Optional terrain height query when the map permits terrain snapping; mine aim is height+1.5. Omit for maps without that predicate. |
-| `world.classCandidates(center, radius, cap, owner, relation)` | Optional unified broadphase for the first-hostile-object mine veto. Relation−1 means hostile. |
-| `world.jetHintExcluded(unit)` | Optional map/world-specific authored-jet exclusion predicate. |
+| `mine_ground_height(point)` | Optional terrain height query when the map permits terrain snapping; mine aim is height+1.5. Omit for maps without that predicate. |
+| `jet_hints_excluded(controller)` | Optional map/world-specific authored-jet exclusion predicate. |
 
 Supply stable generation refs and ordinary `origin(out)`, `aimPoint(out)`
 and `forward(out)` methods on candidates used by combat aiming. AI requests
@@ -100,9 +103,9 @@ weak-reference resolvers intentionally reject dead objects.
 
 Found with `tools/ai-stuck-probe.mjs` (docs/ai.md "Stuck bots"); pilots
 were the largest group of bots that stopped moving, and their planning
-churn the main cause of everyone else's. Tests: `tests/ai-stuck.test.js`.
+churn the main cause of everyone else's.
 
-- A wreck's walk is planned once (`approach`): the service called `goto`
+- A wreck's walk is planned once (`repair_approach`): the service called `goto`
   every update, each one restarting the plan and stopping the bot until the
   path came, so the path was always thrown away before it was used. On
   Cloud City that was over a third of all planner work.
@@ -111,13 +114,13 @@ churn the main cause of everyone else's. Tests: `tests/ai-stuck.test.js`.
   every job was "close" inside the tool's default 60 m range, and the pilot
   stood that far off cutting at nothing.
 - Close by the 5 m rule but not locked yet, a repair tool closes in, once,
-  in a straight line to the target's bounds plus 1.5 m (`closeIn`): the
+  in a straight line to the target's bounds plus 1.5 m (`repair_close_in`): the
   planning barriers around a turret keep a route's end outside the cutter's
   reach (its lock range past the target's bounds, from the eye).
 - A tool that never comes to bear (the cone never passes, so no work and
   no progress check) gives up after 8 s.
 - A job given up (20 s approach gate or 8 s progress check) stays off that
-  life's list for 30 s (`futile`): the next five-second search otherwise
+  life's list for 30 s (`Futile`): the next five-second search otherwise
   picked the nearest job again, the same one, without end.
 
 ## Remaining integration limits
@@ -127,29 +130,24 @@ churn the main cause of everyone else's. Tests: `tests/ai-stuck.test.js`.
   controller deliberately has no state8. Stock remote recon must not be
   assigned that repair goal, and this module does not deploy recon or call
   orbital strikes.
-- Without `classCandidates`, the first-hostile-object mine veto checks the
-  living unit registry before items; the original combined entity insertion
-  order can differ. Without unified service candidates, buildings cannot be
-  selected. These are explicit adapter limits, not alternate tactics.
+- The mine veto, which looks for any hostile object near the hint, checks
+  the living unit registry before items; the original combined entity insertion order can differ.
+  This is an explicit adapter limit, not an alternate tactic. Repair
+  candidates (`rust/sim/src/ai/owned/services.rs`) include wrecked
+  buildings that the living registry omits.
 - Service target reservations are local to this class binding with the
   shared three-second generation-checked lifetime. They are not yet backed
   by a common building/vehicle reservation manager.
 - Float distances are float32 at heap insertion; the surrounding geometry
-  uses Three.js numbers. Class-job behavior has not been compared
+  uses double-precision numbers. Class-job behavior has not been compared
   bit-for-bit against the original game. Synthetic fixtures cover decision
   boundaries and shared weapon requests; they do not establish full-game
   behavioral parity.
 
 ## Validation
 
-`timeout 300 node --max-old-space-size=1024 --test tests/ai-classes.test.js`
-covers configured sniping geometry and mode gates, eleven attempts,
-occupation/revalidation, mine inventory/caps/grid/allies/spacing/fire wait,
-failed approach cooldown, pilot human preference, ammo-only health guard,
-approach timeout, dead-build weakrefs, jet query RNG and authored impulses.
-The controller and Nav suites exercise the existing dispatch and movement
-interfaces alongside these helpers.
-Two pipeline fixtures run the real signed fire-control adapter and Arsenal:
-one consumes a secondary-channel mine round, the other calls the real
-PlayerCombat repair tick and LiveObjects repair method to add exactly the
-fusion cutter's health quantity, using the bot's own team.
+`rust/sim/tests/ai_phase.rs` covers class jobs reading native ammo and
+arsenals (mine weapon choice, owned items), building repair identity, and
+jet-hint jobs (random ties, authored vectors, launch position). The per-phase
+replays (`rust/sim/tests/replay_ai.rs`) run the control core, class jobs
+included, against captured battles when a capture corpus is supplied.

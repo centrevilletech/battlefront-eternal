@@ -53,8 +53,9 @@ so true/false are zero.
 
 Stock heroes consequently take normal projectile and melee damage; their
 large finite health and regeneration make ordinary weapons ineffective.
-`tryMeleeBlock` supports an explicitly enabled melee block with no facing or
-swing-state gate. Generic projectile reflection and the block pose/sounds
+The melee strike's block test (`block` in `rust/sim/src/units/f3_sensors.rs`)
+supports an explicitly enabled melee block with no facing or swing-state
+gate. Generic projectile reflection and the block pose/sounds
 are not implemented; custom CanDeflect=1 classes therefore have only melee
 blocking support. No stock class in the selected profile needs that missing
 projectile behavior.
@@ -105,12 +106,6 @@ swings, effective defense, blade geometry, and all five extracted stock
 classes when local assets exist. `tests/test_ai_heroes_export.py` uses synthetic
 properties to cover ordered swings and the defense compatibility parser.
 
-`tests/ai-heroes-browser.mjs` runs the headless world under Node
-(`tools/headless-world.mjs`) on locally extracted content (`public/` or
-`BFE_CONTENT_DIR`); the map must name a hero in its teams (the test loads
-`nab2`). It checks Heroes Off versus On roster size, both real hero spawns,
-their exclusion from the battle's capture contributors, boarding rejection,
-repeated controller-to-combat melee, damage events, kill credit, finite
-regeneration and forced death. The controlled run records five 1000-damage
-hits in four seconds for each hero, then one credited kill. It writes a JSON
-report outside the repo, into the directory named by `AI_TEST_ARTIFACTS`.
+`tests/ai-browser.mjs` with `AI_TEST_HEROES=1` runs whole headless battles
+(`tools/headless-world.mjs`) with heroes fielded, on locally extracted
+content (`public/` or `BFE_CONTENT_DIR`).

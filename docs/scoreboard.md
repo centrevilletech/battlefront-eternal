@@ -7,7 +7,8 @@ popup in play. It has two sides here:
 
 - **The board** (`src/scoreboard/`): what is drawn and how input moves it.
   It reads the world only through the scoreboard port.
-- **The world side** (`src/battle.js`, `src/battle-stats.js`,
+- **The world side** (`rust/sim/src/battle/rules.rs` and `stats.rs`, with
+  the page's facades `src/battle.js`, `src/battle-stats.js` and
   `src/bot-names.js`): who is credited with what, when the scores stop,
   the bots' names. The world keeps all of it, so a worker or a replay
   keeps the same numbers (`worldState().scores`).
@@ -70,11 +71,12 @@ mission's armies, and the roster drops them
 | `src/scoreboard/classic/layout.js` | Pure: where everything sits for an interface height |
 | `src/scoreboard/page/view.js` | The page view: the board in the front end's look, as elements over the battle (see [The page view](#the-page-view)) |
 | `src/scoreboard/debug.js` | The board on demand over the running game |
-| `src/battle.js` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `gameOver`, `finished`, `nameBots()` |
-| `src/battle-stats.js` | Each Character's record for DETAILS and AWARDS, and the reports |
+| `rust/sim/src/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
+| `src/battle.js` | The page's scoreboard objects over the native battle: `gameOver`, `nameBots()` |
+| `rust/sim/src/battle/stats.rs`, `src/battle-stats.js` | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
 | `src/bot-names.js` | Bot names, each team from its own generator |
 | `src/runtime/network-entity-summary.js`, `src/runtime/snapshot-host.js` | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
-| `src/hud.js` | The stat popup (`drawStats`), the dead player's HUD, `watch()`, a layer's `teams: false` |
+| `src/hud.js`, `rust/bfe-render/src/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
 | `src/hud.js`, `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
 | `src/audio/game.js` | The `busFade` event; `interface` plays a sound by its own name too |
 
@@ -432,7 +434,7 @@ team's relation colour.
 
 ## The stat popup
 
-The original's stat popup, in `hud.js` `drawStats()`:
+The original's stat popup (`drawStats`, `rust/bfe-render/src/hud_model/panels.rs`):
 
 - **Where:** from the safe area's left middle, three rows 32 apart, for
   KILLS, DEATHS and CP POINTS. Each row is drawn at 0.75 from 36 units in:
@@ -475,7 +477,7 @@ over.
 (`ObjectivePost` in `src/props.js`, [objectives.md](objectives.md)) and for
 the command vehicles' posts (`src/mobile-posts.js`).
 
-**The record** (`src/battle-stats.js`) keeps, per Character and per team
+**The record** (`rust/sim/src/battle/stats.rs`) keeps, per Character and per team
 slot, what DETAILS and AWARDS need:
 
 - **On each kill:**
@@ -550,8 +552,7 @@ same names every battle.
 - The lists come from the map's `ai-mission.json` (`names`).
 - The Classic AI's shared generator draws no bot names, so the draws after
   them at the match start (the quota padding, each Character's first
-  objective, class and post) don't depend on them; `tests/ai-population.test.js`
-  pins those sequences.
+  objective, class and post) don't depend on them.
 
 ## Sounds
 

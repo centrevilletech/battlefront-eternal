@@ -430,7 +430,9 @@ not positions. This section adds what the network changes.
   survives a longer loss burst.
 - **Prediction** covers the player's own soldier or driven vehicle, with the
   same rules. On each snapshot: restore, drop acknowledged commands, replay
-  the rest (`CommandHistory`). Input production and local prediction must
+  the rest (`CommandHistory` keeps the commands; the replay runs in the
+  simulation module, `rust/sim/src/prediction` and `rust/sim/src/client`).
+  Input production and local prediction must
   continue when downstream snapshots stall, with bounded replay history and
   explicit recovery when the retained history no longer covers authority.
   An input receipt/execution acknowledgment can release resend bookkeeping;
@@ -540,7 +542,7 @@ do not establish perceived fairness.
 ### Bots
 
 - The Classic AI throttles bots away from the camera: "within 45 m of camera
-  0, or inside any camera's frustum" (`src/ai/classic/scheduler.js`). On a
+  0, or inside any camera's frustum" (`rust/sim/src/ai/control/scheduler.rs`). On a
   server, every human's view has to count. The server works each view out
   from the player's soldier and viewpoint setting, rather than trusting the
   client. Offline keeps the original first-camera radius; online the 45 m

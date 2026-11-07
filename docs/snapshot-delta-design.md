@@ -400,7 +400,7 @@ and local play. The ABI changes are:
 
 ### Rewind window
 
-`hit-history.js` clamped `viewTick` to `tick - 48` for everyone. The clamp is
+The hit history (then `hit-history.js`) clamped `viewTick` to `tick - 48` for everyone. The clamp is
 per client:
 
 ```
@@ -409,8 +409,8 @@ tick - (that client's input lead + its playout delay maximum + 2)
 
 That is 24 + 10 + 2 = 36 ticks at 30 Hz. A client cannot claim a view older
 than its own pipeline justifies. The budget has since gained allowances for
-the round trip and the playout clock's snap (`rewindBudgetTicks` in
-`hit-history.js`; [semantic-combat.md](semantic-combat.md), "Sniper rounds
+the round trip and the playout clock's snap (`rewindBudgetTicks`, now in
+`rust/sim/src/combat/history.rs`; [semantic-combat.md](semantic-combat.md), "Sniper rounds
 online"), still within the 48 ticks the history keeps.
 
 ## Client

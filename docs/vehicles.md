@@ -20,17 +20,18 @@ discarded when a profile loads.
 
 ## Module layout
 
-The flight modules are under `src/flight/`:
+The page's flight modules are under `src/flight/`; a craft's tick runs in
+`rust/sim/src/flight` (the world's and the pilot's prediction alike):
 
 | Module | Responsibility |
 | --- | --- |
 | `config.js` | Four class configurations; shared live tuning |
 | `debug.js` | First-built telemetry, axes/path/cone/ray/camera gizmos, tuning panel |
-| `model.js` | Quaternion dynamics, states, tricks, swept contacts and boundaries |
+| `model.js` | Cold replica construction; the step itself (quaternion dynamics, states, tricks, swept contacts and boundaries) is `rust/sim/src/flight/model.rs` |
 | `controls.js` | Independent starfighter bindings, gamepad and rebind capture |
 | `camera.js` | Rolling chase/cockpit cameras, clearance and view blend |
-| `targeting.js` | Explicit lock, hysteresis, assists and missile navigation |
-| `ai.js` | Virtual pilot controller through the same model |
+| `targeting.js` | The ordnance world's seeker service; lock, assists and missile navigation are `rust/sim/src/flight/targeting.rs` |
+| `rust/sim/src/flight/ai.rs` | A bot pilot's stick and altitude stage, through the same model |
 | `gear.js` | Landing gear, gear doors and S-foils from each craft's takeoff clip |
 | `spawn.js` | Friendly landed attack transport spawn points |
 | `rust/sim/src/flight/pilotless.rs` | A craft in flight that nobody flies |
@@ -506,7 +507,7 @@ leaves that track out.
   tick does (`poseGearAt` in `Vehicle.aimTick`) before the aimers turn and
   the fire points are read, and so does the render pass that `Vehicles.update`
   runs on every host after it. The gear is the craft's flight state there and
-  in the pilot's own replay (`src/runtime/vehicle-prediction.js`) and
+  in the pilot's own replay (`rust/sim/src/client/hulls.rs`) and
   correction. A page has every other craft only from its records, which
   carry its flight state but not its gear: the gear follows that state by the
   world's own rule (the same ray down for the lift, 1/`TakeoffTime` stowing,
@@ -978,7 +979,7 @@ The walk cycle is drawn on the page by the native hull phase
 (`src/presentation/vehicles.js`, `rust/bfe-presentation/src/vehicles.rs`),
 which `Vehicle.present` queues every hull for (the walk cycle, the manned
 seats, the gear), the one he drives included: nothing on the page runs `aimTick`, and no record poses his own
-hull. His hull's prediction (`src/runtime/vehicle-prediction.js`) advances
+hull. His hull's prediction (`rust/sim/src/client/hulls.rs`) advances
 its walk cycle with its ticks, as the world's `aimTick` does, and is drawn
 between its last two ticks, legs and hull alike. The page also keeps the
 hull's `age`, the clock of the idle clip, the repulsor's bob and a rider's
@@ -1026,7 +1027,7 @@ Docks (the spider walker, the AT-ST) and Yavin 4: Temple (the AT-ST);
 droidekas in the Clone Wars battles of all six.
 The world applies the damage (`Vehicle.tick`, `src/game.js` for every
 droideka); hull and soldier health travel as for any damage, and a client's
-own predicted walker never deals itself damage (`vehicle-prediction.js`).
+own predicted walker never deals itself damage (`rust/sim/src/client/hulls.rs`).
 `tests/vehicle-water.test.js` covers the clock, the depths and an AT-ST
 wading in and being worn down.
 

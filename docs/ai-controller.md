@@ -1,8 +1,9 @@
 # Classic AI: controller, scheduler, agents, interrupts, patrol, squads
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
-the former implementation and document its behavioral contract.
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+Rust names where the port keeps one, usually the JavaScript name in
+snake_case; object-shaped examples document the behavioral contract.
 
 
 Controller part of the Classic AI (`docs/ai.md`). It covers the runtime
@@ -16,32 +17,30 @@ contract. Further behavior details are under "Further behavior details".
 
 | File | What |
 | --- | --- |
-| `src/ai/classic/controller.js` | `UnitController` (controller FSM, CommandFsm queue, request/alert fields), `SourceGoal`, `CommandQueue`, the generic `Fsm` driver, `GOAL`/`STATE`/`ROLE`/`COMBAT_MODE` |
-| `src/ai/classic/agents.js` | `Agent` (UnitAgent base), Wait, WaitSecondary, Trooper, Scout, Repair, Random, Follow, Hold, fallback Board/UnBoard and Snipe/Mine helpers, the degraded `DirectHelper`; runtime vehicle/class bindings replace the fallbacks |
-| `src/ai/classic/interrupts.js` | `InterruptHelper`: priorities 1 to 8, push/save, the charge test |
-| `src/ai/classic/patrol.js` | `PatrolHelper` (states 1 to 6 and 100), patrol-hint query and choice, command-post geometry |
-| `src/ai/classic/squads.js` | squad commands, delivery, follower counting, command VO |
-| `src/ai/classic/scheduler.js` | `ClassicScheduler`: budgeted controller services, LOD gate, the AI input step |
-| `src/ai/classic/index.js` | `createClassicAI`, `loadClassicModules`, sibling adapters |
-| `tests/ai-controller.test.js` | `node --test tests/ai-controller.test.js` |
-
-The modules import only `three`, `src/ai/random.js` and each other.
+| `rust/sim/src/ai/control/controller.rs` | the controller's data (source goals, `SourceGoal`, `CommandQueue`, request/alert fields), `goal`/`state`/`role`/`combat_mode` |
+| `rust/sim/src/ai/control/fsm.rs` | the generic state-machine state every controller, agent and helper shares |
+| `rust/sim/src/ai/control/agents.rs` | agent data (`AgentKind`: Wait, WaitSecondary, Random, Follow, Hold, Board, Unboard, the objective agents Trooper/Scout/Repair, MissingCombat), the interrupt helper's state, the degraded direct helper |
+| `rust/sim/src/ai/control/policy.rs` | interrupt acceptance policies, the charge test |
+| `rust/sim/src/ai/control/patrol.rs` | patrol data, patrol-hint query and choice, command-post geometry |
+| `rust/sim/src/ai/control/squads.rs` | squad command kinds, the VO bank and entry lookup |
+| `rust/sim/src/ai/control/scheduler.rs` | the candidate budget, the camera gate, the degraded analog conversion |
+| `rust/sim/src/ai/control/mod.rs` | `Core`: binding, the per-service update, every state machine's entries, interrupts priorities 1 to 8, squad delivery, the scheduler and the AI input step |
+| `rust/sim/src/ai/control/world.rs` | `AiWorld`, what the core asks of the rest of the battle |
+| `rust/sim/src/ai/owned/runtime.rs` | the battle's AI entry points over the canonical stores |
+| `rust/sim/tests/ai_control_twin.rs`, `replay_ai.rs`, `ai_phase.rs`, `ai_native_phase.rs` | tests |
 
 ## Using it
 
-```js
-import { createClassicAI, loadClassicModules } from "./ai/classic/index.js";
+The native owner (`rust/sim/src/ai/owned/`) drives one `Core` per battle
+through `Runtime` (`owned/runtime.rs`):
 
-const modules = await loadClassicModules();       // dev convenience; a bundle should
-const ai = createClassicAI(world, { modules });    //   import the siblings statically
-// (without `modules` it loads them itself; await ai.ready before stepping)
-
-for (const character of spawning.characters) ai.attach(character);   // humans are ignored
-// inside world.spawnUnit, once character.unit is set:  ai.spawned(character)
-// when a unit dies (with spawning.onDeath):            ai.died(character)
-// per simulation step h, before units tick:            ai.update(h)
-// the local player's squad buttons:                    ai.playerCommand(human, ai.COMMAND.FOLLOW)
-```
+- `attach(character)` for every roster Character (humans are ignored);
+- `spawned(character)` once a Character's unit exists, `died(character)`
+  when it dies;
+- `phase(dt)` once per simulation step, before units tick (it runs
+  `Core::update`);
+- `Core::player_command(character, kind)` for the local player's squad
+  buttons (the page calls `playerCommand` on its AI object).
 
 `update(h)` = `decide(h)` then `execute(h)`:
 
@@ -52,145 +51,139 @@ for (const character of spawning.characters) ai.attach(character);   // humans a
    deferred-LOS budgets.
 2. `execute`: the AI input step for every live AI unit, filling `unit.intent`.
 
-`spawned` and `died` are optional (`update` notices both), but call them to
-keep the original game's RNG order: it builds a new controller per spawned
-entity (drawing its roll) before Population republishes the objective.
-Calling `spawned` inside `world.spawnUnit` matches `docs/ai-population.md`.
-
-Debug: `ai.debug.snapshot()` (cycle, budgets, every controller's state,
-agent, goal, queue, alerts) and, with `ai.debug.tracing(true)`,
-`ai.debug.trace(unitId)` (the controller's last 64 goal/state/interrupt
-events).
+`spawned` and `died` are optional (`update` notices both), but they keep the
+original game's RNG order: it builds a new controller per spawned entity
+(drawing its roll) before Population republishes the objective. Native
+spawning calls `spawned` at the point `docs/ai-population.md` describes.
 
 ### World fields read
 
-| Field | Use |
+The core reads the battle through `AiWorld` (`control/world.rs`), which
+`owned/world.rs` implements over the canonical stores:
+
+| Fact | Use |
 | --- | --- |
-| `world.time` | every timer (seconds) |
-| `world.random` | generator A (see Further behavior details); `world.randomA` wins if set |
-| `world.randomB` (or `world.gameRandom`, Nav's name) | generator B; absent: shares A, with a warning |
-| `world.units` | `query` (allies, recruitment), `relation`, `add` refs |
-| `world.relation(a, b)` | relations (else `world.units.relation`) |
-| `world.spawning.characters` / `world.battle.characters` | the roster (follower counts, delivery, humans for the acoustic cycle) |
-| `world.difficulty` | `cycle`/`losBudget` (a `ClassicDifficulty`), else `hard`/`tier` |
-| `world.nav` | a `ClassicNav`: `helper()`, `control()`, `planner`, `barriers`, `hints`, `service()`, `idle` |
-| `world.camera` / `world.cameras` | the LOD gate only (`matrixWorld`, `near`, `far`, `fov`, `aspect`, `zoom`) |
-| `world.events` | VO records (`kind: "vo"`) |
-| `world.missionControls` | Population's `missionControls(calls)`: `formation`, `stayInTurrets`, `stationaryWait` |
-| `world.objectives` / `world.spawning.objectives` | through Population's `classicBinding` |
-| `world.lodDisabled`, `world.network`, `world.paused` | gates |
+| the simulation clock | every timer (seconds) |
+| generator A | the AI's draws (see Further behavior details) |
+| generator B | the game's own draws (squad rolls, recovery, jet retries) |
+| units and relations | ally queries, recruitment, weak references |
+| the roster | follower counts, delivery, humans for the acoustic cycle |
+| difficulty | the cycle and line-of-sight budget (`control/difficulty.rs`) |
+| navigation | movement helpers, controls, planner, barriers, hints (`nav/mod.rs` `Nav`) |
+| player cameras | the LOD gate only (view matrix, near, far, fov, aspect, zoom) |
+| the event journal | VO records (`kind: "vo"`) |
+| mission controls | `formation`, `stayInTurrets`, `stationaryWait` |
+| objectives | Population's objective requests (`Core::objectives_request`) |
+| LOD disabled, network, paused | gates |
 
 ## Module APIs
 
-### `controller.js`
+### `control/controller.rs`
 
-```js
-new UnitController(ai, character)
-controller.bind(unit) / unbind()            // per life (index.js calls these)
-controller.update(dt, phase)                // phase 0 or 1 (the scheduler calls this)
-controller.state, pending, agent            // controller FSM: 1..11
-controller.commands                         // CommandQueue: current, queue (<= 5), latch, currentDone
-controller.publishObjective(post)           // source goal 3, replacing the queue (Population calls this)
-controller.requestObjective(exclude)        // Population's request
+```text
+Controller::new(character)
+Core::bind(ci, unit) / unbind(ci)          // per life (attach, spawned, died call these)
+Core::controller_update(ci, dt, phase)     // phase 0 or 1 (the scheduler calls this)
+state, pending, agent                      // controller FSM: 1..11
+commands                                   // CommandQueue: current, queue (<= 5), latch, current done
+Core::publish_objective(ci, post)          // source goal 3, replacing the queue (Population calls this)
+Core::request_objective(ci, exclude)       // Population's request
 // request fields (cleared each phase 0 where the original clears them)
-controller.request                          // MovementRequest (Nav's NavControl replaces it)
-controller.aimState, aimPoint, aimTarget    // 0 aimTarget (+lead), 1 aimPoint, 2 along the path
-controller.target, fireA, fireB             // Combat's firing target and requests
-controller.facing, stance, rangeScale, jet, wantedMode, exitRequest, dodge
-controller.lookAt(p) / aimAt(ref) / lookAlongPath() / setStance(s) / requestFacing() / requestJet(v) / requestExit()
-controller.leader                           // follow leader ref (what follower counts read)
-controller.roll                             // integer 0..100 drawn per life (Combat reads it)
-controller.navControl, perception, difficulty
+request                                    // MoveRequest (Nav's control replaces it)
+aim_state, aim_point, aim_target           // 0 aim_target (+lead), 1 aim_point, 2 along the path
+target, fire_a, fire_b                     // Combat's firing target and requests
+facing, stance, range_scale, jet_pending/jet_vector, wanted_mode, exit_request, dodge
+look_at(p) / aim_at(ref) / look_along_path() / set_stance(s) / request_facing() / request_jet(v)
+Core::request_exit(ci)
+leader                                     // follow leader ref (what follower counts read)
+roll                                       // integer 0..100 drawn per life (Combat reads it)
+nav_control, difficulty                    // perception lives in Combat's CombatAi
 // alert intake (Combat's producers); cleared after each phase 0
-controller.notifyDanger(point)
-controller.notifyShot(sourceCharacter, known, point)
-controller.addAcoustic(ref)                 // at most 20
-controller.addVehicleNote(ref)              // at most 10
-controller.receiveCommand(squadCommand)
-controller.danger / shot / acoustic / vehicleNotes / command / lastCommand
-controller.executorStatus, hasExecutor, avoidSide   // read through navControl
+notify_danger(point)
+notify_shot(source, known, point)
+add_acoustic(ref)                          // at most 20
+add_vehicle_note(ref)                      // at most 10
+receive_command(squad_command)
+danger_* / shot_* / acoustic / vehicle_notes / command_record / last_command
+executor_status(), has_executor(), avoid_side()   // read through the nav control
 ```
 
 `SourceGoal` records: `{ kind, refA, refB, post, point, mode }`;
 constructors `objective(post)`, `combat(mode, { point, target })`,
 `follow(leaderRef, sourceRef)`, `board(vehicleRef)`, `droidRepair(t, o)`,
-`of(kind)`. `CommandQueue`: `overwrite`, `append`, `prependOne`,
-`prependTwo(saved, goal)`, `popFront`, `removeKind`, `needsNextGoal`,
-`currentCopy`. `Fsm`: `state`, `pending`, `requestState`, `update(dt,
-alternate)`, `flush`, `terminate`, `done`, hooks `onEnter/onExit/onTick`.
+`new(kind)`. `CommandQueue`: `overwrite`, `append`, `prepend_one`,
+`prepend_two(saved, goal)`, `pop_front`, `remove_kind`, `needs_next_goal`,
+`current_copy`. The state machine (`fsm.rs`, driven by `Core::fsm_update`,
+`fsm_flush` and `fsm_terminate`): `state`, `pending`, `Core::request_state`,
+`done`, with each owner's enter, exit and tick.
 
-### `agents.js`: the `Agent` base (UnitAgent)
+### `control/agents.rs`: the agent base (UnitAgent)
 
-```js
-class Agent extends Fsm {
-  constructor(controller, goal)   // goal: the SourceGoal; creates interrupts and helper
-  tick(dt, phase)                 // controller-facing: update(dt, phase === 0); returns state === 100
-  exit()                          // controller state exit: helper.terminate (or stop), then terminate()
-  onEnter() / onExit()            // the agent's own state entry/exit
-  behave(dt)                      // phase-0 per-state work; the base onTick calls it in phase 0
-                                  //   and combat.rankTargets(agent) in phase 1
-  // shared steps
-  updateCombatTarget()            // Combat's full tracker update
-  aim(stance, look?)              // posture request, then aim at the fresh target, else the
-                                  //   remembered point, else `look`, else along the path
-  tickHelper(dt), canEngage(unit), boardPolicy(unit)
-  // policies
-  acceptsHazard()                 // grenade/sticky danger
-  acceptsAlert(known, point)      // targeted shot / damage (docs/ai.md's acceptsAlert)
-  acceptsTarget(unit), acceptsAcoustic(unit), acceptsBoard(unit)
-  acceptsSecondaryWait(), acceptsCommand(command), acceptsRecovery(), savesOnInterrupt(goal)
-  onMoveOut()                     // move out / at ease side effect (crew wait, flyer)
-}
+```text
+Agent { kind: AgentKind, fsm, goal, helper, interrupts, ... }   // built on state entry
+Core::fsm_update(Owner::Agent(ci), dt, phase == 0)   // returns state == 100
+Core::exit_agent(ci)            // controller state exit: helper terminate (or stop), then terminate
+Core::agent_on_enter / agent_on_exit   // the agent's own state entry/exit
+Core::agent_behave(ci, dt)      // phase-0 per-state work; the base tick calls it in phase 0
+                                //   and Combat's rank_targets in phase 1
+// shared steps
+Core::update_combat_target(ci)  // Combat's full tracker update
+Core::aim(ci, stance, look)     // posture request, then aim at the fresh target, else the
+                                //   remembered point, else `look`, else along the path
+Core::helper_tick, can_engage(ci, unit), board_policy(ci, unit)
+// policies (Core, with policy.rs)
+accepts_hazard()                // grenade/sticky danger
+accepts_alert(known, point)     // targeted shot / damage
+accepts_target(unit), accepts_acoustic(unit), accepts_board(unit)
+accepts_secondary_wait(), accepts_command(kind), accepts_recovery(), saves_on_interrupt(goal)
+on_move_out()                   // move out / at ease side effect (crew wait, flyer)
 ```
 
-Agents: `UnitWaitAgent` (1), `UnitTrooperAgent`/`UnitScoutAgent`/
-`UnitRepairAgent` (3, by UnitType role), `UnitWaitSecondaryAgent` (4),
-`UnitBoardAgent` (5), `UnitUnBoardAgent` (6), `UnitRandomAgent` (9),
-`UnitFollowAgent` (10), `UnitHoldAgent` (11). State 2 is Combat's
-`UnitCombatAgent` (a `MissingCombatAgent` that finishes at once stands in
-when it is not bound).
+Agents (`AgentKind`): Wait (1), the objective agent with its Trooper, Scout
+or Repair flavor (3, by UnitType role; `ObjectiveFlavor`), WaitSecondary
+(4), Board (5), Unboard (6), Random (9), Follow (10), Hold (11). State 2 is
+Combat's `CombatAgent` (`MissingCombat`, which finishes at once, stands in
+when combat is not bound).
 
-The movement helper an agent drives (Nav's `GroundGotoHelper`):
-`goto(point, { mode })` with mode `"route"` (default), `"direct"` (the
-patrol's roaming), `"straight"` (the recovery's two-point path); `stop()`,
-`tick(dt)`, `arrived`, `status`,
-`destinationPoint(out)`, `setLeader(ref)`, `followTrail(on)`, `holdPath(on)`,
-`installPath(points)`. Optional: `terminate()`.
+The movement helper an agent drives (Nav's ground helper, `nav/goto.rs`;
+the core reaches it through `Core::helper_goto`, `helper_stop`,
+`helper_tick` and the rest):
+goto a point with mode route (default), direct (the patrol's roaming) or
+straight (the recovery's two-point path); stop, tick, arrived, status,
+`helper_destination`, `helper_set_leader`, `helper_follow_trail`,
+`helper_hold_path`, `helper_install_path`, `helper_terminate`.
 
-### `interrupts.js`
+### Interrupts (`control/mod.rs`, `control/policy.rs`)
 
-`new InterruptHelper(agent)`; `tick()` runs priorities 1..8 and returns
+`Core::interrupts_tick` runs priorities 1..8 and returns
 whether one fired. When Combat's `hazardResponse`, `alertResponse` and
 `acousticResponse` are bound they decide priorities 1, 2 and 4 (perception
 math is Combat's); the helper still applies the shared gate, builds the
 goal, and handles their `exit` (turret leaves) and `alert` (HeardEnemySound)
-flags. Fallback implementations are used otherwise. `charging()` is the
-charge test.
+flags. Fallback implementations are used otherwise.
+`Core::interrupts_charging` is the charge test.
 
-### `patrol.js`
+### `control/patrol.rs`
 
-`PatrolHelper(agent)`: `start(post)`, `tick(dt)`, `exitState()`, `look`,
-`lookPoint`, `stance`, `hint`, `expires`. Helpers: `captureRegion`,
-`cpCenter`, `cpOffset`, `arrivedAtObjective` (Population's
-`objectiveCenter/objectiveOffset/objectiveArrived/postAI` when bound),
-`queryPatrolHints`, `chooseHint`, `hintAvailable`, `markHintUsed`,
-`pickHintStance`, `friendlySpawnEligible`.
+`Patrol` (the helper's data; the core drives its states 1 to 6 and 100):
+`look`, `look_point`, `stance`, `hint`, `expires`. Helpers:
+`capture_region`, `cp_center`, `cp_offset`, `arrived_at_objective`,
+`query_patrol_hints`, `choose_hint`, `hint_available`, `pick_hint_stance`,
+`friendly_spawn_eligible`; a used hint is marked through Nav's `mark_hint`.
 
-Hint fields read: `bit` (or `kind`), `position` (or `xfrm[9..11]`),
-`forward` (or `matrix`/`xfrm[6..8]`), `post`/`commandPost`, `stanceMask`
-(PrimaryStance bits; default stand), `reservedAt` (default −10),
-`linked`/`next` (radius siblings). Nav may instead provide
-`queryHints({ mask, center, halfExtent, cap, requester, now })`,
-`hintAvailable(hint, now)` and `markHint(hint, unit, now)`.
+Hint fields read: the hint kind, position, forward, its command post, the
+primary stance bits (`primary_stance`; default stand), the reservation time
+(default −10) and the radius siblings, through Nav's hint query
+(`nav/hints.rs`).
 
-### `squads.js`
+### `control/squads.rs`
 
-`COMMAND` (0 move out, 1 at ease, 2 hold, 3 follow, 4 board, 5 unboard),
-`SquadCommand(source, kind, time, target)`, `sendCommand(ai, cmd, p)`,
-`distributeCommand(ai, cmd)`, `playerCommand(ai, character, kind)`,
-`countFollowers(ai, leaderUnit)`, `currentControllable(ai, character)`,
-`voEntry(kind, context, human)`, `commandVo`, `emitVo`, `VO_BANK`,
-`VO_CONTEXT`.
+`command` (0 move out, 1 at ease, 2 hold, 3 follow, 4 board, 5 unboard),
+`SquadCommand` (`controller.rs`: source, kind, time, target),
+`Core::send_command`, `distribute_command`, `player_command`,
+`count_followers`, `current_controllable`, `vo_entry(kind, context, human)`,
+`vo_offset`, `VO_BANK`, `VO_PROPERTIES`; VO goes out through the world's
+`emit_vo`.
 
 VO records go to `world.events` as `kind: "vo"`: `{ event, property, source,
 team, position, human, ... }`. Events: `tac_moveout`, `tac_hold`,
@@ -200,58 +193,51 @@ player's HUD); `tac_yes` (acknowledgement, AISCResponseYessirSound);
 `heardEnemy` (HeardEnemySound); `charge` (ChargeSound). Audio maps
 `property` through the unit's class.
 
-### `scheduler.js`
+### `control/scheduler.rs`
 
-`candidateBudget(N, C, t)`, `schedulerConfig(hard)`, `cameraAccepts(camera,
-point)`, `fallbackAnalogs(...)`, and `ClassicScheduler`: `update(dt)`,
-`service(controller, dt)`, `lodSkip(controller)`, `visibleOrNear(unit)`,
-`executeInputs(dt)`, `executeInput(controller, dt)`, `stats`, `counter`,
-`parity`, `inputParity`, `skips`.
+`candidate_budget(N, C, t)`, `camera_accepts(camera, point)`,
+`fallback_analogs(...)`, `visible_or_near(unit, cameras, ...)`, and the
+`Scheduler` state (`stats`, the cycle counter, the parities, the skips);
+`Core::scheduler_numbers` gives the cycle and line-of-sight budget, and
+`Core::update`, `decide` and `execute` run the services and the input
+step.
 
 The input step per unit: the skip gate (identity parity against
 `inputParity`, not visible, not skipped last time; a skipped step's dt is
-added to the next), then `combat.consumeFire(controller, unit, step, intent)`,
-`intent.exit` for an exit request, then Nav's `navigationInput(control, unit,
-intent, step, aimPoint, { facing })` (the executor step, analogs, jet,
-posture), then the droideka's wanted mode as a `use` press and Combat's
-`controller.dodge` as a sideways jump. The aim point is Combat's
-`aimPoint(controller, unit, dt, out)` (null for "along the path").
+added to the next), then Combat's `consume_fire`, `intent.exit` for an exit request, then
+Nav's `navigation_input` (the executor step, analogs, jet, posture), then
+the droideka's wanted mode as a `use` press and Combat's `controller.dodge`
+as a sideways jump. The aim point is Combat's `aim_point` (none for "along
+the path").
 
-### `index.js` adapters
+### Services the core calls
 
-Each sibling is bound by an adapter that maps its published API onto the
-names above; `options.nav`, `options.combat`, `options.population`,
-`options.vehicles`, `options.classes` override per name, then a module's
-`classicBinding(ai)`, then these defaults:
+The core reaches every sibling through `AiWorld` (`control/world.rs`); a
+service a battle does not bind is a no-op, as the capability flags in the
+setup say. The native owner binds them all:
 
-- Nav (`nav/index.js`, `nav/goto.js`, `nav/units.js`): helpers through
-  `world.nav.helper(controller, world, { agent })` (else `GroundGotoHelper`/
-  `FlyGotoHelper` as `new Helper(controller, world, { agent })`);
-  `navigationInput`; `analogs` (fallback); planner `idle`/`service`;
-  `barriers.pointClear`/`barriers.obstruct`; `traversalRadius`/`traversalMask`;
-  `hints`.
-- Combat (`perception.js`, `weapons-ai.js`, `aim.js`, `combat.js`):
-  `Perception`, `TargetTracker` (as `agent.tracker`), `scan` (needs
-  `dispatch`), one `DeferredLos` (`world.deferredLos`), `broadcastAcoustic`,
-  `clearCandidate`, `thin` (phase-1 ranking), `sightRange`, `sensorRange`,
-  `selectedWeapon`, `consumeFire`, `aimPointFor`, the three responses,
-  `UnitCombatAgent`, and `classicBinding` (createPerception, attachController,
-  ingest, aim, leadPoint, ...).
-- Population (`goals.js` `classicBinding`, `difficulty.js`): `requestObjective`,
-  `friendlySpawnEligible`, `curvesFor`, `isHard`, `postAI`,
-  `objectiveCenter`, `objectiveOffset`, `objectiveArrived`.
-- Vehicles (`vehicles/index.js`, [ai-vehicles.md](ai-vehicles.md)):
-  `agents.{board,unboard,waitSecondary}` and services `boarded`,
-  `boardedVehicle`, `boardedVehicleOf`, `boardedVehicleOfCharacter`,
-  `currentControllable`, `isMountedTurret`, `emptySeats`, `crewControllers`,
-  `seatsFull`, `pendingReservations`, `lowTickets`, `pilotKeepsSeat`,
-  `alertsBlocked`, `mountReach`, `refusesHold`, `canEnter`, `freeSeats`,
-  `reserve`, `reserveSeat`, `boardTick`, `boardPolicy`, `targetReserved`,
-  `reserveTarget`, `patrolMounted`, `isAtAt`, `notify`, `requestExit`,
-  `createHelper`.
-- Class behaviors (`classes.js`, [ai-classes.md](ai-classes.md)):
-  `helpers.{snipe,mine}` and `selectSnipe`, `canMine`, `selectMine`,
-  `findRepairJob`, `startRepairService`, `repairService`.
+- Nav (`nav/mod.rs`, `nav/goto.rs`, `nav/units.rs`): the movement helpers,
+  `navigation_input`, `analogs` (fallback), the planner's idle and service
+  steps, barrier tests, `traversal_radius`/`traversal_mask`, hints.
+- Combat (`combat/`): perception, the target tracker, `scan`, the one
+  `DeferredLos`, acoustic broadcast, candidate clearing, phase-1 thinning,
+  sight and sensor ranges, the selected weapon, `consume_fire`, the aim
+  point, the three responses, `CombatAgent`, and the rest of `CombatAi`
+  (`create_perception`, `attach_controller`, `ingest`, `aim`, `lead_point`,
+  ...).
+- Population (`control/goals.rs`, `control/difficulty.rs`,
+  `rust/sim/src/battle/spawning.rs`): objective requests, friendly-spawn
+  eligibility, `Core::curves_for`, `Core::is_hard`, post AI properties,
+  objective centre, offset and arrival.
+- Vehicles (`vehicles/service.rs`, [ai-vehicles.md](ai-vehicles.md)): the
+  board, unboard and wait-secondary agents and the vehicle services
+  (boarded vehicle, current controllable, seats and reservations, low
+  tickets, pilot seat keeping, alert blocking, mount reach, hold refusal,
+  target reservation, mounted patrol, AT-AT test, notification, exit
+  requests, mounted helpers).
+- Class behaviors (`control/classes.rs` and the core,
+  [ai-classes.md](ai-classes.md)): the snipe and mine helpers, snipe and
+  mine selection, repair job search and the repair service.
 
 ## How it runs (summary)
 
@@ -289,8 +275,9 @@ names above; `options.nav`, `options.combat`, `options.population`,
   and mines; 4 snipe, 5 mines. Scout: no chatter, sniping
   checked first in 3, 60..100 s sniping deadline. Repair: 2 walk, 3 service,
   4 patrol, 5 snipe, 6 mines; job check every 5 s. Class jobs and tactical
-  helpers are bound by `classes.js`; see [ai-classes.md](ai-classes.md).
-- Patrol: see the header of `patrol.js`.
+  helpers live in `control/classes.rs` and the core; see [ai-classes.md](ai-classes.md).
+- Patrol: states 1 to 6 and 100, driven by the core (`control/mod.rs`);
+  data and geometry in `control/patrol.rs`.
 - Follow: approach the leader's position (state 2, horizontal 0.2), keep
   (3), stand off at a random flat offset up to the far radius (4); stop
   under (near + 5), resume over (far + 6); a stuck executor in 3 restarts
@@ -303,9 +290,9 @@ names above; `options.nav`, `options.combat`, `options.population`,
 - Random recovery: a generator-B cube point ±10 per axis as a straight
   two-point path; done beyond 10 m (2 m droideka) when clear of barriers;
   retry on a contact sidestep, after more than 3 s, or with no executor.
-- Squads: see the header of `squads.js`. Acceptance: the recipient's count
+- Squads: `Core::send_command` and `distribute_command`. Acceptance: the recipient's count
   (followers + 1) < 2 and the leader's < 3.
-- Scheduler: see the header of `scheduler.js`.
+- Scheduler: `control/scheduler.rs` and `Core::update`.
 
 ## Further behavior details
 
@@ -375,7 +362,7 @@ names above; `options.nav`, `options.combat`, `options.population`,
   paused.
 - **Move out and at ease** (commands 0 and 1): a WaitSecondary agent's
   window becomes now − 2 (a Fly agent has its own side effect through the
-  same `onMoveOut` hook); a follow or hold agent terminates when the
+  same `on_move_out` hook); a follow or hold agent terminates when the
   controller's last handled command (stored after every handled command)
   came from the same Character. Hold reads that same record's issuer at its
   current controllable.
@@ -406,30 +393,30 @@ names above; `options.nav`, `options.combat`, `options.population`,
 
 ## Provisional
 
-- `index.js`: `identity(unit)` for the parity gates is `unit.id` (the
+- `control/mod.rs`: the identity for the parity gates is the unit's id (the
   original uses the entity's identity snapshot, new per entity; pooled port
   units reuse ids). Skip patterns have not been compared with the original.
-- `index.js`: controllers are scheduled in spawn order (the original inserts
+- `control/mod.rs`: controllers are scheduled in spawn order (the original inserts
   at creation; the insertion appears to append, unconfirmed).
-- Without the Classes module the policy bases for Snipe/Mine cannot execute
-  jobs. Normal module loading binds the implementations in
+- Without the classes capability the policy bases for Snipe/Mine cannot
+  execute jobs. The native owner binds the implementations in
   `docs/ai-classes.md`.
-- `agents.js`: Board/UnBoard/WaitSecondary vehicle bookkeeping goes through
-  hooks; without the Vehicles binding boarding finishes at once.
-- `agents.js`: an agent's `exit()` calls the helper's `terminate()` when Nav
-  provides one, else `stop()` (the original terminates the helper's own FSM).
-- `scheduler.js`: Combat's dive request becomes `intent.jump` with
+- `control/mod.rs`: Board/UnBoard/WaitSecondary vehicle bookkeeping goes through
+  hooks; without the vehicles capability boarding finishes at once.
+- `control/mod.rs`: an agent's exit calls the helper's terminate when Nav
+  provides one, else stop (the original terminates the helper's own FSM).
+- `control/mod.rs` input step: Combat's dive request becomes `intent.jump` with
   `intent.right = ±1`, `forward = 0` (the port's dive input).
-- `scheduler.js`: a droideka's wanted mode becomes a `use` press when it is
+- `control/mod.rs` input step: a droideka's wanted mode becomes a `use` press when it is
   rolled (deploy) or standing (roll); the original's extra blocking flag is
   not modeled.
-- `patrol.js`: an empty hint stance mask stands (the original would loop).
-- `agents.js` (`UnitRandomAgent`): a soldier still within a metre of where
+- `control/patrol.rs`: an empty hint stance mask stands (the original would loop).
+- `control/mod.rs` (the Random agent): a soldier still within a metre of where
   its last timed retry (3 s) left it jumps as it sets off again (a jet
   request with the zero vector: an ordinary jump, a jet for a jet trooper).
   Classic recovery never jumps; a soldier in a hollow of steep slopes (Hoth)
   slid back from every direction it tried, for good.
-- `patrol.js`: in state 2 (an unfriendly post), a bot whose walk ends
+- Patrol: in state 2 (an unfriendly post), a bot whose walk ends
   outside the capture region walks on to its center, and if that ends
   outside too (a region on a deck above or below the route's end: Yavin's
   temple region is 36 m over the ground its routes reach), asks 20 s later
@@ -438,17 +425,17 @@ names above; `options.nav`, `options.combat`, `options.population`,
   The offset spans the region's box unrotated, past a round region's edge,
   and state 2 has no timer: the bot took no part in the capture and stood
   beside the post for as long as it held.
-- `controller.js`: a set latch over an emptied queue starts nothing (the
+- `control/mod.rs`: a set latch over an emptied queue starts nothing (the
   original would start a stale record); the drain loops stop after 64
   transitions with a warning (the original has no bound).
-- `controller.js`: an objective published while phase 1 starts goals (a
+- `control/mod.rs`: an objective published while phase 1 starts goals (a
   mounted patrol asking for a post as it begins) starts at the next phase
   1, as publication does; the drain stops there. Going round again started
   it, and its start published again: 64 agents and objective draws a
   service, and the bot (a tauntaun on Hoth) never acted.
-- `controller.js`: `unbind` resets the Nav control, so a dead bot's path
+- `control/mod.rs`: `unbind` resets the Nav control, so a dead bot's path
   search and queued request leave the planner at once.
-- `scheduler.js`: no camera means no LOD skips.
+- Scheduler: no camera means no LOD skips.
 
 ## Unknowns left as hooks
 
@@ -458,15 +445,16 @@ names above; `options.nav`, `options.combat`, `options.population`,
   vehicle), AT-AT stop in Trooper state 2, the low-ticket pilot exit
   predicate, hold refusal, mount reach, seats/reservations, danger boxes for
   flyers, vehicle notifications.
-- Droid controllers (`UnitDroidController`, DroidRepairAgent, goal 7) and
+- Droid controllers (the droid repair controller and agent, goal 7) and
   stationary/fly controllers belong to the Vehicles and class modules.
 - Follow's path recorder and hold flags now use NavControl/PathExecutor;
   details and synthetic boundary tests are below.
 
 ## Follow path and mounted objective integration
 
-`GroundGotoHelper` implements `setLeader`, `followTrail`, `holdPath` and
-`installPath`. The state2 approach records the leader's subsequent movement
+The ground helper (`nav/goto.rs`) implements leader following, the follow
+trail, path holding and path installation (`Core::helper_set_leader`,
+`helper_follow_trail`, `helper_hold_path`, `helper_install_path`). The state2 approach records the leader's subsequent movement
 separately from its original approach path. Leaving state2 installs/appends
 the recording; subsequent input steps append leader samples to that executor
 without invoking the route planner. State4 holds advancement of its explicit
@@ -484,13 +472,13 @@ offsets use the soldier's horizontal forward basis; full tilted entity
 transforms remain a limitation for custom non-soldier leaders. Follow
 behavior has not been compared with full-game runs of the original.
 
-`src/ai/index.js` now supplies Population's `crew(character)` and
-`vehicleMask(vehicle)` callbacks from live seat leases. A driver skips
+The world's `crew(character)` and `objective_vehicle_mask(vehicle)`
+(`control/world.rs`, served by `owned/crew.rs`) read live seat leases. A driver skips
 command posts whose bans match its AISizeType and republishes its selected
 post to AI passengers; AI passengers copy the current AI driver's post.
 Human occupants are never republished. Seat changes are read on each query.
 
-`tests/ai-follow-integration.test.js` checks strict sampling thresholds,
-RNG consumption, bounded trails, release of path pools, held advancement,
-append after completion, generation cleanup, actual seat-to-Character
-mapping, driver ban masks and objective propagation.
+`rust/sim/tests/ai_phase.rs` checks follow handles across recycled actors
+and previous lives, and following humans; the per-phase replays
+(`tests/replay_ai.rs`) cover sampling, trails and objective propagation
+against captured battles when a capture corpus is supplied.

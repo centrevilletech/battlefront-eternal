@@ -75,8 +75,8 @@ flight and weapon assist retain their existing behavior.
 When gameplay gains a mutable projectile field, determine whether it changes
 simulation or only presentation. Keep simulation changes in shared Ordnance and
 add an explicit semantic field or event only when the remote presentation needs
-it. Own prediction recoil uses the shared `PlayerCombat.updateKick` method on a
-private copied kick state; authoritative combat and weapon state remain untouched.
+it. Own prediction recoil uses the shared recoil rule (`PlayerCombat.updateKick`,
+ported in `rust/sim/src/combat/combat.rs`) on a private copied kick state; authoritative combat and weapon state remain untouched.
 
 ### Delivery and display timing
 

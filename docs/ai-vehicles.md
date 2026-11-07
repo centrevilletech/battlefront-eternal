@@ -1,17 +1,18 @@
 # Classic AI: vehicles, turrets and seats
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
-the former implementation and document its behavioral contract.
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+Rust names where the port keeps one, usually the JavaScript name in
+snake_case; object-shaped examples document the behavioral contract.
 
 
 Vehicles, turrets and seats for the Classic AI (`docs/ai.md`). Two layers:
 
-- **Seats** (gameplay, `src/seats.js`, `src/vehicles.js`, `src/gunner.js`,
-  turret parts of `src/props.js`): who sits in which vehicle seat or turret,
+- **Seats** (gameplay, `rust/sim/src/seats/` with the page's `src/seats.js`,
+  `src/vehicles.js`, `src/gunner.js`, turret parts of `src/props.js`): who sits in which vehicle seat or turret,
   the player and bots alike; how a seated bot's intent drives its seat; exits;
   destruction; the vehicles and turrets as perception targets.
-- **Classic vehicle AI** (`src/ai/classic/vehicles/`): boarding and leaving,
+- **Classic vehicle AI** (`rust/sim/src/ai/vehicles/`): boarding and leaving,
   the vehicle notifier, the mounted controllers and their agents, the vehicle
   families' AI input conversion, vehicle attack patterns, flyer objectives and
   landing, unattended-vehicle decay.
@@ -165,25 +166,25 @@ the same way (`TurretSeats.destroyed`). `Vehicle.damage(amount, attacker)` and
 
 ### Turrets
 
-`TurretSeats` (`src/seats.js`) mans props.js turrets with bots; the player
-keeps the `Gunner` adapter. `man(unit, turret)`, `leave(unit, opts)`,
-`requestExit(unit, opts)`, `update(dt)` (each frame, after
-`LiveObjects.update`), `seatOf(unit)`, `canMan(unit, turret)`,
-`attachUnits(units)`. A manned turret has `turret.gunner` (the body, as the
+The turret crews (`rust/sim/src/seats/turrets.rs`, with the page facade
+`TurretSeats` in `src/seats.js`) man the turrets with bots; the player
+keeps the `Gunner` adapter. `man(unit, turret)`, `leave(unit, ...)`,
+`request_exit(unit, ...)`, `update`, `drive`, `seat_of(unit)`,
+`can_man(unit, turret)`. A manned turret has `turret.gunner` (the body, as the
 existing checks expect) and `turret.lease`. The bot's turn/pitch analogs turn
 the drum at `MaxTurnSpeed` (as the mouse rates do), the gun follows what lies
 under the bot's aim at the gun's own rates, and the trigger fires the turret's
 weapon from its fire point along the gun, owned by the bot. Exits use the
 Classic placement in the drum's frame. A gunner killed at the gun leaves it
-at once (`src/boarding.js` `leaveKilled`, `TurretSeats.vacate` with reason
-`killed`), his body falling from the seat; a shown one meets rounds and
+at once (`leave_killed` in `rust/sim/src/seats/boarding.rs`, the crews'
+`vacate` with reason `killed`), his body falling from the seat; a shown one meets rounds and
 blasts there (docs/live-objects.md "Turret gunners").
 
 The drum's frame is the building's (`Turret.facing`, the instance's
 heading), and the drum is posed along the aim from it whatever its bind turn
 (docs/live-objects.md "Turret views and aim"), so Tatooine's barge
 turret, whose drum is bound half round, points its gun where its view and
-its bot aim. `Turret.steer` holds the aim inside `YawLimits` of that heading
+its bot aim. The turret's `steer` (`hold_yaw`) holds the aim inside `YawLimits` of that heading
 (the barge turret's 70 either way; the stock turrets name the full circle),
 the drum standing still at the arc's end.
 
@@ -194,12 +195,6 @@ control as the original game's alerts walk an armed building's controllables
 fighting turns to a new attacker only from outside his forward cone, and
 one who cannot bring the gun to bear (`mountReach`: PitchLimits, YawLimits)
 gets out unless the mission keeps bots in turrets.
-
-`tools/turret-ai-probe.mjs` measures it in whole headless battles (per
-turret: seconds manned, exits by reason, the barrel's angle to the nearest
-enemy in view, targets, shots, hits, damage taken, the share of attacks
-answered, bots standing by a turret) and in scripted duels (a bot seated,
-the player shooting the turret from a chosen bearing and distance).
 
 Bot turret rounds use the weapon's seeded yaw/pitch spread. Turret beams
 follow the gun frame through an emitter owned by that lease, which expires
@@ -212,36 +207,37 @@ target references cannot resolve to the new turret life.
 #### Showing the player's turret (`src/gunner.js`)
 
 The world owns the drum's `yaw`, `pitch`, `yawVel`, `pitchVel` and the gun's
-`gunYaw`/`gunPitch` (`Turret.steer`/`pose` in `src/props.js`, stepped by
-`Gunner.update`). A page showing another world's battle (a world worker's, or
+`gunYaw`/`gunPitch` (the turret's `steer` and `pose`,
+`rust/sim/src/seats/turrets.rs`). A page showing another world's battle (a world worker's, or
 a server's) never steps them: they arrive with the turret's state, and the
 page's seat adapter sets `gunner.turret` (`EntitySeats.setGunner`,
 `src/runtime/entity-seats.js`) without `enter()`. The page draws from that
 state:
 
-- `Gunner.updateCamera(dt, zoom, firstPerson)` makes the views for whichever
-  turret is set (`viewsFor`, a `TurretCamera` each), poses the drum and gun
-  it shows (`poseTurret`, `src/seats.js`, which calls `Turret.present`: the
-  drum along the shown aim, the gun at its own angles, never stepping them)
-  and sets the camera. The views are the turret seat's own, as the original
+- The presentation camera (`src/presentation/cameras.js` `gunner`) hands
+  the set turret's root, drum pivot, up and shown angles (or the seat
+  owner's canonical aim and eye when the turret has a native seat) to the
+  native camera phase, which makes the view; the native prop phase poses
+  the drum and gun it shows (the turret's `present`: the drum along the
+  shown aim, the gun at its own angles, never stepping them). The views are the turret seat's own, as the original
   game's (docs/live-objects.md "Turret views and aim"): the chase camera
   rests at TrackCenter in the aim frame (the drum's pivot, looking along the
   aim) plus TrackOffset in its own, pitched down by TiltValue, 48 degrees;
-  first person (the perspective key, `setPerspective`) looks from
+  first person (the perspective key, `setPerspective` in `src/game.js`) looks from
   EyePointOffset in the aim frame straight down the aim. An eye inside the
   turret's box (the Hoth, dish and Geonosian turrets) puts the drum and gun
-  meshes on the hidden layer, as his own body is in first person; third
+  meshes on the hidden layer (`Gunner.hideRig`), as his own body is in first person; third
   person puts them back, as does leaving.
 - `Gunner.preview(pending, looks, scale, invert, alpha)` runs the drum ahead
   over the commands the world has not taken yet and the looks not yet in a
   command (`previewSteer`, the turret's own `steer`, a tick per command),
   then back through the tick shown by `alpha`, into `previewYaw`/
-  `previewPitch`, which `updateCamera`, `viewDirection(out)` (the reticle's
+  `previewPitch`, which the camera facts, `viewDirection(out)` (the reticle's
   direction as shown) and the drum pose use. The page calls it each frame
   beside the soldier's look preview (`game.js` clientFrame); a page stepping
   its own world has nothing pending and may skip it.
-- `TurretSeats.present()` poses the bots' turrets the same way, once a frame
-  after the ticks, for a page that never runs `drive()`.
+- The native prop phase poses the bots' turrets the same way, once a frame
+  after the ticks.
 
 `tests/gunner-preview.test.js` covers the pure parts of the turret view and
 preview.
@@ -288,49 +284,50 @@ that control as a unit (docs/ai.md interface), for a bot's controller to drive:
 
 A bot moved to another seat gets a new one.
 
-## Classic vehicle AI (`src/ai/classic/vehicles/`)
+## Classic vehicle AI (`rust/sim/src/ai/vehicles/`)
 
 | module | contents |
 | --- | --- |
-| `index.js` | `classicBinding(ai)` → `VehicleAI` (all services), `agents`, `adaptClassicAI(ai)`, `StationaryHelper` |
-| `agents.js` | `UnitBoardAgent` (state 5), `UnitUnBoardAgent` (6), `UnitFlyAgent` (7) |
-| `controllers.js` | the mounted controller policies, `controllerPolicy(unit)` |
-| `notify.js` | `VehicleNotifier` |
-| `reservations.js` | `Reservations`, `freeCapacity` |
-| `steering.js` | the vehicle families' AI input (`seatAnalogs`), shared flight virtual controller, walker yield |
-| `patterns.js` | vehicle dispatch rows, patterns 7 and 13 to 16, pattern 2's sidestep |
-| `fly.js` | `FlyGotoHelper` (Nav's, plus external paths and the landing request) |
-| `service.js` | the per-AI service registry |
+| `service.rs` | `VehicleAI` (all services), `StationaryHelper` |
+| `agents.rs` | `BoardAgent` (state 5), `UnBoardAgent` (6), `FlyAgent` (7) |
+| `controllers.rs` | the mounted controller policies (`Policy`), `controller_policy(unit)` |
+| `notify.rs` | the vehicle notifier |
+| `reservations.rs` | `Reservations`, `free_capacity` |
+| `steering.rs` | the vehicle families' AI input (`seat_analogs`), shared flight virtual controller, walker yield |
+| `patterns.rs` | vehicle dispatch rows, patterns 7 and 13 to 16, pattern 2's sidestep |
+| `fly.rs` | the flyer movement helper (Nav's `FlyGoto`, plus external paths and the landing request) |
+| `orbit.rs` | pattern 15's orbit |
+| `support.rs` | fire support for a post a hull cannot stand on |
+| `world.rs` | what the vehicle AI reads of the battle and asks of it |
 
 ### Services
 
-`VehicleAI` implements every name in the Controller's `VEHICLE_SERVICES`:
+`VehicleAI` implements every vehicle service the control core calls:
 
 | service | behavior |
 | --- | --- |
 | `notify()` | the notifier, at the scheduler's cycle wrap |
-| `createHelper(agent)` | a `StationaryHelper` for kind-7 controls, the flyer `FlyGotoHelper` for flyer pilots (with Nav), else null (Nav's helpers) |
-| `requestExit(controller, post)` | the control's exit request; `post` becomes the Character's objective |
-| `boarded`, `boardedVehicle`, `boardedVehicleOf(unit)`, `boardedVehicleOfCharacter`, `currentControllable(character)`, `isMountedTurret`, `emptySeats`, `crewControllers`, `seatsFull`, `pendingReservations` | seat queries (vehicles answered as their registry entries) |
-| `lowTickets(team)` | teams 1/2 at 25 reinforcements or fewer |
-| `pilotKeepsSeat` | false: every stock control has PilotType 2 (Findings) |
-| `alertsBlocked`, `refusesHold` | false (no vehicle rule known) |
-| `mountReach(unit, point)` | angular reach only, inclusive, body frame, YawLimits/PitchLimits |
-| `canEnter(controller, candidate)` | the soldier's eligibility (Findings); a hull through `Vehicles.eligibleSeat`, the rules every boarder follows (src/boarding.js, docs/vehicles.md) |
-| `freeSeats(candidate, team, type)`, `reserve(candidate, unit, type)`, `reserveSeat`, `holdReservation` | capacity and reservations |
-| `boardPolicy(agent, candidate)` | the base boarding acceptance: a candidate that moves always; a stationary one (a turret) only with a remembered target it could fire at, or, with StayInTurrets, for any role but the repair roles |
-| `boardTick` | the Controller's stub agent's tick (unused once `agents.board` is bound) |
-| `targetReserved(target, team)`, `reserveTarget(target, unit)` | flyer target reservations, type 2 (Findings) |
-| `patrolMounted(patrol)` | Patrol's mounted branch |
-| `isAtAt(unit)` | the label/class the original game compares with "AT-AT" |
+| `create_helper(agent)` | a `StationaryHelper` for kind-7 controls, the flyer helper for flyer pilots (with Nav), else none (Nav's helpers) |
+| `request_exit(controller, post)` | the control's exit request; `post` becomes the Character's objective |
+| `boarded`, `boarded_vehicle`, `boarded_vehicle_of(unit)`, `boarded_vehicle_of_character`, `current_controllable(character)`, `is_mounted_turret`, `empty_seats`, `crew_controllers`, `seats_full`, `pending_reservations` | seat queries (vehicles answered as their registry entries) |
+| `low_tickets(team)` | teams 1/2 at 25 reinforcements or fewer |
+| `pilot_keeps_seat` | false: every stock control has PilotType 2 (Findings) |
+| `alerts_blocked`, `refuses_hold` | false (no vehicle rule known) |
+| `mount_reach(unit, point)` | angular reach only, inclusive, body frame, YawLimits/PitchLimits |
+| `can_enter(controller, candidate)` | the soldier's eligibility (Findings); a hull through `Vehicles.eligibleSeat`, the rules every boarder follows (src/boarding.js, docs/vehicles.md) |
+| `free_seats(candidate, team, type)`, `reserve(candidate, unit, type)`, `reserve_seat`, `hold_reservation` | capacity and reservations |
+| `board_policy(agent, candidate)` | the base boarding acceptance: a candidate that moves always; a stationary one (a turret) only with a remembered target it could fire at, or, with StayInTurrets, for any role but the repair roles |
+| `target_reserved(target, team)`, `reserve_target(target, unit)` | flyer target reservations, type 2 (Findings) |
+| `patrol_mounted(patrol)` | Patrol's mounted branch |
+| `is_at_at(unit)` | the label/class the original game compares with "AT-AT" |
 
 Additional services (for the hooks below and the vehicle agents):
-`controllerPolicy(unit)`, `analogs(unit, request, aim, dt, out, options)`,
-`boardNow`, `boardPathClear`, `holdHint`, `closeHint`,
-`disembarkPassengers`, `destroyStuck`, `abandonPad`, `updateDecay(dt)`,
-`sharedTarget`, `unreachableFromMount`, `walkerContacts`, and Combat's
-`world.vehicles` hooks: `dispatch`, `enterPattern`, `tickPattern`,
-`exitPattern`, `sidestep`.
+`controller_policy(unit)`, `analogs(unit, request, aim, dt, out, options)`,
+`board_now`, `board_path_clear`, `hold_hint`, `close_hint`,
+`disembark_passengers`, `destroy_stuck`, `abandon_pad`, `update_decay(dt)`,
+`shared_target`, `unreachable_from_mount`, `walker_contacts`, and Combat's
+vehicle hooks: `dispatch`, `enter_pattern`, `tick_pattern`, `exit_pattern`,
+`sidestep`.
 
 ### The notifier
 
@@ -344,12 +341,12 @@ radius), to the units within the notify radius (50; mission
 `SetAIVehicleNotifyRadius`), at most 30, friendly or neutral to it, that an AI
 controller drives, whose class may enter vehicles, of the vehicle's own team
 when it has one (any team when a player drives it), and whose team is not low
-on tickets. A told controller appends the entry to `vehicleNotes`.
+on tickets. A told controller appends the entry to `vehicle_notes`.
 
 ### Boarding (state 5) and leaving (state 6)
 
 The boarding interrupt (priority 6) is the Controller's; its gates call
-`canEnter`, `freeSeats`, the agent's `boardPolicy`, the reboard time, and
+`can_enter`, `free_seats`, the agent's `board_policy`, the reboard time, and
 reserve. `UnitBoardAgent` (Findings): entry (2) keeps or makes the seat
 reservation and walks to the vehicle; each tick (after interrupts and the target
 update, so it fights on the way) it gives up unless it may still enter, its
@@ -364,7 +361,7 @@ targets, commands and recovery go through the base policies) and saves nothing.
 
 ### Mounted controllers
 
-`controllerPolicy(unit)` for a seat control:
+`controller_policy(unit)` for a seat control:
 
 - **UnitMobileController** (hover and walker pilots): the soldier mapping
   (1..6 same, 8→9, 9→10, 10→11).
@@ -406,7 +403,7 @@ that path as laid.
 
 ### Vehicle input conversion
 
-`seatAnalogs`:
+`seat_analogs`:
 
 - **Hover**: anticipatory ray (1.5 × speed when over 5 m; side push 0.25 D by
   the hit normal; forward halved), the shared translation (arrival radius ½
@@ -415,10 +412,10 @@ that path as laid.
   the nonlinear hover yaw and pitch (g = 4.5 − clamp(TurnRate, 1, 3), t²
   with sign; pitch g = 5 − clamp(PitchRate, 1, 3)), the MovingTurnOnly
   moving-turn floor, and the reverse-and-turn stuck recovery.
-- **Flyer**: `src/flight/ai.js` converts destination and tactical requests into
+- **Flyer**: `rust/sim/src/flight/ai.rs` converts destination and tactical requests into
   local virtual-stick, throttle, roll, boost, trick and target-lock inputs.
   Terrain and obstacles: the original game's altitude stage
-  (`raiseOverTerrain`) raises the steering point, never lowers it, onto the
+  (`raise_over_terrain`) raises the steering point, never lowers it, onto the
   climb that clears what lies ahead by 25 m at 1.5 s of flight ahead (at least
   1 m): the terrain straight on, at 0.7 of that 45° to either side and at half
   of it 90° to either side (each no lower than the lowest fly height), the
@@ -481,8 +478,8 @@ AT-AT tow-cable run (below; target kept 10 s). **Pattern 2's sidestep**
 ### Pattern 15: the tow-cable run
 
 How the 2004 game flies a snowspeeder round an AT-AT
-(`src/ai/classic/vehicles/orbit.js`, flown by `steering.js` and
-`src/flight/ai.js`):
+(`rust/sim/src/ai/vehicles/orbit.rs`, flown by `steering.rs` and
+`rust/sim/src/flight/ai.rs`):
 
 - **The request**: the tracker's target, fresh or not, a signed radius ±25 and
   a factor, and an offset in the target's frame. Before the craft's cable
@@ -518,27 +515,27 @@ How the 2004 game flies a snowspeeder round an AT-AT
   offset −x and the radius + makes its tow pass running at the walker, which
   the rear gun cannot reach; its gunner still takes the harpoon itself against
   an AT-AT, which it scores 50 to the cannon's 12.)
-- Measured on Hoth (`node tools/tow-cable-probe.mjs`, the Rebels, Medium,
-  5 minutes, seeds 1 to 3): 8 harpoons, 7 held, 3 AT-ATs fell; without a
+- Measured on Hoth in headless battles (the Rebels, Medium, 5 minutes,
+  seeds 1 to 3): 8 harpoons, 7 held, 3 AT-ATs fell; without a
   steered orbit and the reach check below the same run gave 30 harpoons, one
   held and no walker down. With a second bot seated behind every bot pilot
-  (`--crew`, 4 minutes, seeds 1, 2 and 4) 5 fell. With the player flying past
+  (4 minutes, seeds 1, 2 and 4) 5 fell. With the player flying past
   an AT-AT 15 m off its legs at 40 m/s
   (`node tools/tow-gunner-scenario.mjs --pass --radius 15 --speed 40`) his bot
   gunner harpooned it on three passes in 45 s.
 
 Port changes for the run, each beside the original game's rule it changes:
 
-- **The tow focus** (`perception.js` `TOWED_PRIORITY`): a pilot whose
+- **The tow focus** (`combat/perception.rs` `TOWED_PRIORITY`): a pilot whose
   craft's cable holds a walker ranks that walker above anything (cost 0).
   Ranked as the original game ranks (the nearest first, every walker, turret
   and craft alike), a pilot towing on Hoth was drawn off by a nearer AT-ST,
   turret or the other AT-AT within a dozen seconds, before three circuits,
   and the cable stretched past its length behind him.
-- **The harpoon's reach** (`weapons-ai.js` `harpoonReach`): a bot fires the
+- **The harpoon's reach** (`combat/weapons_ai.rs` `harpoon_reach`): a bot fires the
   tow gun only with its target within the harpoon's cast (LockOnRange 70,
-  at least 20). The port casts the harpoon (src/vehicles.js
-  `Vehicles.launchTow`); the original game's flies as a round, and the AI's
+  at least 20). The port casts the harpoon (`launch_tow`,
+  `rust/sim/src/vehicles/module/f2/firing/live.rs`); the original game's flies as a round, and the AI's
   range for the gun is its MaxRange, 300 m, so bots fired harpoons that
   could not reach, each costing the gun its 3 s ShotDelay.
 - **The rear gunner's rest** (`Vehicles.board`): a bot takes a seat at its
@@ -555,7 +552,7 @@ Port changes for the run, each beside the original game's rule it changes:
 
 ### Unattended decay
 
-`updateDecay(dt)`: a hull outside the boundary, or one on a pad linked to a
+`update_decay(dt)`: a hull outside the boundary, or one on a pad linked to a
 post that has team 0, with nobody aboard, gathers one idle sample a second; a
 player who could board it within its radius plus his plus 10 m pauses the
 count; past 20 it loses MaxHealth / DecayTime (10) a sample; anyone aboard
@@ -564,7 +561,7 @@ clears it.
 ## Integration
 
 `src/game.js` registers hulls and turret targets, creates `TurretSeats`,
-exposes `world.vehicleSystem`/`world.turretSeats`, and routes mounted shots,
+hands the AI world `vehicleSystem`, and routes mounted shots,
 damage, boarding and exits into the simulation journal. Capture and blast
 soldier loops skip non-soldier registry entries. Repair services see actual
 hulls and buildings. `humanTarget(vehicle)` exposes the player's reticle
@@ -583,44 +580,37 @@ barrel node) while its owner remains the firing soldier. Every body-impact
 callback carries that owner. Human and AI mounted shots therefore share kill
 credit; standalone unitless vehicle fixtures keep their hull owner fallback.
 
-`createAI` invokes `adaptClassicAI` after module binding. The adapter supplies
-the controller hooks below on the instance.
-
 ### Controller hooks (C1 to C5)
 
-`adaptClassicAI` does these on the instance:
+The control core consults the vehicle AI at these points:
 
-- **C1** `ClassicAI.sync()` and `spawned()`: use
-  `this.vehicles?.currentControllable?.(character) ?? character.unit` as the
-  Character's unit, so boarding rebinds its controller to the seat control (a
-  fresh bind, as the original game builds a controller per control) and
-  leaving rebinds it to the body.
-- **C2** `UnitController.bind(unit)`: `this.policy =
-  this.ai.vehicles?.controllerPolicy?.(unit) ?? null;
-  this.policy?.bind?.(this, unit);`
-- **C3** `driveCommands`/`goalToState`: `const state = this.policy ?
-  this.policy.goalState(goal.kind) : goalState(goal.kind)`.
-- **C4** `onEnter`: `this.policy?.agentFor?.(this.state, this) ??
-  this.ai.agentFor(this.state, this)`.
-- **C5** the scheduler's input step: for a seat control
-  (`unit.lease?.controllable === unit`) call `ai.vehicles.analogs(unit,
-  control.request, aimPoint, step, out, { controller, stepped: true })` after
-  `control.update(step)` in place of Nav's `navigationInput`, and in place of
-  `ai.analogs` in the plain path (which also runs the executor step).
-- Add to `VEHICLE_SERVICES`: `controllerPolicy`, `analogs`.
+- **C1** attach, `spawned` and `sync` use the Character's current
+  controllable (`current_controllable`, else its body) as its unit, so
+  boarding rebinds its controller to the seat control (a fresh bind, as the
+  original game builds a controller per control) and leaving rebinds it to
+  the body.
+- **C2** bind: the controller's `policy` is the mounted policy of the unit
+  (`controller_policy`, through `adapt_controller`).
+- **C3** the command drive (`Core::drive_commands`): a mounted controller's
+  source goal maps to its state through `policy_goal_state`
+  (`control/controller.rs`), else `goal_state`.
+- **C4** agent creation: the mounted policy's `agent_for` answers first
+  (the flyer's `FlyAgent`), else the core's own agent for the state.
+- **C5** the scheduler's input step: a seat control's movement request and
+  aim become its stick through the vehicle AI's `seat_input`/`analogs` in
+  place of Nav's `navigation_input`.
 
 ### Combat
 
-Reads `world.vehicles.dispatch/enterPattern/tickPattern/exitPattern/sidestep/
-sharedTarget/unreachableFromMount` and `ai.vehicles.mountReach`; the binding
-installs the service at `world.vehicles`. `sharedTarget` needs the player's
-target from `world.vehicleSystem.humanTarget(vehicle)` (implemented: what is
-under his view).
+Reads the vehicle AI's `dispatch`, `enter_pattern`, `tick_pattern`,
+`exit_pattern`, `sidestep`, `shared_target`, `unreachable_from_mount` and
+`mount_reach`. `shared_target` needs the player's reticle target (the page's
+`reticleTarget`, passed in the AI phase facts: what is under his view).
 
 ### Population
 
-`ai.controls()` (mission controls): `vehicleNotifyRadius`, `stayInTurrets`,
-`stationaryWait`, `dense`, `flyHeight.{min,max}`.
+`Core::controls()` (mission controls): `vehicleNotifyRadius`,
+`stayInTurrets`, `stationaryWait`, `dense`, `flyHeight.{min,max}`.
 
 ## Findings
 
@@ -726,40 +716,40 @@ under his view).
   (TurretNodeName) and otherwise the hull's; the bounding radius is half the
   collision box diagonal; the turret target team when unmanned is the
   building's (0).
-- `src/ai/classic/vehicles/steering.js`: the walker's body yaw and head
+- `vehicles/steering.rs`: the walker's body yaw and head
   pitch map onto the port's single seat aim; touching bounding spheres stand
   in for the walker's collision callback; renewed requests (moving-turn,
   minimum speed, loop) lapse 0.5 s after their last renewal; aircraft requests
   feed the shared flight controller; pattern 15's orbit (see "Pattern 15: the
   tow-cable run") steers until the pattern clears it, as the original game's
   does, without the renewal lapse.
-- `src/ai/classic/vehicles/index.js`: the notifier's barrier tests use Nav's
-  `pointClear(p, 2, 1)` and `pointClear(p, navRadius, 1)`; turrets come before
+- `vehicles/service.rs`: the notifier's barrier tests use Nav's
+  `point_clear(p, 2, 1)` and `point_clear(p, nav_radius, 1)`; turrets come before
   vehicles in the scan order; decay's special 10 s threshold (a CP flag) is not
-  modelled; `sharedTarget` uses what is under the player's view.
-- `src/ai/classic/vehicles/agents.js`: the flyer's post ownership test is
+  modelled; `shared_target` uses what is under the player's view.
+- `vehicles/agents.rs`: the flyer's post ownership test is
   "the post's team is friendly"; a closed hint is reserved until the close
   time.
-- `src/ai/classic/vehicles/patterns.js`: the AT-AT test compares the label
+- `vehicles/patterns.rs`: the AT-AT test compares the label
   "AT-AT" or the stock class name; pattern 15's parity draws use generator A.
 
 Port changes against vehicles and boarders that stopped moving (found with
-`tools/ai-stuck-probe.mjs`, docs/ai.md "Stuck bots"; tests in
-`tests/ai-stuck.test.js`):
+`tools/ai-stuck-probe.mjs`, docs/ai.md "Stuck bots"; paths under
+`rust/sim/src/ai/vehicles/`):
 
-- `steering.js`: the facing choice's "already arrived" is the slowdown's own
+- `steering.rs`: the facing choice's "already arrived" is the slowdown's own
   condition, inside the near radius with no path left. Read as "inside the
   radius" alone, a walker (which walks only where it faces) stood for good
   within 4 m of a waypoint on its way that it had to come within 1 m of,
   when that waypoint lay beside or behind it. Hovers without strafe use the
   same rule.
-- `steering.js` (`translate`): a unit on its steering point itself is near
+- `steering.rs` (`translate`): a unit on its steering point itself is near
   (arrived). A stop is written where the unit stands, and the zero-length
   early return left near false, so a hover or walker told to stand and shoot
   (pattern 2) faced the point under it instead of its aim: a speeder bike's
   fixed cannon never came to bear, and it sat by its target unfired for as
   long as the target stayed.
-- `steering.js`: a walker pressing on and going nowhere (its executor
+- `steering.rs`: a walker pressing on and going nowhere (its executor
   stationary while it asks to walk, not held) takes the hover's
   reverse-and-turn recovery. Classic gives walkers none; a tauntaun against
   a bank it could not climb stood there until killed. So does one turning
@@ -787,12 +777,12 @@ Port changes against vehicles and boarders that stopped moving (found with
   barriers, and the point lands 109 m away at the foot of the quay wall,
   under its roof. A spider walker sent there backed out and walked back in
   for six minutes. The nav data and the collision agree (the dock is 24 m
-  above the quay floor there), so nothing is wrong with the extract. After two such recoveries
-  its movement helper plans the trip again (new waypoints on the hubs);
-  after four the pilot asks for another post (`requestObjective` with the
-  exclude flag), through `env.replan` from `VehicleAI.analogs`. In that
+  above the quay floor there), so nothing is wrong with the extract. After
+  two such recoveries its movement helper plans the trip again (new waypoints on the hubs);
+  after four the pilot asks for another post (`request_objective` with the
+  exclude flag), through the steering's `replan` from `VehicleAI::analogs`. In that
   battle its recovery time went from 174 to 35 s of 386 at the controls.
-- `index.js` (`walkerContacts`): the touching-spheres stand-in counts as a
+- `service.rs` (`walker_contacts`): the touching-spheres stand-in counts as a
   collision only while this hull moves into the other. Spheres reach well
   past the hulls, and a walker held beside a larger hull at rest (a parked
   one) renewed its 7.5 s hold every step and never walked again.
@@ -802,12 +792,13 @@ Port changes against vehicles and boarders that stopped moving (found with
   15 m to every side of a body 4 m wide, and on Hoth an AT-ST escorting
   one 20 m off was held for 136 of 786 seconds at the controls (two
   8-minute battles); with footprints, 14 of 590.
-- `index.js` (`patrolMounted`): the slow-walker branch asks for a post other
+- `service.rs` (`patrol_mounted`): the slow-walker branch asks for a post other
   than its own (the exclude flag with the current post, as the original game
   does); asking with no exclusion drew the same post again.
-- **Posts out of a hull's reach** (`support.js`; `UnitTrooperAgent.approach`
-  in `../agents.js`, `index.js` `supportPoint` and `patrolMounted`; tests
-  in `tests/ai-vehicle-support.test.js` and `tests/ai-vehicles.test.js`).
+- **Posts out of a hull's reach** (`support.rs`; the Trooper approach in
+  `rust/sim/src/ai/control/mod.rs`, `service.rs` `support_point` and
+  `patrol_mounted`; tests in `rust/sim/tests/ai_phase.rs`, support keys and
+  selection).
   On Kashyyyk: Docks every post the defenders start with (cp3, cp4, cp5)
   stands on a pier under planning barriers of every vehicle size
   (`barrier921` to `barrier966`, flags 62). For an AT-ST, an AAT or a
@@ -817,8 +808,8 @@ Port changes against vehicles and boarders that stopped moving (found with
   Patrol's mounted branch, with no enemy soldier within 30 m, put the pilot
   out. The next bot to board walked to the same spot and got out again:
   in two 10-minute battles 27 pilots got out that way, and the Empire's
-  AT-STs stood empty in the shallows by Dock Two. Now a pilot of a walker or hover (`unit.kind` 2 or 6)
-  whose post is out of reach (the correction fails, or moves the point
+  AT-STs stood empty in the shallows by Dock Two. Now a pilot of a walker
+  or hover (`unit.kind` 2 or 6) whose post is out of reach (the correction fails, or moves the point
   more than the capture region's larger half-size plus 10 m) walks
   to a support hub instead: a hub of its traversal mask within 100 m of
   the post, clear of its barriers at its radius, from which a point 1.5 m
@@ -832,15 +823,15 @@ Port changes against vehicles and boarders that stopped moving (found with
   times. After that, or once its team holds the post, it asks for another
   post (exclude flag), still aboard. On Kashyyyk: Docks the support hubs
   are 66 m (cp4), 69 m (cp3) and 80 m (cp5) from the posts, on the dock
-  level. In the same two battles (`tools/walker-probe.mjs kas2 --side imp
-  --minutes 10 --seeds 1,2`) no pilot got out by request, and the AT-STs'
+  level. In the same two battles (Kashyyyk: Docks, the Empire, 10 minutes,
+  seeds 1 and 2) no pilot got out by request, and the AT-STs'
   crews did 25,419 damage against 12,285. Posts in reach and every other
   map's approach are unchanged.
-- `agents.js` (`UnitBoardAgent`): once the walk is over with the seat still
+- `agents.rs` (`BoardAgent`): once the walk is over with the seat still
   out of reach (a turret on the deck above the point its route ends under),
   the bot gives the vehicle up and takes no invitation for 15 s. The
   reservation renews every tick, and it stood there for good.
-- `agents.js` (`UnitFlyAgent`) and `index.js` (`abandonPad`): a stranded
+- `agents.rs` (`FlyAgent`) and `service.rs` (`abandon_pad`): a stranded
   flyer (executor status 2) is destroyed only once off the ground. One still
   landed on its pad, its takeoff failing however often its pilot tries,
   is left by its crew instead: every bot aboard gets out through the
@@ -866,15 +857,15 @@ Port changes against vehicles and boarders that stopped moving (found with
 
 ## Tests
 
-`tools/tow-cable-probe.mjs` (the snowspeeders' crews, runs and harpoons
-in a headless Hoth battle) and `tools/tow-gunner-scenario.mjs` (a bot rear
-gunner while the player circles or passes an AT-AT) measure the tow-cable
-run.
+`tools/tow-gunner-scenario.mjs` (a bot rear gunner while the player circles
+or passes an AT-AT) measures the tow-cable run.
 
-`timeout 300 node --max-old-space-size=1024 --test tests/ai-vehicles.test.js`
-(set `NODE_OPTIONS=--max-old-space-size=1024` so the per-file child inherits
-the cap). Identity assertions in that file never inspect their operands: a
-failing `assert.equal` on a unit, lease or vehicle would print its whole graph.
+`cargo test` in `rust/sim`: `tests/vehicle_ai_twin.rs` compares the
+tow-cable orbit's steering, the mounted policies' goal tables and mounted
+states with the JavaScript's answers on generated cases
+(`tests/fixtures/vehicle-ai-golden.json`); `tests/replay_vehicle_ai.rs`
+replays captured vehicle AI frames when a capture corpus is supplied;
+`tests/ai_phase.rs` covers support keys and selection.
 `tests/vehicles.test.js`, `tests/turret.test.js`,
 `tests/vehicle-assets.test.js` and `tests/vehicles-browser.mjs` (with
 `PLAYWRIGHT_MODULE` set) cover the player's paths.
@@ -889,5 +880,5 @@ takeover of AI weapon settings, and destruction/rebuild target generations.
 - Unit field `targetable` (false while seated).
 - ActorIntent vehicle fields: `brake` (held), `up`, `down` (held, 0/1), and
   `exit` (edge, same as `use` in a seat).
-- World services: `world.vehicleSystem`, `world.turretSeats`; `world.vehicles`
-  is the vehicle AI's service (Combat's hooks).
+- World services: `world.vehicleSystem`; the vehicle AI's service
+  (`VehicleAI`) answers Combat's hooks.

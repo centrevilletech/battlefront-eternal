@@ -1,8 +1,9 @@
 # Classic AI: perception, aim, firing and combat
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
-the former implementation and document its behavioral contract.
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+Rust names where the port keeps one, usually the JavaScript name in
+snake_case; object-shaped examples document the behavioral contract.
 
 
 Combat part of the Classic AI (`docs/ai.md`). It covers perception, targets,
@@ -17,185 +18,185 @@ under "Further behavior details".
 
 | File | What |
 | --- | --- |
-| `src/ai/classic/aim.js` | the direction filter and `Aimer`, skill curves, float32/D3DX vector helpers, lookup trig, projectile speed/gravity, ballistic and relative-motion lead, the aim-state point |
-| `src/ai/classic/weapons-ai.js` | weapon AI data (`weaponAI`, ai.json registration), ranges, utility, weapon choice, `FireControl`, the run-length buttons and the fire-request consumer, fire validation, friendly-human protection, sniper yaw, the shared RNG for bot spread |
-| `src/ai/classic/perception.js` | heaps, the sight scan, the deferred line-of-sight queue, thinning, the target tracker, hearing, grenade danger, targeted-shot and damage alerts, the interrupt responses |
-| `src/ai/classic/combat.js` | the engagement dispatcher, `UnitCombatAgent`, `AttackPatterns`, `CoverHelper`, the binding the Controller's combat adapter takes (`classicBinding`) |
+| `rust/sim/src/ai/combat/aim.rs`, `math.rs` | the direction filter and `Aimer`, skill curves, float32/D3DX vector helpers, lookup trig, projectile speed/gravity, ballistic and relative-motion lead, the aim-state point |
+| `rust/sim/src/ai/combat/weapons_ai.rs` | weapon AI data (`weapon_ai`, ai.json registration), ranges, utility, weapon choice, `FireControl`, the run-length buttons and the fire-request consumer, fire validation, friendly-human protection, sniper yaw, the shared RNG for bot spread |
+| `rust/sim/src/ai/combat/perception.rs` | heaps, the sight scan, the deferred line-of-sight queue, thinning, the target tracker, hearing, grenade danger, targeted-shot and damage alerts, the interrupt responses |
+| `rust/sim/src/ai/combat/agent.rs`, `binding.rs` | the engagement dispatcher, `CombatAgent`, `Patterns`, `Cover`, the combat services the control core calls (`CombatAi`) |
 | `src/weapons.js` | additive AI options on `Weapon`/`Arsenal` (below) |
 | `tools/zero_ai_classes.py` | `public/sides/<side>/ai.json` |
-| `tests/ai-combat.test.js`, `tests/fixtures/ai-combat/` | tests; synthetic class/weapon fixture |
-
-The modules import only `three`, `src/ai/random.js` (through siblings) and
-each other; they run in Node.
+| `rust/sim/tests/ai_combat_twin.rs`, `ai_combat_control.rs`, `replay_ai_combat.rs`, `rust/sim/tests/fixtures/ai-combat-golden.json` | tests; synthetic golden cases |
 
 ## Where it runs
 
-Per simulation step `h` (docs/ai.md "Tick order"), with the Controller's
-`ClassicAI` and scheduler calling through its combat adapter
-(`src/ai/classic/index.js combatAdapter`; `classicBinding(ai)` entries win):
+Per simulation step `h` (docs/ai.md "Tick order"), with the control core
+and its scheduler calling the combat services (`CombatAi`,
+`rust/sim/src/ai/combat/binding.rs`):
 
 1. `ai.update(h)`, decide:
-   - `combat.ingest()`: the journal's `shot` and `damage` records become
-     controller alerts (`notifyTargetedShot`, `notifyDamage` ->
-     `controller.notifyShot(sourceCharacter, known, point)` on every
-     controller `alertControllers(target)` finds: the unit's own, a seated
+   - `CombatAi::ingest`: the journal's `shot` and `damage` records become
+     controller alerts (`notify_targeted_shot`, `notify_damage` ->
+     `controller.notify_shot(sourceCharacter, known, point)` on every
+     controller `alert_controllers(target)` finds: the unit's own, a seated
      soldier's seat control, and every AI crew control of a vehicle or a
      turret, as in the original game). A turret's damage reaches the journal
      through `Turret.onDamaged` (game.js), a round's with its damage, factors
      and the 30 m back-projection, so a gunner hears his turret being hit.
-   - At a scheduler cycle wrap: `broadcastAcoustic(humanUnit, world)` for
-     every human, and `rebuildProtected()` (protected humans).
+   - At a scheduler cycle wrap: `broadcast_acoustic(humanUnit, world)` for
+     every human, and `rebuild_protected()` (protected humans).
    - For each serviced controller: phase 0 runs its agent. For a fighting bot
-     that is `UnitCombatAgent.behave(dt)`: `tracker.select(world)` (take up
-     the deferred-LOS candidate), `tracker.assignWeaponTarget(world)`
-     (`setTarget`), the interrupt helper (which calls `hazardResponse`,
-     `alertResponse`, `acquiredTarget`, `acousticResponse`), the state and
-     pattern work, then `tracker.fireControls(world)` (requests A/B). Other
-     agents call `updateTarget` (`tracker.update(world, dispatch)`). Then
+     that is `CombatAgent::behave`: `tracker.select(world)` (take up
+     the deferred-LOS candidate), `tracker.assign_weapon_target(world)`
+     (`set_target`), the interrupt helper (which calls `hazard_response`,
+     `alert_response`, `acquired_target`, `acoustic_response`), the state and
+     pattern work, then `tracker.fire_controls(world)` (requests A/B). Other
+     agents call `update_target` (`tracker.update(world, dispatch)`). Then
      `DeferredLos.drain(controller)`, `scan(controller, world, dispatch)`,
-     `broadcastAcoustic(unit, world)`, phase 1 (`thin()` into the queue),
-     `clearCandidate(controller)`.
+     `broadcast_acoustic(unit, world)`, phase 1 (`thin()` into the queue),
+     `clear_candidate(controller)`.
    - After the loop: `DeferredLos.service(world, budget)` (6, 12 on Hard,
      doubled when the planner is idle); a clear ray makes the controller's
-     candidate (`recordTarget`).
+     candidate (`record_target`).
 2. `ai.update(h)`, execute (every AI unit, every step; a LOD skip carries
-   its dt): `consumeFire(controller, unit, step, intent)` writes
-   `intent.buttons`; `aimPoint(controller, unit, dt, out)` gives Nav's
+   its dt): `consume_fire(controller, unit, step, intent)` writes
+   `intent.buttons`; `aim_point(controller, unit, dt, out)` gives Nav's
    analogs the aim-state point (state 0: the target led by the AI dt).
-3. `unit.tick(h)`: the soldier moves, then `unit.onMoved(h)` ->
-   `ai.aim(unit, h)` -> `combat.aim(controller, h)`: the `Aimer` filters the
-   body's aim into `intent.aim` (and hands the cannon in hand curves B and
-   S); `combat.aimOverride = intent.aim`; the weapons fire along it with the
-   bot spread rules. Until `aim()` is first called the binding runs the
-   Aimer inside `consumeFire` instead (one tick earlier than the original
-   game).
+3. The unit phase: the soldier moves, then the post-movement aim
+   (`Runtime::aim`, `rust/sim/src/ai/owned/runtime.rs`) ->
+   `CombatAi::aim(controller, dt)`: the `Aimer` filters the body's aim into
+   `intent.aim` (and hands the cannon in hand curves B and S); the weapons
+   fire along it with the bot spread rules. Until `aim` is first called the
+   binding runs the Aimer inside `consume_fire` instead (one tick earlier
+   than the original game).
 4. Ordnance: each live grenade or sticky round, every step:
-   `combat.grenadeUpdate(round, position, ownerUnit, firstContactTime)`
+   `CombatAi::grenade_update(state, position, owner, first_contact)`
    (see "Integration points").
 
 ## Public API
 
-### aim.js
+### combat/aim.rs and combat/math.rs
 
-- `filterDirection(d, q, v, dt, A, D, out)`: one step of the direction
+- `filter_direction(d, q, v, dt, A, D, out)`: one step of the direction
   filter (30-degree world-Y correction, acceleration clamp A, damping D,
   D3DX normalize), float32 operation for operation. `v` is updated in
   place.
-- `class Aimer { direction, velocity, reset(dir), update(desired, dt,
+- `Aimer { direction, velocity, reset(dir), update(desired, dt,
   curves, weapon, hero) }`: per controller (`controller.perception.aimer`).
   Non-cannons halve A and D; heroes skip the filter; on cannons it sets
   `weapon.spreadScale = B`, `weapon.sniperScale = S`; `dt <= 0` is skipped.
-- `skillCurves(skill)` -> `{A, D, B, S}` (anchors at skills 1, 14, 20;
-  Population's `ClassicDifficulty` is the authority), `aimCurves(curves,
+- `skill_curves(skill)` -> `{A, D, B, S}` (anchors at skills 1, 14, 20;
+  Population's `ClassicDifficulty` is the authority), `aim_curves(curves,
   weaponDef)`.
-- `isCannon(def)` (cannon, weapon, launcher, grapplinghookweapon),
-  `isLauncher(def)`.
-- `projectileOf(def)` -> `{speed, gravity}`; `ballisticLead(p, v, origin,
-  speed, gravity, out)` -> validity; `leadPoint(h, shooter, target, weapon,
+- `is_cannon(def)` (cannon, weapon, launcher, grapplinghookweapon),
+  `is_launcher(def)`.
+- `projectile_of(def)` -> `{speed, gravity}`; `ballistic_lead(p, v, origin,
+  speed, gravity, out)` -> validity; `lead_point(h, shooter, target, weapon,
   out)` (h seconds of relative motion, then the projectile solver);
-  `dropCorrect(point, shooter, weapon, out)`.
-- `aimPointFor(controller, unit, dt, out)`: aim state 1 the stored point,
+  `drop_correct(point, shooter, weapon, out)`.
+- `aim_point_for(controller, unit, dt, out)`: aim state 1 the stored point,
   0 the led target (else 30 m along the aim), otherwise null.
-- `lookupCos/lookupSin`, `ANGLE`, `dot32`, `lengthSq32`, `lengthSqXZ32`,
-  `normalizeD3DX`, `normalizeOrX`, `normalizeXZ`.
+- `lookup_cos/lookup_sin`, `angle`, `dot32`, `length_sq32`, `length_sq_xz32`,
+  `normalize_d3dx`, `normalize_or_x`, `normalize_xz`.
 
-### weapons-ai.js
+### combat/weapons_ai.rs
 
-- `weaponAI(def)`: the AI view of a weapon class record (or charge level):
+- `weapon_ai(def)`: the AI view of a weapon class record (or charge level):
   `{minRange, optimalRange, maxRange, implicitRange, extremeRange,
   relationMask, categoryMask, barrageMin, barrageMax, barrageDelay,
   triggerSingle, zoomMax, action}`, from `def.ai`, else the registered
   ai.json record of `def.class` (levels matched by `at`), else the record's
   own flattened keys (`MinRange`, `MaxRange`, `Target*`, `Barrage*`, ...)
   over the engine's WeaponClass defaults.
-- `registerAIData(aiJson)`, `attachAIData(unitsJson | units, aiJson)`.
-- Ranges: `effectiveRange(unit, controller, def)` (implicit MaxRange
+- `weapon_records` (`rust/sim/src/ai/owned/load.rs`) reads each side's
+  ai.json weapon records in order, levels keyed by `at`.
+- Ranges: `effective_range(unit, controller, def)` (implicit MaxRange
   doubled for non-infantry owners; `controller.rangeScale`; the extreme cap),
-  `expandedRange` (+5 s of nominal speed), `maxExpandedRange`,
-  `sensorRange` (selected weapon's expanded range), `lowerBand`,
-  `upperBand`. Facts: `forwardSpeed`, `categoryOf`, `relationBit`,
-  `ammoCount`, `capacity`.
-- `weaponUtility(owner, weapon, target)` -> `{ok, score}`;
-  `selectWeapon(controller, unit, target, switchAllowed, world)` ->
+  `expanded_range` (+5 s of nominal speed), `max_expanded_range`,
+  `sensor_range` (selected weapon's expanded range), `lower_band`,
+  `upper_band`. Facts: `forward_speed`, `category_of`, `relation_bit`,
+  `ammo_count`, `capacity`.
+- `weapon_utility(owner, weapon, target)` -> `{ok, score}`;
+  `select_weapon(controller, unit, target, switchAllowed, world)` ->
   `{ok, index, weapon, action, inBand}` (in band first, capacity over 20,
   utility, earlier on ties; the grenade slot `roll % 10 ==
   trunc(trunc(time) / 3) % 10` or a target cluster flagged within 5 s).
-- `class FireControl` (on `controller.perception.fire`): channel, the two
+- `FireControl` (on `controller.perception.fire`): channel, the two
   run-length buttons, charge/sniper/burst state, the weapon's target,
   protected humans.
-- `switchWeapon(controller, unit, index)` (uses the new
-  `Arsenal.select`), `setTarget(controller, unit, target, world)` (masks
+- `switch_weapon(controller, unit, index)` (uses the new
+  `Arsenal.select`), `set_target(controller, unit, target, world)` (masks
   gate the weapon's own target).
-- `pressButton(button, down)`, `triggerFromCounts(previous, current)`,
-  `arsenalInput(previousButtons, intent)` -> the `Arsenal.update()` input
-  plus reload/next/zoom edges (`src/units.js IntentControls` is the
-  in-game equivalent).
-- `consumeFire(controller, unit, world)`: requests A (direct) and B
+- `press_button(button, down)`, `trigger_from_counts(previous, current)`
+  (button counts to held/pressed; `IntentControls` in `src/units.js` and
+  the unit's Rust controls latch them in game).
+- `consume_fire(controller, unit, world)`: requests A (direct) and B
   (validated) shaped by charge, semiautomatic (with the sniper gate) or
   burst discipline, the protected-human veto, the sniper yaw; writes
   `unit.intent.buttons`; returns the request.
-- `validateFire`, `facingAndRange`, `firingCone` (22.5 deg, 45 for melee;
+- `validate_fire`, `facing_and_range`, `firing_cone` (22.5 deg, 45 for melee;
   beyond 50 within 20 of the line; a zoomed single-shot soldier within 0.25),
-  `rebuildProtectedHumans(world)`, `protectedVeto`, `sniperYaw(d2)`,
-  `prepareSpread`, `useClassicRandom(arsenal, random)`, `chargeWeapon`,
-  `sniperWeapon`, `selectedWeapon(unit, controller)`, `clusterState`.
+  `rebuild_protected_humans(world)`, `protected_veto`, `sniper_yaw(d2)`,
+  `prepare_spread`, `use_classic_random(arsenal, random)`, `charge_weapon`,
+  `sniper_weapon`, `selected_weapon(unit, controller)`, `cluster_state`.
 
-### perception.js
+### combat/perception.rs
 
-- `class PriorityHeap(capacity, sentinel)`: `insert` (returns the
-  displaced item, the newcomer when dropped, or null), `pop`, `peek`,
-  `peekPriority`, `minIndex`, `slots`, `size`, `clear`.
-- `class Perception` (`controller.perception`): local heap, `candidate`
+- `PriorityHeap`: `insert` (returns the displaced item, the newcomer when
+  dropped, or none), `pop`, `peek_priority`, `min_index`, `size`, `clear`.
+- `Perception` (`controller.perception`): local heap, `candidate`
   ref and `candidatePoint`, `aimer`, `fire`.
 - `scan(controller, world, dispatch)`: radius clamp(maxExpandedRange, 75,
   350), first 175 hostile units, validator, collision category 16 skipped,
   77.5-degree cone, strict `L2 < (30 + 20 r)^2 m^2`, dispatch eligibility,
   priority `20000 - max(1, cost)` (+10000 cost for weapon-only targets).
-  `world.vehicles.sharedTarget(controller)` replaces the broadphase for the
+  the vehicle AI's `shared_target` replaces the broadphase for the
   human-driven mount case.
-- `class DeferredLos` (`world.deferredLos`, one per match): `submit`,
+- `DeferredLos` (one per battle, in `CombatAi`): `submit`,
   `drain(controller)`, `service(world, budget)` -> whether any test ran,
-  `overflow`.
-- `thin(controller, world, retainedRef, queue)`, `recordTarget`,
-  `clearCandidate`.
-- `class TargetTracker` (`agent.tracker`): `target`, `freshTarget`,
-  `point`, `select(world)`, `assignWeaponTarget(world)`,
-  `fireControls(world)`, `update(world, dispatch)`, `reset/assign`,
-  `setDelay(s, now)`, `defaultDelay(now)`, `freeze(on, now)`.
-- Hearing: `noiseRadius(unit, sounds)`, `broadcastAcoustic(source, world,
-  sounds)`. Danger: `dangerDelayRange(skill)`, `notifyDanger(world, state,
-  position, owner, enemySkill, onWarn)`. Alerts: `notifyTargetedShot(world,
-  shooter, target)`, `notifyDamage(world, victim, attacker, packet, known,
-  point)`, `alertControllers(target, out)`.
+  `overflow` (a count).
+- `thin(controller, world, retainedRef, queue)`, `record_target`,
+  `clear_candidate`.
+- `TargetTracker` (`agent.tracker`): `target`, `fresh_target`,
+  `point`, `select(world)`, `assign_weapon_target(world)`,
+  `fire_controls(world)`, `update(world, dispatch)`, `reset/assign`,
+  `set_delay(s, now)`, `default_delay(now)`, `freeze(on, now)`.
+- Hearing: `noise_radius(unit, sounds)`, `broadcast_acoustic(source, world,
+  sounds)`. Danger: `danger_delay_range(skill)`, `notify_danger(world, state,
+  position, owner, enemySkill, onWarn)`. Alerts: `notify_targeted_shot(world,
+  shooter, target)`, `notify_damage(world, victim, attacker, packet, known,
+  point)`, `alert_controllers(target, out)`.
 - Interrupt responses (the Controller's `InterruptHelper` calls them and
-  builds the goal): `hazardResponse(controller, world, agent)`,
-  `alertResponse(controller, world, agent, dispatch)`,
-  `acousticResponse(controller, world, agent)` -> `{kind: 2, mode, point,
+  builds the goal): `hazard_response(controller, world, agent)`,
+  `alert_response(controller, world, agent, dispatch)`,
+  `acoustic_response(controller, world, agent)` -> `{kind: 2, mode, point,
   exit, alert}` or null.
-- Geometry: `matchupPriority`, `rawCost`, `coneDistanceSq`,
-  `boundRadius`, `sightRange`, `validTarget`, `losPoint`, `clearShot`.
+- Geometry: `matchup_priority`, `raw_cost`, `cone_distance_sq`,
+  `bound_radius`, `sight_range`, `valid_target`, `los_point`, `clear_shot`.
 
-### combat.js
+### combat/agent.rs and combat/binding.rs
 
 - `dispatch(controller, unit, target, switchAllowed, world)` ->
-  `{pattern, probability, aux, action, inBand, weapon}`; `rangePolicy`,
-  `roleOf(classDef)`.
-- `class UnitCombatAgent extends Agent` (controller state 2): source goal
+  `{pattern, probability, aux, action, inBand, weapon}`; `range_policy`,
+  `role_of(classDef)`.
+- `CombatAgent` (controller state 2): source goal
   mode 0/1/2/3 -> states 2 (investigate), 4 (fight), 5 (evade), 6 (prone); 3
-  looks around. Policies: `acceptsHazard`, `acceptsAlert(known, point)`,
-  `acceptsTarget` (always false), `acceptsAcoustic(source)`,
-  `acceptsBoard(candidate)`, `acceptsRecovery` (true), `savesOnInterrupt`
+  looks around. Policies: `accepts_hazard`, `accepts_alert(known, point)`,
+  `accepts_target` (always false), `accepts_acoustic(source)`,
+  `accepts_board(candidate)`, `accepts_recovery` (true), `saves_on_interrupt`
   (false).
-- `class AttackPatterns` (patterns 2-6, 8-12; 7 and 13-16 through
-  `world.vehicles`), `class CoverHelper`, `findCover`, `coverScore`,
-  `boardingClear`, `inForwardCone`.
-- `classicBinding(ai)`: `createPerception`, `attachController` (shared RNG
-  for the bot's weapons), `detachController`, `rebuildProtected`,
-  `leadPoint`, `aimPoint`, `consumeFire`, `aim`, `updateAim`, `markSkip`,
-  `ingest`, `grenadeUpdate`. It also registers `world.classData`'s ai.json
-  records.
+- `Patterns` (patterns 2-6, 8-12; 7 and 13-16 through the vehicle AI),
+  `Cover` (the cover helper), `find_cover`, `cover_score`,
+  `boarding_clear`, `in_forward_cone`.
+- `CombatAi` (`binding.rs`, one per battle): `create_perception`,
+  `attach_controller` (shared RNG
+  for the bot's weapons), `detach_controller`, `rebuild_protected`,
+  `lead_point`, `aim_point`, `consume_fire`, `aim`, `update_aim`, `mark_skip`,
+  `ingest`, `grenade_update`.
 
 ## What other code provides
+
+Combat reads the battle through its `World` trait
+(`rust/sim/src/ai/combat/world.rs`), which the native owner implements over
+the canonical stores (`rust/sim/src/ai/owned/frame.rs`). The facts it reads:
 
 - `world.units` (`query`, `relation`, `living`), `world.los(from, to, a, b)`,
   `world.time`, `world.random` (A), `world.randomB` (B), `world.difficulty`
@@ -217,20 +218,20 @@ Per simulation step `h` (docs/ai.md "Tick order"), with the Controller's
   `world.nav.jetHints.{find, excluded, enter, tick, exit}` (pattern 11),
   `world.nav.directClear(unit, point)` (melee), `world.nav.segmentBlocked(a,
   b, unit)` (direct jets), `world.nav.inDangerRegion(unit)` (flyers).
-- Vehicles, on `world.vehicles`: `dispatch(controller, unit, target,
+- Vehicles (the vehicle AI, `rust/sim/src/ai/vehicles/service.rs`): `dispatch(controller, unit, target,
   switchAllowed, world, out)` for walker/flyer/hover sources,
   `enterPattern(patterns, state)`, `tickPattern(patterns, state, dt)`,
   `exitPattern(patterns, state)` for 7 and 13-16, `sidestep(patterns)` from
-  pattern 2, `sharedTarget(controller)`; and on `ai.vehicles`:
-  `mountReach(unit, point)`, `currentControllable(character)`.
+  pattern 2, `shared_target(controller)`, `mount_reach(unit, point)`,
+  `current_controllable(character)`.
 
 ### Integration points (outside Combat)
 
 What the host provides:
 
 - Grenade danger: every step, for each live grenade/sticky round,
-  `combat.grenadeUpdate(round, round.position, ownerUnit, round.contactTime
-  ?? Infinity)`, with `contactTime` set to the simulation time at the
+  `CombatAi::grenade_update(state, position, owner, first_contact)` (first
+  contact infinite until the round touches something), with `contactTime` set to the simulation time at the
   round's first touch (`ordnance.onGrenadeContact`). The `grenade` journal
   record alone cannot drive it (the notifier draws a fresh delay every
   update and re-warns at most every second while the round lies there).
@@ -241,10 +242,8 @@ What the host provides:
   health-type scale) and `generic` (the shield scale) for the "more than 1
   by either" test, and `known: true, point` for directional hits (a bolt:
   30 units back along its flight).
-- `world.vehicles` hooks (above), with `sidestep`'s per-second rate bound by
-  whoever assembles them.
-- Optional `createClassicAI(world, { weaponSounds: (weapon) => muteDistance
-  })` for per-weapon fire-sound mute distances.
+- The vehicle AI's hooks (above), with `sidestep`'s per-second rate bound by
+  the vehicle AI.
 - Audio: `vo` records with `property: "FleeSound"` (the class's
   FleeSound, e.g. the stock `*_inf_com_chatter_flee`) at the record's
   position.
@@ -308,19 +307,20 @@ y.json` for one archive). Reads `SIDE/<side>.lvl` plus the shared
 }
 ```
 
-The runtime reads `weapons[*].ai` (and levels) through `registerAIData`
-(`world.classData`, done by the binding) or `attachAIData`.
+The runtime reads `weapons[*].ai` (and levels) through `weapon_records`
+(`rust/sim/src/ai/owned/load.rs`), from the class data the page hands the
+native owner at battle start.
 
 ## Further behavior details
 
 - Two generators: every combat draw uses generator A except the cube
   offsets for the unengageable-alert dodge point (mode 2) and the
   direct-jet offsets (pattern 10), which draw from B.
-- `UnitCombatAgent` policies beyond the alert and hazard rows:
+- `CombatAgent` policies beyond the alert and hazard rows:
   `acceptsTarget` (the scanner's target) is always false; `acceptsBoard`
   only when no valid hostile is within 8 of the candidate (cap 30), then the
-  base board policy; `acceptsSecondaryWait` (the crew wait) false;
-  `acceptsCommand` true; `acceptsRecovery` true; `savesOnInterrupt` false.
+  base board policy; the crew wait is refused; commands are accepted;
+  `accepts_recovery` true; `saves_on_interrupt` false.
   Accepting the scanner's target would restart the agent each perception
   cycle, so that answer matters.
 - Weapon class tests follow the label-to-engine-class registration: the
@@ -351,7 +351,7 @@ The runtime reads `weapons[*].ai` (and levels) through `registerAIData`
 
 How often a bot's weapon fires, by weapon family, in the 2004 game, and
 what the port measures (`tools/fire-pace-probe.mjs`, whole battles
-headless; `tests/ai-fire-pace.test.js`, the chain end to end). The port's
+headless). The port's
 pace is the original's, family by family (numbers below).
 
 The clock. Offline the original runs one simulation update per rendered
@@ -449,46 +449,46 @@ longer or faster than the original's; a class that names no GlowLength
 without the glow the original gives it (`docs/formats.md`, "Bolts").
 
 One difference, left alone: the port's trigger edge (`IntentControls`,
-`arsenalInput`) takes a press from a never-pressed button (count 0 to +2) as
+`trigger_from_counts`) takes a press from a never-pressed button (count 0 to +2) as
 a single-shot press, where the original wants exactly +1; there a bot's
 first single shot of its life comes three updates later. It changes no
 pace.
 
 ## Provisional
 
-- `perception.js noiseRadius`: walkers, hovers and droidekas use 2 x speed
+- `perception.rs noise_radius`: walkers, hovers and droidekas use 2 x speed
   (cap 50) until the sound table is wired; the original reads their
   engine/event MuteDistances (x5 for walkers and droidekas). Flyers are the
   class constant 1 regardless of their engine-sound state.
-- `perception.js weaponNoise`: weapon states 1..5 are read as "charging,
+- `perception.rs weapon_noise`: weapon states 1..5 are read as "charging,
   busy or in its shot delay"; the second sound states 0/8 read for some
-  weapons is not modeled; MuteDistance comes from `options.weaponSounds`,
-  else `def.MuteDistance`, else 400 (the stock infantry fire sounds).
-- `aim.js projectileOfWeapon`: while charging, the lead uses the reached
+  weapons is not modeled; MuteDistance comes from `def.MuteDistance`, else
+  400 (the stock infantry fire sounds).
+- `aim.rs lead_point`: while charging, the lead uses the reached
   level's ordnance; the original interpolates along the charge chain.
-- `weapons-ai.js clusterState`: kept on the target's controller, or the
+- `weapons_ai.rs cluster_state`: kept on the target's controller, or the
   unit for humans (the original keeps it on every controller).
-- `weapons-ai.js rebuildProtectedHumans`: protection goes to the
+- `weapons_ai.rs rebuild_protected_humans`: protection goes to the
   controllers of units within 50 of the human; the original adds every AI
   seat of a nearby vehicle.
-- `aim.js Aimer.update`: skips `dt <= 0` (the original would poison its
+- `aim.rs Aimer::update`: skips `dt <= 0` (the original would poison its
   rate with NaN) and restarts on non-finite input. Safe-port divergence.
 - Mounted aim is filtered before the seat input batch; on-foot aim runs after
   soldier movement and before firing. Full parity with the original's
   coupled clock is not claimed by the browser battle checks.
-- `weapons-ai.js weaponUtility` tests the weapon's category mask only for a
+- `weapons_ai.rs weapon_utility` tests the weapon's category mask only for a
   soldier's soldier target; other targets go by the damage rules alone, as
   in the original. A wider mask test would leave the Hoth turrets' gunners
   (their cannons clear every category bit) without a weapon for anything,
-  so they would never take a target or fire. `validateFire` compares the
+  so they would never take a target or fire. `validate_fire` compares the
   target with the controllable's own target, not with the weapon's masked
   target: SetTarget writes the controllable's target whatever the masks say,
   so a torpedo launcher (TargetBuilding 0) picked against a turret fires
   unguided instead of never firing. The masks still keep the weapon's own
   target clear, and that target is what a launcher's lock follows. The shot
-  alert's fallback target (`ingestEvent`) is likewise the controllable's
+  alert's fallback target (`CombatAi::ingest`) is likewise the controllable's
   channel target, not the weapon's.
-- `weapons-ai.js burstRequest` (port): a burst whose heat (salvos x heat
+- `weapons_ai.rs burst_request` (port): a burst whose heat (salvos x heat
   per salvo) exactly fills the gauge counts as one above it (0.99), so it
   starts once the heat is all but gone. The original multiplies and
   compares in single precision, and heat cools to exactly 0: such a burst
@@ -498,7 +498,7 @@ pace.
   it drew 4 rounds (one burst in four): its gunner would aim at his attacker
   and never fire again. A speeder bike's 5 rounds of 0.2 (1 in single
   precision) would stop the same way.
-- `combat.js AttackPatterns` (pattern 9's exit): the cover helper's own exit
+- `agent.rs Patterns` (pattern 9's exit): the cover helper's own exit
   runs before its state is zeroed. Its states 2 and 3 hold the target
   (`TargetTracker.freeze`), and only that exit lets go; skipped, a bot that
   left cover for another pattern (a new dispatch, another target) kept a
@@ -508,8 +508,8 @@ pace.
 
 ## Gaps (left as hooks)
 
-- Vehicle dispatch, patterns, shared human target and mounted reach are now
-  bound through `world.vehicles` / `ai.vehicles`; see `ai-vehicles.md` for
+- Vehicle dispatch, patterns, shared human target and mounted reach are
+  served by the vehicle AI (`rust/sim/src/ai/vehicles/`); see `ai-vehicles.md` for
   their scoped fidelity limits.
 - Jet hints (pattern 11) now use Nav's authored hint service; see `ai-classes.md`.
 - Pattern 8 is implemented but dormant (the dispatcher never assigns it).
@@ -518,24 +518,14 @@ pace.
 
 ## Tests
 
-`node --test tests/ai-combat.test.js`: curves at every skill and tier
-(Population's difficulty when present), non-cannon halving, the filter and
-its 30-degree branches, the Aimer, lookup cosine, the lead solver, spread
-buildup per salvo, the AI draw order and the player's untouched path, every
-sniper yaw step and gate, button run-lengths and the semiautomatic
-two-and-two, the sniper uniform(2, 3) gate on the shared generator, bursts,
-charging, ranges and selection, utility, masks, the firing cone, protected
-humans, both heaps, the deferred-LOS queue, priority and cost with the
-+10000 penalty, the sight cone and range, thinning, clusters, the tracker,
-acoustic broadcast, danger delays per tier and the binding's grenade step,
-targeted shots, the range policy table, dispatch, the agent's policies, the
-extractor on a synthetic archive, and two squads fighting through the whole
-Classic AI step. Checks against optional local reference data skip when it
-is absent.
-
-`node --test tests/ai-fire-pace.test.js`: the fire pace end to end at 60
-updates a second, a standing request through the consumer, the trigger
-edges and the weapon: single shots every 12 updates near and 16 far until
-the heat ends the string, no faster than every 4 updates whatever the
-ShotDelay, rifle bursts of BarrageMin..Max with BarrageDelay between, and a
-bottomless heat weapon's burst ending on its heat.
+`cargo test` in `rust/sim`: `tests/ai_combat_twin.rs` compares the priority
+heaps, Classic aim and ballistic leads, weapon records, triggers and
+priorities, the Enhanced reaction and noise, attributed shot and damage
+alerts with crew alerts, and acoustic recipients with synthetic golden cases
+(`tests/fixtures/ai-combat-golden.json`);
+`tests/ai_combat_control.rs` and `tests/ai_phase.rs` cover the combat
+services inside the native phase (Classic and Enhanced acceptance policies,
+the Enhanced aimer); `tests/replay_ai_combat.rs` replays captured combat
+service and agent calls with exact state and random-stream order when a
+capture corpus is supplied. Checks against optional local reference data
+skip when it is absent.

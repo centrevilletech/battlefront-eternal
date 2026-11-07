@@ -23,6 +23,10 @@ a remote one.
   run. A headless host builds no WebGL, DOM, texture loaders or audio device and
   skips drawing, but the shared core still uses Three.js math, skeletons and
   scene objects for kinematic transforms; it is not a minimal pure-data world.
+  The tick's phases (`src/f4-world-step.js`) call into the Rust simulation
+  module (`rust/sim`, [sim-store.md](sim-store.md)), one instance a battle,
+  which owns collision, movement, the AI, hulls, flight, combat and the
+  battle's rules; the JavaScript builds the world and hosts the module.
 - **One clock.** `FixedClock` owns integer 60 Hz gameplay ticks (movement,
   weapons, projectiles, contacts, services, capture, spawning), with 120 Hz
   vehicle substeps. Render refresh, graphics presets and frame caps do not
@@ -415,7 +419,8 @@ one lives in shared code, so online has it too:
   each press's fire id goes through the worker, so its round, flash and sound
   are drawn once, and its rounds draw the spread seeded by the press, as the
   worker's do, so the blast cannon's five bolts are drawn where they fly), the
-  player's hull (`predictVehicle`), mounted guns (`MountedWeaponPrediction`) and
+  player's hull (`predictVehicle`, whose ticks run in
+  `rust/sim/src/client/hulls.rs`), mounted guns (`MountedWeaponPrediction`) and
   the recon droid (`predictRemote`).
 - The input clock locks its phase (`reconcile.js` `advanceInputClock`, `lock`).
   A predicted body is drawn between its last two ticks at the input clock's

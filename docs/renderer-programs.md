@@ -116,9 +116,10 @@ The worker is stopped and advanced to authority tick 60 before cosmetic warmup;
 its initial start acknowledgement can otherwise race by one tick. Captured ticks
 must still match exactly between sessions.
 
-Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT` and `BFE_SETTINGS_FILE` for each session.
-Set `BFE_CANDIDATE=1` only for the candidate, and `BFE_FORCE_RESTORE=1` to exercise
-the context-loss case on it. `BFE_APP_URL` defaults to the desktop application.
+Set `CDP_PORT`, `BFE_CORPUS_CASE`, `BFE_CORPUS_ROLE` (`reference`, `control` or
+`candidate`), `OUT` and `BFE_SETTINGS_FILE` for each session. The manifest's
+context-loss case (`restore-nab2`, `contextLoss`) exercises restoration. `BFE_APP_URL` defaults to the
+desktop application.
 The runner must propagate capture failures. Use Node with built-in fetch and
 WebSocket. No content is distributed with the corpus.
 

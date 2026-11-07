@@ -20,10 +20,11 @@ spawn screen").
 | --- | --- |
 | `src/mission.js` | Pure: which of the map's battles the URL plays; its mission is the one the policy and the screen read |
 | `src/spawn-screen/policy.js` | Pure: from the URL, whether the screen runs and which side and class are played first |
-| `src/human-spawn.js` | Headless: the player's phases, his queued choices and how they apply; the spawn-post rules; the team switch |
+| `rust/sim/src/battle/human.rs`, `human_world.rs` | The player's phases, his queued choices and how they apply; the spawn-post rules; the team switch |
+| `src/human-spawn.js` | The page's publication facade and event queue over the native state |
 | `src/player-body.js` | One body per class the player takes, built on first use and kept |
 | `src/units.js` | `buildBody()`, shared by the bots' factory and the player's bodies; `Unit.setBody()` |
-| `src/game.js` | `adopt()`, `setHumanTeam()`, the commands' place in the tick, and `spawnPort` |
+| `src/game.js` | `adopt()`, the commands' place in the tick, and `spawnPort` (`setHumanTeam` is in `human_world.rs`) |
 | `src/runtime/commands.js`, `transport.js`, `headless-ports.js`, `src/input.js` | `command.human`: building, validating and forwarding the choices |
 | `src/mobile-posts.js` | Command vehicles (the AT-AT, the AT-TE) as posts while they live |
 
@@ -91,14 +92,15 @@ damage record and deletes nothing), so his body lies where it falls for the
 same 4 s.
 
 **The camera while dead:** the original's death camera (formats.md, "Death
-camera"; `DeathCamera` in `src/camera.js`) takes over from whatever view he
+camera"; `DeathCamera.update`, ported in
+`rust/bfe-presentation/src/cameras/world_death.rs`) takes over from whatever view he
 had, looks down on the body, and from 1.5 s turns to the killer.
 
 - It is the world's camera (`simulationCamera`), as the original's camera is
   what its AI scheduling reads. So it steps in `step()` from world state
   alone; the worker and replays get the same one. It also names the killer
   in plain numbers (`DeathCamera.blame`), which the page's death shot reads.
-- The drawn camera is the page's own (`src/death-shot.js`, the Death Camera
+- The drawn camera is the page's own (`rust/bfe-presentation/src/cameras/death.rs`, the Death Camera
   option: Enhanced or Classic), from the body and the killer as the page
   draws them, until the screen's camera shot covers it (`setViewShot`) or
   he spawns (`placePlayer` stops it). Online, where the page takes no
@@ -304,8 +306,8 @@ MTT and the hovernaut too, which no stock map places).
   `spawnPointAt` and the Classic spawn manager draw one, as for a placed
   post's class spawn points.
 - **The battle:** its `ValueBleed` counts for its owner's bleed and holding
-  it resets the no-post count (`src/battle.js`); its weights make it an
-  objective (`src/ai/classic/goals.js`).
+  it resets the no-post count (`rust/sim/src/battle/rules.rs`); its weights make it an
+  objective (`rust/sim/src/ai/control/goals.rs`).
 - **Lost:** when it dies the authority's `updateBattle` reports it once
   (`CommandPosts.mobileEvents()`): the AI's bots sent there draw again, its
   last attacker earns a post point unless he is the owner's friend, and

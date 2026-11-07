@@ -24,21 +24,22 @@ Rules that apply to every change:
 
 The [native ownership contract](sim-ai.md) describes the current implementation
 in `rust/sim/src/ai/` and its generated host boundary. Each area below records
-the behavioral contract. JavaScript paths and API examples in those documents
-refer to the former implementation; the bot modules have been deleted.
+the behavioral contract; the Code column names the Rust modules that own it.
+The bot code was ported from JavaScript; object-shaped API examples in these
+documents describe the data each operation reads and writes.
 
 | Area | Document | Code |
 | --- | --- | --- |
-| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `src/units.js`, `src/registry.js`, `src/battle.js`, `src/sim-events.js`, `src/ai/index.js`, `src/ai/random.js` |
-| Navigation data and runtime | [ai-nav.md](ai-nav.md) | `nav/`, `tools/zero_ai.py` |
-| Perception, aim, firing, attack patterns, weapon AI, class and weapon AI extraction | [ai-combat.md](ai-combat.md) | `perception.js`, `aim.js`, `combat.js`, `weapons-ai.js`, `tools/zero_ai_classes.py` |
-| Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `difficulty.js`, `spawning.js`, `goals.js`, `tools/zero_ai_mission.py` |
-| Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `vehicles/`, `src/vehicles.js`, `src/gunner.js`, `src/seats.js` |
-| Class jobs: sniping, mines, pilot repair and resupply, scouts, jet hints | [ai-classes.md](ai-classes.md) | `classes.js`, `nav/jet-hints.js` |
+| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `src/units.js`, `src/registry.js`, `src/battle.js`, `src/sim-events.js`, `src/ai-world-load.js`, `rust/sim/src/ai/owned/`, `rust/sim/src/ai/random.rs` |
+| Navigation data and runtime | [ai-nav.md](ai-nav.md) | `rust/sim/src/ai/nav/`, `tools/zero_ai.py` |
+| Perception, aim, firing, attack patterns, weapon AI, class and weapon AI extraction | [ai-combat.md](ai-combat.md) | `rust/sim/src/ai/combat/` (`perception.rs`, `aim.rs`, `agent.rs`, `weapons_ai.rs`), `tools/zero_ai_classes.py` |
+| Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/battle/spawning.rs`, `rust/sim/src/ai/control/goals.rs`, `tools/zero_ai_mission.py` |
+| Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `rust/sim/src/ai/vehicles/`, `src/vehicles.js`, `src/gunner.js`, `src/seats.js` |
+| Class jobs: sniping, mines, pilot repair and resupply, scouts, jet hints | [ai-classes.md](ai-classes.md) | `rust/sim/src/ai/control/classes.rs`, `rust/sim/src/ai/nav/jet_hints.rs` |
 | HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/src/hud_model/`, `src/hud.js` |
-| Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `controller.js`, `scheduler.js`, `interrupts.js`, `agents.js`, `patrol.js`, `squads.js`, `index.js` |
+| Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `rust/sim/src/ai/control/` (`mod.rs`, `controller.rs`, `scheduler.rs`, `policy.rs`, `agents.rs`, `patrol.rs`, `squads.rs`) |
 | Heroes and melee | [ai-heroes.md](ai-heroes.md) | `src/heroes.js` |
-| Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `src/ai/enhanced/` |
+| Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `rust/sim/src/ai/combat/enhanced.rs`, `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/ai/control/goals.rs` |
 
 ## Runtime model
 
@@ -166,16 +167,16 @@ world.factory             // UnitFactory: sideOf(className), prepared(className)
 world.classesFor(team)    // the team's [[className, count], ...] that a loaded side has
 ```
 
-`src/ai/index.js` `createAI(mode, world, options)` loads `ai-nav.json`,
-`ai-mission.json`, and each side's `ai.json` and calls
-`createClassicAI(world, { map, sides, playerTeam, enemyTeam, tier, heroes,
-data: { nav, mission, classes }, load: { json, bin } })` from
-`src/ai/classic/index.js` (for `enhanced` it adds the Enhanced pieces,
-[ai-enhanced.md](ai-enhanced.md)). It must return an object with
-`update(dt)`. The game loop (`src/game.js`) calls `ai.update(h)` once per
-simulation step, before every unit's `unit.tick(h)`. The mode, difficulty
-and heroes are Options settings; URL parameters override them:
-`?ai=classic|enhanced|stub|off`, `?tier=easy|medium|hard`, `?seed=`,
+`createNativeAI(mode, world, options)` (`src/ai-world-load.js`) loads
+`ai-nav.json`, `ai-mission.json` and each side's `ai.json` (`src/ai-data.js`
+`loadAIData`), hands that cold content and the mission calls to the native
+owner (`src/ai-world.js`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
+builds the initial roster, and returns an object with `update(dt, tick)`
+(for `enhanced` the native owner runs the Enhanced pieces,
+[ai-enhanced.md](ai-enhanced.md)). The game loop (`src/game.js`) calls
+`ai.update` once per simulation step, before the unit phase. The mode,
+difficulty and heroes are Options settings; URL parameters override them:
+`?ai=classic|enhanced|off`, `?tier=easy|medium|hard`, `?seed=`,
 `?heroes=1`.
 
 Character fields in use: `index, team, human, className, unit, controller,
@@ -218,12 +219,13 @@ Per simulation step `h` (the `step(h)` loop in `src/game.js`):
 The human keeps the per-frame input path; the scheduler does not run a
 controller for the human Character.
 
-The Classic AI also sets on the world when it starts (`src/ai/index.js`):
-`world.nav` (ClassicNav), `world.difficulty` (ClassicDifficulty),
-`world.spawning` (ClassicSpawning, whose `characters` become
-`battle.characters`), `world.missionControls` (Population's
-`missionControls(calls)`), `world.deferredLos` (the Controller's Combat
-adapter), and `world.classData` (each side's `ai.json`). VO is written to
+The native owner keeps navigation (`Nav`, `rust/sim/src/ai/nav/mod.rs`),
+difficulty (`rust/sim/src/ai/control/difficulty.rs`), spawning (whose
+Characters become `battle.characters`, `rust/sim/src/battle/spawning.rs`),
+the mission controls, the deferred line-of-sight queue
+(`rust/sim/src/ai/combat/perception.rs`) and each side's class data itself;
+the page's AI object exposes only the spawning view and the navigation
+boundary. VO is written to
 `world.events` as `kind: "vo"` records. Soldier and Droideka physics carry
 `avoidance`, the near-horizontal building/prop contact normals summed since
 the path executor last consumed them.
@@ -300,10 +302,9 @@ MovementRequest = {             // the steering target the helper builds each ti
 ```
 
 Request-to-analog conversion (the controller's request becomes the real
-analog input) is Nav's
-`navigationInput(controller.navControl, unit, intent, h, aimPoint, { facing })`
-(the executor step, analogs, jet, posture; `analogs(...)` does the
-conversion alone). The class coefficients are MaxSpeed, MaxStrafeSpeed,
+analog input) is `Nav::navigation_input` (`rust/sim/src/ai/nav/goto.rs`:
+the executor step, analogs, jet, posture; `analogs` in
+`rust/sim/src/ai/nav/analogs.rs` does the conversion alone). The class coefficients are MaxSpeed, MaxStrafeSpeed,
 MaxTurnSpeed and MaxPitchSpeed, with no sign flips into the port's analogs.
 Combat supplies the aim point for aimState 0 (target plus lead).
 `controller.navControl` (NavControl) holds a unit's path state and its
@@ -311,8 +312,8 @@ Combat supplies the aim point for aimState 0 (target plus lead).
 
 ### Perception, aim and firing (Combat)
 
-- `perception.scan(controller, world)`, the deferred-LOS service
-  `perception.serviceLos(world, budget)`, and acoustic/danger/targeted-fire
+- `CombatAi::scan`, the deferred-LOS service `CombatAi::service_los`
+  (`rust/sim/src/ai/combat/binding.rs`), and acoustic/danger/targeted-fire
   alert intake; called by the Controller's scheduler in tick order.
 - `Aimer`: the direction filter (curves A/D from difficulty, halved for
   non-cannon weapons; hero exemption) producing `intent.aim`.
@@ -349,27 +350,21 @@ extraction (`tools/extract.py`) writes them too.
 
 ## Tests
 
-- `node --test tests/ai-*.test.js`: pure-logic tests with synthetic fixtures
-  (tracked); checks against optional local reference data skip when it is
-  absent.
-- AI modules import only `three` and each other, so they run in Node.
+- `node --test tests/ai-*.test.js`: the host boundary and native owner
+  with synthetic fixtures (tracked); checks against optional local reference
+  data skip when it is absent.
+- `cargo test` in `rust/sim`: the AI's native tests (`tests/ai_phase.rs`,
+  `ai_native_phase.rs`, `ai_combat_control.rs`, `ai_control_twin.rs`,
+  `ai_combat_twin.rs`, `vehicle_ai_twin.rs`, the replay suites, and
+  `src/ai/nav/tests.rs`).
 - Whole battles between bots (`tests/ai-browser.mjs`) run headless under
   Node (`tools/headless-world.mjs`), the world the world worker runs, and
   read `game.ai` there.
 - `tools/ai-stuck-probe.mjs` measures bots that stop moving in whole
-  headless battles; `tests/ai-stuck.test.js` holds one test per cause it
-  found (see "Stuck bots" below).
-- `tools/walker-probe.mjs <map> [--seeds 1,2] [--minutes 5] [--side imp]
-  [--detail] [--json out.json]` follows every walker hull (AT-AT, AT-TE,
-  AT-ST, spider walker, tauntaun, kaadu) through a headless battle: time
-  with a bot at the controls, boardings, pilot exits by the AI call that
-  asked for them, goal posts and how near it came, damage its crew did
-  (objectives apart), time outside the map boundary, held by a yielding
-  contact, in the stuck recovery, turning on the spot or standing still,
-  and the pilot's agent states (docs/ai-vehicles.md).
+  headless battles (see "Stuck bots" below); `tests/ai-browser.mjs` fails a
+  battle where too many bots never leave their spawn.
 - `tools/fire-pace-probe.mjs` measures how often bots fire, per weapon, in
-  whole headless battles; `tests/ai-fire-pace.test.js` pins the pace end to
-  end (`docs/ai-combat.md`, "Fire pace").
+  whole headless battles (`docs/ai-combat.md`, "Fire pace").
 
 ## Status
 
@@ -405,25 +400,25 @@ node tools/ai-stuck-probe.mjs --mode mp --army 32 --maps bes2   # the server's w
 ```
 
 What kept bots standing, all in the shared runtime that single player (page
-or world worker) and the server both run; one test each in
-`tests/ai-stuck.test.js` (the flyers' pads in `tests/flyer-pads.test.js`),
-details in the area docs:
+or world worker) and the server both run (the flyers' pads are tested in
+`tests/flyer-pads.test.js`), details in the area docs (paths under
+`rust/sim/src/ai/` unless given in full):
 
 | Where | Cause | Change |
 | --- | --- | --- |
-| `classes.js` repair service | A pilot's walk to a wreck was planned again every update: each `goto` restarts the plan and stops the bot, so the path was thrown away before use. Over a third of all planner work on Cloud City, which left everyone else's paths waiting | the walk is planned once ([ai-classes.md](ai-classes.md)) |
-| `classes.js` repair service | With no lock, `undefined === undefined` made every job "close" inside the cutter's default 60 m: pilots stood far off cutting at nothing; routes end outside the cutter's reach; the same futile job was picked again every 5 s | lock needed; close in straight; give up after 8 s; skip a given-up job 30 s |
-| `nav/goto.js`, `nav/control.js` | A failed route leaves no executor, so status 0 and no stagnation recovery: the bot stood where the route failed (patrols, scouts, boarders); a fighter's look round between two failed routes from one spot started the count again | stranded: status 1 after the executor's 5 s, counted on while it stays within 2 m ([ai-nav.md](ai-nav.md)) |
-| `nav/planner.js`, `controller.js`, `nav/goto.js` | Strict priority let fighters' priority-0 asks hold route legs back for a whole fight; dead bots' searches kept their budget; a full queue left the helper waiting | starvation bound (20 searches); unbind drops a life's work; refusal is a failure |
-| `controller.js`, `vehicles/index.js` | A mounted patrol published an objective while its goal started: 64 rebuilds a service and the walker never acted | publication starts at the next phase 1; the slow-walker branch excludes its own post |
-| `nav/analogs.js` | A Droideka at rest steered 0.2 m on, exactly its stop distance: rounding decided whether it ever started | stops only at the waypoint itself |
-| `vehicles/steering.js`, `vehicles/index.js` | A walker near a waypoint behind it faced its aim and stood; touching bounding spheres renewed its yield hold beside a parked hull forever; a walker against a bank, or wedged by a wall facing away from its path, had no recovery; a hover or walker stopped to stand and shoot faced the point under it, not its target, and never fired a fixed gun | face the waypoint while a path is left; contacts need closing motion; the hover's reverse-and-turn, also for a hull that will not turn; standing on the point is arrival, so it faces its aim ([ai-vehicles.md](ai-vehicles.md)) |
-| `vehicles/agents.js` | A boarder whose walk ended under a turret on a deck above held its reservation forever | give up, no invitation for 15 s |
-| `patrol.js` | A patrol sent to an enemy post's center plus a box offset could end outside a round capture region (or below one on a deck, as at Yavin's temple top); state 2 has no timer, so it stood beside the post taking no part | on to the center; still outside 20 s later, another objective ([ai-controller.md](ai-controller.md)) |
-| `agents.js` recovery | A soldier in a hollow of steep slopes slid back from every random direction recovery tried | a timed retry that got nowhere jumps as it sets off |
-| `weapons-ai.js` | A weapon whose masks reject the target (launcher vs turret) was chosen and never fired; a burst of exactly 1.0 heat never started: bots aimed in pattern 2 for as long as the target was in view | validation by the controllable's target, as the original; a burst that fills the gauge counts as 0.99 (port) ([ai-combat.md](ai-combat.md)) |
-| `combat.js` patterns | Leaving cover (pattern 9) skipped the cover helper's exit, so the target stayed frozen in the tracker: a bot then in pattern 2 kept facing where an unseen target had been, for as long as it lived | the cover helper's exit runs first ([ai-combat.md](ai-combat.md)) |
-| `src/flight/ai.js`, `src/flight/model.js`, `vehicles/agents.js` | A Bespin gunship's takeoff was blocked by pad structure reaching into a corner of the box its parked hull fills; its AI pilot held the key, and a takeoff is tried only on a fresh press, so it never tried again; 3 s later the stranded-flyer check blew it up on its pad with its crew, and it came back there to do it again | the pilot presses again every second; the takeoff and lift look past what the parked hull overlaps; a craft still on its pad is left by its crew, not destroyed ([ai-vehicles.md](ai-vehicles.md), [vehicles.md](vehicles.md)) |
+| `control/classes.rs` repair service | A pilot's walk to a wreck was planned again every update: each `goto` restarts the plan and stops the bot, so the path was thrown away before use. Over a third of all planner work on Cloud City, which left everyone else's paths waiting | the walk is planned once ([ai-classes.md](ai-classes.md)) |
+| `control/classes.rs` repair service | With no lock, `undefined === undefined` made every job "close" inside the cutter's default 60 m: pilots stood far off cutting at nothing; routes end outside the cutter's reach; the same futile job was picked again every 5 s | lock needed; close in straight; give up after 8 s; skip a given-up job 30 s |
+| `nav/goto.rs`, `nav/control.rs` | A failed route leaves no executor, so status 0 and no stagnation recovery: the bot stood where the route failed (patrols, scouts, boarders); a fighter's look round between two failed routes from one spot started the count again | stranded: status 1 after the executor's 5 s, counted on while it stays within 2 m ([ai-nav.md](ai-nav.md)) |
+| `nav/planner.rs`, `control/controller.rs`, `nav/goto.rs` | Strict priority let fighters' priority-0 asks hold route legs back for a whole fight; dead bots' searches kept their budget; a full queue left the helper waiting | starvation bound (20 searches); unbind drops a life's work; refusal is a failure |
+| `control/controller.rs`, `vehicles/service.rs` | A mounted patrol published an objective while its goal started: 64 rebuilds a service and the walker never acted | publication starts at the next phase 1; the slow-walker branch excludes its own post |
+| `nav/analogs.rs` | A Droideka at rest steered 0.2 m on, exactly its stop distance: rounding decided whether it ever started | stops only at the waypoint itself |
+| `vehicles/steering.rs`, `vehicles/service.rs` | A walker near a waypoint behind it faced its aim and stood; touching bounding spheres renewed its yield hold beside a parked hull forever; a walker against a bank, or wedged by a wall facing away from its path, had no recovery; a hover or walker stopped to stand and shoot faced the point under it, not its target, and never fired a fixed gun | face the waypoint while a path is left; contacts need closing motion; the hover's reverse-and-turn, also for a hull that will not turn; standing on the point is arrival, so it faces its aim ([ai-vehicles.md](ai-vehicles.md)) |
+| `vehicles/agents.rs` | A boarder whose walk ended under a turret on a deck above held its reservation forever | give up, no invitation for 15 s |
+| `control/patrol.rs` | A patrol sent to an enemy post's center plus a box offset could end outside a round capture region (or below one on a deck, as at Yavin's temple top); state 2 has no timer, so it stood beside the post taking no part | on to the center; still outside 20 s later, another objective ([ai-controller.md](ai-controller.md)) |
+| `control/agents.rs` recovery | A soldier in a hollow of steep slopes slid back from every random direction recovery tried | a timed retry that got nowhere jumps as it sets off |
+| `combat/weapons_ai.rs` | A weapon whose masks reject the target (launcher vs turret) was chosen and never fired; a burst of exactly 1.0 heat never started: bots aimed in pattern 2 for as long as the target was in view | validation by the controllable's target, as the original; a burst that fills the gauge counts as 0.99 (port) ([ai-combat.md](ai-combat.md)) |
+| `combat/agent.rs` patterns | Leaving cover (pattern 9) skipped the cover helper's exit, so the target stayed frozen in the tracker: a bot then in pattern 2 kept facing where an unseen target had been, for as long as it lived | the cover helper's exit runs first ([ai-combat.md](ai-combat.md)) |
+| `rust/sim/src/flight/ai.rs`, `src/flight/model.js`, `vehicles/agents.rs` | A Bespin gunship's takeoff was blocked by pad structure reaching into a corner of the box its parked hull fills; its AI pilot held the key, and a takeoff is tried only on a fresh press, so it never tried again; 3 s later the stranded-flyer check blew it up on its pad with its crew, and it came back there to do it again | the pilot presses again every second; the takeoff and lift look past what the parked hull overlaps; a craft still on its pad is left by its crew, not destroyed ([ai-vehicles.md](ai-vehicles.md), [vehicles.md](vehicles.md)) |
 
 Results, before and after these changes (5 minute battles at the medium
 tier; the same probe, seeds 1 to 3 in single player and 1 and 2 on the

@@ -230,7 +230,7 @@ and TurretCamera, `src/seats.js` TurretSeats).
   needs only the gun's angles, so the server, a bot's seat
   (`TurretSeats.drive`) and the page's predicted rounds
   (`src/runtime/predicted-shots.js`) agree. The AI's own reach test
-  (src/ai/classic/vehicles) reads the view's `PitchLimits` up positive and is
+  (`rust/sim/src/ai/vehicles`) reads the view's `PitchLimits` up positive and is
   kept as the original has it.
 
 | Turret | Eye (aim frame) | Chase camera: pivot, offset, tilt | View pitch | Yaw | Gun pitch (widened), gun yaw |
@@ -265,8 +265,7 @@ From the prepared data (`sides/*/units.json`, `maps/*/props.json`,
 name no serve effect; the gain effects are the soldier's, as for power-ups.
 
 Tests: `tests/live-feedback.test.js`; the turrets' effects and sounds in
-`tests/vehicle-effects.test.js`, `tests/vehicle-sounds.test.js` and
-`tests/test_vehicle_fx.py`.
+`tests/vehicle-effects.test.js` and `tests/test_vehicle_fx.py`.
 
 ## Placed power-ups
 
@@ -515,7 +514,7 @@ How the port runs it:
   (`padOnGround`); the hologram is the build hologram, shown to soldiers
   carrying a repair weapon, as a turret pad's.
 - The traps are in `live.buildings`: repair locks, BuildingBuild ticks,
-  blasts and the Classic AI's repair jobs (`src/ai/services.js`) find them
+  blasts and the Classic AI's repair jobs (`rust/sim/src/ai/owned/services.rs`) find them
   as any building. Their state, health and team travel as schema 7; their
   phase and its start tick as world schema 10 (identity 500000 + index,
   `src/runtime/entity-world-state.js`), taken at once when it changes. A page

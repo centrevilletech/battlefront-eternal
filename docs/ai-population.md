@@ -1,8 +1,9 @@
 # Classic AI: population, spawning, difficulty and objectives
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-now runs in `rust/sim/src/ai/`; JavaScript paths and API examples below name
-the former implementation and document its behavioral contract.
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+Rust names where the port keeps one, usually the JavaScript name in
+snake_case; object-shaped examples document the behavioral contract.
 
 
 Population of the Classic AI (`docs/ai.md`). Behavior follows the 2004 game:
@@ -16,15 +17,17 @@ ownership. Further rules found while implementing are listed under
 | File | What |
 | --- | --- |
 | `tools/zero_ai_mission.py` | Writes `public/maps/<map>/ai-mission.json` (gitignored) |
-| `src/ai/classic/difficulty.js` | `ClassicDifficulty`: tiers, skills, curves, mission setters, scheduler numbers, grenade danger delay |
-| `src/ai/classic/spawning.js` | `ClassicSpawning`: the roster (Characters), spawn manager clocks, class choice, post queues, spawning |
-| `src/ai/classic/goals.js` | Objective selection and publication, spawn-post selection, reassignment events, recapture, objective destinations, mission controls |
-| `tests/ai-population.test.js` | `node --test tests/ai-population.test.js` |
+| `rust/sim/src/ai/control/difficulty.rs` | `Difficulty`: tiers, skills, curves, mission setters, scheduler numbers, grenade danger delay |
+| `rust/sim/src/battle/spawning.rs` | the roster (Characters), spawn manager clocks, class choice, post queues, spawn-post selection, spawning |
+| `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
+| `rust/sim/src/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
+| `src/post-data.js`, `src/mission-teams.js` | `attachPostAI` (post AI properties by name), the page's mission team table |
+| `rust/sim/tests/ai_phase.rs`, `ai_control_twin.rs`, `replay_battle.rs` | Rust tests |
 | `tests/test_ai_mission_export.py` | `python3 -m unittest tests/test_ai_mission_export.py` |
+| `tests/ai-world-roster.test.js` | the native roster through the page boundary |
 
-The modules import only each other (and nothing from the game), so they run
-in Node. Every random draw goes through the shared `ClassicRandom`
-(`src/ai/random.js`) in the original game's order.
+Every random draw goes through the AI's generator A
+(`rust/sim/src/ai/random.rs`) in the original game's order.
 
 ## `ai-mission.json`
 
@@ -107,17 +110,17 @@ The team summaries do not append heroes: whether a team fields its hero
 depends on the match's Heroes option (and ActivateBonus), which the runtime
 decides.
 
-## `difficulty.js`
+## `control/difficulty.rs`
 
-```js
-const difficulty = new ClassicDifficulty({ tier: 2, playerTeam, network: false });
-difficulty.apply(aiMission.scripts[aiMission.mission].calls);   // setters, in order
-difficulty.advancedTraining();      // the Yavin GC bonus, when it applies
-difficulty.curves(team)             // { A, D, B, S }, float32
+```text
+Difficulty::classic(DifficultyOptions { tier: 2, player_team, network: false, .. })
+difficulty.apply(calls)             // the mission's setters, in order
+difficulty.advanced_training()      // the Yavin GC bonus, when it applies
+difficulty.curves(team)             // Curves { A, D, B, S }, float32
 difficulty.skill(team)              // 1..20
-difficulty.playerSkill, enemySkill, tier, profileTier
-difficulty.cycle, losBudget, vehicleBucket   // 15/6/2 (Easy, Medium), 3/12/10 (Hard)
-difficulty.dangerDelay(random)      // seconds after first contact, by the enemy skill
+player_skill, enemy_skill, tier, profile_tier
+difficulty.cycle(), los_budget(), vehicle_bucket()   // 15/6/2 (Easy, Medium), 3/12/10 (Hard)
+difficulty.danger_delay(random)     // seconds after first contact, by the enemy skill
 ```
 
 - Tiers: Easy 1, Medium 2, Hard 3 (any other value initializes as 4/14).
@@ -136,46 +139,32 @@ difficulty.dangerDelay(random)      // seconds after first contact, by the enemy
 - Danger delay: enemy skill below 14: [1.1, 2.1); 14..16: [0.6, 1.3); 17+:
   [0, 0.8), drawn `lo + U(hi - lo)` in float32, for every recipient.
 
-## `spawning.js`
+## `battle/spawning.rs`
 
-```js
-const spawning = new ClassicSpawning({
-  calls,                // aiMission.scripts[mission].calls (or callsFromMapMission(map.mission))
-  posts,                // CommandPosts.posts with .ai attached (attachPostAI), or () => posts
-  random: world.random,
-  humans: [{ team: playerTeam }],
-  heroes,               // Heroes On/Off (the match preset)
-  names: aiMission.names,
-  battle,               // { reinforcements: {team: n}, spend(team) }
-  spawnUnit: world.spawnUnit,
-  makeCharacter: (slot, team, human) => new Character(slot, team, human),
-  hasClass: (name) => factory.sideOf(name) != null,
-  forceKill: (character) => { /* kill the hero's unit */ },
-  // forwarded to the default ClassicObjectives:
-  crew, vehicleMask, units: world.units, travelMask, onPublish,
-});
-spawning.characters          // every Character, roster order (humans first)
-spawning.team(t)             // a team's Characters, in team order
-spawning.human               // the local human's Character
-spawning.teams[t]            // { faction, unitCount, tickets, classes: [{name, target, hero}],
-                             //   heroCount, relations, characters, living, ... }
-spawning.relation(a, b)      // team a's relation to team b (mission SetTeamAs*)
-spawning.faction(t)
-spawning.objectives          // the ClassicObjectives (goals.js) it uses
-spawning.update(dt)          // clock(dt) then updateCharacters(dt)
-spawning.onDeath(character)
-spawning.onHumanReady(character, { className, classIndex, post })
-spawning.awaitingHuman(character)
+```text
+new_spawning(calls, unit_scale, heroes, demo, names, capacity, has_class)
+                             // calls: the mission's script calls (or those made
+                             //   from map.json's mission block); returns the
+                             //   Spawning state and its name lists
+begin(store, humans, naming, world, random)   // the match start (below)
+spawning.teams[t]            // { faction, unit_count, tickets, classes: [{name, target, hero}],
+                             //   hero_count, relations, characters, living, ... }
+relation(spawning, a, b)     // team a's relation to team b (mission SetTeamAs*)
+clock(store, dt, world), update_characters(store, dt, ...)   // the manager, then each Character
+on_death(store, character, world)
+on_human_ready(store, character, HumanChoice { class_name, class_index, post }, ...)
+awaiting_human(character)
+choose_post(...)             // spawn-post selection (Classic or Enhanced)
 ```
 
-Construction builds the roster and runs the match start (pass `start: false`
-to do it later with `begin()`): humans join their teams first, bots fill each
-team to its `SetUnitCount` (drawing names), then each team 0..7 pads its
+`begin` builds the roster and runs the match start: humans join their teams
+first, bots fill each team to its `SetUnitCount` (drawing names), then each
+team 0..7 pads its
 class targets and activates its Characters in order (class 0, the final
 hero slots get the hero classes, a bot draws its objective, then every
 Character prepares).
 
-Each Character gets these fields (on the object `makeCharacter` returns):
+Each Character gets these fields:
 
 ```js
 character.slot, managerIndex, playerId (-1 for bots), name
@@ -189,37 +178,36 @@ character.spawn = { timer, wave /* S */, ordinal /* J, -1 none */, post, ready }
 
 Per simulation step `h`, after units, ordnance and capture:
 
-```js
-spawning.clock(h);              // the spawn manager's wave/stagger clocks and the locals cap
-battle.update(h);               // team bleed and the no-post countdown (Team updates 1..7)
-spawning.updateCharacters(h);   // each Character: respawn timer, gates, spawn
+```text
+clock(store, h, world)               // the spawn manager's wave/stagger clocks and the locals cap
+battle update                        // team bleed and the no-post countdown (Team updates 1..7)
+update_characters(store, h, ...)     // each Character: respawn timer, gates, spawn
 ```
-
-(`spawning.update(h)` does the first and last together.)
 
 Events the service sends:
 
 | When | Call |
 | --- | --- |
-| A Character's unit dies (once per death, any cause) | `spawning.onDeath(character)` |
-| The human confirms the spawn screen (only while `awaitingHuman`) | `spawning.onHumanReady(human, { className, post })` |
-| A post changes hands (`captured`: 0 → by; `neutralized`: from → 0) | `spawning.objectives.onOwnerChanged(post, old, new, spawning.characters)` |
-| A post is destroyed or deactivated (set `post.active = false`) | `spawning.objectives.onDeactivated(post, spawning.characters)` |
-| A Character boards, leaves or changes vehicle | `spawning.objectives.onBoarded(character, oldVehicle, newVehicle)` |
-| The Advanced Training bonus applies | `difficulty.advancedTraining()` |
+| A Character's unit dies (once per death, any cause) | `on_death(character)` |
+| The human confirms the spawn screen (only while `awaiting_human`) | `on_human_ready(human, HumanChoice { class_name, post, .. })` |
+| A post changes hands (`captured`: 0 → by; `neutralized`: from → 0) | `Runtime::owner_changed(post, old, new)` (`Core::objectives_on_owner_changed`) |
+| A post is destroyed or deactivated (set `post.active = false`) | `Runtime::deactivated(post)` (`Core::objectives_on_deactivated`) |
+| A Character boards, leaves or changes vehicle | `boarded(character, previous, vehicle)` (`Core::objectives_on_boarded`) |
+| The Advanced Training bonus applies | `difficulty.advanced_training()` |
 
-`onDeath` spends the team's reinforcement (when it has any) and keeps the
+`on_death` spends the team's reinforcement (when it has any) and keeps the
 team's living count; the service must not spend another for the same death.
 
-`world.spawnUnit(character, className, post, [x, y, z], yaw)`: make a unit of
+The spawning world's `spawn_unit(character, className, post, [x, y, z], yaw)`: make a unit of
 `className` at the point (a path point: settle it on the ground as
 `Soldier.spawn` does), tie it to the Character (`character.unit`, team), and
 return it; return `null` when the class can't be made (spawning then tries
 class 0 once, and otherwise retries later without losing the queue place).
 It must not touch reinforcements or living counts. For the human's Character
-it places the player's own soldier. Attach the bot's controller inside
-`spawnUnit` (so the objective republished right after spawning reaches it),
-or call `spawning.objectives.republish(character)` when attaching it later.
+it places the player's own soldier. The bot's controller is attached inside
+`spawn_unit` (so the objective republished right after spawning reaches it);
+`Core::objectives_republish(character)` republishes for a controller
+attached later.
 
 Tickets come from `battle.reinforcements[team]` when the battle tracks the
 team, else from the team's own count. Teams 3-7 start with 2147483647 unless
@@ -246,35 +234,33 @@ the mission sets them; the battle service must use the same default.
   (ordinal J) and is scheduled for wave `W + 1` (`W + 2` if the wave clock is
   overdue).
 - Spawn: a random point of the post's spawn path (ally path at an ally's
-  post; class spawn points; else the post itself), one draw; `spawnUnit`;
+  post; class spawn points; else the post itself), one draw; `spawn_unit`;
   the class-0 retry; the living count (heroes excluded); a bot's objective is
   republished; the queue place is released.
 - Death: the timer is set to 4 s; a bot draws a fresh objective and forgets
   its post (a human keeps his); living count and reinforcement as above.
 
-## `goals.js`
+## `control/goals.rs`
 
-```js
-attachPostAI(posts, aiMission, map.spawns)   // post.ai from ai-mission.json (by name)
-friendlySpawn(post, team, relation)          // can team spawn here?
-postWeight(post, team, faction)              // 1: ATK[f], 2: DEF[f], 3: DEF[f] if f > 0, else 0
-selectObjective({ posts, team, faction, random, relation, driver, vehicleMask, excludePrevious, previous })
-selectSpawnPost / retainSpawnPost / humanSpawnPost
-objectiveCenter(post) / objectiveOffset(post, random) / objectiveArrived(post, offset, actor, opts)
-missionControls(calls)   // aggressiveness (stored only), dense, attackingTeam, voTeam, snipe
+```text
+attachPostAI(posts, aiMission, map.spawns)   // src/post-data.js: post.ai from ai-mission.json (by name)
+friendly_spawn(post, team, relation)         // can team spawn here?
+post_weight(post, team, faction)             // 1: ATK[f], 2: DEF[f], 3: DEF[f] if f > 0, else 0
+select_objective(posts, team, faction, random, relation, driver, vehicle_mask, exclude_previous, previous)
+select_spawn_post / retain_spawn_post / human_spawn_post   // battle/spawning.rs
+objective_center(post) / objective_offset(post, random) / objective_arrived(post, offset, actor, ...)
+mission_controls(calls)  // aggressiveness (stored only), dense, attackingTeam, voTeam, snipe
                          //   ranges (140/140), stayInTurrets, stationaryWait (10 s),
                          //   vehicleNotifyRadius (50), formation (0/3), blindJetJumps, flyHeight
-new ClassicObjectives({ posts, random, relation, faction, crew, vehicleMask, units, travelMask, onPublish })
-  .request(character, excludePrevious, previous)   // select + publish (+ driver propagation)
-  .publish / republish / assign / reassign / recruit
-  .onOwnerChanged / onDeactivated / onBoarded
-  .stale(character) / revalidate(character)        // the patrol's 5 s check
-classicBinding(ai)       // { requestObjective, friendlySpawnEligible } for index.js,
-                         //   through world.objectives or world.spawning.objectives
+Objectives::classic() / Objectives::enhanced()   // the selector's state; the core runs it:
+Core::objectives_request(character, exclude_previous, previous)   // select + publish (+ driver propagation)
+  objectives_publish / objectives_republish / objectives_assign / objectives_reassign / objectives_recruit
+  objectives_on_owner_changed / objectives_on_deactivated / objectives_on_boarded
+  objectives_stale(character) / objectives_revalidate(character)   // the patrol's 5 s check
 ```
 
-`difficulty.js` also exports `curvesFor(difficulty, team)` and
-`isHard(difficulty)`, which `index.js` binds by name with `world.difficulty`.
+The core reads the difficulty through `Core::curves_for(team)` and
+`Core::is_hard()`.
 
 - Objective: candidates are the active posts the team can't spawn at, in
   world order; a vehicle driver also skips posts whose bans meet its
@@ -284,14 +270,14 @@ classicBinding(ai)       // { requestObjective, friendlySpawnEligible } for inde
   ignored), redrawing to avoid `previous` when asked; null with fewer than
   two. The weight is by team index, never by SetAttackingTeam.
 - Publication: the Character's `objective`; when it has a body and a
-  controller, `controller.publishObjective(post)` (or `onPublish`; falls back
-  to `controller.onObjective`) so the Controller pushes source goal 3.
+  controller, `Core::publish_objective` so the Controller pushes source
+  goal 3.
   Drivers hand the objective to AI co-occupants; a passenger copies an AI
   driver's.
 - `crew(character)` returns null on foot or `{ vehicle, isDriver, driver,
   occupants }` (Characters); `vehicleMask(vehicle)` the vehicle class's
-  traversal mask. `src/ai/index.js` provides both (`objectiveCrew`,
-  `objectiveVehicleMask`).
+  traversal mask. The world provides both (`crew`,
+  `objective_vehicle_mask`; `rust/sim/src/ai/owned/crew.rs`).
 - Ownership change: for each team 1..7 whose relation to the owner crosses
   between positive and not, its bots sent there draw again; a team whose
   friendly post went neutral also recruits: the registry's units within 60 m
@@ -312,9 +298,10 @@ gives it classes and a unit count, and sets how it stands with the armies
 enemies). The battle fields them through the same modules in single player,
 in a world worker, on a server and on a hosting desktop:
 
-- **Who fights whom:** `missionTeams(calls)` / `teamTable(spawning.teams)`
-  (`spawning.js`) give each team's relations, faction and capture team;
-  `src/game.js` hands the table to the unit registry (`units.setTeams`), so
+- **Who fights whom:** `missionTeams` (`src/mission-teams.js`, over the
+  native `ai_mission_teams`, `rust/sim/src/ai/owned/entry.rs`) gives each
+  team's relations, faction and capture team; `src/game.js` hands the table
+  to the unit registry (`units.setTeams`), so
   combat, the AI's perception, kill credit, mines and the HUD all read the
   mission's relations (`units.relation(a, b)`, team a's to team b).
 - **Fielding them:** every mission team's classes are loaded (a locals' class
@@ -423,45 +410,44 @@ not by the `des_` prefix.
   that changed hands while a Character waited decrements the other category.
 - SetStayInTurrets, SetStationaryWaitTime, SetAllowBlindJetJumps,
   SetAIFormationRadius and the snipe ranges just store a global setting;
-  defaults are listed under `missionControls`. SetUrbanEnvironment does the
+  defaults are listed under `mission_controls`. SetUrbanEnvironment does the
   same as SetDenseEnvironment.
 
 ## Provisional
 
-- `spawning.js`: the manager's clock runs before every Character's update,
+- `battle/spawning.rs`: the manager's clock runs before every Character's update,
   and Characters update in roster order. The original game orders them
   through its own priority list; not checked against a populated world.
-- `difficulty.js`, `goals.js`, `spawning.js`: float range and integer draws
+- `difficulty.rs`, `goals.rs`, `spawning.rs`: float range and integer draws
   round every operation to float32, as the original game's single-precision
   arithmetic does; under double precision a last-bit difference is possible.
-- `goals.js`: a post's validity (an entity reference and a validity flag in
+- `goals.rs`: a post's validity (an entity reference and a validity flag in
   the original game) is `post.active !== false`.
-- `goals.js`: the recapture query uses the port's unit registry. The
+- Objectives: the recapture query uses the port's unit registry. The
   original game's registry also holds buildings and mines, which count toward
   its cap of ten.
-- `goals.js`: arrival without a capture region needs the post object's
+- `goals.rs`: arrival without a capture region needs the post object's
   collision radius and speed, which the extractor doesn't provide for the
   placed posts yet (default 0). A command vehicle's post gives its hull's
   nominal speed and, for the radius, the sphere round its collision bounds
   (`src/mobile-posts.js`), not the original game's own broadphase sphere.
-- `spawning.js`: the network, secondary-world and network-occupancy branches
+- `battle/spawning.rs`: the network, secondary-world and network-occupancy branches
   (fifty peer slots, the 16 living-bot cap, team switching over capacity)
   are not modeled beyond the offline rules; attract mode's clocks are.
-- `spawning.js`: a human class outside the mission's roster is spawned but
+- `battle/spawning.rs`: a human class outside the mission's roster is spawned but
   not counted in the roster deficit.
-- `goals.js`: more than 16 active posts would overrun the original game's
-  arrays; the port selects normally and `validatePosts` reports it.
+- `goals.rs`: more than 16 active posts would overrun the original game's
+  arrays; the port selects normally.
 
 ## Contract changes
 
 - `Character` gains `slot`, `managerIndex`, `playerId`, `name`,
   `classIndex`, `hero` and `spawn: { timer, wave, ordinal, post, ready }`
-  (set by `ClassicSpawning` on the object `makeCharacter` returns).
-- The Controller receives objectives as `controller.publishObjective(post)`
-  (or through an `onPublish` hook): source goal 3 for that post.
-- `world.spawning` (the match's `ClassicSpawning`) or `world.objectives` (its
-  `ClassicObjectives`) and `world.difficulty` (a `ClassicDifficulty`): what
-  `index.js`'s population binding reads.
+  (set by native spawning).
+- The Controller receives objectives through `Core::publish_objective`:
+  source goal 3 for that post.
+- The native owner holds the spawning state, the objectives and the
+  `Difficulty` the core reads.
 - `world.posts[]` carry `.ai` (`attachPostAI`) and `.active`.
 - The battle service: teams 3-7 default to 2147483647 reinforcements; bleed
   debits at most one reinforcement per team update; the no-post countdown

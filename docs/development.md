@@ -253,7 +253,20 @@ resize, color/depth copies, MSAA resolves and context restoration.
 `BFE_SMOKE_OUTPUT` optionally saves the JSON-lines report. The CI renderer-smoke
 job runs these backends and uploads that report even when the driver fails.
 
+Libraries the modules above share: `rust/audio-control` (the battle's sound
+state and decisions, built into the simulation module and reached from
+`src/audio/control.js`; [docs/audio.md](audio.md)), `rust/bfe-pose` (the pose
+sampler), `rust/content` (the game's files parsed as the simulation reads
+them), `rust/three` (the three.js math subset the simulation uses), `rust/jsrt`
+(JavaScript number, sort and random-stream semantics) and `rust/sim-replay`
+(per-phase replays of recorded battles, [docs/sim-replay.md](sim-replay.md)).
+
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
+`rust/bfe-client` is a native window, input and audio host (winit, glutin,
+cpal) that replays a `bfe-native` capture through `bfe-render`; it does not
+load or simulate a live battle (`rust/bfe-client/README.md`).
+`rust/bfe-node` is the dedicated server's Node-API addon; battles still step
+in the WebAssembly instance ([docs/node-host.md](node-host.md)).
 
 `rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have. `rust/v8math-check` compares it with V8, natively and as WebAssembly, and should run again whenever the server's Node or C library changes:
 
