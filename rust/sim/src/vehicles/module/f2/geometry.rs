@@ -7,17 +7,16 @@ pub(crate) struct Geometry { rows: Vec<Option<Row>>, output: Option<Block> }
 impl Geometry {
     pub(in crate::vehicles::module) const fn new() -> Self { Self { rows: Vec::new(), output: None } }
 }
-// Only this entry projection knows the WASM instance root. Geometry methods
-// borrow their own bank; rig sampling is a separate, explicit capability.
-fn geometry() -> &'static mut Geometry { unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.geometry) } }
-pub fn mark(r: Ref<Vehicle>) { geometry().mark(r) }
-pub fn register(r: Ref<Vehicle>) { geometry().register(r, &poses()[r.slot as usize].as_ref().unwrap().pose) }
+// Geometry publishes its detached bank while rig sampling borrows the other
+// owners. A sampled row never needs a second geometry publication bank.
+pub(crate) fn mark_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { fleet.geometry.mark(r) }
+pub(crate) fn register_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) { world_ctx.fleet.geometry.register(r, &world_ctx.fleet.poses[r.slot as usize].as_ref().unwrap().pose) }
 /// The published seat frame uses simulation position rather than rendered bob.
 /// The root's Euler cache stays observable without asking JS to decompose it.
-fn update(value: &mut F2Pose) {
+fn update_in(world_ctx: &mut crate::world::owner::World, value: &mut F2Pose) {
     let r = value.hull;
-    let mut h = take_hull(r, 0);
-    let mut posed = poses()[r.slot as usize].take().unwrap();
+    let mut h = take_hull_in(world_ctx, r, 0);
+    let mut posed = world_ctx.fleet.poses[r.slot as usize].take().unwrap();
     let p = &mut posed.pose;
     let q = p.rig.tree.node(p.rig.root).quaternion;
     let e = p.rig.tree.node_mut(p.rig.root).rotation();
@@ -33,9 +32,14 @@ fn update(value: &mut F2Pose) {
         } }
         out.frame = h.seat_frame(i).elements; out.eye = v3(&h.seat_eye(i)); out.forward = v3(&h.seat_forward(i));
     }
-    posed.pose = h.pose.take().unwrap(); poses()[r.slot as usize] = Some(posed); recycle(h);
+    posed.pose = h.pose.take().unwrap(); world_ctx.fleet.poses[r.slot as usize] = Some(posed); recycle_in(world_ctx, h);
 }
-pub fn publish() -> *const f64 { geometry().publish(|value| { if !sim().store.vehicle.contains(value.hull) { return false; } update(value); true }) }
+pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> *const f64 {
+    let mut geometry = std::mem::replace(&mut world_ctx.fleet.geometry, Geometry::new());
+    let result = geometry.publish(|value| { if !world_ctx.sim.store.vehicle.contains(value.hull) { return false; } update_in(world_ctx, value); true });
+    world_ctx.fleet.geometry = geometry;
+    result
+}
 
 impl Geometry {
     pub(super) fn mark(&mut self, r: Ref<Vehicle>) { if let Some(Some(row)) = self.rows.get_mut(r.slot as usize) { row.dirty = true; } }
@@ -67,3 +71,5 @@ impl Geometry {
         out.finish(); out.ptr()
     }
 }
+
+// facade shims: callers outside the fleet bindings still enter through WASM.

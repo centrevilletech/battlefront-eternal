@@ -57,36 +57,17 @@ impl Default for GroundCache {
     }
 }
 
-// Vehicles and infantry can own one coordinated phase. Their enabled bytes
-// must then be the same storage: a hull death disables its body before the
-// next instant round, and a prop show changes what a later hull cast meets.
-struct BodyFlags {
-    owned: Vec<u8>,
-    shared: *mut u8,
-}
-impl std::ops::Deref for BodyFlags {
-    type Target = [u8];
-    fn deref(&self) -> &[u8] {
-        if self.shared.is_null() { &self.owned }
-        else { unsafe { std::slice::from_raw_parts(self.shared, MAX_BODIES) } }
-    }
-}
-impl std::ops::DerefMut for BodyFlags {
-    fn deref_mut(&mut self) -> &mut [u8] {
-        if self.shared.is_null() { &mut self.owned }
-        else { unsafe { std::slice::from_raw_parts_mut(self.shared, MAX_BODIES) } }
-    }
-}
-
 /// The hulls' view of the module's collision world.
 pub struct Collision {
     /// The kernel's world (collision.js rayWorld) and the vehicle-only
     /// barriers' fixed set (rays.fixedSet of blockerSet), if any.
     pub world: usize,
     pub blockers: Option<usize>,
-    /// Each body's enabled flag by its place in the world's order: written
-    /// by JavaScript (`flags_ptr`), changed by the hulls.
-    flags: BodyFlags,
+    /// Prediction owns its enabled-byte reservation. Authoritative queries
+    /// receive the movement owner's bytes with each operation.
+    flags: Vec<u8>,
+    #[cfg(target_arch = "wasm32")]
+    authoritative: bool,
     /// Each kernel slot's place in the world's order (-1: not in it), for
     /// the order's version `places_for`.
     place_of: Vec<i32>,
@@ -154,7 +135,9 @@ impl Collision {
         Collision {
             world,
             blockers,
-            flags: BodyFlags { owned:vec![0; MAX_BODIES], shared:std::ptr::null_mut() },
+            flags: vec![0; MAX_BODIES],
+            #[cfg(target_arch = "wasm32")]
+            authoritative: false,
             place_of: Vec::new(),
             places_for: None,
             kernel_of: Vec::new(),
@@ -174,15 +157,10 @@ impl Collision {
         }
     }
 
-    /// Where JavaScript writes the bodies' flags (MAX_BODIES bytes, by place).
+    /// The private query bank's fixed enabled-byte reservation, by body place.
     pub fn flags_ptr(&mut self) -> *mut u8 {
         self.flags.as_mut_ptr()
     }
-    /// Bind the battle's fixed enabled-body reservation at construction.
-    /// The caller keeps MAX_BODIES bytes alive until this Collision is dropped.
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) unsafe fn share_flags(&mut self, flags: *mut u8) { self.flags.shared = flags; }
-
     /// Body `body` (the store's number) is kernel slot `kernel`.
     pub fn name_body(&mut self, body: u32, kernel: u32) {
         let (b, k) = (body as usize, kernel as usize);
@@ -316,7 +294,7 @@ impl Collision {
     /// `out`: how many bodies were toggled and how many placed, then each
     /// toggled body's kernel slot and flag, then each placed body's slot,
     /// bounds (6), matrix (16) and inverse (16). The marks are cleared.
-    pub fn take_changes(&mut self, s: &mut State, out: &mut Vec<f64>) {
+    pub fn take_changes_in(&mut self, s: &mut State, flags: &[u8], out: &mut Vec<f64>) {
         out.clear();
         let (toggled, placed) = (self.toggled.len(), self.placed.len());
         let mut heap = Vec::new();
@@ -324,7 +302,7 @@ impl Collision {
         F2BodyHeader { toggled: toggled as u32, placed: placed as u32 }.put(out,&mut heap);
         for i in 0..toggled {
             let k = self.toggled[i] as usize;
-            let enabled = self.place(s,k).is_some_and(|p| self.flags[p] != 0);
+            let enabled = self.place(s,k).is_some_and(|p| flags[p] != 0);
             let at = out.len(); out.resize(at + F2BodyToggle::WORDS,0.0);
             F2BodyToggle { kernel: k as u32, enabled }.put(&mut out[at..],&mut heap);
         }
@@ -343,15 +321,15 @@ impl Collision {
 
     /// CollisionWorld.overlapsSphere for the Classic exit search. Use the
     /// same enabled order as casts; a candidate must see earlier crew exits.
-    pub fn overlaps_sphere(&mut self, s: &mut State, center: &Vector3, radius: f64, ignore: Option<BodyId>) -> bool {
+    pub fn overlaps_sphere_in(&mut self, s: &mut State, flags: &[u8], center: &Vector3, radius: f64, ignore: Option<BodyId>) -> bool {
         let ignore = ignore.map_or(-1, |b| self.kernel(b).expect("a named seat body") as i64);
-        spheres::overlaps_sphere(s, self.world, [center.x, center.y, center.z], radius, ignore, &self.flags)
+        spheres::overlaps_sphere(s, self.world, [center.x, center.y, center.z], radius, ignore, &flags)
     }
 
     /// CollisionWorld.cast(origin, direction, far, out, ignoreBody) as its
     /// ray path runs it (rayCast): the candidates through the broad phase,
     /// each one's enabled flag, then the cast.
-    pub fn cast(&mut self, s: &mut State, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Option<Hit>> {
+    pub fn cast_in(&mut self, s: &mut State, flags: &[u8], origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Option<Hit>> {
         let ignore = match ignore {
             Some(b) => self.kernel(b)? as i64,
             None => -1,
@@ -360,7 +338,7 @@ impl Collision {
         let count = broad::world_candidates_near_into(s, self.world, &ray, far, ignore, false, false, &mut self.candidates);
         // The candidates' flags, as rayCandidates writes them.
         for (c, flag) in self.enabled.iter_mut().enumerate().take(count) {
-            *flag = self.flags[self.candidates[c] as usize];
+            *flag = flags[self.candidates[c] as usize];
         }
         let (code, hit) = collision::world_cast_ray_in(s, self.world, &ray, far, hypot(direction.x, direction.z), &self.candidates[..count], &self.enabled[..count]);
         if code == MISS {
@@ -388,7 +366,7 @@ impl Collision {
     /// the hull's probes through its own caches, the barriers, the bodies'
     /// flags now. None: the hull's body is not one this knows.
     #[allow(clippy::too_many_arguments)]
-    pub fn push_walls(&mut self, s: &mut State, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
+    pub fn push_walls_in(&mut self, s: &mut State, flags: &[u8], body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
         let walls = &self.colliders.get(body as usize)?.as_ref()?.walls;
         if walls.len() < probes.len() {
             return None;
@@ -409,7 +387,7 @@ impl Collision {
         let p = Probes { points: &self.points, radius, q: [q.x, q.y, q.z, q.w], own: own.map(|o| [o.x, o.y, o.z, o.w]), previous: [previous.x, previous.y, previous.z], terrain };
         let mut h = Pushed { position: [position.x, position.y, position.z], velocity: [velocity.x, velocity.y, velocity.z], undo_turn: false };
         let n = s.worlds[self.world].order.len();
-        spheres::push_walls(s, self.world, &p, &mut caches[..probes.len()], self.blockers, &self.flags[..n], &mut h, &mut self.gathered, &mut self.near);
+        spheres::push_walls(s, self.world, &p, &mut caches[..probes.len()], self.blockers, &flags[..n], &mut h, &mut self.gathered, &mut self.near);
         position.set(h.position[0], h.position[1], h.position[2]);
         velocity.set(h.velocity[0], h.velocity[1], h.velocity[2]);
         Some(h.undo_turn)
@@ -432,11 +410,11 @@ impl Collision {
     /// The polygons near a hover's spring `index` (CollisionWorld.gather
     /// through the spring's cache, with the barriers: rayGather), into
     /// `out`. None: the hull's body is not one this knows.
-    pub fn spring_polygons(&mut self, s: &mut State, body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
+    pub fn spring_polygons_in(&mut self, s: &mut State, flags: &[u8], body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
         let id = *self.collider(body)?.springs.get(index).unwrap_or(&-1);
         let cache = if id >= 0 { Some(unsafe { &mut *spheres::caches().as_mut_ptr().add(id as usize) }) } else { None };
         let n = s.worlds[self.world].order.len();
-        spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &self.flags[..n], &mut self.gathered);
+        spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &flags[..n], &mut self.gathered);
         // CollisionWorld.gather already retains every triangle. A second
         // owned copy grows on first contact with each new part of the map.
         Some(self.gathered.list())
@@ -471,19 +449,83 @@ impl Collision {
 
     /// `body.enabled = enabled` for a body in the world's order. None: a
     /// body this cannot place.
-    pub fn enable_body(&mut self, s: &State, body: BodyId, enabled: bool) -> Option<()> {
+    pub fn enable_body_in(&mut self, s: &State, flags: &mut [u8], body: BodyId, enabled: bool) -> Option<()> {
         let k = self.kernel(body)?;
         let p = self.place(s, k)?;
-        self.flags[p] = enabled as u8;
+        flags[p] = enabled as u8;
         self.mark(k, TOGGLED);
         Some(())
     }
 
     /// `body.enabled` for a body in the world's order.
-    pub fn body_enabled(&mut self, s: &State, body: BodyId) -> Option<bool> {
+    pub fn body_enabled_in(&mut self, s: &State, flags: &[u8], body: BodyId) -> Option<bool> {
         let k = self.kernel(body)?;
         let p = self.place(s, k)?;
-        Some(self.flags[p] != 0)
+        Some(flags[p] != 0)
+    }
+}
+
+impl Collision {
+    // facade shims: prediction retains private flags until its callers convert.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) unsafe fn share_flags(&mut self, _flags: *mut u8) { self.use_world_flags(); }
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn use_world_flags(&mut self) { self.authoritative = true; }
+    pub fn take_changes(&mut self, s: &mut State, out: &mut Vec<f64>) {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.take_changes_in(s, crate::abi::world().movement.flags_mut(), out); }
+        let flags = std::mem::take(&mut self.flags);
+        let result = self.take_changes_in(s, &flags, out);
+        self.flags = flags;
+        result
+    }
+    pub fn overlaps_sphere(&mut self, s: &mut State, center: &Vector3, radius: f64, ignore: Option<BodyId>) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.overlaps_sphere_in(s, crate::abi::world().movement.flags_mut(), center, radius, ignore); }
+        let flags = std::mem::take(&mut self.flags);
+        let result = self.overlaps_sphere_in(s, &flags, center, radius, ignore);
+        self.flags = flags;
+        result
+    }
+    pub fn cast(&mut self, s: &mut State, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Option<Hit>> {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.cast_in(s, crate::abi::world().movement.flags_mut(), origin, direction, far, ignore); }
+        let flags = std::mem::take(&mut self.flags);
+        let result = self.cast_in(s, &flags, origin, direction, far, ignore);
+        self.flags = flags;
+        result
+    }
+    pub fn push_walls(&mut self, s: &mut State, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.push_walls_in(s, crate::abi::world().movement.flags_mut(), body, probes, radius, q, own, previous, position, velocity, terrain); }
+        let flags = std::mem::take(&mut self.flags);
+        let result = self.push_walls_in(s, &flags, body, probes, radius, q, own, previous, position, velocity, terrain);
+        self.flags = flags;
+        result
+    }
+    pub fn spring_polygons(&mut self, s: &mut State, body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.spring_polygons_in(s, crate::abi::world().movement.flags_mut(), body, index, center, radius); }
+        let flags = std::mem::take(&mut self.flags);
+        let found = self.spring_polygons_in(s, &flags, body, index, center, radius).is_some();
+        self.flags = flags;
+        found.then(|| self.gathered.list())
+    }
+    pub fn enable_body(&mut self, s: &State, body: BodyId, enabled: bool) -> Option<()> {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.enable_body_in(s, crate::abi::world().movement.flags_mut(), body, enabled); }
+        let mut flags = std::mem::take(&mut self.flags);
+        let result = self.enable_body_in(s, &mut flags, body, enabled);
+        self.flags = flags;
+        result
+    }
+    pub fn body_enabled(&mut self, s: &State, body: BodyId) -> Option<bool> {
+        #[cfg(target_arch = "wasm32")]
+        if self.authoritative { return self.body_enabled_in(s, crate::abi::world().movement.flags_mut(), body); }
+        let flags = std::mem::take(&mut self.flags);
+        let result = self.body_enabled_in(s, &flags, body);
+        self.flags = flags;
+        result
     }
 }
 
@@ -578,6 +620,32 @@ pub fn in_region(built: &BuiltRegion, point: &Vector3) -> bool {
 
 #[cfg(test)]
 mod tests {
+    // CollisionWorld eligibility belongs to the caller. Reusing one query
+    // bank must never redirect an earlier world's enabled-byte reservation.
+    #[test]
+    fn body_queries_borrow_independent_flag_banks() {
+        let mut state = crate::collision::State::default();
+        for _ in 0..2 {
+            state.bodies.push(crate::collision::Body { tree: 0, moving: false,
+                offset: 0.0, bounds: [0.0; 6], matrix: [0.0; 16], inverse: [0.0; 16] });
+        }
+        state.worlds.push(crate::collision::World { tree: 0, terrain: None,
+            grid: None, order: vec![0, 1], prepared: Vec::new(), version: 0,
+            statics: None, broad: Default::default() });
+        let mut query = super::Collision::new(0, None);
+        query.name_body(0, 0); query.name_body(1, 1);
+        let first = [1, 0]; let mut second = [0, 1];
+        assert_eq!(query.body_enabled_in(&state, &first, 0), Some(true));
+        assert_eq!(query.body_enabled_in(&state, &second, 0), Some(false));
+        query.enable_body_in(&state, &mut second, 0, true).unwrap();
+        assert_eq!(first, [1, 0]); assert_eq!(second, [1, 1]);
+        let mut out = Vec::new();
+        query.take_changes_in(&mut state, &second, &mut out);
+        assert_eq!(crate::gen::F2BodyHeader::take(&out, &[]).toggled, 1);
+        assert!(crate::gen::F2BodyToggle::take(&out[crate::gen::F2BodyHeader::WORDS..], &[]).enabled);
+        assert_eq!(query.body_enabled_in(&state, &first, 1), Some(false));
+    }
+
     use super::*;
 
     fn rules(json: &str, kill_y: f64) -> MapRules {

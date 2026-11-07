@@ -258,7 +258,9 @@ impl Hulls {
         self.facts(unit).combat = combat;
         w.seated(unit);
         st.vehicle.get_mut(vref).unwrap().sleeping = Some(false);
-        w.sync_rider(r, st.unit.get_mut(unit_ref(st, unit)).unwrap());
+        let reference = unit_ref(st, unit);
+        let rows = super::RiderRows { leases: &st.seat_lease, vehicles: &st.vehicle };
+        w.sync_rider_rows(rows, r, st.unit.get_mut(reference).unwrap());
         lease_views(st, vref);
         let holder = Holder::Hull(self.hulls[hull].index);
         foreign!(self, st, w, w.boarded(unit, holder, index));

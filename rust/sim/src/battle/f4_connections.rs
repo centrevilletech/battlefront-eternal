@@ -1,8 +1,10 @@
 //! MultiplayerWorld's retained connection spawn state. Mailboxes remain at
 //! the input boundary; eligibility, body realization and dead-body clocks
 //! read canonical Characters and Units before Game.step begins.
-use crate::{abi::sim,gen::*,store::{block::Block,Ref},units::f3};
-use std::ptr::addr_of_mut;
+use crate::world::owner::World as Root;
+use super::owner::BattleOwner;
+use crate::{gen::*,store::{block::Block,Ref},units::f3};
+
 struct Entry {handle:F4Handle,ordinal:f64,view:F4ConnectionView}
 pub(super) struct State {rows:Vec<Option<Entry>>,output:Block,result:F4ConnectionView}
 impl State {
@@ -12,46 +14,44 @@ impl State {
         self.output.finish();self.output.ptr()
     }
 }
-pub(crate) fn reset(){unsafe{*addr_of_mut!(crate::abi::cold().battle.connections)=None;}}
-fn state()->&'static mut State {unsafe{(*addr_of_mut!(crate::abi::cold().battle.connections)).as_mut().expect("connection owner prepared")}}
-#[no_mangle]
-pub extern "C" fn f4_connections_init(capacity:u32) {
+pub(crate) fn reset(battle: &mut BattleOwner){{battle.connections=None;}}
+fn state(battle: &mut BattleOwner)->&mut State {battle.connections.as_mut().expect("connection owner prepared")}
+pub fn f4_connections_init_in(w: &mut Root, capacity:u32) {
     let outer=f3::external();
-    let human=&mut sim().store.human_spawn;human.auto=None;human.pending=None;human.spawned_once=true;
-    super::f4_core::mark_tail(&sim().store);
+    let human=&mut w.sim.store.human_spawn;human.auto=None;human.pending=None;human.spawned_once=true;
+    super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
     let mut output=Block::default();output.words.reserve(crate::store::block::HEADER+F4ConnectionView::WORDS);
-    unsafe{*addr_of_mut!(crate::abi::cold().battle.connections)=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
+    {w.battle.connections=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
     drop(outer);
 }
 /// attachedPlayers qualifies the connection, not merely a recycled roster
 /// index. A released Character's old link facts cannot mark its bot reuse as
 /// a human while the next transport publication is still queued.
-pub(crate) fn wire_character(store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> {
-    let reference = super::f4_core::resolve(store, handle)?;
-    let rows = state(); let entry = rows.rows.get(reference.slot as usize)?.as_ref()?;
+pub(crate) fn wire_character_in(battle: &mut BattleOwner, store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> {
+    let reference = super::f4_core::resolve(battle, store, handle)?;
+    let rows = state(battle); let entry = rows.rows.get(reference.slot as usize)?.as_ref()?;
     (entry.handle == *handle).then_some(reference)
 }
 /// The connection owns its retained dead/unspawned body and spawn phase.
 /// A Character's current bot body is not a substitute after disconnection.
-pub(crate) fn wire_view(store: &Store, handle: &F4Handle) -> Option<&'static F4ConnectionView> {
-    let reference = wire_character(store, handle)?;
-    state().view(reference)
+pub(crate) fn wire_view_in<'w>(battle: &'w mut BattleOwner, store: &Store, handle: &F4Handle) -> Option<&'w F4ConnectionView> {
+    let reference = wire_character_in(battle, store, handle)?;
+    state(battle).view(reference)
 }
 
-fn spawn(entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
-    if sim().store.battle.game_over {return false;}
-    if entry.view.unit.and_then(|r|sim().store.unit.get(r)).is_some_and(|u|!u.alive && u.dead_time+1e-6<4.) {return false;}
+fn spawn(w: &mut Root, entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
+    if w.sim.store.battle.game_over {return false;}
+    if entry.view.unit.and_then(|r|w.sim.store.unit.get(r)).is_some_and(|u|!u.alive && u.dead_time+1e-6<4.) {return false;}
     let Some(class)=class.or(entry.view.class_name) else{return false};
-    let Some((unit,post))=super::f4_tail::connection_spawn(character,entry.view.unit,class,post,entry.ordinal,services) else{return false};
+    let Some((unit,post))=super::f4_tail::connection_spawn(w, character,entry.view.unit,class,post,entry.ordinal,services) else{return false};
     entry.view.unit=Some(unit);entry.view.class_name=Some(class);entry.view.post=Some(post);
     entry.view.phase=HumanPhase::Alive;entry.view.spawned_once=true;true
 }
-#[no_mangle]
-pub extern "C" fn f4_connection_command()->*const f64 {
-    let (row,heap)=sim().calls.args();let input=F4ConnectionCommand::take(row,heap);
-    super::f4_live::count_external(F4ConnectionCommand::WORDS);
-    let character=super::f4_core::resolve(&sim().store,&input.target);
-    let owner=state();owner.result.accepted=false;
+pub fn f4_connection_command_in(w: &mut Root)->*const f64 {
+    let (row,heap)=w.sim.calls.args();let input=F4ConnectionCommand::take(row,heap);
+    super::f4_live::count_external(&mut w.battle, F4ConnectionCommand::WORDS);
+    let character=super::f4_core::resolve(&mut w.battle, &w.sim.store,&input.target);
+    let owner=state(&mut w.battle);owner.result.accepted=false;
     let Some(character)=character else{return owner.publish()};
     // Qualified Characters can outlive a smaller connection owner. Refuse
     // admission without indexing its rows or changing an existing connection.
@@ -59,24 +59,25 @@ pub extern "C" fn f4_connection_command()->*const f64 {
     if input.op==F4ConnectionOp::Admit {
         owner.rows[index]=Some(Entry{handle:input.target.clone(),ordinal:input.ordinal,view:F4ConnectionView{class_name:input.class_name,..Default::default()}});
     }
-    let Some(entry)=owner.rows[index].as_mut().filter(|entry|entry.handle==input.target) else{return owner.publish()};
+    if !owner.rows[index].as_ref().is_some_and(|entry|entry.handle==input.target) {return owner.publish();}
+    let mut entry=owner.rows[index].take().unwrap();
     let outer=f3::external();
     f3::with_services(|services| {
         let mut services=services.expect("canonical connection body services");
         entry.view.accepted=match input.op {
             F4ConnectionOp::Admit=>true,
-            F4ConnectionOp::Spawn=>spawn(entry,character,input.class_name,input.post,services.reborrow()),
+            F4ConnectionOp::Spawn=>spawn(w, &mut entry,character,input.class_name,input.post,services.reborrow()),
             F4ConnectionOp::Unspawn=>{
                 if let Some(unit)=entry.view.unit {
                     f3::unspawn_native(unit);
-                    let team=sim().store.character.get(character).unwrap().team;
-                    if let Some(team)=sim().store.spawning.teams.iter_mut().find(|row|row.index==team) {team.living-=1.;}
+                    let team=w.sim.store.character.get(character).unwrap().team;
+                    if let Some(team)=w.sim.store.spawning.teams.iter_mut().find(|row|row.index==team) {team.living-=1.;}
                     entry.view.phase=HumanPhase::Unspawned;entry.view.spawned_once=false;entry.view.post=None;entry.view.dead_time=4.;
                 }true
             },
             F4ConnectionOp::Team=>{
                 if let Some(unit)=entry.view.unit {
-                    let team=sim().store.character.get(character).unwrap().team;
+                    let team=w.sim.store.character.get(character).unwrap().team;
                     f3::with_rows(|store,owner| {
                         let key=F3UnitKey::of(unit,store.unit.get(unit).unwrap());owner.team(store,&key,team).expect("current connection body");
                     });
@@ -85,9 +86,9 @@ pub extern "C" fn f4_connection_command()->*const f64 {
             F4ConnectionOp::State=>{
                 if let Some(unit)=entry.view.unit {
                     f3::advance_removed_clock(unit,1./60.);
-                    let u=sim().store.unit.get(unit).unwrap();
-                    if !u.alive && input.auto_respawn && u.dead_time+1e-6>=4. {spawn(entry,character,None,entry.view.post,services.reborrow());}
-                    let u=sim().store.unit.get(entry.view.unit.unwrap()).unwrap();
+                    let u=w.sim.store.unit.get(unit).unwrap();
+                    if !u.alive && input.auto_respawn && u.dead_time+1e-6>=4. {let post=entry.view.post;spawn(w, &mut entry,character,None,post,services.reborrow());}
+                    let u=w.sim.store.unit.get(entry.view.unit.unwrap()).unwrap();
                     if !u.alive {
                         entry.view.phase=if !entry.view.spawned_once {HumanPhase::Unspawned} else if u.dead_time+1e-6>=4. {HumanPhase::Awaiting} else {HumanPhase::Dying};
                         entry.view.dead_time=u.dead_time;
@@ -95,11 +96,13 @@ pub extern "C" fn f4_connection_command()->*const f64 {
                 }true
             },
         };
-        entry.view.ended=sim().store.battle.game_over;
-        super::f4_core::mark_tail(&sim().store);
+        entry.view.ended=w.sim.store.battle.game_over;
+        super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
     });
+    let result=entry.view.clone();
+    state(&mut w.battle).rows[index]=Some(entry);
     drop(outer);
-    owner.result=entry.view.clone();owner.publish()
+    let owner=state(&mut w.battle);owner.result=result;owner.publish()
 }
 
 impl State {
@@ -107,3 +110,13 @@ impl State {
         Some(&self.rows.get(reference.slot as usize)?.as_ref()?.view)
     }
 }
+
+// facade shims
+#[cfg(target_arch = "wasm32")] #[no_mangle]
+pub extern "C" fn f4_connections_init(capacity:u32) { f4_connections_init_in(crate::abi::world(), capacity) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn wire_character(store: &Store, handle: &F4Handle) -> Option<crate::store::Ref<Character>> { wire_character_in(&mut crate::abi::cold().battle, store, handle) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn wire_view(store: &Store, handle: &F4Handle) -> Option<&'static F4ConnectionView> { wire_view_in(&mut crate::abi::cold().battle, store, handle) }
+#[cfg(target_arch = "wasm32")] #[no_mangle]
+pub extern "C" fn f4_connection_command() ->*const f64 { f4_connection_command_in(crate::abi::world()) }

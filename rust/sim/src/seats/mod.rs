@@ -118,6 +118,11 @@ impl Reason {
 
 /// What the seats ask of the rest of the battle (src/seats-world.js), each
 /// call as the JavaScript makes it. Units are named by their registry id.
+/// Lease and hull rows are disjoint from the mutable occupant being sampled.
+pub struct RiderRows<'a> {
+    pub leases: &'a crate::store::Slab<SeatLease>,
+    pub vehicles: &'a crate::store::Slab<crate::gen::Vehicle>,
+}
 pub trait SeatWorld {
     fn publish_hulls(&mut self, _st: &mut crate::gen::Store, _hulls: &mut hulls::Hulls) {}
     fn resume_hulls(&mut self, _st: &mut crate::gen::Store, _hulls: &mut hulls::Hulls) {}
@@ -167,7 +172,8 @@ pub trait SeatWorld {
     fn rider_drop(&mut self, holder: Holder, index: usize, unit: u32) -> Option<Vector3>;
     /// Vehicles.syncRider (the hulls' package): the body at its seat, posed
     /// as a rider. What it writes of the unit comes back in `unit`.
-    fn sync_rider(&mut self, lease: Ref<SeatLease>, unit: &mut Unit);
+    fn sync_rider_rows(&mut self, _rows: RiderRows<'_>, lease: Ref<SeatLease>, unit: &mut Unit) { self.sync_rider(lease, unit); }
+    fn sync_rider(&mut self, _lease: Ref<SeatLease>, _unit: &mut Unit) {}
     /// The AI controller's state of a unit, or None (undefined).
     fn controller_state(&mut self, unit: Option<u32>) -> Option<f64>;
     /// The seat as the AI drives it, made for a bot's lease (SeatUnit), the
