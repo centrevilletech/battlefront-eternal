@@ -468,7 +468,7 @@ export class PlayerCombat {
     const [r, g, b, a = 255] = d.FlashColor || [255, 255, 255, 255];
     held.flashAlpha = a / 255;
     held.flash.userData.material.color.setRGB(r / 255, g / 255, b / 255);
-    if (held.light && held.light.left === held.light.duration) return;
+    if (held.light && this.lights.pending(held.light)) return;
     held.flash.getWorldPosition(this.worldPoint);
     held.light = this.lights.flash(this.worldPoint, color01(d.FlashLightColor), d.FlashLightRadius || 0, d.FlashLightDuration || 0);
   }

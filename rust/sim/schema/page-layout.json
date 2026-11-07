@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "records": {
+    "Warning": {
+      "tick": 1,
+      "outside": 1,
+      "started": 1,
+      "alpha": 1,
+      "shown": 1,
+      "value": 1,
+      "rate": 1,
+      "lastTick": 1
+    },
+    "LightFrame": {
+      "dt": 1,
+      "commands": 1,
+      "start": 1,
+      "dropped": 1
+    },
+    "LightCommand": {
+      "kind": 1,
+      "serial": 1,
+      "position": 3,
+      "rgb": 3,
+      "radius": 1,
+      "scale": 1,
+      "duration": 1
+    },
+    "LightOutput": {
+      "position": 3,
+      "rgb": 3,
+      "radius": 1,
+      "scale": 1
+    },
+    "LightHandle": {
+      "serial": 1,
+      "duration": 1,
+      "left": 1
+    },
+    "LightHeader": {
+      "count": 1,
+      "timed": 1,
+      "completed": 1,
+      "refusedTimed": 1
+    }
+  },
+  "limits": {
+    "LightLimits": {
+      "commands": 65536,
+      "timed": 8192,
+      "lights": 64
+    }
+  },
+  "enums": {
+    "LightKind": [
+      "add",
+      "flash"
+    ]
+  }
+}

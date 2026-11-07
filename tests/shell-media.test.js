@@ -1,3 +1,5 @@
+import { presentationModule } from './helpers/page-presentation.js';
+const loaded = presentationModule();
 import test from "node:test";
 import assert from "node:assert/strict";
 import { INTERVAL, ShellMusic, SOUNDTRACK, STOP } from "../src/shell/audio.js";
@@ -14,7 +16,7 @@ const tracks = [
 // The music with a stand-in player: what started, what stopped.
 function music(options = {}) {
   const log = [];
-  const m = new ShellMusic({
+  const m = new ShellMusic({ loaded,
     tracks,
     start: (track) => (log.push(["start", track.name]), { track }),
     stop: (handle) => log.push(["stop", handle.track.name]),
@@ -83,7 +85,7 @@ test("a track that ends after it was replaced doesn't move the new one on", () =
 
 test("tracks with properties (as shell.json lists them) play under each music they name, in their order", () => {
   const log = [];
-  const m = new ShellMusic({
+  const m = new ShellMusic({ loaded,
     tracks: [
       { name: "shell_soundtrack_1", properties: ["shell_soundtrack"] },
       { name: "shell_clonewars", properties: ["shell_soundtrack", "shell_clonewars"] },
@@ -104,7 +106,7 @@ test("tracks with properties (as shell.json lists them) play under each music th
 
 test("no tracks: the music is set, silently, and tries again after each interval", () => {
   const log = [];
-  const m = new ShellMusic({ tracks: [], start: (t) => log.push(t) });
+  const m = new ShellMusic({ loaded, tracks: [], start: (t) => log.push(t) });
   m.set(SOUNDTRACK);
   assert.equal(m.phase, "gap");
   m.update(INTERVAL * 3);
@@ -126,7 +128,7 @@ function media({ movies = {} } = {}) {
       return { started: Promise.resolve(Boolean(movie)), ended };
     },
   };
-  const m = new ShellMusic({ tracks, start: (track) => (log.push(["music", track.name]), { track }), stop: () => {} });
+  const m = new ShellMusic({ loaded, tracks, start: (track) => (log.push(["music", track.name]), { track }), stop: () => {} });
   const audio = {
     music: m,
     fadeBus: (bus, level, seconds) => log.push(["fade", bus, level, seconds]),
@@ -236,4 +238,13 @@ test("the gate: any click, tap or key but the browser's own; its line pulses 1 -
   assert.ok(Math.abs(pulse(0.35) - 0.3) < 1e-9);
   assert.ok(Math.abs(pulse(0.7) - 1) < 1e-9);
   assert.ok(Math.abs(pulse(0.175) - 0.65) < 1e-9, "2 units of alpha a second");
+});
+
+test('a stopped host handle cannot synchronously end its replacement track', () => {
+  let m;
+  m = new ShellMusic({ loaded, tracks, start: track => ({track}), stop: handle => m.ended(handle) });
+  m.set(SOUNDTRACK);
+  m.set('shell_galacticconquest');
+  assert.equal(m.phase, 'playing');
+  assert.equal(m.handle.track.name, 'shell_galacticconquest');
 });

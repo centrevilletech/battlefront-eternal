@@ -32,7 +32,7 @@ import { VehicleEffects } from "./vehicle-effects.js";
 import { TurretSeats } from "./seats.js";
 import * as THREE from "three";
 import { Debris } from "./debris.js";
-import { givePowerup, Items } from "./items.js";
+import { Items } from "./items.js";
 import { RemoteDroids, BODY_RADIUS as DROID_RADIUS } from "./remote.js";
 import { BLAST_BODY } from "./combat.js";
 import { PageCameras } from "./presentation/cameras.js";
@@ -151,7 +151,10 @@ export async function createGame({ query = "", headless = false, savedSettings =
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 // The destruction and weather phase's Rust module, compiled before anything builds on it.
-if (!headless) await loadEnvironment();
+if (!headless) {
+  await loadEnvironment();
+  await (await import("./interface/batch.js")).loadInterfaceBatch();
+}
 const params = new URLSearchParams(query);
 const runtimeProfile = params.get("profileRuntime") === "1" ? new RuntimeProfiler() : null;
 const inputTrace = params.get("traceInput") === "1" ? new InputLatencyTrace() : null;
@@ -705,7 +708,7 @@ async function start() {
   if(pageUnits)graphics.placeUnits=(root)=>pageUnits.placeShown(root);
   const environment = headless ? null : await EnvironmentEffects.load({ map: MAP, graphics, settings, loadTexture, presentationLoaded, surfaceOwner });
   const surfaces = headless ? null : new SurfaceFrame(surfaceOwner, foliage, water, waterShore, weather, snow, atmosphere, skyFlyers, environment);
-  const lights = headless ? { add() {}, flash() {}, update() {} } : new LightPool(scene, 8);
+  const lights = headless ? { add() {}, flash() {}, update() {} } : new LightPool(scene, 8, presentationLoaded);
   const weaponModels = modelPack(weaponsDef.models, weaponBuf, weaponIndexBuf);
   for (const other of Object.values(otherSides)) {
     for (const [name, parts] of modelPack(other.weapons.models, other.weaponBuf, other.weaponIndexBuf)) if (!weaponModels.has(name)) weaponModels.set(name, parts);
@@ -1555,7 +1558,7 @@ async function start() {
   // Classic AI's or read for it. The world keeps each Character's count; the
   // page that shows the player works out his warning.
   const battlefield = new Battlefield(ai?.nav?.boundary ?? await loadBoundary(`${mapDir}/ai-nav.json`));
-  const leavingWarning = headless ? null : new LeavingWarning();
+  const leavingWarning = headless ? null : new LeavingWarning(presentationLoaded);
 
 
   // The jetpack's flames (the class's JetEffect; its effects come with the
@@ -1690,23 +1693,6 @@ async function start() {
         return soldier.velocity;
       },
       relation: (team) => units.relation(playerTeam, team),
-      give: (def) => {
-        const given = givePowerup(def, {
-          get health() {
-            return combat.health;
-          },
-          set health(value) {
-            combat.health = value;
-          },
-          maxHealth: combat.maxHealth,
-          addHealth: soldierDef.AddHealth,
-          weapons: combat.arsenal.weapons,
-          healthType,
-        });
-        if (given.health) effects.play(soldierDef.HealthGainEffect || "Powerup_blue", soldier.position);
-        if (given.ammo) effects.play(soldierDef.AmmoGainEffect || "Powerup_red", soldier.position);
-        return given.health || given.ammo;
-      },
     },
   ];
 

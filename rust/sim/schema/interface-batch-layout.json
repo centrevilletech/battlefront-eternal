@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "records": {
+    "InterfaceBatchFrame": {"count": 1, "commands": 1, "first": 1, "last": 1},
+    "InterfaceQuad": {"index": 1, "matrix": 16, "rect": 4, "depth": 1, "uv": 8, "mask": 4, "tint": 4}
+  },
+  "limits": {"InterfaceBatchLimits": {"quads": 2048}}
+}

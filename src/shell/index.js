@@ -85,10 +85,12 @@ export async function createShell({ query = location.search, parent = document.b
   document.querySelector("#stats")?.setAttribute("hidden", "");
 
   const data = await loadShellData();
+  const loaded = await (await import("../presentation/effects.js")).loadPresentation();
+  await (await import("../interface/batch.js")).loadInterfaceBatch();
   const settings = new Settings();
   settings.adoptHardwareDefaults(pageGpu().renderer);
   const page = params.get("menus") !== "classic";
-  const media = new ShellMedia({ data, settings, parent, screens: page ? PAGE_MEDIA : SCREEN_MEDIA });
+  const media = new ShellMedia({ data, settings, parent, loaded, screens: page ? PAGE_MEDIA : SCREEN_MEDIA });
   const fonts = new CanvasFonts({ fonts: data.fonts, pages: data.pages });
   fonts.load(["gamefont_medium"]);
 

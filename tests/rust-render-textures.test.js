@@ -1,3 +1,6 @@
+import { presentationModule } from "./helpers/page-presentation.js";
+import { bindInterfaceBatch } from "../src/interface/batch.js";
+bindInterfaceBatch(presentationModule());
 // Native texture ownership can change handles after asynchronous decode or a
 // sampler revision. Rust records refer to logical ids and must observe those
 // handle changes without rebuilding every mesh. Shared image data does not

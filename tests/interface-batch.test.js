@@ -1,3 +1,6 @@
+import { presentationModule } from "./helpers/page-presentation.js";
+import { bindInterfaceBatch } from "../src/interface/batch.js";
+bindInterfaceBatch(presentationModule());
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';

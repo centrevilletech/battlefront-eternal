@@ -11,8 +11,6 @@ import { vehicleBatches, attachVehicleBatches, vehicleShell } from "./vehicle-ri
 import { modelPack } from "./models.js";
 import { loadClips, Pose } from "./anim.js";
 import { Weapon } from "./weapons.js";
-import { givePowerup } from "./items.js";
-import { blastDamage, blastDistance, healthScale } from "./ordnance.js";
 import { VehicleTarget, seatWeaponPolicy, dropBody, unseatBody } from "./seats.js";
 import { boardingSeat, canBoard, seatControl, teamRelation } from "./boarding.js";
 import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
@@ -212,10 +210,7 @@ export class Vehicle {
     this.springCaches = (this.def.springs || []).map(() => system.collision.gatherCache?.(WALL_CACHE_MARGIN) ?? null);
     this.itemTarget = { position: this.position, center: new THREE.Vector3(), velocity: this.velocity,
       radius: this.radius, relation: team => this.system.units?.relation(this.team, team) ?? (team === this.team ? 1 : team === 0 ? 0 : -1),
-      give: def => {
-        const result = givePowerup(def, this);
-        return result.health || result.ammo;
-      } };
+    };
     this.maxHealth = num(s.MaxHealth, 1000);
     // Water damage (walkers only carry the keys): the class's interval and
     // amount, and the depth over its origin that hurts, its model's
@@ -1097,28 +1092,6 @@ export class Vehicles {
       if (span < distance) { distance = span; best = v; }
     }
     return best;
-  }
-
-  // A round that struck a hull: its Damage by the hull's health type.
-  // owner (optional): whoever fired, for kill credit; teamScale(vehicle):
-  // the battle's friendly fire factor for the owner.
-  struck(body, def, owner = null, teamScale = null) {
-    const v = body?.owner;
-    if (v instanceof Vehicle) v.damage((def.Damage || 0) * healthScale(def, v.healthType) * (teamScale ? teamScale(v) : 1), owner);
-  }
-
-  // An explosion's area damage to every hull in its reach (src/ordnance.js);
-  // a hull shields nothing, its own body included.
-  blast(def, position, owner = null, teamScale = null) {
-    // Snapshot positions is unnecessary: destruction disables bodies before
-    // callbacks, so chained explosions cannot kill the same vehicle twice.
-    for (const v of this.vehicles) {
-      if (!v.alive) continue;
-      const radius = v.blastSphere(this.center);
-      const damage = blastDamage(def, blastDistance(position, this.center, radius), v.healthType);
-      if (!(damage > 0) || this.world.blastBlocked(position, this.center, v.body)) continue;
-      v.damage(damage * (teamScale ? teamScale(v) : 1), owner);
-    }
   }
 
   dispose() {

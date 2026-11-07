@@ -1,3 +1,5 @@
+import { presentationModule } from './helpers/page-presentation.js';
+const presentationLoaded = presentationModule();
 import { contentPath } from './helpers/content.js';
 // Leaving the battlefield (src/battlefield.js): the original game's Character
 // countdown over what each Character controls, the kill when it runs out, the
@@ -43,7 +45,7 @@ test('the page\'s warning: what he controls as it sees it, the voice-over once e
   assert.equal(field.controlsOutside(unit), true);
   assert.equal(field.controlsOutside(unit, { position: new THREE.Vector3(0, 0, 0) }), false, 'the hull he sits in counts');
   assert.equal(field.controlsOutside(unit, { position: new THREE.Vector3(0, 0, 0) }, { position: new THREE.Vector3(0, 0, 300) }), true, 'and a droid he flies');
-  const w = new LeavingWarning();
+  const w = new LeavingWarning(presentationLoaded);
   assert.equal(w.alpha, 0);
   let tick = 100;
   assert.equal(w.update(tick, true), true);

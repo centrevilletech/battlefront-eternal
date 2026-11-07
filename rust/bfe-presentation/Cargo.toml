@@ -13,6 +13,7 @@ default = ["web"]
 web = ["dep:wasm-bindgen"]
 
 [dependencies]
+audio-control = { path = "../audio-control" }
 bfe-pose = { path = "../bfe-pose" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

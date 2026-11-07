@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { blastBlocked, blastDamage, blastDistance, falloff } from "./ordnance.js";
 import { legacyRandom } from "./ai/random.js";
 import { Arsenal } from "./weapons.js";
 import { captureOrdnanceOwner } from "./ordnance-owner.js";
@@ -332,26 +331,6 @@ export class RemoteDroids {
     if (droid.dead || !(amount > 0)) return;
     droid.health -= amount;
     if (droid.health <= 0) this.kill(droid);
-  }
-
-  // A blast near a droid (src/ordnance.js): damage by DroidScale and the
-  // push a soldier takes, (away + 0.6 up) x Push x falloff, unless terrain or
-  // a building shields it.
-  blast(explosion, position) {
-    for (const droid of this.droids) {
-      if (droid.dead) continue;
-      const c = this.v[0].copy(BODY).add(droid.position);
-      const distance = blastDistance(position, c, BODY_RADIUS);
-      const damage = blastDamage(explosion, distance, "droid");
-      const push = (explosion.Push || 0) * falloff(distance, explosion.PushRadiusInner || 0, explosion.PushRadiusOuter || 0);
-      if (!(damage > 0 || push > 0) || blastBlocked(this.collision, position, c)) continue;
-      if (push > 0) {
-        const away = this.v[1].subVectors(c, position);
-        if (away.lengthSq() > 1e-6) droid.velocity.addScaledVector(away.normalize(), push);
-        droid.velocity.y += 0.6 * push;
-      }
-      this.hurt(droid, damage);
-    }
   }
 
   // Its eye and aim, and the point under the crosshair.

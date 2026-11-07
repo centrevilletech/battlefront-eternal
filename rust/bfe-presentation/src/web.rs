@@ -449,3 +449,69 @@ impl PageOrdnance {
         self.inner.present();
     }
 }
+
+// LeavingWarning has one fixed row and one frame call. The host borrows
+// its outputs so reading alpha cannot advance the spring a second time.
+#[wasm_bindgen]
+pub struct PageWarning {
+    inner: crate::leaving_warning::Warning,
+}
+#[wasm_bindgen]
+impl PageWarning {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> PageWarning {
+        Self { inner: crate::leaving_warning::Warning::default() }
+    }
+    pub fn row_ptr(&self) -> *const f64 { self.inner.row.as_ptr() }
+    pub fn frame(&mut self) { self.inner.frame(); }
+}
+
+// Commands are written into one bounded ring. A flash token names its
+// serial, never its packed storage index, so reuse cannot revive a token.
+#[wasm_bindgen]
+pub struct PageLights { inner: crate::lights::Lights }
+#[wasm_bindgen]
+impl PageLights {
+    #[wasm_bindgen(constructor)]
+    pub fn new(count: usize) -> PageLights { Self { inner: crate::lights::Lights::new(count) } }
+    pub fn input_ptr(&self) -> *const f64 { self.inner.input.as_ptr() }
+    pub fn commands_ptr(&self) -> *const f64 { self.inner.commands.as_ptr() }
+    pub fn output_ptr(&self) -> *const f64 { self.inner.output.as_ptr() }
+    pub fn handles_ptr(&self) -> *const f64 { self.inner.handles.as_ptr() }
+    pub fn header_ptr(&self) -> *const f64 { self.inner.header.as_ptr() }
+    pub fn frame(&mut self) { self.inner.frame(); }
+}
+
+// The shell has no battle simulation instance. Its small page-thread
+// controller shares the required presentation module; audio-control owns
+// the policy and the AudioWorklet continues to own actual PCM playback.
+#[wasm_bindgen]
+pub struct PageShellMusic { inner: audio_control::shell_music::Music }
+#[wasm_bindgen]
+impl PageShellMusic {
+    #[wasm_bindgen(constructor)]
+    pub fn new(groups: &str) -> Result<PageShellMusic, JsValue> {
+        let groups = serde_json::from_str(groups).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(Self { inner: audio_control::shell_music::Music::new(groups) })
+    }
+    pub fn row_ptr(&self) -> *const f64 { self.inner.row.as_ptr() }
+    pub fn frame(&mut self) { self.inner.frame(); }
+}
+
+// Host geometry arrays stay ordinary retained resources. Only changed spans
+// are copied from this owner's fixed banks after the coarse interface call.
+#[wasm_bindgen]
+pub struct PageInterfaceBatch { inner: crate::interface_batch::Batch }
+#[wasm_bindgen]
+impl PageInterfaceBatch {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> PageInterfaceBatch { Self { inner: crate::interface_batch::Batch::default() } }
+    pub fn frame_ptr(&self) -> *const f64 { self.inner.frame.as_ptr() }
+    pub fn commands_ptr(&self) -> *const f64 { self.inner.commands.as_ptr() }
+    pub fn position_ptr(&self) -> *const f32 { self.inner.position.as_ptr() }
+    pub fn uv_ptr(&self) -> *const f32 { self.inner.uv.as_ptr() }
+    pub fn mask_ptr(&self) -> *const f32 { self.inner.mask.as_ptr() }
+    pub fn tint_ptr(&self) -> *const f32 { self.inner.tint.as_ptr() }
+    pub fn dirty_ptr(&self) -> *const u8 { self.inner.dirty.as_ptr() }
+    pub fn step(&mut self) { self.inner.step(); }
+}

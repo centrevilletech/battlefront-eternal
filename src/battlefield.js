@@ -1,3 +1,4 @@
+import { Warning as W } from "./presentation/page-layout.js";
 import { Boundary } from "./battle-boundary.js";
 
 // Leaving the battlefield, as the 2004 game has it (docs/formats.md,
@@ -77,39 +78,34 @@ export class Battlefield {
 // the page has shown since (at most a second's), so a page that looks more
 // than once a tick flashes no faster.
 export class LeavingWarning {
-  constructor() {
-    this.shown = false;
-    this.value = 0;
-    this.rate = 0;
-    this.tick = 0;
+  constructor(loaded) {
+    this.kernel = new loaded.module.PageWarning();
+    this.memory = loaded.memory;
+    this.address = this.kernel.row_ptr();
+    this.refresh();
   }
 
-  get alpha() {
-    if (!this.shown) return 0;
-    return Math.min(Math.max(Math.trunc(this.value), 2), 255) / 255;
+  // Memory may grow when a different native presentation owner loads an
+  // asset. The row address stays fixed; replace only its borrowed view.
+  refresh() {
+    if (this.buffer === this.memory.buffer) return;
+    this.buffer = this.memory.buffer;
+    this.row = new Float64Array(this.buffer, this.address, W.STRIDE);
   }
 
-  // tick: the world tick this page shows; outside: whether what he controls
-  // is outside now (alive). Returns true when he has just gone out: the
-  // voice-over's moment.
+  get alpha() { this.refresh(); return this.row[W.ALPHA]; }
+  get shown() { this.refresh(); return Boolean(this.row[W.SHOWN]); }
+  get value() { this.refresh(); return this.row[W.VALUE]; }
+  get rate() { this.refresh(); return this.row[W.RATE]; }
+  get tick() { this.refresh(); return this.row[W.LAST_TICK]; }
+
+  // Capture only the displayed tick and boundary result. Rust owns the
+  // spring, repeat-tick suppression and the voice-over transition.
   update(tick, outside) {
-    if (!outside) {
-      this.shown = false;
-      return false;
-    }
-    const started = !this.shown;
-    let steps = Math.min(Math.max(tick - this.tick, 0), 60);
-    if (started) {
-      this.shown = true;
-      this.value = 254;
-      this.rate = 0;
-      steps = 1;
-    }
-    this.tick = tick;
-    for (let i = 0; i < steps; i++) {
-      this.value += this.rate / 60;
-      this.rate += (128 - this.value) * 500 / 60;
-    }
-    return started;
+    this.refresh();
+    this.row[W.TICK] = tick;
+    this.row[W.OUTSIDE] = outside ? 1 : 0;
+    this.kernel.frame();
+    return Boolean(this.row[W.STARTED]);
   }
 }

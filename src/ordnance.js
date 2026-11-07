@@ -58,86 +58,7 @@ const color01 = (rgba = [255, 255, 255, 255]) => {
   const a = (rgba[3] ?? 255) / 255;
   return [(rgba[0] / 255) * a, (rgba[1] / 255) * a, (rgba[2] / 255) * a];
 };
-// Short-lived point lights (muzzle flashes, bolts, explosions) on a fixed set
-// of scene lights, so the shaders' light count never changes. Each frame the
-// brightest requests get the lights.
-export class LightPool {
-  constructor(scene, count = 8) {
-    this.lights = Array.from({ length: count }, () => {
-      const light = new THREE.PointLight(0x000000, 0, 1, 1);
-      scene.add(light);
-      return light;
-    });
-    this.timed = [];
-    // This frame's requests: the first `requestCount` of the pool.
-    this.requestCount = 0;
-    this.requestPool = [];
-    this.top = [];
-  }
-
-  // A light for this frame only. Colours are 0..1.
-  add(position, rgb, radius, scale = 1) {
-    if (!rgb || radius <= 0) return;
-    const i = this.requestCount++;
-    const request = this.requestPool[i] || (this.requestPool[i] = { position: new THREE.Vector3(), rgb: [0, 0, 0], radius: 0, scale: 0, weight: 0 });
-    request.position.copy(position);
-    request.rgb[0] = rgb[0]; request.rgb[1] = rgb[1]; request.rgb[2] = rgb[2];
-    request.radius = radius; request.scale = scale;
-    request.weight = (rgb[0] + rgb[1] + rgb[2]) * scale * radius;
-  }
-
-  // A light that fades out over `duration` seconds; returns it (null for
-  // none) so a caller can tell whether it has started fading.
-  flash(position, rgb, radius, duration) {
-    if (radius <= 0 || duration <= 0) return null;
-    const light = { position: position.clone(), rgb, radius, duration, left: duration };
-    this.timed.push(light);
-    return light;
-  }
-
-  // Every frame, with no garbage: the pool's lights are always in the
-  // scene (an unused one at intensity 0), so the count three compiles its
-  // lit programs for never changes.
-  update(dt) {
-    const timed = this.timed;
-    let kept = 0;
-    for (let i = 0; i < timed.length; i++) {
-      const t = timed[i];
-      t.left -= dt;
-      if (t.left > 0) {
-        this.add(t.position, t.rgb, t.radius, t.left / t.duration);
-        timed[kept++] = t;
-      }
-    }
-    timed.length = kept;
-    // The heaviest requests, heaviest first (as a stable sort by weight
-    // would order them), one per light.
-    const requests = this.requestPool, top = this.top, lights = this.lights;
-    let count = 0;
-    for (let i = 0; i < this.requestCount; i++) {
-      const r = requests[i];
-      let at = count;
-      while (at > 0 && r.weight > top[at - 1].weight) at--;
-      if (at >= lights.length) continue;
-      if (count < lights.length) count++;
-      for (let j = count - 1; j > at; j--) top[j] = top[j - 1];
-      top[at] = r;
-    }
-    for (let i = 0; i < lights.length; i++) {
-      const light = lights[i];
-      if (i >= count) {
-        light.intensity = 0;
-        continue;
-      }
-      const r = top[i];
-      light.position.copy(r.position);
-      light.color.setRGB(r.rgb[0], r.rgb[1], r.rgb[2]);
-      light.intensity = r.scale;
-      light.distance = r.radius;
-    }
-    this.requestCount = 0;
-  }
-}
+export { LightPool } from "./presentation/lights.js";
 
 export class Ordnance {
   // texture(name) gives a texture; model(name) a function making a mesh.
@@ -374,47 +295,11 @@ export class Ordnance {
   }
 }
 
-// The falloff the engine uses for damage, push, and shake: full inside the
-// inner radius, down to nothing at the outer.
-export function falloff(distance, inner, outer) {
-  if (distance < inner) return 1;
-  if (distance < outer && outer > inner) return (outer - distance) / (outer - inner);
-  return 0;
-}
-
-// What an explosion does to each thing in its reach, the same for soldiers,
-// droids, vehicles, buildings (turrets, recharge droids), mines lying about
-// and recon droids, following the 2004 game (ExplosionClass::Explode).
-// The distance runs from the blast to the centre of the thing's bounding
-// sphere, less half the sphere's radius (blastDistance); damage, push and
-// shake fall off over it (falloff). Terrain or a building between the blast
-// and the thing's aim point shields it from damage and push alike; a soldier
-// or a vehicle never does, nor the thing's own body (blastBlocked). Damage
-// is the explosion's Damage by the falloff and by the scale for the thing's
-// HealthType (blastDamage), then by the battle's friendly fire factor for
-// the thrower's team (the caller's). A round that strikes something also
-// does its own Damage by the same scale (healthScale), and its explosion goes
-// off 0.2 m off the surface, so the thing struck takes both.
+// Cold class preparation resolves authored scale keys before native import.
 export const HEALTH_SCALES = { person: "PersonScale", animal: "AnimalScale", droid: "DroidScale", vehicle: "VehicleScale", building: "BuildingScale" };
 
-// An ordnance's or explosion's scale for a health type (person when unset).
-export function healthScale(def, healthType = "person") {
-  return def[HEALTH_SCALES[String(healthType).toLowerCase()] ?? "PersonScale"] ?? 1;
-}
-
-export function blastDistance(position, center, radius) {
-  return center.distanceTo(position) - 0.5 * radius;
-}
-
-// The share of the explosion's Damage at that distance, before any scale.
-export function blastShare(explosion, distance) {
-  return falloff(distance, explosion.DamageRadiusInner || 0, explosion.DamageRadiusOuter || 0);
-}
-
-export function blastDamage(explosion, distance, healthType = "person") {
-  return (explosion.Damage || 0) * blastShare(explosion, distance) * healthScale(explosion, healthType);
-}
-
+// Foreign collision queries still ask the host for a static-only cast.
+// Native blast owners apply distance, health scales, damage and push.
 const SIGHT = new THREE.Vector3();
 const SIGHT_HIT = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
 export function blastBlocked(collision, position, target, ignoreBody = null) {

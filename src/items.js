@@ -39,14 +39,6 @@ import { ItemsWorld } from "./ordnance-world.js";
 // over a second.
 
 const POOLS = { powerupitem: 25, mine: 50 };
-const AMOUNTS = {
-  person: ["PersonHealth", "PersonAmmo"],
-  animal: ["AnimalHealth", "AnimalAmmo"],
-  droid: ["DroidHealth", "DroidAmmo"],
-  vehicle: ["VehicleHealth", "VehicleAmmo"],
-  building: ["BuildingHealth", "BuildingAmmo"],
-};
-
 export class Items {
   // model(name) makes an item's model; explode(explosion, position, owner)
   // sets off an explosion; pools: the mission's pool sizes, by base.
@@ -168,33 +160,4 @@ export function radiusOf(mesh) {
   if (!best) return 0.3;
   mesh.userData.center = best.center.clone();
   return best.radius;
-}
-
-// What a power-up gives a soldier: health and clips by its health type.
-// soldier: { health, maxHealth, addHealth, weapons, healthType }. Returns
-// what was given: { health, ammo } (booleans).
-export function givePowerup(def, soldier) {
-  const [healthKey, ammoKey] = AMOUNTS[soldier.healthType] || AMOUNTS.person;
-  const out = { health: false, ammo: false };
-  const health = def[healthKey] || 0;
-  if (health && soldier.health < soldier.maxHealth && !(soldier.addHealth < 0)) {
-    if (soldier.seats) soldier.setHealth(Math.min(soldier.health + health, soldier.maxHealth));
-    else soldier.health = Math.min(soldier.health + health, soldier.maxHealth);
-    out.health = true;
-  }
-  const ammo = def[ammoKey] || 0;
-  if (ammo) {
-    for (const weapon of soldier.weapons) {
-      // A power-up dispenser takes no power-ups.
-      if (weapon.def.base === "dispenser" && weapon.def.item?.base === "powerupitem") continue;
-      if (weapon.bottomless || !(weapon.def.ammo > 0)) continue;
-      const loaded = weapon.clip >= weapon.perShot - 1e-6 ? 1 : 0;
-      const next = THREE.MathUtils.clamp(weapon.reserve + ammo, 0, weapon.def.ammo - loaded);
-      if (Math.abs(next - weapon.reserve) > 1e-4) {
-        weapon.reserve = next;
-        out.ammo = true;
-      }
-    }
-  }
-  return out;
 }

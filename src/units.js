@@ -6,7 +6,6 @@ import { SoldierAnimation } from "./animator.js";
 import { PlayerCombat } from "./combat.js";
 import { Droideka, ShieldBubble, goneUp } from "./droideka.js";
 import { heatMaterial } from "./destruction-debris.js";
-import { givePowerup } from "./items.js";
 import { ENGINE, Soldier } from "./soldier.js";
 
 import { SoldierPresentation, HeadlessSoldierPresentation } from "./soldier-presentation.js";
@@ -733,16 +732,6 @@ export class UnitFactory {
       radius: BODY_RADIUS,
       velocity: soldier.velocity,
       relation: (team) => c.units.relation((unit.canonicalTarget ?? unit).team, team),
-      give: (item) => {
-        const given = givePowerup(item, {
-          get health() { return combat.health; },
-          set health(value) { combat.health = value; },
-          maxHealth: combat.maxHealth, addHealth: def.AddHealth, weapons: combat.arsenal.weapons, healthType,
-        });
-        if (given.health) (c.presentEffect || c.effects.play.bind(c.effects))(def.HealthGainEffect || "Powerup_blue", soldier.position);
-        if (given.ammo) (c.presentEffect || c.effects.play.bind(c.effects))(def.AmmoGainEffect || "Powerup_red", soldier.position);
-        return given.health || given.ammo;
-      },
     };
     // A correction tool can construct an independent page body beside its
     // headless authority. It predicts and draws that body, never ticks it as

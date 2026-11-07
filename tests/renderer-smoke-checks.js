@@ -6,7 +6,7 @@ import { ParticleRenderer } from '../src/particles.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
 import { FoliageGpuBatch } from '../src/foliage-gpu.js';
 import { motionVectors } from '../src/motion-vectors.js';
-import { Batch } from '../src/interface/batch.js';
+import { Batch, loadInterfaceBatch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
 import { loadEnvironment } from '../src/environment/module.js';
 import { Settings } from '../src/settings.js';
@@ -25,6 +25,7 @@ import { checkOwnedActorDraws } from './actor-program-checks.js';
 // native draw would test an unsupported path and can fail before Rust links.
 // Keep fixture construction synthetic so the Windows runner needs no game files.
 export async function checkRenderer(backend, manifests) {
+  await loadInterfaceBatch();
   // Water's surface owner instantiates the environment module, which the game
   // compiles while a battle loads; the harness has no battle, so load it here.
   await loadEnvironment();

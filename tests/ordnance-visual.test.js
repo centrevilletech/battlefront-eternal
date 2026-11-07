@@ -1,11 +1,14 @@
+import { presentationModule } from './helpers/page-presentation.js';
+const presentationLoaded = presentationModule();
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { LightHeader as LH } from "../src/presentation/page-layout.js";
 import { LightPool, Ordnance } from "../src/ordnance.js";
 
 test("light requests retain each emitter position when callers reuse scratch vectors", () => {
-  const pool = new LightPool(new THREE.Scene(), 3), at = new THREE.Vector3();
+  const pool = new LightPool(new THREE.Scene(), 3, presentationLoaded), at = new THREE.Vector3();
   for (let i = 0; i < 3; i++) pool.add(at.set(i * 10, 2, 0), [1, .2, .1], 3);
   at.set(999, 999, 999); pool.update(0);
   assert.deepEqual(pool.lights.map(l => l.position.x).sort((a,b) => a-b), [0, 10, 20]);
@@ -190,17 +193,44 @@ test('a sniper bolt is drawn on where it stopped for its FadeOutTime, fading and
 });
 
 test("the light pool hands its lights to the heaviest requests, in a stable order, without new arrays each frame", () => {
-  const pool = new LightPool(new THREE.Scene(), 3), at = new THREE.Vector3();
-  const timed = pool.timed;
+  const pool = new LightPool(new THREE.Scene(), 3, presentationLoaded), at = new THREE.Vector3();
+  const handles = pool.handles;
   // Weights (rgb sum x scale x radius): 3, 9, 9, 1, 12, 3.
   for (const [x, radius] of [[1, 1], [2, 3], [3, 3], [4, 1 / 3], [5, 4], [6, 1]]) pool.add(at.set(x, 0, 0), [1, 1, 1], radius);
   pool.flash(at.set(7, 0, 0), [0.1, 0.1, 0.1], 1, 1);
   pool.update(0.5);
   assert.deepEqual(pool.lights.map((l) => l.position.x), [5, 2, 3], "heaviest first, ties in the order asked");
-  assert.equal(pool.timed, timed, "the same list, kept in place");
-  assert.equal(timed.length, 1);
+  assert.equal(pool.handles, handles, "the same borrowed handles, kept in place");
+  assert.equal(pool.header[LH.TIMED], 1);
   pool.update(0.6);
-  assert.equal(timed.length, 0, "its flash is over");
+  assert.equal(pool.header[LH.TIMED], 0, "its flash is over");
   assert.deepEqual(pool.lights.map((l) => l.intensity), [0, 0, 0], "nothing asked: all dark, none removed");
   assert.equal(pool.requestCount, 0);
+});
+
+test('light tokens distinguish pending flashes, fading and expired serials after a paused burst', () => {
+  const pool = new LightPool(new THREE.Scene(), 3, presentationLoaded), at = new THREE.Vector3();
+  const first = pool.flash(at, [1, 1, 1], 1, 1);
+  assert.equal(pool.pending(first), true);
+  pool.update(0);
+  assert.equal(pool.pending(first), true, 'a zero-time display does not start fading');
+  pool.update(.1);
+  assert.equal(pool.pending(first), false);
+  for (let i = 0; i < 70000; i++) pool.flash(at, [1, 1, 1], 1, 1);
+  assert.ok(pool.dropped > 0);
+  assert.doesNotThrow(() => pool.update(0));
+  assert.equal(pool.pending(first), false, 'reused slots reject an expired serial');
+  pool.update(2);
+  assert.equal(pool.header[LH.TIMED], 0);
+});
+
+test('a flash evicted by later frame requests does not stay pending or revive next frame', () => {
+  const pool = new LightPool(new THREE.Scene(), 3, presentationLoaded), at = new THREE.Vector3();
+  const token = pool.flash(at, [1, 1, 1], 1, 1);
+  for (let i = 0; i < 70000; i++) pool.add(at, [1, 1, 1], 1);
+  pool.update(0);
+  assert.equal(pool.pending(token), false);
+  pool.add(at, [1, 1, 1], 1);
+  assert.equal(pool.pending(token), false, 'later pending requests do not revive the evicted token');
+  assert.equal(pool.pending(0), false);
 });

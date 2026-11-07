@@ -11,7 +11,7 @@ import { Units } from '../../src/registry.js';
 import { ObjectiveTarget } from '../../src/objectives.js';
 import { Building, Turret } from '../../src/props.js';
 import { attachF3Combat } from '../../src/f3-combat.js';
-import { LightPool, Ordnance } from '../../src/ordnance.js';
+import { Ordnance } from '../../src/ordnance.js';
 import { Items } from '../../src/items.js';
 import { attachItemsSim } from '../../src/items-sim.js';
 import { attachOrdnanceSim } from '../../src/ordnance-sim.js';
@@ -39,7 +39,7 @@ export async function f3World(definitions, {
   const units = new Units();
   const combatSim = attachF3Combat(instance, { Unit, Soldier, Droideka });
   const scene = new THREE.Scene();
-  const ordnance = new Ordnance({ scene,collision,lights:new LightPool(scene) });
+  const ordnance = new Ordnance({ scene,collision,lights:{add(){},flash(){},update(){}} });
   const streams = new RandomStreams(7);
   ordnance.random = streams.draw('gameplay');
   ordnance.spinRandom = streams.draw('grenade-spin');

@@ -1,3 +1,4 @@
+import { ShellMusicRow as M, ShellMusicOp as OP } from "../audio/shell-music-layout.js";
 import { listenSounds } from "../audio/events.js";
 import { SoundData } from "../audio/data.js";
 import { FrontendAudio } from "../audio/frontend.js";
@@ -37,74 +38,72 @@ const BUSES = { shellmusic: 0.6, shellfx: 0.3 };
 // measured against the interval as it is now, so shortening it (the AUDIO
 // OPTIONS page sets 0) cuts a silence short.
 export class ShellMusic {
-  constructor({ tracks = [], interval = INTERVAL, start = () => null, stop = () => {} } = {}) {
-    this.tracks = tracks;
-    this.interval = interval;
-    this.startTrack = start;
-    this.stopTrack = stop;
-    this.current = null; // the music asked for
-    this.phase = "stopped"; // playing, gap, stopped
-    this.handle = null;
-    this.cycle = -1; // the soundtrack's last track, in turn
-    this.silent = 0; // s since the last track ended
+  constructor({ tracks = [], interval = INTERVAL, start = () => null, stop = () => {}, loaded } = {}) {
+    this.tracks = tracks; this.interval = interval;
+    this.startTrack = start; this.stopTrack = stop;
+    this.handle = null; this.current = null;
+    // Resolve authored string membership only while loading. Runtime frames
+    // use stable group and asset indices, with no filtering or track lists.
+    this.groups = new Map();
+    const members = [];
+    const add = (name, index) => {
+      let id = this.groups.get(name);
+      if (id === undefined) { id = members.length; this.groups.set(name, id); members.push([]); }
+      members[id].push(index);
+    };
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (Array.isArray(t.properties)) {
+        for (const name of new Set(t.properties)) add(name, i);
+      } else {
+        if (t.soundtrack !== false) add(SOUNDTRACK, i);
+        if (t.name !== SOUNDTRACK) add(t.name, i);
+      }
+    }
+    this.missing = members.length;
+    this.kernel = new loaded.module.PageShellMusic(JSON.stringify(members));
+    this.memory = loaded.memory; this.address = this.kernel.row_ptr(); this.refresh();
   }
-
-  // The tracks a music name plays, in order: those whose properties list it
-  // (shell.json); without properties, the soundtrack is every track not
-  // marked out of it, and another name is the track of that name.
-  list(name) {
-    return this.tracks.filter((track) => (Array.isArray(track.properties) ? track.properties.includes(name)
-      : name === SOUNDTRACK ? track.soundtrack !== false : track.name === name));
+  refresh() {
+    if (this.buffer === this.memory.buffer) return;
+    this.buffer = this.memory.buffer;
+    this.row = new Float64Array(this.buffer, this.address, M.STRIDE);
   }
-
-  // A screen's music: a name starts it unless it's already the music; STOP
-  // stops it; null or undefined keeps what plays.
+  get phase() { this.refresh(); return PHASES[this.row[M.PHASE]]; }
+  get cycle() { this.refresh(); return this.row[M.CYCLE]; }
+  get silent() { this.refresh(); return this.row[M.SILENT]; }
+  // Every command returns complete policy decisions. Applying playback
+  // handles is browser I/O, including qualification of delayed endings.
+  command(op, dt = 0, group = 0, name = this.current) {
+    this.refresh();
+    this.row[M.ENABLED] = name ? 1 : 0;
+    this.row[M.OP] = op; this.row[M.DT] = dt;
+    this.row[M.INTERVAL] = this.interval; this.row[M.GROUP] = group;
+    this.kernel.frame();
+    const stop = this.row[M.STOP], track = this.row[M.START];
+    if (stop) {
+      const old = this.handle; this.current = null; this.handle = null;
+      if (old) this.stopTrack(old);
+    }
+    this.current = name;
+    if (track) this.handle = this.startTrack(this.tracks[track - 1]);
+  }
   set(name) {
     if (name === null || name === undefined || name === this.current) return;
-    this.halt();
-    if (name === STOP || name === false) return;
-    this.current = name;
-    this.next();
+    if (name === STOP || name === false) { this.halt(); return; }
+    this.command(OP.SET, 0, this.groups.get(name) ?? this.missing, name);
   }
-
-  // Whether this music is the one set (playing, or between its tracks).
-  playing(name) {
-    return Boolean(name) && name === this.current;
-  }
-
-  halt() {
-    if (this.handle) this.stopTrack(this.handle);
-    this.handle = null;
-    this.current = null;
-    this.phase = "stopped";
-  }
-
-  next() {
-    const list = this.list(this.current);
-    if (!list.length) {
-      this.phase = "gap";
-      this.silent = 0;
-      return;
-    }
-    this.cycle = (this.cycle + 1) % list.length;
-    this.phase = "playing";
-    this.handle = this.startTrack(list[this.cycle]);
-  }
-
-  // The playing track finished (or failed): the silence, then the next.
+  playing(name) { return Boolean(name) && name === this.current; }
+  halt() { this.current = null; this.command(OP.HALT); }
+  next() { this.command(OP.NEXT); }
   ended(handle = this.handle) {
-    if (handle !== this.handle || this.phase !== "playing") return;
-    this.handle = null;
-    this.phase = "gap";
-    this.silent = 0;
+    if (handle !== this.handle) return;
+    this.command(OP.END);
+    if (this.phase === "gap") this.handle = null;
   }
-
-  update(dt) {
-    if (this.phase !== "gap" || !this.current) return;
-    this.silent += dt;
-    if (this.silent >= this.interval) this.next();
-  }
+  update(dt) { this.command(OP.TICK, dt); }
 }
+const PHASES = ["stopped", "playing", "gap"];
 
 // The interface sounds the menus play (core.lvl, on shellfx), made ready
 // as soon as there is sound, so the first of each isn't late.
@@ -117,7 +116,7 @@ const LATE = 0.15; // s
 export class ShellAudio {
   // data: the shell's data (src/shell/data.js); settings: the player's
   // (volumes).
-  constructor({ data, settings = null } = {}) {
+  constructor({ data, settings = null, loaded } = {}) {
     this.data = data;
     this.settings = settings;
     this.ctx = null;
@@ -127,7 +126,7 @@ export class ShellAudio {
     this.sounds = new Map(); // name -> { buffer|Promise, gain, pitch, interval, last }
     this.dip = 1; // the shellmusic bus's own level while there's no context yet
     this.music = new ShellMusic({
-      tracks: data?.music || [],
+      tracks: data?.music || [], loaded,
       start: (track) => this.startTrack(track),
       stop: (handle) => this.stopTrack(handle),
     });

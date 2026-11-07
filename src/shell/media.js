@@ -44,11 +44,11 @@ export class ShellMedia {
   // given (checks give stand-ins).
   // screens: each screen's movie and music (SCREEN_MEDIA, or the front
   // end's own changes to it).
-  constructor({ data, settings = null, parent = null, movies = null, audio = null, screens = SCREEN_MEDIA } = {}) {
+  constructor({ data, settings = null, parent = null, movies = null, audio = null, screens = SCREEN_MEDIA, loaded } = {}) {
     this.data = data;
     this.screens = screens;
     this.movies = movies || new MoviePlayer(parent || document.body);
-    this.audio = audio || new ShellAudio({ data, settings });
+    this.audio = audio || new ShellAudio({ data, settings, loaded });
     this.screen = null;
     this.moves = 0; // forward moves made, for checks
   }

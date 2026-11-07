@@ -51,3 +51,6 @@ impl Random {
     }
     pub fn spread(&mut self) -> f64 { 2.0 * (self.next() - 0.5) }
 }
+
+pub mod shell_music;
+pub mod shell_music_layout;

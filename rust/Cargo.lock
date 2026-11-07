@@ -186,6 +186,7 @@ dependencies = [
 name = "bfe-presentation"
 version = "0.1.0"
 dependencies = [
+ "audio-control",
  "bfe-pose",
  "serde",
  "serde_json",

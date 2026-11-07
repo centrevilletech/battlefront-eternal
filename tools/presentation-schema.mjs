@@ -6,6 +6,9 @@ const upper=s=>s.replace(/[A-Z]/g,(c,i)=>(i?'_':'')+c).toUpperCase();
 // One layout file per phase, so presentation, timeline, ordnance and item records
 // regenerate independently: [schema, page module, Rust module].
 const LAYOUTS=[
+ ['interface-batch-layout.json','src/interface/batch-layout.js','rust/bfe-presentation/src/interface_batch_layout.rs'],
+ ['shell-music-layout.json','src/audio/shell-music-layout.js','rust/audio-control/src/shell_music_layout.rs'],
+ ['page-layout.json','src/presentation/page-layout.js','rust/bfe-presentation/src/page_layout.rs'],
  ['presentation-layout.json','src/presentation/layout.js','rust/bfe-presentation/src/layout.rs'],
  ['ordnance-layout.json','src/presentation/ordnance-layout.js','rust/bfe-presentation/src/ordnance_layout.rs'],
  ['timeline-layout.json','src/presentation/timeline-layout.js','rust/bfe-pose/src/timeline_layout.rs'],

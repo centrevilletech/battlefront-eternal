@@ -2,7 +2,7 @@
 // no game files. Exact readback after restoration checks the whole retained
 // program/geometry/sampler path, including a holomap-style offscreen batch.
 import * as THREE from 'three';
-import { Batch } from '../src/interface/batch.js';
+import { Batch, loadInterfaceBatch } from '../src/interface/batch.js';
 import { interfaceMaterial } from '../src/interface/models.js';
 import { renderInterface } from '../src/rust-render/draw-guard.js';
 import { requireRustDraws } from '../src/rust-render/draw-guard.js';
@@ -63,6 +63,7 @@ export function interfaceFixture(g, assert) {
 // hooks. Exercise that lifecycle separately: rebuilding the main battle context
 // alone would miss a shell-only dependency on a missing graphics field.
 export async function shellInterfaceFixture(assert) {
+  await loadInterfaceBatch();
   const renderer = new THREE.WebGLRenderer({alpha:true,antialias:true});
   renderer.setSize(64,64); document.body.append(renderer.domElement);
   const core = await createRustRender({renderer,scene:new THREE.Scene(),warmup(){}});
