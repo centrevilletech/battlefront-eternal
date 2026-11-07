@@ -1,0 +1,19 @@
+[package]
+name = "bfe-client"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Window, input and audio device host for the native renderer"
+
+[dependencies]
+bfe-native = { path = "../bfe-native" }
+bfe-render = { path = "../bfe-render" }
+audio = { path = "../audio" }
+glow = "0.18"
+glutin = { version = "0.32", default-features = false, features = ["egl", "glx", "x11", "wgl"] }
+glutin-winit = { version = "0.5", default-features = false, features = ["egl", "glx", "x11", "wgl"] }
+winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06"] }
+raw-window-handle = "0.6"
+cpal = "0.15"
+serde_json = "1"

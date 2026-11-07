@@ -12,3 +12,4 @@ glow = "0.18"
 glutin = { version = "0.32", default-features = false, features = ["egl"] }
 serde_json = "1"
 libc = "0.2"
+sha2 = "0.10"
