@@ -67,6 +67,7 @@ export class Upscaler {
     this.resetSerial = 0; this.resetFrame = -1; this.resetRead = -1;
     this.shiftedCameras = new Array(3); this.shiftedOffsets = new Float64Array(6); this.shiftedCount = 0;
     this.depth = null;
+    this.motionInput={target:this.velocity,root:null,camera:null,viewScene:null,view:null,depth:null,current:this.current,previous:this.previous};
   }
 
   resize(inputWidth, inputHeight, outputWidth, outputHeight) {
@@ -109,7 +110,8 @@ export class Upscaler {
   // current/previous matrices; no history clock or post commit lives here.
   drawMotion(renderer, { root, camera, viewScene, view, depth }) {
     this.depth = depth;
-    return motionVectors.render(renderer, { target: this.velocity, root, camera, viewScene, view, depth, current: this.current, previous: this.previous });
+    const input=this.motionInput;input.root=root;input.camera=camera;input.viewScene=viewScene;input.view=view;input.depth=depth;
+    return motionVectors.render(renderer,input);
   }
   dispose() { for (const target of this.history) target.dispose(); this.velocity.dispose(); this.motion.dispose(); }
 }

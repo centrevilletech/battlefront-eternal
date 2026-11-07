@@ -51,7 +51,7 @@ class HudPass {
     }
     this.pending = hud;
     this.complete = false;
-    core.phase("hud", renderer, hud.scene, hud.camera, true);
+    core.publishView("hud", renderer, hud.scene, hud.camera);
     this.pending = null;
     return this.complete;
   }

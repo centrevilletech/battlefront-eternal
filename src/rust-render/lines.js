@@ -2,13 +2,13 @@
 // Three compiles their basic/vertex-colour programs; Rust owns every draw and
 // the retained dynamic buffers. Opaque lines precede the far image; transparent
 // lines split the transparent command stream at their normal sort keys.
+import { LINE as V, LIMIT as L } from "./frame-layout.js";
 import * as THREE from "three";
 import { compileFor } from "./instances.js";
 import { plainProgram } from "./post.js";
 import { writeScreenStep } from "./screen.js";
 import { GL_TYPES } from "./geometry-types.js";
 
-const MAX_STEPS = 8; // post.rs MAX_STEPS; each batch uses the existing step ABI.
 const opaqueOrder=(a,b)=>a.key[0]-b.key[0]||a.key[1]-b.key[1]||a.material.id-b.material.id||a.key[2]-b.key[2]||a.key[3]-b.key[3];
 class LinesPass {
   // Equivalent to WebGLRenderer.projectObject plus renderBufferDirect for
@@ -18,7 +18,6 @@ class LinesPass {
     this.core=core;this.name="lines";this.phase="lines";
     this.records=new Map();this.pending=new Set();this.opaque=[];this.transparent=[];
     this.frustum=new THREE.Frustum();this.screen=new THREE.Matrix4();this.point=new THREE.Vector4();
-    this.batch={rows:null,first:0,count:0};this.single=[];this.stats=null;
   }
   // An empty flight helper is already claimed. Its first positions arrive
   // later, so pending ownership must not be mistaken for an unsupported draw.
@@ -31,7 +30,6 @@ class LinesPass {
     for(const root of added||[])root.traverse(object=>{if(object.isLine)this.discover(object,camera,scene);});
     for(const object of this.pending)if(object.geometry.attributes.position){this.discover(object,camera,scene);this.pending.delete(object);}
     this.opaque.length=this.transparent.length=0;
-    if(this.stats)this.stats.fill(0);
     this.screen.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);this.frustum.setFromProjectionMatrix(this.screen);
     for(const [object,old] of this.records){
       const material=object.material;
@@ -63,7 +61,7 @@ class LinesPass {
       const c=geometry.boundingSphere.center;this.point.set(c.x,c.y,c.z,1).applyMatrix4(object.matrixWorld).applyMatrix4(this.screen);
       let group=object.parent;while(group&&!group.isGroup)group=group.parent;
       record.key[0]=group?.renderOrder??0;record.key[1]=object.renderOrder;record.key[2]=this.point.z;record.key[3]=object.id;
-      if(material.transparent)this.transparent.push(record.command);else this.opaque.push(record);
+      if(material.transparent)this.transparent.push(record);else this.opaque.push(record);
     }
     this.opaque.sort(opaqueOrder);
   }
@@ -80,7 +78,7 @@ class LinesPass {
     const program=plainProgram(core,material,null);
     if(!program)core.fail(Error("Cannot bind battle line program"));
     const record={object,material,version:material.version,program,geometry:core.rust.add_geometry(),buffers:[],key:new Float64Array(4),count:0,first:-1,indexed:null,width:0,index:null};
-    record.command={line:record,key:record.key};this.records.set(object,record);
+    this.records.set(object,record);
     this.upload(record);core.stale=true;return record;
   }
   // WebGLAttributes.update's role: upload only a new array or changed version.
@@ -112,30 +110,24 @@ class LinesPass {
       else if(record.index.array!==index.array||record.index.version!==index.version){if(record.index.array!==index.array)record.index.bytes=new Uint8Array(index.array.buffer,index.array.byteOffset,index.array.byteLength);core.rust.geometry_index_data(record.geometry,record.index.bytes);record.index.array=index.array;record.index.version=index.version;}
     }
   }
-  // Pack existing screen-step records, not a second line-specific ABI.
-  // Rust's own-geometry bit selects the retained VAO and primitive topology.
-  draw(ctx){
-    const {rows,first,count}=this.batch;
-    for(let i=0;i<count;i++){const record=rows[first+i];
-      record.object.onBeforeRender(ctx.renderer,ctx.scene,ctx.camera,record.object.geometry,record.material,null);
-      if(!writeScreenStep(this.core,i,record.program,record.material,record.object,ctx.camera,{geometry:{id:record.geometry,count:record.count}}))this.core.fail(Error("Cannot write battle line uniforms"));
+  // Each view retains complete screen rows. Transparent rows enter the
+  // existing native sorter; opaque rows retain projectObject's current order.
+  prepare(ctx,view) {
+    const core=this.core;let n=0;
+    for(let group=0;group<2;group++) {
+      const rows=group?this.transparent:this.opaque;
+      for(let i=0;i<rows.length && n<L.LINES;i++,n++) {
+        const record=rows[i],at=(view*L.LINES+n)*V.LEN;
+        const options=record.screenOptions ??= {geometry:{id:record.geometry,count:0},buffer:"frameLines",stateBuffer:"frameLines",offset:0,stateOffset:0};
+        options.geometry.count=record.count;options.offset=at+V.STEP;options.stateOffset=at+V.STATE;
+        record.object.onBeforeRender(ctx.renderer,ctx.scene,ctx.camera,record.object.geometry,record.material,null);
+        if(!writeScreenStep(core,0,record.program,record.material,record.object,ctx.camera,options))core.fail(Error("Cannot write battle line uniforms"));
+        core.views();for(let k=0;k<4;k++)core.frameLines[at+V.KEY+k]=record.key[k];
+        core.frameLines[at+V.TRANSPARENT]=group;
+      }
     }
-    ctx.steps=count;
+    if(this.opaque.length+this.transparent.length>L.LINES)core.rust.frame_overflow_frame();
+    core.rust.frame_lines_publish_frame(view,n);
   }
-  // A phase returns statistics per batch. Accumulate them for the whole view,
-  // including transparent lines interleaved between other transparent draws.
-  raster(rows,first,count,ctx){
-    this.batch.rows=rows;this.batch.first=first;this.batch.count=count;
-    this.core.phase("lines",ctx.renderer,ctx.scene,ctx.camera,true);
-    const stats=this.core.phaseStats.lines;
-    if(!this.stats)this.stats=new Uint32Array(stats.length);
-    for(let i=0;i<stats.length;i++)this.stats[i]+=stats[i];
-    this.core.phaseStats.lines=this.stats;
-    for(let i=0;i<count;i++){const r=rows[first+i];r.object.onAfterRender(ctx.renderer,ctx.scene,ctx.camera,r.object.geometry,r.material,null);}
-  }
-  drawOpaque(ctx){for(let first=0;first<this.opaque.length;first+=MAX_STEPS)this.raster(this.opaque,first,Math.min(MAX_STEPS,this.opaque.length-first),ctx);}
-  // TransparentPass has already sorted this command against depth/colour
-  // copies and blended buckets; submitting it here preserves that position.
-  drawOne(record,ctx){this.single[0]=record;this.raster(this.single,0,1,ctx);}
 }
 export function linesPass(core){return new LinesPass(core);}

@@ -27,7 +27,7 @@ export function installPostPolicy(layout, options) {
     let point=0;
     if(options.mapBlur!==undefined)g.blur={blend:options.mapBlur,downsize:.25};
     if(options.vehicleAmount!==undefined){
-      const render=g.render;g.render=function(...args){g.setVehicleMotion(options.vehicleAmount,options.vehicleTurn);return render.apply(this,args);};
+      const name=g.prepareFrame?"prepareFrame":"render",render=g[name];g[name]=function(...args){g.setVehicleMotion(options.vehicleAmount,options.vehicleTurn);return render.apply(this,args);};
     }
     T.scenarioCapture=async()=>{
       const k=point++;

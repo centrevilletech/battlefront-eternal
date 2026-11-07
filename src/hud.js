@@ -1,3 +1,4 @@
+import { UI } from "./rust-render/frame-layout.js";
 import * as THREE from 'three';
 import { InterfaceSurface } from './interface/surface.js';
 import { Batch } from './interface/batch.js';
@@ -151,11 +152,13 @@ export class BattleHud extends InterfaceSurface {
     if (layer && !covered) { this.batch.begin(); layer.draw?.(this); this.batch.end(); }
     this.input.facts(); this.mapRings(layer?.battlefield?.rings); this.input.publish();
     const autoClear = renderer.autoClear; renderer.autoClear = false;
+    core.frame.uiStage(UI.BEFORE);
     if (layer?.renderBefore) { renderer.setRenderTarget(null); layer.renderBefore(renderer, this); }
     if (!core.contextLost) {
-      core.coverHud(renderer, this.nativeDraw);
-      if (layer && !covered) { core.coverHud(renderer, this); core.coverHud(renderer, this.bannerDraw); }
+      core.frame.uiStage(UI.NATIVE);core.coverHud(renderer, this.nativeDraw);
+      if (layer && !covered) { core.frame.uiStage(UI.LAYER);core.coverHud(renderer, this);core.frame.uiStage(UI.BANNER);core.coverHud(renderer, this.bannerDraw); }
     }
+    core.frame.uiStage(UI.AFTER);
     if (layer?.renderAfter) { renderer.setRenderTarget(null); layer.renderAfter(renderer, this); }
     const layerOver = !covered && layer?.drawOver;
     if (layerOver || overlay?.draw) {
@@ -164,8 +167,9 @@ export class BattleHud extends InterfaceSurface {
         this.overDraw = { batch: this.overBatch, scene: this.overScene, camera: this.camera };
       }
       this.overBatch.begin(); if (layerOver) layer.drawOver(this, this.overBatch); overlay?.draw?.(this, this.overBatch); this.overBatch.end();
-      renderer.setRenderTarget(null); if (!core.contextLost) core.coverHud(renderer, this.overDraw);
+      core.frame.uiStage(UI.OVER);renderer.setRenderTarget(null); if (!core.contextLost) core.coverHud(renderer, this.overDraw);
     }
+    core.frame.uiStage(UI.OVERLAY);
     if (overlay?.renderAfter) { renderer.setRenderTarget(null); overlay.renderAfter(renderer, this); }
     renderer.autoClear = autoClear;
   }

@@ -270,7 +270,7 @@ export class SkyFlyers {
   }
   prepareProbe() {
     if (!this.graphics?.renderer || !this.classes.length || this.probe) return;
-    this.probe = new SkyProbe(this.graphics, 64); this.probe.enabled = true;
+    this.probe = new SkyProbe(this.graphics, 64, 1); this.probe.enabled = true;
     for (const kind of this.classes) {
       for (const m of kind.draws) m.material.uniforms.skyProbe.value = this.probe.texture;
       for (const m of kind.fades) m.material.uniforms.skyProbe.value = this.probe.texture;

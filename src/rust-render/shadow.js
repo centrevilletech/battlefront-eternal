@@ -110,6 +110,7 @@ class ShadowPass {
       this.nativeInput = true;
     }
     this.reserveCommands(metadata.capacity);
+    core.rust.frame_shadow_reserve_frame();
     for (const row of metadata.nodes) {
       let node = this.nativeNodes.get(row.id);
       if (!node && !row.active && row.source !== null) continue;
@@ -152,7 +153,7 @@ class ShadowPass {
     this.request = { renderer, light, scene, camera, from };
     this.done = false;
     try {
-      core.phase("shadow", renderer, scene, camera);
+      core.publishView("shadow", renderer, scene, camera);
     } finally {
       this.request = null;
     }

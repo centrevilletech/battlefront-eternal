@@ -1,3 +1,4 @@
+import { ROLE as FRAME_ROLE, STATS as FRAME_STATS, STATE as FRAME_STATE, UI as FRAME_UI } from "../src/rust-render/frame-layout.js";
 import { STATE, FACTS, MODE } from "../src/rust-render/post-layout.js";
 import { checkResources } from "./renderer-resource-checks.js";
 import * as THREE from 'three';
@@ -58,7 +59,9 @@ export async function checkRenderer(backend, manifests) {
     return ext;
   };
   const originals = new Map();
-  let compilingKey=null;
+  let compilingKey=null,checkShadowAttachments=false,shadowAttachments=0;
+  const shadowHandles=new Set(),depthPrograms=new Set();
+  let observeShadow=null;
   // Hook the context prototype before initialization so Rust's WASM imports
   // and the remaining native compiler both pass through the same diagnostics.
   // The current catalog key tags even a failure inside a driver's compile call.
@@ -72,10 +75,11 @@ export async function checkRenderer(backend, manifests) {
         if(!ok)throw Error(`${compilingKey || 'fixture'}: shader compile: ${this.getShaderInfoLog(args[0])}`);
       } else if (name === 'linkProgram') {
         const ok = this.getProgramParameter(args[0], this.LINK_STATUS);
-        links.push(ok);
+        links.push(ok);if(compilingKey?.startsWith('actors/depth-'))depthPrograms.add(args[0]);
         if (!ok) throw new Error(`${compilingKey || "fixture"}: program link: ${this.getProgramInfoLog(args[0])}`);
       } else {
         if(name.startsWith('draw') && this.isEnabled(this.SAMPLE_ALPHA_TO_COVERAGE) && this.getParameter(this.SAMPLES)>1){alphaCoverageDraws++;alphaSamples.add(this.getParameter(this.SAMPLES));}
+        if(name.startsWith('draw'))observeShadow?.(this);
         if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
         if (error && error !== this.CONTEXT_LOST_WEBGL) {
@@ -246,7 +250,11 @@ export async function checkRenderer(backend, manifests) {
     let poison = makePoison();
     g.renderer.resetState();
     const rust = g.rust.rust;
-    let checkShadowAttachments=false,shadowAttachments=0;
+    observeShadow=context=>{if(checkShadowAttachments && depthPrograms.has(context.getParameter(context.CURRENT_PROGRAM))){
+      const actual=context.getFramebufferAttachmentParameter(context.DRAW_FRAMEBUFFER,context.DEPTH_ATTACHMENT,context.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+      assert('Shadow draw attaches the current depth storage',shadowHandles.has(actual));shadowAttachments++;
+    }};
+
     g.rust.rust = new Proxy(rust, { get(target, name) {
       const fn = target[name];
       if (typeof fn !== 'function') return fn;
@@ -254,18 +262,23 @@ export async function checkRenderer(backend, manifests) {
         if (name === 'add_program' || name === 'add_program_lamps') programKinds.add(args[0]);
         if(name==='post_frame')for(let i=0;i<args[0];i++)ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
         if(name==='hud_frame')ownedDraws.add(g.rust.hudInput[1]);
-        if (name === 'frame') { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, poison); }
+        if (name === 'battle_frame') {
+          gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,poison);
+          if(checkShadowAttachments){shadowHandles.clear();for(const target of [...g.shadowMaps,...g.shadowCaches])shadowHandles.add(g.renderer.properties.get(target.depthTexture).__webglTexture);}
+        }
         let value = fn.apply(target, args);
+        if(name==='battle_frame' || name==='frame_aux_frame'){
+          g.rust.views();const roles=name==='battle_frame'?Array.from({length:FRAME_ROLE.COUNT},(_,i)=>i):[args[1]];
+          for(const role of roles){const at=role*FRAME_STATS.LEN;for(let i=0;i<passDraws.length;i++)passDraws[i]+=g.rust.frameStats[at+FRAME_STATS.PASS_DRAWS+i];
+            const key=role===FRAME_ROLE.NEAR?'frame':role===FRAME_ROLE.FAR?'far_frame':role===FRAME_ROLE.TRANSPARENT?'transparent_frame':role===FRAME_ROLE.VIEW?'view_frame':role===FRAME_ROLE.POST?'post_chain_frame':null;
+            if(key)phaseDraws[key]=(phaseDraws[key]||0)+g.rust.frameStats[at+FRAME_STATS.PROGRAM_SWITCHES];
+          }
+          if(name==='battle_frame'){for(let i=0;i<g.rust.postState[STATE.STEPS];i++)ownedDraws.add(g.rust.postInput[i*221]);ownedDraws.add(g.rust.hudInput[1]);}
+          else if(args[1]>=FRAME_ROLE.HUD0&&args[1]<=FRAME_ROLE.HUD7)ownedDraws.add(g.rust.hudInput[1]);
+        }
         if (name === 'post_chain_frame') {
           g.rust.views(); value = g.rust.postStats;
           for (let i = 0; i < g.rust.postState[STATE.STEPS]; i++) ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
-        }
-        if(checkShadowAttachments && name==='shadow_frame' && g.rust.casterInput[0]>=0){
-          const texture=g.rust.textureSources[g.rust.casterInput[0]];
-          const expected=g.renderer.properties.get(texture).__webglTexture;
-          const actual=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
-          assert('Shadow draw attaches the current depth storage',actual===expected);
-          shadowAttachments++;
         }
         if(name==='add_owned_program')ownedIds.set(args[0],value);
         if (/frame$|_segment$|near_begin$/.test(name) && value?.length) {
@@ -283,10 +296,14 @@ export async function checkRenderer(backend, manifests) {
     const capture = () => {
       g.camera.updateMatrixWorld(true);
       if (foliage.drawer) foliage.drawer.select(foliage,g.camera);
-      g.render(0);
-      g.renderer.setRenderTarget(null); g.renderer.autoClear = false;
-      g.rust.coverHud(g.renderer, hud);
-      g.renderer.autoClear = true;
+      g.rust.frame.begin(true);
+      g.rust.frame.mirror(g.scene.userData.water,g.camera);
+      g.prepareFrame(0);
+      g.rust.frame.underwater(g.scene.userData.water,g.camera);
+      g.renderer.autoClear=false;g.rust.coverHud(g.renderer,hud);g.renderer.autoClear=true;
+      g.rust.frame.execute();g.profiler.end();
+      assert("Native view packets fit their retained stores",g.rust.frameState[FRAME_STATE.CLIPPED]===0);
+      g.renderer.setRenderTarget(null);
       if (g.rust.errors.length || g.renderer.battleThreeCalls) throw new Error(`Rust fallback: ${JSON.stringify(g.rust.errors)}`);
       const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
       gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -352,7 +369,7 @@ export async function checkRenderer(backend, manifests) {
     const shadowSize=g.csm.shadowMapSize;
     checkShadowAttachments=true;resizeShadows(shadowSize*2);capture();
     assert('Mid-frame shadow resize replaces storage while retaining its sampler id',g.rust.texture(resizedDepth)===depthId&&g.renderer.properties.get(resizedDepth).__webglTexture!==depthHandle);
-    assert('Resized maps still draw shadowed receivers',terrainShadowPixels()>0&&shadowAttachments>0);
+    {const pixels=terrainShadowPixels();assert('Resized maps still draw shadowed receivers',pixels>0&&shadowAttachments>0,{pixels,shadowAttachments});}
     resizeShadows(shadowSize);capture();checkShadowAttachments=false;
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
     settings.set('bloom', true); settings.set('softFocus', true); g.setVehicleMotion(.8,.2); const effects=compare('bloom, soft focus and speed blur');
@@ -447,9 +464,8 @@ export async function checkRenderer(backend, manifests) {
     g.camera.position.set(basin.x,water.level-1,basin.z);
     g.camera.lookAt(basin.x+1,water.level-1,basin.z);g.camera.updateMatrixWorld(true);
     water.update(0,g.camera);water.reflect(g.camera);
-    const fogDraws=g.rust.byName.fog.drawn;
     compare('High underwater composite');
-    assert('High underwater fog issues a Rust composite',g.rust.byName.fog.drawn>fogDraws);
+    assert('High underwater fog issues a Rust composite',g.rust.frameStats[(FRAME_ROLE.FOG+1)*FRAME_STATS.LEN-1]>0);
     settings.set('waterQuality','low');
     g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);water.update(0,g.camera);water.reflect(g.camera);
 
@@ -537,7 +553,22 @@ export async function checkRenderer(backend, manifests) {
     assert('Dynamic line updates change visible pixels',movedLines.some((v,i)=>i%4!==3&&v!==withLines[i]));
     assert('Dynamic cables keep the retained Rust geometry',g.rust.byName.lines.records.get(cable).geometry===cableGeometry);
     assert('Every line topology is owned by Rust',lineObjects.every(object=>g.rust.byName.lines.owns(object)));
-    assert('Every line topology issues a Rust draw',g.rust.phaseStats.lines.at(-1)===lineObjects.length,[...g.rust.phaseStats.lines]);
+    assert('Every line topology issues a Rust draw',g.rust.frameStats[(FRAME_ROLE.LINES2+1)*FRAME_STATS.LEN-1]+g.rust.frameStats[(FRAME_ROLE.TRANSPARENT+1)*FRAME_STATS.LEN-1]===lineObjects.length);
+    // A slow callback can prepare more overlay batches than a view admits.
+    // Keep the earlier packets, clip the remainder and leave history invalid;
+    // the next ordinary frame must still draw without a browser exception.
+    const resumed=new THREE.Object3D();g.scene.add(resumed);
+    g.rust.frame.begin(true);g.prepareFrame(0);
+    const completed=g.rust.frameState[FRAME_STATE.FRAME];
+    g.rust.frame.uiStage(FRAME_UI.OVERLAY);
+    for(let i=0;i<128;i++)g.rust.coverHud(g.renderer,hud);
+    g.rust.frame.execute();
+    assert('Full overlay stores clip instead of throwing',g.rust.frameState[FRAME_STATE.CLIPPED]===1);
+    assert('Clipped frames retain their completion stamp',g.rust.frameState[FRAME_STATE.FRAME]===completed);
+    resumed.position.x=3;
+    capture();
+    assert('The next frame refreshes transforms after clipping',resumed.matrixWorld.elements[12]===3);
+    g.scene.remove(resumed);
     // Keep every live resource and logical id across the forced loss. The browser
     // invalidates the old GL objects; only a reconstruction can reproduce this frame.
     // Comparing after several warm draws also lets invalidated histories settle.

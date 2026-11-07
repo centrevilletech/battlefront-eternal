@@ -227,9 +227,9 @@ class PostPass {
     u.jitter.set(s[STATE.JITTER], s[STATE.JITTER+1]);
   }
 
-  // Draw and commit form one native phase. Statistics borrow retained memory
-  // instead of allocating a context object, skeleton map or bindgen result.
-  cover() {
+  // Prepare the late motion-depth sampler. The native frame owns post draw
+  // and history commit; this publication never starts another render phase.
+  prepare() {
     const core = this.core, depth = core.graphics.upscaler.depth;
     if (core.contextLost) return true;
     if (depth && depth !== this.depth) {
@@ -237,11 +237,6 @@ class PostPass {
       core.postFacts[FACTS.RESOURCES + RESOURCE.DEPTH * RESOURCE.STRIDE + RESOURCE.TEXTURE] = texture;
       this.depth = depth;
     }
-    const started = performance.now();
-    if (!core.rust.post_chain_frame()) throw new Error(core.rust.post_chain_error_frame());
-    core.views();
-    core.phaseStats.post = core.postStats; core.phaseMs.post = performance.now() - started;
-    if (core.postStats[4]) core.stale = true;
     return true;
   }
 

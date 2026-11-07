@@ -101,7 +101,7 @@ export function installReplay(createStore) {
   const resources=(ids,objects)=>[...new Set(ids.filter(id=>id>=0))].map(id=>({...snapshot(id,objects),sampledDepth:!!objects.get(id)?.texture.isDepthTexture}));
   const post=core.post;
   core.post=function(renderer,steps){
-    if(!T.want || !T.captureReplay)return post.call(this,renderer,steps);
+    if(!T.want || !T.captureReplay || !steps)return post.call(this,renderer,steps);
     for(const step of steps){T.step=step;if(!post.call(this,renderer,[step]))throw Error('Post capture refused');}T.step=null;return true;
   };
   core.rust.post_frame=function(steps){

@@ -75,13 +75,13 @@ test('native post facts survive resource registration and retain program binding
  assert.equal(core.postFacts[F.PROGRAMS+P.FXAA],core.ownedPrograms.get('post-hud/fxaa').id);
  assert.equal(core.postFacts[F.RESOURCES+R.MOTION*R.STRIDE+R.WIDTH],1);
  const facts=core.postFacts,stats=core.postStats,registrations=calls.filter(c=>c[0]==='add_texture').length;
- core.post();core.byName.post.begin(camera);core.post();
+ core.byName.post.prepare();core.byName.post.begin(camera);core.byName.post.prepare();
  assert.equal(core.postFacts,facts);assert.equal(core.postStats,stats);
  assert.equal(calls.filter(c=>c[0]==='add_texture').length,registrations);
- assert.equal(calls.filter(c=>c[0]==='post_chain_frame').length,2);
+ assert.equal(calls.filter(c=>c[0]==='post_chain_frame').length,0,'publication issues no draw');
  assert.equal(calls.some(c=>c[0]==='post_frame'),false,'the old step planner is not called');
- core.rust.post_chain_frame=()=>false;core.rust.post_chain_error_frame=()=> 'Synthetic post refusal';
- assert.throws(()=>core.post(),/Synthetic post refusal/,'a rejected native frame stays visible');
+ core.rust.battle_frame=()=>false;core.rust.frame_error_frame=()=> 'Synthetic post refusal';
+ core.frame.begin(true);assert.throws(()=>core.frame.execute(),/Synthetic post refusal/,'a rejected native frame stays visible');
 });
 
 // A pending-image placeholder can allocate even when the requested image is
@@ -129,7 +129,7 @@ test('an anisotropy revision uploads and rebinds retained static texture samples
  const core=new RustRender(graphics,{memory},BfeRenderer),id=core.texture(texture),replacement={};
  texture.needsUpdate=true;graphics.textureRevision=1;
  renderer.initTexture=t=>{const p=renderer.properties.get(t);p.__webglTexture=replacement;p.__version=t.version;};
- core.phase('image',renderer,new THREE.Scene(),new THREE.Camera());
+ core.publishView('image',renderer,new THREE.Scene(),new THREE.Camera());
  assert.equal(core.texture(texture),id);
  assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,renderer.resources.gpu,renderer.resources.textureId(texture)]);
  assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='screen_frame'));

@@ -2494,6 +2494,7 @@ async function start() {
       else presentAlpha = 1;
     }
     if (headless || !present) { runtimeProfile?.end(false); return; }
+    graphics.rust.frame.begin(draw);
     runtimeProfile?.phase("presentation");
 
     // At a capped frame rate, skipped callbacks still advance the world but
@@ -2643,15 +2644,18 @@ async function start() {
       // UI/resource registration can grow the shared module after the body
       // phase. Rebind views before any reflection or scene reads them.
       pageUnits.refresh();
-      water?.reflect(camera);
+      graphics.rust.frame.mirror(water,camera);
       environment?.reflect(camera, water);
-      graphics.render(clock);
-      water?.drawUnderwater(graphics.renderer, camera);
+      graphics.prepareFrame(clock);
+      graphics.rust.frame.underwater(water,camera);
       const hudDrawStart = runtimeProfile?.start();
       hud.render();
       runtimeProfile?.finish("hudDraw", hudDrawStart);
-      graphics.profiler.frameEnd();
+      graphics.rust.frame.execute();
+      graphics.frameInfo=graphics.renderer.info.render;
+      graphics.profiler.end();graphics.profiler.frameEnd();
     }
+    if(!draw)graphics.rust.frame.execute();
     runtimeProfile?.end(draw);
     inputTrace?.submit(draw);
   }
@@ -2674,6 +2678,7 @@ async function start() {
   let frameFailures = 0;
   function loop(now) {
     try { frameBody(now); } catch (error) {
+      graphics.rust.frame.cancel();
       if (++frameFailures <= 3) console.error("frame failed", error);
       if (frameFailures === 1) hud.message?.(`Frame error: ${error.message}`);
     }

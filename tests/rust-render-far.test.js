@@ -1,4 +1,5 @@
 import { standinResources } from "./support/rust-standin.mjs";
+import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -216,6 +217,7 @@ test("a water mirror's far scene: its sky pass cleared, the rest drawn over it u
   // MIRROR_SKY_LAYER), three's clear on.
   sky.layers.enable(5);
   mirror.layers.set(5);
+  core.frame.role=R.MIRROR0_FAR;
   assert.equal(core.cover("farMirror", renderer, farScene, mirror), true);
   core.views();
   assert.deepEqual([core.farInput[4], core.farInput[5]], [1, 0], "drawn, cleared");
@@ -226,6 +228,7 @@ test("a water mirror's far scene: its sky pass cleared, the rest drawn over it u
   sky.visible = false;
   mirror.layers.set(0);
   renderer.autoClear = false;
+  core.frame.role=R.MIRROR0_FAR;
   assert.equal(core.cover("farMirror", renderer, farScene, mirror), true);
   core.views();
   assert.deepEqual([core.farInput[4], core.farInput[5]], [1, 1], "drawn over what is there");
@@ -274,6 +277,7 @@ test("a sky probe's faces: each its own phase call, the mipmaps after the last f
   cubeCamera.updateMatrixWorld(true);
   cubeCamera.children.forEach((face, i) => {
     if (i === 5) target.texture.generateMipmaps = true;
+    core.frame.role=R.PROBE0+i;
     assert.equal(core.cover("probe", renderer, farScene, face), true);
     core.views();
     const texture = core.textures.get(renderer.properties.get(target.texture).__webglTexture);

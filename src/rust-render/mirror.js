@@ -14,9 +14,7 @@ class MirrorPass extends NearPass {
     return camera.userData?.mirror === true && scene === this.core.graphics.scene && Boolean(target);
   }
 
-  // The begin phase's values are the near pass's (near.js draw: three's
-  // clear colour, one step): nothing of its own.
-  draw() {}
+
 }
 
 export function mirrorPass(core) {

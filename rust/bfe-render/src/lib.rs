@@ -16,6 +16,8 @@ pub mod math;
 pub mod motion;
 pub mod post;
 pub mod post_chain;
+pub mod frame_plan;
+pub mod frame;
 pub mod programs;
 pub mod renderer;
 pub mod shader;

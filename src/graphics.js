@@ -8,7 +8,8 @@ import * as THREE from "three";
 import { ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
-import { CascadeWindow, planCascades } from "./shadow-cascades.js";
+import { FACTS as F, STATE as S, ROLE as R } from "./rust-render/frame-layout.js";
+import { CascadeWindow } from "./shadow-cascades.js";
 import { RenderProfiler } from "./render-profiler.js";
 import { LocalLights } from "./local-lights.js";
 import { installPointLights } from "./point-lights.js";
@@ -466,11 +467,11 @@ export class Graphics {
       }
     });
     try {
-      renderer.setRenderTarget(this.sceneTarget);
+      this.rust.frame.target(this.sceneTarget);
       prepareActors(this.rust);
       compileUnowned(renderer, this.scene, this.camera);
       compileUnowned(renderer, this.viewScene, this.viewCamera);
-      renderer.setRenderTarget(this.farTarget);
+      this.rust.frame.target(this.farTarget);
       compileUnowned(renderer, this.farScene, this.farCamera);
       if (this.csm) this.rust.byName.shadow.prepare();
     } finally {
@@ -725,7 +726,10 @@ export class Graphics {
   // draws; the copy stands in for that clear.
   renderCascades(scene, camera) {
     const { renderer, csm } = this;
-    const plan = planCascades(this.cascadeWindows, this.frameCount);
+    const core=this.rust,frame=core.frame;
+    core.views();core.frameFacts[F.SHADOW_COUNT]=csm.lights.length;
+    for(let i=0;i<csm.lights.length;i++){core.frameFacts[F.SHADOW_DIRTY+i]=+this.cascadeWindows[i].dirty;core.frameFacts[F.SHADOW_MOVED+i]=+this.cascadeWindows[i].moved;}
+    core.rust.frame_select_frame();core.views();
     const dynamicCamera = this.shadowCamera, staticCamera = this.staticShadowCamera;
     dynamicCamera.copy(camera);
     dynamicCamera.layers.enable(this.hiddenLayer);
@@ -733,19 +737,21 @@ export class Graphics {
     staticCamera.layers.set(this.staticLayer);
     for (let i = 0; i < csm.lights.length; i++) {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
-      if (plan[i].static) {
+      if (core.frameState[S.SHADOW_STATIC+i]) {
+        frame.role=R.SHADOW_STATIC0+i;
         light.shadow.map = cache;
         // Draw cached static depth through the required Rust shadow pass.
         this.rust.coverShadow(renderer, light, scene, staticCamera, null);
         light.shadow.map = live;
-        window.dirty = false;
+
         this.shadowPasses.static++;
       }
-      if (plan[i].dynamic) {
+      if (core.frameState[S.SHADOW_DYNAMIC+i]) {
+        frame.role=R.SHADOW_DYNAMIC0+i;
         this.rust.coverShadow(renderer, light, scene, dynamicCamera, cache);
         this.shadowPasses.dynamic++;
       }
-      window.moved = false;
+
       // How this cascade's matrix (refreshed by the pass) moves plane normals.
       lighting.cascadePlanes.value[i].setFromMatrix4(light.shadow.matrix).invert().transpose();
     }
@@ -814,7 +820,17 @@ export class Graphics {
     this.vehicleMotion = amount; this.vehicleTurn = turn;
   }
 
-  render(time = 0) {
+  // Direct scene clients use the same native battle schedule as game.frame.
+  // The game begins collection earlier so sky updates join this transaction.
+  render(time=0) {
+    this.rust.frame.begin(true);
+    this.rust.frame.mirror(this.scene.userData.water,this.camera);
+    this.prepareFrame(time);
+    this.rust.frame.underwater(this.scene.userData.water,this.camera);
+    this.rust.frame.execute();this.profiler.end();
+  }
+
+  prepareFrame(time = 0) {
     if (this.rust.contextLost) return;
 // A prior fatal renderer error remains visible. Re-entering frame rendering
 // must not hide it by clearing the canvas or selecting a different drawer.
@@ -876,22 +892,28 @@ export class Graphics {
       if (follow) mesh.position.y = follow[0] * camera.position.y + (1 - follow[0]) * follow[1];
     }
     if (this.sky && !this.skyLayers.length) this.sky.position.copy(camera.position);
-    renderer.setRenderTarget(this.farTarget);
+    this.rust.frame.target(this.farTarget);
     this.rust.cover("far", renderer, this.farScene, far);
 
     // 2. The near scene over it, then the first-person weapon.
     this.cullOffView();
     this.updateScene();
     if (temporal) this.upscaler.shift(camera);
-    renderer.setRenderTarget(this.sceneTarget);
-    if (this.csm) this.reveal(() => this.renderCascades(this.scene, camera));
+    this.rust.frame.target(this.sceneTarget);
+    if (this.csm) this.reveal(this.rust.frame.shadowProducer);
     this.particleDepth.begin(this.sceneTarget, camera, Boolean(this.settings.get("softParticles")));
     // Every visible item must belong to a Rust pass.
     this.rust.coverNear(renderer, this.scene, camera);
     // The temporal upscaler reprojects by the scene's depth, taken before
     // the weapon's own depth range replaces it.
+    this.rust.frame.finalDepth=true;
     if (temporal) this.particleDepth.capture(camera, true);
-    const viewShown = this.viewScene.children.some((child) => child.visible && !child.isLight);
+    this.rust.frame.finalDepth=false;
+    this.rust.views();this.rust.frameFacts[F.TEMPORAL]=+temporal;
+    this.rust.frame.binding(R.DEPTH,this.particleDepth.target);
+    let viewShown=false;
+    for(const child of this.viewScene.children)if(child.visible&&!child.isLight){viewShown=true;break;}
+    this.rust.views();this.rust.frameFacts[F.VIEW_SHOWN]=+viewShown;
     if (viewShown) {
       this.syncViewLights();
       const view = this.viewCamera;
@@ -904,34 +926,18 @@ export class Graphics {
       }
       view.updateMatrixWorld();
       if (temporal) this.upscaler.shift(view);
-      renderer.autoClear = false;
-      renderer.clearDepth();
       this.rust.cover("view", renderer, this.viewScene, view);
-      renderer.autoClear = true;
     }
     if (temporal) {
-      this.reveal(() => this.upscaler.drawMotion(renderer, {
-        root: this.scene, camera, viewScene: viewShown ? this.viewScene : null, view: this.viewCamera,
-        depth: this.particleDepth.target.depthTexture,
-      }));
+      const motion=this.rust.frame.motionInput;
+      motion.viewScene=viewShown?this.viewScene:null;motion.depth=this.particleDepth.target.depthTexture;
+      this.reveal(this.rust.frame.motionProducer);
       this.upscaler.restore();
     }
 
-    // Full-screen triangles overwrite every pixel with blending disabled.
-    // Clearing each post target first only burns fill/bandwidth.
-    renderer.autoClear = false;
-    // 3-4. The retained native owner plans, draws and commits the post chain.
-    this.finishPost();
-    renderer.autoClear = true;
+    this.rust.byName.post.prepare();
     this.restoreOffView();
-    // All scene, shadow and post passes; captured before the separate HUD.
-    this.frameInfo = { ...renderer.info.render };
-    this.frameCount++;
-    this.profiler.end();
   }
-
-  // A capture boundary after scene/motion publication, before native post.
-  finishPost() { this.rust.post(); }
 
   // The stats line's part: the 3D view's size (adaptive resolution moves
   // it), and a warning when the GPU draws or composites in software.

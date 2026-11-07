@@ -1,6 +1,6 @@
 // Draw the battle scene in Rust: opaque passes, far image, then ordered
 // transparency. The walk validates that every visible item has a Rust owner.
-// Three still maintains scene transforms, target allocation and resolve state.
+// Three scene shells still supply transforms and resource descriptor facts.
 import * as THREE from "three";
 import { writeScreenStep } from "./screen.js";
 import { plainProgram, plainProgramKnown } from "./post.js";
@@ -15,22 +15,18 @@ export class NearPass {
   constructor(core) {
     this.core = core;
     this.name = "near";
-    this.phase = "begin";
-    // The phase that draws the scene's passes after the begin phase (a
-    // mirror's render: mirror.js).
+    this.phase = "near";
+    // Mirror views use the same producer with a different semantic role.
     this.scenePhase = "near";
     this.frustum = new THREE.Frustum();
     this.screen = new THREE.Matrix4();
     this.point = new THREE.Vector4();
-    this.color = new THREE.Color();
-    this.clear = new Float64Array(4);
     // This frame's walk: the transparent pass's items (kept from frame to
     // frame), how many, and what stopped it (for the measurement tools).
     this.pool = [];
     this.items = [];
     this.stopped = null;
     this.drawn = 0;
-    this.early = 0;
   }
 
   // Validate full ownership, clear, draw opaque geometry and ordered transparency.
@@ -62,15 +58,15 @@ export class NearPass {
       scene.onBeforeRender(renderer, scene, camera, target);
       if (!core.primed) {
         core.primed = true;
-        core.phase(this.scenePhase, renderer, scene, camera, true, null, { priming: true });
+        core.publishView(this.scenePhase, renderer, scene, camera, null, { priming: true });
       }
       this.items.length = 0;
       this.stopped = null;
       this.walk(scene, camera, 0);
       renderer.info.render.frame++;
       if (renderer.info.autoReset) renderer.info.reset();
-      core.phase("begin", renderer, scene, camera, true);
-      core.phase(this.scenePhase, renderer, scene, camera, true, this.items);
+      const ctx=core.publishView(this.scenePhase, renderer, scene, camera, this.items);
+      core.frame.sceneTail(ctx,this);
       core.resolve(target);
       scene.onAfterRender(renderer, scene, camera);
       this.drawn++;
@@ -166,16 +162,6 @@ export class NearPass {
     const core=this.core,background=core.graphics.background;
     const program=plainProgram(core,background.material,ATTRIBUTES);
     if(!program || !writeScreenStep(core,0,program,background.material,background,camera)) core.fail(new Error("Cannot draw far-scene image"));
-  }
-
-  // Clear before geometry. The depth-tested far image follows opaque draws.
-  draw(ctx) {
-    const renderer = ctx.renderer, clear = this.clear;
-    renderer.getClearColor(this.color);
-    const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
-    clear[0] = this.color.r * pre; clear[1] = this.color.g * pre; clear[2] = this.color.b * pre; clear[3] = alpha;
-    ctx.clear = clear;
-    ctx.steps = 0;
   }
 
 }

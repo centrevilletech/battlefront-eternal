@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { CascadeWindow, planCascades } from "../src/shadow-cascades.js";
+import { CascadeWindow } from "../src/shadow-cascades.js";
 
 const box = (minX, minY, minZ, maxX, maxY, maxZ) => new THREE.Box3(new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, maxY, maxZ));
 
@@ -39,25 +39,4 @@ test("a window moves again when it would lose half its margin toward the sun, or
   w.invalidate();
   assert.equal(w.held, false);
   assert.equal(w.fit(box(-1, -1, -1, 1, 1, 1), 9, 0.1, 400), true);
-});
-
-test("the pass plan renders static casters only when a window lands, and alternates the last cascade's moving casters", () => {
-  const windows = Array.from({ length: 4 }, () => new CascadeWindow());
-  for (const w of windows) w.fit(box(-1, -1, -1, 1, 1, 1), 8, 0.1, 400);
-  let plan = planCascades(windows, 0);
-  assert.deepEqual(plan.map((p) => p.static), [true, true, true, true]);
-  assert.deepEqual(plan.map((p) => p.dynamic), [true, true, true, true]);
-  for (const w of windows) { w.dirty = false; w.moved = false; }
-  plan = planCascades(windows, 1);
-  assert.deepEqual(plan.map((p) => p.static), [false, false, false, false]);
-  assert.deepEqual(plan.map((p) => p.dynamic), [true, true, true, false]);
-  plan = planCascades(windows, 2);
-  assert.deepEqual(plan.map((p) => p.dynamic), [true, true, true, true]);
-  // A window that just landed is always drawn in full that frame.
-  windows[3].moved = true;
-  assert.equal(planCascades(windows, 1)[3].dynamic, true);
-  // Two cascades (the Low preset) never skip.
-  const two = windows.slice(0, 2);
-  assert.deepEqual(planCascades(two, 1).map((p) => p.dynamic), [true, true]);
-  assert.deepEqual(planCascades(windows, 1, { alternateLast: false }).map((p) => p.dynamic), [true, true, true, true]);
 });

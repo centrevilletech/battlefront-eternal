@@ -1,39 +1,10 @@
 import { ownedWorldProgram } from "./world-programs.js";
-// The transparent pass (transparent.rs): what the near scene blends, drawn
-// in three's back-to-front order, as three's transparent list would. Any
-// pass whose draws blend (the effects, the water...) is a source of items
-// for it on the renderer's side (transparent.rs Source); this file is the
-// page's side of the list and of this pass's own items.
-//
-// When it draws. The near phase runs at the start of the near scene's
-// opaque list; three has sorted its lists by then. After it (afterPhase),
-// the pass arms the transparent phase on the item three draws just before
-// its transparent list (the last opaque one): that item's onAfterRender
-// runs the phase, once, this frame. A mirror's render of the near scene
-// (water.js's reflection) does the same for the mirror camera: its mirror
-// phase, then its transparent phase (mirrorTransparent), as the frame's
-// own render does, so that what blends shows in the reflection too.
-//
-// What three still draws. Whatever three draws itself stays in three's
-// list, in three's order. The phase writes the keys three sorted those
-// items by (group order, render order, z, id) into the renderer, which
-// sorts every source's items by the same key and splits them into
-// segments around three's own: segment 0 is drawn at once, before three's
-// first item; segment k right after three draws its item k - 1 (that
-// item's onAfterRender, armed after the phase). The frame's blending order
-// is then the one three would have drawn everything in.
-//
-// This pass's own items: the map's blended buckets, and objects drawn with
-// three's basic and sprite materials (the command posts' holograms, beams
-// and flares). three still lists them: its culling, its keys and the game's
-// own visibility stand. After the near phase, those registered are taken
-// out of three's list in the near scene's own render (any other, a
-// mirror's, still draws them with three), each a record of its key (and an
-// object's matrix and material values), which the renderer draws in their
-// place, each as three would: a double-sided one twice, back faces then
-// front, each with three's own program for that side. Each is registered
-// once three has drawn it as it is now, and drawn by three again when three
-// would draw it with another program.
+// The near walk publishes blended map buckets and object rows with their
+// authored sort keys. Rust merges them with effects, water, instances and
+// lines in one stable list. No JS item or callback splits that execution.
+// Reflection preparation uses the same producer with its own camera packet.
+// Material/source registration remains cold; culling and transform production
+// still follow the scene shells until the native scene registry consumes them.
 import * as THREE from "three";
 import { ownedEffectProgram } from "./effect-material.js";
 import { ownsEffectSource } from "./programs.js";
@@ -53,7 +24,6 @@ const POLICY = {
 };
 const IDENTITY = new THREE.Matrix4();
 // GL enums for three's blending and depth functions (WebGLState).
-const copyOrder = (a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || b.key[2] - a.key[2] || a.key[3] - b.key[3];
 const GL = {
   ADD: 0x8006, SUBTRACT: 0x800a, REVERSE_SUBTRACT: 0x800b, MIN: 0x8007, MAX: 0x8008,
   ZERO: 0, ONE: 1, SRC_COLOR: 0x0300, ONE_MINUS_SRC_COLOR: 0x0301, SRC_ALPHA: 0x0302, ONE_MINUS_SRC_ALPHA: 0x0303,
@@ -154,12 +124,6 @@ class TransparentPass {
     // Three's render list of the near scene this frame, the items it still
     // draws itself, and the hooks armed on them (object -> hook).
     this.list = null;
-    this.three = [];
-    this.segmentStats = [];
-    // What runs after the list's last draw in this render (a pass's draw in
-    // the transparent phase sets it; screen.js fog): after the renderer's
-    // last segment or three's last item, whichever comes last.
-    this.atEnd = null;
     this.taken = new Map();
     this.candidates = [];
     // Objects found before three listed the scene (beforeSort) that could not
@@ -179,46 +143,12 @@ class TransparentPass {
     this.objectStride = core.rust.transparent_object_stride();
   }
 
-  // After the near phase (or a mirror's, in the mirror's render): take what
-  // this pass draws out of three's transparent list, then arm the
-  // transparent phase (or the mirror's) on the item three draws just before
-  // that list. After the transparent phase: arm each later segment on the
-  // item three draws just before it. When the near scene is drawn in place
-  // of three's render (near.js), its walk's items stand for three's list,
-  // all of them this pass's, and the transparent phase follows at once, as
-  // deferred as the near phase.
-  // Replacing renderObject's callbacks requires explicit ordering boundaries.
-  // Opaque lines and the far image finish before any transparent reader copies
-  // depth/colour. Each copy or line then splits the sorted Rust stream, so a
-  // reader sees the scene at exactly its authored place in that stream.
-  afterPhase(name, ctx) {
-    if (name === "near" || name === "mirror") {
-      this.core.byName.lines.drawOpaque(ctx);
-      // The far image is the last opaque draw, depth tested against geometry,
-      // before transparent sources capture their opaque depth/colour copies.
-      if(ctx.walked){
-        this.core.byName.near.writeImage(ctx.camera);
-        this.core.phase("image",ctx.renderer,ctx.scene,ctx.camera,ctx.defer,null,{steps:1});
-      }
-      this.atEnd = null;
-      this.frameNo++;
-      this.takenCount = 0;
-      this.list = this.walkedList(ctx.walked || []);
-      this.take(this.list.transparent, ctx);
-      if (this.list.transparent.length) throw new Error("Unclaimed Rust transparent items");
-      this.core.phase(name === "near" ? "transparent" : "mirrorTransparent", ctx.renderer, ctx.scene, ctx.camera, ctx.defer, ctx.walked);
-    } else if (name === "transparent" || name === "mirrorTransparent") {
-      for (let k=0;k<(this.commands?.length || 0);k++) {
-        const command = this.commands[k];
-        this.core.byName.lines.drawOne(command.line,ctx);
-        const tail = this.core.rust.transparent_segment(k + 1), stats = this.core.phaseStats[name];
-        for (let i=0;i<tail.length;i++) stats[i] += tail[i];
-        this.core.stale = true;
-      }
-      const end = this.atEnd;
-      this.atEnd = null;
-      if (end) end();
-    }
+  // NearPass's walk supplies candidates. Sorting and interleaved line/copy
+  // execution belong to the native list, with no later JS continuation.
+  prepare(ctx) {
+    this.frameNo++;this.takenCount=0;
+    this.list=this.walkedList(ctx.walked || []);
+    this.take(this.list.transparent,ctx);
   }
 
   // The list three would have made of the near scene, as near.js walked it:
@@ -400,12 +330,7 @@ class TransparentPass {
     }
     this.candidates.length = 0;
     core.views();
-    const commands = this.commands ??= [];
-    commands.length = 0;
-    for (const command of core.byName.lines.transparent) commands.push(command);
-    commands.sort(copyOrder);
-    for (let k=0;k<commands.length;k++) core.transparentKeys.set(commands[k].key, k*4);
-    ctx.commands = commands.length;
+
   }
 
 

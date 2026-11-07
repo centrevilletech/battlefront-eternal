@@ -13,6 +13,7 @@ mod interface;
 mod instances;
 mod motion;
 mod post;
+mod frame;
 mod shadow;
 mod terrain;
 mod transparent;

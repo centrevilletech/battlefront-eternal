@@ -6,17 +6,25 @@ import * as THREE from 'three';
 import { stormGeometry } from '../src/ocean-storm.js';
 import { OceanSurface, storms } from '../src/ocean-surface.js';
 import { PROBE_LAYER } from '../src/sky-probe.js';
+import { BattleFrame } from '../src/rust-render/frame.js';
+import { FACTS as F, STATE as S, ROLE as R } from '../src/rust-render/frame-layout.js';
 import { lighting } from '../src/materials.js';
 import { buildWorld, SKY_ORDER } from '../src/world.js';
 
 // Kamino's weather: rain (Type Streaks) on the sea, and with it the storm.
 const RAIN={precipitation:{Type:['Streaks']}};
 
+// Surface fixtures exercise native weather, not a GPU. The required frame
+// publisher receives their sky inputs; scheduling is tested in frame_plan.rs.
+function frameHost(graphics){
+ graphics.rust={frame:{cloud(){},probe(){}}};
+}
+
 function fixture(){
  let mode='enhanced',listener;
  const settings={get:()=>mode,onChange:fn=>{listener=fn;return()=>{listener=null;}}};
  const graphics={scene:new THREE.Scene(),farScene:new THREE.Scene(),settings,sky:new THREE.Group()};
- graphics.farScene.add(graphics.sky);
+ graphics.farScene.add(graphics.sky);frameHost(graphics);
  const texture=new THREE.Texture();
  const data={grid:4,cell:160,height:-8,offset:[320,320],cells:[[2,2]],look:{MainTexture:['sea'],WindSpeed:[25]}};
  const ocean=new OceanSurface({data,texture:()=>texture,graphics,weather:RAIN});
@@ -74,7 +82,7 @@ function stormSky(){
  });
  const texture=new THREE.Texture();
  buildWorld(graphics,{name:'kam1',meshes},new Float32Array(verts).buffer,new Uint32Array(indices).buffer,()=>texture);
- const imported=graphics.skyLayers.map(({mesh})=>mesh.material);
+ const imported=graphics.skyLayers.map(({mesh})=>mesh.material);frameHost(graphics);
  const data={grid:4,cell:160,height:-8,offset:[320,320],cells:[[2,2]],look:{MainTexture:['sea'],WindSpeed:[25]}};
  const ocean=new OceanSurface({data,texture:()=>texture,graphics,weather:RAIN});
  return {ocean,graphics,imported,setMode:m=>{mode=m;listener('oceanEffects');}};
@@ -161,7 +169,7 @@ function calmSea(){
  });
  const texture=new THREE.Texture();
  buildWorld(graphics,{name:'kas1',meshes},new Float32Array(verts).buffer,new Uint32Array(indices).buffer,()=>texture);
- const imported=graphics.skyLayers.map(({mesh})=>mesh.material);
+ const imported=graphics.skyLayers.map(({mesh})=>mesh.material);frameHost(graphics);
  const data={grid:8,cell:256,height:-45,offset:[1024,1024],cells:[[0,0],[7,7],[0,7],[7,0]],
    look:{MainTexture:['kas1_water'],RefractionColor:[45,53,74,255],ReflectionColor:[191,191,191,191],OceanEnable:[0],WindSpeed:[0]}};
  const ocean=new OceanSurface({data,texture:()=>texture,graphics,weather:null});
@@ -200,30 +208,42 @@ test('a sea under a dry sky takes the waves alone and keeps the map sky as it is
  assert.ok(graphics.skyLayers.every(({mesh},i)=>!mesh.layers.isEnabled(PROBE_LAYER)&&mesh.visible&&mesh.material===imported[i]));
 });
 
-test('the sky probe draws only the sky, as the eye sees it, once a second or when the eye climbs',()=>{
- const {ocean,graphics,setMode}=calmSea(),probe=ocean.waves.probe,drawn=[];
- const renderer={autoClear:false,shadowMap:{autoUpdate:true},xr:{enabled:false},coordinateSystem:THREE.WebGLCoordinateSystem,
-   getRenderTarget:()=>null,getActiveCubeFace:()=>0,getActiveMipmapLevel:()=>0,setRenderTarget(){},
-   render(){throw Error('A sky probe must use the required Rust phase');}};
+test('native capture decisions publish six sky-only probe views with the authored eye follow',()=>{
+ const {ocean,graphics,setMode}=calmSea(),probe=ocean.waves.probe,drawn=[],targets=[];
+ const renderer={autoClear:false,shadowMap:{autoUpdate:true},coordinateSystem:THREE.WebGLCoordinateSystem,
+   render(){throw Error('Preparing sky facts cannot draw');}};
  graphics.renderer=renderer;
- // Observe the six required Rust submissions, with no native draw available.
- graphics.rust={cover(phase,owner,scene,camera){
-   assert.equal(phase,'probe');assert.equal(owner,renderer);
-   const seen=[];scene.traverse(o=>{if(o.isMesh&&o.visible&&o.layers.test(camera.layers))seen.push(o.name);});
-   drawn.push({seen,autoClear:owner.autoClear,shadows:owner.shadowMap.autoUpdate});
- }};
+ let selected=true;
+ const core={graphics,renderer,frameFacts:new Float64Array(F.LEN),frameState:new Float64Array(S.LEN),views(){},
+   rust:{frame_select_frame(){core.frameState[S.PROBE_CAPTURE]=+selected;}},
+   cover(name,owner,scene,camera){
+     assert.equal(name,'probe');assert.equal(owner,renderer);assert.equal(scene,graphics.farScene);
+     const seen=[];scene.traverse(o=>{if(o.isMesh&&o.visible&&o.layers.test(camera.layers))seen.push(o.name);});
+     drawn.push({seen,role:frame.role,camera});
+   }};
+ // Native policy supplies the capture answer. Reuse the actual view producer
+ // rather than rebuilding its camera/face logic or its deleted JS cadence.
+ const frame={active:true,core,probe:BattleFrame.prototype.probe,
+   target(target,face=0,level=0){targets.push([target,face,level]);}};
+ core.frame=frame;graphics.rust=core;
  const camera=new THREE.PerspectiveCamera();camera.position.set(167,-22,147);
  ocean.update(0,camera);
- assert.equal(probe.captures,1);assert.equal(drawn.length,6,'six faces');
+ assert.equal(probe.captures,1);assert.equal(drawn.length,6);
  const sky=graphics.skyLayers.map(({mesh})=>mesh.name).join();
- assert.ok(drawn.every(face=>face.seen.join()===sky&&face.autoClear&&!face.shadows));
+ assert.ok(drawn.every(face=>face.seen.join()===sky));
+ assert.deepEqual(drawn.map(face=>face.role),Array.from({length:6},(_,i)=>R.PROBE0+i));
+ assert.deepEqual(targets.slice(0,6).map(([target,face,level])=>[target===probe.target,face,level]),Array.from({length:6},(_,i)=>[true,i,0]));
+ assert.equal(targets.at(-1)[0],null);
+ assert.equal(core.frameFacts[F.PROBE_ENABLED],1);assert.equal(core.frameFacts[F.PROBE_TIME],0);
+ assert.deepEqual([...core.frameFacts.subarray(F.PROBE_EYE,F.PROBE_EYE+3)],[167,-22,147]);
  assert.equal(renderer.autoClear,false);assert.equal(renderer.shadowMap.autoUpdate,true);
- // Around the eye as graphics.render() stands it: the mountains by their MovementScale.
  assert.deepEqual(probe.camera.position.toArray(),[167,-22,147]);
  assert.ok(Math.abs(graphics.skyLayers[1].mesh.position.y-(.995*-22+.005*-40))<1e-9);
- ocean.update(.5,camera);assert.equal(probe.captures,1,'held within the second');
- camera.position.y+=5;ocean.update(0,camera);assert.equal(probe.captures,2,'the eye climbed');
- ocean.update(1,camera);assert.equal(probe.captures,3,'a second on');
- setMode('classic');ocean.update(5,camera);assert.equal(probe.captures,3,'not in Classic');
+ selected=false;ocean.update(.5,camera);
+ assert.equal(probe.captures,1);assert.equal(drawn.length,6,'held native answer prepares no faces');
+ assert.equal(core.frameFacts[F.PROBE_TIME],.5,'held views still publish current facts');
+ selected=true;camera.position.y+=5;ocean.update(0,camera);
+ assert.equal(probe.captures,2);assert.deepEqual(probe.camera.position.toArray(),[167,-17,147]);
+ setMode('classic');ocean.update(5,camera);assert.equal(probe.captures,2,'Classic has no enhanced probe request');
  ocean.dispose();
 });

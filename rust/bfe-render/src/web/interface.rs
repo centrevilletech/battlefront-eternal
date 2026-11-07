@@ -16,6 +16,7 @@ impl BfeRenderer {
     // Scalar commands reference persistent bytes rather than marshalling a new
     // byte slice for every changed attribute. The mirror owns recovery state.
     pub fn interface_upload_frame(&mut self, stream: u32, offset: usize, length: usize) {
+        if self.r.frames.collecting {self.r.frame_interface_upload(stream as usize,offset,length);return;}
         let stream = &self.r.interface.streams[stream as usize];
         let end = offset.saturating_add(length).min(stream.data.len());
         if end > offset {

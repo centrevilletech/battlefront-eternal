@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { Upscaler } from "../src/upscaler.js";
+import { BINDING as B, ROLE as R } from "../src/rust-render/frame-layout.js";
 import { STATE } from "../src/rust-render/post-layout.js";
 import { actorMaterial } from "../src/materials.js";
 import { ownedEffectMaterial, ownedBasicEffect, ownedEffectProgram } from "../src/rust-render/effect-material.js";
@@ -96,7 +97,7 @@ test("a mirror's render of the near scene draws the near phase's passes for the 
   mirror.updateMatrixWorld(true);
   mirror.userData.mirror = true;
   setTarget({ name: "reflection" });
-  core.phase("mirror", renderer, scene, mirror);
+  core.publishView("mirror", renderer, scene, mirror);
   assert.ok(calls.some((c) => c[0] === "mirror_frame"));
   assert.ok(!calls.some((c) => c[0] === "frame"));
   calls.length = 0;
@@ -110,7 +111,7 @@ test("foliage: Rust selects every registered card class", async () => {
   const kind = { grass:true,map,def:{Alpha:.5},cards:[{x:0,y:0,z:0,grey:.7,width:.5,height:1,phase:2,rate:1,part:0}],instances:[instance] };
   const foliage = { kinds: new Map([["a", kind]]), time: 2.5, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
-  core.phase("near", renderer, scene, core.graphics.camera);
+  core.publishView("near", renderer, scene, core.graphics.camera);
   assert.equal(foliage.drawer, core.byName.foliage, "the near phase attaches the drawer");
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(4, 5, 6);
@@ -136,7 +137,7 @@ test("foliage under shadows: a card program that reads modelMatrix (three's worl
   const kind = {grass:true,map:new THREE.Texture(),def:{},cards:[],instances:[]};
   const foliage = { kinds: new Map([["a", kind]]), time: 0, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
-  core.phase("near", renderer, scene, core.graphics.camera);
+  core.publishView("near", renderer, scene, core.graphics.camera);
   foliage.drawer.select(foliage, core.graphics.camera);
   assert.equal(calls.find(c=>c[0]==="foliage_class")[3],true,"native shadow feature");
   assert.ok(foliage.drawer.classes.has(kind));
@@ -239,7 +240,7 @@ test("water: its Low surface and rings are items of the transparent list, with t
   scene.userData.water = { lowPass, tintPass: null, mirrorPass: null, rings };
   camera.position.set(0, 0, 1);
   camera.updateMatrixWorld(true);
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "water_surface").length, 1);
   assert.equal(calls.filter((c) => c[0] === "water_rings").length, 1);
   assert.deepEqual(calls.find((c) => c[0] === "water_surface").slice(3), [0x0203, 1 | 2 | 4, 2], "depth test, write and colour, both sides at once");
@@ -252,12 +253,12 @@ test("water: its Low surface and rings are items of the transparent list, with t
   assert.equal(input[SURFACE], 0, "rings with nothing in their range: not listed");
   rings.geometry.setDrawRange(0, 6);
   rings.geometry.attributes.position.array.set([1, 2, 3], 3);
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.deepEqual([input[SURFACE], input[SURFACE + 3]], [1, -18]);
   assert.deepEqual([...core.waterRingsPosition.subarray(3, 6)], [1, 2, 3], "every vertex of the rings the first time");
   assert.deepEqual([input[8 * SURFACE], input[8 * SURFACE + 1]], [0, 4]);
   group.visible = false;
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.equal(input[0], 0, "a hidden parent hides it");
   });
 
@@ -306,7 +307,7 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   const captures = [];
   tintPass.onBeforeRender = (renderer, s, cam) => { captures.push(cam); tintPass.material.uniforms.time.value = 4; };
   scene.userData.water = { lowPass: null, tintPass, mirrorPass, rings: null, shore: { meshes: shoreMeshes } };
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "water_surface").length, 4);
   assert.equal(captures.length, 1, "the opaque scene copied once, before the list");
   const input = core.waterInput, SURFACE = 27 + 32 * 18 + 35, ARRAY = 27 + 32 * 18;
@@ -324,16 +325,16 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   shore.needsUpdate = true;
   shoreGeometry.instanceCount = 2;
   input[SETS] = 0;
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.deepEqual([input[SETS], input[SETS + 1]], [1, 2], "sent again when three would upload them");
   assert.deepEqual([...core.waterInstances.subarray(4, 8)], [1, 2, 3, 4]);
   assert.equal(captures.length, 2);
   input[SETS] = 0;
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.deepEqual([input[SETS], input[SETS + 1]], [0, 2], "unchanged: not sent");
   // Hidden (the eye under the surface, a mirror's render): no copy.
   group.visible = false;
-  core.phase("transparent", core.renderer, scene, camera);
+  core.publishView("transparent", core.renderer, scene, camera);
   assert.equal(captures.length, 3, "no copy with the tint pass hidden");
   assert.equal(input[0], 0);
   assert.equal(graphics.scene, scene);
@@ -460,10 +461,8 @@ test("the near scene: Rust draws every registered item", () => {
   list.opaque.push({ object: graphics.background });
   assert.equal(core.coverNear(renderer, scene, camera), true);
   assert.equal(before, 1, "three's start of a render");
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "frame", "screen_frame", "transparent_frame"]);
-  const begin = calls.find((c) => c[0] === "near_begin");
-  assert.deepEqual([...begin[1]], [0, 0, 0, 1], "three's clear colour");
-  assert.equal(begin[2], 0, "clear before opaque geometry; the far image follows it");
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$/.test(n) && !n.startsWith("frame_")), ["frame", "screen_frame", "transparent_frame"]);
+  assert.deepEqual([...core.frameBindings.subarray(R.NEAR*B.LEN+B.CLEAR,R.NEAR*B.LEN+B.CLEAR+4)],[0,0,0,1]);
   assert.equal(core.postInput[1], -2, "into the target bound now");
   // The hologram's record, keyed as projectObject keys it.
   const z = new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld)
@@ -485,7 +484,7 @@ test("the near scene: an item no pass claims is skipped and reported once, the f
   scene.updateMatrixWorld(true);
   assert.equal(core.coverNear(renderer, scene, camera), true);
   assert.equal(core.byName.near.stopped, wall);
-  assert.ok(calls.some((c) => c[0] === "near_begin"), "everything owned is still drawn");
+  assert.ok(calls.some((c) => c[0] === "frame_publish_frame"), "everything owned is still drawn");
   assert.equal(core.failure, undefined, "no sticky failure: later frames still render");
   assert.equal(core.errors.length, 1);
   assert.match(core.errors[0], /Not drawn: stray-wall Mesh material MeshBasicMaterial/);
@@ -522,18 +521,18 @@ test("phases drawn between three's renders reset three's state once, when three 
   core.byName.view.draw = function () { this.complete = true; };
   const viewScene = new THREE.Scene();
   assert.equal(core.cover("view", renderer, viewScene, camera), true);
-  core.phase("image", renderer, null, camera, true);
-  core.phase("hud", renderer, scene, camera, true);
+  core.publishView("image", renderer, null, camera);
+  core.publishView("hud", renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "resetState").length, 0, "none yet");
   assert.equal(core.stale, true);
   core.settle();
   assert.deepEqual(calls.slice(-2).map((c) => c[0]), ["resetState", "setRenderTarget"]);
   assert.equal(calls.filter((c) => c[0] === "resetState").length, 1, "one for the three phases");
-  // A phase drawn inside three's render resets at once.
+  // Publishing another scene does not introduce a state-reset continuation.
   calls.length = 0;
-  core.phase("near", renderer, scene, camera);
-  assert.deepEqual(calls.slice(-2).map((c) => c[0]), ["resetState", "setRenderTarget"]);
-  assert.equal(core.stale, false);
+  core.publishView("near", renderer, scene, camera);
+  assert.equal(calls.some(c=>c[0]==="resetState"),false);
+  assert.equal(core.stale, true);
 });
 
 test("a command post's beam, hidden until the player comes near: registered from its catalog program, taken from three's list the first frame it shows", () => {
@@ -578,7 +577,7 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   scene.add(hidden);
   scene.updateMatrixWorld(true);
   assert.equal(core.coverMirror(renderer, scene, mirror), true);
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "screen_frame", "mirror_transparent_frame"]);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$/.test(n) && !n.startsWith("frame_")), ["mirror_frame", "screen_frame", "mirror_transparent_frame"]);
   assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
   assert.equal(core.postInput[1], -2, "the image into the target bound now");
   assert.equal(core.stale, true, "three's state reset when three is next used");

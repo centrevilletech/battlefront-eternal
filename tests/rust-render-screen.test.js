@@ -77,7 +77,7 @@ test("the storm's cloud panorama: drawn into its target by the renderer from its
   assert.deepEqual([...step.subarray(5 + 1, 5 + 4)], [2, 1, 2], "the wind");
   assert.deepEqual([...core.postStates.subarray(0, 2)], [0, 0], "a full-screen pass's state");
   renderer.autoClear = true;
-  assert.throws(() => core.cover("skyClouds", renderer, pass, camera), /Incomplete Rust/);
+  assert.equal(core.cover("skyClouds", renderer, pass, camera),true,"native screen policy does not consult autoClear");
 });
 
 // Tint draws over the completed canvas with the authored separate-alpha blend.
@@ -107,38 +107,18 @@ test("the Low water's underwater tint: over the finished frame, blended as three
 // The texture copy and shader draw are separate ordered resource operations.
 // An old target alias must not survive a resize or overwrite the scene early.
 // The fixture checks claimed ownership and required draw submission together.
-test("underwater fog copies the completed scene before its Rust composite and omits the disabled effect", () => {
-  const b = bridge(), { core, renderer, scene, camera, calls, graphics } = b;
-  const fog = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
-    uniforms: { sceneColor: { value: new THREE.Texture() } },
-    transparent: true, blending: THREE.NoBlending, depthTest: false, depthWrite: false,
-  }));
-  fog.frustumCulled = false;
-  scene.add(fog);
-  scene.userData.water = { underwaterFog: fog, captureSurface() { calls.push(["fog-copy"]); } };
-  renderer.properties.get(fog.material).currentProgram = fakeProgram([["sceneColor", GL.SAMPLER_2D]]);
-  const pass = core.byName.fog, ctx = { renderer, scene, camera };
-  pass.draw(ctx);
-  pass.place(renderer, scene, camera, graphics.sceneTarget);
-  assert.equal(fog.material.visible, false);
-  pass.draw(ctx);
-  calls.length = 0;
-  core.byName.transparent.atEnd();
-  assert.deepEqual(calls.filter((c) => ["fog-copy", "screen_frame"].includes(c[0])).map((c) => c[0]), ["fog-copy", "screen_frame"]);
-  assert.equal(fog.material.visible, false);
-});
-
-test("owned underwater shells stay hidden outside the scene target", () => {
+test("underwater fog publishes its screen packet without a transparent draw callback", () => {
   const {core,renderer,scene,graphics,camera,calls}=bridge();
   const fogMaterial=bindProgram(new THREE.Material(),"effects/water-underwater-fog-s0");
   fogMaterial.uniforms={cameraRange:{value:new THREE.Vector2(.1,100)},tint:{value:new THREE.Color()},time:{value:0},sceneColor:{value:new THREE.Texture()},sceneDepth:{value:new THREE.Texture()}};fogMaterial.depthTest=false;fogMaterial.depthWrite=false;
-  const fog=new THREE.Mesh(new THREE.PlaneGeometry(2,2),fogMaterial);scene.add(fog);scene.userData.water={underwaterFog:fog,captureSurface(){calls.push(["fog-copy"]);}};
-  core.byName.fog.place(renderer,scene,new THREE.PerspectiveCamera(),null);
-  assert.equal(fogMaterial.visible,false);
-  core.byName.fog.place(renderer,scene,camera,graphics.sceneTarget);
-  assert.equal(fogMaterial.visible,false);
-  calls.length=0;
-  core.byName.fog.drawComposite(renderer,scene,camera);
-  assert.deepEqual(calls.filter(c=>["fog-copy","screen_frame"].includes(c[0])).map(c=>c[0]),["fog-copy","screen_frame"]);
+  const fog=new THREE.Mesh(new THREE.PlaneGeometry(2,2),fogMaterial);scene.add(fog);scene.userData.water={underwaterFog:fog,captureSurface(){calls.push(["fog-copy-fact"]);}};
+  const pass=core.byName.fog;
+  pass.place(renderer,scene,new THREE.PerspectiveCamera(),null);assert.equal(fogMaterial.visible,false);
+  pass.place(renderer,scene,camera,graphics.sceneTarget);assert.equal(fogMaterial.visible,false);
+  calls.length=0;core.frame.begin(true);pass.draw({renderer,scene,camera});
+  assert.equal(calls.filter(c=>c[0]==="fog-copy-fact").length,1);
+  assert.equal(calls.some(c=>c[0]==="screen_frame"),false);
+  assert.equal(calls.filter(c=>c[0]==="frame_publish_frame").length,1);
+  assert.equal(core.byName.transparent.afterPhase,undefined);
   assert.equal(renderer.properties.get(fogMaterial).currentProgram,undefined);
 });

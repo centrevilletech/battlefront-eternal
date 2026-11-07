@@ -218,7 +218,7 @@ export class MotionVectors {
     // The view scene to mark fixed, when it shows anything.
     const locked = viewScene && view && viewScene.children.some((child) => child.visible && !child.isLight) ? viewScene : null;
     if (!this.drawer.cover(renderer, this, { target, camera, viewScene: locked, view, depth })) this.drawer.core.fail(new Error(`Incomplete Rust motion: ${this.drawer.why}`));
-    this.commit();
+
     return drawn;
   }
 

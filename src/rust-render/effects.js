@@ -26,6 +26,7 @@
 // Volumes and soft fountain spray draw into their own targets, then their
 // composites enter the same sorted list. Color and depth copies are sorted
 // Rust commands. First-person arcs use the same batch upload in the view list.
+import { FACTS as F } from "./frame-layout.js";
 import * as THREE from "three";
 import { ownedEffectProgram, effectProgramKeys } from "./effect-material.js";
 import { ownedProgram, ownsEffectSource } from "./programs.js";
@@ -542,7 +543,7 @@ class EffectsPass {
     for (let k = 0; k < record.attributes.length; k++) at = copy(data, at, b.arrays[record.attributes[k][0]], 0, count * record.sizes[k]);
     for (const [name] of record.values) at = put(data, at, b.material.uniforms[name].value);
     this.writeSoft(depth);
-    core.rust.fx_into_frame(record.id, texture, target.width, target.height, count, 0, b.capacity);
+    core.frame.volume(record.id,texture,target,count,b.capacity,at);
     record.capacity = b.capacity;
     renderer.resetState();
     renderer.setRenderTarget(source);
@@ -1278,6 +1279,8 @@ class EffectsPass {
     input[IN_DRAWS] = draws;
     input[IN_OWNERS] = draws ? owners : 0;
     this.writeSoft(depth);
+    ctx.fxWords=at;
+    if(depthCopy){core.views();core.frameFacts[F.DEPTH_SORTED]=1;}
     this.draws = draws;
     this.instances = instances;
   }

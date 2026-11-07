@@ -2,6 +2,7 @@
 // and CPU descriptors. Rust owns texture storage and targets. This core
 // registers those resources, publishes frame
 // inputs, and treats incomplete coverage or a failed program as a fatal error.
+import { BattleFrame } from "./frame.js";
 import { actorFailure, isActorMaterial } from "./actors.js";
 import { rendererFailure } from "./failure.js";
 import { rendererModule } from "./load.js";
@@ -63,42 +64,11 @@ const LAMP_UNIFORMS = new Set(["localLightPositions", "localLightColors", "local
 const SHADOW = { VALUES: 0, MATRICES: 32, PLANES: 96, SLICES: 144, FLOATS: 160, CASCADES: 4 };
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
 
-// The phases of a frame, in the order three draws them: the view whose frame
-// block a phase's passes read (written before they draw; null: none) and
-// the renderer's call that draws them (renderer.rs).
-const PHASES = {
-  far: { view: VIEW_FAR, draw: (rust) => rust.far_frame() },
-  near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
-  // ctx.image: the far scene's image drawn first (screen.js).
-  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
-  view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
-  hud: { view: null, draw: (rust) => rust.hud_frame() },
-  // The near phase's passes from a mirror camera (water.js's reflection).
-  mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
-  // The transparent phase's passes from that mirror camera.
-  mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
-  // Clear the near target before its opaque geometry.
-  begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
-  // The far phase's passes from a water's mirror camera (water.js reflect),
-  // into the mirror's target, before the frame's own far scene.
-  farMirror: { view: VIEW_FAR_MIRROR, draw: (rust) => rust.far_mirror_frame() },
-  // The far phase's passes for a sky probe's cube face (sky-probe.js), into
-  // the face three bound; its frame blocks are the far pass's own, one a
-  // face (ctx.face, which the far pass reads off the face's camera).
-  probe: { view: VIEW_FAR, draw: (rust, ctx) => rust.far_probe_frame(ctx.face ?? 0) },
-  // The temporal upscaler's motion of the bodies that move on their own
-  // (motion.js), once the scenes are drawn.
-  motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
-  // A shadow cascade's pass in three's shadow pass's place (shadow.js).
-  shadow: { view: null, draw: (rust) => rust.shadow_frame() },
-  // Full-screen passes three renders on their own (screen.js): the storm's
-  // cloud panorama into its target (storm-sky.js), and the Low water's tint
-  // over the finished frame with the eye under the surface (water.js).
-  lines: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
-  image: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
-  skyClouds: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
-  underwater: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
-};
+// Scene inputs still have JS producers. They publish named views; execution
+// and dependency order live exclusively in frame_plan.rs.
+const VIEWS = {far:VIEW_FAR,near:VIEW_NEAR,transparent:VIEW_NEAR,view:VIEW_FIRST_PERSON,
+  hud:null,mirror:VIEW_SPARE,mirrorTransparent:VIEW_SPARE,farMirror:VIEW_FAR_MIRROR,
+  probe:VIEW_FAR,motion:null,shadow:null,lines:null,image:null,skyClouds:null,underwater:null};
 
 // three's renderer's entry points that read or change its state cache, each
 // settling a deferred phase's GL state first (watchThree).
@@ -212,7 +182,7 @@ export class RustRender {
     this.passes = [];
     if (graphics.scene) this.watchScene(graphics.scene);
     // The passes, in the renderer's order.
-    this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
+    this.phases = Object.fromEntries(Object.keys(VIEWS).map((name) => [name, []]));
     // A mirror draws the near phase's passes, then the transparent phase's;
     // its far scene, the far phase's.
     this.phases.mirror = this.phases.near;
@@ -224,6 +194,7 @@ export class RustRender {
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
     this.interface = new InterfacePass(this);
     bindInterfaceRenderer(this.renderer, this.interface);
+    this.frame = new BattleFrame(this);
   }
 
   // The scene and texture owners keep their CPU resources. Rust replays its
@@ -251,12 +222,6 @@ export class RustRender {
     this.byName.hud.full = true;
     this.byName.water.full = true;
     for (const window of this.graphics.cascadeWindows || []) window.invalidate();
-    const water = this.graphics.scene.userData.water;
-    if (water) {
-      water.reflectFrames = 0;
-      if (water.ocean?.probe) water.ocean.probe.last = -Infinity;
-      if (water.ocean?.storm) water.ocean.storm.lastCloud = -Infinity;
-    }
     this.graphics.upscaler?.invalidate?.();
     renderer.resetState();
     this.contextLost = false;
@@ -624,53 +589,29 @@ export class RustRender {
 
 
 
-  // A phase of the frame, at its point in three's: the frame block written
-  // for its view, its passes in order, then the renderer's call that draws
-  // them. Three's state is reset after it, and the target it was drawing
-  // into bound again.
-  // defer: three draws nothing right after this phase (a scene's phase drawn
-  // in place of three's render, between three's renders): its state is reset
-  // only when three is next used (settle), so that phases drawn one after
-  // another reset it once. walked: the transparent list's items as near.js
-  // walked the scene for three's render it draws in place of (ctx.walked).
-  // values: more of the phase's values (ctx), for its passes and its call.
-  phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
+  // Prepare one semantic view without issuing draws. The frame bank snapshots
+  // these live prefixes before another camera overwrites the working inputs.
+  publishView(name, renderer, scene, camera, walked = null, values = null) {
     if (this.contextLost) return;
-    if(this.resources.failure)throw this.resources.failure;
+    if (this.resources.failure) throw this.resources.failure;
     const revision=this.graphics.textureRevision ?? 0;
     if(revision!==this.textureRevision || this.resources.gpu.epoch()!==this.resourceEpoch){
       this.textureRevision=revision;
       for(const texture of this.textureSources)if(typeof texture === "number" || this.resources.owns(texture))this.texture(texture,true);
       this.resourceEpoch=this.resources.gpu.epoch();
     }
-
-    const phase = PHASES[name], target = renderer.getRenderTarget();
-    if (phase.view !== null) this.writeFrame(scene, camera, phase.view);
-    // What the passes have written into the renderer's input so far: records
-    // and bones, and where each skeleton's bones are.
-    const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map(), defer, walked };
-    if (values) Object.assign(ctx, values);
-    for (const pass of this.phases[name]) pass.draw?.(ctx);
-    if (name === "near" && this.recording?.keepFrames > 0) {
-      this.recording.keepFrames--;
-      this.views();
-      this.recording.frames.push({ records: ctx.records, input: this.input.slice(0, this.recordsAt + ctx.records * this.stride), bones: this.bones.slice(0, ctx.bones * 16) });
+    if (VIEWS[name] !== null) this.writeFrame(scene,camera,VIEWS[name]);
+    const ctx=this.frame.context(name,scene,camera,walked,values);
+    for(const pass of this.phases[name])pass.draw?.(ctx);
+    if(ctx.priming)return ctx;
+    // The native-client capture explicitly requests a finite near-view input
+    // sample. Ordinary view publication retains its allocation-free path.
+    if(name==="near"&&this.recording?.keepFrames>0){
+      this.recording.keepFrames--;this.views();
+      this.recording.frames.push({records:ctx.records,input:this.input.slice(0,this.recordsAt+ctx.records*this.stride),bones:this.bones.slice(0,ctx.bones*16)});
     }
-    if (ctx.priming) { this.stale = true; return; }
-    const t0 = performance.now();
-    const stats = this.phaseStats[name] = phase.draw(this.rust, ctx);
-    this.phaseMs[name] = performance.now() - t0;
-    // A phase that made no GL call left three's state as it was, unless a
-    // pass registered something with GL calls of its own (ctx.reset).
-    if (stats?.[4] !== 0 || ctx.reset) {
-      if (defer) this.stale = true;
-      else {
-        this.stale = false;
-        renderer.resetState();
-        renderer.setRenderTarget(target);
-      }
-    }
-    for (const pass of this.passes) pass.afterPhase?.(name, ctx);
+    this.frame.publish(name,ctx);
+    return ctx;
   }
 
   // Three's state cache, out of date after a deferred phase, made good before
@@ -684,7 +625,7 @@ export class RustRender {
     renderer.__rustSettles = true;
     const resetState = renderer.resetState?.bind(renderer), setRenderTarget = renderer.setRenderTarget?.bind(renderer), getRenderTarget = renderer.getRenderTarget?.bind(renderer);
     this.settleThree = () => {
-      if (!this.stale) return;
+      if (!this.stale || this.frame?.active) return;
       this.stale = false;
       const target = getRenderTarget();
       resetState();
@@ -716,7 +657,7 @@ export class RustRender {
       scene.onBeforeRender(renderer, scene, camera, target);
       const passes = this.phases[name];
       for (const pass of passes) pass.complete = false;
-      this.phase(name, renderer, scene, camera, true);
+      this.publishView(name, renderer, scene, camera);
       const complete = passes.length > 0 && passes.every((pass) => pass.complete === true);
       if (complete) {
         this.resolve(renderer.getRenderTarget());
@@ -760,13 +701,7 @@ export class RustRender {
   // With three's state stale (a deferred phase), the binds are made directly
   // (three's cache is reset before its next use anyway).
   resolve(target) {
-    this.resources.resolve(target);
-  }
-
-  // Graphics.finishPost: native planning, drawing and history commit.
-  post() {
-    if (this.contextLost) return true;
-    try { return this.byName.post.cover(); } catch (error) { this.fail(error); }
+    if (!this.frame?.active) this.resources.resolve(target);
   }
 
   // Draw every near-scene item through Rust; incomplete ownership is fatal.
@@ -799,7 +734,7 @@ export class RustRender {
   // The near phase's stats and the time its renderer call took, as the
   // measurement tools read them, and what they read of the passes.
   get stats() { return this.phaseStats.near ?? null; }
-  get frameMs() { return this.phaseMs.near; }
+  get frameMs() { return this.phaseMs.frame; }
   get worldCount() { return this.byName.world.count; }
   get worldPending() { return this.byName.world.pending; }
   get bodyRecords() { return this.byName.instances.bodyRecords; }

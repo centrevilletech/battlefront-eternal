@@ -142,7 +142,7 @@ class MotionPass {
     this.pending = { camera, view, target, targetTexture, depthTexture, clear: true, bones, motion };
     this.complete = false;
     try {
-      core.phase("motion", renderer, null, camera, true);
+      core.publishView("motion", renderer, null, camera);
     } catch (error) {
       core.fail(error, renderer);
       this.complete = false;

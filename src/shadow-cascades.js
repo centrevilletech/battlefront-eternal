@@ -60,20 +60,3 @@ export class CascadeWindow {
     this.dirty = true;
   }
 }
-
-// What each cascade draws this frame.
-//   static   the static casters into the cache (the window landed somewhere
-//            new, or the cache was dropped)
-//   dynamic  the cached depth, then the moving casters, into the live map
-// The last cascade's moving casters (soldiers 100 m and further, a few
-// texels of 30 cm each) are redrawn every other frame; its live map holds
-// the frame before.
-export function planCascades(windows, frame, { alternateLast = true } = {}) {
-  return windows.map((window, i) => {
-    const last = alternateLast && windows.length > 2 && i === windows.length - 1;
-    return {
-      static: window.dirty,
-      dynamic: window.moved || window.dirty || !last || frame % 2 === 0,
-    };
-  });
-}

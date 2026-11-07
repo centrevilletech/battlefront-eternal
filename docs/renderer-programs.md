@@ -46,6 +46,21 @@ There are no post-step material shells or browser post-step arrays. Paced
 loading registers all eleven post variants before battle drawing. The boundary
 comes from `post-chain-layout.json` and `tools/render-post-layout.mjs`.
 
+The loaded battle publishes semantic view packets through the generated
+`frame-layout.json` boundary. `frame_plan.rs` owns cloud/probe cadence, mirror
+holds, cascade refreshes and the complete target/clear/copy/resolve schedule.
+`Renderer::battle_frame` borrows the existing resource bank and executes that
+schedule without browser scene or drawing callbacks. Mirror packets retain the
+previous shadow inputs; the main shadow refresh follows their execution.
+
+Scene preparation still reads three cameras, scene transforms and descriptors.
+The host snapshots only live record/bone/FX prefixes into retained native view
+storage before another camera overwrites the working inputs. Dynamic interface
+uploads belong to their UI packet. Lines join the existing native transparent
+sorter, alongside the sorted particle and fountain copy commands. The far image
+remains after opaque depth. Native post completion commits temporal history only
+after the planned chain succeeds; clipped frames invalidate that history.
+
 Interface Batch descriptors carry texture/mask values without Three materials
 or browser shader text. Menu and spawn scenes publish generated draw records to
 `interface_scene.rs`; Rust sorts their opaque/transparent groups and applies

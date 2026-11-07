@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { LINE as V, LIMIT as L } from "../src/rust-render/frame-layout.js";
 import {RustRender} from '../src/rust-render/index.js';
 import {standinModule,standinThree,fakeProgram} from './support/rust-standin.mjs';
 globalThis.location ??= {search:""};
@@ -36,8 +37,9 @@ test('tow strips, helper segments and loops retain topology and upload dynamic p
   assert.equal(f.pass.records.get(objects[0]).geometry,first);
   assert.equal(f.calls.filter(c=>c[0]==='geometry_buffer_data').length,2);
   assert.equal(f.calls.filter(c=>c[0]==='add_geometry').length,0);
-  f.pass.drawOpaque({renderer:f.renderer,scene:f.scene,camera:f.camera});
-  assert.ok(f.calls.some(c=>c[0]==='screen_frame'&&c[1]===3));
+  f.pass.prepare({renderer:f.renderer,scene:f.scene,camera:f.camera},2);
+  assert.ok(f.calls.some(c=>c[0]==='frame_lines_publish_frame'&&c[1]===2&&c[2]===3));
+  assert.equal(f.core.frameLines[2*L.LINES*V.LEN+V.STATE+9],3);
 });
 // Claiming an empty helper must not lose its later data or ignore visibility.
 // The ancestor check matches projectObject rather than only the leaf flag.
@@ -54,6 +56,11 @@ test('transparent lines join the blended command stream at the authored group an
   assert.equal(f.pass.opaque.length,0);assert.equal(f.pass.transparent.length,1);
   assert.deepEqual([...f.pass.transparent[0].key].slice(0,2),[5,17]);
   assert.equal(object.material.visible,true);
+  f.pass.prepare({renderer:f.renderer,scene:f.scene,camera:f.camera},2);
+  const at=2*L.LINES*V.LEN;
+  assert.equal(f.core.frameLines[at+V.TRANSPARENT],1);
+  assert.deepEqual([...f.core.frameLines.subarray(at+V.KEY,at+V.KEY+2)],[5,17]);
+  assert.ok(f.calls.some(c=>c[0]==='frame_lines_publish_frame'&&c[2]===1));
 });
 
 // The bundled renderer changed this contract from conventional NDC sorting.

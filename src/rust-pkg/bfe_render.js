@@ -127,6 +127,15 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {GpuResources} resources
+     * @returns {boolean}
+     */
+    battle_frame(resources) {
+        _assertClass(resources, GpuResources);
+        const ret = wasm.bferenderer_battle_frame(this.__wbg_ptr, resources.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     bones_len() {
@@ -511,6 +520,174 @@ export class BfeRenderer {
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @param {number} role
+     */
+    frame_admit_interface_frame(role) {
+        wasm.bferenderer_frame_admit_interface_frame(this.__wbg_ptr, role);
+    }
+    /**
+     * @param {GpuResources} resources
+     * @param {number} role
+     * @returns {boolean}
+     */
+    frame_aux_frame(resources, role) {
+        _assertClass(resources, GpuResources);
+        const ret = wasm.bferenderer_frame_aux_frame(this.__wbg_ptr, resources.__wbg_ptr, role);
+        return ret !== 0;
+    }
+    frame_begin_frame() {
+        wasm.bferenderer_frame_begin_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    frame_bindings_len() {
+        const ret = wasm.bferenderer_frame_bindings_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_bindings_ptr() {
+        const ret = wasm.bferenderer_frame_bindings_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    frame_cancel_frame() {
+        wasm.bferenderer_frame_cancel_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {string | undefined}
+     */
+    frame_error_frame() {
+        const ret = wasm.bferenderer_frame_error_frame(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]);
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_facts_len() {
+        const ret = wasm.bferenderer_frame_facts_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_facts_ptr() {
+        const ret = wasm.bferenderer_frame_facts_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_lines_len() {
+        const ret = wasm.bferenderer_frame_lines_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_lines_ptr() {
+        const ret = wasm.bferenderer_frame_lines_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} view
+     * @param {number} count
+     */
+    frame_lines_publish_frame(view, count) {
+        wasm.bferenderer_frame_lines_publish_frame(this.__wbg_ptr, view, count);
+    }
+    /**
+     * @returns {number}
+     */
+    frame_meta_len() {
+        const ret = wasm.bferenderer_frame_meta_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_meta_ptr() {
+        const ret = wasm.bferenderer_frame_meta_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    frame_overflow_frame() {
+        wasm.bferenderer_frame_overflow_frame(this.__wbg_ptr);
+    }
+    frame_plan_frame() {
+        wasm.bferenderer_frame_plan_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} role
+     * @returns {boolean}
+     */
+    frame_publish_frame(role) {
+        const ret = wasm.bferenderer_frame_publish_frame(this.__wbg_ptr, role);
+        return ret !== 0;
+    }
+    frame_reserve_frame() {
+        wasm.bferenderer_frame_reserve_frame(this.__wbg_ptr);
+    }
+    frame_select_frame() {
+        wasm.bferenderer_frame_select_frame(this.__wbg_ptr);
+    }
+    frame_shadow_reserve_frame() {
+        wasm.bferenderer_frame_shadow_reserve_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    frame_state_len() {
+        const ret = wasm.bferenderer_frame_state_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_state_ptr() {
+        const ret = wasm.bferenderer_frame_state_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_stats_len() {
+        const ret = wasm.bferenderer_frame_stats_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_stats_ptr() {
+        const ret = wasm.bferenderer_frame_stats_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_trace_len() {
+        const ret = wasm.bferenderer_frame_trace_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_trace_ptr() {
+        const ret = wasm.bferenderer_frame_trace_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} role
+     */
+    frame_ui_slot_frame(role) {
+        wasm.bferenderer_frame_ui_slot_frame(this.__wbg_ptr, role);
     }
     /**
      * @param {number} program
@@ -2784,6 +2961,12 @@ function __wbg_get_imports() {
         },
         __wbg_clearDepth_3dc1f52f96f29526: function(arg0, arg1) {
             arg0.clearDepth(arg1);
+        },
+        __wbg_clearStencil_29f687031586f5e6: function(arg0, arg1) {
+            arg0.clearStencil(arg1);
+        },
+        __wbg_clearStencil_59a8a925116b24ec: function(arg0, arg1) {
+            arg0.clearStencil(arg1);
         },
         __wbg_clear_3ffa1ed794f92a04: function(arg0, arg1) {
             arg0.clear(arg1 >>> 0);

@@ -1,5 +1,6 @@
 // Seeded CDP battle loader and context validity checks.
 import fs from 'node:fs';
+import { STATE, STATS, ROLE } from '../../src/rust-render/frame-layout.js';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -191,7 +192,19 @@ export const HELPERS_SRC = `(() => { const b = __bf, g = b.graphics;
   G.resetFrame = () => { G.frameStats = {}; };
   G.rustDraws = () => Object.values(G.frameStats).reduce((a, s) => a + s.slice(5).reduce((x, y) => x + y, 0), 0);
   const rust = g.rust;
-  if (rust) {
+  if (rust?.frame?.execute) {
+    rust.views();rust.frameState[${STATE.FRAME}]=1000000;
+    const execute=rust.frame.execute;
+    rust.frame.execute=function(...args){
+      G.inRust++;try{return execute.apply(this,args);}finally{
+        G.inRust--;G.phaseCalls++;rust.views();
+        for(let role=0;role<rust.frameStats.length/${STATS.LEN};role++){
+          const values=Array.from(rust.frameStats.subarray(role*${STATS.LEN},role*${STATS.LEN}+${STATS.LEN}));
+          if(values[${STATS.GL_CALLS}])G.frameStats[role===${ROLE.MIRROR0_NEAR}?'mirror':String(role)]=values;
+        }
+      }
+    };
+  } else if (rust) {
     // The retained post phase publishes fixed statistics without entering the
     // scene dispatcher. Include it in capture draw accounting on new builds.
     if (rust.rust.post_chain_frame) {

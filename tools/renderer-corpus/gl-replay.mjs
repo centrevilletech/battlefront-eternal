@@ -82,7 +82,11 @@ export function installGLTracking(index) {
     }
     return ext;
   });
-  for(const name of ['drawArrays','drawElements','drawArraysInstanced','drawElementsInstanced','drawRangeElements'])wrap(name,function(call,a){const s=state(this);if(!s.busy&&window.__corpus?.want&&s.capture){s.busy=true;try{s.capture(name,a,program(this,this.getParameter(this.CURRENT_PROGRAM)));}finally{s.busy=false;}}return call.apply(this,a);});
+  for(const name of ['drawArrays','drawElements','drawArraysInstanced','drawElementsInstanced','drawRangeElements'])wrap(name,function(call,a){
+    const s=state(this),T=window.__corpus;let source;
+    if(!s.busy&&T?.want){source=program(this,this.getParameter(this.CURRENT_PROGRAM));T.beforeNativeDraw?.(source);if(s.capture){s.busy=true;try{s.capture(name,a,source);}finally{s.busy=false;}}}
+    const value=call.apply(this,a);if(source)T.afterNativeDraw?.(source);return value;
+  });
   // Reads the per-material values a rewritten source loads from its instance row, so replay can supply them from the recorded draw.
   const instanceExtras=source=>{
     const fields={};
@@ -104,7 +108,7 @@ export function installGLReplay() {
   const b=__bf,core=b.graphics.rust,gl=b.graphics.renderer.getContext(),T=window.__corpus;
   const track=window.__glTracking,s=track.state(gl),native=track.original;
   const get=p=>gl.getParameter(p),store=data=>{const key='gl'+Object.keys(T.blobs).length;T.blobs[key]=data;return key;};
-  const buffers=new Map(),programs=new Map(),seen=new Set(),framebuffers=new WeakMap();let nextFramebuffer=1;const scratch=gl.createFramebuffer();
+  const buffers=new Map(),programs=new Map(),seen=new Set(),framebuffers=new WeakMap();let nextFramebuffer=1,scratch=gl.createFramebuffer();
   const caps=[gl.BLEND,gl.CULL_FACE,gl.DEPTH_TEST,gl.STENCIL_TEST,gl.SCISSOR_TEST,gl.POLYGON_OFFSET_FILL,gl.SAMPLE_ALPHA_TO_COVERAGE,gl.SAMPLE_COVERAGE,gl.DITHER,gl.RASTERIZER_DISCARD];
   const params=[gl.VIEWPORT,gl.SCISSOR_BOX,gl.BLEND_EQUATION_RGB,gl.BLEND_EQUATION_ALPHA,gl.BLEND_SRC_RGB,gl.BLEND_DST_RGB,gl.BLEND_SRC_ALPHA,gl.BLEND_DST_ALPHA,gl.BLEND_COLOR,gl.CULL_FACE_MODE,gl.FRONT_FACE,gl.DEPTH_FUNC,gl.DEPTH_WRITEMASK,gl.DEPTH_RANGE,gl.COLOR_WRITEMASK,gl.COLOR_CLEAR_VALUE,gl.DEPTH_CLEAR_VALUE,gl.POLYGON_OFFSET_FACTOR,gl.POLYGON_OFFSET_UNITS,gl.SAMPLE_COVERAGE_VALUE,gl.SAMPLE_COVERAGE_INVERT,gl.STENCIL_CLEAR_VALUE,gl.STENCIL_WRITEMASK,gl.STENCIL_BACK_WRITEMASK,gl.STENCIL_FUNC,gl.STENCIL_REF,gl.STENCIL_VALUE_MASK,gl.STENCIL_FAIL,gl.STENCIL_PASS_DEPTH_FAIL,gl.STENCIL_PASS_DEPTH_PASS,gl.STENCIL_BACK_FUNC,gl.STENCIL_BACK_REF,gl.STENCIL_BACK_VALUE_MASK,gl.STENCIL_BACK_FAIL,gl.STENCIL_BACK_PASS_DEPTH_FAIL,gl.STENCIL_BACK_PASS_DEPTH_PASS];
   const raster=()=>({caps:caps.map(p=>[p,gl.isEnabled(p)]),params:params.map(p=>[p,ArrayBuffer.isView(get(p))?Array.from(get(p)):get(p)])});
@@ -149,7 +153,7 @@ export function installGLReplay() {
     const indexed=name.includes('Elements'),range=name==='drawRangeElements',count=args[range?3:indexed?1:2],instances=name.endsWith('Instanced')?args[indexed?4:3]:1;
     if(count===0||instances===0)return;
     if(!source.key){if(source.alternatives.length)(T.programGaps ||= []).push({source,reason:'No declared kind/layout match'});return;}
-    if(!source.key.startsWith('effects/'))return;
+    if(!(T.captureFamilies || ['effects/']).some(prefix=>source.key.startsWith(prefix)))return;
     const fb=get(gl.DRAW_FRAMEBUFFER_BINDING);if(fb&&!framebuffers.has(fb))framebuffers.set(fb,nextFramebuffer++);const signature=source.key+':'+(fb?framebuffers.get(fb):0)+':'+(source.transport || '');
     // Preserve distinct programs and render targets; repeated instanced draws
     // with different resources are separate fixtures within the captured frame.
@@ -202,6 +206,11 @@ export function installGLReplay() {
     if(u.type===gl.FLOAT)gl.uniform1fv(loc,v);else if(u.type===gl.FLOAT_VEC2)gl.uniform2fv(loc,v);else if(u.type===gl.FLOAT_VEC3)gl.uniform3fv(loc,v);else if(u.type===gl.FLOAT_VEC4)gl.uniform4fv(loc,v);else if(u.type===gl.FLOAT_MAT3)gl.uniformMatrix3fv(loc,false,v);else if(u.type===gl.FLOAT_MAT4)gl.uniformMatrix4fv(loc,false,v);else if([gl.INT,gl.BOOL,gl.SAMPLER_2D,gl.SAMPLER_3D,gl.SAMPLER_CUBE,gl.SAMPLER_2D_ARRAY,gl.SAMPLER_2D_SHADOW].includes(u.type))gl.uniform1iv(loc,v);else if(u.type===gl.INT_VEC2||u.type===gl.BOOL_VEC2)gl.uniform2iv(loc,v);else if(u.type===gl.INT_VEC3||u.type===gl.BOOL_VEC3)gl.uniform3iv(loc,v);else if(u.type===gl.INT_VEC4||u.type===gl.BOOL_VEC4)gl.uniform4iv(loc,v);else throw Error('Unsupported uniform type '+u.type);
   };
   let renderer;
+  // Replay-owned GL objects do not belong to the game's recovery journal.
+  // Drop the helper while loss is active and recreate readback state after it.
+  const canvas=b.graphics.renderer.domElement;
+  canvas.addEventListener('webglcontextlost',()=>{renderer?.free();renderer=null;programs.clear();buffers.clear();seen.clear();depthCopy=null;});
+  canvas.addEventListener('webglcontextrestored',()=>{scratch=gl.createFramebuffer();});
   // Links the owned program for a recorded draw and verifies its stages are byte for byte the catalog's and its attribute locations the catalog's.
   const selectProgram=async(row)=>{
     const cacheKey=row.key+(T.referenceBuild?':'+(row.source.transport || ''):'');

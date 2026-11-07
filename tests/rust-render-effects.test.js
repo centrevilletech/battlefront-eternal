@@ -99,7 +99,7 @@ function bridge() {
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   // A frame's transparent phase, as the transparent pass runs it.
-  const frame = () => core.phase("transparent", renderer, scene, camera);
+  const frame = () => core.publishView("transparent", renderer, scene, camera);
   // three has drawn a material once: its program (and its programs by side).
   const drawn = (material, current, programs = [current]) => {
     const props = renderer.properties.get(material);
@@ -163,7 +163,7 @@ test("a mirror's render draws what blends too: the transparent phase for the mir
   const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 2 * i, -3 * i - 5, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
   fill(2);
   drawn(batch.material, CPU_PROGRAM);
-  core.phase("transparent", renderer, scene, core.graphics.camera);
+  core.publishView("transparent", renderer, scene, core.graphics.camera);
   assert.equal(batch.external, true, "registered by the frame's own render");
   // water.js's mirror: a camera of its own drawing into a target of its own.
   const mirror = new THREE.PerspectiveCamera();
@@ -178,7 +178,8 @@ test("a mirror's render draws what blends too: the transparent phase for the mir
     calls.length = 0;
     // The far scene's image is the last opaque item: the mirror's
     // transparent phase follows it, in the mirror's render.
-    core.phase("mirror", renderer, scene, mirror);
+    const ctx=core.publishView("mirror", renderer, scene, mirror);
+    core.byName.transparent.prepare(ctx);core.publishView("mirrorTransparent",renderer,scene,mirror);
     assert.ok(calls.some(c => c[0] === "mirror_transparent_frame"), "the explicit Rust mirror phase includes transparency");
   } finally {
     renderer.getRenderTarget = target;
@@ -675,7 +676,7 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   const a = piece(lit), b = piece(unlit), held = piece(lit);
   scene.add(a);
   // Ownership does not wait for a browser program or first draw.
-  const near = () => { scene.updateMatrixWorld(true);scene.onBeforeRender(renderer,scene,camera,core.graphics.sceneTarget);core.phase("near",renderer,scene,camera); };
+  const near = () => { scene.updateMatrixWorld(true);scene.onBeforeRender(renderer,scene,camera,core.graphics.sceneTarget);core.publishView("near",renderer,scene,camera); };
   near();assert.equal(a.children[0].layers.mask,1<<30);
   scene.add(b);
   near();
@@ -720,7 +721,7 @@ test("a burning piece: a flying part made with a heated material, its heat and l
   // Another piece's look in the shared material's uniforms (its onBeforeRender ran last for it).
   hot.uniforms.sunScale.value = 0.1;
   scene.updateMatrixWorld(true);
-  core.phase("near", renderer, scene, camera);
+  core.publishView("near", renderer, scene, camera);
   const at = core.recordsAt, R = { LOOK: 52, EXTRA: 76 };
   assert.equal(piece.layers.mask, 1 << 30, "the renderer's");
   assert.deepEqual([...core.input.subarray(at + R.LOOK, at + R.LOOK + 4)].map((v) => +v.toFixed(3)), [0.8, 0.3, 0.4, 1.2], "its look, its object's");
@@ -753,7 +754,7 @@ test("the arc caster's shock glow: a rig of the struck body's buffers and skelet
   u.shockTime.value = 2.5; u.intensity.value = 0.75; u.seed.value = 0.125; u.color.value.setRGB(0.25, 0.5, 1);
   scene.updateMatrixWorld(true);
   renderer.info.render.frame++;
-  core.phase("near", renderer, scene, camera);
+  core.publishView("near", renderer, scene, camera);
   assert.equal(overlay.material.visible, false, "the renderer's");
   const blend = calls.find((c) => c[0] === "inst_add_blend");
   assert.deepEqual([...blend[1]], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "added");
@@ -772,7 +773,7 @@ test("a flying part that blends: a rigid record of its own kind, one blend for e
   const a = piece(-5), b = piece(-8);
   scene.add(a, b);
   scene.updateMatrixWorld(true);
-  core.phase("near", renderer, scene, camera);
+  core.publishView("near", renderer, scene, camera);
   assert.equal(a.children[0].layers.mask, 1 << 30, "hidden from three by its layers");
   assert.equal(glow.visible,false);
   const blends = calls.filter((c) => c[0] === "inst_add_blend");
@@ -783,7 +784,7 @@ test("a flying part that blends: a rigid record of its own kind, one blend for e
   assert.equal(programs.length,1,"one owned rigid program");
   assert.deepEqual([...blends[0][4]],[0,1,0,0],"the unlit program serves both sides");
   scene.updateMatrixWorld(true);
-  core.phase("near", renderer, scene, camera);
+  core.publishView("near", renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
   const at = (r) => core.recordsAt + r * core.stride;
   assert.equal(core.input[at(0)], 4, "a blending part's record");

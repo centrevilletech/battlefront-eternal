@@ -40,6 +40,7 @@ export class InterfacePass {
     scene.onBeforeRender(renderer, scene, camera, renderer.getRenderTarget());
     this.screen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.screen);
+    core.frame.interfaceBegin();
     this.frame++; this.count = 0;
     this.walk(scene, camera, 0);
     // Resource creation may touch VAOs, textures or framebuffer bindings. Restore
@@ -48,7 +49,7 @@ export class InterfacePass {
     core.settle();
     core.views();
     for (let i = 0; i < this.count; i++) this.write(this.rows[i], i, camera);
-    core.rust.interface_frame(this.count);
+    if(core.frame.active)core.frame.interfaceEnd(this.count);else core.rust.interface_frame(this.count);
     core.stale = true;
     scene.onAfterRender(renderer, scene, camera);
   }

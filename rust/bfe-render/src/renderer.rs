@@ -44,6 +44,7 @@ use glow::HasContext;
 
 pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub core: Core<C, M>,
+    pub frames: crate::frame::FrameBank<C>,
     pub world: WorldPass<C>,
     pub instances: InstancePass<C>,
     pub far: FarPass<C>,
@@ -77,7 +78,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        Renderer { core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies }
+        let renderer = Renderer { frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies };
+        renderer
     }
 
     // Replace a pending image's sampler in every retained draw binding.
@@ -183,10 +185,15 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
         {
+            use crate::frame_plan::layout::{limit as L,line as V};
+            let view_index=self.frames.active_lines.min(2);let count=self.frames.line_counts[view_index].min(L::LINES);
+            let at=view_index*L::LINES*V::LEN;let values=self.frames.lines.get(at..at+count*V::LEN).unwrap_or(&[]);
+            let mut lines=crate::frame::LineSource{post:&mut self.post,values,count:count.min(values.len()/V::LEN)};
+            // A line preceded equal keys at the old segment boundary. Emit it
+            // first so the stable native sort preserves precisely that tie.
+            lines.emit(core,&view,4,&mut list.items);
             let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
-            for (s, source) in sources.iter_mut().enumerate() {
-                source.emit(core, &view, s as u32, &mut list.items);
-            }
+            for (s,source) in sources.iter_mut().enumerate(){source.emit(core,&view,s as u32,&mut list.items);}
         }
         list.order(&self.transparent.keys, three.min(transparent::MAX_THREE));
         list.frame = frame;
@@ -202,8 +209,12 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.bind_lamps();
         core.bind_far_map();
         {
-            let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
-            transparent::draw_segment(core, &view, list.segment(0), &mut sources);
+            use crate::frame_plan::layout::{limit as L,line as V};
+            let index=self.frames.active_lines.min(2);let count=self.frames.line_counts[index].min(L::LINES);let at=index*L::LINES*V::LEN;
+            let values=self.frames.lines.get(at..at+count*V::LEN).unwrap_or(&[]);
+            let mut lines=crate::frame::LineSource{post:&mut self.post,values,count:count.min(values.len()/V::LEN)};
+            let mut sources: [&mut dyn Source<C,M>;5]=[&mut self.transparent,&mut self.effects,&mut self.water,&mut self.instances,&mut lines];
+            transparent::draw_segment(core,&view,list.segment(0),&mut sources);
         }
         list.view = Some(view);
         self.transparent.list = list;
@@ -269,18 +280,17 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // Graphics' post policy and Upscaler's commit form one native phase.
     // The low-level post_frame remains the screen/replay draw primitive.
     pub fn post_chain_frame(&mut self) -> Result<(), String> {
-        let steps = self.post_chain.plan(&mut self.post.input);
-        self.core.begin_phase();
-        self.post.draw(&mut self.core, steps);
-        let stats = match self.core.end_phase() {
-            Ok(stats) => stats,
-            Err(error) => { self.post_chain.invalidate(); return Err(error); }
-        };
-        self.post_chain.stats(stats);
-        // WebGL can lose the context during a draw, before its event reaches
-        // the host. That frame must not publish a history bank or jitter tick.
-        self.post_chain.complete(stats.pass_draws[crate::core::PASS_POST] as usize, self.core.multi.context_lost());
+        let stats=self.post_chain_draw()?;
+        self.post_chain.complete(stats.pass_draws[crate::core::PASS_POST] as usize,self.core.multi.context_lost());
         Ok(())
+    }
+    pub(crate) fn post_chain_draw(&mut self) -> Result<Stats,String> {
+        let steps=self.post_chain.plan(&mut self.post.input);
+        self.core.begin_phase();self.post.draw(&mut self.core,steps);
+        match self.core.end_phase() {
+            Ok(stats)=>{self.post_chain.stats(stats);Ok(stats)},
+            Err(error)=>{self.post_chain.invalidate();Err(error)},
+        }
     }
 
     // A full-screen pass outside the post chain, drawn on its own (the

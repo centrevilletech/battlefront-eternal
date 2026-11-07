@@ -10,9 +10,10 @@ import * as THREE from 'three';
 // meshes are on its layer, so a capture draws nothing else.
 export const PROBE_LAYER = 3; // graphics.js uses layers 1 (hidden) and 2 (static)
 
+let generation=0;
 export class SkyProbe {
-  constructor(graphics, size = 128) {
-    this.graphics = graphics;
+  constructor(graphics, size = 128, slot = 0) {
+    this.graphics = graphics;this.slot=slot;this.generation=++generation;
     this.target = new THREE.WebGLCubeRenderTarget(size, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     this.texture = this.target.texture;
     this.camera = new THREE.CubeCamera(0.05, 50, this.target);
@@ -20,61 +21,10 @@ export class SkyProbe {
     this.layers = graphics.skyLayers?.length ? graphics.skyLayers : graphics.sky ? [{ mesh: graphics.sky, follow: null }] : [];
     for (const { mesh } of this.layers) mesh.layers.enable(PROBE_LAYER);
     this.enabled = false;
-    this.last = -Infinity;
-    this.eye = new THREE.Vector3(0, Infinity, 0);
     this.captures = 0;
   }
 
-  update(time, camera) {
-    const renderer = this.graphics.renderer;
-    if (!this.enabled || !renderer || !this.layers.length) return;
-    const eye = camera.position;
-    if (time - this.last < 1 && Math.abs(eye.y - this.eye.y) < 4) return;
-    this.last = time;
-    this.eye.copy(eye);
-    this.captures++;
-    // The sky as graphics.render() stands it around this eye.
-    for (const { mesh, follow } of this.layers) {
-      mesh.position.copy(eye);
-      if (follow) mesh.position.y = follow[0] * eye.y + (1 - follow[0]) * follow[1];
-    }
-    this.camera.position.copy(eye);
-    this.camera.updateMatrixWorld();
-    const autoClear = renderer.autoClear, shadows = renderer.shadowMap.autoUpdate;
-    try {
-      renderer.autoClear = true;
-      renderer.shadowMap.autoUpdate = false;
-      this.capture(renderer, this.graphics.farScene);
-    } finally {
-      renderer.autoClear = autoClear;
-      renderer.shadowMap.autoUpdate = shadows;
-    }
-  }
-
-  // The six faces, as CubeCamera.update draws them, each drawn by the Rust
-  // renderer's far pass (src/rust-render: the required probe phase).
-  // The mipmaps come after the last face, once every level-zero face is ready.
-  capture(renderer, scene) {
-    const camera = this.camera, target = this.target, rust = this.graphics.rust;
-    if (camera.parent === null) camera.updateMatrixWorld();
-    if (camera.coordinateSystem !== renderer.coordinateSystem) {
-      camera.coordinateSystem = renderer.coordinateSystem;
-      camera.updateCoordinateSystem();
-    }
-    const current = renderer.getRenderTarget(), currentFace = renderer.getActiveCubeFace(), currentLevel = renderer.getActiveMipmapLevel();
-    const xr = renderer.xr.enabled;
-    renderer.xr.enabled = false;
-    const mipmaps = target.texture.generateMipmaps;
-    target.texture.generateMipmaps = false;
-    camera.children.forEach((face, i) => {
-      if (i === 5) target.texture.generateMipmaps = mipmaps;
-      renderer.setRenderTarget(target, i, camera.activeMipmapLevel);
-      rust.cover("probe", renderer, scene, face);
-    });
-    renderer.setRenderTarget(current, currentFace, currentLevel);
-    renderer.xr.enabled = xr;
-    target.texture.needsPMREMUpdate = true;
-  }
+  update(time,camera) { this.graphics.rust.frame.probe(this,time,camera); }
 
   dispose() {
     for (const { mesh } of this.layers) mesh.layers.disable(PROBE_LAYER);

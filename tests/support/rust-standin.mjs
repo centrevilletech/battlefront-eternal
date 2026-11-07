@@ -21,11 +21,13 @@
 //   foliage_on) are not logged. `methods` gives any binding a body of its
 //   own (an object, or a function of { calls, region } making one); a test
 //   can also set one on the instance later.
+import { FACTS as F, STATE as S, BINDING as B, META as M, ROLE as R, LINE as V, LIMIT as L, STATS as T } from "../../src/rust-render/frame-layout.js";
 import * as THREE from "three";
 
 export const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export const LENGTHS = {
+  frame_facts:F.LEN,frame_state:S.LEN,frame_bindings:R.COUNT*B.LEN,frame_meta:R.COUNT*M.LEN,frame_stats:R.COUNT*T.LEN,frame_lines:3*L.LINES*V.LEN,
   input: 200 + 100 * 8, bones: 64,
   far_input: 1024,
   transparent_keys: 64, transparent_objects: 1 + 2 * 40, transparent_segments: 0,
@@ -64,10 +66,25 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
     counts.set(name, n + 1);
     return n;
   };
+  const row=name=>new Float64Array(memory.buffer,region(name),length(name));
+  const nativeView = role => role===R.FAR?'far_frame':role===R.NEAR?'frame':role===R.VIEW?'view_frame':role===R.MOTION?'motion_frame':role===R.MIRROR0_NEAR?'mirror_frame':role===R.TRANSPARENT?'transparent_frame':role===R.MIRROR0_TRANSPARENT?'mirror_transparent_frame':(role>=R.HUD0&&role<=R.HUD7||role>=R.HUD8&&role<=R.HUD15)?'hud_frame':role>=R.SHADOW_STATIC0&&role<=R.SHADOW_DYNAMIC3?'shadow_frame':'screen_frame';
+  const frameMethods={
+    frame_publish_frame(role){calls.push(['frame_publish_frame',role]);return true;},
+    frame_aux_frame(owner,role){
+      const meta=row('frame_meta'),at=role*M.LEN;let name=nativeView(role),args=[];
+      if(role===R.MIRROR0_SKY||role===R.MIRROR0_FAR)name='far_mirror_frame';
+      if(role>=R.PROBE0&&role<=R.PROBE23){name='far_probe_frame';args=[(role-R.PROBE0)%6];}
+      else if(role>=R.VOLUME0&&role<=R.VOLUME7){name='fx_into_frame';const b=row('frame_bindings'),offset=role*B.LEN;args=[meta[at+M.BATCH],meta[at+M.TEXTURE],b[offset+B.WIDTH],b[offset+B.HEIGHT],meta[at+M.COUNT],meta[at+M.OFFSET],meta[at+M.CAPACITY]];}
+      else if(['frame','view_frame','mirror_frame','motion_frame'].includes(name))args=[meta[at+M.RECORDS]];
+      else if(['transparent_frame','mirror_transparent_frame'].includes(name))args=[0,0];else if(name==='screen_frame')args=[meta[at+M.STEPS]];
+      const result=this[name](...args);row('frame_stats').set(Array.isArray(result)?result:stats,role*T.LEN);return true;
+    },
+  };
   const handler = {
     get(target, name, receiver) {
       if (typeof name !== "string" || Object.prototype.hasOwnProperty.call(target, name)) return Reflect.get(target, name, receiver);
       if (Object.prototype.hasOwnProperty.call(methods, name)) return methods[name];
+      if (Object.prototype.hasOwnProperty.call(frameMethods,name))return frameMethods[name];
       if (name.endsWith("_ptr")) return () => region(name.slice(0, -4));
       if (name.endsWith("_len")) return () => length(name.slice(0, -4));
       if (Object.prototype.hasOwnProperty.call(values, name)) return () => values[name];
@@ -102,6 +119,7 @@ export function fakeProgram(uniforms, attributes = ["position", "uv"]) {
 export function standinContext(calls) {
   return {
     ...GL,
+    isContextLost:()=>false,
     getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
     getActiveUniform: (p, i) => ({ name: p.uniforms[i][0], type: p.uniforms[i][1], size: p.uniforms[i][2] ?? 1 }),
     getActiveAttrib: (p, i) => ({ name: p.attributes[i] }),
@@ -145,6 +163,9 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
     shadowMap: { enabled: false },
     state: { bindFramebuffer: (t, fb) => calls.push(["bindFramebuffer", t, fb]) },
     getRenderTarget: () => target,
+    getActiveCubeFace:()=>0,getActiveMipmapLevel:()=>0,getCurrentViewport:v=>v.set(0,0,8,4),
+    getScissor:v=>v.set(0,0,400,300),getScissorTest:()=>false,
+    clear(){},clearColor(){},clearDepth(){},clearStencil(){},
     setRenderTarget(t) { calls.push(["setRenderTarget", t]); target = t; },
     resetState() { calls.push(["resetState"]); },
     getClearColor: (c) => c.setRGB(0, 0, 0),
@@ -164,13 +185,21 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
 // Presentation tests isolate the command boundary from real WebGL storage.
 // Backend smoke tests exercise GpuResources itself, including restore/copies.
 export function standinResources(renderer, calls) {
+  renderer.getActiveCubeFace ??= ()=>0;renderer.getActiveMipmapLevel ??= ()=>0;
+  renderer.getCurrentViewport ??= v=>v.set(0,0,800,600);
+  renderer.getViewport ??= v=>v.set(0,0,800,600);renderer.getScissor ??= v=>v.set(0,0,800,600);
+  renderer.getScissorTest ??= ()=>false;renderer.getContextAttributes ??= ()=>({premultipliedAlpha:true});renderer.getPixelRatio ??= ()=>1;
+  renderer.getClearColor ??= c=>c.setRGB(0,0,0);renderer.getClearAlpha ??= ()=>1;
+  for(const name of ['clear','clearColor','clearDepth','clearStencil'])renderer[name] ??= ()=>{};
   const ids = new WeakMap(),handles=[]; let next = 0;
   const owner = {
     gpu: { epoch: () => 0, retired_sample: () => next++, texture:id=>handles[id] },
+    targetId:target=>{target.viewport ??= new THREE.Vector4(0,0,target.width||1,target.height||1);target.scissor ??= target.viewport.clone();if(!ids.has(target))ids.set(target,next++);return ids.get(target);},
     owns: texture => ids.has(texture),
     staticAnisotropy(value) { calls.push(["static_anisotropy",value]); },
     staticSample(texture) { return typeof texture === "number" ? texture : this.textureId(texture); },
     textureId(texture) {
+      if(!texture)return -1;
       renderer.initTexture(texture);
       if (!ids.has(texture)) ids.set(texture,next++);
       const id=ids.get(texture);handles[id]=renderer.properties.get(texture).__webglTexture;

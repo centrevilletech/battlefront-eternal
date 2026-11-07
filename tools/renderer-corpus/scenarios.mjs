@@ -4,11 +4,21 @@
 export async function installScenario(scenario) {
   if (!scenario) return;
   const b=__bf,g=b.graphics,T=window.__corpus,V=b.THREE.Vector3;
-  if (scenario === 'underwater') {
-    const water=g.scene.userData.water;
-    if(!water?.cellBounds.length)throw Error('No underwater fixture cell');
-    const render=g.render;
-    g.render=function(...args){const box=water.cellBounds[0];g.camera.position.set((box.min.x+box.max.x)/2,water.level-.75,(box.min.z+box.max.z)/2);g.camera.lookAt(g.camera.position.x+1,water.level-1,g.camera.position.z);g.camera.updateMatrixWorld();return render.apply(this,args);};
+  if (scenario === 'underwater' || scenario === 'fountain') {
+    const water=g.scene.userData.water,basin=b.environment?.water?.basins?.[0];
+    if(scenario==='underwater'&&!water?.cellBounds.length)throw Error('No underwater fixture cell');
+    if(scenario==='fountain'&&!basin)throw Error('No fountain fixture basin');
+    const aim=()=>{
+      if(scenario==='underwater'){const box=water.cellBounds[0];g.camera.position.set((box.min.x+box.max.x)/2,water.level-.75,(box.min.z+box.max.z)/2);g.camera.lookAt(g.camera.position.x+1,water.level-1,g.camera.position.z);}
+      else{const [x,y,z]=basin.center;g.camera.position.set(x+8,y+4,z+10);g.camera.lookAt(x,y+2,z);}
+      g.camera.updateMatrixWorld();
+    };
+    // Set the camera before reflection/environment selection, on both frozen
+    // and native builds. A post-only camera hook would test different inputs.
+    if(g.rust.frame){const mirror=g.rust.frame.mirror;g.rust.frame.mirror=function(...args){aim();return mirror.apply(this,args);};}
+    else{const reflect=water.reflect;water.reflect=function(...args){aim();return reflect.apply(this,args);};}
+    const name=g.prepareFrame?'prepareFrame':'render',render=g[name];g[name]=function(...args){aim();return render.apply(this,args);};
+    if(scenario==='fountain'){const update=b.environment.update;b.environment.update=function(...args){aim();return update.apply(this,args);};}
   } else if (scenario === 'blade') {
     // Heroes cannot join the local server's infantry roster. Build the real
     // blade through the existing presentation factory in a valid battle.

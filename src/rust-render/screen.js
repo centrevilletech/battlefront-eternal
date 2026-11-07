@@ -55,7 +55,7 @@ export function screenProgram(core, material, attributes = ATTRIBUTES) {
 // { id, count }, a registered geometry and its index count, drawn in place
 // of post.rs's triangle. False when a uniform has no value the renderer can
 // give (nothing of the step is to be drawn then).
-export function writeScreenStep(core, k, program, material, object, camera, { target = TARGET_BOUND, size = null, geometry = null } = {}) {
+export function writeScreenStep(core, k, program, material, object, camera, { target = TARGET_BOUND, size = null, geometry = null, buffer = "postInput", offset = 0, stateBuffer = "postStates", stateOffset = 0 } = {}) {
   // The textures it reads registered first: registering can grow the
   // renderer's memory, which detaches the views written below.
   const renderer = core.renderer;
@@ -68,7 +68,7 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
     core.texture(value);
   }
   views(core);
-  const out = core.postInput, o = k * STRIDE;
+  const out = core[buffer], o = offset + k * STRIDE;
   out[o + STEP.PROGRAM] = program.id;
   out[o + STEP.TARGET] = target;
   out[o + STEP.WIDTH] = size?.[0] ?? 0;
@@ -80,7 +80,7 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
   // Resource commands share this heap. Refresh state views after binding
   // uniforms as well, before addressing the independent state record.
   core.views();
-  const state = stateOf(material), blend = blendOf(material), s = core.postStates, at = k * STATE.SIZE;
+  const state = stateOf(material), blend = blendOf(material), s = core[stateBuffer], at = stateOffset + k * STATE.SIZE;
   s.fill(0, at, at + STATE.SIZE);
   s[at + STATE.FLAGS] = (state.flags & 1 ? DEPTH_TEST : 0) | (state.flags & 2 ? DEPTH_WRITE : 0) | (blend[0] ? BLEND : 0) | (geometry ? OWN_GEOMETRY : 0);
   if (state.flags & 1) s[at + STATE.DEPTH_FUNC] = state.func;
@@ -122,7 +122,6 @@ class ScreenPass {
     this.complete = false;
 
     const core = this.core, renderer = ctx.renderer;
-    if (renderer.autoClear) return;
     const mesh = this.mesh(ctx.scene, ctx.camera);
     if (!mesh || Array.isArray(mesh.material) || mesh.geometry.groups.length || mesh.isInstancedMesh || mesh.isSkinnedMesh) return;
     // Screen materials are catalog programs from the moment they are made.
@@ -156,16 +155,9 @@ export function underwaterPass(core) {
   return new ScreenPass(core, "underwater", "underwater");
 }
 
-// The Enhanced water's underwater composite (water.js underwaterFog, shown
-// with the eye under the surface at High and Ultra): three draws it last of
-// the near scene's transparent list (its render order the list's highest),
-// right after its hook copies the scene drawn so far (water.captureSurface).
-// The renderer draws it at that very point: the transparent pass runs the
-// pass's atEnd after the list's last draw (its own last segment, or three's
-// last item), where the copy is made as three makes it, then the composite
-// drawn (the underwater phase) with its owned program and
-// three's own geometry for it (its uv interpolated as three's are). Three
-// leaves its source-free shell out of every browser draw list.
+// Water.captureSurface's fog composite follows the native transparent list.
+// Its preparation records samplers and geometry; the frame owner copies the
+// completed scene immediately before drawing it. No render hook resumes JS.
 class FogPass {
   constructor(core) {
     this.core = core;
@@ -174,7 +166,7 @@ class FogPass {
     // Three's programs for the composite's material the renderer has made
     // its own of, with its geometry: three program -> { id, count }.
     this.made = new WeakMap();
-    this.pending = null;
+    this.pending = false;
     this.drawn = 0;
     this.missed = 0;
   }
@@ -212,7 +204,7 @@ class FogPass {
   // program the renderer's: three leaves it out.
   place(renderer, scene, camera, target) {
     const core = this.core, graphics = core.graphics, fog = this.composite();
-    this.pending = null;
+    this.pending = false;
     if (!fog || scene !== graphics.scene) return;
     if (ownsEffectSource(fog.material) && !this.made.has(fog.material)) {
       const program = screenProgram(core, fog.material);
@@ -224,39 +216,23 @@ class FogPass {
     const take = !core.contextLost && fog.visible && fog.parent === scene && camera === graphics.camera
       && target === graphics.sceneTarget && this.made.has(fog.material);
     fog.material.visible = !ownsEffectSource(fog.material) && !take;
-    if (take) this.pending = { camera, target };
+    if (take) this.pending = true;
   }
 
-  // The transparent phase: three's program for the composite made the
-  // renderer's (inside a phase), and, where place() left it out, the list's
-  // end set to draw it.
+  // Fog uniforms are prepared with the scene. The native schedule copies
+  // the completed transparent surface immediately before this packet draws.
   draw(ctx) {
-    const core = this.core, fog = this.composite(), pending = this.pending;
-    this.pending = null;
-    if (!fog) return;
-    const threeProgram = fog.material;
-    if (threeProgram && !this.made.has(threeProgram)) {
-      const program = screenProgram(core, fog.material);
-      const geometry = program && fog.geometry.index && !fog.geometry.groups.length ? core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] }) : null;
-      if (geometry !== null && geometry !== undefined) { this.made.set(threeProgram, { id: geometry, count: fog.geometry.index.count }); ctx.reset = true; }
-    }
-    if (!pending || ctx.camera !== pending.camera || ctx.renderer.getRenderTarget() !== pending.target) return;
-    core.byName.transparent.atEnd = () => this.drawComposite(ctx.renderer, ctx.scene, ctx.camera);
+    const core=this.core,fog=this.composite();
+    if(!this.pending || !fog || ctx.camera!==core.graphics.camera)return;
+    this.pending=false;
+    const water=core.graphics.scene.userData.water;
+    // The fog reads the completed transparent scene. Ordinary water readers
+    // request their earlier opaque snapshot through the same descriptor hook.
+    core.frame.preparingFog=true;
+    try{water.captureSurface(ctx.renderer,ctx.camera);}finally{core.frame.preparingFog=false;}
+    const program=screenProgram(core,fog.material),geometry=this.made.get(fog.material);
+    if(program && geometry && writeScreenStep(core,0,program,fog.material,fog,ctx.camera,{geometry}))core.frame.screenFog();
   }
-
-  // The list's end: the copy, as the composite's hook makes it, then the
-  // composite.
-  drawComposite(renderer, scene, camera) {
-    const core = this.core, fog = this.composite(), water = core.graphics.scene.userData.water;
-    if (!fog || !water) core.fail(new Error("Missing underwater composite resources"));
-    water.captureSurface(renderer, camera);
-    const program = screenProgram(core, fog.material), geometry = this.made.get(fog.material);
-    if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) core.fail(new Error("Incomplete underwater composite"));
-    core.phase("underwater", renderer, scene, camera, false, null, { steps: 1 });
-    this.drawn++;
-  }
-
-
 
 
 }

@@ -2,6 +2,7 @@ import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { ROLE as R, META as M, UI, UI_CAPACITY } from "../src/rust-render/frame-layout.js";
 import { ownedBasicEffect } from "../src/rust-render/effect-material.js";
 
 // The bridge reads its flags from the page's query.
@@ -59,46 +60,36 @@ test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
   assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "hud", "water", "near", "canopies", "sea", "motion", "shadow", "clouds", "underwater", "mirrorCover", "fog", "lines"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water", "fog"], view: ["view"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water", "fog"], begin: ["near", "mirrorCover"], farMirror: ["far"], probe: ["far"], motion: ["motion"], shadow: ["shadow"], image: [], skyClouds: ["clouds"], underwater: ["underwater"], lines: ["lines"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "near", "canopies", "sea", "mirrorCover"], transparent: ["transparent", "effects", "water", "fog"], view: ["view"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "near", "canopies", "sea", "mirrorCover"], mirrorTransparent: ["transparent", "effects", "water", "fog"], farMirror: ["far"], probe: ["far"], motion: ["motion"], shadow: ["shadow"], image: [], skyClouds: ["clouds"], underwater: ["underwater"], lines: ["lines"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
-test("the near phase: the far scene's image and frame block, its passes in order, one renderer call, three's state reset", () => {
-  const { core, calls, renderer, scene, camera, graphics } = bridge();
-  const drawn = [];
-  core.addPass({ name: "a", phase: "near", draw: (ctx) => { drawn.push(["a", ctx.records]); ctx.records += 2; } });
-  core.addPass({ name: "b", phase: "near", draw: (ctx) => { drawn.push(["b", ctx.records]); ctx.records += 1; } });
-  core.addPass({ name: "c", phase: "far", draw: () => drawn.push(["c"]) });
-  core.phase("near", renderer, scene, camera);
-  assert.deepEqual(drawn, [["a", 0], ["b", 2]]);
-  assert.deepEqual(calls, [["add_texture"], ["set_far_map", 0], ["frame", 3], ["resetState"], ["setRenderTarget", graphics.sceneTarget], ["transparent_frame", 0, 0], ["resetState"], ["setRenderTarget", graphics.sceneTarget]]);
-  assert.equal(core.stats, STATS);
-  // The frame block: the camera's matrices and position, as three uploads them.
-  assert.deepEqual([...core.input.subarray(0, 16)], camera.projectionMatrix.elements);
-  // The far scene's image is registered once, as is the world once nothing
-  // in it waits for three to draw it first.
-  calls.length = 0;
-  core.phase("near", renderer, scene, camera);
-  assert.deepEqual(calls.map((c) => c[0]), ["frame", "resetState", "setRenderTarget", "transparent_frame", "resetState", "setRenderTarget"]);
+test("near producers publish one semantic packet without drawing or resuming hooks", () => {
+  const {core,calls,renderer,scene,camera}=bridge(),produced=[];
+  core.frame.begin(true);calls.length=0;
+  core.addPass({name:"a",phase:"near",draw:ctx=>{produced.push(ctx.records);ctx.records+=2;},afterPhase(){throw Error("obsolete continuation");}});
+  core.addPass({name:"b",phase:"near",draw:ctx=>{produced.push(ctx.records);ctx.records++;}});
+  core.recording={keepFrames:1,frames:[],textures:[],calls:[]};
+  const ctx=core.publishView("near",renderer,scene,camera);
+  assert.deepEqual(produced,[0,2]);assert.equal(ctx.records,3);
+  assert.equal(core.recording.frames[0].records,3);assert.equal(core.recording.keepFrames,0);
+  assert.equal(core.recording.frames[0].input.length,core.recordsAt+3*core.stride);
+  assert.notEqual(core.recording.frames[0].input.buffer,core.input.buffer);
+  assert.deepEqual(calls.filter(c=>c[0]==="frame_publish_frame"),[["frame_publish_frame",R.NEAR]]);
+  assert.equal(calls.some(c=>["frame","transparent_frame","resetState","setRenderTarget"].includes(c[0])),false);
+  assert.equal(core.frameMeta[R.NEAR*M.LEN+M.RECORDS],3);
+  assert.deepEqual([...core.input.subarray(0,16)],camera.projectionMatrix.elements);
+  core.frame.cancel();
 });
 
-
-
-test("every other phase calls its own renderer entry and binds back the target it found", () => {
-  const { core, calls, renderer, scene, camera, setTarget } = bridge();
-  const target = { name: "far" };
-  setTarget(target);
-  core.phase("far", renderer, scene, camera);
-  assert.deepEqual(calls, [["far_frame"], ["resetState"], ["setRenderTarget", target]]);
-  for (const [name, entry] of [["transparent", "transparent_frame"], ["view", "view_frame"]]) {
-    calls.length = 0;
-    core.phase(name, renderer, name==="view"?new THREE.Scene():scene, camera);
-    assert.equal(calls.filter((c) => c[0].endsWith("frame"))[0][0], entry);
-    assert.equal(core.phaseStats[name], STATS);
-  }
+test("view preparation order cannot select execution order", () => {
+  const {core,calls,renderer,scene,camera}=bridge();core.frame.begin(true);calls.length=0;
+  core.publishView("transparent",renderer,scene,camera);
+  core.publishView("far",renderer,scene,camera);
+  assert.deepEqual(calls.filter(c=>c[0]==="frame_publish_frame").map(c=>c[1]),[R.TRANSPARENT,R.FAR]);
+  assert.equal(calls.some(c=>["far_frame","transparent_frame","setRenderTarget"].includes(c[0])),false);
+  core.frame.cancel();
 });
-
-
 
 test("a pass's views of the renderer's memory are made again when it grows", () => {
   const { core, memory } = bridge();
@@ -160,15 +151,15 @@ test("the ground admits authored native descriptors and publishes visibility", (
   const record = { terrain: true, vertexCount: 3, stride: 3, attributes: ["position"] };
   const vertices = Float32Array.of(0,0,0, 1,0,0, 0,1,0), index = Uint32Array.of(0,1,2);
   core.byName.terrain.admit(group,record,vertices,index,new Uint8Array(),Int32Array.of(1,-1,2,3,4,4,4,4,4,4,4,4,-1));
-  core.phase("near",renderer,scene,camera);
+  core.publishView("near",renderer,scene,camera);
   const id = core.byName.terrain.grounds[0].id;
   const add = calls.find(c=>c[0]==="static_source");
   assert.equal(JSON.parse(add[1]).terrain,true);
   assert.deepEqual([...add[2]],[...vertices]);
   assert.equal(group.material,undefined);
-  calls.length=0; core.phase("near",renderer,scene,camera);
+  calls.length=0; core.publishView("near",renderer,scene,camera);
   assert.equal(calls.some(c=>c[0]==="static_world"),false);
-  group.visible=false; core.phase("near",renderer,scene,camera);
+  group.visible=false; core.publishView("near",renderer,scene,camera);
   assert.deepEqual(calls.find(c=>c[0]==="world_shown"),["world_shown",id,false]);
 });
 
@@ -180,23 +171,27 @@ test("static world admissions retain handles and replace resources without descr
   const vertices=Float32Array.of(0,0,0,1,0,0,0,1,0), index=Uint32Array.of(0,1,2);
   const world=core.byName.world;
   world.admit(node,record,vertices,index,null,null);
-  core.phase("near",renderer,scene,camera);
+  core.publishView("near",renderer,scene,camera);
   const id=world.meshes[0].id;
   assert.deepEqual([...calls.find(c=>c[0]==="static_source")[2]],[...vertices]);
-  calls.length=0;core.phase("near",renderer,scene,camera);
+  calls.length=0;core.publishView("near",renderer,scene,camera);
   assert.equal(calls.some(c=>c[0]==="static_world"),false);
   world.admit(node,{...record,flags:0},vertices,index,null,null);
   assert.deepEqual(calls.find(c=>c[0]==="world_shown"),["world_shown",id,false]);
-  core.phase("near",renderer,scene,camera);
+  core.publishView("near",renderer,scene,camera);
   assert.notEqual(world.meshes.at(-1).id,id);
   assert.equal(world.meshes[0].stale,true);
 });
 
-test("a phase that made no GL call leaves three's state alone", () => {
-  const { core, calls, renderer, scene, camera } = bridge();
-  core.rust.transparent_frame = () => { calls.push(["transparent_frame"]); return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
-  core.phase("transparent", renderer, scene, camera);
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
+test("overlay bursts clip later packets without a frame exception", () => {
+  const {core,calls,renderer,scene,camera}=bridge();core.frame.begin(true);core.frame.uiStage(UI.OVERLAY);calls.length=0;
+  for(let i=0;i<128;i++){
+    const ctx=core.frame.context("hud",scene,camera,null,null);
+    core.frame.publish("hud",ctx);
+  }
+  assert.equal(calls.filter(c=>c[0]==="frame_publish_frame").length,UI_CAPACITY.OVERLAY);
+  assert.equal(calls.filter(c=>c[0]==="frame_overflow_frame").length,128-UI_CAPACITY.OVERLAY);
+  core.frame.cancel();
 });
 
 // Native descriptor and backend fixtures cover painted/empty sampler bytes;

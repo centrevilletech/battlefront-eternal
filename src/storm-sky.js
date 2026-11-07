@@ -24,9 +24,8 @@ import { SurfaceResult as RESULT } from './environment/layout.js';
 
 export class StormSky {
  constructor({graphics,uniforms,surfaceHost}) {
-   this.graphics=graphics;this.uniforms=uniforms;this.enabled=false;this.lastCloud=-Infinity;
+   this.graphics=graphics;this.uniforms=uniforms;this.enabled=false;this.cloudGeneration=(this.cloudGeneration||0)+1;
    this.strikes=0;
-   this.lastEye=new THREE.Vector3(Infinity,Infinity,Infinity);
    this.lightKeys=['ambient','ambientTop','ambientBottom','characterAmbient'];
    this.lightBase=this.lightKeys.map(key=>lighting[key].value.clone());this.previousFlash=0;
    let randomState=8217;
@@ -65,7 +64,7 @@ export class StormSky {
      const graphics=this.graphics,layers=graphics.skyLayers?.length?graphics.skyLayers:graphics.sky?[{mesh:graphics.sky,layer:0}]:[];
      this.replaced=layers.map(({mesh,layer})=>({mesh,layer,visible:mesh.visible,material:mesh.material}));
      for(const {mesh,layer,material} of this.replaced){if(layer)mesh.material=this.horizonMaterial(material);else mesh.visible=false;}
-     this.lastCloud=-Infinity;
+     this.cloudGeneration=(this.cloudGeneration||0)+1;
    } else {
      for(const {mesh,layer,visible,material} of this.replaced){if(layer)mesh.material=material;else mesh.visible=visible;}
      this.replaced=[];this.restoreLight();this.uniforms.lightningFlash.value=0;
@@ -112,16 +111,7 @@ export class StormSky {
      this.previousFlash=flash;
    }
    this.uniforms.eyePosition.value.copy(camera.position);
-   const renderer=this.graphics.renderer;
-   if(!renderer||time-this.lastCloud<.1&&this.lastEye.distanceToSquared(camera.position)<256)return;
-   this.lastCloud=time;this.lastEye.copy(camera.position);this.cloudRenders=(this.cloudRenders||0)+1;
-   const target=renderer.getRenderTarget(),autoClear=renderer.autoClear,shadowAuto=renderer.shadowMap.autoUpdate;
-   try{
-     renderer.shadowMap.autoUpdate=false;renderer.autoClear=false;
-     // The Rust skyClouds phase draws the cloud layers.
-     renderer.setRenderTarget(this.target);this.graphics.rust.cover('skyClouds',renderer,this.cloudPass,this.passCamera);
-     this.uniforms.cloudReady.value=1;
-   } finally {renderer.setRenderTarget(target);renderer.autoClear=autoClear;renderer.shadowMap.autoUpdate=shadowAuto;}
+   this.graphics.rust.frame.cloud(this,time,camera);
  }
  dispose(){this.setEnabled(false);this.sky.removeFromParent();this.bolt.removeFromParent();this.sky.material.dispose();this.cloudPass.material.dispose();this.boltGeometry.dispose();this.bolt.material.dispose();this.target.dispose();this.noise.dispose();
    for(const material of this.horizonMaterials.values())material.dispose();this.horizonMaterials.clear();}

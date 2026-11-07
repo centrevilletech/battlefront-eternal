@@ -1,3 +1,4 @@
+import { ROLE as R } from "../src/rust-render/frame-layout.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -230,6 +231,7 @@ test("a cascade's pass: the casters three's shadow pass would draw, drawn by the
   other.layers.set(5);
   scene.add(other);
   scene.updateMatrixWorld(true);
+  core.frame.role=R.SHADOW_STATIC0;
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
   assert.ok(calls.some((c) => c[0] === "shadow_frame"));
   const input = new Float64Array(memory.buffer, region("caster_input"), 4 + 2 * 151);
@@ -241,10 +243,9 @@ test("a cascade's pass: the casters three's shadow pass would draw, drawn by the
   assert.equal(input[d + 4], THREE.BackSide, "a front-sided material casts its back faces");
   assert.equal(input[d + 6], 2, "two uniforms");
   assert.deepEqual([...input.subarray(d + 7 + 18 + 2, d + 7 + 18 + 18)], light.shadow.camera.projectionMatrix.elements, "the shadow camera's projection");
-  assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", graphics_target(renderer)]], "three's state reset after");
+  assert.equal(calls.some(c=>c[0]==="resetState"),false,"publication has no reset continuation");
 });
 
-function graphics_target(renderer) { return renderer.getRenderTarget(); }
 
 test("a caster without an owned depth material is skipped and reported, the rest of the pass drawn", () => {
   const { core, region, memory, scene, camera, renderer, properties } = bridge({ shadows: true });
@@ -255,6 +256,7 @@ test("a caster without an owned depth material is skipped and reported, the rest
   const owned = caster();
   scene.add(owned);
   scene.updateMatrixWorld(true);
+  core.frame.role=R.SHADOW_STATIC0;
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
   assert.equal(new Float64Array(memory.buffer, region("caster_input"), 4)[3], 1, "only the owned caster is drawn");
   assert.match(core.errors.join("\n"), /Not drawn: .* Mesh material MeshBasicMaterial: no custom depth material/);
@@ -267,6 +269,7 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   mesh.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(12), 1));
   scene.add(mesh);
   scene.updateMatrixWorld(true);
+  core.frame.role=R.SHADOW_STATIC0;
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
   const sent = (from) => calls.slice(from).filter((c) => /^geometry_(index|buffer)_/.test(c[0])).map((c) => [c[0], ...c.slice(2).map((v) => (ArrayBuffer.isView(v) ? v.byteLength : v))]);
   const pass = () => { const at = calls.length; core.coverShadow(renderer, light, scene, camera, null); return sent(at); };
@@ -305,6 +308,7 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   assert.deepEqual(pass(), [["geometry_index_data", 96]]);
   // Another index altogether: three makes buffers for it, so three draws the pass.
   mesh.geometry.setIndex([0, 1, 2]);
+  core.frame.role=R.SHADOW_STATIC0;
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
   assert.match(core.errors.join("\n"), /geometry the renderer cannot hold/);
 });
