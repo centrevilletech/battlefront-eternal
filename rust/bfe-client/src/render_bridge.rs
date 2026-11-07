@@ -5,22 +5,127 @@ use glow::HasContext;
 use crate::resources::Ranges;
 use crate::session::{Arguments, BlobStore};
 use crate::resources::Resources;
+use bfe_render::actor_layout::descriptor as D;
+use bfe_render::actor_layout::flyer as f;
 use bfe_render::core::MultiDraw;
+use bfe_render::effect_resources::Descriptor;
 use bfe_render::frame::{FrameTargets};
 use bfe_render::frame_plan::layout::binding as B;
 use bfe_render::hud_model::layout::HudGlyph as G;
 use bfe_render::instances::{IN_RECORDS, REC_STRIDE};
+use bfe_render::interface_resources::{Style as InterfaceStyle,Policy as InterfacePolicy,Descriptor as InterfaceDescriptor,Binding as InterfaceBinding};
 use bfe_render::renderer::Renderer;
 use bfe_render::resources::GpuResources;
 use bfe_render::shader::Kind;
 use bfe_render::transparent::{KEY_STRIDE, MAX_THREE, OBJ_STRIDE};
+use bfe_render::{effect_layout as k,water_resources as w};
 pub struct Bridge {
 pub r: Renderer<glow::Context, Ranges>,
 pub hud_model: bfe_render::hud_model::HudModel,
+actor_resources: bfe_render::actor_resources::Bank,
+line_resources: bfe_render::line_resources::Lines,
+water_sources: Vec<bfe_render::water_resources::WaterSource>, water_geometry: std::collections::HashMap<(u32,u32),u32>,
 static_sources: Vec<static_world::StaticSource>, static_worlds: Vec<static_world::StaticSlot>, static_recipes: Vec<StaticRecipe>,
 }
 impl Bridge {
-pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![] } }
+pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![] } }
+pub fn actor_flyer(&mut self, source: u32, flags: u32, fading: bool, capacity: u32, texture: i32, slot: u32, object: u32, shadows: bool) -> Result<Option<u32>,String> { use bfe_render::actor_layout::flyer as f;
+        let capacity=capacity.min(256);let at=slot as usize+17;let end=at+f::LEN+capacity as usize*20;
+        if end>self.r.far.input.len(){return Ok(None);}
+        let side=if flags&0x86!=0{2}else{0};let key=format!("effects/sky-flyer{}{}-s{side}-fading{}",if flags&1!=0{"-lit"}else{""},if flags&128!=0{"-additive"}else if flags&4!=0{"-blended"}else if flags&2!=0{"-alpha-test"}else{""},if shadows{"-shadow"}else{""});
+        let spec=bfe_render::programs::spec(&key).map_err(|e|e.to_string())?;let core=&mut self.r.core;let program=core.add_owned_program(&key).map_err(|e|e.to_string())?;
+        let data=self.actor_resources.sources.get(source as usize).ok_or_else(||String::from("unknown flyer source"))?;
+        let attributes=spec.attributes.iter().copied().filter(|(name,_)|!matches!(*name,"instanceMatrix"|"look")).collect::<Vec<_>>();
+        let geometry=data.upload(core,&attributes,true).map_err(|e|e.to_string())?;
+        let names=spec.uniforms.iter().map(|(n,_)|*n).collect::<Vec<_>>().join(",");let types=spec.uniforms.iter().map(|(_,t)|match t{16=>glow::FLOAT_MAT4,9=>glow::FLOAT_MAT3,3=>glow::FLOAT_VEC3,32=>glow::SAMPLER_2D,35=>glow::SAMPLER_CUBE,_=>glow::FLOAT}).collect::<Vec<_>>();
+        let table=self.r.far.add_table(core,program,&names,&types,&vec![1;types.len()]).ok_or_else(||String::from("flyer table capacity"))?;
+        let blend=if flags&128!=0{[32774,32774,1,1,1,1]}else{[32774,32774,770,771,770,771]};let raster=side|4|16|128|512|if !fading&&flags&0x84==0{8}else{0};
+        let id=self.r.far.add_item(core,program,table,geometry,raster,glow::LEQUAL,&blend,&[0.,if fading{2.}else{1.},0.,object as f64],&data.facts.bounds[..4],slot);
+        // FarPass sources refer to generated input fields; source pixels and
+        // cube aliases remain the existing resource owner's responsibility.
+        for(i,(name,_))in spec.uniforms.iter().enumerate(){let(kind,value)=match *name{"modelMatrix"=>(7,0),"projectionMatrix"=>(4,0),"viewMatrix"=>(5,0),"cameraPosition"=>(6,0),"map"=>(2,texture as u32),"skyProbe"=>(10,(at+f::PROBE)as u32),"reach"=>(1,(at+f::REACH)as u32),"sunDirection"=>(1,(at+f::SUN_DIRECTION)as u32),"sunColor"=>(1,(at+f::SUN_COLOR)as u32),"ambient"=>(1,(at+f::AMBIENT)as u32),_=>return Err(String::from("unknown flyer uniform"))};self.r.far.source(id,i as u32,kind,&[],value);}
+        let location=|name|spec.attributes.iter().find(|(n,_)|*n==name).unwrap().1;
+        self.r.far.instanced(core,id,location("instanceMatrix"),4,4,capacity,(at+f::COUNT)as u32,(at+f::LEN)as u32);
+        self.r.far.instanced(core,id,location("look"),1,4,capacity,(at+f::COUNT)as u32,(at+f::LEN+capacity as usize*16)as u32);core.state.reset();Ok(Some(id)) }
+pub fn actor_flyer_motion(&mut self, source: u32, capacity: u32, matrices: &[f32]) -> Result<Vec<f64>,String> { let key="effects/motion-flyer";let spec=bfe_render::programs::spec(key).map_err(|e|e.to_string())?;let core=&mut self.r.core;let program=core.add_owned_program(key).map_err(|e|e.to_string())?;
+        let data=self.actor_resources.sources.get(source as usize).ok_or_else(||String::from("unknown motion flyer source"))?;let attributes=spec.attributes.iter().copied().filter(|(name,_)|*name=="position").collect::<Vec<_>>();let geometry=data.upload(core,&attributes,true).map_err(|e|e.to_string())?;
+        let sphere=bfe_render::actor_resources::flyer_bounds(&data.facts.bounds,&matrices[..matrices.len().min(capacity.min(256)as usize*16)]);let id=self.r.motion.add_sky_extra(core,program,geometry,capacity.min(256));core.state.reset();let mut row=vec![id as f64];row.extend_from_slice(&sphere);Ok(row) }
+pub fn actor_source(&mut self, authored: &str, vertices: &[f32], indices: &[u32]) -> Result<Option<u32>,String> { let record:bfe_render::actor_resources::Record=serde_json::from_str(authored).map_err(|e:serde_json::Error|e.to_string())?;
+        // UI rings/planes and shield primitives share immutable source bytes.
+        // Dynamic batches and motes retain independent publication identities.
+        let shared=matches!(record.kind.as_str(),"plane"|"sphere"|"cylinder"|"box"|"circle"|"ring"|"uiCylinder");
+        if shared{if let Some(id)=self.actor_resources.shape_sources.get(authored){return Ok(Some(*id));}}
+        let id=self.actor_resources.source::<bfe_render::pixel_math::V8>(&record,vertices,indices).map_err(|e|e.to_string())?;
+        if shared{if let Some(id)=id{self.actor_resources.shape_sources.insert(authored.to_owned(),id);}}Ok(id) }
+pub fn actor_source_facts(&mut self, source: u32) -> Result<String,String> { let source=self.actor_resources.sources.get(source as usize).ok_or_else(||String::from("unknown actor source"))?;
+        serde_json::to_string(&source.facts).map_err(|e|e.to_string()) }
+pub fn actor_source_crowd(&mut self) -> Result<u32,String> { if let Some(id)=self.actor_resources.crowd.source{return Ok(id);}if self.actor_resources.sources.len()>=bfe_render::actor_resources::Bank::SOURCES{return Ok(u32::MAX);}let id=self.actor_resources.sources.len() as u32;self.actor_resources.sources.push(bfe_render::actor_crowd::Crowd::geometry());self.actor_resources.crowd.source=Some(id);Ok(id) }
+pub fn actor_source_crowd_add(&mut self, body: u32, bone_base: u32, bones: u32, sources: &[u32], entries: &[u32], groups: &[u32], matrices: &[f64]) -> Result<Vec<f64>,String> { let bank=&mut self.actor_resources;let Some(target)=bank.crowd.source else{bank.clipped=bank.clipped.saturating_add(1);return Ok(vec![]);};let target=target as usize;
+        if body as usize>=bank.sources.len()||body as usize==target||sources.iter().any(|s|*s as usize>=bank.sources.len()||*s as usize==target){bank.clipped=bank.clipped.saturating_add(1);return Ok(vec![]);}
+        if sources.len()>bfe_render::actor_layout::crowd::SPANS||bone_base as usize>=bfe_render::actor_layout::crowd::BONES||bones as usize>bfe_render::actor_layout::crowd::BONES||entries.iter().any(|v|*v as usize>=bfe_render::actor_layout::crowd::BONES)||groups.iter().any(|v|*v as usize>=bfe_render::actor_layout::crowd::SPANS-1){bank.clipped=bank.clipped.saturating_add(1);return Ok(vec![]);}
+        if sources.len()!=entries.len()||sources.len()!=groups.len()||matrices.len()!=sources.len()*16{return Err(String::from("invalid crowd source references"));}
+        // Detach the target payload instead of cloning every body's streams
+        // while a new unit is admitted during loading.
+        let mut target_source=std::mem::replace(&mut bank.sources[target],bfe_render::actor_crowd::Crowd::geometry());let source_bank=&bank.sources;
+        let mut refs=vec![(&source_bank[body as usize],bone_base as usize,None,0)];for i in 0..entries.len(){refs.push((&source_bank[sources[i] as usize],entries[i] as usize,Some(matrices[i*16..i*16+16].try_into().unwrap()),groups[i] as usize+1));}
+        let result=bank.crowd.append(&mut target_source,&refs,bones as usize);drop(refs);bank.sources[target]=target_source;let Some((spans,grow))=result else{return Ok(vec![]);};let mut out=vec![u8::from(grow) as f64];out.extend(spans.iter().map(|v|*v as f64));bank.refresh(&mut self.r.core,target as u32).map_err(|e|e.to_string())?;Ok(out) }
+pub fn actor_crowd_frame(&mut self)  { let bank=&mut self.actor_resources;let Some(source)=bank.crowd.source else{return;};let source=source as usize;if !bank.crowd.pack(&mut bank.sources[source]){return;}let data=&bank.sources[source].index[..bank.crowd.drawn];let core=&mut self.r.core;
+        for ((id,_,_),geometry) in &bank.geometry{if *id as usize==source{core.geometry_index_sub_data(*geometry,0,crate::session::bytes(data));core.geometry_count(*geometry,bank.crowd.drawn);}}core.state.reset(); }
+pub fn actor_geometry(&mut self, source: u32, key: &str, whole: bool) -> Result<u32,String> { self.actor_resources.geometry(&mut self.r.core,source,key,whole).map_err(|e|e.to_string()) }
+pub fn actor_effect(&mut self, source: u32, kind: u32, shadows: bool, view: bool, texture: i32, authored: &str) -> Result<Vec<f64>,String> { if source as usize>=self.actor_resources.sources.len(){self.actor_resources.clipped=self.actor_resources.clipped.saturating_add(1);return Ok(vec![]);}
+ let cache=(source,kind,shadows,view,texture,authored.to_owned());if let Some(row)=self.actor_resources.effects.get(&cache){return Ok(row.clone());}
+        let look=serde_json::from_str(authored).map_err(|e:serde_json::Error|e.to_string())?;
+        let policy=bfe_render::actor_effects::Policy::new(kind as usize,shadows,view,texture,&look).map_err(String::from)?;
+        let core=&mut self.r.core;let source_data=self.actor_resources.sources.get(source as usize).ok_or_else(||String::from("unknown actor effect source"))?;
+        let center=source_data.facts.bounds;
+        let model=self.r.effects.add_model(core,texture,&policy.blend,1,glow::LEQUAL,&policy.values,&center[..4]);
+        for (key,side) in policy.keys{let program=core.add_owned_program(&key).map_err(|e|e.to_string())?;let geometry=self.actor_resources.geometry(core,source,&key,true).map_err(|e|e.to_string())?;self.r.effects.model_pass(core,model,program,side,geometry);}
+        if kind as usize==bfe_render::effect_layout::ACTOR_SHIELD{self.r.effects.model_sampler(core,model,"fieldMap",8,texture);}
+        core.state.reset();let mut out=vec![model as f64,center[0],center[1],center[2]];out.extend(policy.defaults);self.actor_resources.effects.insert(cache,out.clone());Ok(out) }
+pub fn actor_motion(&mut self, source: u32, skin: bool, locked: bool) -> Result<Option<u32>,String> { if source as usize>=self.actor_resources.sources.len(){self.actor_resources.clipped=self.actor_resources.clipped.saturating_add(1);return Ok(None);}
+ let cache=(source,skin,locked);if let Some(id)=self.actor_resources.motions.get(&cache){return Ok(Some(*id));}
+ let key=if locked{"effects/motion-locked"}else if skin{"effects/motion-skinned"}else{"effects/motion-rigid"};
+        let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;let geometry=self.actor_resources.geometry(&mut self.r.core,source,key,true).map_err(|e|e.to_string())?;
+        if self.r.motion.actor_descriptors.len()>=32768{return Ok(None);}
+        let count=self.actor_resources.sources[source as usize].index.len();let id=self.r.motion.actor_descriptors.len() as u32;
+        self.r.motion.actor_descriptors.push(bfe_render::actor_resources::MotionDescriptor{program,geometry,count,locked});self.actor_resources.motions.insert(cache,id);Ok(Some(id)) }
+pub fn actor_skin_release(&mut self, id: u32)  { self.actor_resources.depth.release(id); }
+pub fn actor_skin_words(&mut self, bones: u32) -> u32 { (bfe_render::actor_depth::skin_size(bones as usize).pow(2)*4) as u32 }
+pub fn actor_skin(&mut self, texture: u32, bones: u32) -> Option<u32> { if texture as usize>=self.r.core.native_texture_count(){return None;}self.actor_resources.depth.skin(texture,bones as usize) }
+pub fn actor_skin_offset(&mut self, id: u32) -> u32 { self.actor_resources.depth.get(id).map_or(u32::MAX,|s|s.base as u32) }
+pub fn actor_skin_slot(&mut self, id: u32) -> u32 { self.actor_resources.depth.slot(id).map_or(u32::MAX,|slot|slot as u32) }
+pub fn actor_skins_frame(&mut self)  { self.actor_resources.depth.upload(&mut self.r.core); }
+pub fn actor_depth(&mut self, source: u32, authored: &str, skin: i32, map: i32) -> Result<Option<u32>,String> { if source as usize>=self.actor_resources.sources.len(){self.actor_resources.clipped=self.actor_resources.clipped.saturating_add(1);return Ok(None);}
+ let style:bfe_render::actor_resources::Style=serde_json::from_str(authored).map_err(|e:serde_json::Error|e.to_string())?;
+        let policy=bfe_render::actor_resources::Material::policy(&style).map_err(|e|e.to_string())?;
+        let cut=policy.flags&4!=0&&map>=0;let key=if skin>=0{if cut{"actors/depth-skinned-cutout"}else{"actors/depth-skinned"}}else if cut{"actors/depth-cutout"}else{"actors/depth-solid"};
+        let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;
+        let geometry=self.actor_resources.geometry(&mut self.r.core,source,key,true).map_err(|e|e.to_string())?;
+        if self.actor_resources.crowd.source==Some(source){self.r.core.geometry_count(geometry,self.actor_resources.crowd.drawn);}
+        let count=self.actor_resources.sources.get(source as usize).map_or(0,|s|s.index.len());
+        self.actor_resources.depth.descriptor(&self.r.core,program,geometry,count,policy.flags&3,map,(skin>=0).then_some(skin as u32)).map_err(|e|e.to_string()) }
+pub fn actor_depth_frame(&mut self)  { self.actor_resources.depth.publish(&mut self.r.core,&mut self.r.shadow.input); }
+pub fn actor_material(&mut self, source: u32, authored: &str, skin: bool, cascades: u32, lamps: bool, view: bool, samplers: &[i32]) -> Result<Vec<f64>,String> { use bfe_render::actor_layout::descriptor as D;
+        if source as usize>=self.actor_resources.sources.len(){self.actor_resources.clipped=self.actor_resources.clipped.saturating_add(1);return Ok(vec![]);}
+        let cache=(source,authored.to_owned(),skin,view,samplers.to_vec());if let Some(row)=self.actor_resources.materials.get(&cache){return Ok(row.clone());}
+        let style:bfe_render::actor_resources::Style=serde_json::from_str(authored).map_err(|e:serde_json::Error|e.to_string())?;
+        let material=bfe_render::actor_resources::Material::new(&style,skin,if view{0}else{cascades},lamps,false).map_err(|e|e.to_string())?;
+        let program=self.r.core.add_owned_program(&material.key).map_err(|e|e.to_string())?;
+        let geometry=self.actor_resources.geometry(&mut self.r.core,source,&material.key,style.kind=="shock").map_err(|e|e.to_string())?;
+        let source_data=self.actor_resources.sources.get(source as usize).ok_or_else(||String::from("unknown actor source"))?;
+        if source_data.facts.groups.len()>4||samplers.len()>4||samplers.iter().any(|id|*id>=0&&*id as usize>=self.r.core.native_texture_count()){return Err(String::from("invalid actor material sampler/group"));}
+        let blend=if material.blended{Some(self.r.instances.add_blend(&material.blend,1,glow::LEQUAL,&[program,material.flags&3]))}else{None};
+        let mut textures=[-1;4];
+        if source_data.facts.groups.is_empty(){textures[0]=samplers.first().copied().unwrap_or(-1);}else{for(i,g)in source_data.facts.groups.iter().enumerate(){textures[i]=samplers.get(g[2] as usize).copied().unwrap_or(-1);}}
+        let handle=self.r.instances.actor_descriptors.len();if handle>=32768{return Ok(vec![]);}
+        self.actor_resources.recipes.push((source,style.clone(),skin,view));
+        self.r.instances.actor_descriptors.push(bfe_render::actor_resources::InstanceDescriptor{program,geometry,groups:if style.kind=="shock"{0}else{source_data.facts.groups.len()},textures,flags:material.flags,blend,skin,scroll:material.scroll,bounds:source_data.facts.bounds,body:source_data.facts.groups.len()>0});
+        let mut row=vec![0.;D::LEN];row[D::HANDLE]=handle as f64;row[D::BLENDED]=u8::from(material.blended) as f64;row[D::LAMPS]=u8::from(material.defines.iter().any(|(n,_)|n=="DYNAMIC")) as f64;row[D::HEATED]=u8::from(material.heated) as f64;row[D::COUNT]=source_data.index.len() as f64;row[D::BOUNDS..D::BOUNDS+10].copy_from_slice(&source_data.facts.bounds);self.actor_resources.materials.insert(cache,row.clone());Ok(row) }
+pub fn actor_settings(&mut self, cascades: u32, lamps: bool) -> Result<(),String> { for i in 0..self.actor_resources.recipes.len(){let(source,style,skin,view)=self.actor_resources.recipes[i].clone();
+            let material=bfe_render::actor_resources::Material::new(&style,skin,if view{0}else{cascades},lamps,false).map_err(|e|e.to_string())?;
+            let program=self.r.core.add_owned_program(&material.key).map_err(|e|e.to_string())?;let geometry=self.actor_resources.geometry(&mut self.r.core,source,&material.key,style.kind=="shock").map_err(|e|e.to_string())?;
+            let descriptor=&mut self.r.instances.actor_descriptors[i];descriptor.program=program;descriptor.geometry=geometry;if let Some(blend)=descriptor.blend{self.r.instances.blend_program(blend,program);}
+        }self.r.core.state.reset();Ok(()) }
 pub fn camera_shader_frame(&mut self, role: u32)  { use bfe_render::cameras::layout::{camera as C,role as R,shader_frame as F};
         let role=role as usize;if role>=R::COUNT{return;}
         let row=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];
@@ -83,6 +188,118 @@ pub fn canopies_mesh(&mut self, max: u32) -> Result<(), String> { if max as usiz
         }
         self.r.canopies.set_mesh(core, geometry, &locations, &[3,2,3], max, programs);
         Ok(()) }
+pub fn effect_batch(&mut self, kind: u32, variant: u32, shadows: bool, texture: i32, capacity: u32, owner: i32, samplers: &[i32]) -> Result<u32,String> { let d=Descriptor::new(kind as usize,variant,shadows).map_err(String::from)?;
+        let spec=bfe_render::programs::spec(&d.key).map_err(|e|e.to_string())?;
+        let program=self.r.core.add_owned_program(&d.key).map_err(|e|e.to_string())?;
+        let attributes=d.attributes.iter().map(|(name,size)|spec.attributes.iter().find(|(n,_)|*n==name).map(|(_,location)|[*location,*size]).ok_or_else(||String::from("particle attribute missing"))).collect::<Result<Vec<_>,_>>()?.into_iter().flatten().collect::<Vec<_>>();
+        let corner=if d.base!=0 {u32::MAX} else {spec.attributes.iter().find(|(n,_)|*n=="corner").ok_or_else(||String::from("particle corner missing"))?.1};
+        let id=self.r.effects.add_batch(&self.r.core,program,texture,&d.blend,corner,&attributes,owner);
+        if let Some(base)=d.geometry(kind as usize).map(|g|g.for_program(spec.attributes)) {
+            let attributes=base.attributes.iter().flat_map(|(name,size)|[spec.attributes.iter().find(|(n,_)|*n==*name).map_or(u32::MAX,|(_,location)|*location),*size]).collect::<Vec<_>>();
+            if attributes.chunks_exact(2).any(|a|a[0]==u32::MAX){return Err(String::from("effect base attribute missing"));}
+            self.r.effects.batch_base(&self.r.core,id,&attributes,base.vertices,&base.data,&base.index);
+        }
+        if d.side!=2 {self.r.effects.batch_side(id,d.side);}
+        let values=d.values.iter().map(|(name,size)|{
+            let ty=spec.uniforms.iter().find(|(n,_)|*n==name).map_or(1,|(_,t)|*t);
+            let array=spec.uniform_sizes.iter().any(|(n,count)|*n==name && *count>1);
+            let form=if ty==5 {2}else if array && ty==4 {4}else if array {1}else{0};
+            format!("{name}:{size}:{form}")
+        }).collect::<Vec<_>>().join(",");
+        let bindings:&[(&str,u32)]=match kind as usize {
+            bfe_render::effect_layout::JET_PARTICLES|bfe_render::effect_layout::JET_ROPES|bfe_render::effect_layout::JET_FILM|bfe_render::effect_layout::JET_CORE=>&[("atlas",10),("foamMap",11),("sceneColor",12)],
+            bfe_render::effect_layout::JET_COMPOSITE=>&[("sprayMap",9)],
+            bfe_render::effect_layout::VOLUME=>&[("noiseField",21),("reflection",13)],
+            bfe_render::effect_layout::VOLUME_COMPOSITE=>&[("volumeMap",9)],
+            bfe_render::effect_layout::FLAME=>&[("noiseField",21)],
+            bfe_render::effect_layout::SNOW=>&[("flakes",7),("boxes",8),("cover",9)],
+            bfe_render::effect_layout::OCEAN_SPRAY|bfe_render::effect_layout::OCEAN_SPRAY_STORM=>&[("mask",9)],
+            bfe_render::effect_layout::RAIN=>&[("cover",9)],
+            bfe_render::effect_layout::RAIN_SHEETS=>&[("streaks",9),("cover",10)],
+            _=>&[],
+        };
+        for (i,(name,unit)) in bindings.iter().enumerate(){
+            let sample=samplers.get(i).copied().unwrap_or(-1);
+            if matches!(kind as usize,bfe_render::effect_layout::FLAME|bfe_render::effect_layout::VOLUME) && *name=="noiseField" {self.r.effects.batch_sampler_3d(&self.r.core,id,name,*unit,sample);}
+            else {self.r.effects.batch_sampler(&self.r.core,id,name,*unit,sample);}
+        }
+        self.r.effects.batch_values(&self.r.core,id,&values);
+        if matches!(kind as usize,bfe_render::effect_layout::SNIPER_STREAKS|bfe_render::effect_layout::SNIPER_FLARES|bfe_render::effect_layout::ARC|bfe_render::effect_layout::ARC_VIEW) {self.r.effects.batch_interleaved(id);}
+        if d.depth_flags!=5 {self.r.effects.batch_depth(id,d.depth_flags,glow::LEQUAL);}
+        if let Some(g)=bfe_render::fountain_resources::geometry(kind as usize,variant){
+            self.r.effects.reserve_batch(&self.r.core,id,g.per*bfe_render::fountain_resources::FOUNTAINS);
+            self.r.effects.batch_fixed(&self.r.core,id,&g.rows,g.per);
+            let side=if kind as usize==bfe_render::effect_layout::JET_PARTICLES && (variant>>2)&3==0{-1.}else{(variant&1) as f32};
+            self.r.effects.batch_constants(&self.r.core,id,&[("perFountain",&[g.per as f32]),("side",&[side]),("wind",&[0.45,0.,0.2]),("hasFoam",&[if samplers.get(1).is_some_and(|s|*s>=0){1.}else{0.}])]);
+        }else if matches!(kind as usize,bfe_render::effect_layout::OCEAN_SPRAY|bfe_render::effect_layout::OCEAN_SPRAY_STORM){
+            self.r.effects.reserve_batch(&self.r.core,id,384);self.r.effects.batch_fixed(&self.r.core,id,&bfe_render::ocean_resources::spray_seeds(),1);
+        }else{self.r.effects.reserve_batch(&self.r.core,id,capacity as usize);}
+
+        // Reserve the CPU staging during admission. Frame publication never
+        // asks fx_reserve to grow in response to this producer's active count.
+        self.r.effects.reserve((1<<22).max(Descriptor::count(capacity as usize)*d.attributes.iter().map(|(_,s)|*s as usize).sum::<usize>()+d.values.iter().map(|(_,s)|*s as usize).sum::<usize>()));
+        self.r.core.state.reset();
+        Ok(id) }
+pub fn effect_fixed(&mut self, id: u32) -> bool { self.r.effects.batch_fixed_inputs(id) }
+pub fn effect_multiplier(&mut self, id: u32) -> u32 { self.r.effects.batch_multiplier(id) }
+pub fn effect_mesh(&mut self, kind: u32, shadows: bool, texture: i32, vertices: u32, indices: u32, uv: &[f64]) -> Result<u32,String> { let d=bfe_render::effect_resources::MeshDescriptor::new(kind as usize,shadows,uv).map_err(String::from)?;
+        let sizes=d.attributes.iter().map(|(_,size)|*size).collect::<Vec<_>>();
+        let values=d.values.iter().map(|(name,size)|format!("{name}:{size}")).collect::<Vec<_>>().join(",");
+        let id=self.r.effects.add_mesh(&self.r.core,texture,&d.blend,d.depth,glow::LEQUAL,&sizes,&values);
+        let mut line=None;
+        for (key,side) in &d.passes{
+            let spec=bfe_render::programs::spec(key).map_err(|e|e.to_string())?;
+            let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;
+            let locations=d.attributes.iter().map(|(name,_)|spec.attributes.iter().find(|(n,_)|*n==name).map_or(u32::MAX,|(_,l)|*l)).collect::<Vec<_>>();
+            if locations.contains(&u32::MAX){return Err(String::from("dynamic attribute missing"));}
+            self.r.effects.mesh_pass(&self.r.core,id,program,*side,&locations);
+            line=spec.attributes.iter().find(|(n,_)|*n=="line").map(|(_,l)|*l);
+        }
+        self.r.effects.reserve_mesh(&self.r.core,id,vertices as usize,indices as usize,d.constants,kind as usize==bfe_render::effect_layout::DEATH_TRACE);
+        if kind as usize==bfe_render::effect_layout::WATER_RINGS{self.r.effects.mesh_ring_topology(&self.r.core,id);}
+        if let Some(location)=line{self.r.effects.mesh_trace_line(&self.r.core,id,location);}
+        self.r.effects.reserve(1<<22);self.r.core.state.reset();Ok(id) }
+pub fn effect_basin(&mut self, tier: bool, basins: &[f64], vertices: &[f32], indices: &[u32], wide: bool, shadows: bool, samplers: &[i32]) -> Result<Vec<f64>,String> { let basins=basins.chunks_exact(4).take(5).map(|b|[b[0],b[1],b[2],b[3]]).collect::<Vec<_>>();
+        let (vertices,indices)=if tier{bfe_render::fountain_resources::basin_tiers::<bfe_render::pixel_math::V8>(&basins)}else{(vertices.to_vec(),indices.to_vec())};
+        if vertices.len()>1<<22||indices.len()>1<<22||indices.iter().any(|i|*i as usize>=vertices.len()/3){return Err(String::from("invalid basin source"));}
+        let key=format!("effects/fountain-water-s2{}",if shadows{"-shadow"}else{""});
+        let spec=bfe_render::programs::spec(&key).map_err(|e|e.to_string())?;
+        let core=&mut self.r.core;let program=core.add_owned_program(&key).map_err(|e|e.to_string())?;
+        let geometry=core.add_geometry();let buffer=core.geometry_buffer(geometry,crate::session::bytes(&vertices));
+        core.geometry_pointer(geometry,buffer,spec.attributes[0].1,3,glow::FLOAT,false,0,0);
+        if wide && !tier{core.geometry_index(geometry,crate::session::bytes(&indices),glow::UNSIGNED_INT);}else{let small=indices.iter().map(|v|*v as u16).collect::<Vec<_>>();core.geometry_index(geometry,crate::session::bytes(&small),glow::UNSIGNED_SHORT);}
+        let values=bfe_render::effect_layout::PRODUCERS[bfe_render::effect_layout::FOUNTAIN_WATER].1.iter().map(|(n,s)|format!("{n}:{s}:{}",if matches!(*n,"wakes"|"motion"|"basins"){4}else{0})).collect::<Vec<_>>().join(",");
+        let id=self.r.effects.add_model(core,-1,&[1,32774,32774,770,771,1,771],1,glow::LEQUAL,&values,&[0.,0.,0.,-1.]);
+        self.r.effects.model_pass(core,id,program,2,geometry);
+        for (i,(name,unit)) in [("reflection",0),("sceneColor",9),("sceneDepth",10),("foamMap",11)].iter().enumerate(){self.r.effects.model_sampler(core,id,name,*unit,samplers.get(i).copied().unwrap_or(-1));}
+        // The shader keeps an identity reflection while analytic basin water
+        // reads the opaque copy; its disabled reflection branch owns no target.
+        self.r.effects.basin_constants(core,program);
+        let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];
+        for p in vertices.chunks_exact(3){for k in 0..3{lo[k]=lo[k].min(p[k] as f64);hi[k]=hi[k].max(p[k] as f64);}}
+        core.state.reset();Ok(vec![id as f64,(lo[0]+hi[0])*0.5,(lo[1]+hi[1])*0.5,(lo[2]+hi[2])*0.5]) }
+pub fn effect_far_mesh(&mut self, kind: u32, shadows: bool, slot: u32, vertex_at: u32, object: u32) -> Result<u32,String> { let (key,attributes,blend,flags)=bfe_render::effect_resources::far_mesh(kind as usize,shadows).map_err(String::from)?;
+        let spec=bfe_render::programs::spec(&key).map_err(|e|e.to_string())?;
+        let program=self.r.core.add_owned_program(&key).map_err(|e|e.to_string())?;
+        let capacity=bfe_render::effect_layout::STORM_LIGHTNING_CAPACITY;
+        let fields=bfe_render::effect_layout::PRODUCERS[kind as usize].1;
+        let upload=slot+17+bfe_render::water_resources::field(fields,"upload").unwrap().0 as u32;
+        let range=slot+17+bfe_render::water_resources::field(fields,"first").unwrap().0 as u32;
+        let width=attributes.iter().map(|(_,s)|*s as usize).sum::<usize>()*capacity;
+        if slot as usize+17+fields.iter().map(|(_,s)|*s as usize).sum::<usize>()>self.r.far.input.len()||vertex_at as usize+width>self.r.far.vertices.len(){return Err(String::from("far effect capacity"));}
+        let core=&mut self.r.core;let geometry=core.add_geometry();let mut buffers=vec![];
+        for (name,size) in attributes{
+            let location=spec.attributes.iter().find(|(n,_)|n==name).ok_or_else(||String::from("far effect attribute"))?.1;
+            let data=vec![0f32;capacity*(*size as usize)];let buffer=core.geometry_buffer(geometry,crate::session::bytes(&data));
+            core.geometry_pointer(geometry,buffer,location,*size as i32,glow::FLOAT,false,0,0);buffers.push((buffer,data.len()));
+        }
+        let index=(0..capacity as u32).collect::<Vec<_>>();core.geometry_index(geometry,crate::session::bytes(&index),glow::UNSIGNED_INT);
+        let table=self.r.far.add_table(core,program,"lightningFlash",&[glow::FLOAT],&[1]).ok_or_else(||String::from("far effect table"))?;
+        let id=self.r.far.add_item(core,program,table,geometry,flags,glow::LEQUAL,&blend[1..],&[0.,8.,0.,object as f64],&[0.,0.,0.,0.],slot);
+        self.r.far.source(id,0,1,&[],slot+17);self.r.far.range_input(id,range);
+        let mut at=vertex_at;for (buffer,width)in buffers{self.r.far.refresh(id,buffer,at,width as u32,upload);at+=width as u32;}
+        core.state.reset();Ok(id) }
+pub fn fx_clipped(&mut self) -> f64 { self.r.effects.clipped as f64 }
 pub fn fx_reserve(&mut self, floats: u32)  { self.r.effects.reserve(floats as usize) }
 pub fn fx_add_owner(&mut self, tracks: u32, track_rows: f32) -> u32 { self.r.effects.add_owner(&self.r.core, tracks, track_rows) }
 pub fn fx_add_batch(&mut self, program: u32, texture: i32, blend: &[u32], corner: u32, attributes: &[u32], owner: i32) -> u32 { self.r.effects.add_batch(&self.r.core, program, texture, blend, corner, attributes, owner) }
@@ -179,6 +396,20 @@ pub fn hud_model_build(&mut self, mode: u32, full: bool) -> u32 { use bfe_render
             h.input[o+4]=(draw.mask!=0) as u8 as f64;
         }
         b.count as u32 }
+pub fn hud_descriptor_init(&mut self) -> Result<(),String> { let key="post-hud/hud";let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;
+        let mut index=Vec::with_capacity(bfe_render::hud::QUADS*6);for i in 0..bfe_render::hud::QUADS as u32{let a=i*4;index.extend([a,a+1,a+2,a+2,a+1,a+3]);}self.r.hud.init(&mut self.r.core,&index);
+        let spec=bfe_render::programs::spec(key).map_err(|e|e.to_string())?;let resources=&mut self.r.hud.resources;resources.program=Some(program);resources.slots=[-1;3];resources.cameras.clear();
+        for(i,(name,_))in spec.uniforms.iter().enumerate(){match *name{"map"=>resources.slots[0]=i as i32,"mask"=>resources.slots[1]=i as i32,"masked"=>resources.slots[2]=i as i32,"projectionMatrix"=>resources.cameras.push((i,0)),"modelViewMatrix"=>resources.cameras.push((i,1)),_=>return Err(String::from("unknown HUD uniform"))}}
+        Ok(()) }
+pub fn hud_appearance(&mut self, map: i32, mask: i32, masked: bool, map_sample: i32, mask_sample: i32) -> Option<u32> { for(slot,source)in [(map,map_sample),(mask,mask_sample)]{if slot>=0&&source>=0{let pair=(slot as u32,source as u32);if !self.r.interface.resources.samples.contains(&pair){self.r.interface.resources.samples.push(pair);}}} let resources=&mut self.r.hud.resources;if resources.materials.len()>=bfe_render::interface_resource_layout::limit::APPEARANCES{resources.clipped=resources.clipped.saturating_add(1);return None;}let id=resources.materials.len()as u32;resources.materials.push((map,mask,masked));Some(id) }
+pub fn hud_resources_frame(&mut self, resources: &Resources, mode: i32, full: bool) -> Result<(),String> { self.ui_resources_frame(resources)?;
+        use bfe_render::hud::*;use bfe_render::interface_resource_layout::hud as R;
+        if mode>=0{self.hud_model_build(mode as u32,full);}
+        let h=&mut self.r.hud;let Some(program)=h.resources.program else{return Ok(());};let mut view=[0.;16];view.copy_from_slice(&h.input[IN_CAMERA+R::VIEW..IN_CAMERA+R::VIEW+16]);let mut projection=[0.;16];projection.copy_from_slice(&h.input[IN_CAMERA+R::PROJECTION..IN_CAMERA+R::PROJECTION+16]);
+        h.input[IN_CAMERA..IN_CAMERA+2*bfe_render::post::UNIFORM].fill(0.);for i in 0..2{let at=IN_CAMERA+i*bfe_render::post::UNIFORM;h.input[at]=-1.;if let Some(&(slot,kind))=h.resources.cameras.get(i){h.input[at]=slot as f64;h.input[at+1]=16.;h.input[at+2..at+18].copy_from_slice(if kind==0{&projection}else{&view});}}
+        h.input[IN_PROGRAM]=program as f64;for i in 0..3{h.input[IN_SLOTS+i]=h.resources.slots[i]as f64;}
+        let n=(h.input[IN_GROUPS]as usize).min(MAX_GROUPS);h.input[IN_GROUPS]=n as f64;for i in 0..n{let at=IN_FIRST_GROUP+i*GROUP;let first=(h.input[at]as usize).min(QUADS*6);h.input[at]=first as f64;h.input[at+1]=(h.input[at+1]as usize).min(QUADS*6-first)as f64;if h.input[at+2]!=bfe_render::interface_resource_layout::kind::HUD as f64{continue;}if let Some(&(map,mask,masked))=h.resources.materials.get(h.input[at+3]as usize){h.input[at+2]=map as f64;h.input[at+3]=mask as f64;h.input[at+4]=u8::from(masked)as f64;}else{h.input[at+1]=0.;h.resources.clipped=h.resources.clipped.saturating_add(1);}}
+        Ok(()) }
 pub fn records_at(&mut self) -> u32 { IN_RECORDS as u32 }
 pub fn record_stride(&mut self) -> u32 { REC_STRIDE as u32 }
 pub fn inst_add_blend(&mut self, blend: &[u32], depth_flags: u32, depth_func: u32, passes: &[u32]) -> u32 { self.r.instances.add_blend(blend, depth_flags, depth_func, passes) }
@@ -189,12 +420,46 @@ pub fn interface_upload_frame(&mut self, stream: u32, offset: usize, length: usi
         if end > offset {
             self.r.core.geometry_buffer_sub_data(stream.geometry, stream.buffer, offset as i32, &stream.data[offset..end]);
         } }
+pub fn ui_appearance(&mut self, source: u32, authored: &str, skin: bool, samplers: &[i32], public_samples: &[i32], order: u32) -> Result<Vec<f64>,String> { use bfe_render::interface_resources::{Style as InterfaceStyle,Policy as InterfacePolicy,Descriptor as InterfaceDescriptor,Binding as InterfaceBinding};use bfe_render::interface_resource_layout::limit as L;
+        let bank=&mut self.r.interface.resources;
+        if source as usize>=self.actor_resources.sources.len()||bank.descriptors.len()>=L::APPEARANCES{bank.clipped=bank.clipped.saturating_add(1);return Ok(vec![]);}
+        if samplers.len()>4||public_samples.len()!=samplers.len(){return Ok(vec![]);}
+        for i in 0..samplers.len(){if samplers[i]<0||public_samples[i]<0{continue;}let pair=(samplers[i]as u32,public_samples[i]as u32);if !bank.samples.contains(&pair){bank.samples.push(pair);}}
+        let style:InterfaceStyle=serde_json::from_str(authored).map_err(|e|e.to_string())?;
+        let policy=InterfacePolicy::new(&style,skin,samplers.first().copied().unwrap_or(-1)>=0).map_err(|e|e.to_string())?;
+        let program=self.r.core.add_owned_program(&policy.key).map_err(|e|e.to_string())?;
+        let geometry=self.actor_resources.geometry(&mut self.r.core,source,&policy.key,true).map_err(|e|e.to_string())?;
+        let data=&self.actor_resources.sources[source as usize];let count=if style.program=="points"{data.facts.count}else{data.index.len()};
+        if style.program=="points"{self.r.core.geometry_primitive(geometry,0,0,false,1.);}
+        let dynamic=matches!(style.program.as_str(),"quad"|"points");
+        if dynamic&&!self.r.interface.resources.geometry.contains_key(&geometry){
+            let needed=if style.program=="quad"{4}else{1};
+            if self.r.interface.resources.bindings.len()+needed>L::SOURCES{self.r.interface.resources.clipped=self.r.interface.resources.clipped.saturating_add(1);return Ok(vec![]);}
+            let mut ids=vec![];
+            // Dynamic quad/point streams are separate Float32 buffers in catalog
+            // order. Existing interface streams own restoration and queued bytes.
+            for slot in 0..needed{let bfe_render::actor_resources::Stream::Float(values)=&data.streams[slot]else{return Err(String::from("invalid interface dynamic stream"));};let stream=self.r.interface.add_stream(geometry,slot as u32,crate::session::bytes(values));let id=self.r.interface.resources.bindings.len()as u32;self.r.interface.resources.bindings.push(InterfaceBinding{stream,floats:values.len()});ids.push(id);}
+            self.r.interface.resources.geometry.insert(geometry,ids);
+        }
+        let descriptor=InterfaceDescriptor::new(program,geometry,count,order,policy,samplers).map_err(|e|e.to_string())?;let id=self.r.interface.resources.descriptors.len()as u32;
+        self.r.interface.resources.descriptors.push(descriptor);self.r.core.state.reset();
+        let ids=self.r.interface.resources.geometry.get(&geometry);use bfe_render::interface_resource_layout::meta as M;let mut out=vec![0.;M::FIRST];out[M::APPEARANCE]=id as f64;out[M::GEOMETRY]=geometry as f64;out[M::BINDINGS]=ids.map_or(0,|v|v.len())as f64;if let Some(ids)=ids{out.extend(ids.iter().map(|v|*v as f64));}Ok(out) }
+pub fn ui_resources_frame(&mut self, resources: &Resources) -> Result<(),String> { self.actor_skins_frame();use bfe_render::interface_resource_layout::{stream as S,limit as L};
+        // Sampler generations are checked once in Rust, including standalone
+        // menus which do not prepare a battle view. No JS version walk remains.
+        let epoch=resources.epoch();if epoch!=self.r.interface.resources.epoch{for i in 0..self.r.interface.resources.samples.len(){let(slot,source)=self.r.interface.resources.samples[i];self.replace_sample_texture(slot,resources,source)?;}self.r.interface.resources.epoch=epoch;}
+        for id in 0..self.r.interface.resources.bindings.len(){let at=id*L::STREAM_WORDS;if self.r.interface.resources.dirty[at+S::DIRTY]==0.{continue;}self.r.interface.resources.dirty[at+S::DIRTY]=0.;let b=&self.r.interface.resources.bindings[id];let stream=b.stream as usize;let first=(self.r.interface.resources.dirty[at+S::FIRST]as usize).min(b.floats);let last=(self.r.interface.resources.dirty[at+S::LAST]as usize).min(b.floats);if last<=first{continue;}
+            if self.r.frames.collecting{self.r.frame_interface_upload(stream,first*4,(last-first)*4);}else{let b=&self.r.interface.streams[stream];self.r.core.geometry_buffer_sub_data(b.geometry,b.buffer,(first*4)as i32,&b.data[first*4..last*4]);}
+        }Ok(()) }
+pub fn line_clipped(&mut self) -> f64 { self.line_resources.clipped as f64 }
+pub fn line_source(&mut self, program: u32, kind: u32, capacity: u32) -> Result<Option<u32>,String> { self.line_resources.admit(&mut self.r.core,program,kind,capacity as usize).map_err(|e|e.to_string()) }
+pub fn line_frame(&mut self, view: u32)  { self.line_resources.frame(&mut self.r.core,&mut self.r.frames,view as usize); }
 pub fn set_shadow_maps(&mut self, ids: &[u32])  { self.r.core.set_shadow_maps(ids) }
-pub fn add_texture(&mut self, resources: &Resources, id: u32) -> Result<u32, String> { let texture = resources.texture(id)?;
+pub fn add_texture(&mut self, resources: &Resources, id: u32) -> Result<u32, String> { let texture = resources.descriptor_texture(id)?;
         
         let key = texture;
         Ok(self.r.core.add_texture(key)) }
-pub fn replace_sample_texture(&mut self, id: u32, resources: &Resources, source: u32) -> Result<(), String> { let texture = resources.texture(source)?;
+pub fn replace_sample_texture(&mut self, id: u32, resources: &Resources, source: u32) -> Result<(), String> { let texture = resources.descriptor_texture(source)?;
         let key = texture;
         let old = self.r.replace_sample_texture(id as usize, key).map_err(|e| e.to_string())?;
         
@@ -246,6 +511,52 @@ pub fn water_surface(&mut self, geometry: u32, blend: &[u32], depth_func: u32, f
 pub fn water_rings(&mut self, index: &[u32], blend: &[u32], depth_func: u32, flags: u32, side: u32) -> u32 { self.r.water.add_rings(&self.r.core, index, blend, depth_func, flags, side) }
 pub fn water_set(&mut self, max: u32, sizes: &[u32]) -> Option<u32> { self.r.water.add_set(&self.r.core, max, sizes) }
 pub fn water_instanced(&mut self, surface: u32, set: u32, k: u32, location: u32)  { self.r.water.instanced(&self.r.core, surface, set, k, location) }
+pub fn water_source(&mut self, authored: &str, ocean: bool) -> Result<Vec<f64>,String> { let source=bfe_render::water_resources::WaterSource::with_math::<bfe_render::pixel_math::V8>(authored,ocean).map_err(String::from)?;
+        let mut facts=vec![self.water_sources.len() as f64];facts.extend(source.near.bounds);
+        self.water_sources.push(source);Ok(facts) }
+pub fn water_values(&mut self, source: u32, kind: u32) -> Result<Vec<f64>,String> { let s=self.water_sources.get(source as usize).ok_or_else(||String::from("unknown ocean source"))?;bfe_render::water_resources::defaults(kind as usize,s).map_err(String::from) }
+pub fn effect_water(&mut self, source: u32, kind: u32, far_view: bool, shadows: bool, slot: u32, object: u32) -> Result<Vec<f64>,String> { use bfe_render::{effect_layout as k,water_resources as w};
+        let held=self.water_sources.get(source as usize).ok_or_else(||String::from("unknown water source"))?;
+        let kind=kind as usize;let ocean=matches!(kind,k::OCEAN_CLASSIC|k::OCEAN|k::OCEAN_STORM|k::OCEAN_HAZE);
+        let shape_id=if ocean{match kind{k::OCEAN_CLASSIC=>2,k::OCEAN_HAZE=>4,_=>3}}else{u32::from(far_view)};
+        let shape=if ocean{&held.ocean.as_ref().ok_or_else(||String::from("ocean source missing"))?[(shape_id-2) as usize]}else if far_view{&held.far}else{&held.near};
+        let fields=w::fields(kind).map_err(String::from)?;let defaults=w::defaults(kind,held).map_err(String::from)?;
+        let key=w::key(kind,far_view,shadows&&(ocean||!far_view)).map_err(String::from)?;
+        let spec=bfe_render::programs::spec(&key).map_err(|e|e.to_string())?;
+        let core=&mut self.r.core;let program=core.add_owned_program(&key).map_err(|e|e.to_string())?;
+        let geometry=if let Some(id)=self.water_geometry.get(&(source,shape_id)){*id}else{
+            let id=core.add_geometry();let buffer=core.geometry_buffer(id,crate::session::bytes(&shape.vertices));
+            for(name,location)in spec.attributes {match *name{"position"=>core.geometry_pointer(id,buffer,*location,3,glow::FLOAT,false,(shape.stride*4) as i32,0),"uv"=>core.geometry_pointer(id,buffer,*location,2,glow::FLOAT,false,(shape.stride*4) as i32,12),_=>return Err(String::from("unknown water vertex input"))}}
+            if shape.index.iter().any(|i|*i>=65535){core.geometry_index(id,crate::session::bytes(&shape.index),glow::UNSIGNED_INT);}else{let index=shape.index.iter().map(|i|*i as u16).collect::<Vec<_>>();core.geometry_index(id,crate::session::bytes(&index),glow::UNSIGNED_SHORT);}
+            self.water_geometry.insert((source,shape_id),id);id
+        };
+        let blend=w::blend(kind);let depth=if matches!(kind,k::WATER_REFLECTION|k::OCEAN_HAZE){1}else{3};
+        let id=if !far_view {
+            let values=fields.iter().map(|(name,size)|format!("{name}:{size}:{}",if w::sampler(name){3}else if *name=="waders"{4}else{0})).collect::<Vec<_>>().join(",");
+            let id=self.r.effects.add_model(core,-1,&blend,depth,glow::LEQUAL,&values,&[shape.bounds[0],shape.bounds[1],shape.bounds[2],-1.]);
+            self.r.effects.model_pass(core,id,program,2,geometry);
+            let mut unit=3;for(name,_)in fields{if w::sampler(name){let(at,_)=w::field(fields,name).unwrap();self.r.effects.model_input_sampler(core,id,name,unit,at);unit+=1;}}
+            if kind==k::WATER_TINT{self.r.effects.model_input_blend(id,w::field(fields,"quality").unwrap().0);}
+            id
+        }else{
+            if slot as usize+17+defaults.len()>self.r.far.input.len(){return Err(String::from("water far input capacity"));}
+            let uniforms=spec.uniforms.iter().filter(|(n,_)|spec.kind==bfe_render::shader::Kind::Plain||!bfe_render::shader::FRAME_MEMBERS.iter().any(|(name,_)|name==n)).copied().collect::<Vec<_>>();
+            let names=uniforms.iter().map(|(n,_)|*n).collect::<Vec<_>>().join(",");
+            let types=uniforms.iter().map(|(_,ty)|match ty{1=>glow::FLOAT,2=>glow::FLOAT_VEC2,3=>glow::FLOAT_VEC3,4=>glow::FLOAT_VEC4,5=>glow::INT,9=>glow::FLOAT_MAT3,16=>glow::FLOAT_MAT4,32=>glow::SAMPLER_2D,35=>glow::SAMPLER_CUBE,_=>0}).collect::<Vec<_>>();
+            let counts=uniforms.iter().map(|(n,_)|spec.uniform_sizes.iter().find(|(name,_)|name==n).map_or(1,|(_,s)|*s)).collect::<Vec<_>>();
+            let table=self.r.far.add_table(core,program,&names,&types,&counts).ok_or_else(||String::from("invalid native water table"))?;
+            let order=if kind==k::OCEAN_HAZE{10.}else if ocean{0.}else if kind==k::WATER_REFLECTION{-19.}else{-20.};
+            let flags=(if kind==k::OCEAN_HAZE{1}else{2})|4|16|128|if !ocean||kind==k::OCEAN_HAZE{64|512}else{0}|if depth&2!=0{8}else{0};
+            let id=self.r.far.add_item(core,program,table,geometry,flags,glow::LEQUAL,&blend[1..],&[0.,order,if ocean{4294967295.}else{0.},object as f64],&shape.bounds[..4],slot);
+            for(u,(name,_))in uniforms.iter().enumerate(){
+                let special=match *name{"projectionMatrix"=>Some(4),"viewMatrix"=>Some(5),"cameraPosition"=>Some(6),"modelMatrix"=>Some(7),"modelViewMatrix"=>Some(8),_=>None};
+                if let Some(kind)=special{self.r.far.source(id,u as u32,kind,&[],0);}else{let(at,_)=w::field(fields,name).ok_or_else(||String::from(&format!("missing water field {name}")))?;self.r.far.source(id,u as u32,if *name=="skyProbe"{10}else if w::sampler(name){3}else{1},&[],slot+17+at as u32);}
+            }
+            if kind==k::WATER_TINT{self.r.far.input_blend(id,slot as usize+17+w::field(fields,"quality").unwrap().0);}
+            id
+        };
+        let mut facts=vec![id as f64,shape.bounds[0],shape.bounds[1],shape.bounds[2]];facts.extend(defaults);
+        core.state.reset();Ok(facts) }
 pub fn world_uses_lamps(&mut self, id: u32) -> bool { self.r.world.uses_lamps(&self.r.core, id) }
 pub fn add_world(&mut self, geometry: u32, program: u32, order: u32, flags: u32, bounds: &[f64]) -> u32 { let id=self.r.world.add_world(geometry, program, order, flags, bounds); self.r.world.init_lamps(&self.r.core,id); id }
 pub fn world_texture(&mut self, w: u32, unit: u32, texture: u32)  { self.r.world.world_texture(&self.r.core, w, unit, texture) }
@@ -257,6 +568,9 @@ pub fn world_shown(&mut self, w: u32, shown: bool)  { self.r.world.world_shown(w
 pub fn world_lamps(&mut self, w: u32, values: &[f32])  { self.r.world.world_lamps(&self.r.core, w, values) }
 pub fn bank(&mut self, name: &str) -> Result<&mut [u8], String> {
 match name {
+"actor_crowd_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.actor_resources.crowd.input)),
+"actor_skin_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.actor_resources.depth.input)),
+"actor_bones" => Ok(crate::session::bytes_mut::<f32>(&mut self.actor_resources.depth.bones)),
 "camera_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.input)),
 "camera_output" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.output)),
 "camera_windows" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.cascades.output)),
@@ -288,6 +602,9 @@ match name {
 "hud_tint" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.hud.tint)),
 "hud_model_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.hud_model.input)),
 "interface_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.interface.input)),
+"ui_dirty" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.interface.resources.dirty)),
+"line_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.line_resources.input)),
+"line_data" => Ok(crate::session::bytes_mut::<f32>(&mut self.line_resources.data)),
 "input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.core.input)),
 "bones" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.core.bones)),
 "shadow_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.core.shadow_input)),
@@ -316,6 +633,26 @@ _ => { if let Some(index)=name.strip_prefix("interface_stream_").and_then(|s|s.p
 }
 }
 pub enum Command {
+actor_flyer(u32,u32,bool,u32,i32,u32,u32,bool),
+actor_flyer_motion(u32,u32,Vec<f32>),
+actor_source(String,Vec<f32>,Vec<u32>),
+actor_source_facts(u32),
+actor_source_crowd,
+actor_source_crowd_add(u32,u32,u32,Vec<u32>,Vec<u32>,Vec<u32>,Vec<f64>),
+actor_crowd_frame,
+actor_geometry(u32,String,bool),
+actor_effect(u32,u32,bool,bool,i32,String),
+actor_motion(u32,bool,bool),
+actor_skin_release(u32),
+actor_skin_words(u32),
+actor_skin(u32,u32),
+actor_skin_offset(u32),
+actor_skin_slot(u32),
+actor_skins_frame,
+actor_depth(u32,String,i32,i32),
+actor_depth_frame,
+actor_material(u32,String,bool,u32,bool,bool,Vec<i32>),
+actor_settings(u32,bool),
 camera_shader_frame(u32),
 camera_pack_shader_frame(u32),
 camera_shadow_shader_frame,
@@ -337,6 +674,13 @@ camera_cascades_frame,
 camera_shadow_frame(u32),
 camera_invalidate_frame(u32),
 canopies_mesh(u32),
+effect_batch(u32,u32,bool,i32,u32,i32,Vec<i32>),
+effect_fixed(u32),
+effect_multiplier(u32),
+effect_mesh(u32,bool,i32,u32,u32,Vec<f64>),
+effect_basin(bool,Vec<f64>,Vec<f32>,Vec<u32>,bool,bool,Vec<i32>),
+effect_far_mesh(u32,bool,u32,u32,u32),
+fx_clipped,
 fx_reserve(u32),
 fx_add_owner(u32,f32),
 fx_add_batch(u32,i32,Vec<u32>,u32,Vec<u32>,i32),
@@ -392,11 +736,19 @@ hud_model_event(u32,f64,f64,f64,f64),
 hud_model_observe(u32,f64,f64,f64,f64),
 hud_model_update,
 hud_model_build(u32,bool),
+hud_descriptor_init,
+hud_appearance(i32,i32,bool,i32,i32),
+hud_resources_frame(usize,i32,bool),
 records_at,
 record_stride,
 inst_add_blend(Vec<u32>,u32,u32,Vec<u32>),
 interface_buffer_init(u32,u32,Vec<u8>),
 interface_upload_frame(u32,usize,usize),
+ui_appearance(u32,String,bool,Vec<i32>,Vec<i32>,u32),
+ui_resources_frame(usize),
+line_clipped,
+line_source(u32,u32,u32),
+line_frame(u32),
 set_shadow_maps(Vec<u32>),
 add_texture(usize,u32),
 replace_sample_texture(u32,usize,u32),
@@ -443,6 +795,9 @@ water_surface(u32,Vec<u32>,u32,u32,u32),
 water_rings(Vec<u32>,Vec<u32>,u32,u32,u32),
 water_set(u32,Vec<u32>),
 water_instanced(u32,u32,u32,u32),
+water_source(String,bool),
+water_values(u32,u32),
+effect_water(u32,u32,bool,bool,u32,u32),
 world_uses_lamps(u32),
 add_world(u32,u32,u32,u32,Vec<f64>),
 world_texture(u32,u32,u32),
@@ -457,6 +812,26 @@ impl Command {
 pub fn decode(name: &str, args: &[serde_json::Value], blobs: &BlobStore) -> Result<Self,String> {
 let a=Arguments::new(args,blobs);
 Ok(match name {
+"actor_flyer" => Self::actor_flyer(a.u32(0)?,a.u32(1)?,a.bool(2)?,a.u32(3)?,a.i32(4)?,a.u32(5)?,a.u32(6)?,a.bool(7)?),
+"actor_flyer_motion" => Self::actor_flyer_motion(a.u32(0)?,a.u32(1)?,a.f32s(2)?),
+"actor_source" => Self::actor_source(a.string(0)?,a.f32s(1)?,a.u32s(2)?),
+"actor_source_facts" => Self::actor_source_facts(a.u32(0)?),
+"actor_source_crowd" => Self::actor_source_crowd,
+"actor_source_crowd_add" => Self::actor_source_crowd_add(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32s(3)?,a.u32s(4)?,a.u32s(5)?,a.f64s(6)?),
+"actor_crowd_frame" => Self::actor_crowd_frame,
+"actor_geometry" => Self::actor_geometry(a.u32(0)?,a.string(1)?,a.bool(2)?),
+"actor_effect" => Self::actor_effect(a.u32(0)?,a.u32(1)?,a.bool(2)?,a.bool(3)?,a.i32(4)?,a.string(5)?),
+"actor_motion" => Self::actor_motion(a.u32(0)?,a.bool(1)?,a.bool(2)?),
+"actor_skin_release" => Self::actor_skin_release(a.u32(0)?),
+"actor_skin_words" => Self::actor_skin_words(a.u32(0)?),
+"actor_skin" => Self::actor_skin(a.u32(0)?,a.u32(1)?),
+"actor_skin_offset" => Self::actor_skin_offset(a.u32(0)?),
+"actor_skin_slot" => Self::actor_skin_slot(a.u32(0)?),
+"actor_skins_frame" => Self::actor_skins_frame,
+"actor_depth" => Self::actor_depth(a.u32(0)?,a.string(1)?,a.i32(2)?,a.i32(3)?),
+"actor_depth_frame" => Self::actor_depth_frame,
+"actor_material" => Self::actor_material(a.u32(0)?,a.string(1)?,a.bool(2)?,a.u32(3)?,a.bool(4)?,a.bool(5)?,a.i32s(6)?),
+"actor_settings" => Self::actor_settings(a.u32(0)?,a.bool(1)?),
 "camera_shader_frame" => Self::camera_shader_frame(a.u32(0)?),
 "camera_pack_shader_frame" => Self::camera_pack_shader_frame(a.u32(0)?),
 "camera_shadow_shader_frame" => Self::camera_shadow_shader_frame,
@@ -478,6 +853,13 @@ Ok(match name {
 "camera_shadow_frame" => Self::camera_shadow_frame(a.u32(0)?),
 "camera_invalidate_frame" => Self::camera_invalidate_frame(a.u32(0)?),
 "canopies_mesh" => Self::canopies_mesh(a.u32(0)?),
+"effect_batch" => Self::effect_batch(a.u32(0)?,a.u32(1)?,a.bool(2)?,a.i32(3)?,a.u32(4)?,a.i32(5)?,a.i32s(6)?),
+"effect_fixed" => Self::effect_fixed(a.u32(0)?),
+"effect_multiplier" => Self::effect_multiplier(a.u32(0)?),
+"effect_mesh" => Self::effect_mesh(a.u32(0)?,a.bool(1)?,a.i32(2)?,a.u32(3)?,a.u32(4)?,a.f64s(5)?),
+"effect_basin" => Self::effect_basin(a.bool(0)?,a.f64s(1)?,a.f32s(2)?,a.u32s(3)?,a.bool(4)?,a.bool(5)?,a.i32s(6)?),
+"effect_far_mesh" => Self::effect_far_mesh(a.u32(0)?,a.bool(1)?,a.u32(2)?,a.u32(3)?,a.u32(4)?),
+"fx_clipped" => Self::fx_clipped,
 "fx_reserve" => Self::fx_reserve(a.u32(0)?),
 "fx_add_owner" => Self::fx_add_owner(a.u32(0)?,a.f32(1)?),
 "fx_add_batch" => Self::fx_add_batch(a.u32(0)?,a.i32(1)?,a.u32s(2)?,a.u32(3)?,a.u32s(4)?,a.i32(5)?),
@@ -533,11 +915,19 @@ Ok(match name {
 "hud_model_observe" => Self::hud_model_observe(a.u32(0)?,a.f64(1)?,a.f64(2)?,a.f64(3)?,a.f64(4)?),
 "hud_model_update" => Self::hud_model_update,
 "hud_model_build" => Self::hud_model_build(a.u32(0)?,a.bool(1)?),
+"hud_descriptor_init" => Self::hud_descriptor_init,
+"hud_appearance" => Self::hud_appearance(a.i32(0)?,a.i32(1)?,a.bool(2)?,a.i32(3)?,a.i32(4)?),
+"hud_resources_frame" => Self::hud_resources_frame(a.owner(0)?,a.i32(1)?,a.bool(2)?),
 "records_at" => Self::records_at,
 "record_stride" => Self::record_stride,
 "inst_add_blend" => Self::inst_add_blend(a.u32s(0)?,a.u32(1)?,a.u32(2)?,a.u32s(3)?),
 "interface_buffer_init" => Self::interface_buffer_init(a.u32(0)?,a.u32(1)?,a.u8s(2)?),
 "interface_upload_frame" => Self::interface_upload_frame(a.u32(0)?,a.usize(1)?,a.usize(2)?),
+"ui_appearance" => Self::ui_appearance(a.u32(0)?,a.string(1)?,a.bool(2)?,a.i32s(3)?,a.i32s(4)?,a.u32(5)?),
+"ui_resources_frame" => Self::ui_resources_frame(a.owner(0)?),
+"line_clipped" => Self::line_clipped,
+"line_source" => Self::line_source(a.u32(0)?,a.u32(1)?,a.u32(2)?),
+"line_frame" => Self::line_frame(a.u32(0)?),
 "set_shadow_maps" => Self::set_shadow_maps(a.u32s(0)?),
 "add_texture" => Self::add_texture(a.owner(0)?,a.u32(1)?),
 "replace_sample_texture" => Self::replace_sample_texture(a.u32(0)?,a.owner(1)?,a.u32(2)?),
@@ -584,6 +974,9 @@ Ok(match name {
 "water_rings" => Self::water_rings(a.u32s(0)?,a.u32s(1)?,a.u32(2)?,a.u32(3)?,a.u32(4)?),
 "water_set" => Self::water_set(a.u32(0)?,a.u32s(1)?),
 "water_instanced" => Self::water_instanced(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32(3)?),
+"water_source" => Self::water_source(a.string(0)?,a.bool(1)?),
+"water_values" => Self::water_values(a.u32(0)?,a.u32(1)?),
+"effect_water" => Self::effect_water(a.u32(0)?,a.u32(1)?,a.bool(2)?,a.bool(3)?,a.u32(4)?,a.u32(5)?),
 "world_uses_lamps" => Self::world_uses_lamps(a.u32(0)?),
 "add_world" => Self::add_world(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32(3)?,a.f64s(4)?),
 "world_texture" => Self::world_texture(a.u32(0)?,a.u32(1)?,a.u32(2)?),
@@ -599,6 +992,26 @@ _ => return Err(format!("unknown renderer command {name}")),
 pub fn is_per_pass(name:&str)->bool {matches!(name,"far_mirror_frame"|"far_probe_frame"|"interface_frame"|"far_frame"|"frame"|"transparent_frame"|"fx_into_frame"|"view_frame"|"post_frame"|"mirror_frame"|"mirror_transparent_frame"|"motion_frame"|"hud_frame"|"near_begin"|"screen_frame"|"post_chain_frame"|"shadow_frame"|"transparent_segment")}
 pub fn execute(&mut self, host: &mut Bridge, resource_bank: &mut [Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
 match self {
+Self::actor_flyer(source,flags,fading,capacity,texture,slot,object,shadows) => { let _=host.actor_flyer(*source,*flags,*fading,*capacity,*texture,*slot,*object,*shadows)?; },
+Self::actor_flyer_motion(source,capacity,matrices) => { let _=host.actor_flyer_motion(*source,*capacity,matrices)?; },
+Self::actor_source(authored,vertices,indices) => { let _=host.actor_source(authored,vertices,indices)?; },
+Self::actor_source_facts(source) => { let _=host.actor_source_facts(*source)?; },
+Self::actor_source_crowd => { let _=host.actor_source_crowd()?; },
+Self::actor_source_crowd_add(body,bone_base,bones,sources,entries,groups,matrices) => { let _=host.actor_source_crowd_add(*body,*bone_base,*bones,sources,entries,groups,matrices)?; },
+Self::actor_crowd_frame => { let _=host.actor_crowd_frame(); },
+Self::actor_geometry(source,key,whole) => { let _=host.actor_geometry(*source,key,*whole)?; },
+Self::actor_effect(source,kind,shadows,view,texture,authored) => { let _=host.actor_effect(*source,*kind,*shadows,*view,*texture,authored)?; },
+Self::actor_motion(source,skin,locked) => { let _=host.actor_motion(*source,*skin,*locked)?; },
+Self::actor_skin_release(id) => { let _=host.actor_skin_release(*id); },
+Self::actor_skin_words(bones) => { let _=host.actor_skin_words(*bones); },
+Self::actor_skin(texture,bones) => { let _=host.actor_skin(*texture,*bones); },
+Self::actor_skin_offset(id) => { let _=host.actor_skin_offset(*id); },
+Self::actor_skin_slot(id) => { let _=host.actor_skin_slot(*id); },
+Self::actor_skins_frame => { let _=host.actor_skins_frame(); },
+Self::actor_depth(source,authored,skin,map) => { let _=host.actor_depth(*source,authored,*skin,*map)?; },
+Self::actor_depth_frame => { let _=host.actor_depth_frame(); },
+Self::actor_material(source,authored,skin,cascades,lamps,view,samplers) => { let _=host.actor_material(*source,authored,*skin,*cascades,*lamps,*view,samplers)?; },
+Self::actor_settings(cascades,lamps) => { let _=host.actor_settings(*cascades,*lamps)?; },
 Self::camera_shader_frame(role) => { let _=host.camera_shader_frame(*role); },
 Self::camera_pack_shader_frame(pack) => { let _=host.camera_pack_shader_frame(*pack); },
 Self::camera_shadow_shader_frame => { let _=host.camera_shadow_shader_frame(); },
@@ -620,6 +1033,13 @@ Self::camera_cascades_frame => { let _=host.camera_cascades_frame(); },
 Self::camera_shadow_frame(index) => { let _=host.camera_shadow_frame(*index); },
 Self::camera_invalidate_frame(index) => { let _=host.camera_invalidate_frame(*index); },
 Self::canopies_mesh(max) => { let _=host.canopies_mesh(*max)?; },
+Self::effect_batch(kind,variant,shadows,texture,capacity,owner,samplers) => { let _=host.effect_batch(*kind,*variant,*shadows,*texture,*capacity,*owner,samplers)?; },
+Self::effect_fixed(id) => { let _=host.effect_fixed(*id); },
+Self::effect_multiplier(id) => { let _=host.effect_multiplier(*id); },
+Self::effect_mesh(kind,shadows,texture,vertices,indices,uv) => { let _=host.effect_mesh(*kind,*shadows,*texture,*vertices,*indices,uv)?; },
+Self::effect_basin(tier,basins,vertices,indices,wide,shadows,samplers) => { let _=host.effect_basin(*tier,basins,vertices,indices,*wide,*shadows,samplers)?; },
+Self::effect_far_mesh(kind,shadows,slot,vertex_at,object) => { let _=host.effect_far_mesh(*kind,*shadows,*slot,*vertex_at,*object)?; },
+Self::fx_clipped => { let _=host.fx_clipped(); },
 Self::fx_reserve(floats) => { let _=host.fx_reserve(*floats); },
 Self::fx_add_owner(tracks,track_rows) => { let _=host.fx_add_owner(*tracks,*track_rows); },
 Self::fx_add_batch(program,texture,blend,corner,attributes,owner) => { let _=host.fx_add_batch(*program,*texture,blend,*corner,attributes,*owner); },
@@ -675,11 +1095,19 @@ Self::hud_model_event(kind,a,b,c,d) => { let _=host.hud_model_event(*kind,*a,*b,
 Self::hud_model_observe(kind,a,b,c,d) => { let _=host.hud_model_observe(*kind,*a,*b,*c,*d); },
 Self::hud_model_update => { let _=host.hud_model_update(); },
 Self::hud_model_build(mode,full) => { let _=host.hud_model_build(*mode,*full); },
+Self::hud_descriptor_init => { let _=host.hud_descriptor_init()?; },
+Self::hud_appearance(map,mask,masked,map_sample,mask_sample) => { let _=host.hud_appearance(*map,*mask,*masked,*map_sample,*mask_sample); },
+Self::hud_resources_frame(resources,mode,full) => { let _=host.hud_resources_frame(resource_bank.get(*resources).ok_or("unknown resource owner")?,*mode,*full)?; },
 Self::records_at => { let _=host.records_at(); },
 Self::record_stride => { let _=host.record_stride(); },
 Self::inst_add_blend(blend,depth_flags,depth_func,passes) => { let _=host.inst_add_blend(blend,*depth_flags,*depth_func,passes); },
 Self::interface_buffer_init(geometry,buffer,data) => { let _=host.interface_buffer_init(*geometry,*buffer,data); },
 Self::interface_upload_frame(stream,offset,length) => { let _=host.interface_upload_frame(*stream,*offset,*length); },
+Self::ui_appearance(source,authored,skin,samplers,public_samples,order) => { let _=host.ui_appearance(*source,authored,*skin,samplers,public_samples,*order)?; },
+Self::ui_resources_frame(resources) => { let _=host.ui_resources_frame(resource_bank.get(*resources).ok_or("unknown resource owner")?)?; },
+Self::line_clipped => { let _=host.line_clipped(); },
+Self::line_source(program,kind,capacity) => { let _=host.line_source(*program,*kind,*capacity)?; },
+Self::line_frame(view) => { let _=host.line_frame(*view); },
 Self::set_shadow_maps(ids) => { let _=host.set_shadow_maps(ids); },
 Self::add_texture(resources,id) => { let _=host.add_texture(resource_bank.get(*resources).ok_or("unknown resource owner")?,*id)?; },
 Self::replace_sample_texture(id,resources,source) => { let _=host.replace_sample_texture(*id,resource_bank.get(*resources).ok_or("unknown resource owner")?,*source)?; },
@@ -726,6 +1154,9 @@ Self::water_surface(geometry,blend,depth_func,flags,side) => { let _=host.water_
 Self::water_rings(index,blend,depth_func,flags,side) => { let _=host.water_rings(index,blend,*depth_func,*flags,*side); },
 Self::water_set(max,sizes) => { let _=host.water_set(*max,sizes); },
 Self::water_instanced(surface,set,k,location) => { let _=host.water_instanced(*surface,*set,*k,*location); },
+Self::water_source(authored,ocean) => { let _=host.water_source(authored,*ocean)?; },
+Self::water_values(source,kind) => { let _=host.water_values(*source,*kind)?; },
+Self::effect_water(source,kind,far_view,shadows,slot,object) => { let _=host.effect_water(*source,*kind,*far_view,*shadows,*slot,*object)?; },
 Self::world_uses_lamps(id) => { let _=host.world_uses_lamps(*id); },
 Self::add_world(geometry,program,order,flags,bounds) => { let _=host.add_world(*geometry,*program,*order,*flags,bounds); },
 Self::world_texture(w,unit,texture) => { let _=host.world_texture(*w,*unit,*texture); },
@@ -739,6 +1170,20 @@ Self::world_lamps(w,values) => { let _=host.world_lamps(*w,values); },
 Ok(None)
 }
 pub fn patch_argument(&mut self,index:usize,source_bytes:&[u8])->Result<(),String>{match (self,index){
+(Self::actor_flyer_motion(_,_,matrices),2)=>{let dest=crate::session::bytes_mut(matrices);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_source(_,vertices,_),1)=>{let dest=crate::session::bytes_mut(vertices);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_source(_,_,indices),2)=>{let dest=crate::session::bytes_mut(indices);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_source_crowd_add(_,_,_,sources,_,_,_),3)=>{let dest=crate::session::bytes_mut(sources);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_source_crowd_add(_,_,_,_,entries,_,_),4)=>{let dest=crate::session::bytes_mut(entries);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_source_crowd_add(_,_,_,_,_,groups,_),5)=>{let dest=crate::session::bytes_mut(groups);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_source_crowd_add(_,_,_,_,_,_,matrices),6)=>{let dest=crate::session::bytes_mut(matrices);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::actor_material(_,_,_,_,_,_,samplers),6)=>{let dest=crate::session::bytes_mut(samplers);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::effect_batch(_,_,_,_,_,_,samplers),6)=>{let dest=crate::session::bytes_mut(samplers);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::effect_mesh(_,_,_,_,_,uv),5)=>{let dest=crate::session::bytes_mut(uv);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::effect_basin(_,basins,_,_,_,_,_),1)=>{let dest=crate::session::bytes_mut(basins);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::effect_basin(_,_,vertices,_,_,_,_),2)=>{let dest=crate::session::bytes_mut(vertices);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::effect_basin(_,_,_,indices,_,_,_),3)=>{let dest=crate::session::bytes_mut(indices);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::effect_basin(_,_,_,_,_,_,samplers),6)=>{let dest=crate::session::bytes_mut(samplers);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::fx_add_batch(_,_,blend,_,_,_),2)=>{let dest=crate::session::bytes_mut(blend);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::fx_add_batch(_,_,_,_,attributes,_),4)=>{let dest=crate::session::bytes_mut(attributes);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::fx_batch_base(_,attributes,_,_,_),1)=>{let dest=crate::session::bytes_mut(attributes);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
@@ -768,6 +1213,8 @@ pub fn patch_argument(&mut self,index:usize,source_bytes:&[u8])->Result<(),Strin
 (Self::inst_add_blend(blend,_,_,_),0)=>{let dest=crate::session::bytes_mut(blend);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::inst_add_blend(_,_,_,passes),3)=>{let dest=crate::session::bytes_mut(passes);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::interface_buffer_init(_,_,data),2)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::ui_appearance(_,_,_,samplers,_,_),3)=>{let dest=crate::session::bytes_mut(samplers);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
+(Self::ui_appearance(_,_,_,_,public_samples,_),4)=>{let dest=crate::session::bytes_mut(public_samples);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::set_shadow_maps(ids),0)=>{let dest=crate::session::bytes_mut(ids);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::set_lamps(data),0)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::geometry_buffer(_,data),1)=>{let dest=crate::session::bytes_mut(data);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},

@@ -1,4 +1,4 @@
-import { ownedBasicEffect } from './rust-render/effect-material.js';
+import {glowLook} from './actor-resources.js';
 import * as THREE from 'three';
 import {PageEffects} from './presentation/effects.js';
 import { lighting } from './materials.js';
@@ -37,11 +37,10 @@ export class EnvironmentEffects {
     const packed=modelPack(data.models,vertices,indices),textures=new Map(Object.entries(data.textures).map(([name,path])=>[name.toLowerCase(),loadTexture(`${dir}/${path}`)]));
     const texture=name=>textures.get(name?.toLowerCase())||null;
     const model=name=>{const parts=packed.get(name);if(!parts)return null;return()=>{
-      const material=ownedBasicEffect('glow-basic', {map:texture(parts[0].texture),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+      const material=glowLook(texture(parts[0].texture));
       const group=modelGroup(parts,()=>material);group.userData.material=material;return group;};};
     const environment=new EnvironmentEffects({graphics,settings,data,texture,model,presentationLoaded,surfaceOwner});
     await environment.classic.warmup(graphics.renderer,graphics.camera);
-    if(environment.volume)graphics.renderer.initTexture(environment.volume.noise);
     return environment;
   }
   constructor({graphics,settings,data,texture,model,presentationLoaded,surfaceOwner}) {

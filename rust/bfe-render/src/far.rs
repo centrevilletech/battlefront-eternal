@@ -118,7 +118,8 @@ struct Uniform<C: HasContext> {
     location: Option<C::UniformLocation>,
     ty: u32,
     unit: u32,
-    value: Vec<f32>, #[cfg(not(target_arch = "wasm32"))] ints: Vec<i32>,
+    value: Vec<f32>,
+    integers:Vec<i32>,
 }
 
 #[derive(Clone)]
@@ -171,6 +172,7 @@ enum Draw<C: HasContext> {
 // the slot holding how many instances draw.
 struct Instanced<C: HasContext> {
     count: usize,
+    max:usize,
     attributes: Vec<(C::Buffer, usize, usize)>,
     data: Vec<f32>,
 }
@@ -195,6 +197,7 @@ struct Item<C: HasContext> {
     // Its draw range from the input each frame (first index, count) instead
     // of a fixed one: a geometry whose range three moves (the storm's bolt).
     range_at: Option<usize>,
+    input_blend:Option<usize>,
     // Vertex buffers of its geometry the page refreshes (the storm's bolt,
     // rewritten at each strike): (buffer slot, where its values start in
     // `vertices`, floats), uploaded when the input's slot `refresh_at` is 1.
@@ -290,7 +293,8 @@ impl<C: HasContext> FarPass<C> {
                     }
                 };
             }
-            uniforms.push(Uniform { location, ty, unit, value: vec![f32::NAN; floats], #[cfg(not(target_arch = "wasm32"))] ints: vec![0; floats] });
+            self.value.reserve(floats.saturating_sub(self.value.len()));
+            uniforms.push(Uniform { location, ty, unit, value: vec![f32::NAN; floats],integers:vec![0;floats] });
         }
         if !assign.is_empty() {
             unsafe {
@@ -319,7 +323,7 @@ impl<C: HasContext> FarPass<C> {
         self.items.push(Item {
             program: program as usize, table: table as usize, geometry: geometry as usize, sources: vec![], flags, depth_func, blend: b,
             order: [order[0], order[1], order[2], order[3]], sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
-            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None, range_at: None, refresh: vec![], refresh_at: 0,
+            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None, range_at: None,input_blend:None, refresh: vec![], refresh_at: 0,
         });
         (self.items.len() - 1) as u32
     }
@@ -353,6 +357,10 @@ impl<C: HasContext> FarPass<C> {
     pub fn base(&mut self, item: u32, base: i32) {
         self.items[item as usize].base = base;
     }
+
+    // Water.applyQuality formerly switched the tint material's blend state.
+    // The field is a view snapshot, so mirrors/main never mutate cold state.
+    pub fn input_blend(&mut self,item:u32,at:usize){if let Some(row)=self.items.get_mut(item as usize){row.input_blend=Some(at);}}
 
     // Its draw range from the input's slots `at` (first index, count), each
     // frame.
@@ -392,8 +400,8 @@ impl<C: HasContext> FarPass<C> {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             b
         };
-        let inst = it.instanced.get_or_insert_with(|| Instanced { count: count as usize, attributes: vec![], data: vec![] });
-        inst.count = count as usize;
+        let inst = it.instanced.get_or_insert_with(|| Instanced { count: count as usize,max:max as usize, attributes: vec![], data: vec![] });
+        inst.count = count as usize;inst.max=max as usize;inst.data.reserve(max as usize*floats);
         inst.attributes.push((buffer, floats, at as usize));
     }
 
@@ -700,7 +708,7 @@ impl<C: HasContext> FarPass<C> {
         // An instanced item's instances this frame, uploaded.
         let mut instances = 0;
         if let Some(inst) = &mut item.instanced {
-            instances = input[inst.count].max(0.0) as usize;
+            instances = (input[inst.count].max(0.0) as usize).min(inst.max);
             if instances == 0 {
                 return;
             }
@@ -778,8 +786,8 @@ impl<C: HasContext> FarPass<C> {
                     FLOAT_MAT3 => gl.uniform_matrix_3_f32_slice(l, false, value),
                     FLOAT_MAT4 => gl.uniform_matrix_4_f32_slice(l, false, value),
                     _ => {
-                        #[cfg(target_arch = "wasm32")] let ints: Vec<i32> = value.iter().map(|&v| v as i32).collect(); #[cfg(not(target_arch = "wasm32"))] let ints = { for (out, &v) in uniform.ints.iter_mut().zip(value.iter()) { *out = v as i32; } &uniform.ints };
-                        gl.uniform_1_i32_slice(l, &ints);
+                        for (dst,src) in uniform.integers.iter_mut().zip(value.iter()){*dst=*src as i32;}
+                        gl.uniform_1_i32_slice(l, &uniform.integers);
                     }
                 }
             }
@@ -789,7 +797,7 @@ impl<C: HasContext> FarPass<C> {
         // three's setMaterial: culling, blending, depth, colour, coverage.
         let f = item.flags;
         state.cull(gl, stats, f & 3);
-        if f & F_BLEND != 0 {
+        if f & F_BLEND != 0 && !item.input_blend.is_some_and(|at|self.input.get(at).copied().unwrap_or(0.)>0.) {
             let b = item.blend;
             state.blend(gl, stats, true);
             state.blend_equation(gl, stats, b[0], b[1]);
@@ -915,7 +923,7 @@ mod tests {
     fn item(transparent: bool, order: [f64; 4]) -> Item<glow::Context> {
         Item {
             program: 0, table: 0, geometry: 0, sources: vec![], flags: if transparent { F_TRANSPARENT } else { 0 }, depth_func: 0, blend: [0; 6],
-            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None, range_at: None, refresh: vec![], refresh_at: 0,
+            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None, range_at: None,input_blend:None, refresh: vec![], refresh_at: 0,
         }
     }
 

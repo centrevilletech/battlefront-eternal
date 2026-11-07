@@ -50,7 +50,7 @@ export class RenderResources {
         let bytes=0;
         while (this.uploadAt<this.uploads.length && bytes<(1<<20)) {
           const job=this.uploads[this.uploadAt++];
-          try { this.textureId(job.texture);bytes+=job.bytes;job.resolve(); }
+          try { if(typeof job.texture==="number")this.gpu.upload(job.texture);else this.textureId(job.texture);bytes+=job.bytes;job.resolve(); }
           catch (error) { job.reject(error); }
         }
         if(bytes){this.gpu.upload_fence();this.uploadUntil=performance.now()+30000;}
@@ -153,6 +153,13 @@ export class RenderResources {
     return id;
   }
 
+  // Lightning's top-level sampling is descriptor policy, including a Basis
+  // source that arrives after admission. The native alias keeps that policy
+  // through later source publication and context restoration.
+  lightningSample(texture) {
+    const sample=this.staticSample(texture);this.gpu.particle_top_level(sample);return sample;
+  }
+
   // Typed settings update native aliases together. Existing loader clients
   // refresh their presentation handles on next use even without a JS version
   // change; numeric static draws already observe the resource epoch directly.
@@ -189,11 +196,19 @@ export class RenderResources {
     });
   }
 
+  // Native UI image IO shares the paced upload queue. This is a resource
+  // publication event, never a texture-version scan in an interface frame.
+  enqueueNative(sample,bytes) {
+    if(this.failure)return Promise.reject(this.failure);
+    return new Promise((resolve,reject)=>{this.uploads.push({texture:sample,bytes,resolve,reject});if(!this.uploadFrame)this.uploadFrame=requestAnimationFrame(this.flushUploads);});
+  }
+
   // Port of initTexture/setTexture2D registration at the host boundary.
   // The return value is a stable Rust sampler id, not an adopted WebGL handle.
   // The published native handle lets passes detect a replaced allocation.
   // Sampling changes may split clones; source updates reach every shared clone.
   textureId(texture) {
+    if(typeof texture==="number")return texture;
     if(this.failure)throw this.failure;
     const target = this.targetTextures.get(texture);
     const image = this.image(texture,target);
@@ -245,11 +260,37 @@ export class RenderResources {
     out.mipmaps=texture.generateMipmaps;out.compare=texture.compareFunction ?? null;return out;
   }
 
+  // Native effects retain complete target/attachment/sampler policy in Rust.
+  // The page keeps only numeric identity and viewport facts read by the shared
+  // context host. These facts contain no Three descriptor or disposal hooks.
+  effectTarget(kind) {
+    const id=this.gpu.effect_target(kind),row=this.gpu.effect_target_facts(id);
+    return {nativeTarget:id,width:row[0],height:row[1],texture:row[2],depthTexture:row[3]<0?null:row[3],samples:0,scissorTest:false,viewport:new THREE.Vector4(0,0,row[0],row[1]),scissor:new THREE.Vector4(0,0,row[0],row[1])};
+  }
+  interfaceTarget(size) {
+    const id=this.gpu.ui_target(size),row=this.gpu.effect_target_facts(id);
+    return {nativeTarget:id,width:row[0],height:row[1],texture:row[2],depthTexture:null,samples:0,scissorTest:false,viewport:new THREE.Vector4(0,0,row[0],row[1]),scissor:new THREE.Vector4(0,0,row[0],row[1])};
+  }
+  probeTarget(size) {
+    const id=this.gpu.probe_target(size),row=this.gpu.effect_target_facts(id);
+    return {nativeTarget:id,width:row[0],height:row[1],texture:row[2],depthTexture:null,samples:0,scissorTest:false,viewport:new THREE.Vector4(0,0,row[0],row[1]),scissor:new THREE.Vector4(0,0,row[0],row[1])};
+  }
+  resizeEffectTarget(target,width,height) {
+    if(target.width===width&&target.height===height)return;
+    const size=this.gpu.effect_target_size(target.nativeTarget,width,height);
+    target.width=size>>>16;target.height=size&65535;target.viewport.set(0,0,target.width,target.height);target.scissor.copy(target.viewport);
+  }
+  disposeEffectTarget(target) {
+    this.gpu.dispose_effect_target(target.nativeTarget);this.revision++;
+    if(this.current===target)this.current=null;
+  }
+
   // Port of initRenderTarget. CPU target objects remain scene descriptors;
   // Rust allocates every attachment, framebuffer and multisample renderbuffer.
   // Preserve ids during setSize so retained post and shadow records stay valid.
   // Fast binding of an unchanged target never serializes an attachment record.
   targetId(target) {
+    if(target.nativeTarget!==undefined)return target.nativeTarget;
     const samples=target.isWebGLCubeRenderTarget?0:target.samples;
     this.targetTextures.set(target.texture,target);
     if (target.depthTexture) {
@@ -288,10 +329,11 @@ export class RenderResources {
     const id=target ? this.targetId(target) : -1;
     this.current=target;this.face=face;this.level=level;
     if (this.lost) return;
-    if (target) { this.viewport.copy(target.viewport);this.scissor.copy(target.scissor); }
+    if(target?.nativeTarget!==undefined){this.viewport.set(0,0,target.width,target.height);this.scissor.copy(this.viewport);}
+    else if (target) { this.viewport.copy(target.viewport);this.scissor.copy(target.scissor); }
     else { this.renderer.getViewport(this.viewport).multiplyScalar(this.renderer.getPixelRatio()).floor();this.renderer.getScissor(this.scissor).multiplyScalar(this.renderer.getPixelRatio()).floor(); }
     const v=this.viewport,s=this.scissor;
-    this.gpu.bind(id,face,level,v.x,v.y,v.z,v.w,s.x,s.y,s.z,s.w,target ? target.scissorTest : this.renderer.getScissorTest());
+    this.gpu.bind(id,face,level,v.x,v.y,v.z,v.w,s.x,s.y,s.z,s.w,target ? target.scissorTest===true : this.renderer.getScissorTest());
   }
 
   // Port of the renderer's end-of-pass multisample resolve. Target policy

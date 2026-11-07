@@ -16,11 +16,11 @@ export function batches(fx) {
     .filter((b) => b.count)
     .map((b) => ({
       count: b.count,
-      blend: b.material.blending,
+      blend: (b.variant & 1 ? T.AdditiveBlending : T.NormalBlending),
       arrays: Object.fromEntries(
         Object.entries(b.arrays).map(([name, a]) => [
           name,
-          Array.from(a.slice(0, b.count * b.geometry.getAttribute(name).itemSize)),
+          Array.from(a.slice(0, b.count * (a.length / b.capacity))),
         ]),
       ),
     }));

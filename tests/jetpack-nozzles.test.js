@@ -1,3 +1,4 @@
+import './fixtures/native-render-descriptors.js';
 import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';

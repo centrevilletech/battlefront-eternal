@@ -4,7 +4,7 @@ await loadEnvironment();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { stormGeometry } from '../src/ocean-storm.js';
+import {EFFECT} from '../src/rust-render/effect-layout.js';
 import { OceanSurface, storms } from '../src/ocean-surface.js';
 import { PROBE_LAYER } from '../src/sky-probe.js';
 import { CAMERA as CAMERA_ROW } from "../src/rust-render/camera-layout.js";
@@ -20,7 +20,7 @@ const RAIN={precipitation:{Type:['Streaks']}};
 // Surface fixtures exercise native weather, not a GPU. The required frame
 // publisher receives their sky inputs; scheduling is tested in frame_plan.rs.
 function frameHost(graphics){
- graphics.rust={frame:{cloud(){},probe(){}},cameras:{flashValue:0,flash(value){this.flashValue=value;},restoreLight(){this.flashValue=0;}}};
+ graphics.rust={frame:{cloud(){},probe(){}},byName:{far:{admitEffect(object,source){object.userData.effectFar=source;}}},cameras:{flashValue:0,flash(value){this.flashValue=value;},restoreLight(){this.flashValue=0;}}};
 }
 
 function fixture(){
@@ -34,36 +34,21 @@ function fixture(){
  return {ocean,graphics,setMode:m=>{mode=m;listener('oceanEffects');},getListener:()=>listener};
 }
 
-test('storm rings are a watertight bounded mesh with only the outer perimeter open',()=>{
- const g=stormGeometry(),p=g.attributes.position.array,index=g.index.array,edges=new Map();
- assert.ok(index.length/3<66000);assert.ok(p.length/3<33000);
- for(let i=0;i<index.length;i+=3){
-   const [a,b,c]=index.slice(i,i+3);assert.ok(a!==b&&b!==c&&a!==c);
-   const ux=p[b*3]-p[a*3],uz=p[b*3+2]-p[a*3+2],vx=p[c*3]-p[a*3],vz=p[c*3+2]-p[a*3+2];
-   assert.ok(uz*vx-ux*vz>0,'all triangles face up');
-   for(const [u,v] of [[a,b],[b,c],[c,a]]){const key=u<v?`${u}:${v}`:`${v}:${u}`;edges.set(key,(edges.get(key)||0)+1);}
- }
- const boundary=[...edges].filter(([,n])=>n===1);
- assert.equal(boundary.length,256);assert.ok([...edges.values()].every(n=>n===1||n===2));
- for(const [key] of boundary)for(const i of key.split(':').map(Number))assert.equal(Math.max(Math.abs(p[i*3]),Math.abs(p[i*3+2])),4096);
- g.dispose();
-});
-
 test('enhanced ocean switches without reallocating resources and restores original sky and lighting',()=>{
  const f=fixture(),{ocean,graphics}=f,camera=new THREE.PerspectiveCamera();camera.position.set(25,50,100);
- const waves=ocean.waves,geometry=ocean.geometry,sky=waves.storm;
+ const waves=ocean.waves,geometry=ocean.nearEnhanced,sky=waves.storm;
  const ambient=lighting.ambient.value.clone();
  stepSurface(ocean,6.06,camera); // First flash begins when the scheduled strike starts.
  stepSurface(ocean,.06,camera);
  assert.ok(sky.uniforms.lightningFlash.value>.9);assert.ok(sky.bolt.visible);
  assert.ok(graphics.rust.cameras.flashValue>.9);assert.equal(graphics.sky.visible,false);
- assert.ok(sky.boltGeometry.drawRange.count>300&&sky.boltGeometry.drawRange.count<=1536);
- assert.ok(sky.boltGeometry.attributes.position.array.slice(0,sky.boltGeometry.drawRange.count*3).every(Number.isFinite));
- assert.equal(waves.spray.geometry.instanceCount,384);assert.ok('STORM' in waves.material.defines);
+ assert.ok(sky.boltSource.count>300&&sky.boltSource.count<=1536);
+ assert.ok(sky.positions.slice(0,sky.boltSource.count*3).every(Number.isFinite));
+ assert.equal(waves.batch.count,384);assert.equal(waves.batch.nativeKind,EFFECT.OCEAN_SPRAY_STORM.ID);
  f.setMode('classic');assert.equal(graphics.sky.visible,true);assert.ok(lighting.ambient.value.equals(ambient));assert.equal(sky.bolt.visible,false);
  assert.equal(waves.spray.visible,false);assert.equal(sky.sky.visible,false);
  f.setMode('enhanced');stepSurface(ocean,.6,camera);
- assert.equal(ocean.geometry,geometry);assert.equal(ocean.waves,waves);assert.equal(sky.bolt.visible,false);
+ assert.equal(ocean.nearEnhanced,geometry);assert.equal(ocean.waves,waves);assert.equal(sky.bolt.visible,false);
  assert.ok(lighting.ambient.value.equals(ambient));
  ocean.dispose();assert.equal(f.getListener(),null);assert.equal(graphics.scene.children.length,0);
  assert.deepEqual(graphics.farScene.children,[graphics.sky]);assert.equal(graphics.sky.visible,true);
@@ -186,15 +171,10 @@ test('a sea under a dry sky takes the waves alone and keeps the map sky as it is
  assert.equal(waves.storm,null);assert.equal(waves.haze,null);
  for(const name of ['storm-volume-clouds','storm-lightning','ocean-horizon-haze'])assert.equal(graphics.farScene.getObjectByName(name),undefined);
  assert.ok(graphics.skyLayers.every(({mesh},i)=>mesh.visible&&mesh.material===imported[i]));
- assert.equal(waves.uniforms.rainRipples.value,0);
- // The waves, in the map's colours: the same rings, without the storm's palette.
- assert.equal(ocean.geometry,waves.geometry);assert.equal(ocean.material,waves.material);
- assert.ok(!('STORM' in waves.material.defines));assert.ok(!('STORM' in waves.spray.material.defines));
- assert.deepEqual(waves.uniforms.waterColor.value.toArray().map(v=>Math.round(v*255)),[45,53,74]);
- assert.equal(waves.uniforms.reflectAmount.value,191/255);
- assert.equal(waves.uniforms.ambient,lighting.ambient);
- // What it reflects is the sky, from the probe, which sees only the sky.
- assert.equal(waves.uniforms.skyProbe.value,waves.probe.texture);
+ assert.equal(ocean.near.userData.effectModel.nativeKind,EFFECT.OCEAN.ID);
+ assert.equal(waves.batch.nativeKind,EFFECT.OCEAN_SPRAY.ID);
+ assert.equal(ocean.near.geometry,undefined);assert.equal(ocean.near.material,undefined);
+ // Immutable colour, wind, mesh and sampler policy is frozen in native tests.
  assert.ok(graphics.skyLayers.every(({mesh})=>mesh.layers.isEnabled(PROBE_LAYER)));
  assert.ok(!ocean.far.layers.isEnabled(PROBE_LAYER));
  assert.ok(waves.probe.camera.children.every(face=>face.layers.mask===1<<PROBE_LAYER));
@@ -205,9 +185,9 @@ test('a sea under a dry sky takes the waves alone and keeps the map sky as it is
  setMode('classic');assert.equal(ocean.material,ocean.classicMaterial);assert.equal(waves.spray.visible,false);assert.equal(waves.probe.enabled,false);
  assert.ok(graphics.skyLayers.every(({mesh},i)=>mesh.visible&&mesh.material===imported[i]));
  setMode('enhanced');assert.equal(ocean.waves,waves);assert.equal(waves.probe.enabled,true);assert.equal(waves.spray.visible,true);
- // Disposal takes the probe's layer off the sky and frees its cube.
- let freed=false;waves.probe.target.addEventListener('dispose',()=>{freed=true;});
- ocean.dispose();assert.ok(freed);
+ // Disposal takes the probe layer off the sky; the CPU fixture admits no GPU resource.
+ assert.equal(waves.probe.resources,null);
+ ocean.dispose();
  assert.ok(graphics.skyLayers.every(({mesh},i)=>!mesh.layers.isEnabled(PROBE_LAYER)&&mesh.visible&&mesh.material===imported[i]));
 });
 
@@ -215,6 +195,7 @@ test('native capture decisions publish six sky-only probe views with the authore
  const {ocean,graphics,setMode}=calmSea(),probe=ocean.waves.probe,drawn=[],targets=[];
  const renderer={autoClear:false,shadowMap:{autoUpdate:true},coordinateSystem:THREE.WebGLCoordinateSystem,
    render(){throw Error('Preparing sky facts cannot draw');}};
+ renderer.resources={probeTarget:size=>({nativeTarget:0,texture:0,width:size,height:size,viewport:new THREE.Vector4(0,0,size,size),scissor:new THREE.Vector4(0,0,size,size),scissorTest:false}),disposeEffectTarget(){}};
  graphics.renderer=renderer;
  let selected=true;
  const core={graphics,renderer,frameFacts:new Float64Array(F.LEN),frameState:new Float64Array(S.LEN),views(){},

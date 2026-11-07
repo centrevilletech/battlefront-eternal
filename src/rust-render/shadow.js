@@ -1,3 +1,6 @@
+import {ACTOR} from './actor-layout.js';
+import {nativeActorSource,actorSkin,publishActorSkin} from '../actor-resources.js';
+import {actorSample,isActorMaterial} from './actors.js';
 // The shadow pass (shadow.rs): the sun's shadow cascades drawn by the renderer
 // in place of three's shadow pass. graphics.js renderCascades offers it each
 // cascade's pass (cover): the static cache the frame its window lands (its
@@ -87,6 +90,7 @@ class ShadowPass {
     this.drawn = 0;
     this.left = 0;
     this.why = null;
+    this.actorNodes=new WeakMap();core.addView("actorBones",Float32Array,()=>core.rust.actor_bones_ptr(),()=>core.rust.actor_bones_len());
     this.nativeNodes = new Map();
     this.nativeRoots = new Map();
     this.capacity = MAX_DRAWS;
@@ -187,6 +191,12 @@ class ShadowPass {
       this.clipped += this.draws.length - count;
       for (let i = 0; i < count; i++) {
         const d = this.draws[i], o = S.FIRST + n * DRAW;
+        if(d.actor!==undefined){
+          out[o+D.PROGRAM]=ACTOR.KIND.ACTOR_DEPTH;out[o+D.GEOMETRY]=d.actor;const a=o+D.FIRST,r=ACTOR.DEPTH,node=d.object;
+          out.set(node.matrixWorld.elements,a+r.WORLD);out.set(shadowCamera.matrixWorldInverse.elements,a+r.VIEW);out.set(shadowCamera.projectionMatrix.elements,a+r.PROJECTION);
+          if(node.skeleton){out.set(node.bindMatrix.elements,a+r.BIND);out.set(node.bindMatrixInverse.elements,a+r.INVERSE);publishActorSkin(core,node.skeleton,renderer.info.render.frame);}
+          n++;continue;
+        }
         if (d.native !== undefined) {
           out[o + D.PROGRAM] = -1;out[o + D.GEOMETRY] = d.native;out[o + D.UNIFORMS] = 0;
           n++;continue;
@@ -214,6 +224,7 @@ class ShadowPass {
       return;
     }
     input.set(this.commandViews[n]);
+    core.rust.actor_depth_frame();
     if (this.nativeInput) {
       core.rust.camera_static_shadow_frame(light.userData.nativeCascade);
       core.staticShadowInput[STATIC.SHADOW.TIME] = lighting.time.value;
@@ -227,6 +238,7 @@ class ShadowPass {
     const core = this.core;
     for (const object of this.candidates(scene, camera, renderer)) {
       if (this.why) return;
+      if(object.userData.actorAsset){if(!object.frustumCulled||frustum.intersectsObject(object))this.addActor(object,shadowCamera,renderer);continue;}
       if (object.userData.nativeShadow) { this.draws.push(object.userData.nativeShadow); continue; }
       if (object.frustumCulled && !frustum.intersectsObject(object)) continue;
       if (!object.isMesh) { core.skip(object, object.material, "a line or points caster"); continue; }
@@ -256,7 +268,7 @@ class ShadowPass {
       entry.list.length = 0;
       const collect = (object) => {
         if (object.visible === false) return;
-        if (object.castShadow && object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints || object.userData.nativeShadow)) entry.list.push(object);
+        if (object.castShadow && object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints || object.userData.nativeShadow || object.userData.actorAsset)) entry.list.push(object);
         const children = object.children;
         for (let i = 0; i < children.length; i++) collect(children[i]);
       };
@@ -265,6 +277,21 @@ class ShadowPass {
     }
     return entry.list;
   }
+
+  // Actor depth slots and resources are cold native descriptors. A live view
+  // reads only pose matrices and the retained skin transport, never materials.
+  addActor(node,camera,renderer){
+    const look=Array.isArray(node.material)?node.material[0]:node.material;if(!isActorMaterial(look))return;
+    let record=this.actorNodes.get(node);
+    if(!record||record.appearance!==node.material||record.skeleton!==node.skeleton){
+      const core=this.core,source=nativeActorSource(core,node.userData.actorAsset),skin=node.skeleton?actorSkin(core,node.skeleton):null;
+      if(node.skeleton&&!skin){this.clipped++;return;}
+      const id=core.rust.actor_depth(source.id,JSON.stringify(look.authored),skin?skin.id:-1,actorSample(core,look));if(id===undefined){this.clipped++;return;}
+      record={actor:id,object:node,appearance:node.material,skin,skeleton:node.skeleton};this.actorNodes.set(node,record);core.buffer=null;core.views();
+    }
+    if(node.skeleton)this.bonesActor(node,renderer);this.draws.push(record);
+  }
+  bonesActor(node,renderer){const skeleton=node.skeleton,frame=renderer.info.render.frame;if(this.boneFrames.get(skeleton)!==frame){skeleton.update();this.boneFrames.set(skeleton,frame);}}
 
   // A caster's draw: its depth material as three's getDepthMaterial dresses it
   // for this material, its program, geometry and range.

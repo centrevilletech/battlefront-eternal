@@ -1,6 +1,8 @@
+import './fixtures/native-render-descriptors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import {ACTOR} from '../src/rust-render/actor-layout.js';
 import {buildActor} from '../src/actor.js';
 
 test('pooled actors share geometry and retain independent pose and lighting',()=>{
@@ -10,8 +12,8 @@ test('pooled actors share geometry and retain independent pose and lighting',()=
  const indices=new Uint32Array([0,1,2]).buffer;
  const create=()=>buildActor(def,vertices,indices,()=>null,{caster(){}});
  const a=create(),b=create();
- assert.equal(a.body.geometry,b.body.geometry);
+ assert.equal(a.body.userData.actorAsset,b.body.userData.actorAsset);
  assert.notEqual(a.bones[0],b.bones[0]);assert.notEqual(a.materials[0],b.materials[0]);
- a.bones[0].position.x=12;a.materials[0].uniforms.sunScale.value=.3;
- assert.equal(b.bones[0].position.x,0);assert.equal(b.materials[0].uniforms.sunScale.value,1);
+ a.bones[0].position.x=12;a.materials[0].values[ACTOR.LOOK.SUN]=.3;
+ assert.equal(b.bones[0].position.x,0);assert.equal(b.materials[0].values[ACTOR.LOOK.SUN],1);
 });

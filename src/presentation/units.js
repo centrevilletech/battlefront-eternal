@@ -353,8 +353,9 @@ export class PageUnits {
   }
   attach(actor, source, presentation, unit=null) {
     if (this.byActor.has(actor)) {const row=this.byActor.get(actor);if(unit&&row.unit!==unit)this.collision.bind(row,unit);return row;}
-    let byClip = this.contents.get(actor.body.geometry);
-    if (!byClip) this.contents.set(actor.body.geometry, (byClip = new WeakMap()));
+    const identity=actor.body.userData.actorAsset||actor.body;
+    let byClip=this.contents.get(identity);
+    if(!byClip)this.contents.set(identity,(byClip=new WeakMap()));
     let content = byClip.get(source.clips);
     if (!content) {
       content = unitContent(actor, source);

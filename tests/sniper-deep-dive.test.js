@@ -50,8 +50,8 @@ test('the Enhanced sniper resources compile during battle warm-up', () => {
   const names=[];scene.traverse(o=>names.push(o.name));
   assert.ok(names.includes('sniper-trace')&&names.includes('sniper-flares'));
   const trace=ordnance.sniperTrace();lighting.time.value=50;trace.begin();trace.end();
-  assert.equal(trace.streaks.geometry.instanceCount,1);
-  assert.equal(trace.flares.geometry.instanceCount,1);
+  assert.equal(trace.streaks.count,0);
+  assert.equal(trace.flares.count,0);
   assert.equal(trace.streaks.capacity,512);
   assert.equal(trace.flares.capacity,128);
 });

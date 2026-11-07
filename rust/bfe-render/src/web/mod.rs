@@ -1,3 +1,4 @@
+mod line_resources;
 // The renderer in the page: a WebGL2 context shared with three.js, three's
 // textures used where they are, inputs the page writes into WASM memory.
 // Here the core's bindings and each phase's; each pass's own are in a file
@@ -5,7 +6,10 @@
 mod recovery;
 mod canopies;
 mod cameras;
+mod actor_resources;
+mod actor_flyers;
 mod effects;
+mod effect_resources;
 mod far;
 mod foliage;
 mod hud;
@@ -69,6 +73,10 @@ pub struct BfeRenderer {
     rebuilding: bool,
     static_worlds: Vec<static_world::StaticSlot>,
     static_sources: Vec<static_world::StaticSource>,
+    line_resources:crate::line_resources::Lines,
+    actor_resources:crate::actor_resources::Bank,
+    water_sources:Vec<crate::water_resources::WaterSource>,
+    water_geometry:std::collections::HashMap<(u32,u32),u32>,
 }
 
 #[wasm_bindgen]
@@ -77,7 +85,7 @@ impl BfeRenderer {
     pub fn new(context: web_sys::WebGl2RenderingContext) -> BfeRenderer {
         let ext = context.get_extension("WEBGL_multi_draw").ok().flatten().map(|e| e.unchecked_into::<web_sys::WebglMultiDraw>());
         let multi = WebMultiDraw(ext, context.clone(), None);
-        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false, static_worlds: vec![], static_sources: vec![] }
+        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false, static_worlds: vec![], static_sources: vec![],line_resources:crate::line_resources::Lines::default(),actor_resources:crate::actor_resources::Bank::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new() }
     }
 
     // Where the page writes the frame's values and records (f64), and the
@@ -99,7 +107,7 @@ impl BfeRenderer {
  self.r.core.set_shadow_maps(ids) }
 
     pub fn add_texture(&mut self, resources: &crate::resources::GpuResources, id: u32) -> Result<u32, JsValue> {
-        let texture = resources.texture(id)?;
+        let texture = resources.descriptor_texture(id)?;
         self.remember_texture();
         let key = unsafe { self.r.core.gl.register_external_texture(texture) };
         Ok(self.r.core.add_texture(key))
@@ -107,7 +115,7 @@ impl BfeRenderer {
 
     // The journal keeps the logical id; restoration receives its current handle.
     pub fn replace_sample_texture(&mut self, id: u32, resources: &crate::resources::GpuResources, source: u32) -> Result<(), JsValue> {
-        let texture = resources.texture(source)?;
+        let texture = resources.descriptor_texture(source)?;
         let key = unsafe { self.r.core.gl.register_external_texture(texture) };
         let old = self.r.replace_sample_texture(id as usize, key).map_err(|e| JsValue::from_str(&e))?;
         self.r.core.gl.unregister_external_texture(old);
@@ -264,3 +272,6 @@ impl BfeRenderer {
         Ok(self.r.screen_frame(steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
 }
+
+mod interface_resources;
+mod hud_resources;

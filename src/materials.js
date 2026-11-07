@@ -1,3 +1,4 @@
+import {actorLook} from './actor-resources.js';
 import { ownedEffectMaterial } from "./rust-render/effect-material.js";
 import * as THREE from "three";
 import { localLighting } from "./local-lights.js";
@@ -106,15 +107,7 @@ export function worldMaterial(kind, options = {}) {
 }
 
 // Actor shells provide values for the closed Rust descriptor selector.
-export function actorMaterial(kind, options = {}) {
-  return materialFor(kind, options, values => {
-    const material = Object.assign(new THREE.Material(), values);
-    material.fog = false;
-    material.visible = false;
-    material.userData.actorShader = "zero";
-    return material;
-  });
-}
+export function actorMaterial(kind,options={}) {return actorLook(kind,options);}
 
 function materialFor(kind, options, create) {
   const defines = { ZERO_LIGHTS };

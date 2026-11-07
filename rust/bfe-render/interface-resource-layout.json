@@ -1,0 +1,65 @@
+{
+  "limit": {
+    "appearances": 16384,
+    "sources": 8192,
+    "streamWords": 4,
+    "quads": 2048,
+    "hudGroups": 1024
+  },
+  "look": {
+    "color": 3,
+    "opacity": 1,
+    "time": 1,
+    "scroll": 2,
+    "tint": 3,
+    "pulse": 3,
+    "strength": 1,
+    "shade": 3,
+    "pool": 3,
+    "center": 2,
+    "aspect": 1,
+    "dip": 1,
+    "lit": 1,
+    "toLight": 3,
+    "ambient": 1,
+    "cutoff": 1,
+    "solid": 1,
+    "keyTint": 3,
+    "rim": 3,
+    "rimPower": 1,
+    "recolor": 4,
+    "cut": 1,
+    "cutGlow": 3,
+    "size": 1
+  },
+  "raw": {
+    "world": 16,
+    "view": 16,
+    "projection": 16,
+    "bind": 16,
+    "inverse": 16,
+    "look": 47,
+    "pixelRatio": 1,
+    "height": 1
+  },
+  "stream": {
+    "dirty": 1,
+    "first": 1,
+    "last": 1,
+    "reserved": 1
+  },
+  "meta": {
+    "appearance": 1,
+    "geometry": 1,
+    "bindings": 1,
+    "first": 0
+  },
+  "hud": {
+    "view": 16,
+    "projection": 16
+  },
+  "kind": {
+    "interface": -1,
+    "hud": -2
+  }
+}

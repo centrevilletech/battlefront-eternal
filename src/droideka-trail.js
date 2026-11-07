@@ -1,7 +1,6 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
-import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
 
 const CAPACITY = 160;
@@ -47,27 +46,14 @@ export class DroidekaTrail {
     this.lastX = this.lastZ = 0;
     this.ready = false;
     this.records = new Float32Array(CAPACITY * 12);
-    const plane = new THREE.PlaneGeometry(2, 2);
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.index = plane.index;
-    this.geometry.attributes.position = plane.attributes.position;
-    this.geometry.attributes.uv = plane.attributes.uv;
-    this.attributes = ["birth", "drift", "shape"].map(name => {
-      const a = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4).setUsage(THREE.DynamicDrawUsage);
-      this.geometry.setAttribute(name, a);
-      return a;
-    });
-    this.geometry.instanceCount = 0;
-    this.material = ownedEffectMaterial('effects/trail', {
-      uniforms: {
-        trailTime: { value: 0 }, tint: { value: new THREE.Vector3(...dustTint(mapName)) },
-        fogColor: lighting.fogColor, fogRange: lighting.fogRange,
-        sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true, depthWrite: false, depthTest: true, toneMapped: false,
-    });
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // DroidekaTrail keeps only simulation/draw arrays. Its plane, raster
+    // state and tint layout are one native descriptor admitted before drawing.
+    this.nativeKind=EFFECT.TRAIL.ID;this.family='trail';this.variant=0;this.texture=null;
+    this.values=new Float64Array(EFFECT.TRAIL.LENGTH);this.values.set(dustTint(mapName),EFFECT.TRAIL.TINT);
+    this.capacity=CAPACITY;
+    this.arrays={birth:new Float32Array(CAPACITY*4),drift:new Float32Array(CAPACITY*4),shape:new Float32Array(CAPACITY*4)};
+    this.streams=Object.values(this.arrays);
+    this.mesh = new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = "droideka-rolling-dust";
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 9;
@@ -92,14 +78,13 @@ export class DroidekaTrail {
 
   clear() {
     this.count = this.carry = 0;
-    this.geometry.instanceCount = 0;
     this.mesh.visible = false;
   }
 
   update(dt, soldier, { dead = soldier.dead, position = soldier.position } = {}) {
     dt = Math.max(0, Math.min(dt, 0.1));
     this.time += dt;
-    this.material.uniforms.trailTime.value = this.time;
+    this.values[EFFECT.TRAIL.TRAIL_TIME] = this.time;
     if ((this.settings?.get("droidekaEffects") ?? "enhanced") !== "enhanced") {
       this.clear(); this.ready = false; return;
     }
@@ -148,22 +133,15 @@ export class DroidekaTrail {
     this.ready = true;
     for (let i = 0; i < this.count; i++) {
       for (let a = 0; a < 3; a++) {
-        const array = this.attributes[a].array, from = i * 12 + a * 4, to = i * 4;
+        const array = this.streams[a], from = i * 12 + a * 4, to = i * 4;
         array[to] = this.records[from]; array[to + 1] = this.records[from + 1];
         array[to + 2] = this.records[from + 2]; array[to + 3] = this.records[from + 3];
       }
     }
-    for (const a of this.attributes) {
-      a.clearUpdateRanges();
-      if (this.count && !this.external) { a.addUpdateRange(0, this.count * 4); a.needsUpdate = true; }
-    }
-    this.geometry.instanceCount = this.count;
     this.mesh.visible = this.count > 0 && !this.external;
   }
 
   dispose() {
     this.mesh.removeFromParent();
-    this.geometry.dispose();
-    this.material.dispose();
   }
 }

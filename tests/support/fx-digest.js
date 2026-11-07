@@ -18,7 +18,7 @@ function hashRange(h, array, from, to) {
 export function digest(fx) {
   let h = 2166136261;
   for (const pool of [fx.hot, fx.smoke]) {
-    for (const array of pool.arrays) h = hashRange(h, array, 0, pool.count * 4);
+    for (const array of Object.values(pool.arrays)) h = hashRange(h, array, 0, pool.count * 4);
   }
   const arcs = fx.arcs;
   h = hashRange(h, arcs.positions, 0, arcs.vertex * 3);

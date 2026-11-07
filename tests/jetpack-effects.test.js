@@ -13,7 +13,7 @@ function fixture() {
 
 test('enhanced jets follow the original ribcage nozzle offsets and exhaust axis', () => {
   const f = fixture(); f.effect.update(1 / 60, f.state);
-  assert.equal(f.effect.flame.geometry.instanceCount, 2);
+  assert.equal(f.effect.volume.count, 2);
   for (let i = 0; i < 2; i++) {
     const nozzle = f.effect.nozzles[i];
     assert.ok(nozzle.direction.distanceTo(new THREE.Vector3(0, -1, 0)) < 1e-6);
@@ -39,7 +39,7 @@ test('mesh outlet frames override the legacy emitters and set the visible exhaus
   for (let i = 0; i < 2; i++) {
     assert.ok(f.effect.nozzles[i].position.equals(nozzleFrames[i].position));
     assert.ok(f.effect.nozzles[i].direction.equals(nozzleFrames[i].direction));
-    assert.ok(Math.abs(f.effect.flame.geometry.attributes.nozzleRadius.array[i] - nozzleFrames[i].radius) < 1e-8);
+    assert.ok(Math.abs(f.effect.volume.arrays.nozzleRadius[i] - nozzleFrames[i].radius) < 1e-8);
   }
 });
 
@@ -57,10 +57,10 @@ test('sparks and smoke persist briefly after ignition stops; Classic clears enha
 });
 
 test('long burns keep fixed buffers bounded and zero-time frames do not age particles', () => {
-  const f = fixture(), smoke = f.effect.smoke.attributes.birth.array, sparks = f.effect.sparks.attributes.birth.array;
+  const f = fixture(), smoke = f.effect.smoke.arrays.birth, sparks = f.effect.sparks.arrays.birth;
   f.run(15);
   assert.ok(f.effect.smoke.count <= 128); assert.ok(f.effect.sparks.count <= 64);
-  assert.equal(f.effect.smoke.attributes.birth.array, smoke); assert.equal(f.effect.sparks.attributes.birth.array, sparks);
+  assert.equal(f.effect.smoke.arrays.birth, smoke); assert.equal(f.effect.sparks.arrays.birth, sparks);
   const before = Array.from(smoke); const emitted = f.effect.emitted;
   f.effect.update(0, f.state); assert.deepEqual(Array.from(smoke), before); assert.equal(f.effect.emitted, emitted);
   for (const value of [...smoke, ...sparks]) assert.ok(Number.isFinite(value));

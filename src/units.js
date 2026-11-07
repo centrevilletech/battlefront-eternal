@@ -329,12 +329,12 @@ export class Unit {
       body.userData.heated = { heat: 0, tear: new THREE.Vector4(0, 0.9, 0, 0.6), base: 0, scale: 0.6, soot: 0, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
     }
     const look = body.userData.heated;
-    const lit = [this.ownMaterials].flat()[0]?.uniforms;
-    if (lit?.sunScale) {
-      look.sun = lit.sunScale.value;
-      look.brightness = lit.brightness.value;
-      look.darken = lit.ambientPull.value.x;
-      look.lighten = lit.ambientPull.value.y;
+    const lit = Array.isArray(this.ownMaterials)?this.ownMaterials[0]:this.ownMaterials;
+    if (lit?.actorAppearance) {
+      look.sun = lit.values[0];
+      look.brightness = lit.values[3];
+      look.darken = lit.values[1];
+      look.lighten = lit.values[2];
     }
     look.dissolve = share * 1.02;
     look.heat = enhanced ? 0.9 * (1 - share * 0.5) : 0;
@@ -355,7 +355,7 @@ export class Unit {
     if (this.actor.shadow) this.actor.shadow.visible = near;
     for (const held of this.combat?.held?.values?.() ?? []) {
       held.group?.traverse((mesh) => {
-        if (!mesh.isMesh) return;
+        if (!mesh.userData.actorAsset) return;
         if (!near) { mesh.userData.castShadowNear ??= mesh.castShadow; mesh.castShadow = false; }
         else if (mesh.userData.castShadowNear !== undefined) { mesh.castShadow = mesh.userData.castShadowNear; delete mesh.userData.castShadowNear; }
       });
@@ -544,8 +544,8 @@ export class UnitFactory {
     actor.root.visible = false;
     // The body's bind-pose box, for the path planner's clearance: a quarter
     // of its horizontal diagonal (docs/ai-nav.md).
-    actor.body.geometry.computeBoundingBox();
-    const box = actor.body.geometry.boundingBox;
+    let box=actor.body.userData.bindBounds;
+    if(!box){actor.body.geometry.computeBoundingBox();box=actor.body.geometry.boundingBox;}
     c.scene.add(actor.root);
     const unit = new Unit({ side: sideName, className, def, actor, soldier, animator, walker,
       combat: null, presentation: new (c.headless ? HeadlessSoldierPresentation : SoldierPresentation)(soldier) });

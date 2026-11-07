@@ -1,7 +1,8 @@
 // Keep original art and glyph coverage. Generated lossless atlases share the
 // source UVs; missing upgrades simply retain the imported native bitmap.
 import { rendererFailure } from "./rust-render/failure.js";
-import { pngImage, setPngSource } from "./texture-images.js";
+import { pngImage } from "./texture-images.js";
+import {publishImage} from "./interface/images.js";
 export class RasterHudAssets {
   constructor(renderer) {
     this.renderer = renderer;
@@ -19,7 +20,7 @@ export class RasterHudAssets {
       const path = new URL(url, location.href).pathname;
       if (!path.startsWith("/common/")) return;
       const entry = manifest?.textures?.[path.slice("/common/".length)];
-      if (!entry || texture.userData.rasterSource === entry.file) return;
+      if (!entry || texture.rasterSource === entry.file) return;
       const width = entry.width * manifest.scale, height = entry.height * manifest.scale;
       // An oversized optional atlas keeps its already loaded native bitmap.
       // Check before decode so it cannot allocate unusable full-size pixels.
@@ -29,22 +30,10 @@ export class RasterHudAssets {
       try {
       if (image.width !== width || image.height !== height) throw Error(`HUD atlas dimensions: ${atlasUrl}`);
       await new Promise((resolve) => requestAnimationFrame(resolve));
-      // Texture storage is immutable in WebGL2; retain the shared Texture
-      // object and its sampling settings while reallocating its GPU storage.
-      texture.dispose();
-      // Layout still measures the native bitmap. The larger allocation uses
-      // its same normalized UVs and must not enlarge glyphs or interface art.
-      texture.userData.nativeWidth = entry.width;
-      texture.userData.nativeHeight = entry.height;
-      texture.isDataTexture = true;
-      // No browser image conversion runs at upload time. Straight RGBA rows
-      // preserve coverage, and source retention supports context restoration.
-      texture.image = { data: image.data, width, height };
-      setPngSource(texture, image, atlasUrl);
-      texture.userData.rasterSource = entry.file;
-      texture.needsUpdate = true;
-      // Upload before the next interface frame can sample the resized atlas.
-      this.renderer.initTexture(texture);
+      // Layout retains native bitmap dimensions while the native source bank
+      // replaces its larger allocation behind the same logical sampler id.
+      await publishImage(this.renderer,texture,image,entry.width,entry.height);
+      texture.rasterSource=entry.file;
       } finally {image.release();}
     }).catch(cause=>{this.renderer.resources.failure=rendererFailure(this.renderer,cause);});
     return this.queue;

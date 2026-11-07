@@ -1,29 +1,25 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
-
-// Sparse, resolved wisps over the volumetric body retain the original steam's
-// small curls. Their motion is local to each vent, including the angled pipes.
+// SteamWisps retains only vent/wake facts. The renderer owns its seeded quad
+// and material descriptors; the native environment phase owns wake motion.
 export class SteamWisps {
-  constructor(scene,wakes,texture){
-    const plane=new THREE.PlaneGeometry(1,1),geometry=new THREE.InstancedBufferGeometry();
-    geometry.index=plane.index;geometry.attributes.position=plane.attributes.position;geometry.attributes.uv=plane.attributes.uv;
-    const count=9*16,seeds=new Float32Array(count*4);let state=317;
+  constructor(scene,wakes,texture) {
+    this.nativeKind=EFFECT.WISPS.ID;this.family='wisps';this.variant=0;this.texture=texture;this.wakes=wakes;
+    this.count=this.capacity=9*16;this.visibility='anchor';this.values=new Float64Array(EFFECT.WISPS.LENGTH);
+    const seed=new Float32Array(this.count*4);let state=317;
     const random=()=>((state=Math.imul(state,1664525)+1013904223>>>0)/4294967296);
-    for(let i=0;i<count;i++)seeds.set([Math.floor(i/16),random(),random(),random()],i*4);
-    geometry.setAttribute('seed',new THREE.InstancedBufferAttribute(seeds,4));geometry.instanceCount=count;
-    this.sources=Array.from({length:9},()=>new THREE.Vector4());this.directions=Array.from({length:9},()=>new THREE.Vector4());
-    const material=ownedEffectMaterial('effects/wisps', {transparent:true,depthWrite:false,toneMapped:false,
-      uniforms:{map:{value:texture},wispTime:{value:0},sources:{value:this.sources},directions:{value:this.directions},
-        wakes:{value:wakes.points},motion:{value:wakes.motion},sceneDepth:particleDepth.map,depthResolution:particleDepth.resolution,
-        cameraRange:particleDepth.cameraRange,hasDepth:{value:0}}});
-    this.mesh=new THREE.Mesh(geometry,material);this.mesh.name='chamber-steam-wisps';this.mesh.frustumCulled=false;
-    this.mesh.visible=false;this.mesh.renderOrder=11;
-    this.mesh.onBeforeRender=(r,s,c)=>{material.uniforms.hasDepth.value=particleDepth.capture(r,s,c,true)?1:0;material.uniformsNeedUpdate=true;};scene.add(this.mesh);
+    for(let i=0;i<this.count;i++){const o=i*4;seed[o]=Math.floor(i/16);seed[o+1]=random();seed[o+2]=random();seed[o+3]=random();}
+    this.arrays={seed};this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
+    this.mesh.name='chamber-steam-wisps';this.mesh.frustumCulled=false;this.mesh.visible=false;this.mesh.renderOrder=11;
+    this.mesh.onBeforeRender=(r,s,c)=>{this.values[EFFECT.WISPS.HAS_DEPTH]=particleDepth.capture(r,s,c,true)?1:0;};scene.add(this.mesh);
   }
-  update(time,volumes){
-    this.mesh.material.uniforms.wispTime.value=time;this.mesh.visible=volumes.length>0;
-    for(let i=0;i<9;i++){const v=volumes[i];if(v){this.sources[i].set(v.position.x,v.position.y,v.position.z,1);this.directions[i].set(v.direction.x,v.direction.y,v.direction.z,v.kind);}else this.sources[i].w=0;}
+  // Ports SteamWisps.update's live rows without uniform wrappers or scans.
+  update(time,volumes) {
+    const v=this.values;v[EFFECT.WISPS.WISP_TIME]=time;this.mesh.visible=volumes.length>0;
+    v.set(this.wakes.host.wakePoints,EFFECT.WISPS.WAKES);v.set(this.wakes.host.wakeMotion,EFFECT.WISPS.MOTION);
+    for(let i=0;i<9;i++){const source=volumes[i],o=EFFECT.WISPS.SOURCES+i*4,d=EFFECT.WISPS.DIRECTIONS+i*4;
+      if(source){v[o]=source.position.x;v[o+1]=source.position.y;v[o+2]=source.position.z;v[o+3]=1;v[d]=source.direction.x;v[d+1]=source.direction.y;v[d+2]=source.direction.z;v[d+3]=source.kind;}else v[o+3]=0;}
   }
-  dispose(){this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();}
+  dispose(){this.mesh.removeFromParent();}
 }

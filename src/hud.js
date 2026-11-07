@@ -124,11 +124,13 @@ export class BattleHud extends InterfaceSurface {
     batch.dirty.fill(1, first, last); batch.count = last;
     const input = core.hudInput;
     for (let i = 0; i < input[L.groups]; i++) {
-      const o = L.words + i * D.words, texture = this.input.assets.find(a => a?.handle === input[o + D.texture])?.texture;
-      const mask = input[o + D.masked] ? this.input.assets.find(a => a?.handle === input[o + D.mask])?.texture : null;
-      const material = batch.material(texture, mask); let materialIndex = batch.mesh.material.indexOf(material);
-      if (materialIndex < 0) materialIndex = batch.mesh.material.push(material) - 1;
-      batch.geometry.addGroup(first * 6 + input[o + D.first], input[o + D.count], materialIndex);
+      const o = L.words + i * D.words, texture = this.input.imagesByHandle.get(input[o + D.texture]);
+      const mask = input[o + D.masked] ? this.input.imagesByHandle.get(input[o + D.mask]) : null;
+      const material = batch.material(texture, mask); let materialIndex = batch.looks.indexOf(material);
+      if (materialIndex < 0) materialIndex = batch.looks.push(material) - 1;
+      const start=first*6+input[o+D.first],count=Math.min(input[o+D.count],last*6-start);
+      if(count<=0||batch.drawGroups.length>=batch.groups.length)continue;
+      const group=batch.groups[batch.drawGroups.length];group.start=start;group.count=count;group.materialIndex=materialIndex;batch.drawGroups.push(group);
     }
     // A shell copy displaced the persistent GPU mirrors. The next owner must
     // upload fully, including when it is the native battle batch again.

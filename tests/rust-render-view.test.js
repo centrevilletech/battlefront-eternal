@@ -1,30 +1,17 @@
-// First-person rigid parts use the same native material rows as world parts.
+// First-person rigid parts use native source/appearance rows. Scroll changes
+// replace the cold appearance; live lighting still writes the retained row.
+import './fixtures/native-render-descriptors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as THREE from 'three';
-import { RustRender } from '../src/rust-render/index.js';
-import { actorMaterial } from '../src/materials.js';
-import { standinModule, standinThree } from './support/rust-standin.mjs';
-
-globalThis.location ??= { search: '' };
-
-test('a scrolling repair-tool part registers and publishes its native view row', () => {
-  const { BfeRenderer, memory, calls } = standinModule();
-  const { graphics } = standinThree(calls);
-  const core = new RustRender(graphics, { memory }, BfeRenderer);
-  const material = actorMaterial('dynamic', { map: new THREE.Texture(), scroll: [0.25, -0.5] });
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
-  mesh.geometry.clearGroups();
-  const pass = core.byName.view;
-  const record = pass.registerPart(mesh);
-  assert.ok(record, 'the scrolling rigid part is registered');
-  pass.write(record, { records: 0 });
-  const extra = core.recordsAt + 76;
-  assert.deepEqual(Array.from(core.input.subarray(extra, extra + 2)), [0.25, -0.5]);
-  material.uniforms.scroll.value.set(-1, 2);
-  pass.write(record, { records: 0 });
-  assert.deepEqual(Array.from(core.input.subarray(extra, extra + 2)), [-1, 2]);
-  delete material.uniforms.scroll;
-  pass.write(record, { records: 0 });
-  assert.deepEqual(Array.from(core.input.subarray(extra, extra + 2)), [0, 0], 'a reused row clears the previous material scroll');
+import {RustRender} from '../src/rust-render/index.js';
+import {actorAsset,actorNode,actorLook} from '../src/actor-resources.js';
+import {standinModule,standinThree} from './support/rust-standin.mjs';
+globalThis.location??={search:''};
+test('a scrolling repair-tool part retains its native descriptor until appearance replacement',()=>{
+ const {BfeRenderer,memory,calls}=standinModule(),{graphics,renderer}=standinThree(calls),core=new RustRender(graphics,{memory},BfeRenderer);
+ const node=actorNode(actorAsset({kind:'plane'}),actorLook('dynamic',{scroll:[.25,-.5]}));node.position.z=-2;graphics.viewScene.add(node);
+ const draw=()=>{graphics.viewScene.updateMatrixWorld(true);core.cover('view',renderer,graphics.viewScene,graphics.viewCamera);};
+ draw();draw();let rows=calls.filter(c=>c[0]==='actor_material');assert.equal(rows.length,1);assert.deepEqual(JSON.parse(rows[0][2]).scroll,[.25,-.5]);assert.equal(rows[0][6],true);
+ node.material=actorLook('dynamic',{scroll:[-1,2]});draw();rows=calls.filter(c=>c[0]==='actor_material');assert.equal(rows.length,2);assert.deepEqual(JSON.parse(rows[1][2]).scroll,[-1,2]);
+ node.material=actorLook('dynamic');draw();assert.equal(JSON.parse(calls.filter(c=>c[0]==='actor_material').at(-1)[2]).scroll,undefined);assert.equal(node.geometry,undefined);
 });

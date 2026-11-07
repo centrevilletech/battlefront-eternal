@@ -1,3 +1,4 @@
+import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { IW } from "../../interface/space.js";
@@ -410,7 +411,7 @@ export class PageView {
       if (!this.measured) this.measure();
     }
     this.stage.update(dt, open);
-    for (const logo of this.logos.values()) for (const material of logo.materials) material.uniforms.time.value = this.stage.time;
+    for (const logo of this.logos.values()) for (const material of logo.materials) material.values[LOOK.TIME] = this.stage.time;
     // The pointer: the camera's parallax, the post under it.
     const posts = this.model.posts();
     const cursor = this.input?.cursor;
@@ -773,8 +774,8 @@ export class PageView {
       logo.root.scale.setScalar(size * (own ? 1 : woken ? 0.92 : 0.8) * (0.8 + 0.2 * Math.min(t, 1)));
       logo.root.rotation.y = this.spin * (own ? 1 : woken ? -2.5 : -0.6);
       for (const material of logo.materials) {
-        material.uniforms.color.value.setRGB(...(own ? GREEN : RED));
-        material.uniforms.opacity.value = own || woken ? 1 : 0.55;
+        paintArray(material,LOOK.COLOR,own?GREEN:RED);
+        material.values[LOOK.OPACITY] = own || woken ? 1 : 0.55;
       }
     }
     renderer.clearDepth();
@@ -903,7 +904,6 @@ export class PageView {
     this.root?.remove();
     this.root = null;
     this.stage.dispose();
-    for (const logo of this.logos.values()) for (const material of logo.materials) material.dispose();
   }
 }
 

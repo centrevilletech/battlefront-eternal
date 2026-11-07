@@ -1,7 +1,9 @@
+import './fixtures/native-render-descriptors.js';
+import {actorPart} from './helpers/actor-resources.js';
 import { KIND_ITEM } from '../src/sim/gen/index.js';
 import {nativeItems} from './helpers/native-items.js';
 import test from 'node:test';import assert from 'node:assert/strict';
-import {Scene,Vector3,Object3D,Group,Mesh,BoxGeometry} from 'three';
+import {Scene,Vector3,Object3D,Group,BoxGeometry} from 'three';
 import {Items,radiusOf} from '../src/items.js';
 import {EntityItemCapture} from '../src/runtime/network-entity-items.js';
 import {ItemPresentation} from '../src/presentation/items.js';
@@ -169,7 +171,7 @@ test('a jump of the clock starts again from the newest record at or before it, w
 });
 
 test('a placed power-up and a stuck mine rest where the world says, even with no ground on the page',async()=>{
- const box=()=>{const group=new Group(),geometry=new BoxGeometry(.4,.12,.4);geometry.computeBoundingSphere();group.add(new Mesh(geometry));return group;};
+ const box=()=>{const group=new Group();group.add(actorPart(new BoxGeometry(.4,.12,.4),null));return group;};
  const f=await fixture({ground:flat,clientGround:none,pools:{mine:2,powerupitem:2},model:()=>box});
  const placed=f.authority.spawn(pickup,new Vector3(5,0,5),new Vector3(),1),thrown=f.authority.spawn(mine,new Vector3(-3,1.2,2),new Vector3(2,1,0),.5);
  for(let tick=1;tick<=90;tick++){f.authority.step(1/60);if(tick%2===0)for(const record of f.capture.capture(tick))f.presentation.receive(transfer(record),1);}

@@ -1,3 +1,5 @@
+import {ACTOR} from './actor-layout.js';
+import {nativeActorSource} from '../actor-resources.js';
 // The motion pass (motion.rs): the temporal upscaler's motion of the bodies
 // that move on their own (motion-vectors.js), drawn by the renderer in
 // place of three's render of their proxies and of the first-person view's
@@ -24,11 +26,9 @@
 // three's order.
 import * as THREE from "three";
 import { arcBatches } from "../arc-lightning.js";
-import { ownedEffectProgram } from "./effect-material.js";
 import { motionUniforms, motionVectors } from "../motion-vectors.js";
-import { writeUniform } from "./post.js";
 
-const MOTION = 9;
+const FLYER_STREAMS=["matrices","previous","shown"];
 const KIND_PROXY = 1, KIND_LOCKED = 2;
 // motion.rs's layout: the frame's values, then the records.
 const IN = { PROJECTION: 0, VIEW: 16, VIEW_PROJECTION: 32, VIEW_VIEW: 48, CURRENT: 64, PREVIOUS: 80, RANGE: 96, TARGET: 98, SIZE: 99, DEPTH: 101,
@@ -41,16 +41,6 @@ const STRIDE = 88, MAX_RECORDS = 256, MAX_BONES = (1024 * 32) / 4;
 const EX = { ID: 0, INSTANCES: 1, SIDE: 2, AT: 3, UNIFORMS: 4, FIRST: 5 };
 const UNIFORM = 18, MAX_EXTRA_UNIFORMS = 8, EXTRA = EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM, MAX_EXTRAS = 16;
 const IDENTITY = new THREE.Matrix4().elements;
-
-// three's index range for an item (renderBufferDirect, triangles): the
-// geometry's draw range within the group's and the index.
-function rangeOf(geometry, group) {
-  const range = geometry.drawRange, count = geometry.index.count;
-  let first = range.start, last = range.start + range.count;
-  if (group) { first = Math.max(first, group.start); last = Math.min(last, group.start + group.count); }
-  first = Math.max(first, 0); last = Math.min(last, count);
-  return last > first && last !== Infinity ? [first, last - first] : null;
-}
 
 class MotionPass {
   constructor(core) {
@@ -110,13 +100,13 @@ class MotionPass {
       if (proxy.frustumCulled && !this.frustum.intersectsObject(proxy)) continue;
       proxies.push(proxy);
     }
-    proxies.sort((a, b) => a.renderOrder - b.renderOrder || a.material.id - b.material.id || a.id - b.id);
+    proxies.sort((a, b) => a.renderOrder - b.renderOrder || a.userData.order - b.userData.order || a.id - b.id);
     for (const proxy of proxies) {
       const source = proxy.userData.source;
-      const program = ownedEffectProgram(core, proxy.material, MOTION);
-      const geometry = source.geometry.index === proxy.geometry.index ? core.geometry(source.geometry, program) : null;
-      if (geometry === null || geometry === undefined || records.length >= MAX_RECORDS) return this.decline(geometry === null || geometry === undefined ? "proxy: geometry" : "records");
-      const record = { kind: KIND_PROXY, object: proxy, program: program.id, geometry, first: 0, count: proxy.geometry.index.count, side: proxy.material.side, bones: -1 };
+      let descriptor=proxy.userData.nativeMotion;
+      if(descriptor===undefined){descriptor=core.rust.actor_motion(nativeActorSource(core,source.userData.actorAsset).id,!!source.skeleton,false);proxy.userData.nativeMotion=descriptor;}
+      if(descriptor===undefined||records.length>=MAX_RECORDS)return this.decline('actor motion capacity');
+      const record=proxy.userData.motionRow??={kind:KIND_PROXY,object:proxy,bones:-1};record.descriptor=descriptor;record.bones=-1;
       if (proxy.isSkinnedMesh) {
         const skeleton = proxy.skeleton;
         let at = this.skeletons.get(skeleton);
@@ -178,7 +168,7 @@ class MotionPass {
       list.push(mesh);
     }
     const entries = this.extraEntries;
-    list.sort((a, b) => a.renderOrder - b.renderOrder || a.material.id - b.material.id || entries.get(a).z - entries.get(b).z || a.id - b.id);
+    list.sort((a, b) => a.renderOrder - b.renderOrder || a.userData.order - b.userData.order || entries.get(a).z - entries.get(b).z || a.id - b.id);
     return true;
   }
 
@@ -188,87 +178,21 @@ class MotionPass {
   // (the mesh's matrices, the geometry's instanced ones, a buffer each).
   // null for one the renderer can't draw as three does (blended, tested or
   // not instanced by plain float attributes).
-  extra(mesh, camera) {
-    let entry = this.extraEntries.get(mesh);
-    if (entry !== undefined) return entry;
-    const core = this.core, material = mesh.material, geometry = mesh.geometry;
-    const program = ownedEffectProgram(core, material, 3);
-    const attributes = program.attributes;
-    entry = null;
-    const perInstance = (name) => name === "instanceMatrix" || Boolean(geometry.attributes[name]?.isInstancedBufferAttribute);
-    const instanced = [], layout = [];
-    let ok = Boolean(program) && program.uniforms.length <= MAX_EXTRA_UNIFORMS && material.blending === THREE.NormalBlending && !material.transparent
-      && !material.depthTest && !material.depthWrite && material.colorWrite;
-    for (const [name, location] of ok ? attributes : []) {
-      if (!perInstance(name)) continue;
-      const attribute = name === "instanceMatrix" ? mesh.instanceMatrix : geometry.attributes[name];
-      const size = attribute?.itemSize;
-      if (!(attribute?.array instanceof Float32Array) || attribute.isInterleavedBufferAttribute || (attribute.meshPerAttribute ?? 1) !== 1 || (size > 4 && size !== 16)) { ok = false; break; }
-      layout.push(location, size > 4 ? 4 : 1, size > 4 ? 4 : size);
-      instanced.push({ attribute, size });
-    }
-    // Every uniform it reads has a value the renderer can set.
-    // Extra meshes are independent of colour-pass visibility. Prepare their
-    // samplers before validation and before taking shared motion-input views.
-    if (program) for (const uniform of program.uniforms) if (uniform.type >= 32) {
-      const texture = material.uniforms?.[uniform.name]?.value ?? material[uniform.name];
-      if (texture?.isTexture) core.texture(texture);
-    }
-    for (let k = 0; ok && k < program.uniforms.length; k++) ok = writeUniform(core, this.scratch, 0, k, program.uniforms[k], material, mesh, camera);
-    if (ok) {
-      const g = core.geometry(geometry, { id: program.id, attributes: attributes.filter(([name]) => !perInstance(name)) });
-      if (g !== null && g !== undefined) {
-        const max = mesh.instanceMatrix.count;
-        entry = { id: core.rust.motion_extra(program.id, g, max, new Uint32Array(layout)), program, instanced, max, z: 0 };
-      }
-    }
-    this.extraEntries.set(mesh, entry);
-    return entry;
+  extra(mesh,camera){let entry=this.extraEntries.get(mesh);if(entry!==undefined)return entry;const source=mesh.userData.flyerMotion;if(!source)return null;const core=this.core;
+    const row=core.rust.actor_flyer_motion(nativeActorSource(core,source.asset).id,source.capacity,source.arrays.matrices),meta=ACTOR.MOTION_META;mesh.boundingSphere.center.fromArray(row,meta.BOUNDS);mesh.boundingSphere.radius=row[meta.BOUNDS+3];entry={id:row[meta.HANDLE],source,max:Math.min(source.capacity,256),z:0};this.extraEntries.set(mesh,entry);core.buffer=null;core.views();return entry;
   }
-
-  // The view scene walked as three's projectObject walks it (shown, on the
-  // camera's layers, in its frustum): a record for each item it would list
-  // (each shown group of an object with a material per group), drawn with
-  // the locked material three overrides them with. False for anything the
-  // pass can't draw (a sprite, a line, a skinned part, the locked mask's
-  // program not made by three yet).
-  lockedParts(viewScene, view, locked, records) {
-    const core = this.core;
-    this.maskWhy = "program";
-    const program = ownedEffectProgram(core, locked, MOTION);
-    const frustum = this.viewFrustum.setFromProjectionMatrix(this.viewScreen.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse));
-    const hidden = core.byName.view?.parts;
-    // Shown to three, or hidden from it by the view pass (which draws it).
-    const shown = (object, material) => Boolean(material) && (material.visible || hidden?.get(object)?.material === material);
-    const visit = (object) => {
-      if (!object.visible) return true;
-      if (object.layers.test(view.layers)) {
-        if (object.isSprite || object.isLine || object.isPoints || object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh) { this.maskWhy = object.type; return false; }
-        if (object.isMesh && (!object.frustumCulled || frustum.intersectsObject(object))) {
-          const material = object.material, groups = Array.isArray(material) ? object.geometry.groups.filter((g) => shown(object, material[g.materialIndex])) : shown(object, material) ? [null] : [];
-          // Arc capsules expose corners, not positions. The original mask
-          // received a constant zero position and produced degenerate triangles.
-          // Their visible view draw remains the effects batch's responsibility.
-          const emptyArcMask = arcBatches.has(object) && !object.geometry.attributes.position;
-          if (groups.length && !emptyArcMask) {
-            if (material.userData?.bfeShape !== undefined) object.onBeforeRender(core.renderer, viewScene, view, object.geometry, locked, null);
-            this.maskWhy = "geometry";
-            if (!object.geometry.index) return false;
-            const geometry = core.geometry(object.geometry, program);
-            if (geometry === null || geometry === undefined) return false;
-            for (const group of groups) {
-              const range = rangeOf(object.geometry, group);
-              if (!range) continue;
-              if (records.length >= MAX_RECORDS) { this.maskWhy = "records"; return false; }
-              records.push({ kind: KIND_LOCKED, object, program: program.id, geometry, first: range[0], count: range[1], side: locked.side, bones: -1 });
-            }
-          }
-        }
+  // Locked view masks share the actor's native geometry and a fixed program.
+  lockedParts(viewScene,view,locked,records){
+    const core=this.core,frustum=this.viewFrustum.setFromProjectionMatrix(this.viewScreen.multiplyMatrices(view.projectionMatrix,view.matrixWorldInverse));
+    this.lockedCamera=view;this.lockedRecords=records;return this.visitLocked(viewScene);
+  }
+  visitLocked(node){if(!node.visible)return true;const core=this.core,view=this.lockedCamera,records=this.lockedRecords,frustum=this.viewFrustum;
+      if(node.userData.actorAsset&&node.layers.test(view.layers)&&(!node.frustumCulled||frustum.intersectsObject(node))){
+        let descriptor=node.userData.lockedMotion;if(descriptor===undefined){descriptor=core.rust.actor_motion(nativeActorSource(core,node.userData.actorAsset).id,false,true);node.userData.lockedMotion=descriptor;}
+        if(descriptor===undefined||records.length>=MAX_RECORDS){this.maskWhy='locked actor capacity';return false;}
+        const row=node.userData.lockedRow??={kind:KIND_LOCKED,object:node,bones:-1};row.descriptor=descriptor;records.push(row);
       }
-      for (const child of object.children) if (!visit(child)) return false;
-      return true;
-    };
-    return visit(viewScene);
+      for(let i=0;i<node.children.length;i++)if(!this.visitLocked(node.children[i]))return false;return true;
   }
 
   // The phase: the frame's values, the records and their bones written for
@@ -304,24 +228,23 @@ class MotionPass {
     // Each skeleton's bones once: now (three's, as it worked them out in
     // the near scene's render), and last frame's (prepare()'s copy).
     for (const [skeleton, at] of this.skeletons) {
-      bones.set(skeleton.boneMatrices, at * 16);
+      bones.set(skeleton.actorPoseSkin||skeleton.boneMatrices,at*16);
       const before = motionVectors.bones(skeleton);
-      previous.set(before.data.subarray(0, before.length), at * 16);
+      previous.set(before.data,at*16);
     }
     input[IN.BONES] = p.bones; input[IN.PREVIOUS_BONES] = p.bones;
     const records = this.records;
     for (let r = 0; r < records.length; r++) {
       const record = records[r], object = record.object, o = IN.RECORDS + r * STRIDE;
-      input[o + R.KIND] = record.kind; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
-      input[o + R.FIRST] = record.first; input[o + R.COUNT] = record.count; input[o + R.SIDE] = record.side;
+      input[o + R.KIND] = record.kind; input[o + R.PROGRAM] = ACTOR.KIND.RETAINED; input[o + R.GEOMETRY] = record.descriptor;
+
       input[o + R.BONE_AT] = Math.max(0, record.bones); input[o + R.PREVIOUS_AT] = Math.max(0, record.bones);
       input.set(object.matrixWorld.elements, o + R.WORLD);
       if (record.kind === KIND_PROXY) {
-        const u = object.material.uniforms;
-        input.set(u.previousModel.value.elements, o + R.PREVIOUS_WORLD);
+        input.set(object.userData.previousModel.elements, o + R.PREVIOUS_WORLD);
         input.set(object.isSkinnedMesh ? object.bindMatrix.elements : IDENTITY, o + R.BIND);
         input.set(object.isSkinnedMesh ? object.bindMatrixInverse.elements : IDENTITY, o + R.BIND_INVERSE);
-        input.set(u.previousBindInverse.value.elements, o + R.PREVIOUS_BIND_INVERSE);
+        input.set(object.userData.previousBindInverse.elements, o + R.PREVIOUS_BIND_INVERSE);
       } else {
         input.set(object.matrixWorld.elements, o + R.PREVIOUS_WORLD);
         input.set(IDENTITY, o + R.BIND); input.set(IDENTITY, o + R.BIND_INVERSE); input.set(IDENTITY, o + R.PREVIOUS_BIND_INVERSE);
@@ -339,15 +262,8 @@ class MotionPass {
     let n = 0, at = 0;
     for (const mesh of this.extras) {
       const entry = this.extraEntries.get(mesh), o = 1 + n * EXTRA, count = Math.min(mesh.count, entry.max);
-      out[o + EX.ID] = entry.id; out[o + EX.INSTANCES] = count; out[o + EX.SIDE] = mesh.material.side; out[o + EX.AT] = at;
-      for (const { attribute, size } of entry.instanced) {
-        if (at + count * size > values.length) { out[o + EX.INSTANCES] = 0; break; }
-        values.set(attribute.array.subarray(0, count * size), at);
-        at += count * size;
-      }
-      const uniforms = entry.program.uniforms;
-      out[o + EX.UNIFORMS] = uniforms.length;
-      for (let k = 0; k < uniforms.length; k++) writeUniform(core, out, o + EX.FIRST + k * UNIFORM, k, uniforms[k], mesh.material, mesh, camera);
+      out[o+EX.ID]=entry.id;out[o+EX.INSTANCES]=count;out[o+EX.AT]=at;out[o+EX.UNIFORMS]=0;out[o+EX.FIRST]=entry.source.owner.still??1;
+      for(const name of FLYER_STREAMS){const data=entry.source.arrays[name],size=name==='shown'?1:16;if(at+count*size>values.length){out[o+EX.INSTANCES]=0;break;}for(let j=0;j<count*size;j++)values[at+j]=data[j];at+=count*size;}
       n++;
     }
     out[0] = n;

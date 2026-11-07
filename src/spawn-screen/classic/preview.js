@@ -50,7 +50,6 @@ export class ClassPreview {
       this.root.remove(this.body.object);
       this.body.dispose?.();
     }
-    for (const material of this.materials) material.dispose();
     this.materials = [];
     this.body = null;
     this.className = null;

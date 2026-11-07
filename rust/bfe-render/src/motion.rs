@@ -111,6 +111,7 @@ struct Uniforms<C: HasContext> {
     current: Option<C::UniformLocation>,
     previous: Option<C::UniformLocation>,
     range: Option<C::UniformLocation>,
+    still:Option<C::UniformLocation>,model:Option<C::UniformLocation>,view:Option<C::UniformLocation>,
 }
 
 // An extra: its program and geometry, its per-instance attributes (a
@@ -120,9 +121,11 @@ struct Extra<C: HasContext> {
     geometry: usize,
     attributes: Vec<(C::Buffer, usize)>,
     max: usize,
+    native:bool,
 }
 
 pub struct MotionPass<C: HasContext> {
+    pub actor_descriptors:Vec<crate::actor_resources::MotionDescriptor>,
     rows_texture: C::Texture,
     bones_texture: C::Texture,
     previous_texture: C::Texture,
@@ -160,6 +163,7 @@ impl<C: HasContext> MotionPass<C> {
         let previous_texture = upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         MotionPass {
+            actor_descriptors:vec![],
             rows_texture, bones_texture, previous_texture, rows: vec![0.0; MAX_RECORDS * ROW_TEXELS * 4], input: vec![0.0; INPUT_LEN],
             bones: vec![0.0; MAX_BONES * 16], previous: vec![0.0; MAX_BONES * 16], uniforms: HashMap::new(),
             extras: vec![], extras_input: vec![0.0; EXTRAS_LEN], extra_values: vec![0.0; EXTRA_VALUES], matrices: HashMap::new(),
@@ -192,10 +196,16 @@ impl<C: HasContext> MotionPass<C> {
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
         }
-        self.extras.push(Extra { program: program as usize, geometry: geometry as usize, attributes, max });
+        self.extras.push(Extra { program: program as usize, geometry: geometry as usize, attributes, max,native:false });
         (self.extras.len() - 1) as u32
     }
 
+    // SkyFlyers.flyerMotion owns one closed descriptor. Native uniforms use
+    // the ordinary motion view packet; the only extra live fact is `still`.
+    pub fn add_sky_extra<M:MultiDraw>(&mut self,core:&mut Core<C,M>,program:u32,geometry:u32,max:u32)->u32{
+        let spec=crate::programs::spec("effects/motion-flyer").unwrap();let mut layout=vec![];for(name,columns,rows)in[("instanceMatrix",4,4),("previousMatrix",4,4),("shown",1,1)]{let loc=spec.attributes.iter().find(|(n,_)|*n==name).unwrap().1;layout.extend_from_slice(&[loc,columns,rows]);}
+        let id=self.add_extra(core,program,geometry,max,&layout);self.extras[id as usize].native=true;self.uniforms(core,program as usize);id
+    }
     // The extras the page wrote, in its order (three's), into the target
     // bound now: each one's instances sent, its uniforms set, one instanced
     // draw.
@@ -224,15 +234,13 @@ impl<C: HasContext> MotionPass<C> {
             }
             unsafe { gl.bind_buffer(glow::ARRAY_BUFFER, None) };
             core.stats.gl_calls += 1;
-            let program = extra.program;
+            let program = extra.program;let native=extra.native;let geometry=extra.geometry;
+            let current=as_f32(&self.input[IN_CURRENT..]);let previous=as_f32(&self.input[IN_PREVIOUS..]);let projection=as_f32(&self.input[IN_PROJECTION..]);let view=as_f32(&self.input[IN_VIEW..]);let depth=self.input[IN_DEPTH];
             core.state.use_program(&core.gl, &mut core.stats, core.programs[program].program);
-            let mut unit = 0u32;
-            for k in 0..(ex[EX_UNIFORMS] as usize).min(MAX_EXTRA_UNIFORMS) {
-                let u = EX_FIRST + k * UNIFORM;
-                set_uniform(core, &mut self.matrices, program, &ex[u..u + UNIFORM], &mut unit);
-            }
-            core.state.cull(&core.gl, &mut core.stats, ex[EX_SIDE] as u32);
-            let geo = &core.geometries[extra.geometry];
+            if native{let u=self.uniforms.get(&program).unwrap();let gl=&core.gl;unsafe{gl.uniform_matrix_4_f32_slice(u.current.as_ref(),false,&current);gl.uniform_matrix_4_f32_slice(u.previous.as_ref(),false,&previous);gl.uniform_matrix_4_f32_slice(u.projection.as_ref(),false,&projection);gl.uniform_matrix_4_f32_slice(u.view.as_ref(),false,&view);gl.uniform_matrix_4_f32_slice(u.model.as_ref(),false,&[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.]);gl.uniform_1_f32(u.still.as_ref(),ex[EX_FIRST]as f32);}let texture=if depth<0.{None}else{core.textures.get(depth as usize).copied()};core.state.bind_texture(&core.gl,&mut core.stats,UNIT_SCENE_DEPTH,texture);core.stats.gl_calls+=6;
+            }else{let mut unit=0u32;for k in 0..(ex[EX_UNIFORMS]as usize).min(MAX_EXTRA_UNIFORMS){let u=EX_FIRST+k*UNIFORM;set_uniform(core,&mut self.matrices,program,&ex[u..u+UNIFORM],&mut unit);}}
+            core.state.cull(&core.gl,&mut core.stats,if native{2}else{ex[EX_SIDE]as u32});
+            let geo = &core.geometries[geometry];
             unsafe {
                 core.gl.bind_vertex_array(Some(geo.vao));
                 core.gl.draw_elements_instanced(glow::TRIANGLES, geo.index_count, geo.index_type, 0, instances as i32);
@@ -259,13 +267,16 @@ impl<C: HasContext> MotionPass<C> {
                 projection: gl.get_uniform_location(p, "projectionMatrix"),
                 current: gl.get_uniform_location(p, "currentViewProjection"),
                 previous: gl.get_uniform_location(p, "previousViewProjection"),
-                range: gl.get_uniform_location(p, "depthRange"),
+                range: gl.get_uniform_location(p, "depthRange"),still:gl.get_uniform_location(p,"still"),model:gl.get_uniform_location(p,"modelMatrix"),view:gl.get_uniform_location(p,"viewMatrix"),
             }
         })
     }
 
     // records: how many the page wrote this frame.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, records: usize) {
+        // Retained actor descriptors fill immutable draw fields in native
+        // storage; the host transports only current/previous pose and skin.
+        for r in 0..records.min(MAX_RECORDS){let row=&mut self.input[IN_RECORDS+r*REC_STRIDE..IN_RECORDS+(r+1)*REC_STRIDE];if row[REC_PROGRAM]==crate::actor_layout::kind::RETAINED as f64{if let Some(d)=self.actor_descriptors.get(row[REC_GEOMETRY] as usize){d.publish(row);}else{row[REC_PROGRAM]=u32::MAX as f64;row[REC_COUNT]=0.;}}}
         let records = records.min(MAX_RECORDS);
         let target = self.input[IN_TARGET];
         if target < 0.0 {

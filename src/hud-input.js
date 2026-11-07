@@ -1,3 +1,4 @@
+import {observeImage,imageSample} from './interface/images.js';
 // Host binding for the Rust battle HUD. The page publishes game facts, asset
 // handles and ordered scalar commands. Rust owns display clocks and geometry.
 import { HudArt, HudGlyph as G, HudFrame as H, HudWeapon as W, HudPost as P, HudPostCount as PC, HudUnit as U, HudState as S, HudTeam as T, HudCommand as C, HudMapDraw as M, HudRing as R } from './hud-layout.js';
@@ -23,7 +24,7 @@ export class HudInput {
     this.hud = hud;
     this.core = null; this.fontInput = fonts; this.textValues = [null]; this.attached = false;
     this.f = new Float64Array(WORDS);
-    this.assets = [null]; this.assetIds = new Map(); this.textureIds = new Map();
+    this.assets = [null]; this.assetIds = new Map(); this.textureIds = new Map(); this.imagesByHandle = new Map();
     this.postDefs = new WeakMap(); this.texts = new Map(); this.defs = new WeakMap(); this.weaponIds = new WeakMap(); this.unitIds = new WeakMap();
     this.nextWeapon = 1; this.nextGeneration = 1; this.maxId = 0; this.observedStates = 0;
     this.owners = new Array(MAX_UNITS + 1); this.free = new Uint32Array(MAX_UNITS); this.freeCount = MAX_UNITS;
@@ -74,6 +75,7 @@ export class HudInput {
     this.core.views();
     this.core.hudModelInput.set(this.f);
     this.attached = true;
+    for(let id=1;id<this.assets.length;id++)this.observeAsset(id);
   }
 
   // Text and class facts are registered on first observation, then retained by
@@ -106,6 +108,7 @@ export class HudInput {
       if (id >= 4096) return 0;
       this.assets.push({ texture, version: -1, handle: -2, width: -1, height: -1, ready: false });
       if (texture) this.textureIds.set(texture, id);
+      if(this.attached)this.observeAsset(id);
     }
     return id;
   }
@@ -178,27 +181,11 @@ export class HudInput {
     this.core.rust.hud_model_event(kind, a, b, c, d);
   }
 
-  // Register sampler handles before acquiring WASM views. A late font page or
-  // atlas upgrade can grow memory; the staging block remains valid throughout.
-  samplers() {
-    const core = this.core;
-    for (let id = 1; id < this.assets.length; id++) {
-      const asset = this.assets[id], texture = asset.texture;
-      const image = texture?.image;
-      let handle = -1;
-      if (texture) {
-        const properties = core.renderer.properties.get(texture);
-        if (texture.version > 0 && properties.__version !== texture.version && image) core.renderer.initTexture(texture);
-        handle = core.texture(texture);
-      }
-      const width = texture?.userData.nativeWidth || image?.width || 0;
-      const height = texture?.userData.nativeHeight || image?.height || 0;
-      const ready = Boolean(image);
-      if (asset.handle !== handle || asset.width !== width || asset.height !== height || asset.ready !== ready) {
-        core.rust.hud_model_asset(id, handle, width, height, ready);
-        asset.handle = handle; asset.width = width; asset.height = height; asset.ready = ready;
-      }
-    }
+  // Image load/atlas events publish native asset facts once. Per-frame HUD
+  // updates never inspect Texture versions, dimensions or renderer properties.
+  observeAsset(id){const asset=this.assets[id];if(asset.observer)return;
+    const publish=image=>{const sample=image?imageSample(this.core.resources,image):-1;const handle=sample<0?-1:this.core.texture(sample);asset.handle=handle;if(handle>=0)this.imagesByHandle.set(handle,image);this.core.rust.hud_model_asset(id,handle,image?.width||0,image?.height||0,Boolean(image?.ready));};
+    asset.observer=observeImage(asset.texture,publish);if(!asset.texture)publish(null);
   }
 
   // Two rows describe panel weapons and two describe reticle weapons. These
@@ -408,7 +395,7 @@ export class HudInput {
   publish() {
     this.attach();
     const core = this.core, f = this.f;
-    this.samplers(); core.views();
+    core.views();
     const target = core.hudModelInput;
     this.copy(target, 0, POSTS + f[H.posts] * P.words);
     for (let i = 0; i < f[H.posts]; i++) {

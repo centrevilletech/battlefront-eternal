@@ -44,7 +44,7 @@ for path in sorted(web.glob('*.rs')):
     # it must not rewrite arbitrary Rust expressions or private helpers.
     for m in re.finditer(r'pub fn (\w+)\((.*?)\)\s*(?:->\s*([^\{]+))?\{', text, re.S):
         name, args, ret = m.group(1), m.group(2), (m.group(3) or '').strip()
-        if name.startswith(('hud_model_', 'static_source')) or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
+        if name.startswith(('hud_model_', 'static_source', 'water_source', 'actor_source')) or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
         parsed = []
         for arg in args.split(','):
             arg = arg.strip()
@@ -61,7 +61,26 @@ for path in sorted(web.glob('*.rs')):
 # Every retained API needs an explanation here. Keeping these beside the
 # emitter makes a new resource method fail generation until its replay
 # dependency is documented; the generated Rust is never edited by hand.
-method_notes = dict(line.split('|', 1) for line in '''static_depth_add|Retain a static depth reference to the shared native authored source.
+method_notes = dict(line.split('|', 1) for line in '''hud_descriptor_init|Recreate the native HUD index, source program and fixed camera/sampler bindings.
+hud_appearance|Restore a retained HUD map/mask sampler descriptor.
+ui_appearance|Recreate interface geometry, material and sampler descriptors in original admission order.
+actor_flyer|Recreate native sky flyer colour descriptors and retained instance layouts.
+actor_flyer_motion|Recreate native sky motion source geometry and instance buffers.
+actor_settings|Restore typed actor cascade and lamp settings on retained descriptors.
+actor_skin_release|Retire a released pose sampler identity before any restored frame can upload its old extent.
+actor_motion|Recreate a retained actor motion or first-person locked-mask descriptor from shared native source bytes.
+actor_effect|Recreate a glow model descriptor with native geometry, sampler and exact two-sided additive policy.
+actor_skin|Retain a native pose sampler identity and its exact padded dimensions.
+actor_depth|Recreate an actor depth descriptor against shared source bytes and retained skin samplers.
+actor_geometry|Recreate an actor source VAO from its retained native streams and owned catalog layout.
+actor_material|Restore the actor appearance handle, native variant, sampler slots and blend policy.
+effect_far_mesh|Recreate a native far lightning descriptor and its fixed dirty-stream bindings.
+line_source|Recreate native cable or helper geometry and raster descriptors from the utility program.
+effect_water|Compile a native water surface or far descriptor from retained authored water cells.
+effect_basin|Recreate basin geometry and material descriptors and the native tier discs.
+effect_mesh|Recreate a dynamic ribbon descriptor with its reserved streams, fixed topology and native material policy.
+effect_batch|Recompile the particle family geometry and material descriptor from typed cold facts.
+static_depth_add|Retain a static depth reference to the shared native authored source.
 static_depth_replace|Preserve each replacement before its depth geometry rebuild.
 static_depth_finish|Build depth resources from retained sources while preserving geometry and scene ids.
 static_world_settings|Replay each preset transition in order because it can allocate newly selected catalog programs.
@@ -224,7 +243,7 @@ out += ['}', 'impl Recovery {',
 # descriptions refer to their positions. Setters can replace only an identical
 # selector key; writes with different keys still retain independent clocks.
 for ident,(name,args,ret) in enumerate(methods):
-    append = ('u32' in ret and not ret.startswith('bool')) or name in {'geometry_pointer', 'geometry_group', 'transparent_object_pass', 'static_world_settings', 'static_depth_finish', 'canopies_mesh'}
+    append = ('u32' in ret and not ret.startswith('bool')) or name in {'geometry_pointer', 'geometry_group', 'transparent_object_pass', 'static_world_settings', 'static_depth_finish', 'canopies_mesh', 'effect_basin', 'effect_water', 'actor_material', 'actor_effect', 'actor_flyer_motion', 'actor_settings', 'ui_appearance', 'hud_descriptor_init', 'actor_skin_release'}
     signature = ', '.join(n+': '+t for n,t in args)
     out += [f'    // BfeRenderer::{name}: {method_notes[name]}',
             ('    // Keep every call: later registrations depend on the returned id or append order.' if append else '    // Coalesce only the same selector key; other writes retain their own chronology.'),
@@ -273,6 +292,11 @@ out += ['}', '#[wasm_bindgen]', 'impl BfeRenderer {',
         '        let mut saved = std::mem::take(&mut self.recovery);',
         '        let mut old = std::mem::replace(&mut self.r, BfeRenderer::new(context).r);',
         '        self.static_worlds.clear();',
+        '        self.water_geometry.clear();',
+        '        self.actor_resources.geometry.clear();self.actor_resources.effects.clear();self.actor_resources.materials.clear();self.actor_resources.recipes.clear();self.actor_resources.motions.clear();',
+        '        self.actor_resources.depth.descriptors.clear();self.actor_resources.depth.skins.clear();self.actor_resources.depth.free.clear();self.actor_resources.depth.free_ids.clear();self.actor_resources.depth.end=0;',
+        '        self.actor_resources.crowd.input[crate::actor_layout::crowd_input::DIRTY]=1.;',
+        '        let old_lines=std::mem::take(&mut self.line_resources);',
         '        // Replay uses the public registration methods, whose remember hooks',
         '        // must stay inert rather than recursively appending the replay itself.',
         '        self.rebuilding = true;',
@@ -287,6 +311,8 @@ for name,args,ret in methods:
     if name == 'static_world_settings': invoke = 'saved.configure_static_world(self,near,far,saved.commands[recovery_at].0)?'
     out.append('            Command::'+name+' { '+', '.join(n for n,t in args)+' } => { let _ = '+invoke+'; },')
 out += ['        }}',
+        '        // Line points survive loss; replay recreates only their GPU descriptors.',
+        '        self.line_resources.input=old_lines.input;self.line_resources.data=old_lines.data;',
         '        // Allocations and bindings now have their original logical ids.',
         '        // Move, do not clone, the authoritative CPU mirrors across the reset.',
         '        // Published WASM views are rebound by the JS caller after this returns.']

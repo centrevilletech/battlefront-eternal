@@ -1,4 +1,4 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
 
@@ -43,93 +43,56 @@ export class EnvironmentWakes {
   clear() { this.host.wakeFrame[FRAME.CLEAR]=1;this.host.x.vis_wake_apply();this.synced(); }
 }
 
-// Periodic, correlated fractal density. White noise averaged along a ray
-// becomes an almost uniform haze; this field retains visible rolling eddies.
-function noiseTexture() {
-  const n=32,bytes=new Uint8Array(n**3);let seed=145231;
-  const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return(seed>>>0)/4294967296;};
-  const layers=[8,16,32].map(size=>({size,data:Float32Array.from({length:size**3},random)}));
-  const smooth=t=>t*t*(3-2*t);
-  function sample(layer,x,y,z){
-    const size=layer.size,scale=size/n;x*=scale;y*=scale;z*=scale;
-    const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z),fx=smooth(x-ix),fy=smooth(y-iy),fz=smooth(z-iz);
-    let v=0;
-    for(let k=0;k<2;k++)for(let j=0;j<2;j++)for(let i=0;i<2;i++)
-      v+=layer.data[((iz+k)%size*size+(iy+j)%size)*size+(ix+i)%size]*(i?fx:1-fx)*(j?fy:1-fy)*(k?fz:1-fz);
-    return v;
-  }
-  for(let z=0;z<n;z++)for(let y=0;y<n;y++)for(let x=0;x<n;x++){
-    const v=.60*sample(layers[0],x,y,z)+.30*sample(layers[1],x,y,z)+.10*sample(layers[2],x,y,z);
-    bytes[(z*n+y)*n+x]=Math.round(255*THREE.MathUtils.clamp(.5+(v-.5)*1.65,0,1));
-  }
-  const t=new THREE.Data3DTexture(bytes,n,n,n);t.format=THREE.RedFormat;
-  t.minFilter=t.magFilter=THREE.LinearFilter;t.wrapS=t.wrapT=t.wrapR=THREE.RepeatWrapping;
-  t.unpackAlignment=1;t.needsUpdate=true;return t;
-}
-
-
-
-
-
-// The composites' meshes, each to its volume (a renderer that draws the
-// volumes itself finds them here).
-export const environmentVolumes = new WeakMap();
-
+// The composite anchor is registered with its native offscreen batch. Native
+// descriptors own the density field, box, full-screen quad and target policy.
+export const environmentVolumes=new WeakMap();
 export class EnvironmentVolume {
-  constructor(scene, capacity, wakes, reflectionUniforms = {}) {
-    const box = new THREE.BoxGeometry(1, 1, 1), geometry = new THREE.InstancedBufferGeometry();
-    geometry.index = box.index; geometry.attributes.position = box.attributes.position;
-    for (const [key, size] of Object.entries({origin:3,direction:3,extent:3,kind:1}))
-      geometry.setAttribute(key, new THREE.InstancedBufferAttribute(new Float32Array(capacity * size), size).setUsage(THREE.DynamicDrawUsage));
-    this.instanceAttributes = Object.values(geometry.attributes).filter(attribute => attribute.isInstancedBufferAttribute);
-    this.noise = noiseTexture();
-    this.target = new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
-    this.resolution={value:new THREE.Vector2(1,1)};
-    const material = ownedEffectMaterial("effects/volume", {
-      uniforms:{noiseField:{value:this.noise},volumeTime:{value:0},sceneDepth:particleDepth.map,
-        volumeResolution:this.resolution,cameraRange:particleDepth.cameraRange,hasDepth:{value:1},
-        wakes:{value:wakes.points},motion:{value:wakes.motion},reflection:{value:null},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0},...reflectionUniforms},
-      transparent:true,depthWrite:false,depthTest:false,side:THREE.BackSide,forceSinglePass:true,premultipliedAlpha:true,toneMapped:false});
-    material.userData.bfeNoShadows = true;
-    this.volumeMesh = new THREE.Mesh(geometry, material);this.volumeMesh.frustumCulled=false;
-    this.volumeScene=new THREE.Scene();this.volumeScene.add(this.volumeMesh);
-    this.mesh=new THREE.Mesh(new THREE.PlaneGeometry(2,2),ownedEffectMaterial("effects/volume-composite", {
-
-      uniforms:{volumeMap:{value:this.target.texture},sceneDepth:particleDepth.map,volumeResolution:this.resolution,
-        depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange,enabled:{value:0}},
-      transparent:true,premultipliedAlpha:true,depthWrite:false,depthTest:false,toneMapped:false}));
-    this.mesh.name='environment-volumes';this.mesh.frustumCulled=false;this.mesh.renderOrder=10;this.mesh.visible=false;
-    this.scale=.5;
-    this.mesh.onBeforeRender=(renderer,scene,camera)=>this.prepare(renderer,scene,camera);
-    environmentVolumes.set(this.mesh,this);
-    scene.add(this.mesh);
+  constructor(scene,capacity,wakes,reflectionUniforms={}) {
+    this.nativeKind=EFFECT.VOLUME_COMPOSITE.ID;this.family='volumeComposite';this.variant=0;this.texture=null;
+    this.capacity=this.count=1;this.arrays={};this.visibility='anchor';this.resources=null;this.target=null;this.scale=.5;
+    this.values=new Float64Array(EFFECT.VOLUME_COMPOSITE.LENGTH);this.samples=new Int32Array(1);this.samples.fill(-1);
+    this.wakes=wakes;this.reflectionUniforms=reflectionUniforms;
+    const mesh=this.volumeMesh=new THREE.Object3D();
+    this.volumeBatch={nativeKind:EFFECT.VOLUME.ID,family:'volume',variant:0,texture:null,count:0,capacity,
+      arrays:{origin:new Float32Array(capacity*3),direction:new Float32Array(capacity*3),extent:new Float32Array(capacity*3),kind:new Float32Array(capacity)},
+      mesh,values:new Float64Array(EFFECT.VOLUME.LENGTH),prepareResources:resources=>this.prepareVolumeResources(resources)};
+    const v=this.volumeBatch.values;v[EFFECT.VOLUME.HAS_DEPTH]=1;
+    for(let i=0;i<4;i++)v[EFFECT.VOLUME.REFLECTION_MATRIX+i*5]=1;
+    this.volumeSamples=new Int32Array(2);this.volumeSamples.fill(-1);
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;this.mesh.name='environment-volumes';
+    this.mesh.frustumCulled=false;this.mesh.renderOrder=10;this.mesh.visible=false;
+    environmentVolumes.set(this.mesh,this);scene.add(this.mesh);
   }
-  // The scene's depth taken (whatever the setting), the composite told
-  // whether it has it, and the volumes' target sized to the frame's: false
-  // when there is nothing to draw (another render's, a mirror's).
-  prepare(renderer,scene,camera){
-    const composite=this.mesh.material;
+  // Ports EnvironmentVolume.prepare. Target descriptors remain native; only
+  // the actual viewport dimensions are retained by the shared context host.
+  prepare(renderer,scene,camera) {
     const captured=particleDepth.capture(renderer,scene,camera,true);
-    composite.uniforms.enabled.value=captured?1:0;composite.uniformsNeedUpdate=true;
-    if(!captured)return false;
-    const source=renderer.getRenderTarget(),width=Math.max(1,Math.ceil(source.width*this.scale)),height=Math.max(1,Math.ceil(source.height*this.scale));
-    this.target.setSize(width,height);this.resolution.value.set(width,height);
+    this.values[EFFECT.VOLUME_COMPOSITE.ENABLED]=captured?1:0;if(!captured)return false;
+    const source=renderer.getRenderTarget();
+    this.resources.resizeEffectTarget(this.target,Math.max(1,Math.ceil(source.width*this.scale)),Math.max(1,Math.ceil(source.height*this.scale)));
+    this.values[EFFECT.VOLUME_COMPOSITE.VOLUME_RESOLUTION]=this.volumeBatch.values[EFFECT.VOLUME.VOLUME_RESOLUTION]=this.target.width;
+    this.values[EFFECT.VOLUME_COMPOSITE.VOLUME_RESOLUTION+1]=this.volumeBatch.values[EFFECT.VOLUME.VOLUME_RESOLUTION+1]=this.target.height;
     return true;
   }
-
-  update(time, volumes) {
-    this.mesh.visible=volumes.length>0;this.volumeMesh.geometry.instanceCount=volumes.length;
-    this.volumeMesh.material.uniforms.volumeTime.value=time;
-    const attributes=this.volumeMesh.geometry.attributes;
-    for(let i=0;i<volumes.length;i++){
-      const v=volumes[i];v.position.toArray(attributes.origin.array,i*3);
-      v.direction.toArray(attributes.direction.array,i*3);v.extent.toArray(attributes.extent.array,i*3);
-      attributes.kind.array[i]=v.kind;
-    }
-    if(volumes.length)for(let i=0;i<this.instanceAttributes.length;i++)this.instanceAttributes[i].needsUpdate=true;
+  update(time,volumes) {
+    const batch=this.volumeBatch,v=batch.values,a=batch.arrays;
+    this.mesh.visible=volumes.length>0;batch.count=Math.min(volumes.length,batch.capacity);
+    v[EFFECT.VOLUME.VOLUME_TIME]=time;v.set(this.wakes.host.wakePoints,EFFECT.VOLUME.WAKES);v.set(this.wakes.host.wakeMotion,EFFECT.VOLUME.MOTION);
+    const reflection=this.reflectionUniforms;
+    if(reflection.reflectionMatrix)v.set(reflection.reflectionMatrix.value.elements,EFFECT.VOLUME.REFLECTION_MATRIX);
+    v[EFFECT.VOLUME.HAS_REFLECTION]=reflection.hasReflection?.value||0;
+    for(let i=0;i<batch.count;i++){const source=volumes[i];source.position.toArray(a.origin,i*3);source.direction.toArray(a.direction,i*3);source.extent.toArray(a.extent,i*3);a.kind[i]=source.kind;}
   }
-  dispose(){
-    this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();
-    this.volumeMesh.geometry.dispose();this.volumeMesh.material.dispose();this.noise.dispose();this.target.dispose();
+  prepareResources(resources) {
+    this.resources=resources;this.target=resources.effectTarget(EFFECT_TARGET.VOLUME);this.samples[0]=this.target.texture;return this.samples;
+  }
+  prepareVolumeResources(resources) {
+    this.volumeSamples[0]=resources.gpu.effect_noise(1);
+    const reflection=this.reflectionUniforms.reflection?.value;
+    this.volumeSamples[1]=reflection?resources.staticSample(reflection):-1;return this.volumeSamples;
+  }
+  dispose() {
+    this.mesh.removeFromParent();
+    if(this.resources){this.resources.gpu.dispose_sample(this.volumeSamples[0]);this.resources.disposeEffectTarget(this.target);}
   }
 }

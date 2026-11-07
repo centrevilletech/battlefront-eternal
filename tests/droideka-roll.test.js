@@ -1,8 +1,10 @@
+import './fixtures/native-render-descriptors.js';
 import './fixtures/native-anim.js';
 import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
+import {actorPointCount,actorPoint} from '../src/actor-resources.js';
 import * as THREE from 'three';
 import {buildActor} from '../src/actor.js';
 import {loadClips} from '../src/anim.js';
@@ -20,7 +22,7 @@ export function fixture(){
 function vertices(actor){
  actor.root.updateMatrixWorld(true);
  const result=[];
- for(let i=0;i<actor.body.geometry.attributes.position.count;i++)result.push(actor.body.getVertexPosition(i,new THREE.Vector3()));
+ for(let i=0;i<actorPointCount(actor.body.userData.actorAsset);i++)result.push(actor.body.getVertexPosition(i,new THREE.Vector3()));
  return result;
 }
 function maxDisplacement(before,after){return Math.max(...before.map((v,i)=>v.distanceTo(after[i])));}

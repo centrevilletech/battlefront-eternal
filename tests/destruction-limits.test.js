@@ -1,3 +1,5 @@
+import {sourceOf,actorPart} from './helpers/actor-resources.js';
+import './fixtures/native-render-descriptors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -27,7 +29,7 @@ const FLOOR = {
 const material = actorMaterial('dynamic', {});
 const model = () => () => {
   const group = new THREE.Group();
-  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.12).translate(0.15, 0, 0), material));
+  group.add(actorPart(new THREE.BoxGeometry(0.3, 0.12, 0.12).translate(0.15, 0, 0), material));
   return group;
 };
 const enhanced = { get: () => 'enhanced', onChange: () => () => {} };
@@ -52,7 +54,7 @@ function droid(at, { bones = 4, chunks = 3, tag = '' } = {}) {
       chunks: Array.from({ length: chunks }, (_, i) => ({ ChunkGeometryName: `${tag}chunk${i}`, ChunkNodeName: `bone_${i % bones}`, ChunkSpeed: 8 })),
       explosion: { class: 'com_inf_droid_exp', base: 'explosion' },
     },
-    actor: { root, bones: list, body: { geometry } },
+    actor: { root, bones: list, body: {geometry,userData:{actorAsset:sourceOf(geometry,true)}} },
     position: new THREE.Vector3().fromArray(at),
     velocity: new THREE.Vector3(),
     walker: false, generation: 1,

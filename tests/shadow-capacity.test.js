@@ -6,7 +6,7 @@ import { shadowPass } from '../src/rust-render/shadow.js';
 import { Graphics } from '../src/graphics.js';
 
 test('over-capacity cascades keep drawing and expose lifetime clipping in stats',()=>{
-  const core={cameras:{shadow(){}},texture:()=>0,addView(){},views(){},rust:{static_depth_clipped:()=>7}};
+  const core={cameras:{shadow(){}},texture:()=>0,addView(){},views(){},rust:{static_depth_clipped:()=>7,actor_depth_frame(){}}};
   const pass=shadowPass(core),capacity=pass.capacity;
   core.casterInput=new Float64Array(pass.scratch.length);
   pass.request={light:{shadow:{camera:{},getFrustum:()=>null,map:{depthTexture:{}},mapSize:{x:1024}}}};

@@ -34,9 +34,9 @@ test('a blast fills the pools and the arcs, each one draw, and they empty as the
   d.blast(new THREE.Vector3(1, 0.4, 3), 1);
   d.update(1 / 60);
   assert.ok(d.fx.hot.count > 50 && d.fx.smoke.count > 20 && d.fx.arcs.live > 0);
-  assert.equal(d.fx.hot.mesh.geometry.instanceCount, d.fx.hot.count);
+  assert.equal(d.fx.hot.mesh.geometry,undefined);
   assert.equal(d.fx.draws, 3, 'the hot pool, the smoke pool and the arcs');
-  assert.equal(d.fx.hot.arrays[0].length, 1536 * 4, 'a fixed pool');
+  assert.equal(d.fx.hot.arrays.a0.length, 1536 * 4, 'a fixed pool');
   for (let i = 0; i < 1700; i++) d.update(1 / 60); // (a scorch mark lasts 26 s)
   assert.deepEqual([d.fx.hot.count, d.fx.smoke.count, d.fx.arcs.live], [0, 0, 0]);
   assert.equal(d.fx.draws, 0, 'an empty pool draws nothing');
@@ -57,14 +57,11 @@ test('births in frames stepped without a draw still reach the GPU', () => {
   d.blast(new THREE.Vector3(0, 0.4, 0), 1);
   d.update(1 / 60);
   // Uploaded, as the renderer does after drawing.
-  for (const attribute of d.fx.hot.attributes) attribute.clearUpdateRanges();
+  d.fx.hot.unread=Infinity;
   const before = d.fx.hot.count;
   d.blast(new THREE.Vector3(0, 0.4, 0), 1);
   d.update(1 / 60);
   d.blast(new THREE.Vector3(0, 0.4, 0), 1);
   d.update(1 / 60); // stepped again before any draw
-  for (const attribute of d.fx.hot.attributes) {
-    assert.equal(attribute.updateRanges.length, 1);
-    assert.ok(attribute.updateRanges[0].start <= before * 4 && attribute.updateRanges[0].count > 0, 'both undrawn births are in the range');
-  }
+  assert.ok(d.fx.hot.unread<=before,'both undrawn births remain in the published prefix');
 });

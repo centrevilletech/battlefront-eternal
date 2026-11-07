@@ -21,6 +21,7 @@ pub const TWO_PASS: u32 = 16;
 
 pub struct InterfacePass {
     pub input: Vec<f64>,
+    pub resources:crate::interface_resources::InterfaceResources,
     pub streams: Vec<Stream>,
     order: Vec<usize>,
     matrices: HashMap<(usize, usize), [f32; 16]>,
@@ -33,7 +34,7 @@ pub struct Stream { pub geometry: u32, pub buffer: u32, pub data: Vec<u8> }
 
 impl Default for InterfacePass {
     fn default() -> Self {
-        Self { input: vec![0.0; MAX_DRAWS * STRIDE], streams: Vec::new(), order: Vec::with_capacity(MAX_DRAWS), matrices: HashMap::new() }
+        Self { resources:Default::default(),input: vec![0.0; MAX_DRAWS * STRIDE], streams: Vec::new(), order: Vec::with_capacity(MAX_DRAWS), matrices: HashMap::new() }
     }
 }
 
@@ -88,6 +89,9 @@ impl InterfacePass {
     // and viewport. This includes the holomap's offscreen target and the canvas
     // alpha used over shell movies. Clearing stays at the caller's layer boundary.
     pub fn draw<C: HasContext, M: MultiDraw>(&mut self, core: &mut Core<C, M>, draws: usize) {
+        // InterfacePass publishes native appearance handles. Expand before the
+        // existing sorter so material identity, raster and ranges stay native.
+        for i in 0..draws.min(MAX_DRAWS){let row=&mut self.input[i*STRIDE..(i+1)*STRIDE];if row[PROGRAM]==crate::interface_resource_layout::kind::INTERFACE as f64{if let Some(d)=self.resources.descriptors.get(row[GEOMETRY]as usize){d.publish(row);}else{row[PROGRAM]=u32::MAX as f64;row[COUNT]=0.;}}}
         self.sort(draws);
         for &row in &self.order {
             let r = &self.input[row * STRIDE..(row + 1) * STRIDE];

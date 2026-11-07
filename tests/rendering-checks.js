@@ -6,7 +6,6 @@ import { CommandPosts } from '../src/commandposts.js';
 import { Settings } from '../src/settings.js';
 import { describe, worldMaterial } from '../src/materials.js';
 import { ParticleRenderer, BILLBOARD, FLAT } from '../src/particles.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Deterministic GPU checks, with generated fixtures rather than retail assets.
 export async function checkRendering() {
@@ -90,15 +89,6 @@ export async function checkRendering() {
   const selfShadow=capture();settings.set('shadows','off');const cleanFloor=capture();
   assert('Sloping receiver plane has no self-shadow acne',difference(selfShadow,cleanFloor).changed===0,difference(selfShadow,cleanFloor));
   floor.castShadow=false;box.visible=true;
-
-  const cubes=[];
-  for(let x=-4;x<=4;x++)for(let z=-4;z<=4;z++)cubes.push(new THREE.BoxGeometry(2,2,2).translate(x*40,1,z*40));
-  const bucket=new THREE.Mesh(mergeGeometries(cubes),box.material);bucket.geometry.computeBoundingSphere();
-  g.scene.add(bucket);g.caster(bucket);settings.set('shadows','low');const unsplit=capture();const unsplitTriangles=g.shadowInfo.triangles;
-  g.casters.delete(bucket);const proxies=g.staticCaster(bucket);const merged=g.finishStaticShadows();const split=capture();
-  assert('Spatial shadow culling preserves pixels',difference(unsplit,split).changed===0,difference(unsplit,split));
-  assert('Spatial shadow culling reduces submitted triangles',g.shadowInfo.triangles<unsplitTriangles*.75,{before:unsplitTriangles,after:g.shadowInfo.triangles});
-  g.scene.remove(bucket);for(const proxy of [...proxies,...merged]){g.casters.delete(proxy);if(proxy!==bucket)proxy.removeFromParent();}
 
   settings.set('shadows','off'); const noAA=capture();
   settings.set('antialiasing','4x'); const msaa=capture();

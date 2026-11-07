@@ -1,8 +1,7 @@
 import {cameraTension} from './flight/camera.js';
 import * as THREE from "three";
-import { ownedBasicEffect } from "./rust-render/effect-material.js";
+import {actorAsset,glowNode,glowLook} from "./actor-resources.js";
 import { descendantMuzzles } from "./muzzles.js";
-import { gradientTexture } from "./commandposts.js";
 import { Weapon } from "./weapons.js";
 import { emitSound } from "./audio/events.js";
 import { vehicleBatches, attachVehicleBatches } from "./vehicle-rig.js";
@@ -123,30 +122,11 @@ class BuildHologram {
     this.materials = [];
     if (image) {
       for (const part of image) {
-        const material = ownedBasicEffect('basic', { visible: true,
-          map: part.map,
-          color: this.color,
-          transparent: true,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        });
-        this.materials.push(material);
-        this.icon.add(new THREE.Mesh(part.geometry, material));
+        const material=glowLook(part.map,this.color);material.basic=true;this.materials.push(material);this.icon.add(glowNode(part.asset,material));
       }
     }
-    this.beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.35, 0.05, look.height, 16, 1, true).translate(0, look.height / 2, 0),
-      ownedBasicEffect('basic', { visible: true,
-        map: gradientTexture(),
-        color: this.color,
-        transparent: true,
-        opacity: 0.35 * look.beamIntensity,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    );
+    const beamLook=glowLook(null,this.color,.35*look.beamIntensity);beamLook.basic=true;
+    this.beam=glowNode(actorAsset({kind:'cylinder',height:look.height}),beamLook);this.beam.userData.effectModel.gradient=true;
     this.group.add(this.beam);
     this.fade = 0;
     this.flicker = 1;
@@ -1049,7 +1029,7 @@ export class LiveObjects {
       };
       let hologram = null;
       if (desc.unbuilt?.holo) {
-        const image = desc.unbuilt.holo.image ? (pack.get(desc.unbuilt.holo.image) || []).map((part) => ({ geometry: part.geometry, map: texture(part.texture) })) : null;
+        const image = desc.unbuilt.holo.image ? (pack.get(desc.unbuilt.holo.image) || []).map((part) => ({ asset: part.asset, map: texture(part.texture) })) : null;
         hologram = new BuildHologram(desc.unbuilt.hologram, desc.unbuilt.holo, image);
         scene.add(hologram.group);
         this.holograms.push(hologram);

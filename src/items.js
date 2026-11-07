@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { actorDescription } from "./actor-resources.js";
 import { ItemsWorld } from "./ordnance-world.js";
 
 // Things lying about: mines and power-ups, thrown by dispensers or dropped by
@@ -144,10 +145,13 @@ export class Items {
 export function radiusOf(mesh) {
   let best = null;
   mesh.traverse((child) => {
-    const sphere = child.geometry?.boundingSphere;
-    if (sphere && (!best || sphere.radius > best.radius)) best = sphere;
+    // modelPack's immutable bind sphere also sizes pickups and blasts. A
+    // node's posed culling sphere is independent of that gameplay query.
+    const asset = child.userData.actorAsset;
+    const bounds = asset && actorDescription(asset).bounds;
+    if (bounds && (!best || bounds[3] > best[3])) best = bounds;
   });
   if (!best) return 0.3;
-  mesh.userData.center = best.center.clone();
-  return best.radius;
+  mesh.userData.center = new THREE.Vector3(best[0], best[1], best[2]);
+  return best[3];
 }

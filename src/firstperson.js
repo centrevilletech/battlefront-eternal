@@ -1,3 +1,4 @@
+import {actorNode,actorPoint,actorPointCount,lightActor} from './actor-resources.js';
 import * as THREE from "three";
 import { barrelTips, weaponMuzzle } from "./muzzles.js";
 import { lighting } from "./materials.js";
@@ -79,7 +80,7 @@ export class FirstPersonView {
     for (const part of parts.get(rig.model) || []) {
       const material = partMaterial(part, texture);
       this.materials.push(material);
-      const mesh = new THREE.Mesh(part.geometry, material);
+      const mesh = actorNode(part.asset,material);
       mesh.frustumCulled = false;
       (this.byName[(part.bone || "").toLowerCase()] || this.root).add(mesh);
       this.rigParts.push(mesh);
@@ -96,8 +97,8 @@ export class FirstPersonView {
     this.builtInGuns = set === "droideka" ? ["bone_l_forearm", "bone_r_forearm"].map((name, index) => {
       const bone = this.byName[name], points = [];
       for (const mesh of this.rigParts) if (mesh.parent === bone) {
-        const position = mesh.geometry.attributes.position;
-        for (let i = 0; i < position.count; i++) points.push(new THREE.Vector3().fromBufferAttribute(position, i));
+        const asset=mesh.userData.actorAsset;
+        for(let i=0;i<actorPointCount(asset);i++)points.push(actorPoint(asset,i,new THREE.Vector3()));
       }
       return barrelTips(points, "z", index === 0 ? 1 : -1, "x").map(point => {
         const fire = new THREE.Object3D(); fire.position.copy(point); bone.add(fire);
@@ -192,9 +193,7 @@ export class FirstPersonView {
   // finds it.
   light(soldier) {
     for (const material of this.materials) {
-      material.uniforms.sunScale.value = soldier.sun * this.sunSeen;
-      material.uniforms.brightness.value = soldier.brightness;
-      material.uniforms.ambientPull.value.set(soldier.darken, soldier.lighten);
+      lightActor(material,soldier.sun*this.sunSeen,soldier.darken,soldier.lighten,soldier.brightness);
     }
   }
 

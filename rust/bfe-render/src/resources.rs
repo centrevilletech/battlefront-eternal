@@ -14,8 +14,7 @@ use crate::resource_policy::*;
 enum Pixels { Empty, Owned(Vec<u8>), Png(Vec<u8>, Option<js_sys::Object>), Foreign(js_sys::Object), Blocks(Vec<u8>, Vec<Mip>), Canvas(web_sys::HtmlCanvasElement) }
 struct Source { desc: ImageDesc, pixels: Pixels, version: u32, host_released: bool }
 struct Physical { source: u32, sampling: Sampling, handle: Option<WebGlTexture>, seen: u32, users: u32, allocated: Option<(i32,i32,i32,u32,bool)>, mip_levels: u32, anisotropy_set: bool }
-struct Sample { physical: usize, alive: bool, owned: bool }
-
+struct Sample { physical: usize, alive: bool, owned: bool, asset: bool, policy:u8 }
 struct Target { gl: Gl, desc: TargetDesc, faces: Vec<WebGlFramebuffer>, multisample: Option<WebGlFramebuffer>, buffers: Vec<WebGlRenderbuffer> }
 
 #[wasm_bindgen]
@@ -171,6 +170,27 @@ impl GpuResources {
         self.upload(id)?;self.retired=Some(id);Ok(id)
     }
 
+    // InterfaceSurface.solid and its PNG/canvas sources have native sampling
+    // recipes. The loader keeps only dimensions and a logical identity; pixel
+    // bytes and restoration storage stay in this existing source bank.
+    pub fn ui_image(&mut self,kind:u32)->Result<u32,JsValue>{
+        if kind>2{return Err(error("unknown interface image kind"));}let source=self.sources.len()as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width:1,height:1,depth:1,target:Gl::TEXTURE_2D,format:1023,data_type:1009,internal:None,srgb:false,render_target:false},pixels:if kind==0{Pixels::Owned(vec![255;4])}else{Pixels::Empty},version:1,host_released:true}));
+        let policy=if kind==0{r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#}else if kind==2{r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1008,"mag":1006,"anisotropy":1,"flip":true,"premultiply":false,"alignment":4,"mipmaps":true,"compare":null}"#}else{r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":4,"mipmaps":true,"compare":null}"#};
+        let sample=self.sample(source,policy)?;self.samples[sample as usize].owned=true;if kind!=2{self.upload(sample)?;}Ok(sample)
+    }
+    // RasterHudAssets.upgrade replaces immutable image storage behind the same
+    // sampler id. Shared aliases observe the source generation automatically.
+    pub fn ui_png(&mut self,id:u32,width:u32,height:u32,encoded:js_sys::Uint8Array,pixels:js_sys::Object)->Result<(),JsValue>{
+        let p=self.sample_physical(id)?;let source=self.physical[p].source;let image=self.source_mut(source)?;image.desc.width=width as i32;image.desc.height=height as i32;validate_image(&image.desc)?;image.version+=1;self.source_png(source,encoded,pixels)
+    }
+    pub fn ui_canvas(&mut self,canvas:web_sys::HtmlCanvasElement)->Result<u32,JsValue>{let id=self.ui_image(2)?;let p=self.sample_physical(id)?;let source=self.physical[p].source;let image=self.source_mut(source)?;image.desc.width=canvas.width()as i32;image.desc.height=canvas.height()as i32;validate_image(&image.desc)?;self.source_canvas(source,canvas)?;self.upload(id)?;Ok(id)}
+    // repeating() changes sampling on the shared UI image, as the old Texture
+    // did. Shield aliases instead use repeat_sample's independent identity.
+    pub fn ui_repeat(&mut self,id:u32)->Result<(),JsValue>{let p=self.sample_physical(id)?;self.samples[id as usize].policy=2;let mut next=self.physical[p].sampling.clone();next.wrap_s=1000;next.wrap_t=1000;self.sampling(id,&serde_json::to_string(&next).map_err(|e|error(e.to_string()))?)?;self.upload(id)}
+    // HoloMap's one colour target has no depth, samples or mip chain. Its
+    // attachments use the same native target/resize/loss lifetime as water.
+    pub fn ui_target(&mut self,size:u32)->Result<u32,JsValue>{let size=size.clamp(1,4096)as i32;let color=self.effect_attachment(size,size,false,false,false)?;let desc=TargetDesc{width:size,height:size,color,depth:None,depth_buffer:false,stencil:false,samples:0,resolve_depth:true,resolve_stencil:true,cube:false};let id=self.targets.len()as u32;self.targets.push(None);self.make_target(id,desc)?;Ok(id)}
     // TerrainPass.bind and materials.js::neutralTexture made these two tiny
     // DataTextures. Their bytes, representation and nearest sampler now have
     // one native descriptor, shared by every terrain bucket and restoration.
@@ -204,6 +224,129 @@ impl GpuResources {
         let source = self.physical[physical].source;
         self.source_pixels(source, pixels)?;
         self.upload(sample)
+    }
+    // GpuEffects, Snow and Weather formerly made DataTexture shells for
+    // these fixed layouts. Typed kind/count facts select native image/sampler
+    // policy; only the producer's persistent texels cross this cold boundary.
+    pub fn effect_data(&mut self, kind:u32, count:u32, pixels:js_sys::Object)->Result<u32,JsValue> {
+        let (width,height,format)=match kind {
+            5 if (1..=65536).contains(&count)=>{let size=crate::actor_depth::skin_size(count as usize) as u32;(size,size,1023)},
+            0 if (1..=1024).contains(&count)=>(64,count,1023),
+            1 if (1..=2048).contains(&count)=>(count,2,1023),
+            2 if (1..=65536).contains(&count)=>(count,1,1023),
+            4 if count==256=>(count,count,1023),
+            3 if (1..=64).contains(&count)=>(count,count,1028),
+            _=>return Err(error("Invalid effect image capacity")),
+        };
+        let source=self.sources.len() as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width:width as i32,height:height as i32,depth:1,target:Gl::TEXTURE_2D,format,data_type:if kind==4 {1009}else{1015},internal:None,srgb:false,render_target:false},pixels:Pixels::Foreign(pixels),version:1,host_released:true}));
+        let sample=self.sample(source,if kind==4 {r#"{"wrapS":1000,"wrapT":1000,"wrapR":1001,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":true,"compare":null}"#}else{r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#})?;
+        self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
+    }
+    // JetpackVolume.noiseTexture is a native 3D source recipe. Its retained
+    // bytes and repeat/linear sampler restore without page texture metadata.
+    pub fn effect_noise(&mut self,kind:u32)->Result<u32,JsValue> {
+        if kind>1 {return Err(error("Unknown effect density field"));}
+        let source=self.sources.len() as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width:32,height:32,depth:32,target:Gl::TEXTURE_3D,format:1028,data_type:1009,internal:None,srgb:false,render_target:false},pixels:Pixels::Owned(if kind==0 {crate::effect_resources::flame_noise()}else{crate::effect_resources::steam_noise()}),version:1,host_released:true}));
+        let sample=self.sample(source,r#"{"wrapS":1000,"wrapT":1000,"wrapR":1000,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
+    }
+    // Water's neutral normal and opaque black specular mask were DataTexture
+    // constants. Their source bytes and nearest/clamp policy now stay native.
+    pub fn water_fallback(&mut self,normal:bool)->Result<u32,JsValue>{
+        let source=self.sources.len() as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width:1,height:1,depth:1,target:Gl::TEXTURE_2D,format:1023,data_type:1009,internal:None,srgb:false,render_target:false},pixels:Pixels::Owned(if normal{vec![128,128,255,255]}else{vec![0,0,0,255]}),version:1,host_released:true}));
+        let sample=self.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
+    }
+    // OceanSurface's authored water occupancy is native R8/nearest storage.
+    // It shares the existing source bank and keeps no page DataTexture shell.
+    pub fn water_mask(&mut self,authored:&str)->Result<u32,JsValue>{
+        let data:serde_json::Value=serde_json::from_str(authored).map_err(|e|error(e.to_string()))?;
+        let n=data["grid"].as_u64().unwrap_or(0) as usize;if n==0||n>2048{return Err(error("water mask capacity"));}
+        let mut pixels=vec![0u8;n*n];for c in data["cells"].as_array().into_iter().flatten(){if let(Some(x),Some(z))=(c[0].as_u64(),c[1].as_u64()){if x<n as u64&&z<n as u64{pixels[z as usize*n+x as usize]=255;}}}
+        let source=self.sources.len() as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width:n as i32,height:n as i32,depth:1,target:Gl::TEXTURE_2D,format:1028,data_type:1009,internal:None,srgb:false,render_target:false},pixels:Pixels::Owned(pixels),version:1,host_released:true}));
+        let sample=self.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
+    }
+    // SkyProbe's cube storage, six depth attachments and complete mip chain
+    // are one native target recipe. CubeCamera retains camera math alone.
+    pub fn probe_target(&mut self,size:u32)->Result<u32,JsValue>{
+        let size=size.clamp(1,2048) as i32;let color=self.effect_attachment(size,size,false,false,true)?;
+        let physical=self.sample_physical(color)?;let source=self.physical[physical].source;self.source_mut(source)?.desc.target=Gl::TEXTURE_CUBE_MAP;
+        let desc=TargetDesc{width:size,height:size,color,depth:None,depth_buffer:true,stencil:false,samples:0,resolve_depth:true,resolve_stencil:true,cube:true};
+        let id=self.targets.len() as u32;self.targets.push(None);self.make_target(id,desc)?;Ok(id)
+    }
+    // Resource policy formerly in the effects' WebGLRenderTarget constructors.
+    // Attachments and sampler identities are native and survive restoration;
+    // the host receives only scalar viewport facts and logical sample ids.
+    pub fn effect_target(&mut self,kind:u32)->Result<u32,JsValue> {
+        let p=crate::effect_resources::target(kind as usize).ok_or_else(||error("Unknown effect target"))?;
+        let color=self.effect_attachment(p.width,p.height,false,p.nearest,p.mipmaps)?;
+        let depth=if p.depth_texture{Some(self.effect_attachment(p.width,p.height,true,true,false)?)}else{None};
+        let desc=TargetDesc{width:p.width,height:p.height,color,depth,depth_buffer:p.depth,stencil:false,samples:0,resolve_depth:true,resolve_stencil:true,cube:false};
+        let id=self.targets.len() as u32;self.targets.push(None);self.make_target(id,desc)?;Ok(id)
+    }
+    pub fn effect_target_facts(&self,id:u32)->Result<Vec<i32>,JsValue> {
+        let d=&self.target_ref(id)?.desc;Ok(vec![d.width,d.height,d.color as i32,d.depth.map_or(-1,|v|v as i32)])
+    }
+    // Water.resize, EnvironmentVolume.prepare and spray targets keep sample ids
+    // through resize. Imported sizes clip to actual GPU capacity without a
+    // frame exception; an unchanged size performs no allocation or GL call.
+    pub fn effect_target_size(&mut self,id:u32,width:u32,height:u32)->Result<u32,JsValue> {
+        let max=if self.lost{16384}else{self.gl.get_parameter(Gl::MAX_TEXTURE_SIZE)?.as_f64().unwrap_or(16384.) as u32};
+        let (width,height)=(width.clamp(1,max.min(32767)),height.clamp(1,max.min(32767)));
+        let mut desc=self.target_ref(id)?.desc.clone();
+        if desc.width!=width as i32||desc.height!=height as i32 {
+            desc.width=width as i32;desc.height=height as i32;
+            for sample in [Some(desc.color),desc.depth].into_iter().flatten(){
+                let physical=self.sample_physical(sample)?;let source=self.physical[physical].source;
+                let row=self.source_mut(source)?;row.desc.width=desc.width;row.desc.height=desc.height;row.version+=1;
+            }
+            self.targets[id as usize]=None;
+            self.make_target(id,desc)?;
+        }
+        Ok((width<<16)|height)
+    }
+    pub fn dispose_effect_target(&mut self,id:u32)->Result<(),JsValue> {
+        if let Some(row)=self.targets.get(id as usize).and_then(Option::as_ref){
+            let (color,depth)=(row.desc.color,row.desc.depth);self.dispose_target(id);
+            self.dispose_sample(color)?;if let Some(depth)=depth{self.dispose_sample(depth)?;}
+        }
+        Ok(())
+    }
+    // FountainJets.sprayAtlas's two RGBA cells and mip/linear sampler are a
+    // retained native source recipe, not a DataTexture made by the page.
+    pub fn fountain_atlas(&mut self)->Result<u32,JsValue>{
+        let source=self.sources.len() as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width:256,height:128,depth:1,target:Gl::TEXTURE_2D,format:1023,data_type:1009,internal:None,srgb:false,render_target:false},pixels:Pixels::Owned(crate::fountain_resources::atlas::<crate::pixel_math::Page>()),version:1,host_released:true}));
+        let sample=self.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":true,"compare":null}"#)?;
+        self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
+    }
+    // Snow.publishFrame sends one dirty command for its three retained
+    // streams. Their foreign typed arrays never change identity or capacity.
+    pub fn snow_pixels(&mut self,flakes:u32,boxes:u32,heights:u32,cover:bool)->Result<(),JsValue> {
+        for (i,sample) in [flakes,boxes,heights].into_iter().enumerate() {
+            if i==2 && !cover {continue;}
+            let physical=self.sample_physical(sample)?;let source=self.physical[physical].source;
+            self.source_mut(source)?.version+=1;self.upload(sample)?;
+        }
+        Ok(())
+    }
+    // Weather.applyMode resizes its retained cover image without changing the
+    // logical sample. Existing rain/mist/sheet bindings remain valid together.
+    pub fn weather_cover(&mut self,sample:u32,size:u32,pixels:js_sys::Object)->Result<(),JsValue> {
+        if size!=16 && size!=32{return Err(error("Invalid rain cover size"));}
+        let physical=self.sample_physical(sample)?;let source=self.physical[physical].source;
+        let desc=&mut self.source_mut(source)?.desc;desc.width=size as i32;desc.height=size as i32;
+        self.source_pixels(source,pixels)?;self.upload(sample)
+    }
+    // Dirty texels are explicit producer commands. The descriptor and logical
+    // sampler do not change; restoration retains the latest borrowed mirror.
+    pub fn effect_pixels(&mut self,sample:u32,pixels:js_sys::Object)->Result<(),JsValue> {
+        let physical=self.sample_physical(sample)?;let source=self.physical[physical].source;
+        self.source_pixels(source,pixels)?;self.upload(sample)
     }
     // TextureLibrary publishes source dimensions before sampling is possible.
     // A source owns bytes; it is not a WebGL object and survives context loss.
@@ -246,7 +389,7 @@ impl GpuResources {
         let physical=self.sample_physical(id)?;
         self.physical[physical].users+=1;
         let id=self.samples.len() as u32;
-        self.samples.push(Sample {physical,alive:true,owned:true});
+        self.samples.push(Sample {physical,alive:true,owned:true,asset:true,policy:0});
         Ok(id)
     }
     // Port of WebGLTextures' source-and-cache-key sharing. Logical samples
@@ -265,7 +408,7 @@ impl GpuResources {
         }
         self.physical[physical].users += 1;
         let id = self.samples.len() as u32;
-        self.samples.push(Sample { physical, alive: true, owned: false }); Ok(id)
+        self.samples.push(Sample { physical, alive: true, owned: false, asset: false, policy:0 }); Ok(id)
     }
     // WebGLTextures updates sampling without replacing target attachments.
     // Ordinary image clones instead move between cached physical allocations.
@@ -289,7 +432,9 @@ impl GpuResources {
             }
             return Ok(());
         }
-        let next_sampling: Sampling=parse(settings)?;
+        let mut next_sampling: Sampling=parse(settings)?;
+        if self.samples[id as usize].policy==1 {next_sampling.min=1006;next_sampling.mipmaps=false;}
+        if self.samples[id as usize].policy==2 {next_sampling.wrap_s=1000;next_sampling.wrap_t=1000;}
         let key=(source,serde_json::to_string(&next_sampling).map_err(|e|error(e.to_string()))?);
         // A sole sampler keeps its allocation for filtering-only revisions.
         // No PNG decode or upload belongs on the anisotropy setting's frame.
@@ -306,13 +451,27 @@ impl GpuResources {
             }
             return Ok(());
         }
-        let next=self.physical_for(source,settings)?;
+        let next=self.physical_for(source,&serde_json::to_string(&next_sampling).map_err(|e|error(e.to_string()))?)?;
         if old!=next {
             self.copy_png_storage(old,next)?;
             self.physical[next].users+=1;self.samples[id as usize].physical=next;
             self.release_physical(old)?;self.epoch+=1;
         }
         Ok(())
+    }
+    // ShieldBubble cloned only repeat wrapping. Keep an independently pinned
+    // native sampler so late source publication cannot replace that policy.
+    pub fn repeat_sample(&mut self,id:u32)->Result<u32,JsValue>{let id=self.retain_sample(id)?;let p=self.sample_physical(id)?;self.samples[id as usize].policy=2;let mut sampling=self.physical[p].sampling.clone();sampling.wrap_s=1000;sampling.wrap_t=1000;self.sampling(id,&serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?)?;self.upload(id)?;Ok(id)}
+    // BuildHologram's shared gradientTexture is native RGBA8 storage. The
+    // original half-texel alpha ramp rounds before the flip-Y upload.
+    pub fn actor_gradient(&mut self)->Result<u32,JsValue>{let mut pixels=vec![255u8;4*64*4];for y in 0..64{for x in 0..4{pixels[(y*4+x)*4+3]=((y as f64+0.5)/64.*255.).round()as u8;}}let source=self.sources.len()as u32;self.sources.push(Some(Source{desc:ImageDesc{width:4,height:64,depth:1,target:Gl::TEXTURE_2D,format:1023,data_type:1009,internal:None,srgb:false,render_target:false},pixels:Pixels::Owned(pixels),version:1,host_released:true}));let sample=self.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":true,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)}
+    // Lightning.update formerly rewrote Texture.minFilter/needsUpdate each
+    // frame until the asset arrived. Keep this sampler policy on its numeric
+    // alias so late compressed publication cannot restore a mip filter.
+    pub fn particle_top_level(&mut self,id:u32)->Result<(),JsValue>{
+        let physical=self.sample_physical(id)?;self.samples[id as usize].policy=1;
+        let mut sampling=self.physical[physical].sampling.clone();sampling.min=1006;sampling.mipmaps=false;
+        self.sampling(id,&serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?)?;self.upload(id)
     }
     // Graphics.filter's static family publishes a typed anisotropy setting.
     // Walk native owned samplers on the event, never loader Texture versions
@@ -324,7 +483,7 @@ impl GpuResources {
         let maximum=if self.lost {value.max(1.)} else if self.anisotropy {self.gl.get_parameter(0x84ff)?.as_f64().unwrap_or(1.) as f32} else {1.};
         let value=value.max(1.).min(maximum);
         let mut owned=vec![false;self.sources.len()];
-        for sample in &self.samples {if sample.alive&&sample.owned {owned[self.physical[sample.physical].source as usize]=true;}}
+        for sample in &self.samples {if sample.alive&&sample.owned&&sample.asset {owned[self.physical[sample.physical].source as usize]=true;}}
         for id in 0..self.samples.len() {
             if !self.samples[id].alive || !owned[self.physical[self.samples[id].physical].source as usize] {continue;}
             let mut sampling=self.physical[self.samples[id].physical].sampling.clone();
@@ -340,6 +499,9 @@ impl GpuResources {
     // Idempotence matters when both explicit disposal and a finalizer arrive.
     // The last sampler releases physical storage; other clones remain valid.
     pub fn dispose_sample(&mut self,id:u32)->Result<(),JsValue>{
+        // Draw-journal slots may outlive a detached effect. Create their native
+        // sentinel before releasing storage; a stale public id still errors.
+        if self.retired.is_none(){self.retired_sample()?;}
         let sample=self.samples.get_mut(id as usize).ok_or_else(||error("Unknown sampler"))?;
         if sample.alive {
             sample.alive=false;let physical=sample.physical;let owned=sample.owned;let source=self.physical[physical].source;
@@ -353,6 +515,13 @@ impl GpuResources {
     pub fn texture(&self, id: u32) -> Result<WebGlTexture,JsValue> {
         let physical=self.sample_physical(id)?;
         self.physical[physical].handle.clone().ok_or_else(|| error("Texture sampler is not uploaded"))
+    }
+    // Retired descriptor slots survive only as journal addresses. They never
+    // draw, but epoch refresh and restoration must retain stable slot numbers
+    // after a volume, cover image or target releases its physical storage.
+    pub fn descriptor_texture(&self,id:u32)->Result<WebGlTexture,JsValue>{
+        let sample=self.samples.get(id as usize).ok_or_else(||error("Unknown descriptor sampler"))?;
+        if sample.alive{self.texture(id)}else{self.texture(self.retired.ok_or_else(||error("Missing retired sampler"))?)}
     }
     // CPU lamp discovery asks for a temporary encoded copy only when needed.
     // The live source remains retained for later restoration and sampler clones.
@@ -464,6 +633,15 @@ impl GpuResources {
     fn source_ref(&self,id:u32)->Result<&Source,JsValue>{self.sources.get(id as usize).and_then(Option::as_ref).ok_or_else(||error("Unknown or disposed source"))}
     fn source_mut(&mut self,id:u32)->Result<&mut Source,JsValue>{self.sources.get_mut(id as usize).and_then(Option::as_mut).ok_or_else(||error("Unknown or disposed source"))}
     fn target_ref(&self,id:u32)->Result<&Target,JsValue>{self.targets.get(id as usize).and_then(Option::as_ref).ok_or_else(||error("Unknown or disposed target"))}
+    // Attachment formats and filtering are shared with the image bank's
+    // existing allocator; no second GL texture allocation path is introduced.
+    fn effect_attachment(&mut self,width:i32,height:i32,depth:bool,nearest:bool,mipmaps:bool)->Result<u32,JsValue> {
+        let source=self.sources.len() as u32;
+        self.sources.push(Some(Source{desc:ImageDesc{width,height,depth:1,target:Gl::TEXTURE_2D,format:if depth{1026}else{1023},data_type:if depth{1014}else{1009},internal:None,srgb:false,render_target:true},pixels:Pixels::Empty,version:1,host_released:true}));
+        let sampling=Sampling{wrap_s:1001,wrap_t:1001,wrap_r:1001,min:if mipmaps{1008}else if nearest{1003}else{1006},mag:if nearest{1003}else{1006},anisotropy:1.,flip:false,premultiply:false,alignment:4,mipmaps,compare:None};
+        let sample=self.sample(source,&serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?)?;
+        self.samples[sample as usize].owned=true;Ok(sample)
+    }
     fn sample_physical(&self,id:u32)->Result<usize,JsValue>{let s=self.samples.get(id as usize).filter(|s|s.alive).ok_or_else(||error("Unknown or disposed sampler"))?;Ok(s.physical)}
     // Native typed commands and loader JSON use one canonical sampling key.
     // Equivalent 2 and 2.0 values must share storage across the two callers.

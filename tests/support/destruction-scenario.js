@@ -1,3 +1,5 @@
+import '../fixtures/native-render-descriptors.js';
+import {sourceOf,actorPart} from '../helpers/actor-resources.js';
 // A scripted battle of droids and wrecks for the Rust destruction phase to be
 // held to: droids blown apart at once, droids shorting out and then blowing
 // (one a walker), sharing a model's geometry, a droideka's death blast, a
@@ -42,7 +44,7 @@ const model = (name) => {
   if (!s) return null;
   return () => {
     const group = new THREE.Group();
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(...s).translate(s[0] / 2, 0, 0), material));
+    group.add(actorPart(new THREE.BoxGeometry(...s).translate(s[0] / 2, 0, 0), material));
     return group;
   };
 };
@@ -74,7 +76,7 @@ function droid(at, geometry, walker, log, goUps) {
       explosion: { class: 'com_inf_droid_exp', base: 'explosion', Effect: 'droid_explosion', Damage: 0, Push: 0 },
       weapons: [{ GeometryName: 'rifle' }],
     },
-    actor: { root, bones, body: { geometry } },
+    actor: { root, bones, body: {geometry,userData:{actorAsset:sourceOf(geometry,true)}} },
     position: new THREE.Vector3().fromArray(at),
     velocity: new THREE.Vector3(0.5, 0, 0.2),
     walker, generation: 1,
@@ -100,7 +102,7 @@ function sharedGeometry() {
 
 function station(centre) {
   const root = new THREE.Group();
-  root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), actorMaterial('dynamic', {})));
+  root.add(actorPart(new THREE.BoxGeometry(1, 1, 1), actorMaterial('dynamic', {})));
   return {
     state: 'built', health: 80, maxHealth: 80,
     looks: { destroyed: { root, model: { box: [[-0.5, 0, -0.5], [0.5, 1.2, 0.5]] } } },
@@ -179,10 +181,10 @@ export function runDestruction(Destruction) {
       for (const piece of d.pieces.pieces) {
         const o = piece.object, look = o.userData.heated;
         h = hash(h, [...o.position.toArray(), ...o.quaternion.toArray(), look.heat, look.dissolve, look.sun, look.darken, look.lighten, look.brightness, o.visible ? 1 : 0]);
-        o.traverse((m) => { if (m.isMesh) h = hash(h, [m.castShadow ? 1 : 0]); });
+        o.traverse((m) => { if (m.userData.actorAsset) h = hash(h, [m.castShadow ? 1 : 0]); });
       }
       for (const s of stations) {
-        s.looks.destroyed.root.traverse((m) => { if (m.isMesh) h = hash(h, [m.userData.heated ? m.userData.heated.heat : -1, m.userData.heated ? m.userData.heated.soot : -1, m.userData.unheated ? 1 : 0]); });
+        s.looks.destroyed.root.traverse((m) => { if (m.userData.actorAsset) h = hash(h, [m.userData.heated ? m.userData.heated.heat : -1, m.userData.heated ? m.userData.heated.soot : -1, m.userData.unheated ? 1 : 0]); });
       }
       h = hash(h, log.flat().filter((v) => typeof v === 'number'));
       h = hash(h, sounds.flat().filter((v) => typeof v === 'number'));

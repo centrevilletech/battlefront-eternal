@@ -611,6 +611,10 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
 
     // Line and helper geometry shares the retained VAO/buffer owner. Mesh
     // geometries retain their indexed-triangle default.
+    // A native dynamic descriptor retains its allocated index storage while
+    // changing the admitted draw prefix, as CrowdShadows.pack formerly did.
+    pub fn geometry_count(&mut self,id:u32,count:usize){if let Some(g)=self.geometries.get_mut(id as usize){g.index_count=count.min(i32::MAX as usize) as i32;}}
+
     pub fn geometry_primitive(&mut self, g: u32, mode: u32, first: i32, indexed: bool, width: f32) {
         let geo = &mut self.geometries[g as usize];
         geo.primitive = mode;

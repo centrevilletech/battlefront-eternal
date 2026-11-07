@@ -1,3 +1,5 @@
+import {interfaceBasic} from '../rust-render/interface-material.js';
+import {rendererModule} from '../rust-render/load.js';
 import * as THREE from "three";
 import { modelGroup, modelPack } from "../models.js";
 
@@ -15,7 +17,7 @@ export function commonModel(pack, name, texture) {
   if (!parts) return null;
   const materials = [];
   const group = modelGroup(parts, (part) => {
-    const material = new THREE.MeshBasicMaterial({
+    const material = interfaceBasic({
       map: texture(part.texture),
       transparent: true,
       blending: part.additive || (part.flags ?? 0) & 0x80 ? THREE.AdditiveBlending : THREE.NormalBlending,
@@ -42,6 +44,7 @@ export async function loadCommonModels({ common, texture, root = "/common" }) {
     fetch(`${root}/holograms.bin`).then((response) => response.arrayBuffer()),
     fetch(`${root}/holograms_index.bin`).then((response) => response.arrayBuffer()),
   ]);
+  await rendererModule();
   const pack = modelPack(common.holograms, buffer, index);
   return (name) => commonModel(pack, name, texture);
 }

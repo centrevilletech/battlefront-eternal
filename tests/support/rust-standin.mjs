@@ -1,3 +1,7 @@
+import '../fixtures/native-render-descriptors.js';
+import {actor_source_description,actor_appearance_description,actor_effect_description} from '../../src/rust-pkg/bfe_render.js';
+import {ACTOR} from '../../src/rust-render/actor-layout.js';
+import { LINE as D } from '../../src/rust-render/line-layout.js';
 // Stand-ins for the Rust renderer's tests (tests/rust-render*.test.js): the
 // WebAssembly module (src/rust-pkg) and the page's side of three that the
 // bridge (src/rust-render/index.js) is given. One module answers every
@@ -31,6 +35,7 @@ export const LENGTHS = {
   camera_light_input:CLI.LEN,camera_light_output:CLO.LEN,
   camera_input:CI.LEN,camera_output:CR.COUNT*CC.LEN,camera_windows:CX.CASCADES*CW.LEN,camera_lights:CX.RAW_LIGHTS*CL.LEN,camera_packs:CX.PACKS*CP.LEN,camera_mirror:CM.LEN,camera_sky:CX.SKY*3,
   frame_facts:F.LEN,frame_state:S.LEN,frame_bindings:R.COUNT*B.LEN,frame_meta:R.COUNT*M.LEN,frame_stats:R.COUNT*T.LEN,frame_lines:3*L.LINES*V.LEN,
+  line_input:D.VIEW.LEN+D.LIMIT.SOURCES*D.ROW.LEN,line_data:D.LIMIT.SOURCES*D.LIMIT.VERTICES*3,
   input: 200 + 100 * 8, bones: 64,
   far_input: 1024,
   transparent_keys: 64, transparent_objects: 1 + 2 * 40, transparent_segments: 0,
@@ -45,7 +50,7 @@ export const LAYOUT = { records_at: 200, record_stride: 100, transparent_object_
 
 export const QUIET = ["camera_global_shader_frame","camera_shader_frame","camera_pack_shader_frame","transparent_bucket_shown", "foliage_on"];
 
-export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 23 } = {}) {
+export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 24 } = {}) {
   const calls = [];
   const memory = { buffer: new ArrayBuffer(memoryBytes) };
   const sizes = { ...LENGTHS, ...lengths }, values = { ...LAYOUT, ...layout }, silent = new Set(quiet);
@@ -71,7 +76,11 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
   };
   const row=name=>new Float64Array(memory.buffer,region(name),length(name));
   const nativeView = role => role===R.FAR?'far_frame':role===R.NEAR?'frame':role===R.VIEW?'view_frame':role===R.MOTION?'motion_frame':role===R.MIRROR0_NEAR?'mirror_frame':role===R.TRANSPARENT?'transparent_frame':role===R.MIRROR0_TRANSPARENT?'mirror_transparent_frame':(role>=R.HUD0&&role<=R.HUD7||role>=R.HUD8&&role<=R.HUD15)?'hud_frame':role>=R.SHADOW_STATIC0&&role<=R.SHADOW_DYNAMIC3?'shadow_frame':'screen_frame';
+  const actorSources=[],actorModels=new Map();let actorHandles=0;
   const frameMethods={
+    actor_source(authored,vertices,indices){calls.push(['actor_source',authored]);actorSources.push(JSON.parse(actor_source_description(authored,vertices,indices)));return actorSources.length-1;},
+    actor_material(source,authored,skin,cascades,lamps,view,samplers){calls.push(['actor_material',source,authored,skin,cascades,lamps,view,samplers]);const policy=JSON.parse(actor_appearance_description(authored,skin,view?0:cascades,lamps)),facts=actorSources[source],row=new Float64Array(ACTOR.DESCRIPTOR.LEN),d=ACTOR.DESCRIPTOR;row[d.HANDLE]=actorHandles++;row[d.BLENDED]=+policy.blended;row[d.LAMPS]=+policy.lamps;row[d.HEATED]=+policy.heated;row.set(facts.bounds,d.BOUNDS);row[d.COUNT]=facts.indexCount;return row;},
+    actor_effect(source,kind,shadows,view,texture,authored){calls.push(['actor_effect',source,kind,shadows,view,texture,authored]);const policy=JSON.parse(actor_effect_description(kind,shadows,view,texture,authored)),key=JSON.stringify([source,kind,shadows,view,texture,authored]);if(!actorModels.has(key))actorModels.set(key,actorModels.size);return Float64Array.of(actorModels.get(key),...actorSources[source].bounds.slice(0,3),...policy.defaults);},
     camera_pack_shader_frame(pack){const out=row('input'),input=row('camera_packs'),at=pack*CP.LEN;out[70]=input[at+CP.COUNT];for(let i=0;i<out[70]*8;i++)out[72+i]=input[at+CP.VALUES+i];},
     camera_shader_frame(role){const out=row('input'),input=row('camera_output'),at=role*CC.LEN;for(let i=0;i<16;i++){out[i]=input[at+CC.PROJECTION+i];out[16+i]=input[at+CC.INVERSE+i];}for(let i=0;i<3;i++)out[32+i]=input[at+CC.WORLD+12+i];},
 
@@ -198,13 +207,23 @@ export function standinResources(renderer, calls) {
   renderer.getClearColor ??= c=>c.setRGB(0,0,0);renderer.getClearAlpha ??= ()=>1;
   for(const name of ['clear','clearColor','clearDepth','clearStencil'])renderer[name] ??= ()=>{};
   const ids = new WeakMap(),handles=[]; let next = 0;
+  const native=()=>{const id=next++;handles[id]={native:id};return id;};
   const owner = {
-    gpu: { epoch: () => 0, retired_sample: () => next++, texture:id=>handles[id] },
+    gpu: { epoch: () => 0, retired_sample: native, texture:id=>handles[id],
+      effect_data:(...args)=>{calls.push(["effect_data",...args]);return native();},
+      effect_noise:kind=>{calls.push(["effect_noise",kind]);return native();},
+      fountain_atlas:native,snow_pixels(){},weather_cover:()=>{},dispose_sample(){} },
+    lightningSample(texture){return this.staticSample(texture);},
+    effectTarget(kind){return {nativeTarget:native(),texture:native(),depthTexture:-1,width:1,height:1,samples:0};},
+    resizeEffectTarget(target,width,height){target.width=width;target.height=height;},
+    disposeEffectTarget(){},
     targetId:target=>{target.viewport ??= new THREE.Vector4(0,0,target.width||1,target.height||1);target.scissor ??= target.viewport.clone();if(!ids.has(target))ids.set(target,next++);return ids.get(target);},
+
     owns: texture => ids.has(texture),
     staticAnisotropy(value) { calls.push(["static_anisotropy",value]); },
     staticSample(texture) { return typeof texture === "number" ? texture : this.textureId(texture); },
     textureId(texture) {
+      if(typeof texture==="number")return texture;
       if(!texture)return -1;
       renderer.initTexture(texture);
       if (!ids.has(texture)) ids.set(texture,next++);

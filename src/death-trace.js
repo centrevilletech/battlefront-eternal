@@ -1,4 +1,4 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 
 // The killing shot's trace for the Enhanced death camera (src/death-shot.js),
@@ -20,21 +20,12 @@ const FAR_WIDTH = 0.006; // and at least this much of the distance from the eye
 export class DeathTrace {
   constructor(scene) {
     this.positions = new Float32Array(12);
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("line", new THREE.BufferAttribute(new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), 2));
-    geometry.setIndex([0, 2, 1, 1, 2, 3]);
-    this.material = ownedEffectMaterial("effects/death-trace", {
-      uniforms: { color: { value: ENEMY.clone() }, head: { value: 0 }, opacity: { value: 0 }, span: { value: 1 }, traceTime: { value: 0 } },
-
-
-      transparent: true,
-      depthWrite: false,
-      depthTest: false,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-    });
-    this.mesh = new THREE.Mesh(geometry, this.material);
+    // DeathTrace publishes only its moving positions and trace facts. The
+    // native descriptor owns line coordinates, indices and additive state.
+    this.nativeKind=EFFECT.DEATH_TRACE.ID;this.values=new Float64Array(EFFECT.DEATH_TRACE.LENGTH);
+    ENEMY.toArray(this.values,EFFECT.DEATH_TRACE.COLOR);this.values[EFFECT.DEATH_TRACE.SPAN]=1;
+    this.vertex=4;this.index=6;this.arrays={position:this.positions};this.visibility='anchor';
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectMesh=this;
     // Found by this name by a renderer that draws it itself (src/rust-render/effects.js).
     this.mesh.name = "death-trace";
     this.mesh.frustumCulled = false;
@@ -54,17 +45,15 @@ export class DeathTrace {
       this.hide();
       return;
     }
-    const u = this.material.uniforms;
-    u.color.value.copy(friendly ? FRIEND : ENEMY);
-    u.head.value = head;
-    u.opacity.value = opacity;
-    u.traceTime.value = time;
+    const v=this.values;(friendly?FRIEND:ENEMY).toArray(v,EFFECT.DEATH_TRACE.COLOR);
+    v[EFFECT.DEATH_TRACE.HEAD]=head;v[EFFECT.DEATH_TRACE.OPACITY]=opacity;v[EFFECT.DEATH_TRACE.TRACE_TIME]=time;
     const dir = this.dir.subVectors(to, from);
-    u.span.value = Math.max(dir.length(), 1e-3);
+    v[EFFECT.DEATH_TRACE.SPAN] = Math.max(dir.length(), 1e-3);
     dir.normalize();
     // Each end turned to face the eye.
     const p = this.positions;
-    for (const [end, at] of [[from, 0], [to, 6]]) {
+    for(let i=0;i<2;i++){
+      const end=i===0?from:to,at=i*6;
       const toEye = this.toEye.subVectors(camera.position, end);
       const width = Math.max(WIDTH, toEye.length() * FAR_WIDTH) / 2;
       const side = this.side.crossVectors(dir, toEye);
@@ -73,7 +62,6 @@ export class DeathTrace {
       p[at] = end.x - side.x; p[at + 1] = end.y - side.y; p[at + 2] = end.z - side.z;
       p[at + 3] = end.x + side.x; p[at + 4] = end.y + side.y; p[at + 5] = end.z + side.z;
     }
-    this.mesh.geometry.attributes.position.needsUpdate = true;
     this.mesh.visible = true;
   }
 
@@ -83,7 +71,5 @@ export class DeathTrace {
 
   dispose() {
     this.mesh.removeFromParent();
-    this.mesh.geometry.dispose();
-    this.material.dispose();
   }
 }

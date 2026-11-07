@@ -1,3 +1,4 @@
+import {releaseActorSkin} from './actor-resources.js';
 import { PageUnits } from "./presentation/units.js";
 import { loadClips } from "./anim.js";
 import { PlayerCombat } from "./combat.js";
@@ -313,7 +314,7 @@ export class PlayerBodies {
         actor.root.removeFromParent();
         const motion = actor.body.userData.motion;
         if (motion) motionVectors.release(motion);
-        for (const material of actor.materials) material.dispose();
+        if(actor.skeleton.actorGpuOwner)releaseActorSkin(actor.skeleton.actorGpuOwner,actor.skeleton);
       },
     };
   }

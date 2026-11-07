@@ -72,6 +72,7 @@ struct Blended {
 }
 
 pub struct InstancePass<C: HasContext> {
+    pub actor_descriptors: Vec<crate::actor_resources::InstanceDescriptor>,
     instance_texture: C::Texture,
     // What a material without a map samples, as three's empty texture
     // gives it: nothing (all channels 0).
@@ -97,6 +98,7 @@ impl<C: HasContext> InstancePass<C> {
         let empty = upload_texture(gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         InstancePass {
+            actor_descriptors: vec![],
             instance_texture, empty, bone_texture, rows: vec![0.0; MAX_ROWS * ROW_TEXELS * 4], bone_upload: vec![0.0; MAX_BONES * 16],
             draws: Vec::with_capacity(MAX_ROWS), templates: Vec::with_capacity(MAX_RECORDS),
             blends: vec![], blended: vec![], blended_templates: vec![],
@@ -114,8 +116,14 @@ impl<C: HasContext> InstancePass<C> {
         (self.blends.len() - 1) as u32
     }
 
+    // ActorMaterial settings preserve blend identity and side order while
+    // replacing its linked catalog program on a cold resource command.
+    pub fn blend_program(&mut self,id:u32,program:u32){if let Some(blend)=self.blends.get_mut(id as usize){for pass in &mut blend.passes{pass.0=program as usize;}}}
     // records: how many the page wrote this frame.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera, records: usize) {
+        // Actor resource handles expand in native storage before either opaque
+        // batching or transparent emission. Live records contain only poses.
+        for r in 0..records.min(MAX_RECORDS){let row=&mut core.input[IN_RECORDS+r*REC_STRIDE..IN_RECORDS+(r+1)*REC_STRIDE];if row[REC_GEOMETRY]==crate::actor_layout::kind::RETAINED as f64{if let Some(d)=self.actor_descriptors.get(row[REC_PROGRAM] as usize){d.publish(row);}else{row[REC_PROGRAM]=u32::MAX as f64;row[REC_GEOMETRY]=u32::MAX as f64;}}}
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         let (programs, geometries, textures) = (&core.programs, &core.geometries, &core.textures);

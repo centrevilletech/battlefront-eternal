@@ -1,4 +1,4 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
@@ -31,14 +31,6 @@ const BOX = LIMITS.BOX;
 
 
 
-
-// A float texture over records the Rust phase keeps.
-const floatTexture = (data, width, height) => {
-  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
-  texture.minFilter = texture.magFilter = THREE.NearestFilter;
-  texture.needsUpdate = true;
-  return texture;
-};
 
 export class Snow {
   constructor({ data, scene, collision, water, texture, surfaceOwner }) {
@@ -75,30 +67,19 @@ export class Snow {
     this.boxLimit = boxLimit;
     // The cache of cover heights the shader clips snow against.
     const size = Math.sqrt(this.host.heights.length);
-    const heights = new THREE.DataTexture(this.host.heights, size, size, THREE.RedFormat, THREE.FloatType);
-    heights.minFilter = heights.magFilter = THREE.NearestFilter;
-    heights.needsUpdate = true;
-    this.cover = { heights: this.host.heights, texture: heights, cell: this.host.cell, size, queries: 0 };
-    this.flakeData = floatTexture(this.host.flakes, count, 2);
-    this.boxData = floatTexture(this.host.boxes, boxLimit, 1);
-    const c = p.Color || [192, 192, 192, 160];
-    this.material = ownedEffectMaterial('effects/snow', {
-      uniforms: {
-        map: { value: texture(p.Texture?.[0]) }, flakes: { value: this.flakeData }, boxes: { value: this.boxData },
-        flakeCount: { value: count }, size: { value: p.ParticleSize?.[0] ?? 0.02 },
-        cameraRight: { value: new THREE.Vector3(1, 0, 0) }, cameraUp: { value: new THREE.Vector3(0, 1, 0) },
-        tint: { value: new THREE.Vector4(c[0] / 255, c[1] / 255, c[2] / 255, (c[3] ?? 255) / 255) },
-        cover: { value: this.cover.texture }, coverCell: { value: this.cover.cell }, coverSize: { value: this.cover.size },
-        sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.NormalBlending,
-    });
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.setAttribute('corner', new THREE.Float32BufferAttribute([-1, -1, 1, -1, 1, 1, -1, 1], 2));
-    this.geometry.setIndex([0, 1, 2, 0, 2, 3]);
-    this.geometry.instanceCount = 0;
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // Snow's persistent phase arrays supply texels directly to the native
+    // image owner. Count and camera axes are typed facts, not uniforms.
+    this.cover = { heights:this.host.heights,cell:this.host.cell,size,queries:0 };
+    this.nativeKind=EFFECT.SNOW.ID;this.family='snow';this.variant=0;
+    this.texture=texture(p.Texture?.[0]);this.count=0;this.capacity=0;this.arrays={};
+    this.visibility='anchor';this.resources=null;this.samples=new Uint32Array(3);this.samples.fill(-1);
+    this.values=new Float64Array(EFFECT.SNOW.LENGTH);
+    const v=this.values,c=p.Color||[192,192,192,160];
+    v[EFFECT.SNOW.FLAKE_COUNT]=count;v[EFFECT.SNOW.SIZE]=p.ParticleSize?.[0]??0.02;
+    v[EFFECT.SNOW.CAMERA_RIGHT]=1;v[EFFECT.SNOW.CAMERA_UP+1]=1;
+    for(let i=0;i<4;i++)v[EFFECT.SNOW.TINT+i]=(c[i]??255)/255;
+    v[EFFECT.SNOW.COVER_CELL]=this.cover.cell;v[EFFECT.SNOW.COVER_SIZE]=size;
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = 'map-snow';
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
@@ -121,21 +102,30 @@ export class Snow {
     view[VIEW.POSITION] = camera.position.x; view[VIEW.POSITION + 1] = camera.position.y; view[VIEW.POSITION + 2] = camera.position.z;
   }
   publishFrame() {
-    const r = this.host.result, u = this.material.uniforms;
-    u.cameraRight.value.fromArray(r, RESULT.CAMERA_RIGHT);
-    u.cameraUp.value.fromArray(r, RESULT.CAMERA_UP);
-    if (r[RESULT.CHANGED]) this.cover.texture.needsUpdate = true;
-    this.cover.queries = r[RESULT.QUERIES];
-    this.flakeData.needsUpdate = true;
-    this.boxData.needsUpdate = true;
-    const boxes = r[RESULT.BOXES];
-    this.geometry.instanceCount = r[RESULT.INSTANCES];
+    const r=this.host.result,v=this.values;
+    for(let i=0;i<3;i++){
+      v[EFFECT.SNOW.CAMERA_RIGHT+i]=r[RESULT.CAMERA_RIGHT+i];
+      v[EFFECT.SNOW.CAMERA_UP+i]=r[RESULT.CAMERA_UP+i];
+    }
+    if(this.resources){
+      this.resources.gpu.snow_pixels(this.samples[0],this.samples[1],this.samples[2],r[RESULT.CHANGED]!==0);
+    }
+    this.cover.queries=r[RESULT.QUERIES];
+    const boxes=r[RESULT.BOXES];this.count=r[RESULT.INSTANCES];
     this.mesh.visible = r[RESULT.COVERED] === 1 && boxes > 0;
     this.stats.boxes = boxes; this.stats.flakes = r[RESULT.INSTANCES];
   }
-
+  // The native descriptor fixes format/type/filter and derives dimensions
+  // from flake and box counts; no Texture or Source object is constructed.
+  prepareResources(resources) {
+    this.resources=resources;const gpu=resources.gpu;
+    this.samples[0]=gpu.effect_data(1,this.flakeCount,this.host.flakes);
+    this.samples[1]=gpu.effect_data(2,this.boxLimit,this.host.boxes);
+    this.samples[2]=gpu.effect_data(3,this.cover.size,this.host.heights);
+    return this.samples;
+  }
   dispose() {
-    this.mesh.removeFromParent(); this.geometry.dispose(); this.material.dispose();
-    this.flakeData.dispose(); this.boxData.dispose(); this.cover.texture.dispose();
+    this.mesh.removeFromParent();
+    if(this.resources)for(const sample of this.samples)this.resources.gpu.dispose_sample(sample);
   }
 }

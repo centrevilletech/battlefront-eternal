@@ -1,0 +1,27 @@
+{
+  "kind": {
+    "tow": 0,
+    "flight": 1,
+    "axes": 2
+  },
+  "limit": {
+    "sources": 512,
+    "vertices": 128
+  },
+  "view": {
+    "projection": 16,
+    "inverse": 16,
+    "world": 16,
+    "orthographic": 1,
+    "count": 1
+  },
+  "row": {
+    "source": 1,
+    "count": 1,
+    "serial": 1,
+    "world": 16,
+    "groupOrder": 1,
+    "renderOrder": 1,
+    "object": 1
+  }
+}

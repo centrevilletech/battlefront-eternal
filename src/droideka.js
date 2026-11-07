@@ -1,3 +1,4 @@
+import {actorPoint,actorPointCount,actorJoint} from './actor-resources.js';
 import * as THREE from "three";
 import {registerBody,spawnDroideka} from "./presentation/body.js";
 import { DROIDEKA_COLLISION, collisionRule } from "./collision-damage.js";
@@ -108,10 +109,10 @@ export class Droideka {
       const body = this.actor.body, bone = gun.parent;
       const index = this.actor.bones.indexOf(bone);
       if (!body?.isSkinnedMesh || index < 0) return [gun];
-      const position = body.geometry.attributes.position, skin = body.geometry.attributes.skinIndex;
+      const asset=body.userData.actorAsset;
       const toBone = new THREE.Matrix4().multiplyMatrices(body.skeleton.boneInverses[index], body.bindMatrix);
       const points = [];
-      for (let i = 0; i < position.count; i++) if (skin.getX(i) === index) points.push(new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(toBone));
+      for(let i=0;i<actorPointCount(asset);i++)if(actorJoint(asset,i)===index)points.push(actorPoint(asset,i,new THREE.Vector3()).applyMatrix4(toBone));
       const tips = barrelTips(points, "x", 1, "z");
       return tips.length ? tips.map((point, i) => {
         const muzzle = new THREE.Object3D(); muzzle.name = `${gun.name}_barrel_${i}`;
@@ -245,7 +246,7 @@ export class DroidekaAnimator {
       const toParent = new THREE.Matrix4().multiplyMatrices(parentInverse, actor.body.matrixWorld);
       const bounds = new THREE.Box3();
       const vertex = new THREE.Vector3();
-      const count = actor.body.geometry.attributes.position.count;
+      const count=actorPointCount(actor.body.userData.actorAsset);
       const points = [];
       for (let i = 0; i < count; i++) {
         actor.body.getVertexPosition(i, vertex).applyMatrix4(toParent);

@@ -62,10 +62,10 @@ test('speed and turning strengthen the trail while its pool and buffers remain b
   }
   assert.ok(fast.trail.emitted > slow.trail.emitted);
   assert.ok(turning.trail.emitted > fast.trail.emitted);
-  const buffers = fast.trail.attributes.map(a => a.array);
+  const buffers = fast.trail.streams.slice();
   fast.run(15);
   assert.ok(fast.trail.count <= 160);
-  fast.trail.attributes.forEach((a, i) => assert.equal(a.array, buffers[i]));
+  fast.trail.streams.forEach((a, i) => assert.equal(a, buffers[i]));
   for (const n of fast.trail.records) assert.ok(Number.isFinite(n));
 });
 

@@ -6,6 +6,7 @@ import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // row of digests per frame: each square batch's count and a hash of the
 // records the renderer reads, its camera axes and the statistics.
 import * as THREE from 'three';
+import { EFFECT } from '../../src/rust-render/effect-layout.js';
 
 const FOG = { texture: 'mist', range: [90, 120], color: [168, 172, 180, 128], velocity: [5, 0.5], rotation: 0.1, height: 16, size: 28, density: 60, cell: 256 };
 const DUST = (over = {}) => ({
@@ -63,10 +64,10 @@ export function runAtmosphere(Atmosphere) {
     stepSurface(atmosphere,dt, camera);
     const row = [atmosphere.stats.fog, atmosphere.stats.dust, atmosphere.stats.objects];
     for (const batch of atmosphere.batches) {
-      const n = batch.geometry.instanceCount;
-      const u = batch.material.uniforms;
-      row.push(n, batch.mesh.visible ? 1 : 0, hash(hash(2166136261, batch.center.array, n * 4), batch.spin.array, n * 2),
-        ...u.axisU.value.toArray(), ...u.axisV.value.toArray());
+      const n = batch.count;
+      const u = batch.values;
+      row.push(n, batch.mesh.visible ? 1 : 0, hash(hash(2166136261, batch.arrays.center, n * 4), batch.arrays.spin, n * 2),
+        ...u.slice(EFFECT.SQUARE.AXIS_U, EFFECT.SQUARE.AXIS_U+3), ...u.slice(EFFECT.SQUARE.AXIS_V, EFFECT.SQUARE.AXIS_V+3));
     }
     // JSON keeps no sign for zero, so neither do the rows.
     rows.push(row.map((value) => value + 0));

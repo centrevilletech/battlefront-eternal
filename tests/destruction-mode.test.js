@@ -1,3 +1,5 @@
+import {sourceOf,actorPart} from './helpers/actor-resources.js';
+import './fixtures/native-render-descriptors.js';
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -44,7 +46,7 @@ function settings(mode = 'enhanced') {
 const material = actorMaterial('dynamic', {});
 const model = () => () => {
   const group = new THREE.Group();
-  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.12).translate(0.15, 0, 0), material));
+  group.add(actorPart(new THREE.BoxGeometry(0.3, 0.12, 0.12).translate(0.15, 0, 0), material));
   return group;
 };
 
@@ -83,7 +85,7 @@ function droid({ geometry: shared = null, at = [0, 0, 0] } = {}) {
       chunks: [chunk('torso', 'bone_a_spine'), chunk('arm', 'bone_r_upperarm'), chunk('leg', 'bone_l_calf')],
       explosion: { class: 'com_inf_droid_exp', base: 'explosion', Effect: 'droid_explosion', Damage: 0, Push: 0 },
     },
-    actor: { root, bones, body: { geometry } },
+    actor: { root, bones, body: {geometry,userData:{actorAsset:sourceOf(geometry,true)}} },
     position: new THREE.Vector3().fromArray(at),
     velocity: new THREE.Vector3(),
     walker: false,
@@ -222,7 +224,7 @@ test('switching to classic clears what enhanced drew', () => {
 function station() {
   const root = new THREE.Group();
   const original = actorMaterial('dynamic', {});
-  root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), original));
+  root.add(actorPart(new THREE.BoxGeometry(1, 1, 1), original));
   return {
     state: 'built', health: 80, maxHealth: 80, original,
     looks: { destroyed: { root, model: { box: [[-0.5, 0, -0.5], [0.5, 1.2, 0.5]] } } },
@@ -275,7 +277,7 @@ function drawn(d, light) {
   const ends = [];
   for (let i = 0; i < arcs.vertex; i += 26) ends.push(new THREE.Vector3().fromArray(arcs.positions, i * 3));
   const births = [];
-  for (let i = 0; i < d.fx.hot.count; i++) births.push(new THREE.Vector3().fromArray(d.fx.hot.arrays[0], i * 4));
+  for (let i = 0; i < d.fx.hot.count; i++) births.push(new THREE.Vector3().fromArray(d.fx.hot.arrays.a0, i * 4));
   return { ends, births, lights: light.at };
 }
 
@@ -320,12 +322,12 @@ test('a droid blown apart in the air draws no floor glow and nothing skips off a
   const unit = droid({ at: [0, 30, 0] });
   d.blowApart(unit);
   d.update(0);
-  const hot = d.fx.hot.arrays[3];
+  const hot = d.fx.hot.arrays.a3;
   const styles = [], floors = [];
   for (let i = 0; i < d.fx.hot.count; i++) { styles.push(hot[i * 4]); if (hot[i * 4] === 0) floors.push(hot[i * 4 + 3]); }
   assert.ok(!styles.includes(3), 'no glow on a floor');
   assert.ok(floors.length > 0 && floors.every((y) => y < -1000), 'sparks fall freely');
-  const smoke = d.fx.smoke.arrays[3];
+  const smoke = d.fx.smoke.arrays.a3;
   for (let i = 0; i < d.fx.smoke.count; i++) assert.notEqual(smoke[i * 4], 2, 'no scorch mark in mid-air');
 });
 

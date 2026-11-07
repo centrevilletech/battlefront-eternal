@@ -216,7 +216,7 @@ export class BattleFrame {
       core.cameras.bind(child,role);core.cameras.read(child,role);
       this.role=R.PROBE0+slot*6+i;this.target(probe.target,i,cube.activeMipmapLevel);core.cover("probe",core.renderer,g.farScene,child);
     }
-    this.target(null);probe.captures++;probe.texture.needsPMREMUpdate=true;
+    this.target(null);probe.captures++;
   }
   cloud(storm,time,camera) {
     if(!this.active)return;
@@ -237,7 +237,7 @@ export class BattleFrame {
     let visible=false;if(w.frustum.intersectsBox(w.bounds))for(const box of w.cellBounds)if(w.frustum.intersectsBox(box)){visible=true;break;}
     const below=camera.position.y<w.level,farVisible=!below&&w.farInView(camera);
     w.group.visible=visible;w.farGroup.visible=farVisible;w.mirrorPass.visible=w.farMirror.visible=false;
-    w.tintPass.material.uniforms.cameraRange.value.set(camera.near,camera.far);w.tintPass.material.uniforms.underwater.value=+below;
+    w.surfaceUniforms.cameraRange.value.set(camera.near,camera.far);
     w.resizeReflection();w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
     core.views();const f=core.frameFacts;
     f[F.MIRROR_ENABLED]=1;f[F.MIRROR_VISIBLE]=+visible;f[F.MIRROR_FAR_VISIBLE]=+farVisible;f[F.MIRROR_LOW]=+!!w.lowPass?.visible;

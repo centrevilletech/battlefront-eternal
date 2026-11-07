@@ -13,6 +13,8 @@ test('native sniper phases publish the frozen flight and impact buffers',()=>{
  const previous=Math.random;let seed=1234;Math.random=()=>((seed=Math.imul(seed,1664525)+1013904223>>>0)/4294967296);
  try{
  const lights=[],plays=[],trace=new SniperTrace({add(p,c,r){lights.push(['add',p.toArray(),c.slice(),r]);},flash(p,c,r,t){lights.push(['flash',p.toArray(),c.slice(),r,t]);}});
+ // Frozen flight starts after the old resource constructors consumed UUID entropy.
+ seed=1278274502;
  const source={},def={Velocity:2000,LifeSpan:.15,LaserGlowColor:[224,224,160,255]},start=new THREE.Vector3(2,1.6,3),dir=new THREE.Vector3(.2,.1,1).normalize(),head=start.clone().addScaledVector(dir,40);
  for(const expected of golden){const {t}=expected;lighting.time.value=t;lights.length=0;trace.begin();if(t<10.1)trace.touch(source,def,start,head,dir,t>10,1);
   if(t===10.04){trace.defer(head,(value)=>plays.push(value/4294967296),null,true);trace.headshot(head);trace.headshot(head.clone().addScalar(.1));}
@@ -43,6 +45,8 @@ test('native eye-view traces retain the frozen moving muzzle buffers',()=>{
  const camera=new THREE.PerspectiveCamera(),muzzle=new THREE.Vector3(),lights=[],source={},def={Velocity:2000,LifeSpan:.15,LaserGlowColor:[30,120,255,255]},start=new THREE.Vector3(.05,1.5,1),dir=new THREE.Vector3(0,0,1),head=new THREE.Vector3(0,1.5,40);
  let hasMuzzle=true;
  const trace=new SniperTrace({add(p,c,r){lights.push(['add',p.toArray(),c.slice(),r]);},flash(p,c,r,t){lights.push(['flash',p.toArray(),c.slice(),r,t]);}},()=>camera,()=>hasMuzzle?muzzle:null);
+ // Keep the recorded flight RNG boundary independent of deleted resource UUIDs.
+ seed=717482109;
  for(const [index,expected]of golden.entries()){
   camera.position.set(index*.07,1.6,index*.03);camera.rotation.y=index*.01;camera.updateMatrixWorld(true);
   muzzle.set(.05,-.1,.8).applyMatrix4(camera.matrixWorld);hasMuzzle=index!==2;

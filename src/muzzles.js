@@ -1,3 +1,4 @@
+import {actorPoint,actorPointCount} from './actor-resources.js';
 import * as THREE from "three";
 
 // The droideka rigs contain two physical tubes per arm, but no individual
@@ -26,8 +27,7 @@ export function weaponMuzzle(parts, authored, def) {
   if (!def?.ordnance || def.base === "grenade") return authored;
   const points = [];
   for (const part of parts || []) {
-    const a = part.geometry.attributes.position;
-    for (let i = 0; i < a.count; i++) points.push(new THREE.Vector3().fromBufferAttribute(a, i));
+    for(let i=0;i<actorPointCount(part.asset);i++)points.push(actorPoint(part.asset,i,new THREE.Vector3()));
   }
   if (!points.length) return authored;
   const bounds = new THREE.Box3().setFromPoints(points);
@@ -65,12 +65,11 @@ export function vehicleMuzzleTips(rig, parts) {
     .multiply(new THREE.Matrix4().fromArray(rig.bones[i].local));
   rig.bones.forEach((b, i) => { inverse[i] = resolve(i).clone().invert(); points.set(b.name.toLowerCase(), []); });
   for (const part of parts) {
-    const a = part.geometry.attributes.position;
-    for (let i = 0; i < a.count; i++) {
+    for(let i=0;i<actorPointCount(part.asset);i++){
       const joint = part.joints?.[i];
       const name = joint !== undefined ? rig.bones[joint]?.name.toLowerCase() : part.bone?.toLowerCase();
       if (!points.has(name)) continue;
-      const p = new THREE.Vector3().fromBufferAttribute(a, i);
+      const p=actorPoint(part.asset,i,new THREE.Vector3());
       if (joint !== undefined) p.applyMatrix4(inverse[joint]);
       points.get(name).push(p);
     }

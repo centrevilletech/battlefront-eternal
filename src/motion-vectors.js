@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ownedEffectMaterial } from "./rust-render/effect-material.js";
+
 
 // Screen motion of moving bodies, for the temporal upscaler (upscaler.js).
 //
@@ -43,9 +43,7 @@ export class MotionVectors {
     this.eye = new THREE.Vector3();
     this.at = new THREE.Vector3();
     this.was = new THREE.Vector3();
-    this.locked = ownedEffectMaterial("effects/motion-locked", {
-      depthTest: false, depthWrite: false, side: THREE.DoubleSide,
-    });
+    this.nextOrder=0;
     // The Rust renderer's motion pass when it draws for this one (render).
     this.drawer = null;
   }
@@ -53,23 +51,10 @@ export class MotionVectors {
   // A mesh that moves by itself. `far` (m): beyond it from the camera its
   // few pixels rely on the upscaler's history clipping instead.
   track(source, { far = FAR } = {}) {
-    if (!source?.isMesh || source.userData.motion) return null;
-    const geometry = new THREE.BufferGeometry();
-    geometry.index = source.geometry.index;
-    geometry.attributes = source.geometry.attributes;
-    geometry.boundingSphere = source.geometry.boundingSphere;
-    const material = ownedEffectMaterial(source.isSkinnedMesh ? "effects/motion-skinned" : "effects/motion-rigid", {
-      uniforms: {
-        ...shared, previousModel: { value: new THREE.Matrix4() }, previousBindInverse: { value: new THREE.Matrix4() },
-        previousBones: { value: null },
-      },
-      depthTest: false, depthWrite: false, side: THREE.DoubleSide,
-    });
-    const proxy = source.isSkinnedMesh ? new THREE.SkinnedMesh(geometry, material) : new THREE.Mesh(geometry, material);
-    if (source.isSkinnedMesh) {
-      proxy.bind(source.skeleton, source.bindMatrix);
-      proxy.boundingSphere = source.boundingSphere;
-    }
+    if (!source?.userData.actorAsset || source.userData.motion) return null;
+    const proxy=new THREE.Object3D();proxy.boundingSphere=source.boundingSphere;
+    proxy.userData.order=this.nextOrder++;proxy.userData.previousModel=new THREE.Matrix4();proxy.userData.previousBindInverse=new THREE.Matrix4();
+    if(source.skeleton){proxy.isSkinnedMesh=true;proxy.skeleton=source.skeleton;proxy.bindMatrix=source.bindMatrix;proxy.bindMatrixInverse=new THREE.Matrix4().copy(source.bindMatrixInverse);}
     proxy.matrixAutoUpdate = false;
     proxy.matrixWorldAutoUpdate = false;
     proxy.userData.source = source;
@@ -98,7 +83,7 @@ export class MotionVectors {
 
   // Every mesh of a model.
   trackAll(object, options) {
-    object.traverse((child) => { if (child.isMesh) this.track(child, options); });
+    object.traverse((child) => { if (child.userData.actorAsset) this.track(child, options); });
   }
 
   // Drawn by the main camera this frame: shown all the way up to the scene,
@@ -115,16 +100,10 @@ export class MotionVectors {
   // The bones as they were last frame, in three's bone-texture layout (four
   // texels a bone, rows as wide as the texture).
   bones(skeleton) {
-    const length = skeleton.boneMatrices.length;
+    const length = skeleton.bones.length*16;
     let entry = this.skeletons.get(skeleton);
     if (!entry || entry.length !== length) {
-      entry?.texture.dispose();
-      const texels = Math.ceil(length / 4);
-      const width = Math.max(4, Math.ceil(Math.sqrt(texels)));
-      const height = Math.ceil(texels / width);
-      const data = new Float32Array(width * height * 4);
-      const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
-      entry = { data, texture, length, frame: -1 };
+      const data=new Float32Array(length);entry={data,length,frame:-1};
       this.skeletons.set(skeleton, entry);
     }
     return entry;
@@ -150,7 +129,7 @@ export class MotionVectors {
       if (!proxy.visible) { proxy.userData.seen = -1; continue; }
       drawn++;
       proxy.matrixWorld.copy(source.matrixWorld);
-      const previous = proxy.material.uniforms.previousModel.value;
+      const previous = proxy.userData.previousModel;
       // First drawn now, or moved too far to be motion (a respawn, a pooled
       // soldier's new life): no motion this frame.
       const fresh = proxy.userData.seen !== this.frame - 1
@@ -158,13 +137,11 @@ export class MotionVectors {
       if (fresh) previous.copy(source.matrixWorld);
       if (source.isSkinnedMesh) {
         proxy.bindMatrixInverse.copy(source.bindMatrixInverse);
-        if (fresh) proxy.material.uniforms.previousBindInverse.value.copy(source.bindMatrixInverse);
+        if (fresh) proxy.userData.previousBindInverse.copy(source.bindMatrixInverse);
         const entry = this.bones(source.skeleton);
-        proxy.material.uniforms.previousBones.value = entry.texture;
         if (fresh || entry.frame !== this.frame - 1) {
           source.skeleton.update();
-          entry.data.set(source.skeleton.boneMatrices);
-          entry.texture.needsUpdate = true;
+          entry.data.set(source.skeleton.actorPoseSkin||source.skeleton.boneMatrices);
         }
       }
     }
@@ -176,14 +153,13 @@ export class MotionVectors {
     for (const proxy of this.proxies) {
       if (!proxy.visible) continue;
       const source = proxy.userData.source;
-      proxy.material.uniforms.previousModel.value.copy(source.matrixWorld);
+      proxy.userData.previousModel.copy(source.matrixWorld);
       proxy.userData.seen = this.frame;
       if (source.isSkinnedMesh) {
-        proxy.material.uniforms.previousBindInverse.value.copy(source.bindMatrixInverse);
+        proxy.userData.previousBindInverse.copy(source.bindMatrixInverse);
         const entry = this.bones(source.skeleton);
         if (entry.frame !== this.frame) {
-          entry.data.set(source.skeleton.boneMatrices);
-          entry.texture.needsUpdate = true;
+          entry.data.set(source.skeleton.actorPoseSkin||source.skeleton.boneMatrices);
           entry.frame = this.frame;
         }
       }
@@ -194,11 +170,6 @@ export class MotionVectors {
   release(proxy) {
     this.proxies.delete(proxy);
     this.scene.remove(proxy);
-    proxy.material.dispose();
-    // The buffers are the source's: release only this wrapper's bindings.
-    proxy.geometry.index = null;
-    proxy.geometry.attributes = {};
-    proxy.geometry.dispose();
     delete proxy.userData.source.userData.motion;
   }
 

@@ -1,10 +1,12 @@
-import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
+import { SurfaceOwner, SurfaceHost, stepSurface } from './helpers/surfaces.js';
+import './fixtures/native-render-descriptors.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { SKY_SETTING, SkyFlyers, battleFlyers, enhancedSky, flyerMaterial } from '../src/sky-flyers.js';
+import {ACTOR} from '../src/rust-render/actor-layout.js';
+import { SKY_SETTING, SkyFlyers, battleFlyers, enhancedSky } from '../src/sky-flyers.js';
 import { loadEnvironment } from '../src/environment/module.js';
 import { runSky } from './support/sky-scenario.js';
 
@@ -18,7 +20,7 @@ const CORE = { model: 'cis_fly_techounion_dome', count: 8, height: [0, 0], veloc
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 // Where a class's ship i is, from the matrices its motion draw reads.
-const shipAt = (kind, i) => Array.from(kind.motion.matrices.array.subarray(i * 16 + 12, i * 16 + 15));
+const shipAt = (kind, i) => Array.from(kind.motion.matrices.subarray(i * 16 + 12, i * 16 + 15));
 
 // One triangle a model, packed as tools/extract.py write_meshes packs them.
 function pack(names) {
@@ -58,30 +60,6 @@ test('ships fly, fade, are placed and are ordered far to near exactly as the rec
   rows.forEach((row, i) => assert.deepEqual(row, golden[i], `frame ${i}`));
 });
 
-test('materials follow the MTRL flags and blend by the fade from the opaque queue', () => {
-  const map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
-  const lit = flyerMaterial({ flags: 0x1 }, map), unlit = flyerMaterial({ flags: 0 }, map);
-  const glass = flyerMaterial({ flags: 0x5 }, map), cut = flyerMaterial({ flags: 0x3 }, map), glow = flyerMaterial({ flags: 0x81 }, map);
-  assert.ok('LIT' in lit.defines && !('LIT' in unlit.defines));
-  assert.ok('BLENDED' in glass.defines && 'ALPHA_TEST' in cut.defines && 'ADDITIVE' in glow.defines && !('BLENDED' in glow.defines));
-  for (const material of [lit, unlit, glass, cut]) {
-    assert.equal(material.transparent, false);
-    assert.equal(material.blending, THREE.CustomBlending);
-    assert.equal(material.blendSrc, THREE.SrcAlphaFactor);
-    assert.equal(material.blendDst, THREE.OneMinusSrcAlphaFactor);
-    assert.equal(material.depthTest, true);
-    assert.equal(material.uniforms.map.value, map);
-  }
-  // Opaque parts write depth, even fading, as in the original game; blended
-  // ones (0x84) never do.
-  assert.deepEqual([lit, unlit, cut, glass, glow].map(m => m.depthWrite), [true, true, true, false, false]);
-  assert.equal(glow.blendDst, THREE.OneFactor);
-  assert.equal(flyerMaterial({ flags: 0x5 | 0x80 }, map).side, THREE.DoubleSide);
-  // Enhanced's fading ships write none at all.
-  assert.equal(flyerMaterial({ flags: 0x1 }, map, { fading: true }).depthWrite, false);
-  // No fog and no near-scene cut: the shader is the far scene's own.
-  assert.ok(!/fog|fade\.x/.test(lit.fragmentShader));
-});
 
 test('a battle draws its own classes: one instanced draw a part, far to near', () => {
   const { models, buffer, indexBuffer } = pack([ASSAULT.model, GUNSHIP.model, CORE.model]);
@@ -99,7 +77,7 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   assert.equal(flyers.enhanced, false, 'Classic without the setting');
   // Classic: every ship in the one draw a part, writing depth as it fades.
   const solids = flyers.classes.map(kind => kind.draws[0]), fadings = flyers.classes.map(kind => kind.fades[0]);
-  assert.deepEqual(solids.map(m => [m.name, m.count, m.isInstancedMesh, m.frustumCulled, m.renderOrder, m.visible]),
+  assert.deepEqual(solids.map(m => [m.name, m.count, !!m.userData.flyerSource, m.frustumCulled, m.renderOrder, m.visible]),
     [[ASSAULT.model, 2, true, false, 1, true], [GUNSHIP.model, 20, true, false, 1, true], [CORE.model, 8, true, false, 1, true]]);
   assert.ok(fadings.every(m => !m.visible && m.count === 0 && m.renderOrder === 2));
   assert.deepEqual(asked, [`${ASSAULT.model}_tex`, `${GUNSHIP.model}_tex`, `${CORE.model}_tex`]);
@@ -108,20 +86,20 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(0, 100, 0);
   stepSurface(flyers,2, camera);
-  const gunships = flyers.classes[1], looks = solids[1].geometry.getAttribute('look');
-  for (let i = 0; i < 20; i++) assert.ok(near(looks.array[i * 4], 2 * FADE_RATE, 1e-6));
+  const gunships = flyers.classes[1], looks = gunships.solid.looks;
+  for (let i = 0; i < 20; i++) assert.ok(near(looks[i * 4], 2 * FADE_RATE, 1e-6));
   // Drawn far to near.
   const matrix = new THREE.Matrix4(), at = new THREE.Vector3();
   const distances = [];
   for (let i = 0; i < 20; i++) {
-    solids[1].getMatrixAt(i, matrix);
+    matrix.fromArray(gunships.solid.matrices,i*16);
     distances.push(at.setFromMatrixPosition(matrix).distanceTo(camera.position));
   }
   assert.ok(distances.every((d, i) => i === 0 || d <= distances[i - 1] + 1e-3), 'sorted far to near');
   // Their motion: where each was a frame ago, and where it is (as floats).
   const moving = gunships.motion;
   const same = (matrix, array, at) => matrix.elements.every((v, k) => Math.abs(v - array[at + k]) <= 1e-4 * Math.max(1, Math.abs(v)));
-  assert.ok(Array.from({ length: 20 }, (_, i) => i).every((i) => !same({ elements: Array.from(moving.matrices.array.subarray(i * 16, i * 16 + 16)) }, moving.previous.array, i * 16)));
+  assert.ok(Array.from({ length: 20 }, (_, i) => i).every((i) => !same({ elements: Array.from(moving.matrices.subarray(i * 16, i * 16 + 16)) }, moving.previous, i * 16)));
   // They go on flying, and come back: never more ships than NumObjects.
   for (let i = 0; i < 60 * 60; i++) stepSurface(flyers,1 / 60, camera);
   assert.equal(gunships.def.count, 20);
@@ -142,9 +120,9 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   assert.deepEqual(Array.from({ length: 20 }, (_, i) => shipAt(gunships, i)), still);
   const motionDraw = [...motion.extras][0];
   motion.frame = 5; motionDraw.onBeforeRender();
-  assert.equal(motionDraw.material.uniforms.still.value, 0, 'a frame after flight moves');
+  assert.equal(flyers.still, 0, 'a frame after flight moves');
   motion.frame = 6; motionDraw.onBeforeRender();
-  assert.equal(motionDraw.material.uniforms.still.value, 1, 'a frame without flight holds still');
+  assert.equal(flyers.still, 1, 'a frame without flight holds still');
   flyers.dispose();
   assert.equal(scene.children.length, 0);
   assert.equal(motion.extras.size, 0);
@@ -176,18 +154,18 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   stepSurface(flyers,1 / 60, camera);
   const [assault] = flyers.classes;
   assert.equal(assault.draws[0].visible, false);
-  assert.ok(assault.fades[0].visible && assault.fades[0].count === 2 && assault.fades[0].material.depthWrite === false);
+  assert.ok(assault.fades[0].visible && assault.fades[0].count === 2 && assault.fades[0].geometry===undefined);
   // Solid once faded in: the solid draws.
   for (let i = 0; i < Math.ceil(PRE_ROLL * 60) + 2; i++) stepSurface(flyers,1 / 60, camera);
   assert.ok(assault.draws[0].visible && assault.draws[0].count === 2);
   assert.equal(assault.fades[0].visible, false);
   // 1500 m out, past the 500 m far plane: drawn scaled toward the eye,
   // flagged for the depth just inside it.
-  const looks = assault.solid.looks.array, matrix = new THREE.Matrix4();
+  const looks = assault.solid.looks, matrix = new THREE.Matrix4();
   for (let i = 0; i < 2; i++) {
     assert.equal(looks[i * 4 + 2], 1);
     assert.ok(looks[i * 4 + 3] > 0 && looks[i * 4 + 3] < 1);
-    assault.draws[0].getMatrixAt(i, matrix);
+    matrix.fromArray(assault.solid.matrices,i*16);
     assert.ok(new THREE.Vector3().setFromMatrixPosition(matrix).distanceTo(camera.position) < 500 * REACH);
   }
   // Classic again, live: only the battle's own class; its ships fly on.
@@ -199,11 +177,11 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   stepSurface(flyers,1 / 60, camera);
   assert.equal(flyers.classes[1].draws[0].visible, false, 'the Enhanced-only class is gone');
   assert.equal(looks[2], 0, 'Classic: cut off by the far plane');
-  assert.ok(new THREE.Vector3().setFromMatrixPosition((assault.draws[0].getMatrixAt(0, matrix), matrix)).distanceTo(camera.position) > 1000);
+  assert.ok(new THREE.Vector3().setFromMatrixPosition((matrix.fromArray(assault.solid.matrices), matrix)).distanceTo(camera.position) > 1000);
   // And Enhanced again: the class comes back afresh.
   settings.set('enhanced');
   assert.equal(flyers.count, 4);
-  assert.ok([0, 1].every((i) => flyers.classes[1].motion.shown.array[i] === 0), 'its ships start afresh, faded out');
+  assert.ok([0, 1].every((i) => flyers.classes[1].motion.shown[i] === 0), 'its ships start afresh, faded out');
   flyers.dispose();
   // Without its Enhanced lists, a map prepared before them draws the original's.
   const old = new SkyFlyers({surfaceOwner:new SurfaceOwner(), data: { ...data, enhanced: undefined }, mission: 'bes2r', ...pack([ASSAULT.model, FEDLANDER.model, GUNSHIP.model]), graphics, motion: motionPass() });

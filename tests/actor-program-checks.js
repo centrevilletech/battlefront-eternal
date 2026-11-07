@@ -1,3 +1,5 @@
+import {actorPart} from './helpers/actor-resources.js';
+import {ACTOR} from '../src/rust-render/actor-layout.js';
 // Drawn actor ownership on a real context, run inside the renderer smoke
 // (renderer-smoke-checks.js, so the Windows WARP job covers it): a body, a
 // rebound rig, a held part, a view part, a shock overlay, a heated (dissolving)
@@ -21,48 +23,53 @@ export async function checkOwnedActorDraws() {
     const geometry=new THREE.PlaneGeometry(1,1);
     geometry.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(new Uint16Array(16),4));
     geometry.setAttribute('skinWeight',new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],4));
-    const material=actorMaterial('dynamic',{map:texture});material.defines.RIGID_SKIN='';
-    const body=new THREE.SkinnedMesh(geometry,material),bone=new THREE.Bone();body.add(bone);body.bind(new THREE.Skeleton([bone]));
+    const material=actorMaterial('dynamic',{map:texture});material.authored.rigidSkin=true;
+    const body=actorPart(geometry,material,true),bone=new THREE.Bone();body.add(bone);body.bind(new THREE.Skeleton([bone]));
     body.boundingSphere=new THREE.Sphere(new THREE.Vector3(),1);body.userData.poseSphere=body.boundingSphere;body.frustumCulled=false;
     const root=new THREE.Group(),hand=new THREE.Group(),weapon=new THREE.Group();
-    const gun=new THREE.Mesh(new THREE.PlaneGeometry(.2,.2),actorMaterial('unlit',{map:texture,scroll:[.1,0]}));weapon.add(gun);hand.add(weapon);
+    const gun=actorPart(new THREE.PlaneGeometry(.2,.2),actorMaterial('unlit',{map:texture,scroll:[.1,0]}));weapon.add(gun);hand.add(weapon);
     root.userData.parts={body,hand};root.add(body,hand);graphics.scene.add(root);graphics.cullRoots.push(root);
-    const rigMaterial=actorMaterial('dynamic',{map:texture});rigMaterial.defines.RIGID_SKIN='';
-    const rig=new THREE.SkinnedMesh(geometry,rigMaterial),rigBone=new THREE.Bone();rig.add(rigBone);rig.bind(new THREE.Skeleton([rigBone]));rig.position.x=-1.5;rig.boundingSphere=body.boundingSphere.clone();rig.frustumCulled=false;graphics.scene.add(rig);
-    const view=new THREE.Mesh(new THREE.PlaneGeometry(.2,.2),actorMaterial('unlit',{map:texture,scroll:[.1,0]}));view.position.set(.2,-.15,-1);graphics.viewScene.add(view);
+    const rigMaterial=actorMaterial('dynamic',{map:texture});rigMaterial.authored.rigidSkin=true;
+    const rig=actorPart(geometry,rigMaterial,true),rigBone=new THREE.Bone();rig.add(rigBone);rig.bind(new THREE.Skeleton([rigBone]));rig.position.x=-1.5;rig.boundingSphere=body.boundingSphere.clone();rig.frustumCulled=false;graphics.scene.add(rig);
+    const view=actorPart(new THREE.PlaneGeometry(.2,.2),actorMaterial('unlit',{map:texture,scroll:[.1,0]}));view.position.set(.2,-.15,-1);graphics.viewScene.add(view);
     const shadowProxy=new THREE.SkinnedMesh(geometry,new THREE.Material());shadowProxy.name='crowd-shadows';shadowProxy.userData.shadowOnly=true;shadowProxy.layers.set(graphics.hiddenLayer ?? 1);graphics.scene.add(shadowProxy);
     // The loading screen links the actor and effects programs the settings can draw (graphics.js prepare);
     // after it nothing may link on first use, which the program count below checks.
     const {warmEffectPrograms}=await import('../src/rust-render/effect-material.js');
     graphics.warmup();await warmEffectPrograms(graphics.rust,async()=>{});graphics.updateScene();graphics.render(0);graphics.render(0);
     const count=graphics.rust.shaderPrograms.length;
-    const shock=ArcLightning.prototype.overlay.call({overlays:new WeakMap()},{body,root});shock.visible=true;shock.material.uniforms.intensity.value=.5;
-    const changedRig=actorMaterial('dynamic',{map:texture});changedRig.defines.RIGID_SKIN='';rig.material=changedRig;
+    // Native shield descriptors exercise repeat aliases and generated live
+    // values against the real driver, in both draw-extension modes in CI.
+    const {ShieldBubble}=await import('../src/droideka-shield.js');
+    const shield=new ShieldBubble(graphics.scene,{Texture:'field',Radius:.5,Height:.7},()=>texture,{get:()=> 'enhanced'});
+    shield.update(.3,{position:new THREE.Vector3(1.5,0,0),aimYaw:0,shield:{on:true,value:1,max:1,def:{}},dead:false,rolled:false});
+
+    const shock=ArcLightning.prototype.overlay.call({overlays:new WeakMap()},{body,root});shock.visible=true;shock.material.values[ACTOR.LOOK.INTENSITY]=.5;
+    const changedRig=actorMaterial('dynamic',{map:texture});changedRig.authored.rigidSkin=true;rig.material=changedRig;
     gun.material=actorMaterial('unlit',{map:texture,scroll:[.1,0]});view.material=actorMaterial('unlit',{map:texture,scroll:[.1,0]});
     body.material=heatMaterial(material);
     body.userData.heated={heat:.5,tear:new THREE.Vector4(0,0,0,.3),base:.3,scale:1,soot:1,dissolve:.25,sun:1,brightness:1,darken:0,lighten:0};
     const pendingMap=new THREE.DataTexture(null,1,1);
-    const flyingRoot=new THREE.Group(),flying=new THREE.Mesh(new THREE.PlaneGeometry(.3,.3),partMaterial({flags:1,texture:'part'},()=>pendingMap));
+    const flyingRoot=new THREE.Group(),flying=actorPart(new THREE.PlaneGeometry(.3,.3),partMaterial({flags:1,texture:'part'},()=>pendingMap));
     flying.userData.flying=true;flyingRoot.add(flying);graphics.scene.add(flyingRoot);
     graphics.render(1/60);
     const instances=graphics.rust.byName.instances,viewPass=graphics.rust.byName.view;
-    const rebound=instances.bodies.get(rig)?.materials===changedRig && instances.meshes.get(gun)?.material===gun.material && viewPass.parts.get(view)?.material===view.material && !changedRig.visible && !gun.material.visible && !view.material.visible;
-    const flyingRecord=instances.flyingByMesh.get(flying);
-    const flyingPending=Boolean(flyingRecord && !flyingRecord.mapVersion);
-    pendingMap.image.data=new Uint8Array([180,90,50,255]);pendingMap.needsUpdate=true;graphics.render(1/60);
-    const flyingUpdated=flyingRecord.texture>=0 && flyingRecord.mapVersion===pendingMap.version && pendingMap.version>0;
-    const flyingOwned=Boolean(flyingRecord && !flying.material.visible);
-    instances.reveal(true);const flyingRevealed=flying.material.visible;instances.reveal(false);
-    graphics.scene.remove(flyingRoot);
-    const flyingRemoved=!instances.flyingByMesh.has(flying);
+    const rebound=instances.byNode.get(rig)?.appearance===changedRig&&instances.byNode.get(gun)?.appearance===gun.material&&viewPass.parts.get(view)?.appearance===view.material;
+    const flyingRecord=instances.byNode.get(flying),flyingPending=Boolean(flyingRecord);
+    pendingMap.image.data=new Uint8Array([180,90,50,255]);pendingMap.needsUpdate=true;await graphics.renderer.resources.publishStatic(pendingMap);graphics.render(1/60);
+    const flyingUpdated=typeof flying.material.map==='number'&&flying.material.map>=0;
+    const flyingOwned=Boolean(flyingRecord&&flying.geometry===undefined&&flying.material.isMaterial===undefined);
+    instances.reveal(true);const flyingRevealed=flying.geometry===undefined;instances.reveal(false);
+    graphics.scene.remove(flyingRoot);const flyingRemoved=!instances.records.some(r=>r.node===flying);
     const errors=graphics.rust.errors,gl=graphics.renderer.getContext().getError();
     const near=graphics.rust.phaseStats.near,viewStats=graphics.rust.phaseStats.view,transparent=graphics.rust.phaseStats.transparent;
-    const heatedOwned=instances.heated.get(body)?.used[0]===body.material && instances.heated.get(body)?.heated===true && !body.material.visible;
-    const shockOwned=instances.bodies.get(shock)?.used[0]===shock.material && !shock.material.visible && transparent?.slice(5).some(n=>n>0);
+    const heatedOwned=instances.byNode.get(body)?.appearance===body.material&&instances.byNode.get(body)?.heated===true;
+    const shockOwned=instances.byNode.get(shock)?.appearance===shock.material&&transparent?.slice(5).some(n=>n>0);
     // Draws counted anywhere in a phase's stats (their layout grows with the passes).
     const drew=stats=>Boolean(stats) && Array.from(stats).some(n=>n>0);
     const nearDrew=drew(near),viewDrew=drew(viewStats),programsSettled=graphics.rust.shaderPrograms.length===count;
-    const ok=flyingPending && flyingUpdated && flyingOwned && flyingRevealed && flyingRemoved && rebound && shockOwned && heatedOwned && !errors.length && !gl && nearDrew && viewDrew && programsSettled;
-    return {ok,nearDrew,viewDrew,programsSettled,programs:graphics.rust.shaderPrograms.slice(count).map(p=>p.key),rebound,shockOwned,heatedOwned,flyingPending,flyingUpdated,flyingOwned,flyingRevealed,flyingRemoved,errors,gl,near,view:viewStats,registered:count};
+    const shieldOwned=graphics.rust.byName.effects.glows.has(shield.mesh)&&graphics.rust.byName.effects.glows.has(shield.aura)&&shield.mesh.geometry===undefined;
+    const ok=shieldOwned&&flyingPending && flyingUpdated && flyingOwned && flyingRevealed && flyingRemoved && rebound && shockOwned && heatedOwned && !errors.length && !gl && nearDrew && viewDrew && programsSettled;
+    return {ok,shieldOwned,nearDrew,viewDrew,programsSettled,programs:graphics.rust.shaderPrograms.slice(count).map(p=>p.key),rebound,shockOwned,heatedOwned,flyingPending,flyingUpdated,flyingOwned,flyingRevealed,flyingRemoved,errors,gl,near,view:viewStats,registered:count};
   }finally{graphics.renderer.dispose();graphics.renderer.domElement.remove();}
 }

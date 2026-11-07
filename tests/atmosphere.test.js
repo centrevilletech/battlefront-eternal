@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
+import { EFFECT } from '../src/rust-render/effect-layout.js';
 import { Atmosphere } from '../src/atmosphere.js';
 import { loadEnvironment } from '../src/environment/module.js';
 import { runAtmosphere } from './support/atmosphere-scenario.js';
@@ -59,23 +60,23 @@ test('the map haze builds one bounded draw per texture and fills it from the cam
   camera.position.set(0, 2, 0); camera.lookAt(100, 2, 0);
   for (let i = 0; i < 30; i++) stepSurface(atmosphere,1 / 30, camera);
   const [fog, dust] = atmosphere.batches;
-  assert.ok(fog.geometry.instanceCount > 0 && fog.mesh.visible);
+  assert.ok(fog.count > 0 && fog.mesh.visible);
   assert.equal(atmosphere.stats.objects, 1, 'the far copy is past its MaxDistance');
-  assert.equal(dust.geometry.instanceCount, atmosphere.stats.dust);
-  assert.ok(dust.geometry.instanceCount <= DUST.count);
+  assert.equal(dust.count, atmosphere.stats.dust);
+  assert.ok(dust.count <= DUST.count);
   // Back to front: depths along the view never grow down the batch.
-  const centers = dust.center.array, depths = [];
-  for (let i = 0; i < dust.geometry.instanceCount; i++) depths.push(centers[i * 4]);
+  const centers = dust.arrays.center, depths = [];
+  for (let i = 0; i < dust.count; i++) depths.push(centers[i * 4]);
   assert.ok(depths.every((d, i) => i === 0 || d <= depths[i - 1] + 1e-4));
   // Flattened by the height scale: centres sit within 0.2 x 12 m of the copy.
-  for (let i = 0; i < dust.geometry.instanceCount; i++) assert.ok(centers[i * 4 + 1] >= 0.8 - 1e-4 && centers[i * 4 + 1] <= 2.4 + 0.2 * 1 * 5 + 1e-3);
-  assert.ok(Math.abs(dust.material.uniforms.axisU.value.y + 0.2) < 1e-6, 'the square is squashed vertically');
+  for (let i = 0; i < dust.count; i++) assert.ok(centers[i * 4 + 1] >= 0.8 - 1e-4 && centers[i * 4 + 1] <= 2.4 + 0.2 * 1 * 5 + 1e-3);
+  assert.ok(Math.abs(dust.values[EFFECT.SQUARE.AXIS_U+1] + 0.2) < 1e-6, 'the square is squashed vertically');
   // The band goes with the camera; the copies stay put.
   camera.position.set(0, 2, 3000); camera.lookAt(100, 2, 3000);
   stepSurface(atmosphere,1 / 30, camera);
-  assert.ok(fog.geometry.instanceCount > 0);
+  assert.ok(fog.count > 0);
   assert.equal(atmosphere.stats.objects, 0);
-  assert.equal(dust.geometry.instanceCount, 0);
+  assert.equal(dust.count, 0);
   assert.equal(dust.mesh.visible, false);
   atmosphere.dispose();
   assert.equal(scene.children.length, 0);

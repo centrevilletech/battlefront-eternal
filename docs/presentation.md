@@ -390,8 +390,35 @@ uses retained Morton cells and allocates no memory.
 
 Standalone native fixtures freeze the replaced JavaScript constructors' vertex,
 index, bounds, terrain/LOD, material and shadow-range bytes without content.
-Blended world/sky, actors/rigs, dynamic water/effects and interface resources
-retain their separate consumers until their resource families move.
+Screen composites retain separate resource consumers. World, actor, dynamic
+effect and interface draw descriptors use their native resource families.
+
+Actor draw resources are native descriptors in `bfe-render::actor_resources`.
+`actorAsset` retains authored bytes for muzzle apertures, jetpack outlets,
+destruction chunk matching and cold landing-gear queries; navigation reads the
+native bind-box result. These are actual CPU consumers, independent of GPU
+geometry. Object3D/Bone/Skeleton anchors still publish the current pose until
+the scene/matrix join; they own no actor geometry or material. View, shadow,
+motion, glow, shield and sky descriptors resolve numeric source handles in the
+existing renderer/resource banks. Skin and crowd visibility publish bounded
+retained inputs once per prepared view, without per-object WASM draw calls.
+
+
+Battle HUD and interface draw descriptors live in `interface_resources`,
+`interface_geometry` and the existing native HUD/resource banks. Interface
+appearance admission resolves the finite catalog, raster state, sampler slots
+and uniform producers. Frame inputs carry source/appearance handles, camera
+and pose facts, and generated live-value rows. Rust expands uniforms in place;
+there are no per-frame Material, BufferGeometry or Texture descriptor readers.
+
+Interface image I/O retains dimensions for glyph/art layout and a logical
+sampler identity. PNG bytes, canvas sources, white pixels, sampler changes,
+holomap targets and recovery recipes belong to `GpuResources`. Atlas upgrades
+keep the identity while replacing immutable image storage. Native dirty spans
+share the existing interface upload and frame command owners. Preview disposal
+releases bounded, generation-qualified skin slots; stale releases cannot retire
+a replacement preview. Scene anchors, UI view state and pin-input point
+readbacks remain actual host consumers, independent of drawing resources.
 
 ## Own prediction views
 
@@ -427,3 +454,4 @@ without resampling walker foot easing or other hull history. Input encoding
 borrows that connection's receive/display owner. Command transfer copies only
 occupied rows; numeric optionals use generated presence fields, and the recon
 seed crosses directly from its retained typed word.
+

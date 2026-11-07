@@ -77,7 +77,8 @@ test('Theed fountains keep fixed jet slots and their basin levels; jets follow m
   assert.equal(e.jets.levels[theed.slot],Math.fround(theed.level));assert.equal(e.stats.volumes,0);
   // Only the fountains in view are drawn: one block of instances each.
   assert.equal(e.jets.visible[0],theed.slot);
-  assert.ok(e.jets.meshes.every(m=>{const g=(m.userData.spray||m).geometry;return g.instanceCount===g.userData.perFountain*e.visibleFountains.length;}));
+  assert.ok(e.jets.batches.every(b=>b.count===e.visibleFountains.length));
+  assert.ok(e.jets.meshes.every(m=>m.geometry===undefined&&m.material===undefined));
   camera.position.set(1000,1000,1000);stepSurface(e,.05,camera,[]);
   assert.ok(e.jets.meshes.every(m=>!m.visible));assert.ok(e.spray.sources.every(s=>s.w===0));
   camera.position.set(-25,-44,123);camera.lookAt(-36,-46.8,111);mode='classic';stepSurface(e,.05,camera,[]);

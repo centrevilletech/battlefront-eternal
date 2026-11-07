@@ -2,6 +2,334 @@
   "class": "bferenderer",
   "methods": [
     {
+      "name": "actor_flyer",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "fading",
+          "bool"
+        ],
+        [
+          "capacity",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "object",
+          "u32"
+        ],
+        [
+          "shadows",
+          "bool"
+        ]
+      ],
+      "result": "Result<Option<u32>,String>"
+    },
+    {
+      "name": "actor_flyer_motion",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "capacity",
+          "u32"
+        ],
+        [
+          "matrices",
+          "&[f32]"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "actor_source",
+      "args": [
+        [
+          "authored",
+          "&str"
+        ],
+        [
+          "vertices",
+          "&[f32]"
+        ],
+        [
+          "indices",
+          "&[u32]"
+        ]
+      ],
+      "result": "Result<Option<u32>,String>"
+    },
+    {
+      "name": "actor_source_facts",
+      "args": [
+        [
+          "source",
+          "u32"
+        ]
+      ],
+      "result": "Result<String,String>"
+    },
+    {
+      "name": "actor_source_crowd",
+      "args": [],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "actor_source_crowd_add",
+      "args": [
+        [
+          "body",
+          "u32"
+        ],
+        [
+          "bone_base",
+          "u32"
+        ],
+        [
+          "bones",
+          "u32"
+        ],
+        [
+          "sources",
+          "&[u32]"
+        ],
+        [
+          "entries",
+          "&[u32]"
+        ],
+        [
+          "groups",
+          "&[u32]"
+        ],
+        [
+          "matrices",
+          "&[f64]"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "actor_crowd_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "actor_geometry",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "key",
+          "&str"
+        ],
+        [
+          "whole",
+          "bool"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "actor_effect",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "view",
+          "bool"
+        ],
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "authored",
+          "&str"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "actor_motion",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "skin",
+          "bool"
+        ],
+        [
+          "locked",
+          "bool"
+        ]
+      ],
+      "result": "Result<Option<u32>,String>"
+    },
+    {
+      "name": "actor_skin_release",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "actor_skin_words",
+      "args": [
+        [
+          "bones",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "actor_skin",
+      "args": [
+        [
+          "texture",
+          "u32"
+        ],
+        [
+          "bones",
+          "u32"
+        ]
+      ],
+      "result": "Option<u32>"
+    },
+    {
+      "name": "actor_skin_offset",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "actor_skin_slot",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "actor_skins_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "actor_depth",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "authored",
+          "&str"
+        ],
+        [
+          "skin",
+          "i32"
+        ],
+        [
+          "map",
+          "i32"
+        ]
+      ],
+      "result": "Result<Option<u32>,String>"
+    },
+    {
+      "name": "actor_depth_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "actor_material",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "authored",
+          "&str"
+        ],
+        [
+          "skin",
+          "bool"
+        ],
+        [
+          "cascades",
+          "u32"
+        ],
+        [
+          "lamps",
+          "bool"
+        ],
+        [
+          "view",
+          "bool"
+        ],
+        [
+          "samplers",
+          "&[i32]"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "actor_settings",
+      "args": [
+        [
+          "cascades",
+          "u32"
+        ],
+        [
+          "lamps",
+          "bool"
+        ]
+      ],
+      "result": "Result<(),String>"
+    },
+    {
       "name": "camera_shader_frame",
       "args": [
         [
@@ -178,6 +506,155 @@
         ]
       ],
       "result": "Result<(), String>"
+    },
+    {
+      "name": "effect_batch",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "variant",
+          "u32"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "capacity",
+          "u32"
+        ],
+        [
+          "owner",
+          "i32"
+        ],
+        [
+          "samplers",
+          "&[i32]"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "effect_fixed",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "effect_multiplier",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "effect_mesh",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "vertices",
+          "u32"
+        ],
+        [
+          "indices",
+          "u32"
+        ],
+        [
+          "uv",
+          "&[f64]"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "effect_basin",
+      "args": [
+        [
+          "tier",
+          "bool"
+        ],
+        [
+          "basins",
+          "&[f64]"
+        ],
+        [
+          "vertices",
+          "&[f32]"
+        ],
+        [
+          "indices",
+          "&[u32]"
+        ],
+        [
+          "wide",
+          "bool"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "samplers",
+          "&[i32]"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "effect_far_mesh",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "vertex_at",
+          "u32"
+        ],
+        [
+          "object",
+          "u32"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "fx_clipped",
+      "args": [],
+      "result": "f64"
     },
     {
       "name": "fx_reserve",
@@ -1078,6 +1555,55 @@
       "result": "u32"
     },
     {
+      "name": "hud_descriptor_init",
+      "args": [],
+      "result": "Result<(),String>"
+    },
+    {
+      "name": "hud_appearance",
+      "args": [
+        [
+          "map",
+          "i32"
+        ],
+        [
+          "mask",
+          "i32"
+        ],
+        [
+          "masked",
+          "bool"
+        ],
+        [
+          "map_sample",
+          "i32"
+        ],
+        [
+          "mask_sample",
+          "i32"
+        ]
+      ],
+      "result": "Option<u32>"
+    },
+    {
+      "name": "hud_resources_frame",
+      "args": [
+        [
+          "resources",
+          "&crate::resources::GpuResources"
+        ],
+        [
+          "mode",
+          "i32"
+        ],
+        [
+          "full",
+          "bool"
+        ]
+      ],
+      "result": "Result<(),String>"
+    },
+    {
       "name": "records_at",
       "args": [],
       "result": "u32"
@@ -1141,6 +1667,79 @@
         [
           "length",
           "usize"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "ui_appearance",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "authored",
+          "&str"
+        ],
+        [
+          "skin",
+          "bool"
+        ],
+        [
+          "samplers",
+          "&[i32]"
+        ],
+        [
+          "public_samples",
+          "&[i32]"
+        ],
+        [
+          "order",
+          "u32"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "ui_resources_frame",
+      "args": [
+        [
+          "resources",
+          "&crate::resources::GpuResources"
+        ]
+      ],
+      "result": "Result<(),String>"
+    },
+    {
+      "name": "line_clipped",
+      "args": [],
+      "result": "f64"
+    },
+    {
+      "name": "line_source",
+      "args": [
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "capacity",
+          "u32"
+        ]
+      ],
+      "result": "Result<Option<u32>,String>"
+    },
+    {
+      "name": "line_frame",
+      "args": [
+        [
+          "view",
+          "u32"
         ]
       ],
       "result": ""
@@ -1909,6 +2508,64 @@
       "result": ""
     },
     {
+      "name": "water_source",
+      "args": [
+        [
+          "authored",
+          "&str"
+        ],
+        [
+          "ocean",
+          "bool"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "water_values",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "kind",
+          "u32"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
+      "name": "effect_water",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "far_view",
+          "bool"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "object",
+          "u32"
+        ]
+      ],
+      "result": "Result<Vec<f64>,String>"
+    },
+    {
       "name": "world_uses_lamps",
       "args": [
         [
@@ -2064,6 +2721,24 @@
     }
   ],
   "banks": [
+    {
+      "name": "actor_crowd_input",
+      "type": "f64",
+      "pointer": "actor_crowd_input_ptr",
+      "length": "actor_crowd_input_len"
+    },
+    {
+      "name": "actor_skin_input",
+      "type": "f64",
+      "pointer": "actor_skin_input_ptr",
+      "length": "actor_skin_input_len"
+    },
+    {
+      "name": "actor_bones",
+      "type": "f32",
+      "pointer": "actor_bones_ptr",
+      "length": "actor_bones_len"
+    },
     {
       "name": "camera_input",
       "type": "f64",
@@ -2249,6 +2924,24 @@
       "type": "f64",
       "pointer": "interface_input_ptr",
       "length": "interface_input_len"
+    },
+    {
+      "name": "ui_dirty",
+      "type": "f64",
+      "pointer": "ui_dirty_ptr",
+      "length": "ui_dirty_len"
+    },
+    {
+      "name": "line_input",
+      "type": "f64",
+      "pointer": "line_input_ptr",
+      "length": "line_input_len"
+    },
+    {
+      "name": "line_data",
+      "type": "f32",
+      "pointer": "line_data_ptr",
+      "length": "line_data_len"
     },
     {
       "name": "input",

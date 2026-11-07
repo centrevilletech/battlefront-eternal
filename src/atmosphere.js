@@ -1,9 +1,8 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeGround } from './collision.js';
 import { AtmosphereHost } from './environment/module.js';
 import { AtmosphereConfig as ATMOSPHERE, AtmosphereStats as STATS, DustConfig as DUST, SquareBatch as SQUARE, View as VIEW } from './environment/layout.js';
-import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
 
 // The world's haze (map.json `atmosphere`, tools/zero_atmosphere.py), drawn
@@ -35,26 +34,15 @@ export const squareBatches = new WeakMap();
 // records are views onto what the Rust phase gathered and sorted this frame.
 class SquareBatch {
   constructor(scene, texture, name, records, tint = [1, 1, 1, 1]) {
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.setAttribute('corner', new THREE.Float32BufferAttribute([-1, -1, 1, -1, 1, 1, -1, 1], 2));
-    this.geometry.setIndex([0, 1, 2, 0, 2, 3]);
-    this.center = new THREE.InstancedBufferAttribute(records.center, 4).setUsage(THREE.DynamicDrawUsage);
-    this.spin = new THREE.InstancedBufferAttribute(records.spin, 2).setUsage(THREE.DynamicDrawUsage);
-    this.geometry.setAttribute('center', this.center);
-    this.geometry.setAttribute('spin', this.spin);
-    this.attributes = [this.center, this.spin];
-    for (const attribute of this.attributes) attribute.surfaceRange = { start: 0, count: 0 };
-    this.geometry.instanceCount = 0;
-    this.material = ownedEffectMaterial('effects/square', {
-      uniforms: {
-        map: { value: texture }, tint: { value: new THREE.Vector4(...tint) },
-        axisU: { value: new THREE.Vector3(1, 0, 0) }, axisV: { value: new THREE.Vector3(0, 1, 0) },
-        fade: lighting.fade, sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.NormalBlending,
-    });
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // SquareBatch holds the phase's borrowed output and live camera facts.
+    // Rust owns the quad, sampler binding, normal blend and material layout.
+    this.nativeKind = EFFECT.SQUARE.ID; this.variant = 0;
+    this.texture = texture; this.values = new Float64Array(EFFECT.SQUARE.LENGTH);
+    this.values.set(tint, EFFECT.SQUARE.TINT);
+    this.values[EFFECT.SQUARE.AXIS_U] = 1; this.values[EFFECT.SQUARE.AXIS_V + 1] = 1;
+    this.arrays = { center: records.center, spin: records.spin };
+    this.capacity = records.center.length / 4; this.count = 0;
+    this.mesh = new THREE.Object3D();
     this.mesh.name = name;
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
@@ -69,21 +57,14 @@ class SquareBatch {
   // After the phase's frame: n squares, far to near, and the camera's axes
   // as this texture's squares are laid out.
   synced(n, result, at) {
-    this.geometry.instanceCount = n;
-    this.material.uniforms.axisU.value.fromArray(result, at + SQUARE.AXIS_U);
-    this.material.uniforms.axisV.value.fromArray(result, at + SQUARE.AXIS_V);
-    // A batch another renderer draws (external: src/rust-render/effects.js
-    // reads its arrays) is shown to three never, and uploads it nothing.
-    this.mesh.visible = n > 0 && !this.external;
-    if (!n || this.external) return;
-    for (let i = 0; i < this.attributes.length; i++) {
-      const attribute = this.attributes[i];
-      attribute.surfaceRange.count = n * attribute.itemSize;
-      attribute.updateRanges[0] = attribute.surfaceRange; attribute.updateRanges.length = 1;
-      attribute.needsUpdate = true;
+    this.count = n;
+    for (let i = 0; i < 3; i++) {
+      this.values[EFFECT.SQUARE.AXIS_U + i] = result[at + SQUARE.AXIS_U + i];
+      this.values[EFFECT.SQUARE.AXIS_V + i] = result[at + SQUARE.AXIS_V + i];
     }
+    this.mesh.visible = n > 0 && !this.external;
   }
-  dispose() { this.mesh.removeFromParent(); this.geometry.dispose(); this.material.dispose(); }
+  dispose() { this.mesh.removeFromParent();  }
 }
 
 export class Atmosphere {

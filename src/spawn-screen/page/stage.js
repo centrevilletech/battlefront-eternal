@@ -1,3 +1,6 @@
+import {interfaceNode,interfacePointsNode} from '../../interface/resources.js';
+import {releaseImage} from '../../interface/images.js';
+import {LOOK,paint,paintArray} from '../../rust-render/interface-material.js';
 import { interfaceBasic, interfacePoints, surfaceMaterial as interfaceMaterial } from "../../rust-render/interface-material.js";
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
@@ -106,7 +109,7 @@ export class SpawnStage {
     this.light = null; // the body's: { key, rim }
 
     // The vignette, a quad over the whole canvas.
-    this.vignette = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), interfaceMaterial("vignette", {
+    this.vignette = interfaceNode({kind:"plane",width:2,height:2},interfaceMaterial("vignette", {
       uniforms: {
         shade: { value: new THREE.Color(0, 0, 0) },
         pool: { value: new THREE.Color(0, 0, 0) },
@@ -135,7 +138,7 @@ export class SpawnStage {
     this.ringInner = additive(this.ringMaterial.map);
     this.glowMaterial = additive(this.drawn ? dotTexture() : null);
     const flat = (size, material, y) => {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
+      const mesh = interfaceNode({kind:"plane",width:size,height:size},material);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.y = y;
       mesh.renderOrder = -2;
@@ -152,15 +155,13 @@ export class SpawnStage {
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     });
-    const column = new THREE.Mesh(new THREE.CylinderGeometry(COLUMN.top, COLUMN.radius, COLUMN.height, 48, 1, true), this.columnMaterial);
+    const column = interfaceNode({kind:"uiCylinder",top:COLUMN.top,bottom:COLUMN.radius,height:COLUMN.height,segments:48,open:true},this.columnMaterial);
     column.position.y = COLUMN.height / 2;
     column.renderOrder = 2;
     projector.add(column);
     this.motes = Array.from({ length: MOTES }, (_, i) => ({ a: Math.random() * Math.PI * 2, r: 0.15 + Math.random() * 0.4, y: (i / MOTES) * COLUMN.height, speed: 0.25 + Math.random() * 0.45 }));
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MOTES * 3), 3));
     this.moteMaterial = interfacePoints({ map: this.glowMaterial.map, size: 0.06, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
-    this.points = new THREE.Points(geometry, this.moteMaterial);
+    this.points = interfacePointsNode(MOTES,this.moteMaterial);
     this.points.frustumCulled = false;
     this.points.renderOrder = 3;
     projector.add(this.points);
@@ -188,13 +189,13 @@ export class SpawnStage {
     if (mode) this.mode = mode;
     if (projector) this.map.style(projector);
     if (accent) {
-      for (const material of [this.ringMaterial, this.ringInner, this.glowMaterial, this.moteMaterial]) material.color.setRGB(accent[0], accent[1], accent[2]);
-      this.columnMaterial.uniforms.color.value.setRGB(accent[0], accent[1], accent[2]);
+      for (const material of [this.ringMaterial, this.ringInner, this.glowMaterial, this.moteMaterial]) paintArray(material,LOOK.COLOR,accent);
+      paintArray(this.columnMaterial,LOOK.COLOR,accent);
       this.cutGlow.setRGB(accent[0] * 2, accent[1] * 2, accent[2] * 2);
     }
-    const u = this.vignette.material.uniforms;
-    if (shade) u.shade.value.setRGB(shade[0], shade[1], shade[2]);
-    if (pool) u.pool.value.setRGB(pool[0], pool[1], pool[2]);
+    const u = this.vignette.material.values;
+    if (shade) paintArray(this.vignette.material,LOOK.SHADE,shade);
+    if (pool) paintArray(this.vignette.material,LOOK.POOL,pool);
     this.room.colors({ tint: room?.slice(0, 3), pulse: pulse?.slice(0, 3) });
     this.floor.colors({ color: floor?.slice(0, 3) });
     this.map.colors({ tint: hologram?.slice(0, 3), back, beam: beam?.slice(0, 3) });
@@ -313,10 +314,9 @@ export class SpawnStage {
     const building = this.building < BUILD;
     const cut = building ? -0.05 + ease(this.building / BUILD) * BUILD_TOP : 1e9;
     for (const material of this.bodyMaterials) {
-      const u = material.uniforms;
-      if (!u?.cut) continue;
-      u.cut.value = this.building < 0 ? -1 : cut;
-      u.cutGlow.value.copy(this.cutGlow);
+      const u = material.values;
+      u[LOOK.CUT] = this.building < 0 ? -1 : cut;
+      paint(material,LOOK.CUT_GLOW,this.cutGlow.r,this.cutGlow.g,this.cutGlow.b);
     }
   }
 
@@ -326,12 +326,11 @@ export class SpawnStage {
     if (!light || this.lit === this.bodyMaterials) return;
     this.lit = this.bodyMaterials;
     for (const material of this.bodyMaterials) {
-      const u = material.uniforms;
-      if (!u?.rim) continue;
-      if (light.key) u.keyTint.value.setRGB(light.key[0], light.key[1], light.key[2]);
-      if (light.rim) u.rim.value.setRGB(light.rim[0] * light.rim[3], light.rim[1] * light.rim[3], light.rim[2] * light.rim[3]);
-      u.rimPower.value = 3;
-      u.ambient.value = 0.62;
+      const u = material.values;
+      if (light.key) paintArray(material,LOOK.KEY_TINT,light.key);
+      if (light.rim) paint(material,LOOK.RIM,light.rim[0]*light.rim[3],light.rim[1]*light.rim[3],light.rim[2]*light.rim[3]);
+      u[LOOK.RIM_POWER] = 3;
+      u[LOOK.AMBIENT] = 0.62;
     }
   }
 
@@ -364,13 +363,13 @@ export class SpawnStage {
 
     this.ring.rotation.z = this.time * TURN;
     this.inner.rotation.z = -this.time * TURN * 1.7;
-    this.ringMaterial.opacity = 0.9 * s * Math.min(flare, 1.6);
-    this.ringInner.opacity = 0.55 * s;
-    this.glowMaterial.opacity = 0.5 * s * flare;
-    this.columnMaterial.uniforms.time.value = this.time;
-    this.columnMaterial.uniforms.strength.value = (0.5 + 0.9 * this.pulse) * s;
-    this.moteMaterial.opacity = 0.85 * s;
-    const positions = this.points.geometry.attributes.position.array;
+    this.ringMaterial.values[LOOK.OPACITY] = 0.9 * s * Math.min(flare, 1.6);
+    this.ringInner.values[LOOK.OPACITY] = 0.55 * s;
+    this.glowMaterial.values[LOOK.OPACITY] = 0.5 * s * flare;
+    this.columnMaterial.values[LOOK.TIME] = this.time;
+    this.columnMaterial.values[LOOK.STRENGTH] = (0.5 + 0.9 * this.pulse) * s;
+    this.moteMaterial.values[LOOK.OPACITY] = 0.85 * s;
+    const positions = this.points.userData.interfacePoints.positions;
     this.motes.forEach((mote, i) => {
       mote.y += mote.speed * dt * (1 + 2 * this.pulse);
       if (mote.y > COLUMN.height * 0.9) {
@@ -382,7 +381,7 @@ export class SpawnStage {
       positions[i * 3 + 1] = mote.y;
       positions[i * 3 + 2] = Math.sin(mote.a) * mote.r;
     });
-    this.points.geometry.attributes.position.needsUpdate = true;
+    this.points.userData.interfacePoints.serial++;
     this.room.update(this.time, s);
     this.floor.update(this.time, s);
     this.map.update(dt, open);
@@ -401,13 +400,13 @@ export class SpawnStage {
       this.room.render(renderer, this.rig.camera);
       return;
     }
-    const u = this.vignette.material.uniforms;
-    u.aspect.value = aspect;
+    const u = this.vignette.material.values;
+    u[LOOK.ASPECT] = aspect;
     // The pool round him, where the camera has him.
     const at = new THREE.Vector3(0, PIVOT, 0).project(this.rig.camera);
-    u.center.value.set((at.x + 1) / 2, (at.y + 1) / 2);
-    u.strength.value = this.strength;
-    u.dip.value = this.dip * this.strength;
+    u[LOOK.CENTER]=(at.x+1)/2;u[LOOK.CENTER+1]=(at.y+1)/2;
+    u[LOOK.STRENGTH] = this.strength;
+    u[LOOK.DIP] = this.dip * this.strength;
     renderInterface(renderer, this.vignetteScene, this.screenCamera, "spawn-stage");
   }
 
@@ -430,13 +429,8 @@ export class SpawnStage {
   }
 
   dispose() {
-    for (const material of [this.ringMaterial, this.ringInner, this.glowMaterial, this.moteMaterial]) material.dispose();
-    this.ringMaterial.map?.dispose();
-    this.glowMaterial.map?.dispose();
-    this.columnMaterial.dispose();
-    this.vignette.material.dispose();
-    this.vignette.geometry.dispose();
-    this.points.geometry.dispose();
+    releaseImage(this.ringMaterial.map);
+    releaseImage(this.glowMaterial.map);
     this.room.dispose();
     this.floor.dispose();
     this.map.dispose();

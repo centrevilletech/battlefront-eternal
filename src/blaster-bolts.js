@@ -1,7 +1,6 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from "./rust-render/effect-layout.js";
 import * as THREE from "three";
 import { texturePixels } from "./texture-pixels.js";
-import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
 
 // Enhanced blaster bolts: each one is a glowing capsule of plasma between its
@@ -19,8 +18,6 @@ import { particleDepth } from "./particle-depth.js";
 
 export const boltLook = { enhanced: false };
 
-const QUAD = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]);
-const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
 const ATTRIBUTES = { iHead: 3, iTail: 3, iColor: 4, iSize: 4 };
 
 
@@ -33,25 +30,13 @@ export class BlasterBatch {
     this.count = 0;
     this.capacity = 0;
     this.arrays = {};
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.setAttribute("corner", new THREE.BufferAttribute(QUAD, 2));
-    this.geometry.setIndex(QUAD_INDEX);
-    this.material = ownedEffectMaterial('effects/blaster', {
-      uniforms: {
-        fade: lighting.fade, time: lighting.time, pixelAngle: { value: 0.002 },
-        sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.CustomBlending,
-      blendEquation: THREE.AddEquation,
-      blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-      side: THREE.DoubleSide,
-      forceSinglePass: true,
-    });
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // BlasterBatch retains capsule facts; effect_batch owns quad/raster policy.
+    this.nativeKind = EFFECT.BLASTER.ID;
+    this.variant = 0;
+    this.texture = null;
+    this.values = new Float64Array(EFFECT.BLASTER.LENGTH);
+    this.values[EFFECT.BLASTER.PIXEL_ANGLE] = 0.002;
+    this.mesh = new THREE.Object3D();
     this.mesh.name = "blaster-bolts";
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 11;
@@ -62,10 +47,10 @@ export class BlasterBatch {
         // The pixels being drawn: under an upscaler, the 3D frame's.
         const target = renderer.getRenderTarget();
         const height = target ? target.height : renderer.getDrawingBufferSize(size).y;
-        this.material.uniforms.pixelAngle.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
+        this.values[EFFECT.BLASTER.PIXEL_ANGLE] = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
       }
     };
-    this.grow(capacity);
+    this.grow(Math.max(capacity, 16384));
   }
 
   grow(capacity) {
@@ -73,11 +58,7 @@ export class BlasterBatch {
       const array = new Float32Array(capacity * size);
       if (this.arrays[name]) array.set(this.arrays[name]);
       this.arrays[name] = array;
-      this.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage));
     }
-    // three keeps the instance limit of the buffers it first bound until the
-    // geometry is disposed: grown, the new instances would not be drawn.
-    delete this.geometry._maxInstanceCount;
     this.capacity = capacity;
   }
 
@@ -88,7 +69,7 @@ export class BlasterBatch {
   // One bolt from its head back to its tail. `rgb` is the sheath colour with
   // its largest channel at 1; `brightness` scales the whole bolt.
   push(head, tail, rgb, brightness, core, glow, seed = 0, taper = 0.6) {
-    if (this.count === this.capacity) this.grow(this.capacity * 2);
+    if(this.count===this.capacity){this.dropped=(this.dropped||0)+1;return;}
     const i = this.count++;
     const { iHead, iTail, iColor, iSize } = this.arrays;
     iHead[i * 3] = head.x; iHead[i * 3 + 1] = head.y; iHead[i * 3 + 2] = head.z;
@@ -109,18 +90,10 @@ export class BlasterBatch {
     this.count += count;
   }
 
+  // The renderer reads the active prefix directly. No attribute versions or
+  // secondary Three upload ranges are published by Batch.end.
   end() {
-    this.geometry.instanceCount = this.count;
-    // Drawn by another renderer (external: src/rust-render/effects.js reads
-    // its arrays), it is shown to three never and uploads it nothing.
     this.mesh.visible = this.count > 0 && !this.external;
-    if (!this.count || this.external) return;
-    for (const name of Object.keys(ATTRIBUTES)) {
-      const attribute = this.geometry.getAttribute(name);
-      attribute.clearUpdateRanges();
-      attribute.addUpdateRange(0, this.count * attribute.itemSize);
-      attribute.needsUpdate = true;
-    }
   }
 }
 

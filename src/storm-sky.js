@@ -1,3 +1,4 @@
+import { EFFECT } from './rust-render/effect-layout.js';
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { ownedFullScreenPass } from './render-passes.js';
@@ -43,13 +44,16 @@ export class StormSky {
    this.sky=ownedFullScreenPass('effects/storm-sky',uniforms);this.sky.name='storm-volume-clouds';this.sky.renderOrder=SKY_ORDER+.5;
    this.horizonMaterials=new Map();this.replaced=[];
    this.sky.onBeforeRender=(renderer,scene,camera)=>{uniforms.viewRotation.value.copy(camera.matrixWorld);uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);};
-   this.boltGeometry=new THREE.BufferGeometry();
-   for(const [name,source,itemSize] of [['position','stormPositions',3],['tangent','stormTangents',3],['edge','stormEdges',1],['width','stormWidths',1],['energy','stormEnergies',1]])
-     this.boltGeometry.setAttribute(name,surfaceHost.bind(new THREE.BufferAttribute(surfaceHost[source],itemSize).setUsage(THREE.DynamicDrawUsage),source));
-   this.boltGeometry.setDrawRange(0,0);
-   this.bolt=new THREE.Mesh(this.boltGeometry,ownedEffectMaterial('effects/storm-lightning', {uniforms,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,forceSinglePass:true}));
+   this.positions=surfaceHost.stormPositions;this.tangents=surfaceHost.stormTangents;
+   this.edges=surfaceHost.stormEdges;this.widths=surfaceHost.stormWidths;this.energies=surfaceHost.stormEnergies;
+   this.bolt=new THREE.Object3D();
+   this.boltSource={nativeKind:EFFECT.STORM_LIGHTNING.ID,capacity:this.positions.length/3,count:0,serial:0,
+     arrays:{position:this.positions,tangent:this.tangents,edge:this.edges,width:this.widths,energy:this.energies},values:new Float64Array(EFFECT.STORM_LIGHTNING.LENGTH)};
+   for(const [key,name,field]of [['position','stormPositions','positions'],['tangent','stormTangents','tangents'],['edge','stormEdges','edges'],['width','stormWidths','widths'],['energy','stormEnergies','energies']]){surfaceHost.bindArray(this.boltSource.arrays,key,name);surfaceHost.bindArray(this,field,name);}
+   this.bolt.userData.effectFar=this.boltSource;
    this.bolt.name='storm-lightning';this.bolt.frustumCulled=false;this.bolt.renderOrder=8;
    this.sky.visible=this.bolt.visible=false;graphics.farScene.add(this.sky,this.bolt);
+   graphics.rust.byName.far.admitEffect(this.bolt,this.boltSource);
  }
  setEnabled(enabled) {
    if(this.enabled===enabled)return;
@@ -93,11 +97,10 @@ export class StormSky {
    this.strikes=result[RESULT.STORM_STRIKES];
    this.uniforms.lightningPosition.value.fromArray(result,RESULT.STORM_POSITION);
    if(result[RESULT.STORM_DIRTY]) {
-     this.boltGeometry.setDrawRange(0,result[RESULT.STORM_COUNT]);
-     const attributes=this.boltGeometry.attributes;
-     attributes.position.needsUpdate=attributes.tangent.needsUpdate=attributes.edge.needsUpdate=attributes.width.needsUpdate=attributes.energy.needsUpdate=true;
+     this.boltSource.count=result[RESULT.STORM_COUNT];this.boltSource.serial++;
    }
    const flash=result[RESULT.STORM_FLASH];
+   this.boltSource.values[EFFECT.STORM_LIGHTNING.LIGHTNING_FLASH]=flash;
    this.uniforms.lightningFlash.value=flash;this.bolt.visible=flash>.005;
    if(flash>0){
      this.graphics.rust.cameras.flash(flash);
@@ -106,6 +109,6 @@ export class StormSky {
    this.uniforms.eyePosition.value.copy(camera.position);
    this.graphics.rust.frame.cloud(this,time,camera);
  }
- dispose(){this.setEnabled(false);this.sky.removeFromParent();this.bolt.removeFromParent();this.sky.material.dispose();this.cloudPass.material.dispose();this.boltGeometry.dispose();this.bolt.material.dispose();this.target.dispose();this.noise.dispose();
+ dispose(){this.setEnabled(false);this.sky.removeFromParent();this.bolt.removeFromParent();this.sky.material.dispose();this.cloudPass.material.dispose();this.target.dispose();this.noise.dispose();
    for(const material of this.horizonMaterials.values())material.dispose();this.horizonMaterials.clear();}
 }

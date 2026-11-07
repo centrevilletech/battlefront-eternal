@@ -1,3 +1,4 @@
+import {actorLook,actorPoint,actorPointCount} from './actor-resources.js';
 import * as THREE from "three";
 import { motionVectors } from "./motion-vectors.js";
 import { Dst, DstPiece as PIECE } from "./environment/layout.js";
@@ -37,10 +38,9 @@ export function pieceShape(object) {
   const toObject = new THREE.Matrix4().copy(object.matrixWorld).invert();
   const local = new THREE.Matrix4();
   object.traverse((mesh) => {
-    const position = mesh.isMesh ? mesh.geometry.attributes.position : null;
-    if (!position) return;
-    local.multiplyMatrices(toObject, mesh.matrixWorld);
-    for (let i = 0; i < position.count; i++) vertices.push(v.fromBufferAttribute(position, i).applyMatrix4(local).clone());
+    const asset=mesh.userData.actorAsset;if(!asset)return;
+    local.multiplyMatrices(toObject,mesh.matrixWorld);
+    for(let i=0;i<actorPointCount(asset);i++)vertices.push(actorPoint(asset,i,v).applyMatrix4(local).clone());
   });
   const box = new THREE.Box3().setFromPoints(vertices);
   if (box.isEmpty()) box.set(new THREE.Vector3(-0.1, -0.1, -0.1), new THREE.Vector3(0.1, 0.1, 0.1));
@@ -72,30 +72,8 @@ export function heatMaterial(source) {
   let material = heatMaterials.get(source);
   if (material) return material;
   if (!source) return source; // (a body with no material of its own: nothing to heat)
-  if (!source.userData?.actorShader) throw Error("Heat requires an owned model material");
-  const uniforms = {
-    ...source.uniforms,
-    sunScale: { value: 1 }, brightness: { value: 1 }, ambientPull: { value: new THREE.Vector2() },
-  };
-  const values = {
-    name: `${source.name}:heated`,
-    defines: { ...source.defines, HEATED: "" },
-    uniforms,
-    forceSinglePass: true,
-    fog: false,
-    transparent: source.transparent,
-    depthWrite: source.depthWrite,
-    depthTest: source.depthTest,
-    blending: source.blending,
-    side: source.side,
-    alphaToCoverage: source.alphaToCoverage,
-  };
-  material = Object.assign(new THREE.Material(), values);
-  material.userData.actorShader = source.userData.actorShader;
-  material.visible = false;
-  material.map = source.map;
-  material.alphaTest = source.alphaTest;
-  material.shadowSide = source.shadowSide;
+  if(!source.actorAppearance)throw Error('Heat requires a native actor appearance');
+  material=actorLook(source.authored.kind,{...source.authored,map:source.map,bumpMap:source.bumpMap,heated:true});
   heatMaterials.set(source, material);
   return material;
 }
@@ -161,13 +139,13 @@ export class DebrisPieces {
     if (!make) return null;
     const object = make();
     object.traverse((mesh) => {
-      if (!mesh.isMesh) return;
+      if (!mesh.userData.actorAsset) return;
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(heatMaterial) : heatMaterial(mesh.material);
       mesh.receiveShadow = true;
       motionVectors.track(mesh);
     });
     object.userData.heated = { heat: 0, tear: new THREE.Vector4(0, 0, 0, 0.3), soot: 0, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
-    object.traverse((mesh) => { if (mesh.isMesh) mesh.userData.heated = object.userData.heated; });
+    object.traverse((mesh) => { if (mesh.userData.actorAsset) mesh.userData.heated = object.userData.heated; });
     this.scene.add(object);
     return object;
   }
@@ -210,7 +188,7 @@ export class DebrisPieces {
   shadows(piece, on) {
     piece.shadows = on;
     piece.object.traverse((mesh) => {
-      if (!mesh.isMesh) return;
+      if (!mesh.userData.actorAsset) return;
       if (on && mesh.userData.castShadowSaved !== undefined) {
         mesh.castShadow = mesh.userData.castShadowSaved;
         delete mesh.userData.castShadowSaved;

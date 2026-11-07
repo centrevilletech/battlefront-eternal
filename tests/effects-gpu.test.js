@@ -9,12 +9,13 @@ function make(defs=library(),gpu=true){return new Effects(new T.Scene(),defs,{te
 test('animation, moving emitters and tint do not rewrite live spawn buffers',()=>{
   const fx=make();const effect=fx.play('particle',new T.Vector3());fx.update(0);
   const batch=[...fx.renderer.batches.values()][0];
-  const versions=Object.values(batch.geometry.attributes).map(a=>a.version);
+  const arrays=Object.values(batch.arrays),before=arrays.map(a=>a.slice());
   for(let i=0;i<120;i++){
     effect.move(new T.Vector3(i*.01,0,0));effect.tint=.7;fx.update(1/120);
   }
-  assert.deepEqual(Object.values(batch.geometry.attributes).map(a=>a.version),versions);
-  assert.equal(batch.geometry.instanceCount,4);
+  assert.deepEqual(Object.values(batch.arrays),before);
+  assert.ok(arrays.every((a,i)=>a===Object.values(batch.arrays)[i]));
+  assert.equal(batch.count,4);
   assert.equal(fx.gpu.data[0],Math.fround(1.19));assert.equal(fx.gpu.data[3],Math.fround(.7));
 });
 
@@ -24,23 +25,23 @@ test('different tracks share texture batches; expired references and uploads rem
   for(let i=0;i<1000;i++)fx.update(1/60);
   assert.equal(fx.renderer.batches.size,1);
   const batch=[...fx.renderer.batches.values()][0];
-  assert.ok(batch.count<=604&&batch.capacity<=1024);
+  assert.ok(batch.count<=604&&batch.capacity===16384);
   assert.equal(batch.records.length,batch.count);
-  for(const a of Object.values(batch.geometry.attributes))assert.ok(a.updateRanges.length<=1);
+  assert.equal(batch.geometry,undefined);
   for(const e of fx.effects)e.kill();fx.update(0);
   assert.equal(batch.records.length,0);assert.equal(batch.mesh.visible,false);
 });
 
-test('compacting emitter slots refreshes affected particles; state texture grows and disposes',()=>{
+test('compacting emitter slots refreshes particles within the admitted table',()=>{
   const fx=make();const handles=[];
   for(let i=0;i<40;i++)handles.push(fx.play('particle',new T.Vector3(i,0,0)));
-  fx.update(0);assert.equal(fx.gpu.uniforms.emitterRows.value,64);
+  fx.update(0);assert.equal(fx.gpu.emitterRows,1024);
   handles[0].kill();fx.update(.1);
   const batch=[...fx.renderer.batches.values()][0];
   assert.equal(batch.arrays.spawnMeta[2],0);assert.equal(fx.gpu.data[0],1);
-  let disposed=0;
-  for(const u of [fx.gpu.uniforms.tracks,fx.gpu.uniforms.emitters])u.value.addEventListener('dispose',()=>disposed++);
-  fx.gpu.dispose();assert.equal(disposed,2);
+  // CPU-only owners allocate no texture shell. GPU lifetime is checked by
+  // the native resource fixture, which exercises actual release/restoration.
+  assert.equal(fx.gpu.trackSample,-1);fx.gpu.dispose();
 });
 
 test('long tracks and unsupported geometry fall back without truncating authored effects',()=>{
@@ -76,6 +77,6 @@ test('GPU emitter tables stay bounded; excess sources keep the CPU fallback',()=
   fx.gpu.begin();
   for(let i=0;i<1024;i++)assert.equal(fx.gpu.registerRecord(fx.effectOutput,0),i);
   assert.equal(fx.gpu.registerRecord(fx.effectOutput,0),-1);
-  assert.equal(fx.gpu.uniforms.emitterRows.value,1024);
+  assert.equal(fx.gpu.emitterRows,1024);
   assert.equal(fx.gpu.data.byteLength,49152);
 });

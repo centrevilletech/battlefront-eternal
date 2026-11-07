@@ -4,7 +4,7 @@ import { RasterHudAssets } from "../raster-hud.js";
 import { Batch } from "./batch.js";
 import { Fonts } from "./fonts.js";
 import { IW, anchorMatrix, interfaceCamera, interfaceHeight, planePoint } from "./space.js";
-import { PngTextureLoader } from "../texture-images.js";
+import {InterfaceImages,whiteImage} from "./images.js";
 
 // What every interface screen draws with, with or without a battle behind
 // it: the renderer, the textures by name (each upgraded to its 4x atlas
@@ -19,10 +19,9 @@ export class InterfaceSurface {
     this.renderer = renderer;
     this.url = url;
     this.strings = strings || {};
-    this.loader = new PngTextureLoader(new THREE.LoadingManager(), renderer);
+    this.loader = new InterfaceImages(renderer);
     this.textures = new Map();
-    this.solid = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
-    this.solid.needsUpdate = true;
+    this.solid=whiteImage(renderer);
     this.rasterAssets = new RasterHudAssets(renderer);
     this.batch = new Batch();
     this.scene = new THREE.Scene();
@@ -40,12 +39,9 @@ export class InterfaceSurface {
   load(url) {
     if (!this.textures.has(url)) {
       const texture = this.loader.load(url, (t) => {
-        t.userData.loaded = true;
+        t.loaded = true;
         this.rasterAssets.upgrade(t, url);
       });
-      texture.flipY = false;
-      texture.wrapS = THREE.ClampToEdgeWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
       this.textures.set(url, texture);
     }
     return this.textures.get(url);

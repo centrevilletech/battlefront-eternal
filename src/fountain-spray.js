@@ -1,29 +1,28 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
-
-// Short splashes where a character wades or lands in a basin, on the GPU; CPU
-// work is the five fountain sources (shared with fountain-jets.js, which also
-// throws the jets' own drops) and the eight wake slots.
+// FountainSpray publishes source and wake facts on a fixed seed set. Native
+// admission owns its plane, blend, sampler slots and value layout.
 export class FountainSpray {
-  constructor(scene,wakes){
-    const plane=new THREE.PlaneGeometry(1,1),geometry=new THREE.InstancedBufferGeometry();
-    geometry.index=plane.index;geometry.attributes.position=plane.attributes.position;geometry.attributes.uv=plane.attributes.uv;
-    const count=8*24,seed=new Float32Array(count*4);let state=137;
+  constructor(scene,wakes) {
+    this.nativeKind=EFFECT.SPRAY.ID;this.family='spray';this.variant=0;this.texture=null;this.wakes=wakes;
+    this.count=this.capacity=8*24;this.visibility='anchor';this.values=new Float64Array(EFFECT.SPRAY.LENGTH);
+    const seed=new Float32Array(this.count*4);let state=137;
     const random=()=>((state=Math.imul(state,1664525)+1013904223>>>0)/4294967296);
-    for(let i=0;i<count;i++)seed.set([Math.floor(i/24),random(),random(),random()],i*4);
-    geometry.setAttribute('seed',new THREE.InstancedBufferAttribute(seed,4));geometry.instanceCount=count;
-    const sources=Array.from({length:5},()=>new THREE.Vector4(0,0,0,0));
-    const material=ownedEffectMaterial('effects/spray-s0', {transparent:true,depthWrite:false,toneMapped:false,uniforms:{sprayTime:{value:0},sources:{value:sources},
-      wakes:{value:wakes.points},motion:{value:wakes.motion},sceneDepth:particleDepth.map,depthResolution:particleDepth.resolution,
-      cameraRange:particleDepth.cameraRange,hasDepth:{value:0}}});
-    this.sources=sources;this.mesh=new THREE.Mesh(geometry,material);this.mesh.name='fountain-wake-spray';
-    this.mesh.frustumCulled=false;this.mesh.visible=false;this.mesh.renderOrder=11;
-    this.mesh.onBeforeRender=(r,s,c)=>{material.uniforms.hasDepth.value=particleDepth.capture(r,s,c,true)?1:0;material.uniformsNeedUpdate=true;};scene.add(this.mesh);
+    for(let i=0;i<this.count;i++){const o=i*4;seed[o]=Math.floor(i/24);seed[o+1]=random();seed[o+2]=random();seed[o+3]=random();}
+    // FountainJets still consumes these shared placement vectors until its
+    // own descriptor is admitted. They contain no raster or sampler policy.
+    this.sources=Array.from({length:5},()=>new THREE.Vector4());
+    this.arrays={seed};this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
+    this.mesh.name='fountain-wake-spray';this.mesh.frustumCulled=false;this.mesh.visible=false;this.mesh.renderOrder=11;
+    this.mesh.onBeforeRender=(r,s,c)=>{this.values[EFFECT.SPRAY.HAS_DEPTH]=particleDepth.capture(r,s,c,true)?1:0;};scene.add(this.mesh);
   }
-  // Each fountain keeps its slot, so one leaving view doesn't reseed another.
-  update(time,fountains){this.mesh.material.uniforms.sprayTime.value=time;this.mesh.visible=fountains.length>0;
-    for(const s of this.sources)s.w=0;
-    for(let i=0;i<fountains.length;i++){const f=fountains[i];this.sources[f.slot]?.set(f.position.x,f.position.y,f.position.z,1);}}
-  dispose(){this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();}
+  update(time,fountains) {
+    const v=this.values;v[EFFECT.SPRAY.SPRAY_TIME]=time;this.mesh.visible=fountains.length>0;
+    v.set(this.wakes.host.wakePoints,EFFECT.SPRAY.WAKES);v.set(this.wakes.host.wakeMotion,EFFECT.SPRAY.MOTION);
+    for(const source of this.sources)source.w=0;
+    for(let i=0;i<fountains.length;i++){const f=fountains[i];this.sources[f.slot]?.set(f.position.x,f.position.y,f.position.z,1);}
+    for(let i=0;i<5;i++)this.sources[i].toArray(v,EFFECT.SPRAY.SOURCES+i*4);
+  }
+  dispose(){this.mesh.removeFromParent();}
 }

@@ -44,7 +44,21 @@ pub(super) struct Recovery {
 enum Command {
     // Only the slot is saved: a restored texture object comes from the caller.
     Texture(u32),
+    actor_flyer { source: u32, flags: u32, fading: bool, capacity: u32, texture: i32, slot: u32, object: u32, shadows: bool },
+    actor_flyer_motion { source: u32, capacity: u32, matrices: Vec<f32> },
+    actor_geometry { source: u32, key: String, whole: bool },
+    actor_effect { source: u32, kind: u32, shadows: bool, view: bool, texture: i32, authored: String },
+    actor_motion { source: u32, skin: bool, locked: bool },
+    actor_skin_release { id: u32 },
+    actor_skin { texture: u32, bones: u32 },
+    actor_depth { source: u32, authored: String, skin: i32, map: i32 },
+    actor_material { source: u32, authored: String, skin: bool, cascades: u32, lamps: bool, view: bool, samplers: Vec<i32> },
+    actor_settings { cascades: u32, lamps: bool },
     canopies_mesh { max: u32 },
+    effect_batch { kind: u32, variant: u32, shadows: bool, texture: i32, capacity: u32, owner: i32, samplers: Vec<i32> },
+    effect_mesh { kind: u32, shadows: bool, texture: i32, vertices: u32, indices: u32, uv: Vec<f64> },
+    effect_basin { tier: bool, basins: Vec<f64>, vertices: Vec<f32>, indices: Vec<u32>, wide: bool, shadows: bool, samplers: Vec<i32> },
+    effect_far_mesh { kind: u32, shadows: bool, slot: u32, vertex_at: u32, object: u32 },
     fx_reserve { floats: u32 },
     fx_add_owner { tracks: u32, track_rows: f32 },
     fx_add_batch { program: u32, texture: i32, blend: Vec<u32>, corner: u32, attributes: Vec<u32>, owner: i32 },
@@ -75,8 +89,12 @@ enum Command {
     far_refresh { item: u32, buffer: u32, at: u32, floats: u32, flag: u32 },
     foliage_class { texture: u32, grass: bool, shadows: bool, definition: String, authored: Vec<f64>, rows: Vec<f32>, bounds: Vec<f64>, map_matrix: Vec<f32> },
     hud_init { index: Vec<u32> },
+    hud_descriptor_init {  },
+    hud_appearance { map: i32, mask: i32, masked: bool, map_sample: i32, mask_sample: i32 },
     inst_add_blend { blend: Vec<u32>, depth_flags: u32, depth_func: u32, passes: Vec<u32> },
     interface_buffer_init { geometry: u32, buffer: u32, data: Vec<u8> },
+    ui_appearance { source: u32, authored: String, skin: bool, samplers: Vec<i32>, public_samples: Vec<i32>, order: u32 },
+    line_source { program: u32, kind: u32, capacity: u32 },
     set_shadow_maps { ids: Vec<u32> },
     set_far_map { texture: u32 },
     add_program { kind: u32, vs: String, fs: String, attributes: String, uniforms: String },
@@ -111,6 +129,7 @@ enum Command {
     water_rings { index: Vec<u32>, blend: Vec<u32>, depth_func: u32, flags: u32, side: u32 },
     water_set { max: u32, sizes: Vec<u32> },
     water_instanced { surface: u32, set: u32, k: u32, location: u32 },
+    effect_water { source: u32, kind: u32, far_view: bool, shadows: bool, slot: u32, object: u32 },
     add_world { geometry: u32, program: u32, order: u32, flags: u32, bounds: Vec<f64> },
     world_texture { w: u32, unit: u32, texture: u32 },
     world_uniform { w: u32, name: String, values: Vec<f32>, int: bool },
@@ -146,6 +165,76 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         self.recovery.commands.push((self.recovery.clock, Command::Texture(slot)));
     }
+    // BfeRenderer::actor_flyer: Recreate native sky flyer colour descriptors and retained instance layouts.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_flyer(&mut self, source: u32, flags: u32, fading: bool, capacity: u32, texture: i32, slot: u32, object: u32, shadows: bool) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_flyer { source: source, flags: flags, fading: fading, capacity: capacity, texture: texture, slot: slot, object: object, shadows: shadows }));
+    }
+    // BfeRenderer::actor_flyer_motion: Recreate native sky motion source geometry and instance buffers.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_flyer_motion(&mut self, source: u32, capacity: u32, matrices: &[f32]) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_flyer_motion { source: source, capacity: capacity, matrices: matrices.to_owned() }));
+    }
+    // BfeRenderer::actor_geometry: Recreate an actor source VAO from its retained native streams and owned catalog layout.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_geometry(&mut self, source: u32, key: &str, whole: bool) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_geometry { source: source, key: key.to_owned(), whole: whole }));
+    }
+    // BfeRenderer::actor_effect: Recreate a glow model descriptor with native geometry, sampler and exact two-sided additive policy.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_effect(&mut self, source: u32, kind: u32, shadows: bool, view: bool, texture: i32, authored: &str) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_effect { source: source, kind: kind, shadows: shadows, view: view, texture: texture, authored: authored.to_owned() }));
+    }
+    // BfeRenderer::actor_motion: Recreate a retained actor motion or first-person locked-mask descriptor from shared native source bytes.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_motion(&mut self, source: u32, skin: bool, locked: bool) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_motion { source: source, skin: skin, locked: locked }));
+    }
+    // BfeRenderer::actor_skin_release: Retire a released pose sampler identity before any restored frame can upload its old extent.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_skin_release(&mut self, id: u32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_skin_release { id: id }));
+    }
+    // BfeRenderer::actor_skin: Retain a native pose sampler identity and its exact padded dimensions.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_skin(&mut self, texture: u32, bones: u32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_skin { texture: texture, bones: bones }));
+    }
+    // BfeRenderer::actor_depth: Recreate an actor depth descriptor against shared source bytes and retained skin samplers.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_depth(&mut self, source: u32, authored: &str, skin: i32, map: i32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_depth { source: source, authored: authored.to_owned(), skin: skin, map: map }));
+    }
+    // BfeRenderer::actor_material: Restore the actor appearance handle, native variant, sampler slots and blend policy.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_material(&mut self, source: u32, authored: &str, skin: bool, cascades: u32, lamps: bool, view: bool, samplers: &[i32]) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_material { source: source, authored: authored.to_owned(), skin: skin, cascades: cascades, lamps: lamps, view: view, samplers: samplers.to_owned() }));
+    }
+    // BfeRenderer::actor_settings: Restore typed actor cascade and lamp settings on retained descriptors.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_actor_settings(&mut self, cascades: u32, lamps: bool) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::actor_settings { cascades: cascades, lamps: lamps }));
+    }
     // BfeRenderer::canopies_mesh: Recreate the canopy VAO and instance capacity; leaf rows come from the retained mirror.
     // Keep every call: later registrations depend on the returned id or append order.
     pub(super) fn remember_canopies_mesh(&mut self, max: u32) {
@@ -153,13 +242,41 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         self.recovery.commands.push((self.recovery.clock, Command::canopies_mesh { max: max }));
     }
+    // BfeRenderer::effect_batch: Recompile the particle family geometry and material descriptor from typed cold facts.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_effect_batch(&mut self, kind: u32, variant: u32, shadows: bool, texture: i32, capacity: u32, owner: i32, samplers: &[i32]) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::effect_batch { kind: kind, variant: variant, shadows: shadows, texture: texture, capacity: capacity, owner: owner, samplers: samplers.to_owned() }));
+    }
+    // BfeRenderer::effect_mesh: Recreate a dynamic ribbon descriptor with its reserved streams, fixed topology and native material policy.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_effect_mesh(&mut self, kind: u32, shadows: bool, texture: i32, vertices: u32, indices: u32, uv: &[f64]) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::effect_mesh { kind: kind, shadows: shadows, texture: texture, vertices: vertices, indices: indices, uv: uv.to_owned() }));
+    }
+    // BfeRenderer::effect_basin: Recreate basin geometry and material descriptors and the native tier discs.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_effect_basin(&mut self, tier: bool, basins: &[f64], vertices: &[f32], indices: &[u32], wide: bool, shadows: bool, samplers: &[i32]) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::effect_basin { tier: tier, basins: basins.to_owned(), vertices: vertices.to_owned(), indices: indices.to_owned(), wide: wide, shadows: shadows, samplers: samplers.to_owned() }));
+    }
+    // BfeRenderer::effect_far_mesh: Recreate a native far lightning descriptor and its fixed dirty-stream bindings.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_effect_far_mesh(&mut self, kind: u32, shadows: bool, slot: u32, vertex_at: u32, object: u32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::effect_far_mesh { kind: kind, shadows: shadows, slot: slot, vertex_at: vertex_at, object: object }));
+    }
     // BfeRenderer::fx_reserve: Retain effects capacity so moving the old instance mirror cannot exceed the new allocation.
     // Coalesce only the same selector key; other writes retain their own chronology.
     pub(super) fn remember_fx_reserve(&mut self, floats: u32) {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (1u16, floats as u32, hash.finish());
+        let key = (15u16, floats as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_reserve { floats: old_floats } = &mut self.recovery.commands[recovery_at].1 {
                 *old_floats = floats;
@@ -193,7 +310,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         texture.hash(&mut hash);
-        let key = (4u16, batch as u32, hash.finish());
+        let key = (18u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_texture { batch: old_batch, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -214,7 +331,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         values.hash(&mut hash);
-        let key = (5u16, batch as u32, hash.finish());
+        let key = (19u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_values { batch: old_batch, values: old_values } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -234,7 +351,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (6u16, batch as u32, hash.finish());
+        let key = (20u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_interleaved { batch: old_batch } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -254,7 +371,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         side.hash(&mut hash);
-        let key = (7u16, batch as u32, hash.finish());
+        let key = (21u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_side { batch: old_batch, side: old_side } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -276,7 +393,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         flags.hash(&mut hash);
         func.hash(&mut hash);
-        let key = (8u16, batch as u32, hash.finish());
+        let key = (22u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_depth { batch: old_batch, flags: old_flags, func: old_func } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -300,7 +417,7 @@ impl BfeRenderer {
         name.hash(&mut hash);
         unit.hash(&mut hash);
         texture.hash(&mut hash);
-        let key = (9u16, batch as u32, hash.finish());
+        let key = (23u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_sampler { batch: old_batch, name: old_name, unit: old_unit, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -325,7 +442,7 @@ impl BfeRenderer {
         name.hash(&mut hash);
         unit.hash(&mut hash);
         texture.hash(&mut hash);
-        let key = (10u16, batch as u32, hash.finish());
+        let key = (24u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_sampler_3d { batch: old_batch, name: old_name, unit: old_unit, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -348,7 +465,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         vertices.hash(&mut hash);
-        let key = (11u16, batch as u32, hash.finish());
+        let key = (25u16, batch as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_batch_base { batch: old_batch, attributes: old_attributes, vertices: old_vertices, data: old_data, index: old_index } = &mut self.recovery.commands[recovery_at].1 {
                 *old_batch = batch;
@@ -386,7 +503,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         texture.hash(&mut hash);
-        let key = (14u16, mesh as u32, hash.finish());
+        let key = (28u16, mesh as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_mesh_texture { mesh: old_mesh, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_mesh = mesh;
@@ -421,7 +538,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         texture.hash(&mut hash);
-        let key = (17u16, model as u32, hash.finish());
+        let key = (31u16, model as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_model_texture { model: old_model, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_model = model;
@@ -444,7 +561,7 @@ impl BfeRenderer {
         name.hash(&mut hash);
         unit.hash(&mut hash);
         texture.hash(&mut hash);
-        let key = (18u16, model as u32, hash.finish());
+        let key = (32u16, model as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::fx_model_sampler { model: old_model, name: old_name, unit: old_unit, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_model = model;
@@ -483,7 +600,7 @@ impl BfeRenderer {
         uniform.hash(&mut hash);
         kind.hash(&mut hash);
         at.hash(&mut hash);
-        let key = (21u16, item as u32, hash.finish());
+        let key = (35u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_source { item: old_item, uniform: old_uniform, kind: old_kind, values: old_values, at: old_at } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -508,7 +625,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         start.hash(&mut hash);
         count.hash(&mut hash);
-        let key = (22u16, item as u32, hash.finish());
+        let key = (36u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_range { item: old_item, start: old_start, count: old_count } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -530,7 +647,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         base.hash(&mut hash);
-        let key = (23u16, item as u32, hash.finish());
+        let key = (37u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_base { item: old_item, base: old_base } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -556,7 +673,7 @@ impl BfeRenderer {
         max.hash(&mut hash);
         count.hash(&mut hash);
         at.hash(&mut hash);
-        let key = (24u16, item as u32, hash.finish());
+        let key = (38u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_instanced { item: old_item, location: old_location, columns: old_columns, rows: old_rows, max: old_max, count: old_count, at: old_at } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -581,7 +698,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (25u16, item as u32, hash.finish());
+        let key = (39u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_cells { item: old_item, positions: old_positions, index: old_index, cell_size: old_cell_size } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -604,7 +721,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         level.hash(&mut hash);
-        let key = (26u16, item as u32, hash.finish());
+        let key = (40u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_terrain { item: old_item, level: old_level, index: old_index, cells: old_cells } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -627,7 +744,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         at.hash(&mut hash);
-        let key = (27u16, item as u32, hash.finish());
+        let key = (41u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_range_input { item: old_item, at: old_at } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -651,7 +768,7 @@ impl BfeRenderer {
         at.hash(&mut hash);
         floats.hash(&mut hash);
         flag.hash(&mut hash);
-        let key = (28u16, item as u32, hash.finish());
+        let key = (42u16, item as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::far_refresh { item: old_item, buffer: old_buffer, at: old_at, floats: old_floats, flag: old_flag } = &mut self.recovery.commands[recovery_at].1 {
                 *old_item = item;
@@ -681,7 +798,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (30u16, 0 as u32, hash.finish());
+        let key = (44u16, 0 as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::hud_init { index: old_index } = &mut self.recovery.commands[recovery_at].1 {
                 old_index.clear(); old_index.extend_from_slice(index);
@@ -693,6 +810,20 @@ impl BfeRenderer {
         }
         self.recovery.slots.insert(key, self.recovery.commands.len());
         self.recovery.commands.push((self.recovery.clock, Command::hud_init { index: index.to_owned() }));
+    }
+    // BfeRenderer::hud_descriptor_init: Recreate the native HUD index, source program and fixed camera/sampler bindings.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_hud_descriptor_init(&mut self) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::hud_descriptor_init {  }));
+    }
+    // BfeRenderer::hud_appearance: Restore a retained HUD map/mask sampler descriptor.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_hud_appearance(&mut self, map: i32, mask: i32, masked: bool, map_sample: i32, mask_sample: i32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::hud_appearance { map: map, mask: mask, masked: masked, map_sample: map_sample, mask_sample: mask_sample }));
     }
     // BfeRenderer::inst_add_blend: Allocate the instanced material's depth/blend state and ordered shader passes.
     // Keep every call: later registrations depend on the returned id or append order.
@@ -708,13 +839,27 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         self.recovery.commands.push((self.recovery.clock, Command::interface_buffer_init { geometry: geometry, buffer: buffer, data: data.to_owned() }));
     }
+    // BfeRenderer::ui_appearance: Recreate interface geometry, material and sampler descriptors in original admission order.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_ui_appearance(&mut self, source: u32, authored: &str, skin: bool, samplers: &[i32], public_samples: &[i32], order: u32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::ui_appearance { source: source, authored: authored.to_owned(), skin: skin, samplers: samplers.to_owned(), public_samples: public_samples.to_owned(), order: order }));
+    }
+    // BfeRenderer::line_source: Recreate native cable or helper geometry and raster descriptors from the utility program.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_line_source(&mut self, program: u32, kind: u32, capacity: u32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::line_source { program: program, kind: kind, capacity: capacity }));
+    }
     // BfeRenderer::set_shadow_maps: Restore logical cascade texture ids after the browser recreates the depth textures.
     // Coalesce only the same selector key; other writes retain their own chronology.
     pub(super) fn remember_set_shadow_maps(&mut self, ids: &[u32]) {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (33u16, 0 as u32, hash.finish());
+        let key = (51u16, 0 as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::set_shadow_maps { ids: old_ids } = &mut self.recovery.commands[recovery_at].1 {
                 old_ids.clear(); old_ids.extend_from_slice(ids);
@@ -733,7 +878,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (34u16, texture as u32, hash.finish());
+        let key = (52u16, texture as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::set_far_map { texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_texture = texture;
@@ -766,7 +911,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (37u16, 0 as u32, hash.finish());
+        let key = (55u16, 0 as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::set_lamps { data: old_data } = &mut self.recovery.commands[recovery_at].1 {
                 old_data.clear(); old_data.extend_from_slice(data);
@@ -814,7 +959,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         ty.hash(&mut hash);
-        let key = (42u16, g as u32, hash.finish());
+        let key = (60u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_index { g: old_g, data: old_data, ty: old_ty } = &mut self.recovery.commands[recovery_at].1 {
                 *old_g = g;
@@ -845,7 +990,7 @@ impl BfeRenderer {
         mode.hash(&mut hash);
         first.hash(&mut hash);
         indexed.hash(&mut hash);
-        let key = (44u16, g as u32, hash.finish());
+        let key = (62u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_primitive { g: old_g, mode: old_mode, first: old_first, indexed: old_indexed, width: old_width } = &mut self.recovery.commands[recovery_at].1 {
                 *old_g = g;
@@ -883,7 +1028,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         slot.hash(&mut hash);
-        let key = (47u16, g as u32, hash.finish());
+        let key = (65u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_buffer_data { g: old_g, slot: old_slot, data: old_data } = &mut self.recovery.commands[recovery_at].1 {
                 *old_g = g;
@@ -904,7 +1049,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (48u16, g as u32, hash.finish());
+        let key = (66u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_index_data { g: old_g, data: old_data } = &mut self.recovery.commands[recovery_at].1 {
                 *old_g = g;
@@ -927,7 +1072,7 @@ impl BfeRenderer {
         slot.hash(&mut hash);
         offset.hash(&mut hash);
         data.len().hash(&mut hash);
-        let key = (49u16, g as u32, hash.finish());
+        let key = (67u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_buffer_sub_data { g: old_g, slot: old_slot, offset: old_offset, data: old_data } = &mut self.recovery.commands[recovery_at].1 {
                 *old_g = g;
@@ -951,7 +1096,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         offset.hash(&mut hash);
         data.len().hash(&mut hash);
-        let key = (50u16, g as u32, hash.finish());
+        let key = (68u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_index_sub_data { g: old_g, offset: old_offset, data: old_data } = &mut self.recovery.commands[recovery_at].1 {
                 *old_g = g;
@@ -1023,7 +1168,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         unit.hash(&mut hash);
         texture.hash(&mut hash);
-        let key = (58u16, b as u32, hash.finish());
+        let key = (76u16, b as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::transparent_bucket_texture { b: old_b, unit: old_unit, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_b = b;
@@ -1047,7 +1192,7 @@ impl BfeRenderer {
         pass.hash(&mut hash);
         name.hash(&mut hash);
         int.hash(&mut hash);
-        let key = (59u16, b as u32, hash.finish());
+        let key = (77u16, b as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::transparent_bucket_uniform { b: old_b, pass: old_pass, name: old_name, values: old_values, int: old_int } = &mut self.recovery.commands[recovery_at].1 {
                 *old_b = b;
@@ -1085,7 +1230,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         texture.hash(&mut hash);
-        let key = (62u16, o as u32, hash.finish());
+        let key = (80u16, o as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::transparent_object_texture { o: old_o, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_o = o;
@@ -1129,7 +1274,7 @@ impl BfeRenderer {
         set.hash(&mut hash);
         k.hash(&mut hash);
         location.hash(&mut hash);
-        let key = (66u16, surface as u32, hash.finish());
+        let key = (84u16, surface as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::water_instanced { surface: old_surface, set: old_set, k: old_k, location: old_location } = &mut self.recovery.commands[recovery_at].1 {
                 *old_surface = surface;
@@ -1144,6 +1289,13 @@ impl BfeRenderer {
         }
         self.recovery.slots.insert(key, self.recovery.commands.len());
         self.recovery.commands.push((self.recovery.clock, Command::water_instanced { surface: surface, set: set, k: k, location: location }));
+    }
+    // BfeRenderer::effect_water: Compile a native water surface or far descriptor from retained authored water cells.
+    // Keep every call: later registrations depend on the returned id or append order.
+    pub(super) fn remember_effect_water(&mut self, source: u32, kind: u32, far_view: bool, shadows: bool, slot: u32, object: u32) {
+        if self.rebuilding { return; }
+        self.recovery.clock += 1;
+        self.recovery.commands.push((self.recovery.clock, Command::effect_water { source: source, kind: kind, far_view: far_view, shadows: shadows, slot: slot, object: object }));
     }
     // BfeRenderer::add_world: Allocate the world bucket with its program, bounds, sort order and raster flags.
     // Keep every call: later registrations depend on the returned id or append order.
@@ -1160,7 +1312,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         unit.hash(&mut hash);
         texture.hash(&mut hash);
-        let key = (68u16, w as u32, hash.finish());
+        let key = (87u16, w as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::world_texture { w: old_w, unit: old_unit, texture: old_texture } = &mut self.recovery.commands[recovery_at].1 {
                 *old_w = w;
@@ -1183,7 +1335,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         name.hash(&mut hash);
         int.hash(&mut hash);
-        let key = (69u16, w as u32, hash.finish());
+        let key = (88u16, w as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::world_uniform { w: old_w, name: old_name, values: old_values, int: old_int } = &mut self.recovery.commands[recovery_at].1 {
                 *old_w = w;
@@ -1205,7 +1357,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (70u16, w as u32, hash.finish());
+        let key = (89u16, w as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::world_cells { w: old_w, positions: old_positions, index: old_index, cell_size: old_cell_size } = &mut self.recovery.commands[recovery_at].1 {
                 *old_w = w;
@@ -1227,7 +1379,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (71u16, 0 as u32, hash.finish());
+        let key = (90u16, 0 as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::sort { by_program: old_by_program } = &mut self.recovery.commands[recovery_at].1 {
                 *old_by_program = by_program;
@@ -1246,7 +1398,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (72u16, w as u32, hash.finish());
+        let key = (91u16, w as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::world_runs { w: old_w, ranges: old_ranges, boxes: old_boxes } = &mut self.recovery.commands[recovery_at].1 {
                 *old_w = w;
@@ -1268,7 +1420,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         shown.hash(&mut hash);
-        let key = (73u16, w as u32, hash.finish());
+        let key = (92u16, w as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::world_shown { w: old_w, shown: old_shown } = &mut self.recovery.commands[recovery_at].1 {
                 *old_w = w;
@@ -1288,7 +1440,7 @@ impl BfeRenderer {
         if self.rebuilding { return; }
         self.recovery.clock += 1;
         let hash = std::collections::hash_map::DefaultHasher::new();
-        let key = (74u16, w as u32, hash.finish());
+        let key = (93u16, w as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::world_lamps { w: old_w, values: old_values } = &mut self.recovery.commands[recovery_at].1 {
                 *old_w = w;
@@ -1313,6 +1465,11 @@ impl BfeRenderer {
         let saved = std::mem::take(&mut self.recovery);
         let mut old = std::mem::replace(&mut self.r, BfeRenderer::new(context).r);
         self.static_worlds.clear();
+        self.water_geometry.clear();
+        self.actor_resources.geometry.clear();self.actor_resources.effects.clear();self.actor_resources.materials.clear();self.actor_resources.recipes.clear();self.actor_resources.motions.clear();
+        self.actor_resources.depth.descriptors.clear();self.actor_resources.depth.skins.clear();self.actor_resources.depth.free.clear();self.actor_resources.depth.free_ids.clear();self.actor_resources.depth.end=0;
+        self.actor_resources.crowd.input[crate::actor_layout::crowd_input::DIRTY]=1.;
+        let old_lines=std::mem::take(&mut self.line_resources);
         // Replay uses the public registration methods, whose remember hooks
         // must stay inert rather than recursively appending the replay itself.
         self.rebuilding = true;
@@ -1322,7 +1479,21 @@ impl BfeRenderer {
         order.sort_by_key(|&i| saved.commands[i].0);
         for recovery_at in order { match &saved.commands[recovery_at].1 {
             Command::Texture(slot) => { let texture = *textures.get(*slot as usize).ok_or_else(|| JsValue::from_str("Missing restored texture id"))?; self.add_texture(resources,texture)?; },
+            Command::actor_flyer { source, flags, fading, capacity, texture, slot, object, shadows } => { let _ = self.actor_flyer(*source, *flags, *fading, *capacity, *texture, *slot, *object, *shadows)?; },
+            Command::actor_flyer_motion { source, capacity, matrices } => { let _ = self.actor_flyer_motion(*source, *capacity, matrices)?; },
+            Command::actor_geometry { source, key, whole } => { let _ = self.actor_geometry(*source, key, *whole)?; },
+            Command::actor_effect { source, kind, shadows, view, texture, authored } => { let _ = self.actor_effect(*source, *kind, *shadows, *view, *texture, authored)?; },
+            Command::actor_motion { source, skin, locked } => { let _ = self.actor_motion(*source, *skin, *locked)?; },
+            Command::actor_skin_release { id } => { let _ = self.actor_skin_release(*id); },
+            Command::actor_skin { texture, bones } => { let _ = self.actor_skin(*texture, *bones); },
+            Command::actor_depth { source, authored, skin, map } => { let _ = self.actor_depth(*source, authored, *skin, *map)?; },
+            Command::actor_material { source, authored, skin, cascades, lamps, view, samplers } => { let _ = self.actor_material(*source, authored, *skin, *cascades, *lamps, *view, samplers)?; },
+            Command::actor_settings { cascades, lamps } => { let _ = self.actor_settings(*cascades, *lamps)?; },
             Command::canopies_mesh { max } => { let _ = self.canopies_mesh(*max)?; },
+            Command::effect_batch { kind, variant, shadows, texture, capacity, owner, samplers } => { let _ = self.effect_batch(*kind, *variant, *shadows, *texture, *capacity, *owner, samplers)?; },
+            Command::effect_mesh { kind, shadows, texture, vertices, indices, uv } => { let _ = self.effect_mesh(*kind, *shadows, *texture, *vertices, *indices, uv)?; },
+            Command::effect_basin { tier, basins, vertices, indices, wide, shadows, samplers } => { let _ = self.effect_basin(*tier, basins, vertices, indices, *wide, *shadows, samplers)?; },
+            Command::effect_far_mesh { kind, shadows, slot, vertex_at, object } => { let _ = self.effect_far_mesh(*kind, *shadows, *slot, *vertex_at, *object)?; },
             Command::fx_reserve { floats } => { let _ = self.fx_reserve(*floats); },
             Command::fx_add_owner { tracks, track_rows } => { let _ = self.fx_add_owner(*tracks, *track_rows); },
             Command::fx_add_batch { program, texture, blend, corner, attributes, owner } => { let _ = self.fx_add_batch(*program, *texture, blend, *corner, attributes, *owner); },
@@ -1353,8 +1524,12 @@ impl BfeRenderer {
             Command::far_refresh { item, buffer, at, floats, flag } => { let _ = self.far_refresh(*item, *buffer, *at, *floats, *flag); },
             Command::foliage_class { texture, grass, shadows, definition, authored, rows, bounds, map_matrix } => { let _ = self.foliage_class(*texture, *grass, *shadows, definition, authored, rows, bounds, map_matrix)?; },
             Command::hud_init { index } => { let _ = self.hud_init(index); },
+            Command::hud_descriptor_init {  } => { let _ = self.hud_descriptor_init()?; },
+            Command::hud_appearance { map, mask, masked, map_sample, mask_sample } => { let _ = self.hud_appearance(*map, *mask, *masked, *map_sample, *mask_sample); },
             Command::inst_add_blend { blend, depth_flags, depth_func, passes } => { let _ = self.inst_add_blend(blend, *depth_flags, *depth_func, passes); },
             Command::interface_buffer_init { geometry, buffer, data } => { let _ = self.interface_buffer_init(*geometry, *buffer, data); },
+            Command::ui_appearance { source, authored, skin, samplers, public_samples, order } => { let _ = self.ui_appearance(*source, authored, *skin, samplers, public_samples, *order)?; },
+            Command::line_source { program, kind, capacity } => { let _ = self.line_source(*program, *kind, *capacity)?; },
             Command::set_shadow_maps { ids } => { let _ = self.set_shadow_maps(ids); },
             Command::set_far_map { texture } => { let _ = self.set_far_map(*texture); },
             Command::add_program { kind, vs, fs, attributes, uniforms } => { let _ = self.add_program(*kind, vs, fs, attributes, uniforms)?; },
@@ -1389,6 +1564,7 @@ impl BfeRenderer {
             Command::water_rings { index, blend, depth_func, flags, side } => { let _ = self.water_rings(index, blend, *depth_func, *flags, *side); },
             Command::water_set { max, sizes } => { let _ = self.water_set(*max, sizes); },
             Command::water_instanced { surface, set, k, location } => { let _ = self.water_instanced(*surface, *set, *k, *location); },
+            Command::effect_water { source, kind, far_view, shadows, slot, object } => { let _ = self.effect_water(*source, *kind, *far_view, *shadows, *slot, *object)?; },
             Command::add_world { geometry, program, order, flags, bounds } => { let _ = self.add_world(*geometry, *program, *order, *flags, bounds); },
             Command::world_texture { w, unit, texture } => { let _ = self.world_texture(*w, *unit, *texture); },
             Command::world_uniform { w, name, values, int } => { let _ = self.world_uniform(*w, name, values, *int); },
@@ -1398,6 +1574,8 @@ impl BfeRenderer {
             Command::world_shown { w, shown } => { let _ = self.world_shown(*w, *shown); },
             Command::world_lamps { w, values } => { let _ = self.world_lamps(*w, values); },
         }}
+        // Line points survive loss; replay recreates only their GPU descriptors.
+        self.line_resources.input=old_lines.input;self.line_resources.data=old_lines.data;
         // Allocations and bindings now have their original logical ids.
         // Move, do not clone, the authoritative CPU mirrors across the reset.
         // Published WASM views are rebound by the JS caller after this returns.

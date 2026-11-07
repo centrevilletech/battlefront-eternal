@@ -1,4 +1,5 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import {actorAsset,actorNode} from './actor-resources.js';
+import {EFFECT} from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 
@@ -27,53 +28,18 @@ export class ShieldBubble {
     this.source = new THREE.Vector3();
     this.cameraLocal = new THREE.Vector3();
     const map = look.Texture ? texture(look.Texture) : null;
-    // Clone sampler state only: other users of the native atlas stay intact.
-    this.map = map?.clone() || null;
-    if (this.map) {
-      this.map.wrapS = this.map.wrapT = THREE.RepeatWrapping;
-      this.map.needsUpdate = true;
-    }
-    const color = (values, fallback) => new THREE.Vector3(...(values || fallback).slice(0, 3).map(x => x / 255));
-    this.uniforms = {
-      fieldMap: { value: this.map }, hasMap: { value: this.map ? 1 : 0 },
-      shieldTime: { value: 0 }, shieldFade: { value: 0 }, charge: { value: 1 },
-      enhanced: { value: 1 }, birth: { value: 10 }, inside: { value: 0 },
-      flash: { value: 0 },
-      fieldColor: { value: color(look.Color, [96, 160, 192]) },
-      specularColor: { value: color(look.SpecularColor, [216, 240, 255]) },
-      sunDirection: lighting.sunDirection, sunColor: lighting.sunColor,
-      impacts: { value: Array.from({ length: HITS }, () => new THREE.Vector4(0, 0, 1, -1000)) },
-      powers: { value: new Float32Array(HITS) },
-      blasts: { value: new Float32Array(HITS) },
+    this.map=map;this.impacts=new Float64Array(HITS*4);this.powers=new Float32Array(HITS);this.blasts=new Float32Array(HITS);
+    for(let i=0;i<HITS;i++){this.impacts[i*4+2]=1;this.impacts[i*4+3]=-1000;}
+    // Sphere topology, defaults, side/blend policy and repeat sampler aliases
+    // are native cold recipes. Only hit history and live charge stay here.
+    const make=(row,width,height)=>{
+      const asset=actorAsset({kind:'sphere',radius:1,widthSegments:width,heightSegments:height});
+      const mesh=actorNode(asset,null),owner={map};
+      const source={mesh,asset,owner,family:'actorEffect',visibility:'anchor',values:new Float64Array(row.LENGTH),nativeKind:row.ID,center:null,authored:look,repeat:true};
+      source.prepareActor=camera=>this.prepareActor(source,row,camera);mesh.userData.effectModel=source;return mesh;
     };
-    this.material = ownedEffectMaterial("effects/shield", { uniforms: this.uniforms,
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
-    this.material.name = "droideka-energy-shield";
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 80, 48), this.material);
-    this.mesh.name = "droideka-shield";
-    this.mesh.visible = false;
-    this.mesh.renderOrder = 4;
-    this.mesh.onBeforeRender = (renderer, scene, camera) => {
-      if (this.map && this.sourceVersion !== this.map.source.version) {
-        this.map.needsUpdate = true;
-        this.sourceVersion = this.map.source.version;
-      }
-      this.cameraLocal.copy(camera.position).sub(this.mesh.position).divide(this.mesh.scale);
-      this.uniforms.inside.value = this.cameraLocal.lengthSq() < 1 ? 1 : 0;
-      this.material.uniformsNeedUpdate = true;
-    };
-    scene.add(this.mesh);
-    this.aura = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), ownedEffectMaterial("effects/shield-aura", {
-      uniforms: this.uniforms,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    }));
-    this.aura.name = "droideka-shield-aura";
-    this.aura.renderOrder = 4;
-    this.aura.visible = false;
-    this.aura.onBeforeRender = (renderer, scene, camera) => {
-      this.mesh.onBeforeRender(renderer, scene, camera);
-      this.aura.material.uniformsNeedUpdate = true;
-    };
+    this.mesh=make(EFFECT.ACTOR_SHIELD,80,48);this.mesh.name='droideka-shield';this.mesh.visible=false;this.mesh.renderOrder=4;scene.add(this.mesh);
+    this.aura=make(EFFECT.ACTOR_AURA,48,24);this.aura.name='droideka-shield-aura';this.aura.renderOrder=4;this.aura.visible=false;
     // Parenting makes external visibility/layer changes apply to both shells.
     this.mesh.add(this.aura);
     this.aura.scale.setScalar(1.035);
@@ -102,9 +68,9 @@ export class ShieldBubble {
     if (this.source.lengthSq() < 1e-8) this.source.set(0, 1, 0);
     this.source.normalize();
     const i = this.hitIndex++ % HITS;
-    this.uniforms.impacts.value[i].set(this.source.x, this.source.y, this.source.z, this.time);
-    this.uniforms.powers.value[i] = power;
-    this.uniforms.blasts.value[i] = kind === "explosion" ? 1 : 0;
+    const at=i*4;this.impacts[at]=this.source.x;this.impacts[at+1]=this.source.y;this.impacts[at+2]=this.source.z;this.impacts[at+3]=this.time;
+    this.powers[i] = power;
+    this.blasts[i] = kind === "explosion" ? 1 : 0;
   }
 
   update(dt, droideka, { position = droideka.position } = {}) {
@@ -134,13 +100,8 @@ export class ShieldBubble {
     this.pop = f > 0 ? pop : 0;
     const radius = shield?.def.ShieldRadius ?? this.look.Radius ?? 1.25;
     this.mesh.scale.set(radius * Math.max(pop, 0.001), (this.look.Height ?? radius) * Math.max(pop, 0.001), radius * Math.max(pop, 0.001));
-    this.uniforms.shieldTime.value = this.time;
     this.flash *= Math.exp(-10 * dt);
-    this.uniforms.flash.value = this.flash;
-    this.uniforms.birth.value = this.birth;
-    this.uniforms.shieldFade.value = this.fade;
-    this.uniforms.enhanced.value = enhanced ? 1 : 0;
-    this.uniforms.charge.value = shield?.max > 0 ? THREE.MathUtils.clamp(shield.value / shield.max, 0, 1) : 0;
+    this.enhanced=enhanced;this.charge=shield?.max>0?THREE.MathUtils.clamp(shield.value/shield.max,0,1):0;
   }
 
   // Gone with its body (off the field): nothing left drawn, nothing to fade.
@@ -150,8 +111,12 @@ export class ShieldBubble {
     this.mesh.visible = false;
   }
 
-  dispose() {
-    this.aura.geometry.dispose(); this.aura.material.dispose();
-    this.mesh.removeFromParent(); this.mesh.geometry.dispose(); this.material.dispose(); this.map?.dispose();
-  }
+  // ShieldBubble.onBeforeRender's inside test is a view fact. Generated rows
+  // publish it and hit history without material uniform-name dispatch.
+  prepareActor(source,row,camera){const v=source.values;v.set(camera.projectionMatrix.elements,row.PROJECTION_MATRIX);
+    this.cameraLocal.copy(camera.position).sub(this.mesh.position).divide(this.mesh.scale);
+    v[row.SHIELD_TIME]=this.time;v[row.SHIELD_FADE]=this.fade;v[row.BIRTH]=this.birth;v[row.INSIDE]=this.cameraLocal.lengthSq()<1?1:0;v[row.FLASH]=this.flash;
+    if(row===EFFECT.ACTOR_SHIELD){v.set(camera.matrixWorldInverse.elements,row.VIEW_MATRIX);v[row.CHARGE]=this.charge??1;v[row.ENHANCED]=this.enhanced===false?0:1;
+      lighting.sunDirection.value.toArray(v,row.SUN_DIRECTION);lighting.sunColor.value.toArray(v,row.SUN_COLOR);v.set(this.impacts,row.IMPACTS);v.set(this.powers,row.POWERS);v.set(this.blasts,row.BLASTS);}}
+  dispose(){this.mesh.removeFromParent();}
 }

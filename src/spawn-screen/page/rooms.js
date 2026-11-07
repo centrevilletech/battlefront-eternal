@@ -1,3 +1,6 @@
+import {interfaceNode} from '../../interface/resources.js';
+import {repeatImage} from '../../interface/images.js';
+import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { surfaceMaterial as interfaceMaterial } from "../../rust-render/interface-material.js";
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
@@ -19,10 +22,7 @@ const ROOM = { width: 22, height: 9, depth: 26, back: -13 }; // m, its floor at 
 export class GridRoom {
   // map: the shell_cube texture (or null, until it loads).
   constructor(map) {
-    if (map && map.wrapS !== THREE.RepeatWrapping) {
-      map.wrapS = map.wrapT = THREE.RepeatWrapping;
-      if (map.image) map.needsUpdate = true;
-    }
+    map=repeatImage(map);
     this.material = interfaceMaterial("room", {
       uniforms: {
         map: { value: map },
@@ -36,7 +36,7 @@ export class GridRoom {
       depthTest: false,
       depthWrite: false,
     });
-    this.mesh = new THREE.Mesh(new THREE.BoxGeometry(ROOM.width, ROOM.height, ROOM.depth), this.material);
+    this.mesh = interfaceNode({kind:"box",width:ROOM.width,height:ROOM.height,depth:ROOM.depth},this.material);
     this.mesh.position.set(0, ROOM.height / 2, ROOM.back + ROOM.depth / 2);
     this.mesh.frustumCulled = false;
     this.scene = new THREE.Scene();
@@ -44,24 +44,23 @@ export class GridRoom {
   }
 
   colors({ tint, pulse }) {
-    if (tint) this.material.uniforms.tint.value.setRGB(...tint);
-    if (pulse) this.material.uniforms.pulse.value.setRGB(...pulse);
+    if (tint) paintArray(this.material,LOOK.TINT,tint);
+    if (pulse) paintArray(this.material,LOOK.PULSE,pulse);
   }
 
   update(time, strength) {
-    this.material.uniforms.time.value = time;
-    this.material.uniforms.strength.value = strength;
+    this.material.values[LOOK.TIME] = time;
+    this.material.values[LOOK.STRENGTH] = strength;
   }
 
   // Under everything (it is the room the camera stands in).
   render(renderer, camera) {
-    if (!this.material.uniforms.map.value) return;
+    if (!this.material.map) return;
     renderInterface(renderer, this.scene, camera, "spawn-room");
   }
 
   dispose() {
-    this.material.dispose();
-    this.mesh.geometry.dispose();
+    this.mesh.removeFromParent();
   }
 }
 
@@ -75,22 +74,21 @@ export class StageFloor {
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     });
-    this.mesh = new THREE.Mesh(new THREE.CircleGeometry(7.5, 96).rotateX(-Math.PI / 2), this.material);
+    this.mesh = interfaceNode({kind:"circle",radius:7.5,segments:96,transforms:[["rotateX",-Math.PI/2]]},this.material);
     this.mesh.position.y = -0.005;
     this.mesh.renderOrder = -3;
   }
 
   colors({ color }) {
-    if (color) this.material.uniforms.color.value.setRGB(...color);
+    if (color) paintArray(this.material,LOOK.COLOR,color);
   }
 
   update(time, strength) {
-    this.material.uniforms.time.value = time;
-    this.material.uniforms.strength.value = strength;
+    this.material.values[LOOK.TIME] = time;
+    this.material.values[LOOK.STRENGTH] = strength;
   }
 
   dispose() {
-    this.material.dispose();
-    this.mesh.geometry.dispose();
+    this.mesh.removeFromParent();
   }
 }

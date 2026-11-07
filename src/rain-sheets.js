@@ -1,70 +1,31 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
-import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
-
-// Enhanced rain's middle distance: three open cylinders around the eye (4, 9
-// and 18 m) scrolling a streak texture down and across with the wind, as in
-// CryEngine's and Lagarde's rain. Individual drops (weather.js) stay near the
-// camera; these give heavy rain its density and its sheets in the distance
-// at a fixed cost: one draw, at most three thin layers. They keep to the
-// world's axes, so turning doesn't drag them, stop under roofs (the drops'
-// cover map), fade into geometry and take the scene's light, lightning
-// included.
-const RADII = [4, 9, 18], SEGMENTS = 48, ABOVE = 16, BELOW = 10;
-
-// A tileable sheet of falling streaks, thin, varied in length and strength,
-// pre-blurred across so they stay soft when minified; its texels are made
-// by the Rust phase (weather.rs streaks).
-function streakTexture(data, size = 256) {
-  const texture = new THREE.DataTexture(data, size, size);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.magFilter = THREE.LinearFilter;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.needsUpdate = true;
-  return texture;
-}
-
-function cylinders() {
-  const sheet = [], index = [];
-  RADII.forEach((radius, layer) => {
-    const base = sheet.length / 3;
-    for (let j = 0; j <= SEGMENTS; j++) for (const k of [0, 1]) sheet.push(layer, j / SEGMENTS, k);
-    for (let j = 0; j < SEGMENTS; j++) {
-      const a = base + j * 2;
-      index.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    }
-  });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('sheet', new THREE.Float32BufferAttribute(sheet, 3));
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(sheet.length), 3));
-  geometry.setIndex(index);
-  return geometry;
-}
-
-
-
+// RainSheets' three open cylinders and repeat/mipmap streak image are native
+// resources. The page publishes only the rain's live environmental facts.
 export class RainSheets {
-  constructor(scene, uniforms, streaks) {
-    this.texture = streakTexture(streaks);
-    this.material = ownedEffectMaterial("effects/rain-sheets", {
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
-      uniforms: {
-        streaks: { value: this.texture }, eye: uniforms.eye, rainTime: uniforms.rainTime, wind: uniforms.wind, color: uniforms.color,
-        speed: { value: Math.max(6, uniforms.velocity.value * 1.4) }, radii: { value: new THREE.Vector3(...RADII) }, strength: { value: 1 },
-        cover: uniforms.cover, coverCell: uniforms.coverCell, coverSize: uniforms.coverSize,
-        sceneDepth: particleDepth.map, softParticles: particleDepth.enabled, depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-        ambient: lighting.ambient,
-      },
-    });
-    this.mesh = new THREE.Mesh(cylinders(), this.material);
-    this.mesh.name = 'rain-sheets';
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 19;
-    this.mesh.visible = false;
-    this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
-    scene.add(this.mesh);
+  constructor(scene,weather) {
+    this.weather=weather;this.nativeKind=EFFECT.RAIN_SHEETS.ID;this.family='rainSheets';
+    this.variant=0;this.texture=null;this.arrays={};this.count=1;this.capacity=1;this.visibility='anchor';
+    this.values=new Float64Array(EFFECT.RAIN_SHEETS.LENGTH);this.resources=null;
+    this.samples=new Int32Array(2);this.samples.fill(-1);
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;this.mesh.name='rain-sheets';
+    this.mesh.frustumCulled=false;this.mesh.renderOrder=19;this.mesh.visible=false;
+    this.mesh.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);scene.add(this.mesh);
   }
-  dispose() { this.mesh.removeFromParent(); this.mesh.geometry.dispose(); this.material.dispose(); this.texture.dispose(); }
+  // Ports RainSheets' shared uniforms without retaining per-name wrappers.
+  publishFrame() {
+    const src=this.weather.values,v=this.values;
+    for(let i=0;i<3;i++){v[EFFECT.RAIN_SHEETS.EYE+i]=src[EFFECT.RAIN.EYE+i];v[EFFECT.RAIN_SHEETS.COLOR+i]=src[EFFECT.RAIN.COLOR+i];}
+    v[EFFECT.RAIN_SHEETS.RAIN_TIME]=src[EFFECT.RAIN.RAIN_TIME];
+    v[EFFECT.RAIN_SHEETS.WIND]=src[EFFECT.RAIN.WIND];v[EFFECT.RAIN_SHEETS.WIND+1]=src[EFFECT.RAIN.WIND+1];
+    v[EFFECT.RAIN_SHEETS.SPEED]=Math.max(6,src[EFFECT.RAIN.VELOCITY]*1.4);
+    v[EFFECT.RAIN_SHEETS.RADII]=4;v[EFFECT.RAIN_SHEETS.RADII+1]=9;v[EFFECT.RAIN_SHEETS.RADII+2]=18;
+    v[EFFECT.RAIN_SHEETS.STRENGTH]=1;v[EFFECT.RAIN_SHEETS.COVER_CELL]=src[EFFECT.RAIN.COVER_CELL];v[EFFECT.RAIN_SHEETS.COVER_SIZE]=src[EFFECT.RAIN.COVER_SIZE];
+  }
+  prepareResources(resources) {
+    this.resources=resources;this.samples[0]=resources.gpu.effect_data(4,256,this.weather.host.streaks);
+    this.samples[1]=this.weather.prepareResources(resources)[0];return this.samples;
+  }
+  dispose(){this.mesh.removeFromParent();if(this.resources)this.resources.gpu.dispose_sample(this.samples[0]);}
 }

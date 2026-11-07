@@ -1,8 +1,10 @@
+import { lineSource, LINE_KIND } from '../line-source.js';
 import * as THREE from 'three';
 import { FLIGHT_CLASSES } from './config.js';
 // Created only on the presentation host. The same panel is useful in test scenes.
 export class FlightDebug {
   constructor(scene, parent = document.body) {
+    this.end=new THREE.Vector3();
     this.panel = document.createElement('details'); this.panel.style.cssText = 'position:fixed;top:40px;left:8px;background:#08131eee;color:#bdf;padding:10px;z-index:10000;max-height:85vh;overflow:auto;font:12px monospace';
     this.panel.innerHTML = '<summary>Flight debug / live tuning</summary>';
     this.readout = document.createElement('pre'); this.panel.append(this.readout);
@@ -17,21 +19,28 @@ export class FlightDebug {
       this.panel.append(group);
     }
     parent.append(this.panel); this.scene = scene;
-    this.axes = new THREE.AxesHelper(12); scene.add(this.axes);
-    this.lines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x00ffff, depthTest: false })); scene.add(this.lines);
+    this.axes = lineSource(LINE_KIND.AXES); scene.add(this.axes);
+    this.lines = lineSource(LINE_KIND.FLIGHT,128); scene.add(this.lines);
   }
   update(v, cameraTarget) {
     this.axes.visible = this.lines.visible = Boolean(v?.flying); if (!v?.flying) return;
     this.axes.position.copy(v.root.position); this.axes.quaternion.copy(v.root.quaternion);
     this.readout.textContent = JSON.stringify({ state: v.flightState, speed: v.airspeed, rates: [v.tiltRate, v.yawRate, v.flightRollRate], stick: [v.stickX, v.stickY], bank: v.bank, rollLock: v.rollLock, power: v.power, lock: v.flightLockState, timer: v.flightLockTimer, landing: v.landingReason }, null, 2);
-    const p = v.root.position, q = v.root.quaternion, pts = [];
-    const line = (a, b) => pts.push(...a.toArray(), ...b.toArray());
-    line(p, p.clone().addScaledVector(v.velocity, 1.5));
-    line(p, p.clone().add(new THREE.Vector3(0, -v.flightConfig.landingHeight, 0)));
-    if (cameraTarget) line(p, cameraTarget);
-    const radius = Math.tan(v.flightConfig.lockCone * Math.PI / 180) * 60;
-    for (let i = 0; i < 16; i++) line(p, new THREE.Vector3(Math.cos(i*Math.PI/8)*radius, Math.sin(i*Math.PI/8)*radius, 60).applyQuaternion(q).add(p));
-    this.lines.geometry.dispose(); this.lines.geometry = new THREE.BufferGeometry(); this.lines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const p=v.root.position,q=v.root.quaternion,source=this.lines.userData.lineSource;
+    source.count=0;
+    this.end.copy(p).addScaledVector(v.velocity,1.5);this.segment(p,this.end);
+    this.end.copy(p);this.end.y-=v.flightConfig.landingHeight;this.segment(p,this.end);
+    if(cameraTarget)this.segment(p,cameraTarget);
+    const radius=Math.tan(v.flightConfig.lockCone*Math.PI/180)*60;
+    for(let i=0;i<16;i++){this.end.set(Math.cos(i*Math.PI/8)*radius,Math.sin(i*Math.PI/8)*radius,60).applyQuaternion(q).add(p);this.segment(p,this.end);}
+    source.serial++;
   }
-  dispose() { this.panel.remove(); this.scene.remove(this.axes, this.lines); this.axes.dispose(); this.lines.geometry.dispose(); this.lines.material.dispose(); }
+  // FlightDebug's line helper writes the bounded source directly, without
+  // temporary point arrays, replacement geometries or Vector3 clones.
+  segment(a,b){
+    const source=this.lines.userData.lineSource,at=source.count*3;
+    source.positions[at]=a.x;source.positions[at+1]=a.y;source.positions[at+2]=a.z;
+    source.positions[at+3]=b.x;source.positions[at+4]=b.y;source.positions[at+5]=b.z;source.count+=2;
+  }
+  dispose() { this.panel.remove(); this.scene.remove(this.axes, this.lines); }
 }

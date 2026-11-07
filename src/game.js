@@ -1,6 +1,6 @@
+import {lightActor as setActorLight,glowLook,actorDescription} from './actor-resources.js';
 import { SurfaceOwner } from './environment/module.js';
 import { SurfaceFrame } from './environment/frame.js';
-import { ownedBasicEffect } from './rust-render/effect-material.js';
 import { observePresentation } from "./presentation-profile.js";
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
 import { PredictionArsenal } from './runtime/prediction-arsenal.js';
@@ -150,6 +150,7 @@ async function attachOwnedCombat(instance) {
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = loadSim } = {}) {
+if(headless)await(await import('./rust-render/load.js')).rendererModule();
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 // The destruction and weather phase's Rust module, compiled before anything builds on it.
@@ -657,9 +658,7 @@ async function start() {
   }
   function applyLight(materials, { sun, darken, lighten, brightness }) {
     for (const material of materials) {
-      material.uniforms.sunScale.value = sun;
-      material.uniforms.brightness.value = brightness;
-      material.uniforms.ambientPull.value.set(darken, lighten);
+      setActorLight(material,sun,darken,lighten,brightness);
     }
   }
   function lightAt(p, out) {
@@ -695,13 +694,7 @@ async function start() {
     const parts = fxModels.get(name);
     if (!parts) return null;
     return () => {
-      const material = ownedBasicEffect('glow-basic', {
-        map: anyTexture(parts[0].texture),
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      });
+      const material=glowLook(anyTexture(parts[0].texture));
       const group = modelGroup(parts, () => material);
       group.userData.material = material;
       return group;
@@ -789,7 +782,7 @@ async function start() {
   const flyingSize = (name) => {
     let best = null;
     for (const part of weaponModels.get(name) || []) {
-      const sphere = part.geometry?.boundingSphere;
+      const bound=actorDescription(part.asset).bounds,sphere=new THREE.Sphere(new THREE.Vector3(bound[0],bound[1],bound[2]),bound[3]);
       if (sphere && (!best || sphere.radius > best.radius)) best = sphere;
     }
     return best;
@@ -3242,13 +3235,7 @@ function hologramLogos(logos, models, texture) {
     const parts = models.get(model.toLowerCase());
     if (!parts) continue;
     factories.set(sideName, () => {
-      const material = ownedBasicEffect('glow-basic', { visible: true,
-        map: texture(parts[0].texture),
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      });
+      const material=glowLook(texture(parts[0].texture));
       const group = modelGroup(parts, () => material);
       group.userData.material = material;
       return group;

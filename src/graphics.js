@@ -7,7 +7,6 @@ import { warmEffectPrograms } from "./rust-render/effect-material.js";
 import * as THREE from "three";
 import { ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
-import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { FACTS as F, STATE as S, ROLE as R } from "./rust-render/frame-layout.js";
 import { CAMERA_ROLE, shadowShells } from "./rust-render/cameras.js";
 import { RenderProfiler } from "./render-profiler.js";
@@ -482,26 +481,6 @@ export class Graphics {
       this.depthMaterials.set(key, depth);
     }
     mesh.customDepthMaterial = depth;
-  }
-
-  // The map's static meshes. Opaque ones cast through the merged static
-  // shadow meshes (finishStaticShadows); alpha-cut ones need their own
-  // textures in the depth pass and keep a partitioned proxy each.
-  staticCaster(object) {
-    const material = Array.isArray(object.material) ? object.material[0] : object.material;
-    if (material?.alphaTest > 0 && (material.map || material.alphaMap)) return partitionShadowCaster(object, (part) => this.caster(part), this.staticLayer);
-    cullColorOnly(object);
-    (this.pendingStatic ||= []).push(object);
-    return [object];
-  }
-
-  finishStaticShadows() {
-    if (!this.pendingStatic?.length) return [];
-    for (const mesh of this.pendingStatic) { mesh.castShadow = false; this.casters.delete(mesh); }
-    const merged = mergeStaticShadows(this.pendingStatic, this.staticLayer);
-    for (const mesh of merged) { this.scene.add(mesh); this.caster(mesh); }
-    this.pendingStatic = null;
-    return merged;
   }
 
   // The render scale (and adaptive resolution) shrink the 3D frame, which an

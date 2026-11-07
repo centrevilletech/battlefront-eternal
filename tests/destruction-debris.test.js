@@ -1,14 +1,18 @@
+import './fixtures/native-render-descriptors.js';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { DebrisPieces, heatMaterial, pieceShape } from '../src/destruction-debris.js';
 import { DstPiece as PIECE } from '../src/environment/layout.js';
+import {actorAsset,actorNode} from '../src/actor-resources.js';
 import { actorMaterial } from '../src/materials.js';
+
+function boxNode(x,y,z,material){const geometry=new THREE.BoxGeometry(x,y,z),p=geometry.attributes.position,n=geometry.attributes.normal,u=geometry.attributes.uv,vertices=new Float32Array(p.count*8);for(let i=0;i<p.count;i++)vertices.set([p.getX(i),p.getY(i),p.getZ(i),n.getX(i),n.getY(i),n.getZ(i),u.getX(i),u.getY(i)],i*8);return actorNode(actorAsset({kind:'model',parts:[{vertexOffset:0,vertexCount:p.count,indexOffset:0,indexCount:geometry.index.count}]},vertices,Uint32Array.from(geometry.index.array)),material);}
 
 test('a piece shape is its box centre, half size and extreme vertices', () => {
   const group = new THREE.Group();
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.4));
+  const mesh = boxNode(0.6,0.2,0.4,actorMaterial('dynamic'));
   mesh.position.set(0.3, 0, 0);
   group.add(mesh);
   const shape = pieceShape(group);
@@ -26,7 +30,7 @@ function model() {
   const material = actorMaterial('dynamic', {});
   return () => {
     const group = new THREE.Group();
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.3), material));
+    group.add(boxNode(0.5,0.15,0.3,material));
     return group;
   };
 }
@@ -38,12 +42,9 @@ test('heated pieces keep the stock material and add heat, charring and crumbling
   assert.equal(heatMaterial(source), heated, 'made once per material');
   assert.equal(source.fragmentShader,undefined);
   assert.equal(heated.fragmentShader,undefined);
-  assert.equal(heated.onBeforeRender,THREE.Material.prototype.onBeforeRender);
-  assert.equal(heated.defines.DYNAMIC, '');
-  assert.equal(heated.defines.HEATED, '');
-  // The map's light uniforms are shared, not copied.
-  assert.equal(heated.uniforms.sunDirection, source.uniforms.sunDirection);
-  assert.notEqual(heated.uniforms.sunScale, source.uniforms.sunScale);
+  assert.equal(heated.onBeforeRender,undefined);
+  assert.equal(heated.authored.kind,'dynamic');assert.equal(heated.authored.heated,true);
+  assert.notEqual(heated.values,source.values);assert.equal(source.authored.heated,undefined);
 });
 
 test('heat is applied before a piece dissolves into the far scene, so it fades out at range', () => {

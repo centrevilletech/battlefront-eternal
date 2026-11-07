@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ownedBasicEffect } from "./rust-render/effect-material.js";
+import {actorAsset,glowNode,glowLook} from './actor-resources.js';
 
 // Page weapon state for native melee snapshots and drawn blade selection.
 // The native combat owner alone advances swings and acquires their targets.
@@ -47,7 +47,7 @@ export function attachBlade(group, base, def, texture) {
   const basis = new THREE.Matrix4();
   for (const [map, width, opacity] of [[core, .08, 1], [texture("lightsabreglow"), .16, 100 / 255]]) {
     if (!map) continue;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, length), ownedBasicEffect('glow-basic', { visible: true, map, color: 0xffffff, transparent: true, opacity, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+    const mesh = glowNode(actorAsset({kind:'plane',width,height:length}),glowLook(map,0xffffff,opacity));
     mesh.position.copy(axis).multiplyScalar(length / 2);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
     mesh.onBeforeRender = (_renderer, _scene, camera) => {

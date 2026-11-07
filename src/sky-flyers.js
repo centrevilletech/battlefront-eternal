@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { ownedEffectMaterial } from "./rust-render/effect-material.js";
+import {actorDescription,actorNode} from "./actor-resources.js";
+import {ACTOR} from "./rust-render/actor-layout.js";
 import { SkyHost } from "./environment/module.js";
 import { SkyClass as SKY_CLASS, SkyConfig as SKY_CONFIG, SkyFrame as SKY_FRAME, SkyResult as SKY_RESULT } from "./environment/layout.js";
 import { lighting } from "./materials.js";
@@ -49,71 +50,15 @@ import { SkyProbe } from "./sky-probe.js";
 // In both, ships draw their own motion for the temporal upscaler
 // (motion-vectors.js), so a crossing fighter doesn't smear.
 //
-// Presentation only, page-side: no simulation reads it, it isn't in the
+// Presentation only, in the native environment phase: no simulation reads it, it isn't in the
 // content fingerprint, and each page draws its own random ships. A class is
-// one instanced draw per model part, sorted far to near (Enhanced: another
+// one native instanced draw per model part, sorted far to near (Enhanced: another
 // for its fading ships).
 
 // The setting whose Enhanced choice turns the Enhanced sky on.
 export const SKY_SETTING = "oceanEffects";
 
 
-
-// A part's material by its MTRL flags: lit (0x1) or not, cut out (0x2),
-// laid over by its alpha (0x4) or added (0x80), two-sided (0x86). Every
-// part blends by the ship's fade, as an object fading out does, from the
-// far scene's opaque queue, after the terrain (renderOrder). Its
-// opaque parts write depth even then, as the 2004 game's do; blended
-// parts (0x84) never do. `fading`: Enhanced's draw of the fading ships,
-// which writes no depth at all.
-export function flyerMaterial(part, map, { fading = false } = {}) {
-  const flags = part.flags ?? 1;
-  const defines = {};
-  if (flags & 0x1) defines.LIT = "";
-  if (flags & 0x2) defines.ALPHA_TEST = "";
-  if (flags & 0x80) defines.ADDITIVE = "";
-  else if (flags & 0x4) defines.BLENDED = "";
-  const material = ownedEffectMaterial('effects/sky-flyer', {
-    name: fading ? "sky-flyer-fading" : "sky-flyer",
-    defines,
-    uniforms: {
-      map: { value: map || null },
-      sunDirection: lighting.sunDirection,
-      sunColor: lighting.sunColor,
-      ambient: lighting.ambient,
-      skyProbe: { value: null },
-      reach: { value: 1 },
-    },
-    side: flags & 0x86 ? THREE.DoubleSide : THREE.FrontSide,
-  });
-  material.transparent = false;
-  material.blending = THREE.CustomBlending;
-  material.blendSrc = flags & 0x80 ? THREE.OneFactor : THREE.SrcAlphaFactor;
-  material.blendDst = flags & 0x80 ? THREE.OneFactor : THREE.OneMinusSrcAlphaFactor;
-  material.depthWrite = !fading && !(flags & 0x84);
-  return material;
-}
-
-// The motion a ship's pixels moved since the last frame, for the temporal
-// upscaler (motion-vectors.js). It covers the pixels the far scene shows
-// (where the near scene drew nothing), from its true placement now and
-// then; past the near scene's far plane it is kept by taking no depth.
-
-
-let motionMaterial = null;
-function flyerMotion() {
-  motionMaterial ??= ownedEffectMaterial("effects/motion-flyer", {
-    name: "sky-flyer-motion",
-    uniforms: {
-      currentViewProjection: motionUniforms.currentViewProjection,
-      previousViewProjection: motionUniforms.previousViewProjection,
-      sceneDepth: motionUniforms.sceneDepth,
-      still: { value: 0 },
-    },
-    depthTest: false, depthWrite: false, side: THREE.DoubleSide,
-  });
-  return motionMaterial;
-}
 
 // The flyers a battle draws: its mission's classes from flyers.json, as the
 // original draws them or (`enhanced`) as the Enhanced sky does. A map
@@ -167,8 +112,8 @@ export class SkyFlyers {
     config[SKY_CONFIG.CLASSES] = kept.length;
     config[SKY_CONFIG.ENHANCED] = this.enhanced ? 1 : 0;
     const radii = kept.map(({ parts }) => parts.reduce((r, part) => {
-      const sphere = part.geometry.boundingSphere;
-      return Math.max(r, sphere.center.length() + sphere.radius);
+      const b=actorDescription(part.asset).bounds;
+      return Math.max(r,Math.sqrt(b[0]*b[0]+b[1]*b[1]+b[2]*b[2])+b[3]);
     }, 0));
     kept.forEach(({ def, modes }, i) => {
       const at = SKY_CONFIG.STRIDE + i * SKY_CLASS.STRIDE;
@@ -197,47 +142,18 @@ export class SkyFlyers {
   build(def, parts, texture, modes, radius, index) {
     const count = def.count;
     const records = this.host.arrays(index);
-    const solid = { matrices: new THREE.InstancedBufferAttribute(records[0], 16), looks: new THREE.InstancedBufferAttribute(records[1], 4) };
-    const fading = { matrices: new THREE.InstancedBufferAttribute(records[2], 16), looks: new THREE.InstancedBufferAttribute(records[3], 4) };
-    const motion = {
-      matrices: new THREE.InstancedBufferAttribute(records[4], 16),
-      previous: new THREE.InstancedBufferAttribute(records[5], 16),
-      shown: new THREE.InstancedBufferAttribute(records[6], 1),
+    const solid={matrices:records[0],looks:records[1]},fading={matrices:records[2],looks:records[3]},motion={matrices:records[4],previous:records[5],shown:records[6]};
+    // SkyFlyers.build publishes borrowed environment arrays and authored model
+    // facts. Native far/motion descriptors own every VBO, sampler and raster rule.
+    const mesh=(part,arrays,order,fading=false,moving=false,map=null)=>{
+      const m=actorNode(part.asset,null);m.name=def.model;m.frustumCulled=false;m.matrixAutoUpdate=false;m.renderOrder=order;m.count=count;
+      const source={asset:part.asset,flags:part.flags??1,map,arrays,capacity:count,fading,moving,owner:this,values:new Float64Array(ACTOR.FLYER.LEN)};
+      m.userData[moving?'flyerMotion':'flyerSource']=source;if(moving){m.userData.order=0;m.onBeforeRender=()=>this.motionFrame();}return m;
     };
-    for (const attribute of Object.values({ ...solid, ...fading }).concat(Object.values(motion))) attribute.setUsage(THREE.DynamicDrawUsage);
-    // The part's buffers, with these instance attributes beside them.
-    const geometryOf = (part, extra) => {
-      const geometry = new THREE.BufferGeometry();
-      for (const [name, attribute] of Object.entries(part.geometry.attributes)) geometry.setAttribute(name, attribute);
-      geometry.setIndex(part.geometry.index);
-      geometry.boundingSphere = part.geometry.boundingSphere;
-      for (const [name, attribute] of Object.entries(extra)) geometry.setAttribute(name, attribute);
-      return geometry;
-    };
-    const mesh = (geometry, material, matrices, order) => {
-      const m = new THREE.InstancedMesh(geometry, material, count);
-      m.instanceMatrix = matrices;
-      m.name = def.model;
-      m.frustumCulled = false;
-      m.matrixAutoUpdate = false;
-      m.renderOrder = order;
-      return m;
-    };
-    const draws = [], fades = [], motions = [];
-    for (const part of parts) {
-      const map = texture(part.texture);
-      // After the far scene's terrain and models; the fading ships after
-      // every solid one.
-      draws.push(mesh(geometryOf(part, { look: solid.looks }), flyerMaterial(part, map), solid.matrices, 1));
-      fades.push(mesh(geometryOf(part, { look: fading.looks }), flyerMaterial(part, map, { fading: true }), fading.matrices, 2));
-      const moving = mesh(geometryOf(part, { previousMatrix: motion.previous, shown: motion.shown }), flyerMotion(), motion.matrices, 0);
-      moving.onBeforeRender = () => this.motionFrame();
-      motions.push(moving);
-    }
-    for (const m of [...draws, ...fades]) this.group.add(m);
-    for (const m of motions) this.motion?.addExtra?.(m);
-    const attributes = [solid.matrices, solid.looks, fading.matrices, fading.looks, motion.matrices, motion.previous, motion.shown];
-    return { def, ...modes, index, radius, solid, fading, motion, draws, fades, motions, meshes: [...draws, ...fades, ...motions], attributes };
+    const draws=[],fades=[],motions=[];
+    for(const part of parts){const map=texture(part.texture);draws.push(mesh(part,solid,1,false,false,map));fades.push(mesh(part,fading,2,true,false,map));motions.push(mesh(part,motion,0,false,true));}
+    for(const m of [...draws,...fades])this.group.add(m);for(const m of motions)this.motion?.addExtra?.(m);
+    return {def,...modes,index,radius,solid,fading,motion,draws,fades,motions,meshes:[...draws,...fades,...motions]};
   }
 
   // Whether a class flies in the current mode.
@@ -267,10 +183,7 @@ export class SkyFlyers {
   prepareProbe() {
     if (!this.graphics?.renderer || !this.classes.length || this.probe) return;
     this.probe = new SkyProbe(this.graphics, 64, 1); this.probe.enabled = true;
-    for (const kind of this.classes) {
-      for (const m of kind.draws) m.material.uniforms.skyProbe.value = this.probe.texture;
-      for (const m of kind.fades) m.material.uniforms.skyProbe.value = this.probe.texture;
-    }
+
   }
 
   // Enhanced: the sky behind the ships (sky-probe.js), for their haze.
@@ -305,15 +218,15 @@ export class SkyFlyers {
       for (const m of kind.draws) {
         m.count = solids;
         m.visible = solids > 0;
-        m.material.uniforms.reach.value = far;
+        m.userData.flyerSource.values[ACTOR.FLYER.REACH]=far;
       }
       for (const m of kind.fades) {
         m.count = fadings;
         m.visible = fadings > 0;
-        m.material.uniforms.reach.value = far;
+        m.userData.flyerSource.values[ACTOR.FLYER.REACH]=far;
       }
       for (const m of kind.motions) m.visible = true;
-      for (const attribute of kind.attributes) attribute.needsUpdate = true;
+
     }
   }
 
@@ -323,7 +236,7 @@ export class SkyFlyers {
     const frame = this.motion?.frame ?? 0;
     if (frame === this.motionChecked) return;
     this.motionChecked = frame;
-    flyerMotion().uniforms.still.value = this.stepped ? 0 : 1;
+    this.still=this.stepped?0:1;
     this.stepped = false;
   }
 
@@ -332,14 +245,11 @@ export class SkyFlyers {
     this.group.removeFromParent();
     for (const kind of this.classes) {
       for (const m of [...kind.draws, ...kind.fades]) {
-        m.geometry.dispose();
-        m.material.dispose();
-        m.dispose();
+
       }
       for (const m of kind.motions) {
         this.motion?.removeExtra?.(m);
-        m.geometry.dispose();
-        m.dispose();
+
       }
     }
     this.probe?.dispose();

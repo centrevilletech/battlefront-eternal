@@ -12,11 +12,10 @@ export const PROBE_LAYER = 3; // graphics.js uses layers 1 (hidden) and 2 (stati
 
 let generation=0;
 export class SkyProbe {
-  constructor(graphics, size = 128, slot = 0) {
-    this.graphics = graphics;this.slot=slot;this.generation=++generation;
-    this.target = new THREE.WebGLCubeRenderTarget(size, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
-    this.texture = this.target.texture;
-    this.camera = new THREE.CubeCamera(0.05, 50, this.target);
+  constructor(graphics,size=128,slot=0) {
+    this.graphics=graphics;this.slot=slot;this.generation=++generation;
+    this.target=null;this.size=size;this.texture=-1;this.resources=null;
+    this.camera=new THREE.CubeCamera(0.05,50,null);
     for (const face of this.camera.children) face.layers.set(PROBE_LAYER);
     this.layers = graphics.skyLayers?.length ? graphics.skyLayers : graphics.sky ? [{ mesh: graphics.sky, follow: null }] : [];
     for (const { mesh } of this.layers) mesh.layers.enable(PROBE_LAYER);
@@ -24,11 +23,18 @@ export class SkyProbe {
     this.captures = 0;
   }
 
-  update(time,camera) { this.graphics.rust.frame.probe(this,time,camera); }
+  // Camera math remains a scene input. Rust owns the cube storage and mip
+  // recipe; native frame scheduling receives numeric target and face facts.
+  prepareResources(resources) {
+    if(this.resources)return;this.resources=resources;this.target=resources.probeTarget(this.size);this.texture=this.target.texture;this.camera.renderTarget=this.target;
+    for(let i=0;i<6;i++)this.camera.children[i].userData.nativeProbe={target:this.target,face:i,last:i===5};
+  }
+  update(time,camera) {const frame=this.graphics.rust.frame;if(frame.active)this.prepareResources(this.graphics.renderer.resources);frame.probe(this,time,camera);}
+
 
   dispose() {
     for (const { mesh } of this.layers) mesh.layers.disable(PROBE_LAYER);
     this.layers = [];
-    this.target.dispose();
+    if(this.resources)this.resources.disposeEffectTarget(this.target);
   }
 }

@@ -15,7 +15,7 @@ function fixture() {
 test('moving nozzle emissions fill the actual between-frame path rather than clumping at the endpoint', () => {
   const f = fixture(); f.wake.update(0, f.input);
   f.nozzle.position.x = 1.2; f.wake.update(.2, f.input);
-  const pool = f.wake.wisps, birth = pool.attributes.birth.array;
+  const pool = f.wake.wisps, birth = pool.arrays.birth;
   assert.equal(pool.count, 7);
   for (let i = 0; i < pool.count; i++) {
     assert.ok(Math.abs(birth[i * 4] - (i + 1) / 6) < 1e-6);
@@ -29,7 +29,7 @@ test('emission timestamps and positions are stable at 30, 60 and 144 FPS', () =>
     const f = fixture(); f.wake.update(0, f.input); f.run(1, rate);
     return f.wake.pools.map(pool => {
       const values = [];
-      for (let i = 0; i < pool.count; i++) values.push([pool.attributes.birth.array[i * 4 + 3], pool.attributes.birth.array[i * 4]]);
+      for (let i = 0; i < pool.count; i++) values.push([pool.arrays.birth[i * 4 + 3], pool.arrays.birth[i * 4]]);
       return values.sort((a, b) => a[0] - b[0]);
     });
   });
@@ -47,7 +47,7 @@ test('emission timestamps and positions are stable at 30, 60 and 144 FPS', () =>
 test('wake stops emitting after cutoff, decays completely, and has sparse embers and low-opacity smoke', () => {
   const f = fixture(); f.run(1);
   assert.ok(f.wake.wisps.count > f.wake.embers.count * 3);
-  assert.ok(f.wake.smoke.attributes.style.array[1] <= .121);
+  assert.ok(f.wake.smoke.arrays.style[1] <= .121);
   const emitted = f.wake.emitted; f.input.active = false; f.run(.1);
   assert.equal(f.wake.emitted, emitted); assert.ok(f.wake.smoke.count > 0);
   f.run(1.5); assert.ok(f.wake.pools.every(pool => pool.count === 0));
@@ -55,12 +55,12 @@ test('wake stops emitting after cutoff, decays completely, and has sparse embers
 
 test('wake stays within three draws and fixed buffers throughout a long burn', () => {
   const f = fixture();
-  const buffers = f.wake.pools.map(pool => pool.attributes.birth.array);
+  const buffers = f.wake.pools.map(pool => pool.arrays.birth);
   f.run(20);
   assert.equal(f.scene.children.length, 3);
   f.wake.pools.forEach((pool, i) => {
-    assert.ok(pool.count <= pool.capacity); assert.equal(pool.attributes.birth.array, buffers[i]);
-    for (const attr of pool.attributeList) for (const v of attr.array) assert.ok(Number.isFinite(v));
+    assert.ok(pool.count <= pool.capacity); assert.equal(pool.arrays.birth, buffers[i]);
+    for (const array of pool.streams) for (const v of array) assert.ok(Number.isFinite(v));
   });
   const counts = f.wake.pools.map(pool => pool.count), emitted = f.wake.emitted;
   f.wake.update(0, f.input);
@@ -70,7 +70,7 @@ test('wake stays within three draws and fixed buffers throughout a long burn', (
 test('teleport clears the previous wake and never interpolates across the map', () => {
   const f = fixture(); f.run(.5); f.nozzle.position.x += 100; f.nozzle.previous = new THREE.Vector3(0, 0, 0);
   f.wake.update(.1, f.input);
-  for (const pool of f.wake.pools) for (let i = 0; i < pool.count; i++) assert.ok(pool.attributes.birth.array[i * 4] > 100);
+  for (const pool of f.wake.pools) for (let i = 0; i < pool.count; i++) assert.ok(pool.arrays.birth[i * 4] > 100);
   f.wake.clear(); assert.ok(f.wake.pools.every(pool => !pool.mesh.visible && pool.count === 0));
   f.wake.dispose(); assert.equal(f.scene.children.length, 0);
 });

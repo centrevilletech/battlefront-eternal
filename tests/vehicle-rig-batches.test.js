@@ -1,3 +1,5 @@
+import {sourceOf} from './helpers/actor-resources.js';
+import './fixtures/native-render-descriptors.js';
 import './fixtures/native-anim.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,19 +26,20 @@ const parts = () => [
   { geometry: tri(), texture: 'metal', flags: 1, bone: 'GUN' },
   { geometry: tri(), texture: 'metal', flags: 1, bone: null },
 ];
+const rawParts=parts;const nativeParts=()=>rawParts().map(p=>{const asset=sourceOf(p.geometry);return {...p,asset,...asset.authored.parts[0]};});
 const texture = () => null;
 
 test('without separate bones every part of a material is one batch, as vehicles pack', () => {
-  const batches = vehicleBatches(RIG, parts(), texture);
+  const batches = vehicleBatches(RIG, nativeParts(), texture);
   assert.equal(batches.length, 1);
   assert.equal(batches[0].attach, null);
-  assert.equal(batches[0].geometry.getAttribute('position').count, 12);
-  const skin = batches[0].geometry.getAttribute('skinIndex');
-  assert.deepEqual([skin.getX(0), skin.getX(3), skin.getX(6), skin.getX(9)], [0, 1, 2, 3], 'the loose part on the static bone');
+  assert.equal(batches[0].asset.authored.positions.length/3, 12);
+  const skin = batches[0].asset.authored.joints;
+  assert.deepEqual([skin[0],skin[12],skin[24],skin[36]], [0, 1, 2, 3], 'the loose part on the static bone');
 });
 
 test('separate bones get batches of their own, hung under those bones with an identity bind', () => {
-  const source = parts();
+  const source = nativeParts();
   const batches = vehicleBatches(RIG, source, texture, { separate: ['drum', 'gun'], dispose: false });
   assert.equal(batches.length, 3);
   assert.deepEqual(batches.map((b) => b.attach).sort(), ['drum', 'gun', null].sort());
@@ -59,15 +62,15 @@ test('separate bones get batches of their own, hung under those bones with an id
   }
   // Hiding by walking the drum, as Gunner.hideRig does, reaches both.
   let found = 0;
-  byName.drum.traverse((o) => { if (o.isMesh) found++; });
+  byName.drum.traverse((o) => { if (o.userData.actorAsset) found++; });
   assert.equal(found, 2);
   // Posed, the drum batch's vertices follow the drum: world = drumWorld x bindInverse x p.
   byName.drum.rotation.y = Math.PI / 2;
   root.updateMatrixWorld(true);
   skeleton.update();
   const drumMesh = under('drum');
-  const skin = drumMesh.geometry.getAttribute('skinIndex');
-  assert.equal(skin.getX(0), 1);
+  const skin=drumMesh.userData.actorAsset.authored.joints;
+  assert.equal(skin[0], 1);
   const bone = new THREE.Matrix4().fromArray(skeleton.boneMatrices, 16);
   const p = new THREE.Vector3(1, 1, 0); // the drum's part vertex (1,0,0) in bind pose, baked at y+1
   const world = p.clone().applyMatrix4(drumMesh.bindMatrix).applyMatrix4(bone).applyMatrix4(drumMesh.bindMatrixInverse).applyMatrix4(drumMesh.matrixWorld);

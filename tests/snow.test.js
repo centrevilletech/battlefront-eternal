@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { Snow } from '../src/snow.js';
+import { EFFECT } from '../src/rust-render/effect-layout.js';
 import { loadEnvironment } from '../src/environment/module.js';
 import { runSnow } from './support/snow-scenario.js';
 
@@ -40,11 +41,11 @@ test('snow builds one bounded instanced draw from the imported weather', () => {
   const c = camera();
   stepSurface(snow,1 / 60, c);
   assert.ok(snow.mesh.visible);
-  assert.equal(snow.geometry.instanceCount, snow.stats.boxes * 100);
+  assert.equal(snow.count, snow.stats.boxes * 100);
   assert.ok(snow.stats.flakes <= 32768);
-  assert.equal(snow.material.uniforms.flakeCount.value, 100);
-  assert.equal(snow.material.uniforms.size.value, 0.015);
-  assert.ok(Math.abs(snow.material.uniforms.cameraRight.value.z - 1) < 1e-6 || Math.abs(snow.material.uniforms.cameraRight.value.z + 1) < 1e-6);
+  assert.equal(snow.values[EFFECT.SNOW.FLAKE_COUNT], 100);
+  assert.equal(snow.values[EFFECT.SNOW.SIZE], 0.015);
+  assert.ok(Math.abs(snow.values[EFFECT.SNOW.CAMERA_RIGHT+2] - 1) < 1e-6 || Math.abs(snow.values[EFFECT.SNOW.CAMERA_RIGHT+2] + 1) < 1e-6);
   snow.dispose();
   assert.equal(scene.children.length, 0);
 });

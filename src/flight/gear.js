@@ -57,9 +57,10 @@ export function gearFoot(rig, batches, clip) {
   skin.push(new THREE.Matrix4().elements);
   let low = Infinity;
   for (const batch of batches || []) {
-    const attributes = batch.geometry?.attributes;
-    if (!attributes?.position || !attributes.skinIndex || !attributes.skinWeight) continue;
-    const p = attributes.position.array, joints = attributes.skinIndex.array, weights = attributes.skinWeight.array;
+    // Native vehicleConstruction retains exact Float32 bind streams for this
+    // actual cold landing query; no render descriptor is reconstructed.
+    const source=batch.asset?.authored;if(source?.kind!=='rig')continue;
+    const p=source.positions,joints=source.joints,weights=source.weights;
     for (let v = 0, n = p.length / 3; v < n; v++) {
       const x = p[v * 3], y = p[v * 3 + 1], z = p[v * 3 + 2];
       let height = 0;

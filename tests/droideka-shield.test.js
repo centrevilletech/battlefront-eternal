@@ -1,3 +1,4 @@
+import './fixtures/native-render-descriptors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -48,11 +49,11 @@ test('real absorption forwards damage source and keeps a bounded localized impac
   d.shield.value = 3900;
   d.onShieldHit(100, from);
   assert.equal(d.shield.value, 3900);
-  assert.ok(b.uniforms.impacts.value[0].x > 0.999);
-  assert.ok(b.uniforms.powers.value[0] > 0);
-  const pool = b.uniforms.impacts.value;
+  assert.ok(b.impacts[0] > 0.999);
+  assert.ok(b.powers[0] > 0);
+  const pool = b.impacts;
   for (let i = 0; i < 30; i++) b.hit(from, 10, d);
-  assert.equal(pool, b.uniforms.impacts.value); assert.equal(pool.length, 6);
+  assert.equal(pool, b.impacts); assert.equal(pool.length, 24);
   b.dispose();
 });
 
@@ -70,8 +71,8 @@ test('presentation follows rendered feet, switches modes live and disappears rol
   const { d, settings, bubble: b } = fixture(); d.shield.on = true; d.aimYaw = Math.PI / 2;
   b.update(0.3, d, { position: new THREE.Vector3(3,2,4) });
   assert.ok(b.mesh.position.distanceTo(new THREE.Vector3(3.125,3,4)) < 1e-8);
-  assert.equal(b.uniforms.enhanced.value, 0);
-  settings.mode = 'enhanced'; b.update(0, d); assert.equal(b.uniforms.enhanced.value, 1);
+  assert.equal(b.enhanced, false);
+  settings.mode = 'enhanced'; b.update(0, d); assert.equal(b.enhanced, true);
   d.mode = 12; b.update(1, d); assert.equal(b.mesh.visible, false);
   d.mode = 0; d.dead = true; b.update(1, d); assert.equal(b.mesh.visible, false); b.dispose();
 });

@@ -6,6 +6,7 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 impl BfeRenderer {
+    pub fn fx_clipped(&self)->f64{self.r.effects.clipped as f64}
     pub fn fx_input_ptr(&mut self) -> u32 { self.r.effects.input.as_mut_ptr() as u32 }
     pub fn fx_input_len(&self) -> u32 { self.r.effects.input.len() as u32 }
     pub fn fx_data_ptr(&mut self) -> u32 { self.r.effects.data.as_mut_ptr() as u32 }

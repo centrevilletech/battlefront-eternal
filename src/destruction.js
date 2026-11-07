@@ -1,3 +1,5 @@
+import {ACTOR} from './rust-render/actor-layout.js';
+import {actorPoint,actorPointCount,actorJoint} from './actor-resources.js';
 import * as THREE from "three";
 import { emitSound } from "./audio/events.js";
 import { DebrisPieces, heatMaterial } from "./destruction-debris.js";
@@ -289,12 +291,11 @@ export class Destruction {
   // Every body of a model shares its geometry, so this is kept per geometry
   // and always read through the dying body's own bones.
   skeleton(actor) {
-    const geometry = actor.body?.geometry;
+    const geometry = actor.body?.userData.actorAsset;
     let entry = geometry && this.skeletons.get(geometry);
     if (entry) return entry;
     const used = new Set();
-    const skin = geometry?.attributes.skinIndex;
-    if (skin) for (let i = 0; i < skin.count; i++) used.add(skin.getX(i));
+    if(geometry)for(let i=0;i<actorPointCount(geometry);i++)used.add(actorJoint(geometry,i));
     const bones = [];
     actor.bones.forEach((bone, i) => { if (used.has(i) && !/^(hp_|dummyroot)/i.test(bone.name)) bones.push(i); });
     const joints = [];
@@ -339,7 +340,7 @@ export class Destruction {
   match(unit, name, node) {
     const actor = unit.actor;
     const bind = unit.animator?.bind;
-    const geometry = actor.body?.geometry;
+    const geometry = actor.body?.userData.actorAsset;
     if (!bind || !geometry) return null;
     let byChunk = this.matches.get(geometry);
     if (!byChunk) this.matches.set(geometry, (byChunk = new Map()));
@@ -367,7 +368,7 @@ export class Destruction {
   // its vertices sit on average (null for a bone carrying too few to say).
   // Worked out once per body model.
   bindPose(actor, bind) {
-    const geometry = actor.body.geometry;
+    const geometry = actor.body.userData.actorAsset;
     let pose = this.poses.get(geometry);
     if (pose) return pose;
     const bones = actor.bones;
@@ -378,11 +379,11 @@ export class Destruction {
       rest[i] = parent >= 0 && parent < i ? new THREE.Matrix4().multiplyMatrices(rest[parent], local) : local;
     });
     const sums = bones.map(() => new THREE.Vector3()), counts = bones.map(() => 0);
-    const position = geometry.attributes.position, skin = geometry.attributes.skinIndex, v = new THREE.Vector3();
-    for (let i = 0; i < position.count; i++) {
-      const b = skin.getX(i);
+    const v=new THREE.Vector3();
+    for(let i=0;i<actorPointCount(geometry);i++){
+      const b=actorJoint(geometry,i);
       if (b >= bones.length) continue;
-      sums[b].add(v.fromBufferAttribute(position, i).applyMatrix4(rest[b]));
+      sums[b].add(actorPoint(geometry,i,v).applyMatrix4(rest[b]));
       counts[b]++;
     }
     pose = { rest, centres: sums.map((sum, i) => (counts[i] >= 12 ? sum.divideScalar(counts[i]) : null)) };
@@ -575,7 +576,7 @@ export class Destruction {
     if (look?.root) {
       site.look = { heat: 0.85, tear: new THREE.Vector4(0, 0, 0, 0.01), base: 0.2, scale: 0.32, soot: 1, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
       look.root.traverse((mesh) => {
-        if (!mesh.isMesh) return;
+        if (!mesh.userData.actorAsset) return;
         const source = mesh.userData.unheated || mesh.material;
         const heated = Array.isArray(source) ? source.map((m) => this.heated(m)) : this.heated(source);
         mesh.userData.unheated = source;
@@ -584,12 +585,9 @@ export class Destruction {
         site.meshes.push(mesh);
       });
       const first = site.meshes[0]?.userData.unheated;
-      const u = (Array.isArray(first) ? first[0] : first)?.uniforms;
-      if (u?.sunScale) {
-        site.look.sun = u.sunScale.value;
-        site.look.brightness = u.brightness.value;
-        site.look.darken = u.ambientPull.value.x;
-        site.look.lighten = u.ambientPull.value.y;
+      const u=(Array.isArray(first)?first[0]:first)?.values;
+      if(u){
+        site.look.sun=u[ACTOR.LOOK.SUN];site.look.brightness=u[ACTOR.LOOK.BRIGHTNESS];site.look.darken=u[ACTOR.LOOK.DARKEN];site.look.lighten=u[ACTOR.LOOK.LIGHTEN];
       }
     }
     // (A wreck of the same station before it is replaced, not cooled.)

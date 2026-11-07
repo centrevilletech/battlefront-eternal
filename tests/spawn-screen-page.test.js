@@ -1,3 +1,4 @@
+import './fixtures/native-render-descriptors.js';
 import { presentationModule } from "./helpers/page-presentation.js";
 import { bindInterfaceBatch } from "../src/interface/batch.js";
 bindInterfaceBatch(presentationModule());
@@ -22,7 +23,7 @@ const HUD_PLACE = { x: 809, y: 384, size: 420 };
 // a metre.
 class HudStub {
   constructor() {
-    Object.assign(this, { renderer: null, height: 768, strings: {}, battle: { over: false }, postIconSize: 15, layer: null, drawn: 0,
+    Object.assign(this, { renderer: {resources:{interfaceTarget:()=>({nativeTarget:0,texture:0,width:1024,height:1024}),disposeEffectTarget(){}}}, height: 768, strings: {}, battle: { over: false }, postIconSize: 15, layer: null, drawn: 0,
       fonts: { lineHeight: () => 18, width: () => 0 } });
   }
   setLayer(layer) { this.layer = layer; }

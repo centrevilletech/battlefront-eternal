@@ -1,9 +1,20 @@
+pub mod actor_crowd;
+pub mod actor_depth;
+pub mod actor_resources;
+pub mod actor_effects;
+pub mod actor_layout;
+pub mod line_resources;
+pub mod line_layout;
 pub mod canopies;
 pub mod cameras;
 pub mod camera_lights;
 pub mod cascades;
 pub mod core;
 pub mod effects;
+pub mod effect_layout;
+pub mod effect_resources;
+pub mod fountain_resources;
+pub mod pixel_math;
 pub mod far;
 pub mod foliage;
 pub mod static_cards;
@@ -30,6 +41,8 @@ pub mod texture_image;
 pub mod texture_format;
 pub mod view;
 pub mod water;
+pub mod water_resources;
+pub mod ocean_resources;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 #[cfg(target_arch = "wasm32")]
@@ -42,3 +55,7 @@ pub mod world;
 
 pub mod interface;
 pub mod hud_model;
+
+pub mod interface_geometry;
+pub mod interface_resource_layout;
+pub mod interface_resources;

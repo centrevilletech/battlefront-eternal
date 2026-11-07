@@ -1,0 +1,70 @@
+{
+  "limit": {
+    "sources": 8192,
+    "skins": 512,
+    "bones": 65536,
+    "skinIndexBits": 9
+  },
+  "look": {
+    "sun": 1,
+    "darken": 1,
+    "lighten": 1,
+    "brightness": 1,
+    "scroll": 2,
+    "shockTime": 1,
+    "intensity": 1,
+    "seed": 1,
+    "inflate": 1,
+    "color": 3
+  },
+  "descriptor": {
+    "handle": 1,
+    "blended": 1,
+    "lamps": 1,
+    "heated": 1,
+    "bounds": 10,
+    "count": 1
+  },
+  "depth": {
+    "world": 16,
+    "view": 16,
+    "projection": 16,
+    "bind": 16,
+    "inverse": 16
+  },
+  "kind": {
+    "viewModel": -3,
+    "retained": -1,
+    "actorDepth": -2
+  },
+  "model": {
+    "handle": 1,
+    "center": 3
+  },
+  "crowd": {
+    "vertices": 2097152,
+    "indices": 12582912,
+    "bones": 16384,
+    "spans": 8192
+  },
+  "crowdInput": {
+    "dirty": 1,
+    "flags": 8192
+  },
+  "flyer": {
+    "reach": 1,
+    "probe": 1,
+    "count": 1,
+    "capacity": 1,
+    "sunDirection": 3,
+    "sunColor": 3,
+    "ambient": 3
+  },
+  "flyerMotion": {
+    "still": 1
+  },
+  "motionMeta": {
+    "handle": 1,
+    "bounds": 4
+  }
+}

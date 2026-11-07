@@ -1,3 +1,4 @@
+import {actorPoint,actorJoint,actorWeight} from './actor-resources.js';
 import * as THREE from "three";
 
 // The original emitter offsets sit below the visible outlet rims. Recover
@@ -7,16 +8,13 @@ export class JetpackNozzles {
   constructor(actor, definition) {
     this.actor = actor;
     this.frames = [];
-    const geometry = actor.body.geometry;
-    const positions = geometry.attributes.position;
-    const skin = geometry.attributes.skinIndex;
-    const weights = geometry.attributes.skinWeight;
+    const asset=actor.body.userData.actorAsset;
     const vertices = [];
     let cursor = 0;
     for (const part of definition.parts) {
       if (/(jetpack|darktrooper_pack)/i.test(part.texture || "")) {
         for (let i = cursor; i < cursor + part.vertexCount; i++) {
-          vertices.push({ index: i, point: new THREE.Vector3().fromBufferAttribute(positions, i) });
+          vertices.push({ index: i, point: actorPoint(asset,i,new THREE.Vector3()) });
         }
       }
       cursor += part.vertexCount;
@@ -36,8 +34,8 @@ export class JetpackNozzles {
       // rims are tilted, so a horizontal minimum-Y slice misses them.
       const rim = [...unique.values()].sort((a, b) => a.point.y - b.point.y).slice(0, 8);
       if (rim.length < 6) continue;
-      const boneIndex = skin.getX(rim[0].index);
-      if (rim.some(v => skin.getX(v.index) !== boneIndex || weights.getX(v.index) < 0.999)) continue;
+      const boneIndex = actorJoint(asset,rim[0].index);
+      if (rim.some(v => actorJoint(asset,v.index) !== boneIndex || actorWeight(asset,v.index) < 0.999)) continue;
       const center = new THREE.Vector3();
       for (const v of rim) center.add(v.point);
       center.multiplyScalar(1 / rim.length);

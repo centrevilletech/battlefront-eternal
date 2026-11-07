@@ -1,3 +1,5 @@
+import {actorPart} from './helpers/actor-resources.js';
+import './fixtures/native-render-descriptors.js';
 // The arc caster's Enhanced lightning (src/arc-lightning.js): which bolts
 // it draws and where, who it finds holding and struck, the shock on a struck
 // soldier (his body's bones as drawn put back after), the crackle at a
@@ -37,7 +39,7 @@ function soldier(x, z, { generation = 1, gun = null } = {}) {
   geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute([1, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0], 4));
   geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4));
   geometry.setIndex([0, 1, 2]);
-  const body = new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+  const body = actorPart(geometry,null,true);
   body.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 2.2);
   root.add(body);
   body.add(bones[0]);
@@ -325,7 +327,7 @@ test("Video > Bolt Caster: Enhanced by default and in the richer presets; Classi
   lightning.update(1 / 60, view);
   // Rust consumes the live ribbon buffers; the scene shell stays hidden.
   assert.ok(lightning.index > 0, "Classic publishes ribbon indices");
-  assert.equal(lightning.geometry.drawRange.count, lightning.index);
+  assert.equal(lightning.index%3,0);
   assert.equal(lightning.mesh.visible, false, "no native ribbon draw");
   values.arcCasterEffects = "enhanced";
   lightning.spawn(BOLT, new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(0, 1, 10), 1);
@@ -336,48 +338,30 @@ test("Video > Bolt Caster: Enhanced by default and in the richer presets; Classi
   lightning.update(1 / 60, view);
   assert.equal(lightning.enhanced.batch.count, 0, "switched back, nothing of it stays");
   assert.ok(lightning.index > 0, "Classic ribbon data resumes");
-  assert.equal(lightning.geometry.drawRange.count, lightning.index);
+  assert.equal(lightning.index%3,0);
   assert.equal(lightning.mesh.visible, false);
 });
 
-test("a busy fight's capsules all draw: growing the batch lifts three's instance limit, and one range uploads them", () => {
-  const batch = new ArcBatch(2);
-  // three records the limit at the first draw, from the buffers it binds.
-  batch.geometry._maxInstanceCount = 2;
+test("capsules reserve their maximum once and clip excess segments",()=>{
+  const batch=new ArcBatch(2),data=batch.data,p=new THREE.Vector3(),color=[1,1,1];
   batch.begin();
-  const p = new THREE.Vector3();
-  for (let i = 0; i < 5; i++) batch.push(p.set(i, 0, 0), p, null, null, [1, 1, 1], 1, 0.1, 0.2, 1);
-  batch.end();
-  assert.ok(batch.capacity >= 5);
-  assert.equal(batch.geometry._maxInstanceCount, undefined, "every instance is drawn after growing");
-  assert.equal(batch.geometry.instanceCount, 5);
-  assert.deepEqual(batch.buffer.updateRanges.map((r) => [r.start, r.count]), [[0, 5 * 20]], "one upload of what was drawn");
-  assert.deepEqual([batch.data[0], batch.data[20], batch.data[80]], [0, 1, 4], "kept across the growth");
-  // The next frame reuses the same range record.
-  const range = batch.buffer.updateRanges[0];
-  batch.buffer.updateRanges.length = 0;
-  batch.begin();
-  batch.push(p, p, null, null, [1, 1, 1], 1, 0.1, 0.2, 1);
-  batch.end();
-  assert.equal(batch.buffer.updateRanges[0], range);
-  assert.equal(range.count, 20);
+  for(let i=0;i<batch.capacity+3;i++)batch.push(p,p,null,null,color,1,.1,.2,1);
+  batch.end();assert.equal(batch.data,data);assert.equal(batch.count,batch.capacity);
+  assert.equal(batch.geometry,undefined);
 });
 
-test("while warming, an empty batch draws one dark capsule, so the driver builds its pipeline before the first bolt", () => {
+test("empty warming batches publish no dummy capsule", () => {
   const batch = new ArcBatch(4);
   batch.begin();
   batch.push(new THREE.Vector3(1, 2, 3), new THREE.Vector3(1, 2, 3), null, null, [1, 1, 1], 1, 0.1, 0.2, 1);
   batch.end(true);
   batch.begin();
   batch.end(true);
-  assert.equal(batch.geometry.instanceCount, 1, "one instance drawn");
-  assert.ok(batch.mesh.visible);
-  assert.deepEqual(Array.from(batch.data.subarray(0, 20)), new Array(20).fill(0), "all zero: no brightness, nothing lit");
-  assert.deepEqual(batch.buffer.updateRanges.map((r) => [r.start, r.count]), [[0, 20]]);
-  batch.buffer.updateRanges.length = 0;
+  assert.equal(batch.count,0);
+  assert.equal(batch.mesh.visible,false);
   batch.begin();
   batch.end(false);
-  assert.equal(batch.geometry.instanceCount, 0, "warmed: empty draws nothing");
+  assert.equal(batch.count,0);
   assert.equal(batch.mesh.visible, false);
   const scene=new THREE.Scene(),lightning = new ArcLightning(scene);
   assert.equal(scene.children.some(o=>o.isSkinnedMesh),false,"owned shocks need no temporary skinned geometry");

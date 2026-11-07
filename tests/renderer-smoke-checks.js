@@ -1,9 +1,15 @@
-import { SurfaceOwner, stepSurface } from './helpers/surfaces.js';
+import {SurfaceOwner,stepSurface} from './helpers/surfaces.js';
+import {actorPart} from './helpers/actor-resources.js';
+import {actorAsset,glowLook,glowNode} from '../src/actor-resources.js';
+import { LINE as LINE_DATA } from '../src/rust-render/line-layout.js';
+import { lineSource, LINE_KIND } from '../src/line-source.js';
 import { ROLE as FRAME_ROLE, STATS as FRAME_STATS, STATE as FRAME_STATE, UI as FRAME_UI } from "../src/rust-render/frame-layout.js";
 import { STATE, FACTS, MODE } from "../src/rust-render/post-layout.js";
 import { checkResources } from "./renderer-resource-checks.js";
 import * as THREE from 'three';
 import { Graphics } from '../src/graphics.js';
+import { EFFECT } from '../src/rust-render/effect-layout.js';
+import { squareBatches } from '../src/atmosphere.js';
 import { ParticleRenderer } from '../src/particles.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
 import { motionVectors } from '../src/motion-vectors.js';
@@ -62,7 +68,7 @@ export async function checkRenderer(backend, manifests) {
   const originals = new Map();
   let compilingKey=null,checkShadowAttachments=false,shadowAttachments=0;
   const shadowHandles=new Set(),depthPrograms=new Set();
-  let observeShadow=null;
+  let observeShadow=null, observeSquares=null;
   // Hook the context prototype before initialization so Rust's WASM imports
   // and the remaining native compiler both pass through the same diagnostics.
   // The current catalog key tags even a failure inside a driver's compile call.
@@ -80,7 +86,7 @@ export async function checkRenderer(backend, manifests) {
         if (!ok) throw new Error(`${compilingKey || "fixture"}: program link: ${this.getProgramInfoLog(args[0])}`);
       } else {
         if(name.startsWith('draw') && this.isEnabled(this.SAMPLE_ALPHA_TO_COVERAGE) && this.getParameter(this.SAMPLES)>1){alphaCoverageDraws++;alphaSamples.add(this.getParameter(this.SAMPLES));}
-        if(name.startsWith('draw'))observeShadow?.(this);
+        if(name.startsWith('draw')){observeShadow?.(this);observeSquares?.(this);}
         if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
         if (error && error !== this.CONTEXT_LOST_WEBGL) {
@@ -196,8 +202,8 @@ export async function checkRenderer(backend, manifests) {
     const skinGeometry = new THREE.PlaneGeometry(.7, .7);
     skinGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(16),4));
     skinGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],4));
-    const skinMaterial = actorMaterial('dynamic', { map: white }); skinMaterial.defines.RIGID_SKIN = '';
-    const body = new THREE.SkinnedMesh(skinGeometry, skinMaterial), bone = new THREE.Bone();
+    const skinMaterial = actorMaterial('dynamic', { map: white }); skinMaterial.authored.rigidSkin=true;
+    const body = actorPart(skinGeometry,skinMaterial,true), bone = new THREE.Bone();
     body.add(bone); body.bind(new THREE.Skeleton([bone])); body.position.set(1.5,1,0); body.frustumCulled = false;
     const root = new THREE.Group(); root.userData.parts = { body }; root.add(body); g.scene.add(root); g.cullRoots.push(root);
     const farMaterial=worldMaterial('unlit',{map:texture([20,40,80,255]),far:true,lights:false});farMaterial.defines.WORLD_SPACE='';ownWorldMaterial(farMaterial);
@@ -206,7 +212,7 @@ export async function checkRenderer(backend, manifests) {
     // blended world surfaces, which this scene has none of.
     const transparent = new THREE.Mesh(new THREE.PlaneGeometry(.7, .7), ownedBasicEffect('basic', { color: 0x2277aa, map: white, transparent: true, opacity: .5 }));
     transparent.position.set(0, 1, 1); g.scene.add(transparent);
-    const view = new THREE.Mesh(new THREE.PlaneGeometry(.12, .12), actorMaterial('dynamic', { map: white }));
+    const view = actorPart(new THREE.PlaneGeometry(.12,.12),actorMaterial('dynamic',{map:white}));
     view.position.set(.2, -.15, -1); g.viewScene.add(view);
     // This upright synthetic receiver uses Original terrain lighting; its
     // normal cannot describe a heightfield slope. Unused boundary vertices
@@ -228,6 +234,23 @@ export async function checkRenderer(backend, manifests) {
     const cutout=new THREE.Mesh(cutoutGeometry,cutoutMaterial);cutout.matrixAutoUpdate=false;const cutoutNode=nativeWorld(cutout,{flags:2});
     const particles = new ParticleRenderer(g.scene).batch(white, 'additive');
     particles.begin(); particles.push(-1, 1, .5, 1, .4, .2, 1, .3); particles.end();
+    // SquareBatch's planar instance records and trailing live facts must keep
+    // distinct offsets, even after earlier effect owners occupy the packet.
+    const haze={nativeKind:EFFECT.SQUARE.ID,variant:0,texture:white,capacity:5,count:5,
+      values:Float64Array.of(.25,.5,.75,1,1,0,0,0,1,0),
+      arrays:{center:Float32Array.from([0,1,0,.1,1,1,0,.1,2,1,0,.1,3,1,0,.1,4,1,0,.1]),spin:new Float32Array(10)},mesh:new THREE.Object3D()};
+    haze.mesh.name='fixture-haze';haze.mesh.frustumCulled=false;haze.mesh.renderOrder=10;
+    g.scene.add(haze.mesh);squareBatches.set(g.scene,[haze]);
+    let squareDraws=0,squareValues=true;
+    observeSquares=context=>{
+      const program=context.getParameter(context.CURRENT_PROGRAM);
+      if(!(program instanceof WebGLProgram)||context.getAttribLocation(program,'center')<0||context.getAttribLocation(program,'spin')<0)return;
+      squareDraws++;
+      for(const [name,expected] of [['tint',[.25,.5,.75,1]],['axisU',[1,0,0]],['axisV',[0,1,0]]]){
+        const actual=context.getUniform(program,context.getUniformLocation(program,name));
+        squareValues&&=actual?.length===expected.length&&actual.every((v,i)=>v===expected[i]);
+      }
+    };
     const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,0,240,-10,10);
     batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.quad(new THREE.Matrix4(),88,12,120,40,pendingImage,[0,0,1,1],[1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
     const hud = { batch, scene: hudScene, camera: hudCamera };
@@ -282,6 +305,7 @@ export async function checkRenderer(backend, manifests) {
           for (let i = 0; i < g.rust.postState[STATE.STEPS]; i++) ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
         }
         if(name==='add_owned_program')ownedIds.set(args[0],value);
+        if(name==='hud_resources_frame'){g.rust.views();ownedIds.set('post-hud/hud',g.rust.hudInput[1]);}
         if (/frame$|_segment$|near_begin$/.test(name) && value?.length) {
           phaseDraws[name] = (phaseDraws[name] ?? 0) + value[3];
           for (let i = 0; i < passDraws.length; i++) passDraws[i] += value[5+i] ?? 0;
@@ -453,8 +477,8 @@ export async function checkRenderer(backend, manifests) {
     const cameraAt=g.camera.position.clone(),cameraRotation=g.camera.quaternion.clone();
     const basin=water.cellBounds[0].getCenter(new THREE.Vector3());
     // A glow can be created between frames and first appear in a reflection.
-    const lateGlowMaterial=ownedBasicEffect('glow-basic',{map:white,transparent:true,opacity:.7,depthWrite:false});
-    const lateGlow=new THREE.Mesh(new THREE.PlaneGeometry(1,1),lateGlowMaterial),lateGlowGroup=new THREE.Group();
+    const lateGlowMaterial=glowLook(white,0xffffff,.7);lateGlowMaterial.basic=true;
+    const lateGlow=glowNode(actorAsset({kind:'plane',width:1,height:1}),lateGlowMaterial),lateGlowGroup=new THREE.Group();
     lateGlowGroup.userData.material=lateGlowMaterial;lateGlowGroup.add(lateGlow);g.scene.add(lateGlowGroup);
     lateGlow.position.set(basin.x,water.level+1,basin.z);lateGlow.frustumCulled=false;
     settings.set('waterQuality','ultra');
@@ -527,36 +551,34 @@ export async function checkRenderer(backend, manifests) {
     };
     const retainedBefore=retainedPixels();
     assert('Partial-update fixture draws visible pixels',retainedBefore.some((v,i)=>i%4===0&&v===255));
-    // Tow cables (strip), vertex-colour helpers (segments), and indexed loops
-    // use dynamic retained Rust buffers, including after context recovery.
-    // Line topologies are retained primitive state, not converted triangle meshes.
-    // The opaque cable uses its real depth state so the later far image cannot
-    // cover the pixels that demonstrate a dynamic position upload.
+    // Real cables and debug segments retain only live points on the page.
+    // Native descriptors must still draw, update and survive recovery.
     const withoutLines=capture(),lineGroup=new THREE.Group();g.scene.add(lineGroup);
     const lineObjects=[];
-    for(const [i,Type] of [THREE.Line,THREE.LineSegments,THREE.LineLoop].entries()){
-      const positions=new Float32Array([-1,-.7-i*.15,-2,1,-.7-i*.15,-2,0,-.3-i*.15,-2]);
-      for(let at=0;at<positions.length;at+=3)new THREE.Vector3().fromArray(positions,at).applyMatrix4(g.camera.matrixWorld).toArray(positions,at);
-      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(positions,3));
-      geometry.setAttribute('color',new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1],3));
-      if(i===2)geometry.setIndex([0,1,2]);
-      const material=new THREE.LineBasicMaterial({color:0xffffff,vertexColors:i===1,transparent:i===2,opacity:.8,depthTest:i===0});
-      const object=new Type(geometry,material);object.frustumCulled=false;lineGroup.add(object);lineObjects.push(object);
+    for(let i=0;i<2;i++){
+      const object=lineSource(i,128),source=object.userData.lineSource;
+      const positions=[-1,-.7-i*.15,-2,1,-.7-i*.15,-2,0,-.3-i*.15,-2];
+      source.positions.set(positions);source.count=3;
+      for(let at=0;at<positions.length;at+=3)new THREE.Vector3().fromArray(source.positions,at).applyMatrix4(g.camera.matrixWorld).toArray(source.positions,at);
+      lineGroup.add(object);lineObjects.push(object);
     }
     const withLines=compare('tow cable and flight helper topologies');
     assert('Rust line draws change visible pixels',withLines.some((v,i)=>i%4!==3&&v!==withoutLines[i]));
-    const cable=lineObjects[0],cableGeometry=g.rust.byName.lines.records.get(cable).geometry;
-    const position=cable.geometry.attributes.position;
-    position.array[0]+=.3;position.needsUpdate=true;
-    lineObjects[1].geometry=lineObjects[1].geometry.clone();
-    // A visible change proves the versioned buffer reached the driver. Geometry
-    // identity checks ensure that changing the cable does not allocate a replacement
-    // Rust geometry instead of updating the existing resource and journal entry.
+    const cable=lineObjects[0],source=cable.userData.lineSource,id=g.rust.byName.lines.records.get(cable).id;
+    source.positions[0]+=.3;source.serial++;
     const movedLines=compare('dynamic tow cable positions');
     assert('Dynamic line updates change visible pixels',movedLines.some((v,i)=>i%4!==3&&v!==withLines[i]));
-    assert('Dynamic cables keep the retained Rust geometry',g.rust.byName.lines.records.get(cable).geometry===cableGeometry);
-    assert('Every line topology is owned by Rust',lineObjects.every(object=>g.rust.byName.lines.owns(object)));
-    assert('Every line topology issues a Rust draw',g.rust.frameStats[(FRAME_ROLE.LINES2+1)*FRAME_STATS.LEN-1]+g.rust.frameStats[(FRAME_ROLE.TRANSPARENT+1)*FRAME_STATS.LEN-1]===lineObjects.length);
+    assert('Dynamic cables keep the retained native descriptor',g.rust.byName.lines.records.get(cable).id===id);
+    assert('Cables and helpers retain no browser geometry or material',lineObjects.every(object=>!object.geometry&&!object.material&&g.rust.byName.lines.owns(object)));
+    assert('Cables and helpers issue native line draws',g.rust.frameStats[(FRAME_ROLE.LINES2+1)*FRAME_STATS.LEN-1]===lineObjects.length);
+    // Hostile line counts and ids clip in the native owner, including a
+    // publication larger than any map can create. The next frame still draws.
+    const clippedLines=g.rust.rust.line_clipped();g.rust.views();
+    g.rust.lineInput[LINE_DATA.VIEW.COUNT]=Infinity;
+    g.rust.lineInput[LINE_DATA.VIEW.LEN+LINE_DATA.ROW.SOURCE]=-1;
+    g.rust.rust.line_frame(2);
+    assert('Native line publication clips hostile counts and ids',g.rust.rust.line_clipped()>clippedLines);
+    compare('line publication resumes after clipping');
     // A slow callback can prepare more overlay batches than a view admits.
     // Keep the earlier packets, clip the remainder and leave history invalid;
     // the next ordinary frame must still draw without a browser exception.
@@ -639,7 +661,8 @@ export async function checkRenderer(backend, manifests) {
     // The transparent pass draws blended world surfaces, which the fixture has none of
     // (its blended mesh is an owned effect, drawn by the effects pass).
     const passNames = ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'];
-    assert('All Rust passes draw', passDraws.every((n, i) => n > 0 || passNames[i] === 'transparent'), { names: passNames, counts: passDraws });
+    assert('Native haze preserves trailing tint and camera axes',squareDraws>0&&squareValues,{squareDraws});
+    assert('All Rust passes draw', passDraws.every((n, i) => n > 0 || passNames[i] === 'transparent' || passNames[i] === 'water'), { names: passNames, counts: passDraws });
     assert('Available Rust draw path exercised', fallback || !multiAvailable ? multiDraws === 0 : multiDraws > 0, { fallback, multiAvailable, multiDraws });
     assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).filter(key=>key.startsWith('post-hud/')).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
     // Count actual successful links, including reconstructed programs. Program

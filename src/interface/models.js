@@ -1,5 +1,7 @@
 import { surfaceMaterial } from "../rust-render/interface-material.js";
 import * as THREE from "three";
+import {repeatImage} from "./images.js";
+import {actorAsset} from "../actor-resources.js";
 
 // The interface's 3D models (the spawn screen's room, the team logos, a
 // class's body) and how the 2004 interface draws them. The spawn screen and
@@ -36,72 +38,26 @@ export const ROOM_SCALE = 1.6 / 0.009;
 export const LOGO_UNITS = 221.3;
 export const BODY_UNITS = 0.936 / (0.006 / (1024 / 800));
 export const DROIDEKA_UNITS = 0.9 * BODY_UNITS;
-const AMBIENT = 144 / 255;
-const TO_LIGHT = new THREE.Vector3(-1, 1, 1).normalize();
-
-
-// map: the texture; lit: the interface light or flat; scroll: [u, v] per
-// second; blend: draws alpha blended (else opaque); cutoff: texels at or
-// under this alpha aren't drawn (-1: all are, as an opaque part's alpha
-// may hold something else); tints: multiplied by the vertices' colours.
-export function interfaceMaterial({ map = null, color = [1, 1, 1], opacity = 1, lit = true, scroll = null, blend = true, cutoff = 0, depth = true, tints = false } = {}) {
-  return surfaceMaterial("model", {
-    vertexColors: tints,
-    uniforms: {
-      map: { value: map },
-      hasMap: { value: Boolean(map) },
-      color: { value: new THREE.Color().fromArray(color) },
-      opacity: { value: opacity },
-      lit: { value: lit ? 1 : 0 },
-      toLight: { value: TO_LIGHT },
-      ambient: { value: AMBIENT },
-      cutoff: { value: cutoff },
-      solid: { value: blend ? 0 : 1 },
-      scroll: { value: new THREE.Vector2(...(scroll || [0, 0])) },
-      time: { value: 0 },
-      keyTint: { value: new THREE.Color(1, 1, 1) },
-      rim: { value: new THREE.Color(0, 0, 0) },
-      rimPower: { value: 2.5 },
-      recolor: { value: new THREE.Vector4(0, 0, 0, 0) },
-      cut: { value: 1e9 },
-      cutGlow: { value: new THREE.Color(0, 0, 0) },
-    },
-    transparent: blend,
-    depthTest: depth,
-    depthWrite: depth,
-    side: THREE.DoubleSide,
-  });
+// Interface light/cutout defaults and body material policy are native. These
+// options are authored UI inputs; animated values use the generated live row.
+export function interfaceMaterial(options={}){
+  return surfaceMaterial("model",{blend:true,depth:true,...options,side:THREE.DoubleSide});
 }
 
 // A texture the material scrolls: repeating, set before its first upload.
-export function repeating(texture) {
-  if (texture && texture.wrapS !== THREE.RepeatWrapping) {
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    if (texture.image) texture.needsUpdate = true;
-  }
-  return texture;
-}
+export function repeating(texture){return repeatImage(texture);}
 
 // The room's vertex tints, which the common model pack doesn't carry: grey
 // 192, and 68 toward the open end of the right-hand wall (its last two
 // columns of vertices, x > 0.4 and z > 1 in the model's units). The dark
 // end is the screenshots' darker right edge.
-export function roomTints(geometry) {
-  if (geometry.getAttribute("color")) return;
-  const position = geometry.getAttribute("position");
-  const colors = new Float32Array(position.count * 3);
-  for (let i = 0; i < position.count; i++) {
-    const grey = position.getX(i) > 0.4 && position.getZ(i) > 1 ? 68 / 255 : 192 / 255;
-    colors.set([grey, grey, grey], i * 3);
-  }
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-}
+export function roomTints(node){const old=node.userData.actorAsset;if(!old||old.authored.roomTints)return;node.userData.actorAsset=actorAsset({...old.authored,roomTints:true},old.vertices,old.indices);}
 
 // The meshes of a model, in order (a hologram-pack model is one per part).
 export function meshesOf(object) {
   const meshes = [];
   object?.traverse((child) => {
-    if (child.isMesh) meshes.push(child);
+    if (child.isMesh || child.userData.actorAsset) meshes.push(child);
   });
   return meshes;
 }
@@ -114,9 +70,9 @@ export function dressModel(object, parts, texture, options = {}) {
   const materials = [];
   meshesOf(object).forEach((mesh, i) => {
     const part = parts?.[i] || parts?.[0] || {};
-    const map = (part.texture && texture(part.texture)) || (mesh.material?.map ?? mesh.material?.uniforms?.map?.value ?? null);
+    let map = (part.texture?texture(part.texture):null)??mesh.material?.map??null;
     const scroll = mesh.userData.scroll ?? part.scroll ?? null;
-    if (scroll) repeating(map);
+    if (scroll) map=repeating(map);
     const material = interfaceMaterial({ map, scroll, ...options });
     mesh.material = material;
     mesh.frustumCulled = false;
@@ -133,10 +89,9 @@ export function dressBody(object) {
     // The shadow proxy draws only in the shadow pass.
     if (!mesh.layers.isEnabled(0)) continue;
     const swap = (material) => {
-      const map = material?.map ?? material?.uniforms?.map?.value ?? null;
-      const blend = Boolean(material?.transparent);
-      const dressed = interfaceMaterial({ map, blend, cutoff: blend ? 0 : material?.alphaTest || -1 });
-      dressed.blending = material?.blending ?? THREE.NormalBlending;
+      if(material?.interfaceAppearance){made.push(material);return material;}
+      const map=material?.map??null;
+      const dressed=interfaceMaterial({map,fromActor:material.authored});
       made.push(dressed);
       return dressed;
     };

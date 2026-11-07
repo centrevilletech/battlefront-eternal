@@ -35,8 +35,14 @@ pub const INPUT_LEN: usize = IN_FIRST_GROUP + MAX_GROUPS * GROUP;
 const SIZES: [usize; 4] = [3, 2, 2, 4];
 pub const LOCATIONS: [u32; 4] = [0, 1, 2, 3];
 
+// HudPass.ensure/material's immutable resource descriptors, separate from the
+// existing HUD model and its live vertices. Ids stay stable through restoration.
+#[derive(Default)]
+pub struct HudResources {pub program:Option<u32>,pub cameras:Vec<(usize,u32)>,pub slots:[i32;3],pub materials:Vec<(i32,i32,bool)>,pub clipped:u64}
+
 pub struct HudPass<C: HasContext> {
     vao: Option<C::VertexArray>,
+    pub resources:HudResources,
     buffers: Vec<C::Buffer>,
     pub input: Vec<f64>,
     pub position: Vec<f32>,
@@ -66,7 +72,7 @@ impl<C: HasContext> HudPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> HudPass<C> {
         let v = QUADS * 4;
         HudPass {
-            vao: None, buffers: vec![], input: vec![0.0; INPUT_LEN],
+            resources:HudResources::default(),vao: None, buffers: vec![], input: vec![0.0; INPUT_LEN],
             position: vec![0.0; v * 3], uv: vec![0.0; v * 2], mask_uv: vec![0.0; v * 2], tint: vec![0.0; v * 4], matrices: HashMap::new(),
         }
     }

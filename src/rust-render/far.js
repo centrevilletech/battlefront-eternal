@@ -1,3 +1,6 @@
+import { EFFECT, EFFECT_INPUTS } from './effect-layout.js';
+import {nativeActorSource} from "../actor-resources.js";
+import {ACTOR} from "./actor-layout.js";
 import { STATIC } from "./static-layout.js";
 import { staticFeatures } from "./geometry-types.js";
 import { ownedWorldProgram } from "./world-programs.js";
@@ -150,6 +153,35 @@ class FarPass {
     return item;
   }
 
+  // Water.farPass has no browser geometry or material. Its retained native
+  // item reads a complete per-view snapshot, including moving sampler ids.
+  admitWater(object,source) {
+    const core=this.core;source.owner.prepareResources(core);
+    const slot=this.nextSlot;this.nextSlot+=17+source.values.length;
+    const facts=core.rust.effect_water(source.owner.sourceId,source.nativeKind,true,source.sceneFar===false?core.shadowsOn():false,slot,object.id);
+    source.center=facts.slice(1,4);source.values.set(facts.subarray?facts.subarray(4):facts.slice(4));
+    const item={id:facts[0],slot,native:true,object,water:source};object.userData.nativeFar=item;this.all.push(item);
+  }
+
+  // StormSky's borrowed environment streams have native geometry/raster
+  // descriptors. The existing far bank snapshots their dirty prefix per view.
+  admitEffect(object,source){
+    const core=this.core,slot=this.nextSlot,vertex=this.nextVertex??0;
+    const attributes=EFFECT_INPUTS[source.nativeKind],stride=attributes.reduce((n,a)=>n+a[1],0);
+    const capacity=EFFECT.STORM_LIGHTNING.CAPACITY;
+    this.nextSlot+=17+source.values.length;this.nextVertex=vertex+capacity*stride;
+    const id=core.rust.effect_far_mesh(source.nativeKind,core.shadowsOn(),slot,vertex,object.id);
+    const item={id,slot,native:true,object,effect:source,vertex,attributes,capacity,serial:NaN};
+    object.userData.nativeFar=item;this.all.push(item);core.buffer=null;core.views();
+  }
+
+  // Flyer resources use a native recipe; only the environment arrays and
+  // current view facts are copied into the retained far input bank.
+  admitFlyer(object,source){const core=this.core,slot=this.nextSlot,capacity=Math.min(source.capacity,256);this.nextSlot+=17+ACTOR.FLYER.LEN+capacity*20;
+    source.map=core.resources.staticSample(source.map);const texture=source.map==null?-1:core.texture(source.map);
+    const id=core.rust.actor_flyer(nativeActorSource(core,source.asset).id,source.flags,source.fading,capacity,texture,slot,object.id,core.shadowsOn());
+    const item={id,slot,native:true,object,flyer:source,capacity};object.userData.nativeFar=item;this.all.push(item);core.buffer=null;core.views();}
+
   prepareNative() {
     const core = this.core;
     for (const cold of this.nativePending) {
@@ -190,14 +222,15 @@ class FarPass {
     this.scene = scene;
     // A sky probe's face (sky-probe.js): which one (far_probe_frame).
     const cube = camera.parent?.type === "CubeCamera" ? camera.parent : null;
-    ctx.face = cube ? Math.max(0, cube.children.indexOf(camera)) : 0;
+    const nativeProbe=camera.userData.nativeProbe;
+    ctx.face=nativeProbe?nativeProbe.face:cube?Math.max(0,cube.children.indexOf(camera)):0;
     // Its cube's mipmaps, made after the face drawn now as three's render
     // makes them (updateRenderTargetMipmap: whenever the texture asks for
     // them; CubeCamera.update holds them back until the last face): 1 + the
     // texture's id, else 0. Registered here, before the input is written
     // (registering can move the module's memory).
     const texture = cube?.renderTarget?.texture;
-    this.mipmaps = texture?.generateMipmaps ? 1 + core.texture(texture) : 0;
+    this.mipmaps=nativeProbe?(nativeProbe.last?1+core.texture(nativeProbe.target.texture):0):texture?.generateMipmaps?1+core.texture(texture):0;
     if (!this.sharing) this.share(scene);
     this.walk(scene, camera, 0);
     this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
@@ -227,6 +260,7 @@ class FarPass {
   adoptNear(scene, camera) {
     const sea = this.core.graphics.scene.userData.water?.oceanSurface?.near;
     if (!sea || this.hidden.has(sea)) return;
+    const native=sea.userData.effectModel;if(native?.family==="ocean"){if(!sea.userData.nativeFar)this.admitWater(sea,native);return;}
     this.camera = camera;
     this.scene = scene;
     this.count = 0;
@@ -247,13 +281,14 @@ class FarPass {
     const sea = core.graphics.scene.userData.water?.oceanSurface?.near ?? null;
     let draw = false;
     if (sea) {
-      let shown = Boolean(sea.material?.visible || ownsEffectSource(sea.material));
+      const native=sea.userData.effectModel?.family==="ocean";
+      let shown = native || Boolean(sea.material?.visible || ownsEffectSource(sea.material));
       for (let n = sea; shown && n && n !== scene; n = n.parent) if (!n.visible) shown = false;
       if (shown && (this.ownLayers(sea) & camera.layers.mask) !== 0) {
-        this.find(sea, sea.material, 0);
+        if(native){if(!sea.userData.nativeFar)this.admitWater(sea,sea.userData.effectModel);const f=this.found[this.count]??={};f.object=sea;f.item=sea.userData.nativeFar;this.count++;}else this.find(sea,sea.material,0);
         const item = this.found[this.count - 1].item;
         if (item) {
-          if (!this.hidden.has(sea)) { this.hidden.set(sea, sea.layers.mask); sea.layers.set(HIDDEN_LAYER); }
+          if (!native&&!this.hidden.has(sea)) { this.hidden.set(sea, sea.layers.mask); sea.layers.set(HIDDEN_LAYER); }
           draw = true;
         }
       }
@@ -277,6 +312,9 @@ class FarPass {
     if (object.visible === false) return;
     if (object.layers.test(camera.layers)) {
       if (object.isGroup) groupOrder = object.renderOrder;
+      const water=object.userData.effectModel;
+      if(water?.far&&!object.userData.nativeFar)this.admitWater(object,water);
+      if(object.userData.flyerSource&&!object.userData.nativeFar)this.admitFlyer(object,object.userData.flyerSource);
       if (object.userData.nativeFar) {
         const f = this.found[this.count] ??= {};
         f.object = object; f.item = object.userData.nativeFar;
@@ -697,8 +735,15 @@ class FarPass {
       const item = this.found[i].item;
       if (!item) continue;
       const slot = item.slot;
-      input[slot] = 1;
+      input[slot] = item.id===undefined?0:1;
       if (item.native) {
+        if(item.flyer){const source=item.flyer,row=ACTOR.FLYER,v=source.values;v[row.COUNT]=Math.min(item.object.count,item.capacity);v[row.PROBE]=source.owner.probe?.texture??-1;lighting.sunDirection.value.toArray(v,row.SUN_DIRECTION);lighting.sunColor.value.toArray(v,row.SUN_COLOR);lighting.ambient.value.toArray(v,row.AMBIENT);input.set(item.object.matrixWorld.elements,slot+1);input.set(v,slot+17);let at=slot+17+row.LEN;for(let j=0;j<v[row.COUNT]*16;j++)input[at+j]=source.arrays.matrices[j];at+=item.capacity*16;for(let j=0;j<v[row.COUNT]*4;j++)input[at+j]=source.arrays.looks[j];}
+        if(item.effect){
+          const source=item.effect;input.set(item.object.matrixWorld.elements,slot+1);input.set(source.values,slot+17);
+          const row=EFFECT.STORM_LIGHTNING;input[slot+17+row.UPLOAD]=0;input[slot+17+row.FIRST]=0;input[slot+17+row.COUNT]=Math.min(source.count,item.capacity);
+          if(item.serial!==source.serial){let at=item.vertex;for(let k=0;k<item.attributes.length;k++){const name=item.attributes[k][0],size=item.attributes[k][1],array=source.arrays[name];for(let j=0;j<item.capacity*size;j++)core.farVertices[at+j]=array[j];at+=item.capacity*size;}input[slot+17+row.UPLOAD]=1;item.serial=source.serial;}
+        }
+        if(item.water){item.water.prepare(this.camera);input.set(item.object.matrixWorld.elements,slot+1);input.set(item.water.values,slot+17);}
         if (item.terrain) input[slot + 1] = core.graphics.settings.get("farTerrain") === "reduced" ? 1 : 0;
         continue;
       }

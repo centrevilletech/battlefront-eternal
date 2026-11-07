@@ -1,3 +1,4 @@
+import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { classicLayout, SLOTS } from "./layout.js";
@@ -148,8 +149,8 @@ export class ClassicView {
     if (this.model.post) this.rings.set(this.model.post, 1);
     this.preview.show(this.model.className);
     this.preview.update(dt);
-    for (const material of this.roomMaterials) material.uniforms.time.value = this.time;
-    for (const logo of this.logos.values()) for (const material of logo.materials) material.uniforms.time.value = this.time;
+    for (const material of this.roomMaterials) material.values[LOOK.TIME] = this.time;
+    for (const logo of this.logos.values()) for (const material of logo.materials) material.values[LOOK.TIME] = this.time;
     // What the HUD draws for the layer.
     const team = this.model.team;
     this.layer.teams = { own: team, foe: team === 1 ? 2 : 1, flip: this.flip };
@@ -313,7 +314,7 @@ export class ClassicView {
     if (!this.room) {
       const room = this.port.commonModel?.("shell_cube");
       if (room) {
-        for (const mesh of meshesOf(room)) roomTints(mesh.geometry);
+        for (const mesh of meshesOf(room)) roomTints(mesh);
         this.roomMaterials = dressModel(room, this.records("shell_cube") || [{ texture: "shell_cube", scroll: [0.0625, 0] }], texture,
           { lit: false, tints: true, depth: false });
         this.room = room;
@@ -367,8 +368,8 @@ export class ClassicView {
       logo.root.scale.setScalar(size * LOGO_UNITS);
       logo.root.rotation.y = this.spin;
       for (const material of logo.materials) {
-        material.uniforms.color.value.setRGB(...(own ? GREEN : RED));
-        material.uniforms.opacity.value = alpha;
+        paintArray(material,LOOK.COLOR,own?GREEN:RED);
+        material.values[LOOK.OPACITY] = alpha;
       }
     }
     this.preview.place(this.camera, layout.preview);
@@ -409,7 +410,5 @@ export class ClassicView {
 
   dispose() {
     this.preview.clear();
-    for (const material of this.roomMaterials) material.dispose();
-    for (const logo of this.logos.values()) for (const material of logo.materials) material.dispose();
   }
 }

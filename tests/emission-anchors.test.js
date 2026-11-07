@@ -1,3 +1,5 @@
+import {sourceOf} from './helpers/actor-resources.js';
+import './fixtures/native-render-descriptors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -7,7 +9,7 @@ import {Effects} from './helpers/presentation.js';
 import {emitter} from './fixtures/effects.js';
 
 test('missing weapon markers recover a mouth and imported anchors stay authoritative', () => {
-  const part = length => ({ geometry: new THREE.CylinderGeometry(.02, .02, length, 8).rotateX(Math.PI / 2).translate(.01, .05, length / 2) });
+  const part = length => ({ asset:sourceOf(new THREE.CylinderGeometry(.02,.02,length,8).rotateX(Math.PI/2).translate(.01,.05,length/2)) });
   const def = { ordnance: { base: 'bolt' } };
   for (const authored of [null, [0, 0, 0], [0, .05, .1]]) {
     if (authored?.[2] > .05) assert.equal(weaponMuzzle([part(.4)], authored, def), authored);
@@ -31,7 +33,7 @@ test('vehicle hardpoints follow the owning pivot without stealing another turret
 test('skinned vehicle barrel tips use inverse bind space', () => {
   const rig = { bones: [{ name: 'gun', parent: -1, local: new THREE.Matrix4().makeTranslation(4, 5, 6).toArray() }] };
   const geometry = new THREE.CylinderGeometry(.1, .1, 2, 8).rotateX(Math.PI / 2).translate(4, 5, 7);
-  const parts = [{ geometry, joints: new Uint16Array(geometry.attributes.position.count) }];
+  const parts = [{ asset:sourceOf(geometry), joints: new Uint16Array(geometry.attributes.position.count) }];
   const tip = vehicleMuzzleTips(rig, parts).get('gun');
   assert.ok(new THREE.Vector3(...tip).distanceTo(new THREE.Vector3(0, 0, 2)) < 1e-5);
 });
@@ -62,8 +64,8 @@ test('classic exhaust shifts and rotates each emitter without changing shared de
 });
 
 test('the imported barrel cap is not displaced by a longer underslung rail', () => {
-  const barrel = { geometry: new THREE.CylinderGeometry(.03, .03, .4, 8).rotateX(Math.PI / 2).translate(0, .06, .2) };
-  const rail = { geometry: new THREE.BoxGeometry(.03, .01, .6).translate(0, 0, .3) };
+  const barrel = { asset:sourceOf(new THREE.CylinderGeometry(.03,.03,.4,8).rotateX(Math.PI/2).translate(0,.06,.2)) };
+  const rail = { asset:sourceOf(new THREE.BoxGeometry(.03,.01,.6).translate(0,0,.3)) };
   const point = weaponMuzzle([barrel, rail], [0, .06, .4], { ordnance: {} });
   assert.ok(new THREE.Vector3(...point).distanceTo(new THREE.Vector3(0, .06, .4)) < 1e-6);
 });

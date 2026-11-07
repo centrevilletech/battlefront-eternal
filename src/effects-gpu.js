@@ -1,8 +1,7 @@
 import { Draw as D, Effect as E } from './presentation/layout.js';
 import * as THREE from 'three';
-import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 
 // Spawn state stays in instance buffers. Authored tracks and the much smaller
 // array of emitter transforms/times are read in the vertex shader. One draw per
@@ -10,46 +9,31 @@ import { ownedEffectMaterial } from './rust-render/effect-material.js';
 const KEYS = 8, WIDTH = 64, MAX_EFFECTS = 1024, MAX_DEFINITIONS = 1024;
 const ATTRIBUTES = { spawnPosition: 3, spawnVelocity: 3, spawnColor: 4, spawnShape: 4, spawnMeta: 4 };
 const power2 = n => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
-function dataTexture(data, width, height) {
-  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
-  texture.needsUpdate = true;
-  return texture;
-}
 export class AnalyticParticleBatch {
   constructor(texture, blending, owner) {
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.setAttribute('corner', new THREE.Float32BufferAttribute([-1,-1,1,-1,1,1,-1,1],2));
-    this.geometry.setIndex([0,1,2,0,2,3]);
-    this.material = ownedEffectMaterial('effects/particle-analytic', {
-      uniforms: { map:{value:texture}, fade:lighting.fade, ...owner.uniforms,
-        sceneDepth:particleDepth.map, softParticles:particleDepth.enabled,
-        depthResolution:particleDepth.resolution, cameraRange:particleDepth.cameraRange },
-      transparent:true, depthWrite:false, side:THREE.DoubleSide, forceSinglePass:true,
-      blending:blending==='additive'?THREE.AdditiveBlending:THREE.NormalBlending,
-    });
-    this.mesh = new THREE.Mesh(this.geometry,this.material);
-    this.mesh.visible=false;this.geometry.instanceCount=0;
+    // AnalyticParticleBatch keeps authored births and an owner identity. Rust
+    // owns its quad, material and sampler descriptors, including emitter data.
+    this.nativeKind=EFFECT.ANALYTIC.ID;this.family='analytic';this.variant=blending==='additive'?1:0;
+    this.texture=texture;this.owner=owner;this.values=new Float64Array(0);
+    this.mesh=new THREE.Object3D();this.mesh.visible=false;
     this.mesh.frustumCulled=false; this.mesh.renderOrder=10;
     this.mesh.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);
     this.arrays={}; this.records=[]; this.slots=[]; this.epochs=[]; this.count=0;
-    this.grow(256); this.begin();
+    this.grow(16384); this.begin();
   }
   grow(capacity) {
-    // Dispose replaced GPU buffers too; replacing attributes alone leaks them.
-    this.geometry.dispose();
     for (const [name,size] of Object.entries(ATTRIBUTES)) {
       const array=new Float32Array(capacity*size);
       if(this.arrays[name])array.set(this.arrays[name]);
       this.arrays[name]=array;
-      this.geometry.setAttribute(name,new THREE.InstancedBufferAttribute(array,size).setUsage(THREE.DynamicDrawUsage));
     }
     this.capacity=capacity; this.dirty=0;
   }
   begin() { this.count=0; this.dirty=Infinity; }
   // Packed spawn output from the host-neutral presentation kernel.
   pushRecord(data, at, slot, definition, epoch) {
+    if(this.count===this.capacity)return;
     const i=this.count++;
-    if(i===this.capacity)this.grow(this.capacity*2);
     const serial=data[at+D.PARTICLE];
     if(this.records[i]===serial && this.slots[i]===slot && this.epochs[i]===epoch)return;
     this.records[i]=serial;this.slots[i]=slot;this.epochs[i]=epoch;this.dirty=Math.min(this.dirty,i);
@@ -62,19 +46,8 @@ export class AnalyticParticleBatch {
   end() {
     // Release dead references; capacity is the historical peak as with CPU batches.
     this.records.length=this.slots.length=this.epochs.length=this.count;
-    // Drawn by another renderer (external, as particles.js's batches): never
-    // shown to three, nothing marked for it to upload.
-    this.mesh.visible=this.count>0&&!this.external;this.geometry.instanceCount=this.count;
-    // What it has not read yet: from the first instance changed since (it
-    // sets unread to Infinity as it reads).
-    if(this.external){this.unread=Math.min(this.unread??0,this.dirty);return;}
-    if(this.dirty>=this.count)return;
-    for(const name of Object.keys(ATTRIBUTES)) {
-      const a=this.geometry.getAttribute(name);
-      // Merge into one pending range even if many updates happen without a draw.
-      const start=Math.min(this.dirty*a.itemSize,a.updateRanges[0]?.start??Infinity);
-      a.clearUpdateRanges();a.addUpdateRange(start,this.count*a.itemSize-start);a.needsUpdate=true;
-    }
+    this.mesh.visible=this.count>0&&!this.external;
+    this.unread=Math.min(this.unread??0,this.dirty);
   }
 }
 
@@ -110,20 +83,20 @@ export class GpuEffects {
         });
       }
     });
-    this.uniforms={tracks:{value:dataTexture(data,WIDTH,height)},trackRows:{value:height},emitters:{value:null},emitterRows:{value:0}};
-    this.resizeEmitters(16);this.count=0;this.epochs=[];
+    // The native owner admits the maximum 1024 emitters while loading. This
+    // removes resizeEmitters and its repeated DataTexture allocation in battle.
+    this.tracks=data;this.trackRows=height;this.emitterRows=MAX_EFFECTS;
+    this.data=new Float32Array(MAX_EFFECTS*12);this.count=0;this.epochs=[];
+    this.trackSample=-1;this.resources=null;
   }
-  resizeEmitters(rows) {
-    const data=new Float32Array(rows*12);
-    if(this.data)data.set(this.data);
-    this.data=data;this.uniforms.emitters.value?.dispose();
-    this.uniforms.emitters.value=dataTexture(data,3,rows);this.uniforms.emitterRows.value=rows;
+  prepareResources(resources) {
+    if(this.trackSample<0){this.resources=resources;this.trackSample=resources.gpu.effect_data(0,this.trackRows,this.tracks);}
+    return this.trackSample;
   }
   begin() { this.count=0; }
   registerRecord(data, at) {
     const slot=this.count++;
     if(slot>=MAX_EFFECTS)return -1;
-    if(slot>=this.uniforms.emitterRows.value)this.resizeEmitters(this.uniforms.emitterRows.value*2);
     const dst=slot*12;
     for(let j=0;j<3;j++)this.data[dst+j]=data[at+E.POSITION+j];
     this.data[dst+3]=data[at+E.TINT];
@@ -137,14 +110,9 @@ export class GpuEffects {
     const blend=def.geometry.blend==='additive'?'additive':'normal';
     return this.renderer.custom(`analytic:${texture.uuid}:${blend}`,()=>new AnalyticParticleBatch(texture,blend,this));
   }
-  async warmup(renderer) {
-    // Source-owned analytic programs prewarm in the Rust effects pass. Only
-    // the authored track and emitter textures still need browser allocation.
-    renderer.initTexture(this.uniforms.tracks.value);
-    renderer.initTexture(this.uniforms.emitters.value);
-  }
-  end() { if(this.count)this.uniforms.emitters.value.needsUpdate=true; }
-  dispose() {
-    this.uniforms.tracks.value.dispose();this.uniforms.emitters.value.dispose();
-  }
+  async warmup(renderer) { this.prepareResources(renderer.resources); }
+  // Emitters publish once with the effects phase; no redundant texture version
+  // or browser upload is scheduled by GpuEffects.end.
+  end() {}
+  dispose() {if(this.trackSample>=0)this.resources.gpu.dispose_sample(this.trackSample);}
 }

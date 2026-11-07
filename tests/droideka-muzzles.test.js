@@ -1,3 +1,5 @@
+import {actorPointCount,actorPoint} from '../src/actor-resources.js';
+import './fixtures/native-render-descriptors.js';
 import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
@@ -36,10 +38,10 @@ test('drawn world and first-person muzzles lie at their actual barrel apertures'
   const gun={index:Math.floor(shot/2),barrel:shot%2};
   d.visualGunAt(point,gun);selected.push(`${gun.index}:${gun.barrel}`);
   let nearest=Infinity;
-  for(let i=0;i<actor.body.geometry.attributes.position.count;i++){actor.body.getVertexPosition(i,vertex);nearest=Math.min(nearest,vertex.distanceTo(point));}
+  for(let i=0;i<actorPointCount(actor.body.userData.actorAsset);i++){actor.body.getVertexPosition(i,vertex);nearest=Math.min(nearest,vertex.distanceTo(point));}
   assert.ok(nearest<.025,`world muzzle is ${nearest}m away from the aperture rim`);
   view.muzzlePoint(gun,point);nearest=Infinity;
-  for(const mesh of view.rigParts){const positions=mesh.geometry.attributes.position;for(let i=0;i<positions.count;i++){vertex.fromBufferAttribute(positions,i);mesh.localToWorld(vertex);nearest=Math.min(nearest,vertex.distanceTo(point));}}
+  for(const mesh of view.rigParts){const asset=mesh.userData.actorAsset;for(let i=0;i<actorPointCount(asset);i++){actorPoint(asset,i,vertex);mesh.localToWorld(vertex);nearest=Math.min(nearest,vertex.distanceTo(point));}}
   assert.ok(nearest<.025,`first-person muzzle is ${nearest}m away from the aperture rim`);
  }
  assert.equal(new Set(selected).size,4);

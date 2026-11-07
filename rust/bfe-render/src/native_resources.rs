@@ -57,6 +57,7 @@ pub struct GpuResources {
     viewport: [i32; 4],
     scissor: [i32; 4],
     clipped: bool,
+    epoch:u32,
     world_fallbacks: [Option<u32>; 2],
     pub canvas: Option<glow::Framebuffer>,
 }
@@ -75,11 +76,12 @@ impl GpuResources {
             level: 0,
             viewport: [0; 4],
             scissor: [0; 4],
-            clipped: false,
+            clipped: false,epoch:0,
             canvas: None,
             world_fallbacks: [None; 2],
         }
     }
+    pub fn epoch(&self)->u32{self.epoch}
     pub fn source(&mut self, descriptor: &str) -> Result<u32, String> {
         let desc: ImageDesc = parse(descriptor)?;
         self.validate(&desc)?;
@@ -111,6 +113,7 @@ impl GpuResources {
         Ok(())
     }
     pub fn source_desc(&mut self, id: u32, descriptor: &str) -> Result<(), String> {
+        self.epoch=self.epoch.wrapping_add(1);
         let desc = parse(descriptor)?;
         self.validate(&desc)?;
         let s = self.source_mut(id)?;
@@ -119,6 +122,7 @@ impl GpuResources {
         Ok(())
     }
     pub fn source_pixels(&mut self, id: u32, bytes: &[u8]) -> Result<(), String> {
+        self.epoch=self.epoch.wrapping_add(1);
         let s = self.source_mut(id)?;
         match &mut s.pixels {
             Pixels::Raw(data) => {
@@ -131,12 +135,14 @@ impl GpuResources {
         Ok(())
     }
     pub fn source_png(&mut self, id: u32, encoded: &[u8]) -> Result<(), String> {
+        self.epoch=self.epoch.wrapping_add(1);
         let s = self.source_mut(id)?;
         s.pixels = Pixels::Png(encoded.to_vec());
         s.version = s.version.wrapping_add(1);
         Ok(())
     }
     pub fn source_blocks(&mut self, id: u32, data: &[u8], metadata: &str) -> Result<(), String> {
+        self.epoch=self.epoch.wrapping_add(1);
         let mips: Vec<Mip> = parse(metadata)?;
         if mips.is_empty()
             || mips.iter().any(|m| {
@@ -201,6 +207,7 @@ impl GpuResources {
         Ok(id)
     }
     pub fn sampling(&mut self, id: u32, settings: &str) -> Result<(), String> {
+        self.epoch=self.epoch.wrapping_add(1);
         let old = self.sample_ref(id)?.physical;
         let source = self.physical[old].source as u32;
         let next: Sampling = parse(settings)?;
@@ -263,6 +270,9 @@ impl GpuResources {
         }
         Ok(())
     }
+    // Browser add_texture/replace_sample_texture use this same logical
+    // descriptor boundary. Both hosts resolve it through their existing bank.
+    pub fn descriptor_texture(&self,id:u32)->Result<glow::Texture,String>{self.texture(id)}
     pub fn texture(&self, id: u32) -> Result<glow::Texture, String> {
         self.physical[self.sample_ref(id)?.physical]
             .texture
@@ -346,6 +356,7 @@ impl GpuResources {
         Ok(())
     }
     pub fn dispose_sample(&mut self, id: u32) -> Result<(), String> {
+        self.epoch = self.epoch.wrapping_add(1);
         let s = self.samples.get_mut(id as usize).ok_or("unknown sampler")?;
         if s.alive {
             s.alive = false;

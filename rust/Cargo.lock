@@ -286,6 +286,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "three",
+ "v8math",
  "wasm-bindgen",
  "web-sys",
 ]

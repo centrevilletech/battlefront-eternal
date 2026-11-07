@@ -1,6 +1,5 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
-import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
 
 const MAX_NOZZLES = 4;
@@ -22,39 +21,22 @@ export const jetpackWakes = new WeakMap();
 // A pool of one kind of wake particle. Their clock is the wake's own
 // (wakeTime, not the frame's time).
 class WakePool {
-  constructor(scene, kind, clock) {
+  constructor(scene, kind) {
     this.kind = kind;
     this.spec = TYPES[kind];
     this.capacity = this.spec.capacity;
     this.count = 0;
     this.external = false;
     this.dirty = false;
-    this.attributes = {};
-    const plane = new THREE.PlaneGeometry(2, 2);
-    const geometry = new THREE.InstancedBufferGeometry();
-    geometry.index = plane.index;
-    geometry.attributes.position = plane.attributes.position;
-    geometry.attributes.uv = plane.attributes.uv;
-    for (const [name, size] of Object.entries(ATTRIBUTES)) {
-      const attribute = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * size), size).setUsage(THREE.DynamicDrawUsage);
-      geometry.setAttribute(name, attribute);
-      this.attributes[name] = attribute;
-    }
-    this.attributeList = Object.values(this.attributes);
-    geometry.instanceCount = 0;
-    const material = ownedEffectMaterial('effects/wake', {
-      uniforms: {
-        wakeTime: clock, kind: { value: kind }, drag: { value: this.spec.drag },
-        fogColor: lighting.fogColor, fogRange: lighting.fogRange,
-        sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true,
-      depthTest: true, depthWrite: false, toneMapped: false,
-      blending: kind === 1 ? THREE.NormalBlending : THREE.AdditiveBlending,
-      premultipliedAlpha: kind !== 1,
-    });
-    this.mesh = new THREE.Mesh(geometry, material);
+    // WakePool's capacities and birth/flow records are gameplay presentation
+    // facts. Native descriptors own the common plane and each kind's blend.
+    this.nativeKind=EFFECT.WAKE.ID;this.family='wake';this.variant=kind;this.texture=null;
+    this.values=new Float64Array(EFFECT.WAKE.LENGTH);
+    this.values[EFFECT.WAKE.KIND]=kind;this.values[EFFECT.WAKE.DRAG]=this.spec.drag;
+    this.arrays={};
+    for(const [name,size] of Object.entries(ATTRIBUTES))this.arrays[name]=new Float32Array(this.capacity*size);
+    this.streams=Object.values(this.arrays);this.widths=Object.values(ATTRIBUTES);
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = `jetpack-wake-${this.spec.name}`;
     this.mesh.visible = false;
     this.mesh.frustumCulled = false;
@@ -67,59 +49,44 @@ class WakePool {
   emit(time, position, direction, velocity, radius, throttle, random) {
     if (this.count >= this.capacity) return false;
     const n = this.count++, i = n * 4, j = n * 2;
-    const { birth, flow, axis, style } = this.attributes;
+    const { birth, flow, axis, style } = this.arrays;
     const speed = this.kind === 0 ? 4 + random() * 2 : this.kind === 1 ? 1.8 + random() * 1.1 : 4 + random() * 3;
     const downstream = this.kind === 0 ? 0.12 + random() * 0.08 : this.kind === 1 ? 0.36 + random() * 0.12 : 0.15;
-    birth.array[i] = position.x + direction.x * downstream;
-    birth.array[i + 1] = position.y + direction.y * downstream;
-    birth.array[i + 2] = position.z + direction.z * downstream;
-    birth.array[i + 3] = time;
+    birth[i] = position.x + direction.x * downstream;
+    birth[i + 1] = position.y + direction.y * downstream;
+    birth[i + 2] = position.z + direction.z * downstream;
+    birth[i + 3] = time;
     const spread = this.kind === 2 ? 0.9 : 0.3;
-    flow.array[i] = velocity.x * 0.72 + direction.x * speed + (random() - 0.5) * spread;
-    flow.array[i + 1] = velocity.y * 0.72 + direction.y * speed + (random() - 0.5) * spread;
-    flow.array[i + 2] = velocity.z * 0.72 + direction.z * speed + (random() - 0.5) * spread;
-    flow.array[i + 3] = THREE.MathUtils.lerp(this.spec.life[0], this.spec.life[1], random());
-    axis.array[i] = direction.x;
-    axis.array[i + 1] = direction.y;
-    axis.array[i + 2] = direction.z;
-    axis.array[i + 3] = this.kind === 0 ? radius * (1.1 + random()) : this.kind === 1 ? radius * (2.0 + random() * 1.1) : 0.004 + random() * 0.003;
-    style.array[j] = random() * 100;
-    style.array[j + 1] = this.spec.opacity * (0.6 + throttle * 0.4);
+    flow[i] = velocity.x * 0.72 + direction.x * speed + (random() - 0.5) * spread;
+    flow[i + 1] = velocity.y * 0.72 + direction.y * speed + (random() - 0.5) * spread;
+    flow[i + 2] = velocity.z * 0.72 + direction.z * speed + (random() - 0.5) * spread;
+    flow[i + 3] = THREE.MathUtils.lerp(this.spec.life[0], this.spec.life[1], random());
+    axis[i] = direction.x;
+    axis[i + 1] = direction.y;
+    axis[i + 2] = direction.z;
+    axis[i + 3] = this.kind === 0 ? radius * (1.1 + random()) : this.kind === 1 ? radius * (2.0 + random() * 1.1) : 0.004 + random() * 0.003;
+    style[j] = random() * 100;
+    style[j + 1] = this.spec.opacity * (0.6 + throttle * 0.4);
     this.dirty = true;
     return true;
   }
 
   update(time) {
-    const birth = this.attributes.birth.array, flow = this.attributes.flow.array;
+    const birth = this.arrays.birth, flow = this.arrays.flow;
     for (let n = this.count - 1; n >= 0; n--) {
       if (time - birth[n * 4 + 3] < flow[n * 4 + 3]) continue;
       this.count--;
-      for (const attribute of this.attributeList) {
-        const size = attribute.itemSize;
-        attribute.array.copyWithin(n * size, this.count * size, (this.count + 1) * size);
+      for(let k=0;k<this.streams.length;k++){
+        const size=this.widths[k];this.streams[k].copyWithin(n*size,this.count*size,(this.count+1)*size);
       }
       this.dirty = true;
     }
-    // Drawn by another renderer (external), it is shown to three never and
-    // uploads it nothing (the renderer is given every particle each frame).
-    if (this.dirty && !this.external) {
-      for (const attribute of this.attributeList) {
-        attribute.clearUpdateRanges();
-        if (this.count) {
-          attribute.addUpdateRange(0, this.count * attribute.itemSize);
-          attribute.needsUpdate = true;
-        }
-      }
-      this.dirty = false;
-    }
-    this.mesh.geometry.instanceCount = this.count;
     this.mesh.visible = this.count > 0 && !this.external;
   }
 
   clear() {
     this.count = 0;
     this.mesh.visible = false;
-    this.mesh.geometry.instanceCount = 0;
     this.dirty = false;
   }
 }
@@ -129,8 +96,7 @@ export class JetpackWake {
     this.random = random;
     this.time = 0;
     this.emitted = 0;
-    this.clock = { value: 0 };
-    this.pools = TYPES.map((_, kind) => new WakePool(scene, kind, this.clock));
+    this.pools = TYPES.map((_, kind) => new WakePool(scene, kind));
     [this.wisps, this.smoke, this.embers] = this.pools;
     this.emitters = Array.from({ length: MAX_NOZZLES }, () => ({
       position: new THREE.Vector3(), direction: new THREE.Vector3(), ready: false,
@@ -143,7 +109,7 @@ export class JetpackWake {
   update(dt, { nozzles, velocity, throttle = 1, active }) {
     dt = THREE.MathUtils.clamp(dt, 0, 0.25);
     this.time += dt;
-    this.clock.value = this.time;
+    for(const pool of this.pools)pool.values[EFFECT.WAKE.WAKE_TIME]=this.time;
     throttle = THREE.MathUtils.clamp(throttle, 0, 1);
     const count = Math.min(nozzles.length, MAX_NOZZLES);
     // One teleport invalidates the entire old wake, including the other
@@ -196,8 +162,6 @@ export class JetpackWake {
   dispose() {
     for (const pool of this.pools) {
       pool.mesh.removeFromParent();
-      pool.mesh.geometry.dispose();
-      pool.mesh.material.dispose();
     }
   }
 }

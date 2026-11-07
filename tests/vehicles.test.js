@@ -1,3 +1,4 @@
+import {sourceOf} from './helpers/actor-resources.js';
 import {previewGunner,previewDriver,previewSteer} from './helpers/network-preview.js';
 import {presentDriver} from './helpers/cameras.js';
 import './fixtures/native-anim.js';
@@ -134,7 +135,7 @@ test('material-batched vehicle skinning matches rigid bone parts after posing an
  const {vehicleBatches,attachVehicleBatches}=await import('../src/vehicle-rig.js');
  const rig={bones:[{name:'hull',parent:-1,local:identity().toArray()},{name:'barrel',parent:0,local:identity().makeTranslation(0,2,1).toArray()}]};
  const geometry=new THREE.BoxGeometry(1,1,2);
- const parts=['hull','barrel'].map(bone=>({bone,texture:'shared',flags:1,geometry:geometry.clone()}));
+ const parts=['hull','barrel'].map(bone=>({bone,texture:'shared',flags:1,asset:sourceOf(geometry),vertexOffset:0,vertexCount:geometry.attributes.position.count,indexOffset:0,indexCount:geometry.index.count}));
  const batches=vehicleBatches(rig,parts,()=>null);
  assert.equal(batches.length,1,'same material is one draw despite different bones');
  const root=new THREE.Group(),bones=rig.bones.map(d=>{const b=new THREE.Bone();new THREE.Matrix4().fromArray(d.local).decompose(b.position,b.quaternion,b.scale);return b});
@@ -216,14 +217,14 @@ test('skinned vehicle triangles retain different joints across a shared triangle
  geometry.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,1,0,0,1,1,0],3));
  geometry.setAttribute('normal',new THREE.Float32BufferAttribute([0,0,1,0,0,1,0,0,1],3));
  geometry.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,1,1],2));geometry.setIndex([0,1,2]);
- const batches=vehicleBatches(rig,[{geometry,joints:[0,1,1],texture:'skin',flags:1}],()=>null);
+ const batches=vehicleBatches(rig,[{asset:sourceOf(geometry),vertexOffset:0,vertexCount:3,indexOffset:0,indexCount:3,joints:[0,1,1],texture:'skin',flags:1}],()=>null);
  const root=new THREE.Group(),hip=new THREE.Bone(),leg=new THREE.Bone();leg.position.x=1;hip.add(leg);root.add(hip);
  const skeleton=attachVehicleBatches(root,[hip,leg],batches);
  leg.rotation.z=Math.PI/4;root.updateMatrixWorld(true);skeleton.update();
  const mesh=root.children.find(o=>o.isSkinnedMesh),point=new THREE.Vector3();
  mesh.getVertexPosition(0,point);assert.ok(point.length()<1e-8);
  mesh.getVertexPosition(2,point);assert.ok(point.distanceTo(new THREE.Vector3(1-Math.SQRT1_2,Math.SQRT1_2,0))<1e-7);
- assert.equal(batches[0].geometry.index.count,3);
+ assert.equal(batches[0].asset.authored.indices.length,3);
 });
 
 test('ground vehicle mouse aim responds at the next fixed replay tick at every display rate', () => {

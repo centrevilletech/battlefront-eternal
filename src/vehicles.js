@@ -1,3 +1,5 @@
+import {actorDescription} from './actor-resources.js';
+import { lineSource, LINE_KIND } from './line-source.js';
 import { gearFoot } from "./flight/gear.js";
 import { initFlight, standHeight } from "./flight/model.js";
 import { groundMotion } from './vehicle-motion.js';
@@ -660,9 +662,10 @@ export class Vehicles {
       for (const part of parts) {
         const bone = part.bone?.toLowerCase();
         if (bone !== 'wheel_left' && bone !== 'wheel_right') continue;
-        part.geometry.computeBoundingBox();
+        const a=actorDescription(part.asset).bounds;
+        const box=new THREE.Box3(new THREE.Vector3(a[4],a[5],a[6]),new THREE.Vector3(a[7],a[8],a[9]));
         if (!wheelBounds.has(bone)) wheelBounds.set(bone, new THREE.Box3());
-        wheelBounds.get(bone).union(part.geometry.boundingBox);
+        wheelBounds.get(bone).union(box);
       }
       for (const [bone, bounds] of wheelBounds) wheelRadii.set(bone, Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z) * .5);
       const muzzleTips = vehicleMuzzleTips(rig, parts);
@@ -804,11 +807,9 @@ export class Vehicles {
       const target = this.vehicles[v.towTarget];
       if (v.towTarget < 0 || !target?.alive) { if (tether.line) tether.line.visible = false; continue; }
       if (!tether.line) {
-        const geometry = new THREE.BufferGeometry();
-        tether.position = new THREE.BufferAttribute(new Float32Array(TOW_POINTS * 3), 3).setUsage(THREE.DynamicDrawUsage);
-        geometry.setAttribute('position', tether.position);
-        tether.line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xb7b5ab }));
-        tether.line.frustumCulled = false;
+        tether.line=lineSource(LINE_KIND.TOW,TOW_POINTS);
+        tether.position=tether.line.userData.lineSource.positions;
+        tether.from=new THREE.Vector3();
         this.scene.add(tether.line);
       }
       tether.target = target;
@@ -820,24 +821,23 @@ export class Vehicles {
       const quarters = Math.min(TOW_POINTS - 18, Math.floor(Math.abs(v.towWinding) / (Math.PI / 2)));
       const radius = Math.max(target.size.x, target.size.z) * .5;
       let n = 0;
-      const put = (p) => { tether.position.setXYZ(n++, p.x, p.y, p.z); };
-      put(tether.end);
+      n=putTowPoint(tether.position,n,tether.end);
       for (let k = 1; k <= quarters; k++) {
         const a = v.towAngle - Math.sign(v.towWinding) * (Math.abs(v.towWinding) - k * Math.PI / 2);
         this.center.set(target.center.x, v.towLocal.y, target.center.z).applyMatrix4(frame);
         this.center.x += Math.sin(a) * radius; this.center.z += Math.cos(a) * radius;
-        put(this.center);
+        n=putTowPoint(tether.position,n,this.center);
       }
-      const from = quarters ? this.center.clone() : tether.end;
+      const from=tether.from.copy(quarters?this.center:tether.end);
       const span = from.distanceTo(tether.start);
       for (let i = 1; i <= 16; i++) {
         const t = i / 16;
         this.center.lerpVectors(from, tether.start, t);
         this.center.y -= Math.sin(t * Math.PI) * Math.min(2, span * .025);
-        put(this.center);
+        n=putTowPoint(tether.position,n,this.center);
       }
-      tether.line.geometry.setDrawRange(0, n);
-      tether.position.needsUpdate = true;
+      tether.line.userData.lineSource.count=n;
+      tether.line.userData.lineSource.serial++;
       tether.line.visible = true;
     }
   }
@@ -861,18 +861,17 @@ export class Vehicles {
   }
 
   dispose() {
-    for (const tether of this.tethers.values()) if (tether.line) { this.scene.remove(tether.line); tether.line.geometry.dispose(); tether.line.material.dispose(); }
+    for (const tether of this.tethers.values()) if (tether.line) { this.scene.remove(tether.line);  }
     this.tethers.clear();
     for (const v of this.vehicles) for (const seat of v.seats) if (seat.lease && !seat.lease.human) this.vacate(seat.lease, { placement: false, promote: false, reason: 'removed' });
     if (this.units) for (const v of this.vehicles) this.units.remove(v.aiTarget);
     for (const v of this.vehicles) {
-      v.root.traverse(object => { if (object.isMesh) this.uncaster?.(object); });
+      v.root.traverse(object => { if (object.userData.actorAsset) this.uncaster?.(object); });
       this.scene.remove(v.root);
       v.skeleton.dispose();
       this.collision.removeBody(v.body);
     }
     for (const t of this.templates.values()) {
-      for (const p of t.batches) { p.geometry.dispose(); p.material.dispose(); }
       t.shape.bvh.geometry.dispose();
     }
     this.collision.vehicleBlockers?.bvh.geometry.dispose();
@@ -979,9 +978,13 @@ export class VehicleDriver {
   // a skiff) stays.
   hideHull(v) {
     if (this.hiddenHull === v) return;
-    const layer = (hull, value) => hull?.root.traverse((object) => { if (object.isMesh) object.layers.set(value); });
+    const layer = (hull, value) => hull?.root.traverse((object) => { if (object.userData.actorAsset) object.layers.set(value); });
     layer(this.hiddenHull, 0);
     layer(v, this.hiddenLayer);
     this.hiddenHull = v;
   }
 }
+
+// Vehicles.drawTethers writes the same Float32 points as BufferAttribute.setXYZ.
+// The scratch point and typed source survive every cable update.
+function putTowPoint(data,n,p){const at=n*3;data[at]=p.x;data[at+1]=p.y;data[at+2]=p.z;return n+1;}

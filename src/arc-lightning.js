@@ -1,4 +1,7 @@
+import {actorNode,actorLook} from './actor-resources.js';
+import {ACTOR} from './rust-render/actor-layout.js';
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
@@ -89,8 +92,7 @@ function restart(owner) {
   return spare;
 }
 
-const QUAD = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]);
-const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
+
 // One interleaved instance buffer (a single upload a frame): name, size,
 // offset in floats.
 const STRIDE = 20;
@@ -117,30 +119,15 @@ export class ArcBatch {
     this.capacity = 0;
     this.data = null;
     this.range = { start: 0, count: 0 };
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.setAttribute("corner", new THREE.BufferAttribute(QUAD, 2));
-    this.geometry.setIndex(QUAD_INDEX);
-    this.material = ownedEffectMaterial('effects/arc', {
-      name: "arc-lightning",
-      uniforms: {
-        fade: lighting.fade, eyeFade: { value: new THREE.Vector2(soft ? 0.12 : 0, soft ? 0.5 : 0) }, closeRange: { value: soft ? 2.5 : 0 },
-        pixelAngle: { value: 0.002 }, nearDepth: { value: 0.51 },
-        sceneDepth: particleDepth.map, softParticles: soft ? particleDepth.enabled : { value: 0 },
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.CustomBlending,
-      blendEquation: THREE.AddEquation,
-      blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-      side: THREE.DoubleSide,
-      forceSinglePass: true,
-    });
-    // Over the first-person arms, arcs run between their bones, inside the
-    // models: drawn over them.
-    if (!soft) { this.material.depthTest = false; this.material.userData.bfeNoShadows = true; }
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // ArcBatch's two depth ranges have distinct native descriptors. Only the
+    // live endpoints, camera facts and scene anchor remain on the page.
+    const layout=soft?EFFECT.ARC:EFFECT.ARC_VIEW;
+    this.nativeKind=layout.ID;this.variant=0;this.family=soft?'arc':'arcView';
+    this.texture=null;this.values=new Float64Array(layout.LENGTH);this.stride=STRIDE;
+    this.values[layout.EYE_FADE]=soft?0.12:0;this.values[layout.EYE_FADE+1]=soft?0.5:0;
+    this.values[layout.CLOSE_RANGE]=soft?2.5:0;this.values[layout.PIXEL_ANGLE]=0.002;this.values[layout.NEAR_DEPTH]=0.51;
+    this.arrays={interleaved:null};
+    this.mesh = new THREE.Object3D(); this.mesh.userData.effectBatch=this;
     this.mesh.name = "arc-lightning";
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 12;
@@ -151,33 +138,29 @@ export class ArcBatch {
       // Shown empty only to have its program built while a battle loads.
       if (!this.count) return;
       if (this.soft) particleDepth.capture(renderer, scene, camera);
+      else {this.values[layout.FADE]=lighting.fade.value.x;this.values[layout.FADE+1]=lighting.fade.value.y;}
       if (camera.isPerspectiveCamera) {
         // The pixels being drawn: under an upscaler, the 3D frame's.
         const target = renderer.getRenderTarget();
         const height = target ? target.height : renderer.getDrawingBufferSize(size).y;
-        this.material.uniforms.pixelAngle.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
-        this.material.uniforms.nearDepth.value = camera.near * 1.02;
+        this.values[layout.PIXEL_ANGLE] = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
+        this.values[layout.NEAR_DEPTH] = camera.near * 1.02;
       }
     };
-    this.grow(capacity);
+    this.grow(Math.max(capacity,16384));
   }
 
   grow(capacity) {
     const data = new Float32Array(capacity * STRIDE);
     if (this.data) data.set(this.data);
     this.data = data;
-    this.buffer = new THREE.InstancedInterleavedBuffer(data, STRIDE).setUsage(THREE.DynamicDrawUsage);
-    for (const [name, size, offset] of LAYOUT) this.geometry.setAttribute(name, new THREE.InterleavedBufferAttribute(this.buffer, size, offset));
-    // three takes the instance limit from the first buffers it binds and
-    // keeps it until the geometry is disposed: grown, the new instances
-    // would not be drawn.
-    delete this.geometry._maxInstanceCount;
+    this.arrays.interleaved = data;
     this.capacity = capacity;
   }
 
   // Room for `more` instances after those pushed so far.
   reserve(more) {
-    if (this.count + more > this.capacity) this.grow(Math.max(this.capacity * 2, this.count + more));
+    // Capacity is admitted once; push clips any excess segments.
   }
 
   begin() {
@@ -189,7 +172,7 @@ export class ArcBatch {
   // 1; hot how white its core runs (0 to 1).
   push(a, b, na, nb, rgb, brightness, core, glow, hot = 0.6) {
     if (brightness <= 0.002) return;
-    if (this.count === this.capacity) this.grow(this.capacity * 2);
+    if (this.count === this.capacity) return;
     const d = this.data, o = this.count++ * STRIDE;
     d[o] = a.x; d[o + 1] = a.y; d[o + 2] = a.z;
     d[o + 3] = b.x; d[o + 4] = b.y; d[o + 5] = b.z;
@@ -201,28 +184,8 @@ export class ArcBatch {
 
   // keep: shown even empty (its program is built by the first draw or the
   // loading's warm-up).
-  end(keep = false) {
-    let drawn = this.count;
-    if (!drawn && keep && !this.external) {
-      // Kept empty, nothing would be drawn, and the driver builds its
-      // pipeline for the program's first real draw (ANGLE on Vulkan and
-      // Metal, SwiftShader), stalling the first bolt; so one dark capsule
-      // is drawn: zero brightness, which the fragment shader lets go.
-      this.data.fill(0, 0, STRIDE);
-      drawn = 1;
-    }
-    this.geometry.instanceCount = drawn;
-    // Drawn by another renderer (external), it is shown to three never and
-    // uploads it nothing.
-    this.mesh.visible = drawn > 0 && !this.external;
-    if (!drawn || this.external) return;
-    // Only what was drawn is sent, through one range kept for it (three
-    // empties the list once it has uploaded).
-    const ranges = this.buffer.updateRanges;
-    ranges.length = 0;
-    this.range.count = drawn * STRIDE;
-    ranges.push(this.range);
-    this.buffer.needsUpdate = true;
+  end() {
+    this.mesh.visible=this.count>0&&!this.external;
   }
 }
 
@@ -234,24 +197,6 @@ export class ArcBatch {
 
 
 
-
-function shockMaterial() {
-  return ownedEffectMaterial('effects/shock', {
-    name: "arc-shock",
-    defines: {},
-    forceSinglePass: true,
-    fog: false,
-    uniforms: { shockTime: { value: 0 }, intensity: { value: 0 }, seed: { value: 0 }, color: { value: new THREE.Color() }, inflate: { value: 0.012 } },
-
-
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  material.userData.actorShader = "shock";
-  material.visible = false;
-  return material;
-}
 
 // A path's points, reused frame to frame.
 class Path {
@@ -963,11 +908,11 @@ export class ArcLightning {
     if (overlay) {
       overlay.visible = intensity > 0.01 && actor.body.visible;
       overlay.layers.mask = actor.body.layers.mask;
-      const u = overlay.material.uniforms;
-      u.shockTime.value = this.time;
-      u.intensity.value = intensity * 0.7;
-      u.seed.value = (shock.seed % 1000) * 0.37;
-      u.color.value.fromArray(shock.rgb);
+      const u=overlay.material.values,r=ACTOR.LOOK;
+      u[r.SHOCK_TIME]= this.time;
+      u[r.INTENSITY]= intensity * 0.7;
+      u[r.SEED]= (shock.seed % 1000) * 0.37;
+      for(let i=0;i<3;i++)u[r.COLOR+i]=shock.rgb[i];
     }
     const shown = actor.root.visible && actor.body?.visible !== false && camera.layers.test(actor.body?.layers ?? actor.root.layers);
     const chest = this.chest(unit, this.e);
@@ -1238,10 +1183,7 @@ export class ArcLightning {
     const body = actor.body;
     overlay = null;
     if (body?.isSkinnedMesh && body.skeleton) {
-      const geometry = new THREE.BufferGeometry();
-      geometry.index = body.geometry.index;
-      for (const name of ["position", "normal", "skinIndex", "skinWeight"]) if (body.geometry.attributes[name]) geometry.setAttribute(name, body.geometry.attributes[name]);
-      overlay = new THREE.SkinnedMesh(geometry, shockMaterial());
+      overlay=actorNode(body.userData.actorAsset,actorLook('shock'),true);
       overlay.name = "arc-shock";
       overlay.boundingSphere = body.boundingSphere;
       overlay.renderOrder = 6;

@@ -7,6 +7,7 @@ import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // the rain's splashes and cover cache hold and of what is made once (the
 // streak texture and the drops' seeds).
 import * as THREE from 'three';
+import { EFFECT } from '../../src/rust-render/effect-layout.js';
 
 const bits = new Uint32Array(1);
 const asFloat = new Float32Array(bits.buffer);
@@ -40,16 +41,16 @@ export function runWeather(Weather) {
     camera.position.set(Math.sin(t * 0.4) * 9 + (frame % 150 === 149 ? 300 : 0), 2 + Math.sin(t) * 0.5, t * 1.5);
     camera.updateMatrixWorld();
     stepSurface(weather,dt, camera);
-    const u = weather.material.uniforms;
-    rows.push([u.rainTime.value, ...u.eye.value.toArray(), ...u.cameraMotion.value.toArray(), u.enhanced.value, u.range.value,
+    const u = weather.values;
+    rows.push([u[EFFECT.RAIN.RAIN_TIME], ...u.slice(EFFECT.RAIN.EYE,EFFECT.RAIN.EYE+3), ...u.slice(EFFECT.RAIN.CAMERA_MOTION,EFFECT.RAIN.CAMERA_MOTION+3), u[EFFECT.RAIN.ENHANCED], u[EFFECT.RAIN.RANGE],
       weather.mesh.visible ? 1 : 0, weather.mist.visible ? 1 : 0, weather.sheets.mesh.visible ? 1 : 0, weather.impacts.mesh.visible ? 1 : 0,
       weather.impacts.next, weather.impacts.queries, weather.cover.queries,
       hash(2166136261, weather.impacts.locations, 96 * 2 * 4), hash(2166136261, weather.impacts.normals, 96 * 2 * 3),
-      hash(2166136261, weather.cover.heights, weather.cover.heights.length), weather.mesh.geometry.instanceCount,
+      hash(2166136261, weather.cover.heights, weather.cover.heights.length), weather.count,
       // What is made once: the sheets' streak texture and both sets of drop seeds.
-      hash(2166136261, weather.sheets.texture.image.data, weather.sheets.texture.image.data.length),
-      hash(2166136261, weather.mesh.geometry.getAttribute('seed').array, weather.mesh.geometry.getAttribute('seed').array.length),
-      hash(2166136261, weather.mist.geometry.getAttribute('seed').array, weather.mist.geometry.getAttribute('seed').array.length)].map((v) => v + 0));
+      hash(2166136261, weather.host.streaks, weather.host.streaks.length),
+      hash(2166136261, weather.host.seeds, weather.host.seeds.length),
+      hash(2166136261, weather.host.mist, weather.host.mist.length)].map((v) => v + 0));
   }
   if (weather.host && weather.host.x.memory.buffer !== memory) throw new Error('the module\'s memory moved');
   return rows;

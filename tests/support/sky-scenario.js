@@ -4,6 +4,7 @@ import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // length (none, short, 0.5 s), a camera that moves and turns, and a frame
 // with no camera. One row of digests per frame: each class's draw counts and
 // visibility and a hash of every record its draws read.
+import {ACTOR} from '../../src/rust-render/actor-layout.js';
 import * as THREE from 'three';
 import { SKY_SETTING } from '../../src/sky-flyers.js';
 
@@ -56,14 +57,14 @@ export function runSky(SkyFlyers) {
     const row = [flyers.count];
     for (const kind of flyers.classes) {
       const n1 = kind.draws[0].count, n2 = kind.fades[0].count, n = kind.def.count;
-      row.push(n1, kind.draws[0].visible ? 1 : 0, n2, kind.fades[0].visible ? 1 : 0, kind.draws[0].material.uniforms.reach.value);
-      let h = hash(2166136261, kind.solid.matrices.array, n1 * 16);
-      h = hash(h, kind.solid.looks.array, n1 * 4);
-      h = hash(h, kind.fading.matrices.array, n2 * 16);
-      h = hash(h, kind.fading.looks.array, n2 * 4);
-      h = hash(h, kind.motion.matrices.array, n * 16);
-      h = hash(h, kind.motion.previous.array, n * 16);
-      h = hash(h, kind.motion.shown.array, n);
+      row.push(n1, kind.draws[0].visible ? 1 : 0, n2, kind.fades[0].visible ? 1 : 0, kind.draws[0].userData.flyerSource.values[ACTOR.FLYER.REACH]);
+      let h = hash(2166136261, kind.solid.matrices, n1 * 16);
+      h = hash(h, kind.solid.looks, n1 * 4);
+      h = hash(h, kind.fading.matrices, n2 * 16);
+      h = hash(h, kind.fading.looks, n2 * 4);
+      h = hash(h, kind.motion.matrices, n * 16);
+      h = hash(h, kind.motion.previous, n * 16);
+      h = hash(h, kind.motion.shown, n);
       row.push(h);
     }
     rows.push(row);

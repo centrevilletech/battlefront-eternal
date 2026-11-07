@@ -1,3 +1,4 @@
+import {actorAsset,actorNode} from './actor-resources.js';
 import * as THREE from 'three';
 import { partMaterial } from './models.js';
 import { vehicleConstruction } from './anim.js';
@@ -18,23 +19,15 @@ export function vehicleBatches(rig, parts, texture, { separate = [], dispose = t
   // Input parts are resource records, not live nodes. Native packing owns
   // grouping, bind-frame transforms, influences, indices and bounds.
   const records = vehicleConstruction({ rig, separate, parts: parts.map(part => {
-    const g = part.geometry, data = [];
-    for (let i = 0; i < g.attributes.position.count; i++) data.push(g.attributes.position.getX(i),g.attributes.position.getY(i),g.attributes.position.getZ(i),
-      g.attributes.normal.getX(i),g.attributes.normal.getY(i),g.attributes.normal.getZ(i),g.attributes.uv.getX(i),g.attributes.uv.getY(i));
-    return { data, index: Array.from(g.index.array), texture: part.texture, flags: part.flags, scroll: part.scroll, bone: part.bone,
+    const first=part.vertexOffset/4,data=Array.from(part.asset.vertices.subarray(first,first+part.vertexCount*8));
+    const base=part.vertexOffset/32,index=Array.from(part.asset.indices.subarray(part.indexOffset/4,part.indexOffset/4+part.indexCount),v=>v-base);
+    return { data, index, texture: part.texture, flags: part.flags, scroll: part.scroll, bone: part.bone,
       joints: part.joints, skinJoints: part.skinJoints, skinWeights: part.skinWeights };
   }) }, true);
   const batches = records.map(record => {
-    const geometry = new THREE.BufferGeometry();
-    for (const [name,array,size] of [['position',Float32Array.from(record.positions),3],['normal',Float32Array.from(record.normals),3],
-      ['uv',Float32Array.from(record.uv),2],['skinIndex',Uint16Array.from(record.joints),4],['skinWeight',Float32Array.from(record.weights),4]]) {
-      geometry.setAttribute(name,new THREE.BufferAttribute(array,size));
-    }
-    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(record.indices),1));
-    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3().fromArray(record.center),record.radius);
-    return { geometry, material: partMaterial(parts[record.part],texture), casts: record.casts, attach: record.attach };
+    const asset=actorAsset({kind:'rig',...record});
+    return {asset,material:partMaterial(parts[record.part],texture),casts:record.casts,attach:record.attach};
   });
-  if (dispose) for (const part of parts) part.geometry.dispose();
   return batches;
 }
 
@@ -47,13 +40,12 @@ export function attachVehicleBatches(root, bones, batches, caster, { byName = nu
   if (!inverses) root.updateMatrixWorld(true);
   const skeleton = new THREE.Skeleton([...bones, staticBone], inverses || []);
   for (const batch of batches) {
-    const mesh = new THREE.SkinnedMesh(batch.geometry, batch.material);
+    const mesh = actorNode(batch.asset,batch.material,true);
     ((batch.attach && byName?.[batch.attach]) || root).add(mesh);
     // Vertices are in the root's bind frame: an identity bind matrix, even
     // for a mesh hung under one of its bones (its attached-mode inverse
     // follows that bone's placement each frame).
     mesh.bind(skeleton, IDENTITY);
-    mesh.boundingSphere = batch.geometry.boundingSphere.clone();
     mesh.receiveShadow = true;
     if (batch.casts) caster?.(mesh);
     if (motion) motionVectors.track(mesh, { far: 150 });

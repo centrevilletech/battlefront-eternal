@@ -2,6 +2,8 @@
 // no game files. Exact readback after restoration checks the whole retained
 // program/geometry/sampler path, including a holomap-style offscreen batch.
 import * as THREE from 'three';
+import {actorAsset,actorNode,releaseActorSkin} from '../src/actor-resources.js';
+import {canvasImage,releaseImage} from '../src/interface/images.js';
 import { Batch, loadInterfaceBatch } from '../src/interface/batch.js';
 import { interfaceMaterial } from '../src/interface/models.js';
 import { renderInterface } from '../src/rust-render/draw-guard.js';
@@ -11,10 +13,12 @@ import { InterfaceSurface } from '../src/interface/surface.js';
 
 export function interfaceFixture(g, assert) {
   const renderer = g.renderer, gl = renderer.getContext();
-  const texture = new THREE.DataTexture(new Uint8Array([80,160,240,255]),1,1);
-  texture.needsUpdate = true;
-  const mask = new THREE.DataTexture(new Uint8Array([255,255,255,128]),1,1);
-  mask.needsUpdate = true;
+  const image = rgba => {
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+    const context=canvas.getContext('2d');context.putImageData(new ImageData(new Uint8ClampedArray(rgba),1,1),0,0);
+    return canvasImage(canvas);
+  };
+  const texture=image([80,160,240,255]),mask=image([255,255,255,128]);
   const batch = new Batch(), scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(0,64,64,0,-10,10);
   const matrix = new THREE.Matrix4();
@@ -22,12 +26,10 @@ export function interfaceFixture(g, assert) {
   batch.quad(matrix,2,2,30,30,texture,[0,0,1,1],[1,1,1,1]);
   batch.quad(matrix,34,2,62,30,texture,[0,0,1,1],[1,1,1,1],0,mask);
   batch.end(); scene.add(batch.mesh);
-  const target = new THREE.WebGLRenderTarget(64,64,{depthBuffer:true});
+  const target = renderer.resources.interfaceTarget(64);
   const preview = new THREE.Scene();
-  const geometry = new THREE.PlaneGeometry(20,20);
-  geometry.setAttribute('skinIndex',new THREE.Uint16BufferAttribute([0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0],4));
-  geometry.setAttribute('skinWeight',new THREE.Float32BufferAttribute([.25,.75,0,0,.25,.75,0,0,.25,.75,0,0,.25,.75,0,0],4));
-  const model = new THREE.SkinnedMesh(geometry,interfaceMaterial({map:texture,lit:false,blend:false,cutoff:-1}));
+  const geometry=actorAsset({kind:'rig',positions:[-10,10,0,10,10,0,-10,-10,0,10,-10,0],normals:[0,0,1,0,0,1,0,0,1,0,0,1],uv:[0,1,1,1,0,0,1,0],joints:[0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0],weights:[.25,.75,0,0,.25,.75,0,0,.25,.75,0,0,.25,.75,0,0],indices:[0,2,1,2,3,1]});
+  const model=actorNode(geometry,interfaceMaterial({map:texture,lit:false,blend:false,cutoff:-1}),true);
   const bone = new THREE.Bone(), child = new THREE.Bone();
   bone.add(child); model.add(bone); model.bind(new THREE.Skeleton([bone,child]));
   model.position.set(32,46,0); model.frustumCulled = false;
@@ -56,7 +58,7 @@ export function interfaceFixture(g, assert) {
   batch.begin(); batch.quad(matrix,4,4,30,30,texture,[0,0,1,1],[.5,1,1,1]); batch.end();
   const changed = pixels();
   assert('Rust interface updates changed vertices and drops removed groups',at(changed,12,12)[0]===40&&at(changed,44,12)[3]===0);
-  return { pixels, before: changed, dispose() { target.dispose(); texture.dispose(); mask.dispose(); geometry.dispose(); model.material.dispose(); } };
+  return { pixels, before: changed, dispose() { renderer.resources.disposeEffectTarget(target); releaseActorSkin(g.rust,model.skeleton); releaseImage(texture); releaseImage(mask); } };
 }
 
 // The front end constructs its renderer without a battle or its preparation

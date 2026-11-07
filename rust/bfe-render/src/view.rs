@@ -81,6 +81,7 @@ impl<C: HasContext> ViewPass<C> {
         let draws = (self.input[IN_DRAWS] as usize).min(MAX_DRAWS);
         for d in 0..draws {
             let v = &self.input[IN_FIRST_DRAW + d * DRAW..IN_FIRST_DRAW + (d + 1) * DRAW];
+            if v[D_PROGRAM]==crate::actor_layout::kind::VIEW_MODEL as f64 {effects.draw_view_model(core,camera,v[D_GEOMETRY] as usize,v[D_RANGE] as usize,v[D_RANGE+1] as usize);continue;}
             if v[D_PROGRAM] == VIEW_BATCH {
                 effects.draw_view_batch(core, v[D_BATCH] as usize, v[D_BATCH_COUNT] as usize, v[D_BATCH_AT] as usize, v[D_BATCH_CAPACITY] as usize);
                 continue;

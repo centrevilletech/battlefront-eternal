@@ -1,6 +1,7 @@
 // Synthetic storage fixtures run on the same backend as the battle smoke.
 // They deliberately use the public resource owner, not a second GL uploader.
 import * as THREE from 'three';
+import { EFFECT_TARGET } from '../src/rust-render/effect-layout.js';
 import { pngImage, basisImage, pngCanvas } from '../src/texture-decode.js';
 import { rendererModule } from '../src/rust-render/load.js';
 import { setPngSource } from '../src/texture-images.js';
@@ -277,6 +278,30 @@ export async function checkResources(renderer, assert) {
     try {owner.gpu.texture(dead);} catch {stale=true;}
     assert('Native sampler logical ids never alias reused storage',next!==dead&&stale);
     const reusedSource=owner.images.get(reused.source).id;reused.dispose();owner.gpu.release_source(reusedSource);owner.gpu.dispose_sample(next);
+    // EnvironmentVolume and FountainJets use numeric native target facts.
+    // Their native descriptors retain exact attachment/sampling policy across
+    // resize, disposal and context restoration without any Three target shell.
+    const effect=owner.effectTarget(EFFECT_TARGET.FOUNTAIN),logical=[effect.texture,effect.depthTexture];
+    owner.resizeEffectTarget(effect,19,11);renderer.setRenderTarget(effect);
+    assert('Native effect target resize preserves both sampler identities',effect.texture===logical[0]&&effect.depthTexture===logical[1]&&gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE&&gl.getParameter(gl.SAMPLES)===0);
+    gl.clearColor(7/255,11/255,13/255,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    const effectPixels=new Uint8Array(19*11*4);gl.readPixels(0,0,19,11,gl.RGBA,gl.UNSIGNED_BYTE,effectPixels);
+    assert('Native effect target contains exact resized RGBA bytes',effectPixels.every((v,i)=>v===[7,11,13,255][i%4]));
+    const binding=gl.getParameter(gl.FRAMEBUFFER_BINDING);owner.resizeEffectTarget(effect,19,11);
+    assert('Unchanged native effect size retains its framebuffer',gl.getParameter(gl.FRAMEBUFFER_BINDING)===binding);
+    renderer.setRenderTarget(before);owner.disposeEffectTarget(effect);
+    const retired=owner.gpu.descriptor_texture(logical[0]);
+    assert('Released effect descriptors resolve to a stable retired sampler',gl.isTexture(retired)&&owner.gpu.descriptor_texture(logical[0])===retired);
+    let unknown=false;try{owner.gpu.descriptor_texture(0x7fffffff);}catch{unknown=true;}
+    assert('Unknown effect sampler identities remain visible errors',unknown);
+    const density=owner.gpu.effect_noise(0);gl.bindTexture(gl.TEXTURE_3D,owner.gpu.texture(density));
+    assert('Native flame volume retains repeat and linear 3D sampling',gl.getTexParameter(gl.TEXTURE_3D,gl.TEXTURE_WRAP_R)===gl.REPEAT&&gl.getTexParameter(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER)===gl.LINEAR);
+    owner.gpu.dispose_sample(density);
+    // Lightning policy applies to the native alias, including late compressed
+    // publication, without changing every other client of the asset source.
+    const bolt=owner.lightningSample(compressed);gl.bindTexture(gl.TEXTURE_2D,owner.gpu.texture(bolt));
+    assert('Native lightning sampler exposes only the top level',gl.getTexParameter(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER)===gl.LINEAR);
+    owner.gpu.dispose_sample(bolt);
     renderer.setRenderTarget(before);
     assert('Resource fixture has no GL errors' ,gl.getError()===gl.NO_ERROR);
     return { native };

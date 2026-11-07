@@ -1,8 +1,12 @@
 import * as THREE from "three";
+import {actorAsset} from "../actor-resources.js";
+import {surfaceMaterial} from "../rust-render/interface-material.js";
+import {rendererModule} from "../rust-render/load.js";
 import { InterfaceBatchFrame as F, InterfaceQuad as Q, InterfaceBatchLimits as L } from "./batch-layout.js";
 let native;
 export async function loadInterfaceBatch() {
   native = await (await import("../presentation/effects.js")).loadPresentation();
+  await rendererModule();
 }
 // Synthetic renderer hosts inject the same required module, without a
 // browser fetch. Production awaits loadInterfaceBatch before construction.
@@ -26,21 +30,12 @@ export class Batch {
     this.uv = new Float32Array(QUADS * 8);
     this.maskUv = new Float32Array(QUADS * 8);
     this.tint = new Float32Array(QUADS * 16);
-    const index = new Uint32Array(QUADS * 6);
-    for (let i = 0; i < QUADS; i++) index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 2, i * 4 + 1, i * 4 + 3], i * 6);
-    const geometry = new THREE.BufferGeometry();
-    const attribute = (array, size) => new THREE.BufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute("position", attribute(this.position, 3));
-    geometry.setAttribute("uv", attribute(this.uv, 2));
-    geometry.setAttribute("maskUv", attribute(this.maskUv, 2));
-    geometry.setAttribute("tint", attribute(this.tint, 4));
-    geometry.setIndex(new THREE.BufferAttribute(index, 1));
-    this.geometry = geometry;
-    this.mesh = new THREE.Mesh(geometry, []);
-    this.mesh.frustumCulled = false;
+    this.asset=actorAsset({kind:"uiBatch",count:QUADS});
+    this.mesh=new THREE.Object3D();this.mesh.userData.interfaceBatch=this;
+    this.mesh.userData.actorAsset=this.asset;this.mesh.frustumCulled=false;
+    this.drawGroups=[];this.looks=[];this.first=0;this.last=0;this.serial=0;
     this.materials = new Map();
     this.groups = Array.from({ length: QUADS }, () => ({ start: 0, count: 0, materialIndex: 0 }));
-    this.ranges = Array.from({ length: 4 }, () => ({ start: 0, count: 0 }));
     this.count = 0;
     // Quads whose corners changed since the last upload. The arrays are
     // what the GPU holds, so a corner written with the value already there
@@ -51,32 +46,14 @@ export class Batch {
   }
 
   // By texture, then mask (no per-quad key strings).
-  // These descriptors bind actual browser texture objects. Native numeric
-  // geometry has no second material or texture ownership registry.
+  // Semantic image identities select a retained native appearance. The UI
+  // retains only this key and its generated live-value input row.
   material(texture, mask) {
     let byMask = this.materials.get(texture);
     if (!byMask) this.materials.set(texture, (byMask = new Map()));
-    const key = mask || null;
+    const key = mask ?? null;
     if (!byMask.has(key)) {
-      byMask.set(
-        key,
-        {
-          // HudPass and InterfacePass consume these values directly. This is
-          // a draw descriptor, with no Three material or browser shader.
-          id: this.materials.size * QUADS + byMask.size,
-          visible: true,
-          userData: { interfaceProgram: "quad" },
-          uniforms: { map: { value: texture }, mask: { value: mask || texture }, masked: { value: Boolean(mask) } },
-          transparent: true,
-          depthTest: false,
-          depthWrite: false,
-          colorWrite: true,
-          depthFunc: THREE.LessEqualDepth,
-          blending: THREE.NormalBlending,
-          forceSinglePass: true,
-          side: THREE.DoubleSide,
-        },
-      );
+      byMask.set(key,surfaceMaterial("quad",{map:texture,mask,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
     }
     return byMask.get(key);
   }
@@ -101,8 +78,8 @@ export class Batch {
     // Material runs use the already reserved host group records below.
     this.commandCount = 0;
     this.count = 0;
-    this.geometry.groups.length = 0;
-    this.mesh.material.length = 0;
+    this.drawGroups.length = 0;
+    this.looks.length = 0;
     this.lastMaterial = null;
     this.lastGroup = null;
   }
@@ -113,7 +90,7 @@ export class Batch {
   quad(m, x0, y0, x1, y1, texture, uv, tint, z = 0, mask = null, maskUv = null, corners = null) {
     // Excess glyphs and icons clip as the original bounded batch did.
     // Loading or a slow frame must never turn capacity pressure into an error.
-    if (!texture || this.count >= QUADS) return;
+    if (texture==null || this.count >= QUADS) return;
     const i = this.count++;
     // Pack one command without transforming its corners. A native call at
     // end owns perspective division, float32 comparison and dirty spans.
@@ -135,14 +112,14 @@ export class Batch {
     if (this.lastMaterial === material) {
       this.lastGroup.count += 6;
     } else {
-      const materials = this.mesh.material;
+      const materials = this.looks;
       let index = materials.indexOf(material);
       if (index < 0) index = materials.push(material) - 1;
-      const group = this.groups[this.geometry.groups.length];
+      const group = this.groups[this.drawGroups.length];
       group.start = i * 6; group.count = 6; group.materialIndex = index;
-      this.geometry.groups.push(group);
+      this.drawGroups.push(group);
       this.lastMaterial = material;
-      this.lastGroup = this.geometry.groups[this.geometry.groups.length - 1];
+      this.lastGroup = this.drawGroups[this.drawGroups.length - 1];
     }
   }
 
@@ -155,7 +132,6 @@ export class Batch {
   // the last (never more uploads than the whole buffer took, and none when
   // nothing changed: a static HUD, menus, the spawn screen).
   end() {
-    const geometry = this.geometry;
     this.refresh();
     this.count = Math.min(Math.max(Math.trunc(this.count) || 0, 0), QUADS);
     // drawBattlefield already produces native geometry and writes it into
@@ -176,24 +152,9 @@ export class Batch {
     for (let i = first * 12; i < last * 12; i++) this.position[i] = this.nativePosition[i];
     for (let i = first * 8; i < last * 8; i++) { this.uv[i] = this.nativeUv[i]; this.maskUv[i] = this.nativeMask[i]; }
     for (let i = first * 16; i < last * 16; i++) this.tint[i] = this.nativeTint[i];
-    for (let k = 0; k < ATTRIBUTES.length; k++) {
-      const name = ATTRIBUTES[k];
-      const attribute = geometry.getAttribute(name);
-      // The renderer observes version changes on these retained attributes.
-      // The native span is shared by all four uploads, matching its contract.
-      attribute.clearUpdateRanges();
-      if (!this.uploads) continue;
-      const size = 4 * attribute.itemSize;
-      const range = this.ranges[k];
-      range.start = first * size; range.count = (last - first) * size;
-      attribute.updateRanges.push(range);
-      attribute.needsUpdate = true;
-    }
+    this.first=first;this.last=last;if(this.uploads)this.serial++;
     // Foreign producers can mark dirty bits again on the next frame; all
     // computed dirtiness and range selection already belong to Rust.
     this.dirty.fill(0, 0, this.count);
-    geometry.setDrawRange(0, this.count * 6);
   }
 }
-
-const ATTRIBUTES = ["position", "uv", "maskUv", "tint"];

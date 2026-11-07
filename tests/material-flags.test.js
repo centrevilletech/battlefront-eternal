@@ -1,3 +1,5 @@
+import {actor_appearance_description} from '../src/rust-pkg/bfe_render.js';
+import './fixtures/native-render-descriptors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -59,13 +61,14 @@ test('blended and additive materials still skip depth writes', () => {
 
 test('model parts follow the same rule', () => {
   const texture = () => null;
-  const cutout = partMaterial({ texture: 'rep_1st_weap_inf_rifle', flags: 7 }, texture);
-  assert.equal(cutout.transparent, false);
-  assert.equal(cutout.depthWrite, true);
-  assert.equal(cutout.alphaTest, 0.5);
-  const glass = partMaterial({ texture: 'all_fly_snowspeeder_windscreen', flags: 5 }, texture);
-  assert.equal(glass.transparent, true);
-  assert.equal(glass.depthWrite, false);
-  const flash = partMaterial({ texture: 'meshmuzzleflash', flags: 0x84 }, texture);
-  assert.equal(flash.blending, THREE.AdditiveBlending);
+  const native=look=>JSON.parse(actor_appearance_description(JSON.stringify(look.authored),false,0,false));
+  const cutout = native(partMaterial({ texture: 'rep_1st_weap_inf_rifle', flags: 7 }, texture));
+  assert.equal(cutout.blended, false);
+  assert.equal(Boolean(cutout.flags&8), true);
+  assert.equal(Boolean(cutout.flags&4), true);
+  const glass = native(partMaterial({ texture: 'all_fly_snowspeeder_windscreen', flags: 5 }, texture));
+  assert.equal(glass.blended, true);
+  assert.equal(Boolean(glass.flags&8), false);
+  const flash = native(partMaterial({ texture: 'meshmuzzleflash', flags: 0x84 }, texture));
+  assert.equal(flash.blend[4], 1);
 });

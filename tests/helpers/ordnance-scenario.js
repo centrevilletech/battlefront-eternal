@@ -170,7 +170,7 @@ export function digest(ordnance, capture, rounds, full = false) {
   // A batch is named by its texture, blend and profile (its key, less the
   // texture's random id).
   const batches = [...ordnance.renderer.batches.entries()].map(([key, batch]) => {
-    const texture = batch.material?.uniforms?.map?.value;
+    const texture = batch.texture;
     return { name: batch.mesh.name === "blaster-bolts" ? "blaster" : `${texture?.name}:${key.slice(key.indexOf(":") + 1)}`, batch };
   }).sort((a, b) => a.name.localeCompare(b.name));
   for (const { name, batch } of batches) {

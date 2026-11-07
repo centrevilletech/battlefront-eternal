@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ownedBasicEffect } from "./rust-render/effect-material.js";
+import { EFFECT } from "./rust-render/effect-layout.js";
 import { ArcLightning } from "./arc-lightning.js";
 import {UnitLimits} from './presentation/layout.js';
 
@@ -73,17 +73,15 @@ export class Lightning {
     this.bolts = [];
     this.aimUnits=new Array(UnitLimits.ACTORS).fill(null);
     while(this.aimUnits.length)this.aimUnits.pop();
-    this.geometry = new THREE.BufferGeometry();
     this.positions = new Float32Array(CAPACITY * 3);
     this.uvs = new Float32Array(CAPACITY * 2);
     this.colors = new Float32Array(CAPACITY * 4);
     this.indices = new Uint32Array(CAPACITY * 3);
-    this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
-    this.geometry.setAttribute("uv", new THREE.BufferAttribute(this.uvs, 2).setUsage(THREE.DynamicDrawUsage));
-    this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 4).setUsage(THREE.DynamicDrawUsage));
-    this.geometry.setIndex(new THREE.BufferAttribute(this.indices, 1).setUsage(THREE.DynamicDrawUsage));
-    this.materials = new Map();
-    this.mesh = new THREE.Mesh(this.geometry, null);
+    // Lightning retains only its live ribbon data and selected asset identity.
+    // Rust owns the dynamic descriptors, basic defaults and ordered sides.
+    this.nativeKind=EFFECT.LIGHTNING.ID;this.arrays={position:this.positions,uv:this.uvs,color:this.colors};
+    this.values=new Float64Array(0);this.maps=new Map();this.map=null;
+    this.mesh=new THREE.Object3D();
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 5;
     this.mesh.visible = false;
@@ -108,28 +106,15 @@ export class Lightning {
     this.offsetB = new THREE.Vector3();
   }
 
-  material(name) {
-    if (!this.materials.has(name)) {
-      this.materials.set(
-        name,
-        ownedBasicEffect("lightning-basic", { visible: true,
-          map: this.texture(name),
-          vertexColors: true,
-          transparent: true,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
-      );
-    }
-    return this.materials.get(name);
+  textureFor(name) {
+    if(!this.maps.has(name))this.maps.set(name,this.texture(name));
+    return this.maps.get(name);
   }
 
   // A bolt from `start` to `end`. follow(out), when given, moves the start
   // each frame (a bolt held to the shooter's gun).
   spawn(def, start, end, charge, follow = null) {
-    this.material(def.Texture);
-    const bolt = { def, start: start.clone(), end: end.clone(), charge, follow, life: def.FadeTime, phase: 0, seedA: newSeed(), seedB: newSeed() };
+    const bolt = { def, texture:this.textureFor(def.Texture), start: start.clone(), end: end.clone(), charge, follow, life: def.FadeTime, phase: 0, seedA: newSeed(), seedB: newSeed() };
     this.bolts.push(bolt);
     if (this.isEnhanced()) this.arcs().add(bolt);
   }
@@ -185,7 +170,7 @@ export class Lightning {
     for (const bolt of this.bolts) {
       const def = bolt.def;
       if (bolt.life <= 0) continue;
-      texture ||= def.Texture;
+      texture ||= bolt.texture;
       const fade = Math.min((2 * bolt.life) / def.FadeTime, 1);
       const width = 0.3 + 0.7 * bolt.charge;
       const alpha = fade * (0.5 + 0.5 * bolt.charge);
@@ -221,17 +206,7 @@ export class Lightning {
     this.prune();
     // Rust reads the live ribbon buffers directly. The scene shell never draws.
     if (!this.index) return;
-    this.mesh.material = this.material(texture);
-    // The top level only, once the data has arrived (a KTX2 twin's sets its
-    // own filters when it does).
-    const map = this.mesh.material.map;
-    if (map && map.minFilter !== THREE.LinearFilter && (map.image || map.mipmaps?.length)) {
-      map.minFilter = THREE.LinearFilter;
-      map.generateMipmaps = false;
-      map.needsUpdate = true;
-    }
-    this.geometry.setDrawRange(0, this.index);
-
+    this.map=texture;
   }
 
   // One strand from `from` to `to`, and its branches.

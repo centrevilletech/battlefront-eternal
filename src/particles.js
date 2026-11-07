@@ -1,6 +1,5 @@
 import * as THREE from "three";
-import { lighting } from "./materials.js";
-import { ownedEffectMaterial } from "./rust-render/effect-material.js";
+import { EFFECT } from "./rust-render/effect-layout.js";
 import { particleDepth } from "./particle-depth.js";
 
 // Batched particle drawing. Each batch is one texture and one blend mode, drawn
@@ -20,39 +19,28 @@ export const BILLBOARD = 0;
 export const STREAK = 1;
 export const FLAT = 2;
 
-const QUAD = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]);
-const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
-
 const ATTRIBUTES = { iPosition: 3, iColor: 4, iShape: 4, iAxis: 3, iAxis2: 3, iFrame: 4 };
+
+const ATTRIBUTE_NAMES=Object.keys(ATTRIBUTES);
 
 class Batch {
   constructor(texture, blending, profile = "particle", capacity = 256) {
     this.count = 0;
     this.capacity = 0;
     this.arrays = {};
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.setAttribute("corner", new THREE.BufferAttribute(QUAD, 2));
-    this.geometry.setIndex(QUAD_INDEX);
-    this.material = ownedEffectMaterial(profile === "bolt" ? "effects/particle-bolt" : "effects/particle-cpu", {
-      uniforms: {
-        map: { value: texture }, fade: lighting.fade,
-        sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-        depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-      },
-      transparent: true,
-      depthWrite: false,
-      blending: blending === "additive" ? THREE.AdditiveBlending : THREE.NormalBlending,
-      // A streak's quad winds either way round depending on its direction.
-      side: THREE.DoubleSide,
-      forceSinglePass: true,
-    });
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    // Batch's authored profile and blend are cold facts. Rust owns its
+    // geometry and material; the anchor carries only scene order and layers.
+    this.nativeKind = EFFECT.CPU.ID;
+    this.variant = (blending === "additive" ? 1 : 0) | (profile === "bolt" ? 2 : 0);
+    this.texture = texture;
+    this.values = new Float64Array(EFFECT.CPU.LENGTH);
+    this.mesh = new THREE.Object3D();
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 10;
     // Only the first three arguments: the fourth is the geometry, which
     // capture() would read as "required" and blit depth even when disabled.
     this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
-    this.grow(capacity);
+    this.grow(Math.max(capacity, 16384));
   }
 
   grow(capacity) {
@@ -60,11 +48,7 @@ class Batch {
       const array = new Float32Array(capacity * size);
       if (this.arrays[name]) array.set(this.arrays[name]);
       this.arrays[name] = array;
-      this.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage));
     }
-    // three keeps the instance limit of the buffers it first bound until the
-    // geometry is disposed: grown, the new instances would not be drawn.
-    delete this.geometry._maxInstanceCount;
     this.capacity = capacity;
   }
 
@@ -76,7 +60,7 @@ class Batch {
   // arrays of three (or null); `frame` is [u, v, du, dv] (or null for the
   // whole texture). A streak's axis2[0] is its tail's share of the width.
   push(x, y, z, r, g, b, a, size, rotation = 0, shape = BILLBOARD, length = 0, axis = null, axis2 = null, frame = null) {
-    if (this.count === this.capacity) this.grow(this.capacity * 2);
+    if(this.count===this.capacity){this.dropped=(this.dropped||0)+1;return;}
     const i = this.count++;
     const { iPosition, iColor, iShape, iAxis, iAxis2, iFrame } = this.arrays;
     iPosition[i * 3] = x;
@@ -105,8 +89,9 @@ class Batch {
   // `count` quads the ordnance phase drew, from one batch's region of its
   // output (attribute arrays in ATTRIBUTES order), appended as push() would.
   load(source, from, count) {
-    while (this.count + count > this.capacity) this.grow(this.capacity * 2);
-    const names = Object.keys(ATTRIBUTES);
+    const available=Math.min(count,this.capacity-this.count);
+    this.dropped=(this.dropped||0)+count-available;count=available;
+    const names = ATTRIBUTE_NAMES;
     for (let k = 0; k < names.length; k++) {
       const size = ATTRIBUTES[names[k]];
       this.arrays[names[k]].set(source[k].subarray(from * size, (from + count) * size), this.count * size);
@@ -114,18 +99,10 @@ class Batch {
     this.count += count;
   }
 
+  // The renderer reads the active prefix directly. No attribute versions or
+  // secondary Three upload ranges are published by Batch.end.
   end() {
-    this.geometry.instanceCount = this.count;
-    // A batch another renderer draws (external: src/rust-render/effects.js
-    // reads its arrays) is shown to three never, and uploads it nothing.
     this.mesh.visible = this.count > 0 && !this.external;
-    if (!this.count || this.external) return;
-    for (const name of Object.keys(ATTRIBUTES)) {
-      const attribute = this.geometry.getAttribute(name);
-      attribute.clearUpdateRanges();
-      attribute.addUpdateRange(0, this.count * attribute.itemSize);
-      attribute.needsUpdate = true;
-    }
   }
 }
 

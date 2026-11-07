@@ -1,6 +1,5 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
-import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
 import { Result as RESULT } from "./environment/layout.js";
 
@@ -40,24 +39,6 @@ export const SMOKE = 0;
 export const CHIP = 1;
 export const SCORCH = 2;
 
-const WIND = new THREE.Vector3(0.55, 0, 0.32); // m/s, drifting the smoke
-
-
-// What both pools share: where a particle is at its age, under linear drag
-// and a constant pull (gravity, or buoyancy when negative).
-
-
-
-
-
-
-
-
-const depthUniforms = () => ({
-  sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-  depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-});
-
 // The pools by their meshes, for a renderer that draws them itself
 // (src/rust-render/effects.js): while a pool is `external`, three is shown
 // it never and uploads it nothing.
@@ -69,7 +50,7 @@ export const destructionPools = new WeakMap();
 // over. Births are appended, deaths swap in the last record, and the clock is
 // the effects' own (fxTime, not the frame's time); all of that is Rust's.
 class Pool {
-  constructor(scene, arrays, { name, capacity, attributes, uniforms, blending, premultiplied, renderOrder }) {
+  constructor(scene, arrays, { name, capacity, attributes, renderOrder }) {
     this.capacity = capacity;
     this.count = 0;
     this.external = false;
@@ -77,27 +58,14 @@ class Pool {
     this.dropped = 0;
     // The first record changed since the renderer last read the pool.
     this.unread = Infinity;
-    this.arrays = arrays;
-    const plane = new THREE.PlaneGeometry(2, 2);
-    const geometry = new THREE.InstancedBufferGeometry();
-    geometry.index = plane.index;
-    geometry.attributes.position = plane.attributes.position;
-    geometry.attributes.uv = plane.attributes.uv;
-    this.attributes = [];
-    for (let i = 0; i < attributes; i++) {
-      const attribute = new THREE.InstancedBufferAttribute(arrays[i], 4).setUsage(THREE.DynamicDrawUsage);
-      geometry.setAttribute(`a${i}`, attribute);
-      this.attributes.push(attribute);
-    }
-    geometry.instanceCount = 0;
-    this.material = ownedEffectMaterial('effects/' + name, {
-      name, uniforms,
-      transparent: true, depthWrite: false, depthTest: true, toneMapped: false,
-      blending, premultipliedAlpha: premultiplied,
-      // Quads laid flat on the floor wind either way round seen from above.
-      side: THREE.DoubleSide,
-    });
-    this.mesh = new THREE.Mesh(geometry, this.material);
+    // Pool borrows destruction.rs's persistent planar streams. Native
+    // descriptors own its plane and the hot/smoke material policy.
+    const layout=name==='destruction-hot'?EFFECT.HOT:EFFECT.SMOKE;
+    this.nativeKind=layout.ID;this.family='pool';this.variant=0;this.texture=null;
+    this.values=new Float64Array(layout.LENGTH);this.arrays={};
+    if(layout===EFFECT.SMOKE)this.values.set([.55,0,.32],EFFECT.SMOKE.WIND);
+    for(let i=0;i<attributes;i++)this.arrays['a'+i]=arrays[i];
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = name;
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = renderOrder;
@@ -115,29 +83,11 @@ class Pool {
     this.emitted = emitted;
     this.dropped = dropped;
     if (dirty >= 0 && dirty < this.unread) this.unread = dirty;
-    // Drawn by another renderer (external), it is shown to three never and
-    // uploads it nothing (the renderer copies the records changed since it
-    // last read them).
-    if (dirty >= 0 && dirty < count && !this.external) {
-      for (let i = 0; i < this.attributes.length; i++) {
-        const attribute = this.attributes[i];
-        // A range not yet uploaded (frames stepped without a draw) is
-        // merged in, not replaced: three clears the ranges once it uploads.
-        const pending = attribute.updateRanges[0];
-        const start = Math.min(dirty * 4, pending ? pending.start : Infinity);
-        attribute.clearUpdateRanges();
-        attribute.addUpdateRange(start, count * 4 - start);
-        attribute.needsUpdate = true;
-      }
-    }
-    this.mesh.geometry.instanceCount = count;
     this.mesh.visible = count > 0 && !this.external;
   }
 
   dispose() {
     this.mesh.removeFromParent();
-    this.mesh.geometry.dispose();
-    this.material.dispose();
   }
 }
 
@@ -160,21 +110,12 @@ class Arcs {
     this.tangents = host.tangents;
     this.meta = host.meta;
     this.indices = host.indices;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("tangent", new THREE.BufferAttribute(this.tangents, 3).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("meta", new THREE.BufferAttribute(this.meta, 4).setUsage(THREE.DynamicDrawUsage));
-    geometry.setIndex(new THREE.BufferAttribute(this.indices, 1).setUsage(THREE.DynamicDrawUsage));
-    geometry.setDrawRange(0, 0);
-    this.material = ownedEffectMaterial("effects/destruction-arcs", {
-      name: "destruction-arcs",
-      uniforms: { resolution: lighting.resolution, fogRange: lighting.fogRange },
-      transparent: true, depthWrite: false, depthTest: true, toneMapped: false,
-      blending: THREE.AdditiveBlending, premultipliedAlpha: true, side: THREE.DoubleSide,
-    });
-    this.mesh = new THREE.Mesh(geometry, this.material);
+    // Arcs publishes the native phase's live prefixes directly. Raster,
+    // attribute and index descriptors are owned by effect_mesh.
+    this.nativeKind=EFFECT.DESTRUCTION_ARCS.ID;this.values=new Float64Array(0);
+    this.arrays={position:this.positions,tangent:this.tangents,meta:this.meta};
+    this.mesh=new THREE.Object3D();this.mesh.userData.effectMesh=this;
     this.mesh.name = "destruction-arcs";
-    this.attributes = [geometry.getAttribute("position"), geometry.getAttribute("tangent"), geometry.getAttribute("meta")];
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 12;
     this.mesh.visible = false;
@@ -189,25 +130,11 @@ class Arcs {
     this.spawned = spawned;
     this.vertex = vertex;
     this.index = index;
-    const geometry = this.mesh.geometry;
-    geometry.setDrawRange(0, index);
-    this.mesh.visible = index > 0 && !this.external;
-    if (!index || this.external) return;
-    for (let i = 0; i < this.attributes.length; i++) {
-      const attribute = this.attributes[i];
-      attribute.clearUpdateRanges();
-      attribute.addUpdateRange(0, vertex * attribute.itemSize);
-      attribute.needsUpdate = true;
-    }
-    geometry.index.clearUpdateRanges();
-    geometry.index.addUpdateRange(0, index);
-    geometry.index.needsUpdate = true;
+    this.mesh.visible=index>0&&!this.external;
   }
 
   dispose() {
     this.mesh.removeFromParent();
-    this.mesh.geometry.dispose();
-    this.material.dispose();
   }
 }
 
@@ -217,21 +144,8 @@ class Arcs {
 export class DestructionFx {
   constructor(scene, host) {
     this.host = host;
-    this.clock = { value: 0 };
-    this.hot = new Pool(scene, host.hot, {
-      name: "destruction-hot", capacity: host.hotCapacity, attributes: 4,
-      uniforms: { fxTime: this.clock, fogRange: lighting.fogRange, ...depthUniforms() },
-      blending: THREE.AdditiveBlending, premultiplied: true, renderOrder: 11,
-    });
-    this.smoke = new Pool(scene, host.smoke, {
-      name: "destruction-smoke", capacity: host.smokeCapacity, attributes: 5,
-      uniforms: {
-        fxTime: this.clock, wind: { value: WIND.clone() },
-        sunDirection: lighting.sunDirection, sunColor: lighting.sunColor, ambient: lighting.ambient,
-        fogColor: lighting.fogColor, fogRange: lighting.fogRange, ...depthUniforms(),
-      },
-      blending: THREE.NormalBlending, premultiplied: false, renderOrder: 9,
-    });
+    this.hot=new Pool(scene,host.hot,{name:'destruction-hot',capacity:host.hotCapacity,attributes:4,renderOrder:11});
+    this.smoke=new Pool(scene,host.smoke,{name:'destruction-smoke',capacity:host.smokeCapacity,attributes:5,renderOrder:9});
     this.arcs = new Arcs(scene, host);
   }
 
@@ -246,7 +160,7 @@ export class DestructionFx {
   // After the phase's frame.
   sync() {
     const r = this.host.fxResult;
-    this.clock.value = r[RESULT.TIME];
+    this.hot.values[EFFECT.HOT.FX_TIME]=r[RESULT.TIME];this.smoke.values[EFFECT.SMOKE.FX_TIME]=r[RESULT.TIME];
     this.hot.synced(r[RESULT.HOT_COUNT], r[RESULT.HOT_DIRTY], r[RESULT.HOT_EMITTED], r[RESULT.HOT_DROPPED]);
     this.smoke.synced(r[RESULT.SMOKE_COUNT], r[RESULT.SMOKE_DIRTY], r[RESULT.SMOKE_EMITTED], r[RESULT.SMOKE_DROPPED]);
     this.arcs.synced(r[RESULT.ARCS_LIVE], r[RESULT.ARCS_SPAWNED], r[RESULT.ARC_VERTICES], r[RESULT.ARC_INDICES]);

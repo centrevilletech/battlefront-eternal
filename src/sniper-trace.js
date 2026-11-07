@@ -1,4 +1,4 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import {EFFECT} from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import {lighting} from './materials.js';
 import {particleDepth} from './particle-depth.js';
@@ -8,10 +8,6 @@ import {SniperFrame as F,SniperCommand as C,SniperKind as K,SniperEvent as E,
 export const sniperLook={enhanced:false};
 // The page owns shader resources and callback handles. Flight, vapour,
 // matching and draw coordinates belong to one retained native owner.
-const QUAD = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]);
-const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
-// Each batch is one interleaved instance buffer (one upload a frame): name,
-// size, offset in floats.
 const STREAK_ATTRIBUTES = [["iHead", 3, SS.HEAD], ["iTail", 3, SS.TAIL], ["iColor", 4, SS.COLOR], ["iSize", 4, SS.SIZE], ["iMisc", 4, SS.MISC]];
 const STREAK_STRIDE = SS.STRIDE;
 const FLARE_ATTRIBUTES = [["iCenter", 3, SF.CENTER], ["iAxis", 3, SF.AXIS], ["iColor", 4, SF.COLOR], ["iParam", 4, SF.PARAM]];
@@ -21,81 +17,29 @@ const FLARE_STRIDE = SF.STRIDE;
 
 
 
-function instanced(attributes, stride, material, data, name, order) {
-  const geometry = new THREE.InstancedBufferGeometry();
-  geometry.setAttribute("corner", new THREE.BufferAttribute(QUAD, 2));
-  geometry.setIndex(QUAD_INDEX);
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = name;
-  mesh.frustumCulled = false;
-  mesh.renderOrder = order;
-  mesh.visible = false;
-  const batch = { geometry, mesh, data: null, buffer: null, range: { start: 0, count: 0 }, capacity: 0, count: 0, attributes, stride };
-  bind(batch, data);
-  return batch;
+// Native SniperTrace publishes borrowed interleaved rows. Resource admission
+// owns capsule/flare topology and material policy, with no Three CPU shell.
+function instanced(attributes,stride,layout,data,name,order){
+ const mesh=new THREE.Object3D();mesh.name=name;mesh.frustumCulled=false;mesh.renderOrder=order;mesh.visible=false;
+ const batch={mesh,data:null,arrays:{interleaved:null},capacity:0,count:0,attributes,stride,nativeKind:layout.ID,variant:0,texture:null,values:new Float64Array(layout.LENGTH),family:layout===EFFECT.SNIPER_STREAKS?'sniperStreaks':'sniperFlares'};
+ mesh.userData.effectBatch=batch;bind(batch,data);return batch;
 }
-
-// Binding happens at construction; frame upload only changes the prefix.
-// Interleaved attributes keep the original renderer layout and draw order.
-function bind(batch,data){
-  batch.data=data;
-  batch.buffer=new THREE.InstancedInterleavedBuffer(data,batch.stride).setUsage(THREE.DynamicDrawUsage);
-  for(const [name,size,offset] of batch.attributes)batch.geometry.setAttribute(name,new THREE.InterleavedBufferAttribute(batch.buffer,size,offset));
-  batch.capacity=data.length/batch.stride;
-}
-
-// warm: an empty batch draws one dark instance (all zero: no brightness,
-// which its fragment shader lets go) so the program's pipeline is built.
-function upload(batch, warm = false) {
-  let drawn = batch.count;
-  if (!drawn && warm && !batch.external) {
-    batch.data.fill(0, 0, batch.stride);
-    drawn = 1;
-  }
-  batch.geometry.instanceCount = drawn;
-  // Drawn by another renderer (external: src/rust-render/effects.js reads
-  // its data), it is shown to three never and uploads it nothing.
-  batch.mesh.visible = drawn > 0 && !batch.external;
-  if (!drawn || batch.external) return;
-  // What was drawn, through one range kept for it (three empties the list
-  // once it has uploaded).
-  const ranges = batch.buffer.updateRanges;
-  ranges.length = 0;
-  batch.range.count = drawn * batch.stride;
-  ranges.push(batch.range);
-  batch.buffer.needsUpdate = true;
-}
-
-const premultiplied = (uniforms, key) => ownedEffectMaterial(key, {
-  uniforms,
-  transparent: true, depthWrite: false,
-  blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
-  blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
-  side: THREE.DoubleSide, forceSinglePass: true,
-});
+function bind(batch,data){batch.data=batch.arrays.interleaved=data;batch.capacity=data.length/batch.stride;}
+function upload(batch){batch.mesh.visible=batch.count>0&&!batch.external;}
 
 export class SniperTrace {
   constructor(lights=null,view=null,muzzle=null){
     this.lights=lights;this.view=view;this.muzzle=muzzle;
     // Native arrays are also the draw buffers. Resource creation can grow
-    // shared memory, so refresh rebinds the interleaved shells when needed.
+    // shared memory, so refresh rebinds the borrowed interleaved rows when needed.
     this.loaded=presentationModule();this.kernel=new this.loaded.module.PageSniper();
     this.sourceIds=new WeakMap();this.nextSource=0;this.nextCallback=0;this.callbacks=new Map();
     this.matchStates=new Array(L.COMMANDS);this.matchCount=0;this.count=0;this.begun=false;this.prepared=false;this.dropped=0;
     this.position=new THREE.Vector3();this.rgb=[0,0,0];this.refresh();
-    this.warming = 90;
     this.camera = new THREE.Vector3(0, 1e6, 0);
-    this.pixelAngle = { value: 0.002 };
-    const uniforms = {
-      fade: lighting.fade, time: lighting.time, pixelAngle: this.pixelAngle,
-      sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
-      depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
-    };
-    // Sized for a busy fight (a dozen rifles' smoke, vapour and sparks at
-    // once): growing mid-battle makes new buffers.
-    this.streaks = instanced(STREAK_ATTRIBUTES, STREAK_STRIDE, premultiplied(uniforms, 'effects/sniper-streak'), this.nativeStreaks, "sniper-trace", 11);
-    this.flares = instanced(FLARE_ATTRIBUTES, FLARE_STRIDE, premultiplied({}, 'effects/sniper-flare'), this.nativeFlares, "sniper-flares", 12);
-    this.flares.mesh.material.depthTest = true;
+    this.streaks=instanced(STREAK_ATTRIBUTES,STREAK_STRIDE,EFFECT.SNIPER_STREAKS,this.nativeStreaks,'sniper-trace',11);
+    this.flares=instanced(FLARE_ATTRIBUTES,FLARE_STRIDE,EFFECT.SNIPER_FLARES,this.nativeFlares,'sniper-flares',12);
+    this.streaks.values[EFFECT.SNIPER_STREAKS.PIXEL_ANGLE]=.002;
     this.mesh = new THREE.Group();
     this.mesh.name = "sniper-shots";
     this.mesh.add(this.streaks.mesh, this.flares.mesh);
@@ -106,11 +50,11 @@ export class SniperTrace {
       this.camera.setFromMatrixPosition(camera.matrixWorld);
       const target = renderer.getRenderTarget();
       const height = target ? target.height : renderer.getDrawingBufferSize(size).y;
-      this.pixelAngle.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
+      this.streaks.values[EFFECT.SNIPER_STREAKS.PIXEL_ANGLE]= (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
     };
   }
 
-  // The two GPU shells borrow native output directly. Linear-memory growth
+  // The two native resource clients borrow output directly. Linear-memory growth
   // invalidates all old views together; rebind their arrays at that boundary.
   refresh(){const b=this.loaded.memory.buffer;if(b===this.buffer)return;this.buffer=b;const k=this.kernel;
     this.input=new Float64Array(b,k.input_ptr(),F.STRIDE+L.COMMANDS*C.STRIDE);
@@ -119,7 +63,7 @@ export class SniperTrace {
     this.counts=new Uint32Array(b,k.counts_ptr(),H.STRIDE);
     this.nativeStreaks=new Float32Array(b,k.streaks_ptr(),L.STREAKS*STREAK_STRIDE);
     this.nativeFlares=new Float32Array(b,k.flares_ptr(),L.FLARES*FLARE_STRIDE);
-    if(this.streaks){this.streaks.data=this.streaks.buffer.array=this.nativeStreaks;this.flares.data=this.flares.buffer.array=this.nativeFlares;}
+    if(this.streaks){bind(this.streaks,this.nativeStreaks);bind(this.flares,this.nativeFlares);}
   }
   // Camera and muzzle are host resources. Pack their published transforms
   // only while a native flight record can use them; no scene query is needed
@@ -192,10 +136,10 @@ export class SniperTrace {
     else this.lights?.flash?.(this.position,this.rgb,this.events[at+E.REACH],this.events[at+E.TIME]);
   }}
   // Output counts describe prefixes of retained instance buffers. The two
-  // uploads keep their shells and update-range objects for every frame.
+  // publications keep their native resource identities for every frame.
   end(){if(!this.prepared||this.count)this.prepare();this.facts();this.kernel.frame();this.refresh();this.apply();
     this.streaks.count=this.counts[H.STREAKS];this.flares.count=this.counts[H.FLARES];
-    const warm=this.warming>0;if(warm)this.warming--;upload(this.streaks,warm);upload(this.flares,warm);
+    upload(this.streaks);upload(this.flares);
   }
 }
 const DEFAULT_COLOR=[120,160,255];

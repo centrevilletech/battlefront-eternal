@@ -1,3 +1,4 @@
+import {LOOK,paintArray} from '../../rust-render/interface-material.js';
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { teamStatsLayout, statsPageLayout, rowAt, ICON, PITCH, STRING_PAD, DISPLAY_PAD, AWARDS_ROWS } from "./layout.js";
@@ -508,7 +509,6 @@ export class ClassicView {
   dropModel(entry) {
     if (!entry) return;
     this.models.remove(entry.root);
-    for (const material of entry.materials) material.dispose();
   }
 
   ensureLogos() {
@@ -561,9 +561,9 @@ export class ClassicView {
     entry.root.rotation.y = entry.flight.spin;
     entry.root.visible = alpha > 0.001;
     for (const material of entry.materials) {
-      material.uniforms.color.value.setRGB(...this.colour(team));
-      material.uniforms.opacity.value = alpha;
-      material.uniforms.time.value = this.time;
+      paintArray(material,LOOK.COLOR,this.colour(team));
+      material.values[LOOK.OPACITY] = alpha;
+      material.values[LOOK.TIME] = this.time;
     }
   }
 

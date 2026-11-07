@@ -22,7 +22,7 @@ test('native shore records publish exposed wall patches, cache tiles, and dispos
   const f=fixture();
   for(let i=0;i<60;i++)stepSurface(f.shore,1/60,f.camera);
   assert.ok(f.shore.count>0&&f.shore.count<=192);
-  const points=f.shore.shore.array;
+  const points=f.shore.host.shore;
   for(let i=0;i<f.shore.count;i++){assert.equal(points[i*4],0);assert.ok(points[i*4+2]>.99);}
   const before=f.gathers();for(let i=0;i<60;i++)stepSurface(f.shore,1/60,f.camera);assert.equal(f.gathers(),before);
   f.setQuality('low');stepSurface(f.shore,1/60,f.camera);assert.equal(f.shore.group.visible,false);assert.equal(f.gathers(),before);

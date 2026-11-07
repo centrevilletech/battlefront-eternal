@@ -1,4 +1,4 @@
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
+import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 
@@ -35,28 +35,22 @@ export class WaterShore {
     this.group = new THREE.Group();
     this.group.name = "water-shore-lapping";
     water.group.add(this.group);
-    const plane = new THREE.PlaneGeometry(1, 1);
-    this.geometry = new THREE.InstancedBufferGeometry();
-    this.geometry.index = plane.index;
-    this.geometry.attributes.position = plane.attributes.position;
-    this.geometry.attributes.uv = plane.attributes.uv;
-    this.shore = this.host.bind(new THREE.InstancedBufferAttribute(this.host.shore, 4).setUsage(THREE.DynamicDrawUsage), "shore");
-    this.phase = this.host.bind(new THREE.InstancedBufferAttribute(this.host.phases, 1).setUsage(THREE.DynamicDrawUsage), "phases");
-    this.geometry.setAttribute("shore", this.shore);
-    this.geometry.setAttribute("phase", this.phase);
-    this.geometry.instanceCount = 0;
-    this.materials = [0, 1].map(splash => ownedEffectMaterial('effects/water-shore', {
-      uniforms: { time: { value: 0 }, height: { value: water.height }, splash: { value: splash } },
-      transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
-      toneMapped: false,
-    }));
-    this.meshes = this.materials.map(material => {
-      const mesh = new THREE.Mesh(this.geometry, material);
-      mesh.frustumCulled = false;
-      mesh.renderOrder = -17;
-      this.group.add(mesh);
-      return mesh;
+    // WaterShore's quad, sampler-free material and instance layout live in
+    // effect_resources.rs. Only native shore points and live matrices cross.
+    this.batches=[0,1].map(splash=>{
+      const batch={nativeKind:EFFECT.WATER_SHORE.ID,family:'waterShore',variant:0,texture:null,count:0,capacity:MAX_PATCHES,
+        visibility:'anchor',arrays:{shore:this.host.shore,phase:this.host.phases},values:new Float64Array(EFFECT.WATER_SHORE.LENGTH),serial:0};
+      this.host.bindArray(batch.arrays,'shore','shore');this.host.bindArray(batch.arrays,'phase','phases');
+      batch.values[EFFECT.WATER_SHORE.HEIGHT]=water.height;batch.values[EFFECT.WATER_SHORE.SPLASH]=splash;
+      const mesh=batch.mesh=new THREE.Object3D();mesh.renderOrder=-17;mesh.frustumCulled=false;mesh.userData.effectBatch=batch;
+      mesh.onBeforeRender=(renderer,scene,camera)=>{
+        const v=batch.values;v.set(mesh.matrixWorld.elements,EFFECT.WATER_SHORE.MODEL_MATRIX);
+        v.set(camera.projectionMatrix.elements,EFFECT.WATER_SHORE.PROJECTION_MATRIX);v.set(camera.matrixWorldInverse.elements,EFFECT.WATER_SHORE.VIEW_MATRIX);
+        const e=camera.matrixWorld.elements;v[EFFECT.WATER_SHORE.CAMERA_POSITION]=e[12];v[EFFECT.WATER_SHORE.CAMERA_POSITION+1]=e[13];v[EFFECT.WATER_SHORE.CAMERA_POSITION+2]=e[14];
+      };
+      this.group.add(mesh);return batch;
     });
+    this.meshes=this.batches.map(batch=>batch.mesh);
     // The Rust renderer's water pass draws its meshes (src/rust-render/water.js).
     water.shore = this;
   }
@@ -95,16 +89,14 @@ export class WaterShore {
     if (!this.group.visible) return;
     const result = this.host.result;
     this.time = result[RESULT.SHORE_TIME];
-    for (let i = 0; i < this.materials.length; i++) this.materials[i].uniforms.time.value = this.time;
+    for(const batch of this.batches)batch.values[EFFECT.WATER_SHORE.TIME]=this.time;
     if (!result[RESULT.SHORE_DIRTY]) return;
-    this.count = result[RESULT.SHORE_COUNT]; this.geometry.instanceCount = this.count;
-    this.shore.needsUpdate = this.phase.needsUpdate = true;
+    this.count = Math.min(result[RESULT.SHORE_COUNT],MAX_PATCHES);
+    for(const batch of this.batches){batch.count=this.count;batch.serial++;}
   }
 
   dispose() {
     if (this.water.shore === this) this.water.shore = null;
     this.group.removeFromParent();
-    this.geometry.dispose();
-    for (const material of this.materials) material.dispose();
   }
 }

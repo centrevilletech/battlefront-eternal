@@ -1,0 +1,31 @@
+{
+  "key": "effects/storm-lightning-s2",
+  "attributes": [
+    [
+      "position",
+      3
+    ],
+    [
+      "tangent",
+      3
+    ],
+    [
+      "edge",
+      1
+    ],
+    [
+      "width",
+      1
+    ],
+    [
+      "energy",
+      1
+    ]
+  ],
+  "capacity": 1536,
+  "side": 2,
+  "depth": true,
+  "write": false,
+  "blending": 2,
+  "order": 8
+}

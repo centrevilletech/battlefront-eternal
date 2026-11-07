@@ -6,6 +6,7 @@ import { SurfaceOwner, stepSurface } from '../helpers/surfaces.js';
 // statistics, the camera axes, and a hash of every record the shader reads
 // (the flakes, the boxes and the cover cache).
 import * as THREE from 'three';
+import { EFFECT } from '../../src/rust-render/effect-layout.js';
 
 export const HOTH = {
   precipitation: { Type: ['Quads'], Range: [15], Color: [255, 255, 255], Velocity: [2], VelocityRange: [0.8], ParticleDensity: [100],
@@ -51,11 +52,11 @@ export function runSnow(Snow) {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     stepSurface(snow,dt, camera);
-    const u = snow.material.uniforms;
+    const u = snow.values;
     const n = snow.flakes?.count ?? snow.flakeCount;
-    const row = [snow.geometry.instanceCount, snow.mesh.visible ? 1 : 0, snow.stats.boxes, snow.stats.flakes,
-      ...u.cameraRight.value.toArray(), ...u.cameraUp.value.toArray(),
-      hash(2166136261, snow.flakeData.image.data, n * 8), hash(2166136261, snow.boxData.image.data, snow.boxData.image.data.length),
+    const row = [snow.count, snow.mesh.visible ? 1 : 0, snow.stats.boxes, snow.stats.flakes,
+      ...u.slice(EFFECT.SNOW.CAMERA_RIGHT,EFFECT.SNOW.CAMERA_RIGHT+3), ...u.slice(EFFECT.SNOW.CAMERA_UP,EFFECT.SNOW.CAMERA_UP+3),
+      hash(2166136261, snow.host.flakes, n * 8), hash(2166136261, snow.host.boxes, snow.host.boxes.length),
       hash(2166136261, snow.cover.heights, snow.cover.heights.length), snow.cover.queries];
     rows.push(row.map((value) => value + 0));
     // (-0 and 0 are one number to JSON.)
