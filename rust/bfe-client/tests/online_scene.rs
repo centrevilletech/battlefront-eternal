@@ -20,7 +20,12 @@ use std::{
     num::NonZeroU32,
     path::Path,
 };
-use winit::{dpi::PhysicalSize, event_loop::EventLoop, platform::x11::EventLoopBuilderExtX11, window::Window};
+// The test builds its event loop off the main thread; each desktop platform names that option in its own extension.
+#[cfg(windows)]
+use winit::platform::windows::EventLoopBuilderExtWindows;
+#[cfg(all(unix, not(target_os = "macos")))]
+use winit::platform::x11::EventLoopBuilderExtX11;
+use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::Window};
 thread_local! {static ALLOCS:Cell<Option<usize>>=const{Cell::new(None)};}
 struct Allocator;
 unsafe impl GlobalAlloc for Allocator {
