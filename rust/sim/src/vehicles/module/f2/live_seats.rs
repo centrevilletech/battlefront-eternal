@@ -31,10 +31,10 @@ struct TurretWeapon {
 struct Draws { turret: usize }
 impl WeaponDraws for Draws {
     fn draw(&mut self, _: u32) -> f64 {
-        if crate::units::f3::active() {
-            return crate::units::f3::random_binding(state().weapons[self.turret].as_ref().unwrap().random_binding);
-        }
-        import_f2_turret_draw(&F2TurretDraw { turret: self.turret as u32 }).value
+            if crate::units::f3::active() {
+                return crate::units::f3::random_binding(state().weapons[self.turret].as_ref().unwrap().random_binding);
+            }
+            import_f2_turret_draw(&F2TurretDraw { turret: self.turret as u32 }).value
     }
     fn legacy(&mut self, i: u32) -> f64 { self.draw(i) }
     fn seeded(&mut self, _: f64, _: f64) {}
@@ -45,7 +45,7 @@ const INPUT_CAPACITY: usize = 262144;
 // Vehicles and TurretSeats formerly held these lists in JavaScript. Slabs
 // now own identities; these sidecars retain class facts and reusable exchange
 // storage. A mirror cache never decides whether a lease is live.
-struct State {
+pub(crate) struct State {
     owner: crate::vehicles::f2_seats::Seats,
     prepared: Vec<Option<HullSide>>,
     prepared_seats: usize,
@@ -63,9 +63,8 @@ struct State {
     turret_lives: Vec<f64>, turret_indices: Vec<Option<(Ref<Turret>,usize)>>, posed: Vec<bool>, timed: Vec<bool>, weapons: Vec<Option<TurretWeapon>>, turret_rows: Vec<F2TurretOut>, turret_output: Block,
     event_rows: Vec<F2TurretEvent>, event_output: Block, rounds: Vec<Option<crate::ordnance::world::Shot>>,
 }
-static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
-    unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State {
+    unsafe { (*addr_of_mut!(FLEET.seats)).get_or_insert_with(|| State {
         owner: Default::default(), prepared: Vec::new(), prepared_seats: 0, depth: 0, command_depth: 0, input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
         lease_cache: Vec::with_capacity(512), unit_cache: Vec::with_capacity(512),
         lease_inputs: Default::default(),
@@ -254,11 +253,7 @@ pub(crate) fn reserve_unit_slots(count: usize) {
 // Vehicles.attachUnits grows cold rider storage before the warm phase.
 // Reserve both sides of the unit boundary: later board and kill hooks can
 // publish during a shot without growing an output buffer.
-pub fn reserve_riders(count: usize) {
-    let s = state();
-    s.owner.hulls.riders.reserve(count.saturating_sub(s.owner.hulls.riders.len()));
-    s.owner.crews.riders.reserve(count.saturating_sub(s.owner.crews.riders.len()));
-}
+pub fn reserve_riders(count: usize) { state().reserve_riders(count) }
 
 // UnitFactory.build prepares immutable seat facts once. Actor and rider
 // storage is sized here, before a command or the first fleet phase.
@@ -441,7 +436,7 @@ pub(crate) fn latch(time: f64, services: Option<crate::units::f3::WorldServices<
                 // pilot keys retain their separate sampled row; copying the
                 // old mirrored pressed flags here would replay consumed edges.
                 let a = &l.input;
-                let given = unsafe { &mut *addr_of_mut!(FLIGHT_INPUTS) };
+                let given = unsafe { &mut *addr_of_mut!(FLEET.flight_inputs) };
                 if given.len() <= r.slot as usize { given.resize(r.slot as usize + 1, None); }
                 let keys = given[r.slot as usize].and_then(|(_, keys)| keys);
                 given[r.slot as usize] = Some((FlightInput { forward: a.forward, right: a.right, turn: a.turn, pitch: a.pitch,
@@ -567,89 +562,89 @@ pub fn publish() -> *const f64 {
 struct World<'a> { store: *mut Store, turret: bool, services: Option<crate::units::f3::WorldServices<'a>> }
 impl<'a> World<'a> {
     fn with_services(st: &mut Store, services: Option<crate::units::f3::WorldServices<'a>>) -> Self {
-        Self { store: st, turret: false, services }
+            Self { store: st, turret: false, services }
     }
     fn action(&mut self, a: F2SeatAction) -> F2SeatAnswer {
-        // Controller-state and controllable callbacks are foreign AI queries.
-        // Publish their touched readers at the actual import, not native commits.
-        if self.services.is_some() { crate::units::f3::foreign_barrier(); }
-        import_f2_seat_action(&a)
+            // Controller-state and controllable callbacks are foreign AI queries.
+            // Publish their touched readers at the actual import, not native commits.
+            if self.services.is_some() { crate::units::f3::foreign_barrier(); }
+            import_f2_seat_action(&a)
     }
     // SeatsWorld.kill must publish before entering foreign combat. Its death
     // listener can synchronously board or unseat another unit; import the
     // affected foreign facts afterward without replacing unrelated crews.
     fn killed(&mut self, unit: u32, owner: By) {
-        if let Some(services) = &mut self.services {
-            // SeatsWorld.kill follows lease removal and body placement. It
-            // must finish native death and its blast before the next occupant.
-            crate::combat::live::damage(unit_ref(unit), f64::INFINITY, attacker(owner), services.reborrow());
-            return;
-        }
-        touch_unit(unit_ref(unit)); super::publish();
-        self.action(F2SeatAction { kind: F2SeatActionKind::Kill, unit: Some(unit_ref(unit)), attacker: attacker(owner), ..Default::default() });
-        inputs(false);
+            if let Some(services) = &mut self.services {
+                // SeatsWorld.kill follows lease removal and body placement. It
+                // must finish native death and its blast before the next occupant.
+                crate::combat::live::damage(unit_ref(unit), f64::INFINITY, attacker(owner), services.reborrow());
+                return;
+            }
+            touch_unit(unit_ref(unit)); super::publish();
+            self.action(F2SeatAction { kind: F2SeatActionKind::Kill, unit: Some(unit_ref(unit)), attacker: attacker(owner), ..Default::default() });
+            inputs(false);
     }
     // seatBody, unseatBody and placeOnFoot also have actor presentation hooks.
     // Queue those hooks with the native body result; the mirror is current
     // before JavaScript applies them, even during a nested death.
     fn emit_body(&mut self, kind: SeatEffectKind, unit: u32, yaw: f64, point: [f64;3]) {
-        state().rider_sides[unit as usize] = self.turret;
-        touch_unit(unit_ref(unit)); state().body_effects.push(F2SeatEffect { kind, unit: unit_ref(unit), yaw, point });
+            state().rider_sides[unit as usize] = self.turret;
+            touch_unit(unit_ref(unit)); state().body_effects.push(F2SeatEffect { kind, unit: unit_ref(unit), yaw, point });
     }
     // Game's onBoard/onUnboard/onMove listeners only journal the transition.
     // Sample their refs and position now, before another crew can move or kill
     // this body. Controller-state and control construction remain AI imports.
     fn hook(&mut self, kind: F2SeatActionKind, unit: Option<u32>, h: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason) {
-        let (holder, turret) = holder(h);
-        if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
-        if let Some(unit) = unit {
-            let reference = unit_ref(unit);
-            touch_unit(reference);
-            if self.services.is_some() && !turret && kind == F2SeatActionKind::Unboarded && reason == Reason::Destroyed {
-                let hull = sim().store.vehicles.vehicles[holder as usize];
-                let shown = poses()[hull.slot as usize].as_ref().unwrap().pose.rig.seats[index]
-                    .rider.as_ref().and_then(|rider| rider.node).is_some();
-                if !shown { crate::units::f3::hide_destroyed_crew(reference); }
+            let (holder, turret) = holder(h);
+            if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
+            if let Some(unit) = unit {
+                let reference = unit_ref(unit);
+                touch_unit(reference);
+                if self.services.is_some() && !turret && kind == F2SeatActionKind::Unboarded && reason == Reason::Destroyed {
+                    let hull = sim().store.vehicles.vehicles[holder as usize];
+                    let shown = poses()[hull.slot as usize].as_ref().unwrap().pose.rig.seats[index]
+                        .rider.as_ref().and_then(|rider| rider.node).is_some();
+                    if !shown { crate::units::f3::hide_destroyed_crew(reference); }
+                }
             }
-        }
-        if self.services.is_some() {
-            let mut event = F3SeatNotice {
-                kind, unit: unit.map(unit_ref), index: index as u32, post,
-                reason: why(reason), ..Default::default()
-            };
-            let member = if turret {
-                let r = state().owner.crews.turrets[holder as usize].turret;
-                event.turret = Some(r);
-                crate::units::f3_props::member(RepairTarget::Turret(r))
-            } else {
-                let r = sim().store.vehicles.vehicles[holder as usize];
-                event.hull = Some(r);
-                Some(crate::units::f3_hulls::member(r))
-            };
-            if let Some(member) = member {
-                event.has_target = true;
-                event.target = F3LifeRef {
-                    id: crate::units::registry::target_id(member) as f64,
-                    generation: crate::units::f3_fleet::life(member),
+            if self.services.is_some() {
+                let mut event = F3SeatNotice {
+                    kind, unit: unit.map(unit_ref), index: index as u32, post,
+                    reason: why(reason), ..Default::default()
                 };
+                let member = if turret {
+                    let r = state().owner.crews.turrets[holder as usize].turret;
+                    event.turret = Some(r);
+                    crate::units::f3_props::member(RepairTarget::Turret(r))
+                } else {
+                    let r = sim().store.vehicles.vehicles[holder as usize];
+                    event.hull = Some(r);
+                    Some(crate::units::f3_hulls::member(r))
+                };
+                if let Some(member) = member {
+                    event.has_target = true;
+                    event.target = F3LifeRef {
+                        id: crate::units::registry::target_id(member) as f64,
+                        generation: crate::units::f3_fleet::life(member),
+                    };
+                }
+                if let Some(reference) = event.unit {
+                    let u = sim().store.unit.get(reference).unwrap();
+                    event.has_source = true;
+                    event.source = F3LifeRef { id: reference.slot as f64, generation: u.generation };
+                    event.team = u.team;
+                    event.position = v3(&u.position());
+                }
+                if kind == F2SeatActionKind::Boarded {
+                    event.position = if let Some(r) = event.hull {
+                        sim().store.vehicle.get(r).unwrap().position
+                    } else { v3(&state().owner.crews.turrets[holder as usize].desc.position) };
+                }
+                event.emit(&mut sim().events);
+                return;
             }
-            if let Some(reference) = event.unit {
-                let u = sim().store.unit.get(reference).unwrap();
-                event.has_source = true;
-                event.source = F3LifeRef { id: reference.slot as f64, generation: u.generation };
-                event.team = u.team;
-                event.position = v3(&u.position());
-            }
-            if kind == F2SeatActionKind::Boarded {
-                event.position = if let Some(r) = event.hull {
-                    sim().store.vehicle.get(r).unwrap().position
-                } else { v3(&state().owner.crews.turrets[holder as usize].desc.position) };
-            }
-            event.emit(&mut sim().events);
-            return;
-        }
-        super::publish();
-        self.action(F2SeatAction { kind, unit: unit.map(unit_ref), holder, turret, index: index as f64, post, reason: why(reason), ..Default::default() });
+            super::publish();
+            self.action(F2SeatAction { kind, unit: unit.map(unit_ref), holder, turret, index: index as f64, post, reason: why(reason), ..Default::default() });
     }
 }
 impl SeatWorld for World<'_> {
@@ -658,132 +653,132 @@ impl SeatWorld for World<'_> {
     // Exchange the Store and crew shells around a hook so reentrant commands
     // operate on the live owner, with no outstanding borrow into JavaScript.
     fn publish_crews(&mut self, st: &mut Store, crews: &mut Crews) {
-        std::mem::swap(st, &mut sim().store); std::mem::swap(crews, &mut state().owner.crews);
+            std::mem::swap(st, &mut sim().store); std::mem::swap(crews, &mut state().owner.crews);
     }
     fn resume_crews(&mut self, st: &mut Store, crews: &mut Crews) {
-        std::mem::swap(st, &mut sim().store); std::mem::swap(crews, &mut state().owner.crews);
+            std::mem::swap(st, &mut sim().store); std::mem::swap(crews, &mut state().owner.crews);
     }
     // TurretSeats.man allocates a generation-qualified lease once at boarding.
     // Old emitters may retain the retired reference; slab reuse must create a
     // new generation rather than retarget that old JavaScript lease object.
     fn crew_lease(&mut self, _: &mut Store, lease: SeatLease) -> Ref<SeatLease> {
-        if let Some(unit) = lease.unit { super::riders::life(unit,lease.generation); }
-        let r = sim().store.seat_lease.insert(lease);
-        if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {ai.lease_created(r);}
-        touch_lease(r); r
+            if let Some(unit) = lease.unit { super::riders::life(unit,lease.generation); }
+            let r = sim().store.seat_lease.insert(lease);
+            if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {ai.lease_created(r);}
+            touch_lease(r); r
     }
     // Human hull riders also have leases, although they never construct the
     // bot-only SeatUnit. Publish that identity at the same acquisition slot.
     fn hull_lease(&mut self, store: &mut Store, lease: SeatLease) -> Ref<SeatLease> {
-        // Hull acquisition lends the active Store directly; unlike the crew
-        // foreign callback, it has not exchanged that Store with sim().
-        if let Some(unit) = lease.unit { super::riders::life(unit,lease.generation); }
-        let r = store.seat_lease.insert(lease);
-        if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {ai.lease_created(r);}
-        touch_lease(r); r
+            // Hull acquisition lends the active Store directly; unlike the crew
+            // foreign callback, it has not exchanged that Store with sim().
+            if let Some(unit) = lease.unit { super::riders::life(unit,lease.generation); }
+            let r = store.seat_lease.insert(lease);
+            if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {ai.lease_created(r);}
+            touch_lease(r); r
     }
     // TurretSeats.pose changes the occupant and turret together. Mark both
     // reader rows before a shot can enter its launch hook. The posed flag
     // controls the existing animation hook without another JS rig sample.
     fn crew_posed(&mut self, r: Ref<SeatLease>) {
-        touch_lease(r);
-        if let Some(unit) = sim().store.seat_lease.get(r).and_then(|l| l.unit) { touch_unit(unit); }
-        if let Some(t) = sim().store.seat_lease.get(r).and_then(|l| l.turret) {
-            let i = state().owner.crews.turrets.iter().position(|v| v.turret == t).unwrap(); state().posed[i] = true; touch_turret(t);
-        }
+            touch_lease(r);
+            if let Some(unit) = sim().store.seat_lease.get(r).and_then(|l| l.unit) { touch_unit(unit); }
+            if let Some(t) = sim().store.seat_lease.get(r).and_then(|l| l.turret) {
+                let i = state().owner.crews.turrets.iter().position(|v| v.turret == t).unwrap(); state().posed[i] = true; touch_turret(t);
+            }
     }
 
     // Vehicles seat operations use the same ownership exchange as turrets.
     // The outer solver keeps its lists, while synchronous hooks reach the live
     // Store; resume_hulls takes back any nested command's changes.
     fn publish_hulls(&mut self, st: &mut Store, hulls: &mut Hulls) {
-        std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
+            std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
     }
     fn resume_hulls(&mut self, st: &mut Store, hulls: &mut Hulls) {
-        std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
+            std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
     }
     // SeatsWorld.cast and overlapsSphere run against the shared native world.
     // Keeping them here lets each exit observe the preceding crew's placement.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<SeatHit> {
-        collision_world().expect("the vehicle collision world")
-            .cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))
-            .expect("named collision bodies").map(|h| SeatHit { point: h.point, normal: h.normal, distance: h.distance,
-                body: h.body.and_then(|b| state().body_refs[b as usize]) })
+            collision_world().expect("the vehicle collision world")
+                .cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))
+                .expect("named collision bodies").map(|h| SeatHit { point: h.point, normal: h.normal, distance: h.distance,
+                    body: h.body.and_then(|b| state().body_refs[b as usize]) })
     }
     fn overlaps_sphere(&mut self, center: &Vector3, radius: f64, ignore: Option<Ref<Body>>) -> bool {
-        collision_world().expect("the vehicle collision world")
-            .overlaps_sphere(crate::collision::state(), center, radius, ignore.map(|b| b.slot))
+            collision_world().expect("the vehicle collision world")
+                .overlaps_sphere(crate::collision::state(), center, radius, ignore.map(|b| b.slot))
     }
     // turretAimPoint still queries the foreign unit registry. Publish native
     // body samples first because its lazy hit-shape reader can inspect them.
     // Solid-world casts beside this query remain entirely in the native kernel.
     fn raycast_units(&mut self, from: &Vector3, direction: &Vector3, far: f64, unit: Option<u32>) -> Option<f64> {
-        if self.services.is_some() { return crate::units::f3_fleet::raycast(from,direction,far,unit); }
-        super::publish();
-        self.action(F2SeatAction { kind: F2SeatActionKind::Raycast, unit: unit.map(unit_ref), point: v3(from),
-            direction: v3(direction), yaw: far, ..Default::default() }).value
+            if self.services.is_some() { return crate::units::f3_fleet::raycast(from,direction,far,unit); }
+            super::publish();
+            self.action(F2SeatAction { kind: F2SeatActionKind::Raycast, unit: unit.map(unit_ref), point: v3(from),
+                direction: v3(direction), yaw: far, ..Default::default() }).value
     }
     fn relation(&mut self, a: f64, b: f64) -> f64 {
-        if self.services.is_some() { return crate::units::f3::relation(a,b); }
-        if state().command_depth > 0 || unsafe { (&*addr_of_mut!(TEAMS)).is_empty() } {
-            if let Some(r) = state().command_relations.iter().find(|r| r.a == a && r.b == b) { return r.value; }
-        }
-        FlightWorld::relation(&mut super::JsWorld::new(u32::MAX), Some(a), Some(b))
+            if self.services.is_some() { return crate::units::f3::relation(a,b); }
+            if state().command_depth > 0 || unsafe { (&*addr_of_mut!(FLEET.teams)).is_empty() } {
+                if let Some(r) = state().command_relations.iter().find(|r| r.a == a && r.b == b) { return r.value; }
+            }
+            FlightWorld::relation(&mut super::JsWorld::new(u32::MAX), Some(a), Some(b))
     }
     // placeOnFoot retains Soldier.spawn's reset and ground snap. The spawn
     // world now casts directly into the same native kernel as the exit search;
     // it cannot call back through the removed JavaScript seat query handlers.
     fn stand_up(&mut self, u: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
-        crate::seats::module::stand_up(u, x, y, z, yaw);
+            crate::seats::module::stand_up(u, x, y, z, yaw);
     }
     // Vehicles.destroyedCrew clears seat links before killing the occupants.
     // Temporarily publish the proper solver owner so a combat listener sees
     // all cleared leases and can safely enter another seat command.
     fn kill(&mut self, st: &mut Store, seating: Seating<'_>, unit: u32, owner: By) {
-        match seating {
-            Seating::Hulls(hulls) => {
-                self.publish_hulls(st, hulls); self.killed(unit, owner); self.resume_hulls(st, hulls);
+            match seating {
+                Seating::Hulls(hulls) => {
+                    self.publish_hulls(st, hulls); self.killed(unit, owner); self.resume_hulls(st, hulls);
+                }
+                // TurretSeats.vacate already transfers its command before kill;
+                // Hulls.destroyedCrew enters the hook with its local rows.
+                Seating::Crews(_) => self.killed(unit, owner),
             }
-            // TurretSeats.vacate already transfers its command before kill;
-            // Hulls.destroyedCrew enters the hook with its local rows.
-            Seating::Crews(_) => self.killed(unit, owner),
-        }
     }
     // Vehicles.vacate uses the completed riderDropPoint at kill entry. Reuse
     // the native sample, including the animal pelvis adjustment, rather than
     // reading a scene node whose presentation frame may already differ.
     fn rider_drop(&mut self, _h: Holder, _index: usize, unit: u32) -> Option<Vector3> {
-        super::riders::drop(unit_ref(unit))
+            super::riders::drop(unit_ref(unit))
     }
 
     fn sync_rider(&mut self, r: Ref<SeatLease>, unit: &mut Unit) {
-        // The pointer names a command-local shell. Borrow only its lease and
-        // vehicle slabs, disjoint from the Unit row the solver lent this call.
-        let lease = unsafe { (&(*self.store).seat_lease).get(r).unwrap() };
-        let Some(id) = lease.unit else { return };
-        if !state().actors.get(id.slot as usize).copied().unwrap_or(false) { return; }
-        let vref = lease.vehicle.unwrap(); let index = lease.index as usize;
-        let v = unsafe { (&(*self.store).vehicle).get(vref).unwrap() };
-        let p = poses()[vref.slot as usize].as_mut().unwrap();
-        let node = p.pose.rig.seats.get(index).and_then(|s| s.rider.as_ref()).and_then(|r| r.node);
-        let mut point = vec(&v.position);
-        if let Some(node) = node { p.pose.rig.tree.get_world_position(node, &mut point); }
-        else { point.y += v.size[1] * 0.5; }
-        if let Some(s) = soldier_mut(unit) {
-            s.position = v3(&point); s.previous = s.position; s.settled = s.position;
-            s.velocity = v.velocity; s.aim_yaw = v.seats[index].aim_yaw; s.aim_pitch = v.seats[index].pitch;
-        }
-        unit.tick_count += 1.0; rider_posed(id);
+            // The pointer names a command-local shell. Borrow only its lease and
+            // vehicle slabs, disjoint from the Unit row the solver lent this call.
+            let lease = unsafe { (&(*self.store).seat_lease).get(r).unwrap() };
+            let Some(id) = lease.unit else { return };
+            if !state().actors.get(id.slot as usize).copied().unwrap_or(false) { return; }
+            let vref = lease.vehicle.unwrap(); let index = lease.index as usize;
+            let v = unsafe { (&(*self.store).vehicle).get(vref).unwrap() };
+            let p = poses()[vref.slot as usize].as_mut().unwrap();
+            let node = p.pose.rig.seats.get(index).and_then(|s| s.rider.as_ref()).and_then(|r| r.node);
+            let mut point = vec(&v.position);
+            if let Some(node) = node { p.pose.rig.tree.get_world_position(node, &mut point); }
+            else { point.y += v.size[1] * 0.5; }
+            if let Some(s) = soldier_mut(unit) {
+                s.position = v3(&point); s.previous = s.position; s.settled = s.position;
+                s.velocity = v.velocity; s.aim_yaw = v.seats[index].aim_yaw; s.aim_pitch = v.seats[index].pitch;
+            }
+            unit.tick_count += 1.0; rider_posed(id);
     }
 
     // Vehicles.promote leaves a bot alone when its controller is boarding
     // something else. This foreign AI fact is read at the decision slot;
     // turning it into an earlier cached value would change takeover order.
     fn controller_state(&mut self, unit: Option<u32>) -> Option<f64> {
-        if let Some(ai)=self.services.as_ref().and_then(|services|services.ai.as_ref()) {
-            return ai.controller_state(&sim().store,unit.map(unit_ref));
-        }
-        self.action(F2SeatAction { kind: F2SeatActionKind::Controller, unit: unit.map(unit_ref), ..Default::default() }).value
+            if let Some(ai)=self.services.as_ref().and_then(|services|services.ai.as_ref()) {
+                return ai.controller_state(&sim().store,unit.map(unit_ref));
+            }
+            self.action(F2SeatAction { kind: F2SeatActionKind::Controller, unit: unit.map(unit_ref), ..Default::default() }).value
     }
     // SeatsWorld.controllable constructs the AI's SeatUnit facade on boarding.
     // Only that facade remains foreign: canonical seat identity and input
@@ -793,28 +788,28 @@ impl SeatWorld for World<'_> {
     // Its constructor may bind a shared random stream for mounted fire.
     // Resume native work with the accepted binding, not an older mirror value.
     fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, _: SeatRole) -> Ref<SeatUnit> {
-        if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {
-            let control=ai.controllable(&mut sim().store,&mut state().owner,lease).expect("prepared native AI seat control");
-            touch_lease(lease);return control;
-        }
-        touch_lease(lease); super::publish();
-        let answer = self.action(F2SeatAction { kind: F2SeatActionKind::Control, lease: Some(lease),
-            turret:self.turret, index: index as f64, ..Default::default() });
-        // Controller attachment can replace the seat stream before a later
-        // weapon fires in this same span. Import only that numeric binding.
-        if self.services.is_some() && answer.bound {
-            let l = sim().store.seat_lease.get(lease).unwrap();
-            if let Some(hull) = l.vehicle { super::firing::bind_random(hull,l.index as usize,answer.random_binding); }
-            if let Some(turret) = l.turret {
-                let index = state().owner.crews.turrets.iter().position(|t| t.turret == turret).unwrap();
-                if let Some(w) = state().weapons[index].as_mut() {
-                    w.random_binding = answer.random_binding; w.state.random = answer.random_binding != u32::MAX;
+            if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {
+                let control=ai.controllable(&mut sim().store,&mut state().owner,lease).expect("prepared native AI seat control");
+                touch_lease(lease);return control;
+            }
+            touch_lease(lease); super::publish();
+            let answer = self.action(F2SeatAction { kind: F2SeatActionKind::Control, lease: Some(lease),
+                turret:self.turret, index: index as f64, ..Default::default() });
+            // Controller attachment can replace the seat stream before a later
+            // weapon fires in this same span. Import only that numeric binding.
+            if self.services.is_some() && answer.bound {
+                let l = sim().store.seat_lease.get(lease).unwrap();
+                if let Some(hull) = l.vehicle { super::firing::bind_random(hull,l.index as usize,answer.random_binding); }
+                if let Some(turret) = l.turret {
+                    let index = state().owner.crews.turrets.iter().position(|t| t.turret == turret).unwrap();
+                    if let Some(w) = state().weapons[index].as_mut() {
+                        w.random_binding = answer.random_binding; w.state.random = answer.random_binding != u32::MAX;
+                    }
                 }
             }
-        }
-        let r = answer.control.expect("seat control");
-        state().owner.hulls.controls.insert(control_key(r), SeatControl::default());
-        state().owner.crews.controls.insert(control_key(r), SeatControl::default()); r
+            let r = answer.control.expect("seat control");
+            state().owner.hulls.controls.insert(control_key(r), SeatControl::default());
+            state().owner.crews.controls.insert(control_key(r), SeatControl::default()); r
     }
     fn boarded(&mut self, unit: u32, h: Holder, index: usize) { self.hook(F2SeatActionKind::Boarded, Some(unit), h, index, None, Reason::Exit); }
     fn unboarded(&mut self, unit: Option<u32>, h: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason) { self.hook(F2SeatActionKind::Unboarded, unit, h, index, post, reason); }
@@ -827,27 +822,27 @@ impl SeatWorld for World<'_> {
     // Keep the spread floor, kick clamp and RNG assignment order: a human
     // may take a weapon a bot already modified earlier in the same tick.
     fn seat_policy(&mut self, h: Holder, index: usize, player: bool, random: bool) {
-        let (holder, turret) = holder(h); if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
-        if turret {
-            if let Some(w) = state().weapons[holder as usize].as_mut() {
-                let d = w.state.level(w.class.as_ref().unwrap());
-                w.state.floor = if player { -d.get(crate::combat::defs::K::SpreadThreshold).or(0.0) } else { 0.0 };
-                if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
-                w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None;
+            let (holder, turret) = holder(h); if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
+            if turret {
+                if let Some(w) = state().weapons[holder as usize].as_mut() {
+                    let d = w.state.level(w.class.as_ref().unwrap());
+                    w.state.floor = if player { -d.get(crate::combat::defs::K::SpreadThreshold).or(0.0) } else { 0.0 };
+                    if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
+                    w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None;
+                }
             }
-        }
-        if self.services.is_some() {
-            if turret { if let Some(w) = state().weapons[holder as usize].as_mut() {
-                w.state.random = random;
-                w.random_binding = if random { crate::units::f3::seat_binding() } else { u32::MAX };
-            } }
-            else { super::firing::policy(sim().store.vehicles.vehicles[holder as usize], index, player, random); }
-            return;
-        }
-        super::publish();
-        let answer = self.action(F2SeatAction { kind: F2SeatActionKind::Policy, holder, turret, index: index as f64, flag: player, second: random, ..Default::default() });
-        if turret { if let Some(w) = state().weapons[holder as usize].as_mut() { w.state.random = answer.flag; } }
-        else { super::firing::policy(sim().store.vehicles.vehicles[holder as usize], index, player, answer.flag); }
+            if self.services.is_some() {
+                if turret { if let Some(w) = state().weapons[holder as usize].as_mut() {
+                    w.state.random = random;
+                    w.random_binding = if random { crate::units::f3::seat_binding() } else { u32::MAX };
+                } }
+                else { super::firing::policy(sim().store.vehicles.vehicles[holder as usize], index, player, random); }
+                return;
+            }
+            super::publish();
+            let answer = self.action(F2SeatAction { kind: F2SeatActionKind::Policy, holder, turret, index: index as f64, flag: player, second: random, ..Default::default() });
+            if turret { if let Some(w) = state().weapons[holder as usize].as_mut() { w.state.random = answer.flag; } }
+            else { super::firing::policy(sim().store.vehicles.vehicles[holder as usize], index, player, answer.flag); }
     }
 }
 
@@ -1066,18 +1061,16 @@ pub(crate) fn exposed(lease: &SeatLease) -> bool {
         .is_some_and(|t| t.exposed_seat())
 }
 // A stationary lease's collision owner comes from its retained turret row.
-pub(crate) fn turret_body(r: Ref<Turret>) -> Option<Ref<Body>> {
-    state().owner.crews.turrets.iter().find(|t| t.turret == r).and_then(|t| t.desc.body)
-}
+pub(crate) fn turret_body(r: Ref<Turret>) -> Option<Ref<Body>> { state().turret_body(r) }
 
 pub(crate) fn wire_turret_count() -> usize {
-    unsafe { (&*addr_of_mut!(STATE)).as_ref().map_or(0, |s| s.owner.crews.turrets.len()) }
+    unsafe { (&*addr_of_mut!(FLEET.seats)).as_ref().map_or(0, |s| s.owner.crews.turrets.len()) }
 }
 /// captureMountedControl keeps the stationary gun's aim rates and barrel
 /// beside its canonical weapon. No turret publication or pose work runs here.
 pub(crate) fn wire_own_turret(store: &Store, reference: Ref<Turret>, own: &mut crate::wire::store_own::Capture,
     defs: &crate::combat::defs::WeaponDefs) -> Result<(), &'static str> {
-    let st = unsafe { (&*addr_of_mut!(STATE)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
+    let st = unsafe { (&*addr_of_mut!(FLEET.seats)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
     let t = st.owner.crews.turrets.iter().find(|t| t.turret == reference).ok_or("mounted control lease prerequisite missing")?;
     let (_, member, frame, _) = crate::units::f3_props::wire_turret(reference).ok_or("mounted control lease prerequisite missing")?;
     let aim = [t.yaw, t.pitch, t.yaw_vel, t.pitch_vel, t.gun_yaw, t.gun_pitch];
@@ -1094,7 +1087,7 @@ pub(crate) fn wire_own_turret(store: &Store, reference: Ref<Turret>, own: &mut c
 /// No posed barrel, collision or lazy rider-shape reader runs here.
 pub(crate) fn wire_turret(index: usize, store: &Store, states: [crate::store::StrId; 3])
     -> Option<crate::wire::store_capture::Turret> {
-    let st = unsafe { (&*addr_of_mut!(STATE)).as_ref()? };
+    let st = unsafe { (&*addr_of_mut!(FLEET.seats)).as_ref()? };
     let t = st.owner.crews.turrets.get(index)?;
     let (building, member, frame, team) = crate::units::f3_props::wire_turret(t.turret)?;
     let state = match frame.state {
@@ -1142,7 +1135,7 @@ pub(crate) fn turret_gunner(r: Ref<Turret>) -> Option<Ref<Unit>> {
 /// TurretTarget.team observes the captured lease team, rather than the
 /// current occupant's team after a later team command.
 pub(crate) fn battle_team(s: &Store, r: Ref<Turret>) -> Option<f64> {
-    let st = unsafe { (*addr_of_mut!(STATE)).as_ref()? };
+    let st = unsafe { (*addr_of_mut!(FLEET.seats)).as_ref()? };
     let lease = st.owner.crews.turrets.iter().find(|t| t.turret == r)?.lease?;
     Some(s.seat_lease.get(lease).expect("current turret lease").team)
 }
@@ -1192,22 +1185,9 @@ fn touch_turret(r: Ref<Turret>) {
 
 // SeatUnit's arsenal keeps the turret's weapon, including its current ammo
 // and tuning. Resolve both generations before exposing a scalar observation.
-fn weapon_index(r:Ref<Turret>,life:f64)->Option<usize> {
-    let st=state();
-    let (current,i)=st.turret_indices.get(r.slot as usize).copied().flatten()?;
-    if current!=r {return None;}
-    (st.turret_lives[i]==life).then_some(i)
-}
-pub fn weapon_count(r:Ref<Turret>,life:f64)->Option<usize> {
-    let i=weapon_index(r,life)?;
-    Some(usize::from(state().weapons[i].is_some()))
-}
-pub fn with_weapon<R>(r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
-    if index!=0 {return None;}
-    let i=weapon_index(r,life)?;let w=state().weapons[i].as_ref()?;
-    w.class.as_ref()?;
-    Some(read(&w.state))
-}
+fn weapon_index(r:Ref<Turret>,life:f64)->Option<usize> { state().weapon_index(r, life) }
+pub fn weapon_count(r:Ref<Turret>,life:f64)->Option<usize> { state().weapon_count(r, life) }
+pub fn with_weapon<R>(r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> { state().with_weapon(r, life, index, read) }
 pub fn edit_weapon<R>(r:Ref<Turret>,life:f64,index:usize,
     edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
     if index!=0 {return None;}
@@ -1342,63 +1322,63 @@ impl CrewWorld for World<'_> {
     // crews. Flush state-sensitive foreign readers before choosing a target;
     // the shared native picker preserves the original lazy query order.
     fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>) {
-        if self.services.is_none() {
-            super::publish(); self.action(F2SeatAction { kind: F2SeatActionKind::Flush, ..Default::default() });
-        }
-        let hint=self.services.as_ref().and_then(|services|services.ai.as_ref()).and_then(|ai| {
-            let lease=sim().store.seat_lease.get(lease)?;
-            Some(if lease.human {F2TurretHint::default()}else{ai.weapon_hint(&sim().store,lease.unit?,lease.controllable)})
-        });
-        let picked = turret_lock(turret, origin, direction, lease,hint);
-        let w = state().weapons[turret].as_mut().unwrap();
-        w.state.update_lock(w.class.as_ref().unwrap(), dt, picked);
+            if self.services.is_none() {
+                super::publish(); self.action(F2SeatAction { kind: F2SeatActionKind::Flush, ..Default::default() });
+            }
+            let hint=self.services.as_ref().and_then(|services|services.ai.as_ref()).and_then(|ai| {
+                let lease=sim().store.seat_lease.get(lease)?;
+                Some(if lease.human {F2TurretHint::default()}else{ai.weapon_hint(&sim().store,lease.unit?,lease.controllable)})
+            });
+            let picked = turret_lock(turret, origin, direction, lease,hint);
+            let w = state().weapons[turret].as_mut().unwrap();
+            w.state.update_lock(w.class.as_ref().unwrap(), dt, picked);
     }
     /// TurretSeats.drive's Weapon.update, with the same draw stream as JS.
     fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>) {
-        let (mut weapon, class, mut shots) = {
-            let w = state().weapons[turret].as_mut().unwrap();
-            (std::mem::take(&mut w.state), w.class.take().unwrap(), std::mem::take(&mut w.shots))
-        };
-        shots.clear(); state().rounds.clear();
-        super::firing::update_mounted(&mut weapon, 0, &class, dt, held, pressed, reload, &mut Draws { turret }, &mut shots);
-        for shot in &shots {
-            if let ShotKind::Round { yaw, pitch, .. } = shot.kind { out.push(Shot { yaw, pitch }); }
-            else { unreachable!("turret weapons fire rounds"); }
-        }
-        let w = state().weapons[turret].as_mut().unwrap(); w.state = weapon; w.class = Some(class); w.shots = shots;
-        touch_turret(state().owner.crews.turrets[turret].turret);
+            let (mut weapon, class, mut shots) = {
+                let w = state().weapons[turret].as_mut().unwrap();
+                (std::mem::take(&mut w.state), w.class.take().unwrap(), std::mem::take(&mut w.shots))
+            };
+            shots.clear(); state().rounds.clear();
+            super::firing::update_mounted(&mut weapon, 0, &class, dt, held, pressed, reload, &mut Draws { turret }, &mut shots);
+            for shot in &shots {
+                if let ShotKind::Round { yaw, pitch, .. } = shot.kind { out.push(Shot { yaw, pitch }); }
+                else { unreachable!("turret weapons fire rounds"); }
+            }
+            let w = state().weapons[turret].as_mut().unwrap(); w.state = weapon; w.class = Some(class); w.shots = shots;
+            touch_turret(state().owner.crews.turrets[turret].turret);
     }
     /// TurretSeats.drive calls Ordnance.fire directly, before the next crew.
     fn fire(&mut self, turret: usize, origin: &Vector3, direction: &Vector3, owner: Option<u32>, lease: Ref<SeatLease>, shot: usize) -> usize {
-        if self.services.is_none() {
-            super::publish();
-            self.action(F2SeatAction { kind: F2SeatActionKind::Flush, ..Default::default() });
-        }
-        let (def, channel, target_id, target_generation) = {
-            let w = state().weapons[turret].as_ref().unwrap();
-            let ShotKind::Round { target_id, target_generation, .. } = w.shots[shot].kind else { unreachable!("turret round") };
-            (w.ordnance, w.channel, target_id, target_generation)
-        };
-        let body = state().owner.crews.turrets[turret].desc.body;
-        let round = if let Some(def) = def {
-            super::firing::fire_round(def, v3(origin), v3(direction), owner.map_or(OrdnanceOwner::Null, |u| OrdnanceOwner::Unit(unit_ref(u))),
-                body, BeamSource::Emitter(Ref::new(lease.slot, lease.gen | EMITTER_MASK)), channel, target_id, target_generation, None, self.services.as_mut().map(crate::units::f3::WorldServices::reborrow))
-        } else { None };
-        state().ordnance_dirty = true;
-        let at = state().rounds.len(); state().rounds.push(round); at
+            if self.services.is_none() {
+                super::publish();
+                self.action(F2SeatAction { kind: F2SeatActionKind::Flush, ..Default::default() });
+            }
+            let (def, channel, target_id, target_generation) = {
+                let w = state().weapons[turret].as_ref().unwrap();
+                let ShotKind::Round { target_id, target_generation, .. } = w.shots[shot].kind else { unreachable!("turret round") };
+                (w.ordnance, w.channel, target_id, target_generation)
+            };
+            let body = state().owner.crews.turrets[turret].desc.body;
+            let round = if let Some(def) = def {
+                super::firing::fire_round(def, v3(origin), v3(direction), owner.map_or(OrdnanceOwner::Null, |u| OrdnanceOwner::Unit(unit_ref(u))),
+                    body, BeamSource::Emitter(Ref::new(lease.slot, lease.gen | EMITTER_MASK)), channel, target_id, target_generation, None, self.services.as_mut().map(crate::units::f3::WorldServices::reborrow))
+            } else { None };
+            state().ordnance_dirty = true;
+            let at = state().rounds.len(); state().rounds.push(round); at
     }
     // bindMountedRound changes only a round's presentation attachment. Keep
     // its event beside this crew's sound and fired events; it must identify
     // the actual barrel chosen before the turret advances to the next crew.
     fn bind_round(&mut self, round: usize, turret: usize, barrel: f64) {
-        let mut e = F2TurretEvent { kind: F2TurretEventKind::Bind, turret: state().owner.crews.turrets[turret].turret, barrel, ..Default::default() };
-        match state().rounds[round] { Some(crate::ordnance::world::Shot::Bolt(r)) => e.bolt = Some(r),
-            Some(crate::ordnance::world::Shot::Round(r)) => e.round = Some(r), _ => {} }
-        self.turret_event(e);
+            let mut e = F2TurretEvent { kind: F2TurretEventKind::Bind, turret: state().owner.crews.turrets[turret].turret, barrel, ..Default::default() };
+            match state().rounds[round] { Some(crate::ordnance::world::Shot::Bolt(r)) => e.bolt = Some(r),
+                Some(crate::ordnance::world::Shot::Round(r)) => e.round = Some(r), _ => {} }
+            self.turret_event(e);
     }
     fn sound(&mut self, turret: usize, shot: usize) { self.shot_event(F2TurretEventKind::Sound, turret, shot, None, &Vector3::default(), &Vector3::default()); }
     fn fired(&mut self, turret: usize, shot: usize, owner: Option<u32>, origin: &Vector3, direction: &Vector3) {
-        self.shot_event(F2TurretEventKind::Fired, turret, shot, owner, origin, direction);
+            self.shot_event(F2TurretEventKind::Fired, turret, shot, owner, origin, direction);
     }
 }
 impl World<'_> {
@@ -1406,25 +1386,25 @@ impl World<'_> {
     // Keeping bind, sound and fired beside their round preserves ordering
     // across hull shots, immediate deaths and the following turret crew.
     fn turret_event(&mut self, event: F2TurretEvent) {
-        if self.services.is_some() { event.emit(&mut sim().events); }
-        else { state().event_rows.push(event); }
+            if self.services.is_some() { event.emit(&mut sim().events); }
+            else { state().event_rows.push(event); }
     }
     // TurretSeats.drive emits sound and fired after the native round call.
     // Copy the shot scalars while that shot buffer is still current, since
     // the next crew reuses scratch before JavaScript drains ordered events.
     fn shot_event(&mut self, kind: F2TurretEventKind, turret: usize, shot: usize, owner: Option<u32>, origin: &Vector3, direction: &Vector3) {
-        let w = state().weapons[turret].as_ref().unwrap();
-        let ShotKind::Round { yaw, pitch, charge, target_id, target_generation, .. } = w.shots[shot].kind else { unreachable!("turret round") };
-        let reference = state().owner.crews.turrets[turret].turret;
-        let sample = if self.services.is_some() {
-            let Some(member) = crate::units::f3_props::member(RepairTarget::Turret(reference)) else { crate::units::f3::fail(); return; };
-            crate::units::f3_fleet::mounted_sample(owner.map_or(OrdnanceOwner::Null, |u| OrdnanceOwner::Unit(unit_ref(u))),member)
-        } else { F3MountedSample::default() };
-        if kind == F2TurretEventKind::Fired && self.services.is_some() { crate::units::f3_fleet::wire_shot(&sample); }
-        self.turret_event(F2TurretEvent {
-            kind, turret: reference, owner: owner.map(unit_ref), origin: v3(origin), direction: v3(direction),
-            yaw, pitch, charge, target_id, target_generation, sample, ..Default::default()
-        });
+            let w = state().weapons[turret].as_ref().unwrap();
+            let ShotKind::Round { yaw, pitch, charge, target_id, target_generation, .. } = w.shots[shot].kind else { unreachable!("turret round") };
+            let reference = state().owner.crews.turrets[turret].turret;
+            let sample = if self.services.is_some() {
+                let Some(member) = crate::units::f3_props::member(RepairTarget::Turret(reference)) else { crate::units::f3::fail(); return; };
+                crate::units::f3_fleet::mounted_sample(owner.map_or(OrdnanceOwner::Null, |u| OrdnanceOwner::Unit(unit_ref(u))),member)
+            } else { F3MountedSample::default() };
+            if kind == F2TurretEventKind::Fired && self.services.is_some() { crate::units::f3_fleet::wire_shot(&sample); }
+            self.turret_event(F2TurretEvent {
+                kind, turret: reference, owner: owner.map(unit_ref), origin: v3(origin), direction: v3(direction),
+                yaw, pitch, charge, target_id, target_generation, sample, ..Default::default()
+            });
     }
 }
 
@@ -1472,7 +1452,7 @@ pub extern "C" fn f2_turrets_idle(dt: f64) {
 // The live owner joins the surrounding publication barrier. Empty maps do
 // not construct a fleet merely to discover that it has no idle turrets.
 pub(crate) fn idle_turrets(dt: f64) {
-    if unsafe { (*addr_of_mut!(STATE)).is_none() } { return; }
+    if unsafe { (*addr_of_mut!(FLEET.seats)).is_none() } { return; }
     for i in 0..state().owner.crews.turrets.len() {
         let t = &mut state().owner.crews.turrets[i];
         if !t.alive || t.gunner.is_some() { continue; }
@@ -1502,20 +1482,20 @@ pub fn beam_gone(r: Ref<SeatLease>) -> bool {
 // SeatLease.emitter resolves through the captured lease, never the turret
 // currently selected by a player. A missing or reused lease must not
 // silently bind an existing beam to a different gun.
-fn beam_turret(r: Ref<SeatLease>) -> Option<&'static mut seats::turrets::TurretSide> {
-    let turret = sim().store.seat_lease.get(r)?.turret?;
-    state().owner.crews.turrets.iter_mut().find(|t| t.turret == turret)
+fn beam_turret<'a>(st: &'a mut State, store: &Store, r: Ref<SeatLease>) -> Option<&'a mut seats::turrets::TurretSide> {
+    let turret = store.seat_lease.get(r)?.turret?;
+    st.owner.crews.turrets.iter_mut().find(|t| t.turret == turret)
 }
 /// SeatLease.emitter.matrix, using the retained gun frame without a JS rig call.
 pub fn beam_local(r: Ref<SeatLease>, origin: [f64; 3]) -> Option<[f64; 3]> {
-    let t = beam_turret(r)?; let node = t.rig.gun.unwrap_or(t.rig.root);
+    let t = beam_turret(state(), &sim().store, r)?; let node = t.rig.gun.unwrap_or(t.rig.root);
     t.rig.tree.update_matrix_world(t.rig.root, true);
     let mut frame = t.rig.tree.node(node).matrix_world; frame.invert();
     let mut p = vec(&origin); p.apply_matrix4(&frame); Some(v3(&p))
 }
 /// SeatLease.emitter.viewDirection and its gun-local beam origin.
 pub fn beam_pose(r: Ref<SeatLease>, local: [f64; 3], position: &mut [f64; 3], direction: &mut [f64; 3]) {
-    let Some(t) = beam_turret(r) else { return };
+    let Some(t) = beam_turret(state(), &sim().store, r) else { return };
     let node = t.rig.gun.unwrap_or(t.rig.root);
     t.rig.tree.update_matrix_world(t.rig.root, true);
     let mut p = vec(&local); p.apply_matrix4(&t.rig.tree.node(node).matrix_world); *position = v3(&p);
@@ -1560,27 +1540,34 @@ fn turret_lock(turret: usize, origin: &Vector3, direction: &Vector3, lease: Ref<
 }
 struct TurretQuery { turret: usize, lease: Ref<SeatLease>, ignore: Option<Ref<Body>> }
 impl LockQuery for TurretQuery {
+    fn count(&mut self) -> usize { super::target_count() }
+    fn identity(&mut self, index: usize) -> (f64, f64) { super::target_identity(index) }
+    fn hull_bounds(&mut self, hull: Ref<Vehicle>) -> Option<(Matrix4, Vector3, Vector3)> {
+            let v = sim().store.vehicle.get(hull)?;
+            Some((Matrix4 { elements: v.matrix }, vec(&v.bounds_min), vec(&v.bounds_max)))
+    }
+
     // lockPick requests expensive unit aim or shape facts only after its
     // cheaper eligibility checks. Keep those requests separate so native
     // targeting preserves Unit.updateSpheres' lazy invalidation timing.
     fn facts(&mut self, index: usize, shapes: bool, aim: bool) -> LockFacts {
-        let f = if crate::units::f3::active() {
-            let turret = state().owner.crews.turrets[self.turret].turret;
-            let viewer = crate::units::f3_props::member(RepairTarget::Turret(turret));
-            crate::units::f3_fleet::target(crate::units::f3_fleet::key(index),viewer,shapes,aim)
-        } else { import_f2_turret_target(&F2TurretTargetQuery { turret: self.turret as u32, index: index as f64, lease: self.lease, shapes, aim }) };
-        LockFacts { id: f.id, generation: f.generation, alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
-            hull: f.hull, body: f.body.map(|r| r.slot), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
+            let f = if crate::units::f3::active() {
+                let turret = state().owner.crews.turrets[self.turret].turret;
+                let viewer = crate::units::f3_props::member(RepairTarget::Turret(turret));
+                crate::units::f3_fleet::target(crate::units::f3_fleet::key(index),viewer,shapes,aim)
+            } else { import_f2_turret_target(&F2TurretTargetQuery { turret: self.turret as u32, index: index as f64, lease: self.lease, shapes, aim }) };
+            LockFacts { id: f.id, generation: f.generation, alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
+                hull: f.hull, body: f.body.map(|r| r.slot), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
     }
     // lockPick accepts sight to the candidate's own collision body, while
     // terrain or any different body blocks it. Preserve the short-ray cutoff
     // and normalize only at the original solid-world query slot.
     fn clear(&mut self, origin: &Vector3, sight: &mut Vector3, length: f64, body: Option<u32>) -> bool {
-        if length >= 1e-6 {
-            let hit = World::default().cast(origin,sight.divide_scalar(length),length,self.ignore);
-            if hit.is_some_and(|h| h.body.is_none() || h.body.map(|b| b.slot) != body) { return false; }
-        }
-        true
+            if length >= 1e-6 {
+                let hit = World::default().cast(origin,sight.divide_scalar(length),length,self.ignore);
+                if hit.is_some_and(|h| h.body.is_none() || h.body.map(|b| b.slot) != body) { return false; }
+            }
+            true
     }
 }
 
@@ -1599,13 +1586,11 @@ pub extern "C" fn f2_bodies() {
 }
 
 /// riderBody chooses the animal frame by HealthType, not the movement base.
-pub fn animal(hull: Ref<Vehicle>) -> bool {
-    state().owner.hulls.hulls.iter().find(|h| h.vehicle == hull).is_some_and(|h| h.animal)
-}
+pub fn animal(hull: Ref<Vehicle>) -> bool { state().animal(hull) }
 // Vehicles.syncRider skips body writeback when no actor exists. Keep
 // that foreign construction fact separate from whether a clip is visible;
 // a hidden cockpit can still have a soldier body to carry.
-pub fn has_actor(unit: Ref<Unit>) -> bool { state().actors.get(unit.slot as usize).copied().unwrap_or(false) }
+pub fn has_actor(unit: Ref<Unit>) -> bool { state().has_actor(unit) }
 // Vehicles.syncRider increments tickCount at body writeback, then marks
 // its presentation hook. Publication clears this transient marker; the
 // underlying rider sample remains retained for lazy shapes and deaths.
@@ -1622,4 +1607,35 @@ pub(crate) fn battle_mount(turret: Ref<Turret>) -> Option<([f64; 3], Option<(cra
     let position = st.owner.crews.turrets[index].desc.position;
     let weapon = st.weapons[index].as_ref().map(|w| (w.state.def, w.state.level));
     Some(([position.x, position.y, position.z], weapon))
+}
+
+impl State {
+    fn reserve_riders(&mut self, count: usize) {
+        let s = self;
+        s.owner.hulls.riders.reserve(count.saturating_sub(s.owner.hulls.riders.len()));
+        s.owner.crews.riders.reserve(count.saturating_sub(s.owner.crews.riders.len()));
+    }
+    fn weapon_index(&mut self, r:Ref<Turret>,life:f64)->Option<usize> {
+        let st=self;
+        let (current,i)=st.turret_indices.get(r.slot as usize).copied().flatten()?;
+        if current!=r {return None;}
+        (st.turret_lives[i]==life).then_some(i)
+    }
+    fn weapon_count(&mut self, r:Ref<Turret>,life:f64)->Option<usize> {
+        let i=self.weapon_index(r,life)?;
+        Some(usize::from(self.weapons[i].is_some()))
+    }
+    fn with_weapon<R>(&mut self, r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
+        if index!=0 {return None;}
+        let i=self.weapon_index(r,life)?;let w=self.weapons[i].as_ref()?;
+        w.class.as_ref()?;
+        Some(read(&w.state))
+    }
+    fn animal(&mut self, hull: Ref<Vehicle>) -> bool {
+        self.owner.hulls.hulls.iter().find(|h| h.vehicle == hull).is_some_and(|h| h.animal)
+    }
+    fn has_actor(&mut self, unit: Ref<Unit>) -> bool { self.actors.get(unit.slot as usize).copied().unwrap_or(false) }
+    fn turret_body(&mut self, r: Ref<Turret>) -> Option<Ref<Body>> {
+        self.owner.crews.turrets.iter().find(|t| t.turret == r).and_then(|t| t.desc.body)
+    }
 }

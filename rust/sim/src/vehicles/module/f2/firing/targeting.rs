@@ -2,12 +2,9 @@
 //! differ in their foreign query and sight contracts, but retain/acquire order,
 //! volume scoring and first-equal selection are shared.
 use super::*;
-use crate::abi::sim;
 use crate::combat::weapons::LockTarget;
 use crate::gen::Vehicle;
 use crate::store::Ref;
-use crate::vehicles::module::{vec, MEMBERS};
-use std::ptr::addr_of_mut;
 
 pub struct LockFacts {
     pub id: f64, pub generation: f64, pub alive: bool, pub eligible: bool,
@@ -15,6 +12,9 @@ pub struct LockFacts {
     pub body: Option<u32>, pub center: Vector3, pub radius: f64, pub aim: Vector3,
 }
 pub trait LockQuery {
+    fn count(&mut self) -> usize;
+    fn identity(&mut self, index: usize) -> (f64, f64);
+    fn hull_bounds(&mut self, hull: Ref<Vehicle>) -> Option<(Matrix4, Vector3, Vector3)>;
     fn facts(&mut self, index: usize, shapes: bool, aim: bool) -> LockFacts;
     fn clear(&mut self, origin: &Vector3, sight: &mut Vector3, length: f64, body: Option<u32>) -> bool;
 }
@@ -29,28 +29,21 @@ pub fn allowed(relations: u32, categories: u32, relation: f64, category: u32) ->
 /// seatLockTarget does. Direction has been normalized at the caller's slot.
 pub fn pick_view(query: &mut impl LockQuery, view: LockView, origin: &Vector3, direction: &Vector3) -> Option<LockTarget> {
     if view.range <= 0.0 || direction.length_sq() == 0.0 { return None; }
-    let owned = crate::units::f3::active();
-    let n = if owned { crate::units::f3_fleet::count() } else { unsafe { (&*addr_of_mut!(MEMBERS)).len() } };
+    let n = query.count();
     for pass in 0..2 {
         if pass == 0 && !view.complete { continue; }
         let cone = v8math::max(0.0, if pass == 0 { view.off } else { view.on }) * std::f64::consts::PI / 180.0;
         let mut best = None; let mut best_angle = f64::INFINITY; let mut best_distance = f64::INFINITY;
         for i in 0..n {
             if pass == 0 {
-                let (id, generation) = if owned {
-                    let key = crate::units::f3_fleet::key(i);
-                    (crate::units::registry::target_id(key) as f64, crate::units::f3_fleet::life(key))
-                } else {
-                    let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
-                    (m.id, m.generation.unwrap_or(0.0))
-                };
+                let (id, generation) = query.identity(i);
                 if id != view.id || generation != view.generation { continue; }
             }
             let mut f = query.facts(i,false,false);
             if !f.eligible || !allowed(view.relations,view.categories,f.relation,f.category) { continue; }
-            let hull = f.hull.and_then(|r| sim().store.vehicle.get(r));
-            let (angle,distance) = if let Some(v) = hull {
-                box_span(origin,direction,&Matrix4 { elements: v.matrix },&vec(&v.bounds_min),&vec(&v.bounds_max))
+            let hull = f.hull.and_then(|r| query.hull_bounds(r));
+            let (angle,distance) = if let Some((matrix, min, max)) = hull {
+                box_span(origin,direction,&matrix,&min,&max)
             } else {
                 f = query.facts(i,true,false); sphere_span(origin,direction,&f.center,f.radius)
             };

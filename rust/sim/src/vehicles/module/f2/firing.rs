@@ -118,6 +118,8 @@ pub use targeting::*;
 mod live;
 #[cfg(target_arch = "wasm32")]
 pub use live::*;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use live::State;
 
 #[cfg(test)]
 mod tests {

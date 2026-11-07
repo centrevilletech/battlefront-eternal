@@ -12,7 +12,7 @@ use crate::store::block::Block;
 use crate::store::calls::Calls;
 use crate::vehicles::{Hull, VehicleWorld};
 use crate::vehicles::firing::{spread, WeaponGeometry};
-use crate::vehicles::module::{poses, JsWorld, MEMBERS, MemberRow, v3, vec};
+use crate::vehicles::module::{poses, JsWorld, FLEET, MemberRow, v3, vec};
 use std::ptr::addr_of_mut;
 
 // Vehicle.createSeats resolves geometry and definitions once per weapon life.
@@ -56,20 +56,19 @@ struct Emitter { identity: Ref<crate::gen::Emitter>, hull: Ref<Vehicle>, life: f
 // Vehicles.fireCrews iterates the ordered fleet, not this slab's slot order.
 // The publication objects retain their nested lists between ticks. Cables and
 // emitters also carry gameplay lives so respawns cannot adopt old effects.
-struct State {
+pub(crate) struct State {
     emitters: Vec<Option<Emitter>>, weapons: Slab<Mounted>, crafts: Vec<Option<Craft>>, cables: Vec<Cable>,
     phase: [f64; FfPhase::WORDS], supply_result: Calls, output: Block, cable_output: Block, published: Vec<FfHullOut>, locked: StrId, attached: StrId, snapped: StrId, retow: StrId, tripped: StrId, empty: StrId, class_names: [StrId; 4],
 }
-static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
-    unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
+    unsafe { (*addr_of_mut!(FLEET.firing)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
         cables: Vec::with_capacity(128), phase: [0.0; FfPhase::WORDS], supply_result: Calls::default(), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), retow: sim().strings.intern_str("retow"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
 }
 /// captureMountedControl reads both exact weapon clocks and their next
 /// barrels. The pose owns barrel rotation; the firing slab owns Weapon state.
 pub(crate) fn wire_weapons<T>(hull: Ref<Vehicle>, life: f64, seat: usize,
     capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> {
-    let st = unsafe { (&*addr_of_mut!(STATE)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
+    let st = unsafe { (&*addr_of_mut!(FLEET.firing)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
     let craft = st.crafts.get(hull.slot as usize).and_then(Option::as_ref)
         .filter(|c| c.id == hull && c.life == life).ok_or("mounted control lease prerequisite missing")?;
     let refs = craft.seats.get(seat).ok_or("mounted control lease prerequisite missing")?;
@@ -147,38 +146,11 @@ pub extern "C" fn f2_firing_adopt() {
 // Retiring mounted rows invalidates old weapon handles before a new life is
 // inserted. Emitter identities are retained separately because a beam may still
 // ask whether the original occupancy has gone away.
-fn reset_weapons(r: Ref<Vehicle>) {
-    let st = state();
-    if let Some(slot) = st.crafts.get_mut(r.slot as usize) {
-        if slot.as_ref().is_some_and(|c| c.id == r) {
-            let c = slot.take().unwrap();
-            for s in c.seats { for w in s { st.weapons.remove(w); } }
-        }
-    }
-}
+fn reset_weapons(r: Ref<Vehicle>) { state().reset_weapons(r) }
 // Vehicle.spawn constructs fresh Weapon state for this gameplay life. Keep
 // its native class, geometry and work buffers; only the scalar birth state
 // resets. The previous phase's foreign modifiers cannot enter the new life.
-pub(crate) fn reset_life(r: Ref<Vehicle>, life: f64) {
-    let st = state();
-    let craft = st.crafts[r.slot as usize].as_mut().expect("prepared mounted hull");
-    craft.life = life; craft.consumed.fill(false);
-    for seat in &craft.seats { for &reference in seat {
-        let weapon = st.weapons.get_mut(reference).unwrap();
-        weapon.state.clone_from(&weapon.birth.state);
-        weapon.random_binding = u32::MAX;
-        weapon.shots.clear(); weapon.dirty = true;
-        weapon.input = FfWeaponInput {
-            channel: weapon.birth.channel, target: -2, has_random: weapon.state.random,
-            random_binding: u32::MAX, floor: weapon.state.floor,
-            spread_scale: weapon.state.spread_scale, sniper_scale: weapon.state.sniper_scale,
-            yaw_spread_override: weapon.state.yaw_spread_override,
-        };
-    } }
-    for emitter in st.emitters.iter_mut().flatten() {
-        if emitter.hull == r { emitter.life = life; }
-    }
-}
+pub(crate) fn reset_life(r: Ref<Vehicle>, life: f64) { state().reset_life(r, life) }
 // Vehicle retirement releases both ends of cable ownership. It cannot leave
 // an anchor attached to a different vehicle that later occupies the same slot,
 // even when a release occurs inside reciprocal explosion damage.
@@ -190,101 +162,24 @@ pub fn retire(r: Ref<Vehicle>) {
 // Birth is where variable publication storage is sized. In particular every
 // barrel kick has a reusable output slot; an idle weapon update must not build
 // new per-seat arrays merely to publish unchanged rig metadata.
-fn rebuild_publication() {
-    let st = state();
-    st.published.clear();
-    for c in st.crafts.iter().flatten() {
-        let mut seats = Vec::new();
-        for (i, s) in c.seats.iter().enumerate() {
-            let mut weapons = Vec::new();
-            for &r in s {
-                let w = st.weapons.get(r).unwrap();
-                weapons.push(FfWeaponOut { state: w.state.clone(), random_binding:w.random_binding, barrel: 0.0, kicks: vec![None; w.birth.muzzles.len()] });
-            }
-            seats.push(FfSeatOut { consumed: c.consumed[i], weapons });
-        }
-        st.published.push(FfHullOut { hull: c.id, life: c.life, seats });
-    }
-    st.cable_output.words.reserve(8192); st.cable_output.heap.reserve(1024);
-    st.output.words.reserve(32768); st.output.heap.reserve(32768);
-}
+fn rebuild_publication() { state().rebuild_publication() }
 
 /// SeatInput's frozen triggers and seatWeaponPolicy/AI spread modifiers.
 /// The generated record is fixed width and contains no variable heap.
 // Only submitted changed facts replace the retained foreign input. Reapply
 // AI modifiers before latch so a later seatWeaponPolicy call can override them
 // at its original slot. Triggers always come from the canonical lease later.
-pub fn inputs(data: &[f64]) -> usize {
-    let mut o = 0;
-    let st = state();
-    for c in st.crafts.iter_mut().flatten() {
-        for used in &mut c.consumed { *used = false; }
-    }
-    let header = FfInputs::take(data, &[]); o += FfInputs::WORDS;
-    for _ in 0..header.count {
-        let a = FfWeaponChange::take(&data[o..], &[]); o += FfWeaponChange::WORDS;
-        let c = st.crafts[a.hull.slot as usize].as_ref().unwrap();
-        if c.id != a.hull || c.life != a.life { continue; }
-        let wr = c.seats[a.seat as usize][a.weapon as usize];
-        st.weapons.get_mut(wr).unwrap().input = a.input;
-    }
-    for c in st.crafts.iter().flatten() { for seat in &c.seats { for &wr in seat {
-        let w = st.weapons.get_mut(wr).unwrap();
-        w.state.random = w.input.has_random;
-        if f3::active() { w.random_binding = w.input.random_binding; }
-        w.state.floor = w.input.floor;
-        if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
-        w.state.spread_scale = w.input.spread_scale; w.state.sniper_scale = w.input.sniper_scale;
-        w.state.yaw_spread_override = w.input.yaw_spread_override;
-    } } }
-    o
-}
+pub fn inputs(data: &[f64]) -> usize { state().inputs(data) }
 
 /// Bind a bot seat to the same native generator its controller consumes.
 /// Retain that handle in each fire invocation so recursive retirement cannot
 /// redirect an outer weapon's remaining draws to a replacement mount.
-pub fn bind_ai_stream(hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream:crate::ai::random::SharedRandom)->bool {
-    if !sim().store.vehicle.get(hull.vehicle).is_some_and(|h|h.target_generation==hull.life) {return false;}
-    let st=state();let Some(craft)=st.crafts.get(hull.vehicle.slot as usize).and_then(Option::as_ref) else {return false};
-    if craft.id!=hull.vehicle||craft.life!=hull.life {return false;}
-    let Some(weapons)=craft.seats.get(seat) else {return false};
-    for &r in weapons {
-        let weapon=st.weapons.get_mut(r).unwrap();assert!(weapon.class.is_some(),"AI bind outside a detached fire update");
-        // SeatUnit.initialize's seatArsenal assigns a missing authored
-        // channel from the weapon's seat index. Its cold cooked value must
-        // reach projectile attribution before the first native bot shot.
-        weapon.input.channel=weapon.birth.channel;
-        weapon.random=Some(stream.clone());weapon.dirty|=!weapon.state.random;weapon.state.random=true;
-    }
-    true
-}
+pub fn bind_ai_stream(hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream:crate::ai::random::SharedRandom)->bool { state().bind_ai_stream(&sim().store, hull, seat, stream) }
 
 /// F3.phase prepares mounted lock hints before the first Unit.tick. Native
 /// AI owns the same fire controls; freeze their scalar registry indices here
 /// rather than observing a controller replaced by a later shot or death.
-pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) {
-    let count=sim().store.vehicles.vehicles.len();
-    for index in 0..count {
-        let hull=sim().store.vehicles.vehicles[index];
-        let Some(craft)=state().crafts.get(hull.slot as usize).and_then(Option::as_ref) else{continue};
-        if craft.id!=hull {continue;}
-        let seats=craft.seats.len();
-        for seat in 0..seats {
-            let hint=sim().store.vehicle.get(hull).and_then(|hull|hull.seats.get(seat)).and_then(|seat|seat.lease)
-                .and_then(|lease|sim().store.seat_lease.get(lease)).and_then(|lease|lease.unit.map(|unit|(unit,lease.controllable)))
-                .map(|(unit,control)|ai.weapon_hint(&sim().store,unit,control));
-            let target=match hint {
-                Some(hint) if hint.bot=>hint.target.and_then(|target|sim().store.units.list.iter().position(|member|*member==target)).map_or(-1,|index|index as i32),
-                _=>-2,
-            };
-            let count=state().crafts[hull.slot as usize].as_ref().unwrap().seats[seat].len();
-            for weapon in 0..count {
-                let reference=state().crafts[hull.slot as usize].as_ref().unwrap().seats[seat][weapon];
-                state().weapons.get_mut(reference).unwrap().input.target=target;
-            }
-        }
-    }
-}
+pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) { state().freeze_ai_targets(&sim().store, ai) }
 
 /// Native AI reads the mounted owner's current weapon without a mirror.
 /// A detached fire update cannot expose its temporary empty weapon state.
@@ -292,26 +187,14 @@ pub fn weapon_count(hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option
     weapon_count_owned(&sim().store,hull,seat)
 }
 /// The whole native AI phase supplies its loaned canonical Store here.
-pub fn weapon_count_owned(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
-    if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
-    let craft=state().crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
-    if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
-    Some(craft.seats.get(seat)?.len())
-}
+pub fn weapon_count_owned(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> { state().weapon_count_owned(store, hull, seat) }
 pub fn with_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
     read:impl FnOnce(&Weapon)->R)->Option<R> {
     with_weapon_owned(&sim().store,hull,seat,index,read)
 }
 /// The whole native AI phase supplies its loaned canonical Store here.
 pub fn with_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    read:impl FnOnce(&Weapon)->R)->Option<R> {
-    if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
-    let st=state();let craft=st.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
-    if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
-    let weapon=st.weapons.get(*craft.seats.get(seat)?.get(index)?)?;
-    weapon.class.as_ref()?;
-    Some(read(&weapon.state))
-}
+    read:impl FnOnce(&Weapon)->R)->Option<R> { state().with_weapon_owned(store, hull, seat, index, read) }
 /// AI tuning shares the exact edit operation with ordinary F3 weapons. These
 /// callbacks must only edit the supplied scalar settings, without world calls.
 pub fn edit_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
@@ -320,54 +203,16 @@ pub fn edit_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:
 }
 /// The whole native AI phase supplies its loaned canonical Store here.
 pub fn edit_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
-    if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
-    let st=state();let craft=st.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
-    if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
-    let weapon=st.weapons.get_mut(*craft.seats.get(seat)?.get(index)?)?;
-    weapon.class.as_ref()?;
-    let (result,changed)=crate::ai::owned::weapons::edit_state(&mut weapon.state,edit);
-    // prepareStep reapplies retained foreign settings before firing. Native
-    // Aimer.update/prepareSpread now own these edits, so retain them there too;
-    // a later explicit seatWeaponPolicy input still overrides at its old slot.
-    weapon.input.floor=weapon.state.floor;
-    weapon.input.spread_scale=weapon.state.spread_scale;
-    weapon.input.sniper_scale=weapon.state.sniper_scale;
-    weapon.input.yaw_spread_override=weapon.state.yaw_spread_override;
-    weapon.dirty|=changed;Some(result)
-}
+    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> { state().edit_weapon_owned(store, hull, seat, index, edit) }
 
 // Vehicle.setSeatPolicy can run during promotion or boarding after input was
 // imported. Apply the native reset immediately, rather than waiting for a JS
 // mirror to send the same values in the following phase.
-pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) {
-    let c = state().crafts[r.slot as usize].as_ref().unwrap();
-    for &wr in &c.seats[seat] {
-        let w = state().weapons.get_mut(wr).unwrap(); let d = w.state.level(w.class.as_ref().unwrap());
-        w.random=None;
-        w.state.floor = if player { -d.get(K::SpreadThreshold).or(0.0) } else { 0.0 };
-        if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
-        w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None; w.state.random = random; w.dirty = true;
-        if f3::active() {
-            w.random_binding = if random { f3::seat_binding() } else { u32::MAX };
-            w.input.random_binding = w.random_binding; w.input.has_random = random;
-            w.input.floor = w.state.floor; w.input.spread_scale = 1.0;
-            w.input.sniper_scale = 0.0; w.input.yaw_spread_override = None;
-        }
-    }
-}
+pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) { state().policy(r, seat, player, random) }
 
 // ClassicCombatBinding.attachController changes every weapon on that seat
 // to its shared AI generator before later native fire can consume a draw.
-pub(crate) fn bind_random(hull: Ref<Vehicle>, seat: usize, binding: u32) {
-    let craft = state().crafts[hull.slot as usize].as_ref().unwrap();
-    for &reference in &craft.seats[seat] {
-        let weapon = state().weapons.get_mut(reference).unwrap();
-        weapon.random_binding = binding; weapon.state.random = binding != u32::MAX;
-        weapon.input.random_binding = binding; weapon.input.has_random = weapon.state.random;
-        weapon.dirty = true;
-    }
-}
+pub(crate) fn bind_random(hull: Ref<Vehicle>, seat: usize, binding: u32) { state().bind_random(hull, seat, binding) }
 
 /// Copies just mounted state; physics and leases remain in their canonical slab.
 fn dirty(st: &State, c: &Craft) -> bool {
@@ -378,43 +223,7 @@ pub fn publish() -> *const f64 { publish_for(None) }
 // Power-up supply publishes one hull; ordinary phase publication selects dirty
 // mounted rows. Neither operation copies another craft's mutable weapon state
 // back into JS and risks replacing an unlatched AI edit.
-fn publish_for(only: Option<Ref<Vehicle>>) -> *const f64 {
-    let st = state();
-    let n = st.crafts.iter().flatten().filter(|c| only.is_none_or(|r| c.id == r) && dirty(st, c)).count();
-    st.output.begin(n, FfHullOut::WORDS);
-    let mut at = 0;
-    // The shape of each nested record was created at birth. Clone_from here
-    // copies scalar Weapon state into that retained shape; it does not clone class
-    // tables, definitions, geometry or animation clips during the phase.
-    for row in &mut st.published {
-        if only.is_some_and(|r| row.hull != r) { continue; }
-        let c = st.crafts[row.hull.slot as usize].as_ref().unwrap();
-        let changed = c.seats.iter().any(|s| s.iter().any(|&r| st.weapons.get(r).unwrap().dirty));
-        if !changed { continue; }
-        row.life = c.life;
-        for (i, seat) in row.seats.iter_mut().enumerate() {
-            seat.consumed = c.consumed[i];
-            for (j, out) in seat.weapons.iter_mut().enumerate() {
-                let w = st.weapons.get_mut(c.seats[i][j]).unwrap();
-                out.state.clone_from(&w.state); out.random_binding = w.random_binding; w.dirty = false;
-                if let Some(p) = poses()[c.id.slot as usize].as_ref() {
-                    let wp = &p.pose.seats[i].weapons[j]; out.barrel = wp.barrel;
-                    for (k, kick) in out.kicks.iter_mut().enumerate() { *kick = wp.muzzles[k].kick_at; }
-                }
-            }
-        }
-        let (words, heap) = st.output.row(at); row.put(words, heap); at += 1;
-    }
-    st.output.finish();
-    st.cable_output.begin(st.cables.len(), FfCableOut::WORDS);
-    for (i, t) in st.cables.iter().enumerate() {
-        let out = FfCableOut { source: t.source, target: t.target, seat: t.seat as u32, weapon: t.weapon as u32,
-            length: t.length, start: v3(&t.start), end: v3(&t.end) };
-        let (words, heap) = st.cable_output.row(i); out.put(words, heap);
-    }
-    st.cable_output.finish();
-    st.output.ptr()
-}
+fn publish_for(only: Option<Ref<Vehicle>>) -> *const f64 { state().publish_for(poses(), only) }
 /// The existing F2 descriptor points to a generated firing descriptor.
 /// Its event address removes getter/clear exports from the ordinary tick.
 pub fn phase_ptr() -> *const f64 {
@@ -431,9 +240,9 @@ pub fn phase_ptr() -> *const f64 {
 struct Draws { hull: Ref<Vehicle>, seat: u32, weapon: u32, random:Option<crate::ai::random::SharedRandom>, binding:u32 }
 impl WeaponDraws for Draws {
     fn draw(&mut self, _: u32) -> f64 {
-        if let Some(random)=self.random.as_mut() {return crate::ai::random::Random::uniform(random);}
-        if f3::active() { return f3::random_binding(self.binding); }
-        import_f2_weapon_draw(&FfDraw { hull: self.hull, seat: self.seat, weapon: self.weapon }).value
+            if let Some(random)=self.random.as_mut() {return crate::ai::random::Random::uniform(random);}
+            if f3::active() { return f3::random_binding(self.binding); }
+            import_f2_weapon_draw(&FfDraw { hull: self.hull, seat: self.seat, weapon: self.weapon }).value
     }
     fn legacy(&mut self, i: u32) -> f64 { self.draw(i) }
     fn seeded(&mut self, _: f64, _: f64) {}
@@ -445,29 +254,10 @@ impl WeaponDraws for Draws {
 // Vehicle.muzzleOfSeat and shotDirection need current physics and the current
 // retained pose together. Move the pose into scratch only for this native
 // calculation, returning it before any target, RNG or gameplay import.
-fn geometry(r: Ref<Vehicle>) -> &'static mut Hull {
-    let c = state().crafts[r.slot as usize].as_mut().unwrap();
-    let v = sim().store.vehicle.get(r).unwrap();
-    let h = &mut c.geometry;
-    h.id = r; h.alive = v.alive; h.flying = v.flying;
-    h.position = vec(&v.position); h.yaw = v.yaw;
-    h.center = vec(&v.center); h.size = vec(&v.size); h.matrix.elements = v.matrix;
-    h.quaternion = three::Quaternion::new(v.quaternion[0], v.quaternion[1], v.quaternion[2], v.quaternion[3]);
-    h.seat_index = v.seat_index as usize;
-    for (i, s) in h.seats.iter_mut().enumerate() {
-        s.aim_yaw = v.seats[i].aim_yaw; s.pitch = v.seats[i].pitch;
-        s.lease = v.seats[i].lease.map(|_| crate::vehicles::hull::Lease { human: v.seat_leases[i].human == Some(true), ..Default::default() });
-    }
-    std::mem::swap(h.pose.as_mut().unwrap(), &mut poses()[r.slot as usize].as_mut().unwrap().pose);
-    h
+fn geometry<R>(r: Ref<Vehicle>, run: impl FnOnce(&mut Hull, &Slab<Mounted>) -> R) -> R {
+    state().with_geometry(&sim().store, poses(), r, run)
 }
-// The authoritative rig has one owner even though fire geometry uses Hull
-// methods. Swapping it back also retains barrel turns consumed by a muzzle
-// that is later rejected for being outside its limits.
-fn keep_geometry(r: Ref<Vehicle>) {
-    let c = state().crafts[r.slot as usize].as_mut().unwrap();
-    std::mem::swap(c.geometry.pose.as_mut().unwrap(), &mut poses()[r.slot as usize].as_mut().unwrap().pose);
-}
+
 
 /// weapon-targeting.js lockPick. Bot targets bypass the view cone, while
 /// human acquisition and retention use the candidate's actual box or sphere.
@@ -475,10 +265,11 @@ fn keep_geometry(r: Ref<Vehicle>) {
 // retention search actual target volumes. Keep the translated seat eye as the
 // origin; using the hull root changes both range and the visible lock cone.
 fn lock_pick(r: Ref<Vehicle>, class: &WeaponClass, w: &Weapon, seat: usize, target: i32, masks: (u32, u32), angles: [f64; 2]) -> Option<LockTarget> {
-    let h = geometry(r);
-    let origin = h.seat_eye(seat);
-    let mut direction = h.reticle_ray(seat, &origin); direction.normalize();
-    keep_geometry(r);
+    let (origin, direction) = geometry(r, |h, _| {
+        let origin = h.seat_eye(seat);
+        let mut direction = h.reticle_ray(seat, &origin); direction.normalize();
+        (origin, direction)
+    });
     let d = w.level(class);
     let [on, off] = angles;
     let range = d.get(K::LockOnRange).or(0.0);
@@ -496,16 +287,23 @@ fn lock_pick(r: Ref<Vehicle>, class: &WeaponClass, w: &Weapon, seat: usize, targ
 // and sight points are queried at their original read slots.
 struct HullQuery(Ref<Vehicle>);
 impl LockQuery for HullQuery {
+    fn count(&mut self) -> usize { super::super::target_count() }
+    fn identity(&mut self, index: usize) -> (f64, f64) { super::super::target_identity(index) }
+    fn hull_bounds(&mut self, hull: Ref<Vehicle>) -> Option<(Matrix4, Vector3, Vector3)> {
+            let v = sim().store.vehicle.get(hull)?;
+            Some((Matrix4 { elements: v.matrix }, vec(&v.bounds_min), vec(&v.bounds_max)))
+    }
+
     fn facts(&mut self, i: usize, shapes: bool, aim: bool) -> LockFacts {
-        let f = target_facts(self.0,i,shapes,aim); let m = member(i);
-        LockFacts { id: m.id, generation: m.generation.unwrap_or(0.0), alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
-            hull: if m.kind == 1 || m.kind == 3 { sim().store.vehicle.at(m.hull).map(|(r,_)| r) } else { None },
-            body: (f.body >= 0.0).then_some(f.body as u32), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
+            let f = target_facts(self.0,i,shapes,aim); let m = member(i);
+            LockFacts { id: m.id, generation: m.generation.unwrap_or(0.0), alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
+                hull: if m.kind == 1 || m.kind == 3 { sim().store.vehicle.at(m.hull).map(|(r,_)| r) } else { None },
+                body: (f.body >= 0.0).then_some(f.body as u32), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
     }
     fn clear(&mut self, origin: &Vector3, sight: &mut Vector3, length: f64, body: Option<u32>) -> bool {
-        if length < 1e-6 { return true; }
-        let ignore = sim().store.vehicle.get(self.0).unwrap().body.slot;
-        !JsWorld::new(self.0.slot).cast(origin,sight.divide_scalar(length),length,Some(ignore)).is_some_and(|h| h.body != body || h.body.is_none())
+            if length < 1e-6 { return true; }
+            let ignore = sim().store.vehicle.get(self.0).unwrap().body.slot;
+            !JsWorld::new(self.0.slot).cast(origin,sight.divide_scalar(length),length,Some(ignore)).is_some_and(|h| h.body != body || h.body.is_none())
     }
 }
 
@@ -517,7 +315,7 @@ fn member(i: usize) -> MemberRow {
             id: facts.id, generation: facts.generation, alive: facts.alive, team: facts.team,
             hull: hull.map_or(u32::MAX, |r| r.slot), point: facts.point };
     }
-    unsafe { (&*addr_of_mut!(MEMBERS))[i] }
+    unsafe { (&*addr_of_mut!(FLEET.members))[i] }
 }
 fn target_key(i: usize, alive: bool) -> LockTarget { let m = member(i); LockTarget { id: m.id, generation: m.generation.unwrap_or(0.0), alive } }
 fn target_facts(r: Ref<Vehicle>, i: usize, shapes: bool, aim: bool) -> FfTargetFacts {
@@ -626,20 +424,18 @@ fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64, m
 // that ordering, then apply spread and any flyer assist. Tow launches share the
 // same geometry but do not create an ordinary projectile.
 fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64, pitch: f64, charge: f64, mut target_id: f64, mut target_generation: f64, clock: f64, services: Option<WorldServices<'_>>) {
-    let h = geometry(r);
-    let keys = &state().weapons.get(wr).unwrap().keys;
-    let mut muzzle = Vector3::default();
-    let m = h.muzzle_of_seat(seat, weapon, keys, |_| clock, &mut muzzle);
-    if h.held_by_limits(seat, weapon, m.aimer, keys) { keep_geometry(r); return; }
-    let target = h.pose.as_ref().unwrap().seats[seat].target;
-    let bot = h.bot_aim(seat);
-    keep_geometry(r);
+    let Some((m, muzzle, target, bot)) = geometry(r, |h, weapons| {
+        let keys = &weapons.get(wr).unwrap().keys;
+        let mut muzzle = Vector3::default();
+        let m = h.muzzle_of_seat(seat, weapon, keys, |_| clock, &mut muzzle);
+        if h.held_by_limits(seat, weapon, m.aimer, keys) { return None; }
+        Some((m, muzzle, h.pose.as_ref().unwrap().seats[seat].target, h.bot_aim(seat)))
+    }) else { return; };
     let tow = state().weapons.get(wr).unwrap().birth.tow;
     let fallback = if tow { tow_aim(r, seat, wr, &muzzle).unwrap_or(bot) } else { bot };
-    let h = geometry(r);
-    let keys = &state().weapons.get(wr).unwrap().keys;
-    let mut direction = h.shot_direction(seat, weapon, m.aimer, keys, &muzzle, target.as_ref(), Some(&fallback));
-    keep_geometry(r);
+    let mut direction = geometry(r, |h, weapons| {
+        h.shot_direction(seat, weapon, m.aimer, &weapons.get(wr).unwrap().keys, &muzzle, target.as_ref(), Some(&fallback))
+    });
     spread(yaw, pitch, &mut direction, &mut Vector3::default());
     let v = sim().store.vehicle.get(r).unwrap();
     let flying = v.flying;
@@ -781,7 +577,7 @@ fn leg_hit(r: Ref<Vehicle>, point: &Vector3) -> Option<(usize, Vector3)> {
 /// Vehicle.towAim: a body hit may choose a command walker even when it is
 /// friendly; nearestWalker is the fallback and excludes friends and dead hulls.
 fn tow_aim(r: Ref<Vehicle>, seat: usize, wr: Ref<Mounted>, muzzle: &Vector3) -> Option<Vector3> {
-    let h = geometry(r); let origin = h.seat_eye(seat); let direction = h.bot_aim(seat); keep_geometry(r);
+    let (origin, direction) = geometry(r, |h, _| (h.seat_eye(seat), h.bot_aim(seat)));
     let range = state().weapons.get(wr).unwrap().birth.range;
     let body = sim().store.vehicle.get(r).unwrap().body.slot;
     let hit = JsWorld::new(r.slot).cast(&origin, &direction, range, Some(body));
@@ -858,12 +654,13 @@ fn update_tethers(mut services: Option<WorldServices<'_>>) {
         let local = vec(&v.tow_local);
         let target_alive = sim().store.vehicle.get(target).is_some_and(|v| v.alive && v.target_generation == target_life);
         let matrix = Matrix4 { elements: sim().store.vehicle.get(target).unwrap().matrix };
-        let h = geometry(r);
-        let pose = h.pose.as_mut().unwrap();
-        let node = pose.seats.get(seat).and_then(|s| s.turret).or_else(|| pose.seats.iter().find_map(|s| s.turret));
-        let mut start = h.center;
-        if let Some(node) = node { pose.rig.tree.get_world_position(node, &mut start); } else { start.apply_matrix4(&h.matrix); }
-        keep_geometry(r);
+        let start = geometry(r, |h, _| {
+            let pose = h.pose.as_mut().unwrap();
+            let node = pose.seats.get(seat).and_then(|s| s.turret).or_else(|| pose.seats.iter().find_map(|s| s.turret));
+            let mut start = h.center;
+            if let Some(node) = node { pose.rig.tree.get_world_position(node, &mut start); } else { start.apply_matrix4(&h.matrix); }
+            start
+        });
         let mut end = local; end.apply_matrix4(&matrix);
         state().cables[i].start = start; state().cables[i].end = end;
         if !sim().store.vehicle.get(r).unwrap().alive || !target_alive { release(r, state().empty); continue; }
@@ -934,10 +731,10 @@ pub fn emitter_pose(source: BeamSource, local: [f64; 3], position: &mut [f64; 3]
     if emitter_gone(source) == Some(true) { return true; }
     let mut p = vec(&local); p.apply_matrix4(&emitter_matrix(e)); *position = v3(&p);
     let wr = state().crafts[e.hull.slot as usize].as_ref().unwrap().seats[e.seat][e.weapon];
-    let h = geometry(e.hull);
-    let keys = &state().weapons.get(wr).unwrap().keys;
-    let d = h.beam_direction(e.seat, e.weapon, e.node, e.aimer, keys, &mut Vector3::default());
-    keep_geometry(e.hull); *direction = v3(&d); true
+    let d = geometry(e.hull, |h, weapons| {
+        h.beam_direction(e.seat, e.weapon, e.node, e.aimer, &weapons.get(wr).unwrap().keys, &mut Vector3::default())
+    });
+    *direction = v3(&d); true
 }
 
 /// PowerupStation.serve sends ammunition as one scalar command per hull.
@@ -978,4 +775,236 @@ pub(crate) fn first_weapon(hull:Ref<Vehicle>,seat:usize)->Option<(crate::store::
     let st=state();let craft=st.crafts.get(hull.slot as usize)?.as_ref()?;
     if craft.id!=hull{return None;}let weapon=*craft.seats.get(seat)?.first()?;
     let w=&st.weapons.get(weapon)?.state;Some((w.def,w.level))
+}
+
+impl State {
+    fn reset_weapons(&mut self, r: Ref<Vehicle>) {
+        let st = self;
+        if let Some(slot) = st.crafts.get_mut(r.slot as usize) {
+            if slot.as_ref().is_some_and(|c| c.id == r) {
+                let c = slot.take().unwrap();
+                for s in c.seats { for w in s { st.weapons.remove(w); } }
+            }
+        }
+    }
+    fn reset_life(&mut self, r: Ref<Vehicle>, life: f64) {
+        let st = self;
+        let craft = st.crafts[r.slot as usize].as_mut().expect("prepared mounted hull");
+        craft.life = life; craft.consumed.fill(false);
+        for seat in &craft.seats { for &reference in seat {
+            let weapon = st.weapons.get_mut(reference).unwrap();
+            weapon.state.clone_from(&weapon.birth.state);
+            weapon.random_binding = u32::MAX;
+            weapon.shots.clear(); weapon.dirty = true;
+            weapon.input = FfWeaponInput {
+                channel: weapon.birth.channel, target: -2, has_random: weapon.state.random,
+                random_binding: u32::MAX, floor: weapon.state.floor,
+                spread_scale: weapon.state.spread_scale, sniper_scale: weapon.state.sniper_scale,
+                yaw_spread_override: weapon.state.yaw_spread_override,
+            };
+        } }
+        for emitter in st.emitters.iter_mut().flatten() {
+            if emitter.hull == r { emitter.life = life; }
+        }
+    }
+    fn rebuild_publication(&mut self, ) {
+        let st = self;
+        st.published.clear();
+        for c in st.crafts.iter().flatten() {
+            let mut seats = Vec::new();
+            for (i, s) in c.seats.iter().enumerate() {
+                let mut weapons = Vec::new();
+                for &r in s {
+                    let w = st.weapons.get(r).unwrap();
+                    weapons.push(FfWeaponOut { state: w.state.clone(), random_binding:w.random_binding, barrel: 0.0, kicks: vec![None; w.birth.muzzles.len()] });
+                }
+                seats.push(FfSeatOut { consumed: c.consumed[i], weapons });
+            }
+            st.published.push(FfHullOut { hull: c.id, life: c.life, seats });
+        }
+        st.cable_output.words.reserve(8192); st.cable_output.heap.reserve(1024);
+        st.output.words.reserve(32768); st.output.heap.reserve(32768);
+    }
+    fn inputs(&mut self, data: &[f64]) -> usize {
+        let mut o = 0;
+        let st = self;
+        for c in st.crafts.iter_mut().flatten() {
+            for used in &mut c.consumed { *used = false; }
+        }
+        let header = FfInputs::take(data, &[]); o += FfInputs::WORDS;
+        for _ in 0..header.count {
+            let a = FfWeaponChange::take(&data[o..], &[]); o += FfWeaponChange::WORDS;
+            let c = st.crafts[a.hull.slot as usize].as_ref().unwrap();
+            if c.id != a.hull || c.life != a.life { continue; }
+            let wr = c.seats[a.seat as usize][a.weapon as usize];
+            st.weapons.get_mut(wr).unwrap().input = a.input;
+        }
+        for c in st.crafts.iter().flatten() { for seat in &c.seats { for &wr in seat {
+            let w = st.weapons.get_mut(wr).unwrap();
+            w.state.random = w.input.has_random;
+            if f3::active() { w.random_binding = w.input.random_binding; }
+            w.state.floor = w.input.floor;
+            if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
+            w.state.spread_scale = w.input.spread_scale; w.state.sniper_scale = w.input.sniper_scale;
+            w.state.yaw_spread_override = w.input.yaw_spread_override;
+        } } }
+        o
+    }
+    fn bind_random(&mut self, hull: Ref<Vehicle>, seat: usize, binding: u32) {
+        let craft = self.crafts[hull.slot as usize].as_ref().unwrap();
+        for &reference in &craft.seats[seat] {
+            let weapon = self.weapons.get_mut(reference).unwrap();
+            weapon.random_binding = binding; weapon.state.random = binding != u32::MAX;
+            weapon.input.random_binding = binding; weapon.input.has_random = weapon.state.random;
+            weapon.dirty = true;
+        }
+    }
+    fn policy(&mut self, r: Ref<Vehicle>, seat: usize, player: bool, random: bool) {
+        let c = self.crafts[r.slot as usize].as_ref().unwrap();
+        for &wr in &c.seats[seat] {
+            let w = self.weapons.get_mut(wr).unwrap(); let d = w.state.level(w.class.as_ref().unwrap());
+            w.random=None;
+            w.state.floor = if player { -d.get(K::SpreadThreshold).or(0.0) } else { 0.0 };
+            if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
+            w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None; w.state.random = random; w.dirty = true;
+            if f3::active() {
+                w.random_binding = if random { f3::seat_binding() } else { u32::MAX };
+                w.input.random_binding = w.random_binding; w.input.has_random = random;
+                w.input.floor = w.state.floor; w.input.spread_scale = 1.0;
+                w.input.sniper_scale = 0.0; w.input.yaw_spread_override = None;
+            }
+        }
+    }
+    fn bind_ai_stream(&mut self, store: &Store, hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream:crate::ai::random::SharedRandom)->bool {
+        if !(*store).vehicle.get(hull.vehicle).is_some_and(|h|h.target_generation==hull.life) {return false;}
+        let st=self;let Some(craft)=st.crafts.get(hull.vehicle.slot as usize).and_then(Option::as_ref) else {return false};
+        if craft.id!=hull.vehicle||craft.life!=hull.life {return false;}
+        let Some(weapons)=craft.seats.get(seat) else {return false};
+        for &r in weapons {
+            let weapon=st.weapons.get_mut(r).unwrap();assert!(weapon.class.is_some(),"AI bind outside a detached fire update");
+            // SeatUnit.initialize's seatArsenal assigns a missing authored
+            // channel from the weapon's seat index. Its cold cooked value must
+            // reach projectile attribution before the first native bot shot.
+            weapon.input.channel=weapon.birth.channel;
+            weapon.random=Some(stream.clone());weapon.dirty|=!weapon.state.random;weapon.state.random=true;
+        }
+        true
+    }
+    fn freeze_ai_targets(&mut self, store: &Store, ai:&dyn crate::ai::owned::callbacks::Callbacks) {
+        let count=(*store).vehicles.vehicles.len();
+        for index in 0..count {
+            let hull=(*store).vehicles.vehicles[index];
+            let Some(craft)=self.crafts.get(hull.slot as usize).and_then(Option::as_ref) else{continue};
+            if craft.id!=hull {continue;}
+            let seats=craft.seats.len();
+            for seat in 0..seats {
+                let hint=(*store).vehicle.get(hull).and_then(|hull|hull.seats.get(seat)).and_then(|seat|seat.lease)
+                    .and_then(|lease|(*store).seat_lease.get(lease)).and_then(|lease|lease.unit.map(|unit|(unit,lease.controllable)))
+                    .map(|(unit,control)|ai.weapon_hint(&(*store),unit,control));
+                let target=match hint {
+                    Some(hint) if hint.bot=>hint.target.and_then(|target|(*store).units.list.iter().position(|member|*member==target)).map_or(-1,|index|index as i32),
+                    _=>-2,
+                };
+                let count=self.crafts[hull.slot as usize].as_ref().unwrap().seats[seat].len();
+                for weapon in 0..count {
+                    let reference=self.crafts[hull.slot as usize].as_ref().unwrap().seats[seat][weapon];
+                    self.weapons.get_mut(reference).unwrap().input.target=target;
+                }
+            }
+        }
+    }
+    fn weapon_count_owned(&mut self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
+        if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
+        let craft=self.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
+        if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
+        Some(craft.seats.get(seat)?.len())
+    }
+    fn with_weapon_owned<R>(&mut self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
+    read:impl FnOnce(&Weapon)->R)->Option<R> {
+        if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
+        let st=self;let craft=st.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
+        if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
+        let weapon=st.weapons.get(*craft.seats.get(seat)?.get(index)?)?;
+        weapon.class.as_ref()?;
+        Some(read(&weapon.state))
+    }
+    fn edit_weapon_owned<R>(&mut self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
+    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
+        if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
+        let st=self;let craft=st.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
+        if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
+        let weapon=st.weapons.get_mut(*craft.seats.get(seat)?.get(index)?)?;
+        weapon.class.as_ref()?;
+        let (result,changed)=crate::ai::owned::weapons::edit_state(&mut weapon.state,edit);
+        // prepareStep reapplies retained foreign settings before firing. Native
+        // Aimer.update/prepareSpread now own these edits, so retain them there too;
+        // a later explicit seatWeaponPolicy input still overrides at its old slot.
+        weapon.input.floor=weapon.state.floor;
+        weapon.input.spread_scale=weapon.state.spread_scale;
+        weapon.input.sniper_scale=weapon.state.sniper_scale;
+        weapon.input.yaw_spread_override=weapon.state.yaw_spread_override;
+        weapon.dirty|=changed;Some(result)
+    }
+    fn publish_for(&mut self, poses: &[Option<crate::vehicles::module::Posed>], only: Option<Ref<Vehicle>>) -> *const f64 {
+        let st = self;
+        let n = st.crafts.iter().flatten().filter(|c| only.is_none_or(|r| c.id == r) && dirty(st, c)).count();
+        st.output.begin(n, FfHullOut::WORDS);
+        let mut at = 0;
+        // The shape of each nested record was created at birth. Clone_from here
+        // copies scalar Weapon state into that retained shape; it does not clone class
+        // tables, definitions, geometry or animation clips during the phase.
+        for row in &mut st.published {
+            if only.is_some_and(|r| row.hull != r) { continue; }
+            let c = st.crafts[row.hull.slot as usize].as_ref().unwrap();
+            let changed = c.seats.iter().any(|s| s.iter().any(|&r| st.weapons.get(r).unwrap().dirty));
+            if !changed { continue; }
+            row.life = c.life;
+            for (i, seat) in row.seats.iter_mut().enumerate() {
+                seat.consumed = c.consumed[i];
+                for (j, out) in seat.weapons.iter_mut().enumerate() {
+                    let w = st.weapons.get_mut(c.seats[i][j]).unwrap();
+                    out.state.clone_from(&w.state); out.random_binding = w.random_binding; w.dirty = false;
+                    if let Some(p) = poses[c.id.slot as usize].as_ref() {
+                        let wp = &p.pose.seats[i].weapons[j]; out.barrel = wp.barrel;
+                        for (k, kick) in out.kicks.iter_mut().enumerate() { *kick = wp.muzzles[k].kick_at; }
+                    }
+                }
+            }
+            let (words, heap) = st.output.row(at); row.put(words, heap); at += 1;
+        }
+        st.output.finish();
+        st.cable_output.begin(st.cables.len(), FfCableOut::WORDS);
+        for (i, t) in st.cables.iter().enumerate() {
+            let out = FfCableOut { source: t.source, target: t.target, seat: t.seat as u32, weapon: t.weapon as u32,
+                length: t.length, start: v3(&t.start), end: v3(&t.end) };
+            let (words, heap) = st.cable_output.row(i); out.put(words, heap);
+        }
+        st.cable_output.finish();
+        st.output.ptr()
+    }
+}
+
+impl State {
+    // The authoritative rig has one owner even though fire geometry uses Hull
+    // methods. Swapping it back also retains barrel turns consumed by a muzzle
+    // that is later rejected for being outside its limits.
+    fn with_geometry<R>(&mut self, store: &Store, poses: &mut [Option<crate::vehicles::module::Posed>], r: Ref<Vehicle>,
+        run: impl FnOnce(&mut Hull, &Slab<Mounted>) -> R) -> R {
+        let c = self.crafts[r.slot as usize].as_mut().unwrap();
+        let v = store.vehicle.get(r).unwrap();
+        let h = &mut c.geometry;
+        h.id = r; h.alive = v.alive; h.flying = v.flying;
+        h.position = vec(&v.position); h.yaw = v.yaw;
+        h.center = vec(&v.center); h.size = vec(&v.size); h.matrix.elements = v.matrix;
+        h.quaternion = three::Quaternion::new(v.quaternion[0], v.quaternion[1], v.quaternion[2], v.quaternion[3]);
+        h.seat_index = v.seat_index as usize;
+        for (i, s) in h.seats.iter_mut().enumerate() {
+            s.aim_yaw = v.seats[i].aim_yaw; s.pitch = v.seats[i].pitch;
+            s.lease = v.seats[i].lease.map(|_| crate::vehicles::hull::Lease { human: v.seat_leases[i].human == Some(true), ..Default::default() });
+        }
+        std::mem::swap(h.pose.as_mut().unwrap(), &mut poses[r.slot as usize].as_mut().unwrap().pose);
+        let result = run(h, &self.weapons);
+        std::mem::swap(h.pose.as_mut().unwrap(), &mut poses[r.slot as usize].as_mut().unwrap().pose);
+        result
+    }
 }

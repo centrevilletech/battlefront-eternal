@@ -3,34 +3,28 @@
 use super::*;
 use crate::store::block::Block;
 struct Row { value: F2Pose, next: Block, last: Block, dirty: bool, delta: super::delta::Delta }
-static mut ROWS: Vec<Option<Row>> = Vec::new();
-static mut OUTPUT: Option<Block> = None;
-fn rows() -> &'static mut Vec<Option<Row>> { unsafe { &mut *addr_of_mut!(ROWS) } }
-fn output() -> &'static mut Block { unsafe { (*addr_of_mut!(OUTPUT)).get_or_insert_with(Block::default) } }
-pub fn mark(r: Ref<Vehicle>) { if let Some(Some(row)) = rows().get_mut(r.slot as usize) { row.dirty = true; } }
-pub fn register(r: Ref<Vehicle>) {
-    let p = &poses()[r.slot as usize].as_ref().unwrap().pose;
-    let seats = p.seats.iter().map(|s| F2PoseSeat { aimers: s.weapons.iter().flat_map(|w| w.aimers.iter()).map(|_| F2Aimer::default()).collect(), ..Default::default() }).collect();
-    let size = 512 + p.seats.len() * 256;
-    let make = || Block { words: Vec::with_capacity(size), heap: Vec::with_capacity(size) };
-    if rows().len() <= r.slot as usize { rows().resize_with(r.slot as usize + 1, || None); }
-    rows()[r.slot as usize] = Some(Row { value: F2Pose { hull: r, seats, ..Default::default() }, next: make(), last: make(), dirty: true, delta: Default::default() });
-    rows()[r.slot as usize].as_mut().unwrap().delta.reserve(size);
-    output().words.reserve(size); output().heap.reserve(size);
+pub(crate) struct Geometry { rows: Vec<Option<Row>>, output: Option<Block> }
+impl Geometry {
+    pub(in crate::vehicles::module) const fn new() -> Self { Self { rows: Vec::new(), output: None } }
 }
+// Only this entry projection knows the WASM instance root. Geometry methods
+// borrow their own bank; rig sampling is a separate, explicit capability.
+fn geometry() -> &'static mut Geometry { unsafe { &mut *addr_of_mut!(FLEET.geometry) } }
+pub fn mark(r: Ref<Vehicle>) { geometry().mark(r) }
+pub fn register(r: Ref<Vehicle>) { geometry().register(r, &poses()[r.slot as usize].as_ref().unwrap().pose) }
 /// The published seat frame uses simulation position rather than rendered bob.
 /// The root's Euler cache stays observable without asking JS to decompose it.
-fn update(row: &mut Row) {
-    let r = row.value.hull;
+fn update(value: &mut F2Pose) {
+    let r = value.hull;
     let mut h = take_hull(r, 0);
     let mut posed = poses()[r.slot as usize].take().unwrap();
     let p = &mut posed.pose;
     let q = p.rig.tree.node(p.rig.root).quaternion;
     let e = p.rig.tree.node_mut(p.rig.root).rotation();
-    row.value.age = p.age; row.value.walk_phase = p.walk_phase; row.value.walk_blend = p.walk_blend;
-    row.value.visual = v3(&p.visual); row.value.root_q = [q.x,q.y,q.z,q.w]; row.value.root_euler = [e.x,e.y,e.z];
+    value.age = p.age; value.walk_phase = p.walk_phase; value.walk_blend = p.walk_blend;
+    value.visual = v3(&p.visual); value.root_q = [q.x,q.y,q.z,q.w]; value.root_euler = [e.x,e.y,e.z];
     h.pose = Some(posed.pose);
-    for (i, out) in row.value.seats.iter_mut().enumerate() {
+    for (i, out) in value.seats.iter_mut().enumerate() {
         let sp = &h.pose.as_ref().unwrap().seats[i];
         out.last_yaw = sp.last_yaw; out.yaw_rate = sp.yaw_rate; out.has_target = sp.target.is_some(); out.target = sp.target.as_ref().map(v3).unwrap_or_default();
         let mut ai = 0;
@@ -41,21 +35,35 @@ fn update(row: &mut Row) {
     }
     posed.pose = h.pose.take().unwrap(); poses()[r.slot as usize] = Some(posed); recycle(h);
 }
-pub fn publish() -> *const f64 {
-    let mut count = 0;
-    for row in rows().iter_mut().flatten() {
-        if !row.dirty { continue; }
-        if !sim().store.vehicle.contains(row.value.hull) { row.dirty = false; continue; }
-        update(row); row.next.begin(1, F2Pose::WORDS);
-        let (words, heap) = row.next.row(0); row.value.put(words, heap); row.next.finish();
-        if !row.delta.encode(row.value.hull.slot, row.value.hull.gen, &row.next, &row.last) { row.dirty = false; }
-        else { count += 1; }
+pub fn publish() -> *const f64 { geometry().publish(|value| { if !sim().store.vehicle.contains(value.hull) { return false; } update(value); true }) }
+
+impl Geometry {
+    pub(super) fn mark(&mut self, r: Ref<Vehicle>) { if let Some(Some(row)) = self.rows.get_mut(r.slot as usize) { row.dirty = true; } }
+    fn register(&mut self, r: Ref<Vehicle>, p: &HullPose) {
+        let seats = p.seats.iter().map(|s| F2PoseSeat { aimers: s.weapons.iter().flat_map(|w| w.aimers.iter()).map(|_| F2Aimer::default()).collect(), ..Default::default() }).collect();
+        let size = 512 + p.seats.len() * 256;
+        let make = || Block { words: Vec::with_capacity(size), heap: Vec::with_capacity(size) };
+        if self.rows.len() <= r.slot as usize { self.rows.resize_with(r.slot as usize + 1, || None); }
+        self.rows[r.slot as usize] = Some(Row { value: F2Pose { hull: r, seats, ..Default::default() }, next: make(), last: make(), dirty: true, delta: Default::default() });
+        self.rows[r.slot as usize].as_mut().unwrap().delta.reserve(size);
+        self.output.get_or_insert_with(Block::default).words.reserve(size); self.output.get_or_insert_with(Block::default).heap.reserve(size);
     }
-    let out = output(); out.begin(count, F2Delta::WORDS); let mut at = 0;
-    for row in rows().iter_mut().flatten() {
-        if !row.dirty { continue; }
-        let (words,heap) = out.row(at); row.delta.value.put(words,heap); at += 1;
-        std::mem::swap(&mut row.next,&mut row.last); row.dirty = false;
+    fn publish(&mut self, mut sample: impl FnMut(&mut F2Pose) -> bool) -> *const f64 {
+        let mut count = 0;
+        for row in self.rows.iter_mut().flatten() {
+            if !row.dirty { continue; }
+            if !sample(&mut row.value) { row.dirty = false; continue; }
+            row.next.begin(1, F2Pose::WORDS);
+            let (words, heap) = row.next.row(0); row.value.put(words, heap); row.next.finish();
+            if !row.delta.encode(row.value.hull.slot, row.value.hull.gen, &row.next, &row.last) { row.dirty = false; }
+            else { count += 1; }
+        }
+        let out = self.output.get_or_insert_with(Block::default); out.begin(count, F2Delta::WORDS); let mut at = 0;
+        for row in self.rows.iter_mut().flatten() {
+            if !row.dirty { continue; }
+            let (words,heap) = out.row(at); row.delta.value.put(words,heap); at += 1;
+            std::mem::swap(&mut row.next,&mut row.last); row.dirty = false;
+        }
+        out.finish(); out.ptr()
     }
-    out.finish(); out.ptr()
 }

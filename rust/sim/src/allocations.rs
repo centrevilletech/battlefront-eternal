@@ -14,6 +14,8 @@ pub struct Diagnostics {
     totals: Totals,
     trace: Trace,
     output: Option<Block>,
+    #[cfg(target_arch = "wasm32")]
+    fleet: crate::vehicles::module::f2::allocation::Census,
 }
 struct Totals { calls: AtomicUsize, reallocs: AtomicUsize, bytes: AtomicUsize }
 struct Trace {
@@ -25,7 +27,9 @@ struct Trace {
 impl Default for Diagnostics { fn default() -> Self { Self::new() } }
 impl Diagnostics {
     pub const fn new() -> Self {
-        Self { totals: Totals::new(), trace: Trace::new(), output: None }
+        Self { totals: Totals::new(), trace: Trace::new(), output: None,
+            #[cfg(target_arch = "wasm32")]
+            fleet: crate::vehicles::module::f2::allocation::Census::new() }
     }
     pub fn prepare(&mut self) { self.output = Some(prepared_output()); }
     pub fn begin(&mut self) { self.trace.begin(); }
@@ -121,6 +125,11 @@ mod facade {
         let output = prepared_output();
         unsafe { *addr_of_mut!(DIAGNOSTICS.output) = Some(output); }
     }
+    // The allocation hook may run during an allocation by Fleet itself. Lend
+    // only these fixed diagnostic cells, never the semantic Fleet root.
+    pub(crate) fn fleet<R>(run: impl FnOnce(&mut crate::vehicles::module::f2::allocation::Census) -> R) -> R {
+        unsafe { run(&mut *addr_of_mut!(DIAGNOSTICS.fleet)) }
+    }
     pub(crate) fn begin() { unsafe { (&mut *addr_of_mut!(DIAGNOSTICS.trace)).begin(); } }
     pub(crate) fn end() { unsafe { (*addr_of_mut!(DIAGNOSTICS.trace)).recording = false; } }
     pub(crate) fn snapshot() -> Counts { unsafe { (&*addr_of!(DIAGNOSTICS.totals)).snapshot() } }
@@ -147,4 +156,4 @@ mod facade {
     static ALLOCATOR: Counted = Counted;
 }
 #[cfg(target_arch = "wasm32")]
-pub(crate) use facade::{at, begin, end, prepare, snapshot};
+pub(crate) use facade::{at, begin, end, fleet, prepare, snapshot};

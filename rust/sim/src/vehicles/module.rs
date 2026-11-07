@@ -32,20 +32,6 @@ use three::{Matrix4, Quaternion, Vector3};
 /// vehicles.js FIXED_STEP: a ground hull's substep.
 const FIXED_STEP: f64 = 1.0 / 120.0;
 
-static mut CLASSES: Option<HashMap<String, HullClass>> = None;
-/// Required collision/map context, reusable lifecycle input and changed body
-/// rows. F2 publishes body changes before a foreign hook reads their mirrors.
-static mut COLLISION: Option<Collision> = None;
-static mut MAP: Option<MapRules> = None;
-static mut INPUT: Vec<f64> = Vec::new();
-static mut CHANGES: Vec<f64> = Vec::new();
-/// The vehicle pack's templates by model and its classes by name
-/// (`veh_pack`), each ground hull's pose by its slot in the store with the
-/// life it was taken for (posing.rs), and the clock used for barrel kick.
-static mut TEMPLATES: Option<HashMap<String, VehicleTemplate>> = None;
-static mut DEFS: Option<HashMap<String, Value>> = None;
-static mut POSES: Vec<Option<Posed>> = Vec::new();
-
 /// A ground hull's pose kept in the module: the life it was taken for, the
 /// pose, and its seats' turn rates (seatView's turnRate, the 9-pose's).
 struct Posed {
@@ -53,25 +39,82 @@ struct Posed {
     pose: HullPose,
     turn_rates: Vec<f64>,
 }
-static mut CLOCK: Option<f64> = None;
-static mut BYTES: Vec<u8> = Vec::new();
-/// Flight's view of the battle: its environment and the classes' live
-/// tunings (given at attach, retuned by command), the registry's entries
-/// and the teams' relations this phase, each craft's pilot input, each
-/// class's flight keys, the crafts' accumulated time, and the locks the
-/// crafts' targeting left for their weapons (out).
-static mut FLIGHT_ENV: Option<Environment> = None;
-static mut TUNINGS: Option<Tunings> = None;
-static mut MEMBERS: Vec<MemberRow> = Vec::new();
-static mut RELATIONS: Vec<f64> = Vec::new();
-static mut TEAMS: Vec<Team> = Vec::new();
-static mut FLIGHT_INPUTS: Vec<Option<(FlightInput, Option<FlightInput>)>> = Vec::new();
-static mut FLIGHT_KEYS: Option<HashMap<String, (Config, Option<GearClip>)>> = None;
-static mut FLIGHT_ACC: f64 = 0.0;
-static mut LOCKS: Vec<f64> = Vec::new();
-/// Units' aim points JavaScript gave this phase (by entry), until the
-/// registry's rows are written again.
-static mut AIM_CACHE: Vec<Option<Vector3>> = Vec::new();
+/// Vehicles owns cold definitions, retained rigs and each independent F2 bank.
+/// Canonical bodies stay in Store. Entry services project only the field they
+/// need, so a committed hull can be observed by a nested crew death without
+/// borrowing its caller's scratch or replacing another publication bank.
+pub(crate) struct Fleet {
+    classes: Option<HashMap<String, HullClass>>,
+    // VehiclesWorld collision, map rules and lifecycle exchange are separate
+    // from retained class/pose banks and from each independent flight clock.
+    collision: Option<Collision>,
+    map: Option<MapRules>,
+    input: Vec<f64>,
+    changes: Vec<f64>,
+    templates: Option<HashMap<String, VehicleTemplate>>,
+    defs: Option<HashMap<String, Value>>,
+    poses: Vec<Option<Posed>>,
+    clock: Option<f64>,
+    bytes: Vec<u8>,
+    flight_env: Option<Environment>,
+    tunings: Option<Tunings>,
+    // FlightWorld receives ordered registry facts; aim points stay lazy until
+    // targeting asks, and replacing registry facts invalidates only the cache.
+    members: Vec<MemberRow>,
+    relations: Vec<f64>,
+    teams: Vec<Team>,
+    flight_inputs: Vec<Option<(FlightInput, Option<FlightInput>)>>,
+    flight_keys: Option<HashMap<String, (Config, Option<GearClip>)>>,
+    flight_acc: f64,
+    locks: Vec<f64>,
+    aim_cache: Vec<Option<Vector3>>,
+    aim_wanted: Vec<f64>,
+    phase_refs: Vec<Ref<Vehicle>>,
+    phase_mine: Vec<(usize, Ref<Vehicle>)>,
+    phase_posed: Vec<bool>,
+    phase_locks: Vec<Option<crate::flight::state::Lock>>,
+    scheduler: f2::Scheduler,
+    seats: Option<f2::live_seats::State>,
+    firing: Option<f2::firing::State>,
+    riders: f2::riders::Riders,
+    geometry: f2::geometry::Geometry,
+}
+impl Fleet {
+    const fn new() -> Self {
+        Self {
+            classes: None,
+            collision: None,
+            map: None,
+            input: Vec::new(),
+            changes: Vec::new(),
+            templates: None,
+            defs: None,
+            poses: Vec::new(),
+            clock: None,
+            bytes: Vec::new(),
+            flight_env: None,
+            tunings: None,
+            members: Vec::new(),
+            relations: Vec::new(),
+            teams: Vec::new(),
+            flight_inputs: Vec::new(),
+            flight_keys: None,
+            flight_acc: 0.0,
+            locks: Vec::new(),
+            aim_cache: Vec::new(),
+            aim_wanted: Vec::new(),
+            phase_refs: Vec::new(),
+            phase_mine: Vec::new(),
+            phase_posed: Vec::new(),
+            phase_locks: Vec::new(),
+            scheduler: f2::Scheduler::new(), seats: None, firing: None,
+            riders: f2::riders::Riders::new(), geometry: f2::geometry::Geometry::new(),
+        }
+    }
+}
+// One WASM instance owns one Fleet. Never create an enclosing &mut Fleet here:
+// callbacks may borrow a disjoint field while a detached solver row is active.
+static mut FLEET: Fleet = Fleet::new();
 
 /// A registry entry as JavaScript gives it each phase: a unit's (its aim
 /// point asked when wanted), a hull's (alive, aim point and body read from
@@ -97,62 +140,48 @@ const MEMBER_ON_HULL: u8 = 3;
 // SAFETY (these and `classes`): one thread; each is borrowed for one call
 // of the module's own and never across an import.
 pub(crate) fn collision_world() -> Option<&'static mut Collision> {
-    unsafe { (*addr_of_mut!(COLLISION)).as_mut() }
+    unsafe { (*addr_of_mut!(FLEET.collision)).as_mut() }
 }
 
 pub(crate) fn map() -> Option<&'static mut MapRules> {
-    unsafe { (*addr_of_mut!(MAP)).as_mut() }
+    unsafe { (*addr_of_mut!(FLEET.map)).as_mut() }
 }
 
 /// Pilot steering and the fleet observe the same immutable flight facts.
 pub(crate) fn flight_environment()->&'static Environment {
-    unsafe {(*addr_of_mut!(FLIGHT_ENV)).as_ref()}.expect("the flight environment (veh_flight_env)")
+    unsafe {(*addr_of_mut!(FLEET.flight_env)).as_ref()}.expect("the flight environment (veh_flight_env)")
 }
 
 // navigateMissile and the hull phase share FLIGHT_CLASSES' live tunings.
 // Copy its numeric row; F1 does not create or cache a second tuning table.
-pub(crate) fn flight_tuning(class: FlightClass) -> Tuning {
-    unsafe { (*addr_of_mut!(TUNINGS)).get_or_insert_with(Tunings::default) }.of(class)
-}
+pub(crate) fn flight_tuning(class: FlightClass) -> Tuning { Fleet::flight_tuning(unsafe { &mut *addr_of_mut!(FLEET.tunings) }, class) }
 
 fn input() -> &'static mut Vec<f64> {
-    unsafe { &mut *addr_of_mut!(INPUT) }
+    unsafe { &mut *addr_of_mut!(FLEET.input) }
 }
 
 fn poses() -> &'static mut Vec<Option<Posed>> {
-    unsafe { &mut *addr_of_mut!(POSES) }
+    unsafe { &mut *addr_of_mut!(FLEET.poses) }
 }
 
 /// EntityWorldCapture's mount sample reads the retained walk clocks without
 /// updating a rig or publishing a geometry row back through JavaScript.
-pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) {
-    unsafe { (&*addr_of_mut!(POSES)).get(reference.slot as usize).and_then(Option::as_ref)
-        .map_or((0., 0.), |row| (row.pose.walk_phase, row.pose.walk_blend)) }
-}
+pub(crate) fn wire_walk(reference: Ref<Vehicle>) -> (f64, f64) { Fleet::wire_walk(unsafe { &mut *addr_of_mut!(FLEET.poses) }, reference) }
 /// captureGroundCorrection observes aim history after the completed pose
 /// pass. Reading it must not call aimSeats or sample the rig a second time.
-pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> {
-    let row = unsafe { (&*addr_of_mut!(POSES)).get(reference.slot as usize)?.as_ref()? };
-    let seat = row.pose.seats.get(index)?; Some((seat.yaw_rate, seat.last_yaw))
-}
+pub(crate) fn wire_seat_history(reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> { Fleet::wire_seat_history(unsafe { &mut *addr_of_mut!(FLEET.poses) }, reference, index) }
 
 /// The hull classes' keys the phase has been given (`veh_class`), by name.
 fn classes() -> &'static mut HashMap<String, HullClass> {
     // SAFETY: one thread; nothing holds a reference across a call out.
-    unsafe { (*addr_of_mut!(CLASSES)).get_or_insert_with(HashMap::new) }
+    unsafe { (*addr_of_mut!(FLEET.classes)).get_or_insert_with(HashMap::new) }
 }
 
 /// A hull class: its name and its definition (`data.classes[name]`) as JSON,
 /// both interned strings, and the turn rate its hulls have (its seats' aim
 /// rates fall back on it).
 #[no_mangle]
-pub extern "C" fn veh_class(name: u32, json: u32, turn_rate: f64) {
-    let s = sim();
-    let name = String::from_utf16_lossy(s.strings.units(StrId(name)));
-    let text = String::from_utf16_lossy(s.strings.units(StrId(json)));
-    let def = bfe_content::json::parse(&text).unwrap_or_else(|e| panic!("hull class {name}: {e:?}"));
-    classes().insert(name, HullClass::new(&def, turn_rate));
-}
+pub extern "C" fn veh_class(name: u32, json: u32, turn_rate: f64) { Fleet::veh_class(&sim().strings, unsafe { &mut *addr_of_mut!(FLEET.classes) }, name, json, turn_rate) }
 
 /// The map's data the hulls ask about, as JSON (`water`: its cell, offset,
 /// grid and the cell numbers its Set holds, or null; `deathRegions` and
@@ -160,27 +189,13 @@ pub extern "C" fn veh_class(name: u32, json: u32, turn_rate: f64) {
 /// the battlefield (game.js killY): the water and the death regions are
 /// answered here from then on.
 #[no_mangle]
-pub extern "C" fn veh_map(json: u32, kill_y: f64) {
-    let s = sim();
-    let text = String::from_utf16_lossy(s.strings.units(StrId(json)));
-    let value = bfe_content::json::parse(&text).unwrap_or_else(|e| panic!("hull phase map: {e:?}"));
-    let rules = MapRules::from_json(&value, kill_y);
-    unsafe { *addr_of_mut!(MAP) = Some(rules) };
-}
+pub extern "C" fn veh_map(json: u32, kill_y: f64) { Fleet::veh_map(&sim().strings, unsafe { &mut *addr_of_mut!(FLEET.map) }, json, kill_y) }
 
 /// The battle's collision as the module holds it: the kernel's world
 /// (collision.js rayWorld) and the vehicle-only barriers' fixed set (-1
 /// none). The world is required; body mappings stay with its lifetime.
 #[no_mangle]
-pub extern "C" fn veh_collision(world: i32, blockers: i32) {
-    let slot = unsafe { &mut *addr_of_mut!(COLLISION) };
-    assert!(world >= 0, "vehicles require native collision");
-    let blockers = (blockers >= 0).then_some(blockers as usize);
-    match slot {
-        Some(c) if c.world == world as usize => c.blockers = blockers,
-        _ => *slot = Some(Collision::new(world as usize, blockers)),
-    }
-}
+pub extern "C" fn veh_collision(world: i32, blockers: i32) { Fleet::veh_collision(unsafe { &mut *addr_of_mut!(FLEET.collision) }, world, blockers) }
 
 /// Where JavaScript writes each body's enabled flag, by its place in the
 /// collision world's order (MAX_BODIES bytes; 0 without a world here).
@@ -191,13 +206,7 @@ pub extern "C" fn veh_flags() -> *mut u8 {
 
 /// Room for `count` numbers JavaScript hands over (veh_bodies, veh_collider).
 #[no_mangle]
-pub extern "C" fn veh_input(count: u32) -> *mut f64 {
-    let v = input();
-    if v.len() < count as usize {
-        v.resize(count as usize, 0.0);
-    }
-    v.as_mut_ptr()
-}
+pub extern "C" fn veh_input(count: u32) -> *mut f64 { Fleet::veh_input(unsafe { &mut *addr_of_mut!(FLEET.input) }, count) }
 
 /// The bodies' numbers: `count` pairs in the input, each a body's number in
 /// the store (the bridge's) and its kernel slot.
@@ -238,7 +247,7 @@ pub(crate) fn prepare_collision() {
     c.prepare(state);
     let words = F2BodyHeader::WORDS + (state.worlds[c.world].order.len() + state.worlds[c.world].prepared.len())
         * (F2BodyToggle::WORDS + F2BodyPlaced::WORDS);
-    let changes = unsafe { &mut *addr_of_mut!(CHANGES) };
+    let changes = unsafe { &mut *addr_of_mut!(FLEET.changes) };
     changes.reserve(words.saturating_sub(changes.len()));
 }
 
@@ -248,19 +257,14 @@ pub(crate) fn prepare_collision() {
 #[no_mangle]
 pub extern "C" fn veh_changes() -> *const f64 {
     let Some(c) = collision_world() else { return std::ptr::null() };
-    let out = unsafe { &mut *addr_of_mut!(CHANGES) };
+    let out = unsafe { &mut *addr_of_mut!(FLEET.changes) };
     c.take_changes(crate::collision::state(), out);
     out.as_ptr()
 }
 
 /// Room for `count` bytes JavaScript hands over (the vehicle pack).
 #[no_mangle]
-pub extern "C" fn veh_bytes(count: u32) -> *mut u8 {
-    let v = unsafe { &mut *addr_of_mut!(BYTES) };
-    v.clear();
-    v.resize(count as usize, 0);
-    v.as_mut_ptr()
-}
+pub extern "C" fn veh_bytes(count: u32) -> *mut u8 { Fleet::veh_bytes(unsafe { &mut *addr_of_mut!(FLEET.bytes) }, count) }
 
 /// The vehicle pack, from `veh_bytes`'s room: its JSON (`def_len` bytes:
 /// its models, collision, animations and classes), then (from the next
@@ -269,7 +273,7 @@ pub extern "C" fn veh_bytes(count: u32) -> *mut u8 {
 /// the content crate builds them (posing.rs). Returns how many models.
 #[no_mangle]
 pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: u32) -> u32 {
-    let bytes = unsafe { &*addr_of_mut!(BYTES) };
+    let bytes = unsafe { &*addr_of_mut!(FLEET.bytes) };
     let def = bfe_content::json::parse_bytes(&bytes[..def_len as usize]).unwrap_or_else(|e| panic!("vehicle pack: {e:?}"));
     let mut at = (def_len as usize).div_ceil(4) * 4;
     let mut words = |n: u32| {
@@ -284,10 +288,10 @@ pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: 
     let count = made.len() as u32;
     let classes: HashMap<String, Value> = def.get("classes").and_then(Value::as_object).map(|o| o.entries().map(|(k, v)| (k.to_string(), v.clone())).collect()).unwrap_or_default();
     unsafe {
-        *addr_of_mut!(TEMPLATES) = Some(made.into_iter().map(|t| (t.name.clone(), t)).collect());
-        *addr_of_mut!(DEFS) = Some(classes);
+        *addr_of_mut!(FLEET.templates) = Some(made.into_iter().map(|t| (t.name.clone(), t)).collect());
+        *addr_of_mut!(FLEET.defs) = Some(classes);
         // The pack's bytes are not needed again.
-        *addr_of_mut!(BYTES) = Vec::new();
+        *addr_of_mut!(FLEET.bytes) = Vec::new();
     }
     count
 }
@@ -295,16 +299,7 @@ pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: 
 /// A hull's pose as the constructor makes it from its class and
 /// model (build.rs), with its seats' turn rates, or None where the pack
 /// lacks either.
-fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> {
-    let defs = unsafe { (*addr_of_mut!(DEFS)).as_ref()? };
-    let templates = unsafe { (*addr_of_mut!(TEMPLATES)).as_ref()? };
-    let def = defs.get(name)?;
-    let model = def.get("model").and_then(Value::as_str)?;
-    let template = templates.get(model)?;
-    let source = super::build::HullSource { name, def, template, slot: 0, slot_matrix: &[0.0; 16] };
-    let (hull, extras) = super::build::build(&source, 0, Ref::default(), 0);
-    Some((hull.pose?, extras.seat_turn_rates))
-}
+fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> { Fleet::new_pose(unsafe { &mut *addr_of_mut!(FLEET.defs) }, unsafe { &mut *addr_of_mut!(FLEET.templates) }, name) }
 
 /// A hull's whole pose state from JavaScript (posing::pull), `count`
 /// numbers in the input, for the hull in store slot `slot` on life
@@ -345,89 +340,25 @@ fn team(flag: f64, x: f64) -> Team {
 /// ceiling, bounds, space, landingZones) and its fly height; the assists
 /// come with each phase.
 #[no_mangle]
-pub extern "C" fn veh_flight_env(json: u32, max_fly_height: f64) {
-    let s = sim();
-    let text = String::from_utf16_lossy(s.strings.units(StrId(json)));
-    let env = bfe_content::json::parse(&text).unwrap_or_else(|e| panic!("flight environment: {e:?}"));
-    let nums3 = |v: Option<&Value>| -> [f64; 3] { [0, 1, 2].map(|k| v.and_then(|a| a.at(k)).and_then(Value::as_f64).unwrap_or(f64::NAN)) };
-    let bounds = env.get("bounds").filter(|b| !matches!(b, Value::Null)).map(|b| (nums3(b.get("min")), nums3(b.get("max"))));
-    let landing_zones = env.get("landingZones").filter(|z| !matches!(z, Value::Null)).map(|zones| {
-        zones
-            .as_array()
-            .unwrap_or(&[])
-            .iter()
-            .map(|z| {
-                let (min, max) = (nums3(z.get("min")), nums3(z.get("max")));
-                let floor_y = match z.get("floorY") {
-                    None | Some(Value::Null) => min[1],
-                    Some(v) => v.as_f64().unwrap_or(f64::NAN),
-                };
-                Zone { min, max, floor_y }
-            })
-            .collect()
-    });
-    let environment = Environment {
-        ceiling: env.get("ceiling").and_then(Value::as_f64),
-        max_fly_height,
-        bounds,
-        space: env.get("space").is_some_and(Value::truthy),
-        landing_zones,
-        assists: false,
-    };
-    unsafe {
-        *addr_of_mut!(FLIGHT_ENV) = Some(environment);
-        (*addr_of_mut!(TUNINGS)).get_or_insert_with(Tunings::default);
-    }
-}
+pub extern "C" fn veh_flight_env(json: u32, max_fly_height: f64) { Fleet::veh_flight_env(&sim().strings, unsafe { &mut *addr_of_mut!(FLEET.flight_env) }, unsafe { &mut *addr_of_mut!(FLEET.tunings) }, json, max_fly_height) }
 
 /// FLIGHT_CLASSES[class][key] = value (a class's tuning: at attach, and
 /// as a world's flightTuning command retunes it); 1 if it took.
 #[no_mangle]
-pub extern "C" fn veh_flight_tune(class: u32, key: u32, value: f64) -> u32 {
-    let s = sim();
-    let class = String::from_utf16_lossy(s.strings.units(StrId(class)));
-    let key = String::from_utf16_lossy(s.strings.units(StrId(key)));
-    let t = unsafe { (*addr_of_mut!(TUNINGS)).get_or_insert_with(Tunings::default) };
-    t.retune(&class, &key, value) as u32
-}
+pub extern "C" fn veh_flight_tune(class: u32, key: u32, value: f64) -> u32 { Fleet::veh_flight_tune(&sim().strings, unsafe { &mut *addr_of_mut!(FLEET.tunings) }, class, key, value) }
 
 /// The registry's entries this phase (units.all(), in its order), ten
 /// numbers each in the input: kind (0 unit, 1 hull, 2 other), id,
 /// generation (NaN: undefined), alive, whether it has a team and the team,
 /// a hull's slot in the store, and another's aim point.
 #[no_mangle]
-pub extern "C" fn veh_members(count: u32) {
-    let v = &input()[..count as usize * 10];
-    let rows = unsafe { &mut *addr_of_mut!(MEMBERS) };
-    rows.clear();
-    let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
-    cache.clear();
-    cache.resize(count as usize, None);
-    for m in v.chunks_exact(10) {
-        rows.push(MemberRow {
-            kind: m[0] as u8,
-            id: m[1],
-            generation: (!m[2].is_nan()).then_some(m[2]),
-            alive: m[3] != 0.0,
-            team: team(m[4], m[5]),
-            hull: m[6] as u32,
-            point: Vector3::new(m[7], m[8], m[9]),
-        });
-    }
-}
+pub extern "C" fn veh_members(count: u32) { Fleet::veh_members(unsafe { &mut *addr_of_mut!(FLEET.input) }, unsafe { &mut *addr_of_mut!(FLEET.members) }, unsafe { &mut *addr_of_mut!(FLEET.aim_cache) }, count) }
 
 /// The relation of every team among the entries and hulls to every other
 /// (Units.relation), `count` teams in the input as (has a team, team)
 /// pairs, then the count x count relations, row by row.
 #[no_mangle]
-pub extern "C" fn veh_relations(count: u32) {
-    let n = count as usize;
-    let v = &input()[..n * 2 + n * n];
-    unsafe {
-        let teams = &mut *addr_of_mut!(TEAMS); teams.clear(); teams.extend((0..n).map(|i| team(v[2 * i], v[2 * i + 1])));
-        let relations = &mut *addr_of_mut!(RELATIONS); relations.clear(); relations.extend_from_slice(&v[n * 2..]);
-    }
-}
+pub extern "C" fn veh_relations(count: u32) { Fleet::veh_relations(unsafe { &mut *addr_of_mut!(FLEET.input) }, unsafe { &mut *addr_of_mut!(FLEET.teams) }, unsafe { &mut *addr_of_mut!(FLEET.relations) }, count) }
 
 /// Lifecycle flight input layout, also used by independent native fixtures.
 fn flight_input(v: &[f64]) -> FlightInput {
@@ -456,25 +387,12 @@ fn flight_input(v: &[f64]) -> FlightInput {
 /// slot in the store, whether a network pilot's keys follow, seat 0's
 /// frozen input (19) and the network pilot's keys (19).
 #[no_mangle]
-pub extern "C" fn veh_flight_inputs(count: u32) {
-    let v = &input()[..count as usize * 40];
-    let all = unsafe { &mut *addr_of_mut!(FLIGHT_INPUTS) };
-    for x in all.iter_mut() {
-        *x = None;
-    }
-    for f in v.chunks_exact(40) {
-        let slot = f[0] as usize;
-        if all.len() <= slot {
-            all.resize(slot + 1, None);
-        }
-        all[slot] = Some((flight_input(&f[2..21]), (f[1] != 0.0).then(|| flight_input(&f[21..40]))));
-    }
-}
+pub extern "C" fn veh_flight_inputs(count: u32) { Fleet::veh_flight_inputs(unsafe { &mut *addr_of_mut!(FLEET.input) }, unsafe { &mut *addr_of_mut!(FLEET.flight_inputs) }, count) }
 
 /// The crafts' time left over after the last phase's flight steps.
 #[no_mangle]
 pub extern "C" fn veh_flight_acc() -> f64 {
-    unsafe { *addr_of_mut!(FLIGHT_ACC) }
+    unsafe { *addr_of_mut!(FLEET.flight_acc) }
 }
 
 /// What the crafts' targeting left in their weapons this phase: [count,
@@ -482,30 +400,12 @@ pub extern "C" fn veh_flight_acc() -> f64 {
 /// and whether it is complete]. Returns its address.
 #[no_mangle]
 pub extern "C" fn veh_locks() -> *const f64 {
-    unsafe { (*addr_of_mut!(LOCKS)).as_ptr() }
+    unsafe { (*addr_of_mut!(FLEET.locks)).as_ptr() }
 }
 
 /// A class's flight keys (flightConfig's own, from its definition) and its
 /// takeoff clip (the gear's), from the pack.
-fn flight_keys(name: &str) -> (Config, Option<GearClip>) {
-    let keys = unsafe { (*addr_of_mut!(FLIGHT_KEYS)).get_or_insert_with(HashMap::new) };
-    if let Some(k) = keys.get(name) {
-        return k.clone();
-    }
-    let defs = unsafe { (*addr_of_mut!(DEFS)).as_ref() }.expect("the vehicle pack (flight needs its classes)");
-    let def = defs.get(name).unwrap_or_else(|| panic!("hull class {name}: not in the pack"));
-    let templates = unsafe { (*addr_of_mut!(TEMPLATES)).as_ref() }.expect("the vehicle pack");
-    let template = def.get("model").and_then(Value::as_str).and_then(|m| templates.get(m));
-    let gear = template.and_then(|t| {
-        let c = t.clips.as_ref()?.get("takeoff")?;
-        let desc = crate::rig::content::hull_desc(def, t);
-        let root = desc.bones.iter().position(|b| b.name.eq_ignore_ascii_case("dummyroot")).map_or(-1, |i| i as i32);
-        Some(GearClip { clip: std::rc::Rc::new(crate::rig::content::clip(c)), duration: c.duration, root })
-    });
-    let k = (Config::of(def), gear);
-    keys.insert(name.to_string(), k.clone());
-    k
-}
+fn flight_keys(name: &str) -> (Config, Option<GearClip>) { Fleet::flight_keys(unsafe { &mut *addr_of_mut!(FLEET.flight_keys) }, unsafe { &mut *addr_of_mut!(FLEET.defs) }, unsafe { &mut *addr_of_mut!(FLEET.templates) }, name) }
 
 /// predictionVehicle resolved immutable content once per source. The client
 /// gets an independent hull, row, strings and query view; it never takes a
@@ -525,8 +425,8 @@ pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::S
     hull.pose = Some(poses().get(r.slot as usize)?.as_ref()?.pose.clone());
     Some(crate::client::hulls::Session::new(hull, v.clone(), s.strings.clone(),
         collision_world()?.prediction_view(), map()?.clone(),
-        unsafe { (*addr_of_mut!(FLIGHT_ENV)).as_ref()?.clone() },
-        unsafe { *(*addr_of_mut!(TUNINGS)).as_ref()? }))
+        unsafe { (*addr_of_mut!(FLEET.flight_env)).as_ref()?.clone() },
+        unsafe { *(*addr_of_mut!(FLEET.tunings)).as_ref()? }))
 }
 
 /// A craft as the phase works on it: the hull with its flight.
@@ -599,11 +499,6 @@ fn input_of(hull: &Hull) -> Input {
 /// (aimTick, then render where `cosmetic`, as Vehicles.update poses every
 /// hull), at the tick's alpha. Returns what is left over. `level`: the
 /// water's level this phase (`water.level`), for a map with water;
-static mut AIM_WANTED: Vec<f64> = Vec::new();
-static mut PHASE_REFS: Vec<Ref<Vehicle>> = Vec::new();
-static mut PHASE_MINE: Vec<(usize, Ref<Vehicle>)> = Vec::new();
-static mut PHASE_POSED: Vec<bool> = Vec::new();
-static mut PHASE_LOCKS: Vec<Option<crate::flight::state::Lock>> = Vec::new();
 fn recycle_hull(hull: Hull) { if f2::active() { f2::recycle(hull); } }
 
 /// `clock`: the clock barrels kick back on.
@@ -620,11 +515,11 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
     if let Some(m) = map() {
         m.level = level;
     }
-    unsafe { *addr_of_mut!(CLOCK) = Some(clock) };
-    let mut refs = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_REFS)) };
+    unsafe { *addr_of_mut!(FLEET.clock) = Some(clock) };
+    let mut refs = unsafe { std::mem::take(&mut *addr_of_mut!(FLEET.phase_refs)) };
     refs.clear(); refs.extend_from_slice(&sim().store.vehicles.vehicles);
     let mut world = JsWorld::with_services(u32::MAX, services);
-    let locks = unsafe { &mut *addr_of_mut!(LOCKS) };
+    let locks = unsafe { &mut *addr_of_mut!(FLEET.locks) };
     locks.clear();
     locks.resize(F2LockHeader::WORDS,0.0);
     if f2::active() {
@@ -637,13 +532,13 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
         }
     }
     if flight_on != 0 {
-        if let Some(env) = unsafe { (*addr_of_mut!(FLIGHT_ENV)).as_mut() } {
+        if let Some(env) = unsafe { (*addr_of_mut!(FLEET.flight_env)).as_mut() } {
             env.assists = assists != 0;
         }
         // The crafts first (Vehicles.update): each live craft's tick start
         // and step, at 1/60 s, as many as the time left over makes.
         let mut flight_acc = flight_acc + dt;
-        let mut last = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_LOCKS)) };
+        let mut last = unsafe { std::mem::take(&mut *addr_of_mut!(FLEET.phase_locks)) };
         last.resize(refs.len(), None); last.fill(None);
         while flight_acc + 1e-9 >= 1.0 / 60.0 {
             for (i, &r) in refs.iter().enumerate() {
@@ -654,7 +549,7 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
                 let mut hull = load_flyer(r, i);
                 hull.capture_tick();
                 hull.capture_flight_tick();
-                let given = unsafe { (&*addr_of_mut!(FLIGHT_INPUTS)).get(r.slot as usize).copied().flatten() };
+                let given = unsafe { (&*addr_of_mut!(FLEET.flight_inputs)).get(r.slot as usize).copied().flatten() };
                 // What Vehicles.update hands the tick: seat 0's frozen
                 // input where a bot holds it, else an idle stick; a network
                 // pilot's keys where his lease holds seat 0.
@@ -677,7 +572,7 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
             }
             flight_acc -= 1.0 / 60.0;
         }
-        unsafe { *addr_of_mut!(FLIGHT_ACC) = flight_acc };
+        unsafe { *addr_of_mut!(FLEET.flight_acc) = flight_acc };
         for (i, lock) in last.iter().enumerate() {
             if let Some(l) = lock {
                 let at = locks.len(); locks.resize(at + F2Lock::WORDS, 0.0);
@@ -685,7 +580,7 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
                 locks[0] += 1.0;
             }
         }
-        unsafe { *addr_of_mut!(PHASE_LOCKS) = last; }
+        unsafe { *addr_of_mut!(FLEET.phase_locks) = last; }
     }
     for (i, &r) in refs.iter().enumerate() {
         let v = sim().store.vehicle.get(r).expect("a hull the store holds");
@@ -709,7 +604,7 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
         acc -= FIXED_STEP;
     }
     if poses_on == 0 {
-        unsafe { *addr_of_mut!(PHASE_REFS) = refs; }
+        unsafe { *addr_of_mut!(FLEET.phase_refs) = refs; }
         return acc;
     }
     let cosmetic = cosmetic != 0;
@@ -724,13 +619,13 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
     let alpha = v8math::max(0.0, acc / FIXED_STEP);
     // The hulls whose pose is the module's (this life's), in order.
     // A craft needs its flight state and gear clip as well as its rig.
-    let mut mine = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_MINE)) };
+    let mut mine = unsafe { std::mem::take(&mut *addr_of_mut!(FLEET.phase_mine)) };
     mine.clear();
     for (i, &r) in refs.iter().enumerate() {
         let v = sim().store.vehicle.get(r).expect("a hull the store holds");
         if (!v.flying || flight_on != 0) && matches!(poses().get(r.slot as usize), Some(Some(p)) if p.generation == v.target_generation) { mine.push((i, r)); }
     }
-    let mut posed = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_POSED)) };
+    let mut posed = unsafe { std::mem::take(&mut *addr_of_mut!(FLEET.phase_posed)) };
     posed.resize(mine.len(), false); posed.fill(false);
     for pass in 0..2 {
         if pass == 1 && !cosmetic {
@@ -761,7 +656,7 @@ pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64,
     // Render leaves native poses in place. Mark only hulls that actually
     // posed; the generated delta publication omits unchanged mirror words.
     for (k, &(_, r)) in mine.iter().enumerate() { if posed[k] { f2::mark(r); } }
-    unsafe { *addr_of_mut!(PHASE_REFS) = refs; *addr_of_mut!(PHASE_MINE) = mine; *addr_of_mut!(PHASE_POSED) = posed; }
+    unsafe { *addr_of_mut!(FLEET.phase_refs) = refs; *addr_of_mut!(FLEET.phase_mine) = mine; *addr_of_mut!(FLEET.phase_posed) = posed; }
     acc
 }
 
@@ -793,7 +688,7 @@ impl<'a> JsWorld<'a> {
     // callers lend the existing borrow explicitly instead of acquiring one here.
     pub fn new(craft: u32) -> Self { Self::with_services(craft, None) }
     pub(crate) fn with_services(craft: u32, services: Option<crate::units::f3::WorldServices<'a>>) -> Self {
-        Self { craft, hull: None, services }
+            Self { craft, hull: None, services }
     }
 }
 
@@ -801,43 +696,43 @@ impl VehicleWorld for JsWorld<'_> {
     // VehiclesWorld's spatial queries share the battle's native kernel. No
     // query round-trip can interleave a stale JavaScript collider mirror.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> {
-        collision_world().expect("the vehicle collision world")
-            .cast(crate::collision::state(), origin, direction, far, ignore).expect("named collision bodies")
+            collision_world().expect("the vehicle collision world")
+                .cast(crate::collision::state(), origin, direction, far, ignore).expect("named collision bodies")
     }
 
     fn push_walls(&mut self, hull: usize, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> bool {
-        collision_world().expect("the vehicle collision world")
-            .push_walls(crate::collision::state(), body_of(hull), probes, radius, q, own, previous, position, velocity, terrain)
-            .expect("a hull collider")
+            collision_world().expect("the vehicle collision world")
+                .push_walls(crate::collision::state(), body_of(hull), probes, radius, q, own, previous, position, velocity, terrain)
+                .expect("a hull collider")
     }
 
     fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<Ground> {
-        collision_world().expect("the vehicle collision world").ground(crate::collision::state(), x, z, top)
+            collision_world().expect("the vehicle collision world").ground(crate::collision::state(), x, z, top)
     }
 
     fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> super::SpringPolygons<'a> {
-        let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
-        super::SpringPolygons::Native(collision_world().expect("the vehicle collision world")
-            .spring_polygons(crate::collision::state(), body_of(hull), index, center, radius).expect("a hull spring"))
+            let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
+            super::SpringPolygons::Native(collision_world().expect("the vehicle collision world")
+                .spring_polygons(crate::collision::state(), body_of(hull), index, center, radius).expect("a hull spring"))
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) {
-        collision_world().expect("the vehicle collision world")
-            .move_body(crate::collision::state(), body, matrix).expect("a hull body");
+            collision_world().expect("the vehicle collision world")
+                .move_body(crate::collision::state(), body, matrix).expect("a hull body");
     }
 
     fn enable_body(&mut self, body: BodyId, enabled: bool) {
-        collision_world().expect("the vehicle collision world")
-            .enable_body(crate::collision::state(), body, enabled).expect("a hull body");
+            collision_world().expect("the vehicle collision world")
+                .enable_body(crate::collision::state(), body, enabled).expect("a hull body");
     }
 
     fn body_enabled(&mut self, body: BodyId) -> bool {
-        collision_world().expect("the vehicle collision world")
-            .body_enabled(crate::collision::state(), body).expect("a hull body")
+            collision_world().expect("the vehicle collision world")
+                .body_enabled(crate::collision::state(), body).expect("a hull body")
     }
 
     fn water_over(&mut self, x: f64, z: f64) -> bool {
-        map().expect("the vehicle map rules").water.as_ref().is_some_and(|w| w.over(x, z))
+            map().expect("the vehicle map rules").water.as_ref().is_some_and(|w| w.over(x, z))
     }
 
     fn water_level(&mut self) -> f64 { map().expect("the vehicle map rules").level }
@@ -845,114 +740,114 @@ impl VehicleWorld for JsWorld<'_> {
     fn has_water(&mut self) -> bool { map().expect("the vehicle map rules").water.is_some() }
 
     fn in_death_region(&mut self, position: &Vector3) -> bool {
-        map().expect("the vehicle map rules").in_death_region(position)
+            map().expect("the vehicle map rules").in_death_region(position)
     }
 
     fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) {
-        if let Some(services) = &mut self.services {
-            use crate::vehicles::damage::HullDamageWorld;
-            crate::units::f3_hulls::DamageWorld {
-                services: services.reborrow(), hull: f2::hull_reference(hull),
-            }.damaged_hull(hull, amount, attacker);
-            return;
-        }
-        if f2::active() { f2::publish(); }
-        import_veh_damaged(&VehDamaged { hull: hull as f64, amount, attacker: *attacker });
+            if let Some(services) = &mut self.services {
+                use crate::vehicles::damage::HullDamageWorld;
+                crate::units::f3_hulls::DamageWorld {
+                    services: services.reborrow(), hull: f2::hull_reference(hull),
+                }.damaged_hull(hull, amount, attacker);
+                return;
+            }
+            if f2::active() { f2::publish(); }
+            import_veh_damaged(&VehDamaged { hull: hull as f64, amount, attacker: *attacker });
     }
 
     fn destroyed_crew(&mut self, hull: usize) {
-        if let Some(services) = &mut self.services {
-            use crate::vehicles::damage::HullDamageWorld;
-            crate::units::f3_hulls::DamageWorld {
-                services: services.reborrow(), hull: f2::hull_reference(hull),
-            }.destroy_hull_crew(hull);
-            return;
-        }
-        f2::live_seats::destroyed(hull);
+            if let Some(services) = &mut self.services {
+                use crate::vehicles::damage::HullDamageWorld;
+                crate::units::f3_hulls::DamageWorld {
+                    services: services.reborrow(), hull: f2::hull_reference(hull),
+                }.destroy_hull_crew(hull);
+                return;
+            }
+            f2::live_seats::destroyed(hull);
     }
 
     fn destroyed(&mut self, hull: usize) {
-        if let Some(services) = &mut self.services {
-            use crate::vehicles::damage::HullDamageWorld;
-            crate::units::f3_hulls::DamageWorld {
-                services: services.reborrow(), hull: f2::hull_reference(hull),
-            }.destroyed_hull(hull);
-            return;
-        }
-        if f2::active() { f2::publish(); }
-        import_veh_destroyed(&VehHull { hull: hull as f64 });
+            if let Some(services) = &mut self.services {
+                use crate::vehicles::damage::HullDamageWorld;
+                crate::units::f3_hulls::DamageWorld {
+                    services: services.reborrow(), hull: f2::hull_reference(hull),
+                }.destroyed_hull(hull);
+                return;
+            }
+            if f2::active() { f2::publish(); }
+            import_veh_destroyed(&VehHull { hull: hull as f64 });
     }
 
     fn respawn_clock(&mut self, hull: usize) {
-        f2::respawn_clock(hull);
+            f2::respawn_clock(hull);
     }
 
     fn release_crew(&mut self, hull: usize) {
-        if let Some(services) = &mut self.services {
-            use crate::vehicles::damage::HullDamageWorld;
-            crate::units::f3_hulls::DamageWorld {
-                services: services.reborrow(), hull: f2::hull_reference(hull),
-            }.release_hull_crew(hull);
-            return;
-        }
-        f2::live_seats::release(hull);
+            if let Some(services) = &mut self.services {
+                use crate::vehicles::damage::HullDamageWorld;
+                crate::units::f3_hulls::DamageWorld {
+                    services: services.reborrow(), hull: f2::hull_reference(hull),
+                }.release_hull_crew(hull);
+                return;
+            }
+            f2::live_seats::release(hull);
     }
 
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3) {
-        if let Some(services) = &mut self.services {
-            use crate::vehicles::damage::HullDamageWorld;
-            crate::units::f3_hulls::DamageWorld {
-                services: services.reborrow(), hull: f2::hull_reference(hull),
-            }.explode_hull(hull, final_explosion, position);
-            return;
-        }
-        if f2::active() { f2::publish(); }
-        import_veh_explosion(&VehBlast { hull: hull as f64, r#final: final_explosion, position: v3(position) });
+            if let Some(services) = &mut self.services {
+                use crate::vehicles::damage::HullDamageWorld;
+                crate::units::f3_hulls::DamageWorld {
+                    services: services.reborrow(), hull: f2::hull_reference(hull),
+                }.explode_hull(hull, final_explosion, position);
+                return;
+            }
+            if f2::active() { f2::publish(); }
+            import_veh_explosion(&VehBlast { hull: hull as f64, r#final: final_explosion, position: v3(position) });
     }
 
     fn effect(&mut self, name: &str, position: &Vector3) {
-        if let Some(services) = &mut self.services {
-            use crate::vehicles::damage::HullDamageWorld;
-            crate::units::f3_hulls::DamageWorld {
-                services: services.reborrow(), hull: self.hull.expect("committed wreck"),
-            }.hull_effect(name, position);
-            return;
-        }
-        let name = sim().strings.intern_str(name);
-        import_veh_effect(&VehEffect { name, position: v3(position) });
+            if let Some(services) = &mut self.services {
+                use crate::vehicles::damage::HullDamageWorld;
+                crate::units::f3_hulls::DamageWorld {
+                    services: services.reborrow(), hull: self.hull.expect("committed wreck"),
+                }.hull_effect(name, position);
+                return;
+            }
+            let name = sim().strings.intern_str(name);
+            import_veh_effect(&VehEffect { name, position: v3(position) });
     }
 
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64> {
-        if crate::units::f3::active() {
-            return crate::units::f3_fleet::raycast(origin, direction, far, None);
-        }
-        let h = import_veh_raycast_units(&VehRay { origin: v3(origin), direction: v3(direction), far, ignore: -1.0 });
-        h.found.then_some(h.distance)
+            if crate::units::f3::active() {
+                return crate::units::f3_fleet::raycast(origin, direction, far, None);
+            }
+            let h = import_veh_raycast_units(&VehRay { origin: v3(origin), direction: v3(direction), far, ignore: -1.0 });
+            h.found.then_some(h.distance)
     }
 
     fn clock(&mut self) -> f64 {
-        unsafe { (*addr_of_mut!(CLOCK)).expect("the vehicle phase clock") }
+            unsafe { (*addr_of_mut!(FLEET.clock)).expect("the vehicle phase clock") }
     }
 
     fn tow_released(&mut self, _hull: usize, _reason: &str) {
-        // Hull cleanup never releases a cable; the native tow phase does.
-        unreachable!("tow release belongs to the mounted weapon owner")
+            // Hull cleanup never releases a cable; the native tow phase does.
+            unreachable!("tow release belongs to the mounted weapon owner")
     }
 
     fn current(&mut self, hull: &Hull) {
-        self.hull = Some(hull.id);
-        // Vehicle.setHealth may enter native crew work before its next hook.
-        // Publish at the actual foreign call so no unread block is replaced.
-        store_hull(hull);
+            self.hull = Some(hull.id);
+            // Vehicle.setHealth may enter native crew work before its next hook.
+            // Publish at the actual foreign call so no unread block is replaced.
+            store_hull(hull);
     }
 
     fn reload(&mut self, hull: &mut Hull) {
-        let s = sim();
-        let v = s.store.vehicle.get(hull.id).expect("a hull the store holds");
-        hull.load(v);
-        if hull.flying {
-            read_flight(hull);
-        }
+            let s = sim();
+            let v = s.store.vehicle.get(hull.id).expect("a hull the store holds");
+            hull.load(v);
+            if hull.flying {
+                read_flight(hull);
+            }
     }
 }
 
@@ -971,106 +866,267 @@ fn hull_point(slot: u32) -> Option<(bool, BodyId, Vector3)> {
 
 impl FlightWorld for JsWorld<'_> {
     fn environment(&mut self) -> &Environment {
-        flight_environment()
+            flight_environment()
     }
 
     fn tuning(&mut self, class: FlightClass) -> Tuning {
-        flight_tuning(class)
+            flight_tuning(class)
     }
 
     fn member_count(&mut self) -> usize {
-        if crate::units::f3::active() { return crate::units::f3_fleet::count(); }
-        unsafe { (&*addr_of_mut!(MEMBERS)).len() }
+            if crate::units::f3::active() { return crate::units::f3_fleet::count(); }
+            unsafe { (&*addr_of_mut!(FLEET.members)).len() }
     }
 
     fn member(&mut self, i: usize) -> Member {
-        if crate::units::f3::active() { return crate::units::f3_fleet::flight(i, self.craft); }
-        let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
-        match m.kind {
-            MEMBER_UNIT => Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: true, body: None, point: Vector3::default() },
-            MEMBER_HULL => {
-                let (alive, body, point) = hull_point(m.hull).expect("a hull entry's hull");
-                Member { id: m.id, generation: m.generation, alive, team: m.team, own: m.hull == self.craft, unit: false, body: Some(body), point }
+            if crate::units::f3::active() { return crate::units::f3_fleet::flight(i, self.craft); }
+            let m = unsafe { (&*addr_of_mut!(FLEET.members))[i] };
+            match m.kind {
+                MEMBER_UNIT => Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: true, body: None, point: Vector3::default() },
+                MEMBER_HULL => {
+                    let (alive, body, point) = hull_point(m.hull).expect("a hull entry's hull");
+                    Member { id: m.id, generation: m.generation, alive, team: m.team, own: m.hull == self.craft, unit: false, body: Some(body), point }
+                }
+                MEMBER_ON_HULL => {
+                    let (_, body, point) = hull_point(m.hull).expect("an entry's hull");
+                    Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: false, body: Some(body), point }
+                }
+                _ => Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: false, body: None, point: m.point },
             }
-            MEMBER_ON_HULL => {
-                let (_, body, point) = hull_point(m.hull).expect("an entry's hull");
-                Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: false, body: Some(body), point }
-            }
-            _ => Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: false, body: None, point: m.point },
-        }
     }
 
     fn relation(&mut self, a: Team, b: Team) -> f64 {
-        if crate::units::f3::active() { return crate::units::f3::relation(a.unwrap_or(0.0),b.unwrap_or(0.0)); }
-        let teams = unsafe { &*addr_of_mut!(TEAMS) };
-        let same = |x: &Team, y: &Team| match (x, y) {
-            (None, None) => true,
-            (Some(x), Some(y)) => x == y || x.is_nan() && y.is_nan(),
-            _ => false,
-        };
-        let (Some(i), Some(j)) = (teams.iter().position(|t| same(t, &a)), teams.iter().position(|t| same(t, &b))) else {
-            panic!("a team the relations do not name: {a:?} {b:?}")
-        };
-        unsafe { (&*addr_of_mut!(RELATIONS))[i * teams.len() + j] }
+            if crate::units::f3::active() { return crate::units::f3::relation(a.unwrap_or(0.0),b.unwrap_or(0.0)); }
+            let teams = unsafe { &*addr_of_mut!(FLEET.teams) };
+            let same = |x: &Team, y: &Team| match (x, y) {
+                (None, None) => true,
+                (Some(x), Some(y)) => x == y || x.is_nan() && y.is_nan(),
+                _ => false,
+            };
+            let (Some(i), Some(j)) = (teams.iter().position(|t| same(t, &a)), teams.iter().position(|t| same(t, &b))) else {
+                panic!("a team the relations do not name: {a:?} {b:?}")
+            };
+            unsafe { (&*addr_of_mut!(FLEET.relations))[i * teams.len() + j] }
     }
 
     fn aim_point(&mut self, i: usize) -> Vector3 {
-        if crate::units::f3::active() {
-            let member = crate::units::f3_fleet::key(i);
-            if matches!(member, crate::gen::Member::Unit(_)) {
-                if let Some(Some(point)) = unsafe { (&*addr_of_mut!(AIM_CACHE)).get(i) } { return *point; }
-                let point = crate::units::f3_fleet::aim(member);
-                unsafe { (&mut *addr_of_mut!(AIM_CACHE))[i] = Some(point); }
-                return point;
-            }
-            return crate::units::f3_fleet::aim(member);
-        }
-        let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
-        match m.kind {
-            MEMBER_UNIT => {
-                if let Some(Some(p)) = unsafe { (&*addr_of_mut!(AIM_CACHE)).get(i) } {
-                    return *p;
+            if crate::units::f3::active() {
+                let member = crate::units::f3_fleet::key(i);
+                if matches!(member, crate::gen::Member::Unit(_)) {
+                    if let Some(Some(point)) = unsafe { (&*addr_of_mut!(FLEET.aim_cache)).get(i) } { return *point; }
+                    let point = crate::units::f3_fleet::aim(member);
+                    unsafe { (&mut *addr_of_mut!(FLEET.aim_cache))[i] = Some(point); }
+                    return point;
                 }
-                let p = vec(&import_veh_aim_point(&VehHull { hull: i as f64 }).position);
-                if let Some(slot) = unsafe { (&mut *addr_of_mut!(AIM_CACHE)).get_mut(i) } {
-                    *slot = Some(p);
-                }
-                p
+                return crate::units::f3_fleet::aim(member);
             }
-            MEMBER_HULL | MEMBER_ON_HULL => hull_point(m.hull).expect("a hull entry's hull").2,
-            _ => m.point,
-        }
+            let m = unsafe { (&*addr_of_mut!(FLEET.members))[i] };
+            match m.kind {
+                MEMBER_UNIT => {
+                    if let Some(Some(p)) = unsafe { (&*addr_of_mut!(FLEET.aim_cache)).get(i) } {
+                        return *p;
+                    }
+                    let p = vec(&import_veh_aim_point(&VehHull { hull: i as f64 }).position);
+                    if let Some(slot) = unsafe { (&mut *addr_of_mut!(FLEET.aim_cache)).get_mut(i) } {
+                        *slot = Some(p);
+                    }
+                    p
+                }
+                MEMBER_HULL | MEMBER_ON_HULL => hull_point(m.hull).expect("a hull entry's hull").2,
+                _ => m.point,
+            }
     }
 
     fn prefetch_aim_points(&mut self, members: &[usize]) {
-        if crate::units::f3::active() {
-            // Flight targeting observes each requested Unit once this phase.
-            // Preserve the original bulk request order and retained aim cache.
-            for &index in members {
-                if matches!(crate::units::f3_fleet::key(index), crate::gen::Member::Unit(_)) { self.aim_point(index); }
+            if crate::units::f3::active() {
+                // Flight targeting observes each requested Unit once this phase.
+                // Preserve the original bulk request order and retained aim cache.
+                for &index in members {
+                    if matches!(crate::units::f3_fleet::key(index), crate::gen::Member::Unit(_)) { self.aim_point(index); }
+                }
+                return;
             }
-            return;
-        }
-        let rows = unsafe { &*addr_of_mut!(MEMBERS) };
-        let cache = unsafe { &*addr_of_mut!(AIM_CACHE) };
-        let mut args = VehMembers { indices: unsafe { std::mem::take(&mut *addr_of_mut!(AIM_WANTED)) } };
-        args.indices.clear();
-        args.indices.extend(members.iter().copied().filter(|&i| rows[i].kind == MEMBER_UNIT && cache[i].is_none()).map(|i| i as f64));
-        if !args.indices.is_empty() {
-            import_veh_aim_points_read(&args, |row, heap| {
-                let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
-                for (&i, point) in args.indices.iter().zip(VehPoints::points_rows(row, heap)) { cache[i as usize] = Some(Vector3::new(point[0], point[1], point[2])); }
-            });
-        }
-        unsafe { *addr_of_mut!(AIM_WANTED) = args.indices; }
+            let rows = unsafe { &*addr_of_mut!(FLEET.members) };
+            let cache = unsafe { &*addr_of_mut!(FLEET.aim_cache) };
+            let mut args = VehMembers { indices: unsafe { std::mem::take(&mut *addr_of_mut!(FLEET.aim_wanted)) } };
+            args.indices.clear();
+            args.indices.extend(members.iter().copied().filter(|&i| rows[i].kind == MEMBER_UNIT && cache[i].is_none()).map(|i| i as f64));
+            if !args.indices.is_empty() {
+                import_veh_aim_points_read(&args, |row, heap| {
+                    let cache = unsafe { &mut *addr_of_mut!(FLEET.aim_cache) };
+                    for (&i, point) in args.indices.iter().zip(VehPoints::points_rows(row, heap)) { cache[i as usize] = Some(Vector3::new(point[0], point[1], point[2])); }
+                });
+            }
+            unsafe { *addr_of_mut!(FLEET.aim_wanted) = args.indices; }
     }
 
     fn body_is_hull(&mut self, body: BodyId) -> bool {
-        let s = sim();
-        s.store.vehicles.vehicles.iter().any(|&r| s.store.vehicle.get(r).is_some_and(|v| v.body.slot == body))
+            let s = sim();
+            s.store.vehicles.vehicles.iter().any(|&r| s.store.vehicle.get(r).is_some_and(|v| v.body.slot == body))
     }
 
     fn system_death_region(&mut self, position: &Vector3) -> bool {
-        self.in_death_region(position)
+            self.in_death_region(position)
+    }
+}
+
+impl Fleet {
+    fn veh_class(strings: &crate::store::Strings, classes: &mut Option<HashMap<String, HullClass>>, name: u32, json: u32, turn_rate: f64) {
+
+        let name = String::from_utf16_lossy(strings.units(StrId(name)));
+        let text = String::from_utf16_lossy(strings.units(StrId(json)));
+        let def = bfe_content::json::parse(&text).unwrap_or_else(|e| panic!("hull class {name}: {e:?}"));
+        classes.get_or_insert_with(HashMap::new).insert(name, HullClass::new(&def, turn_rate));
+    }
+    fn veh_map(strings: &crate::store::Strings, map: &mut Option<MapRules>, json: u32, kill_y: f64) {
+
+        let text = String::from_utf16_lossy(strings.units(StrId(json)));
+        let value = bfe_content::json::parse(&text).unwrap_or_else(|e| panic!("hull phase map: {e:?}"));
+        let rules = MapRules::from_json(&value, kill_y);
+        *map = Some(rules);
+    }
+    fn veh_collision(collision: &mut Option<Collision>, world: i32, blockers: i32) {
+        let slot = collision;
+        assert!(world >= 0, "vehicles require native collision");
+        let blockers = (blockers >= 0).then_some(blockers as usize);
+        match slot {
+            Some(c) if c.world == world as usize => c.blockers = blockers,
+            _ => *slot = Some(Collision::new(world as usize, blockers)),
+        }
+    }
+    fn veh_input(input: &mut Vec<f64>, count: u32) -> *mut f64 {
+        let v = input;
+        if v.len() < count as usize {
+            v.resize(count as usize, 0.0);
+        }
+        v.as_mut_ptr()
+    }
+    fn veh_bytes(bytes: &mut Vec<u8>, count: u32) -> *mut u8 {
+        let v = bytes;
+        v.clear();
+        v.resize(count as usize, 0);
+        v.as_mut_ptr()
+    }
+    fn veh_flight_env(strings: &crate::store::Strings, flight_env: &mut Option<Environment>, tunings: &mut Option<Tunings>, json: u32, max_fly_height: f64) {
+
+        let text = String::from_utf16_lossy(strings.units(StrId(json)));
+        let env = bfe_content::json::parse(&text).unwrap_or_else(|e| panic!("flight environment: {e:?}"));
+        let nums3 = |v: Option<&Value>| -> [f64; 3] { [0, 1, 2].map(|k| v.and_then(|a| a.at(k)).and_then(Value::as_f64).unwrap_or(f64::NAN)) };
+        let bounds = env.get("bounds").filter(|b| !matches!(b, Value::Null)).map(|b| (nums3(b.get("min")), nums3(b.get("max"))));
+        let landing_zones = env.get("landingZones").filter(|z| !matches!(z, Value::Null)).map(|zones| {
+            zones
+                .as_array()
+                .unwrap_or(&[])
+                .iter()
+                .map(|z| {
+                    let (min, max) = (nums3(z.get("min")), nums3(z.get("max")));
+                    let floor_y = match z.get("floorY") {
+                        None | Some(Value::Null) => min[1],
+                        Some(v) => v.as_f64().unwrap_or(f64::NAN),
+                    };
+                    Zone { min, max, floor_y }
+                })
+                .collect()
+        });
+        let environment = Environment {
+            ceiling: env.get("ceiling").and_then(Value::as_f64),
+            max_fly_height,
+            bounds,
+            space: env.get("space").is_some_and(Value::truthy),
+            landing_zones,
+            assists: false,
+        };
+        {
+            *flight_env = Some(environment);
+            tunings.get_or_insert_with(Tunings::default);
+        }
+    }
+    fn veh_flight_tune(strings: &crate::store::Strings, tunings: &mut Option<Tunings>, class: u32, key: u32, value: f64) -> u32 {
+
+        let class = String::from_utf16_lossy(strings.units(StrId(class)));
+        let key = String::from_utf16_lossy(strings.units(StrId(key)));
+        let t = tunings.get_or_insert_with(Tunings::default);
+        t.retune(&class, &key, value) as u32
+    }
+    fn veh_members(input: &mut Vec<f64>, members: &mut Vec<MemberRow>, aim_cache: &mut Vec<Option<Vector3>>, count: u32) {
+        let v = &input[..count as usize * 10];
+        let rows = members;
+        rows.clear();
+        let cache = aim_cache;
+        cache.clear();
+        cache.resize(count as usize, None);
+        for m in v.chunks_exact(10) {
+            rows.push(MemberRow {
+                kind: m[0] as u8,
+                id: m[1],
+                generation: (!m[2].is_nan()).then_some(m[2]),
+                alive: m[3] != 0.0,
+                team: team(m[4], m[5]),
+                hull: m[6] as u32,
+                point: Vector3::new(m[7], m[8], m[9]),
+            });
+        }
+    }
+    fn veh_relations(input: &mut Vec<f64>, teams: &mut Vec<Team>, relations: &mut Vec<f64>, count: u32) {
+        let n = count as usize;
+        let v = &input[..n * 2 + n * n];
+        {
+            let teams = teams; teams.clear(); teams.extend((0..n).map(|i| team(v[2 * i], v[2 * i + 1])));
+            let relations = relations; relations.clear(); relations.extend_from_slice(&v[n * 2..]);
+        }
+    }
+    fn veh_flight_inputs(input: &mut Vec<f64>, flight_inputs: &mut Vec<Option<(FlightInput, Option<FlightInput>)>>, count: u32) {
+        let v = &input[..count as usize * 40];
+        let all = flight_inputs;
+        for x in all.iter_mut() {
+            *x = None;
+        }
+        for f in v.chunks_exact(40) {
+            let slot = f[0] as usize;
+            if all.len() <= slot {
+                all.resize(slot + 1, None);
+            }
+            all[slot] = Some((flight_input(&f[2..21]), (f[1] != 0.0).then(|| flight_input(&f[21..40]))));
+        }
+    }
+    fn new_pose(defs: &mut Option<HashMap<String, Value>>, templates: &mut Option<HashMap<String, VehicleTemplate>>, name: &str) -> Option<(HullPose, Vec<f64>)> {
+        let defs = defs.as_ref()?;
+        let templates = templates.as_ref()?;
+        let def = defs.get(name)?;
+        let model = def.get("model").and_then(Value::as_str)?;
+        let template = templates.get(model)?;
+        let source = super::build::HullSource { name, def, template, slot: 0, slot_matrix: &[0.0; 16] };
+        let (hull, extras) = super::build::build(&source, 0, Ref::default(), 0);
+        Some((hull.pose?, extras.seat_turn_rates))
+    }
+    fn flight_keys(flight_keys: &mut Option<HashMap<String, (Config, Option<GearClip>)>>, defs: &mut Option<HashMap<String, Value>>, templates: &mut Option<HashMap<String, VehicleTemplate>>, name: &str) -> (Config, Option<GearClip>) {
+        let keys = flight_keys.get_or_insert_with(HashMap::new);
+        if let Some(k) = keys.get(name) {
+            return k.clone();
+        }
+        let defs = defs.as_ref().expect("the vehicle pack (flight needs its classes)");
+        let def = defs.get(name).unwrap_or_else(|| panic!("hull class {name}: not in the pack"));
+        let templates = templates.as_ref().expect("the vehicle pack");
+        let template = def.get("model").and_then(Value::as_str).and_then(|m| templates.get(m));
+        let gear = template.and_then(|t| {
+            let c = t.clips.as_ref()?.get("takeoff")?;
+            let desc = crate::rig::content::hull_desc(def, t);
+            let root = desc.bones.iter().position(|b| b.name.eq_ignore_ascii_case("dummyroot")).map_or(-1, |i| i as i32);
+            Some(GearClip { clip: std::rc::Rc::new(crate::rig::content::clip(c)), duration: c.duration, root })
+        });
+        let k = (Config::of(def), gear);
+        keys.insert(name.to_string(), k.clone());
+        k
+    }
+    fn flight_tuning(tunings: &mut Option<Tunings>, class: FlightClass) -> Tuning {
+        tunings.get_or_insert_with(Tunings::default).of(class)
+    }
+    fn wire_walk(poses: &mut Vec<Option<Posed>>, reference: Ref<Vehicle>) -> (f64, f64) {
+        poses.get(reference.slot as usize).and_then(Option::as_ref)
+            .map_or((0., 0.), |row| (row.pose.walk_phase, row.pose.walk_blend))
+    }
+    fn wire_seat_history(poses: &mut Vec<Option<Posed>>, reference: Ref<Vehicle>, index: usize) -> Option<(f64, Option<f64>)> {
+        let row = poses.get(reference.slot as usize)?.as_ref()?;
+        let seat = row.pose.seats.get(index)?; Some((seat.yaw_rate, seat.last_yaw))
     }
 }
