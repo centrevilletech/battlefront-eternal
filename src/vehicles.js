@@ -887,6 +887,7 @@ export class VehicleDriver {
   constructor({ vehicles, soldier, combat, actor, animator, clips, camera, collision, hud, presentation, hiddenLayer = 1 }) {
     Object.assign(this, { vehicles, soldier, combat, actor, animator, clips, camera, collision, hud, presentation, hiddenLayer });
     this.vehicle = null;
+    this.previewVehicle=null;this.previewSeat=0;this.previewYaw=.1;this.previewPitch=.1;this.previewYaw=this.previewPitch=0;
     this.point = new THREE.Vector3(); this.target = new THREE.Vector3(); this.direction = new THREE.Vector3();
     this.hit = makeHit(); this.cameraSet = false;
     this.speedEffect = 0;
@@ -904,30 +905,6 @@ export class VehicleDriver {
     settings.scale = sensitivity; settings.invert = invert;
     settings.flightScale = this.flightSensitivity ?? 1; settings.flightInvert = Boolean(this.flightInvert);
     v.system.f2.seats.look(v, v.seatIndex, dx, dy, settings);
-  }
-  // Preview unacknowledged mouse counts for the reticle without changing
-  // the authoritative seat or its weapon ray. Rebuild from the current seat
-  // every frame so acknowledgements, seat changes and clear() cannot double
-  // apply or retain input. Aircraft use their flight controller instead.
-  preview(pending, looks, scale, invert) {
-    const v = this.vehicle;
-    this.previewVehicle = null;
-    if (!v || seatControl(v, v.seatIndex) === 'flight') return;
-    let yaw = v.lookYaw ?? v.aimYaw, pitch = v.lookPitch ?? v.pitch;
-    const view = v.seat.view;
-    const apply = (counts, sensitivity, inverted) => {
-      for (const [dx, dy] of counts || []) {
-        yaw -= dx * sensitivity / 2048;
-        pitch = THREE.MathUtils.clamp(pitch + (inverted ? dy : -dy) * sensitivity / 2048,
-          view.pitchLimits[0], view.pitchLimits[1]);
-        if (view.yawLimits) yaw = v.holdYaw(view, yaw);
-      }
-    };
-    for (const command of pending || []) apply(command.look, command.mouseScale ?? scale, command.invertMouse ?? invert);
-    apply(looks, scale, invert);
-    this.previewVehicle = v;
-    this.previewSeat = v.seatIndex;
-    this.previewYaw = yaw; this.previewPitch = pitch;
   }
   viewDirection(out) {
     const v = this.vehicle;

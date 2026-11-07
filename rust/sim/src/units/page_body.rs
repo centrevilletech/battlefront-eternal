@@ -33,36 +33,24 @@ pub fn preview(frame: &mut BodyPreviewFrame, looks: &[f64]) {
 // Command aim shares the camera's offsets. World and unit ray responses stay
 // at the existing collision boundary, then one resume completes convergence.
 pub fn aim<M:bfe_presentation::cameras::math::Math>(f:&mut BodyPreviewFrame) {
-    use bfe_presentation::{aim::Basis,cameras::math::{plus,sub}};
+    use bfe_presentation::aim::View;
     use three::Vector3 as V;
-    let position=V::new(f.position[0],f.position[1],f.position[2]);
-    // Third-person droideka convergence historically used the infantry gun
-    // pivot, even though its displayed gun/eye uses the built-in barrel.
-    let b=Basis::new::<M>(position,f.aim_yaw,f.aim_pitch,f.posture as usize,f.air.is_some());
-    f.basis=b.words();
-    let eye=if f.walker{V::new(f.feet[0],f.feet[1]+if f.rolled{1.0}else{f.eye_height},f.feet[2])}
-        else{b.eye(V::new(f.feet[0],f.feet[1],f.feet[2]),position,f.posture as usize,f.air.is_some(),f.zoom)};
-    f.eye=[eye.x,eye.y,eye.z];f.shot_yaw=f.aim_yaw;f.shot_pitch=f.aim_pitch;
-    f.needs_reach=f.has_camera&&!f.uses_eye;
-    if f.needs_reach {
-        let camera=V::new(f.camera[0],f.camera[1],f.camera[2]);
-        let behind=sub(camera,b.pivot).dot(&b.direction);
-        let mut from=plus(camera,b.direction,-behind);
-        let posture=if f.air.is_some(){0}else{f.posture as usize};
-        from=plus(from,b.direction,f.track_offsets[posture.min(2)]+2.0);
-        f.from=[from.x,from.y,from.z];
-    }
+    let view=View{position:V::new(f.position[0],f.position[1],f.position[2]),feet:V::new(f.feet[0],f.feet[1],f.feet[2]),
+        yaw:f.aim_yaw,pitch:f.aim_pitch,posture:f.posture as usize,air:f.air.is_some(),walker:f.walker,rolled:f.rolled,
+        eye_height:f.eye_height,zoom:f.zoom,camera:f.has_camera.then(||V::new(f.camera[0],f.camera[1],f.camera[2])),
+        uses_eye:f.uses_eye,track_offsets:f.track_offsets};
+    let aim=view.sample::<M>();f.basis=aim.basis.words();f.eye=[aim.eye.x,aim.eye.y,aim.eye.z];
+    f.shot_yaw=aim.yaw;f.shot_pitch=aim.pitch;f.needs_reach=aim.needs_reach;
+    if aim.needs_reach{f.from=[aim.from.x,aim.from.y,aim.from.z];}
 }
-// PlayerCombat.convergedAim normalized only after adding the collision reach
-// and subtracting the gun origin. Preserve that order for nearby parallax.
+// World-query resumes retain the same checked generated frame as before.
+// Both callers now finish parallax through the shared presentation owner.
 pub fn resolve<M:bfe_presentation::cameras::math::Math>(f:&mut BodyPreviewFrame) {
-    use three::Vector3 as V;
-    if !f.needs_reach{return;}
-    let mut dir=V::new(f.from[0],f.from[1],f.from[2]);
-    dir.add_scaled_vector(&V::new(f.basis[12],f.basis[13],f.basis[14]),f.reach);
-    dir.sub(&V::new(f.basis[0],f.basis[1],f.basis[2])).normalize();
-    f.shot_yaw=M::atan2(dir.x,dir.z);
-    f.shot_pitch=M::asin(v8math::max(-1.0,v8math::min(1.0,dir.y)));
+    use bfe_presentation::aim::{Basis,CommandAim};use three::Vector3 as V;
+    let mut aim=CommandAim{basis:Basis{origin:V::new(f.basis[0],f.basis[1],f.basis[2]),
+        direction:V::new(f.basis[12],f.basis[13],f.basis[14]),..Default::default()},
+        from:V::new(f.from[0],f.from[1],f.from[2]),needs_reach:f.needs_reach,yaw:f.shot_yaw,pitch:f.shot_pitch,..Default::default()};
+    aim.resolve::<M>(f.reach);f.shot_yaw=aim.yaw;f.shot_pitch=aim.pitch;
 }
 
 const AIM_ROWS: usize = 2048;

@@ -1,6 +1,6 @@
 //! Battle-local prediction state, independent of the authoritative store.
 //! A frame imports facts once and replays its entire command stream without
-//! invoking JavaScript. Input clocks, smoothing and presentation stay on the page.
+//! invoking JavaScript. Input clocks and transport keep their host lifetime.
 
 pub mod resources;
 use crate::collision::State;
@@ -13,6 +13,8 @@ use crate::prediction::{actors, corrections, weapons};
 use three::clamp;
 
 pub mod hulls;
+mod recon;
+mod commands;
 mod hull_state;
 mod hull_correction;
 
@@ -74,9 +76,11 @@ fn append_actor(out: &mut Vec<f64>, body: &UnitBody) -> u32 {
 pub struct ClientPrediction {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
+    command_rows: Vec<f64>,
     actor: actors::Session,
     arsenal: weapons::Session,
     hull: Option<hulls::Session>,
+    recon: Option<recon::Session>,
     kind: u32,
     configured: bool,
     life: Option<[f64; 4]>,
@@ -98,6 +102,7 @@ impl ClientPrediction {
     /// InfantryPrediction / DroidekaPrediction constructors resolved class
     /// clips once per body. Load them here, never while pending ticks replay.
     pub fn configure_actor(&mut self, input: &[f64], collision: &mut State) -> Result<(), &'static str> {
+        commands::reserve(&mut self.command_rows);
         self.kind = match input.first() { Some(n) if *n == f64::from(SOLDIER) => SOLDIER, Some(n) if *n == f64::from(DROIDEKA) => DROIDEKA, _ => return Err(INVALID) };
         self.actor.input.clear(); self.actor.input.extend_from_slice(input);
         self.actor.run(ACTOR_CONFIGURE, collision)?;
@@ -126,6 +131,7 @@ impl ClientPrediction {
     /// predictionVehicle construction for native hosts and synthetic fixtures.
     /// The caller transfers a private owner, never an authoritative pool row.
     pub fn install_hull(&mut self, owner: hulls::Session) {
+        commands::reserve(&mut self.command_rows);
         self.hull = Some(owner); self.life = None; self.configured = true;
     }
 
@@ -138,16 +144,42 @@ impl ClientPrediction {
         Ok(())
     }
 
+    // Recon has its own bounded mutable context, while collision geometry
+    // stays in this module's shared world. Setup never installs authority.
+    pub fn configure_recon(&mut self, words: &[f64]) -> Result<(), &'static str> {
+        commands::reserve(&mut self.command_rows);
+        self.recon = Some(recon::Session::new(words)?);
+        self.configured = true;
+        self.output.reserve(4096);
+        Ok(())
+    }
+
     /// game.js replayPrediction: continuation selection, correction restore,
     /// replayTicks ordering, look, movement, crowd push, kick and weapons.
     pub fn predict_session(&mut self, words: &[f64], collision: &mut State) -> Result<(), &'static str> {
         if !self.configured || words.len() < ClientFrame::WORDS { return Err(INVALID); }
         let frame = ClientFrame::take(words, &[]);
+        if frame.merge_commands {
+            let mut rows=std::mem::take(&mut self.command_rows);
+            let merged=commands::assemble(words,&frame,&mut rows);
+            let answer=match merged {Ok(())=>self.predict_frame(&frame,words,&rows,collision),Err(error)=>Err(error)};
+            self.command_rows=rows;return answer;
+        }
+        let rows=span(words,frame.commands_at,frame.commands_count,ClientCommand::WORDS)?;
+        self.predict_frame(&frame,words,rows,collision)
+    }
+    fn predict_frame(&mut self,frame:&ClientFrame,words:&[f64],commands:&[f64],collision:&mut State)->Result<(),&'static str>{
+        if frame.mode == ClientMode::Recon {
+            // Recon restores its full checkpoint every frame. Invalidating the
+            // other continuations here avoids a separate host reset crossing.
+            self.life=None;if let Some(h)=&mut self.hull{h.reset();}
+            return self.recon.as_mut().ok_or(INVALID)?.predict(frame, words, commands, collision, &mut self.output);
+        }
         if !frame.authority_tick.is_finite() || frame.authority_tick.fract() != 0.0
             || !frame.ignored.is_finite() || frame.ignored < -1.0 || frame.ignored.fract() != 0.0 { return Err(INVALID); }
         // MountedWeaponPrediction.predict shares weapon replay, but has no
         // infantry body, collision flags or actor continuation to restore.
-        if frame.mode == ClientMode::Mounted { self.life = None; return self.predict_mounted(&frame, words, None, None); }
+        if frame.mode == ClientMode::Mounted { self.life = None; return self.predict_mounted(frame, words, commands, None, None); }
         if frame.mode == ClientMode::Hull {
             self.life = None;
             // predictVehicle completed movement/targeting before the old
@@ -155,11 +187,10 @@ impl ClientPrediction {
             self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0);
             let mut result = ClientResult::default();
             let hull = self.hull.as_mut().ok_or(INVALID)?;
-            hull.predict(&frame, words, collision, &mut result, &mut self.output)?;
+            hull.predict(frame, words, commands, collision, &mut result, &mut self.output)?;
             let lock = hull.flight_lock();
-            return self.predict_mounted(&frame, words, Some(result), lock);
+            return self.predict_mounted(frame, words, commands, Some(result), lock);
         }
-        let commands = span(words, frame.commands_at, frame.commands_count, ClientCommand::WORDS)?;
         let crowd = span(words, frame.crowd_at, frame.crowd_count, ClientCrowd::WORDS)?;
         let flags = span(words, frame.flags_at, frame.flags_count, 1)?;
         if collision.worlds.get(frame.world as usize).map(|w| w.order.len()) != Some(flags.len()) { return Err(INVALID); }
@@ -270,7 +301,7 @@ impl ClientPrediction {
                     counts[channel] = counts[channel].saturating_add(n); if n != 0 { ids[channel] = id; press_sequences[channel] = c.sequence; }
                 }
                 if c.tick == tick && tick_sequence == 0.0 { tick_sequence = c.sequence; }
-                if c.sent { self.held = c.held; mouse_scale = c.mouse_scale.unwrap_or(mouse_scale); invert = c.invert.unwrap_or(invert); }
+                if c.sent { self.held = c.held; mouse_scale = if c.has_mouse_scale {c.mouse_scale}else{mouse_scale}; invert = c.invert.unwrap_or(invert); }
             }
             // presentation.beforeStep previously saved the pose just before
             // the last replayed tick. Save its notice index too, so JS can
@@ -413,8 +444,7 @@ impl ClientPrediction {
 
     /// MountedWeaponPrediction.predict: replay timers, ammunition, heat and
     /// barrel progression without emitting authoritative rounds or callbacks.
-    fn predict_mounted(&mut self, frame: &ClientFrame, words: &[f64], existing: Option<ClientResult>, flight_lock: Option<crate::flight::state::Lock>) -> Result<(), &'static str> {
-        let commands = span(words, frame.commands_at, frame.commands_count, ClientCommand::WORDS)?;
+    fn predict_mounted(&mut self, frame: &ClientFrame, words: &[f64], commands:&[f64], existing: Option<ClientResult>, flight_lock: Option<crate::flight::state::Lock>) -> Result<(), &'static str> {
         let mounts = span(words, frame.mounts_at, frame.mounts_count, ClientMount::WORDS)?;
         self.arsenal.input.clear();
         self.arsenal.input.extend_from_slice(span(words, frame.weapons_at, frame.weapons_words, 1)?);
@@ -627,6 +657,7 @@ mod module {
             Some(ClientOp::Reset) => { s.reset(); Ok(()) },
             Some(ClientOp::ConfigureMuzzles) => s.configure_muzzles(&words),
             Some(ClientOp::ConfigureHull) => s.configure_hull(&words),
+            Some(ClientOp::ConfigureRecon) => s.configure_recon(&words),
             None => Err(INVALID),
         };
         s.input = words; s.error = result.err(); if s.error.is_some() { s.reset(); } u32::from(s.error.is_none())

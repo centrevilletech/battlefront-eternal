@@ -104,6 +104,9 @@ fn body_polygon_key(body: usize, polygon: u32) -> u64 {
 
 impl Gathered {
     pub fn new() -> Self { Self::default() }
+    /// A new prediction body discards gathered contacts but keeps geometry
+    /// and triangle reservations for the next query in the same session.
+    pub fn reset(&mut self) { self.clear(); }
 
     /// CollisionWorld's pooled polygon records, prepared while loading a body.
     /// Reserve storage only: no cache is observed, filled or invalidated here.
@@ -300,6 +303,13 @@ pub struct GatherCache {
 }
 
 impl GatherCache {
+    /// Body and seat changes invalidate membership, including the ignored
+    /// collision body. Retaining these lists prevents a refill from allocating.
+    pub fn reset(&mut self) {
+        self.bounds=EMPTY;self.fill=0;self.statics_set=-1;self.blockers_set=-1;
+        self.statics.clear();self.blockers.clear();self.bodies.clear();self.bodies_for=None;
+    }
+
     /// Caller construction reserves index lists for all loaded geometry.
     /// A later cache refill changes values and length, never its allocation.
     pub fn reserve(&mut self, statics: usize, blockers: usize, bodies: usize) {

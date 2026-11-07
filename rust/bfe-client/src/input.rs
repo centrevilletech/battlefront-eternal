@@ -179,7 +179,7 @@ impl Input {
         let command = ClientCommand {
             tick: tick as f64, generation: generation as f64, sequence: self.sequence as f64,
             held, actions: self.actions, look_at: ClientCommand::WORDS as u32,
-            look_count: 1, mouse_scale: Some(1.0), invert: Some(false),
+            look_count: 1, mouse_scale: 1.0, has_mouse_scale: true, invert: Some(false),
             primary_count: self.fire[0], primary_id: self.fire_id[0] as f64,
             secondary_count: self.fire[1], secondary_id: self.fire_id[1] as f64,
             ..Default::default()

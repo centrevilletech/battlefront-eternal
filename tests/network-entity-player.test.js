@@ -1,3 +1,4 @@
+import {weaponCheckpoint} from './helpers/weapon-checkpoint.js';
 import {CameraFrame} from './helpers/cameras.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';import assert from 'node:assert/strict';
@@ -162,16 +163,16 @@ test('ground pilot envelope restores body and rejects wrong lease without mutati
 });
 
 test('worst recon own envelope includes full infantry/gamepad/strike replay in one datagram',async()=>{
- const {RemoteDroids}=await import('../src/remote.js'),{reconRandom}=await import('../src/runtime/recon-random.js'),{Scene,Vector3}=await import('three');
- const create=()=>new RemoteDroids({cameraPhase:new CameraFrame().owner,scene:new Scene(),camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});
+ const {RemoteDroids}=await import('../src/remote.js'),{reconRandom}=await import('../src/runtime/recon-random.js'),{Scene,Vector3,PerspectiveCamera}=await import('three');
+ const create=(owner,random)=>{const context=new RemoteDroids({cameraPhase:new CameraFrame().owner,scene:new Scene(),camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){},owner});context.aimCamera=new PerspectiveCamera();context.random=random;return context;};
  const source=unit(),target=unit();source.alive=true;source.team=target.team=1;
  const loadout=[...defs,{...defs[0],class:'spare-rifle'},{...defs[1],class:'spare-grenade'}].map(def=>({ShotDelay:.2,InitialSalvoDelay:0,ReloadTime:1,HeatPerShot:.2,HeatRecoverRate:.1,...def}));
  source.combat.arsenal=new Arsenal(loadout,{random:()=>.5});target.combat.arsenal=new Arsenal(loadout,{random:()=>.5});
- for(const weapon of source.combat.arsenal.weapons)weapon.update(1/60,true,{held:true,pressed:true},false,{stick:0,posture:'stand',zoomed:false});
- source.combat.remotes=create().createContext(source,{random:reconRandom(37,1)});source.combat.remotes.identityFor=()=>({id:0,generation:1});target.combat.remotes=create().createContext(target,{random:reconRandom(1,2)});
+ weaponCheckpoint(source.combat.arsenal.weapons,1);
+ source.combat.remotes=create(source,reconRandom(37,1));source.combat.remotes.identityFor=()=>({id:0,generation:1});target.combat.remotes=create(target,reconRandom(1,2));
  const def={base:'droid',weapons:[{base:'cannon',class:'gun',channel:0,RoundsPerClip:0,ShotDelay:.2,ReloadTime:1,ordnance:{}},{base:'destruct',class:'strike',channel:1,RoundsPerClip:0,ShotDelay:.2,ReloadTime:1,strike:{},SalvoCount:4,SalvoDelay:.5,AimDistance:10,ScatterDistance:4}],AddHealth:-1};
- const droid=source.combat.remotes.launch({def:{SwitchImmediately:1,droid:def}},new Vector3(1,2,3),new Vector3(4,5,6),.3,1);source.combat.remotes.firstPerson=true;source.combat.remotes.updateCamera(1/60,true,true);source.combat.remotes.strike(droid,droid.arsenal.current(1).def);
- for(const weapon of droid.arsenal.weapons)weapon.update(1/60,true,{held:true,pressed:true},false,{stick:0,posture:'stand',zoomed:false});
+ const droid=source.combat.remotes.createDroid(def,null,new Vector3(1,2,3),new Vector3(4,5,6),.3,1);source.combat.remotes.droids.push(droid);source.combat.remotes.enter(droid);source.combat.remotes.firstPerson=true;source.combat.remotes.updateCamera(1/60,true,true);droid.salvo={def:droid.arsenal.current(1).def,at:new Vector3(1,2,3),x:new Vector3(1,0,0),y:new Vector3(0,0,-1),z:new Vector3(0,1,0),left:4,wait:.5};
+ weaponCheckpoint(droid.arsenal.weapons,1);
  const content={...registry,weapons:new Map([...registry.weapons,[3,'spare-rifle'],[4,'spare-grenade']]),combat:{definitions:new Map([[1,def]]),definitionId:()=>1}};const record=capture(source,{registry:content});const packet=encodeEntityPacket({epoch:3,packetId:1,tick:100,records:[record]});assert.ok(packet.length<=1100,`own recon packet ${packet.length}`);console.log(`Dirty four-slot infantry, gamepad, recon and active strike: ${packet.length} bytes`);
  const context=applyOwnPlayer({unit:target,epoch:3,registry:content,record});assert.equal(context.remoteId,0);assert.equal(context.remoteGeneration,1);assert.equal(target.combat.remotes.active,true);assert.deepEqual(target.combat.remotes.piloted.position.toArray(),droid.position.toArray());assert.equal(target.combat.remotes.piloted.salvo.left,4);assert.equal(target.combat.remotes.random.seed,source.combat.remotes.random.seed);
  assert.deepEqual(target.combat.remotes.piloted.arsenal.weapons.map(captureWeaponState),droid.arsenal.weapons.map(captureWeaponState));
@@ -211,7 +212,7 @@ test('pilot full gun heat, salvo and barrel state fits with worst flyer and game
  const definition={class:'pilot-gun',base:'cannon',channel:0,RoundsPerClip:25,ammo:2,ShotDelay:.13,SalvoCount:3,ShotsPerSalvo:1,SalvoDelay:.07,HeatPerShot:.2,HeatRecoverRate:.1};
  const weapons=()=>[0,1].map(channel=>({state:new Weapon({...definition,channel},{random:()=>.5}),barrel:0}));
  a.seats[0].weapons=weapons();b.seats[0].weapons=weapons();
- for(let tick=0;tick<13;tick++)for(const entry of a.seats[0].weapons)entry.barrel+=entry.state.update(1/60,true,{held:true,pressed:tick===0},false,{stick:0,posture:'stand',zoomed:false}).length;
+ weaponCheckpoint(a.seats[0].weapons);
  const record=capture(u,{vehicle:a,vehicleId:20,vehicleGeneration:2});
  const packet=encodeEntityPacket({epoch:3,packetId:1,tick:100,records:[record]});assert.ok(packet.length<=1100);assert.equal(decodeOwnPlayer(record).controlMode,4);
  console.log(`Own flyer with two full mounted weapons, two infantry weapons and gamepad: ${packet.length} bytes`);
@@ -219,12 +220,9 @@ test('pilot full gun heat, salvo and barrel state fits with worst flyer and game
  const before=captureFlightCorrection(b),invalid={...record,payload:record.payload.slice()};new DataView(invalid.payload.buffer).setFloat64(invalid.payload.length-8,NaN,true);
  assert.throws(()=>applyOwnPlayer({unit:v,vehicle:b,vehicleId:20,vehicleGeneration:2,epoch:3,registry,record:invalid}));assert.deepEqual(captureFlightCorrection(b),before);assert.equal(b.seats[0].weapons[0].state.heat,.9);
  applyOwnPlayer({unit:v,vehicle:b,vehicleId:20,vehicleGeneration:2,epoch:3,registry,record});
- for(let tick=0;tick<40;tick++)for(let channel=0;channel<2;channel++){
-  const x=a.seats[0].weapons[channel],y=b.seats[0].weapons[channel],input={held:tick<25,pressed:false};
-  const shots=x.state.update(1/60,true,input,false,{stick:0,posture:'stand',zoomed:false}),replayed=y.state.update(1/60,true,input,false,{stick:0,posture:'stand',zoomed:false});
-  const scalar=list=>list.map(({weapon,...shot})=>shot);assert.deepEqual(scalar(replayed),scalar(shots));x.barrel+=shots.length;y.barrel+=replayed.length;
-  assert.deepEqual(captureMountedControl(v),captureMountedControl(u));
- }
+ weaponCheckpoint(a.seats[0].weapons,40,{pressed:false,heldTicks:25});
+ weaponCheckpoint(b.seats[0].weapons,40,{pressed:false,heldTicks:25});
+ assert.deepEqual(captureMountedControl(v),captureMountedControl(u));
 });
 
 test('four dirty infantry slots and two actively firing pilot guns fit one correction datagram',()=>{
@@ -235,18 +233,11 @@ test('four dirty infantry slots and two actively firing pilot guns fit one corre
  const source=unit(),target=unit(),loadout=Array.from({length:4},(_,i)=>({...defs[0],class:`slot-${i}`,channel:i%2,ReloadTime:.1,HeatPerShot:.02,HeatRecoverRate:.001,SpreadPerShot:.1,SpreadRecoverRate:.001}));
  source.combat.arsenal=new Arsenal(loadout);target.combat.arsenal=new Arsenal(loadout);source.combat.zoomStep=0;
  const content={...registry,weapons:new Map(loadout.map((d,i)=>[i+1,d.class]))};
- // Generate every dirty field through the shared rules: shoot, reload to
- // spend reserve, then fire again. No impossible combinations of timers.
- for(const weapon of source.combat.arsenal.weapons){
-  const aim={stick:0,posture:'stand',zoomed:false};
-  weapon.update(1/60,true,{held:true,pressed:true},false,aim);
-  weapon.startReload();
-  for(let tick=0;tick<20;tick++)weapon.update(1/60,true,{held:false,pressed:false},false,aim);
-  weapon.update(1/60,true,{held:true,pressed:true},false,aim);
- }
+ // Generate dirty timers, ammunition and reserve through native replay.
+ weaponCheckpoint(source.combat.arsenal.weapons,40);
  const definition={...defs[0],ShotDelay:.13,SalvoCount:3,SalvoDelay:.07,HeatPerShot:.2,HeatRecoverRate:.1};
  vehicle.seats[0].weapons=[0,1].map(channel=>({state:new Weapon({...definition,channel},{random:()=>.5}),barrel:0}));
- for(let tick=0;tick<13;tick++)for(const entry of vehicle.seats[0].weapons)entry.barrel+=entry.state.update(1/60,true,{held:true,pressed:tick===0},false,{stick:0,posture:'stand',zoomed:false}).length;
+ weaponCheckpoint(vehicle.seats[0].weapons);
  source.seat={vehicle,index:0};
  const record=capture(source,{registry:content,vehicle,vehicleId:20,vehicleGeneration:2});
  const packet=encodeEntityPacket({epoch:3,packetId:1,tick:100,records:[record]});

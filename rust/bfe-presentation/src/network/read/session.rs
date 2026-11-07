@@ -2,7 +2,7 @@
 //! ring. Wire groups use the tested reader above; no baseline becomes a page
 //! object and no sampled pose leaves this memory on its way to a display phase.
 use super::*;
-use crate::network_layout::{net_header as h, net_kind as k, net_limits as l, net_record as r, net_seat as s};
+use crate::network_layout::{net_header as h, net_kind as k, net_limits as l, net_record as r};
 use bfe_pose::{ timeline::Timeline,
     timeline_layout::{timeline_frame as tf, timeline_limits as tl, timeline_record as tr}, };
 
@@ -10,58 +10,98 @@ use bfe_pose::{ timeline::Timeline,
 // SnapshotClient entries retain wire values, not dequantized display values.
 // Small position deltas must add to exactly these integer codes. Keeping both
 // flags separately avoids widening the complete immutable baseline table.
-struct Entry { present: bool, wide: bool, data: [i32; r::STRIDE], }
+struct Entry { present: bool, wide: bool, data: [u16; r::DISC+1], high: [u16; 7] }
 impl Default for Entry {
-    fn default() -> Self { Self { present: false, wide: false, data: [0; r::STRIDE] } } }
+    fn default() -> Self { Self { present: false, wide: false, data: [0; r::DISC+1], high: [0; 7] } }
+}
 impl Entry {
-    // Wire integers fit their protocol domains; only ids/generations need
-    // unsigned lanes. Animation words retain their original f32 bits. This
-    // keeps each immutable version compact without rounding decoded fields.
-    fn get(&self, at: usize) -> f64 { let n = self.data[at];
-        if matches!(at, r::TIME | r::ROLL | r::LEAN | r::LEGS | r::SHIELD) { f32::from_bits(n as u32) as f64
-        } else if matches!(at, r::ID | r::GENERATION) { n as u32 as f64 } else { n as f64 } }
+    // Wire groups use 16-bit codes apart from identities and five f32 clocks.
+    // High halves retain their exact bits without reserving publication-only
+    // f64 lanes in every slot of every immutable baseline.
+    fn high_word(at: usize) -> Option<usize> {
+        match at { r::ID => Some(0), r::GENERATION => Some(1), r::TIME => Some(2),
+            r::ROLL => Some(3), r::LEAN => Some(4), r::LEGS => Some(5), r::SHIELD => Some(6), _ => None }
+    }
+    fn signed(&self, at: usize) -> bool {
+        (r::VELOCITY..r::VELOCITY+3).contains(&at) || (r::SEAT_ANGLES..r::SEAT_ANGLES+32).contains(&at)
+            || (r::UP..r::UP+3).contains(&at) || matches!(at, r::PITCH | r::SLOT | r::TILT | r::MOUNT_ROLL | r::GUN_YAW | r::GUN_PITCH)
+            || at == r::YAW && self.data[r::KIND] == 3
+    }
+    #[inline(always)]
+    fn get(&self, at: usize) -> f64 {
+        if at>=self.data.len(){return 0.;}
+        if let Some(i) = Self::high_word(at) {
+            let bits = self.data[at] as u32 | (self.high[i] as u32) << 16;
+            if i < 2 { bits as f64 } else { f32::from_bits(bits) as f64 }
+        } else if self.signed(at) { self.data[at] as i16 as f64 } else { self.data[at] as f64 }
+    }
+    #[inline(always)]
     fn set(&mut self, at: usize, value: f64) {
-        self.data[at] = if matches!(at, r::TIME | r::ROLL | r::LEAN | r::LEGS | r::SHIELD) {
-            (value as f32).to_bits() as i32 } else if matches!(at, r::ID | r::GENERATION) { value as u32 as i32 } else {
-            value as i32 }; }
-    fn range(&mut self, at: usize, values: &[f64]) { for (i, &n) in values.iter().enumerate() { self.set(at + i, n); } }
-    fn values(&self) -> [f64; r::STRIDE] { std::array::from_fn(|i| self.get(i)) } }
+        if let Some(i) = Self::high_word(at) {
+            let bits = if i < 2 { value as u32 } else { (value as f32).to_bits() };
+            self.data[at] = bits as u16; self.high[i] = (bits >> 16) as u16;
+        } else { self.data[at] = value as i32 as u16; }
+    }
+    fn range(&mut self, at: usize, values: &[f64]) { for (i, &n) in values.iter().enumerate() { self.set(at+i,n); } }
+    // Decode compact baseline storage in straight spans. Calling the generic
+    // scalar reader for every lane repeated its width/sign dispatch, twice
+    // per entity on receive. Wire storage stays compact; only publication is
+    // widened, with the same signed codes and exact f32 bits as Entry::get.
+    fn values(&self) -> [f64; r::STRIDE] {
+        let mut out=[0.;r::STRIDE];
+        for (to,&from) in out.iter_mut().zip(&self.data){*to=from as f64;}
+        for range in [r::VELOCITY..r::VELOCITY+3,r::SEAT_ANGLES..r::SEAT_ANGLES+32,r::UP..r::UP+3] {
+            for at in range{out[at]=self.data[at]as i16 as f64;}
+        }
+        for at in [r::PITCH,r::SLOT,r::TILT,r::MOUNT_ROLL,r::GUN_YAW,r::GUN_PITCH]{out[at]=self.data[at]as i16 as f64;}
+        if self.data[r::KIND]==3{out[r::YAW]=self.data[r::YAW]as i16 as f64;}
+        for (i,at) in [r::ID,r::GENERATION,r::TIME,r::ROLL,r::LEAN,r::LEGS,r::SHIELD].into_iter().enumerate(){
+            let bits=self.data[at]as u32 | (self.high[i]as u32)<<16;
+            out[at]=if i<2{bits as f64}else{f32::from_bits(bits)as f64};
+        }
+        out
+    }
+}
 #[derive(Clone, Copy, Default)]
 // worldFieldKey is the numeric (schema,id) pair; generation is payload state.
 // A handle owns one reference in the field bank. Snapshot rows retain just the
 // handle, so unchanged opaque state is never copied with an entity baseline.
 struct Field { id: u32, schema: u16, generation: u32, handle: usize, }
-struct FieldBank { bytes: Vec<[u8; l::FIELD_PAYLOAD]>, lengths: Vec<usize>, refs: Vec<u32>, meta: Vec<Field>,
+struct FieldBank { bytes: super::payload::Payloads, offsets: Vec<usize>, lengths: Vec<usize>, refs: Vec<u32>, meta: Vec<Field>,
     free: Vec<usize>, }
 impl FieldBank {
-    // The server reserves at most 192 world fields per publication. This
-    // bank covers a distinct version in every retained and assembling frame;
-    // larger foreign streams are refused without growing a packet store.
+    // The field-count and byte budgets are independent: many scalar flags
+    // can share the same reservation as fewer full roster payloads. Exhausting
+    // either budget withholds the incomplete ACK and permits keyframe repair.
     // Encode-only owners do not reserve receive payloads. The later setup call
     // creates this bank once, before the first packet can enter measured work.
     fn empty() -> Self {
-        Self { bytes: Vec::new(), lengths: Vec::new(), refs: Vec::new(), meta: Vec::new(), free: Vec::new() } }
-    fn new() -> Self { Self { bytes: vec![[0; l::FIELD_PAYLOAD]; l::FIELD_VERSIONS],
+        Self { bytes: super::payload::Payloads::empty(), offsets: Vec::new(), lengths: Vec::new(), refs: Vec::new(), meta: Vec::new(), free: Vec::new() } }
+    fn new() -> Self { Self { bytes: super::payload::Payloads::new(), offsets: vec![0; l::FIELD_VERSIONS],
             lengths: vec![0; l::FIELD_VERSIONS], refs: vec![0; l::FIELD_VERSIONS],
             meta: vec![Field::default(); l::FIELD_VERSIONS], free: (0..l::FIELD_VERSIONS).rev().collect(), } }
     // decodeWorld installs a payload only after its complete byte span exists.
     // The free list bounds distinct versions across completed and partial ticks.
-    // A full bank reports an ordinary receive error instead of growing memory.
+    // A full bank becomes recoverable loss at receive, without growing memory.
     fn put(&mut self, bytes: &[u8]) -> Result<usize> { if bytes.len() > l::FIELD_PAYLOAD {
             return Err("snapshot field exceeds bounds"); }
         let at = self.free.pop().ok_or("snapshot field storage full")?;
-        self.bytes[at][..bytes.len()].copy_from_slice(bytes);
+        let Some(offset) = self.bytes.allocate(bytes.len()) else {
+            self.free.push(at); return Err("snapshot field storage full");
+        };
+        self.offsets[at] = offset;
+        self.bytes.bytes[offset..offset+bytes.len()].copy_from_slice(bytes);
         self.lengths[at] = bytes.len();
         self.refs[at] = 1;
         Ok(at) }
-    fn get(&self, at: usize) -> &[u8] { &self.bytes[at][..self.lengths[at]] }
+    fn get(&self, at: usize) -> &[u8] { &self.bytes.bytes[self.offsets[at]..self.offsets[at]+self.lengths[at]] }
     // Immutable snapshot copies share unchanged payloads. Only a decoded change
     // owns fresh bytes; baseline retention therefore costs one integer per field.
     fn retain(&mut self, at: usize) { self.refs[at] += 1; }
     // The last baseline or unfinished assembly returns this slot to the pool.
     // No payload can be overwritten while another immutable version retains it.
     fn release(&mut self, at: usize) { self.refs[at] -= 1;
-        if self.refs[at] == 0 { self.free.push(at); } } }
+        if self.refs[at] == 0 { self.bytes.release(self.offsets[at],self.lengths[at]); self.free.push(at); } } }
 // assemblyFor used shallow Map copies because decoded entries were immutable.
 // Here the protocol slots are compact numeric rows; order preserves insertion
 // order for cold captures and identity lookups after repeated slot updates.
@@ -119,7 +159,7 @@ struct Seat { id: f64, generation: f64, vehicle: f64, vehicle_generation: f64, i
 struct Change { field: Field, removed: bool, }
 
 pub struct Session { links:Vec<std::rc::Weak<std::cell::RefCell<crate::network::LinkTable>>>,
-    pub header: Vec<f64>, pub records: Vec<f64>, pub seat_output: Vec<f64>, pub payloads: Vec<u8>,
+    pub header: Vec<f64>, pub leases: super::record_leases::Leases,
     pub timeline: Timeline, snapshots: Vec<Snapshot>, ring: Vec<usize>, assemblies: Vec<Assembly>, bank: FieldBank,
     seats: Vec<Seat>, changed: Vec<usize>, removed: Vec<usize>, staging: Vec<Entry>, fields: Vec<Change>, epoch: f64,
     ack: f64, newest_entities: f64, newest_own: f64, current: Option<usize>, serial: u64, pending: bool,
@@ -130,8 +170,7 @@ impl Session {
     // All tables, histories and output spans are cold reservations. Packet
     // assembly copies numeric rows and retains payload handles, never boxes
     // entries or allocates another immutable baseline.
-    pub fn new() -> Self { Self { links:Vec::with_capacity(l::OWNERS),header: vec![0.; h::STRIDE], records: Vec::new(), seat_output: Vec::new(),
-            payloads: Vec::new(), timeline: Timeline::new(), snapshots: Vec::new(),
+    pub fn new() -> Self { Self { links:Vec::with_capacity(l::OWNERS),header: vec![0.; h::STRIDE], leases: super::record_leases::Leases::empty(), timeline: Timeline::new(), snapshots: Vec::new(),
             ring: Vec::with_capacity(l::BASELINES),
             assemblies: (0..l::ASSEMBLIES).map(|_| Assembly::default()).collect(), bank: FieldBank::empty(),
             seats: Vec::with_capacity(tl::ENTITIES), changed: Vec::with_capacity(l::SLOTS),
@@ -153,13 +192,11 @@ impl Session {
         self.snapshots = (0..=l::BASELINES + l::ASSEMBLIES).map(|_| Snapshot::new()).collect();
         self.bank = FieldBank::new();
         self.staging = vec![Entry::default(); l::SLOTS];
-        self.records = vec![0.; l::RECORDS * r::STRIDE];
-        self.seat_output = vec![0.; l::SLOTS * 2 * s::STRIDE];
-        self.payloads = vec![0; l::EXCHANGE]; }
+        self.leases.reserve(); }
     // SnapshotClient.reset discards assemblies, ACKs, seats and display history
     // at the same epoch boundary. The lease also invalidates cold display links,
     // so a pooled native owner cannot expose the preceding battle's output.
-    pub fn reset(&mut self, epoch: f64) { for row in &mut self.snapshots { row.clear(&mut self.bank); }
+    pub fn reset(&mut self, epoch: f64) { self.leases.begin(); for row in &mut self.snapshots { row.clear(&mut self.bank); }
         self.ring.clear();
         for a in &mut self.assemblies { *a = Assembly::default(); }
         self.seats.clear();
@@ -254,9 +291,10 @@ impl Session {
     // SnapshotClient.receive has one byte boundary and one changed-record result.
     // Header validation precedes epoch/baseline selection. Older epochs return
     // nothing, while a newer epoch clears retained state before applying its part.
-    pub fn receive(&mut self, bytes: &[u8], bounds: &[f64; 6]) -> Result<()> { self.commit();
+    pub fn receive(&mut self, bytes: &[u8], bounds: &[f64; 6]) -> Result<()> { self.commit();self.leases.begin();
         self.header.fill(0.);
         self.header[h::EPOCH] = self.epoch;
+        self.header[h::LEASE_SERIAL]=self.leases.serial as f64;self.header[h::REFUSED]=self.leases.refused as f64;
         self.header[h::ACK_TICK] = self.ack;
         self.header[h::MISSING_BASELINES] = self.missed as f64;
         self.changed.clear();
@@ -284,9 +322,10 @@ impl Session {
         // Foreign streams can retain more field versions than game content.
         // Refuse that incomplete part as recoverable loss, leaving its ACK
         // withheld until an old assembly is evicted or a keyframe repairs it.
-        let result=match result{Err("snapshot field storage full")=>{self.missing();Ok(())},other=>other};
+        let result=match result{Err("snapshot field storage full"|"snapshot publication full"|"snapshot seat publication full")=>{self.missing();Ok(())},other=>other};
         self.header[h::ACK_TICK] = self.ack;
         self.header[h::MISSING_BASELINES] = self.missed as f64;
+        self.header[h::LEASE_SERIAL]=self.leases.serial as f64;self.header[h::REFUSED]=self.leases.refused as f64;
         result }
     // Missing entity or correction baselines are recoverable loss, not malformed
     // presentation frames. Keep the missing count and leave the part unacknowledged.
@@ -296,33 +335,26 @@ impl Session {
     // Every delta reads the named immutable base, including repeated field keys.
     // Handles transfer only after the enclosing packet passes its trailing check.
     fn field_changes(&mut self, r: &mut Reader, base: Option<usize>, own: bool, source: &[u8]) -> Result<()> {
-        let count = r.varint()?;
-        if count > 4096. { return Err("snapshot world field count"); }
-        for _ in 0..count as usize { let id = r.u32()?;
-            let schema = r.u16()?;
-            let generation = r.u32()?;
-            let mode = r.u8()?;
-            if mode > 2 { return Err("snapshot world field flag"); }
-            if mode == 1 {
-                self.fields.push(Change { field: Field { id, schema, generation, handle: 0 }, removed: true });
-                continue; }
-            let mut scratch = [0.; 256];
-            let handle = if mode == 0 { let n = r.u16()? as usize;
-                self.bank.put(r.take(n)?)? } else { let previous = base .and_then(|i| {
-                        let rows = if own { &self.snapshots[i].own } else { &self.snapshots[i].world };
-                        rows.iter().map(|&f| self.bank.meta[f as usize]).find(|f| f.id == id && f.schema == schema) })
-                    .map(|f| self.bank.get(f.handle));
-                let mut out = Output { values: &mut scratch, at: 0 };
-                delta(r.counted_section()?, previous, &mut out)?;
-                let n = if scratch[0] == 0. { scratch[2] } else { scratch[1] } as usize;
-                if n > l::FIELD_PAYLOAD { return Err("snapshot field exceeds bounds"); }
-                let raw = if scratch[0] == 0. { let start = scratch[1] as usize;
-                    source.get(start..start + n).ok_or(EXCHANGE)? } else {
-                    unsafe { std::slice::from_raw_parts(scratch.as_ptr().add(2).cast::<u8>(), n) } };
-                self.bank.put(raw)? };
-            self.bank.meta[handle] = Field { id, schema, generation, handle };
-            self.fields.push(Change { field: Field { id, schema, generation, handle }, removed: false }); }
-        Ok(()) }
+        world_fields(r,|field|{
+            let WireField{id,schema,generation,body}=field;
+            if let FieldBody::Removed=body{self.fields.push(Change{field:Field{id,schema,generation,handle:0},removed:true});return Ok(());}
+            let handle=match body{
+                FieldBody::Absolute{bytes,..}=>self.bank.put(bytes)?,
+                FieldBody::Delta(section)=>{
+                    let previous=base.and_then(|i|{let rows=if own{&self.snapshots[i].own}else{&self.snapshots[i].world};rows.iter().map(|&f|self.bank.meta[f as usize]).find(|f|f.id==id&&f.schema==schema)}).map(|f|self.bank.get(f.handle));
+                    let mut scratch=[0.;256];let mut out=Output{values:&mut scratch,at:0};delta(section,previous,&mut out)?;
+                    let n=if scratch[0]==0.{scratch[2]}else{scratch[1]}as usize;
+                    if n>l::FIELD_PAYLOAD{return Err("snapshot field exceeds bounds");}
+                    let raw=if scratch[0]==0.{let start=scratch[1]as usize;source.get(start..start+n).ok_or(EXCHANGE)?}else{
+                        // SAFETY: delta wrote n packed bytes into this stack
+                        // output; the validated field bound fits its capacity.
+                        unsafe{std::slice::from_raw_parts(scratch.as_ptr().add(2).cast::<u8>(),n)}
+                    };self.bank.put(raw)?
+                },FieldBody::Removed=>return Ok(()),
+            };
+            self.bank.meta[handle]=Field{id,schema,generation,handle};self.fields.push(Change{field:Field{id,schema,generation,handle},removed:false});Ok(())
+        })?;Ok(())
+    }
     // applyEntities replaces fields by schema and id. Removing an absent field
     // is harmless; a replacement releases exactly this snapshot's old reference.
     // The pre-reserved handle list never grows beyond its explicit field bound.
@@ -337,29 +369,24 @@ impl Session {
     // Changed gameplay records are the only numeric values the page still reads.
     // The publication window is larger than any MTU-limited packet can produce;
     // foreign oversized expansions return a receive fault without a buffer grow.
-    fn emit(&mut self, record: &[f64; r::STRIDE]) -> Result<()> { let at = self.header[h::RECORDS] as usize;
-        if at >= l::RECORDS { return Err("snapshot publication full"); }
-        self.records[at * r::STRIDE..][..r::STRIDE].copy_from_slice(record);
-        self.header[h::RECORDS] += 1.;
-        Ok(()) }
-    // Owned corrections and cosmetics cannot borrow the next packet's input.
-    // Copy their opaque bytes once into the publication window; the JS consumer
-    // then owns the payload it retains for prediction or deferred prerequisites.
-    fn bytes_record( &mut self, kind: u32, id: f64, generation: f64, tick: f64, schema: f64, bytes: &[u8],
-    ) -> Result<()> { let at = self.header[h::PAYLOAD_LENGTH] as usize;
-        let end = at.checked_add(bytes.len()).ok_or(EXCHANGE)?;
-        if end > self.payloads.len() { return Err("snapshot payload publication full"); }
-        self.payloads[at..end].copy_from_slice(bytes);
-        self.header[h::PAYLOAD_LENGTH] = end as f64;
-        let mut row = [0.; r::STRIDE];
-        row[r::KIND] = kind as f64;
-        row[r::ID] = id;
-        row[r::GENERATION] = generation;
-        row[r::TICK] = tick;
-        row[r::SCHEMA] = schema;
-        row[r::PAYLOAD_OFFSET] = at as f64;
-        row[r::PAYLOAD_LENGTH] = bytes.len() as f64;
-        self.emit(&row) }
+    fn emit(&mut self,record:&[f64;r::STRIDE])->Result<()>{self.emit_bytes(record,&[])}
+    fn emit_bytes(&mut self,record:&[f64;r::STRIDE],bytes:&[u8])->Result<()>{
+        let at=self.header[h::RECORDS]as usize;if at>=l::RECORDS{return Err("snapshot publication full");}
+        let id=self.leases.put(record,bytes).ok_or("snapshot publication full")?;
+        self.leases.publications[at]=id as u32;self.header[h::RECORDS]+=1.;Ok(())
+    }
+    // Opaque data stays beside its retained native row. Deferred consumers
+    // queue references before the next packet releases the original borrow.
+    fn bytes_record(&mut self,kind:u32,id:f64,generation:f64,tick:f64,schema:f64,bytes:&[u8])->Result<()>{
+        let mut row=[0.;r::STRIDE];row[r::KIND]=kind as f64;row[r::ID]=id;row[r::GENERATION]=generation;row[r::TICK]=tick;row[r::SCHEMA]=schema;
+        self.header[h::PAYLOAD_LENGTH]+=bytes.len()as f64;self.emit_bytes(&row,bytes)
+    }
+    // Reserve the whole publication before changing seat membership or ACKs.
+    // A retained-resource burst becomes recoverable loss, with no partial
+    // gameplay application and no growth of the row or payload pools.
+    fn publication_room(&mut self,count:usize)->Result<()>{
+        if count>self.leases.available(){self.leases.refused+=1;Err("snapshot publication full")}else{Ok(())}
+    }
     // worldRecordFromField publishes nonremoved summaries in decoded wire order.
     // Removed fields update the retained baseline without producing a gameplay
     // record, matching both the entity and own summary lanes.
@@ -390,44 +417,19 @@ impl Session {
         let start = reader.at;
         self.field_changes(&mut reader, base, false, bytes)?;
         if reader.at - start != n { return Err("snapshot world section size"); }
-        let n = reader.varint()?;
-        if n > 512. { return Err("snapshot record count"); }
-        let mut touched = [false; l::SLOTS];
-        let mut slot = -1.;
-        for i in 0..n as usize { slot = if i == 0 { reader.u16()? as f64 } else { slot + reader.varint()? };
-            if slot >= 512. { return Err("snapshot slot out of range"); }
-            let index = slot as usize;
-            let byte = reader.u8()?;
-            let op = byte & 3;
-            let mask = byte >> 2;
-            if op == 2 { self.removed.push(index);
-                continue; }
-            let old = base.map_or(Entry::default(), |b| self.snapshots[b].entries[index]);
-            let class = if op == 1 { reader.u8()? } else if op == 0 { if !old.present {
-                    return Err("snapshot update without baseline entry"); }
-                old.get(r::KIND) as u8 } else { return Err("snapshot op"); };
-            if class > 5 { return Err("snapshot class"); }
-            let mut entry = if op == 1 { Entry::default() } else { old };
-            entry.present = true;
-            entry.set(r::KIND, class as f64);
-            if op == 1 { entry.set(r::GENERATION, reader.u32()? as f64);
-                entry.set(r::ID, reader.u32()? as f64);
-                entry.set(r::CLASS_ID, reader.u16()? as f64);
-                entry.set(r::TEAM, reader.u8()? as f64);
-                entry.set(r::DISC, 1.); }
-            let groups = [6, 6, 6, 2, 4, 4][class as usize];
-            if op == 1 && mask != (1 << groups) - 1 { return Err("snapshot new record mask"); }
-            let baseline = BaselineSlot { exists: old.present, class, position: old .present
-                    .then(|| [old.get(r::POSITION), old.get(r::POSITION + 1), old.get(r::POSITION + 2)]), };
-            for g in 0..groups { if mask & (1 << g) != 0 { let mut values = [0.; 64];
-                    let mut out = Output { values: &mut values, at: 0 };
-                    group(&mut reader, class, g, if op == 1 { None } else { Some(&baseline) }, &mut out)?;
-                    let n = out.at;
-                    apply_group(&mut entry, g, &values[..n]); } }
-            self.staging[index] = entry;
-            if !touched[index] { touched[index] = true;
-                self.changed.push(index); } }
-        reader.finish("snapshot trailing bytes")?;
+        let mut touched=[false;l::SLOTS];let snapshots=&self.snapshots;let staging=&mut self.staging;
+        let changed=&mut self.changed;let removed=&mut self.removed;
+        entity_records(&mut reader,|slot|{
+            let old=base.map_or(Entry::default(),|b|snapshots[b].entries[slot]);
+            BaselineSlot{exists:old.present,class:old.get(r::KIND)as u8,position:old.present.then(||[old.get(r::POSITION),old.get(r::POSITION+1),old.get(r::POSITION+2)])}
+        },|row|{
+            if row.op==2{removed.push(row.slot);return Ok(());}
+            let mut entry=if row.op==1{Entry::default()}else{base.map_or(Entry::default(),|b|snapshots[b].entries[row.slot])};
+            entry.present=true;entry.set(r::KIND,row.class as f64);
+            if let Some(id)=row.identity{entry.set(r::GENERATION,id[0]);entry.set(r::ID,id[1]);entry.set(r::CLASS_ID,id[2]);entry.set(r::TEAM,id[3]);entry.set(r::DISC,1.);}
+            for &(index,start,end)in &row.groups[..row.count]{apply_group(&mut entry,index,&row.values[start..end]);}
+            staging[row.slot]=entry;if !touched[row.slot]{touched[row.slot]=true;changed.push(row.slot);}Ok(())
+        })?;
         // All reads used the immutable baseline, including repeated slots.
         // Install removals before the final changed rows, as applyEntities
         // did after decodeEntities finished constructing its changed Map.
@@ -441,10 +443,14 @@ impl Session {
         // Only semantic application is monotonic; relabelling a late pose as
         // the newest tick would change interpolation and ownership timing.
         let gameplay = head[2] >= self.newest_entities;
-        if gameplay { for i in 0..self.changed.len() { let entry = self.staging[self.changed[i]];
+        if gameplay { self.publication_room((self.changed.len()+self.removed.len())*2+self.fields.iter().filter(|f|!f.removed).count())?;for i in 0..self.changed.len() { let entry = self.staging[self.changed[i]];
                 let row = semantic(entry, head[2], bounds);
                 self.emit(&row)?;
-                if entry.get(r::KIND) == 2. { self.emit(&mount_record(entry, head[2]))?; } }
+                if entry.get(r::KIND) == 2. {
+                    let vehicle=self.leases.publications[self.header[h::RECORDS]as usize-1]as usize;
+                    self.emit(&mount_record(entry,head[2]))?;
+                    let mount=self.leases.publications[self.header[h::RECORDS]as usize-1]as usize;self.leases.pair(vehicle,mount);
+                } }
             self.emit_seats(snapshot)?;
             for i in 0..self.removed.len() {
                 let entry = base.map_or(Entry::default(), |b| self.snapshots[b].entries[self.removed[i]]);
@@ -461,7 +467,7 @@ impl Session {
             self.newest_entities = head[2]; }
         self.apply_fields(snapshot, false);
         if self.current.is_none_or(|i| head[2] >= self.snapshots[i].tick) { self.current = Some(snapshot); }
-        self.pose_batch(head[2], bounds);
+        self.pose_batch(head[2], bounds, gameplay);
         let a = &mut self.assemblies[at];
         a.parts[head[5] as usize] = true;
         a.count = head[6] as usize;
@@ -476,14 +482,9 @@ impl Session {
     fn seat_change(&mut self, id: f64, generation: f64, seat: Option<Seat>) -> Result<()> {
         let at = self.header[h::SEATS] as usize;
         if at >= l::SLOTS * 2 { return Err("snapshot seat publication full"); }
-        let row = &mut self.seat_output[at * s::STRIDE..][..s::STRIDE];
-        row.fill(0.);
-        row[s::ID] = id;
-        row[s::GENERATION] = generation;
-        if let Some(seat) = seat { row[s::PRESENT] = 1.;
-            row[s::VEHICLE_ID] = seat.vehicle;
-            row[s::VEHICLE_GENERATION] = seat.vehicle_generation;
-            row[s::SEAT_INDEX] = seat.index; }
+        let mut row=[0.;r::STRIDE];row[r::KIND]=k::SEAT as f64;row[r::ID]=id;row[r::GENERATION]=generation;
+        if let Some(seat)=seat{row[r::SEAT_PRESENT]=1.;row[r::SEAT_VEHICLE_ID]=seat.vehicle;row[r::SEAT_VEHICLE_GENERATION]=seat.vehicle_generation;row[r::SEAT_INDEX]=seat.index;}
+        let id=self.leases.put(&row,&[]).ok_or("snapshot seat publication full")?;self.leases.seats[at]=id as u32;
         self.header[h::SEATS] += 1.;
         Ok(()) }
     // seatChangesFor resolves vehicle protocol slots in this tick's working
@@ -506,16 +507,26 @@ impl Session {
     // samplePoses includes only entries changed by this part. Repeating stale
     // baseline poses with a new timestamp would hold then jump at the real arrival.
     // These generated timeline rows stay in Rust through the display consumer.
-    fn pose_batch(&mut self, tick: f64, bounds: &[f64; 6]) { let x = &mut self.timeline.input;
+    fn pose_batch(&mut self, tick: f64, bounds: &[f64; 6], published: bool) { let x = &mut self.timeline.input;
         x[tf::VERSION] = bfe_pose::timeline_layout::VERSION as f64;
         x[tf::EPOCH] = self.epoch;
         x[tf::TICK] = tick;
         x[tf::SNAPSHOTS] = self.maximum as f64;
         let mut count = 0;
+        let mut publication=0;
         for &slot in &self.changed { let entry = self.staging[slot];
             let class = entry.get(r::KIND) as usize;
+            // Gameplay already widened this changed prefix, in wire order.
+            // Borrow that exact lease for display history instead of decoding
+            // the compact baseline a second time. Late parts have no gameplay
+            // publication and still construct their own historical row here.
+            let owned;
+            let row=if published {
+                let lease=self.leases.publications[publication]as usize;
+                publication+=if class==2{2}else{1};
+                &self.leases.records[lease*r::STRIDE..][..r::STRIDE]
+            }else{owned=semantic(entry,tick,bounds);&owned};
             if class > 2 { continue; }
-            let row = semantic(entry, tick, bounds);
             let at = tf::STRIDE + count * tr::STRIDE;
             let target = &mut x[at..][..tr::STRIDE];
             target.fill(0.);
@@ -546,45 +557,10 @@ impl Session {
         let base = if head[4] == 0. { None } else { self.held(head[4]) };
         if head[4] != 0. && base.is_none() { self.missing();
             return Ok(()); }
-        let mut reader = Reader::new(bytes);
-        reader.at = 20;
-        let flags = match reader.u8() {Ok(flags)=>flags,Err(_)=>{self.missing();return Ok(());}};
-        let mut correction = None;
-        let mut body_bytes = [0; l::PAYLOAD];
-        let mut body_len = 0;
-        // The correction delta may contain NaNs or signed zero as opaque bytes.
-        // Its length and word mask are validated, but no numeric conversion
-        // may rewrite those payload bits before prediction consumes them.
-        let parsed = (|| -> Result<()> { if flags & 1 != 0 { let mut body = reader.counted_section()?;
-                let id = body.u32()?;
-                let generation = body.u32()?;
-                let schema = body.u16()?;
-                let previous = base .filter(|&b| self.snapshots[b].has_payload)
-                    .map(|b| &self.snapshots[b].payload[..self.snapshots[b].length]);
-                let n = body.bytes.len() - body.at;
-                let mut scratch = [0.; 256];
-                let mut out = Output { values: &mut scratch, at: 0 };
-                delta(body.section(n)?, previous, &mut out).map_err(|_| "own baseline not held")?;
-                if scratch[0] == 0. { body_len = scratch[2] as usize;
-                    let start = scratch[1] as usize;
-                    if body_len > l::PAYLOAD { return Err(EXCHANGE); }
-                    body_bytes[..body_len].copy_from_slice(&bytes[start..start + body_len]); } else {
-                    body_len = scratch[1] as usize;
-                    if body_len > l::PAYLOAD { return Err(EXCHANGE); }
-                    let raw = unsafe { std::slice::from_raw_parts(scratch.as_ptr().add(2).cast::<u8>(), body_len) };
-                    body_bytes[..body_len].copy_from_slice(raw); }
-                correction = Some((id, generation, schema)); }
-            if flags & 2 != 0 { let mut section = reader.counted_section()?;
-                self.field_changes(&mut section, base, true, bytes)?;
-                section.finish("snapshot world section trailing bytes")?; }
-            Ok(()) })();
-        if parsed.is_err() { self.missing();
-            return Ok(()); }
-        // receiveOwn masks the complete datagram decoder, including section
-        // lengths and trailing bytes. Unpacking the valid cosmetic bundle
-        // happens afterwards, so its own malformed-event errors still throw.
-        let cosmetics=if flags&4!=0 {match reader.counted_section(){Ok(section)=>Some(section),Err(_)=>{self.missing();return Ok(());}}}else{None};
-        if reader.finish("own datagram trailing bytes").is_err(){self.missing();return Ok(());}
+        let mut decoded=OwnReceive{session:self,base,source:bytes,flags:0,correction:None,body_bytes:[0;l::PAYLOAD],body_len:0,cosmetics:None};
+        if own_sections(bytes,&mut decoded).is_err(){decoded.session.missing();return Ok(());}
+        let OwnReceive{flags,correction,body_bytes,body_len,cosmetics,..}=decoded;
+        self.publication_room(self.fields.iter().filter(|f|!f.removed).count()+correction.is_some()as usize+cosmetics.as_ref().map_or(0,|r|r.bytes.len()/2))?;
         if let Some(bundle) = cosmetics { let mut reader = bundle;
             while reader.at < reader.bytes.len() { let mut values = [0.; 256];
                 let mut out = Output { values: &mut values, at: 0 };
@@ -628,6 +604,26 @@ impl Session {
         self.header[h::COMPLETE] = self.complete(at) as u8 as f64;
         self.header[h::VALID] = 1.;
         Ok(()) } }
+
+// The live own sink installs bytes into retained native storage. Packet
+// framing is shared with inspection, while baseline recovery stays Session's
+// responsibility. Opaque correction words retain every original bit.
+struct OwnReceive<'a,'b>{session:&'b mut Session,base:Option<usize>,source:&'a[u8],flags:u8,correction:Option<(u32,u32,u16)>,body_bytes:[u8;l::PAYLOAD],body_len:usize,cosmetics:Option<Reader<'a>>}
+impl<'a> OwnSink<'a> for OwnReceive<'a,'_>{
+    fn flags(&mut self,flags:u8)->Result<()>{self.flags=flags;Ok(())}
+    fn correction(&mut self,id:[u32;3],body:Reader<'a>)->Result<()>{
+        let previous=self.base.filter(|&b|self.session.snapshots[b].has_payload).map(|b|&self.session.snapshots[b].payload[..self.session.snapshots[b].length]);
+        let mut scratch=[0.;256];let mut out=Output{values:&mut scratch,at:0};delta(body,previous,&mut out).map_err(|_|"own baseline not held")?;
+        self.body_len=if scratch[0]==0.{scratch[2]}else{scratch[1]}as usize;if self.body_len>l::PAYLOAD{return Err(EXCHANGE);}
+        let raw=if scratch[0]==0.{let start=scratch[1]as usize;self.source.get(start..start+self.body_len).ok_or(EXCHANGE)?}else{
+            // SAFETY: delta reserved the complete packed correction in this
+            // stack output. The payload bound was checked before borrowing.
+            unsafe{std::slice::from_raw_parts(scratch.as_ptr().add(2).cast::<u8>(),self.body_len)}
+        };self.body_bytes[..self.body_len].copy_from_slice(raw);self.correction=Some((id[0],id[1],id[2]as u16));Ok(())
+    }
+    fn world(&mut self,section:Option<Reader<'a>>)->Result<()>{if let Some(mut section)=section{self.session.field_changes(&mut section,self.base,true,self.source)?;section.finish("snapshot world section trailing bytes")?;}Ok(())}
+    fn cosmetics(&mut self,section:Option<Reader<'a>>)->Result<()>{self.cosmetics=section;Ok(())}
+}
 
 // Group values are already validated and in wire order. Retain encoded values
 // for future deltas; semantic conversion happens only for changed records.
@@ -700,15 +696,25 @@ fn mount_record(entry: Entry, tick: f64) -> [f64; r::STRIDE] { let mut d = entry
 impl Session {
     /// Resource prerequisites are occasional packet-time lookups, never a
     /// display sampler. The same changed-record layout returns their values.
-    pub fn lookup(&mut self, kind: u32, id: f64, bounds: &[f64; 6]) -> bool { self.header[h::RECORDS] = 0.;
-        let Some(index) = self.current else { return false; };
+    pub fn lookup(&mut self, kind: u32, id: f64, bounds: &[f64; 6]) -> Option<usize> {
+        let Some(index) = self.current else { return None; };
         let row = &self.snapshots[index];
         let class = if kind == k::MOUNT { k::VEHICLE } else { kind };
         let Some(entry) =
             row.order.iter().map(|&i| row.entries[i]).find(|e| e.get(r::KIND) == class as f64 && e.get(r::ID) == id)
-        else { return false; };
+        else { return None; };
         let record = if kind == k::MOUNT { mount_record(entry, row.tick) } else { semantic(entry, row.tick, bounds) };
-        self.emit(&record).is_ok() }
+        self.leases.put(&record,&[]) }
+    pub fn capture_record(&self,id:usize)->serde_json::Value{
+        if id>=l::LEASES{return serde_json::Value::Null;}let at=id*r::STRIDE;let Some(row)=self.leases.records.get(at..at+r::STRIDE)else{return serde_json::Value::Null;};
+        let start=row[r::PAYLOAD_OFFSET]as usize;let n=row[r::PAYLOAD_LENGTH]as usize;
+        super::record_capture::capture(row,&self.leases.payloads[start..start+n])
+    }
+    pub fn capture_publication(&self)->serde_json::Value{
+        let capture=|id:u32|{let at=id as usize*r::STRIDE;let row=&self.leases.records[at..at+r::STRIDE];let start=row[r::PAYLOAD_OFFSET]as usize;let n=row[r::PAYLOAD_LENGTH]as usize;super::record_capture::capture(row,&self.leases.payloads[start..start+n])};
+        serde_json::json!({"records":self.leases.publications.iter().take((self.header[h::RECORDS]as usize).min(l::RECORDS)).map(|&id|capture(id)).collect::<Vec<_>>(),
+            "seatChanges":self.leases.seats.iter().take((self.header[h::SEATS]as usize).min(l::SLOTS*2)).map(|&id|capture(id)).collect::<Vec<_>>()})
+    }
     /// An explicit, cold replay capture. Live receive and display never call
     /// this serializer or reconstruct immutable baseline objects on the page.
     pub fn capture(&self, tick: f64) -> serde_json::Value { use serde_json::json;
@@ -773,3 +779,26 @@ fn capture_entry(entry: Entry) -> serde_json::Value { use serde_json::json;
         if class == 4 { fields.insert("up".into(), json!(&d[r::UP..r::UP + 3])); } else {
             fields.insert("health".into(), json!(d[r::HEALTH])); } }
     out }
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+    #[test]
+    fn baseline_rows_keep_wire_bits_within_the_receive_budget() {
+        assert!(std::mem::size_of::<Entry>() <= 184);
+        let mut row=Entry::default();
+        for (at,value) in [(r::ID,4294967295.),(r::GENERATION,4294967294.),(r::YAW,65535.),
+            (r::HEALTH,65535.),(r::SLOT,-1.),(r::VELOCITY,-32767.),(r::TIME,0.125),(r::SHIELD,0.75)] {
+            row.set(at,value); assert_eq!(row.get(at),value);
+        }
+        row.set(r::KIND,3.);row.set(r::YAW,-32767.);assert_eq!(row.get(r::YAW),-32767.);
+        for kind in 0..6 {
+            row.set(r::KIND,kind as f64);
+            let values=row.values();
+            for (at,value) in values.into_iter().enumerate(){assert_eq!(value.to_bits(),row.get(at).to_bits(),"kind {kind}, field {at}");}
+        }
+        let bank=FieldBank::new();
+        let baseline_bytes=(l::BASELINES+l::ASSEMBLIES+1)*l::SLOTS*std::mem::size_of::<Entry>();
+        assert!(baseline_bytes+bank.bytes.bytes.len()<19*1024*1024);
+    }
+}

@@ -72,11 +72,9 @@ const CENSUS = {
 
 // The legacy streams, and what reaches each in a world step today.
 const LEGACY_STREAMS = {
-  'weapon-spread': 'none in a world (bots\' weapons have the AI\'s generator, network players\' the network-weapons stream, seats and turrets the seat-weapons stream); a page\'s weapons with no generator',
   'grenade-spin': 'none in a world (Ordnance.spinRandom is the grenade-spin stream)',
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
   'item-drop': 'none in a world (Items.random is the gameplay stream)',
-  'recon-strike': 'none in a world (each recon context has its own stream)',
   'spawn-post': 'none in a world step (the spawn screen\'s pick of a default post)',
 };
 
@@ -175,7 +173,7 @@ test('every random draw and clock read in the world worker\'s modules is classif
       const n = code.match(pattern)?.length ?? 0;
       if (n) found[kind][name] = n;
     }
-    for (const m of text.matchAll(/\blegacyRandom\(\s*"([^"]+)"\s*\)/g)) if (code.slice(m.index, m.index + 12) === 'legacyRandom') streams.push(m[1]);
+    for (const m of text.matchAll(/\blegacyRandom\(\s*(["'])([^"']+)\1\s*\)/g)) if (code.slice(m.index, m.index + 12) === 'legacyRandom') streams.push(m[2]);
   }
   for (const kind of Object.keys(PATTERNS)) {
     const expected = Object.fromEntries(Object.entries(CENSUS[kind]).map(([file, by]) => [file, Object.values(by).reduce((a, b) => a + b, 0)]));

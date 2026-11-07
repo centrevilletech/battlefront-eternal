@@ -1,7 +1,7 @@
+import {BodyAimBatch} from '../presentation/body.js';
 // game.js replayPrediction and restorePrediction now cross once per frame.
 // Rust owns every pending tick; these retained rows only import page facts and
-// publish the result. Clocks, smoothing and effects keep their page lifetime.
-import {BodyAimBatch} from '../presentation/body.js';
+// publish the result. Input clocks and effect callbacks keep their page lifetime.
 import { bridgeFor, Heap } from '../sim/runtime.js';
 import { ClientOp_INDEX, ClientActorKind_INDEX, ClientHeld_INDEX, ClientAction_INDEX,
   putClientFrame, ClientFrameMirror, putClientCommand, ClientCommandMirror, putClientLook, ClientLookMirror,
@@ -23,11 +23,14 @@ import { ClientHull } from './client-hull.js';
 import { FLIGHT_BINDINGS } from '../flight/controls.js';
 import { ClientFlightHeld_INDEX, ClientFlightAction_INDEX, ClientFlightCommandMirror, putClientFlightCommand, CLIENT_FLIGHT_COMMAND_WORDS } from '../sim/gen/client.js';
 import { HOLDS } from '../input.js';
+import { ClientRecon } from './client-recon.js';
+import {NetLimits} from './network-layout.js';
+import { CLIENT_RECON_STATE_WORDS } from '../sim/gen/client.js';
 
 // The operation discriminants are shared with client_prediction_run. Resolve
 // their names at module load; a frame never interprets an unlabelled number.
 const CONFIGURE_ACTOR = ClientOp_INDEX.get('configureActor'), CONFIGURE_WEAPON = ClientOp_INDEX.get('configureWeapon');
-const CONFIGURE_HULL = ClientOp_INDEX.get('configureHull');
+const CONFIGURE_HULL = ClientOp_INDEX.get('configureHull'), CONFIGURE_RECON=ClientOp_INDEX.get('configureRecon');
 const PREDICT = ClientOp_INDEX.get('predict'), RESET = ClientOp_INDEX.get('reset'), CONFIGURE_MUZZLES = ClientOp_INDEX.get('configureMuzzles');
 const SOLDIER = ClientActorKind_INDEX.get('soldier'), DROIDEKA = ClientActorKind_INDEX.get('droideka');
 const flightHeldNames = Object.freeze([...ClientFlightHeld_INDEX.keys()]);
@@ -63,11 +66,11 @@ function heldBits(keys) {
 
 export function createClientPrediction(instance, collision) {
   const bridge = bridgeFor(instance), x = bridge.x;
-  const hull = new ClientHull(bridge, collision);
+  const hull = new ClientHull(bridge, collision), recon=new ClientRecon(bridge);
   if (collision.rays?.x !== x) throw Error('prediction session requires shared collision');
   let handle = x.client_prediction_create(), body = null, source = null, kind = SOLDIER, sourceId = 0;
   let disposed = false, busy = false, dropAfter = false, active = false;
-  let input = new Float64Array(4096), output = new Float64Array(4096), used = 0;
+  let input = new Float64Array(NetLimits.EXCHANGE), output = new Float64Array(4096), used = 0;
   let inputPtr = 0, inputCapacity = 0;
   let outputBuffer = null, outputPointer = 0, outputViews = [];
   let actorView, lastGun;
@@ -83,6 +86,32 @@ export function createClientPrediction(instance, collision) {
   const mountedWeapons = [];
   const shotAims=new BodyAimBatch(collision);
   notice.aimYaw=NaN;notice.aimPitch=NaN;
+  let replayActions=null,replayOutcomes=null,replayHeld=EMPTY,packedCount=0,packedAt=0,packingFlight=false,packedFireEdges=EMPTY,packedCapacity=0,outcomeCount=0;
+  let flightSettings=NO_VIEW,gamepad=NO_VIEW;
+  const replayRow=new ClientCommandMirror();
+  // Reserve the occupied span, not the session's 512-command capacity. This
+  // keeps the coarse copy proportional to pending input after an ordinary ACK.
+  const countOutcome=item=>{if(item.edge.kind==='action'||item.edge.kind==='fire'&&item.edge.pressed)outcomeCount++;};
+  // Reliable outcomes are event-owned Map rows. forEach reuses this callback;
+  // no iterator, temporary action Map or command clone belongs to a frame.
+  const packOutcome=item=>{
+    const edge=item.edge,fire=edge.kind==='fire'&&edge.pressed;
+    if(edge.kind!=='action'&&!fire||packedCount===packedCapacity)return;
+    replayRow.source=fire?'fire':'outcome';replayRow.tick=edge.tick;replayRow.generation=edge.generation;replayRow.sequence=item.sequence;
+    replayRow.sent=true;replayRow.held=0;replayRow.lookAt=0;replayRow.lookCount=0;replayRow.flightAt=0;
+    replayRow.mouseScale=replayRow.aspect=0;replayRow.hasMouseScale=replayRow.hasAspect=false;
+    replayRow.invert=replayRow.firstPerson=undefined;
+    const name=fire?edge.button:edge.action,bit=ClientAction_INDEX.get(name),flightBit=ClientFlightAction_INDEX.get(name);
+    replayRow.actions=bit===undefined?0:1<<bit;replayRow.flightActions=flightBit===undefined?0:1<<flightBit;
+    if(packingFlight)replayRow.flightAt=packFlight(NO_VIEW,replayHeld);
+    replayRow.primaryCount=replayRow.secondaryCount=0;replayRow.primaryId=replayRow.secondaryId=0;
+    for(let i=0;i<packedFireEdges.length;i++){const press=packedFireEdges[i];
+      if(press.sequence!==item.sequence||press.kind!=='fire'||!press.pressed)continue;
+      if(press.button==='firePrimary'){replayRow.primaryCount++;replayRow.primaryId=press.id;}
+      if(press.button==='fireSecondary'){replayRow.secondaryCount++;replayRow.secondaryId=press.id;}
+    }
+    putClientCommand(null,replayRow,input,packedAt+packedCount++*COMMAND,null);
+  };
   const noticeGun = { index: 0, barrel: 0 };
   const mirrorGun = { index: 0, barrel: 0 };
   // Compact soldier and droideka formats have bounded optional tails. The
@@ -142,6 +171,9 @@ export function createClientPrediction(instance, collision) {
     let view = outputViews[length];
     if (!view) view = outputViews[length] = new Float64Array(outputBuffer, at * Float64Array.BYTES_PER_ELEMENT, length);
     output.set(view);
+    // Configuration reserves the complete exchange before a mutable frame.
+    // A changed class can relocate it; ordinary replay never asks for room.
+    if(op!==PREDICT){inputPtr=x.client_prediction_room(handle,input.length);inputCapacity=input.length;}
   }
 
   // restorePrediction used the body's class and its arsenal as prerequisites.
@@ -169,15 +201,46 @@ export function createClientPrediction(instance, collision) {
     }
   }
 
-  // replayTicks consumes the command order supplied by InputHistory. Do not
+  // ClientPrediction consumes the command order supplied by InputHistory. Do not
   // sort or drop rolled-back ticks: unsent commands still carry action edges,
   // while Rust alone decides which held keys and look deltas become effective.
+  function packFlight(c,down){
+        // Decode key names once at the boundary. Rust consumes bit groups and
+        // fixed pad values without allocating Sets or visiting binding strings.
+        if (c.sent !== false) {
+          if (c.flightSettings !== undefined) flightSettings = c.flightSettings || NO_VIEW;
+          if (c.gamepad !== undefined) gamepad = c.gamepad || NO_VIEW;
+        }
+        flightRow.held = 0; flightRow.defaultHeld = 0; flightRow.actions = 0;
+        for (let n = 0; n < flightHeldNames.length; n++) {
+          const name = flightHeldNames[n], defaults = FLIGHT_BINDINGS[name], codes = flightSettings.bindings?.[name] || defaults;
+          for (let k = 0; k < defaults.length; k++) if (down?.includes(defaults[k])) { flightRow.defaultHeld |= 1 << n; break; }
+          for (let k = 0; k < codes.length; k++) if (down?.includes(codes[k])) { flightRow.held |= 1 << n; break; }
+        }
+        for (let n = 0; n < (c.actions||EMPTY).length; n++) {
+          const bit = ClientFlightAction_INDEX.get(c.actions[n]); if (bit !== undefined) flightRow.actions |= 1 << bit;
+        }
+        flightRow.scale = flightSettings.sensitivity ?? 1; flightRow.invert = Boolean(flightSettings.invert);
+        flightRow.curve = flightSettings.curve ?? NaN;
+        for (let n = 0; n < 4; n++) flightRow.padAxes[n] = gamepad.axes?.[n] ?? 0;
+        flightRow.padButtons = Number(Boolean(gamepad.buttons?.[0]?.pressed)) | (Number(Boolean(gamepad.buttons?.[11]?.pressed)) << 1);
+    const at=reserve(CLIENT_FLIGHT_COMMAND_WORDS);putClientFlightCommand(null,flightRow,input,at,null);return at;
+  }
+
   function packCommands(pending, fireEdges, flight = false) {
-    let flightSettings = NO_VIEW, gamepad = NO_VIEW;
-    const commandsAt = reserve(pending.length * COMMAND);
-    for (let i = 0; i < pending.length; i++) {
-      const c = pending[i], look = c.worldLook ?? c.look ?? EMPTY, lookAt = reserve(look.length * LOOK);
-      for (let n = 0; n < look.length; n++) {
+    flightSettings=NO_VIEW;gamepad=NO_VIEW;packingFlight=flight;packedFireEdges=fireEdges;
+    const merging=replayOutcomes!==null,extra=merging?replayActions.length:0;
+    const ordinary=Math.min(NetLimits.PREDICTION_COMMANDS,pending.length+extra);
+    outcomeCount=0;if(merging)replayOutcomes.forEach(countOutcome);
+    const capacity=Math.min(NetLimits.PREDICTION_COMMANDS,ordinary+outcomeCount);packedCapacity=capacity;
+    const commandsAt = reserve(capacity * COMMAND);packedAt=commandsAt;packedCount=ordinary;
+    frame.mergeCommands=merging;
+    let lookWords=0;
+    for (let i = 0; i < ordinary; i++) {
+      const c = i<pending.length?pending[i]:replayActions[i-pending.length], look = i<pending.length?(c.worldLook??c.look??EMPTY):EMPTY;
+      const lookCount=Math.min(look.length,NetLimits.PREDICTION_LOOKS-lookWords);lookWords+=lookCount;
+      const lookAt=reserve(lookCount*LOOK);
+      for (let n = 0; n < lookCount; n++) {
         lookRow.x = look[n][0]; lookRow.y = look[n][1];
         putClientLook(null, lookRow, input, lookAt + n * LOOK, null);
       }
@@ -196,38 +259,18 @@ export function createClientPrediction(instance, collision) {
       // The same row is overwritten for each command. Optional look settings
       // must also be overwritten with undefined, so a previous command cannot
       // accidentally supply its mouse scale or inversion to a later one.
+      command.source=i<pending.length?'movement':'action';command.flightActions=0;
       command.tick = c.tick; command.generation = c.generation; command.sequence = c.sequence;
       command.sent = c.sent !== false; command.held = heldBits(c.down || EMPTY); command.actions = actions;
-      command.lookAt = lookAt; command.lookCount = look.length;
-      command.mouseScale = c.mouseScale; command.invert = c.invertMouse;
-      command.flightAt = 0;
-      if (flight) {
-        // Decode key names once at the boundary. Rust consumes bit groups and
-        // fixed pad values without allocating Sets or visiting binding strings.
-        if (c.sent !== false) {
-          if (c.flightSettings !== undefined) flightSettings = c.flightSettings || NO_VIEW;
-          if (c.gamepad !== undefined) gamepad = c.gamepad || NO_VIEW;
-        }
-        flightRow.held = 0; flightRow.defaultHeld = 0; flightRow.actions = 0;
-        for (let n = 0; n < flightHeldNames.length; n++) {
-          const name = flightHeldNames[n], defaults = FLIGHT_BINDINGS[name], codes = flightSettings.bindings?.[name] || defaults;
-          for (let k = 0; k < defaults.length; k++) if (c.down?.includes(defaults[k])) { flightRow.defaultHeld |= 1 << n; break; }
-          for (let k = 0; k < codes.length; k++) if (c.down?.includes(codes[k])) { flightRow.held |= 1 << n; break; }
-        }
-        for (let n = 0; n < c.actions.length; n++) {
-          const bit = ClientFlightAction_INDEX.get(c.actions[n]); if (bit !== undefined) flightRow.actions |= 1 << bit;
-        }
-        flightRow.scale = flightSettings.sensitivity ?? 1; flightRow.invert = Boolean(flightSettings.invert);
-        flightRow.curve = flightSettings.curve ?? NaN;
-        for (let n = 0; n < 4; n++) flightRow.padAxes[n] = gamepad.axes?.[n] ?? 0;
-        flightRow.padButtons = Number(Boolean(gamepad.buttons?.[0]?.pressed)) | (Number(Boolean(gamepad.buttons?.[11]?.pressed)) << 1);
-        command.flightAt = reserve(CLIENT_FLIGHT_COMMAND_WORDS);
-        putClientFlightCommand(null, flightRow, input, command.flightAt, null);
-      }
+      command.lookAt = lookAt; command.lookCount = lookCount;
+      command.mouseScale=c.mouseScale??0;command.hasMouseScale=c.mouseScale!=null;command.invert = c.invertMouse;
+      command.flightAt = 0;command.firstPerson=c.firstPerson;command.aspect=c.aspect??0;command.hasAspect=c.aspect!=null;
+      if(flight){command.flightAt=packFlight(c,i<pending.length?c.down:replayHeld);command.flightActions=flightRow.actions;}
       command.primaryCount = primaryCount; command.primaryId = primaryId;
       command.secondaryCount = secondaryCount; command.secondaryId = secondaryId;
       putClientCommand(null, command, input, commandsAt + i * COMMAND, null);
     }
+    if(merging)replayOutcomes.forEach(packOutcome);
     return commandsAt;
   }
 
@@ -279,6 +322,29 @@ export function createClientPrediction(instance, collision) {
   function drop() { if (handle) { x.client_prediction_drop(handle); handle = 0; } }
   return {
     bridge, layout,
+    restoreRecon(){recon.restore();},
+    // predictRemote now submits its entire command window to F3's native
+    // core. The source and its independent RNG remain a retained checkpoint.
+    replaySources(actions,outcomes,held){replayActions=actions;replayOutcomes=outcomes;replayHeld=held;},
+    predictRecon(context,droid,pending,tick,generation,held=EMPTY,view=NO_VIEW){
+      live();if(busy)throw Error('prediction session is busy');busy=true;
+      try{
+        const configuration=recon.configure(context,droid);if(configuration)run(CONFIGURE_RECON,configuration);
+        collision.rayBodies();used=FRAME;
+        frame.reconAt=reserve(CLIENT_RECON_STATE_WORDS);recon.capture(input,frame.reconAt,view);
+        frame.weaponsWords=CLIENT_WEAPONS_WORDS+Math.min(32,droid.arsenal.weapons.length)*WEAPON_WORDS+CLIENT_ARSENAL_TAIL_WORDS;
+        frame.weaponsAt=reserve(frame.weaponsWords);recon.weapons(input,frame.weaponsAt);
+        frame.commandsAt=packCommands(pending,EMPTY);frame.commandsCount=packedCount;
+        frame.flagsAt=reserve(collision.bodies.length);frame.flagsCount=collision.bodies.length;
+        for(let i=0;i<collision.bodies.length;i++)input[frame.flagsAt+i]=Number(collision.bodies[i].enabled);
+        frame.mode='recon';frame.generation=generation;frame.authorityTick=tick;frame.world=collision.rayWorld;
+        frame.held=heldBits(held);frame.mouseScale=view.mouseScale??1;frame.invert=view.invertMouse??false;
+        putClientFrame(null,frame,input,0,null);run(PREDICT,input,used);
+        recon.acceptAuthority(output,result.reconSourceAt);
+        recon.publish(output,result.reconAt,result.weaponsAt);recon.active=true;
+        return result.tick;
+      }finally{busy=false;if(dropAfter)drop();}
+    },
     // Test wiring reads already-retained rows. Merely exposing them performs
     // no work during play; instrumentation lives entirely in test fixtures.
     get vehicle() { return hull.view; }, get vehicleOldPosition() { return hull.oldPosition; },
@@ -355,7 +421,7 @@ export function createClientPrediction(instance, collision) {
         frame.underwater = Boolean(combat.gunUnderwater); frame.shield = combat.arsenal.current(1)?.def.base === 'shield';
         frame.actorAt = actorAt; frame.actorWords = actorWords; frame.correctionAt = correctionAt; frame.correctionBytes = correctionBytes;
         frame.weaponsAt = weaponsAt; frame.weaponsWords = weaponsWords; frame.flagsAt = flagsAt; frame.flagsCount = collision.bodies.length;
-        frame.commandsAt = commandsAt; frame.commandsCount = pending.length; frame.crowdAt = crowdAt; frame.crowdCount = crowd.length;
+        frame.commandsAt = commandsAt; frame.commandsCount = packedCount; frame.crowdAt = crowdAt; frame.crowdCount = crowd.length;
         frame.held = heldBits(options.held ?? EMPTY); frame.flightHeld = 0; frame.presentedThrough = options.presentedThrough ?? options.tick;
         // Admission and the already-presented horizon come from the page.
         // Rust can produce notices from them without consulting effects while
@@ -422,7 +488,7 @@ export function createClientPrediction(instance, collision) {
         frame.flagsAt = 0; frame.flagsCount = 0; frame.crowdAt = 0; frame.crowdCount = 0;
         frame.presentedThrough = 0; frame.cosmeticSlots = 0; frame.mouseScale = 0; frame.invert = false; frame.checkTick = 0;
         frame.weaponsAt = weaponsAt; frame.weaponsWords = weaponsWords; frame.mountsAt = mountsAt; frame.mountsCount = entries.length;
-        frame.commandsAt = commandsAt; frame.commandsCount = pending.length; frame.held = heldBits(held);
+        frame.commandsAt = commandsAt; frame.commandsCount = packedCount; frame.held = heldBits(held);
         frame.flightHeld = 0;
         if (vehicle?.flying) for (let i = 0; i < flightHeldNames.length; i++) {
           const codes = FLIGHT_BINDINGS[flightHeldNames[i]];

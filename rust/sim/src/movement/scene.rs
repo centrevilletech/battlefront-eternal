@@ -50,6 +50,14 @@ impl Default for GroundCache {
     }
 }
 
+impl GroundCache {
+    /// CONFIGURE_ACTOR starts a new body/seat query domain. Invalidate the
+    /// cached column without replacing the scene's retained cast scratch.
+    pub fn reset(&mut self) {
+        self.x=f64::NAN;self.z=f64::NAN;self.top=f64::NAN;self.hit=None;
+    }
+}
+
 pub struct Scene<'a> {
     pub s: &'a mut State,
     pub world: usize,

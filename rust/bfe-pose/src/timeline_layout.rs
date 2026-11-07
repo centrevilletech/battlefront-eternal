@@ -83,6 +83,6 @@ pub mod timeline_output {
     pub const STRIDE: usize = 47;
 }
 pub mod timeline_limits {
-    pub const ENTITIES: usize = 1024;
+    pub const ENTITIES: usize = 512;
     pub const SNAPSHOTS: usize = 64;
 }

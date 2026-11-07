@@ -14,6 +14,8 @@ pub struct Timeline {
     snapshots: Vec<Snapshot>,
     order: Vec<usize>,
     entities: Vec<Entity>,
+    buckets: Vec<usize>,
+    free: Vec<usize>,
     epoch: f64,
     maximum: usize,
     pub refused: u64,
@@ -21,23 +23,44 @@ pub struct Timeline {
 }
 impl Default for Timeline { fn default() -> Self { Self::new() } }
 impl Timeline {
+    // The 512 wire slots bound simultaneous display identities. Retain all
+    // 64 historical ticks without reserving a second population of slots.
     // Reserve the largest supported ring at birth. A stalled page or burst
     // of partial packets never grows any native collection.
     pub fn new() -> Self {
         Self { input: vec![0.0;f::STRIDE+lim::ENTITIES*r::STRIDE], output:vec![0.0;lim::ENTITIES*o::STRIDE],
             snapshots:(0..lim::SNAPSHOTS).map(|_|Snapshot { tick:0.0,records:vec![0.0;lim::ENTITIES*r::STRIDE] }).collect(),
-            order:Vec::with_capacity(lim::SNAPSHOTS),entities:Vec::with_capacity(lim::ENTITIES),epoch:0.0,maximum:lim::SNAPSHOTS,refused:0,presented:None }
+            order:Vec::with_capacity(lim::SNAPSHOTS),entities:Vec::with_capacity(lim::ENTITIES),buckets:vec![usize::MAX;lim::ENTITIES*2],free:Vec::with_capacity(lim::ENTITIES),epoch:0.0,maximum:lim::SNAPSHOTS,refused:0,presented:None }
     }
     // Epoch changes discard history and fire edges together, while retaining
     // the allocation for the next battle state.
-    pub fn reset(&mut self, epoch:f64) { self.epoch=epoch;self.order.clear();self.entities.clear();self.output.fill(0.0);self.presented=None; }
+    pub fn reset(&mut self, epoch:f64) { self.epoch=epoch;self.order.clear();self.entities.clear();self.buckets.fill(usize::MAX);self.free.clear();self.output.fill(0.0);self.presented=None; }
     // Removal clears every bracket for this identity. Its reserved slot can
     // safely serve a later generation without exposing an older pose.
     pub fn remove(&mut self,id:f64) {
-        if let Some(index)=self.entities.iter().position(|e|e.id==id) {
-            for snapshot in &mut self.snapshots {snapshot.records[index*r::STRIDE+r::VALID]=0.0;}
+        let bucket=self.bucket(id);let index=self.buckets[bucket];
+        if index==usize::MAX {return;}
+        for snapshot in &mut self.snapshots {snapshot.records[index*r::STRIDE+r::VALID]=0.0;}
+        self.entities[index].id=-1.0;self.entities[index].fire_tick=f64::NEG_INFINITY;self.entities[index].generation=-1.0;
+        self.free.push(index);self.buckets[bucket]=usize::MAX;
+        // Close this probe cluster instead of retaining tombstones. Long
+        // battles can reuse slots indefinitely without degrading lookups.
+        let mask=self.buckets.len()-1;let mut next=(bucket+1)&mask;
+        while self.buckets[next]!=usize::MAX {
+            let slot=self.buckets[next];self.buckets[next]=usize::MAX;
+            let to=self.bucket(self.entities[slot].id);self.buckets[to]=slot;
+            next=(next+1)&mask;
         }
-        if let Some(e)=self.entities.iter_mut().find(|e|e.id==id) { e.id=-1.0;e.fire_tick=f64::NEG_INFINITY;e.generation=-1.0; }
+    }
+    // Stable slots and a half-full hash table resolve sparse wire identities.
+    // Canonical zero matches Map's SameValueZero treatment of signed zero.
+    fn bucket(&self,id:f64)->usize {
+        let mut hash=if id==0.0 {0}else{id.to_bits()};
+        hash=(hash^(hash>>30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        hash=(hash^(hash>>27)).wrapping_mul(0x94d049bb133111eb);
+        let mask=self.buckets.len()-1;let mut at=((hash^(hash>>31))as usize)&mask;
+        while self.buckets[at]!=usize::MAX && self.entities[self.buckets[at]].id!=id {at=(at+1)&mask;}
+        at
     }
     /// addSnapshot: later parts merge into a tick. The oldest whole snapshot
     /// is evicted only when a new tick needs its slot. Counts clamp before
@@ -68,14 +91,14 @@ impl Timeline {
             let kind=self.input[at+r::KIND];if !(0.0..=2.0).contains(&kind) || kind.fract()!=0.0 {continue;}
             // Ids are not array indices: maps can have sparse ids, and
             // packet order changes when entities enter or leave interest.
-            let entity=if let Some(index)=self.entities.iter().position(|e|e.id==id) {index} else {
-                // Departed identities release their slots. A long battle's
-                // total births must not consume its simultaneous capacity.
-                let fresh=Entity {id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0};
-                if let Some(index)=self.entities.iter().position(|e|e.id<0.0) {self.entities[index]=fresh;index} else {
+            let bucket=self.bucket(id);
+            let entity=if self.buckets[bucket]!=usize::MAX {self.buckets[bucket]} else {
+                let fresh=Entity{id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0};
+                let index=if let Some(index)=self.free.pop(){self.entities[index]=fresh;index}else{
                     if self.entities.len()==lim::ENTITIES {self.refused+=1;continue;}
                     self.entities.push(fresh);self.entities.len()-1
-                }
+                };
+                self.buckets[bucket]=index;index
             };
             let e=&mut self.entities[entity];let generation=self.input[at+r::GENERATION];
             let snapshot=&mut self.snapshots[slot];
@@ -96,7 +119,7 @@ impl Timeline {
         }
     }
     /// Resource binding resolves this stable slot once, without a page lookup.
-    pub fn slot(&self,id:f64)->Option<usize>{self.entities.iter().position(|e|e.id==id)}
+    pub fn slot(&self,id:f64)->Option<usize>{let index=self.buckets[self.bucket(id)];(index!=usize::MAX).then_some(index)}
     /// SnapshotTimeline.sample for the entire retained population. Output
     /// rows carry their id so host bindings can reject stale or foreign rows.
     pub fn present(&mut self) {

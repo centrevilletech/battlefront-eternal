@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "records": {
     "NetHeader": {
       "valid": 1,
@@ -21,7 +21,9 @@
       "baselineTick": 1,
       "partIndex": 1,
       "partCount": 1,
-      "headerBytes": 1
+      "headerBytes": 1,
+      "leaseSerial": 1,
+      "refused": 1
     },
     "NetRecord": {
       "kind": 1,
@@ -67,7 +69,12 @@
       "schema": 1,
       "payloadOffset": 1,
       "payloadLength": 1,
-      "disc": 1
+      "disc": 1,
+      "pair": 1,
+      "seatPresent": 1,
+      "seatVehicleId": 1,
+      "seatVehicleGeneration": 1,
+      "seatIndex": 1
     },
     "NetSeat": {
       "id": 1,
@@ -110,7 +117,21 @@
       "changed": 1,
       "transition": 1,
       "lookX": 1,
-      "lookY": 1
+      "lookY": 1,
+      "bodyYaw": 1,
+      "bodyPitch": 1,
+      "revision": 1,
+      "backup": 1,
+      "fireStart": 1,
+      "fireCount": 1,
+      "actionStart": 1,
+      "actionCount": 1,
+      "sourceBasis": 15,
+      "aimOrigin": 3,
+      "aimDirection": 3,
+      "aimFrom": 3,
+      "needsReach": 1,
+      "reach": 1
     },
     "NetAckResult": {
       "acked": 1,
@@ -119,10 +140,212 @@
     "NetSentResult": {
       "accepted": 1,
       "dx": 1,
-      "dy": 1
+      "dy": 1,
+      "sequence": 1
     },
     "NetBinding": {
       "active": 1
+    },
+    "NetMountFrame": {
+      "count": 1,
+      "ownId": 1,
+      "ownGeneration": 1,
+      "previousId": 1,
+      "previousGeneration": 1,
+      "vehicleId": 1,
+      "vehicleGeneration": 1,
+      "mountId": 1,
+      "mountGeneration": 1,
+      "mountSeat": 1,
+      "leaseKind": 1,
+      "leaseId": 1,
+      "leaseGeneration": 1,
+      "leaseSeat": 1,
+      "leaseReleased": 1,
+      "hasPrevious": 1
+    },
+    "NetMountInput": {
+      "id": 1,
+      "generation": 1,
+      "alive": 1,
+      "walkLength": 1,
+      "seatCount": 1,
+      "lastYawNull": 1,
+      "tilt": 1,
+      "roll": 1,
+      "walkPhase": 1,
+      "walkBlend": 1,
+      "seatAngles": 32
+    },
+    "NetMountOutput": {
+      "valid": 1,
+      "id": 1,
+      "generation": 1,
+      "tilt": 1,
+      "roll": 1,
+      "walkPhase": 1,
+      "walkBlend": 1,
+      "seatCount": 1,
+      "ownMask": 1,
+      "seedLastYaw": 1,
+      "seatAngles": 32
+    },
+    "NetPreviewFrame": {
+      "enabled": 1,
+      "frozen": 1,
+      "lockstep": 1,
+      "predicted": 1,
+      "dead": 1,
+      "walker": 1,
+      "ownYaw": 1,
+      "ownPitch": 1,
+      "maxTurn": 1,
+      "lock": 1,
+      "posture": 1,
+      "air": 1,
+      "dive": 1,
+      "pitchLow": 1,
+      "pitchHigh": 1,
+      "zoom": 1,
+      "scale": 1,
+      "invert": 1,
+      "alpha": 1,
+      "tickYaw": 1,
+      "presentAlpha": 1,
+      "inputAlpha": 1,
+      "commands": 1,
+      "looks": 1,
+      "hasLoose": 1,
+      "turretActive": 1,
+      "turretId": 1,
+      "turretGeneration": 1,
+      "turretYaw": 1,
+      "turretPitch": 1,
+      "yawVel": 1,
+      "pitchVel": 1,
+      "turnRate": 1,
+      "filter": 1,
+      "hasYawArc": 1,
+      "arcLow": 1,
+      "arcHigh": 1,
+      "wrapYaw": 1,
+      "turretPitchLow": 1,
+      "turretPitchHigh": 1,
+      "facing": 1,
+      "vehicleActive": 1,
+      "flying": 1,
+      "seatIndex": 1,
+      "hullYaw": 1,
+      "seatYaw": 1,
+      "seatPitch": 1,
+      "lookYaw": 1,
+      "lookPitch": 1,
+      "hasLookYaw": 1,
+      "hasLookPitch": 1,
+      "vehiclePitchLow": 1,
+      "vehiclePitchHigh": 1,
+      "vehicleHasYawArc": 1,
+      "vehicleArcLow": 1,
+      "vehicleArcHigh": 1,
+      "vehicleWrapYaw": 1,
+      "commandScale": 1,
+      "commandInvert": 1,
+      "inputVehiclePreview": 1,
+      "inputVehicleYaw": 1,
+      "inputVehiclePitch": 1,
+      "inputTurretYaw": 1,
+      "inputTurretPitch": 1,
+      "position": 3,
+      "feet": 3,
+      "eyeHeight": 1,
+      "rolled": 1,
+      "hasCamera": 1,
+      "usesEye": 1,
+      "camera": 3,
+      "trackOffsets": 3
+    },
+    "NetPreviewCommand": {
+      "lookAt": 1,
+      "lookCount": 1,
+      "hasScale": 1,
+      "scale": 1,
+      "hasInvert": 1,
+      "invert": 1,
+      "lookSent": 1
+    },
+    "NetPreviewLook": {
+      "x": 1,
+      "y": 1
+    },
+    "NetPreviewOutput": {
+      "previewYaw": 1,
+      "previewPitch": 1,
+      "hudYaw": 1,
+      "renderedYaw": 1,
+      "renderedPitch": 1,
+      "vehicleValid": 1,
+      "vehicleYaw": 1,
+      "vehiclePitch": 1,
+      "turretValid": 1,
+      "turretPreviewYaw": 1,
+      "turretPreviewPitch": 1,
+      "turretYaw": 1,
+      "turretPitch": 1,
+      "turretYawVel": 1,
+      "turretPitchVel": 1,
+      "shownYaw": 1,
+      "shownPitch": 1
+    },
+    "NetSmoothInput": {
+      "seed": 1,
+      "x": 1,
+      "y": 1,
+      "z": 1,
+      "count": 1,
+      "snaps": 1,
+      "worst": 1,
+      "snap": 1,
+      "tau": 1,
+      "commands": 1
+    },
+    "NetSmoothCommand": {
+      "kind": 1,
+      "old": 3,
+      "new": 3,
+      "value": 1
+    },
+    "NetSmoothOutput": {
+      "x": 1,
+      "y": 1,
+      "z": 1,
+      "length": 1,
+      "count": 1,
+      "snaps": 1,
+      "worst": 1,
+      "lastSize": 1
+    },
+    "NetOutboundCommand": {
+      "epoch": 1,
+      "generation": 1,
+      "sequence": 1,
+      "tick": 1,
+      "heldCount": 1
+    },
+    "NetOutboundLook": {
+      "count": 1
+    },
+    "NetOutboundBatch": {
+      "wordCount": 1,
+      "mouseScale": 1,
+      "invert": 1
+    },
+    "NetOutboundFire": {
+      "button": 1,
+      "pressed": 1,
+      "held": 1
+    },
+    "NetLeaseChanges": {
+      "count": 1
     }
   },
   "enums": {
@@ -137,7 +360,8 @@
       "tombstone",
       "summary",
       "correction",
-      "combat"
+      "combat",
+      "seat"
     ],
     "NetOp": [
       "header",
@@ -163,6 +387,28 @@
       "records",
       "requests",
       "timelinePresent"
+    ],
+    "NetSmoothKind": [
+      "note",
+      "reset",
+      "decay"
+    ],
+    "NetPreviewPosture": [
+      "stand",
+      "crouch",
+      "prone"
+    ],
+    "NetPreviewAir": [
+      "none",
+      "jump",
+      "fall",
+      "thrown",
+      "jet"
+    ],
+    "NetLeaseKind": [
+      "none",
+      "vehicle",
+      "turret"
     ]
   },
   "limits": {
@@ -173,10 +419,25 @@
       "worldFields": 4096,
       "fieldVersions": 32768,
       "payload": 1100,
-      "fieldPayload": 900,
+      "fieldPayload": 1100,
       "records": 2048,
       "exchange": 262144,
-      "owners": 64
+      "owners": 64,
+      "previewCommands": 512,
+      "previewLooks": 8192,
+      "smoothCommands": 256,
+      "mountSeats": 16,
+      "mountHistory": 12,
+      "predictionCommands": 512,
+      "predictionLooks": 8192,
+      "fieldBytes": 4194304,
+      "fieldBlock": 16,
+      "leases": 4096,
+      "leaseChanges": 8192
+    },
+    "NetProtocol": {
+      "inputMagic": 826887746,
+      "ackMagic": 826363458
     }
   }
 }

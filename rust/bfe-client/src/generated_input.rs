@@ -73,6 +73,29 @@ impl ClientAction {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum ClientCommandSource {
+    #[default] Movement = 0,
+    Action = 1,
+    Outcome = 2,
+    Fire = 3,
+}
+
+impl ClientCommandSource {
+    pub const NAMES: [&'static str; 4] = ["movement", "action", "outcome", "fire"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(ClientCommandSource::Movement),
+            1 => Some(ClientCommandSource::Action),
+            2 => Some(ClientCommandSource::Outcome),
+            3 => Some(ClientCommandSource::Fire),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ClientFlightHeld {
     #[default] Throttle = 0,
     Brake = 1,
@@ -129,11 +152,17 @@ pub struct ClientCommand {
     pub sent: bool,
     pub held: u32,
     pub actions: u32,
+    pub source: ClientCommandSource,
+    pub flight_actions: u32,
     pub look_at: u32,
     pub look_count: u32,
-    pub mouse_scale: Option<f64>,
+    pub mouse_scale: f64,
+    pub has_mouse_scale: bool,
     pub invert: Option<bool>,
     pub flight_at: u32,
+    pub first_person: Option<bool>,
+    pub aspect: f64,
+    pub has_aspect: bool,
     pub primary_count: u32,
     pub primary_id: f64,
     pub secondary_count: u32,
@@ -141,44 +170,56 @@ pub struct ClientCommand {
 }
 
 impl ClientCommand {
-    pub const WORDS: usize = 17;
+    pub const WORDS: usize = 23;
     pub const TICK: usize = 0;
     pub const GENERATION: usize = 1;
     pub const SEQUENCE: usize = 2;
     pub const SENT: usize = 3;
     pub const HELD: usize = 4;
     pub const ACTIONS: usize = 5;
-    pub const LOOK_AT: usize = 6;
-    pub const LOOK_COUNT: usize = 7;
-    pub const MOUSE_SCALE: usize = 8;
-    pub const INVERT: usize = 10;
-    pub const FLIGHT_AT: usize = 12;
-    pub const PRIMARY_COUNT: usize = 13;
-    pub const PRIMARY_ID: usize = 14;
-    pub const SECONDARY_COUNT: usize = 15;
-    pub const SECONDARY_ID: usize = 16;
+    pub const SOURCE: usize = 6;
+    pub const FLIGHT_ACTIONS: usize = 7;
+    pub const LOOK_AT: usize = 8;
+    pub const LOOK_COUNT: usize = 9;
+    pub const MOUSE_SCALE: usize = 10;
+    pub const HAS_MOUSE_SCALE: usize = 11;
+    pub const INVERT: usize = 12;
+    pub const FLIGHT_AT: usize = 14;
+    pub const FIRST_PERSON: usize = 15;
+    pub const ASPECT: usize = 17;
+    pub const HAS_ASPECT: usize = 18;
+    pub const PRIMARY_COUNT: usize = 19;
+    pub const PRIMARY_ID: usize = 20;
+    pub const SECONDARY_COUNT: usize = 21;
+    pub const SECONDARY_ID: usize = 22;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
         row[0] = self.tick;
         row[1] = self.generation;
         row[2] = self.sequence;
         row[3] = if self.sent { 1.0 } else { 0.0 };
         row[4] = self.held as f64;
         row[5] = self.actions as f64;
-        row[6] = self.look_at as f64;
-        row[7] = self.look_count as f64;
-        match &self.mouse_scale { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v); } None => { row[8] = 2.0; row[8 + 1..8 + 2].fill(0.0); } }
-        match &self.invert { Some(v) => { row[10] = 0.0; row[10 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[10] = 2.0; row[10 + 1..10 + 2].fill(0.0); } }
-        row[12] = self.flight_at as f64;
-        row[13] = self.primary_count as f64;
-        row[14] = self.primary_id;
-        row[15] = self.secondary_count as f64;
-        row[16] = self.secondary_id;
+        row[6] = self.source as u8 as f64;
+        row[7] = self.flight_actions as f64;
+        row[8] = self.look_at as f64;
+        row[9] = self.look_count as f64;
+        row[10] = self.mouse_scale;
+        row[11] = if self.has_mouse_scale { 1.0 } else { 0.0 };
+        match &self.invert { Some(v) => { row[12] = 0.0; row[12 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[12] = 2.0; row[12 + 1..12 + 2].fill(0.0); } }
+        row[14] = self.flight_at as f64;
+        match &self.first_person { Some(v) => { row[15] = 0.0; row[15 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[15] = 2.0; row[15 + 1..15 + 2].fill(0.0); } }
+        row[17] = self.aspect;
+        row[18] = if self.has_aspect { 1.0 } else { 0.0 };
+        row[19] = self.primary_count as f64;
+        row[20] = self.primary_id;
+        row[21] = self.secondary_count as f64;
+        row[22] = self.secondary_id;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
         Self {
             tick: row[0],
             generation: row[1],
@@ -186,15 +227,21 @@ impl ClientCommand {
             sent: row[3] != 0.0,
             held: word_u32(row[4]),
             actions: word_u32(row[5]),
-            look_at: word_u32(row[6]),
-            look_count: word_u32(row[7]),
-            mouse_scale: if row[8] == 0.0 { Some(row[8 + 1]) } else { None },
-            invert: if row[10] == 0.0 { Some(row[10 + 1] != 0.0) } else { None },
-            flight_at: word_u32(row[12]),
-            primary_count: word_u32(row[13]),
-            primary_id: row[14],
-            secondary_count: word_u32(row[15]),
-            secondary_id: row[16],
+            source: ClientCommandSource::from_u8(word_u32(row[6]) as u8).unwrap_or_default(),
+            flight_actions: word_u32(row[7]),
+            look_at: word_u32(row[8]),
+            look_count: word_u32(row[9]),
+            mouse_scale: row[10],
+            has_mouse_scale: row[11] != 0.0,
+            invert: if row[12] == 0.0 { Some(row[12 + 1] != 0.0) } else { None },
+            flight_at: word_u32(row[14]),
+            first_person: if row[15] == 0.0 { Some(row[15 + 1] != 0.0) } else { None },
+            aspect: row[17],
+            has_aspect: row[18] != 0.0,
+            primary_count: word_u32(row[19]),
+            primary_id: row[20],
+            secondary_count: word_u32(row[21]),
+            secondary_id: row[22],
         }
     }
 

@@ -1,3 +1,4 @@
+import {CorrectionSmoother} from '../tools/native-prediction-smoother.mjs';
 // Operator-owned Bespin flight reconciliation. This models application message
 // loss/delay, not SCTP congestion or 64-player capacity. No retail files emitted.
 // Snapshot baselines clone actual vehicle state with position/velocity/rotation
@@ -15,9 +16,9 @@ import {createMultiplayerWorld} from '../src/runtime/multiplayer-world.js';
 import {presentationHull} from '../src/runtime/client-hull.js';
 import {createHullReplay} from '../tests/helpers/hull-prediction.js';
 import {Vector3} from 'three';
-import {NetworkInputs,predictionCommands} from '../src/runtime/network-inputs.js';
+import {NetworkInputs} from '../src/runtime/network-inputs.js';
 import {FixedClock} from '../src/runtime/fixed-clock.js';
-import {InputLead,advanceInputClock,CorrectionSmoother} from '../src/runtime/reconcile.js';
+import {InputLead,advanceInputClock} from '../src/runtime/reconcile.js';
 import {PlayoutClock} from '../src/runtime/playout.js';
 import {SnapshotInterval} from '../src/runtime/snapshot-interval.js';
 import {DEFAULTS} from '../src/settings.js';
@@ -91,7 +92,10 @@ for(let micro=1;micro<=seconds*7200;micro++){
 
  }
  if(!baseline)continue;
- const commands=predictionCommands(pending,pendingActions,ackActions,held);
+ const outcomes=new Map();let edgeId=0;
+ for(const c of pendingActions)for(const action of c.actions)outcomes.set(++edgeId,{sequence:c.sequence,edge:{kind:'action',action,tick:c.tick,generation:c.generation}});
+ replay.session.replaySources(pendingActions,outcomes,held);
+ const commands=pending;
  if(previous){oldPose.copy(previous.position);oldTick=previous.predictionTick;}
  const current=replay.predict(commands,applied,held),predicted=commands.length?current:null;
  if(predicted&&previous&&replay.session.result.checkFound){

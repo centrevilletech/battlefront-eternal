@@ -6,7 +6,6 @@ pub mod local;
 #[cfg(target_arch = "wasm32")]
 pub mod step;
 pub mod network;
-pub mod network_lifecycle;
 pub mod network_controls;
 #[cfg(target_arch = "wasm32")]
 mod module;

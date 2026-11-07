@@ -135,7 +135,10 @@ test('a snapshot whose own datagram announces a second completes only with it', 
     const client = new SnapshotClient();
     const datagrams = { parts, first: [encodeOwnDatagram({ epoch: 1, tick: 10, ownParts: 2 })], second: [encodeOwnDatagram({ epoch: 1, tick: 10, cosmeticBytes: packed, second: true })] };
     let records = 0;
-    for (const name of order) for (const bytes of datagrams[name]) records += client.receive(bytes)?.records.filter(r => r.kind === 'combat').length ?? 0;
+    for (const name of order) for (const bytes of datagrams[name]) {
+      const packet=client.receive(bytes);if(!packet)continue;
+      for(let i=0;i<packet.records.length;i++)if(packet.records.get(i).kind==='combat')records++;
+    }
     assert.equal(client.snapshotAck.tick, order.includes('second') ? 10 : 0, order.join(' '));
     assert.equal(records, order.includes('second') ? 1 : 0);
   }

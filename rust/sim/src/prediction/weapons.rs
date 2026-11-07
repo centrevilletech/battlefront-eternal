@@ -436,3 +436,12 @@ impl Session {
         }
     }
 }
+
+// ClientPrediction shares the existing cold tagged-definition reader with
+// recon preparation; mutable frames never parse authored property trees.
+pub(crate) fn read_definition(words: &[f64]) -> Result<Js, &'static str> {
+    let mut reader = Reader::new(words);
+    let value = reader.value(0)?;
+    reader.done()?;
+    Ok(value)
+}

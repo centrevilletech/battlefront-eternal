@@ -46,7 +46,6 @@ import { animated } from './animated.mjs';
 import { liveObjects } from './live.mjs';
 import { turrets } from './turrets.mjs';
 import { debris } from './debris.mjs';
-import { weapons } from './weapons.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -308,4 +307,4 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // battlefield and the spawn manager, and (battlePhase) the battle phase
 // whole (tools/sim-capture/battle.mjs).
 const f2 = f2Spec({ hullExport, seatState, crewState, poseState, tetherState, boundaries: spawnBoundaries });
-export const SPECS = { f2, world, ordnance, items, vehicles, ticks, flight, flightMissiles, seats, battle, battlePhase, humanSpawn, traps, props, animated, liveObjects, turrets, debris, weapons };
+export const SPECS = { f2, world, ordnance, items, vehicles, ticks, flight, flightMissiles, seats, battle, battlePhase, humanSpawn, traps, props, animated, liveObjects, turrets, debris };

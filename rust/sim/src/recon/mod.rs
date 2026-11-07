@@ -1,7 +1,7 @@
 //! World-owned RemoteDroids flight and connection-scoped recon lifecycle.
 //! Native services operate on committed rows: a death explosion can recurse
 //! through the world without holding a droid or weapon borrow. Page replay is
-//! deliberately separate in prediction::remotes.
+//! deliberately separate in client::recon.
 use crate::combat::{
     defs::WeaponDefs,
     weapons::{self, Admission, Aim, Arsenal, ArsenalInput, Shot, ShotKind, Trigger, WeaponDraws},
@@ -1150,7 +1150,10 @@ impl Authority {
     // The target is retained because every weapon muzzle converges on that point.
     // Its initial value is computed at launch before control can be entered.
     // A missing obstruction keeps the fixed 512-metre target reach.
-    fn aim<W: World>(&mut self, store: &mut Store, world: &mut W, r: Ref<ReconDroid>) {
+    // Own wire corrections omit these derived vectors. Private page replay
+    // reconstructs them with the same collision/camera core before its first
+    // predicted tick, including a frame with no outstanding commands.
+    pub(crate) fn aim<W: World>(&mut self, store: &mut Store, world: &mut W, r: Ref<ReconDroid>) {
         let context = store.recon_droid.get(r).unwrap().context;
         let c = store.recon_context.get(context).unwrap();
         let zoom = if c.zoom {

@@ -194,9 +194,11 @@ impl Session {
             r.done()?;
             self.kind = Some(kind as u32);
             self.parts = parts;
-            self.caches = std::array::from_fn(|_| GatherCache::new(0.75));
-            self.gathered = Gathered::new();
-            self.ground = GroundCache::default();
+            // ActorPrediction.configure used to replace the complete scene cache.
+            // Body changes invalidate query facts, not the owned reservations.
+            for cache in &mut self.caches { cache.reset(); }
+            self.gathered.reset();
+            self.ground.reset();
             self.mover = Mover::new(0);
             return Ok(());
         }

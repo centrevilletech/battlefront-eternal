@@ -1,3 +1,5 @@
+import {EntityInputSender} from '../src/runtime/network-entity-sender.js';
+import {NetHeader,NetOutbound} from '../src/runtime/network-layout.js';
 import {pushTimeline,sampleTimeline} from './helpers/network-capture.js';
 import {Clip} from '../src/anim.js';
 import './fixtures/native-anim.js';
@@ -296,4 +298,32 @@ test('a received turret lease places its rider without stopping snapshot applica
   assert.equal(poses.length,0,'a lease joins the native batch without a per-body callback');
   packet(f, authority, 101, 2);
   assert.deepEqual([...new Set(f.applied)], [100, 101]);
+});
+
+// The real page gives its input sender the receive/display owner. An encoder
+// registry alone names a different native object and has no own-preview facts.
+test('own fire transport consumes the same native facts as receive and display',()=>{
+  const f=fixture(),g=f.game;g.soldier=f.own.soldier;g.combat=f.own.combat;
+  g.settings={mouseScale:1,get:()=>false};g.gunner={active:false};g.driver={active:false};
+  const native=f.adapter.receiver.network,seen=[];
+  const sender=new EntityInputSender({registry,kernel:native,send:()=>true,getAim:()=>{
+    const aim={aimYaw:native.numbers[NetOutbound.BODY_YAW],aimPitch:native.numbers[NetOutbound.BODY_PITCH]};seen.push(aim);return aim;
+  }});
+  try{
+    g.soldier.aimYaw=.7;g.soldier.aimPitch=.2;f.adapter.preview.prepareFacts(g);
+    sender.send([{epoch:1,generation:1,sequence:1,tick:1,down:[],actions:['firePrimary'],look:[[4,2]],mouseScale:1}]);
+    assert.equal(sender.network,native);assert.equal(seen.length,2);
+    for(const aim of seen)assert.deepEqual(aim,{aimYaw:.7-4*g.soldier.maxTurn/2048,aimPitch:.2-2*g.soldier.maxTurn/2048});
+  }finally{sender.dispose();f.adapter.dispose();}
+});
+
+// View-only redraws cannot advance or zero the world sample's retained dt.
+// Walker feet use that interval independently of the current own camera.
+test('own view refresh retains the native world sampling interval',()=>{
+  const f=fixture(),network=f.adapter.receiver.network;
+  f.adapter.baseline();f.adapter.present(100,false);f.adapter.present(101,false);
+  const dt=network.header[NetHeader.DT],before=network.calls;assert.equal(dt,1/60);
+  f.adapter.presentView(1,true,false);
+  assert.equal(network.header[NetHeader.DT],dt);assert.equal(network.calls,before+1);
+  f.adapter.dispose();
 });

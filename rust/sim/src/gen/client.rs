@@ -12,10 +12,11 @@ pub enum ClientOp {
     Reset = 3,
     ConfigureMuzzles = 4,
     ConfigureHull = 5,
+    ConfigureRecon = 6,
 }
 
 impl ClientOp {
-    pub const NAMES: [&'static str; 6] = ["configureActor", "configureWeapon", "predict", "reset", "configureMuzzles", "configureHull"];
+    pub const NAMES: [&'static str; 7] = ["configureActor", "configureWeapon", "predict", "reset", "configureMuzzles", "configureHull", "configureRecon"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -25,6 +26,7 @@ impl ClientOp {
             3 => Some(ClientOp::Reset),
             4 => Some(ClientOp::ConfigureMuzzles),
             5 => Some(ClientOp::ConfigureHull),
+            6 => Some(ClientOp::ConfigureRecon),
             _ => None,
         }
     }
@@ -217,20 +219,45 @@ impl ClientCompactFlightQuaternion {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum ClientCommandSource {
+    #[default] Movement = 0,
+    Action = 1,
+    Outcome = 2,
+    Fire = 3,
+}
+
+impl ClientCommandSource {
+    pub const NAMES: [&'static str; 4] = ["movement", "action", "outcome", "fire"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(ClientCommandSource::Movement),
+            1 => Some(ClientCommandSource::Action),
+            2 => Some(ClientCommandSource::Outcome),
+            3 => Some(ClientCommandSource::Fire),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ClientMode {
     #[default] Actor = 0,
     Mounted = 1,
     Hull = 2,
+    Recon = 3,
 }
 
 impl ClientMode {
-    pub const NAMES: [&'static str; 3] = ["actor", "mounted", "hull"];
+    pub const NAMES: [&'static str; 4] = ["actor", "mounted", "hull", "recon"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0 => Some(ClientMode::Actor),
             1 => Some(ClientMode::Mounted),
             2 => Some(ClientMode::Hull),
+            3 => Some(ClientMode::Recon),
             _ => None,
         }
     }
@@ -1478,6 +1505,168 @@ impl ClientMuzzles {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientReconClass {
+    pub count: u32,
+    pub ids_at: u32,
+    pub definition_at: u32,
+    pub muzzle: Vec3,
+}
+
+impl ClientReconClass {
+    pub const WORDS: usize = 6;
+    pub const COUNT: usize = 0;
+    pub const IDS_AT: usize = 1;
+    pub const DEFINITION_AT: usize = 2;
+    pub const MUZZLE: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.count as f64;
+        row[1] = self.ids_at as f64;
+        row[2] = self.definition_at as f64;
+        row[3..3 + 3].copy_from_slice(&self.muzzle);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            count: word_u32(row[0]),
+            ids_at: word_u32(row[1]),
+            definition_at: word_u32(row[2]),
+            muzzle: [row[3], row[3 + 1], row[3 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientReconState {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub eye: Vec3,
+    pub aim: Vec3,
+    pub target: Vec3,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub health: f64,
+    pub dead: bool,
+    pub countdown: f64,
+    pub team: f64,
+    pub piloted: bool,
+    pub seed: u32,
+    pub look_x: f64,
+    pub look_y: f64,
+    pub zoom: bool,
+    pub first_person: Option<bool>,
+    pub camera: ReconCamera,
+    pub has_camera: bool,
+    pub aspect: f64,
+    pub salvo: Option<ReconSalvo>,
+    pub view_first: Option<bool>,
+    pub view_aspect: f64,
+    pub has_view_aspect: bool,
+    pub water_level: f64,
+    pub has_water_level: bool,
+    pub needs_aim: bool,
+}
+
+impl ClientReconState {
+    pub const WORDS: usize = 63;
+    pub const POSITION: usize = 0;
+    pub const VELOCITY: usize = 3;
+    pub const EYE: usize = 6;
+    pub const AIM: usize = 9;
+    pub const TARGET: usize = 12;
+    pub const YAW: usize = 15;
+    pub const PITCH: usize = 16;
+    pub const HEALTH: usize = 17;
+    pub const DEAD: usize = 18;
+    pub const COUNTDOWN: usize = 19;
+    pub const TEAM: usize = 20;
+    pub const PILOTED: usize = 21;
+    pub const SEED: usize = 22;
+    pub const LOOK_X: usize = 23;
+    pub const LOOK_Y: usize = 24;
+    pub const ZOOM: usize = 25;
+    pub const FIRST_PERSON: usize = 26;
+    pub const CAMERA: usize = 28;
+    pub const HAS_CAMERA: usize = 38;
+    pub const ASPECT: usize = 39;
+    pub const SALVO: usize = 40;
+    pub const VIEW_FIRST: usize = 56;
+    pub const VIEW_ASPECT: usize = 58;
+    pub const HAS_VIEW_ASPECT: usize = 59;
+    pub const WATER_LEVEL: usize = 60;
+    pub const HAS_WATER_LEVEL: usize = 61;
+    pub const NEEDS_AIM: usize = 62;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 63] = (&mut row[..63]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.position);
+        row[3..3 + 3].copy_from_slice(&self.velocity);
+        row[6..6 + 3].copy_from_slice(&self.eye);
+        row[9..9 + 3].copy_from_slice(&self.aim);
+        row[12..12 + 3].copy_from_slice(&self.target);
+        row[15] = self.yaw;
+        row[16] = self.pitch;
+        row[17] = self.health;
+        row[18] = if self.dead { 1.0 } else { 0.0 };
+        row[19] = self.countdown;
+        row[20] = self.team;
+        row[21] = if self.piloted { 1.0 } else { 0.0 };
+        row[22] = self.seed as f64;
+        row[23] = self.look_x;
+        row[24] = self.look_y;
+        row[25] = if self.zoom { 1.0 } else { 0.0 };
+        match &self.first_person { Some(v) => { row[26] = 0.0; row[26 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[26] = 2.0; row[26 + 1..26 + 2].fill(0.0); } }
+        self.camera.put(&mut row[28..], heap);
+        row[38] = if self.has_camera { 1.0 } else { 0.0 };
+        row[39] = self.aspect;
+        match &self.salvo { Some(v) => { row[40] = 0.0; v.put(&mut row[40 + 1..], heap); } None => { row[40] = 1.0; row[40 + 1..40 + 16].fill(0.0); } }
+        match &self.view_first { Some(v) => { row[56] = 0.0; row[56 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[56] = 2.0; row[56 + 1..56 + 2].fill(0.0); } }
+        row[58] = self.view_aspect;
+        row[59] = if self.has_view_aspect { 1.0 } else { 0.0 };
+        row[60] = self.water_level;
+        row[61] = if self.has_water_level { 1.0 } else { 0.0 };
+        row[62] = if self.needs_aim { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 63] = (&row[..63]).try_into().unwrap();
+        Self {
+            position: [row[0], row[0 + 1], row[0 + 2]],
+            velocity: [row[3], row[3 + 1], row[3 + 2]],
+            eye: [row[6], row[6 + 1], row[6 + 2]],
+            aim: [row[9], row[9 + 1], row[9 + 2]],
+            target: [row[12], row[12 + 1], row[12 + 2]],
+            yaw: row[15],
+            pitch: row[16],
+            health: row[17],
+            dead: row[18] != 0.0,
+            countdown: row[19],
+            team: row[20],
+            piloted: row[21] != 0.0,
+            seed: word_u32(row[22]),
+            look_x: row[23],
+            look_y: row[24],
+            zoom: row[25] != 0.0,
+            first_person: if row[26] == 0.0 { Some(row[26 + 1] != 0.0) } else { None },
+            camera: ReconCamera::take(&row[28..], heap),
+            has_camera: row[38] != 0.0,
+            aspect: row[39],
+            salvo: if row[40] == 0.0 { Some(ReconSalvo::take(&row[40 + 1..], heap)) } else { None },
+            view_first: if row[56] == 0.0 { Some(row[56 + 1] != 0.0) } else { None },
+            view_aspect: row[58],
+            has_view_aspect: row[59] != 0.0,
+            water_level: row[60],
+            has_water_level: row[61] != 0.0,
+            needs_aim: row[62] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClientFrame {
     pub epoch: f64,
     pub identity: f64,
@@ -1485,6 +1674,7 @@ pub struct ClientFrame {
     pub source: f64,
     pub authority_tick: f64,
     pub mode: ClientMode,
+    pub recon_at: u32,
     pub hull_at: u32,
     pub mounts_at: u32,
     pub mounts_count: u32,
@@ -1504,6 +1694,7 @@ pub struct ClientFrame {
     pub flags_count: u32,
     pub commands_at: u32,
     pub commands_count: u32,
+    pub merge_commands: bool,
     pub crowd_at: u32,
     pub crowd_count: u32,
     pub held: u32,
@@ -1517,84 +1708,88 @@ pub struct ClientFrame {
 }
 
 impl ClientFrame {
-    pub const WORDS: usize = 37;
+    pub const WORDS: usize = 39;
     pub const EPOCH: usize = 0;
     pub const IDENTITY: usize = 1;
     pub const GENERATION: usize = 2;
     pub const SOURCE: usize = 3;
     pub const AUTHORITY_TICK: usize = 4;
     pub const MODE: usize = 5;
-    pub const HULL_AT: usize = 6;
-    pub const MOUNTS_AT: usize = 7;
-    pub const MOUNTS_COUNT: usize = 8;
-    pub const WORLD: usize = 9;
-    pub const IGNORED: usize = 10;
-    pub const MOVEMENT: usize = 11;
-    pub const DEAD: usize = 12;
-    pub const UNDERWATER: usize = 13;
-    pub const SHIELD: usize = 14;
-    pub const ACTOR_AT: usize = 15;
-    pub const ACTOR_WORDS: usize = 16;
-    pub const CORRECTION_AT: usize = 17;
-    pub const CORRECTION_BYTES: usize = 18;
-    pub const WEAPONS_AT: usize = 19;
-    pub const WEAPONS_WORDS: usize = 20;
-    pub const FLAGS_AT: usize = 21;
-    pub const FLAGS_COUNT: usize = 22;
-    pub const COMMANDS_AT: usize = 23;
-    pub const COMMANDS_COUNT: usize = 24;
-    pub const CROWD_AT: usize = 25;
-    pub const CROWD_COUNT: usize = 26;
-    pub const HELD: usize = 27;
-    pub const FLIGHT_HELD: usize = 28;
-    pub const PRESENTED_THROUGH: usize = 29;
-    pub const COSMETIC_SLOTS: usize = 30;
-    pub const MOUSE_SCALE: usize = 31;
-    pub const INVERT: usize = 32;
-    pub const KICK: usize = 33;
-    pub const CHECK_TICK: usize = 36;
+    pub const RECON_AT: usize = 6;
+    pub const HULL_AT: usize = 7;
+    pub const MOUNTS_AT: usize = 8;
+    pub const MOUNTS_COUNT: usize = 9;
+    pub const WORLD: usize = 10;
+    pub const IGNORED: usize = 11;
+    pub const MOVEMENT: usize = 12;
+    pub const DEAD: usize = 13;
+    pub const UNDERWATER: usize = 14;
+    pub const SHIELD: usize = 15;
+    pub const ACTOR_AT: usize = 16;
+    pub const ACTOR_WORDS: usize = 17;
+    pub const CORRECTION_AT: usize = 18;
+    pub const CORRECTION_BYTES: usize = 19;
+    pub const WEAPONS_AT: usize = 20;
+    pub const WEAPONS_WORDS: usize = 21;
+    pub const FLAGS_AT: usize = 22;
+    pub const FLAGS_COUNT: usize = 23;
+    pub const COMMANDS_AT: usize = 24;
+    pub const COMMANDS_COUNT: usize = 25;
+    pub const MERGE_COMMANDS: usize = 26;
+    pub const CROWD_AT: usize = 27;
+    pub const CROWD_COUNT: usize = 28;
+    pub const HELD: usize = 29;
+    pub const FLIGHT_HELD: usize = 30;
+    pub const PRESENTED_THROUGH: usize = 31;
+    pub const COSMETIC_SLOTS: usize = 32;
+    pub const MOUSE_SCALE: usize = 33;
+    pub const INVERT: usize = 34;
+    pub const KICK: usize = 35;
+    pub const CHECK_TICK: usize = 38;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 37] = (&mut row[..37]).try_into().unwrap();
+        let row: &mut [f64; 39] = (&mut row[..39]).try_into().unwrap();
         row[0] = self.epoch;
         row[1] = self.identity;
         row[2] = self.generation;
         row[3] = self.source;
         row[4] = self.authority_tick;
         row[5] = self.mode as u8 as f64;
-        row[6] = self.hull_at as f64;
-        row[7] = self.mounts_at as f64;
-        row[8] = self.mounts_count as f64;
-        row[9] = self.world as f64;
-        row[10] = self.ignored;
-        row[11] = if self.movement { 1.0 } else { 0.0 };
-        row[12] = if self.dead { 1.0 } else { 0.0 };
-        row[13] = if self.underwater { 1.0 } else { 0.0 };
-        row[14] = if self.shield { 1.0 } else { 0.0 };
-        row[15] = self.actor_at as f64;
-        row[16] = self.actor_words as f64;
-        row[17] = self.correction_at as f64;
-        row[18] = self.correction_bytes as f64;
-        row[19] = self.weapons_at as f64;
-        row[20] = self.weapons_words as f64;
-        row[21] = self.flags_at as f64;
-        row[22] = self.flags_count as f64;
-        row[23] = self.commands_at as f64;
-        row[24] = self.commands_count as f64;
-        row[25] = self.crowd_at as f64;
-        row[26] = self.crowd_count as f64;
-        row[27] = self.held as f64;
-        row[28] = self.flight_held as f64;
-        row[29] = self.presented_through;
-        row[30] = self.cosmetic_slots as f64;
-        row[31] = self.mouse_scale;
-        row[32] = if self.invert { 1.0 } else { 0.0 };
-        row[33..33 + 3].copy_from_slice(&self.kick);
-        row[36] = self.check_tick;
+        row[6] = self.recon_at as f64;
+        row[7] = self.hull_at as f64;
+        row[8] = self.mounts_at as f64;
+        row[9] = self.mounts_count as f64;
+        row[10] = self.world as f64;
+        row[11] = self.ignored;
+        row[12] = if self.movement { 1.0 } else { 0.0 };
+        row[13] = if self.dead { 1.0 } else { 0.0 };
+        row[14] = if self.underwater { 1.0 } else { 0.0 };
+        row[15] = if self.shield { 1.0 } else { 0.0 };
+        row[16] = self.actor_at as f64;
+        row[17] = self.actor_words as f64;
+        row[18] = self.correction_at as f64;
+        row[19] = self.correction_bytes as f64;
+        row[20] = self.weapons_at as f64;
+        row[21] = self.weapons_words as f64;
+        row[22] = self.flags_at as f64;
+        row[23] = self.flags_count as f64;
+        row[24] = self.commands_at as f64;
+        row[25] = self.commands_count as f64;
+        row[26] = if self.merge_commands { 1.0 } else { 0.0 };
+        row[27] = self.crowd_at as f64;
+        row[28] = self.crowd_count as f64;
+        row[29] = self.held as f64;
+        row[30] = self.flight_held as f64;
+        row[31] = self.presented_through;
+        row[32] = self.cosmetic_slots as f64;
+        row[33] = self.mouse_scale;
+        row[34] = if self.invert { 1.0 } else { 0.0 };
+        row[35..35 + 3].copy_from_slice(&self.kick);
+        row[38] = self.check_tick;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 37] = (&row[..37]).try_into().unwrap();
+        let row: &[f64; 39] = (&row[..39]).try_into().unwrap();
         Self {
             epoch: row[0],
             identity: row[1],
@@ -1602,35 +1797,37 @@ impl ClientFrame {
             source: row[3],
             authority_tick: row[4],
             mode: ClientMode::from_u8(word_u32(row[5]) as u8).unwrap_or_default(),
-            hull_at: word_u32(row[6]),
-            mounts_at: word_u32(row[7]),
-            mounts_count: word_u32(row[8]),
-            world: word_u32(row[9]),
-            ignored: row[10],
-            movement: row[11] != 0.0,
-            dead: row[12] != 0.0,
-            underwater: row[13] != 0.0,
-            shield: row[14] != 0.0,
-            actor_at: word_u32(row[15]),
-            actor_words: word_u32(row[16]),
-            correction_at: word_u32(row[17]),
-            correction_bytes: word_u32(row[18]),
-            weapons_at: word_u32(row[19]),
-            weapons_words: word_u32(row[20]),
-            flags_at: word_u32(row[21]),
-            flags_count: word_u32(row[22]),
-            commands_at: word_u32(row[23]),
-            commands_count: word_u32(row[24]),
-            crowd_at: word_u32(row[25]),
-            crowd_count: word_u32(row[26]),
-            held: word_u32(row[27]),
-            flight_held: word_u32(row[28]),
-            presented_through: row[29],
-            cosmetic_slots: word_u32(row[30]),
-            mouse_scale: row[31],
-            invert: row[32] != 0.0,
-            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[33..33 + 3]); a },
-            check_tick: row[36],
+            recon_at: word_u32(row[6]),
+            hull_at: word_u32(row[7]),
+            mounts_at: word_u32(row[8]),
+            mounts_count: word_u32(row[9]),
+            world: word_u32(row[10]),
+            ignored: row[11],
+            movement: row[12] != 0.0,
+            dead: row[13] != 0.0,
+            underwater: row[14] != 0.0,
+            shield: row[15] != 0.0,
+            actor_at: word_u32(row[16]),
+            actor_words: word_u32(row[17]),
+            correction_at: word_u32(row[18]),
+            correction_bytes: word_u32(row[19]),
+            weapons_at: word_u32(row[20]),
+            weapons_words: word_u32(row[21]),
+            flags_at: word_u32(row[22]),
+            flags_count: word_u32(row[23]),
+            commands_at: word_u32(row[24]),
+            commands_count: word_u32(row[25]),
+            merge_commands: row[26] != 0.0,
+            crowd_at: word_u32(row[27]),
+            crowd_count: word_u32(row[28]),
+            held: word_u32(row[29]),
+            flight_held: word_u32(row[30]),
+            presented_through: row[31],
+            cosmetic_slots: word_u32(row[32]),
+            mouse_scale: row[33],
+            invert: row[34] != 0.0,
+            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[35..35 + 3]); a },
+            check_tick: row[38],
         }
     }
 
@@ -1644,11 +1841,17 @@ pub struct ClientCommand {
     pub sent: bool,
     pub held: u32,
     pub actions: u32,
+    pub source: ClientCommandSource,
+    pub flight_actions: u32,
     pub look_at: u32,
     pub look_count: u32,
-    pub mouse_scale: Option<f64>,
+    pub mouse_scale: f64,
+    pub has_mouse_scale: bool,
     pub invert: Option<bool>,
     pub flight_at: u32,
+    pub first_person: Option<bool>,
+    pub aspect: f64,
+    pub has_aspect: bool,
     pub primary_count: u32,
     pub primary_id: f64,
     pub secondary_count: u32,
@@ -1656,44 +1859,56 @@ pub struct ClientCommand {
 }
 
 impl ClientCommand {
-    pub const WORDS: usize = 17;
+    pub const WORDS: usize = 23;
     pub const TICK: usize = 0;
     pub const GENERATION: usize = 1;
     pub const SEQUENCE: usize = 2;
     pub const SENT: usize = 3;
     pub const HELD: usize = 4;
     pub const ACTIONS: usize = 5;
-    pub const LOOK_AT: usize = 6;
-    pub const LOOK_COUNT: usize = 7;
-    pub const MOUSE_SCALE: usize = 8;
-    pub const INVERT: usize = 10;
-    pub const FLIGHT_AT: usize = 12;
-    pub const PRIMARY_COUNT: usize = 13;
-    pub const PRIMARY_ID: usize = 14;
-    pub const SECONDARY_COUNT: usize = 15;
-    pub const SECONDARY_ID: usize = 16;
+    pub const SOURCE: usize = 6;
+    pub const FLIGHT_ACTIONS: usize = 7;
+    pub const LOOK_AT: usize = 8;
+    pub const LOOK_COUNT: usize = 9;
+    pub const MOUSE_SCALE: usize = 10;
+    pub const HAS_MOUSE_SCALE: usize = 11;
+    pub const INVERT: usize = 12;
+    pub const FLIGHT_AT: usize = 14;
+    pub const FIRST_PERSON: usize = 15;
+    pub const ASPECT: usize = 17;
+    pub const HAS_ASPECT: usize = 18;
+    pub const PRIMARY_COUNT: usize = 19;
+    pub const PRIMARY_ID: usize = 20;
+    pub const SECONDARY_COUNT: usize = 21;
+    pub const SECONDARY_ID: usize = 22;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
         row[0] = self.tick;
         row[1] = self.generation;
         row[2] = self.sequence;
         row[3] = if self.sent { 1.0 } else { 0.0 };
         row[4] = self.held as f64;
         row[5] = self.actions as f64;
-        row[6] = self.look_at as f64;
-        row[7] = self.look_count as f64;
-        match &self.mouse_scale { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v); } None => { row[8] = 2.0; row[8 + 1..8 + 2].fill(0.0); } }
-        match &self.invert { Some(v) => { row[10] = 0.0; row[10 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[10] = 2.0; row[10 + 1..10 + 2].fill(0.0); } }
-        row[12] = self.flight_at as f64;
-        row[13] = self.primary_count as f64;
-        row[14] = self.primary_id;
-        row[15] = self.secondary_count as f64;
-        row[16] = self.secondary_id;
+        row[6] = self.source as u8 as f64;
+        row[7] = self.flight_actions as f64;
+        row[8] = self.look_at as f64;
+        row[9] = self.look_count as f64;
+        row[10] = self.mouse_scale;
+        row[11] = if self.has_mouse_scale { 1.0 } else { 0.0 };
+        match &self.invert { Some(v) => { row[12] = 0.0; row[12 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[12] = 2.0; row[12 + 1..12 + 2].fill(0.0); } }
+        row[14] = self.flight_at as f64;
+        match &self.first_person { Some(v) => { row[15] = 0.0; row[15 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[15] = 2.0; row[15 + 1..15 + 2].fill(0.0); } }
+        row[17] = self.aspect;
+        row[18] = if self.has_aspect { 1.0 } else { 0.0 };
+        row[19] = self.primary_count as f64;
+        row[20] = self.primary_id;
+        row[21] = self.secondary_count as f64;
+        row[22] = self.secondary_id;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
         Self {
             tick: row[0],
             generation: row[1],
@@ -1701,15 +1916,21 @@ impl ClientCommand {
             sent: row[3] != 0.0,
             held: word_u32(row[4]),
             actions: word_u32(row[5]),
-            look_at: word_u32(row[6]),
-            look_count: word_u32(row[7]),
-            mouse_scale: if row[8] == 0.0 { Some(row[8 + 1]) } else { None },
-            invert: if row[10] == 0.0 { Some(row[10 + 1] != 0.0) } else { None },
-            flight_at: word_u32(row[12]),
-            primary_count: word_u32(row[13]),
-            primary_id: row[14],
-            secondary_count: word_u32(row[15]),
-            secondary_id: row[16],
+            source: ClientCommandSource::from_u8(word_u32(row[6]) as u8).unwrap_or_default(),
+            flight_actions: word_u32(row[7]),
+            look_at: word_u32(row[8]),
+            look_count: word_u32(row[9]),
+            mouse_scale: row[10],
+            has_mouse_scale: row[11] != 0.0,
+            invert: if row[12] == 0.0 { Some(row[12 + 1] != 0.0) } else { None },
+            flight_at: word_u32(row[14]),
+            first_person: if row[15] == 0.0 { Some(row[15 + 1] != 0.0) } else { None },
+            aspect: row[17],
+            has_aspect: row[18] != 0.0,
+            primary_count: word_u32(row[19]),
+            primary_id: row[20],
+            secondary_count: word_u32(row[21]),
+            secondary_id: row[22],
         }
     }
 
@@ -1843,6 +2064,9 @@ pub struct ClientResult {
     pub weapons_words: u32,
     pub shots_at: u32,
     pub shots_count: u32,
+    pub recon_at: u32,
+    pub recon_words: u32,
+    pub recon_source_at: u32,
     pub hull_at: u32,
     pub hull_words: u32,
     pub before_at: u32,
@@ -1854,7 +2078,7 @@ pub struct ClientResult {
 }
 
 impl ClientResult {
-    pub const WORDS: usize = 25;
+    pub const WORDS: usize = 28;
     pub const TICK: usize = 0;
     pub const CONTINUED: usize = 1;
     pub const SEQUENCE: usize = 2;
@@ -1868,17 +2092,20 @@ impl ClientResult {
     pub const WEAPONS_WORDS: usize = 10;
     pub const SHOTS_AT: usize = 11;
     pub const SHOTS_COUNT: usize = 12;
-    pub const HULL_AT: usize = 13;
-    pub const HULL_WORDS: usize = 14;
-    pub const BEFORE_AT: usize = 15;
-    pub const BEFORE_SHOT: usize = 16;
-    pub const LOOK_YAW: usize = 17;
-    pub const CHECK_FOUND: usize = 18;
-    pub const CHECK_POSITION: usize = 19;
-    pub const KICK: usize = 22;
+    pub const RECON_AT: usize = 13;
+    pub const RECON_WORDS: usize = 14;
+    pub const RECON_SOURCE_AT: usize = 15;
+    pub const HULL_AT: usize = 16;
+    pub const HULL_WORDS: usize = 17;
+    pub const BEFORE_AT: usize = 18;
+    pub const BEFORE_SHOT: usize = 19;
+    pub const LOOK_YAW: usize = 20;
+    pub const CHECK_FOUND: usize = 21;
+    pub const CHECK_POSITION: usize = 22;
+    pub const KICK: usize = 25;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 25] = (&mut row[..25]).try_into().unwrap();
+        let row: &mut [f64; 28] = (&mut row[..28]).try_into().unwrap();
         row[0] = self.tick;
         row[1] = if self.continued { 1.0 } else { 0.0 };
         row[2] = self.sequence;
@@ -1892,18 +2119,21 @@ impl ClientResult {
         row[10] = self.weapons_words as f64;
         row[11] = self.shots_at as f64;
         row[12] = self.shots_count as f64;
-        row[13] = self.hull_at as f64;
-        row[14] = self.hull_words as f64;
-        row[15] = self.before_at as f64;
-        row[16] = self.before_shot as f64;
-        row[17] = self.look_yaw;
-        row[18] = if self.check_found { 1.0 } else { 0.0 };
-        row[19..19 + 3].copy_from_slice(&self.check_position);
-        row[22..22 + 3].copy_from_slice(&self.kick);
+        row[13] = self.recon_at as f64;
+        row[14] = self.recon_words as f64;
+        row[15] = self.recon_source_at as f64;
+        row[16] = self.hull_at as f64;
+        row[17] = self.hull_words as f64;
+        row[18] = self.before_at as f64;
+        row[19] = self.before_shot as f64;
+        row[20] = self.look_yaw;
+        row[21] = if self.check_found { 1.0 } else { 0.0 };
+        row[22..22 + 3].copy_from_slice(&self.check_position);
+        row[25..25 + 3].copy_from_slice(&self.kick);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 25] = (&row[..25]).try_into().unwrap();
+        let row: &[f64; 28] = (&row[..28]).try_into().unwrap();
         Self {
             tick: row[0],
             continued: row[1] != 0.0,
@@ -1918,14 +2148,17 @@ impl ClientResult {
             weapons_words: word_u32(row[10]),
             shots_at: word_u32(row[11]),
             shots_count: word_u32(row[12]),
-            hull_at: word_u32(row[13]),
-            hull_words: word_u32(row[14]),
-            before_at: word_u32(row[15]),
-            before_shot: word_u32(row[16]),
-            look_yaw: row[17],
-            check_found: row[18] != 0.0,
-            check_position: [row[19], row[19 + 1], row[19 + 2]],
-            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[22..22 + 3]); a },
+            recon_at: word_u32(row[13]),
+            recon_words: word_u32(row[14]),
+            recon_source_at: word_u32(row[15]),
+            hull_at: word_u32(row[16]),
+            hull_words: word_u32(row[17]),
+            before_at: word_u32(row[18]),
+            before_shot: word_u32(row[19]),
+            look_yaw: row[20],
+            check_found: row[21] != 0.0,
+            check_position: [row[22], row[22 + 1], row[22 + 2]],
+            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[25..25 + 3]); a },
         }
     }
 

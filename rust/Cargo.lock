@@ -201,6 +201,7 @@ name = "bfe-pose"
 version = "0.1.0"
 dependencies = [
  "content",
+ "jsrt",
  "serde",
  "serde_json",
  "three",

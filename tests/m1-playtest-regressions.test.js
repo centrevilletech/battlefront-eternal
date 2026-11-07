@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { PlayerCombat } from "./helpers/combat.js";
 import { Controls } from "../src/input.js";
 import { FLIGHT_BINDINGS } from "../src/flight/controls.js";
-import { discreteActions } from "../src/runtime/network-inputs.js";
+import { NetworkInputs,hasDiscreteActions } from "../src/runtime/network-inputs.js";
 import { encodeEntityInput } from "../src/runtime/network-entity-input.js";
 import { TurretTarget } from "../src/seats.js";
 import { captureMountedControl } from "../src/runtime/network-mounted-control.js";
@@ -48,7 +48,9 @@ test("flight held keys never queue as discrete actions (no unknown input action)
   assert.deepEqual([...fake.queued].sort(), ["firePrimary", "perspective", "takeoff", "targetLock", "trick", "use"]);
   // The wire filter also drops anything the encoder cannot name, so a stray
   // held name can never reach encodeEntityInput and throw every frame.
-  const actions = discreteActions({ actions: ["rollLeft", "throttle", "use", "takeoff", "firePrimary"] });
+  let actions;const sender=new NetworkInputs({state:()=>true,events:message=>{actions=message.actions.slice();return true;},fire:()=>true});
+  const command={epoch:1,generation:1,sequence:1,tick:1,down:[],look:[],actions:["rollLeft","throttle","use","takeoff","firePrimary"]};
+  assert.equal(hasDiscreteActions(command),true);sender.send([command]);sender.dispose();
   assert.deepEqual(actions, ["use", "takeoff"]);
   assert.doesNotThrow(() => encodeEntityInput({
     epoch: 1, generation: 1, commands: [],

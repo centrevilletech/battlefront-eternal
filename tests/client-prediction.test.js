@@ -1,3 +1,4 @@
+import {replayOutcomes} from './helpers/replay-outcomes.js';
 import { instrumentClientPrediction } from './fixtures/client-prediction-diagnostics.js';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -71,6 +72,7 @@ for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scena
         for (const button of ['firePrimary', 'fireSecondary']) if (actions.includes(button)) edges.push({kind: 'fire', sequence: c.sequence, button, id: c.sequence * 7, pressed: true});
       }
       wa.begin(a,{epoch,tick:authority});
+      session.replaySources([],replayOutcomes(pending),['KeyW']);
       const expected=frames[frame],result=session.predict(a,pending,{epoch,tick:authority,held:['KeyW'],fireEdges:edges,cosmeticSlots:expected.cosmeticSlots});
       assert.equal(result.tick,expected.tick,`frame ${frame} tick`);
       assert.equal(result.continued,expected.continued,`frame ${frame} continuation`);
@@ -102,6 +104,7 @@ test('session crowd facts move only the own body and callback failure restores t
     assert.equal(unit.soldier.position.x,1+share);
     assert.deepEqual(other.position.toArray(),[0,0,0]);
     assert.equal(result.ticks,1);
+    assert.ok(session.inputWords<3000,'the frame copies occupied facts rather than the reserved command capacity');
     assert.throws(()=>session.present(unit,{beforeStep(){throw Error('presentation failure');}}),/presentation failure/);
     assert.deepEqual(capture(unit),bytes);
     session.present(unit,{previousYaw:0,beforeStep(){
@@ -156,4 +159,27 @@ test('normal session has no metrics and retains frame rows across held-key repla
     session.predict(unit, [], { epoch: 1, tick: 0 });
     assert.equal(session.counters.calls, 1, 'only explicit test wiring records calls');
   } finally { weapons.dispose(); session.dispose(); course.dispose(); }
+});
+
+test('acknowledged movement keeps delayed actions and fire identities in native replay',async()=>{
+  const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance));
+  const a=fixture('soldier',course,'soldier'),b=fixture('soldier',course,'soldier');
+  const left=createClientPrediction(instance,course.world),right=createClientPrediction(instance,course.world);
+  const old={epoch:1,generation:1,sequence:2,tick:2,sent:true,down:['KeyS'],actions:['jump'],look:[[100,200]],mouseScale:.5};
+  const fresh={epoch:1,generation:1,sequence:5,tick:5,sent:true,down:['KeyW'],actions:[],look:[[5,-2]],mouseScale:.8};
+  const edges=[{sequence:3,kind:'fire',pressed:true,button:'firePrimary',id:19},{sequence:5,kind:'fire',pressed:true,button:'fireSecondary',id:23}];
+  const outcomes=new Map([[1,{sequence:2,edge:{kind:'action',action:'jump',tick:2,generation:1}}],
+    [2,{sequence:3,edge:{kind:'fire',pressed:true,button:'firePrimary',id:19,tick:3,generation:1}}],
+    [3,{sequence:5,edge:{kind:'fire',pressed:true,button:'fireSecondary',id:23,tick:5,generation:1}}],
+    [4,{sequence:99,edge:{kind:'action',action:'use',tick:99,generation:1}}]]);
+  try{
+    left.replaySources([old,fresh],outcomes,['KeyD']);
+    const options={epoch:1,tick:0,held:['KeyD'],fireEdges:edges};
+    left.predict(a,[fresh],options);
+    right.predict(b,[{...old,down:['KeyD'],look:[]},{sequence:3,tick:3,generation:1,down:['KeyD'],actions:['firePrimary'],look:[]},{...fresh,actions:['fireSecondary']}],options);
+    assert.deepEqual(left.correction(),right.correction());
+    assert.deepEqual(encode(arsenalObservation(a.combat.arsenal,a.combat.zoomStep)),encode(arsenalObservation(b.combat.arsenal,b.combat.zoomStep)));
+    const notices=s=>{const out=[];s.present(s===left?a:b,null,n=>out.push(structuredClone(n)));return out;};
+    assert.deepEqual(notices(left),notices(right));
+  }finally{left.dispose();right.dispose();}
 });

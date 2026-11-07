@@ -58,3 +58,20 @@ fn full_snapshot_bursts_and_paused_samples_allocate_nothing() {
     }
     TRACK.with(|v|v.set(false));assert_eq!(ALLOCS.with(Cell::get),0);
 }
+
+#[test]
+fn sparse_identity_churn_reuses_slots_without_breaking_probe_clusters() {
+    let mut t=Timeline::new();
+    for life in 0..8 {
+        frame(&mut t,life as f64);t.input[f::COUNT]=lim::ENTITIES as f64;
+        for i in 0..lim::ENTITIES {
+            let at=f::STRIDE+i*r::STRIDE;t.input[at+r::ID]=(life*100000+i*977)as f64;
+            t.input[at+r::KIND]=0.;
+        }
+        t.push();
+        for i in 0..lim::ENTITIES {assert!(t.slot((life*100000+i*977)as f64).is_some());}
+        for i in (0..lim::ENTITIES).step_by(2) {t.remove((life*100000+i*977)as f64);}
+        for i in (1..lim::ENTITIES).step_by(2) {assert!(t.slot((life*100000+i*977)as f64).is_some());t.remove((life*100000+i*977)as f64);}
+    }
+    assert_eq!(t.refused,0);
+}

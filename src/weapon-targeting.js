@@ -1,10 +1,5 @@
-import * as THREE from 'three';
-import { unitsArray, defaultRelation, lockSpan } from './targeting-facts.js';
-import { weaponAI, categoryOf, relationBit } from './weapon-policy.js';
+import { weaponAI } from './weapon-policy.js';
 import { derivedFrom } from './combat-sources.js';
-
-const nativeWeapons = new WeakMap();
-export function bindWeaponLockRuntime(weapon, runtime) { nativeWeapons.set(weapon, runtime); }
 
 export const hasMissileLock = def => def?.base === 'launcher' && def.ordnance?.base === 'missile';
 
@@ -46,86 +41,6 @@ export function botLockTarget(unit, controller = unit?.controller) {
 }
 // A seat's or turret's bot: its lease's.
 export const seatLockTarget = lease => lease && !lease.human ? botLockTarget(lease.unit, lease.controllable?.controller ?? lease.unit?.controller) : undefined;
-
-// The weapon's own masks pass the target (a bot's target is chosen for the
-// weapon it has selected, which may not be this one).
-function allowed(def, viewer, unit, relation = defaultRelation) {
-  const masks = weaponAI(def);
-  return Boolean(masks.relationMask & relationBit(relation(viewer?.team, unit.team))) && Boolean(masks.categoryMask & (1 << categoryOf(unit)));
-}
-
-const span = { angle: Math.PI, distance: Infinity };
-const view = new THREE.Vector3(), centre = new THREE.Vector3();
-
-// The target a launcher acquires (LockOnAngle) or keeps (LockOffAngle) along
-// a view: alive, allowed by its masks, part of it inside the cone and within
-// LockOnRange, and in sight. The one nearest the view's line wins, then the
-// nearer. The original widens its cone by the target's bounding radius,
-// which at 15 m took an AAT with the reticle 30 degrees off its
-// centre, 8 degrees clear of its hull; the port wants the hull itself
-// inside the cone (docs/weapon-targeting.md).
-export function findLockTarget({ origin, dir, units, weapon, viewer = null, relation = defaultRelation, los = () => true, angle }) {
-  const def = weapon?.def || weapon;
-  const range = Number(def?.LockOnRange) || 0;
-  if (!def || !origin || !dir || !(range > 0) || !view.copy(dir).normalize().lengthSq()) return null;
-  const cone = Math.max(0, Number(angle) || 0) * Math.PI / 180;
-  let best = null;
-  for (const unit of unitsArray(units)) {
-    if (unit === viewer || !unit.alive || unit.seat || (unit.health ?? unit.combat?.health ?? 1) <= 0 || unit.kind === 10) continue;
-    if (!allowed(def, viewer, unit, relation)) continue;
-    lockSpan(origin, view, unit, span);
-    if (span.angle > cone || span.distance > range) continue;
-    if (best && (best.angle < span.angle || best.angle === span.angle && best.distance <= span.distance)) continue;
-    if (unit.aimPoint) unit.aimPoint(centre);
-    else centre.copy(unit.sphere?.center || unit.position);
-    if (!los(origin, centre, viewer, unit)) continue;
-    best = { unit, angle: span.angle, distance: span.distance };
-  }
-  return best;
-}
-
-const direction = new THREE.Vector3();
-const hit = { point: new THREE.Vector3(), normal: new THREE.Vector3() };
-
-// The one lock rule for soldiers, vehicle seats and turrets, the player's,
-// a bot's and a network human's alike. Acquisition and retention use
-// separate cones around the view (origin, dir: where the reticle points).
-// A cannon's targeting fields still colour its reticle, but never start
-// launcher state 4.
-export function updateWeaponLock(weapon, dt, options = {}) {
-  const native = nativeWeapons.get(weapon);
-  if (native) { native.updateLock(weapon, dt, options); return; }
-  if (!hasMissileLock(weapon.def)) return;
-  const picked = lockPick(weapon, options);
-  if (picked === undefined) { weapon.clearLock(); return; }
-  weapon.updateLock(dt, picked?.unit);
-}
-
-// What a launcher's lock picks along a view ({ unit }, or null for nothing
-// in reach), or undefined when there are no units, origin or view to look
-// with (the lock is then cleared).
-export function lockPick(weapon, { units, collision, origin, dir, viewer, ignoreBody = null, target } = {}) {
-  if (!units || !origin || !dir) return undefined;
-  const relation = units.relation ? (a, b) => units.relation(a, b) : undefined;
-  const los = (from, to, source, candidate) => {
-    direction.subVectors(to, from);
-    const length = direction.length();
-    if (!collision || length < 1e-6) return true;
-    const contact = collision.cast(from, direction.divideScalar(length), length, hit, ignoreBody);
-    return !contact || Boolean(candidate.vehicle && contact.body?.owner === candidate.vehicle) || Boolean(candidate.turret && contact.body?.owner === candidate.turret)
-      || Boolean(candidate.building && contact.body?.owner === candidate.building);
-  };
-  const options = { origin, dir, weapon, viewer, relation, los };
-  const current = lockedUnit(weapon, units);
-  let picked;
-  // A bot's controller supplies its own target (botLockTarget).
-  if (target !== undefined) picked = target?.alive && allowed(weapon.def, viewer, target, relation) ? { unit: target } : null;
-  else {
-    picked = weapon.lockComplete && current && findLockTarget({ ...options, units: [current], angle: weapon.def.LockOffAngle || weapon.def.LockOnAngle });
-    picked ||= findLockTarget({ ...options, units, angle: weapon.def.LockOnAngle });
-  }
-  return picked;
-}
 
 // The original HUD's eight five-unit radial ticks. The horizontal camera
 // FOV already includes zoom in the port.

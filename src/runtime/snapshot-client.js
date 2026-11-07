@@ -1,120 +1,38 @@
-// SnapshotClient receives one datagram in the display module. Rust retains the
-// multipart assemblies, immutable ACK baselines and display ring. Only changed
-// gameplay records and opaque owned payloads cross to existing JS consumers.
-import { DEFAULT_SNAPSHOT_BOUNDS } from "./snapshot-codec.js";
-import { createPageNetwork } from "./page-network.js";
-import { networkRecord } from "./network-records.js";
-import { NetHeader as H, NetRecord as R, NetSeat as S, NetKind as K } from "./network-layout.js";
+// Rust retains baselines, display samples and changed gameplay facts. The
+// transport lends a packet until receive is called again; resources retain
+// native row leases when a prerequisite or history must outlive that borrow.
+import {DEFAULT_SNAPSHOT_BOUNDS} from './snapshot-codec.js';
+import {createPageNetwork} from './page-network.js';
+import {RecordViews,RecordList} from './network-records.js';
+import {NetHeader as H,NetKind as K} from './network-layout.js';
 export class SnapshotClient {
-  constructor({ bounds = DEFAULT_SNAPSHOT_BOUNDS, onMissingBaseline = () => {}, kernel = createPageNetwork() } = {}) {
-    this.bounds = bounds;
-    this.onMissingBaseline = onMissingBaseline;
-    this.network = kernel;
-    kernel.receiveSetup(bounds);
-    this.epoch = NaN;
-    this.ackTick = NaN;
-    this.missingBaselines = NaN;
-    this.reset(0);
+  constructor({bounds=DEFAULT_SNAPSHOT_BOUNDS,onMissingBaseline=()=>{},onRecordsFull=()=>{},kernel=createPageNetwork()}={}){
+    this.bounds=bounds;this.onMissingBaseline=onMissingBaseline;this.onRecordsFull=onRecordsFull;this.network=kernel;kernel.receiveSetup(bounds);
+    this.epoch=NaN;this.ackTick=NaN;this.missingBaselines=NaN;this.refused=0;
+    this.ack={epoch:NaN,tick:NaN};this.views=new RecordViews(kernel);
+    this.records=new RecordList(this.views,false);this.seatChanges=new RecordList(this.views,true);
+    this.packet={tick:NaN,epoch:NaN,epochChanged:false,interval:NaN,ackInput:NaN,ack:this.ack,records:this.records,seatChanges:this.seatChanges,snapshotAck:this.ack,complete:false};
+    this.missing={magic:NaN,epoch:NaN,tick:NaN,interval:NaN,baselineTick:NaN,partIndex:NaN,partCount:NaN,ackInput:NaN,headerBytes:NaN};this.reset(0);
   }
-  // Reset clears native baselines, pending multipart ticks and display state.
-  // The three JS fields below are transport metadata still read by callers.
-  reset(epoch) {
-    this.network.reset(epoch);
-    this.epoch = epoch;
-    this.ackTick = 0;
-    this.missingBaselines = 0;
-  }
-  // ACKs are packet publications, not frame results. The transport retains
-  // their epoch/tick independently from replaceable incoming datagrams.
-  get snapshotAck() {
-    return { epoch: this.epoch, tick: this.ackTick };
-  }
-  // Header and result spans remain valid until the next native operation.
-  // Construct only the changed records the gameplay adapter still consumes;
-  // no baseline entry or presentation sample is copied into a JS object.
-  receive(bytes) {
-    const k = this.network;
-    if (k.disposed) return null;
-    const valid = k.receive(bytes),
-      h = k.header;
-    if (this.epoch !== h[H.EPOCH]) this.missingBaselines = 0;
-    this.epoch = h[H.EPOCH];
-    this.ackTick = h[H.ACK_TICK];
-    const missing = h[H.MISSING_BASELINES];
-    // Loss recovery receives the original header fields, even when the
-    // native reader refused a missing baseline and emitted no gameplay data.
-    if (missing > this.missingBaselines) {
-      this.missingBaselines = missing;
-      this.onMissingBaseline({
-        magic: h[H.MAGIC],
-        epoch: this.epoch,
-        tick: h[H.TICK],
-        interval: h[H.INTERVAL],
-        baselineTick: h[H.BASELINE_TICK],
-        partIndex: h[H.PART_INDEX],
-        partCount: h[H.PART_COUNT],
-        ackInput: h[H.ACK_INPUT],
-        headerBytes: h[H.HEADER_BYTES],
-      });
+  reset(epoch){this.network.reset(epoch);this.epoch=epoch;this.ackTick=0;this.missingBaselines=0;this.ack.epoch=epoch;this.ack.tick=0;}
+  get snapshotAck(){return this.ack;}
+  // Packet metadata and record lists are retained transport views. Lookups
+  // allocate separate native leases, leaving this packet's publication intact.
+  receive(bytes){
+    const k=this.network;if(k.disposed)return null;const valid=k.receive(bytes),h=k.header;
+    if(this.epoch!==h[H.EPOCH])this.missingBaselines=0;
+    this.epoch=h[H.EPOCH];this.ackTick=h[H.ACK_TICK];this.ack.epoch=this.epoch;this.ack.tick=this.ackTick;
+    if(h[H.REFUSED]>this.refused){this.refused=h[H.REFUSED];this.onRecordsFull();}
+    if(h[H.MISSING_BASELINES]>this.missingBaselines){
+      this.missingBaselines=h[H.MISSING_BASELINES];const m=this.missing;
+      m.magic=h[H.MAGIC];m.epoch=this.epoch;m.tick=h[H.TICK];m.interval=h[H.INTERVAL];m.baselineTick=h[H.BASELINE_TICK];m.partIndex=h[H.PART_INDEX];m.partCount=h[H.PART_COUNT];m.ackInput=h[H.ACK_INPUT];m.headerBytes=h[H.HEADER_BYTES];this.onMissingBaseline(m);
     }
-    if (!valid) return null;
-    const records = [],
-      seatChanges = [];
-    for (let i = 0; i < h[H.RECORDS]; i++) records.push(networkRecord(k.records, i * R.STRIDE, k.payloads));
-    // Ownership changes outlive this packet. Generations identify both ends
-    // of a lease so a delayed seat cannot attach to a recycled body or hull.
-    for (let i = 0; i < h[H.SEATS]; i++) {
-      const at = i * S.STRIDE,
-        x = k.seats;
-      seatChanges.push({
-        id: x[at + S.ID],
-        generation: x[at + S.GENERATION],
-        seat: x[at + S.PRESENT]
-          ? {
-              vehicleId: x[at + S.VEHICLE_ID],
-              vehicleGeneration: x[at + S.VEHICLE_GENERATION],
-              seatIndex: x[at + S.SEAT_INDEX],
-            }
-          : null,
-      });
-    }
-    return {
-      tick: h[H.TICK],
-      epoch: this.epoch,
-      epochChanged: !!h[H.EPOCH_CHANGED],
-      interval: h[H.INTERVAL],
-      ackInput: h[H.ACK_INPUT],
-      ack: { epoch: this.epoch, tick: this.ackTick },
-      records,
-      seatChanges,
-      snapshotAck: this.snapshotAck,
-      complete: !!h[H.COMPLETE],
-    };
+    if(!valid)return null;const p=this.packet;
+    p.tick=h[H.TICK];p.epoch=this.epoch;p.epochChanged=!!h[H.EPOCH_CHANGED];p.interval=h[H.INTERVAL];p.ackInput=h[H.ACK_INPUT];p.complete=!!h[H.COMPLETE];return p;
   }
-  // Reliable records already have semantic payloads and no snapshot baseline.
-  gameplayRecords(records, tick) {
-    return {
-      tick,
-      epoch: this.epoch,
-      epochChanged: false,
-      interval: 2,
-      ackInput: 0,
-      ack: { epoch: this.epoch, tick: this.ackTick },
-      records,
-      seatChanges: [],
-      snapshotAck: this.epoch >= 1 ? this.snapshotAck : null,
-      complete: false,
-    };
-  }
-  // Deferred prerequisites occasionally need latest gameplay facts. This
-  // lookup is separate from the native historical rows used to draw frames.
-  get(kind, id) {
-    const code = K[kind.toUpperCase()];
-    const k = this.network;
-    if (code === undefined || !k.lookup(code, id)) return undefined;
-    return networkRecord(k.records, 0, k.payloads);
-  }
-  dispose() {
-    this.network.dispose();
-  }
+  // Reliable transport already owns semantic payloads. Its event callbacks
+  // receive those records directly, independently from snapshot row leases.
+  gameplayRecords(records,tick){return {tick,epoch:this.epoch,epochChanged:false,interval:2,ackInput:0,ack:this.ack,records,seatChanges:[],snapshotAck:this.epoch>=1?this.ack:null,complete:false};}
+  get(kind,id){const code=K[kind.toUpperCase()],k=this.network;if(code===undefined||!k.lookup(code,id))return undefined;return this.views.rows[k.lookupIndex];}
+  dispose(){this.network.dispose();}
 }

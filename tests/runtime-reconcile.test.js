@@ -1,9 +1,9 @@
+import {CorrectionSmoother} from '../tools/native-prediction-smoother.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { WorldTickEstimator, InputLead, advanceInputClock, replayTicks, CorrectionSmoother } from '../src/runtime/reconcile.js';
+import { WorldTickEstimator, InputLead, advanceInputClock } from '../src/runtime/reconcile.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { InputMailbox } from './fixtures/input-mailbox.js';
-import { NetworkInputs } from '../src/runtime/network-inputs.js';
 
 const HZ = 60;
 
@@ -288,89 +288,6 @@ test('the input clock jumps forward when behind, never rewinds, trims when ahead
   ticks.length = 0;
   for (let i = 0; i < 100; i++) advanceInputClock(clock, 80, 1, step, 90);
   assert.ok(ticks.at(-1) <= 90, `stopped at the bound (${ticks.at(-1)})`);
-});
-
-test('replayTicks merges pending commands per tick exactly as the mailbox takes them', () => {
-  const generation = 3;
-  const cases = [
-    // Steady: one command per tick.
-    [[3, 4, 5, 6], []],
-    // A skipped stamp (the input clock jumped): keys stay held through 5.
-    [[3, 4, 6, 7], []],
-    // Two commands on one tick (a page frame that ran long) and two late (stamped at or before `from`).
-    [[1, 2, 4, 4, 5], []],
-    // Another life's commands in between.
-    [[3, 4, 5, 6], [4]],
-  ];
-  for (const [ticks, foreign] of cases) {
-    const from = 2, held = ['KeyS'];
-    const pending = ticks.map((tick, i) => ({ epoch: 1, generation: foreign.includes(tick) ? generation + 1 : generation, sequence: i + 1, tick,
-      down: [`Digit${i}`], actions: i % 2 ? ['jump'] : [], look: [[i, 0]], mouseScale: i === 2 ? 1.5 : undefined }));
-    // The mailbox, holding `held` for this life, takes the same commands.
-    const mailbox = new InputMailbox(1);
-    mailbox.push({epoch:1,generation,sequence:1,tick:from,down:held,actions:[],look:[]});
-    mailbox.take(from,generation);
-    for (const command of pending) command.sequence++;
-    for (const command of pending) mailbox.push(command);
-    const last = Math.max(from + 1, ...pending.filter((c) => c.generation === generation).map((c) => c.tick));
-    const expected = [];
-    for (let tick = from + 1; tick <= last; tick++) { const c = mailbox.take(tick, generation); expected.push({ tick, down: c.down, actions: c.actions, look: c.look, mouseScale: c.mouseScale }); }
-    const got = [];
-    const replayed = replayTicks(pending, from, generation, held, (tick, c) => got.push({ tick, down: c.down, actions: c.actions, look: c.look, mouseScale: c.mouseScale }));
-    assert.equal(replayed, last);
-    assert.deepEqual(got, expected, `ticks ${ticks.join(',')}`);
-  }
-  // Nothing of this life pending: nothing replayed.
-  assert.equal(replayTicks([{ generation: 9, tick: 5, down: [], actions: [], look: [] }], 1, 3, [], () => assert.fail('replayed')), 1);
-});
-
-test('replayTicks turns him by the look the world takes, on the tick it takes it, from what the page sent', () => {
-  // A page frame makes a command a tick, its mouse look in the first; the
-  // sender offers the world the frame's last command (and a held
-  // transition), carrying the running look total, and some frames go
-  // unsent (an online page coalesces unchanged held state).
-  const frames = [
-    { ticks: [3, 4], look: [[2.5, -1], [3, 0.25]], down: ['KeyW'] },
-    { ticks: [5, 6, 7], look: [[1, 1]], down: ['KeyW'] },
-    { ticks: [8, 9], look: [[-4, 2]], down: ['KeyW', 'KeyA'] },
-    { ticks: [10], look: [[0.5, 0.5]], down: ['KeyW', 'KeyA'], unsent: true },
-    { ticks: [11, 12], look: [[7, -3], [1, 1]], down: ['KeyW', 'KeyA'] },
-    { ticks: [13, 14], look: [], down: [] },
-  ];
-  const wire = [], mailbox = new InputMailbox(1), pending = [];
-  let sequence = 0, unsent = false;
-  const sender = new NetworkInputs({ state: (m) => { if (unsent) return false; wire.push(m); return true; }, events: () => true, fire: () => true });
-  for (const frame of frames) {
-    const batch = frame.ticks.map((tick, i) => ({ epoch: 1, generation: 1, sequence: ++sequence, tick, down: frame.down, actions: [], look: i ? [] : frame.look, mouseScale: 1 }));
-    unsent = !!frame.unsent;
-    sender.send(batch);
-    pending.push(...batch);
-  }
-  for (const message of wire) for (const command of message.commands) mailbox.push(command);
-  const expected = [];
-  for (let tick = 3; tick <= 14; tick++) { const c = mailbox.take(tick, 1); expected.push({ tick, down: c.down, look: c.look }); }
-  const got = [];
-  replayTicks(pending, 2, 1, [], (tick, c) => got.push({ tick, down: c.down, look: c.look }));
-  assert.deepEqual(got, expected, 'the same keys and look samples, tick by tick');
-  // The unsent frame's look went with the next frame's command; until then
-  // it was the page's alone (shown, not replayed).
-  assert.deepEqual(got.find((t) => t.tick === 10).look, []);
-  assert.ok(pending.every((c) => c.lookSent), 'every command\'s look has gone');
-});
-
-test('replay starts with correction view context across a gap before fresh input', () => {
-  const initial = { mouseScale: 1.2, invertMouse: true, firstPerson: true, aspect: 1.5,
-    viewTick: 8, flightSettings: { sensitivity: 1.4, curve: 1.35 }, gamepad: { axes: [.5, 0, 0, 0] },
-    tick: 999, actions: ['jump'], down: ['KeyW'] };
-  const original = structuredClone(initial), frames = [];
-  const pending = [{ generation: 3, tick: 14, down: ['KeyD'], actions: [], look: [], mouseScale: .8 }];
-  replayTicks(pending, 10, 3, ['KeyS'], (tick, command) => frames.push(structuredClone(command)), initial);
-  assert.deepEqual(frames.map(c => c.tick), [11, 12, 13, 14]);
-  assert.deepEqual(frames.slice(0, 3).map(c => c.down), [['KeyS'], ['KeyS'], ['KeyS']]);
-  assert.deepEqual(frames.map(c => c.mouseScale), [1.2, 1.2, 1.2, .8]);
-  assert.ok(frames.every(c => c.invertMouse && c.firstPerson && c.aspect === 1.5 && c.gamepad.axes[0] === .5));
-  assert.ok(frames.every(c => c.flightSettings.curve === 1.35 && !c.actions.length));
-  assert.deepEqual(initial, original, 'replay does not modify its correction context');
 });
 
 test('small corrections blend away over about 100 ms; large ones snap', () => {

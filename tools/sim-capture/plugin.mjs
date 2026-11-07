@@ -394,7 +394,7 @@ export function battle({ game: g, index, options }) {
     sample: { every, keep: [...keep].sort((a, b) => a - b) }, phases: PHASE_NAMES, specs: specNames,
     frames: frameSpecs.map((f) => ({ name: f.name, spec: f.spec, kind: f.phase ? 'phase' : 'method', boundaries: f.labels, ...(f.missing ? { missing: true } : {}) })),
     streams: { A: 'the AI\'s shared generator (ai.randomA)', B: 'the second (ai.randomB)', C: 'the Enhanced aim generator', 'stream:NAME': 'a named stream (RandomStreams)',
-      'Math.random': 'the seeded Math.random world-hash installs', 'seeded:SEED': 'a press\'s spread draws (weapons.js seededRandom)', 'anon:N': 'another ClassicRandom, by first draw' } };
+      'Math.random': 'the seeded Math.random world-hash installs', 'seeded:SEED': 'a press\'s captured spread draws', 'anon:N': 'another ClassicRandom, by first draw' } };
   write(RECORD.header, 0, 'header', header);
 }
 

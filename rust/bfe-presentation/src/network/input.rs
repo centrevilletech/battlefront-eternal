@@ -52,6 +52,19 @@ impl Fields {
         self.bytes[self.at..self.at + 8].copy_from_slice(&value.to_le_bytes());
         self.at += 8;
         Ok(()) } }
+// Serialized source contexts use numeric equality, including signed zero.
+// Omitted scalars do not participate; every present value is still validated
+// by the ordinary writer before any complete datagram can be published.
+fn context_equal(a:&WiView,b:&WiView)->bool {
+    let equal=|x:f64,y:f64|x==y || x.is_nan()&&y.is_nan();
+    if a.flags!=b.flags || a.profile_found!=b.profile_found || !equal(a.profile,b.profile){return false;}
+    let flags=jsrt::to_uint32(a.flags);
+    for (bit,x,y) in [(32,a.mouse_scale,b.mouse_scale),(64,a.aspect,b.aspect),(128,a.view_tick,b.view_tick),
+        (256,a.sensitivity,b.sensitivity),(512,a.curve,b.curve)] {
+        if flags&bit!=0 && !equal(x,y){return false;}
+    }
+    flags&16==0 || a.buttons==b.buttons && a.axes.iter().zip(b.axes).all(|(&x,y)|equal(x,y))
+}
 // writeView emits optional scalars in flag order, followed by joystick axes.
 // The final validation follows encoding, preserving the source error order
 // when both a scalar and its enclosing context are invalid.
@@ -83,7 +96,7 @@ fn validate_view(v: &WiView) -> Result<()> { let f = jsrt::to_uint32(v.flags);
 // indexed; a complete byte span is published only after trailing validation.
 pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usize> {
     let mut w = Fields::new(if op == crate::network_layout::net_op::ACK { 10 } else { 1100 });
-    if op == crate::network_layout::net_op::ACK { w.u32(0x31414e42u32 as f64)?;
+    if op == crate::network_layout::net_op::ACK { w.u32(crate::network_layout::net_protocol::ACK_MAGIC as f64)?;
         w.u16(input.number()?)?;
         w.u32(input.number()?)?; } else { let epoch = input.number()?;
         let generation = input.number()?;
@@ -99,15 +112,22 @@ pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usi
                 || ack_tick < 0.
                 || ack_tick > 4294967295.)
         { return Err("invalid snapshot ack"); }
-        w.u32(0x31494e42u32 as f64)?;
+        w.u32(crate::network_layout::net_protocol::INPUT_MAGIC as f64)?;
         w.u32(epoch)?;
         w.u32(generation)?;
         for n in [nv, nc, ne, ack as usize] { w.u8(n as f64)?; }
         // At most eight distinct contexts serve the counted command prefix.
         // Commands reference these rows by index, never by another entity id.
         let mut views: [WiView; 8] = std::array::from_fn(|_| WiView::default());
-        for v in &mut views[..nv] { *v = WiView::take(input.span(WiView::WORDS)?, &[]);
-            view(&mut w, v)?; }
+        let mut indices=[0usize;8];let mut unique=0;
+        for row in 0..nv {
+            let value=WiView::take(input.span(WiView::WORDS)?,&[]);
+            let index=(0..unique).find(|&i|context_equal(&views[i],&value));
+            indices[row]=if let Some(index)=index{index}else{
+                view(&mut w,&value)?;views[unique]=value;unique+=1;unique-1
+            };
+        }
+        w.bytes[12]=unique as u8;
         // A command's context index is checked after its scalar fields, as
         // the former encode-then-decode validation did. Error precedence is
         // observable to input admission and the frozen malformed fixtures.
@@ -120,7 +140,8 @@ pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usi
             w.u32(input.number()?)?;
             w.u32(input.number()?)?;
             *vi = input.number()?;
-            w.u8(*vi)?;
+            let context_at=w.at;w.u8(*vi)?;
+            if *vi>=0. && *vi<nv as f64{w.bytes[context_at]=indices[*vi as usize]as u8;}
             let count = input.uint(128)?;
             let mut bits = [0u8; 16];
             for _ in 0..count { let code = input.number()?;
@@ -156,7 +177,7 @@ pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usi
                 _ => {} } }
         if ack { w.u16(ack_epoch)?;
             w.u32(ack_tick)?; }
-        for v in &views[..nv] { validate_view(v)?; }
+        for v in &views[..unique] { validate_view(v)?; }
         for vi in &command_views[..nc] { if jsrt::to_uint32(*vi) as usize >= nv { return Err("invalid view reference");
             } }
         for i in 0..128 { let valid = input.uint(1)? != 0;

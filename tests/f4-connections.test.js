@@ -12,7 +12,7 @@ import {f3World} from './fixtures/f3-world.js';
 import {nativeSpawning} from './fixtures/f4-spawning.js';
 import {weaponDefinition} from './fixtures/client-weapons.js';
 
-async function fixture(){
+async function fixture({population=false}={}){
   const definitions={soldier:{class:'soldier',base:'soldier',MaxHealth:100,weapons:[]},
     hero:{class:'hero',base:'soldier',MaxHealth:1000000,weapons:[{...weaponDefinition('hero-gun',0),SpreadThreshold:0}]}};
   const posts=new CommandPosts(null,{commandPosts:[1,2].map((team,i)=>({name:`home${team}`,team,
@@ -21,16 +21,17 @@ async function fixture(){
   const battle=new Battle({posts,teams:{1:{reinforcements:100},2:{reinforcements:100}},own:1,foe:2});
   const w=await f3World(definitions,{prepareLive:()=>({buildings:[],animated:[],traps:[]})});
   w.factory.sides.rep.units=definitions;
+  const populationState = population ? nativeSpawning(w,battle,posts,{calls:[['SetUnitCount',[1,2]],['SetUnitCount',[2,0]],['AddUnitClass',[1,'soldier',2]]]}) : null;
   new F4Live(w.phase,{sound(){}});
   const human=new HumanSpawnMirror();human.className='soldier';
   const tail=new F4Tail(w.phase,battle,{posts,human,rosters:[[],['soldier','hero'],['soldier','hero']],
-    classes:['soldier','hero'],gameplay:w.ordnance.random,debug:true});
+    classes:['soldier','hero'],gameplay:w.ordnance.random,debug:true,...(populationState?{spawning:populationState.spawning,random:populationState.random,ai:populationState.ai}:{})});
   const roster=new F4Roster(tail,{battle,ai:null},2),connections=new F4Connections(tail);
   const player={character:roster.reserve(1,'first','First'),ordinal:1,className:'soldier',unit:null,spawn:{}};
   const draw=w.ordnance.random;
   w.phase.construction.bindPlayer(player.character,null,{combatRandom:draw,weaponRandom:draw});
   assert.equal(connections.command('admit',player,'soldier'),true);
-  return {w,battle,posts,tail,roster,connections,player,draw};
+  return {w,battle,posts,tail,roster,connections,player,draw,spawning:populationState?.spawning};
 }
 test('native connection births and class changes retain canonical body and stream identities',async()=>{
   const f=await fixture(),{connections,player,w,battle,draw}=f;
@@ -105,4 +106,22 @@ test('exhausted player class stock leaves the current body alive and rejects the
   assert.equal(connections.command('spawn',player,'hero'),false);
   assert.equal(player.unit,old);assert.equal(old.alive,true);assert.equal(old.className,'soldier');
   assert.equal(connections.command('state',player),true);
+});
+
+// Network births update the canonical population used by bleed and waves.
+// A subsequent native sync must retain those counts rather than overwrite
+// a host-only mirror edit. Neither operation spends reinforcement tickets.
+test('network living counts survive native publication after spawn and unspawn', async () => {
+  const {connections,player,spawning,tail,battle}=await fixture({population:true});
+  const team=spawning.teams.find(team=>team.index===1), before=team.living;
+  assert.equal(connections.command('spawn',player,'soldier','home1'),true);
+  tail.phase.sync();
+  assert.equal(team.living,before+1);
+  assert.equal(connections.command('unspawn',player),true);
+  tail.phase.sync();
+  assert.equal(team.living,before);
+  assert.equal(connections.command('spawn',player,'soldier','home1'),true);
+  tail.phase.sync();
+  assert.equal(team.living,before+1);
+  assert.equal(battle.reinforcements[1],100);
 });

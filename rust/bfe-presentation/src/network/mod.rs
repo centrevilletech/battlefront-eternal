@@ -2,6 +2,8 @@
 //! sampled records remain native through the body and hull phases.
 use crate::network_layout::net_binding as link;
 pub mod input;
+pub mod mounts;
+pub mod preview;
 pub mod outbound;
 pub mod read;
 pub type Result<T> = std::result::Result<T, &'static str>;

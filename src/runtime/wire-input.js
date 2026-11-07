@@ -18,48 +18,30 @@ export function wireInputFor(registry) {
   return encoder;
 }
 const number = (value) => (typeof value === "number" ? value : NaN);
-// Context key order is protocol-visible: the source deduplicates serialized
-// contexts in this order before emitting their indexed numeric views.
-const keys = ["mouseScale", "aspect", "viewTick", "invertMouse", "firstPerson", "flightSettings", "gamepad"];
 const kinds = ["action", "fire", "team", "spawn", "suicide", "cancel"];
-const bindingKey = (value) => JSON.stringify(Object.entries(value || {}).sort(([a], [b]) => a.localeCompare(b)));
+// Binding profiles are immutable registry resources. Canonicalizing their
+// content at admission avoids sorting and serializing it for every packet.
+const bindingKeys=new WeakMap();
+function bindingKey(value){
+  if(!value||typeof value!=="object")return "[]";
+  let key=bindingKeys.get(value);
+  if(key===undefined){key=JSON.stringify(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));bindingKeys.set(value,key);}
+  return key;
+}
 export function createWireInputBridge(kernel = pageNetworkFor(null)) {
-  // Eight views, eight command references and thirty-two edges are protocol
-  // bounds. Scratch objects below are reused instead of per-packet row arrays.
-  const contexts = Array.from({ length: 8 }, () => ({
-      key: "",
-      value: {},
-      index: 0,
-    })),
-    indices = new Uint8Array(8);
-  const v = { axes: [0, 0, 0, 0] },
-    edge = {};
+  const profiles=new WeakMap();
+  const profileFor=registry=>{let table=profiles.get(registry);if(!table){table=new Map();for(const entry of registry.bindingProfiles){const key=bindingKey(entry[1]);if(!table.has(key))table.set(key,entry);}profiles.set(registry,table);}return table;};
+  const v = {flags:NaN,profile:NaN,profileFound:false,mouseScale:NaN,aspect:NaN,viewTick:NaN,sensitivity:NaN,curve:NaN,buttons:NaN,axes:[NaN,NaN,NaN,NaN]},
+    edge = {lifeMatches:false,id:NaN,tick:NaN,kind:NaN,action:NaN,button:NaN,pressed:NaN,viewTick:NaN,aimYaw:NaN,aimPitch:NaN,team:NaN,teamRangeValid:false,classId:NaN,postId:NaN};
   // Transport sends synchronously and copies its bytes. Public codec callers
   // receive their own result; the live sender uses retained publication spans.
   return {
     kernel,
-    encode({ epoch, generation, commands = [], edges = [], snapshotAck = null }, registry, actions, borrowed = false) {
+    encode({ epoch, generation, commands = [], edges = [], snapshotAck = null }, registry, actions, borrowed = false, outbound = null) {
       if (commands.length > 8 || edges.length > 32) throw Error("input count limit");
-      let count = 0;
-      // The context objects remain private. Their serialized identity retains
-      // source omission rules independently of numeric packet validation.
-      for (let i = 0; i < commands.length; i++) {
-        const c = commands[i],
-          context = contexts[count].value;
-        for (let j = 0; j < keys.length; j++) {
-          const key = keys[j];
-          if (c[key] !== undefined) context[key] = c[key];
-          else delete context[key];
-        }
-        const key = JSON.stringify(context);
-        let index = 0;
-        while (index < count && contexts[index].key !== key) index++;
-        if (index === count) {
-          contexts[count].key = key;
-          count++;
-        }
-        indices[i] = index;
-      }
+      const count=commands.length,profiles=profileFor(registry);
+      // Context identity is decided by the native writer. Commands contribute
+      // their numeric facts directly, without temporary page context objects.
       // ACK validity is checked by Rust before any packet bytes are published.
       // Undefined numeric operands cross as NaN and retain scalar errors.
       const k = kernel;
@@ -75,15 +57,8 @@ export function createWireInputBridge(kernel = pageNetworkFor(null)) {
       // Profile identity is a registry fact. Rust receives only the numeric
       // profile and view flags, preserving the original optional-field order.
       for (let i = 0; i < count; i++) {
-        const c = contexts[i].value,
-          fs = c.flightSettings;
-        let profile;
-        const wanted = bindingKey(fs?.bindings);
-        for (const entry of registry.bindingProfiles)
-          if (bindingKey(entry[1]) === wanted) {
-            profile = entry;
-            break;
-          }
+        const c=commands[i],fs=c.flightSettings;
+        const profile=profiles.get(bindingKey(fs?.bindings));
         v.flags =
           (c.invertMouse ? 1 : 0) |
           (c.firstPerson ? 2 : 0) |
@@ -118,11 +93,14 @@ export function createWireInputBridge(kernel = pageNetworkFor(null)) {
         );
         k.put(number(c.sequence));
         k.put(number(c.tick));
-        k.put(indices[i]);
+        k.put(i);
         k.put(c.down?.length ?? 0);
         if (c.down) for (const code of c.down) k.put(registry.inputCodes.indexOf(code));
-        k.put(number(c.lookTotal?.[0] ?? 0));
-        k.put(number(c.lookTotal?.[1] ?? 0));
+        // Native publications lend a typed pair. Copying that span keeps
+        // fractional look in numeric storage across the transport boundary.
+        const look=c.lookTotal;
+        if(look instanceof Float64Array&&look.length===2){k.input.set(look,k.count);k.count+=2;}
+        else{const x=look?.[0]??0,y=look?.[1]??0;k.input[k.count++]=typeof x==='number'?x:NaN;k.input[k.count++]=typeof y==='number'?y:NaN;}
       }
       // Reliable edges keep their existing kinds and IDs. The native writer
       // performs count, integer, aim and channel validation in source order.
@@ -150,7 +128,8 @@ export function createWireInputBridge(kernel = pageNetworkFor(null)) {
       // A registry can omit codes even inside the fixed bit window. Pass its
       // validity table so a set bit cannot decode to an unnamed held control.
       for (let i = 0; i < 128; i++) k.put(registry.inputCodes[i] ? 1 : 0);
-      k.run("input");
+      if(outbound){k.encodeOutbound(outbound.handle,commands.at(-1)?.tick??0,edges.length,outbound.interval);if(k.length===-2)return null;}
+      else k.run("input");
       return k.result(borrowed);
     },
     keepalive({ epoch, tick } = {}, borrowed = false) {

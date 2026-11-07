@@ -15,7 +15,7 @@ const EPSILON = 1e-6;
 // drawn; the authoritative round the server (or the world worker) fires for
 // it carries the hits, and is not drawn a second time. An infantry round
 // flies the authority's path: from the gun origin beside the head, along
-// the press's seeded spread (weapons.js spreadSeed), joining it from the
+// the press's native seeded spread, joining it from the
 // drawn gun over MERGE, and it ends at the first soldier it crosses as this
 // page shows him, so a blast cannon's five bolts fan out and stop where its
 // pellets land. Only a bolt flies straight enough to draw

@@ -32,11 +32,6 @@ export const EDITS = {
     around('consumedEdges', 'const consumed=host.consumedEdges(tick);if(consumed.length)throw consumed[0].error;'),
     { anchor: '    publish();return tick;', text: `    ${enter('publish')}publish();${exit('publish')}return tick;` },
   ],
-  // A press's spread draws (mulberry32 from its seed): the plugin sees each.
-  '/src/weapons.js': [
-    { anchor: 'export function seededRandom(seed) {\n  let a = seed >>> 0;\n',
-      text: 'export function seededRandom(seed) {\n  const draws = seededRandomOf(seed);\n  return globalThis.__bfeDraw ? globalThis.__bfeDraw.seeded(seed, draws) : draws;\n}\nfunction seededRandomOf(seed) {\n  let a = seed >>> 0;\n' },
-  ],
 };
 
 // Applies a file's edits: each anchor once, the edited text never holding

@@ -9,7 +9,7 @@ import {F4Live} from '../src/f4-live.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
+import { stepTurretPreview } from './helpers/network-preview.js';
 
 const DEG = Math.PI / 180;
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));

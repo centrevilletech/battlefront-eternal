@@ -435,6 +435,37 @@ export class PageNetwork {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
+    /**
+     * @returns {string}
+     */
+    capture_publication() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pagenetwork_capture_publication(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @param {number} id
+     * @returns {string}
+     */
+    capture_record(id) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pagenetwork_capture_record(this.__wbg_ptr, id);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
     close() {
         wasm.pagenetwork_close(this.__wbg_ptr);
     }
@@ -445,10 +476,19 @@ export class PageNetwork {
      */
     encode(op, length) {
         const ret = wasm.pagenetwork_encode(this.__wbg_ptr, op, length);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return ret[0] >>> 0;
+        return ret;
+    }
+    /**
+     * @param {number} id
+     * @param {number} length
+     * @param {number} tick
+     * @param {number} edges
+     * @param {number} interval
+     * @returns {number}
+     */
+    encode_outbound(id, length, tick, edges, interval) {
+        const ret = wasm.pagenetwork_encode_outbound(this.__wbg_ptr, id, length, tick, edges, interval);
+        return ret;
     }
     /**
      * @returns {number}
@@ -486,13 +526,41 @@ export class PageNetwork {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    lease_changes_ptr() {
+        const ret = wasm.pagenetwork_lease_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} kind
      * @param {number} id
-     * @returns {boolean}
+     * @returns {number}
      */
     lookup(kind, id) {
         const ret = wasm.pagenetwork_lookup(this.__wbg_ptr, kind, id);
-        return ret !== 0;
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    mount_frame_ptr() {
+        const ret = wasm.pagenetwork_mount_frame_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    mount_input_ptr() {
+        const ret = wasm.pagenetwork_mount_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    mount_output_ptr() {
+        const ret = wasm.pagenetwork_mount_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     constructor() {
         const ret = wasm.pagenetwork_new();
@@ -508,10 +576,56 @@ export class PageNetwork {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    outbound_actions_ptr() {
+        const ret = wasm.pagenetwork_outbound_actions_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    outbound_aim(count) {
+        wasm.pagenetwork_outbound_aim(this.__wbg_ptr, count);
+    }
+    /**
+     * @param {number} id
+     * @param {number} length
+     * @param {number} count
+     * @returns {boolean}
+     */
+    outbound_batch(id, length, count) {
+        const ret = wasm.pagenetwork_outbound_batch(this.__wbg_ptr, id, length, count);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @returns {string}
+     */
+    outbound_capture(id) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pagenetwork_outbound_capture(this.__wbg_ptr, id);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * @param {number} id
      */
     outbound_drop(id) {
         wasm.pagenetwork_outbound_drop(this.__wbg_ptr, id);
+    }
+    /**
+     * @returns {number}
+     */
+    outbound_fires_ptr() {
+        const ret = wasm.pagenetwork_outbound_fires_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -521,15 +635,21 @@ export class PageNetwork {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    outbound_results_ptr() {
+        const ret = wasm.pagenetwork_outbound_results_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} id
      * @param {number} op
      * @param {number} length
+     * @returns {boolean}
      */
     outbound_run(id, op, length) {
         const ret = wasm.pagenetwork_outbound_run(this.__wbg_ptr, id, op, length);
-        if (ret[1]) {
-            throw takeFromExternrefTable0(ret[0]);
-        }
+        return ret !== 0;
     }
     /**
      * @returns {number}
@@ -546,14 +666,54 @@ export class PageNetwork {
     present(tick, player, vehicle) {
         wasm.pagenetwork_present(this.__wbg_ptr, tick, player, vehicle);
     }
+    present_view() {
+        wasm.pagenetwork_present_view(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    preview_commands_ptr() {
+        const ret = wasm.pagenetwork_preview_commands_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    preview_frame_ptr() {
+        const ret = wasm.pagenetwork_preview_frame_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    preview_looks_ptr() {
+        const ret = wasm.pagenetwork_preview_looks_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    preview_output_ptr() {
+        const ret = wasm.pagenetwork_preview_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    preview_setup() {
+        wasm.pagenetwork_preview_setup(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    publications_ptr() {
+        const ret = wasm.pagenetwork_publications_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
     /**
      * @param {number} length
+     * @returns {boolean}
      */
     receive(length) {
         const ret = wasm.pagenetwork_receive(this.__wbg_ptr, length);
-        if (ret[1]) {
-            throw takeFromExternrefTable0(ret[0]);
-        }
+        return ret !== 0;
     }
     receive_setup() {
         wasm.pagenetwork_receive_setup(this.__wbg_ptr);
@@ -594,6 +754,42 @@ export class PageNetwork {
      */
     set_bounds(x, dx, z, dz, y, dy) {
         wasm.pagenetwork_set_bounds(this.__wbg_ptr, x, dx, z, dz, y, dy);
+    }
+    /**
+     * @returns {number}
+     */
+    smooth_commands_ptr() {
+        const ret = wasm.pagenetwork_smooth_commands_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    smooth_input_ptr() {
+        const ret = wasm.pagenetwork_smooth_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    smooth_output_ptr() {
+        const ret = wasm.pagenetwork_smooth_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    take_network_error() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pagenetwork_take_network_error(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * @returns {number}

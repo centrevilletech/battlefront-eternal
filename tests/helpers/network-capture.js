@@ -23,8 +23,12 @@ function snapshot(row, epoch = 0) {
 }
 export class SnapshotClient extends Client {
   receive(bytes) {
-    const result = super.receive(bytes);
-    if (!result) return result;
+    const borrowed = super.receive(bytes);
+    if (!borrowed) return borrowed;
+    const publication=JSON.parse(this.network.kernel.capture_publication());
+    this.network.refresh();
+    for(const row of publication.records){if(row.payload)row.payload=Uint8Array.from(row.payload);if(row.kind==='droideka')row.charge=undefined;if(row.kind==='turret'&&row.state===null)row.state=undefined;}
+    const result={...borrowed,ack:{...borrowed.ack},snapshotAck:{...borrowed.snapshotAck},records:publication.records,seatChanges:publication.seatChanges};
     result.sample = null;
     if (this.network.header[H.MAGIC] === SNAPSHOT_ENTITIES_MAGIC) {
       const poses = new Map();
@@ -38,6 +42,7 @@ export class SnapshotClient extends Client {
     }
     return result;
   }
+  get(kind,id){const row=super.get(kind,id);if(!row)return row;const owned=JSON.parse(this.network.kernel.capture_record(this.network.lookupIndex));if(owned.payload)owned.payload=Uint8Array.from(owned.payload);if(owned.kind==='droideka')owned.charge=undefined;return owned;}
   capture(tick = NaN) {
     return JSON.parse(this.network.kernel.capture(tick));
   }

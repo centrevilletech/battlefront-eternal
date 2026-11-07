@@ -42,11 +42,6 @@ export function loadClips(meta, buffer, boneNames = null) {
 // Unit display blending runs directly in rust/bfe-pose and does not use this
 // host accumulator. The remaining consumers still need its clip/bone API.
 let animKernel = null;
-// The page's snapshot ring shares the battle's required native instance.
-export function animationKernel() {
-  if (!animKernel) throw Error("The native animation sampler is not ready");
-  return animKernel;
-}
 // Rigs are cold resource records from the same required native instance.
 export function vehicleConstruction(data, batches = false) {
   if (!animKernel) throw Error("The native animation sampler is not ready");

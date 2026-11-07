@@ -376,7 +376,7 @@ export class F2Seats {
     this.syncTurrets();
     this.vehicles.ticks = this.io.ticks;
   }
-  // lockPick supplies foreign target facts; cone selection and line of sight
+  // The target query supplies foreign target facts; cone selection and line of sight
   // run natively without constructing per-candidate option objects.
   // Turret lock queries retain lazy unit geometry timing. Eligibility and
   // relation can be answered without asking hit shapes; the native search asks

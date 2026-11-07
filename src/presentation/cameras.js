@@ -388,7 +388,6 @@ export class PageCameras {
   // The native prop phase has published the drum and gun for this frame.
   gunner(a, gunner) {
     const t = gunner.turret;
-    if (!this.authority) gunner.shownAim();
     a[F.TURRET_ID] = this.turretId;
     const root = t.rig.root;
     a.set(root.matrixWorld.elements, F.TURRET_ROOT);

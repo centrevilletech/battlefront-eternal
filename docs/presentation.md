@@ -188,7 +188,7 @@ Only changed matrix rows are copied to resource shells. Bone TRS writeback
 and Three's subsequent rig walks are absent from these page paths.
 
 The active snapshot timeline also samples in one native batch. A bounded
-ring retains 64 snapshots and 1,024 identities; sparse ids, partial packets,
+ring retains 64 snapshots and 512 identities, indexed by a fixed hash table; sparse ids, partial packets,
 generations and discontinuities remain explicit. Hulls use normalized slerp;
 body yaw takes the shortest arc. Missing brackets coast for six ticks and
 then hold. The receive owner and the body/hull phases share the same native memory.
@@ -204,19 +204,31 @@ refused and reported once rather than growing or failing a display frame.
 
 SnapshotClient's multipart assembly and immutable ACK baselines also live in
 that owner. A packet copies bytes into one reserved input span and returns only
-changed gameplay records, seat changes and opaque owned payloads. Baseline
-entries remain native. Cold diagnostic captures can inspect them for replay;
+borrowed gameplay records, seat changes and opaque payload spans. Resources
+retain native row leases through a bounded request bank when prerequisites or
+history outlive a packet. Hull and mount facts carry direct qualified pairs;
+no per-hull mount scan remains. Baseline entries remain native. Cold diagnostic
+captures can inspect them for replay;
 the live page never reconstructs them. Outbound cumulative look, held backups,
-ACK accounting and binary input encoding use the same required module. Server
-snapshot publication remains in its authoritative owner.
+ACK accounting, fire taps, cadence and binary input encoding use the same
+required module. One command batch validates completely before changing any
+outbound or preview state. Transport callbacks borrow retained packet views;
+they copy only when transport must keep ownership. Server snapshot publication
+remains in its authoritative owner.
 
 Receive storage bounds 512 protocol slots, 128 acknowledged baselines and
-32 unfinished snapshots. Field payloads use reference-counted native handles;
-complete versions share unchanged bytes. A paused receive queue discards its
+32 unfinished snapshots. Compact 184-byte baseline entries and a 4 MiB buddy
+arena replace fixed full-width payload slots. Field handles and byte budgets
+are independent; complete versions share unchanged bytes. Up to 4,096 changed
+record leases retain resource prerequisites without cloning baseline entries.
+Pool pressure releases deferred history and withholds incomplete ACKs; existing
+qualified resource facts remain retained until their consumers release them. A paused receive queue discards its
 oldest replaceable quarter when full, leaving incomplete snapshots unacknowledged
 so the host repairs them. Ring and packet stores reserve once and return to a
 cold pool at battle disposal. Neither packet assembly nor sampling allocates
-native storage after setup.
+native storage after setup. Entity, own and world sections use the same wire
+parser in live receive and cold inspection. Only their storage and repair
+policy differ.
 
 ## Storage and replay
 
@@ -380,3 +392,38 @@ Standalone native fixtures freeze the replaced JavaScript constructors' vertex,
 index, bounds, terrain/LOD, material and shadow-range bytes without content.
 Blended world/sky, actors/rigs, dynamic water/effects and interface resources
 retain their separate consumers until their resource families move.
+
+## Own prediction views
+
+The page network frame also samples mount lean, walk cycles and every seat's
+aim history. Native receive feeds these histories directly; owned pilot and
+passenger checkpoints exclude only the exact current lease from sampling.
+Histories have twelve endpoints per hull and retire with its identity.
+
+The same coarse call consumes pending and loose pointer counts, body posture,
+seat limits and turret servo facts. It publishes own look, interpolated body
+aim and reticle preview angles. Visual correction commands join that call in
+order, with native offset accumulation, snap decisions, exponential decay and
+metrics. The two retained queues each hold 256 requests; excess paused requests
+discard the oldest visual request. Pointer and command spans keep bounded
+prefixes rather than growing a frame or stopping it.
+
+`ClientPrediction` joins reliable action/fire outcomes with movement commands
+by sequence before replay. Its recon session uses the authoritative F3 recon
+core with a private store and the page's existing native collision world.
+Camera, weapon, countdown, strike and random state restore from each own
+checkpoint. The page republishes retained resource fields and restores that
+checkpoint before applying another packet; no controller callback runs in JS.
+
+An own recon record omits derived eye, aim and target vectors. Before replay,
+the native recon core reconstructs them from the authority pose and camera
+facts, then retains that completed source checkpoint for restoration. This
+also covers a frame with no pending commands; drawing never observes an
+uninitialized camera basis.
+
+An own-view refresh with no world interval keeps the ring's retained sample
+and dt. The same native preview owner updates input and correction output,
+without resampling walker foot easing or other hull history. Input encoding
+borrows that connection's receive/display owner. Command transfer copies only
+occupied rows; numeric optionals use generated presence fields, and the recon
+seed crosses directly from its retained typed word.

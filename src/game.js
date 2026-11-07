@@ -4,19 +4,17 @@ import { ownedBasicEffect } from './rust-render/effect-material.js';
 import { observePresentation } from "./presentation-profile.js";
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
 import { PredictionArsenal } from './runtime/prediction-arsenal.js';
+import { BodyPreview } from './presentation/body.js';
+import { CorrectionSmoother, OwnPreview } from './runtime/prediction-view.js';
 import { PredictionFrame } from './runtime/prediction-frame.js';
 import {entityPostNames} from './runtime/entity-spawn-posts.js';
 import { restoreCompactSoldier } from './runtime/network-entity-soldier-compact.js';
 import { EntitySeats } from './runtime/entity-seats.js';
 import { MountedWeaponPrediction } from './runtime/mounted-weapon-prediction.js';
-import {predictRemote,RemotePredictionContext} from './runtime/network-remote-prediction.js';
-import {captureRemoteReplay,restoreRemoteReplay} from './runtime/network-remote-replay.js';
 import { restoreDroidekaState } from './runtime/network-droideka-state.js';
 import { retireAuthoritativeInputs } from './runtime/input-retirement.js';
 import { retainPredictionCommands, resetPredictionIdentity } from './runtime/prediction-window.js';
-import { discreteActions, predictionCommands, expireMovement } from './runtime/network-inputs.js';
-import { BodyPreview } from "./presentation/body.js";
-import { commandBodyAim } from './runtime/command-body-aim.js';
+import { hasDiscreteActions, expireMovement } from './runtime/network-inputs.js';
 import { PredictedShots } from './runtime/predicted-shots.js';
 import { renderedViewTick } from './runtime/view-tick.js';
 import { transportPosts } from './flight/spawn.js';
@@ -76,7 +74,7 @@ import { createNativeAI as createAI } from "./ai-world-load.js";
 import {loadPageWeaponPolicies,bindWeaponPolicyContent} from "./weapon-policy-content.js";
 import {loadAIWeaponData} from "./ai-data.js";
 import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
-import { InputLead, advanceInputClock, CorrectionSmoother } from "./runtime/reconcile.js";
+import { InputLead, advanceInputClock } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
 import { WaterState } from "./runtime/water-state.js";
 
@@ -981,13 +979,9 @@ async function start() {
     cameraPhase: aimCameras,
     scene,
     camera,
-    collision,
     water,
-    lights,
     model: flyingModel,
     firePoints: Object.assign({}, ...Object.values(sides).map((s) => s.firePoints), weaponsDef.firePoints || {}),
-    explode: (explosion, position, owner) => ordnance.presentExplosion(explosion, position),
-    fire: (def, origin, dir, owner) => ordnance.fire(def, origin, dir, owner),
     // Named by the droid's own class and the gun's channel: the arsenal's
     // weapon classes are copies, absent from the matched combat registry.
     onFired: (shot, position, droid) => simEvents.emit('remoteShot', { droid: droid.def, channel: shot.weapon.channel, position }),
@@ -1126,9 +1120,8 @@ async function start() {
   let paused = false, frozen = false;
   const commandHistory = new CommandHistory();
   const worldControls = new CommandControls();
-  const lookPreview = new BodyPreview(collision);
-  lookPreview.aimYaw = soldier.aimYaw; lookPreview.aimPitch = soldier.aimPitch;
   let previewYaw = 0, previewPitch = 0;
+  const ownPreview=new OwnPreview();
   let activeCommand = null;
   const applyLook = (dx, dy) => {
     const scale = activeCommand?.mouseScale ?? settings.mouseScale, invert = activeCommand?.invertMouse ?? settings.get("invertMouse");
@@ -1771,8 +1764,6 @@ async function start() {
     playerUnit.setBody({ side: next.side, className: next.className, def: soldierDef, actor, soldier, animator, combat, presentation, walker });
     presentation.reset();
     visual = presentation.position;
-    lookPreview.begin(soldier);
-    lookPreview.aimYaw = soldier.aimYaw; lookPreview.aimPitch = soldier.aimPitch;
     previewYaw = previewPitch = 0;
     view.setDef(soldierDef);
     simulationView.setDef(soldierDef);
@@ -2030,10 +2021,7 @@ async function start() {
   function restorePrediction() {
     client?.mountedWeapons?.restore();
     client?.weapons?.restore();
-    if (client?.remotePrediction) {
-      const {droid,state} = client.remotePrediction;
-      restoreRemoteReplay(remotes,droid,state);client.remotePrediction=null;
-    }
+    if (client) predictionSession.restoreRecon();
     if (!client?.predicted && !client?.predictionBodyPending) return;
     if (client.savedDroideka) {
       restoreDroidekaState(soldier, client.savedDroideka);
@@ -2063,7 +2051,6 @@ async function start() {
     release(() => client?.mountedWeapons?.dispose());
     release(() => client?.weapons?.dispose());
     release(() => { if (!headless) predictionSession.reset(); });
-    release(() => client?.remoteReplay.reset());
     if (client) {
       client.predictionFrame.clear();
       client.pending.length = 0; client.pendingActions.length = 0;
@@ -2107,23 +2094,18 @@ async function start() {
       aimYaw:notice.aimYaw,aimPitch:notice.aimPitch }, playerUnit, command, shot);
   }
   function replayPrediction() {
-    const replayActions = client.host.entityInput.replayActions(true, true);
-    const actions = commands => commands.map(command => ({...command, actions: replayActions.actions.get(command.sequence) || []}));
-    const pending = predictionCommands(actions(client.pending), actions([...client.pendingActions, ...replayActions.shieldCommands]), 0, client.held);
+    predictionSession.replaySources(client.pendingActions,client.host.entityInput.outcomes,client.held);
+    const pending=client.pending;
     if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) {
-      if (combat.dead || playerUnit.removed || remotes.active || playerUnit.held) predictionSession.reset();
+      if (combat.dead || playerUnit.removed || playerUnit.held) predictionSession.reset();
       client.predictionFrame.clear();
     }
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
-      const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
-      const prediction=predictRemote(remotes,droid,pending,worldClock.tick,playerUnit.generation,
-        client.heldGeneration===playerUnit.generation?client.held:[],client.replayView,client.remoteReplay);
-      restoreRemoteReplay(remotes,droid,prediction.state);
-      client.remotePrediction={droid,state};client.predictedTick=prediction.tick;
+      client.predictedTick=predictionSession.predictRecon(remotes,remotes.piloted,pending,worldClock.tick,playerUnit.generation,
+        client.heldGeneration===playerUnit.generation?client.held:client.predictionFrame.empty,client.replayView);
       client.vehiclePrediction=null;
       return false;
     }
-    client.remoteReplay.reset();
     client.vehiclePrediction = null;
     // A pilot's exact correction admits native hull replay. Mounted weapons
     // and hull motion share the same frame call; passengers have timers only.
@@ -2195,7 +2177,7 @@ async function start() {
       // correction that later retires it. The stamps the lead's cap set
       // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
       commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, entitySentAt: 0, resumedAt: 0,
-      remoteReplay: new RemotePredictionContext(), continuationState: new Map(),
+      continuationState: new Map(),
       vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
       smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
       // The worker's own health, from its packets (simulation-worker.js).
@@ -2293,13 +2275,12 @@ async function start() {
       onChat: message => chat?.receive(message),
       playerName: settings.get("playerName"),
       onFire: (edge, command) => { if(playerUnit.seat)game.predictedShots?.fire(edge, playerUnit, command); },
+      // Receive, display and own input borrow one native owner for this connection.
+      inputNetwork:()=>client.entity.receiver.network,
+      prepareInput:()=>client.entity.preview.prepareFacts(game),
+      resolveInput:count=>client.entity.preview.resolveAim(game,count),
       getAim: command => {
-        if (playerUnit.seat) {
-          const direction = driver?.active ? driver.viewDirection(new THREE.Vector3()) : gunner.active ? gunner.viewDirection(new THREE.Vector3()) : playerUnit.seat.forward(new THREE.Vector3());
-          return { aimYaw: Math.atan2(direction.x, direction.z), aimPitch: Math.asin(Math.max(-1, Math.min(1, direction.y))) };
-        }
-        const body = commandBodyAim(soldier, walker, lookPreview, command, combat.zoom, settings.mouseScale, settings.get("invertMouse"),combat);
-        return combat.convergedAim(lookPreview);
+        return client.entity.preview.commandAim(game,client.host.entityInput.input.currentRow);
       },
       onInputAck: ack => {
         inputTrace?.ack(ack);
@@ -2358,7 +2339,6 @@ async function start() {
       if (!run) {
         restorePrediction();
         game.predictedShots?.clear();
-        client.remoteReplay.reset();
         client.pending.length = 0;
         client.pendingActions.length = 0;
         client.inputClock.rebase();
@@ -2398,7 +2378,7 @@ async function start() {
         if (client.lead.capped) client.cappedStamps.add(command.sequence);
         while (client.commandStamps.size > 512) { const oldest = client.commandStamps.keys().next().value; client.commandStamps.delete(oldest); client.cappedStamps.delete(oldest); }
       }
-      if (discreteActions(command).length || command.human?.length) {
+      if (hasDiscreteActions(command) || command.human?.length) {
         // A spun mouse wheel outruns the server's results: the oldest gives
         // way (only its local replay stops) rather than ending the session.
         if (client.pendingActions.length >= 128) client.pendingActions.shift();
@@ -2423,33 +2403,16 @@ async function start() {
     client.predicted = predict();
     if (!client.ready) return;
     client.playerAlpha = client.predicted ? (client.predictedTick > worldClock.tick ? input.alpha : 1) : presentAlpha;
-    // The look he has made since, over the aim: predicted, or the
-    // acknowledged one plus every command's look the worker hasn't taken.
-    // Predicted, the look of commands not yet gone to the worker too: the
-    // replay turns him only by the look the worker will take, when it does.
-    lookPreview.begin(soldier);
-    if (!combat.dead && !walker) {
-      const scale = settings.mouseScale, invert = settings.get("invertMouse"), zoom = combat.zoom;
-      for (let i=0;i<client.pending.length;i++) {
-        const command=client.pending[i];
-        if (!client.predicted || command.lookSent===false) lookPreview.append(command.look,zoom,scale,invert);
-      }
-      lookPreview.append(controls.looks,zoom,scale,invert);
-    }
-    lookPreview.run();
-    previewYaw = lookPreview.aimYaw - soldier.aimYaw;
-    previewPitch = lookPreview.aimPitch - soldier.aimPitch;
-    // A manned turret's look ahead of the worker, as the soldier's (gunner.js).
-    if (gunner.active) gunner.preview(client.pending, controls.looks, settings.mouseScale, settings.get("invertMouse"), client.pending.length ? input.alpha : presentAlpha);
     const timelineStart = runtimeProfile?.start();
-    client.entity?.present(client.clock);
+    game.previewPresentAlpha=presentAlpha;client.entity?.present(client.clock,true,client.playerAlpha);
+    previewYaw=game.ownPreview.yaw;previewPitch=game.ownPreview.pitch;
     runtimeProfile?.finish("timelinePresentation", timelineStart);
     // A command vehicle lost is announced from the hulls this page shows:
     // the server's post summaries carry only the placed posts.
     for (const event of posts.presentMobileEvents()) if (event.kind === "lost") announceLost(event);
     // The HUD (the minimap's heading, the radar) follows the look he sees,
     // not the aim the server has acknowledged.
-    presentBattle(dt, soldier.aimYaw + previewYaw);
+    presentBattle(dt, game.ownPreview.hudYaw);
     presentLeaving();
   }
 
@@ -2469,7 +2432,6 @@ async function start() {
       restorePrediction();
       // His rounds are the world's here, drawn as they come.
       game.predictedShots?.clear(); game.predictedShots = null;
-      client.remoteReplay.reset();
       client.pending.length = 0; client.pendingActions.length = 0; client.vehiclePrediction = null;
       client.host.drainEntities();
       if (worldClock.tick !== tick) throw new Error(`lockstep: the page is at tick ${worldClock.tick}, the worker at ${tick}`);
@@ -2489,11 +2451,12 @@ async function start() {
       client.host.inputs([command]);
       await client.host.call("advance", { ticks: 1 });
       client.host.drainEntities();
-      client.clock = tick; client.entity.present(tick); applied++;
+      client.clock = tick; client.entity.present(tick,true,lockstep.clock.alpha,true); applied++;
     }
     if (worldClock.tick !== lockstep.clock.tick) throw new Error(`lockstep: tick ${worldClock.tick} applied, ${lockstep.clock.tick} run`);
     if (applied) updateTargetHud(applied / 60);
-    if (gunner.active) gunner.preview([], null, 0, false, lockstep.clock.alpha);
+    if(!applied)client.entity.presentView(lockstep.clock.alpha,true,frozen);
+    previewYaw=game.ownPreview.yaw;previewPitch=game.ownPreview.pitch;
     presentBattle(dt, soldier.aimYaw);
     frame(dt, draw, dt, true, false);
     return worldClock.tick;
@@ -2526,6 +2489,8 @@ async function start() {
       else if (client) clientFrame(wallDt);
       else presentAlpha = 1;
     }
+    if(client?.ready&&!game.ownPreview.ready){client.entity.presentView(client.playerAlpha,lockstep.on,frozen);previewYaw=game.ownPreview.yaw;previewPitch=game.ownPreview.pitch;}
+    if(client)game.ownPreview.ready=false;
     if (headless || !present) { runtimeProfile?.end(false); return; }
     graphics.rust.frame.begin(draw);
     runtimeProfile?.phase("presentation");
@@ -2541,8 +2506,6 @@ async function start() {
       if (client?.predicted) { const c = client.smoother; visual.x += c.x; visual.y += c.y; visual.z += c.z; }
     }
 
-    if (driver?.active) driver.preview(frozen ? null : client?.pending, frozen ? null : controls.looks,
-      settings.mouseScale, settings.get("invertMouse"));
 
     // The animated props at the tick drawn, and whom the creatures among
     // them hold, before any body is drawn (src/props.js). Held, his own
@@ -2553,8 +2516,8 @@ async function start() {
     if (held) visual.setFromMatrixPosition(held.frame);
     const renderedSoldier = presentation.state;
     actor.root.position.copy(visual);
-    renderedSoldier.aimYaw = soldier.aimYaw - presentation.tickYaw * (1 - playerAlpha) + previewYaw;
-    renderedSoldier.aimPitch = soldier.aimPitch + previewPitch;
+    renderedSoldier.aimYaw = game.ownPreview.renderedYaw;
+    renderedSoldier.aimPitch = game.ownPreview.renderedPitch;
     if (held) animator.gunner(animator.clips.get(held.grab.clip) ?? null, 0, 0, held.time);
     // At a turret, his body stands at its seat in the gunner's pose, as
     // every other page draws him and the world strikes him (the presentation
@@ -2943,7 +2906,7 @@ async function start() {
 
   // Hooks for scripted checks in a headless browser.
   const game = {
-    bodyPreview:lookPreview,
+    bodyPreview:new BodyPreview(collision),
     // A closed battle stops driving and gives up its construction sampler.
     // Prediction already defers owner release through an active replay.
     dispose() {
@@ -3043,7 +3006,7 @@ async function start() {
     snow,
     atmosphere,
     skyFlyers,
-    controls,
+    controls,ownPreview,previewPresentAlpha:1,
     audio,
     waterShore,
     get bubble() { return bubble; },

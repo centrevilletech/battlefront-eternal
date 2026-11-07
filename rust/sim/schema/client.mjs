@@ -4,7 +4,7 @@
 export default {
   enums: {
     // client-prediction.js run: setup commands and the single frame operation.
-    ClientOp: ['configureActor', 'configureWeapon', 'predict', 'reset', 'configureMuzzles', 'configureHull'],
+    ClientOp: ['configureActor', 'configureWeapon', 'predict', 'reset', 'configureMuzzles', 'configureHull', 'configureRecon'],
     // Actor replay and mounted weapon timers share the owner, not its body.
     ClientCorrectionSeatField: ['aimYaw', 'pitch', 'lookYaw', 'lookPitch', 'yawRate', 'lastYaw'],
     ClientFlightEnumField: ['state', 'trick', 'lock', 'warning', 'message', 'reason'],
@@ -14,7 +14,8 @@ export default {
     // Compact wire tails are conditional; their base spans remain fixed.
     ClientCompactFlightVector: ['position', 'velocity', 'optional'],
     ClientCompactFlightQuaternion: ['quaternion', 'optional'],
-    ClientMode: ['actor', 'mounted', 'hull'],
+    ClientCommandSource: ['movement','action','outcome','fire'],
+    ClientMode: ['actor', 'mounted', 'hull', 'recon'],
     // Existing actor/config and recursive weapon-definition discriminants.
     ClientActorKind: ['soldier', 'droideka'],
     ClientValueKind: ['undefined', 'null', 'false', 'true', 'number', 'string', 'array', 'object'],
@@ -125,18 +126,28 @@ export default {
     ClientBarrelResult: { $layout: true, barrel: 'f64', written: 'bool' },
     ClientMount: { $layout: true, advance: 'bool', tow: 'bool' },
     ClientMuzzles: { $layout: true, barrels: 'list:u32' },
+    // predictRemote imports one mutable recon and its computational camera.
+    // Weapon rows follow separately; immutable definitions are configured once.
+    ClientReconClass: { $layout: true, count: 'u32', idsAt: 'u32', definitionAt: 'u32', muzzle: 'vec3' },
+    ClientReconState: { $layout: true,
+      position: 'vec3', velocity: 'vec3', eye: 'vec3', aim: 'vec3', target: 'vec3',
+      yaw: 'f64', pitch: 'f64', health: 'f64', dead: 'bool', countdown: 'f64', team: 'f64',
+      piloted: 'bool', seed: 'u32', lookX: 'f64', lookY: 'f64', zoom: 'bool', firstPerson: 'bool|undefined',
+      camera: 'rec:ReconCamera', hasCamera: 'bool', aspect: 'f64', salvo: 'rec:ReconSalvo|null',
+      viewFirst: 'bool|undefined', viewAspect: 'f64', hasViewAspect: 'bool', waterLevel: 'f64', hasWaterLevel: 'bool', needsAim:'bool',
+    },
     ClientFrame: { $layout: true,
       epoch: 'f64', identity: 'f64', generation: 'f64', source: 'f64', authorityTick: 'f64',
-      mode: 'enum:ClientMode', hullAt: 'u32', mountsAt: 'u32', mountsCount: 'u32', world: 'u32', ignored: 'f64', movement: 'bool', dead: 'bool', underwater: 'bool', shield: 'bool',
+      mode: 'enum:ClientMode', reconAt: 'u32', hullAt: 'u32', mountsAt: 'u32', mountsCount: 'u32', world: 'u32', ignored: 'f64', movement: 'bool', dead: 'bool', underwater: 'bool', shield: 'bool',
       actorAt: 'u32', actorWords: 'u32', correctionAt: 'u32', correctionBytes: 'u32',
       weaponsAt: 'u32', weaponsWords: 'u32', flagsAt: 'u32', flagsCount: 'u32',
-      commandsAt: 'u32', commandsCount: 'u32', crowdAt: 'u32', crowdCount: 'u32',
+      commandsAt: 'u32', commandsCount: 'u32', mergeCommands: 'bool', crowdAt: 'u32', crowdCount: 'u32',
       held: 'u32', flightHeld: 'u32', presentedThrough: 'f64', cosmeticSlots: 'u32', mouseScale: 'f64', invert: 'bool', kick: 'f64x3', checkTick: 'f64',
     },
     ClientCommand: { $layout: true,
-      tick: 'f64', generation: 'f64', sequence: 'f64', sent: 'bool', held: 'u32', actions: 'u32',
-      lookAt: 'u32', lookCount: 'u32', mouseScale: 'f64|undefined', invert: 'bool|undefined',
-      flightAt: 'u32',
+      tick: 'f64', generation: 'f64', sequence: 'f64', sent: 'bool', held: 'u32', actions: 'u32', source: 'enum:ClientCommandSource', flightActions: 'u32',
+      lookAt: 'u32', lookCount: 'u32', mouseScale: 'f64', hasMouseScale: 'bool', invert: 'bool|undefined',
+      flightAt: 'u32', firstPerson: 'bool|undefined', aspect: 'f64', hasAspect: 'bool',
       primaryCount: 'u32', primaryId: 'f64', secondaryCount: 'u32', secondaryId: 'f64',
     },
     // Flyer-only command facts do not enlarge every infantry replay command.
@@ -148,7 +159,7 @@ export default {
       tick: 'f64', continued: 'bool', sequence: 'f64', held: 'u32', ticks: 'u32',
       actorAt: 'u32', actorWords: 'u32', correctionAt: 'u32', correctionBytes: 'u32',
       weaponsAt: 'u32', weaponsWords: 'u32', shotsAt: 'u32', shotsCount: 'u32',
-      hullAt: 'u32', hullWords: 'u32', beforeAt: 'u32', beforeShot: 'u32', lookYaw: 'f64', checkFound: 'bool', checkPosition: 'vec3', kick: 'f64x3',
+      reconAt: 'u32', reconWords: 'u32', reconSourceAt:'u32', hullAt: 'u32', hullWords: 'u32', beforeAt: 'u32', beforeShot: 'u32', lookYaw: 'f64', checkFound: 'bool', checkPosition: 'vec3', kick: 'f64x3',
     },
     ClientShot: { $layout: true,
       tick: 'f64', sequence: 'f64', press: 'f64', held: 'bool', button: 'u32', weapon: 'u32', level: 'f64',

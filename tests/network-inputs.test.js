@@ -1,8 +1,10 @@
+import {encodeEntityInput} from '../src/runtime/network-entity-input.js';
+import {capturePublication} from './helpers/input-publication.js';
 import test from 'node:test';import assert from 'node:assert/strict';
-import {NetworkInputs,predictionCommands,expireMovement} from '../src/runtime/network-inputs.js';
+import {NetworkInputs,expireMovement} from '../src/runtime/network-inputs.js';
 const command=i=>({epoch:1,sequence:i,tick:i,generation:1,down:['KeyW'],look:[[i,-i]],actions:[]});
 test('replaceable state retains cumulative look while actions use reliable lane',()=>{
-  const states=[],events=[],fires=[],sender=new NetworkInputs({state:m=>{states.push(m);return true;},events:m=>{events.push(m);return true;},fire:c=>{fires.push(c.sequence);return true;}});
+  const states=[],events=[],fires=[],sender=new NetworkInputs({state:m=>{states.push(capturePublication(m));return true;},events:m=>{events.push(capturePublication(m));return true;},fire:c=>{fires.push(c.sequence);return true;}});
   for(let i=1;i<=6;i++)sender.send([{...command(i),actions:i===2?['jump','firePrimary']:[],...(i===3?{human:[{kind:'suicide'}]}:{})}]);
   assert.deepEqual(states.at(-1).commands.map(c=>c.sequence),[6]);
   assert.deepEqual(states.at(-1).commands.at(-1).lookTotal,[21,-21]);
@@ -11,19 +13,11 @@ test('replaceable state retains cumulative look while actions use reliable lane'
   assert.deepEqual(fires,[1,2,3,4,5,6]);
   sender.send([{...command(7),generation:2}]);assert.deepEqual(states.at(-1).commands[0].lookTotal,[7,-7]);
 });
-test('movement acknowledgements cannot discard an unacknowledged reliable jump',()=>{
-  const old={...command(2),actions:['jump']},fresh=command(5);
-  const pending=predictionCommands([fresh],[old],0,['KeyD']);
-  assert.deepEqual(pending.map(c=>c.sequence),[2,5]);assert.deepEqual(pending[0].actions,['jump']);assert.deepEqual(pending[0].look,[]);assert.deepEqual(pending[0].down,['KeyD']);
-  assert.deepEqual(predictionCommands([fresh],[old],2,[]).map(c=>c.sequence),[5]);
-  assert.deepEqual(predictionCommands([old],[old],2,[])[0].actions,[]);
-});
-
-import { InputMailbox } from './fixtures/input-mailbox.js';
+import {InputMailbox} from './fixtures/input-mailbox.js';
 import {InputActions} from '../src/runtime/input-actions.js';
 for(const rtt of [0,50,100,200])test(`real split sender recovers lost/reordered movement and delayed action at ${rtt}ms RTT`,()=>{
  const mailbox=new InputMailbox(),actions=new InputActions(),wire=[],reliable=[];let serial=0;
- const sender=new NetworkInputs({state:message=>{const n=++serial;if(n%20!==0&&!(n>=80&&n<=86))wire.push({at:n+Math.ceil(rtt/33.333)+(n%7===0?3:0),message});return true;},events:message=>{reliable.push({at:serial+1+Math.ceil(rtt/33.333)+9,message});return true;},fire:()=>true});
+ const sender=new NetworkInputs({state:message=>{const n=++serial;if(n%20!==0&&!(n>=80&&n<=86))wire.push({at:n+Math.ceil(rtt/33.333)+(n%7===0?3:0),message:capturePublication(message)});return true;},events:message=>{reliable.push({at:serial+1+Math.ceil(rtt/33.333)+9,message:capturePublication(message)});return true;},fire:()=>true});
  let dx=0,dy=0,jumps=0;
  for(let tick=1;tick<=260;tick++){
   if(tick<=240)sender.send([{...command(tick),look:[[1,-2]],actions:tick===80?['jump']:[],down:tick<230?['KeyW']:[]}]);
@@ -58,13 +52,13 @@ test('expired unacknowledgeable movement cannot block fresh input after a stall'
 
 test('held transition backup restores original execution tick without repeating look or actions',()=>{
  const wire=[],events=[],fires=[];
- const sender=new NetworkInputs({state:m=>{wire.push(m);return true;},events:m=>{events.push(m);return true;},fire:c=>{fires.push(c.sequence);return true;}});
+ const sender=new NetworkInputs({state:m=>{wire.push(capturePublication(m));return true;},events:m=>{events.push(capturePublication(m));return true;},fire:c=>{fires.push(c.sequence);return true;}});
  const mailbox=new InputMailbox();
  sender.send([{...command(1),down:[],look:[]}]);mailbox.push(wire[0].commands[0]);mailbox.take(1,1);
  sender.send([{...command(2),down:['KeyS'],actions:['jump','firePrimary'],look:[[3,4]]}]); // Lost original transition.
  sender.send([{...command(3),down:['KeyS'],look:[[2,1]]}]);
  const backup=wire.at(-1).commands;assert.deepEqual(backup.map(c=>c.sequence),[2,3]);
- assert.equal(backup[0],wire[1].commands[0],'original wire command retained');
+ assert.deepEqual(backup[0],wire[1].commands[0],'original execution state retained');
  for(const c of backup)mailbox.push(c);
  const atTransition=mailbox.take(2,1);assert.deepEqual(atTransition.down,['KeyS']);assert.deepEqual(atTransition.look,[[3,4]]);
  assert.deepEqual(mailbox.take(3,1).look,[[2,1]]);
@@ -76,7 +70,7 @@ test('held transition backup restores original execution tick without repeating 
 });
 
 test('held backups are bounded by age, newest transition, life and epoch',()=>{
- const wire=[],sender=new NetworkInputs({state:m=>{wire.push(m);return true;},events:()=>true,fire:()=>true});
+ const wire=[],sender=new NetworkInputs({state:m=>{wire.push(capturePublication(m));return true;},events:()=>true,fire:()=>true});
  sender.send([{...command(1),down:[]}]);sender.send([command(2)]);sender.send([command(3)]);
  assert.deepEqual(wire.at(-1).commands.map(c=>c.sequence),[2,3]);
  sender.send([{...command(4),down:['KeyS']}]);sender.send([{...command(5),down:['KeyS']}]);
@@ -87,9 +81,9 @@ test('held backups are bounded by age, newest transition, life and epoch',()=>{
  sender.reset();assert.equal(sender.transition,null);assert.equal(sender.history.length,0);
 });
 
-test('optional transition backups stay within a bounded application payload',()=>{
- const wire=[],sender=new NetworkInputs({state:m=>{wire.push(m);return true;},events:()=>true,fire:()=>true});
+test('optional transition backups fit the native binary datagram',()=>{
+ const wire=[],sender=new NetworkInputs({state:m=>{wire.push(capturePublication(m));return true;},events:()=>true,fire:()=>true});
  const large={...command(1),down:[],gamepad:{axes:[0,0,0,0],buttons:Array.from({length:17},()=>({pressed:false}))},flightSettings:{sensitivity:DEFAULTS.flightSensitivity,invert:DEFAULTS.flightInvertY,curve:DEFAULTS.flightResponseCurve,bindings:DEFAULTS.flightBindings},mouseScale:1,aspect:16/9,firstPerson:true};
  sender.send([large]);sender.send([{...large,sequence:2,tick:2,down:['KeyW']}]);sender.send([{...large,sequence:3,tick:3,down:['KeyW']}]);
- const message=wire.at(-1);assert.ok(Buffer.byteLength(JSON.stringify({...message,sequence:100000}))<=1200);assert.equal(message.commands.length,1,'oversized optional backup omitted');
+ const message=wire.at(-1);assert.ok(encodeEntityInput({epoch:1,generation:1,commands:message.commands}).length<=1100);assert.equal(message.commands.length,2,'the binary protocol fits the original transition and latest state');
 });

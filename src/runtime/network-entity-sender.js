@@ -1,37 +1,43 @@
 import { pageNetworkFor } from './page-network.js';
 import { NetworkInputs } from './network-inputs.js';
 import { EntityEdgeSender } from './network-entity-edges.js';
-import { encodeEntityInput } from './network-entity-input.js';
-import { FireEdges } from './fire-commands.js';
+import { INPUT_ACTIONS } from './network-entity-input.js';
+import {createWireInputBridge} from './wire-input.js';
 
-const MAX_OUTCOMES=128;
+const MAX_OUTCOMES=128,EMPTY_AIM=Object.freeze({aimYaw:0,aimPitch:0});
 
 // Movement receipts release retransmission storage. Action outcomes are kept
 // separately until an applied own correction includes their simulation tick.
 export class EntityInputSender {
-  constructor({registry,send,getAim=()=>({}),onFire=()=>{},snapshotAck=()=>null,serverTick=()=>null,stateIntervalTicks=1}) {
+  constructor({registry,send,prepareAim=()=>{},getAim=()=>EMPTY_AIM,onFire=()=>{},snapshotAck=()=>null,serverTick=()=>null,stateIntervalTicks=1,kernel=pageNetworkFor(registry)}) {
     if(![1,2].includes(stateIntervalTicks))throw Error('Invalid input state interval');
-    Object.assign(this,{registry,sendPacket:send,getAim,onFire,snapshotAck,serverTick,stateIntervalTicks});
+    Object.assign(this,{registry,sendPacket:send,prepareAim,getAim,onFire,snapshotAck,serverTick,stateIntervalTicks});
     this.edges=new EntityEdgeSender();this.outcomes=new Map();this.resultAcks=[];this.id=0;this.droppedOutcomes=0;
-    this.network=pageNetworkFor(registry);
-    this.input=new NetworkInputs({kernel:this.network,state:m=>this.publish(m.commands),events:m=>this.actions(m),fire:c=>this.fire(c)});
-    this.life=null;this.trigger=new FireEdges();this.appliedTick=-1;this.lastSentState=null;
+    this.network=kernel;this.encoder=createWireInputBridge(kernel);this.policy={handle:0,interval:stateIntervalTicks};
+    this.packet={epoch:NaN,generation:NaN,commands:null,edges:null,snapshotAck:null};this.single=[];
+    this.fireCommand=null;this.triggerEdge=(button,pressed,held)=>held?this.fireHeld(button):this.fireEdge(button,pressed);
+    this.heldPublication={kind:'fire',id:0,held:true,button:NaN,pressed:true,tick:NaN,epoch:NaN,generation:NaN,viewTick:NaN,aimYaw:NaN,aimPitch:NaN};
+    this.input=new NetworkInputs({kernel:this.network,aim:count=>this.prepareAim(count),state:m=>this.publish(m.commands),events:m=>this.actions(m),fire:c=>this.fire(c)});
+    this.policy.handle=this.input.handle;this.appliedTick=-1;this.edgeEpoch=NaN;this.edgeGeneration=NaN;
   }
   // The registry's packet encoder can outlive one connection's sender.
   // Release only this sender's control handle, leaving the shared owner live.
   dispose(){this.input.dispose();}
   get history(){return this.input.history;}
   ack(sequence){this.input.ack(sequence);}
-  clearPending(){this.input.clearPending();this.trigger.reset();this.lastSentState=null;}
+  clearPending(){this.input.clearPending();}
   send(commands){
     let sent=false;
     for(let at=0;at<commands.length;){
-      const command=commands[at],life=`${command.epoch}:${command.generation}`;
-      if(life!==this.life){this.life=life;this.edges.reset(command.epoch,command.generation);this.outcomes.clear();this.resultAcks=[];this.trigger.reset();this.appliedTick=-1;this.lastSentState=null;}
-      let end=at+1;while(end<commands.length&&`${commands[end].epoch}:${commands[end].generation}`===life)end++;
-      // Process every edge/look sample, but offer only the newest held state
-      // and its bounded transition backup once per simulation frame batch.
-      sent=this.input.send(commands.slice(at,end))||sent;at=end;
+      const command=commands[at];
+      // Only reliable transport resources rotate here. Native Outbound owns
+      // movement life, cumulative look, held transitions and packet cadence.
+      if(command.epoch!==this.edgeEpoch||command.generation!==this.edgeGeneration){
+        this.edgeEpoch=command.epoch;this.edgeGeneration=command.generation;this.edges.reset(command.epoch,command.generation);
+        this.outcomes.clear();this.resultAcks.length=0;this.appliedTick=-1;
+      }
+      let end=at+1;while(end<commands.length&&commands[end].epoch===command.epoch&&commands[end].generation===command.generation)end++;
+      sent=this.input.send(commands,at,end)||sent;at=end;
     }
     return sent;
   }
@@ -57,19 +63,15 @@ export class EntityInputSender {
     }
     return true;
   }
-  fire(command){
-    const aim=()=>{const value=this.getAim(command)||{};return {aimYaw:value.aimYaw??0,aimPitch:value.aimPitch??0};};
-    return this.trigger.each(command,(button,pressed)=>{
-      const {aimYaw,aimPitch}=aim(),name=button?'fireSecondary':'firePrimary';
-      const edge=this.add(command,{kind:'fire',button:name,pressed,viewTick:command.viewTick??command.tick,aimYaw,aimPitch});
-      if(pressed)this.onFire({...edge,button},command);
-    },button=>{
-      // A trigger still held sends no edge (the server keeps firing on its own
-      // cadence); the cosmetic presentation gets the chance to show those
-      // rounds too. Nothing is added to the reliable edge lane.
-      const {aimYaw,aimPitch}=aim();
-      this.onFire({kind:'fire',id:0,held:true,button,pressed:true,tick:command.tick,epoch:command.epoch,generation:command.generation,viewTick:command.viewTick??command.tick,aimYaw,aimPitch},command);
-    });
+  fire(command){this.fireCommand=command;this.input.eachFire(this.triggerEdge);return true;}
+  fireEdge(button,pressed){
+    const command=this.fireCommand,value=this.getAim(command),name=button?'fireSecondary':'firePrimary';
+    const edge=this.add(command,{kind:'fire',button:name,pressed,viewTick:command.viewTick??command.tick,aimYaw:value?.aimYaw??0,aimPitch:value?.aimPitch??0});
+    if(pressed)this.onFire({...edge,button},command);
+  }
+  fireHeld(button){
+    const command=this.fireCommand,value=this.getAim(command);
+    const event=this.heldPublication;event.button=button;event.tick=command.tick;event.epoch=command.epoch;event.generation=command.generation;event.viewTick=command.viewTick??command.tick;event.aimYaw=value?.aimYaw??0;event.aimPitch=value?.aimPitch??0;this.onFire(event,command);
   }
   publish(commands){
     const latest=commands.at(-1),edges=this.edges.batch(Math.min(latest.tick,this.serverTick()??latest.tick));
@@ -77,21 +79,19 @@ export class EntityInputSender {
     // input simply means the next snapshot is encoded against an older one.
     const snapshotAck=this.snapshotAck();
     for(const report of this.edges.takeReports()){const item=this.outcomes.get(report.id);if(item&&!item.result)item.result={...report,tick:item.edge.tick+this.edges.maxAge+1};}
-    // Process/predict every command, but online unchanged held state needs one
-    // datagram every two simulation ticks. Starts, stops and all unreceipted
-    // edges bypass this coalescing; cumulative look retains skipped samples.
-    const held=JSON.stringify([...latest.down].sort()),previous=this.lastSentState;
-    if(!edges.length&&previous&&held===previous.held&&latest.tick>=previous.tick&&latest.tick-previous.tick<this.stateIntervalTicks)return false;
-    // Every accepted edge is repeated until its explicit receipt. A packet may
-    // omit later edges to stay below the fixed datagram bound; none are retired.
-    let bytes,chosen=edges;
+    this.policy.interval=this.stateIntervalTicks;
+    const packet=this.packet;packet.epoch=latest.epoch;packet.generation=latest.generation;packet.snapshotAck=snapshotAck;
+    let selected=commands;
     for(;;){
-      try{bytes=encodeEntityInput({epoch:latest.epoch,generation:latest.generation,commands,edges:chosen,snapshotAck},this.registry,true);break;}
-      catch(error){if(!String(error.message).includes('exceeds bounds'))throw error;if(commands.length>1){commands=[latest];continue;}if(!chosen.length)throw error;chosen=chosen.slice(0,-1);}
+      packet.commands=selected;packet.edges=edges;
+      const bytes=this.encoder.encode(packet,this.registry,INPUT_ACTIONS,true,this.policy);
+      if(bytes===null){
+        if(selected.length>1){this.single[0]=latest;this.single.length=1;selected=this.single;continue;}
+        if(edges.length){edges.length--;continue;}
+        return false;
+      }
+      return bytes.length>0&&this.sendPacket(bytes);
     }
-    const sent=this.sendPacket(bytes);
-    if(sent)this.lastSentState={held,tick:latest.tick};
-    return sent;
   }
   feedback(message){
     if(message.epoch!==this.edges.life?.epoch||message.generation!==this.edges.life?.generation)return;
@@ -106,16 +106,5 @@ export class EntityInputSender {
   }
   applied(tick){this.appliedTick=Math.max(this.appliedTick,tick);for(const[id,item]of this.outcomes)if(item.result&&item.result.tick<=this.appliedTick)this.outcomes.delete(id);}
   pendingActions(sequence){return [...this.outcomes.values()].filter(item=>item.sequence===sequence&&item.edge.kind==='action').map(item=>item.edge.action);}
-  replayActions(shield=false,mounted=false){
-    const actions=new Map(), shieldCommands=[];
-    for(const {sequence,edge} of this.outcomes.values()) {
-      const shieldPress=(mounted || shield&&edge.button==='fireSecondary')&&edge.kind==='fire'&&edge.pressed;
-      if(edge.kind!=='action'&&!shieldPress)continue;
-      let list=actions.get(sequence);if(!list)actions.set(sequence,list=[]);
-      list.push(shieldPress?edge.button:edge.action);
-      if(shieldPress)shieldCommands.push({sequence,epoch:edge.epoch,generation:edge.generation,tick:edge.tick,down:[],look:[],actions:list});
-    }
-    return {actions,shieldCommands};
-  }
   pendingHuman(sequence){return [...this.outcomes.values()].some(item=>item.sequence===sequence&&['spawn','team','suicide','cancel'].includes(item.edge.kind));}
 }

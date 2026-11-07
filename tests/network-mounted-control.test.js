@@ -1,10 +1,12 @@
+import {weaponCheckpoint} from './helpers/weapon-checkpoint.js';
+import {previewGunner,previewDriver,previewSteer} from './helpers/network-preview.js';
 import { prepareAuthorityFixture } from './helpers/hull-prediction.js';
-import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Turret } from '../src/props.js';
 import { VehicleDriver } from '../src/vehicles.js';
-import { previewSteer } from '../src/gunner.js';
+
 import { Weapon } from '../src/weapons.js';
 import { captureWeaponState } from '../src/runtime/network-weapon-state.js';
 import { mountFixture } from './mount-fixture.js';
@@ -29,24 +31,14 @@ test('mounted weapon heat, salvo eligibility and next barrel resume from exact s
     ammo: 0, ShotDelay: .13, SalvoCount: 3, ShotsPerSalvo: 1, SalvoDelay: .07, HeatPerShot: .2, HeatRecoverRate: .1 };
   const make = () => [0, 1].map(channel => ({ state: new Weapon({ ...definition, channel }, { random: () => .5 }), barrel: 0 }));
   source.seat.weapons = make(); client.seat.weapons = make();
-  for (let tick = 0; tick < 13; tick++) for (const entry of source.seat.weapons) {
-    entry.barrel += entry.state.update(1 / 60, true, { held: true, pressed: tick === 0 }, false, { stick: 0, posture: 'stand', zoomed: false }).length;
-  }
+  weaponCheckpoint(source.seat.weapons);
   client.seat.weapons[0].state.heat = .99;
   const payload = captureMountedControl(source.unit);
   assert.ok(payload.length <= 352, 'two full mutable weapons and nullable aim fit a bounded block');
   restoreMountedControl(client.unit, payload);
-  for (let tick = 0; tick < 40; tick++) for (let channel = 0; channel < 2; channel++) {
-    const a = source.seat.weapons[channel], b = client.seat.weapons[channel];
-    const input = { held: tick < 25, pressed: false };
-    const shots = a.state.update(1 / 60, true, input, false, { stick: 0, posture: 'stand', zoomed: false });
-    const replayed = b.state.update(1 / 60, true, input, false, { stick: 0, posture: 'stand', zoomed: false });
-    assert.ok(replayed.every(shot => shot.weapon === b.state));
-    const values = list => list.map(({ weapon, ...shot }) => shot);
-    assert.deepEqual(values(replayed), values(shots));
-    a.barrel += shots.length; b.barrel += shots.length;
-    assert.deepEqual(captureWeaponState(b.state), captureWeaponState(a.state)); assert.equal(b.barrel, a.barrel);
-  }
+  weaponCheckpoint(source.seat.weapons,40,{pressed:false,heldTicks:25});
+  weaponCheckpoint(client.seat.weapons,40,{pressed:false,heldTicks:25});
+  assert.deepEqual(captureMountedControl(client.unit),captureMountedControl(source.unit));
   const before = captureMountedControl(client.unit), malformed = payload.slice();
   // The second weapon's unsupported charge level must not apply the first.
   malformed[malformed.length - decodeMountedControl(payload).weapons.at(-1).payload.length] = 255;
@@ -73,7 +65,7 @@ test('passenger baseline preserves nullable look overrides and preview follows s
     source.v.system.f2.seats.network(source.v,source.v.seatIndex,null,{look:[]});
   }
   const before = captureMountedControl(client.unit);
-  page.preview(commands, null, .5, false);
+  previewDriver(page,commands, null, .5, false);
   assert.equal(page.previewYaw, source.seat.aimYaw);
   assert.equal(page.previewPitch, source.seat.pitch);
   assert.deepEqual(captureMountedControl(client.unit), before, 'preview leaves authoritative aim unchanged');
@@ -93,13 +85,7 @@ test('turret baseline restores filtered steering velocity before shared pending-
   const commands = [{ look: [[8, 3]], mouseScale: .5, invertMouse: false },
     { look: [], mouseScale: .5, invertMouse: false },
     { look: [[-6, 4]], mouseScale: .25, invertMouse: true }];
-  for (const command of commands) {
-    let x = 0, y = 0;
-    for (const [dx, dy] of command.look) {
-      x += dx * command.mouseScale; y += (command.invertMouse ? dy : -dy) * command.mouseScale;
-    }
-    stepTurretPreview(source.turret, 1 / 60, -x * 60 / 2048, y * 60 / 2048, 1);
-  }
+  previewSteer(source.turret,source.turret,commands);
   const before = captureMountedControl(client.unit);
   const predicted = previewSteer(client.turret, { ...client.turret }, commands);
   for (const key of ['yaw', 'pitch', 'yawVel', 'pitchVel']) assert.equal(predicted[key], source.turret[key]);

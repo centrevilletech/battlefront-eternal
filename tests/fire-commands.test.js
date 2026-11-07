@@ -47,31 +47,29 @@ test('external shot identity preserves cosmetic dedup without replacing internal
  assert(!fire.push(edge(1,true,{externalId:10}),100,2),'external identity cannot bypass internal ordering');
 });
 
-test('trigger edges: a click inside one command, a hold across commands, and a held trigger\'s rounds', async () => {
-  const { FireEdges } = await import('../src/runtime/fire-commands.js');
-  const edges = new FireEdges(), seen = [], held = [];
-  const run = (command) => edges.each({ epoch: 1, generation: 1, ...command }, (button, pressed) => { seen.push([button, pressed]); }, (button) => held.push(button));
-  run({ down: [], actions: ['firePrimary'] });
-  assert.deepEqual(seen.splice(0), [[0, true], [0, false]], 'a click shorter than a command is a press and a release');
-  run({ down: ['Mouse0'], actions: ['firePrimary'] });
-  assert.deepEqual(seen.splice(0), [[0, true]]);
-  run({ down: ['Mouse0'], actions: [] });
-  run({ down: ['Mouse0', 'Mouse2'], actions: ['fireSecondary'] });
-  assert.deepEqual(seen.splice(0), [[1, true]]);
-  assert.deepEqual(held.splice(0), [0, 0], 'the held primary hears every command without an edge');
-  run({ down: [], actions: [] });
-  assert.deepEqual(seen.splice(0), [[0, false], [1, false]]);
-  run({ down: ['Mouse0'], actions: [], generation: 2 });
-  assert.deepEqual(seen.splice(0), [[0, true]], 'a new life starts with the trigger up');
+test('native outgoing triggers preserve short clicks, holds and life changes', async () => {
+  const {EntityInputSender}=await import('../src/runtime/network-entity-sender.js');
+  const {decodeEntityInput,INPUT_CODES,DEFAULT_BINDING_PROFILES}=await import('../src/runtime/network-entity-input.js');
+  const registry={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES},seen=[],held=[];let sequence=0,generation=1;
+  const sender=new EntityInputSender({registry,onFire:event=>{if(event.held)held.push(event.button);},send:bytes=>{
+    const packet=decodeEntityInput(bytes,registry);for(const event of packet.edges)if(event.kind==='fire')seen.push([event.button==='fireSecondary'?1:0,event.pressed]);
+    sender.edges.receipt({epoch:1,generation,ids:packet.edges.map(edge=>edge.id)});return true;
+  }});
+  const run=command=>{generation=command.generation??1;sender.send([{epoch:1,generation,sequence:++sequence,tick:sequence,...command}]);};
+  run({down:[],actions:['firePrimary']});assert.deepEqual(seen.splice(0),[[0,true],[0,false]]);
+  run({down:['Mouse0'],actions:['firePrimary']});assert.deepEqual(seen.splice(0),[[0,true]]);
+  run({down:['Mouse0'],actions:[]});run({down:['Mouse0','Mouse2'],actions:['fireSecondary']});
+  assert.deepEqual(seen.splice(0),[[1,true]]);assert.deepEqual(held.splice(0),[0,0]);
+  run({down:[],actions:[]});assert.deepEqual(seen.splice(0),[[0,false],[1,false]]);
+  run({down:['Mouse0'],actions:[],generation:2});assert.deepEqual(seen.splice(0),[[0,true]]);sender.dispose();
 });
-
-test('trigger edges: an edge that could not be sent leaves the button as it was', async () => {
-  const { FireEdges } = await import('../src/runtime/fire-commands.js');
-  const edges = new FireEdges();
-  assert.equal(edges.each({ generation: 1, down: ['Mouse0'], actions: [] }, () => false), false);
-  assert.deepEqual(edges.held, [false, false]);
-  assert.equal(edges.each({ generation: 1, down: ['Mouse0'], actions: [] }, () => true), true);
-  assert.deepEqual(edges.held, [true, false]);
-  edges.reset();
-  assert.deepEqual(edges.held, [false, false]);
+test('a failed outgoing packet retains its reliable trigger without duplicating the edge', async () => {
+  const {EntityInputSender}=await import('../src/runtime/network-entity-sender.js');
+  const {decodeEntityInput,INPUT_CODES,DEFAULT_BINDING_PROFILES}=await import('../src/runtime/network-entity-input.js');
+  const registry={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES};let accept=false,packet;
+  const sender=new EntityInputSender({registry,send:bytes=>{packet=decodeEntityInput(bytes,registry);return accept;}});
+  const command=sequence=>({epoch:1,generation:1,sequence,tick:sequence,down:['Mouse0'],actions:[],look:[]});
+  assert.equal(sender.send([command(1)]),false);assert.equal(sender.edges.pending.size,1);
+  accept=true;assert.equal(sender.send([command(2)]),true);assert.equal(packet.edges.length,1);assert.equal(packet.edges[0].pressed,true);
+  sender.clearPending();sender.send([command(3)]);assert.equal(packet.edges.length,2);sender.dispose();
 });

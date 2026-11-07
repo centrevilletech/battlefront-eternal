@@ -5,27 +5,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { Weapon } from '../src/weapons.js';
-import { hasMissileLock, vehicleMissileDefinition, targetingWeapon, updateWeaponLock } from '../src/weapon-targeting.js';
+import { hasMissileLock, vehicleMissileDefinition, targetingWeapon } from '../src/weapon-targeting.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
 
 function checkGuidance(def) {
-  const weapon = new Weapon(def);
+  assert.ok(hasMissileLock(def));
   const target = { id: 7, generation: 2, alive: true, team: 2, kind: 6,
     position: new THREE.Vector3(0, 0, 40), sphere: { radius: 1 },
     aimPoint(out) { return out.copy(this.position); } };
   const units = { raycast:()=>null, all: () => [target], byId: id => id === target.id ? target : null };
   const origin = new THREE.Vector3(), dir = new THREE.Vector3(0, 0, 1);
   const collision = { cast: () => null };
-  updateWeaponLock(weapon, (def.LockTime || def.MaxPressedTime) + .01,
-    { units, collision, origin, dir, viewer: { team: 1 } });
-  assert.equal(weapon.lockComplete, true, def.class);
-  const shots = weapon.update(0, true, { pressed: true, held: true }, false, { posture: 'stand', stick: 0 });
-  assert.ok(shots.length, def.class);
-  assert.equal(shots[0].targetId, target.id, def.class);
+  // Acquisition and weapon clocks are native; this reader consumes the
+  // resulting qualified shot identity and tests real missile guidance.
+  const shot={targetId:target.id,targetGeneration:target.generation};
   const ordnance = rustOrdnance({ scene: new THREE.Scene(), collision,
     model: () => null, effects: { play() {} }, lights: { add() {} } });
   ordnance.units = units;
-  const round = ordnance.fire(def.ordnance, origin, dir, null, null, null, null, shots[0]);
+  const round = ordnance.fire(def.ordnance, origin, dir, null, null, null, null, shot);
   target.position.x = 10;
   ordnance.update(.1,false);
   assert.ok(round.desired.x > 0, `${def.class}: follows moving target`);

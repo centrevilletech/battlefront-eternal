@@ -3,13 +3,13 @@
 // A full resend buffer (a server too far behind to receipt) gives up its
 // oldest edge as expired, as age would, rather than failing the session.
 export class EntityEdgeSender {
- constructor({capacity=32,maxAge=30}={}){this.capacity=capacity;this.maxAge=maxAge;this.pending=new Map();this.reports=[];this.life=null;this.highest=0;}
+ constructor({capacity=32,maxAge=30}={}){this.capacity=capacity;this.maxAge=maxAge;this.pending=new Map();this.reports=[];this.life=null;this.highest=0;this.batchRows=[];this.reportRows=[];this.batchTick=NaN;this.visitBatch=(e,id)=>{if(e.tick<this.batchTick-this.maxAge){this.pending.delete(id);this.report({id,status:'expired'});}else this.batchRows.push(e);};}
  reset(epoch,generation){for(const edge of this.pending.values())this.report({id:edge.id,status:'life-cancelled'});this.pending.clear();this.life={epoch,generation};this.highest=0;}
  add(edge){if(!this.life||edge.epoch!==this.life.epoch||edge.generation!==this.life.generation)throw Error('edge life mismatch');if(!Number.isSafeInteger(edge.id)||edge.id<1||!Number.isSafeInteger(edge.tick)||edge.tick<0)throw Error('invalid edge identity');if(edge.id<=this.highest)return false;if(this.pending.size>=this.capacity){const [oldest]=this.pending.keys();this.pending.delete(oldest);this.report({id:oldest,status:'expired'});}this.pending.set(edge.id,structuredClone(edge));this.highest=edge.id;return true;}
  receipt({epoch,generation,ids}){if(epoch!==this.life?.epoch||generation!==this.life?.generation)return;for(const id of ids)this.pending.delete(id);}
- batch(tick){for(const [id,e]of this.pending)if(e.tick<tick-this.maxAge){this.pending.delete(id);this.report({id,status:'expired'});}return structuredClone([...this.pending.values()]);}
+ batch(tick){this.batchTick=tick;this.batchRows.length=0;this.pending.forEach(this.visitBatch);return this.batchRows;}
  report(value){this.reports.push(value);if(this.reports.length>this.capacity)this.reports.shift();}
- takeReports(){return this.reports.splice(0);}
+ takeReports(){const rows=this.reportRows;rows.length=0;for(const report of this.reports)rows.push(report);this.reports.length=0;return rows;}
 }
 export class EntityEdgeReceiver {
  constructor({capacity=32,window=256,maxAge=30,maxFuture=30}={}){this.capacity=capacity;this.window=window;this.maxAge=maxAge;this.maxFuture=maxFuture;this.reset(0,0);}

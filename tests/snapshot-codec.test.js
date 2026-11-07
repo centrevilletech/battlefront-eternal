@@ -1,8 +1,8 @@
 import { SnapshotClient } from './helpers/network-capture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {emptySnapshot, encodeEntities, cloneSnapshot, worldFieldKey} from '../src/runtime/snapshot-codec.js';
-import {decodeEntities, applyEntities, readSnapshotHeader} from '../tools/network-inspect.mjs';
+import {emptySnapshot, encodeEntities, cloneSnapshot, worldFieldKey, encodeWorldSection} from '../src/runtime/snapshot-codec.js';
+import {decodeEntities, applyEntities, readSnapshotHeader, decodeWorldSection} from '../tools/network-inspect.mjs';
 import { SnapshotRing } from '../src/runtime/snapshot-ring.js';
 import {encodeOwnDelta, encodeOwnDatagram} from '../src/runtime/snapshot-own.js';
 import {decodeOwnDelta, decodeOwnDatagram} from '../tools/network-inspect.mjs';
@@ -296,4 +296,34 @@ test('extended part-count limit accepts 256 and rejects 257 without wrapping', (
     }
   }
   assert.throws(() => encodeEntities(current, null), /too many parts/);
+});
+
+// The field bank must cover the encoder's complete datagram budget, rather
+// than its former 900-byte estimate. Header and field framing still consume
+// bytes: an indivisible 1100-byte payload cannot fit a 1100-byte datagram.
+test('live receive accepts the largest encoded world field and rejects an oversized field before transport', () => {
+  const current = emptySnapshot(1, 1);
+  const payload = Uint8Array.from({ length: 1063 }, (_, i) => i & 255);
+  const field = { id: 42, schema: 7, generation: 1, payload };
+  current.world.set(worldFieldKey(field), field);
+  const parts = encodeEntities(current, null);
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].length, 1100);
+  const client = new SnapshotClient();
+  const packet = client.receive(parts[0]);
+  const record = packet.records.find(row => row.kind === 'summary');
+  assert.deepEqual(record.payload, payload);
+  assert.equal(client.missingBaselines, 0);
+  field.payload = new Uint8Array(1100);
+  assert.throws(() => encodeEntities(current, null), /record exceeds datagram/);
+  client.dispose();
+});
+
+// A field can use the full native payload budget independently of packet
+// framing. The shared production world reader accepts its complete bytes;
+// datagram assembly separately enforces the unchanged transport MTU above.
+test('the complete 1100 byte field survives world section encoding and native decoding',()=>{
+ const payload=Uint8Array.from({length:1100},(_,i)=>(i*31)&255),field={id:99,schema:7,generation:3,payload};
+ const fields=new Map([[worldFieldKey(field),field]]),section=encodeWorldSection(fields,null),decoded=decodeWorldSection(section,null);
+ assert.deepEqual(decoded[0].payload,payload);
 });

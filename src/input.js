@@ -300,7 +300,7 @@ export class Controls {
   // craft's keys while flying one.
   command(tick, epoch, generation) {
     const scheme = this.flightScheme?.();
-    const command = { tick, epoch, generation, sequence: ++this.sequence,
+    const command = { tick, epoch, generation, sequence: ++this.sequence, sent:false,worldLook:null,lookSent:false,
       down: worldKeys(this.down, scheme ? flightKeys(scheme) : this.keys), actions: [...this.queued], look: this.looks };
     if (this.human.length) command.human = this.human.splice(0);
     this.queued.clear(); this.looks = [];

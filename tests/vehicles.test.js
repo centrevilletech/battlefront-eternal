@@ -1,3 +1,4 @@
+import {previewGunner,previewDriver,previewSteer} from './helpers/network-preview.js';
 import {presentDriver} from './helpers/cameras.js';
 import './fixtures/native-anim.js';
 import { stepPrediction, prepareHullFixture, predictHull } from './helpers/hull-prediction.js';
@@ -242,14 +243,14 @@ test('vehicle reticle previews queued input once, preserves per-command sensitiv
  const before={...v.seat};
  const pending=[{look:[[64,0]],mouseScale:8,invertMouse:false}];
  const live=[[0,32]], out=new THREE.Vector3();
- driver.preview(pending,live,4,true);
+ previewDriver(driver,pending,live,4,true);
  const expected=new THREE.Vector3(Math.sin(-.25)*Math.cos(.0625),Math.sin(.0625),Math.cos(-.25)*Math.cos(.0625));
  assert.ok(driver.viewDirection(out).distanceTo(expected)<1e-10);
  assert.deepEqual(v.seat,before);
  prepareHullFixture(v.system); driver.look(64,0,8,false); v.system.f2.seats.network(v,v.seatIndex,null,{look:[]});
- driver.preview([],live,4,true);
+ previewDriver(driver,[],live,4,true);
  assert.ok(driver.viewDirection(out).distanceTo(expected)<1e-10,'acknowledgement must not double apply look');
- driver.preview([],[],4,true);
+ previewDriver(driver,[],[],4,true);
  assert.ok(driver.viewDirection(out).distanceTo(v.viewDirection(new THREE.Vector3()))<1e-10,'clearing input drops its preview');
 });
 
@@ -257,7 +258,7 @@ test('vehicle preview clamps each mouse event before a reversal at pitch and yaw
  const {v}=fixture(), driver=new VehicleDriver({}); driver.vehicle=v;
  v.seat.view.pitchLimits=[-.2,.2]; v.seat.view.yawLimits=[-.3,.3];
  const counts=[[2048,-2048],[-100,100]];
- driver.preview([],counts,1,false);
+ previewDriver(driver,[],counts,1,false);
  const shown=driver.viewDirection(new THREE.Vector3()).clone();
  prepareHullFixture(v.system);
  for (const [dx,dy] of counts) driver.look(dx,dy,1,false);
@@ -270,7 +271,7 @@ test('occupied seat and cockpit cameras show pending mouse aim without waiting f
   const {system,v,c}=fixture(); v.walking=true; v.driver={};
   const driver=new VehicleDriver({camera:system.camera,collision:c}); driver.vehicle=v;
   presentDriver(driver, 1/60,first);
-  driver.preview([],[[64,-16]],8,false);
+  previewDriver(driver,[],[[64,-16]],8,false);
   presentDriver(driver, 1/144,first);
   const shown=driver.viewDirection(new THREE.Vector3());
   assert.ok(system.camera.getWorldDirection(new THREE.Vector3()).dot(shown)>.999999);

@@ -1,3 +1,4 @@
+import {retainRecord,releaseRecord} from '../runtime/network-records.js';
 import { Vector3 } from "three";
 import { DEFAULT_SNAPSHOT_BOUNDS } from "../runtime/snapshot-codec.js";
 import {
@@ -24,6 +25,7 @@ import {
 // frame (and one per round); no call for an individual item.
 
 // items.js color01: a light's colour, premultiplied by its alpha.
+const releaseItemRecord=entry=>releaseRecord(entry.record);
 const color01 = (rgba = [0, 0, 0, 0]) => {
   const a = (rgba[3] ?? 255) / 255;
   return [(rgba[0] / 255) * a, (rgba[1] / 255) * a, (rgba[2] / 255) * a];
@@ -167,12 +169,13 @@ export class ItemPresentation {
   track(record, epoch) {
     if (this.epoch !== null && epoch < this.epoch) return;
     if (epoch !== this.epoch) {
-      this.slots.clear();
+      this.slots.forEach(releaseItemRecord);this.slots.clear();
       this.epoch = epoch;
     }
     const old = this.slots.get(record.id)?.record;
     if (old && (record.generation < old.generation || (record.generation === old.generation && (!old.active || record.tick < old.tick || (record.tick === old.tick && record.active))))) return;
     const entry = this.slots.get(record.id);
+    retainRecord(record);releaseRecord(old);
     if (entry) entry.record = record;
     else this.slots.set(record.id, { record, view: null });
   }
@@ -189,7 +192,7 @@ export class ItemPresentation {
     this.flush();
     this.kernel.reset_items(epoch);
     this.drain();
-    this.slots.clear();
+    this.slots.forEach(releaseItemRecord);this.slots.clear();
     this.epoch = epoch;
   }
 

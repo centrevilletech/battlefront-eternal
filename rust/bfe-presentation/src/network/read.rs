@@ -124,24 +124,33 @@ impl<'a> World<'a> {
             let bytes = r.optional_bytes()?;
             if id == field_id && schema == field_schema { found = bytes; } }
         Ok(found) } }
-// decodeWorld retains wire order and removal flags. World generation is not
-// part of the lookup key: the source decoder resolves by schema and ID.
-fn world(r: &mut Reader, base: World, out: &mut Output) -> Result<()> {
-    // decodeWorld limits the field count before entering its variable loop.
-    // Removal records have no length or payload to skip.
-    let count = r.varint()?;
-    if count > 4096. { return Err("snapshot world field count"); }
-    out.push(count)?;
-    for _ in 0..count as usize { let id = r.u32()? as f64;
-        let schema = r.u16()? as f64;
-        let generation = r.u32()? as f64;
-        let mode = r.u8()?;
-        if mode > 2 { return Err("snapshot world field flag"); }
-        out.extend(&[id, schema, generation, mode as f64])?;
-        if mode == 0 { let n = r.u16()? as usize;
-            r.source(n, out)?; }
-        if mode == 2 { delta(r.counted_section()?, base.get(id, schema)?, out)?; } }
-    Ok(()) }
+// The production and inspection adapters consume one field grammar. The
+// callback owns storage policy; framing and delta sections are decoded once.
+struct WireField<'a>{id:u32,schema:u16,generation:u32,body:FieldBody<'a>}
+enum FieldBody<'a>{Removed,Absolute{offset:usize,bytes:&'a[u8]},Delta(Reader<'a>)}
+fn world_fields<'a>(r:&mut Reader<'a>,mut visit:impl FnMut(WireField<'a>)->Result<()>)->Result<usize>{
+    let count=r.varint()?;if count>4096.{return Err("snapshot world field count");}
+    for _ in 0..count as usize{
+        let id=r.u32()?;let schema=r.u16()?;let generation=r.u32()?;
+        let body=match r.u8()?{
+            0=>{let n=r.u16()?as usize;let offset=r.origin+r.at;FieldBody::Absolute{offset,bytes:r.take(n)?}},
+            1=>FieldBody::Removed,2=>FieldBody::Delta(r.counted_section()?),
+            _=>return Err("snapshot world field flag"),
+        };
+        visit(WireField{id,schema,generation,body})?;
+    }Ok(count as usize)
+}
+// Inspection changes only the result representation. The live field bank
+// receives these same checked identities, removals and immutable byte spans.
+fn world(r:&mut Reader,base:World,out:&mut Output)->Result<()>{
+    let count_at=out.at;out.push(0.)?;
+    let count=world_fields(r,|field|{
+        let mode=match &field.body{FieldBody::Absolute{..}=>0.,FieldBody::Removed=>1.,FieldBody::Delta(_)=>2.};
+        out.extend(&[field.id as f64,field.schema as f64,field.generation as f64,mode])?;
+        match field.body{FieldBody::Removed=>Ok(()),FieldBody::Absolute{offset,bytes}=>out.extend(&[0.,offset as f64,bytes.len()as f64]),
+            FieldBody::Delta(section)=>delta(section,base.get(field.id as f64,field.schema as f64)?,out)}
+    })?;out.values[count_at]=count as f64;Ok(())
+}
 #[derive(Clone, Copy, Default)]
 struct BaselineSlot { exists: bool, class: u8, position: Option<[f64; 3]>, }
 const SLOTS: usize = crate::network_layout::net_limits::SLOTS;
@@ -219,95 +228,85 @@ fn group(r: &mut Reader<'_>, class: u8, index: u8, base: Option<&BaselineSlot>, 
                 out.extend(&[0.0, 0.0, 0.0]) } }
         _ => Err(EXCHANGE), } }
 
-// decodeEntities applies every update against the named immutable baseline,
-// even when an earlier operation in this part already changed the same slot.
-fn entities(input: &mut Words, out: &mut Output) -> Result<()> { let bytes = input.bytes()?;
-    let h = header(bytes)?;
-    if h.words[0] != ENTITIES as f64 { return Err("not an entities datagram"); }
-    let present = input.uint(1)? != 0;
-    let tick = input.number()?;
-    let epoch = input.number()?;
-    let count = input.uint(SLOTS)?;
-    // This cold inspection decoder accepts arbitrary fixture baselines.
-    // Live receive resolves its immutable entries directly in Session.
-    let mut slots = [BaselineSlot::default(); SLOTS];
-    for _ in 0..count { let slot = input.uint(SLOTS - 1)?;
-        let class = input.uint(5)? as u8;
-        let position =
-            if input.uint(1)? != 0 { Some([input.number()?, input.number()?, input.number()?]) } else { None };
-        slots[slot] = BaselineSlot { exists: true, class, position }; }
-    let mut base_world = World::take(input)?;
-    if h.words[4] != 0. && (!present || tick != h.words[4] || epoch != h.words[1]) {
-        return Err("snapshot baseline not held"); }
-    // A keyframe ignores the provided baseline without erasing a cached one.
-    if h.words[4] == 0. { base_world = World { rows: &[0.] }; }
-    let mut r = Reader::new(bytes);
-    r.at = h.words[8] as usize;
-    out.extend(&h.words)?;
-    let world_len = r.u16()? as usize;
-    let world_at = r.at;
-    world(&mut r, base_world, out)?;
-    if r.at - world_at != world_len { return Err("snapshot world section size"); }
-    let count = r.varint()?;
-    if count > 512. { return Err("snapshot record count"); }
-    out.push(count)?;
-    let mut slot = -1.;
-    for i in 0..count as usize { slot = if i == 0 { r.u16()? as f64 } else { slot + r.varint()? };
-        if slot >= 512. { return Err("snapshot slot out of range"); }
-        let byte = r.u8()?;
-        let op = byte & 3;
-        let mask = byte >> 2;
-        out.extend(&[slot, op as f64])?;
-        if op == 2 { continue; }
-        // Resolve by protocol slot, never by operation index. Reordering or
-        // repeated operations must still read the same immutable baseline.
-        let empty = BaselineSlot::default();
-        let base = if h.words[4] == 0. { &empty } else { &slots[slot as usize] };
-        let class = if op == 1 { r.u8()? } else if op == 0 { if !base.exists {
-                return Err("snapshot update without baseline entry"); }
-            base.class } else { return Err("snapshot op"); };
-        if class > 5 { return Err("snapshot class"); }
-        out.push(class as f64)?;
-        // New identities precede their complete group mask. The page then
-        // constructs the entry shape without any further wire arithmetic.
-        if op == 1 { out.extend(&[r.u32()? as f64, r.u32()? as f64, r.u16()? as f64, r.u8()? as f64])?; }
-        let groups = [6, 6, 6, 2, 4, 4][class as usize];
-        if op == 1 && mask != (1 << groups) - 1 { return Err("snapshot new record mask"); }
-        let count_at = out.at;
-        out.push(0.)?;
-        let mut count = 0;
-        for index in 0..groups { if mask & (1 << index) != 0 { out.push(index as f64)?;
-                let length_at = out.at;
-                out.push(0.)?;
-                group(&mut r, class, index, if op == 1 { None } else { Some(base) }, out)?;
-                out.values[length_at] = (out.at - length_at - 1) as f64;
-                count += 1; } }
-        out.values[count_at] = count as f64; }
-    r.finish("snapshot trailing bytes") }
-// decodeOwnDatagram preserves its narrower error mask: a malformed correction
-// delta is a missing own baseline, while section/header failures stay distinct.
-fn own(input: &mut Words, out: &mut Output) -> Result<()> { let bytes = input.bytes()?;
-    let base = input.optional_bytes()?;
-    let baseline_world = World::take(input)?;
-    let h = header(bytes)?;
-    if h.words[0] != OWN as f64 { return Err("not an own datagram"); }
-    let mut r = Reader::new(bytes);
-    r.at = 20;
-    let flags = r.u8()?;
-    out.extend(&h.words)?;
-    out.extend(&[(flags & 8 != 0) as u8 as f64, (flags & 1 != 0) as u8 as f64])?;
-    if flags & 1 != 0 { let mut body = r.counted_section()?;
-        out.extend(&[body.u32()? as f64, body.u32()? as f64, body.u16()? as f64])?;
-        let remaining = body.bytes.len() - body.at;
-        let section = body.section(remaining)?;
-        delta(section, base, out).map_err(|_| "own baseline not held")?; }
-    if flags & 2 != 0 { let mut section = r.counted_section()?;
-        world(&mut section, baseline_world, out)?;
-        section.finish("snapshot world section trailing bytes")?; } else { out.push(0.)?; }
-    out.push((flags & 4 != 0) as u8 as f64)?;
-    if flags & 4 != 0 { let section = r.counted_section()?;
-        out.extend(&[section.origin as f64, section.bytes.len() as f64])?; }
-    r.finish("own datagram trailing bytes") }
+// decodeEntities uses one bounded record parser for the live receiver and
+// cold inspection. A reused stack row carries only selected wire groups;
+// neither adapter performs its own class, mask or identity decoding.
+struct EntityChange{slot:usize,op:u8,class:u8,identity:Option<[f64;4]>,groups:[(u8,usize,usize);6],count:usize,values:[f64;64]}
+fn entity_records(r:&mut Reader,base:impl Fn(usize)->BaselineSlot,mut visit:impl FnMut(&EntityChange)->Result<()>)->Result<usize>{
+    let count=r.varint()?;if count>512.{return Err("snapshot record count");}
+    let mut slot=-1.;let mut row=EntityChange{slot:0,op:0,class:0,identity:None,groups:[(0,0,0);6],count:0,values:[0.;64]};
+    for i in 0..count as usize{
+        slot=if i==0{r.u16()?as f64}else{slot+r.varint()?};
+        if slot>=512.{return Err("snapshot slot out of range");}
+        row.slot=slot as usize;let byte=r.u8()?;row.op=byte&3;let mask=byte>>2;row.count=0;row.identity=None;
+        if row.op==2{visit(&row)?;continue;}
+        let baseline=base(row.slot);
+        row.class=match row.op{1=>r.u8()?,0=>{if !baseline.exists{return Err("snapshot update without baseline entry");}baseline.class},_=>return Err("snapshot op")};
+        if row.class>5{return Err("snapshot class");}
+        if row.op==1{row.identity=Some([r.u32()?as f64,r.u32()?as f64,r.u16()?as f64,r.u8()?as f64]);}
+        let groups=[6,6,6,2,4,4][row.class as usize];
+        if row.op==1&&mask!=(1<<groups)-1{return Err("snapshot new record mask");}
+        let mut out=Output{values:&mut row.values,at:0};
+        for index in 0..groups{if mask&(1<<index)!=0{
+            let start=out.at;group(r,row.class,index,if row.op==1{None}else{Some(&baseline)},&mut out)?;
+            row.groups[row.count]=(index,start,out.at);row.count+=1;
+        }}visit(&row)?;
+    }
+    r.finish("snapshot trailing bytes")?;Ok(count as usize)
+}
+// Baseline input is an inspection transport, not a second datagram decoder.
+// It supplies the same immutable class and integer position used by Session.
+fn entities(input:&mut Words,out:&mut Output)->Result<()>{
+    let bytes=input.bytes()?;let h=header(bytes)?;
+    if h.words[0]!=ENTITIES as f64{return Err("not an entities datagram");}
+    let present=input.uint(1)?!=0;let tick=input.number()?;let epoch=input.number()?;let count=input.uint(SLOTS)?;
+    let mut slots=[BaselineSlot::default();SLOTS];
+    for _ in 0..count{let slot=input.uint(SLOTS-1)?;let class=input.uint(5)?as u8;
+        let position=if input.uint(1)?!=0{Some([input.number()?,input.number()?,input.number()?])}else{None};
+        slots[slot]=BaselineSlot{exists:true,class,position};
+    }
+    let mut base_world=World::take(input)?;
+    if h.words[4]!=0.&&(!present||tick!=h.words[4]||epoch!=h.words[1]){return Err("snapshot baseline not held");}
+    if h.words[4]==0.{base_world=World{rows:&[0.]};}
+    let mut r=Reader::new(bytes);r.at=h.words[8]as usize;out.extend(&h.words)?;
+    let n=r.u16()?as usize;let start=r.at;world(&mut r,base_world,out)?;
+    if r.at-start!=n{return Err("snapshot world section size");}
+    let count_at=out.at;out.push(0.)?;
+    let count=entity_records(&mut r,|slot|if h.words[4]==0.{BaselineSlot::default()}else{slots[slot]},|row|{
+        out.extend(&[row.slot as f64,row.op as f64])?;if row.op==2{return Ok(());}
+        out.push(row.class as f64)?;if let Some(identity)=row.identity{out.extend(&identity)?;}
+        out.push(row.count as f64)?;
+        for &(index,start,end)in &row.groups[..row.count]{out.extend(&[index as f64,(end-start)as f64])?;out.extend(&row.values[start..end])?;}Ok(())
+    })?;out.values[count_at]=count as f64;Ok(())
+}
+// Own packet framing and callback order are shared. Session masks framing
+// faults as repair requests; inspection reports them to its explicit caller.
+// This difference belongs to receive policy, never another wire algorithm.
+trait OwnSink<'a>{
+    fn flags(&mut self,flags:u8)->Result<()>;
+    fn correction(&mut self,identity:[u32;3],body:Reader<'a>)->Result<()>;
+    fn world(&mut self,section:Option<Reader<'a>>)->Result<()>;
+    fn cosmetics(&mut self,section:Option<Reader<'a>>)->Result<()>;
+}
+fn own_sections<'a>(bytes:&'a[u8],sink:&mut impl OwnSink<'a>)->Result<()>{
+    let mut r=Reader::new(bytes);r.at=20;let flags=r.u8()?;sink.flags(flags)?;
+    if flags&1!=0{let mut body=r.counted_section()?;let identity=[body.u32()?,body.u32()?,body.u16()?as u32];let n=body.bytes.len()-body.at;sink.correction(identity,body.section(n)?)?;}
+    sink.world(if flags&2!=0{Some(r.counted_section()?)}else{None})?;
+    sink.cosmetics(if flags&4!=0{Some(r.counted_section()?)}else{None})?;
+    r.finish("own datagram trailing bytes")
+}
+struct OwnInspection<'a,'b,'c>{base:Option<&'a[u8]>,world:World<'a>,out:&'b mut Output<'c>}
+impl<'a> OwnSink<'a> for OwnInspection<'a,'_,'_>{
+    fn flags(&mut self,flags:u8)->Result<()>{self.out.extend(&[(flags&8!=0)as u8 as f64,(flags&1!=0)as u8 as f64])}
+    fn correction(&mut self,id:[u32;3],body:Reader<'a>)->Result<()>{self.out.extend(&id.map(|n|n as f64))?;delta(body,self.base,self.out).map_err(|_|"own baseline not held")}
+    fn world(&mut self,section:Option<Reader<'a>>)->Result<()>{if let Some(mut section)=section{world(&mut section,self.world,self.out)?;section.finish("snapshot world section trailing bytes")}else{self.out.push(0.)}}
+    fn cosmetics(&mut self,section:Option<Reader<'a>>)->Result<()>{self.out.push(section.is_some()as u8 as f64)?;if let Some(section)=section{self.out.extend(&[section.origin as f64,section.bytes.len()as f64])?;}Ok(())}
+}
+fn own(input:&mut Words,out:&mut Output)->Result<()>{
+    let bytes=input.bytes()?;let base=input.optional_bytes()?;let world=World::take(input)?;let h=header(bytes)?;
+    if h.words[0]!=OWN as f64{return Err("not an own datagram");}out.extend(&h.words)?;
+    own_sections(bytes,&mut OwnInspection{base,world,out})
+}
 // dequantizePosition follows the source x/y/z expression order. Bounds are
 // supplied in x, z, y order to match the counted receive stream.
 fn position_values(codes: [f64; 3], b: &[f64; 6]) -> [f64; 3] {
@@ -486,4 +485,7 @@ fn request_fields(kind: usize, bytes: &[u8], out: &mut Output) -> Result<()> { l
         out.values[count_at] = 0.; }
     Ok(()) }
 
+mod payload;
+mod record_leases;
+mod record_capture;
 pub mod session;

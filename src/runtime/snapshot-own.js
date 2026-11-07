@@ -10,7 +10,7 @@
 // granularity: changed words travel verbatim, so every f64 field value
 // arrives exactly as the absolute form would carry it.
 import {
-  SNAPSHOT_OWN_MAGIC, SNAPSHOT_HEADER_BYTES, SNAPSHOT_MAX_DATAGRAM,
+  SNAPSHOT_OWN_MAGIC, SNAPSHOT_MAX_DATAGRAM,
   SnapshotWriter as Writer, writeSnapshotHeader,
   encodeWorldSection, encodeWordDelta,
 } from './snapshot-codec.js';
@@ -45,10 +45,4 @@ export function encodeOwnDatagram({ epoch, tick, interval = 2, baselineTick = 0,
   const bytes = w.finish();
   if (bytes.length > SNAPSHOT_MAX_DATAGRAM) throw Error('own datagram exceeds budget');
   return bytes;
-}
-export function ownDatagramBudget({ correction = null, baselinePayload = null, summaries = null, baselineSummaries = null } = {}) {
-  let used = SNAPSHOT_HEADER_BYTES + 1;
-  if (correction) used += 2 + 10 + encodeWordDelta(correction.payload, baselinePayload).length;
-  if (summaries) used += 2 + encodeWorldSection(summaries, baselineSummaries).length;
-  return Math.max(0, SNAPSHOT_MAX_DATAGRAM - used - 2);
 }

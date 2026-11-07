@@ -1,7 +1,7 @@
 import {TurretCamera, presentGunner} from './helpers/cameras.js';
 import {presentTurret, pageProps, local} from './helpers/page-presentation.js';
 import { contentPath } from './helpers/content.js';
-import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
+import { stepTurretPreview } from './helpers/network-preview.js';
 // The views and aim of a manned turret (src/props.js Turret, src/gunner.js
 // Gunner and TurretCamera, src/seats.js TurretSeats): each class's camera
 // section as the original game reads it, its aim limits, the drum posed along
@@ -17,7 +17,8 @@ import { makeHit } from '../src/collision.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Turret, scanVector } from '../src/props.js';
 import { TurretSeats, turretAimPoint } from '../src/seats.js';
-import { Gunner, previewSteer } from '../src/gunner.js';
+import { Gunner } from '../src/gunner.js';
+import {previewSteer} from './helpers/network-preview.js';
 import { blankIntent } from '../src/units.js';
 
 const DEG = Math.PI / 180;

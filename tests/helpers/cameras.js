@@ -1,6 +1,7 @@
 // Synthetic camera fixtures drive the same coarse phase and generated
 // records as the page. Camera policy is never reimplemented by a test host.
 import * as T from 'three';
+import {shownGunner} from './network-preview.js';
 import {PageCameras} from '../../src/presentation/cameras.js';
 import {CameraOutput as O} from '../../src/presentation/layout.js';
 import {presentTurret} from './page-presentation.js';
@@ -54,7 +55,7 @@ export class TurretCamera {
 // Test callers publish one complete camera phase, just as game.js does.
 export function presentGunner(gunner,dt,zoom,first){
   const h=gunner.cameraPhase ||= new CameraFrame(gunner.collision,gunner.camera);
-  gunner.shownAim();
+  shownGunner(gunner);
   const turret=gunner.turret,own=turret.humanGunner;
   turret.humanGunner=gunner;presentTurret(turret);turret.humanGunner=own;
   h.gunner=gunner;h.first=first;h.frame(dt);h.finish();

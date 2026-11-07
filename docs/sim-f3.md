@@ -179,7 +179,9 @@ command methods to the ordinary mirrors; getters read those mirrors directly.
 The facade borrows the read-only `PlayerCombat.eye` camera helper. Page combat
 retains camera aim, held-weapon presentation, charge glows, flashes and HUD reads.
 It has no update, hit, blast or damage implementation. Page recon prediction
-still uses RemoteDroids and generic weapon updates; authoritative recon does not.
+runs a private recon authority in `ClientPrediction`, using the shared native
+collision world and water map. `RemoteDroids` retains meshes, view resources
+and packet state; it contains no controller or weapon-update loop.
 
 Pose construction requires the battle's native sampler. Drawn bones receive its
 normalized results; gameplay reads native hidden rigs, including rider poses.

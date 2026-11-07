@@ -1,3 +1,4 @@
+import {weaponCheckpoint} from './helpers/weapon-checkpoint.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -24,8 +25,7 @@ const held = { held: true, pressed: false }, released = { held: false, pressed: 
 test('the charge travels as six bits and comes back on the held weapon alone', () => {
   const arsenal = new Arsenal([BOWCASTER, RIFLE]), [bow, rifle] = arsenal.weapons;
   assert.equal(chargeStep(bow), 0, 'not charging');
-  bow.update(0, true, { held: true, pressed: true }, false, aim);
-  for (let i = 0; i < 60; i++) bow.update(1 / 60, true, held, false, aim);
+  weaponCheckpoint([bow],61);
   assert.equal(bow.charging, true);
   const step = chargeStep(bow);
   assert.ok(step > 0 && step <= CHARGE_STEPS);
@@ -40,32 +40,6 @@ test('the charge travels as six bits and comes back on the held weapon alone', (
   applyChargeStep(copy, copy.weapons[0], 0);
   assert.equal(copy.weapons[0].charging, false);
   assert.equal(chargeStep(rifle), 0);
-});
-
-test("a charged fan fires its level's own pattern, from new data or data imported before the fix", () => {
-  const own = [[0, 0], [0, -0.7], [0, 0.7], [0, -1.4], [0, 1.4]];
-  // The old extractor listed the 0.35 level's three entries first.
-  const accumulated = [[0, 0], [0, -0.7], [0, 0.7], ...own];
-  for (const entries of [own, accumulated]) {
-    const weapon = new Weapon({ ...BOWCASTER, charges: [{ at: 0.65, ShotsPerSalvo: 5, ShotPatternCount: 5, ShotPatternPitchYaw: entries }] });
-    weapon.update(0, true, { held: true, pressed: true }, false, aim);
-    for (let i = 0; i < 90; i++) weapon.update(1 / 60, true, held, false, aim);
-    const shots = weapon.update(1 / 60, true, released, false, aim);
-    assert.deepEqual(shots.map((s) => Math.round((s.yaw * 180) / Math.PI * 10) / 10), [0, -0.7, 0.7, -1.4, 1.4], `${entries.length} entries`);
-    assert.ok(shots.every((s) => s.pitch === 0));
-  }
-});
-
-test("the weapon timer's limit, which a bot's charge hold is drawn from, follows the original game", () => {
-  const weapon = new Weapon({ ...BOWCASTER, RoundsPerClip: 2, ammo: 3 });
-  assert.equal(weapon.limit, 1, 'new');
-  weapon.update(0, true, { held: true, pressed: true }, false, aim);
-  assert.equal(weapon.limit, 1.75, 'charging: MaxPressedTime');
-  for (let i = 0; i < 20; i++) weapon.update(1 / 60, true, held, false, aim);
-  weapon.update(1 / 60, true, released, false, aim);
-  assert.equal(weapon.limit, 0.35, 'after the shot: ShotDelay');
-  weapon.startReload();
-  assert.equal(weapon.limit, 1.75, 'reloading: ReloadTime');
 });
 
 test("a soldier's record carries his charge beside the posture without growing", () => {
@@ -166,8 +140,7 @@ test("own charge correction preserves exact shared weapon continuation", async (
   const capture = (u) => captureOwnPlayer({ unit: u, tick: 100, epoch: 3, registry, classId: 1, held: ['Mouse0'], view: {} });
   const source = unit(), target = unit(), bow = source.combat.arsenal.weapons[0];
   const idle = capture(source);
-  bow.update(0, true, { held: true, pressed: true }, false, aim);
-  for(let tick=0;tick<79;tick++)bow.update(1/60,true,held,false,aim);
+  weaponCheckpoint([bow],80);
   const charging = capture(source);
   assert.ok(charging.payload.length < 1100, 'complete weapon checkpoint stays bounded');
   applyOwnPlayer({ unit: target, epoch: 3, registry, record: charging });
@@ -175,9 +148,10 @@ test("own charge correction preserves exact shared weapon continuation", async (
   assert.equal(shown.charging, true);
   assert.equal(shown.held, bow.held);
   assert.deepEqual(captureWeaponState(shown),captureWeaponState(bow));
-  const scalar=shots=>shots.map(({weapon,...shot})=>shot);
-  assert.deepEqual(scalar(shown.update(1/60,true,released,false,aim)),scalar(bow.update(1/60,true,released,false,aim)));
-  assert.deepEqual(captureWeaponState(shown),captureWeaponState(bow), "release continues the exact charged shot and cooldown");
+  const sourceShots=weaponCheckpoint([bow],1,{pressed:false,heldTicks:0});
+  const shownShots=weaponCheckpoint([shown],1,{pressed:false,heldTicks:0});
+  assert.deepEqual(shownShots,sourceShots);
+  assert.deepEqual(captureWeaponState(shown),captureWeaponState(bow),'release keeps the exact charged cooldown');
   applyOwnPlayer({ unit: target, epoch: 3, registry, record: idle });
   assert.equal(shown.charging, false);
   assert.equal(shown.held, 0);

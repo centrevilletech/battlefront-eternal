@@ -131,3 +131,13 @@ test('a welcome from another battle redirects even before the registry lands; on
   await assert.rejects(older.receive('events', JSON.stringify({ type: 'welcome', snapshotMode: 'older', epoch: 1, query: page })), /Multiplayer version mismatch/);
  } finally { globalThis.location = location; }
 });
+
+// Transport keeps its own retained receipt because incoming packet ACKs are
+// borrowed views. Advancing one must neither retain nor allocate that view.
+test('snapshot acknowledgement retains transport storage across advancing epochs',()=>{
+ const session=new NetworkSession({lifecycle:null});session.entityMode=true;session.sendEntityAcknowledgement=()=>false;
+ try{const source={epoch:1,tick:5};session.setSnapshotAck(source);const receipt=session.snapshotAck;source.tick=99;assert.equal(receipt.tick,5);
+ session.setSnapshotAck({epoch:1,tick:6});assert.equal(session.snapshotAck,receipt);assert.equal(receipt.tick,6);
+ session.setSnapshotAck({epoch:2,tick:1});assert.equal(session.snapshotAck,receipt);assert.equal(receipt.epoch,2);assert.equal(receipt.tick,1);
+ }finally{session.dispose();}
+});

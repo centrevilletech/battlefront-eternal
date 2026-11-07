@@ -67,24 +67,21 @@ test('prone cosmetic fire checks held movement, including movement against a wal
 });
 
 test('Droideka fire input samples shared predicted aim without infantry lookRaw or consuming look counts', async()=>{
-  const { commandBodyAim } = await import('../src/runtime/command-body-aim.js');
-  const {BodyPreview}=await import('../src/presentation/body.js');
-  const {owner}=await import('./helpers/body.js');
   const { EntityInputSender } = await import('../src/runtime/network-entity-sender.js');
+  const {INPUT_CODES,DEFAULT_BINDING_PROFILES}=await import('../src/runtime/network-entity-input.js');
   const { Droideka } = await import('./helpers/droideka.js');
   const f=fixture();
   const body=Object.create(Droideka.prototype);
   Object.assign(body,{aimYaw:.4,aimPitch:-.2,lookX:7,lookY:9,mode:0,position:new THREE.Vector3(),eyeHeight:1.8});
   f.unit.soldier=body;
-  const preview=new BodyPreview(null,owner(null)), command={tick:10,epoch:1,generation:2,sequence:1,down:['Mouse0'],actions:[],look:[[100,200]],mouseScale:2,invertMouse:true};
-  const sender=new EntityInputSender({registry:{},send(){},getAim:c=>commandBodyAim(body,true,preview,c,1,1,false),onFire:(edge,c)=>f.shots.fire(edge,f.unit,c)});
-  sender.edges.reset(command.epoch,command.generation);
-  sender.fire(command);
+  const command={tick:10,epoch:1,generation:2,sequence:1,down:['Mouse0'],actions:[],look:[[100,200]],mouseScale:2,invertMouse:true};
+  const sender=new EntityInputSender({registry:{inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES},send:()=>true,getAim:()=>({aimYaw:body.aimYaw,aimPitch:body.aimPitch}),onFire:(edge,c)=>f.shots.fire(edge,f.unit,c)});
+  sender.send([command]);
   assert.equal(f.shots.shots.size,1);
   const shot=[...f.shots.shots.values()][0];
   assert.ok(shot.direction.distanceTo(new THREE.Vector3(Math.sin(.4)*Math.cos(-.2),Math.sin(-.2),Math.cos(.4)*Math.cos(-.2)))<1e-12);
   assert.equal(body.lookX,7);assert.equal(body.lookY,9);assert.equal(body.aimYaw,.4);assert.equal(body.aimPitch,-.2);
-  f.shots.clear();
+  sender.dispose();f.shots.clear();
 });
 
 test('mounted local cosmetic fire observes the authority takeoff and landing gate',()=>{

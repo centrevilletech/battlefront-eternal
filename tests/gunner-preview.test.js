@@ -1,3 +1,4 @@
+import {previewGunner,previewDriver,previewSteer} from './helpers/network-preview.js';
 import {presentTurret,pageProps,local} from './helpers/page-presentation.js';
 import {presentGunner} from './helpers/cameras.js';
 import test from 'node:test';
@@ -5,7 +6,7 @@ import golden from './fixtures/turret-view-golden.json' with { type: 'json' };
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Gunner, previewSteer } from '../src/gunner.js';
+import { Gunner } from '../src/gunner.js';
 import { TurretSeats } from '../src/seats.js';
 import { Turret } from '../src/props.js';
 
@@ -59,16 +60,16 @@ test('previewSteer runs the drum ahead exactly as the world steers it, without t
 test('preview sets the yaw and pitch shown over the world aim, back through the tick by alpha', () => {
   const t = turret({ yaw: 0.2, pitch: 0.1, yawVel: 0.6, pitchVel: -0.3 });
   const gunner = pageGunner(t);
-  gunner.preview([], null, 0.5, false, 1);
+  previewGunner(gunner,[], null, 0.5, false, 1);
   assert.ok(Math.abs(gunner.previewYaw) < 1e-12 && Math.abs(gunner.previewPitch) < 1e-12, 'at the tick shown: the world aim itself');
-  gunner.preview([], null, 0.5, false, 0);
+  previewGunner(gunner,[], null, 0.5, false, 0);
   assert.ok(Math.abs(gunner.previewYaw + 0.6 / 60) < 1e-12, 'at the tick before: the tick turn undone');
   assert.ok(Math.abs(gunner.previewPitch - 0.3 / 60) < 1e-12);
   t.yawVel = 0;
-  gunner.preview([command([[40, 0]]), command([[40, 0]])], [], 0.5, false, 1);
+  previewGunner(gunner,[command([[40, 0]]), command([[40, 0]])], [], 0.5, false, 1);
   assert.ok(gunner.previewYaw < 0, 'mouse right turns the view right (yaw down), ahead of the world');
   const two = gunner.previewYaw;
-  gunner.preview([command([[40, 0]]), command([[40, 0]])], [[40, 0]], 0.5, false, 1);
+  previewGunner(gunner,[command([[40, 0]]), command([[40, 0]])], [[40, 0]], 0.5, false, 1);
   assert.ok(gunner.previewYaw < two, 'the looks not yet in a command turn it further');
   assert.equal(t.yaw, 0.2, 'the turret keeps the world aim');
   gunner.turret = null;

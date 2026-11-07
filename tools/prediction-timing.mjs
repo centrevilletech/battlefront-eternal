@@ -1,17 +1,18 @@
+import {CorrectionSmoother} from '../tools/native-prediction-smoother.mjs';
 // Deterministic timing measurement using real Soldier collision/movement and
-// the production client clocks/replay. No renderer or mocked movement.
+// production ClientPrediction and client clocks. No renderer or replay twin.
 // Loss is deterministic application-message loss, NOT kernel/SCTP behavior.
 // Snapshots copy saved physics fields with selected wire quantization; this
 // measures reconciliation timing, not the binary codec or transport capacity.
 // BFE_DATA_DIR adds an operator-owned Theed collision geometry run.
-// BFE_MOVEMENT=wasm (or measurePrediction's `rays`, a loaded ray kernel) runs
-// the soldiers' movement in WebAssembly (src/movement-kernel.js); every
-// result, and the digest of every physics tick, must come out as without it.
+// The local replay always uses its native session. The digest records the
+// server's physics ticks; reconciliation reads the native check-position row.
 import {createHash} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {Soldier} from '../tests/helpers/body.js';
+import {createClientPrediction} from '../src/runtime/client-prediction.js';
 import { CollisionWorld } from './collision-fixture.mjs';
 import {MovementKernel} from '../src/movement-kernel.js';
 import {loadRayKernel} from '../src/ray-kernel.js';
@@ -21,7 +22,7 @@ import {InputMailbox} from '../tests/fixtures/input-mailbox.js';
 import {FixedClock} from '../src/runtime/fixed-clock.js';
 import {PlayoutClock} from '../src/runtime/playout.js';
 import {SnapshotInterval,renderedViewTick} from '../src/runtime/snapshot-interval.js';
-import {InputLead,advanceInputClock,replayTicks,CorrectionSmoother} from '../src/runtime/reconcile.js';
+import {InputLead,advanceInputClock} from '../src/runtime/reconcile.js';
 
 export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0,observe=null}={}) {
  world??=new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]),undefined,undefined,rays);
@@ -29,6 +30,8 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
  const digest=createHash('sha1'),ticked=new Float64Array(6);
  const server=new Soldier(world,{}),local=new Soldier(world,{});server.spawn(...start,yaw);local.spawn(...start,yaw);
  const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true}),playout=new PlayoutClock({minDelay:6,maxDelay:18}),interval=new SnapshotInterval(),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother({});
+ const unit={id:1,generation:1,alive:true,soldier:local,combat:{gunUnderwater:false,zoomStep:0,kick:{rate:0,hold:0,offset:0},arsenal:{weapons:[],selected:[0,0],current:()=>undefined}}};
+ const session=createClientPrediction(world.fixtureInstance??{exports:world.rays.x},world);
  const toServer=[],toClient=[],packets=[],corrections=[],late=[],stampAhead=[];
  let saved;
  let pending=[],held=[],latest=0,applied=0,sequence=0,predicted=false,predictedTick=0,predictedPosition=local.position.clone(),firstCommand=0,firstVisible=null,firstAck=null,firstConsumed=null,serverTick=0;
@@ -71,17 +74,16 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
   observe?.('playout',{clock,latest,applied,shown:playout.shownTick,alpha:interval.alpha(clock),viewTick:renderedViewTick(clock,latest),previous:interval.previous,current:interval.current,delay:playout.delay,rate:playout.rate,waits:playout.waits,gaps:playout.gaps},now);
   if(pending.length){
    saved=captureCompactSoldier(local);const checkTick=predictedTick>applied?predictedTick:0,previous=predictedPosition.clone();
-   predictedTick=replayTicks(pending,applied,1,held,(tick,command,sequences)=>{
-    observe?.('replay',command,{tick,sequences});
-    if(command.last)presentation.beforeStep();physics(local,command);
-    if(tick===checkTick){const distance=previous.distanceTo(local.position);if(distance>1e-6)corrections.push(distance);smoother.note(...previous.toArray(),...local.position.toArray());}
-    if(command.last)presentation.afterStep();
-   },{});predictedPosition.copy(local.position);predicted=true;
+   const result=session.predict(unit,pending,{epoch:1,tick:applied,held,checkTick});
+   if(result.checkFound){const p=result.checkPosition,distance=Math.hypot(previous.x-p.x,previous.y-p.y,previous.z-p.z);if(distance>1e-6)corrections.push(distance);smoother.note(previous.x,previous.y,previous.z,p.x,p.y,p.z);}
+   session.present(unit,presentation);predictedTick=result.tick;
+   predictedPosition.copy(local.position);predicted=true;
   }
   presentation.update(dt,predicted?input.alpha:interval.alpha(clock));const visual=presentation.position.x*Math.sin(yaw)+presentation.position.z*Math.cos(yaw)+(predicted?smoother.x*Math.sin(yaw)+smoother.z*Math.cos(yaw):0);
   for(const response of responses){if(now<response.at)response.baseline=visual;else if(response.visible===null&&response.baseline!==null&&visual-response.baseline>.001)response.visible=(now-response.at)*1000;}
   if(now>=1&&firstVisible===null&&visual-(start[0]*Math.sin(yaw)+start[2]*Math.cos(yaw))>.001)firstVisible=now;
  }
+ session.dispose();smoother.dispose();
  const stats=values=>{const sorted=[...values].sort((a,b)=>a-b);return {count:values.length,mean:values.length?values.reduce((a,b)=>a+b,0)/values.length:0,p95:sorted[Math.floor(sorted.length*.95)]??0,max:sorted.at(-1)??0};};
  return {lossModel:"deterministic application messages; no SCTP",movement:world.movement?'wasm':'js',physicsDigest:digest.digest('hex'),fps,rttMs,jitterMs,quantized,lossEvery,snapshotLossEvery,responseMs:responses.map(r=>r.visible),firstVisibleMs:(firstVisible-1)*1000,firstConsumedMs:(firstConsumed-1)*1000,firstAckMs:(firstAck-1)*1000,correctionMeters:stats(corrections),stampAheadTicks:stats(stampAhead),lateTicks:stats(late.filter(n=>n>0)),residualMeters:local.position.distanceTo(server.position),smoothingOffsetMeters:smoother.length};
 }

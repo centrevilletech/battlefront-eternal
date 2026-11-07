@@ -1,80 +1,102 @@
 import {pageNetworkFor} from './page-network.js';
-import {NetOutbound as O,NetAckResult as A,NetSentResult as S} from './network-layout.js';
-import { INPUT_ACTIONS } from './network-entity-input.js';
-
-// Only what the wire registry can name goes down the action lane. Held
-// flight names (rollLeft, throttle, ...) travel as key codes in `down`;
-// letting one through here made encodeEntityInput throw every frame.
-export const discreteActions = command => (command.actions || []).filter(action => INPUT_ACTIONS.includes(action));
-
-// Latest held state is expendable. Discrete actions and fire edges are not.
-// Cumulative mouse counts recover look after a lost burst. One bounded held
-// transition backup preserves its original execution tick when that packet is
-// lost; actions/fire are emitted once on their independent reliable lanes.
-//
-// Each command passed in is marked with whether it went to the world itself
-// (`sent`), the look the world will take with it (`worldLook`) and whether
-// its own look has gone yet (`lookSent`): the world gets a frame's last
-// command (and a held transition), takes its keys, and takes the change in
-// the running look total since the last one it took as one sample on that
-// command's tick (InputMailbox.take). The page's replay does the same
-// (reconcile.js replayTicks); look that has not gone yet is only shown.
+import {NetPreviewFrame as PF,NetOutbound as O,NetOutboundBatch as B,NetOutboundFire as F,NetAckResult as A,NetSentResult as S,NetLimits as L} from './network-layout.js';
+import {INPUT_ACTIONS} from './network-entity-input.js';
+const EMPTY=Object.freeze([]),RECEIPTS=4096;
+// DOM event routing only needs membership here; the native outbound owner
+// constructs the actual reliable action list without a filtered JS array.
+export function hasDiscreteActions(command){for(const action of command.actions||EMPTY)if(INPUT_ACTIONS.includes(action))return true;return false;}
+// Publications borrow DOM command metadata only until the callback returns.
+// Rust owns their look totals and transition choice. Three retained views
+// cover the newest state, its backup and the state currently being prepared.
+class InputPublication {
+  constructor(){this.command=null;this.revision=NaN;this.actions=EMPTY;this.look=EMPTY;this.lookTotal=new Float64Array(2);}
+  // Explicit cold captures own their values. Live binary transport reads the
+  // getters directly and never constructs this diagnostic object.
+  toJSON(){const state={...this.command,actions:[],look:[],lookTotal:Array.from(this.lookTotal)};for(const key of ['human','flightTuning','sent','worldLook','lookSent'])delete state[key];return state;}
+}
+for(const key of ['epoch','generation','sequence','tick','down','mouseScale','aspect','viewTick','invertMouse','firstPerson','flightSettings','gamepad'])Object.defineProperty(InputPublication.prototype,key,{get(){return this.command[key];}});
+class ActionPublication {
+  constructor(){this.command=null;this.type='actions';this.actions=[];}
+  get id(){return this.command.sequence;}get tick(){return this.command.tick;}get generation(){return this.command.generation;}get epoch(){return this.command.epoch;}get human(){return this.command.human;}
+  toJSON(){return {type:'actions',id:this.id,tick:this.tick,generation:this.generation,epoch:this.epoch,actions:this.actions,...(this.human?.length?{human:this.human}:{})};}
+}
 export class NetworkInputs {
-  constructor({state,events,fire,transitionBackups=true,kernel=pageNetworkFor(null)}) {
-    this.kernel=kernel;this.handle=kernel.createOutbound();this.transitionBackups=transitionBackups;this.state=state;this.events=events;this.fire=fire;this.reset();
+  constructor({state,events,fire,aim=()=>{},transitionBackups=true,kernel=pageNetworkFor(null)}){
+    this.kernel=kernel;this.handle=kernel.createOutbound();this.transitionBackups=transitionBackups;this.state=state;this.events=events;this.fire=fire;this.aim=aim;this.currentRow=0;
+    this.latest=null;this.backup=null;this.queue=new Array(RECEIPTS).fill(null);this.head=0;this.count=0;
+    this.publications=Array.from({length:3},()=>new InputPublication());this.singleMessage={type:'inputs',commands:[null]};this.backupMessage={type:'inputs',commands:[null,null]};this.event=new ActionPublication();
+    // Receipt arrays retain their single point even while the command shows
+    // the shared empty look. Reusing a slot never truncates its backing store.
+    this.receipts=Array.from({length:RECEIPTS},()=>{const point=[NaN,NaN];return {point,look:[point]};});this.reset();
   }
-  resetLocal(){this.history=[];this.life=null;this.look=[0,0];this.sentLook=[0,0];this.sentSequence=0;this.unsent=[];this.transition=null;this.held=null;this.acked=0;}
-  reset(){const k=this.kernel;k.begin();k.run('outboundReset',this.handle);this.resetLocal();}
-  clearPending(){const k=this.kernel;k.begin();k.run('outboundClear',this.handle);this.history=[];this.transition=null;this.held=null;this.unsent=[];}
-  ack(sequence){const k=this.kernel;k.begin();k.put(typeof sequence==='number'?sequence:NaN);k.run('outboundAck',this.handle);this.acked=k.numbers[A.ACKED];const transition=k.numbers[A.TRANSITION];if(!transition)this.transition=null;}
-  send(commands){
-    const k=this.kernel;
-    for(const command of commands){
-      // Held names still belong to the page registry. Their canonical source
-      // string crosses as UTF-16; Rust compares it without allocating a key.
-      const held=JSON.stringify([...command.down].sort()),look=command.look||[];
-      k.begin();k.put(command.epoch);k.put(command.generation);k.put(command.sequence);k.put(command.tick);k.put(held.length);for(let i=0;i<held.length;i++)k.put(held.charCodeAt(i));k.put(look.length);for(const point of look){k.put(point[0]);k.put(point[1]);}k.run('outboundCommand',this.handle);
-      const reset=k.numbers[O.RESET],changed=k.numbers[O.CHANGED],transition=k.numbers[O.TRANSITION],x=k.numbers[O.LOOK_X],y=k.numbers[O.LOOK_Y];
-      if(reset)this.resetLocal();this.life=`${command.epoch}:${command.generation}`;this.look[0]=x;this.look[1]=y;
-      command.sent=false;command.worldLook=[];command.lookSent=false;
-      // A paused transport cannot retain an unbounded chain of page commands.
-      // Its newest cumulative look repairs every dropped replaceable sample.
-      if(this.unsent.length===4096)this.unsent.shift();this.unsent.push(command);
-      const state={...command,actions:[],look:[],lookTotal:[x,y]};for(const key of ['human','flightTuning','sent','worldLook','lookSent'])delete state[key];
-      this.held=held;if(changed)this.transition=state;if(!transition)this.transition=null;this.history=[state];
-      const actions=discreteActions(command);
-      if(actions.length||command.human?.length)if(!this.events({type:'actions',id:command.sequence,tick:command.tick,generation:command.generation,epoch:command.epoch,actions,...(command.human?.length?{human:command.human}:{})}))return false;
-      if(!this.fire(command))return false;
+  // Accounting getters are cold fixture inspection. Production never reads
+  // them to make a send decision, accumulate look or acknowledge a command.
+  capture(){return JSON.parse(this.kernel.kernel.outbound_capture(this.handle));}
+  get life(){return this.capture().life;}get look(){return this.capture().look;}get sentLook(){return this.capture().sentLook;}
+  get sentSequence(){return this.capture().sentSequence;}get held(){return this.capture().held;}get acked(){return this.capture().acked;}
+  get transition(){return this.backup;}
+  get history(){return this.latest?[this.latest]:[];}
+  get unsent(){const out=[];for(let i=0;i<this.count;i++)out.push(this.queue[(this.head+i)%RECEIPTS]);return out;}
+  resetLocal(){this.latest=null;this.backup=null;this.queue.fill(null);this.head=0;this.count=0;}
+  reset(){const k=this.kernel;if(this.handle&&!k.disposed){k.begin();k.run('outboundReset',this.handle);}this.resetLocal();}
+  clearPending(){const k=this.kernel;if(this.handle&&!k.disposed){k.begin();k.run('outboundClear',this.handle);}this.resetLocal();}
+  ack(sequence){const k=this.kernel;if(!this.handle||k.disposed)return;k.begin();k.put(typeof sequence==='number'?sequence:NaN);k.run('outboundAck',this.handle);if(!k.numbers[A.TRANSITION])this.backup=null;}
+  send(commands,start=0,end=commands.length){
+    const k=this.kernel;if(k.disposed||!this.handle||start>=end)return false;
+    // The command clock bounds ordinary frame batches. Excess foreign input
+    // keeps the newest bounded window instead of growing an exchange or pool.
+    start=Math.max(start,end-L.PREVIEW_COMMANDS);k.begin();
+    for(let index=start;index<end;index++){
+      const c=commands[index],prefix=k.count;k.put(0);k.put(c.mouseScale??k.previewFrame?.[PF.SCALE]??1);k.put(c.invertMouse??!!k.previewFrame?.[PF.INVERT]?1:0);
+      const at=k.count;k.put(c.epoch);k.put(c.generation);k.put(c.sequence);k.put(c.tick);
+      const heldAt=k.count;k.put(0);const names=c.down||EMPTY;
+      for(const name of names){k.put(name.length);for(let i=0;i<name.length;i++)k.put(name.charCodeAt(i));}
+      k.input[heldAt]=k.count-heldAt-1;
+      const look=c.look||EMPTY;k.put(look.length);for(const point of look){k.put(point[0]);k.put(point[1]);}
+      const actions=c.actions||EMPTY;k.put(actions.length);for(const action of actions)k.put(action==='firePrimary'?21:action==='fireSecondary'?22:INPUT_ACTIONS.indexOf(action));
+      k.input[prefix+B.WORD_COUNT]=k.count-at;
     }
-    if(!commands.length)return false;
-    const latest=this.history[0],backup=this.transition;
-    const message={type:'inputs',commands:this.transitionBackups&&backup&&backup.sequence<latest.sequence?[backup,latest]:[latest]};
-    if(message.commands.length>1&&new TextEncoder().encode(JSON.stringify(message)).length>1152)message.commands=[latest];
-    const sent=this.state(message);if(sent)this.sent(message.commands,commands);return sent;
+    k.outboundBatch(this.handle,end-start);this.aim(end-start);
+    for(let index=start;index<end;index++){
+      const c=commands[index],at=(index-start)*O.STRIDE,x=k.outboundResults;
+      if(x[at+O.RESET])this.resetLocal();
+      c.sent=false;c.worldLook=EMPTY;c.lookSent=false;
+      if(this.count===RECEIPTS){this.queue[this.head]=null;this.head=(this.head+1)%RECEIPTS;this.count--;}
+      this.queue[(this.head+this.count++)%RECEIPTS]=c;
+      let state;for(const row of this.publications)if(row!==this.backup&&row!==this.latest){state=row;break;}
+      state.command=c;state.lookTotal[0]=x[at+O.LOOK_X];state.lookTotal[1]=x[at+O.LOOK_Y];state.revision=x[at+O.REVISION];
+      if(x[at+O.CHANGED])this.backup=state;if(!x[at+O.TRANSITION])this.backup=null;
+      this.latest=state;
+      // Fire transport reads the corresponding command's native aim. Other
+      // callbacks may reuse the scalar result span, so restore just this pair.
+      k.numbers[O.BODY_YAW]=x[at+O.BODY_YAW];k.numbers[O.BODY_PITCH]=x[at+O.BODY_PITCH];
+      const event=this.event;event.command=c;event.actions.length=0;
+      const actionStart=x[at+O.ACTION_START],actionCount=x[at+O.ACTION_COUNT];for(let i=0;i<actionCount;i++)event.actions.push(INPUT_ACTIONS[k.outboundActions[actionStart+i]]);
+      if((event.actions.length||c.human?.length)&&!this.events(event))return false;
+      this.currentRow=at;if(!this.fire(c))return false;
+    }
+    // Both packet shapes have fixed array lengths. Callbacks consume them
+    // synchronously, before another frame can replace their borrowed views.
+    const latest=this.latest,last=(end-start-1)*O.STRIDE,useBackup=this.transitionBackups&&this.backup&&k.outboundResults[last+O.BACKUP];
+    const message=useBackup?this.backupMessage:this.singleMessage;message.commands[0]=useBackup?this.backup:latest;if(useBackup)message.commands[1]=latest;
+    const sent=this.state(message);if(sent)this.sent(message.commands,commands,start,end);return sent;
   }
-  sent(states,commands){
-    const k=this.kernel;
+  eachFire(visitor){const k=this.kernel,x=k.outboundResults,start=x[this.currentRow+O.FIRE_START],count=x[this.currentRow+O.FIRE_COUNT];for(let i=0;i<count;i++){const at=(start+i)*F.STRIDE;visitor(k.outboundFires[at+F.BUTTON],!!k.outboundFires[at+F.PRESSED],!!k.outboundFires[at+F.HELD]);}}
+  sent(states,commands,start=0,end=commands.length){
+    const k=this.kernel;let sequence=0;
     for(const state of states){
-      k.begin();k.put(state.sequence);k.put(state.lookTotal[0]);k.put(state.lookTotal[1]);k.run('outboundSent',this.handle);const accepted=k.numbers[S.ACCEPTED],dx=k.numbers[S.DX],dy=k.numbers[S.DY];
-      if(!accepted)continue;
-      for(const command of commands)if(command.sequence===state.sequence){command.sent=true;command.worldLook=dx||dy?[[dx,dy]]:[];break;}
-      this.sentLook=state.lookTotal;this.sentSequence=state.sequence;
+      k.begin();k.put(state.sequence);k.put(state.lookTotal[0]);k.put(state.lookTotal[1]);k.put(state.tick);k.put(state.revision);k.run('outboundSent',this.handle);
+      sequence=k.numbers[S.SEQUENCE];if(!k.numbers[S.ACCEPTED])continue;
+      const dx=k.numbers[S.DX],dy=k.numbers[S.DY];
+      for(let index=start;index<end;index++){const c=commands[index];if(c.sequence!==state.sequence)continue;
+        const receipt=this.receipts[c.sequence%RECEIPTS];receipt.point[0]=dx;receipt.point[1]=dy;c.worldLook=dx||dy?receipt.look:EMPTY;c.sent=true;break;}
     }
-    let retained=0;for(const command of this.unsent){if(command.sequence>this.sentSequence)this.unsent[retained++]=command;else command.lookSent=true;}this.unsent.length=retained;
+    // The command clock owns these identities. Delivery releases their
+    // transport references using the sequence published by the Rust receipt.
+    let retained=0;for(let i=0;i<this.count;i++){const c=this.queue[(this.head+i)%RECEIPTS];if(c.sequence>sequence)this.queue[(this.head+retained++)%RECEIPTS]=c;else c.lookSent=true;}this.count=retained;
   }
   dispose(){if(this.handle){this.kernel.dropOutbound(this.handle);this.handle=0;}}
 }
-
-// A movement acknowledgement must not erase a reliable action still in flight.
-export function predictionCommands(pending, actions, ackActions, held) {
-  const bySequence=new Map(pending.map(command=>[command.sequence,{...command,actions:command.sequence>ackActions?command.actions:[]} ]));
-  for(const command of actions)if(command.sequence>ackActions&&!bySequence.has(command.sequence))bySequence.set(command.sequence,{...command,down:held,look:[],worldLook:[]});
-  return [...bySequence.values()].sort((a,b)=>a.sequence-b.sequence);
-}
-
-// The server rejects movement more than two seconds behind its current tick.
-// Such replaceable commands cannot ever be acknowledged; retaining them would
-// fill the prediction history and prevent fresh input after a rendering stall.
-export function expireMovement(pending,tick,generation){
-  return pending.filter(command=>command.generation===generation&&command.tick>=tick-120);
-}
+// Commands too old for the server are transport expiry, independent from
+// reliable actions retained until an applied authoritative correction.
+export function expireMovement(pending,tick,generation){return pending.filter(command=>command.generation===generation&&command.tick>=tick-120);}

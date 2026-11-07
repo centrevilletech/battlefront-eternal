@@ -157,7 +157,7 @@ export class InputLead {
 // Keeps a 60 Hz input clock tracking `target` (a fractional tick position)
 // without ever rewinding it (the world may still have the earlier stamps
 // queued): behind, it jumps to the target (ticks skipped that way are held
-// through by the world's mailbox and by replayTicks); more than a tick
+// through by the world's mailbox and by ClientPrediction); more than a tick
 // ahead (the target came down after a rough patch), it runs at 90% so the
 // input latency shrinks back; and it never passes `bound`, so a world that
 // has stopped cannot be sent more than a few ticks of commands.
@@ -192,87 +192,4 @@ export function advanceInputClock(clock, target, dt, step, bound = target + 7, {
   }
   const seconds = Math.min(ticks / clock.hz, Math.max(0, bound / clock.hz - clock.elapsed));
   return clock.advance(seconds, step, false);
-}
-
-// Replays `pending` (the commands the world has not acknowledged, in
-// sequence order) over ticks `from + 1` to the last command's tick, merging
-// them as the world's mailbox does (src/runtime/transport.js
-// InputMailbox.take): every command stamped at or before a tick goes into
-// that tick, held keys are the last command's and stay held through ticks
-// that have no command of their own, actions and look samples concatenate,
-// and commands of another life are skipped. Where the sender marked them
-// (network-inputs.js), a command the world never got (`sent` false) adds
-// only its actions, which go their own way, and a command's look is the
-// look the world takes with it (`worldLook`): a frame's look in one sample
-// on the tick of the command that carried its total, as the world turns
-// him. `held` is the last acknowledged
-// command's keys (what the world holds before any of these). Calls
-// `apply(tick, command)` per tick (`command.any`: a command of its own went
-// in; `command.last`: the final tick) and returns the last tick replayed,
-// or `from` if nothing was replayed.
-const REPLAY_VIEW_FIELDS = ['mouseScale', 'invertMouse', 'firstPerson', 'aspect', 'viewTick', 'flightSettings', 'gamepad'];
-export function replayTicks(pending, from, generation, held, apply, initialView = {}) {
-  let last = from, mine = false;
-  for (const command of pending) if (command.generation === generation && command.tick > last) last = command.tick;
-  for (const command of pending) if (command.generation === generation) { mine = true; break; }
-  if (!mine) return from;
-  // Commands the world took late are applied on the first tick it can.
-  if (last === from) last = from + 1;
-  let index = 0, down = held;
-  // Semantic own-player corrections include the authoritative persistent view
-  // at `from`. A gap before the first pending command must replay with that
-  // context, especially flight/gamepad state, rather than renderer defaults.
-  const view = {};
-  for (const key of REPLAY_VIEW_FIELDS) if (initialView[key] !== undefined) view[key] = initialView[key];
-  let tick = from + 1;
-  while (tick <= last) {
-    const actions = [], look = [], sequences = [];
-    let any = false;
-    while (index < pending.length && pending[index].tick <= tick) {
-      const command = pending[index++];
-      if (command.generation !== generation) continue;
-      any = true; sequences.push(command.sequence);
-      for (const action of command.actions) actions.push(action);
-      if (command.sent === false) continue;
-      down = command.down;
-      for (const sample of command.worldLook ?? command.look) look.push(sample);
-      for (const key of REPLAY_VIEW_FIELDS) if (command[key] !== undefined) view[key] = command[key];
-    }
-    apply(tick, { tick, generation, down, actions, look, any, last: tick === last, ...view }, sequences);
-    tick++;
-  }
-  return last;
-}
-
-// A visual offset that hides a small correction to the predicted position:
-// when a new authoritative packet moves the prediction for a tick already
-// shown, the offset takes up the difference so the body stays where it was
-// drawn, then decays over about 100 ms. A difference beyond `snap` metres
-// is shown at once (the prediction was wrong, not jittery). Collision state
-// is never offset; only what is drawn.
-export class CorrectionSmoother {
-  constructor({ snap = 1, tau = 0.03 } = {}) {
-    this.snap = snap; this.tau = tau; this.x = this.y = this.z = 0; this.count = 0; this.snaps = 0; this.worst = 0;
-  }
-  reset() {
-    this.x = this.y = this.z = 0;
-  }
-  // The prediction for a tick moved from (ox, oy, oz) to (nx, ny, nz).
-  note(ox, oy, oz, nx, ny, nz) {
-    const dx = ox - nx, dy = oy - ny, dz = oz - nz;
-    const size = Math.hypot(dx, dy, dz);
-    if (size < 1e-6) return 0;
-    this.count++; if (size > this.worst) this.worst = size;
-    this.x += dx; this.y += dy; this.z += dz;
-    if (Math.hypot(this.x, this.y, this.z) > this.snap) { this.reset(); this.snaps++; }
-    return size;
-  }
-  decay(dt) {
-    const k = Math.exp(-Math.max(0, dt) / this.tau);
-    this.x *= k; this.y *= k; this.z *= k;
-    if (Math.hypot(this.x, this.y, this.z) < 1e-4) this.reset();
-  }
-  get length() {
-    return Math.hypot(this.x, this.y, this.z);
-  }
 }

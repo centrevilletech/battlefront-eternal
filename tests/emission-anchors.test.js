@@ -5,7 +5,6 @@ import { weaponMuzzle, descendantMuzzles, vehicleMuzzleTips } from '../src/muzzl
 import { Turret } from '../src/props.js';
 import {Effects} from './helpers/presentation.js';
 import {emitter} from './fixtures/effects.js';
-import { RemoteDroids } from '../src/remote.js';
 
 test('missing weapon markers recover a mouth and imported anchors stay authoritative', () => {
   const part = length => ({ geometry: new THREE.CylinderGeometry(.02, .02, length, 8).rotateX(Math.PI / 2).translate(.01, .05, length / 2) });
@@ -60,16 +59,6 @@ test('classic exhaust shifts and rotates each emitter without changing shared de
   assert.ok(at.distanceTo(frame.position) < 1e-8);
   assert.ok(new THREE.Vector3(-1, 0, 0).applyQuaternion(em.nozzleTurn).distanceTo(frame.direction) < 1e-8);
   assert.equal(JSON.stringify(def), snapshot);fx.kernel.free();
-});
-
-test('remote droid rounds and flash start at its rotated hardpoint without a render mesh', () => {
-  const fired = [], flashes = [], weapon = { def: { ordnance: { base: 'bolt' }, FlashLightRadius: 1 } };
-  const system = { v: Array.from({ length: 5 }, () => new THREE.Vector3()), firePoints: { probe: [0, .2, .5] }, fire: (def, p, d) => fired.push({ p: p.clone(), d: d.clone() }), lights: { flash: p => flashes.push(p.clone()) } };
-  const droid = { def: { GeometryName: 'probe' }, position: new THREE.Vector3(3, 4, 5), yaw: Math.PI / 2, target: new THREE.Vector3(20, 4, 5), arsenal: { update: () => [{ weapon, yaw: 0, pitch: 0 }], current: () => null }, countdown: -1 };
-  RemoteDroids.prototype.shoot.call(system, droid, 1 / 60, null);
-  assert.ok(fired[0].p.distanceTo(new THREE.Vector3(3.5, 4.2, 5)) < 1e-8);
-  assert.ok(fired[0].d.distanceTo(droid.target.clone().sub(fired[0].p).normalize()) < 1e-8);
-  assert.ok(flashes[0].equals(fired[0].p));
 });
 
 test('the imported barrel cap is not displaced by a longer underslung rail', () => {

@@ -2,11 +2,12 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { FlightState_INDEX, FlightState_NAMES } from "./flight.js";
+import { ReconCameraMirror, ReconSalvoMirror, exportReconCamera, exportReconSalvo, putReconCamera, putReconSalvo, sameReconCamera, sameReconSalvo, syncReconCamera, syncReconSalvo } from "./recon.js";
 import { LastGunMirror, exportLastGun, putLastGun, sameLastGun, syncLastGun } from "./units.js";
 
-export const ClientOp_NAMES = ["configureActor","configureWeapon","predict","reset","configureMuzzles","configureHull"];
+export const ClientOp_NAMES = ["configureActor","configureWeapon","predict","reset","configureMuzzles","configureHull","configureRecon"];
 export const ClientOp_INDEX = new Map(ClientOp_NAMES.map((name, i) => [name, i]));
-export const ClientOp_VALUE = Object.freeze({"configureActor":0,"configureWeapon":1,"predict":2,"reset":3,"configureMuzzles":4,"configureHull":5});
+export const ClientOp_VALUE = Object.freeze({"configureActor":0,"configureWeapon":1,"predict":2,"reset":3,"configureMuzzles":4,"configureHull":5,"configureRecon":6});
 
 export const ClientCorrectionSeatField_NAMES = ["aimYaw","pitch","lookYaw","lookPitch","yawRate","lastYaw"];
 export const ClientCorrectionSeatField_INDEX = new Map(ClientCorrectionSeatField_NAMES.map((name, i) => [name, i]));
@@ -36,9 +37,13 @@ export const ClientCompactFlightQuaternion_NAMES = ["quaternion","optional"];
 export const ClientCompactFlightQuaternion_INDEX = new Map(ClientCompactFlightQuaternion_NAMES.map((name, i) => [name, i]));
 export const ClientCompactFlightQuaternion_VALUE = Object.freeze({"quaternion":0,"optional":1});
 
-export const ClientMode_NAMES = ["actor","mounted","hull"];
+export const ClientCommandSource_NAMES = ["movement","action","outcome","fire"];
+export const ClientCommandSource_INDEX = new Map(ClientCommandSource_NAMES.map((name, i) => [name, i]));
+export const ClientCommandSource_VALUE = Object.freeze({"movement":0,"action":1,"outcome":2,"fire":3});
+
+export const ClientMode_NAMES = ["actor","mounted","hull","recon"];
 export const ClientMode_INDEX = new Map(ClientMode_NAMES.map((name, i) => [name, i]));
-export const ClientMode_VALUE = Object.freeze({"actor":0,"mounted":1,"hull":2});
+export const ClientMode_VALUE = Object.freeze({"actor":0,"mounted":1,"hull":2,"recon":3});
 
 export const ClientActorKind_NAMES = ["soldier","droideka"];
 export const ClientActorKind_INDEX = new Map(ClientActorKind_NAMES.map((name, i) => [name, i]));
@@ -1655,7 +1660,218 @@ export function exportClientMuzzles(o, cx) {
   return v;
 }
 
-export const ClientFrameLayout = Object.freeze({ words: 37, epoch: 0, identity: 1, generation: 2, source: 3, authorityTick: 4, mode: 5, hullAt: 6, mountsAt: 7, mountsCount: 8, world: 9, ignored: 10, movement: 11, dead: 12, underwater: 13, shield: 14, actorAt: 15, actorWords: 16, correctionAt: 17, correctionBytes: 18, weaponsAt: 19, weaponsWords: 20, flagsAt: 21, flagsCount: 22, commandsAt: 23, commandsCount: 24, crowdAt: 25, crowdCount: 26, held: 27, flightHeld: 28, presentedThrough: 29, cosmeticSlots: 30, mouseScale: 31, invert: 32, kick: 33, checkTick: 36 });
+export const ClientReconClassLayout = Object.freeze({ words: 6, count: 0, idsAt: 1, definitionAt: 2, muzzle: 3 });
+export const CLIENT_RECON_CLASS_WORDS = ClientReconClassLayout.words;
+export const CLIENT_RECON_CLASS_OFFSETS = ClientReconClassLayout;
+
+export class ClientReconClassMirror {
+  constructor() {
+    this.count = 0;
+    this.idsAt = 0;
+    this.definitionAt = 0;
+    this.muzzle = new THREE.Vector3();
+  }
+}
+
+export function syncClientReconClass(b, f, at, h, m) {
+  m.count = f[at + 0] >>> 0;
+  m.idsAt = f[at + 1] >>> 0;
+  m.definitionAt = f[at + 2] >>> 0;
+  { const $v = (m.muzzle ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  return m;
+}
+
+export function putClientReconClass(b, o, f, at, heap) {
+  f[at + 0] = o.count;
+  f[at + 1] = o.idsAt;
+  f[at + 2] = o.definitionAt;
+  { const $v = o.muzzle; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+}
+
+export function sameClientReconClass(a, b) {
+  if (!Object.is(a.count, b.count)) return ".count";
+  if (!Object.is(a.idsAt, b.idsAt)) return ".idsAt";
+  if (!Object.is(a.definitionAt, b.definitionAt)) return ".definitionAt";
+  if (!sameVec(a.muzzle, b.muzzle)) return ".muzzle";
+  return null;
+}
+
+export function exportClientReconClass(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.count = o.count;
+  v.idsAt = o.idsAt;
+  v.definitionAt = o.definitionAt;
+  v.muzzle = o.muzzle.clone();
+  return v;
+}
+
+export const ClientReconStateLayout = Object.freeze({ words: 63, position: 0, velocity: 3, eye: 6, aim: 9, target: 12, yaw: 15, pitch: 16, health: 17, dead: 18, countdown: 19, team: 20, piloted: 21, seed: 22, lookX: 23, lookY: 24, zoom: 25, firstPerson: 26, camera: 28, hasCamera: 38, aspect: 39, salvo: 40, viewFirst: 56, viewAspect: 58, hasViewAspect: 59, waterLevel: 60, hasWaterLevel: 61, needsAim: 62 });
+export const CLIENT_RECON_STATE_WORDS = ClientReconStateLayout.words;
+export const CLIENT_RECON_STATE_OFFSETS = ClientReconStateLayout;
+
+export class ClientReconStateMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.eye = new THREE.Vector3();
+    this.aim = new THREE.Vector3();
+    this.target = new THREE.Vector3();
+    this.yaw = NaN;
+    this.pitch = NaN;
+    this.health = NaN;
+    this.dead = false;
+    this.countdown = NaN;
+    this.team = NaN;
+    this.piloted = false;
+    this.seed = 0;
+    this.lookX = NaN;
+    this.lookY = NaN;
+    this.zoom = false;
+    this.firstPerson = undefined;
+    this.camera = new ReconCameraMirror();
+    this.hasCamera = false;
+    this.aspect = NaN;
+    this.salvo = null;
+    this.viewFirst = undefined;
+    this.viewAspect = NaN;
+    this.hasViewAspect = false;
+    this.waterLevel = NaN;
+    this.hasWaterLevel = false;
+    this.needsAim = false;
+  }
+}
+
+export function syncClientReconState(b, f, at, h, m) {
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.eye ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
+  { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 12]; $v.y = f[at + 13]; $v.z = f[at + 14]; }
+  m.yaw = f[at + 15];
+  m.pitch = f[at + 16];
+  m.health = f[at + 17];
+  m.dead = f[at + 18] !== 0;
+  m.countdown = f[at + 19];
+  m.team = f[at + 20];
+  m.piloted = f[at + 21] !== 0;
+  m.seed = f[at + 22] >>> 0;
+  m.lookX = f[at + 23];
+  m.lookY = f[at + 24];
+  m.zoom = f[at + 25] !== 0;
+  { const tag = f[at + 26]; if (tag === 0) { m.firstPerson = f[at + 27] !== 0; } else m.firstPerson = tag === 1 ? null : undefined; }
+  m.camera = syncReconCamera(b, f, at + 28, h, m.camera ?? new ReconCameraMirror());
+  m.hasCamera = f[at + 38] !== 0;
+  m.aspect = f[at + 39];
+  { const tag = f[at + 40]; if (tag === 0) { m.salvo = syncReconSalvo(b, f, at + 41, h, m.salvo ?? new ReconSalvoMirror()); } else m.salvo = tag === 1 ? null : undefined; }
+  { const tag = f[at + 56]; if (tag === 0) { m.viewFirst = f[at + 57] !== 0; } else m.viewFirst = tag === 1 ? null : undefined; }
+  m.viewAspect = f[at + 58];
+  m.hasViewAspect = f[at + 59] !== 0;
+  m.waterLevel = f[at + 60];
+  m.hasWaterLevel = f[at + 61] !== 0;
+  m.needsAim = f[at + 62] !== 0;
+  return m;
+}
+
+export function putClientReconState(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.velocity; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  { const $v = o.eye; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  { const $v = o.aim; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
+  { const $v = o.target; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; }
+  f[at + 15] = o.yaw;
+  f[at + 16] = o.pitch;
+  f[at + 17] = o.health;
+  f[at + 18] = o.dead ? 1 : 0;
+  f[at + 19] = o.countdown;
+  f[at + 20] = o.team;
+  f[at + 21] = o.piloted ? 1 : 0;
+  f[at + 22] = o.seed;
+  f[at + 23] = o.lookX;
+  f[at + 24] = o.lookY;
+  f[at + 25] = o.zoom ? 1 : 0;
+  { const $x = o.firstPerson; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f[at + 27] = 0; } else { f[at + 26] = 0; f[at + 27] = $x ? 1 : 0; } }
+  putReconCamera(b, o.camera, f, at + 28, heap);
+  f[at + 38] = o.hasCamera ? 1 : 0;
+  f[at + 39] = o.aspect;
+  { const $x = o.salvo; if ($x === null || $x === undefined) { f[at + 40] = $x === null ? 1 : 2; f.fill(0, at + 41, at + 56); } else { f[at + 40] = 0; putReconSalvo(b, $x, f, at + 41, heap); } }
+  { const $x = o.viewFirst; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f[at + 57] = 0; } else { f[at + 56] = 0; f[at + 57] = $x ? 1 : 0; } }
+  f[at + 58] = o.viewAspect;
+  f[at + 59] = o.hasViewAspect ? 1 : 0;
+  f[at + 60] = o.waterLevel;
+  f[at + 61] = o.hasWaterLevel ? 1 : 0;
+  f[at + 62] = o.needsAim ? 1 : 0;
+}
+
+export function sameClientReconState(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!sameVec(a.eye, b.eye)) return ".eye";
+  if (!sameVec(a.aim, b.aim)) return ".aim";
+  if (!sameVec(a.target, b.target)) return ".target";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  if (!Object.is(a.health, b.health)) return ".health";
+  if (!Object.is(a.dead, b.dead)) return ".dead";
+  if (!Object.is(a.countdown, b.countdown)) return ".countdown";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.piloted, b.piloted)) return ".piloted";
+  if (!Object.is(a.seed, b.seed)) return ".seed";
+  if (!Object.is(a.lookX, b.lookX)) return ".lookX";
+  if (!Object.is(a.lookY, b.lookY)) return ".lookY";
+  if (!Object.is(a.zoom, b.zoom)) return ".zoom";
+  { const p = a.firstPerson, q = b.firstPerson; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".firstPerson"; } else { if (!Object.is(p, q)) return ".firstPerson"; } }
+  { const d = sameReconCamera(a.camera, b.camera); if (d) return ".camera" + d; }
+  if (!Object.is(a.hasCamera, b.hasCamera)) return ".hasCamera";
+  if (!Object.is(a.aspect, b.aspect)) return ".aspect";
+  { const p = a.salvo, q = b.salvo; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".salvo"; } else { { const d = sameReconSalvo(p, q); if (d) return ".salvo" + d; } } }
+  { const p = a.viewFirst, q = b.viewFirst; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".viewFirst"; } else { if (!Object.is(p, q)) return ".viewFirst"; } }
+  if (!Object.is(a.viewAspect, b.viewAspect)) return ".viewAspect";
+  if (!Object.is(a.hasViewAspect, b.hasViewAspect)) return ".hasViewAspect";
+  if (!Object.is(a.waterLevel, b.waterLevel)) return ".waterLevel";
+  if (!Object.is(a.hasWaterLevel, b.hasWaterLevel)) return ".hasWaterLevel";
+  if (!Object.is(a.needsAim, b.needsAim)) return ".needsAim";
+  return null;
+}
+
+export function exportClientReconState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.velocity = o.velocity.clone();
+  v.eye = o.eye.clone();
+  v.aim = o.aim.clone();
+  v.target = o.target.clone();
+  v.yaw = o.yaw;
+  v.pitch = o.pitch;
+  v.health = o.health;
+  v.dead = o.dead;
+  v.countdown = o.countdown;
+  v.team = o.team;
+  v.piloted = o.piloted;
+  v.seed = o.seed;
+  v.lookX = o.lookX;
+  v.lookY = o.lookY;
+  v.zoom = o.zoom;
+  v.firstPerson = o.firstPerson;
+  v.camera = exportReconCamera(o.camera, cx);
+  v.hasCamera = o.hasCamera;
+  v.aspect = o.aspect;
+  v.salvo = ((x) => (x === null || x === undefined ? x : exportReconSalvo(x, cx)))(o.salvo);
+  v.viewFirst = o.viewFirst;
+  v.viewAspect = o.viewAspect;
+  v.hasViewAspect = o.hasViewAspect;
+  v.waterLevel = o.waterLevel;
+  v.hasWaterLevel = o.hasWaterLevel;
+  v.needsAim = o.needsAim;
+  return v;
+}
+
+export const ClientFrameLayout = Object.freeze({ words: 39, epoch: 0, identity: 1, generation: 2, source: 3, authorityTick: 4, mode: 5, reconAt: 6, hullAt: 7, mountsAt: 8, mountsCount: 9, world: 10, ignored: 11, movement: 12, dead: 13, underwater: 14, shield: 15, actorAt: 16, actorWords: 17, correctionAt: 18, correctionBytes: 19, weaponsAt: 20, weaponsWords: 21, flagsAt: 22, flagsCount: 23, commandsAt: 24, commandsCount: 25, mergeCommands: 26, crowdAt: 27, crowdCount: 28, held: 29, flightHeld: 30, presentedThrough: 31, cosmeticSlots: 32, mouseScale: 33, invert: 34, kick: 35, checkTick: 38 });
 export const CLIENT_FRAME_WORDS = ClientFrameLayout.words;
 export const CLIENT_FRAME_OFFSETS = ClientFrameLayout;
 
@@ -1667,6 +1883,7 @@ export class ClientFrameMirror {
     this.source = NaN;
     this.authorityTick = NaN;
     this.mode = "actor";
+    this.reconAt = 0;
     this.hullAt = 0;
     this.mountsAt = 0;
     this.mountsCount = 0;
@@ -1686,6 +1903,7 @@ export class ClientFrameMirror {
     this.flagsCount = 0;
     this.commandsAt = 0;
     this.commandsCount = 0;
+    this.mergeCommands = false;
     this.crowdAt = 0;
     this.crowdCount = 0;
     this.held = 0;
@@ -1706,35 +1924,37 @@ export function syncClientFrame(b, f, at, h, m) {
   m.source = f[at + 3];
   m.authorityTick = f[at + 4];
   m.mode = ClientMode_NAMES[f[at + 5]];
-  m.hullAt = f[at + 6] >>> 0;
-  m.mountsAt = f[at + 7] >>> 0;
-  m.mountsCount = f[at + 8] >>> 0;
-  m.world = f[at + 9] >>> 0;
-  m.ignored = f[at + 10];
-  m.movement = f[at + 11] !== 0;
-  m.dead = f[at + 12] !== 0;
-  m.underwater = f[at + 13] !== 0;
-  m.shield = f[at + 14] !== 0;
-  m.actorAt = f[at + 15] >>> 0;
-  m.actorWords = f[at + 16] >>> 0;
-  m.correctionAt = f[at + 17] >>> 0;
-  m.correctionBytes = f[at + 18] >>> 0;
-  m.weaponsAt = f[at + 19] >>> 0;
-  m.weaponsWords = f[at + 20] >>> 0;
-  m.flagsAt = f[at + 21] >>> 0;
-  m.flagsCount = f[at + 22] >>> 0;
-  m.commandsAt = f[at + 23] >>> 0;
-  m.commandsCount = f[at + 24] >>> 0;
-  m.crowdAt = f[at + 25] >>> 0;
-  m.crowdCount = f[at + 26] >>> 0;
-  m.held = f[at + 27] >>> 0;
-  m.flightHeld = f[at + 28] >>> 0;
-  m.presentedThrough = f[at + 29];
-  m.cosmeticSlots = f[at + 30] >>> 0;
-  m.mouseScale = f[at + 31];
-  m.invert = f[at + 32] !== 0;
-  { const a = (m.kick ??= new Array(3)); a[0] = f[at + 33]; a[1] = f[at + 34]; a[2] = f[at + 35]; }
-  m.checkTick = f[at + 36];
+  m.reconAt = f[at + 6] >>> 0;
+  m.hullAt = f[at + 7] >>> 0;
+  m.mountsAt = f[at + 8] >>> 0;
+  m.mountsCount = f[at + 9] >>> 0;
+  m.world = f[at + 10] >>> 0;
+  m.ignored = f[at + 11];
+  m.movement = f[at + 12] !== 0;
+  m.dead = f[at + 13] !== 0;
+  m.underwater = f[at + 14] !== 0;
+  m.shield = f[at + 15] !== 0;
+  m.actorAt = f[at + 16] >>> 0;
+  m.actorWords = f[at + 17] >>> 0;
+  m.correctionAt = f[at + 18] >>> 0;
+  m.correctionBytes = f[at + 19] >>> 0;
+  m.weaponsAt = f[at + 20] >>> 0;
+  m.weaponsWords = f[at + 21] >>> 0;
+  m.flagsAt = f[at + 22] >>> 0;
+  m.flagsCount = f[at + 23] >>> 0;
+  m.commandsAt = f[at + 24] >>> 0;
+  m.commandsCount = f[at + 25] >>> 0;
+  m.mergeCommands = f[at + 26] !== 0;
+  m.crowdAt = f[at + 27] >>> 0;
+  m.crowdCount = f[at + 28] >>> 0;
+  m.held = f[at + 29] >>> 0;
+  m.flightHeld = f[at + 30] >>> 0;
+  m.presentedThrough = f[at + 31];
+  m.cosmeticSlots = f[at + 32] >>> 0;
+  m.mouseScale = f[at + 33];
+  m.invert = f[at + 34] !== 0;
+  { const a = (m.kick ??= new Array(3)); a[0] = f[at + 35]; a[1] = f[at + 36]; a[2] = f[at + 37]; }
+  m.checkTick = f[at + 38];
   return m;
 }
 
@@ -1745,35 +1965,37 @@ export function putClientFrame(b, o, f, at, heap) {
   f[at + 3] = o.source;
   f[at + 4] = o.authorityTick;
   f[at + 5] = ClientMode_INDEX.get(o.mode);
-  f[at + 6] = o.hullAt;
-  f[at + 7] = o.mountsAt;
-  f[at + 8] = o.mountsCount;
-  f[at + 9] = o.world;
-  f[at + 10] = o.ignored;
-  f[at + 11] = o.movement ? 1 : 0;
-  f[at + 12] = o.dead ? 1 : 0;
-  f[at + 13] = o.underwater ? 1 : 0;
-  f[at + 14] = o.shield ? 1 : 0;
-  f[at + 15] = o.actorAt;
-  f[at + 16] = o.actorWords;
-  f[at + 17] = o.correctionAt;
-  f[at + 18] = o.correctionBytes;
-  f[at + 19] = o.weaponsAt;
-  f[at + 20] = o.weaponsWords;
-  f[at + 21] = o.flagsAt;
-  f[at + 22] = o.flagsCount;
-  f[at + 23] = o.commandsAt;
-  f[at + 24] = o.commandsCount;
-  f[at + 25] = o.crowdAt;
-  f[at + 26] = o.crowdCount;
-  f[at + 27] = o.held;
-  f[at + 28] = o.flightHeld;
-  f[at + 29] = o.presentedThrough;
-  f[at + 30] = o.cosmeticSlots;
-  f[at + 31] = o.mouseScale;
-  f[at + 32] = o.invert ? 1 : 0;
-  { const $v = o.kick; f[at + 33] = $v[0]; f[at + 34] = $v[1]; f[at + 35] = $v[2]; }
-  f[at + 36] = o.checkTick;
+  f[at + 6] = o.reconAt;
+  f[at + 7] = o.hullAt;
+  f[at + 8] = o.mountsAt;
+  f[at + 9] = o.mountsCount;
+  f[at + 10] = o.world;
+  f[at + 11] = o.ignored;
+  f[at + 12] = o.movement ? 1 : 0;
+  f[at + 13] = o.dead ? 1 : 0;
+  f[at + 14] = o.underwater ? 1 : 0;
+  f[at + 15] = o.shield ? 1 : 0;
+  f[at + 16] = o.actorAt;
+  f[at + 17] = o.actorWords;
+  f[at + 18] = o.correctionAt;
+  f[at + 19] = o.correctionBytes;
+  f[at + 20] = o.weaponsAt;
+  f[at + 21] = o.weaponsWords;
+  f[at + 22] = o.flagsAt;
+  f[at + 23] = o.flagsCount;
+  f[at + 24] = o.commandsAt;
+  f[at + 25] = o.commandsCount;
+  f[at + 26] = o.mergeCommands ? 1 : 0;
+  f[at + 27] = o.crowdAt;
+  f[at + 28] = o.crowdCount;
+  f[at + 29] = o.held;
+  f[at + 30] = o.flightHeld;
+  f[at + 31] = o.presentedThrough;
+  f[at + 32] = o.cosmeticSlots;
+  f[at + 33] = o.mouseScale;
+  f[at + 34] = o.invert ? 1 : 0;
+  { const $v = o.kick; f[at + 35] = $v[0]; f[at + 36] = $v[1]; f[at + 37] = $v[2]; }
+  f[at + 38] = o.checkTick;
 }
 
 export function sameClientFrame(a, b) {
@@ -1783,6 +2005,7 @@ export function sameClientFrame(a, b) {
   if (!Object.is(a.source, b.source)) return ".source";
   if (!Object.is(a.authorityTick, b.authorityTick)) return ".authorityTick";
   if (!Object.is(a.mode, b.mode)) return ".mode";
+  if (!Object.is(a.reconAt, b.reconAt)) return ".reconAt";
   if (!Object.is(a.hullAt, b.hullAt)) return ".hullAt";
   if (!Object.is(a.mountsAt, b.mountsAt)) return ".mountsAt";
   if (!Object.is(a.mountsCount, b.mountsCount)) return ".mountsCount";
@@ -1802,6 +2025,7 @@ export function sameClientFrame(a, b) {
   if (!Object.is(a.flagsCount, b.flagsCount)) return ".flagsCount";
   if (!Object.is(a.commandsAt, b.commandsAt)) return ".commandsAt";
   if (!Object.is(a.commandsCount, b.commandsCount)) return ".commandsCount";
+  if (!Object.is(a.mergeCommands, b.mergeCommands)) return ".mergeCommands";
   if (!Object.is(a.crowdAt, b.crowdAt)) return ".crowdAt";
   if (!Object.is(a.crowdCount, b.crowdCount)) return ".crowdCount";
   if (!Object.is(a.held, b.held)) return ".held";
@@ -1826,6 +2050,7 @@ export function exportClientFrame(o, cx) {
   v.source = o.source;
   v.authorityTick = o.authorityTick;
   v.mode = o.mode;
+  v.reconAt = o.reconAt;
   v.hullAt = o.hullAt;
   v.mountsAt = o.mountsAt;
   v.mountsCount = o.mountsCount;
@@ -1845,6 +2070,7 @@ export function exportClientFrame(o, cx) {
   v.flagsCount = o.flagsCount;
   v.commandsAt = o.commandsAt;
   v.commandsCount = o.commandsCount;
+  v.mergeCommands = o.mergeCommands;
   v.crowdAt = o.crowdAt;
   v.crowdCount = o.crowdCount;
   v.held = o.held;
@@ -1858,7 +2084,7 @@ export function exportClientFrame(o, cx) {
   return v;
 }
 
-export const ClientCommandLayout = Object.freeze({ words: 17, tick: 0, generation: 1, sequence: 2, sent: 3, held: 4, actions: 5, lookAt: 6, lookCount: 7, mouseScale: 8, invert: 10, flightAt: 12, primaryCount: 13, primaryId: 14, secondaryCount: 15, secondaryId: 16 });
+export const ClientCommandLayout = Object.freeze({ words: 23, tick: 0, generation: 1, sequence: 2, sent: 3, held: 4, actions: 5, source: 6, flightActions: 7, lookAt: 8, lookCount: 9, mouseScale: 10, hasMouseScale: 11, invert: 12, flightAt: 14, firstPerson: 15, aspect: 17, hasAspect: 18, primaryCount: 19, primaryId: 20, secondaryCount: 21, secondaryId: 22 });
 export const CLIENT_COMMAND_WORDS = ClientCommandLayout.words;
 export const CLIENT_COMMAND_OFFSETS = ClientCommandLayout;
 
@@ -1870,11 +2096,17 @@ export class ClientCommandMirror {
     this.sent = false;
     this.held = 0;
     this.actions = 0;
+    this.source = "movement";
+    this.flightActions = 0;
     this.lookAt = 0;
     this.lookCount = 0;
-    this.mouseScale = undefined;
+    this.mouseScale = NaN;
+    this.hasMouseScale = false;
     this.invert = undefined;
     this.flightAt = 0;
+    this.firstPerson = undefined;
+    this.aspect = NaN;
+    this.hasAspect = false;
     this.primaryCount = 0;
     this.primaryId = NaN;
     this.secondaryCount = 0;
@@ -1889,15 +2121,21 @@ export function syncClientCommand(b, f, at, h, m) {
   m.sent = f[at + 3] !== 0;
   m.held = f[at + 4] >>> 0;
   m.actions = f[at + 5] >>> 0;
-  m.lookAt = f[at + 6] >>> 0;
-  m.lookCount = f[at + 7] >>> 0;
-  { const tag = f[at + 8]; if (tag === 0) { m.mouseScale = f[at + 9]; } else m.mouseScale = tag === 1 ? null : undefined; }
-  { const tag = f[at + 10]; if (tag === 0) { m.invert = f[at + 11] !== 0; } else m.invert = tag === 1 ? null : undefined; }
-  m.flightAt = f[at + 12] >>> 0;
-  m.primaryCount = f[at + 13] >>> 0;
-  m.primaryId = f[at + 14];
-  m.secondaryCount = f[at + 15] >>> 0;
-  m.secondaryId = f[at + 16];
+  m.source = ClientCommandSource_NAMES[f[at + 6]];
+  m.flightActions = f[at + 7] >>> 0;
+  m.lookAt = f[at + 8] >>> 0;
+  m.lookCount = f[at + 9] >>> 0;
+  m.mouseScale = f[at + 10];
+  m.hasMouseScale = f[at + 11] !== 0;
+  { const tag = f[at + 12]; if (tag === 0) { m.invert = f[at + 13] !== 0; } else m.invert = tag === 1 ? null : undefined; }
+  m.flightAt = f[at + 14] >>> 0;
+  { const tag = f[at + 15]; if (tag === 0) { m.firstPerson = f[at + 16] !== 0; } else m.firstPerson = tag === 1 ? null : undefined; }
+  m.aspect = f[at + 17];
+  m.hasAspect = f[at + 18] !== 0;
+  m.primaryCount = f[at + 19] >>> 0;
+  m.primaryId = f[at + 20];
+  m.secondaryCount = f[at + 21] >>> 0;
+  m.secondaryId = f[at + 22];
   return m;
 }
 
@@ -1908,15 +2146,21 @@ export function putClientCommand(b, o, f, at, heap) {
   f[at + 3] = o.sent ? 1 : 0;
   f[at + 4] = o.held;
   f[at + 5] = o.actions;
-  f[at + 6] = o.lookAt;
-  f[at + 7] = o.lookCount;
-  { const $x = o.mouseScale; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x; } }
-  { const $x = o.invert; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; } else { f[at + 10] = 0; f[at + 11] = $x ? 1 : 0; } }
-  f[at + 12] = o.flightAt;
-  f[at + 13] = o.primaryCount;
-  f[at + 14] = o.primaryId;
-  f[at + 15] = o.secondaryCount;
-  f[at + 16] = o.secondaryId;
+  f[at + 6] = ClientCommandSource_INDEX.get(o.source);
+  f[at + 7] = o.flightActions;
+  f[at + 8] = o.lookAt;
+  f[at + 9] = o.lookCount;
+  f[at + 10] = o.mouseScale;
+  f[at + 11] = o.hasMouseScale ? 1 : 0;
+  { const $x = o.invert; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; } else { f[at + 12] = 0; f[at + 13] = $x ? 1 : 0; } }
+  f[at + 14] = o.flightAt;
+  { const $x = o.firstPerson; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f[at + 16] = 0; } else { f[at + 15] = 0; f[at + 16] = $x ? 1 : 0; } }
+  f[at + 17] = o.aspect;
+  f[at + 18] = o.hasAspect ? 1 : 0;
+  f[at + 19] = o.primaryCount;
+  f[at + 20] = o.primaryId;
+  f[at + 21] = o.secondaryCount;
+  f[at + 22] = o.secondaryId;
 }
 
 export function sameClientCommand(a, b) {
@@ -1926,11 +2170,17 @@ export function sameClientCommand(a, b) {
   if (!Object.is(a.sent, b.sent)) return ".sent";
   if (!Object.is(a.held, b.held)) return ".held";
   if (!Object.is(a.actions, b.actions)) return ".actions";
+  if (!Object.is(a.source, b.source)) return ".source";
+  if (!Object.is(a.flightActions, b.flightActions)) return ".flightActions";
   if (!Object.is(a.lookAt, b.lookAt)) return ".lookAt";
   if (!Object.is(a.lookCount, b.lookCount)) return ".lookCount";
-  { const p = a.mouseScale, q = b.mouseScale; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".mouseScale"; } else { if (!Object.is(p, q)) return ".mouseScale"; } }
+  if (!Object.is(a.mouseScale, b.mouseScale)) return ".mouseScale";
+  if (!Object.is(a.hasMouseScale, b.hasMouseScale)) return ".hasMouseScale";
   { const p = a.invert, q = b.invert; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".invert"; } else { if (!Object.is(p, q)) return ".invert"; } }
   if (!Object.is(a.flightAt, b.flightAt)) return ".flightAt";
+  { const p = a.firstPerson, q = b.firstPerson; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".firstPerson"; } else { if (!Object.is(p, q)) return ".firstPerson"; } }
+  if (!Object.is(a.aspect, b.aspect)) return ".aspect";
+  if (!Object.is(a.hasAspect, b.hasAspect)) return ".hasAspect";
   if (!Object.is(a.primaryCount, b.primaryCount)) return ".primaryCount";
   if (!Object.is(a.primaryId, b.primaryId)) return ".primaryId";
   if (!Object.is(a.secondaryCount, b.secondaryCount)) return ".secondaryCount";
@@ -1949,11 +2199,17 @@ export function exportClientCommand(o, cx) {
   v.sent = o.sent;
   v.held = o.held;
   v.actions = o.actions;
+  v.source = o.source;
+  v.flightActions = o.flightActions;
   v.lookAt = o.lookAt;
   v.lookCount = o.lookCount;
   v.mouseScale = o.mouseScale;
+  v.hasMouseScale = o.hasMouseScale;
   v.invert = o.invert;
   v.flightAt = o.flightAt;
+  v.firstPerson = o.firstPerson;
+  v.aspect = o.aspect;
+  v.hasAspect = o.hasAspect;
   v.primaryCount = o.primaryCount;
   v.primaryId = o.primaryId;
   v.secondaryCount = o.secondaryCount;
@@ -2115,7 +2371,7 @@ export function exportClientCrowd(o, cx) {
   return v;
 }
 
-export const ClientResultLayout = Object.freeze({ words: 25, tick: 0, continued: 1, sequence: 2, held: 3, ticks: 4, actorAt: 5, actorWords: 6, correctionAt: 7, correctionBytes: 8, weaponsAt: 9, weaponsWords: 10, shotsAt: 11, shotsCount: 12, hullAt: 13, hullWords: 14, beforeAt: 15, beforeShot: 16, lookYaw: 17, checkFound: 18, checkPosition: 19, kick: 22 });
+export const ClientResultLayout = Object.freeze({ words: 28, tick: 0, continued: 1, sequence: 2, held: 3, ticks: 4, actorAt: 5, actorWords: 6, correctionAt: 7, correctionBytes: 8, weaponsAt: 9, weaponsWords: 10, shotsAt: 11, shotsCount: 12, reconAt: 13, reconWords: 14, reconSourceAt: 15, hullAt: 16, hullWords: 17, beforeAt: 18, beforeShot: 19, lookYaw: 20, checkFound: 21, checkPosition: 22, kick: 25 });
 export const CLIENT_RESULT_WORDS = ClientResultLayout.words;
 export const CLIENT_RESULT_OFFSETS = ClientResultLayout;
 
@@ -2134,6 +2390,9 @@ export class ClientResultMirror {
     this.weaponsWords = 0;
     this.shotsAt = 0;
     this.shotsCount = 0;
+    this.reconAt = 0;
+    this.reconWords = 0;
+    this.reconSourceAt = 0;
     this.hullAt = 0;
     this.hullWords = 0;
     this.beforeAt = 0;
@@ -2159,14 +2418,17 @@ export function syncClientResult(b, f, at, h, m) {
   m.weaponsWords = f[at + 10] >>> 0;
   m.shotsAt = f[at + 11] >>> 0;
   m.shotsCount = f[at + 12] >>> 0;
-  m.hullAt = f[at + 13] >>> 0;
-  m.hullWords = f[at + 14] >>> 0;
-  m.beforeAt = f[at + 15] >>> 0;
-  m.beforeShot = f[at + 16] >>> 0;
-  m.lookYaw = f[at + 17];
-  m.checkFound = f[at + 18] !== 0;
-  { const $v = (m.checkPosition ??= new THREE.Vector3()); $v.x = f[at + 19]; $v.y = f[at + 20]; $v.z = f[at + 21]; }
-  { const a = (m.kick ??= new Array(3)); a[0] = f[at + 22]; a[1] = f[at + 23]; a[2] = f[at + 24]; }
+  m.reconAt = f[at + 13] >>> 0;
+  m.reconWords = f[at + 14] >>> 0;
+  m.reconSourceAt = f[at + 15] >>> 0;
+  m.hullAt = f[at + 16] >>> 0;
+  m.hullWords = f[at + 17] >>> 0;
+  m.beforeAt = f[at + 18] >>> 0;
+  m.beforeShot = f[at + 19] >>> 0;
+  m.lookYaw = f[at + 20];
+  m.checkFound = f[at + 21] !== 0;
+  { const $v = (m.checkPosition ??= new THREE.Vector3()); $v.x = f[at + 22]; $v.y = f[at + 23]; $v.z = f[at + 24]; }
+  { const a = (m.kick ??= new Array(3)); a[0] = f[at + 25]; a[1] = f[at + 26]; a[2] = f[at + 27]; }
   return m;
 }
 
@@ -2184,14 +2446,17 @@ export function putClientResult(b, o, f, at, heap) {
   f[at + 10] = o.weaponsWords;
   f[at + 11] = o.shotsAt;
   f[at + 12] = o.shotsCount;
-  f[at + 13] = o.hullAt;
-  f[at + 14] = o.hullWords;
-  f[at + 15] = o.beforeAt;
-  f[at + 16] = o.beforeShot;
-  f[at + 17] = o.lookYaw;
-  f[at + 18] = o.checkFound ? 1 : 0;
-  { const $v = o.checkPosition; f[at + 19] = $v.x; f[at + 20] = $v.y; f[at + 21] = $v.z; }
-  { const $v = o.kick; f[at + 22] = $v[0]; f[at + 23] = $v[1]; f[at + 24] = $v[2]; }
+  f[at + 13] = o.reconAt;
+  f[at + 14] = o.reconWords;
+  f[at + 15] = o.reconSourceAt;
+  f[at + 16] = o.hullAt;
+  f[at + 17] = o.hullWords;
+  f[at + 18] = o.beforeAt;
+  f[at + 19] = o.beforeShot;
+  f[at + 20] = o.lookYaw;
+  f[at + 21] = o.checkFound ? 1 : 0;
+  { const $v = o.checkPosition; f[at + 22] = $v.x; f[at + 23] = $v.y; f[at + 24] = $v.z; }
+  { const $v = o.kick; f[at + 25] = $v[0]; f[at + 26] = $v[1]; f[at + 27] = $v[2]; }
 }
 
 export function sameClientResult(a, b) {
@@ -2208,6 +2473,9 @@ export function sameClientResult(a, b) {
   if (!Object.is(a.weaponsWords, b.weaponsWords)) return ".weaponsWords";
   if (!Object.is(a.shotsAt, b.shotsAt)) return ".shotsAt";
   if (!Object.is(a.shotsCount, b.shotsCount)) return ".shotsCount";
+  if (!Object.is(a.reconAt, b.reconAt)) return ".reconAt";
+  if (!Object.is(a.reconWords, b.reconWords)) return ".reconWords";
+  if (!Object.is(a.reconSourceAt, b.reconSourceAt)) return ".reconSourceAt";
   if (!Object.is(a.hullAt, b.hullAt)) return ".hullAt";
   if (!Object.is(a.hullWords, b.hullWords)) return ".hullWords";
   if (!Object.is(a.beforeAt, b.beforeAt)) return ".beforeAt";
@@ -2237,6 +2505,9 @@ export function exportClientResult(o, cx) {
   v.weaponsWords = o.weaponsWords;
   v.shotsAt = o.shotsAt;
   v.shotsCount = o.shotsCount;
+  v.reconAt = o.reconAt;
+  v.reconWords = o.reconWords;
+  v.reconSourceAt = o.reconSourceAt;
   v.hullAt = o.hullAt;
   v.hullWords = o.hullWords;
   v.beforeAt = o.beforeAt;

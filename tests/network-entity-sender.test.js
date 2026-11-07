@@ -1,9 +1,11 @@
+const pressed=sender=>[...sender.outcomes.values()].filter(v=>v.edge.kind==='fire'&&v.edge.pressed);
+const actions=sender=>[...sender.outcomes.values()].map(v=>v.edge.kind==='action'?v.edge.action:v.edge.pressed?v.edge.button:null).filter(Boolean);
 import test from 'node:test';import assert from 'node:assert/strict';
 import {EntityInputSender} from '../src/runtime/network-entity-sender.js';
 import {INPUT_CODES,DEFAULT_BINDING_PROFILES,decodeEntityInput} from '../src/runtime/network-entity-input.js';
 const registry={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES,classIds:new Map([['soldier',1]]),postIds:new Map([['base',1]])};
 const command=(sequence,extra={})=>({epoch:1,generation:1,sequence,tick:sequence,down:[],look:[],actions:[],...extra});
-function fixture(){const packets=[],fires=[];const sender=new EntityInputSender({registry,send:b=>{assert.ok(b.length<=1100);packets.push(decodeEntityInput(b,registry));return true;},getAim:()=>({aimYaw:1,aimPitch:.2}),onFire:e=>fires.push(e)});return{sender,packets,fires};}
+function fixture(){const packets=[],fires=[];const sender=new EntityInputSender({registry,send:b=>{assert.ok(b.length<=1100);packets.push(decodeEntityInput(b,registry));return true;},getAim:()=>({aimYaw:1,aimPitch:.2}),onFire:e=>fires.push({...e})});return{sender,packets,fires};}
 test('compact state repeats edges through lost packets without repeating local fire',()=>{
  const{sender,packets,fires}=fixture();sender.send([command(1,{look:[[3,4]],actions:['jump','firePrimary']})]);
  sender.send([command(2,{look:[[2,1]]})]);assert.deepEqual(packets[1].commands.at(-1).lookTotal,[5,5]);assert.deepEqual(packets[1].edges.map(e=>e.id),[1,2,3]);assert.equal(fires.length,1);
@@ -66,12 +68,12 @@ test('same-life catch-up preserves held press and release edges even when newest
 });
 test('shield prediction retains pressed fire outcomes after movement ACK until exact correction applies',()=>{
  const{sender}=fixture();sender.send([command(1,{actions:['use','fireSecondary']})]);sender.ack(1);
- assert.deepEqual(sender.replayActions(true).actions.get(1),['use','fireSecondary']);
- assert.deepEqual(sender.replayActions(true).shieldCommands.map(c=>c.sequence),[1]);
- const pressed=[...sender.outcomes.values()].find(v=>v.edge.kind==='fire'&&v.edge.pressed).edge.id;
- sender.feedback({epoch:1,generation:1,received:[pressed],results:[{id:pressed,status:'consumed',tick:5}]});
- sender.applied(4);assert.equal(sender.replayActions(true).shieldCommands.length,1);
- sender.applied(5);assert.equal(sender.replayActions(true).shieldCommands.length,0);assert.deepEqual(sender.replayActions(true).actions.get(1),['use']);
+ assert.deepEqual(actions(sender),['use','fireSecondary']);
+ assert.deepEqual(pressed(sender).map(c=>c.sequence),[1]);
+ const pressedId=[...sender.outcomes.values()].find(v=>v.edge.kind==='fire'&&v.edge.pressed).edge.id;
+ sender.feedback({epoch:1,generation:1,received:[pressedId],results:[{id:pressedId,status:'consumed',tick:5}]});
+ sender.applied(4);assert.equal(pressed(sender).length,1);
+ sender.applied(5);assert.equal(pressed(sender).length,0);assert.deepEqual(actions(sender),['use']);
 });
 
 test('rejected and expired shield edges retire only once authority includes the decision',()=>{
@@ -79,18 +81,18 @@ test('rejected and expired shield edges retire only once authority includes the 
   const{sender}=fixture();sender.send([command(1,{actions:['fireSecondary']})]);
   const edge=[...sender.outcomes.values()].find(v=>v.edge.pressed).edge;
   sender.feedback({epoch:1,generation:1,received:[],results:[{id:edge.id,status,tick:4}]});
-  sender.applied(3);assert.equal(sender.replayActions(true).shieldCommands.length,1);
-  sender.applied(4);assert.equal(sender.replayActions(true).shieldCommands.length,0);
+  sender.applied(3);assert.equal(pressed(sender).length,1);
+  sender.applied(4);assert.equal(pressed(sender).length,0);
  }
 });
 
 test('mounted primary and secondary presses survive movement ACK until their outcome correction',()=>{
  const {sender}=fixture();sender.send([command(1,{actions:['firePrimary','fireSecondary']})]);sender.ack(1);
- const replay=sender.replayActions(false,true);assert.deepEqual(replay.actions.get(1),['firePrimary','fireSecondary']);assert.equal(replay.shieldCommands.length,2);
+ assert.deepEqual(actions(sender),['firePrimary','fireSecondary']);assert.equal(pressed(sender).length,2);
  const ids=[...sender.outcomes].filter(([,v])=>v.edge.kind==='fire'&&v.edge.pressed).map(([id])=>id);
  sender.feedback({epoch:1,generation:1,received:ids,results:ids.map(id=>({id,status:'rejected',tick:4}))});
- sender.applied(3);assert.equal(sender.replayActions(false,true).shieldCommands.length,2);
- sender.applied(4);assert.equal(sender.replayActions(false,true).shieldCommands.length,0);
+ sender.applied(3);assert.equal(pressed(sender).length,2);
+ sender.applied(4);assert.equal(pressed(sender).length,0);
 });
 test('a server too far behind costs the oldest pending outcomes, never the session',()=>{
  const{sender,packets}=fixture();

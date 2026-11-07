@@ -83,7 +83,7 @@
   },
   "limits": {
     "TimelineLimits": {
-      "entities": 1024,
+      "entities": 512,
       "snapshots": 64
     }
   }

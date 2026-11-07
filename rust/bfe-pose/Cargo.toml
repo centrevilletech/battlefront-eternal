@@ -9,6 +9,7 @@ publish = false
 replay = []
 
 [dependencies]
+jsrt = { path = "../jsrt" }
 three = { path = "../three" }
 v8math = { path = "../v8math" }
 content = { path = "../content" }

@@ -81,7 +81,7 @@ impl Session {
 
     /// PredictionWindow.select and predictedExactly: compare normalized ground
     /// bytes, never approximate poses. Rounded flyer corrections always rewind.
-    pub(super) fn predict(&mut self, f: &ClientFrame, words: &[f64], state: &mut State,
+    pub(super) fn predict(&mut self, f: &ClientFrame, words: &[f64], commands:&[f64], state: &mut State,
         result: &mut ClientResult, output: &mut Vec<f64>) -> Result<(), &'static str> {
         let h = ClientHull::take(span(words, f.hull_at, 1, ClientHull::WORDS)?, &[]);
         if h.slot != self.hull.id.slot || h.generation != self.hull.id.gen { return Err(INVALID); }
@@ -90,7 +90,6 @@ impl Session {
         let wheels = span(words, h.wheels_at, h.wheels_count, VehicleWheel::WORDS)?;
         let legs = span(words, h.legs_at, h.legs_count, 1)?;
         if h.seats_count as usize != self.hull.seats.len() || h.wheels_count as usize != self.hull.wheels.len() { return Err(INVALID); }
-        let commands = span(words, f.commands_at, f.commands_count, ClientCommand::WORDS)?;
         let flags = span(words, f.flags_at, f.flags_count, 1)?;
         // Body registration is a frame fact, not a query callback. The private
         // view still owns its flags and never moves a registered shared body.
@@ -214,12 +213,12 @@ impl Session {
                 if c.generation != f.generation { continue; }
                 if self.hull.flying {
                     let flight = ClientFlightCommand::take(span(words, c.flight_at, 1, ClientFlightCommand::WORDS)?, &[]);
-                    actions |= flight.actions;
+                    actions |= if f.merge_commands {c.flight_actions}else{flight.actions};
                     if c.sent { flight_held = flight.held; flight_scale = flight.scale; flight_invert = flight.invert;
                         curve = flight.curve; pad_axes = flight.pad_axes; pad_buttons = flight.pad_buttons; }
                 }
                 if c.sent {
-                    self.held = c.held; mouse = c.mouse_scale.unwrap_or(mouse); invert = c.invert.unwrap_or(invert);
+                    self.held = c.held; mouse = if c.has_mouse_scale {c.mouse_scale}else{mouse}; invert = c.invert.unwrap_or(invert);
                 }
                 self.sequence = self.sequence.max(c.sequence);
             }

@@ -1,15 +1,11 @@
-import { stepTurretPreview } from './runtime/turret-prediction.js';
 import * as THREE from "three";
 
 import { unseatBody, turretAimPoint } from "./seats.js";
 
 // Page view of the player at a turret. EntitySeats installs the world's lease;
-// preview() supplies unacknowledged look to the native prop and body phases;
+// The native network frame supplies unacknowledged look to prop and body phases;
 // the native camera phase follows their published turret and rider.
 // First-person eyes inside the hull hide its rig just as a cockpit does.
-
-const LOOK_SCALE = 2048; // counts x sensitivity per unit of turn rate, as for soldiers
-const LOOK_CLAMP = 16;
 
 export class Gunner {
   constructor({ camera, collision, ordnance, combat, animator, hiddenLayer = 1 }) {
@@ -22,7 +18,7 @@ export class Gunner {
     this._turret = null;
     this.hiddenRig = null; // the turret whose drum and gun are hidden (first person)
     // What the page shows over the world's aim: the looks it has not taken
-    // yet and the way through the tick (preview()).
+    // yet and the way through the tick, published by the native frame.
     this.previewYaw = 0;
     this.previewPitch = 0;
     this.previewState = { yaw: 0, pitch: 0, yawVel: 0, pitchVel: 0 };
@@ -84,36 +80,6 @@ export class Gunner {
     this.lookY += (invert ? dy : -dy) * sensitivity;
   }
 
-  // The drum ahead of the world: from the aim the world last gave, steered
-  // by each command the world has not taken yet (its looks, a tick each) and
-  // the looks not yet in a command (null: none), then back to the way
-  // through the tick shown (alpha: the input clock's while commands are
-  // pending, else the playout's). Sets previewYaw/previewPitch, what the
-  // page shows over the turret's own yaw and pitch. A page stepping its own
-  // world has nothing pending; it may still interpolate (preview([], null,
-  // 0, false, alpha)).
-  preview(pending, looks, scale, invert, alpha = 1) {
-    const turret = this.turret;
-    if (!turret) { this.previewYaw = this.previewPitch = 0; return; }
-    const p = this.previewState;
-    p.yaw = turret.yaw; p.pitch = turret.pitch; p.yawVel = turret.yawVel; p.pitchVel = turret.pitchVel;
-    previewSteer(turret, p, pending, looks, scale, invert);
-    // Between the tick before and the one shown: the tick's turn undone by
-    // the part of it not yet reached (steer adds yawVel x dt a tick).
-    const back = TICK * (1 - THREE.MathUtils.clamp(alpha, 0, 1));
-    const pitch = THREE.MathUtils.clamp(p.pitch - p.pitchVel * back, turret.pitchLimits?.[0] ?? -Infinity, turret.pitchLimits?.[1] ?? Infinity);
-    const yaw = p.yaw - p.yawVel * back;
-    this.previewYaw = wrap((turret.yawLimits && turret.holdYaw ? turret.holdYaw(yaw) : yaw) - turret.yaw);
-    this.previewPitch = pitch - turret.pitch;
-  }
-
-  // The aim as shown: the world's, with the preview over it.
-  shownAim() {
-    const turret = this.turret;
-    this.shownYaw = turret.facing + turret.yaw + this.previewYaw;
-    this.shownPitch = turret.pitch + this.previewPitch;
-  }
-
   // Where the HUD's reticle goes: from the drawn camera toward the point the
   // shown aim meets (seats.js turretAimPoint, from the view's own aim
   // origin), so it stays on what the gun turns to and the rounds go to even
@@ -133,7 +99,6 @@ export class Gunner {
   viewDirection(out) {
     const turret = this.turret;
     if (!turret) return out.set(0, 0, 1);
-    this.shownAim();
     return out.set(Math.sin(this.shownYaw) * Math.cos(this.shownPitch), Math.sin(this.shownPitch), Math.cos(this.shownYaw) * Math.cos(this.shownPitch));
   }
 
@@ -158,29 +123,4 @@ export class Gunner {
     this.hiddenRig = turret;
   }
 
-}
-const TICK = 1 / 60;
-const wrap = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
-
-// A mouse count sum as a rate, as update() reads it for the tick.
-const rateOf = (counts, dt) => THREE.MathUtils.clamp(counts / (LOOK_SCALE * dt), -LOOK_CLAMP, LOOK_CLAMP);
-
-// Steers a copy of a turret's aim (state: yaw, pitch, yawVel, pitchVel) by
-// the pending commands, a tick each (one without a look still lets the
-// drum's turn ease off), then by the loose looks (null: none) as the tick
-// of the command they will go in, with the turret's own steer (its rates,
-// filter and pitch limits). Pure: the turret itself is not changed.
-// Returns state.
-export function previewSteer(turret, state, pending = [], looks = null, scale = 1, invert = false, dt = TICK) {
-  const scratch = { yaw: state.yaw, pitch: state.pitch, yawVel: state.yawVel, pitchVel: state.pitchVel,
-    turnRate: turret.turnRate, filter: turret.filter, pitchLimits: turret.pitchLimits, yawLimits: turret.yawLimits ?? null, wrapYaw: Boolean(turret.wrapYaw) };
-  const step = (look, s, inv) => {
-    let x = 0, y = 0;
-    for (const [dx, dy] of look) { x += dx * s; y += (inv ? dy : -dy) * s; }
-    stepTurretPreview(scratch, dt, -rateOf(x, dt), rateOf(y, dt), 1);
-  };
-  for (const command of pending) step(command.look || [], command.mouseScale ?? scale, command.invertMouse ?? invert);
-  if (looks) step(looks, scale, invert);
-  state.yaw = scratch.yaw; state.pitch = scratch.pitch; state.yawVel = scratch.yawVel; state.pitchVel = scratch.pitchVel;
-  return state;
 }

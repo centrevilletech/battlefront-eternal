@@ -69,9 +69,8 @@ original's cone (`findReticleTarget`).
 The cone runs along the reticle line, from the weapon's origin through the
 point under the crosshair: a soldier's `shotDir`, a vehicle seat's
 `reticleRay` (through the seat's target, which a chase camera's crosshair
-places), a turret's crosshair point. The same `updateWeaponLock` serves
-soldiers, vehicle seats and turrets for the player, bots and network
-humans. A bot's launcher takes its controller's masked target
+places), a turret's crosshair point. The native targeting owner serves soldiers, vehicle seats and turrets
+for the player, bots and network humans. A bot's launcher takes its controller's masked target
 (`botLockTarget`); a human's, local or networked, only what his view puts
 in the cone, so a pooled body's stale bot target can never lock for him.
 
@@ -79,7 +78,7 @@ in the cone, so a pooled body's stale bot target can never lock for him.
 
 `src/weapon-targeting.js` separates missile-launcher capability from the
 ordinary reticle's target-colour selection. Infantry, vehicle seats and
-manned turrets feed eligible targets into `Weapon.updateLock`. AI weapons
+manned turrets feed eligible targets into the native acquisition phase. AI weapons
 use their controller's masked target instead of acquiring through a human
 crosshair. Dead, changed-generation, obscured and out-of-cone targets lose
 the lock; switching weapons clears acquisition.
@@ -133,11 +132,11 @@ launchers, moving-target guidance, target generation loss, HUD channel
 selection, and the vehicle constructor plus player and AI firing paths.
 Aircraft retain their existing flight targeting system.
 
-`tests/weapon-lock-salvo.test.js` covers capability, masks, visibility,
-acquisition versus retention, generation changes, firing/switching resets,
-projectile guidance, partial clips, firing rates and cursor geometry. It also
-checks all four retail infantry launcher definitions when local extracts
-exist. Native acquisition and crew-team changes are exercised by
+`tests/weapon-lock-salvo.test.js` checks projectile guidance and all four
+infantry launcher schedules when local extracts exist. The synthetic frozen
+weapon corpus checks 3,880 native timer, charge, lock-reset, salvo, spread and
+shot checkpoints against the removed JavaScript controller.
+Native acquisition and crew-team changes are exercised by
 `tests/f3-targeting.test.js` and `tests/f3-turrets.test.js`; page scope alignment
 uses the published basis in `tests/scoped-aim.test.js`.
 `tests/reticle-presentation-browser.mjs` runs with the world in its
@@ -149,3 +148,8 @@ point. The original game's per-vehicle subtarget selection is not yet
 reproduced, so where every vehicle component is targeted is not pixel
 equivalent. The bitmap itself is the extracted retail asset; line drawing
 uses the port's HUD quad renderer rather than the original D3D line path.
+
+Weapon and Arsenal now retain construction, selection, corrected state and HUD
+accessors. The native simulation and ClientPrediction own firing and reload
+advancement. Weapon.spread remains a read-only cursor geometry dependency; it
+does not advance the weapon or select a shot.

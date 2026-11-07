@@ -97,7 +97,7 @@ test('a predicted round plays the shoot clip with the weapon still in the hand',
 
 test('a single-shot weapon plays shoot each press and never lowers between them', () => {
   const arms = page();
-  arms.combat.arsenal.next(0);
+  arms.combat.arsenal.select(arms.combat.arsenal.weapons[1]);
   for (let i = 0; i < 120; i++) arms.view.update(1 / 60, arms.args());
   assert.equal(arms.view.clip?.name, '_1st_tool_idle');
   for (let shot = 0; shot < 3; shot++) {
@@ -110,7 +110,7 @@ test('a single-shot weapon plays shoot each press and never lowers between them'
 
 test('a weapon switch still lowers the old weapon and raises the new one', () => {
   const arms = page();
-  arms.combat.arsenal.next(0);
+  arms.combat.arsenal.select(arms.combat.arsenal.weapons[1]);
   arms.view.update(1 / 60, arms.args());
   assert.equal(arms.view.slot, 'handsdown');
   assert.equal(arms.view.holding.name, RIFLE.class, 'the old weapon is lowered');

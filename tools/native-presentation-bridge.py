@@ -52,8 +52,8 @@ for part in parts:
     output.append(part)
     if cls=='PageUnits':output.append('impl PageUnits {pub fn load_prepared(&mut self,data:bfe_presentation::unit_content::Input)->usize{self.inner.load(data)} pub fn view_prepared(&mut self,data:bfe_presentation::unit_content::FirstPersonInput,attachments:&str)->Result<usize,String>{let attachments:Vec<bfe_presentation::units::Attachment>=serde_json::from_str(attachments).map_err(|e|e.to_string())?;let id=self.inner.view(data);self.inner.view_attach(id,&attachments);Ok(id)}}')
     if cls=='PageNetwork':
-        shared={'timeline_input':'timeline.input','timeline_output':'timeline.output','header':'header','records':'records','seats':'seat_output','payloads':'payloads'}
-        banks.extend((n,'u8' if n=='payloads' else 'f64','shared:'+field) for n,field in shared.items())
+        shared={'timeline_input':'timeline.input','timeline_output':'timeline.output','header':'header','records':'leases.records','seats':'leases.seats','payloads':'leases.payloads','publications':'leases.publications','lease_changes':'leases.changes'}
+        banks.extend((n,'u8' if n=='payloads' else 'u32' if n in ['seats','publications'] else 'i32' if n=='lease_changes' else 'f64','shared:'+field) for n,field in shared.items())
         output+=['impl PageNetwork {']
         for mutable in [True,False]:
             fn='bank' if mutable else 'read_bank';guard='BankMut' if mutable else 'Bank';borrow='borrow_mut' if mutable else 'borrow';ref='std::cell::RefMut' if mutable else 'std::cell::Ref';by='&mut ' if mutable else '&';view='bytes_mut' if mutable else 'bytes'
@@ -92,7 +92,15 @@ for part in parts:
         'pub fn execute(&self,host:&mut '+cls+')->Result<(),String>{match self{']
     for n,args,r in methods:
         names=[n for n,t in args];passed=[n if t in ['&str','&[f64]'] else n+'.clone()' if t.startswith('Vec<') else '*'+n for n,t in args]
-        output.append('Self::'+n+('('+','.join(names)+')' if args else '')+'=>{let _=host.'+n+'('+','.join(passed)+')'+('?' if r.startswith('Result') else '')+';},')
+        call='host.'+n+'('+','.join(passed)+')'
+        # Hot page exchanges return primitive statuses to avoid JS result
+        # tuples. Native sessions still propagate their cold error channel.
+        if cls=='PageNetwork' and n in ['receive','outbound_run','outbound_batch']:
+            body='if !'+call+' {return Err(host.take_network_error());}'
+        elif cls=='PageNetwork' and n in ['encode','encode_outbound']:
+            body='if '+call+' == -1 {return Err(host.take_network_error());}'
+        else:body='let _='+call+('?' if r.startswith('Result') else '')+';'
+        output.append('Self::'+n+('('+','.join(names)+')' if args else '')+'=>{'+body+'},')
     output+=['}Ok(())}}']
     ctor=re.search(r'pub fn new\((.*?)\)',part,re.S)[1]
     ctor_args=[a.strip().split(':',1) for a in ctor.split(',') if a.strip()]

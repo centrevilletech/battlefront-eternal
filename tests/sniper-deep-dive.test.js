@@ -3,7 +3,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Vector3, Scene } from 'three';
-import { Weapon } from '../src/weapons.js';
 import { Units } from '../src/registry.js';
 import { lighting } from '../src/materials.js';
 
@@ -11,28 +10,6 @@ const sniperDef = {
   class: 'test_sniper', base: 'cannon', channel: 0, ammo: 7, RoundsPerClip: 6, ReloadTime: 2, ShotDelay: 1, TriggerSingle: 1,
   YawSpread: 0, PitchSpread: 0, ordnance: { class: 'test_sniper_ord', base: 'bolt', Velocity: 2000, LifeSpan: 0.15, FadeOutTime: 1, Damage: 160 },
 };
-const aim = { origin: new Vector3(), direction: new Vector3(0, 0, 1) };
-const step = (weapon, dt, pressed, late = 0) => {
-  const trigger = { held: pressed, pressed };
-  if (late) trigger.late = late;
-  return weapon.update(dt, true, trigger, false, aim);
-};
-
-test('a press that ran late is locked out from when it was pressed, so the next on-time press fires', () => {
-  const run = (late) => {
-    const weapon = new Weapon(sniperDef);
-    let fired = step(weapon, 1 / 60, true, late).length;
-    step(weapon, 1 / 60, false);
-    // The shooter's page fires again right as its own lockout ends: one
-    // second after his first press, which here ran `late` ticks after it.
-    for (let tick = 2; tick < 60 - late; tick++) step(weapon, 1 / 60, false);
-    fired += step(weapon, 1 / 60, true).length;
-    return fired;
-  };
-  assert.equal(run(0), 2);
-  assert.equal(run(6), 2, 'a press 100 ms late no longer swallows the next one');
-});
-
 test('droidekas are struck through p_ord and p_rollsphere, with no head', async () => {
   const {f3World}=await import('./fixtures/f3-world.js');
   const world=await f3World({droideka:{class:'droideka',base:'walkerdroid',MaxHealth:100,weapons:[]}});

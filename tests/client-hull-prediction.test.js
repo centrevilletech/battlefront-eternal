@@ -1,3 +1,4 @@
+import {replayOutcomes} from './helpers/replay-outcomes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -48,6 +49,7 @@ for (const [name, digest, continuation] of corpora) {
         // byte eligibility and command retirement against the frozen window.
         if (!continuation) session.reset();
         const before = v.position.toArray(), matrix = v.body.matrix.toArray(), enabled = v.body.enabled;
+        session.replaySources([],replayOutcomes(pending),held);
         session.mounted(unit, [], pending, authority, held, v, 1, v.flying ? captureFlightCorrection(v) : captureGroundCorrection(v), v.flying ? 2 : 10);
         const predicted = session.vehicle;
         const correction = v.flying ? captureFlightCorrection(predicted) : captureGroundCorrection(predicted);

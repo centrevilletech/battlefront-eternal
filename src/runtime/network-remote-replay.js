@@ -14,6 +14,7 @@ export function captureRemoteReplay(context,droid){
  return state;
 }
 export function restoreRemoteReplay(context,droid,state){
+ droid.poseMissing=!state.eye;
  if(state.weapons.length!==droid.arsenal.weapons.length||state.weapons.some((w,i)=>!droid.arsenal.weapons[i].levels[w.level]))throw Error('recon replay content mismatch');
  for(const key of vectors)if(state[key])droid[key].fromArray(state[key]);
  for(const key of ['yaw','pitch','health','dead','countdown'])droid[key]=state[key];
@@ -25,6 +26,5 @@ export function restoreRemoteReplay(context,droid,state){
  if(state.camera&&context.simulationView){context.aimCamera.position.fromArray(state.camera.position);context.aimCamera.quaternion.fromArray(state.camera.quaternion);context.aimCamera.aspect=state.camera.aspect;for(const key of ['fov','reach','fresh'])context.simulationView[key]=state.camera[key];context.simulationView.applyFov(state.camera.aspect);context.aimCamera.updateMatrixWorld();}
  for(const key of ['lookX','lookY','zoomStep','firstPerson'])context[key]=state[key];
  if(state.randomSeed!==undefined){if(!context.random||!('seed' in context.random))throw Error('recon replay requires independent seeded stream');context.random.seed=state.randomSeed;}
- if(!state.eye)context.aim(droid,state.piloted);
  return droid;
 }

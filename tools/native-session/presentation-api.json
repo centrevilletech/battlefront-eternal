@@ -769,7 +769,7 @@
             "f64"
           ]
         ],
-        "result": "bool"
+        "result": "i32"
       },
       {
         "name": "capture",
@@ -812,6 +812,21 @@
         "result": ""
       },
       {
+        "name": "capture_record",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": "String"
+      },
+      {
+        "name": "capture_publication",
+        "args": [],
+        "result": "String"
+      },
+      {
         "name": "receive",
         "args": [
           [
@@ -819,7 +834,7 @@
             "usize"
           ]
         ],
-        "result": "Result<(),String>"
+        "result": "bool"
       },
       {
         "name": "reset",
@@ -860,6 +875,16 @@
         "result": ""
       },
       {
+        "name": "present_view",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "preview_setup",
+        "args": [],
+        "result": ""
+      },
+      {
         "name": "inspect",
         "args": [
           [
@@ -889,6 +914,49 @@
         "result": ""
       },
       {
+        "name": "outbound_batch",
+        "args": [
+          [
+            "id",
+            "usize"
+          ],
+          [
+            "length",
+            "usize"
+          ],
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": "bool"
+      },
+      {
+        "name": "outbound_aim",
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "take_network_error",
+        "args": [],
+        "result": "String"
+      },
+      {
+        "name": "outbound_capture",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": "String"
+      },
+      {
         "name": "outbound_run",
         "args": [
           [
@@ -904,7 +972,7 @@
             "usize"
           ]
         ],
-        "result": "Result<(),String>"
+        "result": "bool"
       },
       {
         "name": "encode",
@@ -918,7 +986,33 @@
             "usize"
           ]
         ],
-        "result": "Result<usize,String>"
+        "result": "i32"
+      },
+      {
+        "name": "encode_outbound",
+        "args": [
+          [
+            "id",
+            "usize"
+          ],
+          [
+            "length",
+            "usize"
+          ],
+          [
+            "tick",
+            "f64"
+          ],
+          [
+            "edges",
+            "usize"
+          ],
+          [
+            "interval",
+            "usize"
+          ]
+        ],
+        "result": "i32"
       }
     ],
     "banks": [
@@ -953,6 +1047,24 @@
         "length": "inspection_len"
       },
       {
+        "name": "outbound_fires",
+        "type": "f64",
+        "pointer": "outbound_fires_ptr",
+        "length": "outbound_fires_len"
+      },
+      {
+        "name": "outbound_actions",
+        "type": "f64",
+        "pointer": "outbound_actions_ptr",
+        "length": "outbound_actions_len"
+      },
+      {
+        "name": "outbound_results",
+        "type": "f64",
+        "pointer": "outbound_results_ptr",
+        "length": "outbound_results_len"
+      },
+      {
         "name": "timeline_input",
         "type": "f64",
         "pointer": "timeline_input_ptr",
@@ -978,7 +1090,7 @@
       },
       {
         "name": "seats",
-        "type": "f64",
+        "type": "u32",
         "pointer": "seats_ptr",
         "length": "seats_len"
       },
@@ -987,6 +1099,18 @@
         "type": "u8",
         "pointer": "payloads_ptr",
         "length": "payloads_len"
+      },
+      {
+        "name": "publications",
+        "type": "u32",
+        "pointer": "publications_ptr",
+        "length": "publications_len"
+      },
+      {
+        "name": "lease_changes",
+        "type": "i32",
+        "pointer": "lease_changes_ptr",
+        "length": "lease_changes_len"
       }
     ]
   },

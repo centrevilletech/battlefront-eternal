@@ -2,13 +2,14 @@
 // bytes enter once; baseline entries and sampled poses never return to JS.
 import { presentationModule } from "../presentation/module.js";
 import {
-  NetHeader as H,
+  NetHeader as H,NetLeaseChanges as C, NetOutbound as O, NetOutboundFire as F,
   NetRecord as R,
-  NetSeat as S,
   NetView as V,
   NetEdge as E,
   NetOp as OP,
-  NetLimits as L,
+  NetLimits as L, NetMountFrame as MF, NetMountInput as MI, NetMountOutput as MO,
+  NetPreviewFrame as PF, NetPreviewCommand as PC, NetPreviewLook as PL, NetPreviewOutput as PO,
+  NetSmoothInput as SI, NetSmoothCommand as SC, NetSmoothOutput as SO,
 } from "./network-layout.js";
 const owners = new WeakMap(),
   free = [];
@@ -43,17 +44,18 @@ class PageNetwork {
     this.memory = loaded.memory;
     this.kernel = free.pop() || new loaded.module.PageNetwork();
     this.disposed = false;
-    this.receiver = false;
+    this.receiver = false;this.preview=false;
     this.buffer = null;
     this.count = 0;
     this.calls = 0;
-    this.epoch = 0;
+    this.epoch = 0;this.lookupIndex=-1;
     this.refresh();
   }
-  // Resource registration elsewhere in the shared module can grow memory.
-  // Addresses remain stable; only that cold event recreates typed views.
+  // Growing this module's unshared memory detaches every old typed view.
+  // Test that existing view instead of calling Memory.buffer for every lease
+  // scalar read. Explicit setup also invalidates buffer before the first bind.
   refresh() {
-    if (this.buffer !== this.memory.buffer) this.rebind();
+    if (this.buffer === null || this.input.length === 0) this.rebind();
   }
   // Keep the span factory in this cold function. Capturing `this` in an
   // arrow inside refresh would allocate its lexical context before the hot
@@ -64,14 +66,31 @@ class PageNetwork {
     const k = this.kernel;
     this.input = new Float64Array(b, k.words_ptr(), L.EXCHANGE);
     this.bytes = new Uint8Array(b, k.bytes_ptr(), L.PAYLOAD);
-    this.numbers = new Float64Array(b, k.numbers_ptr(), 8);
+    this.numbers = new Float64Array(b, k.numbers_ptr(), O.STRIDE);
+    this.outboundFires=new Float64Array(b,k.outbound_fires_ptr(),L.PREVIEW_LOOKS*F.STRIDE);
+    this.outboundActions=new Float64Array(b,k.outbound_actions_ptr(),L.PREVIEW_LOOKS);
+    this.outboundResults=new Float64Array(b,k.outbound_results_ptr(),L.PREVIEW_COMMANDS*O.STRIDE);
     this.encoded = new Uint8Array(b, k.encoded_ptr(), L.PAYLOAD);
     this.spans = Array.from({ length: L.PAYLOAD + 1 }, (_, n) => this.encoded.subarray(0, n));
+    if(this.preview){
+      this.previewFrame=new Float64Array(b,k.preview_frame_ptr(),PF.STRIDE);
+      this.previewCommands=new Float64Array(b,k.preview_commands_ptr(),L.PREVIEW_COMMANDS*PC.STRIDE);
+      this.previewLooks=new Float64Array(b,k.preview_looks_ptr(),L.PREVIEW_LOOKS*PL.STRIDE);
+      this.previewOutput=new Float64Array(b,k.preview_output_ptr(),PO.STRIDE);
+      this.smoothInput=new Float64Array(b,k.smooth_input_ptr(),2*SI.STRIDE);
+      this.smoothCommands=new Float64Array(b,k.smooth_commands_ptr(),2*L.SMOOTH_COMMANDS*SC.STRIDE);
+      this.smoothOutput=new Float64Array(b,k.smooth_output_ptr(),2*SO.STRIDE);
+    }
     if (this.receiver) {
       this.header = new Float64Array(b, k.header_ptr(), H.STRIDE);
-      this.records = new Float64Array(b, k.records_ptr(), L.RECORDS * R.STRIDE);
-      this.seats = new Float64Array(b, k.seats_ptr(), L.SLOTS * 2 * S.STRIDE);
-      this.payloads = new Uint8Array(b, k.payloads_ptr(), L.EXCHANGE);
+      this.records = new Float64Array(b, k.records_ptr(), L.LEASES * R.STRIDE);
+      this.seats = new Uint32Array(b, k.seats_ptr(), L.SLOTS * 2);
+      this.publications=new Uint32Array(b,k.publications_ptr(),L.RECORDS);
+      this.leaseChanges=new Int32Array(b,k.lease_changes_ptr(),L.LEASE_CHANGES+C.STRIDE);
+      this.payloads = new Uint8Array(b, k.payloads_ptr(), L.LEASES*L.PAYLOAD);
+      this.mountFrame=new Float64Array(b,k.mount_frame_ptr(),MF.STRIDE);
+      this.mountInput=new Float64Array(b,k.mount_input_ptr(),L.SLOTS*MI.STRIDE);
+      this.mountOutput=new Float64Array(b,k.mount_output_ptr(),L.SLOTS*MO.STRIDE);
     }
   }
   // Diagnostic/history-only owners reserve no packet baselines. Live receive
@@ -81,19 +100,22 @@ class PageNetwork {
     this.buffer = null;
     this.refresh();
   }
+  // Resource previews without a receiver borrow the identical phase. This
+  // cold setup allocates no snapshot ring or acknowledged baseline table.
+  previewSetup(){this.kernel.preview_setup();this.preview=true;this.buffer=null;this.refresh();}
   // Sparse prerequisites are packet-time gameplay lookups. They publish one
   // changed-record row and are never used to sample a displayed entity.
   lookup(kind, id) {
     if (this.disposed) return false;
     this.refresh();
-    return this.kernel.lookup(kind, id);
+    this.lookupIndex=this.kernel.lookup(kind,id);return this.lookupIndex>=0;
   }
   // Bounds describe the quantized wire space, rather than a drawn camera.
   // They remain constant for this receiver and never cross again per packet.
   receiveSetup(bounds) {
     if (this.disposed) return;
     this.kernel.receive_setup();
-    this.receiver = true;
+    this.receiver = true;this.preview=true;
     this.kernel.set_bounds(bounds.xMin, bounds.xExtent, bounds.zMin, bounds.zExtent, bounds.yMin, bounds.yExtent);
     this.buffer = null;
     this.refresh();
@@ -108,7 +130,7 @@ class PageNetwork {
     this.refresh();
     this.bytes.set(bytes);
     try {
-      this.kernel.receive(bytes.length);
+      if(!this.kernel.receive(bytes.length))throw Error(this.kernel.take_network_error());
     } catch (error) {
       throw error instanceof Error ? error : Error(String(error));
     }
@@ -136,6 +158,8 @@ class PageNetwork {
     this.refresh();
     this.calls++;
   }
+  // A retained world sample keeps its interval while own view facts refresh.
+  presentView(){if(this.disposed)return;this.kernel.present_view();this.refresh();this.calls++;}
   // Input context/edge records have generated layouts. Variable held/look
   // streams are counted, and Rust validates their entire reserved span.
   begin() {
@@ -192,13 +216,16 @@ class PageNetwork {
   run(name, handle = 0) {
     const op = operations[name];
     try {
-      if (name === "input" || name === "ack") this.length = this.kernel.encode(op, this.count);
-      else this.kernel.outbound_run(handle, op, this.count);
+      if (name === "input" || name === "ack") {this.length = this.kernel.encode(op, this.count);if(this.length<0)throw Error(this.kernel.take_network_error());}
+      else if(!this.kernel.outbound_run(handle, op, this.count))throw Error(this.kernel.take_network_error());
     } catch (error) {
       throw error instanceof Error ? error : Error(String(error));
     }
     this.calls++;
   }
+  outboundAim(count){this.kernel.outbound_aim(count);this.refresh();this.calls++;}
+  outboundBatch(handle,count){this.refresh();if(!this.kernel.outbound_batch(handle,this.count,count))throw Error(this.kernel.take_network_error());this.calls++;}
+  encodeOutbound(handle,tick,edges,interval){this.length=this.kernel.encode_outbound(handle,this.count,tick,edges,interval);this.calls++;if(this.length===-1)throw Error(this.kernel.take_network_error());}
   // Synchronous transport sends can borrow a prebuilt span. Retained callers
   // request an owned packet, so a later encode cannot overwrite their bytes.
   result(borrowed = false) {

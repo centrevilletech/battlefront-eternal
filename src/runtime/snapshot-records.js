@@ -253,9 +253,6 @@ export function ownSummaryFields(records) {
   for (const r of records) map.set(worldFieldKey(r), { id: r.id, schema: r.schema, generation: r.generation, payload: r.payload });
   return map;
 }
-export function worldRecordFromField(field, tick) {
-  return { kind: 'summary', id: field.id, generation: field.generation, tick, schema: field.schema, payload: field.payload };
-}
 // World fields are snapshot state, but some of their payloads carry timers
 // that change every tick (building pulse, weapon timers). Refreshing every
 // field into every snapshot would spend more bytes than the entities. Each

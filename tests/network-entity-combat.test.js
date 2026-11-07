@@ -465,9 +465,9 @@ test('joining mid-fight replaces frozen bootstrap ordnance with current semantic
 
 test('network baseline clears frozen projectiles even before the first combat datagram',async()=>{
  const {EntityGameState}=await import('../src/runtime/network-entity-game.js');const f=fixture();
- f.client.bolts.push({});const adapter=Object.assign(Object.create(EntityGameState.prototype),{game:{ordnance:f.client},ready:false,slots:new Map(),pendingSeats:new Map()});
- EntityGameState.prototype.baseline.call(adapter);assert.equal(adapter.ready,true);assert.equal(f.client.bolts.length,0);
- assert.equal(f.authority.bolts.length,0,'ordinary authority instance is not affected');
+ f.client.bolts.push({});const adapter=new EntityGameState({ordnance:f.client},{combat:{definitions:new Map()}});
+ try{adapter.baseline();assert.equal(adapter.ready,true);assert.equal(f.client.bolts.length,0);
+ assert.equal(f.authority.bolts.length,0,'ordinary authority instance is not affected');}finally{adapter.dispose();}
 });
 
 test('enhanced destruction suppresses local sprites while replicating the canonical explosion definition',async()=>{

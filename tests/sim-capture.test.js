@@ -14,25 +14,6 @@ import { PHASES, LIVE_PHASES } from '../tools/sim-capture/phases.mjs';
 // No game files are needed.
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-test('capture specs cannot preload weapons before seeded draws are instrumented', () => {
-  const script = `
-    import assert from 'node:assert/strict';
-    process.argv = ['node', 'capture-test', '--capture-scan', 'capture-not-started.json'];
-    await import('./tools/sim-capture/plugin.mjs');
-    let seen = 0, draws = 0;
-    globalThis.__bfeDraw = { seeded(seed, next) {
-      seen = seed;
-      return () => { draws++; return next(); };
-    } };
-    const { seededRandom } = await import('./src/weapons.js');
-    seededRandom(123)();
-    assert.equal(seen, 123);
-    assert.equal(draws, 1);
-  `;
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
-});
-
 test('boundary tuples preserve old afterstate and optionally record entry state before mutation', () => {
   const script = `
     import assert from 'node:assert/strict';

@@ -25,8 +25,7 @@ import {createEntityRegistry,verifyEntityRegistry} from '../src/runtime/network-
 import {entityPostNames} from '../src/runtime/entity-spawn-posts.js';
 import {INPUT_CODES,DEFAULT_BINDING_PROFILES} from '../src/runtime/network-entity-input.js';
 import {EntityInputSender} from '../src/runtime/network-entity-sender.js';
-import {predictRemote,RemotePredictionContext} from '../src/runtime/network-remote-prediction.js';
-import {captureRemoteReplay,restoreRemoteReplay} from '../src/runtime/network-remote-replay.js';
+import {createClientPrediction} from '../src/runtime/client-prediction.js';
 import {RESPAWN_DELAY} from '../src/human-spawn.js';
 import {capturePlayerCorrection} from '../src/runtime/network-entity-capture.js';
 import {captureWorldSummaries} from '../src/runtime/network-entity-summary.js';
@@ -66,7 +65,7 @@ async function createPage(query){
  page.validateAuthoritativeHumanTeam=team=>{if(![1,2].includes(team))throw Error('bad team');};
  page.applyAuthoritativeHumanTeam=team=>page.setHumanTeam(team,false);
  Object.defineProperty(page,'client',{value:{seats:new EntitySeats(page)},configurable:true});
- return {page,entity:null,input:null,pending:[],sequence:0,remoteReplay:new RemotePredictionContext(),saved:null,held:[],heldGeneration:0,replayView:{},
+ return {page,entity:null,input:null,pending:[],sequence:0,prediction:createClientPrediction(page.collision.rays.instance,page.collision),held:[],heldGeneration:0,replayView:{},
   predictions:0,flashes:0,views:0,failed:false,queue:[],ackEdges:null};
 }
 function attachPage(client,descriptor,sendInput){
@@ -93,19 +92,18 @@ function attachPage(client,descriptor,sendInput){
   getAim:()=>({aimYaw:page.soldier.aimYaw,aimPitch:page.soldier.aimPitch})});
 }
 function restorePrediction(client){
- if(client.saved){restoreRemoteReplay(client.page.remotes,client.saved.droid,client.saved.state);client.saved=null;}
+ client.prediction.restoreRecon();
 }
 // game.js predict(): the flown droid replayed through every command the world
 // has not taken, then the authoritative state back before the next packet.
 function predict(client){
  const {page}=client,remotes=page.remotes;
  client.views=Math.max(client.views,remotes.droids.filter(d=>d!==remotes.piloted).length);
- if(!remotes.piloted||page.combat.dead||page.playerUnit.removed){client.remoteReplay.reset();return;}
- const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
- const prediction=predictRemote(remotes,droid,client.pending,page.worldClock.tick,page.playerUnit.generation,
-  client.heldGeneration===page.playerUnit.generation?client.held:[],client.replayView,client.remoteReplay);
- restoreRemoteReplay(remotes,droid,prediction.state);
- client.saved={droid,state};client.predictions++;
+ if(!remotes.piloted||page.combat.dead||page.playerUnit.removed){client.prediction.restoreRecon();return;}
+ const droid=remotes.piloted;
+ client.prediction.predictRecon(remotes,droid,client.pending,page.worldClock.tick,page.playerUnit.generation,
+  client.heldGeneration===page.playerUnit.generation?client.held:[],client.replayView);
+ client.predictions++;
  remotes.present(1/60,true,false);presentRemote(remotes,1/60,false);
 }
 // A frame's presentation (game.js frame): records, then rounds and events.
@@ -165,7 +163,7 @@ async function dedicatedWorld(query,count){
  state.join=async(i,{team=i%2?2:1,page=null}={})=>{
   const id=`p${i}`;state.ids[i]=id;
   const client=page??await createPage(query);state.clients[i]=client;
-  client.failed=false;client.queue=[];client.pending=[];client.saved=null;client.remoteReplay.reset();
+  client.failed=false;client.queue=[];client.pending=[];client.prediction.restoreRecon();
   const roster=authority.spawnPort.roster(team).map(c=>c.className);
   const className=roster.find(isRecon)||roster[0];
   await authority.factory.prepare(className);

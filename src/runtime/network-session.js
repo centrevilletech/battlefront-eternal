@@ -1,3 +1,4 @@
+import {pageNetworkFor} from './page-network.js';
 import { EntityInputSender } from './network-entity-sender.js';
 import { encodeSnapshotAckKeepalive } from './network-entity-input.js';
 import { contentHash } from './content-hash.js';
@@ -29,12 +30,12 @@ export function otherBattle(page, server) {
 export class NetworkSession {
   constructor({transport, onError=()=>{}, onChat=()=>{}, onDispose=()=>{},
     onEntityRegistry, onEntities, onGameplayEvents=()=>{}, onEntityDiagnostics=()=>{}, onInputAck=()=>{},
-    onFire=()=>{}, getAim=()=>({}), playerName='', lifecycle=globalThis.window,
+    onFire=()=>{}, getAim=()=>({}), prepareInput=()=>{}, resolveInput=()=>{}, inputNetwork=pageNetworkFor, playerName='', lifecycle=globalThis.window,
     rotationPollMs=1000} = {}) {
-    Object.assign(this, {transport,onError,onChat,onDispose,onEntityRegistry,onEntities,onGameplayEvents,onEntityDiagnostics,onInputAck,onFire,getAim,lifecycle,rotationPollMs});
+    Object.assign(this, {transport,onError,onChat,onDispose,onEntityRegistry,onEntities,onGameplayEvents,onEntityDiagnostics,onInputAck,onFire,getAim,prepareInput,resolveInput,inputNetwork,lifecycle,rotationPollMs});
     this.playerName=String(playerName || '').replace(/[\x00-\x1f\x7f]/g,'').trim().slice(0,32);
     this.channels=new Map();this.pending=new Map();this.request=0;this.stateSequence=0;
-    this.entityQueue=[];this.droppedEntityPackets=0;this.snapshotAck=null;this.entityWaiters=[];this.closed=false;this.authenticated=false;
+    this.entityQueue=[];this.droppedEntityPackets=0;this.snapshotAck=null;this.snapshotReceipt={epoch:NaN,tick:NaN};this.entityWaiters=[];this.closed=false;this.authenticated=false;
     this.onPageHide=()=>this.dispose();this.lifecycle?.addEventListener('pagehide',this.onPageHide);
   }
   get path() { return this.transport?.path; }
@@ -75,7 +76,7 @@ export class NetworkSession {
     if (message.type==='entity-registry') {
       if(this.entityRegistry)throw Error('Unexpected entity registry');
       this.entityRegistry=this.onEntityRegistry(message.registry);
-      this.entityInput=new EntityInputSender({registry:this.entityRegistry,send:bytes=>this.sendEntityInput(bytes),getAim:command=>this.getAim(command),onFire:(edge,command)=>this.onFire(edge,command),snapshotAck:()=>this.snapshotAck,serverTick:()=>this.transportAck?Math.floor(this.transportAck.serverTick+(performance.now()/1000-this.transportAck.receivedAt)*60):null,stateIntervalTicks:this.transport?.local?1:2});
+      this.entityInput=new EntityInputSender({registry:this.entityRegistry,kernel:this.inputNetwork(this.entityRegistry),prepareAim:count=>this.resolveInput(count),send:bytes=>this.sendEntityInput(bytes),getAim:command=>this.getAim(command),onFire:(edge,command)=>this.onFire(edge,command),snapshotAck:()=>this.snapshotAck,serverTick:()=>this.transportAck?Math.floor(this.transportAck.serverTick+(performance.now()/1000-this.transportAck.receivedAt)*60):null,stateIntervalTicks:this.transport?.local?1:2});
       return;
     }
     if (message.type==='welcome') {
@@ -179,7 +180,7 @@ export class NetworkSession {
   setSnapshotAck(ack) {
     if(!this.entityMode || !Number.isSafeInteger(ack?.epoch)||!Number.isSafeInteger(ack?.tick)||ack.epoch<1||ack.tick<0)throw Error('Invalid snapshot acknowledgement');
     if(this.snapshotAck && (ack.epoch<this.snapshotAck.epoch || ack.epoch===this.snapshotAck.epoch&&ack.tick<=this.snapshotAck.tick))return;
-    this.snapshotAck={epoch:ack.epoch,tick:ack.tick};
+    this.snapshotReceipt.epoch=ack.epoch;this.snapshotReceipt.tick=ack.tick;this.snapshotAck=this.snapshotReceipt;
     this.sendEntityAcknowledgement();
   }
   // With no recent input to carry the ack (spawn screen, spectator), send
@@ -193,7 +194,7 @@ export class NetworkSession {
   call(method, args = {}) { if (method === 'suspend' || method === 'lockstep') { this.entityInput?.clearPending(); } if (this.closed || this.pending.size >= 32) return Promise.reject(Error('Network host unavailable')); const id = ++this.request; return new Promise((resolve, reject) => { const timer = setTimeout(() => { this.pending.delete(id); reject(Error(`Server request timed out: ${method}`)); }, 10000); this.pending.set(id, { resolve, reject, timer }); if (!this.send({ type: 'call', id, method, args })) { clearTimeout(timer); this.pending.delete(id); reject(Error('Server is not connected')); } }); }
   chat(message) { return this.send({ type: 'chat', text: String(message.text || '').slice(0, 240), team: message.channel === 'team' }); }
   input(command) { return this.inputs([command]); }
-  inputs(commands) { return !this.welcome?.spectator && !!this.entityInput && this.entityInput.send(commands); }
+  inputs(commands) { if(this.welcome?.spectator||!this.entityInput)return false;this.prepareInput();return this.entityInput.send(commands); }
   inputAcknowledged(command) { this.input(command); return this.call('inspect'); }
   settings(values) { if(this.transport.local)this.call('settings',{values}).catch(error=>this.fail(error)); }
   poll() { return 0; }

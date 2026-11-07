@@ -1,4 +1,8 @@
+import {RecordMap,PacketLease,retainRecord,releaseRecord} from './network-records.js';
+import {NetKind as NK,NetLimits as NL,NetRecord as NR} from './network-layout.js';
 import * as THREE from 'three';
+import {NetworkMounts} from './network-mounts.js';
+import {NetworkPreview} from './network-preview.js';
 import {presentEntityEvent} from './entity-presentation-events.js';
 import {applyUnitState,UNIT_STATE_SCHEMA} from './entity-unit-state.js';
 import {applyWorldPresentation} from './entity-world-state.js';
@@ -33,30 +37,8 @@ function hideOwnershipProxy(unit) {
 // The soldier states that leave him in the air as they are named.
 const AIRBORNE = new Set(['jump', 'fall', 'thrown', 'jet']);
 // Mount records kept a hull, enough to span the playout delay.
-const MOUNT_HISTORY = 12;
 // The shortest way round from one angle (or cycle phase) to another, on a
 // circle `length` round.
-const turn = (d, length) => d - length * Math.round(d / length);
-
-// A datagram's records sorted by the kinds EntityGameState.receive applies,
-// each kind's in their order; kinds it does not apply are left out.
-function recordsByKind(records) {
-  const by = { correction: [], mount: [], vehicle: [], turret: [], droideka: [], soldier: [], tombstone: [], summary: [], remote: [], item: [], combat: [] };
-  for (const record of records) switch (record.kind) {
-    case 'correction': by.correction.push(record); break;
-    case 'mount': by.mount.push(record); break;
-    case 'vehicle': by.vehicle.push(record); break;
-    case 'turret': by.turret.push(record); break;
-    case 'droideka': by.droideka.push(record); break;
-    case 'soldier': by.soldier.push(record); break;
-    case 'tombstone': by.tombstone.push(record); break;
-    case 'summary': by.summary.push(record); break;
-    case 'remote': by.remote.push(record); break;
-    case 'item': by.item.push(record); break;
-    case 'combat': by.combat.push(record); break;
-  }
-  return by;
-}
 
 // The shared gameplay adapter for local and remote servers. Content builds
 // models; independently versioned records establish all live world state.
@@ -69,7 +51,12 @@ function recordsByKind(records) {
 export class EntityGameState {
   constructor(game, registry, { beforeApply = () => {}, onCorrection = () => {}, onApplied = () => {} } = {}) {
     Object.assign(this, { game, registry, beforeApply, onCorrection, onApplied });
-    this.receiver=new SnapshotClient();
+    this.receiver=new SnapshotClient({onRecordsFull:()=>this.releaseRecordPressure()});
+    this.by=Array.from({length:NK.SEAT},()=>new Array(NL.RECORDS).fill(null));this.byCounts=new Uint32Array(NK.SEAT);
+    this.retrySeatRows=new Array(NL.LEASES).fill(null);this.retrySeatCount=0;this.collectSeat=record=>{if(this.retrySeatCount<this.retrySeatRows.length)this.retrySeatRows[this.retrySeatCount++]=record;};
+    this.packetLease=new PacketLease(this.receiver.views);this.correction={record:null,packet:this.packetLease};this.eligibilityPending={record:null,summary:null};
+    this.combatContext={epoch:NaN,tick:NaN};this.pendingTick=NaN;
+    this.applyStateRecord=(record,id)=>{const applied=record.schema===UNIT_STATE_SCHEMA?applyUnitState(this.game,record,this.registry):applyWorldPresentation(this.game,record);if(applied||this.pendingTick-record.tick>120)this.pendingState.delete(id);};
     this.timeline=this.receiver.network;this.presentation=new SnapshotPresentation(this.timeline,{display:!!game.presentationLoaded});
     const combatRegistry=registry.combat ?? createCombatRegistry(game.data);
     this.combat=new CombatPresentation({ordnance:game.ordnance,definition:id=>combatRegistry.definitions.get(id),predictedShots:game.predictedShots,onFeedback:event=>presentFeedback(game,event),
@@ -80,12 +67,12 @@ export class EntityGameState {
     this.ready = false; this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null;
     // Slots named by mount records, so a hull the client has never built can be
     // made from its vehicle record; seats whose mount has not arrived yet.
-    this.slots = new Map(); this.pendingSeats = new Map(); this.pendingState = new Map(); this.deferred = 0; this.presentedTick = null;
+    this.slots = new RecordMap(); this.pendingSeats = new RecordMap(); this.pendingState = new RecordMap(); this.deferred = 0; this.presentedTick = null;
     // Each hull's recent mount records (lean, walk cycle, seat aims), newest
     // last: drawn at the playout clock with its position (presentMounts).
-    this.mounts = new Map();
+    this.mounts = new NetworkMounts(this.receiver.network);this.preview=new NetworkPreview(this.receiver.network);
   }
-  dispose() {this.presentation.reset();this.timeline.dispose();}
+  dispose() {this.dropCorrection();this.dropEligibility();this.slots.clear();this.pendingSeats.clear();this.pendingState.clear();this.presentation.reset();this.timeline.dispose();}
   initialize() {
     const g=this.game;
     // Content constructs the scene; state is supplied solely by the host.
@@ -93,7 +80,7 @@ export class EntityGameState {
     for(const vehicle of g.vehicles?.vehicles || [])this.destroyHull(vehicle);
     this.baseline();
   }
-  baseline() { this.slots.clear(); this.pendingSeats.clear(); this.pendingCorrection = null; this.pendingEligibility = null; this.resetOwnershipProxy(); this.game.ordnance.clearProjectilePresentation(); this.game.items?.clearPresentation(); this.remotes?.reset(null); this.ready = true; }
+  baseline() { this.slots.clear(); this.pendingSeats.clear(); this.dropCorrection();this.dropEligibility();this.pendingState.clear();this.resetOwnershipProxy(); this.game.ordnance.clearProjectilePresentation(); this.game.items?.clearPresentation(); this.remotes?.reset(null); this.ready = true; }
   resetOwnershipProxy() {
     const proxy = this.ownProxy; if (!proxy) return;
     hideOwnershipProxy(proxy);
@@ -113,61 +100,50 @@ export class EntityGameState {
     if (!this.ready) throw Error('Entity state arrived before world baseline application');
     const packet = this.receiver.receive(bytes); if (!packet) return;
     this.beforeApply();
-    if (packet.epochChanged) { this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null; this.slots.clear(); this.pendingSeats.clear(); this.mounts.clear(); }
-    // The datagram's records by kind, in their order, in one pass (over a
-    // hundred datagrams a second): each kind is applied in turn below.
-    const by = recordsByKind(packet.records);
-    const corrected = by.correction.length > 0;
-    for (const record of by.correction) this.prepareOwn(record);
-    for (const record of by.mount) if (record.slot !== null) this.slots.set(record.id, { index: record.slot, generation: record.generation });
-    for (const record of by.vehicle) {
-      // The changed packet already owns this mount row. Reusing it avoids
-      // another native lookup and semantic copy for every ordinary hull part.
-      let mount;
-      for(const candidate of by.mount)if(candidate.id===record.id&&candidate.generation===record.generation){mount=candidate;break;}
-      this.vehicle(record,mount);
+    if (packet.epochChanged) { this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.dropCorrection();this.dropEligibility();this.pendingState.clear();this.slots.clear(); this.pendingSeats.clear(); this.mounts.clear(); }
+    // Native publication pairs mount facts directly with their hull. These
+    // bounded routing banks retain their backing arrays across every packet.
+    const by=this.by,n=this.byCounts;n.fill(0);
+    for(let i=0;i<packet.records.length;i++){const row=packet.records.get(i),kind=row.read(NR.KIND);if(kind<NK.SEAT){by[kind][n[kind]++]=row;}}
+    const corrected=n[NK.CORRECTION]>0;
+    for(let i=0;i<n[NK.CORRECTION];i++)this.prepareOwn(by[NK.CORRECTION][i]);
+    for(let i=0;i<n[NK.MOUNT];i++){const row=by[NK.MOUNT][i];if(row.slot!==null)this.slots.set(row.id,row);}
+    for(let i=0;i<n[NK.VEHICLE];i++){const row=by[NK.VEHICLE][i];this.vehicle(row,row.paired);}
+    for(let i=0;i<n[NK.TURRET];i++)this.turret(by[NK.TURRET][i]);
+    for(let i=0;i<n[NK.DROIDEKA];i++)this.droideka(by[NK.DROIDEKA][i]);
+    for(let i=0;i<n[NK.SOLDIER];i++)this.soldier(by[NK.SOLDIER][i],corrected);
+    for(let i=0;i<n[NK.TOMBSTONE];i++)this.remove(by[NK.TOMBSTONE][i]);
+    for(let i=0;i<packet.seatChanges.length;i++)this.seat(packet.seatChanges.get(i));
+    this.retrySeatCount=0;this.pendingSeats.forEach(this.collectSeat);
+    for(let i=0;i<this.retrySeatCount;i++){const row=this.retrySeatRows[i];this.pendingSeats.delete(row.id);this.seat(row);}
+    for(let i=0;i<n[NK.MOUNT];i++)this.mount(by[NK.MOUNT][i]);
+    for(let i=0;i<n[NK.SUMMARY];i++){
+      const row=by[NK.SUMMARY][i];
+      if(row.schema>=6){this.pendingState.set(row.id,row);continue;}
+      if(row.schema===3){const summary=decodeWorldSummary(row,this.registry);this.dropEligibility();retainRecord(row);this.eligibilityPending.record=row;this.eligibilityPending.summary=summary;this.pendingEligibility=this.eligibilityPending;}
+      else applyWorldSummary(this.game,row,{registry:this.registry});
     }
-    // An unordered vehicle packet may have arrived before its slot metadata.
-    // Reuse the receiver's bounded latest state once that prerequisite exists;
-    // a stored tombstone or another generation must never create a stale hull.
-    for (const record of by.mount) if (record.slot !== null && !by.vehicle.some(value => value.id === record.id)) {
-      const latest = this.receiver.get('vehicle', record.id);
-      if (latest?.kind === 'vehicle' && latest.generation === record.generation) this.vehicle(latest,record);
+    for(let i=0;i<n[NK.CORRECTION];i++){
+      const row=by[NK.CORRECTION][i];if(!this.pendingCorrection||row.tick>=this.pendingCorrection.record.tick){this.packetLease.capture(packet);this.correction.record=row;this.pendingCorrection=this.correction;}
     }
-    for (const record of by.turret) this.turret(record);
-    for (const record of by.droideka) this.droideka(record);
-    for (const record of by.soldier) this.soldier(record, corrected);
-    for (const record of by.tombstone) this.remove(record);
-    for (const change of packet.seatChanges) this.seat(change);
-    for (const [id, change] of [...this.pendingSeats]) { this.pendingSeats.delete(id); this.seat(change); }
-    for (const record of by.mount) this.mount(record);
-    for (const record of by.summary) {
-      if (record.schema >= 6) { this.pendingState.set(record.id, record); continue; }
-      if (record.schema === 3) {
-        const summary = decodeWorldSummary(record, this.registry);
-        this.pendingEligibility = { record, summary };
-      } else applyWorldSummary(this.game, record, { registry: this.registry });
-    }
-    for (const record of by.correction) {
-      if (!this.pendingCorrection || record.tick >= this.pendingCorrection.record.tick) this.pendingCorrection = { record, packet };
-    }
-    this.retryCorrection(packet.tick);
-    this.applyEligibility();
-    for(const [id,record]of this.pendingState){
-      const applied=record.schema===UNIT_STATE_SCHEMA?applyUnitState(this.game,record,this.registry):applyWorldPresentation(this.game,record);
-      if(applied||packet.tick-record.tick>120)this.pendingState.delete(id);
-    }
-    for(const record of by.remote){if(!this.remotes)throw Error('missing remote presentation');this.remotes.receive(record,packet.ack.epoch);}
-    for(const record of by.item){if(!this.items)throw Error('missing item presentation');this.items.receive(record,packet.ack.epoch);}
-    for(const record of by.combat)this.combat.receive(record,{epoch:packet.ack.epoch,tick:packet.tick});
+    this.retryCorrection(packet.tick);this.applyEligibility();this.pendingTick=packet.tick;this.pendingState.forEach(this.applyStateRecord);
+    for(let i=0;i<n[NK.REMOTE];i++){if(!this.remotes)throw Error('missing remote presentation');this.remotes.receive(by[NK.REMOTE][i],packet.ack.epoch);}
+    for(let i=0;i<n[NK.ITEM];i++){if(!this.items)throw Error('missing item presentation');this.items.receive(by[NK.ITEM][i],packet.ack.epoch);}
+    this.combatContext.epoch=packet.ack.epoch;this.combatContext.tick=packet.tick;
+    for(let i=0;i<n[NK.COMBAT];i++)this.combat.receive(by[NK.COMBAT][i],this.combatContext);
     this.onApplied(packet);
   }
+  dropCorrection(){if(this.pendingCorrection){this.packetLease.release();this.pendingCorrection=null;}this.correction.record=null;}
+  dropEligibility(){if(this.pendingEligibility){releaseRecord(this.pendingEligibility.record);this.pendingEligibility=null;}this.eligibilityPending.record=null;this.eligibilityPending.summary=null;}
+  // Release expendable deferred history under native pool pressure. Active
+  // hull/item facts and resources keep their qualified latest identities.
+  releaseRecordPressure(){this.dropCorrection();this.dropEligibility();this.pendingState.clear();this.remotes?.trimHistory();}
   applyEligibility() {
     const pending = this.pendingEligibility, own = this.game.playerUnit;
     if (!pending || pending.summary.playerId !== own.id || pending.summary.generation !== own.generation) return;
     const summary = applyWorldSummary(this.game, pending.record, { registry: this.registry });
     this.eligibility = summary;
-    this.pendingEligibility = null;
+    this.dropEligibility();
   }
   prepareOwn(record) {
     const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record), className = this.registry.classes.get(data.classId);
@@ -304,7 +280,7 @@ export class EntityGameState {
     let vehicle = system.vehicles.find(v => v.aiTarget.id === record.id);
     if (vehicle || record.kind !== 'vehicle') return vehicle || null;
     const className = this.registry.classes.get(record.classId), metadata = this.slots.get(record.id);
-    const slot = metadata?.generation === record.generation ? system.slots?.[metadata.index] : null;
+    const slot = metadata?.generation === record.generation ? system.slots?.[metadata.slot] : null;
     if (!className || !slot) { this.deferred++; return null; }
     vehicle = system.variant(slot, className);
     assignUnitId(g.units, vehicle.aiTarget, record.id);
@@ -345,55 +321,28 @@ export class EntityGameState {
     const mount = currentMount || this.receiver.get('mount', record.id);
     if (mount?.generation === record.generation) this.mount(mount);
   }
-  // The crew pose beside the hull: lean, walk cycle and every seat's aim, for
-  // the page's hull phase and the riders. Own seats included: the driver's
-  // preview adds the look the server has not seen yet on top.
-  // A hull's lean, walk cycle and seat aims. They are drawn with its
-  // position, which the playout clock samples a few ticks behind the newest
-  // packet: applied as they arrived, a nearby walker's legs, a tank's lean
-  // and its turrets ran ahead of its body and jumped a packet at a time. Each
-  // record is kept and presentMounts poses the hull from the two around the
-  // clock. His own hull's walk cycle is his prediction's to step from the
-  // newest, as are the seats he aims.
+  // A packet only admits an endpoint and seeds a new resource. Numeric
+  // history, cyclic angles and own-seat preservation run in the native frame.
   mount(record) {
-    const vehicle = this.game.vehicles?.vehicles.find(v => v.aiTarget.id === record.id);
-    if (!vehicle || !vehicle.alive || vehicle.aiTarget.generation !== record.generation) return;
-    let list = this.mounts.get(record.id);
-    if (!list || list.generation !== record.generation) this.mounts.set(record.id, list = Object.assign([], { generation: record.generation }));
-    if (!list.length || record.tick > list.at(-1).tick) { list.push(record); if (list.length > MOUNT_HISTORY) list.shift(); }
-    if (this.ownsMountAim(vehicle, 0)) { vehicle.walkPhase = record.walkPhase; vehicle.walkBlend = record.walkBlend; }
-    // Until a frame draws it, a new hull stands as its first record has it.
-    if (list.length === 1) this.poseMount(vehicle, record, record, 0);
-  }
-  // The hulls' mount records at `tick` (fractional): between the two around
-  // it, else the nearest.
-  presentMounts(tick) {
-    for (const vehicle of this.game.vehicles?.vehicles || []) {
-      const list = this.mounts.get(vehicle.aiTarget.id);
-      if (!list?.length || !vehicle.alive || vehicle.aiTarget.generation !== list.generation) continue;
-      let at = 0;
-      while (at + 1 < list.length && list[at + 1].tick <= tick) at++;
-      const a = list[at], b = list[at + 1];
-      this.poseMount(vehicle, a, b ?? a, b && tick > a.tick ? (tick - a.tick) / (b.tick - a.tick) : 0);
-      // Records the clock has passed are not drawn again.
-      if (at > 0) list.splice(0, at);
+    const vehicle=this.game.vehicles?.vehicles.find(v=>v.aiTarget.id===record.id);
+    if(!vehicle||!vehicle.alive||vehicle.aiTarget.generation!==record.generation)return;
+    if(this.ownsMountAim(vehicle,0)){vehicle.walkPhase=record.walkPhase;vehicle.walkBlend=record.walkBlend;}
+    if(vehicle.mountGeneration===record.generation&&vehicle.mountEpoch===this.receiver.epoch)return;
+    vehicle.mountGeneration=record.generation;vehicle.mountEpoch=this.receiver.epoch;
+    // The first endpoint is already a complete pose. Copy it unchanged until
+    // the first displayed frame samples the native history.
+    if(!this.ownsMountAim(vehicle,0)){
+      vehicle.tilt=vehicle.previousTilt=record.tilt;vehicle.roll=vehicle.previousRoll=record.roll;
+      vehicle.walkPhase=record.walkPhase;vehicle.walkBlend=record.walkBlend;
+    }
+    for(let i=0;i<vehicle.seats.length&&i<record.seats.length;i++){
+      if(this.ownsMountAim(vehicle,i))continue;
+      const seat=vehicle.seats[i];seat.aimYaw=record.seats[i].yaw;seat.pitch=record.seats[i].pitch;
+      if(seat.lastYaw===null)seat.lastYaw=seat.aimYaw;
     }
   }
-  poseMount(vehicle, a, b, f) {
-    const lerp = (x, y) => x + (y - x) * f;
-    if (!this.ownsMountAim(vehicle, 0)) {
-      vehicle.tilt = vehicle.previousTilt = lerp(a.tilt, b.tilt); vehicle.roll = vehicle.previousRoll = lerp(a.roll, b.roll);
-      const length = vehicle.walkLength;
-      vehicle.walkPhase = length > 0 ? ((a.walkPhase + turn(b.walkPhase - a.walkPhase, length) * f) % length + length) % length : b.walkPhase;
-      vehicle.walkBlend = lerp(a.walkBlend, b.walkBlend);
-    }
-    for (let i = 0; i < vehicle.seats.length && i < a.seats.length && i < b.seats.length; i++) {
-      const seat = vehicle.seats[i];
-      if (this.ownsMountAim(vehicle, i)) continue;
-      seat.aimYaw = a.seats[i].yaw + turn(b.seats[i].yaw - a.seats[i].yaw, 2 * Math.PI) * f; seat.pitch = lerp(a.seats[i].pitch, b.seats[i].pitch);
-      if (seat.lastYaw === null) seat.lastYaw = seat.aimYaw;
-    }
-  }
+  // Tests and non-drawing readers use the same complete frame operation.
+  presentMounts(tick){this.mounts.prepare(this.game,this.previous);this.receiver.network.present(tick);this.mounts.publish();}
   // A stationary turret: its registry identity, build state and the angles the
   // tick left. The drum and gun are posed by the shared Turret.present and
   // the native prop phase; its gunner follows in the body phase.
@@ -425,7 +374,10 @@ export class EntityGameState {
     return lease.vehicle && index === 0 && previous.vehicleId === id && previous.vehicleGeneration === generation ||
       previous.mountId === id && previous.mountGeneration === generation && previous.mountSeat === index;
   }
+  releasePrerequisite(map,record){const old=map.get(record.id);if(old&&old.generation<=record.generation)map.delete(record.id);}
   remove(record) {
+    this.releasePrerequisite(this.slots,record);this.releasePrerequisite(this.pendingSeats,record);this.releasePrerequisite(this.pendingState,record);
+
     const g = this.game, unit = g.units.byId(record.id); this.presentation.unbind(record.id);
     if (!unit || unit.generation !== record.generation) return;
     this.timeline.remove(record.id);
@@ -536,9 +488,9 @@ export class EntityGameState {
     // later lifecycle packet must never lend its ACK to an older correction.
     if (tick - record.tick > 120 || record.id !== unit.id || record.generation !== unit.generation ||
         this.previous?.epoch === packet.ack.epoch && this.previous.tick > record.tick) {
-      this.pendingCorrection = null; return;
+      this.dropCorrection(); return;
     }
-    if (this.correct(record, packet)) this.pendingCorrection = null;
+    if (this.correct(record, packet)) this.dropCorrection();
   }
   correct(record, packet) {
     const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record), wasDead = unit.combat.dead;
@@ -573,11 +525,20 @@ export class EntityGameState {
     if(unit.dead&&!unit.removed&&(!wasDead||context.reset)){unit.animator.die?.();g.presentEvent?.('died',unit);}
     this.previous = context; this.onCorrection(context, packet); return true;
   }
-  present(tick) {
+  // No authority interval advanced: retain the sampled hull/body ring and
+  // refresh only own preview and correction queues in one native call.
+  presentView(alpha,lockstep,frozen){
+    this.preview.prepare(this.game,true,alpha,lockstep,frozen);
+    this.receiver.network.presentView();this.preview.publish(this.game);
+  }
+  present(tick,preview=true,alpha=1,lockstep=false,frozen=false) {
     this.items?.present(tick); this.remotes?.present(tick);
     const g = this.game;
+    this.preview.prepare(g,preview,alpha,lockstep,frozen);
+    this.mounts.prepare(g,this.previous);
     this.presentation.update(tick, g.playerUnit.id, g.driver?.active ? g.driver.vehicle.aiTarget.id : null);
-    this.presentMounts(tick);
+    this.mounts.publish();
+    this.preview.publish(g);
     // Turn-speed facts settle before local preview; native prop and body
     // phases consume the replicated angles and the resulting rider rates.
     const turrets=g.turretSeats?.turrets;
