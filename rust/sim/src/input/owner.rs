@@ -9,7 +9,7 @@ const SENSITIVITY:u16=256;const CURVE:u16=512;const BINDINGS:u16=1024;
 pub struct Owner {pub mailboxes:Pool<Mailbox>}
 impl Owner {pub const fn new()->Self {Self {mailboxes:Pool::new(15)}}}
 impl Default for Owner {fn default()->Self {Self::new()}}
-pub struct Mailbox {pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>}
+pub struct Mailbox {pub rejected:u32,pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>}
 impl Mailbox {
     pub fn new(epoch:f64,capacity:f64,codes:Vec<StrId>,strings:&mut Strings)->Option<Self> {
         // The host supplies registry order, which is also the wire bit order.
@@ -18,7 +18,7 @@ impl Mailbox {
             || codes.len()>128 || codes.iter().enumerate().any(|(i,id)|codes[..i].contains(id)
                 || strings.list.get(id.0 as usize).is_none_or(|s|s.is_empty()||s.len()>64)) {return None;}
         let names=["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].map(|s|strings.intern_str(s));
-        Some(Self {state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
+        Some(Self {rejected:0,state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
             publication:WireOwnFacts {held_valid:true,recon_aspect:1.,view:WiView {profile_found:true,..Default::default()},spawn:WireSpawnFacts {valid:true,..Default::default()},..Default::default()},names,codes,
             taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(capacity as usize)})
     }
@@ -33,6 +33,17 @@ impl Mailbox {
             5=>{out.sensitivity=value.sensitivity;out.curve=value.curve;out.profile=value.profile;out.profile_found=value.profile_found;},
             6=>{out.axes=value.axes;out.buttons=value.buttons;},_=>{}}
     }
+    // InputMailbox.view edits keep their own native token until another
+    // command replaces the field. Tokens below eight name the borrowed
+    // consumer command itself, rather than retaining a producer packet.
+    pub fn edit_view(&mut self,key:usize,present:bool,value:&WiView) {
+        let Some(&name)=self.names.get(key) else {return};
+        self.view(key,present,value);
+        if present {
+            if let Some(field)=self.state.view.iter_mut().find(|field|field.key==name) {field.value=key as f64;}
+            else if self.state.view.len()<7 {self.state.view.push(ImField {key:name,value:key as f64});}
+        } else {self.state.view.retain(|field|field.key!=name);}
+    }
     fn consumed(&mut self,entry:&ImEntry) {
         self.publication.held.0.fill(0);self.publication.held_valid=true;
         for code in &entry.codes {if let Some(bit)=self.codes.iter().position(|id|id==code).filter(|&bit|bit<128) {self.publication.held.0[bit>>3]|=1<<(bit&7);} else {self.publication.held_valid=false;}}
@@ -42,14 +53,31 @@ impl Mailbox {
     /// Return those vectors before the next consume instead of warming anew.
     pub fn recycle(&mut self,result:&mut ImResult) {
         if let Some(taken)=result.command.take() {self.taken=taken;}
-        self.retired=std::mem::take(&mut result.retired);
+        // An early refusal never borrowed this buffer. Keep its reservation
+        // rather than replacing it with the empty default error result.
+        if result.retired.capacity()>0 {self.retired=std::mem::take(&mut result.retired);}
     }
     pub fn run(&mut self,mut input:ImInput,strings:&mut Strings)->ImResult {
         // Transport validation precedes string interning; native callers must
         // still pass only registered identities before the queue retains them.
-        if input.entry.as_ref().is_some_and(|entry| entry.codes.len()>64 || entry.codes.iter().any(|code|
-            !self.codes.contains(code) || strings.list.get(code.0 as usize).is_none_or(|units|units.len()>64))) {
-            return ImResult {error:Some(strings.intern_str("invalid input payload")),..Default::default()};
+        // InputMailbox.push refuses each bad record at this connection, before
+        // its queue or publication can change. A later valid command still runs.
+        if matches!(input.op,ImOperation::Push) {
+            let reason=input.entry.as_ref().map_or(Some("invalid movement command"),|entry| {
+                super::mailbox::invalid_entry(entry,&self.codes,strings).or_else(|| {
+                    if self.state.queue.last().is_some_and(|last|entry.tick<last.tick) {Some("input tick moved backwards")}
+                    else if self.state.queue.len() as f64>=self.state.capacity {Some("input queue full")}
+                    else {None}
+                })
+            });
+            if let Some(reason)=reason {
+                self.rejected=self.rejected.saturating_add(1);
+                return ImResult {error:Some(strings.intern_str(reason)),..Default::default()};
+            }
+        }
+        if matches!(input.op,ImOperation::Take) && (!super::actions::safe_integer(input.tick)||input.tick<0.
+            ||!super::actions::safe_integer(input.generation)||input.generation<0.) {
+            self.rejected=self.rejected.saturating_add(1);input.tick=self.state.ack_tick;input.generation=self.state.generation;
         }
         if matches!(input.op,ImOperation::Clear)||matches!(input.op,ImOperation::Take)&&input.generation!=self.state.generation {self.publication.held.0.fill(0);self.publication.held_valid=true;}
         if matches!(input.op,ImOperation::Clear) {self.publication.view.flags=((self.publication.view.flags as u16)&!(GAMEPAD|VIEW_TICK)) as f64;}
@@ -121,15 +149,53 @@ mod tests {
             let capacities=(owner.taken.actions.capacity(),owner.taken.look.capacity(),owner.taken.human.capacity(),owner.taken.fire.capacity());
             let mut out=owner.run(ImInput {state:ImState::default(),..input},&mut strings);
             out.state=std::mem::take(&mut owner.state);
-            assert_eq!(strings.units(out.error.unwrap()),"input batch overflow".encode_utf16().collect::<Vec<_>>());
-            assert!(out.command.is_none());assert!(out.state.queue.is_empty());assert_eq!(out.retired,[7.0]);
+            assert!(out.error.is_none());
+            assert!(out.command.as_ref().unwrap().actions.is_empty());assert!(out.state.queue.is_empty());assert_eq!(out.retired,[7.0]);
             assert_eq!(out.state.ack,1.0);assert_eq!(out.state.ack_tick,2.0);assert_eq!(out.state.down,Some(17.0));
             assert_eq!(out.state.look_total.map(f64::to_bits),total.unwrap_or([0.0;2]).map(f64::to_bits));
-            assert_eq!((owner.taken.actions.capacity(),owner.taken.look.capacity(),owner.taken.human.capacity(),owner.taken.fire.capacity()),capacities);
+            let taken=out.command.as_ref().unwrap();
+            assert_eq!((taken.actions.capacity(),taken.look.capacity(),taken.human.capacity(),taken.fire.capacity()),capacities);
             owner.state=std::mem::take(&mut out.state);owner.recycle(&mut out);
             let recovered=owner.run(ImInput {op:ImOperation::Take,tick:3.0,generation:1.0,..Default::default()},&mut strings);
             assert!(recovered.error.is_none());
         }
+    }
+
+    // Exercise the native admission boundary without the host shape checker.
+    // Every refusal preserves queue stamps and permits a later valid record.
+    #[test]
+    fn malformed_commands_are_counted_without_advancing_or_poisoning_the_queue() {
+        let mut strings=Strings::default();let code=strings.intern_str("KeyW");
+        let mut owner=Mailbox::new(1.,2.,vec![code],&mut strings).unwrap();
+        let good=ImEntry {identity:1.,down:1.,sequence:1.,tick:3.,generation:2.,codes:vec![code],..Default::default()};
+        let mut bad=Vec::new();
+        for tick in [0.,-1.,f64::NAN,f64::INFINITY,0.5] {bad.push(ImEntry {tick,..good.clone()});}
+        for generation in [-1.,f64::NAN,f64::INFINITY,0.5] {bad.push(ImEntry {generation,..good.clone()});}
+        bad.push(ImEntry {codes:vec![code;65],..good.clone()});
+        bad.push(ImEntry {codes:vec![StrId(u32::MAX)],..good.clone()});
+        bad.push(ImEntry {actions:vec![code;2049],..good.clone()});
+        bad.push(ImEntry {look:vec![ImLook {point:[f64::NAN,0.],object:None}],..good.clone()});
+        bad.push(ImEntry {look_total:Some([f64::INFINITY,0.]),..good.clone()});
+        bad.push(ImEntry {human:vec![1.;17],..good.clone()});
+        bad.push(ImEntry {fire:vec![ImFire {id:0.,button:0.,pressed:true}],..good.clone()});
+        for entry in bad {
+            let count=owner.rejected;
+            let result=owner.run(ImInput {op:ImOperation::Push,entry:Some(entry),epoch_matches:true,..Default::default()},&mut strings);
+            assert!(!result.accepted);assert!(result.error.is_some());assert_eq!(owner.rejected,count+1);
+            assert!(owner.state.queue.is_empty());assert_eq!(owner.state.received,0.);
+        }
+        let push=|entry|ImInput {op:ImOperation::Push,entry:Some(entry),epoch_matches:true,..Default::default()};
+        assert!(owner.run(push(good.clone()),&mut strings).accepted);
+        assert!(!owner.run(push(ImEntry {sequence:2.,tick:2.,..good.clone()}),&mut strings).accepted);
+        assert_eq!(owner.state.received,1.);assert_eq!(owner.state.queue.len(),1);
+        assert!(owner.run(push(ImEntry {sequence:2.,..good.clone()}),&mut strings).accepted);
+        assert!(!owner.run(push(ImEntry {sequence:3.,..good}),&mut strings).accepted);
+        assert_eq!(owner.state.queue.len(),2);
+        let mut result=owner.run(ImInput {op:ImOperation::Take,tick:3.,generation:2.,..Default::default()},&mut strings);
+        assert!(result.error.is_none());assert_eq!(owner.state.ack,2.);assert!(owner.state.queue.is_empty());
+        owner.recycle(&mut result);
+        // Non-finite consume stamps clamp to the last safe state, never loop.
+        assert!(owner.run(ImInput {op:ImOperation::Take,tick:f64::INFINITY,generation:f64::NAN,..Default::default()},&mut strings).error.is_none());
     }
 
 }

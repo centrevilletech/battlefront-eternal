@@ -43,7 +43,7 @@ test('cumulative input ignores duplicate delta representation and rejects malfor
   mailbox.push(state(1,{look:[[100,100]]}));
   assert.deepEqual(mailbox.take(1,1).look, [[2,-1]]);
   for (const lookTotal of [null, [1], [1,NaN], [Infinity,0], [2**49,0]]) {
-    assert.throws(()=>mailbox.push(state(2,{lookTotal})), /cumulative look/);
+    assert.equal(mailbox.push(state(2,{lookTotal})),false);
   }
 });
 

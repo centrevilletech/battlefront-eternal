@@ -63,7 +63,7 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
     const state = policy.add(id, now());
     try {
       state.edges = new EntityEdges({ actor: world.players.get(id), world, client: id, registry, bridge: game.simBridge });
-      state.inputDiagnostics = { accepted: 0, rejected: 0, reasons: {}, last: {} };
+      state.inputDiagnostics = { accepted: 0, rejected: 0, reasons: {refused:0,invalid:0}, last: {down:[],lookTotal:[0,0]} };
       publisher.bind(id, state, world.players.get(id)); clients.set(id, state);
     } catch (error) { state.edges?.dispose(); policy.remove(id); throw error; }
   }
@@ -73,22 +73,34 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
   }
   function setStarted(id, started) { const state = clients.get(id); if (state) { state.started = !!started; if (state.started) state.heardAt = now(); } }
   function setReady(id) { const state = clients.get(id); if (state) state.ready = true; }
-  // F5's current mailbox coordinator still consumes input and edge commands.
-  // Its ACK/discarded/view facts enter the reserved publication block once;
-  // body, arsenal, seat, recon and world records are never constructed here.
+  // The connection owns all decoding and admission failures. A malformed
+  // datagram must never escape into the world worker or stop another player.
   function input(id, bytes) {
     const state = clients.get(id); if (!state) return;
     state.heardAt = now(); if (!state.started) return;
-    const view = new Uint8Array(bytes);
-    if (isSnapshotAckKeepalive(view)) { policy.acceptAck(state, decodeSnapshotAckKeepalive(view)); return; }
-    const packet = decodeEntityInput(view, registry);
-    if (packet.epoch !== epoch || packet.generation !== world.players.get(id)?.unit?.generation) return;
-    policy.acceptAck(state, packet.snapshotAck); state.edges.receive(packet, game.worldClock.tick);
-    for (const command of packet.commands) {
-      const accepted = world.input(id, command), stats = state.inputDiagnostics;
-      stats[accepted ? 'accepted' : 'rejected']++;
-      stats.last = { sequence: command.sequence, tick: command.tick, generation: command.generation, epoch: command.epoch,
-        serverTick: game.worldClock.tick, accepted, lookTotal: command.lookTotal, down: command.down.slice(0, 32) };
+    const stats=state.inputDiagnostics;
+    try {
+      if(!(bytes instanceof ArrayBuffer)&&!(bytes instanceof Uint8Array))throw Error('invalid input datagram');
+      if(bytes.byteLength>1100)throw Error('invalid input datagram');
+      const view=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);
+      if(isSnapshotAckKeepalive(view)){policy.acceptAck(state,decodeSnapshotAckKeepalive(view));return;}
+      const packet=decodeEntityInput(view,registry);
+      if(packet.epoch!==epoch||packet.generation!==world.players.get(id)?.unit?.generation)return;
+      policy.acceptAck(state,packet.snapshotAck);state.edges.receive(packet,game.worldClock.tick);
+      for(let i=0;i<packet.commands.length;i++){
+        const command=packet.commands[i],accepted=world.input(id,command),last=stats.last;
+        stats[accepted?'accepted':'rejected']++;
+        if(!accepted){stats.reasons.refused++;stats.reason=world.players.get(id)?.mailbox.lastRejection??'input refused';}
+        last.sequence=command.sequence;last.tick=command.tick;last.generation=command.generation;last.epoch=command.epoch;
+        last.serverTick=game.worldClock.tick;last.accepted=accepted;
+        last.lookTotal[0]=command.lookTotal?.[0]??0;last.lookTotal[1]=command.lookTotal?.[1]??0;
+        last.down.length=Math.min(32,command.down.length);for(let j=0;j<last.down.length;j++)last.down[j]=command.down[j];
+      }
+    } catch(error) {
+      stats.rejected++;stats.reasons.invalid++;stats.reason=String(error?.message??error).slice(0,240);
+      state.started=false;
+      try{world.players.get(id)?.mailbox.reject('invalid input datagram');}catch{}
+      try{world.clearInput(id);}catch{}
     }
   }
   function edgeAck(id, message) { const state = clients.get(id); if (state) { state.heardAt = now(); state.edges.acknowledge(message); } }

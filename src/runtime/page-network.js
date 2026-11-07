@@ -12,7 +12,7 @@ import {
   NetSmoothInput as SI, NetSmoothCommand as SC, NetSmoothOutput as SO,
 } from "./network-layout.js";
 const owners = new WeakMap(),
-  free = [];
+  freeEncoders = [], freeReceivers = [];
 let common;
 const operations = {
   input: OP.INPUT,
@@ -31,7 +31,7 @@ export function pageNetworkFor(registry) {
   let owner = owners.get(registry);
   if (!owner || owner.disposed) {
     owner = createPageNetwork();
-    owners.set(registry, owner);
+    owner.registryOwned=true;owners.set(registry, owner);
   }
   return owner;
 }
@@ -42,7 +42,8 @@ class PageNetwork {
   constructor() {
     const loaded = presentationModule();
     this.memory = loaded.memory;
-    this.kernel = free.pop() || new loaded.module.PageNetwork();
+    this.kernel = freeEncoders.pop() || new loaded.module.PageNetwork();
+    this.outboundOwners = new Set(); this.registryOwned = false;
     this.disposed = false;
     this.receiver = false;this.preview=false;
     this.buffer = null;
@@ -114,6 +115,9 @@ class PageNetwork {
   // They remain constant for this receiver and never cross again per packet.
   receiveSetup(bounds) {
     if (this.disposed) return;
+    if(!this.receiver&&!this.preview&&!this.outboundOwners.size&&freeReceivers.length){
+      this.kernel.close();if(freeEncoders.length<1)freeEncoders.push(this.kernel);else this.kernel.free();this.kernel=freeReceivers.pop();
+    }
     this.kernel.receive_setup();
     this.receiver = true;this.preview=true;
     this.kernel.set_bounds(bounds.xMin, bounds.xExtent, bounds.zMin, bounds.zExtent, bounds.yMin, bounds.yExtent);
@@ -234,10 +238,15 @@ class PageNetwork {
   // These are cold connection handles, separate from snapshot ownership.
   // Disposing a sender releases its slot without touching another sender.
   createOutbound() {
-    return this.kernel.outbound_new();
+    const id=this.kernel.outbound_new();if(id)this.outboundOwners.add(id);return id;
   }
   dropOutbound(id) {
-    if (!this.disposed) this.kernel.outbound_drop(id);
+    if(this.disposed||!this.outboundOwners.delete(id))return;
+    this.kernel.outbound_drop(id);
+    // NetworkSession disposes every sender even on failure. The final handle
+    // releases its registry owner, while explicitly shared receivers retain
+    // their existing battle lifecycle.
+    if(this.registryOwned&&!this.outboundOwners.size)this.dispose();
   }
   // Statistics are explicit cold inspection. Frames increment a numeric
   // counter but never construct this object merely to update presentation.
@@ -254,7 +263,11 @@ class PageNetwork {
     if (this.disposed) return;
     this.disposed = true;
     this.kernel.close();
-    free.push(this.kernel);
+    const pool=this.receiver?freeReceivers:freeEncoders;
+    // Keep one warm reservation per kind; repeated concurrent battles must
+    // not leave an unbounded closed-kernel pool after their owners finish.
+    if(pool.length<1)pool.push(this.kernel);else this.kernel.free();
+    this.outboundOwners.clear();
     this.input =
       this.bytes =
       this.records =

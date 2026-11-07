@@ -42,8 +42,8 @@ test('worker commands retain view settings between packets and clear held input 
  for(const key of ['mouseScale','invertMouse','firstPerson','aspect'])assert.equal(next[key],first[key]);
  box.push(command(2,{tick:3,actions:['jump'],down:['Mouse0']}));box.clear();
  assert.equal(box.ack,1);assert.equal(box.discarded,2);assert.equal(box.ackTick,1);assert.deepEqual(box.take(3,2).down,[]);assert.deepEqual(box.take(4,2).actions,[]);
- assert.throws(()=>box.push(command(3,{look:[null]})),/invalid input payload/);
- assert.throws(()=>box.push(command(3,{aspect:NaN})),/invalid view input/);
+ assert.equal(box.push(command(3,{look:[null]})),false);
+ assert.equal(box.push(command(3,{aspect:NaN})),false);
 });
 
 test('flight input and rendered view stamp survive mailbox coalescing and reject malformed values',()=>{
@@ -53,7 +53,7 @@ test('flight input and rendered view stamp survive mailbox coalescing and reject
  box.push(command(1,{flightSettings,gamepad,viewTick:0}));
  const value=box.take(1,2);assert.deepEqual(value.flightSettings,flightSettings);assert.deepEqual(value.gamepad,gamepad);assert.equal(value.viewTick,0);
  assert.deepEqual(box.take(2,2).gamepad,gamepad);
- for(const overrides of [{viewTick:NaN},{viewTick:-1},{flightSettings:{sensitivity:Infinity}},{flightSettings:{curve:'linear'}},{flightSettings:{curve:Infinity}},{flightSettings:{bindings:{boost:'bad'}}},{gamepad:{axes:[2],buttons:[]}},{gamepad:{axes:[],buttons:[1]}}])assert.throws(()=>new InputMailbox().push(command(1,overrides)),/invalid/);
+ for(const overrides of [{viewTick:NaN},{viewTick:-1},{flightSettings:{sensitivity:Infinity}},{flightSettings:{curve:'linear'}},{flightSettings:{curve:Infinity}},{flightSettings:{bindings:{boost:'bad'}}},{gamepad:{axes:[2],buttons:[]}},{gamepad:{axes:[],buttons:[1]}}])assert.equal(new InputMailbox().push(command(1,overrides)),false);
 });
 
 test('input silence drops held gamepad axes and old view time but retains user settings',()=>{
@@ -76,7 +76,7 @@ test('trigger edges ride a command through the mailbox, in order, into the tick 
   assert.deepEqual(box.take(5,2).fire,[{id:1,button:0,pressed:true},{id:2,button:0,pressed:false},{id:3,button:1,pressed:true}]);
   assert.equal(box.take(6,2).fire,undefined,'a tick with no edges carries none');
   for(const fire of [{},[{id:0,button:0,pressed:true}],[{id:1,button:2,pressed:true}],[{id:1,button:0,pressed:1}],Array.from({length:17},(_,i)=>({id:i+1,button:0,pressed:true}))])
-    assert.throws(()=>box.push(command(9,{tick:7,fire})),/invalid trigger edges/);
+    assert.equal(box.push(command(9,{tick:7,fire})),false);
 });
 
 test('future discarded and wrong-life inputs never masquerade as executed or update lead timing',()=>{const box=new InputMailbox();box.push(command(1,{down:['KeyW'],lookTotal:[4,0]}));box.take(1,2);box.push(command(2,{tick:40,down:['KeyS'],lookTotal:[9,0]}));box.clear();assert.equal(box.ack,1);assert.equal(box.ackTick,1);assert.equal(box.discarded,2);assert.deepEqual(box.take(40,2).down,[]);box.push(command(3,{tick:41,generation:1}));box.take(41,2);assert.equal(box.ack,1);assert.equal(box.ackTick,1);assert.equal(box.discarded,3);box.push(command(4,{tick:42,lookTotal:[12,0]}));assert.deepEqual(box.take(42,2).look,[[8,0]]);assert.equal(box.ack,4);assert.equal(box.ackTick,42);});

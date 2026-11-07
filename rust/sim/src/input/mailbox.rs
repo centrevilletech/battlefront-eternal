@@ -10,6 +10,34 @@ fn admits(s: &ImState, epoch_matches: bool, sequence: f64) -> bool {
 }
 fn truthy(n: f64) -> bool { n != 0.0 && !n.is_nan() }
 
+/// InputMailbox.push checks projected numeric values again for native callers.
+/// Shape checks in the host cannot protect a shared memory caller on their own.
+pub(super) fn invalid_entry(e:&crate::gen::ImEntry,codes:&[crate::store::StrId],strings:&Strings)->Option<&'static str> {
+    if !safe_integer(e.identity)||e.identity<0.||!safe_integer(e.down)||e.down<0.
+        ||!safe_integer(e.sequence)||e.sequence<1.||!safe_integer(e.tick)||e.tick<1.
+        ||!safe_integer(e.generation)||e.generation<0. {return Some("invalid input stamp");}
+    if e.codes.len()>64||e.codes.iter().any(|id|!codes.contains(id))||e.actions.len()>2048
+        ||e.actions.iter().any(|id|strings.list.get(id.0 as usize).is_none_or(|s|s.len()>64))
+        ||e.look.len()>2048||e.look.iter().any(|v|v.point.iter().any(|n|!n.is_finite()))
+        ||e.look.iter().any(|v|v.object.is_some_and(|n|!safe_integer(n)||n<0.))
+        ||e.view.len()>7||e.view.iter().any(|field|strings.list.get(field.key.0 as usize).is_none_or(|key|
+            !["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].iter().any(|name|key.iter().copied().eq(name.encode_utf16())))
+            ||!safe_integer(field.value)||field.value<0.)
+        ||e.human.len()>16||e.human.iter().any(|n|!safe_integer(*n)||*n<0.)||e.fire.len()>16 {return Some("invalid input payload");}
+    if e.look_total.is_some_and(|v|v.iter().any(|n|!n.is_finite()||n.abs()>2_f64.powi(48))) {return Some("invalid cumulative look");}
+    if e.fire.iter().any(|v|!safe_integer(v.id)||v.id<1.||(v.button!=0.&&v.button!=1.)) {return Some("invalid trigger edges");}
+    let v=&e.publication;
+    if !safe_integer(v.flags)||!(0. ..=2047.).contains(&v.flags) {return Some("invalid view input");}
+    let flags=v.flags as u16;
+    if flags&32!=0&&(!v.mouse_scale.is_finite()||v.mouse_scale<=0.)
+        ||flags&64!=0&&(!v.aspect.is_finite()||v.aspect<=0.) {return Some("invalid view input");}
+    if flags&128!=0&&(!v.view_tick.is_finite()||!(0. ..=u32::MAX as f64).contains(&v.view_tick)) {return Some("invalid view tick");}
+    if flags&256!=0&&(!v.sensitivity.is_finite()||v.sensitivity<=0.||v.sensitivity>10.)
+        ||flags&512!=0&&(!v.curve.is_finite()||!(0.1..=4.).contains(&v.curve)) {return Some("invalid flight settings");}
+    if flags&16!=0&&(v.axes.iter().any(|n|!n.is_finite()||n.abs()>1.)||!safe_integer(v.buttons)||!(0. ..=65535.).contains(&v.buttons)) {return Some("invalid gamepad input");}
+    None
+}
+
 /// InputMailbox.take lends reserved result vectors across each exchange.
 /// Admission can allocate owned packet values; consumption only moves them
 /// into this fixed-capacity scratch, preserving paused-burst order.
@@ -17,15 +45,15 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
     mut consumed:impl FnMut(&crate::gen::ImEntry))->(ImResult,ImTaken) {
     command.actions.clear();command.look.clear();command.human.clear();command.fire.clear();retired.clear();
     let mut out = ImResult { state: input.state, retired, ..Default::default() };
-    let result: Result<(), &'static str> = (|| {
+    (|| {
         let s = &mut out.state;
         match input.op {
             ImOperation::Admit => out.accepted = admits(s, input.epoch_matches, input.sequence),
             ImOperation::Push => {
-                let entry = input.entry.ok_or("invalid movement command")?;
-                if !admits(s, input.epoch_matches, entry.sequence) { return Ok(()); }
-                if s.queue.len() as f64 >= s.capacity { return Ok(()); }
-                if s.queue.last().is_some_and(|last| entry.tick < last.tick) { return Err("input tick moved backwards"); }
+                let Some(entry) = input.entry else { return; };
+                if !admits(s, input.epoch_matches, entry.sequence) { return; }
+                if s.queue.len() as f64 >= s.capacity { return; }
+                if s.queue.last().is_some_and(|last| entry.tick < last.tick) { return; }
                 s.received = entry.sequence; s.queue.push(entry); out.accepted = true;
             }
             ImOperation::Take => {
@@ -37,11 +65,11 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
                     let next=&s.queue[0];
                     let looks=next.look_total.map_or(next.look.len(),|total|usize::from(
                         truthy(total[0]-s.look_total[0])||truthy(total[1]-s.look_total[1])));
-                    let oversized=next.actions.len()>2048 || looks>2048 || next.human.len() as f64>16.0*s.capacity;
+                    let oversized=next.actions.len()>2048 || looks>2048 || next.human.len() as f64>16.0*s.capacity || next.fire.len() as f64>16.0*s.capacity;
                     // InputMailbox.take defers a valid burst, but must retire an
                     // individually invalid record rather than retry it forever.
                     if next.generation==input.generation && !oversized && (command.actions.len()+next.actions.len()>2048
-                        || command.look.len()+looks>2048 || (command.human.len()+next.human.len()) as f64>16.0*s.capacity) {break;}
+                        || command.look.len()+looks>2048 || (command.human.len()+next.human.len()) as f64>16.0*s.capacity || (command.fire.len()+next.fire.len()) as f64>16.0*s.capacity) {break;}
                     let entry = s.queue.remove(0);
                     out.retired.push(entry.identity);
                     if entry.generation != input.generation {
@@ -62,10 +90,9 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
                         if let Some(old) = s.view.iter_mut().find(|v| v.key == field.key) { old.value = field.value; }
                         else if s.view.len()<7 { s.view.push(field); }
                     }
-                    // Rejection preserves the original consumption side effects,
-                    // including held/view and cumulative look, without appending
-                    // oversized payloads to the reserved command scratch.
-                    if oversized { return Err("input batch overflow"); }
+                    // Even corrupted retained records retire with their original
+                    // held/view watermarks, without growing command scratch or
+                    // leaving a record that every later tick retries forever.
                 }
                 out.command = Some(std::mem::take(&mut command));
             }
@@ -79,8 +106,6 @@ pub fn run_reusing(input:ImInput,strings:&mut Strings,mut command:ImTaken,mut re
                 });
             }
         }
-        Ok(())
     })();
-    if let Err(error) = result { out.error = Some(strings.intern_str(error)); }
     (out,command)
 }

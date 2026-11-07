@@ -238,3 +238,31 @@ test('a local host publishes every tick, or every few for a page that draws slow
   assert.deepEqual(spacing(ticksOf(online.step, 24)), [2], 'only a local host follows its page');
   online.host.dispose();
 });
+
+// Datagram parsing and the world's command callback share the same per-client
+// error boundary. A peer must continue ticking after either one fails.
+test('bad client input never escapes or stops another snapshot client',owned,async()=>{
+  const {encodeEntityInput}=await import('../src/runtime/network-entity-input.js');
+  const {host,world,game,step}=await battle(['bad','peer']);
+  try{
+    const generation=world.players.get('bad').unit.generation;
+    const packet=(sequence,tick)=>encodeEntityInput({epoch:1,generation,commands:[{epoch:1,generation,sequence,tick,down:['KeyW'],actions:[],look:[],lookTotal:[0,0]}],edges:[]},host.registry);
+    assert.doesNotThrow(()=>host.input('bad',packet(1,3)));
+    assert.doesNotThrow(()=>host.input('bad',packet(2,2)));
+    assert.doesNotThrow(()=>host.input('bad',packet(2,0)));
+    assert.equal(host.inputDiagnostics('bad').rejected,2);
+    assert.equal(world.players.get('bad').mailbox.rejected,2);
+    for(const bytes of [new Uint8Array(),new Uint8Array(1101),null,new Uint8Array([1,2,3])]){
+      host.setStarted('bad',true);assert.doesNotThrow(()=>host.input('bad',bytes));
+      const count=host.inputDiagnostics('bad').rejected;
+      host.input('bad',packet(3,3));assert.equal(host.inputDiagnostics('bad').rejected,count,'faulted client stops admitting until restarted');
+      step();
+    }
+    const original=world.input;world.input=()=>{throw Error('command callback failed');};host.setStarted('bad',true);
+    assert.doesNotThrow(()=>host.input('bad',packet(4,4)));world.input=original;
+    assert.match(host.inputDiagnostics('bad').reason,/command callback failed/);
+    const peerGeneration=world.players.get('peer').unit.generation;
+    host.input('peer',encodeEntityInput({epoch:1,generation:peerGeneration,commands:[{sequence:1,tick:game.worldClock.tick+1,down:[],lookTotal:[0,0]}],edges:[]},host.registry));
+    step();assert.equal(host.inputDiagnostics('peer').accepted,1);assert.equal(world.players.get('peer').mailbox.ack,1);
+  }finally{host.dispose();game.dispose();}
+});

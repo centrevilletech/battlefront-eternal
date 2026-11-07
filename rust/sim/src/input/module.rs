@@ -27,7 +27,10 @@ pub(crate) fn input_fire_run_in(w: &mut crate::world::owner::World) -> Option<&[
 
 pub(crate) fn input_mailbox_owned_run_in(w: &mut crate::world::owner::World, handle:u32) -> Option<&[f64]> {
     let sim=&mut w.sim;let (row,heap)=sim.calls.args();
-    if !super::owner::valid_call(row,heap) {return None;}
+    if !super::owner::valid_call(row,heap) {
+        if let Some(owner)=w.input.mailboxes.get_mut(handle as usize) {owner.rejected=owner.rejected.saturating_add(1);}
+        return None;
+    }
     let call=crate::gen::InputMailboxCall::take(row,heap);
     let input=ImInput {op:call.op,entry:call.entry,sequence:call.sequence,epoch_matches:call.epoch_matches,
         tick:call.tick,generation:call.generation,..Default::default()};
@@ -95,7 +98,15 @@ pub(crate) fn input_mailbox_drop_in(w: &mut crate::world::owner::World, handle:u
 
 pub(crate) fn input_mailbox_view_in(w: &mut crate::world::owner::World, handle:u32) {
     let sim=&mut w.sim;let (row,heap)=sim.calls.args();let input=crate::gen::InputViewUpdate::take(row,heap);
-    if let Some(mailbox)=w.input.mailboxes.get_mut(handle as usize) {mailbox.view(input.key as usize,input.present,&input.view);}
+    if let Some(mailbox)=w.input.mailboxes.get_mut(handle as usize) {mailbox.edit_view(input.key as usize,input.present,&input.view);}
+}
+/// Shape failures cannot be projected into a generated command. Count them
+/// beside native refusals so one connection owns all its rejected input.
+pub(crate) fn input_mailbox_reject_in(w:&mut crate::world::owner::World,handle:u32) {
+    if let Some(owner)=w.input.mailboxes.get_mut(handle as usize) {owner.rejected=owner.rejected.saturating_add(1);}
+}
+pub(crate) fn input_mailbox_rejected_in(w:&crate::world::owner::World,handle:u32)->u32 {
+    w.input.mailboxes.get(handle as usize).map_or(0,|owner|owner.rejected)
 }
 /// Debug views do not run during an ordinary input or publication operation.
 pub(crate) fn input_mailbox_inspect_in(w: &mut crate::world::owner::World, handle:u32) -> Option<&[f64]> {
@@ -171,9 +182,13 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn input_mailbox_view(handle:u32) { input_mailbox_view_in(crate::abi::facade::world(), handle) }
     #[no_mangle]
+    pub extern "C" fn input_mailbox_reject(handle:u32) { input_mailbox_reject_in(crate::abi::facade::world(),handle) }
+    #[no_mangle]
+    pub extern "C" fn input_mailbox_rejected(handle:u32)->u32 { input_mailbox_rejected_in(crate::abi::facade::world(),handle) }
+    #[no_mangle]
     pub extern "C" fn input_mailbox_inspect(handle:u32) ->*const f64 { input_mailbox_inspect_in(crate::abi::facade::world(), handle).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
     pub extern "C" fn input_mailbox_spawn(handle:u32) { input_mailbox_spawn_in(crate::abi::facade::world(), handle) }
 }
 #[cfg(target_arch = "wasm32")]
-pub use exports::{input_actions_run, input_fire_run, input_mailbox_owned_run, input_queue_run, input_controls_run, input_controls_axis, input_mailbox_create, input_mailbox_drop, input_mailbox_view, input_mailbox_inspect, input_mailbox_spawn};
+pub use exports::{input_actions_run, input_fire_run, input_mailbox_owned_run, input_queue_run, input_controls_run, input_controls_axis, input_mailbox_create, input_mailbox_drop, input_mailbox_view, input_mailbox_inspect, input_mailbox_spawn, input_mailbox_reject, input_mailbox_rejected};

@@ -103,7 +103,7 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
     mailbox.state.queue.push(ImEntry {sequence:1.,tick:1.,generation:1.,actions:vec![jump;2049],
         down:17.,look_total:Some([-0.,12.5]),..Default::default()});
     let out=mailbox.run(ImInput {op:ImOperation::Take,tick:2.,generation:1.,..Default::default()},&mut strings);
-    assert!(out.error.is_some());assert!(out.command.is_none());
+    assert!(out.error.is_none());assert!(out.command.as_ref().unwrap().actions.is_empty());
     assert!(mailbox.state.queue.is_empty());assert_eq!(mailbox.state.ack,1.);
     assert_eq!(mailbox.state.down,Some(17.));assert_eq!(mailbox.state.look_total,[-0.,12.5]);
     let recovered=mailbox.run(ImInput {op:ImOperation::Take,tick:3.,generation:1.,..Default::default()},&mut strings);

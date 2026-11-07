@@ -12,7 +12,9 @@ export function wireInputFor(registry) {
   }
   let encoder = encoders.get(registry);
   if (!encoder || encoder.kernel.disposed) {
-    encoder = createWireInputBridge(pageNetworkFor(registry));
+    // Keepalives and standalone codecs borrow the page's one encode-only
+    // owner. They reserve no kernel per battle registry to await collection.
+    encoder = createWireInputBridge(pageNetworkFor(null));
     encoders.set(registry, encoder);
   }
   return encoder;

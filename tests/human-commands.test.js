@@ -51,19 +51,19 @@ test("a burst of choices before a command is sent stays within one command", () 
 
 test("the worker's mailbox validates them and forwards them in order", () => {
   const box = new InputMailbox(1);
-  assert.throws(() => box.push(command(1, { human: [{ kind: "spawn" }] })), /invalid human input/);
+  assert.equal(box.push(command(1, { human: [{ kind: "spawn" }] })), false);
   assert.equal(box.push(command(1, { human: [{ kind: "team", team: 1, extra: true }] })), true);
   assert.equal(box.push(command(2)), true);
   assert.equal(box.push(command(3, { human: [{ kind: "spawn", className: "cis_inf_droideka", post: "cp3" }] })), true);
   // A late batch of three commands is one tick's input, choices in order.
   const merged = box.take(3, 0);
   assert.deepEqual(merged.human, [{ kind: "team", team: 1 }, { kind: "spawn", className: "cis_inf_droideka", post: "cp3" }]);
-  // No choices: no field, as before.
+  // No choices: the retained command lends no human value.
   box.push(command(4));
-  assert.equal("human" in box.take(4, 0), false);
+  assert.equal(box.take(4, 0).human, undefined);
   // A previous life's choices go with its stale commands.
   box.push(command(5, { generation: 0, human: [{ kind: "suicide" }] }));
-  assert.equal("human" in box.take(5, 1), false);
+  assert.equal(box.take(5, 1).human, undefined);
 });
 
 test("the controls send queued choices once, and a cleared input keeps them", () => {
