@@ -7,7 +7,6 @@ import { Worker } from 'node:worker_threads';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import {collect} from '../tools/host-qualification/common.mjs';
-import { NativeBlocks } from '../src/sim/block-view.js';
 const require = createRequire(import.meta.url);
 const path = require.resolve('../.host-addon/bfe-node.node');
 const addon = require(path);
@@ -48,9 +47,8 @@ test('reusable native blocks preserve payload bits and outlive owner close', () 
   const host = new addon.NativeHost(), owner = host.create();
   const input = new Float64Array([1, 2, 7, 0, 0, -0, NaN]);
   new DataView(input.buffer).setBigUint64(48, 0x7ff8000000000042n, true);
-  const output = new Float64Array(input.length), blocks = new NativeBlocks();
+  const output = new Float64Array(input.length);
   for (let i = 0; i < 10000; i++) owner.copyBlock(input, output);
-  blocks.accept(output);
   assert.deepEqual(new Uint8Array(output.buffer), new Uint8Array(input.buffer));
   assert.equal(owner.close(), true);
   assert.equal(owner.close(), false);

@@ -6,6 +6,7 @@ use bfe_sim::abi::context::{ErrorKind, Record};
 use bfe_sim::gen::{Bolt, Fill, COMMAND_FILL, KIND_BOLT};
 use bfe_sim::store::{block::Block, StrId};
 use napi::bindgen_prelude::Uint32Array;
+use napi::JsObject;
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
@@ -28,6 +29,17 @@ impl NativeHost {
 
 #[napi]
 impl NativeOwner {
+    // Copy into a caller-owned reusable arena. JS owns both buffers, and Rust
+    // retains neither. Byte-preserving copies keep signed zero and NaN payloads.
+    // This operation validates the common header, not schema-specific records.
+    #[napi]
+    pub fn copy_block(&self, env: Env, source: JsObject, output: JsObject) -> Result<u32> {
+        boundary(|| {
+            if self.owner.borrow().context.is_none() {return Err(Error::from_reason("Native owner closed"));}
+            blocks::copy(env, source, output)
+        })
+    }
+
     #[napi]
     pub fn probe_identity(&self, text: String, speed: f64) -> Result<Identity> {
         boundary(|| {

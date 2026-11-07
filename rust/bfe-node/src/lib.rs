@@ -1,11 +1,12 @@
 //! Node lifecycle and numeric block boundary. Production world stepping remains
 //! in the WASM instance until the shared simulation exposes an owned world API.
 use bfe_sim::abi::context::Context;
-use napi::{Env, Error, JsObject, Result, Status};
+use napi::{Env, Error, Result, Status};
 use napi_derive::napi;
 use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
+#[cfg(feature = "lifecycle-probe")]
 mod blocks;
 mod lifecycle;
 use lifecycle::{Owner, OwnedContext, Scope, close};
@@ -117,16 +118,7 @@ impl NativeOwner {
         result
     }
 
-    // Copy into a caller-owned reusable arena. JS owns both buffers, and Rust
-    // retains neither. Byte-preserving copies keep signed zero and NaN payloads.
-    // This operation validates the common header, not schema-specific records.
-    #[napi]
-    pub fn copy_block(&self, env: Env, source: JsObject, output: JsObject) -> Result<u32> {
-        boundary(|| {
-            if self.owner.borrow().context.is_none() {return Err(Error::from_reason("Native owner closed"));}
-            blocks::copy(env, source, output)
-        })
-    }
+
 }
 impl Drop for NativeOwner {
     fn drop(&mut self) { let _ = boundary(|| {close(&self.owner); Ok(())}); }

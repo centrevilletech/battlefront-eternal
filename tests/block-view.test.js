@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { WasmBlocks, NativeBlocks } from '../src/sim/block-view.js';
-import { BlockBridge, SimBridge } from '../src/sim/runtime.js';
+import { WasmBlocks } from '../src/sim/block-view.js';
+import { BlockBridge, SimBridge, SimContext } from '../src/sim/runtime.js';
 import { COMMAND_TABLE } from '../src/sim/gen/index.js';
 import { Heap } from '../src/sim/runtime.js';
 import { BlockHeaderLayout as Header } from '../src/sim/gen/boundary.js';
 import { putWireBaselineChoice, syncWireBaselineChoice, WireBaselineChoiceMirror } from '../src/sim/gen/wire-host.js';
 import { loadSim } from '../src/sim/module.js';
 
-// The generated decoder receives the same block-relative offsets from either
-// backend. String identities stay local to the configured bridge.
-test('WASM and native blocks share generated record decoding', async () => {
+// A copied block uses relative heap offsets. This exercises the generated
+// decoder directly; string identities stay local to the configured context.
+test('generated records decode a copied block without memory addresses', async () => {
   const bridge = new SimBridge(await loadSim());
   const echo = COMMAND_TABLE.find(record => record?.name === 'echo');
   const value = { value: -0, at: { x: 1, y: 2, z: 3 }, note: 'block', count: 2, events: 0 };
@@ -21,11 +21,9 @@ test('WASM and native blocks share generated record decoding', async () => {
   const wasm = bridge.readBlock(pointer);
   const length = wasm.words[wasm.base + 2] + wasm.words[wasm.base + 3];
   const words = wasm.words.slice(wasm.base, wasm.base + length);
-  const blocks = new NativeBlocks();
-  blocks.accept(words);
-  const context = new BlockBridge(blocks);
+  const context = new SimContext();
   context.strings = bridge.strings;
-  assert.deepEqual(context.callResult(record, null), bridge.callResult(record, pointer));
+  assert.deepEqual(record.sync(context, words, Header.words, words[Header.heap], new record.Mirror()), bridge.callResult(record, pointer));
 });
 
 test('WASM views refresh after growth and retain one BlockView', () => {
@@ -40,21 +38,9 @@ test('WASM views refresh after growth and retain one BlockView', () => {
   assert.equal(first.words.byteLength, 131072);
 });
 
-test('native arena reuse and invalid extent rejection', () => {
-  const blocks = new NativeBlocks(), a = new Float64Array([1, 1, 6, 1, 0, -0, NaN]);
-  const view = blocks.accept(a);
-  for (let i = 0; i < 10000; i++) assert.equal(blocks.readBlock(), view);
-  assert.equal(blocks.accept(a), view);
-  for (const bad of [[], [1, 1, 6, 0, 2, 0], [Infinity, 0, 5, 0, 0], [1, 1, 5, 0, 0], [0, 0, 5, 100, 0]]) {
-    assert.throws(() => blocks.accept(new Float64Array(bad)), /block/i);
-  }
-  assert.equal(blocks.readBlock(), view);
-  assert.equal(view.words, a);
-});
-
 // Nested lists exercise block-relative heap offsets, including an arena that
 // begins inside an independently owned backing allocation.
-test('generated nested heaps decode at WASM and native section bases', () => {
+test('generated nested heaps decode at memory and copied section bases', () => {
   const input = { tick: -0, max: NaN, acks: [{ ticks: [1, -0, NaN] }, { ticks: [7] }] };
   const row = new Float64Array(4), heap = new Heap();
   putWireBaselineChoice(null, input, row, 0, heap);
@@ -66,10 +52,11 @@ test('generated nested heaps decode at WASM and native section bases', () => {
   new Float64Array(memory.buffer).set(words, offset / 8);
   const section = new Float64Array(new ArrayBuffer(offset + words.byteLength), offset);
   section.set(words);
-  const nativeBlocks = new NativeBlocks(); nativeBlocks.accept(section);
-  const wasm = new BlockBridge(new WasmBlocks(memory)), native = new BlockBridge(nativeBlocks);
+  const wasm = new BlockBridge(new WasmBlocks(memory));
+  const context = new SimContext();
   const record = { sync: syncWireBaselineChoice, Mirror: WireBaselineChoiceMirror };
-  const a = wasm.callResult(record, offset), b = native.callResult(record, null);
+  const a = wasm.callResult(record, offset);
+  const b = record.sync(context, section, Header.words, section[Header.heap], new record.Mirror());
   assert.deepEqual(a, b);
   assert.deepEqual({ ...a, acks: a.acks.map(row => ({ ...row })) }, input);
 });

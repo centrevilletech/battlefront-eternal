@@ -1,5 +1,3 @@
-import { BlockHeaderLayout as BlockHeader } from './gen/boundary.js';
-
 // Generated records address their heap relative to a block, never to a native
 // pointer. A view is borrowed until the next operation, including reentry.
 export class BlockView {
@@ -34,28 +32,4 @@ export class WasmBlocks {
     view.length = view.words.length - view.base;
     return view;
   }
-}
-
-const validCount = n => Number.isSafeInteger(n) && n >= 0;
-
-// Native operations return an arena, not an emulated linear address space.
-// Validation happens at the operation boundary; repeated decoding reuses it.
-export class NativeBlocks {
-  constructor() { this.view = new BlockView(); }
-  accept(words) {
-    if (!(words instanceof Float64Array)) throw Error('Expected a Float64Array block');
-    if (words.length < BlockHeader.words) throw Error('Truncated block header');
-    const rows = words[BlockHeader.rows], stride = words[BlockHeader.stride];
-    const heap = words[BlockHeader.heap], size = words[BlockHeader.heapWords];
-    const retired = words[BlockHeader.retired];
-    if (!validCount(rows) || !validCount(stride) || !validCount(heap) || !validCount(size) || !validCount(retired)) throw Error('Invalid block extent');
-    if (retired > rows || heap !== BlockHeader.words + rows * stride || heap + size !== words.length) throw Error('Invalid block layout');
-    const view = this.view;
-    view.words = words;
-    view.base = 0;
-    view.length = words.length;
-    view.generation++;
-    return view;
-  }
-  readBlock() { return this.view; }
 }

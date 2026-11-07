@@ -36,10 +36,11 @@ replace them. Native addresses never become JavaScript numbers.
 
 `NativeHost` registers environment cleanup and keeps weak owner references.
 Explicit close, garbage collection and worker teardown converge on take-once
-Context release. Caller-owned output arenas survive close and can transfer
-between workers. Numeric block validation checks the generated header and
-checked row/heap extents before writing output. Record-specific span validation
-belongs to the operation that consumes that record.
+Context release. The diagnostic addon tests caller-owned arenas that survive
+close and can transfer between workers. Its copy fixture validates the generated
+header and checked row/heap extents in Rust before writing output; it rejects
+shared backing buffers. The copy fixture is absent from ordinary addon builds.
+Record-specific span validation belongs to the operation consuming the record.
 
 The CI Rust job builds the diagnostic addon and runs handshake, malformed
 block, bit preservation, capacity, panic, close, GC and worker termination
