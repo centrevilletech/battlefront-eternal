@@ -160,6 +160,38 @@ impl F4CommandOp {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F4StartupClass {
+    pub class_name: StrId,
+    pub team: f64,
+    pub rosters: Vec<F4RosterClasses>,
+}
+
+impl F4StartupClass {
+    pub const WORDS: usize = 4;
+    pub const CLASS_NAME: usize = 0;
+    pub const TEAM: usize = 1;
+    pub const ROSTERS: usize = 2;
+    pub fn rosters_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[2] as usize; let length = row[3] as usize; heap[start..start + length * 2].chunks_exact(2) }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.class_name.0 as f64;
+        row[1] = self.team;
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.rosters.len() as f64; heap.resize(at + self.rosters.len() * 2, 0.0); for (i, e) in self.rosters.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            class_name: StrId(word_u32(row[0])),
+            team: row[1],
+            rosters: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(F4RosterClasses::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F4UnitSpawn {
     pub target: F4Handle,
     pub post: F4Handle,
@@ -534,6 +566,8 @@ pub struct F4RosterClasses {
 
 impl F4RosterClasses {
     pub const WORDS: usize = 2;
+    pub const CLASSES: usize = 0;
+    pub fn classes_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 1].chunks_exact(1) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();

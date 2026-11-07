@@ -8,6 +8,8 @@ export default {
     F4CommandOp: ['health', 'damage', 'built', 'destroyed', 'play', 'retire', 'spend', 'credit', 'headshot', 'vehicleDestroyed', 'point', 'postDestroyed', 'class', 'ready', 'team', 'cancel', 'suicide', 'reserve', 'release', 'objective', 'controller', 'characterController'],
   },
   records: {
+    // Cold admission uses the mission's roster before any body is loaded.
+    F4StartupClass: {$layout:true,className:'str',team:'f64',rosters:'list:rec:F4RosterClasses'},
     F4UnitSpawn: {$layout:true,target:'rec:F4Handle',post:'rec:F4Handle',className:'str',position:'vec3',yaw:'f64'},
     F4ConnectionCommand: {$layout:true,op:'enum:F4ConnectionOp',target:'rec:F4Handle',className:'str|null',post:'str|null',ordinal:'f64',autoRespawn:'bool'},
     F4ConnectionView: {$layout:true,accepted:'bool',unit:'ref:unit|null',className:'str|null',post:'str|null',phase:'enum:HumanPhase',spawnedOnce:'bool',deadTime:'f64',ended:'bool'},
@@ -17,7 +19,7 @@ export default {
     F4RosterSetup: {$layout:true,classic:'bool',hasAi:'bool',armySize:'f64|null',local:'ref:character|null',names:'list:rec:F4RosterNames'},
     F4RosterCommand: {$layout:true,op:'enum:RoOperation',target:'rec:F4Handle|null',team:'f64',playerId:'union:PlayerId',name:'str'},
     F4RosterResult: {$layout:true,handle:'rec:F4Handle|null',flag:'bool',full:'bool',counts:'list:rec:RoCount'},
-    F4RosterClasses: {classes: 'list:str'},
+    F4RosterClasses: {$layout:true,classes: 'list:str'},
     F4TailSetup: { $layout: true, local: 'ref:unit|null', character: 'ref:character|null', classic: 'bool', enhanced: 'bool', registryCapacity: 'u32', victimCapacity: 'u32', commandCapacity: 'u32', pointCapacity: 'u32', spawnIndex:'f64', fallbackPath:'list:f64x4', random: 'u32', gameplay: 'u32', boundary: 'rec:BfConfig', rosters: 'list:rec:F4RosterClasses', classes: 'list:str' },
     F4PostSetup: { $layout: true, post: 'ref:post', rawPath: 'list:f64x4|null' },
     F4PadSetup: { $layout: true, index: 'u32', pad: 'rec:PsPad' },

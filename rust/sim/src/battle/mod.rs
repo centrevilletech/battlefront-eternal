@@ -61,6 +61,7 @@ pub mod rules;
 pub mod spawning;
 pub mod stat_records;
 pub mod stats;
+pub mod startup;
 pub mod supply;
 pub mod tail;
 pub mod traps;

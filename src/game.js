@@ -270,6 +270,13 @@ async function start() {
   // Whether the spawn screen runs, and the side and unit played first: the
   // URL's, or the screen's default (src/spawn-screen/policy.js).
   const policy = spawnPolicy(params, world.mission);
+  // Reject an unavailable local class before loading bodies or starting the
+  // worker. Its admission failure would otherwise leave loading awaiting it.
+  const simInstance = await loadSimInstance();
+  if (!headless && !params.has("network")) {
+    const { validateStartupClass } = await import("./spawn-screen/startup.js");
+    validateStartupClass(simInstance, policy, world.mission);
+  }
   const SIDE = policy.side;
   const UNIT = policy.className;
   const sideDir = `/sides/${SIDE}`;
@@ -451,7 +458,6 @@ async function start() {
   const groundPositions = new Float32Array(groundBuf);
   const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = await loadSimInstance();
   const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
   const rays = await (await import("./ray-kernel.js")).loadRayKernel(simInstance);
   const anim = await (await import("./anim-kernel.js")).loadAnimKernel(simInstance);

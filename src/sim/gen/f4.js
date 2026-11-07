@@ -26,6 +26,49 @@ export const F4CommandOp_NAMES = ["health","damage","built","destroyed","play","
 export const F4CommandOp_INDEX = new Map(F4CommandOp_NAMES.map((name, i) => [name, i]));
 export const F4CommandOp_VALUE = Object.freeze({"health":0,"damage":1,"built":2,"destroyed":3,"play":4,"retire":5,"spend":6,"credit":7,"headshot":8,"vehicleDestroyed":9,"point":10,"postDestroyed":11,"class":12,"ready":13,"team":14,"cancel":15,"suicide":16,"reserve":17,"release":18,"objective":19,"controller":20,"characterController":21});
 
+export const F4StartupClassLayout = Object.freeze({ words: 4, className: 0, team: 1, rosters: 2, rostersLength: 3 });
+export const F4_STARTUP_CLASS_WORDS = F4StartupClassLayout.words;
+export const F4_STARTUP_CLASS_OFFSETS = F4StartupClassLayout;
+
+export class F4StartupClassMirror {
+  constructor() {
+    this.className = '';
+    this.team = NaN;
+    this.rosters = [];
+  }
+}
+
+export function syncF4StartupClass(b, f, at, h, m) {
+  m.className = b.strings.at(f[at + 0]);
+  m.team = f[at + 1];
+  { const items = (m.rosters ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncF4RosterClasses(b, f, at + 0, h, v ?? new F4RosterClassesMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putF4StartupClass(b, o, f, at, heap) {
+  f[at + 0] = b.strings.id(o.className);
+  f[at + 1] = o.team;
+  heap.items(o.rosters, f, at + 2, 2, (f, at, v) => { putF4RosterClasses(b, v, f, at + 0, heap); });
+}
+
+export function sameF4StartupClass(a, b) {
+  if (!Object.is(a.className, b.className)) return ".className";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!sameEach(a.rosters, b.rosters, (x, y) => sameF4RosterClasses(x, y) === null)) return ".rosters";
+  return null;
+}
+
+export function exportF4StartupClass(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.className = o.className;
+  v.team = o.team;
+  v.rosters = o.rosters.map((x) => exportF4RosterClasses(x, cx));
+  return v;
+}
+
 export const F4UnitSpawnLayout = Object.freeze({ words: 13, target: 0, post: 4, className: 8, position: 9, yaw: 12 });
 export const F4_UNIT_SPAWN_WORDS = F4UnitSpawnLayout.words;
 export const F4_UNIT_SPAWN_OFFSETS = F4UnitSpawnLayout;
@@ -523,6 +566,10 @@ export function exportF4RosterResult(o, cx) {
   v.counts = o.counts.map((x) => exportRoCount(x, cx));
   return v;
 }
+
+export const F4RosterClassesLayout = Object.freeze({ words: 2, classes: 0, classesLength: 1 });
+export const F4_ROSTER_CLASSES_WORDS = F4RosterClassesLayout.words;
+export const F4_ROSTER_CLASSES_OFFSETS = F4RosterClassesLayout;
 
 export class F4RosterClassesMirror {
   constructor() {

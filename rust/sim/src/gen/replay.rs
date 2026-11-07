@@ -7084,6 +7084,27 @@ impl F2Pad {
     }
 }
 
+impl F4StartupClass {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F4StartupClass {
+            class_name: { let p = format!("{path}.className"); cx.str_in(v.get("className"), &p)? },
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            rosters: { let p = format!("{path}.rosters"); { let mut out = Vec::new(); for (i, e) in list(v.get("rosters"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(F4RosterClasses::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = cx.str_out(self.class_name); fields.push(("className", x)); }
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.rosters.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("rosters", x)); }
+        a.object("", fields)
+    }
+}
+
 impl F4UnitSpawn {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
