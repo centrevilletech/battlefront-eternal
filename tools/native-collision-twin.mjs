@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import * as THREE from 'three';
 import { CollisionWorld } from './collision-fixture.mjs';
-import { RayKernel } from '../src/ray-kernel.js';
+import { RayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { loadSim } from '../src/sim/module.js';
 
 const emit = async record => { if (!process.stdout.write(JSON.stringify(record) + '\n')) await once(process.stdout, 'drain'); };

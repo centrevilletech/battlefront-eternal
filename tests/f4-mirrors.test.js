@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { F4Mirrors } from '../src/f4-mirrors.js';
+import { F4Mirrors } from '../src/sim/wasm/f4-mirrors.js';
 import { Heap } from '../src/sim/runtime.js';
 import { F4BuildingViewLayout, F4BuildingViewMirror, F4DeltaLayout, putF4BuildingView, syncF4BuildingView, putF4Delta } from '../src/sim/gen/f4.js';
 const record = { words: F4BuildingViewLayout.words, put: putF4BuildingView, sync: syncF4BuildingView };

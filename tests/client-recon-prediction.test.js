@@ -9,7 +9,7 @@ import {CameraFrame} from './helpers/cameras.js';
 import {reconRandom} from '../src/runtime/recon-random.js';
 import {captureRemoteReplay,restoreRemoteReplay} from '../src/runtime/network-remote-replay.js';
 import {bridgeFor} from '../src/sim/runtime.js';
-import {createClientPrediction} from '../src/runtime/client-prediction.js';
+import {createClientPrediction} from '../src/sim/wasm/runtime/client-prediction.js';
 // Frozen before removing the page controller. The synthetic cases cover flight,
 // camera zoom, exit, strike and an extended missing-correction interval. Hex
 // doubles preserve signed zero and non-finite values across the fixture file.

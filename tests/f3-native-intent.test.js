@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Vector3} from 'three';
-import {observeNativeIntent} from '../src/f3-native-intent.js';
+import {observeNativeIntent} from '../src/sim/wasm/f3-native-intent.js';
 import {BlockHeaderLayout} from '../src/sim/gen/boundary.js';
 import {F3PublicationLayout as P,F3UnitMirrorLayout as U,F3UnitKeyLayout as K,F3NativeIntentLayout as I} from '../src/sim/gen/units.js';
 

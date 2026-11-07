@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { F3_BOUNDARY_REFRESH_WORDS } from '../src/sim/gen/units.js';
-import { F4Live } from '../src/f4-live.js';
-import { F4Battle } from '../src/f4-battle.js';
+import { F4Live } from '../src/sim/wasm/f4-live.js';
+import { F4Battle } from '../src/sim/wasm/f4-battle.js';
 import { f3World } from './fixtures/f3-world.js';
 import { battleFixture } from './fixtures/f4-battle.js';
 const soldier = {class:'soldier',base:'soldier',MaxHealth:100,weapons:[]};

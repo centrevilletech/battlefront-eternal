@@ -31,7 +31,7 @@ const CENSUS = {
     'src/ai/random.js': { legacy: 1 },
     'src/arc-lightning.js': { page: 58 },
     'src/presentation-pkg/bfe_presentation.js': { page: 1 }, // native sniper cosmetic random primitive
-    'src/presentation/cameras.js': { page: 1 }, // injectable cosmetic shake stream
+    'src/sim/wasm/presentation/cameras.js': { page: 1 }, // injectable cosmetic shake stream
     'src/sim/module.js': { page: 1 }, // binds the camera's standard random primitive
     'src/commandposts.js': { page: 2 }, // the post holograms' flicker (CommandPosts.present)
     'src/presentation/effects.js': { page: 1 }, // a displayed effect's recorded birth seed
@@ -48,6 +48,7 @@ const CENSUS = {
     'src/point-lights.js': { page: 1 },
     'src/render-resources.js': { page: 2 }, // upload-fence deadline while loading, never a world step
     'src/runtime-profiler.js': { host: 1 },
+    'src/sim/wasm/runtime/world-clock-sim.js': { host: 1 }, // the measured host clock's budget callback
     'src/runtime/fixed-clock.js': { host: 1 }, // pacing; a world's step runs unlimited and reads none
     'src/runtime/input-latency-trace.js': { page: 1 },
     'src/runtime/local-message-batch.js': { host: 1 },
@@ -57,11 +58,12 @@ const CENSUS = {
     'src/runtime/network-entity-budget.js': { host: 4 },
     'src/runtime/predicted-shots.js': { page: 1 },
     'src/runtime/snapshot-host.js': { host: 1 },
-    'src/runtime/wire-host.js': { host: 3 }, // entity budget availability, admission and refunds use transport time
+    'src/sim/wasm/runtime/wire-host.js': { host: 3 }, // entity budget availability, admission and refunds use transport time
     'src/rust-render/programs.js': { page: 2 }, // the page's own shader registration timing
     'src/vehicles.js': { page: 1 }, // a page's barrel clock (a world's is its host's)
   },
   'Date.now': {
+    'src/sim/wasm/runtime/world-clock-sim.js': { host: 1 }, // fallback for the host budget clock
     'src/chat.js': { page: 2 },
     'src/runtime/fixed-clock.js': { host: 1 },
     'src/runtime/local-server.js': { host: 1 },
@@ -72,6 +74,7 @@ const CENSUS = {
 
 // The legacy streams, and what reaches each in a world step today.
 const LEGACY_STREAMS = {
+  'weapon-spread': 'unbound turret bindings only (world turrets use seat-weapons)',
   'grenade-spin': 'none in a world (Ordnance.spinRandom is the grenade-spin stream)',
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
   'item-drop': 'none in a world (Items.random is the gameplay stream)',
@@ -137,7 +140,7 @@ function codeOf(text) {
 // kernels a headless world loads (a dynamic import() is otherwise a page's).
 function worldModules() {
   const seen = new Set();
-  const queue = ['src/runtime/local-server-worker.js', 'src/ray-kernel.js', 'src/movement-kernel.js'].map((f) => join(root, f));
+  const queue = ['src/runtime/local-server-worker.js', 'src/sim/wasm/ray-kernel.js', 'src/sim/wasm/movement-kernel.js', 'src/sim/wasm/attachments.js'].map((f) => join(root, f));
   const imports = /\b(?:import|export)\s[^;]*?\bfrom\s*(['"])([^'"]+)\1|\bimport\s+(['"])([^'"]+)\3/g;
   while (queue.length) {
     const file = queue.pop();

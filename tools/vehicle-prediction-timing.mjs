@@ -1,4 +1,4 @@
-import {CorrectionSmoother} from '../tools/native-prediction-smoother.mjs';
+import {CorrectionSmoother} from './native-prediction-smoother.mjs';
 // Operator-owned Bespin flight reconciliation. This models application message
 // loss/delay, not SCTP congestion or 64-player capacity. No retail files emitted.
 // Snapshot baselines clone actual vehicle state with position/velocity/rotation

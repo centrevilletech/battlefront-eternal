@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Box3, BufferAttribute, BufferGeometry, InterleavedBuffer, InterleavedBufferAttribute, Matrix4, Ray, Vector3, DoubleSide } from 'three';
-import { loadRayKernel } from '../src/ray-kernel.js';
+import { loadRayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { MeshBVH } from '../src/mesh-bvh.js';
 import { builderCases, geometry, referenceTree } from './fixtures/bvh-build-cases.js';

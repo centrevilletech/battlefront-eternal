@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSim } from '../src/sim/module.js';
-import { missionTeams } from '../src/mission-teams.js';
+import { missionTeams } from '../src/sim/wasm/mission-teams.js';
 
 // The page uses the native parser without creating an AI battle or consuming
 // gameplay draws. Keep the historical faction aliases and directed alliances.

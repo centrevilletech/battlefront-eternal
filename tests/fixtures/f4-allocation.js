@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {Session} from 'node:inspector/promises';
 import {Battle} from '../../src/battle.js';
 import {CommandPosts} from '../../src/commandposts.js';
-import {F4Live} from '../../src/f4-live.js';
-import {F4Tail} from '../../src/f4-tail.js';
+import {F4Live} from '../../src/sim/wasm/f4-live.js';
+import {F4Tail} from '../../src/sim/wasm/f4-tail.js';
 import {HumanSpawnMirror} from '../../src/sim/gen/index.js';
 import {f3World} from './f3-world.js';
 

@@ -1,4 +1,4 @@
-import {CorrectionSmoother} from '../tools/native-prediction-smoother.mjs';
+import {CorrectionSmoother} from './native-prediction-smoother.mjs';
 // Deterministic timing measurement using real Soldier collision/movement and
 // production ClientPrediction and client clocks. No renderer or replay twin.
 // Loss is deterministic application-message loss, NOT kernel/SCTP behavior.
@@ -12,10 +12,10 @@ import {pathToFileURL} from 'node:url';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {Soldier} from '../tests/helpers/body.js';
-import {createClientPrediction} from '../src/runtime/client-prediction.js';
+import {createClientPrediction} from '../src/sim/wasm/runtime/client-prediction.js';
 import { CollisionWorld } from './collision-fixture.mjs';
-import {MovementKernel} from '../src/movement-kernel.js';
-import {loadRayKernel} from '../src/ray-kernel.js';
+import {MovementKernel} from '../src/sim/wasm/movement-kernel.js';
+import {loadRayKernel} from '../src/sim/wasm/ray-kernel.js';
 import {SoldierPresentation} from '../src/soldier-presentation.js';
 import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';
 import {InputMailbox} from '../tests/fixtures/input-mailbox.js';

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { loadRayKernel } from '../src/ray-kernel.js';
-import { MovementKernel } from '../src/movement-kernel.js';
+import { loadRayKernel } from '../src/sim/wasm/ray-kernel.js';
+import { MovementKernel } from '../src/sim/wasm/movement-kernel.js';
 import { loadSim } from '../src/sim/module.js';
 import { Soldier } from './helpers/body.js';
 

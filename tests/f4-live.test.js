@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Matrix4, Object3D } from 'three';
 import { AnimatedProp, PowerupStation } from '../src/props.js';
-import { F4Live } from '../src/f4-live.js';
+import { F4Live } from '../src/sim/wasm/f4-live.js';
 import { loadClips } from '../src/anim.js';
 import { f3World } from './fixtures/f3-world.js';
 import { building } from './fixtures/f3-building.js';

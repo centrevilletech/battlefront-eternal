@@ -3,17 +3,17 @@
 import {RandomStreams} from '../../src/ai/random.js';
 import * as THREE from 'three';
 import {Unit} from '../../src/units.js';
-import {Soldier} from '../helpers/body.js';
-import {Droideka} from '../helpers/droideka.js';
+import {Soldier} from './body.js';
+import {Droideka} from './droideka.js';
 import {Units} from '../../src/registry.js';
 import {Building,Turret} from '../../src/props.js';
 import {Vehicle} from '../../src/vehicles.js';
 import {VehicleTarget,TurretTarget,SeatUnit} from '../../src/seats.js';
 import {ObjectiveTarget} from '../../src/objectives.js';
 import {Items} from '../../src/items.js';
-import {attachItemsSim} from '../../src/items-sim.js';
-import {attachF3Combat} from '../../src/f3-combat.js';
-import {attachF3} from '../../src/f3-sim.js';
+import {attachItemsSim} from '../../src/sim/wasm/items-sim.js';
+import {attachF3Combat} from '../../src/sim/wasm/f3-combat.js';
+import {attachF3} from '../../src/sim/wasm/f3-sim.js';
 
 export function unitOwner(system,bridge) {
   const units=system.units || new Units();

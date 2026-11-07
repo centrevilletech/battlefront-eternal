@@ -1,8 +1,8 @@
 import {FixedClock} from '../../src/runtime/fixed-clock.js';
 import {WorldTick} from '../../src/runtime/world-tick.js';
 import {CommandPosts} from '../../src/commandposts.js';
-import {F4Live} from '../../src/f4-live.js';
-import {F4Tail} from '../../src/f4-tail.js';
+import {F4Live} from '../../src/sim/wasm/f4-live.js';
+import {F4Tail} from '../../src/sim/wasm/f4-tail.js';
 import {HumanSpawnMirror} from '../../src/sim/gen/index.js';
 import {battleFixture} from '../fixtures/f4-battle.js';
 

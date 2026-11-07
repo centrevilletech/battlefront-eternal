@@ -5,8 +5,8 @@ import { loadSim } from '../src/sim/module.js';
 import { SimBridge, Heap } from '../src/sim/runtime.js';
 import { KIND_UNIT, UnitMirror, SoldierMirror, DroidekaMirror, F3BoundaryMirror, F3PhaseInputMirror, F3ChangeMirror,
   syncF3Boundary, putF3PhaseInput, putF3Change, F3AdoptionMirror, putF3Adoption, HitShapeMirror, CombatMirror, F3ControlViewLayout, putF3ControlView, syncF3ControlView, syncF3ControlViewDelta, syncIntent } from '../src/sim/gen/index.js';
-import { F3UnitBinding } from '../src/f3-contract.js';
-import {applyDelta,deltaBuffer} from '../src/f2-delta.js';
+import { F3UnitBinding } from '../src/sim/wasm/f3-contract.js';
+import {applyDelta,deltaBuffer} from '../src/sim/wasm/f2-delta.js';
 import {F2DeltaLayout} from '../src/sim/gen/f2.js';
 
 // Low-level fixtures consume the same encoded deltas and shared acknowledgement
@@ -116,7 +116,7 @@ test('native shape sensors retain stale death poses and strict ordered ray ties'
 
 test('owned movement and combat phase matches frozen movement results over retained input rows',async()=>{
   const [{Soldier},{CollisionWorld},{loadRayKernel},{F3CombatStore}]=await Promise.all([
-    import('./helpers/body.js'),import('../src/collision.js'),import('../src/ray-kernel.js'),import('../src/f3-combat.js')]);
+    import('./helpers/body.js'),import('../src/collision.js'),import('../src/sim/wasm/ray-kernel.js'),import('../src/sim/wasm/f3-combat.js')]);
   const instance=await loadSim(),b=new SimBridge(instance,{classes:{Soldier:SoldierMirror,Droideka:DroidekaMirror}}),x=b.x;
   const rays=await loadRayKernel(instance);
   const collision=new CollisionWorld(new Float32Array([-100,0,-100,-100,0,100,100,0,100,100,0,-100]),
@@ -153,14 +153,14 @@ test('owned movement and combat phase matches frozen movement results over retai
 
 test('owned bridge pools ordinary Unit objects and submits no body rows after construction',async(t)=>{
   const [{Soldier},{Droideka},{CollisionWorld},{loadRayKernel},{attachF3Combat},{attachF3},{Unit},{Units},THREE]=await Promise.all([
-    import('./helpers/body.js'),import('./helpers/droideka.js'),import('../src/collision.js'),import('../src/ray-kernel.js'),
-    import('../src/f3-combat.js'),import('../src/f3-sim.js'),import('../src/units.js'),import('../src/registry.js'),import('three')]);
+    import('./helpers/body.js'),import('./helpers/droideka.js'),import('../src/collision.js'),import('../src/sim/wasm/ray-kernel.js'),
+    import('../src/sim/wasm/f3-combat.js'),import('../src/sim/wasm/f3-sim.js'),import('../src/units.js'),import('../src/registry.js'),import('three')]);
   const instance=await loadSim(),rays=await loadRayKernel(instance);
   const collision=new CollisionWorld(new Float32Array([-100,0,-100,-100,0,100,100,0,100,100,0,-100]),new Uint32Array([0,1,2,0,2,3]),new Uint32Array([0,1]),undefined,undefined,rays);
   const units=new Units(),cls={class:'fixture',base:'soldier',MaxHealth:100,AddHealth:0,weapons:[],chunks:[{}],ChunkFrequency:.01};
   const combatSim=attachF3Combat(instance,{Unit,Soldier,Droideka});
   const { Ordnance } = await import('../src/ordnance.js');
-  const { attachOrdnanceSim } = await import('../src/ordnance-sim.js');
+  const { attachOrdnanceSim } = await import('../src/sim/wasm/ordnance-sim.js');
   const ordnance = new Ordnance({scene:new THREE.Scene(),collision});
   attachOrdnanceSim(ordnance, combatSim.bridge);
   const factory={built:[],context:{units,ordnance},

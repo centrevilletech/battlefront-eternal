@@ -1,7 +1,7 @@
 // Codec fixtures obtain dirty weapon state through the production mounted
 // prediction frame. No JavaScript timer, spread or reload controller is kept.
 import {CameraFrame} from './cameras.js';
-import {createClientPrediction} from '../../src/runtime/client-prediction.js';
+import {createClientPrediction} from '../../src/sim/wasm/runtime/client-prediction.js';
 export function weaponCheckpoint(rows,ticks=13,{pressed=true,heldTicks=ticks}={}){
   const host=new CameraFrame(),collision=host.collision;
   const session=createClientPrediction(collision.fixtureInstance,collision);

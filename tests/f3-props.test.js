@@ -5,7 +5,7 @@ import { ObjectiveTarget } from '../src/objectives.js';
 import { Trap } from '../src/traps.js';
 import { f3World } from './fixtures/f3-world.js';
 import { building } from './fixtures/f3-building.js';
-import {F4Live} from '../src/f4-live.js';
+import {F4Live} from '../src/sim/wasm/f4-live.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 
 const soldier = {class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]};

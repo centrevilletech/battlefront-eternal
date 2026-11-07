@@ -10,10 +10,10 @@ import { Units } from '../../src/registry.js';
 import { Unit } from '../../src/units.js';
 import { Soldier } from '../helpers/body.js';
 import { loadSim } from '../../src/sim/module.js';
-import { loadRayKernel } from '../../src/ray-kernel.js';
+import { loadRayKernel } from '../../src/sim/wasm/ray-kernel.js';
 import { SimBridge } from '../../src/sim/runtime.js';
-import { attachOrdnanceSim, ordnanceTests } from '../../src/ordnance-sim.js';
-import { attachF2 } from '../../src/f2-sim.js';
+import { attachOrdnanceSim, ordnanceTests } from '../../src/sim/wasm/ordnance-sim.js';
+import { attachF2 } from '../../src/sim/wasm/f2-sim.js';
 
 class Crew extends Unit {
   constructor(collision) {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { SimEvents } from '../src/sim-events.js';
-import { AiNotices } from '../src/ai-world-notices.js';
+import { AiNotices } from '../src/sim/wasm/ai-world-notices.js';
 
 test('native voice projection preserves source facts, optional presence and prior lives',()=>{
   const journal=new SimEvents(),projector=new AiNotices(journal,null),actor={generation:99,team:99};

@@ -16,7 +16,7 @@ export async function wasmProvider({engine,manifest}){
   ].map(name=>moduleAt(engine,name)));
   return {capabilities:{backend:'wasm',nativeWorld:false,nativePublication:false},async open(config){
     globalThis.fetch=await dataReader(config.data);
-    let game,world,host,instance,closed=false,peak={},finishedAt=null;
+    let game,world,host,instance,backend,closed=false,peak={},finishedAt=null;
     const clients=new Map(),weak=[];
     const fail=stage=>{if(config.failAfter===stage)throw Error(`Construction fixture: ${stage}`);};
     const close=()=>{
@@ -25,13 +25,13 @@ export async function wasmProvider({engine,manifest}){
       try { host?.dispose(); }
       finally {
         try { game?.dispose(); }
-        finally { host=null;world=null;game=null;instance=null; }
+        finally { backend?.close();host=null;world=null;game=null;instance=null;backend=null; }
       }
       return true;
     };
     try{
       game=await createGame({headless:true,query:config.query,simulationFactory:async()=>{
-        instance=await runtime.simulationFactory();weak.push(new WeakRef(instance),new WeakRef(instance.exports.memory));fail('instance');return instance;
+        backend=await runtime.simulationFactory();instance=backend.instance;weak.push(new WeakRef(instance),new WeakRef(instance.exports.memory));fail('instance');return backend;
       }});
       weak.push(new WeakRef(game));fail('game');
       world=createMultiplayerWorld(game,{maxPlayers:config.clients,armySize:32});fail('world');

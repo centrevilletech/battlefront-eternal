@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { F3Counters, F3UnitBinding } from '../src/f3-contract.js';
+import { F3Counters, F3UnitBinding } from '../src/sim/wasm/f3-contract.js';
 import { F3UnitMirrorMirror, F3SoldierMotionMirror, F3DroidekaMotionMirror, F3ShieldViewMirror, putF3UnitMirror, syncF3UnitMirror } from '../src/sim/gen/units.js';
 import { Heap } from '../src/sim/runtime.js';
 

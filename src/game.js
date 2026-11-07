@@ -34,7 +34,6 @@ import { Debris } from "./debris.js";
 import { Items } from "./items.js";
 import { RemoteDroids, BODY_RADIUS as DROID_RADIUS } from "./remote.js";
 import { BLAST_BODY } from "./combat.js";
-import { PageCameras } from "./presentation/cameras.js";
 import { resolveOrdnanceOwner } from "./ordnance-owner.js";
 import { reconRandom } from "./runtime/recon-random.js";
 import { Lightning } from "./lightning.js";
@@ -43,7 +42,6 @@ import { DeathCamera } from "./camera.js";
 
 import { DeathTrace } from "./death-trace.js";
 import { setAnimKernel, releaseAnimKernel } from "./anim.js";
-import { CollisionWorld } from "./collision.js";
 import { CommandPosts } from "./commandposts.js";
 import {HeadlessEffects} from "./effects.js";
 import {PageEffects,loadPresentation} from "./presentation/effects.js";
@@ -70,8 +68,6 @@ import { WorldTick } from './runtime/world-tick.js';
 import { Unit, UnitFactory } from "./units.js";
 import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
-import { createNativeAI as createAI } from "./ai-world-load.js";
-import {loadPageWeaponPolicies,bindWeaponPolicyContent} from "./weapon-policy-content.js";
 import {loadAIWeaponData} from "./ai-data.js";
 import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
 import { InputLead, advanceInputClock } from "./runtime/reconcile.js";
@@ -86,7 +82,6 @@ import { RuntimeProfiler } from "./runtime-profiler.js";
 import { attachPostAI } from './post-data.js';
 import { friendlySpawn } from './spawn-post-policy.js';
 import { callsFromMapMission } from "./mission-ai-calls.js";
-import { missionTeams } from "./mission-teams.js";
 import { Trap, padOnGround, sideOfTeams } from "./traps.js";
 import { HumanSpawn, RESPAWN_DELAY, choosePost, applyAuthoritativeHumanTeam } from "./human-spawn.js";
 import { PlayerBodies } from "./player-body.js";
@@ -95,14 +90,14 @@ import { selectAIMission, selectMission } from "./mission.js";
 import { commonModel } from "./interface/common-models.js";
 import { nextUrl } from "./launch.js";
 import { pageGpu } from "./gpu-info.js";
-import { loadSim } from "./sim/module.js";
+import { loadWasmBackend } from "./sim/wasm/backend.js";
 
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
 // The battle's shared simulation module. Page prediction requires it;
 // a load failure reaches the battle's error screen.
-async function loadSimInstance(factory) {
+async function loadSimulationBackend(factory) {
   try {
     return await factory();
   } catch (error) {
@@ -111,45 +106,7 @@ async function loadSimInstance(factory) {
 
 }
 
-// The battle's store on its instance of the module (src/sim/runtime.js
-// SimBridge: the kinds Rust owns, the imports it asks the battle), with the
-// rounds in flight and the things lying about handed over to it.
-async function attachSimStore(instance, ordnance, items, profileBoundary) {
-  const [{ bridgeFor }, { attachOrdnanceSim, ordnanceTests }, { attachItemsSim }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js"), import("./items-sim.js")]);
-  // The instance's one bridge (made here, or joined: another phase's own
-  // attach gets the same one with bridgeFor).
-  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle }, tests: ordnanceTests });
-  if (profileBoundary) {
-    const { F4Counters, countedF4Exports } = await import('./f4-counters.js');
-    bridge.boundaryCounters = new F4Counters();
-    bridge.x = countedF4Exports(bridge.x, bridge.boundaryCounters);
-  }
-  // Room for the store's rows now, so play does not grow the memory.
-  bridge.reserve(4 << 20);
-  attachItemsSim(items, attachOrdnanceSim(ordnance, bridge));
-  return bridge;
-}
-
-// The persistent owner shares the battle instance and mixed target classes.
-// A target subclass must be registered before a generated union sees it.
-async function attachOwnedUnits(instance, game) {
-  const [{attachF3},{Soldier},{Droideka},{Building,Turret},{VehicleTarget,TurretTarget},{ObjectiveTarget}] = await Promise.all([
-    import('./f3-sim.js'),import('./soldier.js'),import('./droideka.js'),import('./props.js'),
-    import('./seats.js'),import('./objectives.js'),
-  ]);
-  return attachF3(instance,{Unit,Vehicle,Soldier,Droideka,Building,Turret,VehicleTarget,TurretTarget,ObjectiveTarget},game);
-}
-
-// The owning unit phase uses content-only combat construction. Live
-// commands bind when UnitFactory finishes each body; exports stay intact.
-async function attachOwnedCombat(instance) {
-  const [{attachF3Combat},{Soldier},{Droideka},{Building,Turret}] = await Promise.all([
-    import('./f3-combat.js'),import('./soldier.js'),import('./droideka.js'),import('./props.js'),
-  ]);
-  return attachF3Combat(instance,{Unit,Vehicle,Soldier,Droideka,Building,Turret});
-}
-
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = loadSim } = {}) {
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = loadWasmBackend } = {}) {
 if(headless)await(await import('./rust-render/load.js')).rendererModule();
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
@@ -205,7 +162,7 @@ const KILL_Y = -110;
 
 // The construction slot is released on both failed startup and explicit
 // battle teardown. Existing Pose handles retain their own sampler normally.
-let battleAnimation = null, battleDisposed = false;
+let battleAnimation = null, battleBackend = null, battleDisposed = false;
 function releaseAnimation() {
   if (!battleAnimation) return;
   releaseAnimKernel(battleAnimation);
@@ -286,10 +243,9 @@ async function start() {
   const policy = spawnPolicy(params, world.mission);
   // Reject an unavailable local class before loading bodies or starting the
   // worker. Its admission failure would otherwise leave loading awaiting it.
-  const simInstance = await loadSimInstance(simulationFactory);
+  const backend = battleBackend = await loadSimulationBackend(simulationFactory);
   if (!headless && !params.has("network")) {
-    const { validateStartupClass } = await import("./spawn-screen/startup.js");
-    validateStartupClass(simInstance, policy, world.mission);
+    backend.prepare('startup', policy, world.mission);
   }
   const SIDE = policy.side;
   const UNIT = policy.className;
@@ -462,7 +418,7 @@ async function start() {
   }
 
   const weaponPolicyData=headless?await loadAIWeaponData(Object.keys(sides)):
-    await loadPageWeaponPolicies(simInstance,{sides,vehicles:vehicleDef?.classes,props:propsDef?.instances});
+    await backend.prepare('pageWeapons',{sides,vehicles:vehicleDef?.classes,props:propsDef?.instances});
 
   if (!headless) buildWorld(graphics, world, geomBuf, indexBuf, mapTexture);
   onProgress?.("world");
@@ -475,11 +431,11 @@ async function start() {
   const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather, surfaceOwner })) : null;
   const groundPositions = new Float32Array(groundBuf);
   // The kernels and the store on the battle's one instance of the module.
-  const rays = await (await import("./ray-kernel.js")).loadRayKernel(simInstance);
-  const anim = await (await import("./anim-kernel.js")).loadAnimKernel(simInstance);
+  const rays = await backend.prepare('rays');
+  const anim = await backend.prepare('animation');
   setAnimKernel(anim);
   battleAnimation = anim;
-  const collision = new CollisionWorld(
+  const collision = backend.prepare('collision',
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
     new Uint32Array(collPolyBuf),
@@ -510,9 +466,9 @@ async function start() {
     seed: params.has("seed") ? SEED : (Math.random() * 0x100000000) >>> 0,
   }) : null;
   graphics.localLights.collision = collision;
-  const pageCameras = headless ? null : new PageCameras(simInstance, collision, camera, soldierDef, common.cameraMotions, false, world.spawnScreen?.cameraShots || []);
+  const pageCameras = headless ? null : backend.prepare('cameras', collision, camera, soldierDef, common.cameraMotions, false, world.spawnScreen?.cameraShots || []);
   const simulationCamera = camera.clone();
-  const aimCameras = new PageCameras(simInstance, collision, simulationCamera, soldierDef, null, true);
+  const aimCameras = backend.prepare('cameras', collision, simulationCamera, soldierDef, null, true);
   aimCameras.displayOwner = pageCameras;
   const simulationView = aimCameras.view;
   const view = headless ? simulationView : pageCameras.view;
@@ -540,7 +496,7 @@ async function start() {
   // unit played; the command posts and the HUD follow from the map. He can
   // change teams between lives (setHumanTeam).
   const teams = world.mission?.teams || {};
-  const teamFactions = missionTeams(simInstance,[],{names:Array.from({length:8},(_,team)=>teams[team]?.name??'')}).names;
+  const teamFactions = backend.prepare('teams',[],{names:Array.from({length:8},(_,team)=>teams[team]?.name??'')}).names;
   let playerTeam = policy.team;
   let enemyTeam = Number(Object.keys(teams).find((t) => Number(t) !== playerTeam) || 2);
   // The common hologram pack: the posts' side logos, and the spawn screen's
@@ -882,11 +838,11 @@ async function start() {
     explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
   });
   // The world hands rounds and items to Rust before any is made.
-  const simBridge = headless ? await attachSimStore(simInstance, ordnance, items,
+  const simBridge = headless ? await backend.prepare('store', ordnance, items,
     params.get('profileBoundary') === '1' || globalThis.process?.env?.BFE_PROFILE_BOUNDARY === '1') : null;
   // The dormant viewpoint shares native combat with factory soldiers. It
   // receives its Unit owner after the registry assigns that object's id.
-  const combatSim = headless ? await attachOwnedCombat(simInstance) : null;
+  const combatSim = headless ? await backend.prepare('combat') : null;
   ordnance.water = water;
   // The player's bodies (src/player-body.js): the class played first, from
   // what was fetched above, and any other the first time he takes it. The
@@ -1281,17 +1237,15 @@ async function start() {
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
     if (headless) {
-      const [{ bridgeFor }, { attachF2 }] = await Promise.all([import('./sim/runtime.js'), import('./f2-sim.js')]);
-      await attachF2(vehicles, bridgeFor(simInstance, { classes: { Unit, Vehicle } }),
+      await backend.prepare('fleet', vehicles,
         { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
         { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) },
-        Unit);
+        );
     }
     if (!headless) {
       // Replicas have no F2 authority phase. Their immutable rig/collision pack
       // still constructs the private native hull used by page prediction.
-      const [{ bridgeFor }, { ClientHullContent }] = await Promise.all([import('./sim/runtime.js'), import('./runtime/client-hull-content.js')]);
-      vehicles.predictionContent = new ClientHullContent(vehicles, bridgeFor(simInstance, { classes: { Unit, Vehicle } }),
+      vehicles.predictionContent = backend.prepare('hull', vehicles,
         { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
         { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) });
     }
@@ -1431,7 +1385,7 @@ async function start() {
   // The native owner retains unit bodies and registry order. A page only
   // constructs presentation mirrors; its worker advances the battle.
   const separationScope = {global:false,camera:simulationCamera.position};
-  unitsSim = headless ? await attachOwnedUnits(simInstance, {
+  unitsSim = headless ? await backend.prepare('units', {
     factory,combatSim,collision,water,presentEffect,separation:separationScope,
     map:{killY,deathRegions:world.deathRegions,scripted:world.mission?.deathRegions},
   }) : null;
@@ -1463,7 +1417,7 @@ async function start() {
   }
   // Physical classes now exist in their canonical order, including AI-off
   // battles. Complete their targeting policy before any world tick runs.
-  if(headless)bindWeaponPolicyContent(unitsSim.bridge,unitsSim.bridge.defs.weapon.list,weaponPolicyData);
+  if(headless)backend.prepare('weaponPolicies',unitsSim.bridge.defs.weapon.list,weaponPolicyData);
   // Each team's Characters (the player is one of his team's).
   battle.populate(playerTeam);
   if (battle.human) {
@@ -1523,7 +1477,7 @@ async function start() {
       factory,
       vehicleSystem: vehicles,
     };
-    ai = await createAI(AI_MODE, aiWorld, {
+    ai = await backend.prepare('ai',AI_MODE, aiWorld, {
       weaponData:weaponPolicyData,
       map: MAP,
       sides: Object.keys(sides),
@@ -1552,13 +1506,13 @@ async function start() {
     posts.attachVehicles(vehicles, mission?.commandClasses);
     // The roster's bots are named as the Classic AI's would be.
     battle.nameBots(mission?.names, (team) => teamFactions[team]);
-    units.setTeams(missionTeams(simInstance,mission?.scripts?.[mission.mission]?.calls ?? callsFromMapMission(world.mission)));
+    units.setTeams(backend.prepare('teams',mission?.scripts?.[mission.mission]?.calls ?? callsFromMapMission(world.mission)));
   } else {
     // Who is whose friend (the mission's SetTeamAs*), each team's faction and
     // whom its soldiers capture for, as the spawn manager read them: for the
     // fighting, the posts, the AI and the HUD alike, here, in a world worker
     // and on a server.
-    units.setTeams(missionTeams(simInstance,[],{roster:true}));
+    units.setTeams(backend.prepare('teams',[],{roster:true}));
   }
   // Leaving the battlefield (src/battlefield.js): the map's boundary, the
   // Classic AI's or read for it. The world keeps each Character's count; the
@@ -1822,6 +1776,8 @@ async function start() {
   const squadNotices = ["moveout","hold","follow","atease"];
   const worldFireEdges = [], emptyFlightSettings = {};
   function step(dt,tick,recordedCommand=null) {
+    backend.enter();
+    try {
     runtimeProfile?.step(dt);
     const command = recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
     activeCommand = command;
@@ -1864,6 +1820,8 @@ async function start() {
     updateTargetHud(dt);
     humanSpawn.flush();
     if(vehicles?.f2?.debug)vehicles.f2.check();
+    } catch(error) { backend.close(); throw error; }
+    finally { backend.leave(); }
   }
 
   function announcePost(event) {
@@ -2050,6 +2008,8 @@ async function start() {
     }
     release(() => { if (!headless) predictionSession.dispose(); });
     release(releaseAnimation);
+    release(() => battleBackend?.close());
+    battleBackend = null;
     if (failed) throw failure;
   }
   // His own soldier ahead of the worker: the acknowledged state, then every
@@ -3147,7 +3107,7 @@ async function start() {
     if (!headless) followBattle({ spawnPort, scoreboardPort: { players: () => game.scoreboardPort?.players() ?? null } });
   };
   chatReady = true;
-  game.worldSim = (await import("./runtime/world-sim.js")).createWorldSim(simInstance);
+  game.worldSim = backend.prepare('world');
   game.worldSim.clock(worldClock);
   game.worldSim.events(simEvents);
   // Initial viewpoint placement is outside the factory and precedes the
@@ -3173,16 +3133,14 @@ async function start() {
   }
   // Rust owns the live objects' tick: one call at the live slot.
   if (headless) {
-    const { F4Live } = await import("./f4-live.js");
-    game.liveOwner = new F4Live(unitsSim,{local:playerUnit,unitCapacity:Math.max(64,factory.built.length),effect:presentEffect,
+    game.liveOwner = backend.prepare('live',unitsSim,{local:playerUnit,unitCapacity:Math.max(64,factory.built.length),effect:presentEffect,
       debug:globalThis.process?.env?.BFE_F4_DEBUG === "1"});
-    const { F4Tail } = await import("./f4-tail.js");
     const classes=[...new Set([...rosters.values()].flat())];
     const heroNames=[];
     for(const side of Object.values(sides)) for(const [className,def] of Object.entries(side.units)) {
       if(factory.prepared(className)) heroNames.push({className,name:def.displayName??null});
     }
-    game.tailOwner=new F4Tail(unitsSim,battle,{posts,spawning:ai?.spawning,human:humanSpawn,
+    game.tailOwner=backend.prepare('tail',unitsSim,battle,{posts,spawning:ai?.spawning,human:humanSpawn,
       boundary:battlefield.boundary,local:playerUnit,character:battle.human,random,gameplay:gameplayRandom,
       rosters:[[],rosterOf(1),rosterOf(2)],classes,paths:spawns,heroNames,captureTeams:units.teams?.capture??[],
       spawnIndex,ai,onPost:announcePost,onMobile:announceMobile,onOver:battle.onOver,
@@ -3213,7 +3171,7 @@ async function start() {
 
   }
   const predictionSession = headless ? null
-    : (await import('./runtime/client-prediction.js')).createClientPrediction(simInstance, collision);
+    : backend.prepare('prediction', collision);
   game.predictionSession = predictionSession;
   if (!headless) window.__bf = game;
   if (!headless) {
@@ -3224,7 +3182,10 @@ async function start() {
   return game;
 }
 try { return await start(); }
-catch (error) { releaseAnimation(); throw error; }
+catch (error) {
+  try { releaseAnimation(); } finally { battleBackend?.close(); battleBackend = null; }
+  throw error;
+}
 }
 
 // Each side's hologram logo, as a factory making a fresh copy with its own

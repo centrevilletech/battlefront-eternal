@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { MovementKernel } from "./movement-kernel.js";
+import { MovementKernel } from "./sim/wasm/movement-kernel.js";
 import { CastRay as CR } from "./presentation/layout.js";
 
 

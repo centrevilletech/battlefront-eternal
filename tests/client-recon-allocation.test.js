@@ -7,7 +7,7 @@ import * as T from 'three';
 import {RemoteDroids} from '../src/remote.js';
 import {CameraFrame} from './helpers/cameras.js';
 import {reconRandom} from '../src/runtime/recon-random.js';
-import {createClientPrediction} from '../src/runtime/client-prediction.js';
+import {createClientPrediction} from '../src/sim/wasm/runtime/client-prediction.js';
 
 import {restoreRemoteReplay} from '../src/runtime/network-remote-replay.js';
 const decode=value=>value&&typeof value==='object'&&'$number'in value?Buffer.from(value.$number,'hex').readDoubleLE():value&&typeof value==='object'&&'$undefined'in value?undefined:Array.isArray(value)?value.map(decode):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[k,decode(v)])):value;

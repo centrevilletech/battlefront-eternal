@@ -9,7 +9,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Gunner } from '../src/gunner.js';
 import { loadSim } from '../src/sim/module.js';
 import { SimBridge } from '../src/sim/runtime.js';
-import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
+import { attachOrdnanceSim, ordnanceTests } from '../src/sim/wasm/ordnance-sim.js';
 import { KIND_BEAM, KIND_TABLE } from '../src/sim/gen/index.js';
 
 function box(z, depth = .5) {

@@ -39,7 +39,7 @@ function recordWorld(world) {
   const hash = value => createHash('sha256').update(value).digest('hex');
   const wasm = Buffer.from(SIM_WASM, 'base64');
   const files = ['tests/world-network-controls-sim.test.js', 'src/runtime/multiplayer-world.js',
-    'src/runtime/world-sim.js', 'src/runtime/world-network-controls-sim.js', 'src/f2-seats.js',
+    'src/sim/wasm/runtime/world-sim.js', 'src/sim/wasm/runtime/world-network-controls-sim.js', 'src/sim/wasm/f2-seats.js',
     'src/runtime/network-seat.js', 'src/runtime/network-vehicle.js',
     'src/runtime/commands.js', 'src/runtime/fire-commands.js', 'src/runtime/input-actions.js',
     'src/runtime/transport.js', 'src/boarding.js', 'src/flight/controls.js', 'src/seats.js',

@@ -3,8 +3,8 @@ import { SimBridge } from '../../src/sim/runtime.js';
 import { Ordnance } from '../../src/ordnance.js';
 import { KIND_ITEM, KIND_ITEMS } from '../../src/sim/gen/index.js';
 import { Items } from '../../src/items.js';
-import { attachOrdnanceSim, ordnanceTests } from '../../src/ordnance-sim.js';
-import { attachItemsSim } from '../../src/items-sim.js';
+import { attachOrdnanceSim, ordnanceTests } from '../../src/sim/wasm/ordnance-sim.js';
+import { attachItemsSim } from '../../src/sim/wasm/items-sim.js';
 import { presentationLoaded } from './presentation.js';
 
 const module = await simModule();

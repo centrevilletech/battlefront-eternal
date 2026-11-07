@@ -10,8 +10,9 @@ import {sleep,until,collect} from './common.mjs';
 const require=createRequire(import.meta.url);
 export async function qualifyAddon(path){
   const addon=require(resolve(path));
-  if(!addon.lifecycleCounts||!addon.NativeOwner.prototype.probeWork)throw Error('A lifecycle-probe addon is required');
-  const before=addon.lifecycleCounts(),host=new addon.NativeHost(),cases=[];
+  if(!addon.lifecycleCountsInto||!addon.NativeOwner.prototype.probeWork)throw Error('A lifecycle-probe addon is required');
+  const arena=new Uint32Array(4),read=()=>{addon.lifecycleCountsInto(arena);return arena;};
+  const before=read().slice(),host=new addon.NativeHost(),cases=[];
   for(let i=0;i<24;i++){const owner=host.create();assert.equal(owner.close(),true);assert.equal(owner.close(),false);}
   cases.push('24 sequential Contexts and double close');
   const a=host.create(),b=host.create();
@@ -27,7 +28,7 @@ export async function qualifyAddon(path){
   assert.ok(await collect(refs),'unreachable owners must be collected');
   await until(()=>host.liveOwners()===0,'Context finalizers');cases.push('GC finalization');
   for(const phase of ['idle','after-step','during-native-work']){
-    const counts=addon.lifecycleCounts(),signal=new Int32Array(new SharedArrayBuffer(8));
+    const counts=read().slice(),signal=new Int32Array(new SharedArrayBuffer(8));
     const worker=new Worker(`const {parentPort,workerData}=require('node:worker_threads');
       const addon=require(workerData.path),host=new addon.NativeHost();global.owner=host.create();
       if(workerData.phase==='after-step')owner.probeIdentity('worker',3);
@@ -40,12 +41,12 @@ export async function qualifyAddon(path){
       const stopping=worker.terminate();
       if(phase==='during-native-work'){await sleep(20);Atomics.store(signal,1,1);}
       assert.equal(await stopping,1);
-      await until(()=>addon.lifecycleCounts()[1]===counts[1]+1,'environment cleanup');
-      assert.equal(addon.lifecycleCounts()[0]-counts[0],1);
+      await until(()=>read()[1]===counts[1]+1,'environment cleanup');
+      assert.equal(read()[0]-counts[0],1);
     }finally{Atomics.store(signal,1,1);await worker.terminate();}
     cases.push(`Worker.terminate ${phase}`);
   }
-  const after=addon.lifecycleCounts(),created=after[0]-before[0],released=after[1]-before[1];
+  const after=read(),created=after[0]-before[0],released=after[1]-before[1];
   assert.equal(host.liveOwners(),0);assert.equal(created,released);
   return {scope:'native Context foundation',capabilities:addon.handshake(),cases,created,released,live:created-released};
 }

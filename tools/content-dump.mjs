@@ -34,7 +34,7 @@ const { battlesOf, selectMission, selectAIMission } = await import('../src/missi
 const { spawnPolicy } = await import('../src/spawn-screen/policy.js');
 const { modelPack, modelGroup } = await import('../src/models.js');
 const { loadClips, setAnimKernel } = await import('../src/anim.js');
-const { loadAnimKernel } = await import('../src/anim-kernel.js');
+const { loadAnimKernel } = await import('../src/sim/wasm/anim-kernel.js');
 // Content construction samples authored bind poses just as the world does.
 // Install its native sampler before a loader builds animated resources.
 setAnimKernel(await loadAnimKernel());

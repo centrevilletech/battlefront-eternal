@@ -1,8 +1,8 @@
 import {Character} from '../../src/battle.js';
 import {Matrix4} from 'three';
 import {CommandPosts} from '../../src/commandposts.js';
-import {F4Live} from '../../src/f4-live.js';
-import {F4Tail} from '../../src/f4-tail.js';
+import {F4Live} from '../../src/sim/wasm/f4-live.js';
+import {F4Tail} from '../../src/sim/wasm/f4-tail.js';
 import {HumanSpawnMirror} from '../../src/sim/gen/index.js';
 import {f3World} from './f3-world.js';
 

@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadSim } from '../src/sim/module.js';
 import { spawnPolicy } from '../src/spawn-screen/policy.js';
-import { validateStartupClass } from '../src/spawn-screen/startup.js';
+import { validateStartupClass } from '../src/sim/wasm/spawn-screen/startup.js';
 
 // A class can exist in its side's assets without being offered by a mission.
 // Admission must finish before any body or local-world worker is constructed.

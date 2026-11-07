@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ClassicRandom, RandomStreams, uniformRandom, randomBinding } from '../src/ai/random.js';
-import { F3Random } from '../src/f3-random.js';
+import { F3Random } from '../src/sim/wasm/f3-random.js';
 import { Heap } from '../src/sim/runtime.js';
 import { F3RandomEpochLayout, F3RandomStateMirror, putF3RandomState, syncF3RandomState } from '../src/sim/gen/index.js';
 

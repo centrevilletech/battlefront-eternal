@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { classFacts,hullFacts,postFacts,propFacts } from '../src/ai-world-content.js';
+import { classFacts,hullFacts,postFacts,propFacts } from '../src/sim/wasm/ai-world-content.js';
 import { Heap } from '../src/sim/runtime.js';
 import { AiCaptureLayout,AiCaptureMirror,putAiCapture,syncAiCapture,
   AiRawCaptureLayout,AiRawCaptureMirror,putAiRawCapture,syncAiRawCapture } from '../src/sim/gen/ai-phase.js';

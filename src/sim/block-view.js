@@ -25,6 +25,18 @@ export class WasmBlocks {
     this.bytes = new Uint8Array(this.memory.buffer);
     view.generation++;
   }
+  readInto(pointer, length, view) {
+    this.refresh();
+    view.words = this.view.words;
+    view.base = pointer / Float64Array.BYTES_PER_ELEMENT;
+    view.length = length;
+    view.generation = this.view.generation;
+    return view;
+  }
+  close() {
+    this.memory = null; this.bytes = null;
+    this.view.words = null; this.view.base = 0; this.view.length = 0; this.view.generation++;
+  }
   readBlock(pointer) {
     this.refresh();
     const view = this.view;

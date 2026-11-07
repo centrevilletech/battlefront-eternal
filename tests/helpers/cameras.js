@@ -2,7 +2,7 @@
 // records as the page. Camera policy is never reimplemented by a test host.
 import * as T from 'three';
 import {shownGunner} from './network-preview.js';
-import {PageCameras} from '../../src/presentation/cameras.js';
+import {PageCameras} from '../../src/sim/wasm/presentation/cameras.js';
 import {CameraOutput as O} from '../../src/presentation/layout.js';
 import {presentTurret} from './page-presentation.js';
 import {CollisionWorld} from '../../tools/collision-fixture.mjs';

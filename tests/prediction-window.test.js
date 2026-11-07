@@ -1,8 +1,8 @@
 import test from 'node:test';
 import { loadSim } from '../src/sim/module.js';
-import { loadRayKernel } from '../src/ray-kernel.js';
-import { MovementKernel } from '../src/movement-kernel.js';
-import { createClientPrediction } from '../src/runtime/client-prediction.js';
+import { loadRayKernel } from '../src/sim/wasm/ray-kernel.js';
+import { MovementKernel } from '../src/sim/wasm/movement-kernel.js';
+import { createClientPrediction } from '../src/sim/wasm/runtime/client-prediction.js';
 import { Arsenal } from '../src/weapons.js';
 import { PlayerCombat } from '../src/combat.js';
 import assert from 'node:assert/strict';

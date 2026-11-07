@@ -135,3 +135,15 @@ impl NativeOwner {
     #[napi]
     pub fn probe_close_panic(&self) {self.owner.borrow_mut().panic_on_close = true;}
 }
+
+// Caller-owned diagnostic storage avoids allocating a result Vec while an
+// allocation census observes cleanup. Counters never retain Context handles.
+#[napi]
+pub fn lifecycle_counts_into(mut output: Uint32Array) -> Result<()> {
+    if output.len() < 4 { return Err(Error::from_reason("Counter arena is too short")); }
+    output[0] = CREATED.load(Ordering::SeqCst);
+    output[1] = RELEASED.load(Ordering::SeqCst);
+    output[2] = HOOKS_CREATED.load(Ordering::SeqCst);
+    output[3] = HOOKS_RELEASED.load(Ordering::SeqCst);
+    Ok(())
+}

@@ -472,3 +472,21 @@ and server already part there today; Rust that computes with the reference's
 functions (`rust/v8math`) makes them agree. The movement kernel computes
 the sines and cosines of its yaw and pitch with `rust/v8math`, so a client's
 soldier ticks there come out as the server's do.
+
+The game receives a simulation provider before attaching collision, pose or
+store resources. Its cold `prepare` categories return the stable facades used
+by content loading and observers. World ticks and snapshot publication then use
+one operation each. Generated decoders accept a `BlockView` with words, section
+base, length and generation; only `src/sim/wasm` resolves linear-memory addresses.
+The shared identities and record I/O live in `src/sim/bridge-core.js`. WASM-only
+phase adapters retain their existing typed readbacks inside the concrete provider.
+Scalar store commands also use their generated argument/result blocks.
+
+A provider owns its admitted transport and prediction sessions. Explicit close,
+failed construction and fatal tick errors release them in reverse admission
+order, clear import handlers and invalidate boundary views. Close requested from
+an observer waits for the enclosing synchronous tick to return. Diagnostic owner
+counts use caller-owned typed storage, updated only on acquisition and release.
+The Node addon still advertises `native_world: false`: its Context cleanup hooks
+are exercised independently until the owned world coordinator and typed native
+preparation, step and publication operations are available.

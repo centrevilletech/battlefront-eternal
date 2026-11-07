@@ -79,3 +79,19 @@ test('bridge adapters and block readers share one memory view bank', async () =>
   assert.equal(bridge.u8.buffer, bridge.buffer);
   assert.equal(bridge.grown, before + 2);
 });
+
+// Counters live in caller-owned typed storage and update only at admission or
+// release. Closing through an active loan must keep the banks until its end.
+test('backend closes each owner once and defers through active work', async () => {
+  const {loadWasmBackend}=await import('../src/sim/wasm/backend.js');
+  const counts=new Uint32Array(4),backend=await loadWasmBackend({counters:counts});
+  const bridge=backend.bridge;let releases=0;
+  const resource=backend.own({dispose(){releases++;}});
+  resource.dispose();resource.dispose();
+  backend.own({dispose(){releases++;}});
+  backend.enter();assert.equal(backend.close(),true);assert.equal(backend.close(),false);
+  assert.ok(backend.blocks.memory);assert.equal(releases,1);
+  backend.leave();assert.equal(releases,2);
+  assert.equal(backend.blocks.memory,null);assert.equal(backend.blocks.view.words,null);
+  assert.equal(bridge.closed,true);assert.deepEqual([...counts],[1,1,2,2]);
+});

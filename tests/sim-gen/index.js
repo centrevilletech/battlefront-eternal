@@ -18,7 +18,7 @@ export const KIND_TABLE = [null,
 export const RECORD_CLASSES = {"Legs":["Legs"],"Wheels":["Wheels"]};
 
 // Commands, events and imports by code: name, and their records' words and functions.
-export const COMMAND_TABLE = [null, { name: "double", code: 1, args: { words: 24, Mirror: AskMirror, sync: syncAsk, put: putAsk }, result: { words: 24, Mirror: AskMirror, sync: syncAsk, put: putAsk }, fast: null }];
+export const COMMAND_TABLE = [null, { name: "double", code: 1, args: { words: 24, Mirror: AskMirror, sync: syncAsk, put: putAsk }, result: { words: 24, Mirror: AskMirror, sync: syncAsk, put: putAsk }, bulk: null }];
 export const EVENT_TABLE = [null, { name: "noted", code: 1, record: { words: 17, Mirror: SpotMirror, sync: syncSpot, put: putSpot } }];
 export const IMPORT_TABLE = [null, { name: "lookUp", code: 1, symbol: "bfe_import_look_up", args: { words: 24, Mirror: AskMirror, sync: syncAsk, put: putAsk }, result: { words: 17, Mirror: SpotMirror, sync: syncSpot, put: putSpot } }];
 

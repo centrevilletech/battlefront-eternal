@@ -1,7 +1,7 @@
 // Synthetic worlds retain their own native collision and camera owners.
 // The game supplies the kernel on its battle's simulation instance explicitly.
 import { CollisionWorld as World } from '../src/collision.js';
-import { RayKernel } from '../src/ray-kernel.js';
+import { RayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { simModule, simImports } from '../src/sim/module.js';
 const module = await simModule();
 export function CollisionWorld(positions, indices, polygons, terrainPositions, terrainIndices, kernel) {

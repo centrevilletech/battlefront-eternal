@@ -8,7 +8,7 @@ import { CommandControls } from './commands.js';
 import { FireCommands } from './fire-commands.js';
 import { InputMailbox } from './transport.js';
 import { InputActions } from './input-actions.js';
-import { F4Connections } from '../f4-connections.js';
+import { F4Connections } from '../sim/wasm/f4-connections.js';
 import { createMultiplayerRoster } from './multiplayer-roster.js';
 import { networkViews } from './network-views.js';
 

@@ -1,7 +1,7 @@
 import {presentTurret, pageProps, local} from './helpers/page-presentation.js';
 import {turretAt} from './fixtures/f3-turret.js';
 import {f3World} from './fixtures/f3-world.js';
-import {F4Live} from '../src/f4-live.js';
+import {F4Live} from '../src/sim/wasm/f4-live.js';
 // Bots at turrets (docs/ai-vehicles.md "Turrets"): the drum's rest heading,
 // its yaw limits, a bot's analogs turning the drum and gun onto a target
 // wherever it stands, and damage to a turret reaching the AI as damage to

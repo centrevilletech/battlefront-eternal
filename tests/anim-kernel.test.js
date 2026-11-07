@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { Clip, Pose, setAnimKernel, releaseAnimKernel } from '../src/anim.js';
-import { loadAnimKernel } from '../src/anim-kernel.js';
+import { loadAnimKernel } from '../src/sim/wasm/anim-kernel.js';
 
 // Synthetic signed quaternions and root travel retain the original f32
 // accumulator stores, wrapping, weight cutoff and normalized bone writes.

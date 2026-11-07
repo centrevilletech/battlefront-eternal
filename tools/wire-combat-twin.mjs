@@ -2,7 +2,8 @@
 // while the original JavaScript producers supply independent expected bytes.
 import assert from 'node:assert/strict';
 import { Heap } from '../src/sim/runtime.js';
-import { WireCombat } from '../src/runtime/wire-combat.js';
+// This record-only oracle captures the concrete adapter's generated inputs.
+import { WireCombat } from '../src/sim/wasm/runtime/wire-combat.js';
 import { combatCases, combatEncoders } from './wire-combat-fixtures.mjs';
 
 const words = values => {

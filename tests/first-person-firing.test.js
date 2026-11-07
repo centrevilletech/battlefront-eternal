@@ -8,9 +8,9 @@ import { PlayerCombat } from '../src/combat.js';
 import { FirstPersonView } from './helpers/presentation.js';
 import { prepareMelee } from '../src/heroes.js';
 import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
-import { createClientPrediction } from '../src/runtime/client-prediction.js';
+import { createClientPrediction } from '../src/sim/wasm/runtime/client-prediction.js';
 import { loadSim } from '../src/sim/module.js';
-import { loadRayKernel } from '../src/ray-kernel.js';
+import { loadRayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { actorCourse, createPredictionActor } from './fixtures/client-actors.js';
 import { Arsenal } from '../src/weapons.js';
 

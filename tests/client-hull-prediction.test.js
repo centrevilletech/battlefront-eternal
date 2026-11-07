@@ -5,13 +5,13 @@ import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { loadSim } from '../src/sim/module.js';
-import { loadRayKernel } from '../src/ray-kernel.js';
+import { loadRayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { bridgeFor } from '../src/sim/runtime.js';
-import { attachF2 } from '../src/f2-sim.js';
-import { ClientHullContent } from '../src/runtime/client-hull-content.js';
+import { attachF2 } from '../src/sim/wasm/f2-sim.js';
+import { ClientHullContent } from '../src/sim/wasm/runtime/client-hull-content.js';
 import { Unit } from '../src/units.js';
 import { hullFixture, hullCommand } from './fixtures/client-hull.js';
-import { createClientPrediction } from '../src/runtime/client-prediction.js';
+import { createClientPrediction } from '../src/sim/wasm/runtime/client-prediction.js';
 import { captureGroundCorrection, restoreGroundCorrection } from '../src/runtime/network-entity-ground.js';
 import { captureFlightCorrection, restoreFlightCorrection } from '../src/runtime/network-entity-flight.js';
 

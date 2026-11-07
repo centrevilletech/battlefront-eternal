@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Vehicles, Vehicle } from '../../src/vehicles.js';
 import { Unit } from '../../src/units.js';
 import { bridgeFor } from '../../src/sim/runtime.js';
-import { attachF2 } from '../../src/f2-sim.js';
+import { attachF2 } from '../../src/sim/wasm/f2-sim.js';
 
 // Real native fleet construction over synthetic geometry. No map pack, actor
 // model or retail content is required to exercise incoming combat and leases.

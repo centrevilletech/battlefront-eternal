@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { F2MirrorCheck } from '../src/f2-contract.js';
+import { F2MirrorCheck } from '../src/sim/wasm/f2-contract.js';
 import { F2Counters } from './helpers/f2-counters.js';
 
 test('F2 counters snapshot actual calls and copied scalar words independently', () => {

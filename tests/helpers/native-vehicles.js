@@ -8,8 +8,8 @@ import { bridgeFor } from '../../src/sim/runtime.js';
 import { Unit } from '../../src/units.js';
 import { Vehicle, Vehicles } from '../../src/vehicles.js';
 import { Ordnance } from '../../src/ordnance.js';
-import { attachOrdnanceSim, ordnanceTests } from '../../src/ordnance-sim.js';
-import { attachF2 } from '../../src/f2-sim.js';
+import { attachOrdnanceSim, ordnanceTests } from '../../src/sim/wasm/ordnance-sim.js';
+import { attachF2 } from '../../src/sim/wasm/f2-sim.js';
 export function nativeVehicles(system, pack) {
   const bridge = bridgeFor(system.collision.fixtureInstance, { classes: { Unit, Vehicle }, tests: {
     ...ordnanceTests, unit: v => Boolean(v && !v.seats && !v.rig && (v.soldier || v.constructor === Object && 'generation' in v && 'team' in v)),

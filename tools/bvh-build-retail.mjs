@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { headlessGame, idleCommand } from './headless-world.mjs';
-import { RayKernel } from '../src/ray-kernel.js';
+import { RayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { referenceTree, recordFor } from '../tests/fixtures/bvh-build-cases.js';
 
 const args = process.argv.slice(2), option = (name, fallback) => { const at = args.indexOf(`--${name}`); return at < 0 ? fallback : args[at + 1]; };

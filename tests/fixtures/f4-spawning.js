@@ -1,7 +1,7 @@
 import { Character } from '../../src/battle.js';
 import { ClassicRandom,uniformRandom } from '../../src/ai/random.js';
-import { AiWorld } from '../../src/ai-world.js';
-import { classFacts,postFacts } from '../../src/ai-world-content.js';
+import { AiWorld } from '../../src/sim/wasm/ai-world.js';
+import { classFacts,postFacts } from '../../src/sim/wasm/ai-world-content.js';
 import { AiWorldSetupMirror,AiWorldContentMirror,AiRosterSetupMirror } from '../../src/sim/gen/ai-phase.js';
 import { KIND_BATTLE,KIND_POST,KIND_COMMAND_POSTS,KIND_MOBILE_POSTS,SpawningMirror } from '../../src/sim/gen/index.js';
 

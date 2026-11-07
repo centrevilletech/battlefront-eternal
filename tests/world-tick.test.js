@@ -2,8 +2,8 @@ import { FixedClock } from '../src/runtime/fixed-clock.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CommandPosts } from '../src/commandposts.js';
-import { F4Live } from '../src/f4-live.js';
-import { F4Tail } from '../src/f4-tail.js';
+import { F4Live } from '../src/sim/wasm/f4-live.js';
+import { F4Tail } from '../src/sim/wasm/f4-tail.js';
 import { HumanSpawnMirror } from '../src/sim/gen/index.js';
 import { IMPORT_TABLE } from '../src/sim/gen/index.js';
 import { WaterState } from '../src/runtime/water-state.js';
@@ -34,22 +34,21 @@ async function fixture(water = null) {
   for(const name of ['ai_world_phase','f3_step','f4_live','ord_update','items_update','f4_tail','ai_world_dangers']) {
     world.phase.x[name]=()=>{throw Error(`host dispatched ${name}`);};
   }
+  let calls=0;world.phase.x.world_step_run=()=>{calls++;return x.world_step_run();};
   const tick = new WorldTick(world.phase,new FixedClock());
-  return {world, unit, battle, human, tick, x};
+  return {world, unit, battle, human, tick, x, get calls(){return calls;}};
 }
 
 test('one world entry retains body publication through empty later phases', async()=>{
   const f=await fixture();
   assert.equal(IMPORT_TABLE.some(row=>row?.name==='worldStep'),false);
-  let calls=0;
-  f.world.phase.x.world_step_run=()=>{calls++;return f.x.world_step_run();};
   const initialTicks=f.unit.tickCount;
   f.unit.intent.forward=1;
   for(let i=1;i<=120;i++){
     f.tick.run(1/60,i,true,null,false,true,0,false,0);f.tick.finish();f.tick.complete();
     if(i>1){assert.equal(f.tick.output.allocations,0);assert.equal(f.tick.output.reallocations,0);}
   }
-  assert.equal(calls,120);
+  assert.equal(f.calls,120);
   assert.equal(f.unit.tickCount-initialTicks,240);
   assert.ok(f.unit.soldier.position.z>0);
   assert.ok(Math.abs(f.battle.stats.time-2)<1e-12);
@@ -72,7 +71,7 @@ test('invalid world time returns a bounded result before any phase runs',async()
   const f=await fixture(), b=f.world.phase.bridge, input=new WorldTickInputMirror();
   const initialTicks=f.unit.tickCount;
   input.dt=NaN;input.tick=1;
-  b.views();putWorldTickInput(b,input,b.f,f.tick.address,b.heap);
+  b.views();putWorldTickInput(b,input,b.f,f.tick.operation.address/8,b.heap);
   const result=b.callResult({Mirror:WorldTickOutputMirror,sync:syncWorldTickOutput},f.x.world_step_run());
   assert.equal(result.accepted,false);
   assert.equal(f.unit.tickCount,initialTicks);
@@ -100,7 +99,7 @@ test('a stale viewpoint rejects the enclosing tick before world mutation',async(
   const key=f.world.phase.bindings[f.unit.id].view.key;
   b.retire(KIND_UNIT,key.slot,key.generation);
   input.dt=1/60;input.tick=1;input.clock=f.tick.clock;
-  b.views();putWorldTickInput(b,input,b.f,f.tick.address,b.heap);
+  b.views();putWorldTickInput(b,input,b.f,f.tick.operation.address/8,b.heap);
   const result=b.callResult({Mirror:WorldTickOutputMirror,sync:syncWorldTickOutput},f.x.world_step_run());
   assert.equal(result.accepted,false);
   assert.equal(result.clock.tick,0);

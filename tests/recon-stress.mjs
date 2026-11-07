@@ -25,7 +25,7 @@ import {createEntityRegistry,verifyEntityRegistry} from '../src/runtime/network-
 import {entityPostNames} from '../src/runtime/entity-spawn-posts.js';
 import {INPUT_CODES,DEFAULT_BINDING_PROFILES} from '../src/runtime/network-entity-input.js';
 import {EntityInputSender} from '../src/runtime/network-entity-sender.js';
-import {createClientPrediction} from '../src/runtime/client-prediction.js';
+import {createClientPrediction} from '../src/sim/wasm/runtime/client-prediction.js';
 import {RESPAWN_DELAY} from '../src/human-spawn.js';
 import {capturePlayerCorrection} from '../src/runtime/network-entity-capture.js';
 import {captureWorldSummaries} from '../src/runtime/network-entity-summary.js';

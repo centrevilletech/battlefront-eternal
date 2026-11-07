@@ -30,9 +30,8 @@ test('shared bridge counts real record copies and synchronous imports', async ()
   const result = bridge.command('relay', args);
   assert.equal(result.value, 7);
   assert.equal(bridge.boundaryCounters.importCalls - before.importCalls, 1);
-  // Flat commands pass scalar arguments directly; only the import result
-  // copies a record back. Nonflat commands also copy their argument block.
-  assert.equal(bridge.boundaryCounters.inputWords - before.inputWords, words * (command.fast ? 1 : 2));
+  // Every command and import result copies its generated block.
+  assert.equal(bridge.boundaryCounters.inputWords - before.inputWords, words * 2);
   assert.equal(bridge.boundaryCounters.outputWords - before.outputWords, words * 2);
   assert.ok(bridge.boundaryCounters.exportCalls > before.exportCalls);
 });

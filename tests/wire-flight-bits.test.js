@@ -10,8 +10,8 @@ const fromBits = bits => { const view = new DataView(new ArrayBuffer(8)); view.s
 const floorBits = bytes => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(6 + 13 * 8, true);
 const descriptors = () => correctionDescriptors().filter(d => d.name.startsWith('flight-compact-'));
 async function countedEncoder() {
-  const instance = await loadSim(), original = bridgeFor(instance), bridge = Object.create(original); let calls = 0;
-  bridge.x = { ...original.x, wire_semantic_run(...args) { calls++; return original.x.wire_semantic_run(...args); } };
+  const instance = await loadSim(), bridge = bridgeFor(instance), original = bridge.x; let calls = 0;
+  bridge.x = { ...original, wire_semantic_run(...args) { calls++; return original.wire_semantic_run(...args); } };
   return { instance, native: createWireSemanticBridge(bridge), calls: () => calls };
 }
 

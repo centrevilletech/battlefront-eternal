@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimEvents } from '../src/sim-events.js';
-import { AiJournalFacts } from '../src/ai-world-input.js';
+import { AiJournalFacts } from '../src/sim/wasm/ai-world-input.js';
 
 test('AI journal facts preserve sparse positions, overflow and reference presence',()=>{
   const journal=new SimEvents(3),input=new AiJournalFacts(3),unit={alive:true,generation:1};

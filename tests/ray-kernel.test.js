@@ -5,7 +5,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { makeHit } from '../src/collision.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { loadRayKernel, RayKernel } from '../src/ray-kernel.js';
+import { loadRayKernel, RayKernel } from '../src/sim/wasm/ray-kernel.js';
 
 test('query input views stay within reserved memory at a page boundary and after growth', () => {
   const memory = new WebAssembly.Memory({ initial: 1 });

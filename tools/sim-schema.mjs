@@ -906,6 +906,20 @@ function rustCalls(model) {
     if (c.name === 'relay') lines.push('#[cfg(not(target_arch = "wasm32"))]',
       `pub fn ${name}(${values.map(v => `_${v}: f64`).join(', ')}) -> *const f64 { std::ptr::null() }`, '');
   }
+  // Detached world commands return the call-block loan before invoking hooks.
+  // The bulk veneer decodes the same record as the scalar compatibility export.
+  if (!model.target.test) for (const c of model.commandsList) {
+    if (!c.detached) continue;
+    const symbol = `cmd_${snake(c.name).replace(/^r#/, '')}_block`;
+    lines.push(`/// Runs ${c.name} from the generated call block without retaining its store loan.`,
+      '#[cfg(target_arch = "wasm32")]', '#[no_mangle]', `pub extern "C" fn ${symbol}() -> *const f64 {`,
+      `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return std::ptr::null(); }`,
+      `    let args = { let sim = crate::abi::sim(); let (row, heap) = sim.calls.args(); ${c.args}::take(row, heap) };`);
+    if (c.result) lines.push(`    let result = crate::${c.rust}(args);`, '    let sim = crate::abi::sim();',
+      `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
+    else lines.push(`    crate::${c.rust}(args);`, '    std::ptr::null()');
+    lines.push('}', '');
+  }
   for (const e of model.eventsList) {
     lines.push(`impl ${e.record} {`, `    /// Emits it as the event ${e.name} (drained in order at the end of the phase).`, '    pub fn emit(&self, events: &mut crate::store::calls::Events) {', `        events.emit(EVENT_${upper(e.name)}, ${e.record}::WORDS, |row, heap| self.put(row, heap));`, '    }', '}', '');
   }
@@ -1880,13 +1894,8 @@ function jsIndex(model) {
   const recFns = (r) => ({ words: words(model, { base: 'rec', of: r, nullable: { null: false, undefined: false } }) });
   const fnsOf = (r) => `{ words: ${recFns(r).words}, Mirror: ${r}Mirror, sync: sync${r}, put: put${r} }`;
   lines.push('// Commands, events and imports by code: name, and their records\' words and functions.');
-  // A flat command's binding: its words into the bridge's scratch, then one call.
-  const fast = (c) => {
-    if (model.target.test || !flat(model, c.args)) return 'null';
-    const n = recordWords(model, c.args);
-    return `(b, o) => { const s = b.words; put${c.args}(b, o, s, 0, null); return b.x.cmd_${snake(c.name).replace(/^r#/, '')}(${Array.from({ length: n }, (_, i) => `s[${i}]`).join(', ')}); }`;
-  };
-  lines.push(`export const COMMAND_TABLE = [null, ${model.commandsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'}, fast: ${fast(c)} }`).join(', ')}];`);
+  // Every command uses one generated argument/result block on either backend.
+  lines.push(`export const COMMAND_TABLE = [null, ${model.commandsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'}, bulk: ${c.detached && !model.target.test ? JSON.stringify(`cmd_${snake(c.name).replace(/^r#/, '')}_block`) : 'null'} }`).join(', ')}];`);
   lines.push(`export const EVENT_TABLE = [null, ${model.eventsList.map((e) => `{ name: ${JSON.stringify(e.name)}, code: ${e.code}, record: ${fnsOf(e.record)} }`).join(', ')}];`);
   lines.push(`export const IMPORT_TABLE = [null, ${model.importsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, symbol: ${JSON.stringify(`bfe_import_${snake(c.name).replace(/^r#/, '')}`)}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'} }`).join(', ')}];`, '');
   lines.push(`export const DEF_TABLES = ${JSON.stringify([...new Set([...model.kindList.flatMap((k) => k.fields), ...[...model.records.values()].flatMap((r) => r.fields)].filter((f) => f.type.base === 'def').map((f) => f.type.of))].sort())};`);

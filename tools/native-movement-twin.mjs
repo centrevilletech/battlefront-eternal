@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
-import { RayKernel } from '../src/ray-kernel.js';
-import { MovementKernel } from '../src/movement-kernel.js';
+import { RayKernel } from '../src/sim/wasm/ray-kernel.js';
+import { MovementKernel } from '../src/sim/wasm/movement-kernel.js';
 import { CollisionWorld } from './collision-fixture.mjs';
 import { Soldier } from '../tests/helpers/body.js';
 import { MovementTrace } from './native-movement-records.mjs';

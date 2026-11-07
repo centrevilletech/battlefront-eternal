@@ -5,12 +5,12 @@ import * as THREE from 'three';
 import { captureGroundCorrection } from '../../src/runtime/network-entity-ground.js';
 import { captureFlightCorrection } from '../../src/runtime/network-entity-flight.js';
 import { presentationHull } from '../../src/runtime/client-hull.js';
-import { createClientPrediction } from '../../src/runtime/client-prediction.js';
-import { pullPose } from '../../src/vehicle-phase-data.js';
+import { createClientPrediction } from '../../src/sim/wasm/runtime/client-prediction.js';
+import { pullPose } from '../../src/sim/wasm/vehicle-phase-data.js';
 import { drawHull } from './page-presentation.js';
 import { nativeVehicles } from './native-vehicles.js';
 import { KIND_VEHICLE } from '../../src/sim/gen/index.js';
-import { Soldier } from '../helpers/body.js';
+import { Soldier } from './body.js';
 import { Unit } from '../../src/units.js';
 
 const owners = new WeakMap(), packs = new WeakMap();

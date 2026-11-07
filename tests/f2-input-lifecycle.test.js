@@ -11,17 +11,17 @@ import { Session } from 'node:inspector/promises';
 import * as THREE from 'three';
 import { CollisionWorld } from '../src/collision.js';
 import { Vehicles, Vehicle } from '../src/vehicles.js';
-import { attachF2 } from '../src/f2-sim.js';
+import { attachF2 } from '../src/sim/wasm/f2-sim.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { Unit } from '../src/units.js';
 import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { Ordnance } from '../src/ordnance.js';
-import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
+import { attachOrdnanceSim, ordnanceTests } from '../src/sim/wasm/ordnance-sim.js';
 import { Soldier } from './helpers/body.js';
 import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
-import { loadRayKernel } from '../src/ray-kernel.js';
+import { loadRayKernel } from '../src/sim/wasm/ray-kernel.js';
 import { predictHull } from './helpers/hull-prediction.js';
 
 function box(w, h, d, y) {
@@ -134,7 +134,7 @@ function rider(system, id) {
   return unit;
 }
 
-test('live F2 scalar commands publish leases before hooks and latch in f2_step', async () => {
+test('live F2 bulk commands publish leases before hooks and latch in f2_step', async () => {
   const { system } = await fleet();
   try {
     const v = system.vehicles[0], u = rider(system, 7);
