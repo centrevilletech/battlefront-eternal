@@ -98,15 +98,20 @@ test('remote turret replicas follow the current drum without another lease',asyn
   // time to optimize it. Retained matrices and source records must allocate
   // nothing, including the interpolation reset for a remote gunner.
   const step=i=>{turret.yaw=.3+i%60*.001;phase.present(1/60,i);host.begin(1/60,null,false);host.owner.run();};
-  for(let batch=0;batch<80;batch++){for(let i=0;i<240;i++)step(i);await new Promise(resolve=>setTimeout(resolve,10));}
+  const warm=async()=>{for(let batch=0;batch<80;batch++){for(let i=0;i<240;i++)step(i);await new Promise(resolve=>setTimeout(resolve,10));}};
   const session=new Session();session.connect();
   try{
     const options={samplingInterval:1,includeObjectsCollectedByMajorGC:true,includeObjectsCollectedByMinorGC:true};
+    // Sampling can collect earlier fixtures' weak feedback maps and deopt
+    // otherwise warm publication code. Clear those maps before warming this
+    // retained body, and repeat after the profiler's own first window.
+    await session.post('HeapProfiler.collectGarbage');await warm();
     await session.post('HeapProfiler.startSampling',options);
     for(let i=0;i<120;i++)step(i);
     await session.post('HeapProfiler.stopSampling');
+    await session.post('HeapProfiler.collectGarbage');await warm();
     await session.post('HeapProfiler.startSampling',options);
-    for(let i=0;i<120;i++)step(i);
+    for(let i=0;i<480;i++)step(i);
     const {profile}=await session.post('HeapProfiler.stopSampling'),allocations=[];
     function visit(node){
       if(node.selfSize&&/\/src\/(presentation\/(units|props|tree)|soldier-presentation)\.js$/.test(node.callFrame.url))allocations.push({name:node.callFrame.functionName,line:node.callFrame.lineNumber+1,bytes:node.selfSize});
