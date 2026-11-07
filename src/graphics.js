@@ -802,6 +802,7 @@ export class Graphics {
       cameraCapacity: { clipped: this.rust.rust.camera_clipped(), evicted: this.rust.rust.camera_evicted() },
       lightPackCapacity: { evicted: this.rust.rust.camera_pack_evicted(), rejected: this.rust.rust.camera_pack_rejected() },
       sniperClipped: this.rust.byName.effects.sniperDropped(),
+      resourceCapacity: JSON.parse(this.rust.rust.resource_diagnostics()),
       shadowClipped: { draws: this.rust.byName.shadow.clipped, sources: this.rust.rust.static_depth_clipped() },
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },

@@ -66,6 +66,7 @@ export const EFFECT = {
   },
   "ANALYTIC": {
     "ID": 9,
+    "CAPACITY": 1024,
     "LENGTH": 0,
     "STRIDE": 18
   },

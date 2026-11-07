@@ -1,3 +1,5 @@
+import {SkyConfig as SKY_CONFIG,SkyClass as SKY_CLASS} from '../src/environment/layout.js';
+import {surfaceStepSource} from '../tools/renderer-corpus/surface-step.mjs';
 // The Enhanced sky's flyers (Graphics > Ocean and sky: Enhanced) beside the
 // original's, from the same views, at the default view distance
 // (src/sky-flyers.js, docs/environment-effects.md "The sky's flyers").
@@ -7,7 +9,7 @@
 //   node tests/sky-flyers-enhanced-browser.mjs
 // Env: GAME_URL (http://127.0.0.1:18449), SKY_FLYERS_OUTPUT (frames, default
 // /tmp/bf-sky-flyers/enhanced), SKY_FLYERS_ONLY (comma list of the names
-// below), SKY_FLYERS_SIZE (960x540).
+// below), SKY_FLYERS_SIZE (1280x720).
 //
 // For each battle the page builds the original's classes and the era's,
 // flies them, and stands the camera where it shows the most of an Enhanced
@@ -26,7 +28,7 @@ import { launchBrowser, openBattle, LOW_SETTINGS } from './battle-page.mjs';
 const URL = process.env.GAME_URL || 'http://127.0.0.1:18449';
 const OUT = process.env.SKY_FLYERS_OUTPUT || '/tmp/bf-sky-flyers/enhanced';
 const ONLY = (process.env.SKY_FLYERS_ONLY || '').split(',').filter(Boolean);
-const [WIDTH, HEIGHT] = (process.env.SKY_FLYERS_SIZE || '960x540').split('x').map(Number);
+const [WIDTH, HEIGHT] = (process.env.SKY_FLYERS_SIZE || '1280x720').split('x').map(Number);
 mkdirSync(OUT, { recursive: true });
 
 const CW = { rep_fly_assault_dome: 2, cis_fly_fedlander_dome: 2 };
@@ -44,9 +46,30 @@ const BATTLES = [
 ].filter((battle) => !ONLY.length || ONLY.includes(battle.name));
 
 // On the page: the classes, views, frames and pixel comparisons.
-function pageHelpers() {
-  const sky = () => __bf.skyFlyers;
+function pageHelpers(config) {
+  const sky = () => __bf.skyFlyers,THREE=__bf.THREE;
+  // These views author pose/lens facts through CameraOwner. A paused gameplay
+  // matrix publication would otherwise override every scripted camera aim.
+  delete __bf.camera.userData.nativeView;
+  // Read the installed owner's published rows. No flight state is simulated
+  // here; these objects only label native instance indices for camera probes.
+  const rows=(kind,index,visit)=>{
+    const p=kind.motion.matrices;
+    for(const [matrices,looks,count]of [[kind.solid.matrices,kind.solid.looks,kind.draws[0]?.count||0],[kind.fading.matrices,kind.fading.looks,kind.fades[0]?.count||0]]){
+      for(let i=0;i<count;i++){const o=i*16+12;const scale=looks[i*4+3]||1;
+        // Native reach fitting moves/scales distant rows. Their immutable
+        // heading still joins the sorted draw to its unsorted motion index.
+        const heading=Math.abs(matrices[i*16+8]/scale-p[index*16+8])<1e-5&&Math.abs(matrices[i*16+10]/scale-p[index*16+10])<1e-5;
+        if(heading)visit(looks,i*4);}
+    }
+  };
+  for(const kind of sky()?.classes||[])kind.ships=Array.from({length:kind.def.count},(_,index)=>({index,
+    get position(){return new THREE.Vector3().fromArray(kind.motion.matrices,index*16+12);},
+    get forward(){return new THREE.Vector3().fromArray(kind.motion.matrices,index*16+8).normalize();},
+    get fade(){let alpha=0;rows(kind,index,(looks,at)=>{alpha=looks[at];});return alpha;},
+  }));
   window.__sky = {
+    hide(kind,index){rows(kind,index,(looks,at)=>{looks[at]=0;});},
     classes(mode) {
       return Object.fromEntries((sky()?.classes || []).filter((kind) => kind[mode]).map((kind) => [kind.def.model, kind.ships.length]));
     },
@@ -55,7 +78,7 @@ function pageHelpers() {
       return sky().enhanced;
     },
     fly(seconds, dt = 1 / 30) {
-      for (let t = 0; t < seconds - 1e-9; t += dt) sky().update(dt, __bf.camera);
+      for (let t = 0; t < seconds - 1e-9; t += dt) __stepBattleSurfaces(__bf,dt,__bf.camera);
     },
     eyes() {
       const shots = (__bf.spawnPort?.cameraShots?.() || []).map((s) => s.position);
@@ -77,7 +100,7 @@ function pageHelpers() {
       const across = Math.hypot(at[0] - eye[0], at[2] - eye[2]);
       camera.lookAt(at[0], at[1] - 0.3 * across * Math.tan(fov * Math.PI / 360), at[2]);
       camera.updateMatrixWorld();
-      sky().update(0, camera);
+      __stepBattleSurfaces(__bf,0,camera);
     },
     grab() {
       const { graphics, renderer } = __bf;
@@ -85,7 +108,7 @@ function pageHelpers() {
       const gl = renderer.getContext();
       const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
       const pixels = new Uint8Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       return { pixels, w, h, url: renderer.domElement.toDataURL('image/png') };
     },
     // Pixels the ships change: the frame against the same frame without them.
@@ -140,10 +163,10 @@ function pageHelpers() {
       this.aim(eye, at, fov);
       const shown = this.grab();
       sky().group.visible = false;
-      sky().update(0, __bf.camera);
+      __stepBattleSurfaces(__bf,0,__bf.camera);
       const hidden = this.grab();
       sky().group.visible = true;
-      sky().update(0, __bf.camera);
+      __stepBattleSurfaces(__bf,0,__bf.camera);
       return { url: shown.url, hiddenUrl: hidden.url, ...this.shipPixels(shown, hidden) };
     },
     // For each eye, its nearest drawn ship well above it; the nearest few.
@@ -169,12 +192,18 @@ function pageHelpers() {
     follow(model, eye, step, every) {
       const flyers = sky(), kind = flyers.classes.find((k) => k.def.model === model);
       const ship = kind.ships[0];
-      flyers.launch(kind, ship);
+      // Author a short ring for the fade probe, independent of map distance
+      // edits: Classic must leave before four seconds; Enhanced pre-rolls.
+      const at=config.STRIDE+kind.index*config.class.STRIDE,ring=100;
+      const distance=flyers.host.config[at+config.class.DISTANCE],life=flyers.host.config[at+config.class.LIFE_TIME];
+      flyers.host.config[at+config.class.DISTANCE]=ring;flyers.host.config[at+config.class.LIFE_TIME]=1000;
+      flyers.host.config[config.ENHANCED]=flyers.enhanced?1:0;flyers.host.config[config.SEED]+=1;flyers.host.x.sky_start();flyers.host.x.sky_set_enhanced(flyers.enhanced?1:0);flyers.host.refresh(true);
+      __stepBattleSurfaces(__bf,0,__bf.camera);
       const samples = [], frames = [];
       for (let i = 0; i < 400; i++) {
-        const before = ship.fade;
+        const before = ship.position;
         // Inside the ring the original starts it on.
-        const inside = Math.hypot(ship.position.x, ship.position.z) <= kind.def.distance - 0.5;
+        const inside = Math.hypot(ship.position.x, ship.position.z) <= ring - 0.5;
         samples.push({ alpha: Math.abs(ship.fade), inside, at: ship.position.toArray() });
         if (i % every === 0) {
           const d = Math.hypot(...ship.position.toArray().map((v, k) => v - eye[k]));
@@ -183,9 +212,12 @@ function pageHelpers() {
           this.aim(eye, ship.position.toArray(), fov);
           frames.push(this.grab().url);
         }
-        for (let t = 0; t < step - 1e-9; t += 1 / 60) flyers.update(1 / 60, __bf.camera);
-        if (before < 0 && ship.fade >= 0) break;
+        for (let t = 0; t < step - 1e-9; t += 1 / 60) __stepBattleSurfaces(__bf,1/60,__bf.camera);
+        if (ship.position.distanceTo(before)>ring*.5) break;
       }
+      // Restore the real map's owner before the independent motion probe.
+      flyers.host.config[at+config.class.DISTANCE]=distance;flyers.host.config[at+config.class.LIFE_TIME]=life;
+      flyers.host.x.sky_start();flyers.host.refresh(true);__stepBattleSurfaces(__bf,0,__bf.camera);
       return { samples, frames };
     },
   };
@@ -201,9 +233,10 @@ try {
     let opened = null;
     try {
       opened = await openBattle(browser, { base: URL, query: `${battle.query}&seed=7`, viewport: { width: WIDTH, height: HEIGHT },
-        settings: { ...LOW_SETTINGS, oceanEffects: 'enhanced', upscaler: 'off', viewDistance: 'original' }, timeout: 600000 });
+        settings: { ...LOW_SETTINGS, oceanEffects: 'enhanced', upscaler: 'off', renderScale:1, dynamicResolution:'off', viewDistance: 'original' }, timeout: 600000 });
       const { page } = opened;
-      await page.evaluate(pageHelpers);
+      await page.evaluate(surfaceStepSource());
+      await page.evaluate(pageHelpers,{...SKY_CONFIG,class:SKY_CLASS});
       if (battle.geonosis) await geonosis(page);
       else await compare(page, battle);
       const errors = opened.errors.filter((e) => /sky|flyer|shader|WebGL|program/i.test(e));
@@ -291,7 +324,7 @@ async function geonosis(page) {
   const result = await page.evaluate(async ([eye]) => {
     // A diagnostic readout of the velocity target: its one pass is made here,
     // as a browser-compiled test material, because no shipped pass reads it.
-    const THREE = await import('three');
+    const THREE = __bf.THREE;
     const triangle = new THREE.BufferGeometry();
     triangle.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
     triangle.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
@@ -306,35 +339,34 @@ async function geonosis(page) {
     const flyers = __bf.skyFlyers, kind = flyers.classes.find((k) => k.def.model === 'cis_fly_droidfighter_dome');
     const camera = __bf.camera;
     const gl = __bf.renderer.getContext();
-    const read = () => { const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight; const pixels = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels); return { pixels, w, h, url: __bf.renderer.domElement.toDataURL('image/png') }; };
+    const read = () => { const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight; const pixels = new Uint8Array(w * h * 4); gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels); return { pixels, w, h, url: __bf.renderer.domElement.toDataURL('image/png') }; };
     // The view as it is without the upscaler: with the ships, without them,
     // and without this one.
     const still = (ship) => {
-      __bf.settings.set('upscaler', 'off');
+      __bf.settings.set('upscaler', 'off');__bf.settings.set('renderScale',1);
       const off = __sky.grab();
       flyers.group.visible = false;
-      flyers.update(0, camera);
+      __stepBattleSurfaces(__bf,0,camera);
       const hidden = __sky.grab();
       flyers.group.visible = true;
-      const fade = ship.fade;
-      ship.fade = 0;
-      flyers.update(0, camera);
+      __stepBattleSurfaces(__bf,0,camera);__sky.hide(kind,ship.index);
       const others = __sky.grab();
-      ship.fade = fade;
-      flyers.update(0, camera);
+      __stepBattleSurfaces(__bf,0,camera);
       return { off, hidden, others, own: __sky.shipPixels(off, others).changed, ...__sky.shipPixels(off, hidden) };
     };
     // 24 frames under the temporal upscaler from `start` (the ships' flight
     // saved by snapshot()), the ships' motion drawn or not.
-    const snapshot = () => flyers.classes.map((k) => k.ships.map((s) => ({ s, position: s.position.clone(), velocity: [...s.velocity], fade: s.fade, age: s.age, entered: s.entered, matrix: s.matrix.clone(), previous: s.previous.clone() })));
-    const restore = (saved) => saved.flat().forEach((v) => { v.s.position.copy(v.position); v.s.velocity = [...v.velocity]; v.s.fade = v.fade; v.s.age = v.age; v.s.entered = v.entered; v.s.matrix.copy(v.matrix); v.s.previous.copy(v.previous); });
+    // The shared phase is allocation-stable during the film. Restore its
+    // actual memory, including RNG and native history, rather than JS ships.
+    const snapshot=()=>new Uint8Array(flyers.host.x.memory.buffer).slice();
+    const restore=saved=>{const memory=flyers.host.x.memory.buffer;if(memory.byteLength!==saved.length)throw Error('Sky film grew its native owner');new Uint8Array(memory).set(saved);flyers.host.refresh(true);flyers.motionChecked=-1;flyers.publishFrame();};
     const film = (saved, motion) => {
       restore(saved);
       const meshes = flyers.classes.flatMap((k) => k.motions);
       if (!motion) for (const m of meshes) flyers.motion.removeExtra(m);
-      __bf.settings.set('upscaler', 'temporal');
+      __bf.settings.set('upscaler', 'temporal');__bf.settings.set('renderScale',.75);
       __bf.graphics.resetHistory?.();
-      for (let f = 0; f < 24; f++) { flyers.update(1 / 60, camera); __bf.graphics.render(f / 60); }
+      for (let f = 0; f < 24; f++) { __stepBattleSurfaces(__bf,1/60,camera); __bf.graphics.render(f / 60); }
       const temporal = read();
       if (!motion) for (const m of meshes) flyers.motion.addExtra(m);
       return temporal;
@@ -349,7 +381,7 @@ async function geonosis(page) {
       if (!ship) continue;
       camera.fov = 15;
       camera.updateProjectionMatrix();
-      camera.lookAt(ship.position.clone().addScaledVector(ship.forward, 0.25 * ship.velocity[2]));
+      camera.lookAt(ship.position);
       camera.updateMatrixWorld();
       if (still(ship).own <= 50) continue;
       const saved = snapshot();
@@ -365,13 +397,12 @@ async function geonosis(page) {
       // Its motion as drawn for the upscaler (this fighter's alone) against
       // its motion on screen over the same frame, in UV units.
       const index = kind.ships.indexOf(ship);
-      __bf.settings.set('upscaler', 'temporal');
+      __bf.settings.set('upscaler', 'temporal');__bf.settings.set('renderScale',.75);
       const was = ship.position.clone().project(camera);
-      flyers.update(1 / 60, camera);
+      __stepBattleSurfaces(__bf,1/60,camera);
       for (const k of flyers.classes) for (const m of k.motions) m.visible = k === kind;
-      kind.motion.shown.array.fill(0);
-      kind.motion.shown.array[index] = 1;
-      kind.motion.shown.needsUpdate = true;
+      kind.motion.shown.fill(0);
+      kind.motion.shown[index] = 1;
       __bf.graphics.render(25 / 60);
       const is = ship.position.clone().project(camera);
       const expected = [(is.x - was.x) * 0.5, (is.y - was.y) * 0.5];
@@ -401,7 +432,7 @@ async function geonosis(page) {
         mx += (moved.pixels[k] / 255 - 0.5) / 25;
         my += (moved.pixels[k + 1] / 255 - 0.5) / 25;
       }
-      flyers.update(0, camera);
+      __stepBattleSurfaces(__bf,0,camera);
       const drawn = n ? [mx / n, my / n] : null;
       return { temporal: temporal.url, without: without.url, off: off.url, a, b, c, distance: ship.position.distanceTo(camera.position), tries, motion: { pixels: n, drawn, expected } };
     }

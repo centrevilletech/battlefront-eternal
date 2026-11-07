@@ -210,9 +210,11 @@ export function standinResources(renderer, calls) {
   const native=()=>{const id=next++;handles[id]={native:id};return id;};
   const owner = {
     gpu: { epoch: () => 0, retired_sample: native, texture:id=>handles[id],
+      skin_image:(...args)=>{calls.push(["skin_image",...args]);return native();},
+      release_skin_image:(...args)=>{calls.push(["release_skin_image",...args]);},
       effect_data:(...args)=>{calls.push(["effect_data",...args]);return native();},
       effect_noise:kind=>{calls.push(["effect_noise",kind]);return native();},
-      fountain_atlas:native,snow_pixels(){},weather_cover:()=>{},dispose_sample(){} },
+      fountain_atlas:native,effect_pixels(){},snow_pixels(){},weather_cover:()=>{},dispose_sample(){} },
     lightningSample(texture){return this.staticSample(texture);},
     effectTarget(kind){return {nativeTarget:native(),texture:native(),depthTexture:-1,width:1,height:1,samples:0};},
     resizeEffectTarget(target,width,height){target.width=width;target.height=height;},

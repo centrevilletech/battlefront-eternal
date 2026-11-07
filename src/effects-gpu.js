@@ -6,7 +6,7 @@ import { EFFECT } from './rust-render/effect-layout.js';
 // Spawn state stays in instance buffers. Authored tracks and the much smaller
 // array of emitter transforms/times are read in the vertex shader. One draw per
 // texture/blend, including effects with different tracks. No simulation readback.
-const KEYS = 8, WIDTH = 64, MAX_EFFECTS = 1024, MAX_DEFINITIONS = 1024;
+const KEYS = 8, WIDTH = 64, MAX_EFFECTS = EFFECT.ANALYTIC.CAPACITY, MAX_DEFINITIONS = 1024;
 const ATTRIBUTES = { spawnPosition: 3, spawnVelocity: 3, spawnColor: 4, spawnShape: 4, spawnMeta: 4 };
 const power2 = n => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
 export class AnalyticParticleBatch {

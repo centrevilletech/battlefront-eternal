@@ -568,6 +568,11 @@
       "result": "Result<(), String>"
     },
     {
+      "name": "resource_diagnostics",
+      "args": [],
+      "result": "String"
+    },
+    {
       "name": "effect_batch",
       "args": [
         [
@@ -1063,6 +1068,16 @@
         ]
       ],
       "result": ""
+    },
+    {
+      "name": "effect_settings",
+      "args": [
+        [
+          "shadows",
+          "bool"
+        ]
+      ],
+      "result": "Result<(),String>"
     },
     {
       "name": "far_table",

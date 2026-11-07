@@ -13,7 +13,7 @@ import { Surface as LIMITS, SurfaceResult as RESULT } from '../src/environment/l
 await loadEnvironment();
 
 for (const snowing of [false,true]) test(`one surface call advances shared ${snowing?'snow':'rain'}, haze and foliage resources`,()=>{
-  const owner=new SurfaceOwner(),memory=owner.x.memory.buffer,scene=new THREE.Scene();
+  const owner=new SurfaceOwner(),scene=new THREE.Scene();
   let calls=0,selections=0;
   const advance=owner.update.bind(owner);owner.update=()=>{calls++;advance();};
   const camera=new THREE.PerspectiveCamera(65,1.6,.5,250);camera.position.set(2,3,4);camera.updateMatrixWorld();
@@ -25,6 +25,8 @@ for (const snowing of [false,true]) test(`one surface call advances shared ${sno
   const foliage=new Foliage(scene,{},{texture:()=>texture,nearEnd:()=>200,drawer:{select:()=>selections++},surfaceOwner:owner});
   for(const system of [weather,snow,atmosphere])if(system){assert.equal(system.update,undefined);assert.equal(system.host.update,undefined);}
   const phase=new SurfaceFrame(owner,foliage,null,null,weather,snow,atmosphere,null,null);
+  // Construction can grow the shared heap; warm frames must retain it.
+  const memory=owner.x.memory.buffer;
   for(let i=0;i<120;i++){phase.update(1/60,camera,null);phase.publishEnvironment();}
   assert.equal(calls,120);assert.equal(selections,120);assert.equal(foliage.time,phase.host.result[RESULT.TIME]);
   assert.equal(owner.x.memory.buffer,memory,'all borrowed resource views retain their memory');

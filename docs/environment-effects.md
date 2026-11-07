@@ -209,7 +209,9 @@ tests/sky-flyers-enhanced-browser.mjs` (Enhanced shows the era's ships
 where Classic shows only the original's, Bespin: Platforms, Cloud City,
 Mos Eisley and Naboo Plains at the original view distance; a Geonosis
 gunship followed through its life in each mode; a droid fighter's motion
-for the upscaler). Frames in `SKY_FLYERS_OUTPUT`.
+for the upscaler). The fade check authors a shorter native lifetime and reach
+so Classic's exit occurs during Enhanced's fade, then restores the map's
+configuration for the motion check. Frames in `SKY_FLYERS_OUTPUT`.
 
 
 ## Assets

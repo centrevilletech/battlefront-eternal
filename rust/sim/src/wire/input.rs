@@ -1,6 +1,7 @@
 //! BNI1 input and BNA1 acknowledgement encoding. Registry/profile lookup
 //! and JSON context identity remain at the adapter boundary.
 use crate::gen::{WiAck, WiPacket, WiView};
+use bfe_presentation::network_layout::net_protocol;
 type Result<T> = std::result::Result<T, &'static str>;
 
 struct Fields { bytes: Vec<u8>, limit: usize }
@@ -51,7 +52,7 @@ pub fn encode(packet: &WiPacket) -> Result<Vec<u8>> {
             || !ack.tick.is_finite() || ack.tick.fract() != 0. || ack.tick < 0. || ack.tick > 4294967295. { return Err("invalid snapshot ack"); }
     }
     let mut w = Fields::new(1100);
-    w.u32(0x31494e42u32 as f64)?; w.u32(packet.epoch)?; w.u32(packet.generation)?;
+    w.u32(net_protocol::INPUT_MAGIC as f64)?; w.u32(packet.epoch)?; w.u32(packet.generation)?;
     w.u8(packet.views.len() as f64)?; w.u8(packet.commands.len() as f64)?; w.u8(packet.edges.len() as f64)?; w.u8(packet.ack.is_some() as u8 as f64)?;
     for v in &packet.views { view(&mut w, v)?; }
     for c in &packet.commands {
@@ -98,7 +99,7 @@ pub fn encode(packet: &WiPacket) -> Result<Vec<u8>> {
     Ok(w.bytes)
 }
 pub fn keepalive(ack: &WiAck) -> Result<Vec<u8>> {
-    let mut w = Fields::new(10); w.u32(0x31414e42u32 as f64)?; w.u16(ack.epoch)?; w.u32(ack.tick)?; Ok(w.bytes)
+    let mut w = Fields::new(10); w.u32(net_protocol::ACK_MAGIC as f64)?; w.u16(ack.epoch)?; w.u32(ack.tick)?; Ok(w.bytes)
 }
 pub fn wire_input_words(op: u32) -> u32 { if op == 0 { WiPacket::WORDS as u32 } else { WiAck::WORDS as u32 } }
 

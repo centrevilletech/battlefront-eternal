@@ -88,160 +88,98 @@ export class DestructionHost {
 // for its configuration and objects, the camera it is given each frame and
 // the batches of squares it leaves. `ground(x, z)` answers the terrain's
 // height under a point (NaN for none).
-export class AtmosphereHost {
-  constructor(owner, classes, instances, fog, ground) {
-    const x = owner.attach({ host_ground: ground });
-    this.owner = owner; this.x = x;
-    x.atm_new(classes, instances, fog ? 1 : 0);
-    const buffer = x.memory.buffer;
-    this.config = new Float64Array(buffer, x.atm_config_ptr(), x.atm_config_len());
-    this.instances = new Float64Array(buffer, x.atm_instances_ptr(), x.atm_instances_len());
-    this.view = new Float64Array(buffer, x.atm_view_ptr(), View.STRIDE);
-    this.result = new Float64Array(buffer, x.atm_result_ptr(), x.atm_result_len());
-    this.buffer = buffer;
-  }
-
-  // After the configuration is written: builds the haze, then the squares'
-  // records can be viewed.
-  // Building the haze allocates (and so may grow the module's memory, which
-  // detaches the views taken before); the views are taken again after it.
-  start(batches) {
-    this.x.atm_start();
-    const x = this.x, buffer = x.memory.buffer;
-    this.buffer = buffer;
-    this.view = new Float64Array(buffer, x.atm_view_ptr(), View.STRIDE);
-    this.result = new Float64Array(buffer, x.atm_result_ptr(), x.atm_result_len());
-    this.batches = Array.from({ length: batches }, (_, b) => ({
-      center: new Float32Array(buffer, x.atm_batch_ptr(b, 0), Squares.CAPACITY * 4),
-      spin: new Float32Array(buffer, x.atm_batch_ptr(b, 1), Squares.CAPACITY * 2),
-    }));
-  }
+// Shared hosts borrow memory only until the next allocation. Producers bind
+// their retained draw arrays here so a growth refresh also repairs aliases.
+// A cold mode can replace one vector while every other borrowed row stays put.
+function borrow(old,Type,buffer,offset,length) { return old&&old.buffer===buffer&&old.byteOffset===offset&&old.length===length?old:new Type(buffer,offset,length); }
+class SharedHost {
+  constructor(owner) { this.owner=owner;this.x=owner.x;this.buffer=null;this.bindings=[];owner.hosts.push(this); }
+  changed(force) { const b=this.x.memory.buffer;if(!force&&b===this.buffer)return false;this.buffer=b;return true; }
+  bindArray(target,key,get) { this.refresh();target[key]=get(this);this.bindings.push({target,key,get}); }
+  publishBindings() { for(let i=0;i<this.bindings.length;i++){const b=this.bindings[i];b.target[b.key]=b.get(this);} }
 }
 
-// The shared owner binding for the snow (rust/bfe-environment snow.rs): the flakes, the
-// wind and the boxes in view, with the cover cache's heights. `cast(x, y, z)`
-// answers a cover cell (the height of the first roof or floor below the
-// point, or of open water over it).
-export class SnowHost {
-  constructor(owner, cast) {
-    const x = owner.attach({ host_cover: cast });
-    this.owner = owner; this.x = x;
-    x.snow_new();
-    this.config = new Float64Array(x.memory.buffer, x.snow_config_ptr(), SnowConfig.STRIDE);
+export class AtmosphereHost extends SharedHost {
+  constructor(owner,classes,instances,fog,ground) {
+    super(owner);owner.attach({host_ground:ground});this.x.atm_new(classes,instances,+!!fog);this.batches=[];this.batchCount=0;this.refresh();
   }
-
-  // After the configuration is written. Building the snow allocates, so the
-  // views are taken after it.
-  start() {
-    const x = this.x;
-    x.snow_start();
-    const buffer = x.memory.buffer;
-    this.view = new Float64Array(buffer, x.snow_view_ptr(), View.STRIDE);
-    this.result = new Float64Array(buffer, x.snow_result_ptr(), SnowResult.STRIDE);
-    this.flakes = new Float32Array(buffer, x.snow_data_ptr(0), x.snow_data_len(0));
-    this.boxes = new Float32Array(buffer, x.snow_data_ptr(1), x.snow_data_len(1));
-    this.heights = new Float32Array(buffer, x.snow_data_ptr(2), x.snow_data_len(2));
-    this.cell = x.snow_cover_cell();
+  refresh(force=false) {
+    if(!this.changed(force))return false;const x=this.x,b=this.buffer;
+    this.config=borrow(this.config,Float64Array,b,x.atm_config_ptr(),x.atm_config_len());
+    this.instances=borrow(this.instances,Float64Array,b,x.atm_instances_ptr(),x.atm_instances_len());
+    this.view=borrow(this.view,Float64Array,b,x.atm_view_ptr(),View.STRIDE);this.result=borrow(this.result,Float64Array,b,x.atm_result_ptr(),x.atm_result_len());
+    for(let i=0;i<this.batchCount;i++){const row=this.batches[i]??={};row.center=borrow(row.center,Float32Array,b,x.atm_batch_ptr(i,0),Squares.CAPACITY*4);row.spin=borrow(row.spin,Float32Array,b,x.atm_batch_ptr(i,1),Squares.CAPACITY*2);}
+    this.publishBindings();return true;
   }
+  // Building haze can move its vectors without growing the memory buffer.
+  start(batches) { this.x.atm_start();this.batchCount=batches;this.refresh(true); }
 }
 
-// The shared owner binding for the sky's flyers (rust/bfe-environment sky.rs): the
-// configuration is written, then `start` builds the ships.
-export class SkyHost {
-  constructor(owner, classes) {
-    const x = owner.x;
-    this.owner = owner; this.x = x;
-    x.sky_new(classes);
-    this.classes = classes;
-    this.config = new Float64Array(x.memory.buffer, x.sky_config_ptr(), x.sky_config_len());
+export class SnowHost extends SharedHost {
+  constructor(owner,cast) { super(owner);owner.attach({host_cover:cast});this.x.snow_new();this.started=false;this.refresh(); }
+  refresh(force=false) {
+    if(!this.changed(force))return false;const x=this.x,b=this.buffer;
+    this.config=borrow(this.config,Float64Array,b,x.snow_config_ptr(),SnowConfig.STRIDE);
+    if(this.started){
+      this.view=borrow(this.view,Float64Array,b,x.snow_view_ptr(),View.STRIDE);this.result=borrow(this.result,Float64Array,b,x.snow_result_ptr(),SnowResult.STRIDE);
+      this.flakes=borrow(this.flakes,Float32Array,b,x.snow_data_ptr(0),x.snow_data_len(0));this.boxes=borrow(this.boxes,Float32Array,b,x.snow_data_ptr(1),x.snow_data_len(1));this.heights=borrow(this.heights,Float32Array,b,x.snow_data_ptr(2),x.snow_data_len(2));this.cell=x.snow_cover_cell();
+    }
+    this.publishBindings();return true;
   }
+  start() { this.x.snow_start();this.started=true;this.refresh(true); }
+}
 
-  // Building the ships allocates, so the views are taken after it.
-  start() {
-    const x = this.x, buffer = x.memory.buffer;
-    x.sky_start();
-    this.buffer = x.memory.buffer;
-    this.frame = new Float64Array(this.buffer, x.sky_frame_ptr(), SkyFrame.STRIDE);
-    this.result = new Float64Array(this.buffer, x.sky_result_ptr(), x.sky_result_len());
+export class SkyHost extends SharedHost {
+  constructor(owner,classes) { super(owner);this.classes=classes;this.classArrays=[];this.started=false;this.x.sky_new(classes);this.refresh(); }
+  refresh(force=false) {
+    if(!this.changed(force))return false;const x=this.x,b=this.buffer;
+    this.config=borrow(this.config,Float64Array,b,x.sky_config_ptr(),x.sky_config_len());
+    if(this.started){
+      this.frame=borrow(this.frame,Float64Array,b,x.sky_frame_ptr(),SkyFrame.STRIDE);this.result=borrow(this.result,Float64Array,b,x.sky_result_ptr(),x.sky_result_len());
+      for(let i=0;i<this.classArrays.length;i++){const row=this.classArrays[i];if(row)for(let w=0;w<Sky.ARRAYS;w++)row[w]=borrow(row[w],Float32Array,b,x.sky_array_ptr(i,w),x.sky_array_len(i,w));}
+    }
+    this.publishBindings();return true;
   }
-
-  // A class's seven records (solid matrices and looks, fading ones, motion's
-  // matrices, previous matrices and shown flags) as typed arrays.
+  start() { this.x.sky_start();this.started=true;this.refresh(true); }
   arrays(class_) {
-    const x = this.x;
-    return Array.from({ length: Sky.ARRAYS }, (_, w) => new Float32Array(this.buffer, x.sky_array_ptr(class_, w), x.sky_array_len(class_, w)));
+    this.refresh();return this.classArrays[class_]??=Array.from({length:Sky.ARRAYS},(_,w)=>new Float32Array(this.buffer,this.x.sky_array_ptr(class_,w),this.x.sky_array_len(class_,w)));
   }
 }
 
-// An instance for the rain (rust/bfe-environment weather.rs): the drops'
-// clock and camera motion, the cover cache, the splashes and which draws
-// show. `cover(x, y, z)` answers a cover cell (the height of the first roof
-// or floor below the point, or of open water over it); `impact(x, y, z)` a
-// splash's cast, returning the height it ends at and leaving its normal and
-// whether it is water in `normal` (x, y, z, water).
-export class WeatherHost {
-  constructor(owner, capacity, enhanced, range, size, cover, impact, normal) {
-    const callbacks = { host_cover: cover, host_impact: impact, host_impact_normal: (i) => normal[i] };
-    const x = owner.attach(callbacks);
-    this.owner = owner; this.x = x;
-    x.weather_new(capacity, enhanced ? 1 : 0, range, size);
-    const buffer = x.memory.buffer;
-    this.frame = new Float64Array(buffer, x.weather_frame_ptr(), WeatherFrame.STRIDE);
-    this.result = new Float64Array(buffer, x.weather_result_ptr(), WeatherResult.STRIDE);
-    const f32 = (kind) => new Float32Array(buffer, x.weather_data_ptr(kind), x.weather_data_len(kind));
-    this.cover = f32(0);
-    this.locations = f32(1);
-    this.normals = f32(2);
-    this.seeds = f32(3);
-    this.mist = f32(4);
-    this.streaks = new Uint8Array(buffer, x.weather_streaks_ptr(), x.weather_streaks_len());
-    this.cell = x.weather_cover_cell();
+export class WeatherHost extends SharedHost {
+  constructor(owner,capacity,enhanced,range,size,cover,impact,normal) {
+    super(owner);owner.attach({host_cover:cover,host_impact:impact,host_impact_normal:i=>normal[i]});this.x.weather_new(capacity,+!!enhanced,range,size);this.refresh();
   }
-
-  // Classic or Enhanced rain: a fresh cover cache of the range and size,
-  // in the same memory (nothing is allocated, so no view moves).
-  mode(enhanced, range, size) {
-    this.x.weather_mode(enhanced ? 1 : 0, range, size);
-    this.cell = this.x.weather_cover_cell();
-    this.cover = new Float32Array(this.x.memory.buffer, this.x.weather_data_ptr(0), this.x.weather_data_len(0));
+  refresh(force=false) {
+    if(!this.changed(force))return false;const x=this.x,b=this.buffer;
+    this.frame=borrow(this.frame,Float64Array,b,x.weather_frame_ptr(),WeatherFrame.STRIDE);this.result=borrow(this.result,Float64Array,b,x.weather_result_ptr(),WeatherResult.STRIDE);
+    this.cover=borrow(this.cover,Float32Array,b,x.weather_data_ptr(0),x.weather_data_len(0));this.locations=borrow(this.locations,Float32Array,b,x.weather_data_ptr(1),x.weather_data_len(1));this.normals=borrow(this.normals,Float32Array,b,x.weather_data_ptr(2),x.weather_data_len(2));this.seeds=borrow(this.seeds,Float32Array,b,x.weather_data_ptr(3),x.weather_data_len(3));this.mist=borrow(this.mist,Float32Array,b,x.weather_data_ptr(4),x.weather_data_len(4));
+    this.streaks=borrow(this.streaks,Uint8Array,b,x.weather_streaks_ptr(),x.weather_streaks_len());this.cell=x.weather_cover_cell();this.publishBindings();return true;
   }
+  // A mode change may replace cover storage inside an existing memory buffer.
+  mode(enhanced,range,size) { this.x.weather_mode(+!!enhanced,range,size);this.refresh(true); }
 }
 
-// The shared owner binding for the placed effects' visibility (rust/bfe-environment
-// environment.rs): each instance's sphere, position and kind are written,
-// then `start`; each frame the camera, the reach and the mode go in and the
-// instances in view come out.
-export class VisibilityHost {
-  constructor(owner, count) {
-    const x = owner.x;
-    this.owner = owner; this.x = x;
-    x.vis_new(count);
-    this.count = count;
-    this.config = new Float64Array(x.memory.buffer, x.vis_config_ptr(), x.vis_config_len());
+export class VisibilityHost extends SharedHost {
+  constructor(owner,count) { super(owner);this.count=count;this.started=false;this.x.vis_new(count);this.refresh(); }
+  refresh(force=false) {
+    if(!this.changed(force))return false;const x=this.x,b=this.buffer;
+    this.config=borrow(this.config,Float64Array,b,x.vis_config_ptr(),x.vis_config_len());
+    if(this.started){
+      this.view=borrow(this.view,Float64Array,b,x.vis_view_ptr(),View.STRIDE);this.frame=borrow(this.frame,Float64Array,b,x.vis_frame_ptr(),EnvironmentFrame.STRIDE);this.result=borrow(this.result,Float64Array,b,x.vis_result_ptr(),x.vis_result_len());this.handles=borrow(this.handles,Float64Array,b,x.vis_handles_ptr(),this.count);
+      this.wakeFrame=borrow(this.wakeFrame,Float64Array,b,x.vis_wake_frame_ptr(),WakeFrame.STRIDE);this.wakeActors=borrow(this.wakeActors,Float64Array,b,x.vis_wake_actors_ptr(),Wakes.ACTORS*WakeActor.STRIDE);this.wakeResult=borrow(this.wakeResult,Float64Array,b,x.vis_wake_result_ptr(),WakeResult.STRIDE);this.wakePoints=borrow(this.wakePoints,Float64Array,b,x.vis_wake_points_ptr(),Wakes.COUNT*4);this.wakeMotion=borrow(this.wakeMotion,Float64Array,b,x.vis_wake_motion_ptr(),Wakes.COUNT*4);
+    }
+    this.publishBindings();return true;
   }
-
-  start() {
-    const x = this.x;
-    x.vis_start();
-    const buffer = x.memory.buffer;
-    this.view = new Float64Array(buffer, x.vis_view_ptr(), View.STRIDE);
-    this.frame = new Float64Array(buffer, x.vis_frame_ptr(), EnvironmentFrame.STRIDE);
-    this.result = new Float64Array(buffer, x.vis_result_ptr(), x.vis_result_len());
-    this.handles = new Float64Array(buffer, x.vis_handles_ptr(), this.count);
-    this.wakeFrame = new Float64Array(buffer, x.vis_wake_frame_ptr(), WakeFrame.STRIDE);
-    this.wakeActors = new Float64Array(buffer, x.vis_wake_actors_ptr(), Wakes.ACTORS * WakeActor.STRIDE);
-    this.wakeResult = new Float64Array(buffer, x.vis_wake_result_ptr(), WakeResult.STRIDE);
-    this.wakePoints = new Float64Array(buffer, x.vis_wake_points_ptr(), Wakes.COUNT * 4);
-    this.wakeMotion = new Float64Array(buffer, x.vis_wake_motion_ptr(), Wakes.COUNT * 4);
-  }
+  start() { this.x.vis_start();this.started=true;this.refresh(true); }
 }
 
-// All surface owners on a battle share this module and its fixed heap. Their
+// All surface owners on a battle share this module and its retained state. Their
 // constructors install collision queries before any frame can run. A shared
 // owner advances every installed native system with one surface_frame call.
 export class SurfaceOwner {
   constructor(module = loaded(), water = false) {
-    this.callbacks = Object.create(null);
+    this.callbacks = Object.create(null);this.hosts=[];
     const env = {
       host_ground: (x, z) => this.callbacks.host_ground(x, z),
       host_cover: (x, y, z) => this.callbacks.host_cover(x, y, z),
@@ -251,9 +189,9 @@ export class SurfaceOwner {
       host_shore_exposed: (x, z, height) => this.callbacks.host_shore_exposed(x, z, height),
     };
     this.x = new WebAssembly.Instance(module, imports(env)).exports;
-    this.x.surface_reserve();
     this.x.surface_new(water ? 1 : 0);
   }
   attach(callbacks) { Object.assign(this.callbacks, callbacks); return this.x; }
-  update() { this.x.surface_frame(); }
+  refresh() { const buffer=this.x.memory.buffer;if(this.buffer===buffer)return;this.buffer=buffer;for(let i=0;i<this.hosts.length;i++)this.hosts[i].refresh(); }
+  update() { this.refresh();this.x.surface_frame();this.refresh(); }
 }

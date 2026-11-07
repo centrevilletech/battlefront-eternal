@@ -88,6 +88,8 @@ const NAMES: [&str; 5] = ["softParticles", "depthResolution", "cameraRange", "tr
 // Three's blending as setBlending makes it: enabled, equation rgb and
 // alpha, source and destination factors rgb and alpha.
 pub type Blend = [u32; 7];
+#[path = "effects_settings.rs"]
+mod settings;
 
 struct FixedValue<L> {value:MaterialValue,location:Option<L>,cache:usize,data:Vec<f32>}
 
@@ -329,6 +331,12 @@ impl<C: HasContext> EffectsPass<C> {
         }
     }
 
+    // Cold diagnostics expose retained resource counts without walking draws.
+    pub fn descriptor_programs(&self)->Vec<usize>{
+        self.batches.iter().map(|b|b.program).chain(self.meshes.iter().flat_map(|m|m.passes.iter().map(|p|p.program))).chain(self.models.iter().flat_map(|m|m.passes.iter().map(|p|p.program))).collect()
+    }
+    pub fn resource_counts(&self)->[usize;4]{[self.owners.len(),self.batches.len(),self.meshes.len(),self.models.len()]}
+
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> EffectsPass<C> {
         let gl = &core.gl;
         let (quad, quad_index) = unsafe {
@@ -370,12 +378,12 @@ impl<C: HasContext> EffectsPass<C> {
         // changes dimensions after a long load or a burst of simultaneous FX.
         unsafe {
             let gl=&core.gl;gl.bind_texture(glow::TEXTURE_2D,Some(emitters));
-            gl.tex_image_2d(glow::TEXTURE_2D,0,glow::RGBA32F as i32,3,1024,0,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(None));
+            gl.tex_image_2d(glow::TEXTURE_2D,0,glow::RGBA32F as i32,3,crate::effect_layout::ANALYTIC_CAPACITY as i32,0,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(None));
             for name in [glow::TEXTURE_MIN_FILTER,glow::TEXTURE_MAG_FILTER] {gl.tex_parameter_i32(glow::TEXTURE_2D,name,glow::NEAREST as i32);}
             for name in [glow::TEXTURE_WRAP_S,glow::TEXTURE_WRAP_T] {gl.tex_parameter_i32(glow::TEXTURE_2D,name,glow::CLAMP_TO_EDGE as i32);}
             gl.bind_texture(glow::TEXTURE_2D,None);
         }
-        self.owners.push(Owner { tracks: core.textures[tracks as usize], track_rows, emitters, rows: 1024 });
+        self.owners.push(Owner { tracks: core.textures[tracks as usize], track_rows, emitters, rows: crate::effect_layout::ANALYTIC_CAPACITY });
         (self.owners.len() - 1) as u32
     }
 

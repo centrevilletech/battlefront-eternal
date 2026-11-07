@@ -68,7 +68,7 @@ pub fn actor_source_crowd_add(&mut self, body: u32, bone_base: u32, bones: u32, 
         // while a new unit is admitted during loading.
         let mut target_source=std::mem::replace(&mut bank.sources[target],bfe_render::actor_crowd::Crowd::geometry());let source_bank=&bank.sources;
         let mut refs=vec![(&source_bank[body as usize],bone_base as usize,None,0)];for i in 0..entries.len(){refs.push((&source_bank[sources[i] as usize],entries[i] as usize,Some(matrices[i*16..i*16+16].try_into().unwrap()),groups[i] as usize+1));}
-        let result=bank.crowd.append(&mut target_source,&refs,bones as usize);drop(refs);bank.sources[target]=target_source;let Some((spans,grow))=result else{return Ok(vec![]);};let mut out=vec![u8::from(grow) as f64];out.extend(spans.iter().map(|v|*v as f64));bank.refresh(&mut self.r.core,target as u32).map_err(|e|e.to_string())?;Ok(out) }
+        let first_vertex=bank.crowd.vertices;let result=bank.crowd.append(&mut target_source,&refs,bones as usize);drop(refs);bank.sources[target]=target_source;let Some((spans,grow))=result else{return Ok(vec![]);};let mut out=vec![u8::from(grow) as f64];out.extend(spans.iter().map(|v|*v as f64));if grow{bank.refresh(&mut self.r.core,target as u32)}else{bank.append_vertices(&mut self.r.core,target as u32,first_vertex,bank.crowd.vertices)}.map_err(|e|e.to_string())?;Ok(out) }
 pub fn actor_crowd_frame(&mut self)  { let bank=&mut self.actor_resources;let Some(source)=bank.crowd.source else{return;};let source=source as usize;if !bank.crowd.pack(&mut bank.sources[source]){return;}let data=&bank.sources[source].index[..bank.crowd.drawn];let core=&mut self.r.core;
         for ((id,_,_),geometry) in &bank.geometry{if *id as usize==source{core.geometry_index_sub_data(*geometry,0,crate::session::bytes(data));core.geometry_count(*geometry,bank.crowd.drawn);}}core.state.reset(); }
 pub fn actor_geometry(&mut self, source: u32, key: &str, whole: bool) -> Result<u32,String> { self.actor_resources.geometry(&mut self.r.core,source,key,whole).map_err(|e|e.to_string()) }
@@ -103,6 +103,9 @@ pub fn actor_depth(&mut self, source: u32, authored: &str, skin: i32, map: i32) 
         let geometry=self.actor_resources.geometry(&mut self.r.core,source,key,true).map_err(|e|e.to_string())?;
         if self.actor_resources.crowd.source==Some(source){self.r.core.geometry_count(geometry,self.actor_resources.crowd.drawn);}
         let count=self.actor_resources.sources.get(source as usize).map_or(0,|s|s.index.len());
+        // GPU recreation keeps the already qualified CPU descriptor bank.
+        #[cfg(target_arch="wasm32")]
+        if self.rebuilding{return Ok(None);}
         self.actor_resources.depth.descriptor(&self.r.core,program,geometry,count,policy.flags&3,map,(skin>=0).then_some(skin as u32)).map_err(|e|e.to_string()) }
 pub fn actor_depth_frame(&mut self)  { self.actor_resources.depth.publish(&mut self.r.core,&mut self.r.shadow.input); }
 pub fn actor_material(&mut self, source: u32, authored: &str, skin: bool, cascades: u32, lamps: bool, view: bool, samplers: &[i32]) -> Result<Vec<f64>,String> { use bfe_render::actor_layout::descriptor as D;
@@ -197,6 +200,11 @@ pub fn canopies_mesh(&mut self, max: u32) -> Result<(), String> { if max as usiz
         }
         self.r.canopies.set_mesh(core, geometry, &locations, &[3,2,3], max, programs);
         Ok(()) }
+pub fn resource_diagnostics(&mut self) -> String { serde_json::json!({"clipped":{
+            "actors":self.actor_resources.clipped,"depth":self.actor_resources.depth.clipped,
+            "crowd":self.actor_resources.crowd.clipped,"interface":self.r.interface.resources.clipped,
+            "hud":self.r.hud.resources.clipped,"effects":self.r.effects.clipped,"lines":self.line_resources.clipped
+        },"programs":self.r.effects.descriptor_programs().iter().filter_map(|id|self.r.core.program_key(*id)).collect::<Vec<_>>(),"resources":{"effects":self.r.effects.resource_counts(),"textures":self.r.core.native_texture_count(),"actorModels":self.actor_resources.effects.len()}}).to_string() }
 pub fn effect_batch(&mut self, kind: u32, variant: u32, shadows: bool, texture: i32, capacity: u32, owner: i32, samplers: &[i32]) -> Result<u32,String> { let d=Descriptor::new(kind as usize,variant,shadows).map_err(String::from)?;
         let spec=bfe_render::programs::spec(&d.key).map_err(|e|e.to_string())?;
         let program=self.r.core.add_owned_program(&d.key).map_err(|e|e.to_string())?;
@@ -327,6 +335,14 @@ pub fn fx_add_model(&mut self, texture: i32, blend: &[u32], depth_flags: u32, de
 pub fn fx_model_pass(&mut self, model: u32, program: u32, side: u32, geometry: u32) -> u32 { self.r.effects.model_pass(&self.r.core, model, program, side, geometry) }
 pub fn fx_model_texture(&mut self, model: u32, texture: i32)  { self.r.effects.model_texture(&self.r.core, model, texture) }
 pub fn fx_model_sampler(&mut self, model: u32, name: &str, unit: u32, texture: i32)  { self.r.effects.model_sampler(&self.r.core, model, name, unit, texture) }
+pub fn effect_settings(&mut self, shadows: bool) -> Result<(),String> { // Preserve first program admissions separately from the final setting.
+        // Repeated toggles then keep their original numeric program identities
+        // without retaining a resource command for every settings transition.
+        let programs=self.r.effects.descriptor_programs().into_iter().chain(self.r.far.descriptor_programs());
+        let keys=programs.filter_map(|id|self.r.core.program_key(id).and_then(|key|bfe_render::effect_settings::key(key,shadows))).collect::<Vec<_>>();
+        for key in keys {if !self.r.core.has_owned_program(&key){self.add_owned_program(&key)?;}}
+ self.r.effects.effect_settings(&mut self.r.core,shadows).map_err(|e|e.to_string())?;
+        self.r.far.effect_settings(&mut self.r.core,shadows).map_err(|e|e.to_string()) }
 pub fn far_table(&mut self, program: u32, names: &str, types: &[u32], counts: &[u32]) -> Option<u32> { self.r.far.add_table(&mut self.r.core, program, names, types, counts) }
 pub fn far_item(&mut self, program: u32, table: u32, geometry: u32, flags: u32, depth_func: u32, blend: &[u32], order: &[f64], sphere: &[f64], slot: u32) -> u32 { self.r.far.add_item(&self.r.core, program, table, geometry, flags, depth_func, blend, order, sphere, slot) }
 pub fn far_source(&mut self, item: u32, uniform: u32, kind: u32, values: &[f32], at: u32)  { self.r.far.source(item, uniform, kind, values, at) }
@@ -693,6 +709,7 @@ camera_cascades_frame,
 camera_shadow_frame(u32),
 camera_invalidate_frame(u32),
 canopies_mesh(u32),
+resource_diagnostics,
 effect_batch(u32,u32,bool,i32,u32,i32,Vec<i32>),
 effect_fixed(u32),
 effect_multiplier(u32),
@@ -718,6 +735,7 @@ fx_add_model(i32,Vec<u32>,u32,u32,String,Vec<f64>),
 fx_model_pass(u32,u32,u32,u32),
 fx_model_texture(u32,i32),
 fx_model_sampler(u32,String,u32,i32),
+effect_settings(bool),
 far_table(u32,String,Vec<u32>,Vec<u32>),
 far_item(u32,u32,u32,u32,u32,Vec<u32>,Vec<f64>,Vec<f64>,u32),
 far_source(u32,u32,u32,Vec<f32>,u32),
@@ -880,6 +898,7 @@ Ok(match name {
 "camera_shadow_frame" => Self::camera_shadow_frame(a.u32(0)?),
 "camera_invalidate_frame" => Self::camera_invalidate_frame(a.u32(0)?),
 "canopies_mesh" => Self::canopies_mesh(a.u32(0)?),
+"resource_diagnostics" => Self::resource_diagnostics,
 "effect_batch" => Self::effect_batch(a.u32(0)?,a.u32(1)?,a.bool(2)?,a.i32(3)?,a.u32(4)?,a.i32(5)?,a.i32s(6)?),
 "effect_fixed" => Self::effect_fixed(a.u32(0)?),
 "effect_multiplier" => Self::effect_multiplier(a.u32(0)?),
@@ -905,6 +924,7 @@ Ok(match name {
 "fx_model_pass" => Self::fx_model_pass(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32(3)?),
 "fx_model_texture" => Self::fx_model_texture(a.u32(0)?,a.i32(1)?),
 "fx_model_sampler" => Self::fx_model_sampler(a.u32(0)?,a.string(1)?,a.u32(2)?,a.i32(3)?),
+"effect_settings" => Self::effect_settings(a.bool(0)?),
 "far_table" => Self::far_table(a.u32(0)?,a.string(1)?,a.u32s(2)?,a.u32s(3)?),
 "far_item" => Self::far_item(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.u32(3)?,a.u32(4)?,a.u32s(5)?,a.f64s(6)?,a.f64s(7)?,a.u32(8)?),
 "far_source" => Self::far_source(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.f32s(3)?,a.u32(4)?),
@@ -1016,7 +1036,7 @@ _ => return Err(format!("unknown renderer command {name}")),
 })
 }
 pub fn is_per_pass(name:&str)->bool {matches!(name,"interface_frame")}
-pub fn is_known(name:&str)->bool {matches!(name,"actor_flyer"|"actor_flyer_motion"|"actor_source"|"actor_source_facts"|"actor_source_crowd"|"actor_source_crowd_add"|"actor_crowd_frame"|"actor_geometry"|"actor_effect"|"actor_motion"|"actor_skin_release"|"actor_skin_words"|"actor_skin"|"actor_skin_offset"|"actor_skin_slot"|"actor_skins_frame"|"actor_depth"|"actor_depth_frame"|"actor_material"|"actor_settings"|"camera_pack_acquire_frame"|"camera_pack_release_frame"|"camera_acquire_frame"|"camera_release_frame"|"camera_import_frame"|"camera_clipped"|"camera_evicted"|"camera_pack_evicted"|"camera_pack_rejected"|"camera_shader_frame"|"camera_pack_shader_frame"|"camera_shadow_shader_frame"|"camera_static_shadow_frame"|"camera_project_frame"|"camera_light_command_frame"|"camera_global_shader_frame"|"camera_main_frame"|"camera_derived_frame"|"camera_copy_frame"|"camera_shift_frame"|"camera_restore_frame"|"camera_reflect_frame"|"camera_probe_frame"|"camera_sky_frame"|"camera_lights_frame"|"camera_shadow_configure_frame"|"camera_cascades_frame"|"camera_shadow_frame"|"camera_invalidate_frame"|"canopies_mesh"|"effect_batch"|"effect_fixed"|"effect_multiplier"|"effect_mesh"|"effect_basin"|"effect_far_mesh"|"fx_clipped"|"fx_reserve"|"fx_add_owner"|"fx_add_batch"|"fx_batch_texture"|"fx_batch_values"|"fx_batch_interleaved"|"fx_batch_side"|"fx_batch_depth"|"fx_batch_sampler"|"fx_batch_sampler_3d"|"fx_batch_base"|"fx_add_mesh"|"fx_mesh_pass"|"fx_mesh_texture"|"fx_add_model"|"fx_model_pass"|"fx_model_texture"|"fx_model_sampler"|"far_table"|"far_item"|"far_source"|"far_range"|"far_base"|"far_instanced"|"far_cells"|"far_terrain"|"far_items"|"far_range_input"|"far_refresh"|"foliage_class"|"foliage_clear_frame"|"foliage_frame"|"foliage_selected"|"frame_lines_publish_frame"|"frame_reserve_frame"|"frame_shadow_reserve_frame"|"frame_ui_slot_frame"|"frame_overflow_frame"|"frame_begin_frame"|"frame_select_frame"|"frame_plan_frame"|"frame_publish_frame"|"frame_admit_interface_frame"|"battle_frame"|"frame_aux_frame"|"frame_error_frame"|"frame_cancel_frame"|"hud_init"|"hud_model_text"|"hud_model_asset"|"hud_model_font"|"hud_model_event"|"hud_model_observe"|"hud_model_update"|"hud_model_build"|"hud_descriptor_init"|"hud_appearance"|"hud_resources_frame"|"records_at"|"record_stride"|"inst_add_blend"|"interface_buffer_init"|"interface_upload_frame"|"ui_appearance"|"ui_resources_frame"|"line_clipped"|"line_source"|"line_frame"|"set_shadow_maps"|"add_texture"|"replace_sample_texture"|"set_far_map"|"add_program"|"add_program_lamps"|"set_lamps"|"add_owned_program"|"add_geometry"|"geometry_buffer"|"geometry_pointer"|"geometry_index"|"geometry_group"|"geometry_primitive"|"motion_record_stride"|"motion_records_at"|"motion_extra"|"post_target"|"post_chain_begin_frame"|"post_chain_plan_frame"|"geometry_buffer_data"|"geometry_index_data"|"geometry_buffer_sub_data"|"geometry_index_sub_data"|"static_depth_add"|"static_depth_replace"|"static_depth_finish"|"static_depth_clipped"|"static_terrain_layers"|"static_source"|"static_source_weights"|"static_world"|"static_world_settings"|"transparent_bucket"|"transparent_bucket_pass"|"transparent_bucket_texture"|"transparent_bucket_uniform"|"transparent_object_stride"|"transparent_object"|"transparent_object_pass"|"transparent_object_texture"|"water_surface"|"water_rings"|"water_set"|"water_instanced"|"water_source"|"water_values"|"effect_water"|"world_uses_lamps"|"add_world"|"world_texture"|"world_uniform"|"world_cells"|"sort"|"world_runs"|"world_shown"|"world_lamps")}
+pub fn is_known(name:&str)->bool {matches!(name,"actor_flyer"|"actor_flyer_motion"|"actor_source"|"actor_source_facts"|"actor_source_crowd"|"actor_source_crowd_add"|"actor_crowd_frame"|"actor_geometry"|"actor_effect"|"actor_motion"|"actor_skin_release"|"actor_skin_words"|"actor_skin"|"actor_skin_offset"|"actor_skin_slot"|"actor_skins_frame"|"actor_depth"|"actor_depth_frame"|"actor_material"|"actor_settings"|"camera_pack_acquire_frame"|"camera_pack_release_frame"|"camera_acquire_frame"|"camera_release_frame"|"camera_import_frame"|"camera_clipped"|"camera_evicted"|"camera_pack_evicted"|"camera_pack_rejected"|"camera_shader_frame"|"camera_pack_shader_frame"|"camera_shadow_shader_frame"|"camera_static_shadow_frame"|"camera_project_frame"|"camera_light_command_frame"|"camera_global_shader_frame"|"camera_main_frame"|"camera_derived_frame"|"camera_copy_frame"|"camera_shift_frame"|"camera_restore_frame"|"camera_reflect_frame"|"camera_probe_frame"|"camera_sky_frame"|"camera_lights_frame"|"camera_shadow_configure_frame"|"camera_cascades_frame"|"camera_shadow_frame"|"camera_invalidate_frame"|"canopies_mesh"|"resource_diagnostics"|"effect_batch"|"effect_fixed"|"effect_multiplier"|"effect_mesh"|"effect_basin"|"effect_far_mesh"|"fx_clipped"|"fx_reserve"|"fx_add_owner"|"fx_add_batch"|"fx_batch_texture"|"fx_batch_values"|"fx_batch_interleaved"|"fx_batch_side"|"fx_batch_depth"|"fx_batch_sampler"|"fx_batch_sampler_3d"|"fx_batch_base"|"fx_add_mesh"|"fx_mesh_pass"|"fx_mesh_texture"|"fx_add_model"|"fx_model_pass"|"fx_model_texture"|"fx_model_sampler"|"effect_settings"|"far_table"|"far_item"|"far_source"|"far_range"|"far_base"|"far_instanced"|"far_cells"|"far_terrain"|"far_items"|"far_range_input"|"far_refresh"|"foliage_class"|"foliage_clear_frame"|"foliage_frame"|"foliage_selected"|"frame_lines_publish_frame"|"frame_reserve_frame"|"frame_shadow_reserve_frame"|"frame_ui_slot_frame"|"frame_overflow_frame"|"frame_begin_frame"|"frame_select_frame"|"frame_plan_frame"|"frame_publish_frame"|"frame_admit_interface_frame"|"battle_frame"|"frame_aux_frame"|"frame_error_frame"|"frame_cancel_frame"|"hud_init"|"hud_model_text"|"hud_model_asset"|"hud_model_font"|"hud_model_event"|"hud_model_observe"|"hud_model_update"|"hud_model_build"|"hud_descriptor_init"|"hud_appearance"|"hud_resources_frame"|"records_at"|"record_stride"|"inst_add_blend"|"interface_buffer_init"|"interface_upload_frame"|"ui_appearance"|"ui_resources_frame"|"line_clipped"|"line_source"|"line_frame"|"set_shadow_maps"|"add_texture"|"replace_sample_texture"|"set_far_map"|"add_program"|"add_program_lamps"|"set_lamps"|"add_owned_program"|"add_geometry"|"geometry_buffer"|"geometry_pointer"|"geometry_index"|"geometry_group"|"geometry_primitive"|"motion_record_stride"|"motion_records_at"|"motion_extra"|"post_target"|"post_chain_begin_frame"|"post_chain_plan_frame"|"geometry_buffer_data"|"geometry_index_data"|"geometry_buffer_sub_data"|"geometry_index_sub_data"|"static_depth_add"|"static_depth_replace"|"static_depth_finish"|"static_depth_clipped"|"static_terrain_layers"|"static_source"|"static_source_weights"|"static_world"|"static_world_settings"|"transparent_bucket"|"transparent_bucket_pass"|"transparent_bucket_texture"|"transparent_bucket_uniform"|"transparent_object_stride"|"transparent_object"|"transparent_object_pass"|"transparent_object_texture"|"water_surface"|"water_rings"|"water_set"|"water_instanced"|"water_source"|"water_values"|"effect_water"|"world_uses_lamps"|"add_world"|"world_texture"|"world_uniform"|"world_cells"|"sort"|"world_runs"|"world_shown"|"world_lamps")}
 pub fn execute(&mut self, host: &mut Bridge, resource_bank: &mut [Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
 match self {
 Self::actor_flyer(source,flags,fading,capacity,texture,slot,object,shadows) => { let _=host.actor_flyer(*source,*flags,*fading,*capacity,*texture,*slot,*object,*shadows)?; },
@@ -1069,6 +1089,7 @@ Self::camera_cascades_frame => { let _=host.camera_cascades_frame(); },
 Self::camera_shadow_frame(index) => { let _=host.camera_shadow_frame(*index); },
 Self::camera_invalidate_frame(index) => { let _=host.camera_invalidate_frame(*index); },
 Self::canopies_mesh(max) => { let _=host.canopies_mesh(*max)?; },
+Self::resource_diagnostics => { let _=host.resource_diagnostics(); },
 Self::effect_batch(kind,variant,shadows,texture,capacity,owner,samplers) => { let _=host.effect_batch(*kind,*variant,*shadows,*texture,*capacity,*owner,samplers)?; },
 Self::effect_fixed(id) => { let _=host.effect_fixed(*id); },
 Self::effect_multiplier(id) => { let _=host.effect_multiplier(*id); },
@@ -1094,6 +1115,7 @@ Self::fx_add_model(texture,blend,depth_flags,depth_func,values,sphere) => { let 
 Self::fx_model_pass(model,program,side,geometry) => { let _=host.fx_model_pass(*model,*program,*side,*geometry); },
 Self::fx_model_texture(model,texture) => { let _=host.fx_model_texture(*model,*texture); },
 Self::fx_model_sampler(model,name,unit,texture) => { let _=host.fx_model_sampler(*model,name,*unit,*texture); },
+Self::effect_settings(shadows) => { let _=host.effect_settings(*shadows)?; },
 Self::far_table(program,names,types,counts) => { let _=host.far_table(*program,names,types,counts); },
 Self::far_item(program,table,geometry,flags,depth_func,blend,order,sphere,slot) => { let _=host.far_item(*program,*table,*geometry,*flags,*depth_func,blend,order,sphere,*slot); },
 Self::far_source(item,uniform,kind,values,at) => { let _=host.far_source(*item,*uniform,*kind,values,*at); },

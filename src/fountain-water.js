@@ -53,7 +53,12 @@ export class FountainWater {
   // colour/depth copy. Resizing changes storage, never logical sampler ids.
   capture(renderer,camera) {
     const source=renderer.getRenderTarget();if(this.captured||source!==this.graphics.sceneTarget)return;
-    this.captured=true;this.resources.resizeEffectTarget(this.surface,source.width,source.height);
+    this.captured=true;const resized=this.surface.width!==source.width||this.surface.height!==source.height;
+    this.resources.resizeEffectTarget(this.surface,source.width,source.height);
+    // Immutable depth storage gets a new texture on resize. The copy happens
+    // after view publication's epoch check; repair retained native samplers
+    // here so this same frame cannot bind the deleted depth attachment.
+    if(resized)for(let i=0;i<this.samples.length;i++)if(this.samples[i]>=0)this.graphics.rust.texture(this.samples[i],true);
     renderer.resources.copy(source,this.surface,COLOR_BUFFER_BIT|DEPTH_BUFFER_BIT);
     this.values[ROW.WATER_RESOLUTION]=source.width;this.values[ROW.WATER_RESOLUTION+1]=source.height;
     this.values[ROW.CAMERA_RANGE]=camera.near;this.values[ROW.CAMERA_RANGE+1]=camera.far;

@@ -205,6 +205,19 @@ impl Bank {
     pub fn refresh<C:HasContext,M:MultiDraw>(&mut self,core:&mut Core<C,M>,source:u32)->Result<(),String>{
         for ((id,key,whole),g)in &self.geometry{if *id==source{core.reset_geometry(*g)?;let spec=crate::programs::spec(key)?;self.sources[source as usize].upload_into(core,*g,spec.attributes,*whole)?;}}core.state.reset();Ok(())
     }
+    // CrowdShadows.append fills only new vertices between capacity changes.
+    // Match upload_into's stream-to-buffer order without recreating VAOs or
+    // touching its index prefix; visibility pack publishes that prefix later.
+    pub fn append_vertices<C:HasContext,M:MultiDraw>(&self,core:&mut Core<C,M>,source:u32,first:usize,end:usize)->Result<(),String>{
+        let data=&self.sources[source as usize];
+        for ((id,key,_),geometry)in &self.geometry{if *id!=source{continue;}let spec=crate::programs::spec(key)?;let mut used=vec![false;data.streams.len()];let mut buffer=0;
+            for(name,_)in spec.attributes{let Some(a)=data.attributes.iter().find(|a|a.name==*name)else{continue;};if used[a.stream]{continue;}used[a.stream]=true;
+                let bytes=match &data.streams[a.stream]{Stream::Float(v)=>crate::core::bytes(v),Stream::Unsigned(v)=>crate::core::bytes(v)};
+                let stride=bytes.len()/data.facts.count.max(1);let range=bytes.get(first*stride..end*stride).ok_or("crowd upload range")?;
+                core.geometry_buffer_sub_data(*geometry,buffer,(first*stride) as i32,range);buffer+=1;
+            }
+        }core.state.reset();Ok(())
+    }
     // Geometry sharing is resolved cold, by native source/catalog identity.
     // The frame never constructs a UUID key or inspects attribute versions.
     pub fn geometry<C:HasContext,M:MultiDraw>(&mut self,core:&mut Core<C,M>,source:u32,key:&str,whole:bool)->Result<u32,String>{

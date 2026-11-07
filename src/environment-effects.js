@@ -88,6 +88,7 @@ export class EnvironmentEffects {
     this.warmup=new Map(Object.entries(data.effects).map(([name,defs])=>[name,Math.min(4,Math.max(...defs.map(d=>d.transformer?.lifetime||0)))]));
   }
   prepareFrame(dt,camera,actors) {
+    this.host.refresh();
     const mode=this.settings.get('environmentEffects')==='classic'?'classic':'enhanced';
     this.nextMode=mode;
     const view=this.host.view;
@@ -98,6 +99,7 @@ export class EnvironmentEffects {
     this.wakes.prepare(actors);
   }
   publishFrame() {
+    this.host.refresh();
     const r=this.host.result,n=this.instances.length,mode=this.nextMode,dt=r[RESULT.DT];
     this.time=r[RESULT.TIME];
     if(r[RESULT.MODE_CHANGED]) {

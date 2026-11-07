@@ -9,6 +9,7 @@ pub const ARC_VIEW: usize = 6;
 pub const TRAIL: usize = 7;
 pub const WAKE: usize = 8;
 pub const ANALYTIC: usize = 9;
+pub const ANALYTIC_CAPACITY:usize=1024;
 pub const SNOW: usize = 10;
 pub const RAIN: usize = 11;
 pub const IMPACTS: usize = 12;

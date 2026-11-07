@@ -114,15 +114,14 @@ ripples, reflections and postprocessing require further host admission. Blended
 world buckets remain on the full recorded-session path. Inspection does not
 invent health changes, soldier state or authority ticks.
 
-`tools/native-static-fixture.mjs` compares foliage cards and water construction
-with the browser constructors on public synthetic inputs. Build its probe with
+`tools/native-static-fixture.mjs` compares foliage cards with the browser
+constructor and water/ocean construction with frozen constructor hashes on
+public synthetic inputs. Build its probe with
 `cargo build --manifest-path rust/Cargo.toml -p bfe-content-native --example static-fixture`.
-`tools/native-static-frame.mjs` records isolated browser views and invokes the
-`static-frame` binary against natively loaded content. It reports exact pixel
-counts and deltas for props, foliage, water and sky. Both sides submit the
-normal `battle_frame` packets and compare the native operation traces; component
-selection changes admitted visibility rather than draw order. Its temporary view/image
-files belong outside the repository and are removed after comparison.
+`tools/native-session/gate.sh` records the browser's complete native frame
+packets and replays them through the native client. This exercises the installed
+owners and pass schedule, including water, rather than isolated standalone
+component paths. Its temporary view/image files belong outside the repository.
 
 Near captures are validated before renderer registration: object ids must name
 earlier allocations, world bounds contain ten finite values, typed spans and

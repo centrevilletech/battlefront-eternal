@@ -124,11 +124,13 @@ export class Atmosphere {
       this.batches.push(new SquareBatch(scene, fogMap, 'map-fog-cloud', records[0], [c[0] / 255, c[1] / 255, c[2] / 255, 1]));
     }
     classes.forEach(({ map, name }, k) => this.batches.push(new SquareBatch(scene, map, `map-dust-${name}`, records[k + Number(Boolean(fogMap))])));
+    for(let k=0;k<this.batches.length;k++){this.host.bindArray(this.batches[k].arrays,"center",h=>h.batches[k].center);this.host.bindArray(this.batches[k].arrays,"spin",h=>h.batches[k].spin);}
     this.stats = { fog: 0, dust: 0, objects: 0 };
   }
   // The frame: the camera and the time go to the phase, which steps the
   // clouds and leaves each texture's squares in view, far to near.
   prepareFrame(dt, camera) {
+    this.host.refresh();
     const view = this.host.view;
     view[VIEW.DT] = dt;
     view.set(camera.matrixWorld.elements, VIEW.CAMERA);
@@ -138,6 +140,7 @@ export class Atmosphere {
     view[VIEW.ASPECT] = camera.aspect ?? NaN;
   }
   publishFrame() {
+    this.host.refresh();
     const r = this.host.result;
     this.stats.fog = r[STATS.FOG]; this.stats.dust = r[STATS.DUST]; this.stats.objects = r[STATS.OBJECTS];
     for (let k = 0; k < this.batches.length; k++) {

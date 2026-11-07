@@ -1,3 +1,4 @@
+mod diagnostics;
 mod line_resources;
 // The renderer in the page: a WebGL2 context shared with three.js, three's
 // textures used where they are, inputs the page writes into WASM memory.

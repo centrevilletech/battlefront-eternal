@@ -23,6 +23,8 @@ pub struct GpuResources {
     sources: Vec<Option<Source>>,
     physical: Vec<Physical>,
     samples: Vec<Sample>,
+    repeat_samples:HashMap<u32,u32>,
+    skin_images:Vec<(u32,usize,bool)>,
     // Cache keys are created only when sampler settings change, never on a
     // dynamic image update. Multiple scene clones can own one physical image.
     cache: HashMap<(u32, String), usize>,
@@ -87,7 +89,7 @@ impl GpuResources {
         // Enable sampling/renderability extensions before storage creation.
         // Capability queries are context-local and run once, not per upload.
         let (float_linear,anisotropy) = enable_extensions(&gl);
-        Self { gl, sources: Vec::new(), physical: Vec::new(), samples: Vec::new(), cache: HashMap::new(), targets: Vec::new(), free_physical: Vec::new(), current: None, face: 0, level: 0, epoch: 0, anisotropy, float_linear, retired: None, world_empty: None, world_neutral: None, lost: false, upload_sync: None }
+        Self { gl, sources: Vec::new(), physical: Vec::new(), samples: Vec::new(), repeat_samples:HashMap::new(), skin_images:Vec::new(), cache: HashMap::new(), targets: Vec::new(), free_physical: Vec::new(), current: None, face: 0, level: 0, epoch: 0, anisotropy, float_linear, retired: None, world_empty: None, world_neutral: None, lost: false, upload_sync: None }
     }
     // Diagnostics are computed on demand, never while submitting a frame.
     // Encoded/source bytes count once; shared sampler handles count once too.
@@ -243,6 +245,27 @@ impl GpuResources {
         let sample=self.sample(source,if kind==4 {r#"{"wrapS":1000,"wrapT":1000,"wrapR":1001,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":true,"compare":null}"#}else{r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#})?;
         self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
     }
+    // Qualified pose slots outlive individual spawns. Reuse equally sized
+    // bone images too, so logical texture ids and recovery recipes are bounded
+    // by concurrent poses rather than the number of lives in a long battle.
+    pub fn skin_image(&mut self,bones:u32,pixels:js_sys::Object)->Result<u32,JsValue>{
+        if !(1..=65536).contains(&bones){return Err(error("Invalid bone image capacity"));}
+        let size=crate::actor_depth::skin_size(bones as usize);
+        if let Some(at)=self.skin_images.iter().position(|(_,n,active)|*n==size&&!*active){
+            let id=self.skin_images[at].0;let p=self.sample_physical(id)?;let source=self.physical[p].source;
+            let image=self.source_mut(source)?;image.pixels=Pixels::Foreign(pixels);image.version+=1;
+            self.skin_images[at].2=true;self.upload(id)?;return Ok(id);
+        }
+        let id=self.effect_data(5,bones,pixels)?;self.skin_images.push((id,size,true));Ok(id)
+    }
+    pub fn release_skin_image(&mut self,id:u32)->Result<(),JsValue>{
+        let Some(at)=self.skin_images.iter().position(|(sample,_,_)|*sample==id)else{return Ok(())};
+        if !self.skin_images[at].2{return Ok(());}
+        self.skin_images[at].2=false;let p=self.sample_physical(id)?;let source=self.physical[p].source;
+        // Drop the former skeleton's JS array immediately. The existing image
+        // allocation remains the reusable, bounded pool slot across restores.
+        self.source_mut(source)?.pixels=Pixels::Empty;Ok(())
+    }
     // JetpackVolume.noiseTexture is a native 3D source recipe. Its retained
     // bytes and repeat/linear sampler restore without page texture metadata.
     pub fn effect_noise(&mut self,kind:u32)->Result<u32,JsValue> {
@@ -325,7 +348,7 @@ impl GpuResources {
         self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)
     }
     // Snow.publishFrame sends one dirty command for its three retained
-    // streams. Their foreign typed arrays never change identity or capacity.
+    // streams. Hosts rebind their foreign mirrors after shared memory grows.
     pub fn snow_pixels(&mut self,flakes:u32,boxes:u32,heights:u32,cover:bool)->Result<(),JsValue> {
         for (i,sample) in [flakes,boxes,heights].into_iter().enumerate() {
             if i==2 && !cover {continue;}
@@ -461,7 +484,13 @@ impl GpuResources {
     }
     // ShieldBubble cloned only repeat wrapping. Keep an independently pinned
     // native sampler so late source publication cannot replace that policy.
-    pub fn repeat_sample(&mut self,id:u32)->Result<u32,JsValue>{let id=self.retain_sample(id)?;let p=self.sample_physical(id)?;self.samples[id as usize].policy=2;let mut sampling=self.physical[p].sampling.clone();sampling.wrap_s=1000;sampling.wrap_t=1000;self.sampling(id,&serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?)?;self.upload(id)?;Ok(id)}
+    pub fn repeat_sample(&mut self,source:u32)->Result<u32,JsValue>{
+        // ShieldBubble admissions share a repeat alias for the source's lifetime.
+        // Idempotent aliases also prevent restoration from forming clone chains.
+        self.sample_physical(source)?;
+        if self.samples[source as usize].policy==2{return Ok(source);}
+        if let Some(&id)=self.repeat_samples.get(&source){return Ok(id);}
+        let id=self.retain_sample(source)?;self.repeat_samples.insert(source,id);let p=self.sample_physical(id)?;self.samples[id as usize].policy=2;let mut sampling=self.physical[p].sampling.clone();sampling.wrap_s=1000;sampling.wrap_t=1000;self.sampling(id,&serde_json::to_string(&sampling).map_err(|e|error(e.to_string()))?)?;self.upload(id)?;Ok(id)}
     // BuildHologram's shared gradientTexture is native RGBA8 storage. The
     // original half-texel alpha ramp rounds before the flip-Y upload.
     pub fn actor_gradient(&mut self)->Result<u32,JsValue>{let mut pixels=vec![255u8;4*64*4];for y in 0..64{for x in 0..4{pixels[(y*4+x)*4+3]=((y as f64+0.5)/64.*255.).round()as u8;}}let source=self.sources.len()as u32;self.sources.push(Some(Source{desc:ImageDesc{width:4,height:64,depth:1,target:Gl::TEXTURE_2D,format:1023,data_type:1009,internal:None,srgb:false,render_target:false},pixels:Pixels::Owned(pixels),version:1,host_released:true}));let sample=self.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":true,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;self.samples[sample as usize].owned=true;self.upload(sample)?;Ok(sample)}
@@ -499,6 +528,7 @@ impl GpuResources {
     // Idempotence matters when both explicit disposal and a finalizer arrive.
     // The last sampler releases physical storage; other clones remain valid.
     pub fn dispose_sample(&mut self,id:u32)->Result<(),JsValue>{
+        self.repeat_samples.retain(|source,alias|*source!=id&&*alias!=id);
         // Draw-journal slots may outlive a detached effect. Create their native
         // sentinel before releasing storage; a stale public id still errors.
         if self.retired.is_none(){self.retired_sample()?;}
@@ -687,6 +717,8 @@ impl GpuResources {
     // Dynamic bone/instance arrays use subimage updates after first allocation.
     // PNG restoration decodes just this source and frees temporary RGBA rows.
     fn upload_physical(&mut self, id: usize) -> Result<(),JsValue> {
+        // Cold image admission can race the loss event; retain its recipe for rebuild.
+        if self.lost || self.gl.is_context_lost() { return Ok(()); }
         let p=self.physical.get_mut(id).ok_or_else(||error("Unknown upload image"))?;
         let source=self.sources.get_mut(p.source as usize).and_then(Option::as_mut).ok_or_else(||error("Disposed upload source"))?;
         if p.handle.is_some() && p.seen == source.version { return Ok(()); }

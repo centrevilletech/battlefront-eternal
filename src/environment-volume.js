@@ -15,11 +15,11 @@ export class EnvironmentWakes {
     this.ids = new WeakMap(); this.nextId = 0;
     this.synced();
   }
-  get time() { return this.host.wakeResult[RESULT.TIME]; }
-  set time(value) { const f=this.host.wakeFrame;f[FRAME.SET_TIME]=1;f[FRAME.TIME]=value;this.host.x.vis_wake_apply();this.synced(); }
-  get cursor() { return this.host.wakeResult[RESULT.CURSOR]; }
+  get time() { this.host.refresh();return this.host.wakeResult[RESULT.TIME]; }
+  set time(value) { this.host.refresh();const f=this.host.wakeFrame;f[FRAME.SET_TIME]=1;f[FRAME.TIME]=value;this.host.x.vis_wake_apply();this.synced(); }
+  get cursor() { this.host.refresh();return this.host.wakeResult[RESULT.CURSOR]; }
   prepare(actors) {
-    const rows=this.host.wakeActors;
+    this.host.refresh();const rows=this.host.wakeActors;
     let count=0;
     for(let i=0;i<actors.length&&count<LIMITS.ACTORS;i++) {
       const actor=actors[i];if(!actor?.position)continue;
@@ -30,17 +30,18 @@ export class EnvironmentWakes {
     this.host.wakeFrame[FRAME.ACTORS]=count;
   }
   synced() {
+    this.host.refresh();
     for(let i=0;i<WAKE_COUNT;i++) {
       this.points[i].fromArray(this.host.wakePoints,i*4);this.motion[i].fromArray(this.host.wakeMotion,i*4);
     }
   }
   add(position,velocity,strength=1) {
-    const f=this.host.wakeFrame;f[FRAME.ADD]=1;f[FRAME.STRENGTH]=strength;
+    this.host.refresh();const f=this.host.wakeFrame;f[FRAME.ADD]=1;f[FRAME.STRENGTH]=strength;
     f[FRAME.POSITION]=position.x;f[FRAME.POSITION+1]=position.y;f[FRAME.POSITION+2]=position.z;
     f[FRAME.VELOCITY]=velocity.x;f[FRAME.VELOCITY+1]=velocity.y;f[FRAME.VELOCITY+2]=velocity.z;
     this.host.x.vis_wake_apply();this.synced();
   }
-  clear() { this.host.wakeFrame[FRAME.CLEAR]=1;this.host.x.vis_wake_apply();this.synced(); }
+  clear() { this.host.refresh();this.host.wakeFrame[FRAME.CLEAR]=1;this.host.x.vis_wake_apply();this.synced(); }
 }
 
 // The composite anchor is registered with its native offscreen batch. Native

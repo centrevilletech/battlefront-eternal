@@ -506,6 +506,11 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     // A program from three's final GLSL for one of its materials. attributes:
     // the locations three's own program gave each input, so a layout made
     // for three's matches.
+    // Cold diagnostics expose catalog identity without lending program storage
+    // or backend handles to the host transport.
+    pub fn has_owned_program(&self,key:&str)->bool{self.owned_programs.iter().any(|(k,_)|k==key)}
+    pub fn program_key(&self,id:usize)->Option<&str>{self.owned_programs.iter().find(|(_,p)|*p as usize==id).map(|(key,_)|key.as_str())}
+
     pub fn add_program(&mut self, kind: Kind, vs: &str, fs: &str, attributes: &[(String, u32)], material_uniforms: &[String]) -> Result<u32, String> {
         self.add_program_lamps(kind, vs, fs, attributes, material_uniforms, false)
     }

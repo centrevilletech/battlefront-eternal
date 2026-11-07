@@ -44,11 +44,11 @@ export async function openBattle(browser, { base = 'http://127.0.0.1:18449', que
   const errors = [];
   page.on('pageerror', (e) => { if (keep(e.message)) errors.push(e.message); });
   page.on('console', (m) => { if (m.type() === 'error' && keep(m.text())) errors.push(m.text()); });
-  await page.route('**/@vite/client', (r) => r.fulfill({ contentType: 'application/javascript', body: '' }));
+  // Dynamic native backend imports use Vite's query helper; keep its client module intact.
   // The page's own display loop stays off: the check draws the frames.
   await page.addInitScript((settings) => {
     const raf = requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = (cb) => (cb.name === 'loop' ? 0 : raf(cb));
+    window.requestAnimationFrame = (cb) => (cb.bfeFrameLoop ? 0 : raf(cb));
     if (settings) localStorage.setItem('battlefront-eternal.settings', JSON.stringify(settings));
   }, settings);
   if (beforeLoad) await beforeLoad(page);

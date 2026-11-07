@@ -105,3 +105,20 @@ impl BfeRenderer {
         self.remember_fx_model_sampler(model, name, unit, texture); // recovery
  self.r.effects.model_sampler(&self.r.core, model, name, unit, texture) }
 }
+
+#[wasm_bindgen]
+impl BfeRenderer {
+    // Existing descriptors survive settings changes. Rebind both draw owners
+    // before publishing the next frame, including mirror and probe items.
+    pub fn effect_settings(&mut self,shadows:bool)->Result<(),JsValue>{
+        self.remember_effect_settings(shadows); // recovery
+ // Preserve first program admissions separately from the final setting.
+        // Repeated toggles then keep their original numeric program identities
+        // without retaining a resource command for every settings transition.
+        let programs=self.r.effects.descriptor_programs().into_iter().chain(self.r.far.descriptor_programs());
+        let keys=programs.filter_map(|id|self.r.core.program_key(id).and_then(|key|crate::effect_settings::key(key,shadows))).collect::<Vec<_>>();
+        for key in keys {if !self.r.core.has_owned_program(&key){self.add_owned_program(&key)?;}}
+ self.r.effects.effect_settings(&mut self.r.core,shadows).map_err(|e|JsValue::from_str(&e))?;
+        self.r.far.effect_settings(&mut self.r.core,shadows).map_err(|e|JsValue::from_str(&e))
+    }
+}

@@ -35,7 +35,7 @@ impl BfeRenderer {
         // while a new unit is admitted during loading.
         let mut target_source=std::mem::replace(&mut bank.sources[target],crate::actor_crowd::Crowd::geometry());let source_bank=&bank.sources;
         let mut refs=vec![(&source_bank[body as usize],bone_base as usize,None,0)];for i in 0..entries.len(){refs.push((&source_bank[sources[i] as usize],entries[i] as usize,Some(matrices[i*16..i*16+16].try_into().unwrap()),groups[i] as usize+1));}
-        let result=bank.crowd.append(&mut target_source,&refs,bones as usize);drop(refs);bank.sources[target]=target_source;let Some((spans,grow))=result else{return Ok(vec![]);};let mut out=vec![u8::from(grow) as f64];out.extend(spans.iter().map(|v|*v as f64));bank.refresh(&mut self.r.core,target as u32).map_err(|e|JsValue::from_str(&e))?;Ok(out)
+        let first_vertex=bank.crowd.vertices;let result=bank.crowd.append(&mut target_source,&refs,bones as usize);drop(refs);bank.sources[target]=target_source;let Some((spans,grow))=result else{return Ok(vec![]);};let mut out=vec![u8::from(grow) as f64];out.extend(spans.iter().map(|v|*v as f64));if grow{bank.refresh(&mut self.r.core,target as u32)}else{bank.append_vertices(&mut self.r.core,target as u32,first_vertex,bank.crowd.vertices)}.map_err(|e|JsValue::from_str(&e))?;Ok(out)
     }
     pub fn actor_crowd_input_ptr(&mut self)->u32{self.actor_resources.crowd.input.as_mut_ptr() as u32}
     pub fn actor_crowd_input_len(&self)->u32{self.actor_resources.crowd.input.len() as u32}
@@ -76,13 +76,9 @@ impl BfeRenderer {
     }
     // CrowdShadows rebuild releases transport extents; logical skin ids
     // remain retired so queued depth descriptors cannot name a later skin.
-    pub fn actor_skin_release(&mut self,id:u32){
-        self.remember_actor_skin_release(id); // recovery
- self.actor_resources.depth.release(id);}
+    pub fn actor_skin_release(&mut self,id:u32){ self.actor_resources.depth.release(id);}
     pub fn actor_skin_words(&self,bones:u32)->u32{(crate::actor_depth::skin_size(bones as usize).pow(2)*4) as u32}
-    pub fn actor_skin(&mut self,texture:u32,bones:u32)->Option<u32>{
-        self.remember_actor_skin(texture, bones); // recovery
- if texture as usize>=self.r.core.textures.len(){return None;}self.actor_resources.depth.skin(texture,bones as usize)}
+    pub fn actor_skin(&mut self,texture:u32,bones:u32)->Option<u32>{ if texture as usize>=self.r.core.textures.len(){return None;}self.actor_resources.depth.skin(texture,bones as usize)}
     pub fn actor_skin_offset(&self,id:u32)->u32{self.actor_resources.depth.get(id).map_or(u32::MAX,|s|s.base as u32)}
     pub fn actor_skin_slot(&self,id:u32)->u32{self.actor_resources.depth.slot(id).map_or(u32::MAX,|slot|slot as u32)}
     pub fn actor_skin_input_ptr(&mut self)->u32{self.actor_resources.depth.input.as_mut_ptr() as u32}
@@ -102,6 +98,9 @@ impl BfeRenderer {
         let geometry=self.actor_resources.geometry(&mut self.r.core,source,key,true).map_err(|e|JsValue::from_str(&e))?;
         if self.actor_resources.crowd.source==Some(source){self.r.core.geometry_count(geometry,self.actor_resources.crowd.drawn);}
         let count=self.actor_resources.sources.get(source as usize).map_or(0,|s|s.index.len());
+        // GPU recreation keeps the already qualified CPU descriptor bank.
+        #[cfg(target_arch="wasm32")]
+        if self.rebuilding{return Ok(None);}
         self.actor_resources.depth.descriptor(&self.r.core,program,geometry,count,policy.flags&3,map,(skin>=0).then_some(skin as u32)).map_err(|e|JsValue::from_str(&e))
     }
     pub fn actor_depth_frame(&mut self){self.actor_resources.depth.publish(&mut self.r.core,&mut self.r.shadow.input);}

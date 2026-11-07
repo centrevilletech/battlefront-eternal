@@ -116,6 +116,7 @@ class EffectsPass {
     this.owners = new Map(); // GpuEffects -> { id }
     this.ownerList=[];
     this.meshes = new Map(); // the lightning's material -> its record, or null
+    this.shaderMeshList = [];
     this.shaderMeshes = new Map(); // the death camera's trace -> its record, or null
     this.glows = new Map(); // a glow model's part -> its registered record
     this.glowList = []; // the records, in registration order
@@ -161,7 +162,8 @@ class EffectsPass {
     if (scene !== graphics.scene || (camera !== graphics.camera || target !== graphics.sceneTarget) && camera.userData?.mirror !== true) return;
     try {
       if (this.core.shadowsOn() !== this.shadows) {
-        this.shadows = !this.shadows;
+        this.shadows = this.core.shadowsOn();
+        this.core.rust.effect_settings(this.shadows);
         this.linkQueue = effectProgramKeys(this.core).filter((key) => !this.core.ownedPrograms?.has(key)).reverse();
       }
       const queued = this.linkQueue.pop();
@@ -230,7 +232,6 @@ class EffectsPass {
     const core = this.core, batch = record.batch, count = Math.min(batch.count,batch.capacity);
     record.mesh.onBeforeRender(core.renderer, core.graphics.viewScene, camera, batch.geometry, batch.material, null);
     let need = at + count * record.stride + (record.valueCount || 0);
-    for (const [, size] of record.values) need += size;
     core.views();
     if (need > core.fxData.length) {this.clipped++;return at;}
     at = copy(core.fxData, at, batch.data, 0, count * record.stride);
@@ -291,7 +292,7 @@ class EffectsPass {
     }
     // Those waiting for three to draw them first (the Enhanced bolts' batch
     // never is in Classic): a look at their program each frame.
-    for (const [batch, register] of this.waiting) {
+    if(this.waiting.size)for (const [batch, register] of this.waiting) {
       const record = register();
       if (record === undefined) continue;
       this.byBatch.set(batch, record);
@@ -380,7 +381,7 @@ class EffectsPass {
     core.buffer=null;core.views();
     const record={id,mesh,source,attributes,stride:attributes.reduce((sum,a)=>sum+a[1],0),values:[],valueCount:source.values.length,native:true,from:this.frame};
     record.before=()=>source.prepare?.(this.context.camera);
-    this.shaderMeshes.set(mesh,record);
+    this.shaderMeshes.set(mesh,record);this.shaderMeshList.push(record);
     if(!source.visibility){source.external=true;mesh.visible=false;}
     return record;
   }
@@ -522,7 +523,8 @@ class EffectsPass {
     // The shader meshes shown (the death camera's trace: never culled).
     const traced = this.traced;
     traced.length = 0;
-    for (const record of this.shaderMeshes.values()) {
+    for (let meshIndex=0;meshIndex<this.shaderMeshList.length;meshIndex++) {
+      const record=this.shaderMeshList[meshIndex];
       if (!record) continue;
       const source = record.source;
       if (!(source.index > 0 && (!source.visibility || record.mesh.visible)) || !this.shown(record.mesh, camera)) continue;

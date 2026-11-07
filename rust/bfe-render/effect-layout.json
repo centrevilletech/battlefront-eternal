@@ -118,7 +118,8 @@
       "spawnShape": 4,
       "spawnMeta": 4
     },
-    "values": {}
+    "values": {},
+    "capacity": 1024
   },
   "snow": {
     "attributes": {},

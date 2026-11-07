@@ -33,7 +33,7 @@ test('model glow groups retain native effect sources for every part',async()=>{
 // preview frame. Admission fails once; the same identity stays clipped.
 test('a clipped preview skin retires its image and stays bounded while warm',async()=>{
  const {actorSkin}=await import('../src/actor-resources.js');let images=0,retired=0,admissions=0;
- const core={rust:{actor_skin_words:()=>64,actor_skin:()=>{admissions++;return undefined;}},resources:{gpu:{effect_data:()=>++images,dispose_sample:()=>retired++}},texture:id=>id};
+ const core={rust:{actor_skin_words:()=>64,actor_skin:()=>{admissions++;return undefined;}},resources:{gpu:{skin_image:()=>++images,release_skin_image:()=>retired++}},texture:id=>id};
  const skeleton={bones:[{}],boneMatrices:new Float32Array(16)};
  for(let i=0;i<10000;i++)assert.equal(actorSkin(core,skeleton),null);
  assert.deepEqual([images,retired,admissions],[1,1,1]);

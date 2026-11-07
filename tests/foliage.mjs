@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { describe, worldMaterial } from '../src/materials.js';
 import { Foliage } from '../src/foliage.js';
+import {SurfaceOwner} from './helpers/surfaces.js';
 
 for (const texture of ['yav_prop_treebillboard_03', 'yav_prop_bush1', 'nab2_prop_bark_branch']) {
   const record = { texture, flags: 6 };
@@ -32,13 +33,14 @@ const data = {
   instances: [{ class: 'tree', matrix: new THREE.Matrix4().makeTranslation(0, 0, -20).toArray() }],
 };
 const scene = new THREE.Scene();
-const foliage = new Foliage(scene, data, { drawer:{select(){}}, texture: () => texture, nearEnd: () => 220 });
+const foliage = new Foliage(scene, data, { surfaceOwner:new SurfaceOwner(), drawer:{select(){}}, texture: () => texture, nearEnd: () => 220 });
 const kind = foliage.kinds.get('tree');
 assert.equal(kind.cards.length, 50);
 for (const leaf of kind.cards) {
   const height = leaf.p.y * 1.6;
   assert(height >= 0 && height <= 13, 'authored canopy height is retained');
-  if (height > 5) assert(Math.hypot(leaf.p.x, leaf.p.z) <= 1.3 * (13 - height) / 8 + 1e-6, 'taper in world-height space');
+  // buildLeaves applies the authored cone before draw-time HeightScale.
+  if (leaf.p.y > 5) assert(Math.hypot(leaf.p.x, leaf.p.z) <= 1.3 * (13 - leaf.p.y) / 8 + 1e-6, 'authored cone taper is retained');
 }
 // Selection and drawing use the Rust foliage phase. Construction retains all
 // authored clusters and creates no browser shader or scene draw.

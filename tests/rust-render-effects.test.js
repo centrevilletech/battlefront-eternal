@@ -105,6 +105,7 @@ function bridge() {
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   standinResources(renderer,calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
+  graphics.rust=core;
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   // A frame's transparent phase, as the transparent pass runs it.
   const frame=()=>{core.byName.effects.collectOwned(scene);return core.publishView("transparent",renderer,scene,camera);};

@@ -55,8 +55,8 @@ export function actorGeometry(core,asset,key,whole=false){return core.rust.actor
 export function actorSkin(core,skeleton){
  const cache=core.actorSkins??=new WeakMap();let entry=cache.get(skeleton);if(cache.has(skeleton))return entry;
  const count=skeleton.bones.length,words=core.rust.actor_skin_words(count),data=new Float32Array(words);for(let i=0;i<Math.min(words,skeleton.boneMatrices.length);i++)data[i]=skeleton.boneMatrices[i];skeleton.boneMatrices=data;skeleton.actorPoseSkin=data.subarray(0,count*16);
- const sample=core.resources.gpu.effect_data(5,count,data),texture=core.texture(sample),id=core.rust.actor_skin(texture,count);
- if(id===undefined){core.resources.gpu.dispose_sample(sample);cache.set(skeleton,null);return null;}skeleton.actorGpuOwner=core;entry={id,slot:core.rust.actor_skin_slot(id),sample,texture,data,words,offset:core.rust.actor_skin_offset(id),serial:NaN};cache.set(skeleton,entry);return entry;
+ const sample=core.resources.gpu.skin_image(count,data),texture=core.texture(sample),id=core.rust.actor_skin(texture,count);
+ if(id===undefined){core.resources.gpu.release_skin_image(sample);cache.set(skeleton,null);return null;}skeleton.actorGpuOwner=core;entry={id,slot:core.rust.actor_skin_slot(id),sample,texture,data,words,offset:core.rust.actor_skin_offset(id),serial:NaN};cache.set(skeleton,entry);return entry;
 }
 // Glow colour/opacity are live appearance facts used by combat and the native
 // effect-model publisher. Their geometry, program and raster policy are Rust's.
@@ -80,4 +80,4 @@ export function publishActorSkin(core,skeleton,serial){const skin=actorSkin(core
 
 function bindActor(skeleton,matrix){THREE.SkinnedMesh.prototype.bind.call(this,skeleton,matrix);skeleton.actorPoseSkin??=skeleton.boneMatrices;}
 
-export function releaseActorSkin(core,skeleton){const skin=core.actorSkins?.get(skeleton);if(!skin)return;core.rust.actor_skin_release(skin.id);core.resources.gpu.dispose_sample(skin.sample);core.actorSkins.delete(skeleton);if(skeleton.actorGpuOwner===core)skeleton.actorGpuOwner=null;}
+export function releaseActorSkin(core,skeleton){const skin=core.actorSkins?.get(skeleton);if(!skin)return;core.rust.actor_skin_release(skin.id);core.resources.gpu.release_skin_image(skin.sample);core.actorSkins.delete(skeleton);if(skeleton.actorGpuOwner===core)skeleton.actorGpuOwner=null;}

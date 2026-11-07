@@ -985,6 +985,15 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {boolean} shadows
+     */
+    effect_settings(shadows) {
+        const ret = wasm.bferenderer_effect_settings(this.__wbg_ptr, shadows);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} source
      * @param {number} kind
      * @param {boolean} far_view
@@ -2400,6 +2409,13 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    recovery_commands() {
+        const ret = wasm.bferenderer_recovery_commands(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} id
      * @param {GpuResources} resources
      * @param {number} source
@@ -2424,6 +2440,21 @@ export class BfeRenderer {
         const ret = wasm.bferenderer_replay_program_draw(this.__wbg_ptr, program, mode, count, index_type, offset, instances, indexed);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @returns {string}
+     */
+    resource_diagnostics() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.bferenderer_resource_diagnostics(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -3455,15 +3486,24 @@ export class GpuResources {
     /**
      * @param {number} id
      */
+    release_skin_image(id) {
+        const ret = wasm.gpuresources_release_skin_image(this.__wbg_ptr, id);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {number} id
+     */
     release_source(id) {
         wasm.gpuresources_release_source(this.__wbg_ptr, id);
     }
     /**
-     * @param {number} id
+     * @param {number} source
      * @returns {number}
      */
-    repeat_sample(id) {
-        const ret = wasm.gpuresources_repeat_sample(this.__wbg_ptr, id);
+    repeat_sample(source) {
+        const ret = wasm.gpuresources_repeat_sample(this.__wbg_ptr, source);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -3539,6 +3579,18 @@ export class GpuResources {
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
+    }
+    /**
+     * @param {number} bones
+     * @param {object} pixels
+     * @returns {number}
+     */
+    skin_image(bones, pixels) {
+        const ret = wasm.gpuresources_skin_image(this.__wbg_ptr, bones, pixels);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
     }
     /**
      * @param {number} flakes
@@ -4477,6 +4529,14 @@ function __wbg_get_imports() {
             const ret = arg0.getUniformLocation(arg1, getStringFromWasm0(arg2, arg3));
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbg_getUniform_d35b624a09520c70: function(arg0, arg1, arg2) {
+            const ret = arg0.getUniform(arg1, arg2);
+            return ret;
+        },
+        __wbg_getUniform_ddce5c34c6813a0b: function(arg0, arg1, arg2) {
+            const ret = arg0.getUniform(arg1, arg2);
+            return ret;
+        },
         __wbg_get_2080c49015e35254: function() { return handleError(function (arg0, arg1) {
             const ret = Reflect.get(arg0, arg1);
             return ret;
@@ -4495,6 +4555,26 @@ function __wbg_get_imports() {
         },
         __wbg_hypot_a50a06dc733d28d3: function(arg0, arg1) {
             const ret = Math.hypot(arg0, arg1);
+            return ret;
+        },
+        __wbg_instanceof_Float32Array_94718abab7dc1d7f: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Float32Array;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
+        __wbg_instanceof_Int32Array_6d09616361bcf0c6: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Int32Array;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
             return ret;
         },
         __wbg_instanceof_Uint32Array_ba721c3060d01f9a: function(arg0) {
@@ -4521,7 +4601,15 @@ function __wbg_get_imports() {
             const ret = arg0.isContextLost();
             return ret;
         },
+        __wbg_length_03a2b32a9178fe11: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
         __wbg_length_186163212ffe79c3: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
+        __wbg_length_6e9d2869242cabf3: function(arg0) {
             const ret = arg0.length;
             return ret;
         },
@@ -4587,6 +4675,12 @@ function __wbg_get_imports() {
         },
         __wbg_prototypesetcall_13162965d1fe7aa3: function(arg0, arg1, arg2) {
             Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_prototypesetcall_153eecd0d28a42a5: function(arg0, arg1, arg2) {
+            Int32Array.prototype.set.call(getArrayI32FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_prototypesetcall_22b1bb88c4ec5c5a: function(arg0, arg1, arg2) {
+            Float32Array.prototype.set.call(getArrayF32FromWasm0(arg0, arg1), arg2);
         },
         __wbg_prototypesetcall_4aea6470234c8414: function(arg0, arg1, arg2) {
             Uint32Array.prototype.set.call(getArrayU32FromWasm0(arg0, arg1), arg2);

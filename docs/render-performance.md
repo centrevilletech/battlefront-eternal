@@ -105,11 +105,10 @@ compilation stalls for effects introduced later.
 
 ## Reproduce
 
-Before editing, copy the current `src` directory somewhere with resolvable
-dependencies. Then run:
+Serve a frozen desktop build and profile the complete battle frame:
 
 ```sh
-RENDER_CPU_REFERENCE=/path/to/before/src node tools/benchmark-render-cpu.mjs
+BASE=http://127.0.0.1:18475 LABEL=before node tools/render-bench-cdp.mjs
 ```
 
 For whole-frame A/B measurement, serve two frozen project snapshots on separate

@@ -12,6 +12,7 @@ pub mod camera_lights;
 pub mod cascades;
 pub mod core;
 pub mod effects;
+pub mod effect_settings;
 pub mod effect_layout;
 pub mod effect_resources;
 pub mod fountain_resources;

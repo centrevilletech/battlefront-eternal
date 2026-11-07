@@ -115,6 +115,7 @@ fn floats_of(ty: u32) -> Option<usize> {
 // A uniform the pass sets: its location and type, a sampler's unit, and the
 // value the program holds (NaN until set).
 struct Uniform<C: HasContext> {
+    name: String,
     location: Option<C::UniformLocation>,
     ty: u32,
     unit: u32,
@@ -299,7 +300,7 @@ impl<C: HasContext> FarPass<C> {
                 };
             }
             self.value.reserve(floats.saturating_sub(self.value.len()));
-            uniforms.push(Uniform { location, ty, unit, value: vec![f32::NAN; floats],integers:vec![0;floats] });
+            uniforms.push(Uniform { name: name.to_string(), location, ty, unit, value: vec![f32::NAN; floats],integers:vec![0;floats] });
         }
         if !assign.is_empty() {
             unsafe {
@@ -973,5 +974,24 @@ mod tests {
         // No fade start: the three in view, one range.
         let n = terrain_runs(&cells, &frustum, &[0.0; 3], 0.0, &mut offsets, &mut counts);
         assert_eq!((n, &offsets[..n], &counts[..n]), (1, &[0][..], &[66][..]));
+    }
+}
+
+impl<C:HasContext> FarPass<C> {
+    // Preserve source indices and sampler units: a settings change only links
+    // the counterpart program, never reconstructs geometry or frame inputs.
+    pub fn descriptor_programs(&self)->Vec<usize>{self.items.iter().map(|i|i.program).collect()}
+    pub fn effect_settings<M:MultiDraw>(&mut self,core:&mut Core<C,M>,shadows:bool)->Result<(),String>{
+        for item in &mut self.items {
+            let program=crate::effect_settings::program(core,item.program,shadows)?;
+            if program==item.program {continue;}
+            for uniform in &mut self.tables[item.table] {
+                uniform.location=crate::effect_settings::location(core,program,&uniform.name);
+                uniform.value.fill(f32::NAN);
+                if matches!(uniform.ty,SAMPLER_2D|SAMPLER_CUBE){unsafe{core.gl.uniform_1_i32(uniform.location.as_ref(),uniform.unit as i32);}}
+            }
+            item.program=program;
+        }
+        core.state.reset();Ok(())
     }
 }

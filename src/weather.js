@@ -71,7 +71,12 @@ export class Weather {
     this.impacts=new RainImpacts({scene,locations:this.host.locations,normals:this.host.normals});
     this.sheets=new RainSheets(scene,this);
     this.cover={heights:null,size:0,cell:0,queries:0};
-    this.applyMode(true);this.unsubscribe=settings?.onChange(key=>{if(key==='rainEffects')this.applyMode(false);});
+    this.applyMode(true);
+    this.host.bindArray(this.arrays,'seed',h=>h.seeds);this.host.bindArray(this.mistBatch.arrays,'seed',h=>h.mist);
+    this.host.bindArray(this.impacts,'locations',h=>h.locations);this.host.bindArray(this.impacts,'normals',h=>h.normals);
+    this.host.bindArray(this.impacts.arrays,'impact',h=>h.locations);this.host.bindArray(this.impacts.arrays,'surfaceNormal',h=>h.normals);
+    this.host.bindArray(this.cover,'heights',h=>h.cover.subarray(0,this.cover.size*this.cover.size));
+    this.unsubscribe=settings?.onChange(key=>{if(key==='rainEffects')this.applyMode(false);});
   }
   // How far the rain reaches in a mode.
   rangeFor(enhanced){return enhanced?Math.min(40,this.nativeRange*3.2):this.nativeRange;}
@@ -92,17 +97,22 @@ export class Weather {
     const v=this.values;v[EFFECT.RAIN.ENHANCED]=this.enhanced?1:0;v[EFFECT.RAIN.RANGE]=this.range;
     v[EFFECT.RAIN.COVER_CELL]=this.cover.cell;v[EFFECT.RAIN.COVER_SIZE]=size;
     this.mistBatch.values.set(v);this.mistBatch.values[EFFECT.RAIN.EFFECT]=1;
-    if(this.resources)this.resources.gpu.weather_cover(this.samples[0],size,heights);
+    if(this.resources){this.resources.gpu.weather_cover(this.samples[0],size,heights);this.imageBuffer=this.host.buffer;}
     this.mist.visible=false;this.impacts.mesh.visible=false;
   }
   // The frame: the camera's place and the time go to the phase, which advances
   // the clock, the camera's motion, the cover cache and the splashes; what it
   // left goes to the uniforms and the draws' visibility.
   prepareFrame(dt,camera){
+    this.host.refresh();
     const frame=this.host.frame;frame[WEATHER_FRAME.DT]=dt;
     frame[WEATHER_FRAME.POSITION]=camera.position.x;frame[WEATHER_FRAME.POSITION+1]=camera.position.y;frame[WEATHER_FRAME.POSITION+2]=camera.position.z;
   }
   publishFrame() {
+    this.host.refresh();
+    if(this.resources&&this.imageBuffer!==this.host.buffer){
+      this.resources.gpu.weather_cover(this.samples[0],this.cover.size,this.cover.heights);this.imageBuffer=this.host.buffer;
+    }
     const r=this.host.result,v=this.values;
     v[EFFECT.RAIN.RAIN_TIME]=r[RESULT.RAIN_TIME];
     for(let i=0;i<3;i++){v[EFFECT.RAIN.EYE+i]=r[RESULT.EYE+i];v[EFFECT.RAIN.CAMERA_MOTION+i]=r[RESULT.CAMERA_MOTION+i];}
@@ -117,7 +127,7 @@ export class Weather {
   // Stable native sampler identity survives mode changes. Resizing publishes
   // a typed cover command, without a replacement Texture or a version scan.
   prepareResources(resources){
-    if(!this.resources){this.resources=resources;this.samples[0]=resources.gpu.effect_data(3,this.cover.size,this.cover.heights);}
+    if(!this.resources){this.host.refresh();this.resources=resources;this.imageBuffer=this.host.buffer;this.samples[0]=resources.gpu.effect_data(3,this.cover.size,this.cover.heights);}
     return this.samples;
   }
   dispose(){this.unsubscribe?.();this.mesh.removeFromParent();this.mist.removeFromParent();this.impacts.dispose();this.sheets.dispose();if(this.resources)this.resources.gpu.dispose_sample(this.samples[0]);}

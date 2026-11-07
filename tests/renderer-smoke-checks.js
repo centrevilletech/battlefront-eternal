@@ -1,3 +1,4 @@
+import {checkRendererLifetimes} from './renderer-lifetime-checks.js';
 import {packPointLights} from "../src/point-lights.js";
 import {SHADER_FRAME as CAMERA_FRAME, LIMIT as CAMERA_LIMIT} from "../src/rust-render/camera-layout.js";
 import {SurfaceOwner,stepSurface} from './helpers/surfaces.js';
@@ -92,7 +93,7 @@ export async function checkRenderer(backend, manifests) {
         if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
         if (error && error !== this.CONTEXT_LOST_WEBGL) {
-          console.log('renderer smoke: gl-error '+JSON.stringify({name,error,stack:new Error().stack.split('\n').slice(0,6),args:args.map(a=>typeof a==='number'?a:a?.buffer?{type:a.constructor.name,length:a.length,bytes:a.byteLength,offset:a.byteOffset}:a?.constructor?.name),unpack:[this.UNPACK_ROW_LENGTH,this.UNPACK_SKIP_ROWS,this.UNPACK_SKIP_PIXELS,this.UNPACK_ALIGNMENT].map(p=>this.getParameter(p))}));
+          console.log('renderer smoke: gl-error '+JSON.stringify({name,error,samplers:Array.from({length:this.getProgramParameter(this.getParameter(this.CURRENT_PROGRAM),this.ACTIVE_UNIFORMS)},(_,i)=>this.getActiveUniform(this.getParameter(this.CURRENT_PROGRAM),i)).filter(u=>[this.SAMPLER_2D,this.SAMPLER_CUBE,this.SAMPLER_3D,this.SAMPLER_2D_SHADOW].includes(u.type)).map(u=>[u.name,this.getUniform(this.getParameter(this.CURRENT_PROGRAM),this.getUniformLocation(this.getParameter(this.CURRENT_PROGRAM),u.name))]),stack:new Error().stack.split('\n').slice(0,6),args:args.map(a=>typeof a==='number'?a:a?.buffer?{type:a.constructor.name,length:a.length,bytes:a.byteLength,offset:a.byteOffset}:a?.constructor?.name),unpack:[this.UNPACK_ROW_LENGTH,this.UNPACK_SKIP_ROWS,this.UNPACK_SKIP_PIXELS,this.UNPACK_ALIGNMENT].map(p=>this.getParameter(p))}));
           throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
         }
       }
@@ -129,6 +130,7 @@ export async function checkRenderer(backend, manifests) {
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
     const coldResources=await checkResources(g.renderer,assert);
+    checkRendererLifetimes(g,assert);
     // Cold sky admission precedes every motion draw and may follow an unrelated
     // program. Sampler publication must select its own program at that boundary.
     const flyerSource=nativeActorSource(g.rust,actorAsset({kind:'plane'}));
@@ -637,6 +639,10 @@ export async function checkRenderer(backend, manifests) {
     g.rust.rust.battle_frame(g.rust.resources.gpu);
     assert('A lost post frame never commits history',g.upscaler.read===lostRead&&g.upscaler.frame===lostFrame&&!g.upscaler.valid);
     await lost;
+    // Cold image admission during loss retains a recipe without allocating GL.
+    const lossImage=new THREE.DataTexture(Uint8Array.of(53,71,91,255),1,1);lossImage.needsUpdate=true;
+    const lossSample=g.renderer.resources.staticSample(lossImage);
+    assert('Cold sampler admission survives loss',Number.isInteger(lossSample));
     // Loading and window changes can create/resize descriptors while drawing
     // is suspended. They must be realized by restoration, never by native GL.
     const duringLoss=new THREE.WebGLRenderTarget(16,8,{depthBuffer:false});
@@ -651,6 +657,10 @@ export async function checkRenderer(backend, manifests) {
     // would test an illegal harness sequence instead of renderer recovery.
     loss.restoreContext();
     await restored;
+    const changedPrograms=[];
+    for(const [key,entry]of g.rust.ownedPrograms){const actual=g.rust.rust.add_owned_program(key);if(actual!==entry.id)changedPrograms.push({key,before:entry.id,after:actual});}
+    console.log('renderer smoke: restored program identities '+JSON.stringify(changedPrograms.slice(0,8)));
+    assert('Restoration preserves owned program identities',changedPrograms.length===0,changedPrograms.slice(0,8));
     {const error=gl.getError();if(error)throw Error(`After restore: GL ${error}`);}
     // The descriptor fixture released its Three Source before loss. Only the
     // native sampler retains its restoration bytes and stable logical handle.
@@ -665,6 +675,12 @@ export async function checkRenderer(backend, manifests) {
     {const error=gl.getError();if(error)throw Error(`After poison: GL ${error}`);}
     g.renderer.resetState();
     for (let i=0;i<4;i++) capture();
+    {
+      const sample=g.renderer.resources.gpu.texture(lossSample),fb=gl.createFramebuffer(),rgba=new Uint8Array(4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,sample,0);
+      gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,rgba);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.deleteFramebuffer(fb);
+      assert('A sampler admitted during loss restores its texels',rgba.every((v,i)=>v===[53,71,91,255][i]));lossImage.dispose();
+    }
     // Restoration must preserve visible output and the partial-update fixture.
     // A successful context event alone does not prove programs, VAOs, indices,
     // textures, target handles and shared CPU inputs were all reconstructed.

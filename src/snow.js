@@ -70,6 +70,7 @@ export class Snow {
     // Snow's persistent phase arrays supply texels directly to the native
     // image owner. Count and camera axes are typed facts, not uniforms.
     this.cover = { heights:this.host.heights,cell:this.host.cell,size,queries:0 };
+    this.host.bindArray(this.cover,"heights",h=>h.heights);
     this.nativeKind=EFFECT.SNOW.ID;this.family='snow';this.variant=0;
     this.texture=texture(p.Texture?.[0]);this.count=0;this.capacity=0;this.arrays={};
     this.visibility='anchor';this.resources=null;this.samples=new Uint32Array(3);this.samples.fill(-1);
@@ -92,6 +93,7 @@ export class Snow {
   // flakes and the wind, refreshes the cover cache and picks the boxes in
   // view; what it changed is marked for upload.
   prepareFrame(dt, camera) {
+    this.host.refresh();
     const view = this.host.view;
     view[VIEW.DT] = dt;
     view.set(camera.matrixWorld.elements, VIEW.CAMERA);
@@ -102,12 +104,18 @@ export class Snow {
     view[VIEW.POSITION] = camera.position.x; view[VIEW.POSITION + 1] = camera.position.y; view[VIEW.POSITION + 2] = camera.position.z;
   }
   publishFrame() {
+    this.host.refresh();
     const r=this.host.result,v=this.values;
     for(let i=0;i<3;i++){
       v[EFFECT.SNOW.CAMERA_RIGHT+i]=r[RESULT.CAMERA_RIGHT+i];
       v[EFFECT.SNOW.CAMERA_UP+i]=r[RESULT.CAMERA_UP+i];
     }
     if(this.resources){
+      if(this.imageBuffer!==this.host.buffer){
+        const gpu=this.resources.gpu;
+        gpu.effect_pixels(this.samples[0],this.host.flakes);gpu.effect_pixels(this.samples[1],this.host.boxes);gpu.effect_pixels(this.samples[2],this.host.heights);
+        this.imageBuffer=this.host.buffer;
+      }
       this.resources.gpu.snow_pixels(this.samples[0],this.samples[1],this.samples[2],r[RESULT.CHANGED]!==0);
     }
     this.cover.queries=r[RESULT.QUERIES];
@@ -118,7 +126,7 @@ export class Snow {
   // The native descriptor fixes format/type/filter and derives dimensions
   // from flake and box counts; no Texture or Source object is constructed.
   prepareResources(resources) {
-    this.resources=resources;const gpu=resources.gpu;
+    this.host.refresh();this.resources=resources;this.imageBuffer=this.host.buffer;const gpu=resources.gpu;
     this.samples[0]=gpu.effect_data(1,this.flakeCount,this.host.flakes);
     this.samples[1]=gpu.effect_data(2,this.boxLimit,this.host.boxes);
     this.samples[2]=gpu.effect_data(3,this.cover.size,this.host.heights);

@@ -15,7 +15,7 @@ export class SurfaceFrame {
     this.warned=false;
   }
   update(dt,camera,actor) {
-    this.actors[0]=actor;
+    this.owner.refresh();this.actors[0]=actor;
     // Camera matrices have already been published by the camera phase. None
     // of these writers recomputes a transform, cloud, path, wave or lifetime.
     if(this.water)this.water.prepareFrame(dt,camera);else this.host.prepare(dt,camera);

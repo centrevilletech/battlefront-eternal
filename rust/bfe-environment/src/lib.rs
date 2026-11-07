@@ -278,14 +278,6 @@ mod exports {
         unsafe { (*addr_of_mut!(SURFACES)).as_mut().expect("surface_new first") }
     }
     #[no_mangle]
-    pub extern "C" fn surface_reserve() {
-        // Reserve the shared owner's heap before any resource takes a view.
-        // Dropping this cold reservation leaves dlmalloc reusable space; frame
-        // paths never grow memory or detach the renderer's borrowed arrays.
-        let mut reserve = vec![0u8; 48 * 1024 * 1024];
-        std::hint::black_box(&mut reserve);
-    }
-    #[no_mangle]
     pub extern "C" fn surface_new(water: u32) {
         // SAFETY: called once during owner construction, before publication.
         unsafe { let mut phase = surfaces::Phase::new(water != 0); phase.prepare_math::<surface_math::Page>();

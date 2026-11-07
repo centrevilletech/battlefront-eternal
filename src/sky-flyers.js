@@ -143,6 +143,7 @@ export class SkyFlyers {
     const count = def.count;
     const records = this.host.arrays(index);
     const solid={matrices:records[0],looks:records[1]},fading={matrices:records[2],looks:records[3]},motion={matrices:records[4],previous:records[5],shown:records[6]};
+    for(const [target,key,at]of [[solid,'matrices',0],[solid,'looks',1],[fading,'matrices',2],[fading,'looks',3],[motion,'matrices',4],[motion,'previous',5],[motion,'shown',6]])this.host.bindArray(target,key,h=>h.arrays(index)[at]);
     // SkyFlyers.build publishes borrowed environment arrays and authored model
     // facts. Native far/motion descriptors own every VBO, sampler and raster rule.
     const mesh=(part,arrays,order,fading=false,moving=false,map=null)=>{
@@ -166,7 +167,7 @@ export class SkyFlyers {
   setEnhanced(enhanced) {
     if (enhanced === this.enhanced) return;
     this.enhanced = enhanced;
-    this.host.x.sky_set_enhanced(enhanced ? 1 : 0);
+    this.host.x.sky_set_enhanced(enhanced ? 1 : 0);this.host.refresh(true);
     this.place(null);
   }
 
@@ -175,6 +176,7 @@ export class SkyFlyers {
   }
 
   prepareFrame(dt, camera = null) {
+    this.host.refresh();
     if (dt > 0) this.stepped = true;
     this.frameCamera = camera;
     if (this.enhanced && camera) this.prepareProbe();
@@ -194,6 +196,7 @@ export class SkyFlyers {
     this.writeFrame(eye, 0); this.host.x.sky_update(); this.publishFrame();
   }
   writeFrame(eye, dt = 0) {
+    this.host.refresh();
     const frame = this.host.frame;
     frame[SKY_FRAME.DT] = dt;
     frame[SKY_FRAME.HAS_EYE] = eye ? 1 : 0;
@@ -204,6 +207,7 @@ export class SkyFlyers {
     frame[SKY_FRAME.MISTY] = this.probe ? 1 : 0;
   }
   publishFrame() {
+    this.host.refresh();
     const r = this.host.result;
     this.time = r[SKY_RESULT.TIME] || 0;
     if (this.enhanced && this.frameCamera && this.probe) this.probe.update(this.time, this.frameCamera);

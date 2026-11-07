@@ -29,7 +29,7 @@ methods = []
 # Replacing a sampled handle is likewise external ownership, not a GL payload.
 # hud_model_* owns CPU-only presentation state outside Renderer. It survives
 # replacement directly; replaying its commands would duplicate clocks/events.
-skip = {'replay_program_draw', 'new', 'add_texture', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'replace_sample_texture'}
+skip = {'replay_program_draw', 'new', 'add_texture', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'replace_sample_texture', 'actor_skin', 'actor_skin_release'}
 # Files and declarations define a reproducible API-tag order for coalescing.
 # Never parse the generated replay implementation as another registration API.
 # Existing hooks are stripped first, otherwise repeated generation would add
@@ -67,10 +67,8 @@ ui_appearance|Recreate interface geometry, material and sampler descriptors in o
 actor_flyer|Recreate native sky flyer colour descriptors and retained instance layouts.
 actor_flyer_motion|Recreate native sky motion source geometry and instance buffers.
 actor_settings|Restore typed actor cascade and lamp settings on retained descriptors.
-actor_skin_release|Retire a released pose sampler identity before any restored frame can upload its old extent.
 actor_motion|Recreate a retained actor motion or first-person locked-mask descriptor from shared native source bytes.
 actor_effect|Recreate a glow model descriptor with native geometry, sampler and exact two-sided additive policy.
-actor_skin|Retain a native pose sampler identity and its exact padded dimensions.
 actor_depth|Recreate an actor depth descriptor against shared source bytes and retained skin samplers.
 actor_geometry|Recreate an actor source VAO from its retained native streams and owned catalog layout.
 actor_material|Restore the actor appearance handle, native variant, sampler slots and blend policy.
@@ -118,6 +116,7 @@ foliage_class|Allocate the foliage class from its base mesh, placements, bounds 
 hud_init|Recreate the HUD's static index buffer before its live vertex mirrors are reuploaded.
 interface_buffer_init|Recreate the interface vertex mirror and its geometry binding before restoring live bytes.
 inst_add_blend|Allocate the instanced material's depth/blend state and ordered shader passes.
+effect_settings|Rebind existing effect programs after a shadow setting changes.
 set_shadow_maps|Restore logical cascade texture ids after the browser recreates the depth textures.
 set_far_map|Reconnect the near scene's far-image sampler to its stable logical texture slot.
 add_program|Relink a rewritten program from retained sources and explicit attribute/uniform bindings.
@@ -244,11 +243,22 @@ out += ['}', 'impl Recovery {',
 # selector key; writes with different keys still retain independent clocks.
 for ident,(name,args,ret) in enumerate(methods):
     append = ('u32' in ret and not ret.startswith('bool')) or name in {'geometry_pointer', 'geometry_group', 'transparent_object_pass', 'static_world_settings', 'static_depth_finish', 'canopies_mesh', 'effect_basin', 'effect_water', 'actor_material', 'actor_effect', 'actor_flyer_motion', 'actor_settings', 'ui_appearance', 'hud_descriptor_init', 'actor_skin_release'}
+    first_only = name in {'actor_effect','actor_material','actor_motion','actor_geometry','actor_depth'}
     signature = ', '.join(n+': '+t for n,t in args)
     out += [f'    // BfeRenderer::{name}: {method_notes[name]}',
             ('    // Keep every call: later registrations depend on the returned id or append order.' if append else '    // Coalesce only the same selector key; other writes retain their own chronology.'),
             f'    pub(super) fn remember_{name}(&mut self'+(', '+signature if signature else '')+') {',
             '        if self.rebuilding { return; }', '        self.recovery.clock += 1;']
+    # Cached admissions keep the first successful dependency order. Depth
+    # descriptors are CPU state; only their source/program recipe is replayed.
+    if first_only:
+        out += ['        let mut hash = std::collections::hash_map::DefaultHasher::new();']
+        for n,t in args:
+            value = '(skin >= 0)' if name == 'actor_depth' and n == 'skin' else n
+            out.append(f'        {value}.hash(&mut hash);')
+        out += [f'        let recovery_key = ({ident}u16, 0, hash.finish());',
+                '        if self.recovery.slots.contains_key(&recovery_key) { return; }',
+                '        self.recovery.slots.insert(recovery_key,self.recovery.commands.len());']
     # The first integer is the primary resource; later scalar/string selectors
     # distinguish its binding, unit, pass or range. Payload slices are excluded
     # so changed bytes replace the saved data instead of growing the journal.
@@ -286,6 +296,7 @@ for ident,(name,args,ret) in enumerate(methods):
 out += ['}', '#[wasm_bindgen]', 'impl BfeRenderer {',
         '    // Called by RustRender.rebuild after the Rust image bank has rebuilt its textures.',
         '    // No frame, callbacks, GPU queries or fences may run until this returns Ok.',
+        '    pub fn recovery_commands(&self)->u32{self.recovery.commands.len() as u32}',
         '    pub fn rebuild(&mut self, context: web_sys::WebGl2RenderingContext, resources: &crate::resources::GpuResources, textures: &[u32]) -> Result<(), JsValue> {',
         '        // Detach the journal before replacing GPU ownership. The old renderer',
         '        // still owns CPU mirrors needed below, but none of its GL handles is valid.',
@@ -294,7 +305,8 @@ out += ['}', '#[wasm_bindgen]', 'impl BfeRenderer {',
         '        self.static_worlds.clear();',
         '        self.water_geometry.clear();',
         '        self.actor_resources.geometry.clear();self.actor_resources.effects.clear();self.actor_resources.materials.clear();self.actor_resources.recipes.clear();self.actor_resources.motions.clear();',
-        '        self.actor_resources.depth.descriptors.clear();self.actor_resources.depth.skins.clear();self.actor_resources.depth.free.clear();self.actor_resources.depth.free_ids.clear();self.actor_resources.depth.end=0;',
+        '        // Pose slots and descriptors are CPU state; preserve live generations and retired ids.',
+        '        for skin in &mut self.actor_resources.depth.skins { skin.serial=f64::NAN; }',
         '        self.actor_resources.crowd.input[crate::actor_layout::crowd_input::DIRTY]=1.;',
         '        let old_lines=std::mem::take(&mut self.line_resources);',
         '        // Replay uses the public registration methods, whose remember hooks',

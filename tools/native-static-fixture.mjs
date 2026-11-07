@@ -1,6 +1,7 @@
 // Compare cold native algorithms with the browser's current builders on
 // synthetic inputs. Foliage still uses JS; water/ocean use Rust descriptors.
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -43,3 +44,11 @@ for(const [divisions,rows] of [[1,1],[3,7],[16,16]]){
 // resulting value (including signed zero) and index without a tolerance.
 const ocean=native({kind:'ocean'});
 assert.deepEqual(ocean,native({kind:'browser-ocean'}));console.log(JSON.stringify({kind:'ocean',vertices:ocean.positions.length/3,exact:true}));
+
+// Frozen constructor hashes retain the pre-native water and ocean coverage.
+// No deleted browser geometry generator participates in this fixture.
+for(const {input,hash} of JSON.parse(fs.readFileSync(new URL('../tests/fixtures/static-geometry-hashes.json',import.meta.url)))){
+ const actual=native(input),digest=createHash('sha256').update(JSON.stringify(actual,Object.keys(actual).sort())).digest('hex');
+ assert.equal(digest,hash,JSON.stringify(input));
+ console.log(JSON.stringify({kind:input.kind,divisions:input.divisions,rows:input.rows,exact:true}));
+}
