@@ -1,4 +1,5 @@
 import { legacyRandom } from "./ai/random.js";
+import {bindWeaponPolicyLevels} from "./weapon-policy.js";
 
 // A soldier's weapons, following the 2004 game.
 //
@@ -120,6 +121,7 @@ export class Weapon {
   constructor(def, { player = true, random = null } = {}) {
     // The class as it is at each charge level.
     this.levels = [def, ...(def.charges || []).map((level) => ({ ...def, ...level }))];
+    bindWeaponPolicyLevels(this.levels);
     this.def = def;
     this.level = 0; // which of its levels `def` is (the store's number for it)
     this.name = def.class;

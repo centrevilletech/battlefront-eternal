@@ -151,3 +151,6 @@ mod tests {
         assert!(angle > 1.4 && angle < 1.5);
     }
 }
+
+#[cfg(target_arch="wasm32")]
+pub(crate) use live::refresh_weapon_masks;

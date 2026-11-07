@@ -101,3 +101,7 @@ pub mod danger;
 pub mod control_views;
 
 pub mod initial;
+
+// Cold policy readback for player, seat and HUD resource hosts.
+#[cfg(target_arch="wasm32")]
+pub mod policies;

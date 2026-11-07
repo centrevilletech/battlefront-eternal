@@ -1660,3 +1660,16 @@ impl State {
         self.owner.crews.turrets.iter().find(|t| t.turret == r).and_then(|t| t.desc.body)
     }
 }
+
+/// Turret charge levels retain their own content targeting masks. Loading
+/// policy changes no live crew, timer, weapon state or shared random binding.
+pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) {
+    let Some(seats)=(unsafe {(&mut *addr_of_mut!(FLEET.seats)).as_mut()}) else {return};
+    for weapon in seats.weapons.iter_mut().flatten() {
+        let Some(class)=weapon.class.as_ref() else {continue};
+        for (lock,level) in weapon.locks.iter_mut().zip(&class.levels) {
+            let ai=table.weapon_ai(&level.obj);
+            lock.relation_mask=ai.relation_mask;lock.category_mask=ai.category_mask;
+        }
+    }
+}

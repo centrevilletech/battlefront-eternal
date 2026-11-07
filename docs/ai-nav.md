@@ -438,7 +438,7 @@ is skipped (the original game recurses on an uninitialized point); FSM
 transition drains stop after 16 passes; empty paths complete at once.
 
 Port changes against bots that stop moving (found with
-`tools/ai-stuck-probe.mjs`, see docs/ai.md "Stuck bots"). Each departs from
+historical headless measurements, see docs/ai.md "Stuck bots"). Each departs from
 the original game where its behavior, or the port's arithmetic, left a bot
 standing for good:
 

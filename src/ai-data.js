@@ -9,14 +9,19 @@ async function bin(path) {
   const response=await fetch(path);if(!response.ok)throw Error(`${path}: ${response.status}`);
   return response.arrayBuffer();
 }
-export async function loadAIData(map,sides) {
+export async function loadAIData(map,sides,weaponData=loadAIWeaponData(sides)) {
   const optional=promise=>promise.catch(()=>null);
-  const [nav,mission,...classes]=await Promise.all([
+  const [nav,mission,classes]=await Promise.all([
     optional(json(`/maps/${map}/ai-nav.json`)),optional(json(`/maps/${map}/ai-mission.json`)),
-    ...sides.map(side=>optional(json(`/sides/${side}/ai.json`))),
+    weaponData,
   ]);
   const navBin=nav?.value?.bin?.file?await optional(bin(`/maps/${map}/${nav.value.bin.file}`)):null;
   return {nav:nav?.value??null,navBytes:nav?.bytes??null,navBin,mission:mission?.value??null,
-    classes:Object.fromEntries(sides.map((side,index)=>[side,classes[index]?.value??null])),
-    classBytes:classes.map(row=>row?.bytes??null)};
+    classBytes:classes};
+}
+
+// The page needs cooked targeting policy, but never navigation or bot state.
+export function loadAIWeaponData(sides) {
+  return Promise.all(sides.map(side=>bin(`/sides/${side}/ai.json`)
+    .then(bytes=>new Uint8Array(bytes)).catch(()=>null)));
 }

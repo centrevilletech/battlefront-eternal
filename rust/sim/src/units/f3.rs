@@ -2384,3 +2384,16 @@ impl State {
         view.put(row,&mut Vec::new());
     }
 }
+
+/// Cold AI content completes the player's canonical targeting services too.
+/// Keep clocks, channels and ordnance bindings from their original adoption.
+pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) {
+    let definitions=&crate::combat::module::defs().weapons;
+    for (index,services) in state().services.iter_mut().enumerate() {
+        let Some(class)=definitions.classes.get(index).and_then(Option::as_ref) else {continue};
+        for (service,level) in services.iter_mut().zip(&class.levels) {
+            let ai=table.weapon_ai(&level.obj);
+            service.lock.relation_mask=ai.relation_mask;service.lock.category_mask=ai.category_mask;
+        }
+    }
+}

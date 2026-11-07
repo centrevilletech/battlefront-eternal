@@ -4,10 +4,8 @@
 const f = Math.fround;
 
 // ---------------------------------------------------------------------------
-// Weapon AI properties. ai.json (tools/zero_ai_classes.py) records each
-// weapon's AI keys as the class parser leaves them; attachAIData() hangs
-// them on the units.json weapon records as `def.ai`. Without ai.json the
-// engine's WeaponClass defaults apply.
+// Player, seat and HUD readers share cold policies published by Rust.
+// Raw definition defaults remain available before a battle loads AI content.
 
 export const ENGINE_DEFAULTS = Object.freeze({
   minRange: 0,
@@ -22,17 +20,29 @@ export const ENGINE_DEFAULTS = Object.freeze({
   barrageDelay: 2,
 });
 
-let aiCache = new WeakMap();
-const registered = new Map(); // weapon class name -> ai.json weapon record
+const policyViews=new WeakMap(),levelSources=new WeakMap();
+// Merged charge records retain their definition identity instead of using a
+// process-global class-name registry that can mix simultaneous battles.
+export function bindWeaponPolicyLevels(levels) {
+  for(let index=1;index<levels.length;index++)levelSources.set(levels[index],{base:levels[0],index});
+}
+export function publishWeaponPolicies(def,levels) {
+  let views=policyViews.get(def);
+  if(!views){views=[];policyViews.set(def,views);}
+  for(let index=0;index<levels.length;index++) {
+    if(views[index])Object.assign(views[index],levels[index]);else views[index]=levels[index];
+    if(index>0&&def.charges?.[index-1])levelSources.set(def.charges[index-1],{base:def,index});
+  }
+}
 
-// A weapon class record's AI view (charge levels are separate records): its
-// own `ai` (attachAIData), else the registered ai.json record of its class
-// (registerAIData), else the engine defaults and the record's flags.
+// Stable views let already constructed lock/HUD readers observe cold policy
+// loading without replacing weapons, timers or their shared RNG bindings.
 export function weaponAI(def) {
   if (!def) return null;
-  let a = aiCache.get(def);
-  if (a) return a;
-  const rec = def.ai ?? registeredAI(def);
+  const source=levelSources.get(def),base=source?source.base:def,index=source?source.index:0;
+  let views=policyViews.get(base),a=views?.[index];
+  if(a)return a;
+  const rec = def.ai;
   const ai = rec || {};
   // Without a record, the flattened keys a class record may carry.
   const raw = rec ? null : def;
@@ -56,7 +66,8 @@ export function weaponAI(def) {
     zoomMax: f(ai.zoomMax ?? (def.ZoomMax || 1)),
     action: ai.action ?? actionOf(def.AnimationBank),
   };
-  aiCache.set(def, a);
+  if(!views){views=[];policyViews.set(base,views);}
+  views[index]=a;
   return a;
 }
 
@@ -69,7 +80,7 @@ function num(value) {
 
 // Target masks from the flattened Target* flags units.json keeps, for when
 // ai.json is absent: TargetAll first (it sets or clears the whole category
-// mask), then each flag its bit. ai.json replays the authored order instead.
+// mask), then each flag its bit. Native content preserves authored order.
 const RELATION_FLAGS = [["TargetEnemy", 1], ["TargetNeutral", 2], ["TargetFriendly", 4]];
 const CATEGORY_FLAGS = [["TargetPerson", 1], ["TargetAnimal", 2], ["TargetDroid", 4], ["TargetVehicle", 8],
   ["TargetBuilding", 16], ["TargetBuildingDead", 32], ["TargetBuildingUnbuilt", 64]];
@@ -95,59 +106,6 @@ export function actionOf(bank) {
 }
 
 export const ACTION = Object.freeze({ PISTOL: 0, RIFLE: 1, GRENADE: 2, LAUNCHER: 3, MELEE: 4, TOOL: 6 });
-
-// A registered record's AI view for a class record or one of its charge
-// levels (a level carries the `at` its units.json charge entry has).
-function registeredAI(def) {
-  const rec = registered.get(def.class);
-  if (!rec) return null;
-  if (def.at !== undefined && rec.levels?.length) {
-    const at = f(def.at);
-    const level = rec.levels.find((l) => f(l.at) === at);
-    if (level?.ai) return level.ai;
-  }
-  return rec.ai ?? null;
-}
-
-// Make a side's ai.json weapon records the AI view of every weapon of
-// those classes (looked up by class name, charge levels by their `at`; a
-// record's own `ai` still wins). Returns the number of records registered.
-export function registerAIData(aiJson) {
-  if (!aiJson?.weapons) return 0;
-  let n = 0;
-  for (const [name, rec] of Object.entries(aiJson.weapons)) {
-    if (!rec?.ai) continue;
-    registered.set(name, rec);
-    n++;
-  }
-  aiCache = new WeakMap();
-  return n;
-}
-
-// Hang ai.json's weapon records on the units.json classes of a side
-// (units[class].weapons[i].ai, and each charge level's), so that bots read
-// them through weaponAI(). `units`: units.json, or its `units` map. Returns
-// the number of weapons matched.
-export function attachAIData(units, aiJson) {
-  if (!units || !aiJson?.weapons) return 0;
-  if (units.units && typeof units.units === "object") units = units.units;
-  let matched = 0;
-  for (const unitDef of Object.values(units)) {
-    for (const w of unitDef.weapons || []) {
-      const rec = aiJson.weapons[w.class];
-      if (!rec) continue;
-      w.ai = rec.ai;
-      (w.charges || []).forEach((level, i) => {
-        if (rec.levels?.[i]?.ai) level.ai = rec.levels[i].ai;
-      });
-      aiCache.delete(w);
-      matched++;
-    }
-    const cls = aiJson.classes?.[unitDef.class];
-    if (cls) unitDef.ai = cls.ai;
-  }
-  return matched;
-}
 
 // The target category the masks test (the health type):
 // person 0, animal 1, droid 2, vehicle 3, building 4, dead building 5,

@@ -35,6 +35,11 @@ export default {
       unitScale: 'f64', heroes: 'bool', demo: 'bool', capacity: 'f64', prepared: 'list:str', pads: 'list:rec:F4PadSetup', heroNames: 'list:rec:F4HeroSetup' },
     AiCharacterBirth: { $layout: true, slot: 'u32', generation: 'u32' },
     AiWeaponData: { json: 'list:u8' },
+    AiWeaponPolicySource: { $layout:true,weapons:'list:def:weapon',data:'list:rec:AiWeaponData' },
+    // Cold readback shares the content owner's cooked policy with previews.
+    AiWeaponPolicy: { minRange:'f64',optimalRange:'f64',maxRange:'f64',implicitRange:'bool',extremeRange:'f64',relationMask:'u32',categoryMask:'u32',barrageMin:'f64',barrageMax:'f64',barrageDelay:'f64',triggerSingle:'bool',zoomMax:'f64',action:'f64' },
+    AiWeaponPolicies: { weapon:'def:weapon',levels:'list:rec:AiWeaponPolicy' },
+    AiWeaponPolicyContent: { $layout:true,weapons:'list:rec:AiWeaponPolicies' },
     // Authored capture geometry uses arrays, rather than Three vectors.
     // A vector writer would turn their coordinates into NaNs at load.
     AiCapture: { $layout: true, center: 'f64x3', half: 'f64x3' },

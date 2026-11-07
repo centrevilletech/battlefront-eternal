@@ -353,8 +353,9 @@ class F3 {
         service.bank = weapon.bank;
         service.lightning = d.ordnance?.LightningEffect ?? '';
         service.hasLightning = Boolean(service.lightning && combat.effects?.lightning?.[service.lightning]);
-        // weaponAI includes the content registry's ai.json masks. Reading raw
-        // Target flags here would miss defaults supplied by that registry.
+        // Cold views share Rust's cooked content policy. Initial physical
+        // construction can precede AI loading; its native binding completes
+        // these masks later without replacing timers or random streams.
         const masks = weaponAI(d), lock = service.lock;
         lock.range = Number(d.LockOnRange) || 0;
         lock.onAngle = Number(d.LockOnAngle) || 0;
@@ -379,7 +380,6 @@ class F3 {
     const blastCall = new F3BlastCallMirror();
     const blastArgs = {words:this.layout.blastWords,put:putF3BlastCall};
     sim.nativeServices = {
-      itemTargets: targets => this.items.writeTargets(targets),
       item: (def,model) => this.items.prepare(def,model),
       owner: owner => this.owners.prepare(owner),
       explode: (def,position,owner) => {
@@ -1116,6 +1116,7 @@ class F3 {
       }
     } finally {this.delivering=false;}
     this.owners.reserveFuture();
+    this.aiOwner?.finishPublication();
   }
 
   // CollisionWorld.rayBodies: membership names bodies only when it changes.

@@ -4,12 +4,13 @@
 import { Character } from './battle.js';
 import { ControlFacades } from './ai-world-controls.js';
 import { AiNotices } from './ai-world-notices.js';
-import { MirrorPool } from './sim/runtime.js';
+import { NativeFacades } from './ai-world-identities.js';
+import {readWeaponPolicies} from './weapon-policy-content.js';
 import { KIND_CONTROLLER, KIND_SEAT_UNIT, KIND_CHARACTER, KIND_BATTLE, KIND_SPAWNING, KIND_POST, KIND_MOBILE_POST } from './sim/gen/index.js';
 import { F4HandleMirror,syncF4Handle } from './sim/gen/f4.js';
 import { AiWorldSetupLayout, putAiWorldSetup, AiWorldContentLayout, putAiWorldContent,
   AiPhaseBoundaryLayout, AiPhaseBoundaryMirror, syncAiPhaseBoundary, AiPhaseHeaderMirror, putAiPhaseHeader,
-  AiDangerResult_VALUE, AiPhaseCameraLayout, putAiPhaseCamera, AiJournalEventLayout, putAiJournalEvent,
+  AiPhaseCameraLayout, putAiPhaseCamera, AiJournalEventLayout, putAiJournalEvent,
   AiCharacterBirthMirror, syncAiCharacterBirth, AiRosterSetupLayout, putAiRosterSetup, AiPlayerCommandMirror, AiPlayerCommandLayout, putAiPlayerCommand, AiPhaseCountersLayout } from './sim/gen/ai-phase.js';
 const ROSTER = {words:AiRosterSetupLayout.words,put:putAiRosterSetup};
 const SETUP = {words:AiWorldSetupLayout.words,put:putAiWorldSetup};
@@ -36,25 +37,16 @@ function observeCounters(owner) {
 class ControllerFacade {
   constructor(index) {this.index=index;this.native=true;this.simSlot=-1;this.simGen=0;}
 }
-export class ControllerFacades extends MirrorPool {
+export class ControllerFacades extends NativeFacades {
   constructor(capacity) {
-    super(KIND_CONTROLLER);this.Mirror=ControllerFacade;this.frames=[];
-    this.objects.length=capacity;
-    for(let i=0;i<capacity;i++)this.frames.push(new ControllerFacade(i));
+    super(KIND_CONTROLLER);this.Mirror=ControllerFacade;this.objects.length=capacity;
   }
   born(event) {
-    const facade=this.frames[event.index];
-    if(!facade) {this.frames[event.index]=new ControllerFacade(event.index);return this.born(event);}
-    if(facade.simGen && (facade.simSlot!==event.slot || facade.simGen!==event.generation))throw Error('AI controller identity changed after birth');
-    facade.simSlot=event.slot;facade.simGen=event.generation;this.objects[event.slot]=facade;
-  }
-  at(slot,generation) {
-    const current=this.objects[slot];
-    if(current && current.simGen===generation)return current;
-    for(let i=0;i<this.frames.length;i++) {
-      const old=this.frames[i];if(old && old.simSlot===slot && old.simGen===generation)return old;
-    }
-    throw Error('AI controller reference precedes its native birth');
+    const known=this.find(event.slot,event.generation);if(known)return known;
+    if(!this.accepts(event.slot,event.generation))return null;
+    const facade=new ControllerFacade(event.index);
+    facade.simSlot=event.slot;facade.simGen=event.generation;
+    this.replace(event.slot,facade);return facade;
   }
 }
 
@@ -82,6 +74,7 @@ export class AiWorld {
   content(content) {
     this.bridge.callArgs(CONTENT,content);
     if (!this.x.ai_world_content()) throw Error('AI class or post content is invalid');
+    readWeaponPolicies(this.bridge,this.x.ai_world_weapon_policies());
   }
   initializeRoster(setup,{battle=null,spawning=null}={}) {
     const b=this.bridge;
@@ -117,16 +110,11 @@ export class AiWorld {
     this.bridge.callArgs(COMMAND,this.order);const accepted=Boolean(this.x.ai_world_command());
     this.phase.random.pull();this.phase.sync();return accepted;
   }
-  // One post-battle boundary replaces the world's per-grenade host calls.
-  // Flight/contact facts and each grenade's warning memory already live native.
-  dangers() {
-    const result=this.x.ai_world_dangers();if(!result)return false;
-    if(result!==AiDangerResult_VALUE.unchanged) {this.phase.random.pull();this.phase.sync();}
-  }
   readLayout() {
     this.bridge.views();
     syncAiPhaseBoundary(this.bridge,this.bridge.f,this.descriptor,0,this.layout);
   }
+  finishPublication() {this.controlRefs.finishPublication();this.controllerRefs.finishPublication();}
   controlBorn(event) {this.controlRefs.born(event);}
   syncControls() {
     const b=this.bridge;b.views();
@@ -151,13 +139,5 @@ export class AiWorld {
     for (let i = 0; i < cameraCount; i++, at += AiPhaseCameraLayout.words) putAiPhaseCamera(b,cameras[i],b.f,at,b.heap);
     at = layout.journal / 8;
     for (let i = eventStart; i < eventCount; i++, at += AiJournalEventLayout.words) putAiJournalEvent(b,journal.records[i],b.f,at,b.heap);
-  }
-  step(facts, cameras, journal, time, paused = false, networkSecondary = false, unitPhaseFollows = false) {
-    this.prepare(facts,cameras,journal,time,paused,networkSecondary,unitPhaseFollows);
-    if (!this.x.ai_world_phase())return false;
-    this.complete();
-  }
-  complete() {
-    this.phase.random.pull();this.phase.sync();
   }
 }

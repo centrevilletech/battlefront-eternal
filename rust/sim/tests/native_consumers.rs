@@ -107,9 +107,17 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
                     sequence: 1.0,
                     tick: 1.0,
                     generation: 1.0,
-                    actions: vec![jump; 2049],
+                    actions: vec![jump; 1025],
                     down: 17.0,
                     look_total: Some([-0.0, 12.5]),
+                    ..Default::default()
+                }, ImEntry {
+                    sequence: 2.0,
+                    tick: 2.0,
+                    generation: 1.0,
+                    actions: vec![jump; 1025],
+                    down: 19.0,
+                    look_total: Some([3.0, 13.5]),
                     ..Default::default()
                 }],
                 ..Default::default()
@@ -117,9 +125,12 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
             ..Default::default()
         })
         .unwrap();
-    assert!(out.error.is_some());
-    assert!(out.command.is_none());
-    assert!(out.state.queue.is_empty());
+    // InputMailbox.take defers the next valid command before exceeding its
+    // fixed scratch. Both commands must survive a paused burst, in order.
+    assert!(out.error.is_none());
+    assert_eq!(out.command.as_ref().unwrap().actions, vec![jump; 1025]);
+    assert_eq!(out.state.queue.len(), 1);
+    assert_eq!(out.state.queue[0].sequence, 2.0);
     assert_eq!(out.state.ack, 1.0);
     assert_eq!(out.state.down, Some(17.0));
     assert_eq!(out.state.look_total, [-0.0, 12.5]);
@@ -133,6 +144,12 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
         })
         .unwrap();
     assert!(recovered.error.is_none());
+    assert!(recovered.state.queue.is_empty());
+    assert_eq!(recovered.state.ack, 2.0);
+    assert_eq!(recovered.state.down, Some(19.0));
+    let command = recovered.command.unwrap();
+    assert_eq!(command.actions, vec![jump; 1025]);
+    assert_eq!(command.look[0].point, [3.0, 1.0]);
 
     let status = a
         .intern(&"manual".encode_utf16().collect::<Vec<_>>())

@@ -28,24 +28,5 @@ test('each placed power-up is an item from the start, where and as the map place
   assert.deepEqual(item.position.toArray(), [3, 2, -4]);
   assert.ok(Math.abs(item.yaw - Math.PI / 2) < 1e-6);
   assert.equal(item.life, 30);
-  // It falls and settles on the ground, then lasts its LifeSpan.
-  for (let i = 0; i < 120; i++) items.update(1 / 60, []);
-  assert.ok(item.landed && Math.abs(item.position.y) < 0.05, `at ${item.position.y}`);
-  for (let i = 0; i < 60 * 27; i++) items.update(1 / 60, []);
-  assert.ok(!item.gone);
-  for (let i = 0; i < 70; i++) items.update(1 / 60, []);
-  assert.ok(item.gone);
-});
-
-test('a hurt soldier touching it takes its health', () => {
-  const items = world();
-  const [item] = spawnPlacedItems(items, [{ matrix: new THREE.Matrix4().toArray(), item: health100 }]);
-  for (let i = 0; i < 40; i++) items.update(1 / 60, []);
-  let health = 100;
-  const soldier = { position: new THREE.Vector3(0, 0, 0), healthType: 'person', relation: () => 1,
-    give: (def) => { const before = health; health = Math.min(300, health + def.PersonHealth); return health > before; } };
-  items.update(1 / 60, [soldier]);
-  assert.equal(health, 175);
-  assert.ok(item.gone);
-  assert.deepEqual(spawnPlacedItems(items, undefined), []);
+  assert.deepEqual(spawnPlacedItems(items,undefined),[]);
 });

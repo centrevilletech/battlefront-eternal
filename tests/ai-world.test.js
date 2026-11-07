@@ -12,7 +12,7 @@ import { hullFacts,propFacts } from '../src/ai-world-content.js';
 import { ControlFacades } from '../src/ai-world-controls.js';
 import { AiWorld, ControllerFacades } from '../src/ai-world.js';
 import { AiWorldSetupMirror, AiWorldContentMirror, AiUnitClassMirror, AiPostDefinitionMirror, AiPhaseFactsMirror } from '../src/sim/gen/ai-phase.js';
-import { HumanSpawnMirror, SpawningMirror, SpawnTeamMirror, SpawnClassMirror, SpawnMirror, F3PhaseInputLayout, F3BoundaryLayout, F3UnitKeyLayout, F3PublicationLayout, F3NativeIntentLayout, BlockHeaderLayout } from '../src/sim/gen/index.js';
+import { HumanSpawnMirror, SpawningMirror, SpawnTeamMirror, SpawnClassMirror, SpawnMirror, F3PhaseInputLayout, F3UnitKeyLayout, F3PublicationLayout, F3NativeIntentLayout, BlockHeaderLayout } from '../src/sim/gen/index.js';
 import { f3World } from './fixtures/f3-world.js';
 import { fleetFixture } from './fixtures/f3-fleet.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
@@ -44,7 +44,7 @@ function prepareRider(unit) {
 
 // Exercise the actual native host, including the F3/F4 owner loans. The
 // fixture has no JS controller, navigation, population or geometry services.
-for (const joined of [false,true,'world']) for (const enhanced of [false,true]) for (const lane of ['navigation','combat','vehicle','boarding','flight','mounted-combat','turret-combat',...(enhanced?[]:['mounted-sniper','mounted-secondary']),'repair','trap-repair']) test(`one native ${enhanced?'Enhanced':'Classic'} ${lane} ${joined==='world'?'world tick':joined?'joined':'standalone'} phase and immediate death`,async()=>{
+for (const enhanced of [false,true]) for (const lane of ['navigation','combat','vehicle','boarding','flight','mounted-combat','turret-combat',...(enhanced?[]:['mounted-sniper','mounted-secondary']),'repair','trap-repair']) test(`one native ${enhanced?'Enhanced':'Classic'} ${lane} world tick and immediate death`,async()=>{
   const turretLane=lane==='turret-combat',sniper=lane==='mounted-sniper',secondary=lane==='mounted-secondary',armed=lane==='mounted-combat'||sniper||secondary||turretLane,combat=lane==='combat'||armed,mounted=lane==='vehicle'||lane==='boarding'||lane==='flight'||armed,repair=lane==='repair'||lane==='trap-repair';
   const posts=new CommandPosts(null,{commandPosts:[1,2].map((team,index)=>({name:`post${index}`,team,
     matrix:new Matrix4().makeTranslation(index*20,0,0).toArray(),hologram:[0,0,0]}))},{headless:true,playerTeam:1});
@@ -144,9 +144,8 @@ for (const joined of [false,true,'world']) for (const enhanced of [false,true]) 
     assert.equal(turretLane?crews.man(unit,emplacement):world.factory.context.vehicles.board(unit,hull),true);
     assert.equal(unit.seat.controllable.native,true);
   }
-  const whole=joined==='world';
-  if(whole)world.phase.registerViewpoint(unit);
-  const coordinator=whole?new WorldTick(world.phase,new FixedClock()):null;
+  world.phase.registerViewpoint(unit);
+  const coordinator=new WorldTick(world.phase,new FixedClock());
   const facts=new AiPhaseFactsMirror();facts.dt=1/60;facts.lodDisabled=true;
   const cameras=[],journal={sequence:0,records:[]};
   let allocations,reallocations,sawContact=false,sawIntent=false,sawMountedControl=false,sawScan=false,checkedRider=false,sawSniperSpread=false,sawDeferredIntent=false;
@@ -154,12 +153,10 @@ for (const joined of [false,true,'world']) for (const enhanced of [false,true]) 
   for(let tick=1;tick<=360;tick++) {
     const beforeRows=world.phase.counters.unitRows,forward=unit.intent.forward,right=unit.intent.right;
     facts.tick=tick;
-    if(whole)owner.prepare(facts,cameras,journal,tick/60,false,false,true);
-    else owner.step(facts,cameras,journal,tick/60,false,false,joined);
+    owner.prepare(facts,cameras,journal,tick/60,false,false,true);
     const aiRows=world.phase.counters.unitRows-beforeRows;
-    if(joined&&!mounted&&!repair)assert.equal(aiRows,0,'ordinary bot controls, avoidance and tuning join the unit phase');
+    if(!mounted&&!repair)assert.equal(aiRows,0,'ordinary bot controls, avoidance and tuning join the unit phase');
     if(owner.counters.scanned>0)sawScan=true;
-    if(!joined && combat && !mounted && tick===1)assert.ok(unit.intent.aim,'the first scheduler input samples aim before any body moves');
     if(unit.intent.forward!==0 || unit.intent.right!==0)sawIntent=true;
     if(mounted && unit.seat?.controllable?.controller===character.controller)sawMountedControl=true;
     const writeFacts = world.phase.registry.foreign;
@@ -177,17 +174,7 @@ for (const joined of [false,true,'world']) for (const enhanced of [false,true]) 
       if(target)assert.ok(foreign>0,'unbound target still carries explicit foreign input');
       return writeFacts.call(world.phase.registry,count,networks);
     };
-    if(whole){coordinator.run(1/60,tick,true,null,true,true,0,false,0);coordinator.finish();coordinator.complete();}
-    else {
-      world.phase.phase(1/60,tick);world.phase.registry.foreign=writeFacts;
-      const publication=world.phase.layout.version,dangers=owner.counters.dangerPhases;
-      owner.dangers();
-      if(joined&&(lane==='navigation'||lane==='combat')&&tick===1) {
-        assert.equal(owner.counters.dangerPhases,dangers+Number(combat),'empty danger phases preserve combat capability counting');
-        assert.equal(world.phase.bridge.f[world.phase.descriptor+F3BoundaryLayout.version],publication,
-          'empty danger phases preserve the settled publication and event epoch');
-      }
-    }
+    coordinator.run(1/60,tick,true,null,true,true,0,false,0);coordinator.finish();coordinator.complete();
     world.phase.registry.foreign=writeFacts;
     if(lane==='navigation'&&unit.soldier.avoidance.lengthSq()>0)sawContact=true;
     if(tick===1&&!mounted) {
@@ -202,7 +189,7 @@ for (const joined of [false,true,'world']) for (const enhanced of [false,true]) 
         assert.equal(other.words[at+F3PublicationLayout.controls],0,'foreign player controls keep full restoration');
       }
     }
-    if(joined) {
+    {
       if(unit.intent.forward!==0||unit.intent.right!==0)sawIntent=true;
       if(aiRows===0&&(unit.intent.forward!==forward||unit.intent.right!==right))sawDeferredIntent=true;
     }
@@ -232,17 +219,13 @@ for (const joined of [false,true,'world']) for (const enhanced of [false,true]) 
       'native Aimer spread curves survive retained mounted input before firing');
     if(!mounted)assert.ok(unit.intent.aim,'native aim publishes its retained vector');
     if(enhanced&&!mounted)assert.ok(owner.counters.drawsC>0,'Enhanced aim consumes private C');
-    // Even an airborne grenade consumes its danger delay before the contact
-    // gate. Its F1 identity, A state and later post-battle boundary stay live.
-    const count=world.ordnance.grenades.length;
+    // Grenade warnings run after the same battle tail as production; no
+    // separate host danger entry can move their observation before physics.
     world.ordnance.fire({class:'native-warning',base:'grenade',Velocity:0,LifeSpan:20},new Vector3(0,100,0),new Vector3(0,0,1),unit);
-    assert.equal(world.ordnance.grenades.length,count+1);owner.dangers();
-    const before=owner.counters.drawsA,privateC=owner.counters.drawsC,reference=new ClassicRandom(random.state);
-    const allocations=owner.counters.allocations,reallocations=owner.counters.reallocations;
-    for(let index=0;index<30;index++){reference.uniform();owner.dangers();}
-    assert.equal(owner.counters.drawsA-before,30);assert.equal(random.state,reference.state);
-    assert.equal(owner.counters.drawsC,privateC);
-    assert.equal(owner.counters.allocations,allocations);assert.equal(owner.counters.reallocations,reallocations);
+    const dangers=owner.counters.dangerPhases;
+    facts.tick=361;owner.prepare(facts,cameras,journal,361/60,false,false,true);
+    coordinator.run(1/60,361,true,null,true,true,0,false,0);coordinator.finish();coordinator.complete();
+    assert.equal(owner.counters.dangerPhases,dangers+1);
   }else if(repair) {
     assert.ok(sawIntent,'the repair job moves toward its native wreck');
   }else if(mounted) {
@@ -252,14 +235,14 @@ for (const joined of [false,true,'world']) for (const enhanced of [false,true]) 
   }else {
     assert.ok(sawIntent,'native held intent reaches the unit owner');
     assert.ok(sawContact,'native movement supplies actual wall contact');
-    if(joined)assert.ok(sawDeferredIntent,'the following unit phase consumes changed intent without an intermediate body publication');
+    assert.ok(sawDeferredIntent,'the following unit phase consumes changed intent without an intermediate body publication');
     assert.ok(unit.soldier.position.lengthSq()>0,'native intent survives the foreign input boundary and moves the body');
     assert.equal(owner.playerCommand(character,2,6),true);
     const stale={},handle=world.phase.tailOwner.entries.get(character).handle;
     world.phase.tailOwner.entries.set(stale,{handle:{...handle,life:handle.life+1}});
     const before=random.state;assert.equal(owner.playerCommand(stale,2,6),false);
     assert.equal(random.state,before,'a stale Character command consumes no draw');
-    owner.dangers();assert.equal(owner.counters.commands,2);assert.equal(owner.counters.staleCommands,1);
+    assert.equal(owner.counters.commands,2);assert.equal(owner.counters.staleCommands,1);
   }
   const seated=mounted&&Boolean(unit.seat);
   const drop=seated?world.factory.context.vehicles.f2.riders.drop(unit,new Vector3())?.clone():null;
@@ -303,4 +286,22 @@ test('a native seat reader retains its lease and captured occupant across storag
   assert.equal(refs.at(0,1),first);assert.equal(refs.at(0,2),next);
   assert.equal(refs.born({slot:0,generation:2}),next);
   const row=new Float64Array(2);refs.put(first,row,0);assert.deepEqual([...row],[0,1]);
+});
+
+// Repeated Core indices must not become an ever-growing JS frame array.
+// Retired generations are readable only while their publication is draining.
+test('native facade storage stays bounded across thousands of reused generations',()=>{
+  for(const refs of [new ControllerFacades(2),new ControlFacades()]) {
+    let held;
+    for(let generation=1;generation<=5000;generation++) {
+      const current=refs.born({slot:0,generation,index:generation*17});
+      assert.equal(refs.at(0,generation),current);
+      if(held){assert.equal(refs.at(0,generation-1),held);assert.equal(refs.born({slot:0,generation:generation-1,index:0}),held);}
+      refs.finishPublication();
+      assert.equal(refs.objects.length<=2,true);assert.equal(refs.displaced.size,0);
+      if(held){assert.throws(()=>refs.at(0,generation-1),/retired generation/);assert.equal(held.simGen,generation-1);assert.equal(refs.born({slot:0,generation:generation-1,index:0}),null);}
+      held=current;
+    }
+    assert.equal(refs.frames,undefined);assert.equal(refs.lives,undefined);
+  }
 });

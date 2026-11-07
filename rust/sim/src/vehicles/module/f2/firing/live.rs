@@ -117,7 +117,10 @@ pub extern "C" fn f2_firing_adopt() {
             let keys = WeaponGeometry { weapon_node: node(birth.weapon_node), fallback_node: node(birth.fallback_node),
                 direction_nodes: birth.direction_nodes.iter().map(|&n| node(n)).collect(), outside_limits: birth.outside.clone() };
             let lock_angles = class.levels.iter().map(|d| { let on = d.field("LockOnAngle").or(0.0); [on, d.field("LockOffAngle").or(on)] }).collect();
-            let r = state().weapons.insert(Mounted { random:None, lock_angles, state: birth.state.clone(), birth, class: Some(class), missile_lock, keys, input: FfWeaponInput::default(), shots: Vec::with_capacity(32), dirty: true, random_binding:u32::MAX });
+            // A new mount starts with human view acquisition, like reset_life.
+            // Zero is a real registry target: the enclosing tick protects native
+            // hints and would otherwise reject its first foreign view input.
+            let r = state().weapons.insert(Mounted { random:None, lock_angles, state: birth.state.clone(), birth, class: Some(class), missile_lock, keys, input: FfWeaponInput {target:-2,..Default::default()}, shots: Vec::with_capacity(32), dirty: true, random_binding:u32::MAX });
             refs.push(r);
         }
         craft.seats.push(refs);
@@ -1036,5 +1039,17 @@ impl State {
         let result = run(h, &self.weapons);
         std::mem::swap(h.pose.as_mut().unwrap(), &mut poses[r.slot as usize].as_mut().unwrap().pose);
         result
+    }
+}
+
+/// Mounted lock acquisition shares the cooked bot masks after cold loading.
+/// Updating policy must not respawn mounted rows or replace spread streams.
+pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) {
+    let Some(firing)=(unsafe {(&mut *addr_of_mut!(FLEET.firing)).as_mut()}) else {return};
+    for slot in 0..firing.weapons.slots() {
+        let Some((_,weapon))=firing.weapons.at_mut(slot) else {continue};
+        let Some(class)=weapon.class.as_ref() else {continue};
+        let ai=table.weapon_ai(&class.levels[0].obj);
+        weapon.birth.relation_mask=ai.relation_mask;weapon.birth.category_mask=ai.category_mask;
     }
 }

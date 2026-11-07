@@ -1,3 +1,4 @@
+import {bindWeaponPolicyLevels} from './weapon-policy.js';
 import {F3CombatField_VALUE as C,F3WeaponField_VALUE as W,F3CombatViewLayout as V,F3WeaponViewLayout as WV} from './sim/gen/combat.js';
 import {BlockHeaderLayout} from './sim/gen/boundary.js';
 // Immutable combat content and ordinary mirrors for the native unit owner.
@@ -90,6 +91,7 @@ class WeaponFacade {
     this.index = index;
     // The class at each charge level, as Weapon keeps them.
     this.levels = [def, ...(def.charges || []).map((level) => ({ ...def, ...level }))];
+    bindWeaponPolicyLevels(this.levels);
     // Weapon.def is immutable for a single-level class. Stats and AI read
     // it often; only a charged class needs the canonical native level lookup.
     this.fixedDef = this.levels.length === 1 ? this.levels[0] : null;

@@ -37,7 +37,6 @@ export class ItemsSim {
     b.own(KIND_ITEM);
     this.itemDefs = b.defs.item;
     this.sent = 0;
-    this.water = false;
     this.args = [putSpawnArgs, putDispenseArgs, putDropArgs, putItemsBlastArgs, putHurtArgs].map((put, i) => ({ words: x.items_args_words(i), put }));
     // A class's model, measured once (ItemsWorld.model): its size and middle
     // are the same for every item of the class, and the world draws none.
@@ -48,8 +47,6 @@ export class ItemsSim {
     this.castAnswer = { found: false, distance: 0, point: ZERO, normal: ZERO, terrain: false, body: null };
     this.pointAnswer = { found: false, point: ZERO };
     this.modelAnswer = { mesh: false, radius: 0, center: null };
-    this.targetsAnswer = { targets: [] };
-    this.relationsAnswer = { relations: [] };
     this.sendPools();
     b.register(this.handlers());
   }
@@ -84,19 +81,6 @@ export class ItemsSim {
 
   hurt(item, amount) {
     this.command(4, this.x.items_hurt, { item, amount });
-  }
-
-  update(dt, targets) {
-    // Whether there is water, as the rounds tell it (OrdnanceSim.waterKnown).
-    const has = Boolean(this.items.water);
-    if (has !== this.water) this.x.ord_water(1, (this.water = has) ? 1 : 0);
-    this.items.world.targets = targets;
-    // (0: no item lies about and none left: nothing to sync.)
-    const native = this.rounds.nativeServices;
-    native.beforeStep();
-    native.itemTargets(targets);
-    try { this.x.items_update(dt, targets.length); }
-    finally { native.afterStep(); }
   }
 
   // A command: its arguments into the call block, the export run, the item
@@ -174,26 +158,6 @@ export class ItemsSim {
       // (Vectors handed on are copies: the arguments object is read into
       // again at the next call.)
       explode: (a) => w().explode(this.rounds.fieldValue(a.defTag, a.def), a.position.clone(), a.owner),
-      // The targets all at once (what watch and standing read of each).
-      itemTargets: () => {
-        const list = w().targets, out = this.targetsAnswer.targets;
-        out.length = list.length;
-        for (let i = 0; i < list.length; i++) {
-          const t = list[i], s = (out[i] ??= { position: null, center: null, radius: 0, velocity: null });
-          s.position = t.position;
-          s.center = t.center ?? ZERO;
-          s.radius = t.radius;
-          s.velocity = t.velocity ?? ZERO;
-        }
-        return this.targetsAnswer;
-      },
-      itemRelations: (a) => {
-        const list = w().targets, out = this.relationsAnswer.relations;
-        out.length = list.length;
-        for (let i = 0; i < list.length; i++) out[i] = list[i].relation(a.team);
-        return this.relationsAnswer;
-      },
-      give: (a) => flag(Boolean(w().give(a.index, a.def))),
       pickup: (a) => w().pickup(a.def, a.position.clone()),
     };
   }

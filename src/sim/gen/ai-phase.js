@@ -905,6 +905,200 @@ export function exportAiWeaponData(o, cx) {
   return v;
 }
 
+export const AiWeaponPolicySourceLayout = Object.freeze({ words: 4, weapons: 0, weaponsLength: 1, data: 2, dataLength: 3 });
+export const AI_WEAPON_POLICY_SOURCE_WORDS = AiWeaponPolicySourceLayout.words;
+export const AI_WEAPON_POLICY_SOURCE_OFFSETS = AiWeaponPolicySourceLayout;
+
+export class AiWeaponPolicySourceMirror {
+  constructor() {
+    this.weapons = [];
+    this.data = [];
+  }
+}
+
+export function syncAiWeaponPolicySource(b, f, at, h, m) {
+  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.defs.weapon.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.data ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncAiWeaponData(b, f, at + 0, h, v ?? new AiWeaponDataMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putAiWeaponPolicySource(b, o, f, at, heap) {
+  heap.items(o.weapons, f, at + 0, 1, (f, at, v) => { f[at + 0] = b.defs.weapon.id(v); });
+  heap.items(o.data, f, at + 2, 2, (f, at, v) => { putAiWeaponData(b, v, f, at + 0, heap); });
+}
+
+export function sameAiWeaponPolicySource(a, b) {
+  if (!sameEach(a.weapons, b.weapons, (x, y) => Object.is(x, y))) return ".weapons";
+  if (!sameEach(a.data, b.data, (x, y) => sameAiWeaponData(x, y) === null)) return ".data";
+  return null;
+}
+
+export function exportAiWeaponPolicySource(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.weapons = o.weapons.map((x) => cx.def("weapon", x));
+  v.data = o.data.map((x) => exportAiWeaponData(x, cx));
+  return v;
+}
+
+export class AiWeaponPolicyMirror {
+  constructor() {
+    this.minRange = NaN;
+    this.optimalRange = NaN;
+    this.maxRange = NaN;
+    this.implicitRange = false;
+    this.extremeRange = NaN;
+    this.relationMask = 0;
+    this.categoryMask = 0;
+    this.barrageMin = NaN;
+    this.barrageMax = NaN;
+    this.barrageDelay = NaN;
+    this.triggerSingle = false;
+    this.zoomMax = NaN;
+    this.action = NaN;
+  }
+}
+
+export function syncAiWeaponPolicy(b, f, at, h, m) {
+  m.minRange = f[at + 0];
+  m.optimalRange = f[at + 1];
+  m.maxRange = f[at + 2];
+  m.implicitRange = f[at + 3] !== 0;
+  m.extremeRange = f[at + 4];
+  m.relationMask = f[at + 5] >>> 0;
+  m.categoryMask = f[at + 6] >>> 0;
+  m.barrageMin = f[at + 7];
+  m.barrageMax = f[at + 8];
+  m.barrageDelay = f[at + 9];
+  m.triggerSingle = f[at + 10] !== 0;
+  m.zoomMax = f[at + 11];
+  m.action = f[at + 12];
+  return m;
+}
+
+export function putAiWeaponPolicy(b, o, f, at, heap) {
+  f[at + 0] = o.minRange;
+  f[at + 1] = o.optimalRange;
+  f[at + 2] = o.maxRange;
+  f[at + 3] = o.implicitRange ? 1 : 0;
+  f[at + 4] = o.extremeRange;
+  f[at + 5] = o.relationMask;
+  f[at + 6] = o.categoryMask;
+  f[at + 7] = o.barrageMin;
+  f[at + 8] = o.barrageMax;
+  f[at + 9] = o.barrageDelay;
+  f[at + 10] = o.triggerSingle ? 1 : 0;
+  f[at + 11] = o.zoomMax;
+  f[at + 12] = o.action;
+}
+
+export function sameAiWeaponPolicy(a, b) {
+  if (!Object.is(a.minRange, b.minRange)) return ".minRange";
+  if (!Object.is(a.optimalRange, b.optimalRange)) return ".optimalRange";
+  if (!Object.is(a.maxRange, b.maxRange)) return ".maxRange";
+  if (!Object.is(a.implicitRange, b.implicitRange)) return ".implicitRange";
+  if (!Object.is(a.extremeRange, b.extremeRange)) return ".extremeRange";
+  if (!Object.is(a.relationMask, b.relationMask)) return ".relationMask";
+  if (!Object.is(a.categoryMask, b.categoryMask)) return ".categoryMask";
+  if (!Object.is(a.barrageMin, b.barrageMin)) return ".barrageMin";
+  if (!Object.is(a.barrageMax, b.barrageMax)) return ".barrageMax";
+  if (!Object.is(a.barrageDelay, b.barrageDelay)) return ".barrageDelay";
+  if (!Object.is(a.triggerSingle, b.triggerSingle)) return ".triggerSingle";
+  if (!Object.is(a.zoomMax, b.zoomMax)) return ".zoomMax";
+  if (!Object.is(a.action, b.action)) return ".action";
+  return null;
+}
+
+export function exportAiWeaponPolicy(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.minRange = o.minRange;
+  v.optimalRange = o.optimalRange;
+  v.maxRange = o.maxRange;
+  v.implicitRange = o.implicitRange;
+  v.extremeRange = o.extremeRange;
+  v.relationMask = o.relationMask;
+  v.categoryMask = o.categoryMask;
+  v.barrageMin = o.barrageMin;
+  v.barrageMax = o.barrageMax;
+  v.barrageDelay = o.barrageDelay;
+  v.triggerSingle = o.triggerSingle;
+  v.zoomMax = o.zoomMax;
+  v.action = o.action;
+  return v;
+}
+
+export class AiWeaponPoliciesMirror {
+  constructor() {
+    this.weapon = null;
+    this.levels = [];
+  }
+}
+
+export function syncAiWeaponPolicies(b, f, at, h, m) {
+  m.weapon = b.defs.weapon.at(f[at + 0]);
+  { const items = (m.levels ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncAiWeaponPolicy(b, f, at + 0, h, v ?? new AiWeaponPolicyMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putAiWeaponPolicies(b, o, f, at, heap) {
+  f[at + 0] = b.defs.weapon.id(o.weapon);
+  heap.items(o.levels, f, at + 1, 13, (f, at, v) => { putAiWeaponPolicy(b, v, f, at + 0, heap); });
+}
+
+export function sameAiWeaponPolicies(a, b) {
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!sameEach(a.levels, b.levels, (x, y) => sameAiWeaponPolicy(x, y) === null)) return ".levels";
+  return null;
+}
+
+export function exportAiWeaponPolicies(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.weapon = cx.def("weapon", o.weapon);
+  v.levels = o.levels.map((x) => exportAiWeaponPolicy(x, cx));
+  return v;
+}
+
+export const AiWeaponPolicyContentLayout = Object.freeze({ words: 2, weapons: 0, weaponsLength: 1 });
+export const AI_WEAPON_POLICY_CONTENT_WORDS = AiWeaponPolicyContentLayout.words;
+export const AI_WEAPON_POLICY_CONTENT_OFFSETS = AiWeaponPolicyContentLayout;
+
+export class AiWeaponPolicyContentMirror {
+  constructor() {
+    this.weapons = [];
+  }
+}
+
+export function syncAiWeaponPolicyContent(b, f, at, h, m) {
+  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncAiWeaponPolicies(b, f, at + 0, h, v ?? new AiWeaponPoliciesMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putAiWeaponPolicyContent(b, o, f, at, heap) {
+  heap.items(o.weapons, f, at + 0, 3, (f, at, v) => { putAiWeaponPolicies(b, v, f, at + 0, heap); });
+}
+
+export function sameAiWeaponPolicyContent(a, b) {
+  if (!sameEach(a.weapons, b.weapons, (x, y) => sameAiWeaponPolicies(x, y) === null)) return ".weapons";
+  return null;
+}
+
+export function exportAiWeaponPolicyContent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.weapons = o.weapons.map((x) => exportAiWeaponPolicies(x, cx));
+  return v;
+}
+
 export const AiCaptureLayout = Object.freeze({ words: 6, center: 0, half: 3 });
 export const AI_CAPTURE_WORDS = AiCaptureLayout.words;
 export const AI_CAPTURE_OFFSETS = AiCaptureLayout;

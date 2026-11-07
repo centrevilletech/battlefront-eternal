@@ -409,12 +409,9 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   vehicle replay all build a seat's input with `seatInput`, so a seat change
   earlier in the tick (E, a seat key) cannot leave stale bindings behind.
 
-`BFE_CONTENT_DIR=<game data> node tools/vehicle-matrix.mjs [map ...]` boards
-every vehicle class on every imported map, every seat, as a network human
-(offline play is the same one-player world), through the real command path
-(E, the seat key, throttle, takeoff, both triggers, E out), after surveying
-every craft's pads for a takeoff. Each hull is built by the world's own pad
-respawn, never by the tool. `tests/boarding.test.js` covers the rules.
+`tests/ai-world.test.js` runs mounted movement, flight, boarding and turret
+combat through the enclosing native world tick. `tests/boarding.test.js`
+covers the seat and input rules.
 
 ## Riders in the open
 

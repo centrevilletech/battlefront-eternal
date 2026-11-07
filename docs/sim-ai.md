@@ -30,8 +30,8 @@ tuning and selection share that boundary, including clear/restore writes whose
 final values equal the prior snapshot. A synchronous observer still flushes
 the complete touched arsenal before its callback. Damage,
 lifecycle and synchronous foreign observation barriers still publish their
-touched rows immediately. A standalone AI call publishes held body input immediately because it
-promises no following unit phase. Seat steering stays with the vehicle phase ([sim-f2.md](sim-f2.md)); seat facades
+touched rows immediately. The production coordinator owns AI and danger
+execution; the host has no standalone AI step. Seat steering stays with the vehicle phase ([sim-f2.md](sim-f2.md)); seat facades
 publish only their qualified control, lease and controller identities.
 
 ## Canonical state and callbacks
@@ -40,6 +40,10 @@ Units, registry members, hulls, controls, weapons, Characters and posts resolve
 through native stores. References include storage generations and gameplay
 lives where required. A retained controller facade carries identity only;
 reusing its physical slot does not change an older facade's generation.
+Displaced generations remain addressable until the outer publication journal
+has drained, then leave the host lookup bank. A held facade keeps its original
+lease and generation; monotonically increasing controller indices allocate no
+additional host slots.
 
 Vehicle policy reads native seats and leases. Building repair candidates keep
 their authored insertion order and a separate identity for the repair wrapper.
@@ -140,5 +144,8 @@ The detailed AI documents describe behavioral contracts. Function names in
 them are the Rust names where the port keeps one (usually the JavaScript
 name in snake_case); where a game class name such as `UnitFlyAgent` appears,
 it names the original game's behavior, not a runtime import path. Page weapon prediction still
-uses `src/ai/random.js`, and HUD target previews share the cold
-`src/weapon-policy.js` cache. These helpers do not schedule or steer bots.
+uses `src/ai/random.js`. Player, mounted and HUD weapon readers receive
+cold cooked policies from the Rust content owner through `src/weapon-policy.js`.
+The presentation page cooks its resource policies through the same Rust
+content parser without constructing an AI world. Charge levels share their
+definition's published policy; separate battles never share a class-name cache. These helpers never schedule bots.

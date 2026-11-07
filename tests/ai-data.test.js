@@ -15,7 +15,8 @@ test('cold AI IO retains original signed-zero bytes and optional side absence',a
     const data=await loadAIData('test',['rep','missing']);
     assert.ok(Object.is(data.nav.value,-0));assert.match(new TextDecoder().decode(data.navBytes),/"value":-0/);
     assert.deepEqual([...new Uint8Array(data.navBin)],[0,255,1,128]);
-    assert.deepEqual(data.classes.rep,{weapons:{}});assert.equal(data.classes.missing,null);
+    assert.equal(new TextDecoder().decode(data.classBytes[0]),'{"weapons":{}}');
+    assert.equal(data.classes,undefined,'side weapon policies are parsed only by Rust');
     assert.equal(data.classBytes[1],null);assert.deepEqual(data.mission,{scripts:{}});
   }finally{globalThis.fetch=previous;}
 });

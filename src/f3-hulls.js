@@ -43,7 +43,6 @@ export class F3Hulls {
   // Store its local center once; Rust applies the current canonical matrix.
   prepare(vehicle) {
     const p = this.phase, row = this.setup;
-    p.items.bindTarget(vehicle.itemTarget,vehicle,true);
     const sphere = this.vehicles.templates.get(vehicle.def.model)?.rig.sphere;
     const radius = 0.5 * vehicle.size.length();
     row.hull = vehicle; row.member = vehicle.f2Prepared ? null : vehicle.aiTarget;

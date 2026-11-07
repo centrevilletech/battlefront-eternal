@@ -1,5 +1,6 @@
 import { CombatCapture } from './fixtures/projectile-capture-reference.js';
 import test from 'node:test';
+import {worldFrame} from './helpers/world-frame.js';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
@@ -92,7 +93,7 @@ test('a native class blast finishes chained mines depth first inside the unit ph
   primed.combat.random = world.ordnance.random;
   const first = world.items.spawn(mine,new Vector3(1,0.1,1),new Vector3(),0,{owner:shooter});
   const second = world.items.spawn(mine,new Vector3(2,0.1,1),new Vector3(),0,{owner:shooter});
-  for (let tick=0;tick<12;tick++) world.items.update(1/60,[]);
+  const step=worldFrame(world,shooter);for (let tick=0;tick<12;tick++) step();
   assert.equal(first.landed,true);assert.equal(second.landed,true);
   world.ordnance.onExplosion = def=>completed.push(def.class);
   for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
@@ -104,7 +105,7 @@ test('a native class blast finishes chained mines depth first inside the unit ph
   assert.deepEqual(events,['chain-start','mine-pop','mine-pop']);
   assert.deepEqual(completed,['mine-pop','mine-pop','chain-start']);
   assert.equal(world.phase.counters.wasmCalls,1);
-  assert.equal(world.phase.counters.importCalls,2,'only the aimer and Character leaf cross');
+  assert.equal(world.phase.counters.importCalls,1,'the aimer crosses while the real native battle handles death');
   assert.equal(world.phase.counters.commandCalls,0);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);

@@ -1,4 +1,6 @@
 import test from 'node:test';
+import {FixedClock} from '../src/runtime/fixed-clock.js';
+import {WorldTick} from '../src/runtime/world-tick.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { Battle,Character } from '../src/battle.js';
@@ -58,6 +60,9 @@ for(const early of [false,true])for(const row of reference) test(`native ${early
   const human=roster.reserve(row.team,29,'New human');
   assert.equal(human.human,true);
   const facts=new AiPhaseFactsMirror();facts.dt=1/60;facts.tick=1;facts.lodDisabled=true;
-  owner.step(facts,[],{sequence:0,records:[]},1/60);
+  world.phase.registerViewpoint(world.spawn(rosterPrepared[0],80,80,true,null));
+  const tick=new WorldTick(world.phase,new FixedClock());
+  owner.prepare(facts,[],{sequence:0,records:[]},1/60,false,false,true);
+  tick.run(1/60,1,true,null,true,true,0,false,0);tick.finish();tick.complete();
   roster.release(human);assert.equal(human.human,false);assert.equal(human.controller.native,true);
 });

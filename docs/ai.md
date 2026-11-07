@@ -206,7 +206,7 @@ snapshots (positions copied):
 
 ### Tick order
 
-Per simulation step `h` (the `step(h)` loop in `src/game.js`):
+Inside the native `world_step_run` coordinator (`rust/sim/src/world/step.rs`), after the host has written the tick's facts:
 
 1. The AI phase (`ai_world_phase`): the Classic scheduler ([ai-controller.md](ai-controller.md))
    runs the budgeted subset of UnitControllers: phase 0, perception (scan,
@@ -363,10 +363,8 @@ extraction (`tools/extract.py`) writes them too.
 - Whole battles between bots (`tests/ai-browser.mjs`) run headless under
   Node (`tools/headless-world.mjs`), the world the world worker runs, and
   read `game.ai` there.
-- `tests/ai-browser.mjs` fails a battle where too many bots never leave
-  their spawn. The measuring probes `tools/ai-stuck-probe.mjs`,
-  `tools/fire-pace-probe.mjs` and `tools/ai-focus-probe.mjs` read the former
-  JavaScript AI's state and do not run against the native AI; the results quoted in these docs were measured with them before the port.
+- The historical headless measurements quoted below predate the native AI.
+  Current checks use the native world tick and its canonical publications.
 
 ## Status
 
@@ -384,7 +382,7 @@ At ease, F2 Follow, F3 Move out and F4 Hold. The default battle AI is Off.
 ## Stuck bots
 
 Play-testing found large groups of bots that stopped moving, offline and on
-hosted servers. `tools/ai-stuck-probe.mjs` reproduced it before the AI moved
+hosted servers. Headless measurements reproduced it before the AI moved
 to Rust (it does not run against the native AI): whole Classic
 battles in plain Node (the world worker's and the dedicated server's code,
 faster than real time), every bot sampled once a game second. A bot is
@@ -392,7 +390,7 @@ stuck when it has lived a whole 10 s window without leaving a 1 m ball and
 was not holding still on purpose: in a turret or passenger seat, at a snipe
 hint, at a patrol hint or the roam's wait, under a hold order, in the crew
 wait, standing in the capture region of a post it is taking, or having fired
-in the window. A stuck driver counts by its hull. The probe printed stuck
+in the window. A stuck driver counts by its hull. Those measurements recorded stuck
 bot-seconds per minute, the most stuck at once, and the stuck bots grouped
 by AI state with examples (goal, queue, agent and helper states, path
 executor, planner slot, target, job, posture, contacts):
@@ -419,7 +417,7 @@ or world worker) and the server both run (the flyers' pads are tested in
 | `rust/sim/src/flight/ai.rs`, `src/flight/model.js`, `vehicles/agents.rs` | A Bespin gunship's takeoff was blocked by pad structure reaching into a corner of the box its parked hull fills; its AI pilot held the key, and a takeoff is tried only on a fresh press, so it never tried again; 3 s later the stranded-flyer check blew it up on its pad with its crew, and it came back there to do it again | the pilot presses again every second; the takeoff and lift look past what the parked hull overlaps; a craft still on its pad is left by its crew, not destroyed ([ai-vehicles.md](ai-vehicles.md), [vehicles.md](vehicles.md)) |
 
 Results, before and after these changes (5 minute battles at the medium
-tier; the same probe, seeds 1 to 3 in single player and 1 and 2 on the
+tier; the same historical measurements, seeds 1 to 3 in single player and 1 and 2 on the
 server world; a longest stand of about 280 s lasted the whole battle):
 
 Single player, the player idle at his post:
@@ -449,7 +447,7 @@ The server's world (`--mode mp`), 32 a side and no players:
 | kas2 | 57 | 549.9 | 46.4 | 19 | 4 | 280 s | 79 s |
 | Mean | | 991.3 | 52.9 | | | | |
 
-Remaining: most of what the probe still counts is fighters turning to look
+At the time, most of what those measurements counted is fighters turning to look
 after alerts (combat states 2 and 3, about 3 s a time). Fire within 30 m
 alerts through walls, as Classic's does, and in a close town fight (Mos
 Eisley) a bot is alerted again as soon as its orders resume, so it can look

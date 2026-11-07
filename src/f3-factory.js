@@ -115,10 +115,6 @@ export class F3Factory {
       old.actor = unit.actor;old.soldier = unit.soldier;old.animator = unit.animator;
       old.combat = unit.combat;old.presentation = unit.presentation;old.walker = unit.walker;
       old.kind = unit.kind;old.rootScale = unit.rootScale;old.navRadius = unit.navRadius;
-      if (unit.itemTarget) {
-        const target = unit.itemTarget.f3ItemTarget;
-        if (target) target.unit = old;
-      }
       old.supply = unit.supply;old.itemTarget = unit.itemTarget;old.riderHits = unit.riderHits;
       old.bounds = unit.bounds;old.shapes = unit.shapes;old.hitSet = unit.hitSet;
       old.shapeCount = unit.shapeCount;old.spheresTick = unit.spheresTick;

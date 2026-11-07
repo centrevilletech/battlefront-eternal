@@ -25,12 +25,12 @@ import { VehicleTarget, TurretTarget, SeatUnit } from '../../src/seats.js';
 export async function f3World(definitions, {
   debug = true, water = null, terrain = false, prepareCollision = null, shieldHit = null, headshotCredit = null, deathCredit = null, deathNotice = null,
   bodyNotice = null, blastNotice = null, prepareUnit = null, afterAttach = null, prepareLive = null, prepareFleet = null,
-  hullDestroyedCredit = null, passiveClasses = [], itemPools = {}, itemClasses = {},
+  hullDestroyedCredit = null, passiveClasses = [], itemPools = {}, itemClasses = {}, itemOptions = {}, floorHeight = 0,
 } = {}) {
   const instance = await loadSim();
   setAnimKernel(await loadAnimKernel(instance));
   const rays = await loadRayKernel(instance);
-  const floor = new Float32Array([-100,0,-100,-100,0,100,100,0,100,100,0,-100]);
+  const floor = new Float32Array([-100,floorHeight,-100,-100,floorHeight,100,100,floorHeight,100,100,floorHeight,-100]);
   const indices = new Uint32Array([0,1,2,0,2,3]);
   const collision = terrain
     ? new CollisionWorld(new Float32Array(),new Uint32Array(),new Uint32Array(),floor,indices,rays)
@@ -46,12 +46,12 @@ export async function f3World(definitions, {
   ordnance.units = units;
   ordnance.water = water;
   attachOrdnanceSim(ordnance, combatSim.bridge);
-  const items = new Items({scene:new THREE.Scene(),collision,model:()=>null,explode(){},water,pools:itemPools});
+  const items = new Items({scene:new THREE.Scene(),collision,model:()=>null,explode(){},water,pools:itemPools,...itemOptions});
   items.random = streams.draw('item-drop');
   attachItemsSim(items,ordnance.sim);
   const factory = {
     built: [],
-    sides: {rep:{items:itemClasses}},
+    sides: {rep:{items:itemClasses,units:definitions}},
     context: { units, ordnance, items, headshotCredit, deathCredit, deathNotice, bodyNotice, blastNotice, hullDestroyedCredit, shieldHit },
     acquire(name) { return this.context.unitPhase.acquire(name); },
     release(unit) { return this.context.unitPhase.release(unit); },

@@ -48,7 +48,7 @@ function setupRows(world,options,data,calls,posts,hulls,classes) {
 export async function createNativeAI(mode,world,options) {
   if(mode==='off'||!world.phase)return null;
   if(mode!=='classic'&&mode!=='enhanced')throw Error(`unknown AI mode ${mode}`);
-  const enhanced=mode==='enhanced',data=await loadAIData(options.map,options.sides);
+  const enhanced=mode==='enhanced',data=await loadAIData(options.map,options.sides,options.weaponData);
   const mission=selectAIMission(data.mission,world.mission);
   const calls=mission?.scripts?.[mission.mission]?.calls??callsFromMapMission(world.mission);
   attachPostAI(world.posts.posts,mission,world.spawns);
@@ -119,11 +119,6 @@ export async function createNativeAI(mode,world,options) {
       reticle.pilot=pilot;reticle.pilotLife=pilot?.aiTarget?.generation??0;reticle.target=target;reticle.targetLife=target?.generation??0;
       owner.prepare(facts,cameras,world.events?journal.capture(world.events):journal,world.time??0,false,false,unitPhaseFollows);
     },
-    update(dt,tick,unitPhaseFollows=false){
-      this.prepare(dt,tick,unitPhaseFollows);
-      if(owner.x.ai_world_phase())owner.complete();
-    },
-    dangers(){owner.dangers();},
     playerCommand(kind,character=world.battle.human){return owner.playerCommand(character,kind,world.time??0);},
     humanReady(character,choice={}){return readyCharacter(character,choice);},
     awaitingHuman(character){return spawning.awaitingHuman(character);},

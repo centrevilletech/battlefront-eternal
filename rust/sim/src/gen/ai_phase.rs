@@ -673,6 +673,142 @@ impl AiWeaponData {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct AiWeaponPolicySource {
+    pub weapons: Vec<DefId>,
+    pub data: Vec<AiWeaponData>,
+}
+
+impl AiWeaponPolicySource {
+    pub const WORDS: usize = 4;
+    pub const WEAPONS: usize = 0;
+    pub const DATA: usize = 2;
+    pub fn weapons_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 1].chunks_exact(1) }
+    pub fn data_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[2] as usize; let length = row[3] as usize; heap[start..start + length * 2].chunks_exact(2) }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 1); for e in self.weapons.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.data.len() as f64; heap.resize(at + self.data.len() * 2, 0.0); for (i, e) in self.data.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            weapons: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(DefId(word_u32(row[0]))); } out },
+            data: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(AiWeaponData::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AiWeaponPolicy {
+    pub min_range: f64,
+    pub optimal_range: f64,
+    pub max_range: f64,
+    pub implicit_range: bool,
+    pub extreme_range: f64,
+    pub relation_mask: u32,
+    pub category_mask: u32,
+    pub barrage_min: f64,
+    pub barrage_max: f64,
+    pub barrage_delay: f64,
+    pub trigger_single: bool,
+    pub zoom_max: f64,
+    pub action: f64,
+}
+
+impl AiWeaponPolicy {
+    pub const WORDS: usize = 13;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
+        row[0] = self.min_range;
+        row[1] = self.optimal_range;
+        row[2] = self.max_range;
+        row[3] = if self.implicit_range { 1.0 } else { 0.0 };
+        row[4] = self.extreme_range;
+        row[5] = self.relation_mask as f64;
+        row[6] = self.category_mask as f64;
+        row[7] = self.barrage_min;
+        row[8] = self.barrage_max;
+        row[9] = self.barrage_delay;
+        row[10] = if self.trigger_single { 1.0 } else { 0.0 };
+        row[11] = self.zoom_max;
+        row[12] = self.action;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
+        Self {
+            min_range: row[0],
+            optimal_range: row[1],
+            max_range: row[2],
+            implicit_range: row[3] != 0.0,
+            extreme_range: row[4],
+            relation_mask: word_u32(row[5]),
+            category_mask: word_u32(row[6]),
+            barrage_min: row[7],
+            barrage_max: row[8],
+            barrage_delay: row[9],
+            trigger_single: row[10] != 0.0,
+            zoom_max: row[11],
+            action: row[12],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AiWeaponPolicies {
+    pub weapon: DefId,
+    pub levels: Vec<AiWeaponPolicy>,
+}
+
+impl AiWeaponPolicies {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.weapon.0 as f64;
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.levels.len() as f64; heap.reserve(self.levels.len() * 13); for e in self.levels.iter() { let mut item = [0.0f64; 13]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            weapon: DefId(word_u32(row[0])),
+            levels: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 13..at + (i + 1) * 13]; out.push(AiWeaponPolicy::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AiWeaponPolicyContent {
+    pub weapons: Vec<AiWeaponPolicies>,
+}
+
+impl AiWeaponPolicyContent {
+    pub const WORDS: usize = 2;
+    pub const WEAPONS: usize = 0;
+    pub fn weapons_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 3].chunks_exact(3) }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 3, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            weapons: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(AiWeaponPolicies::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct AiCapture {
     pub center: [f64; 3],
     pub half: [f64; 3],

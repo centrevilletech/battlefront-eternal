@@ -734,7 +734,7 @@ Reads the vehicle AI's `dispatch`, `enter_pattern`, `tick_pattern`,
   "AT-AT" or the stock class name; pattern 15's parity draws use generator A.
 
 Port changes against vehicles and boarders that stopped moving (found with
-`tools/ai-stuck-probe.mjs`, docs/ai.md "Stuck bots"; paths under
+historical headless measurements, docs/ai.md "Stuck bots"; paths under
 `rust/sim/src/ai/vehicles/`):
 
 - `steering.rs`: the facing choice's "already arrived" is the slowdown's own

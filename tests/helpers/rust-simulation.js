@@ -24,7 +24,7 @@ export function rustOrdnance(options) {
   const ordnance = new Ordnance({ presentation: presentationLoaded, ...options });
   attachOrdnanceSim(ordnance, bridge());
   ordnance.sim.nativeServices = {
-    owner(){},ordnance(){},explosion(){},item(){},itemTargets(){},
+    owner(){},ordnance(){},explosion(){},item(){},
     beforeStep(){},afterStep(){},
     explode(def,position,owner,visual) {
       const wet=ordnance.presentExplosion(visual??def,position);

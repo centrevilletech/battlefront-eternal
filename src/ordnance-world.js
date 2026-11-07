@@ -239,10 +239,6 @@ export class OrdnanceWorld {
 export class ItemsWorld {
   constructor(items) {
     this.items = items;
-    // Who may take power-ups or set off mines this update (Items.update's
-    // targets).
-    this.targets = [];
-    this.watched = { relation: 0, center: null, radius: 0, velocity: null };
     this.ownerIds = new WeakMap();
     this.nextOwnerId = 1;
   }
@@ -282,29 +278,6 @@ export class ItemsWorld {
 
   explode(def, position, owner) {
     this.items.explode(def, position, owner);
-  }
-
-  // A target's side toward a mine's team (below 0 an enemy, above 0 a
-  // friend, 0 neither) and, unless neither, where it is, its size and its
-  // velocity now.
-  watch(index, team) {
-    const target = this.targets[index], w = this.watched;
-    w.relation = target.relation(team);
-    if (w.relation === 0) return w;
-    w.center = target.center;
-    w.radius = target.radius;
-    w.velocity = target.velocity;
-    return w;
-  }
-
-  // Where a target stands, for a power-up.
-  standing(index) {
-    return this.targets[index].position;
-  }
-
-  // A power-up given: whether the target took anything.
-  give(index, def) {
-    return this.targets[index].give(def);
   }
 
   // A power-up taken, which the presentation capture hears.

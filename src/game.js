@@ -73,6 +73,8 @@ import { Unit, UnitFactory } from "./units.js";
 import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
 import { createNativeAI as createAI } from "./ai-world-load.js";
+import {loadPageWeaponPolicies,bindWeaponPolicyContent} from "./weapon-policy-content.js";
+import {loadAIWeaponData} from "./ai-data.js";
 import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
 import { InputLead, advanceInputClock, CorrectionSmoother } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
@@ -459,6 +461,9 @@ async function start() {
   for (const [name, other] of Object.entries(otherSides)) {
     sides[name] = { dir: other.dir, units: other.units.units, items: other.units.items || {}, texture: resolver(other.dir, other.units.textures || {}), firePoints: other.weapons.firePoints || {} };
   }
+
+  const weaponPolicyData=headless?await loadAIWeaponData(Object.keys(sides)):
+    await loadPageWeaponPolicies(simInstance,{sides,vehicles:vehicleDef?.classes,props:propsDef?.instances});
 
   if (!headless) buildWorld(graphics, world, geomBuf, indexBuf, mapTexture);
   onProgress?.("world");
@@ -1470,6 +1475,9 @@ async function start() {
       bodies.preloadTextures(className);
     }
   }
+  // Physical classes now exist in their canonical order, including AI-off
+  // battles. Complete their targeting policy before any world tick runs.
+  if(headless)bindWeaponPolicyContent(unitsSim.bridge,unitsSim.bridge.defs.weapon.list,weaponPolicyData);
   // Each team's Characters (the player is one of his team's).
   battle.populate(playerTeam);
   if (battle.human) {
@@ -1530,6 +1538,7 @@ async function start() {
       vehicleSystem: vehicles,
     };
     ai = await createAI(AI_MODE, aiWorld, {
+      weaponData:weaponPolicyData,
       map: MAP,
       sides: Object.keys(sides),
       playerTeam,

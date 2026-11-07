@@ -62,7 +62,7 @@ export const expand = (value) => new Expand(value);
 const ORDNANCE_WORLD = ['cast', 'castMoving', 'raycastUnits', 'riderMount', 'fatQuery', 'unitSphere', 'isDroid', 'gone',
   'beamLocalOrigin', 'beamPose', 'shotTick', 'historyTick', 'shooter', 'missileTarget', 'navigateMissile', 'waterCrossing',
   'waver', 'spin', 'explosion', 'hit', 'hitUnit', 'projectile', 'launch', 'impact', 'grenadeContact', 'bounce'];
-const ITEMS_WORLD = ['cast', 'blocked', 'waterCrossing', 'model', 'ownerKey', 'dropRoll', 'explode', 'watch', 'standing', 'give', 'pickup'];
+const ITEMS_WORLD = ['cast', 'blocked', 'waterCrossing', 'model', 'ownerKey', 'dropRoll', 'explode', 'pickup'];
 const ordnanceWorld = (game) => ORDNANCE_WORLD.map((m) => [`ordnance.world.${m}`, game.ordnance.world, m]);
 // An item's explosion reaches back into the items (a mine's blast sets off
 // the mines beside it, a death drops one): the items as the call leaves
@@ -80,14 +80,13 @@ const ordnance = {
   ],
 };
 
-// The items: a tick's (Items.update, its targets as its argument) and the
-// commands JavaScript gives them (a dispenser's throw, a death's drop, a
+// Items advance inside the native world tick. Capture the commands
+// JavaScript gives them (a dispenser's throw, a death's drop, a
 // blast's damage, a hit to one mine), with the battle's item pools (its
 // configuration, not the store's).
 const itemsState = (game, args, cap) => ({ items: cap.export('items', game.items), pools: game.items.pools });
 const items = {
   frames: [
-    { method: 'items.update', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
     { method: 'items.dispense', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
     { method: 'items.dropFor', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
     { method: 'items.blast', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },

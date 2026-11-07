@@ -101,7 +101,7 @@ weak-reference resolvers intentionally reject dead objects.
 
 ## Pilot service: port changes against standing pilots
 
-Found with `tools/ai-stuck-probe.mjs` (docs/ai.md "Stuck bots"); pilots
+Found with historical headless measurements (docs/ai.md "Stuck bots"); pilots
 were the largest group of bots that stopped moving, and their planning
 churn the main cause of everyone else's.
 

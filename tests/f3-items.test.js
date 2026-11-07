@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {worldFrame} from './helpers/world-frame.js';
 import assert from 'node:assert/strict';
 import { f3World } from './fixtures/f3-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
@@ -53,7 +54,7 @@ test('an empty failed throw remains a Map entry until item update and reactivate
   first.intent.buttons[0] = 1;second.intent.buttons[0] = 0;world.phase.phase(1/60);
   assert.deepEqual([...world.items.owned.keys()],['layer:unit:1:1','layer:unit:2:1']);
   assert.equal(world.items.items.length,0);
-  world.items.update(1/60,[]);
+  worldFrame(world)();
   assert.equal(world.items.owned.size,0);
   first.intent.buttons[0] = 0;second.intent.buttons[0] = 1;
   world.phase.counters.reset();world.phase.phase(1/60);
@@ -72,12 +73,13 @@ test('native item flight and retirement preserve old mirrors before reusing a sl
   unit.intent.buttons[0] = 1;world.phase.phase(1/60);
   const old = world.items.items[0], position = old.position;
   const bridge = world.phase.bridge;
+  const step=worldFrame(world);
   world.phase.counters.reset();bridge.phaseCounters = world.phase.counters;
   try {
-    for (let tick=0;tick<3;tick++) world.items.update(1/60,[]);
+    for (let tick=0;tick<3;tick++) step();
     assert.equal(world.items.items.length,0);
     assert.equal(world.items.owned.size,0);
-    assert.equal(world.phase.counters.importCalls,0,'flight uses the native collision world');
+    assert.equal(world.phase.counters.commandCalls,0,'the coordinator supplies native item targets');
   } finally { bridge.phaseCounters = null; }
   assert.equal(old.gone,true);
   assert.equal(old.position,position);
@@ -121,8 +123,9 @@ test('ordered native pickups heal hero health and supply ammunition without sett
   world.items.world.pickup = ()=>effects.push('pickup');
   const item = world.items.spawn(powerup,new Vector3(0,.1,0),new Vector3(),0);
   const counters = world.phase.counters, bridge = world.phase.bridge;
+  const step=worldFrame(world,first);
   counters.reset(); bridge.phaseCounters = counters;
-  try { for (let tick=0;tick<40 && !item.gone;tick++) world.items.update(1/60,[first.itemTarget,second.itemTarget]); }
+  try { for (let tick=0;tick<40 && !item.gone;tick++) step(); }
   finally { bridge.phaseCounters = null; }
   assert.equal(item.gone,true);
   assert.equal(first.combat.health,1000000,'the full first target declines the pickup');
@@ -130,7 +133,7 @@ test('ordered native pickups heal hero health and supply ammunition without sett
   assert.equal(first.combat.arsenal.weapons[1].reserve,0,'power-up dispensers take no power-ups');
   assert.equal(second.position,position);
   assert.deepEqual(effects,['Powerup_blue','Powerup_red','pickup']);
-  assert.equal(counters.importCalls,0); assert.equal(counters.commandCalls,0);
+  assert.equal(counters.commandCalls,0);
 });
 
 test('an ammunition-only hull pickup publishes its touched mounted weapon immediately', async() => {
@@ -143,10 +146,28 @@ test('an ammunition-only hull pickup publishes its touched mounted weapon immedi
   // The hull's root is above this synthetic floor. Drop through that root
   // after the original half-second pickup delay, rather than below its reach.
   const item = world.items.spawn(powerup,new Vector3(position.x,position.y + 1.5,position.z),new Vector3(),0);
+  const step=worldFrame(world,world.spawn('soldier',80,80,true,null));
   const counters = world.phase.counters; counters.reset();
-  for (let tick=0;tick<40 && !item.gone;tick++) world.items.update(1/60,[hull.itemTarget]);
+  for (let tick=0;tick<40 && !item.gone;tick++) step();
   assert.equal(item.gone,true); assert.equal(hull.health,hull.maxHealth);
   assert.equal(weapon.reserve,3,'no later unit or fleet phase is needed to see the supply');
   assert.equal(hull.seats[0].weapons[0].state,weapon); assert.equal(hull.position,position);
-  assert.equal(counters.importCalls,0); assert.equal(counters.commandCalls,0);
+  assert.equal(counters.commandCalls,0);
+});
+
+// Timer explosions must pass through the real enclosing tick, including the
+// thrower's canonical identity and the item retirement publication.
+test('a native timed dispenser item expires once and credits its real thrower',async()=>{
+  const blasts=[];
+  const expiry={class:'timed-expiry',Damage:1,DamageRadiusInner:.1,DamageRadiusOuter:.1};
+  const timed={...mine,class:'timed-charge',LifeSpan:.1,ExplosionExpire:expiry};
+  const weapon={...dispenser,item:timed};
+  const world=await f3World({soldier:{...definition,weapons:[weapon]}},{blastNotice:(def,event)=>blasts.push({def,owner:event.owner})});
+  const unit=world.spawn('soldier',0,0,true,null),step=worldFrame(world,unit);
+  unit.combat.arsenal.weapons[0].random=world.ordnance.random;
+  unit.intent.buttons[0]=1;step();unit.intent.buttons[0]=0;
+  const item=world.items.items[0];assert.ok(item);
+  for(let i=0;i<30;i++)step();
+  assert.equal(item.gone,true);assert.equal(world.items.items.length,0);
+  assert.equal(blasts.length,1);assert.equal(blasts[0].def,expiry);assert.equal(blasts[0].owner,unit);
 });

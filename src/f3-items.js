@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { KIND_ITEM, F3ItemClassMirror, F3DispenserBindingMirror, F3UnitItemsMirror, F3ItemTargetMirror,
-  putF3ItemClass, putF3DispenserBinding, putF3UnitItems, putF3ItemTarget } from './sim/gen/index.js';
+import { KIND_ITEM, F3ItemClassMirror, F3DispenserBindingMirror, F3UnitItemsMirror,
+  putF3ItemClass, putF3DispenserBinding, putF3UnitItems } from './sim/gen/index.js';
 
 // Item snapshots use the same persistent mirrors as F1. Scalars and vectors
 // are sampled at mutation, then copied after the native span has returned.
@@ -25,7 +25,6 @@ export class F3Items {
   // Game.onDeath resolves drops through the soldier's side. Do this once
   // with class construction, including the entries naming absent classes.
   prepareUnit(unit) {
-    if (unit.itemTarget) this.bindTarget(unit.itemTarget,unit);
     if (this.units.has(unit.classDef)) return;
     this.units.add(unit.classDef);
     const row = this.unitRow, classes = this.phase.factory.sides?.[unit.side]?.items;
@@ -58,25 +57,6 @@ export class F3Items {
       row.ammoGain[i] = Number(def[AMMO_GAIN[i]] || 0);
     }
     this.phase.bridge.callArgs(this.classArgs,row);this.phase.x.f3_item_class();
-  }
-  // Game's mineTargets retains target membership and order. Resolve those
-  // stable objects cold, then write qualified handles beside the F1 entry.
-  // No health, weapon clocks or geometry travel back into the owning store.
-  bindTarget(target, owner, hull = false) {
-    const row = new F3ItemTargetMirror();
-    if (hull) row.hull = owner; else row.unit = owner;
-    target.f3ItemTarget = row;
-  }
-  writeTargets(targets) {
-    const p = this.phase, b = p.bridge;
-    b.views(); let at = p.layout.input / 8;
-    for (let i = 0; i < targets.length; i++) {
-      const row = targets[i].f3ItemTarget;
-      if (!row) throw Error('unbound owned item target');
-      row.life = row.unit ? row.unit.generation : row.hull.aiTarget.generation;
-      putF3ItemTarget(b,row,b.f,at,null); at += p.layout.itemTargetWords;
-    }
-    p.counters.inputFields += targets.length * p.layout.itemTargetWords;
   }
   // A new life can be published during an aimer. Its names/buffers are
   // construction work and wait until the outer return, never a nested export.

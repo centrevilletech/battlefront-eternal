@@ -350,9 +350,8 @@ native owner at battle start.
 ## Fire pace
 
 How often a bot's weapon fires, by weapon family, in the 2004 game, and
-what the port measured before the AI moved to Rust
-(`tools/fire-pace-probe.mjs`, whole battles headless; the probe reads the
-former JavaScript AI's state and does not run against the native AI). The port's
+what the port measured in headless battles before the AI moved to Rust.
+These are historical measurements. The port's
 pace is the original's, family by family (numbers below).
 
 The clock. Offline the original runs one simulation update per rendered

@@ -35,7 +35,6 @@ it did before Enhanced was added (checked by comparing whole headless battles).
 | `rust/sim/src/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
 | `rust/sim/src/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
 | `rust/sim/tests/ai_phase.rs`, `ai_combat_twin.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
-| `tools/ai-focus-probe.mjs` | Whole-battle measurements for Classic and Enhanced (below); reads the former JavaScript AI and does not run against the native AI |
 
 ## What Enhanced changes
 
@@ -167,9 +166,7 @@ and the Enhanced objective and focus numbers (`control/mod.rs`).
 
 ## Measuring
 
-The results below were measured with `tools/ai-focus-probe.mjs` before the AI
-moved to Rust; it and `tools/ai-stuck-probe.mjs` read the former JavaScript
-AI's state and do not run against the native AI. The probe ran
+The results below predate the native AI. Those measurements ran
 whole headless battles, the player idle at his post, every bot sampled once a
 game second, and printed, per side: where bots spend their time, the lives that
 ever stood in their objective's capture region, captures per minute, hits per
@@ -196,7 +193,7 @@ often, and the player's allies shoot as well as the enemy. Bots also kill
 30 to 40% more often at the same hit rate, because more of them meet at the
 same posts, so tickets run down sooner: a point for play-testing.
 
-Stuck bots (`tools/ai-stuck-probe.mjs`, seed 1, 5 minutes, Normal against
+Stuck bots (historical measurements, seed 1, 5 minutes, Normal against
 Classic Medium), stuck bot-seconds a minute: Theed 1.4 against 0, Mos Eisley
 18.6 against 32.6, Cloud City 24.4 against 46, Hoth 6.4 against 15. More bots
 walk, so stuck-recovery starts more often (7 to 12 a minute against 3 to 10),

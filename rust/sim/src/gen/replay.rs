@@ -701,6 +701,102 @@ impl AiWeaponData {
     }
 }
 
+impl AiWeaponPolicySource {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiWeaponPolicySource {
+            weapons: { let p = format!("{path}.weapons"); { let mut out = Vec::new(); for (i, e) in list(v.get("weapons"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(cx.def_in("weapon", e, &at)?); } out } },
+            data: { let p = format!("{path}.data"); { let mut out = Vec::new(); for (i, e) in list(v.get("data"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(AiWeaponData::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = { let mut items = Vec::new(); for e in self.weapons.iter() { let x = cx.def_out("weapon", (*e)); items.push(x); } a.array(items) }; fields.push(("weapons", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.data.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("data", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiWeaponPolicy {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiWeaponPolicy {
+            min_range: { let p = format!("{path}.minRange"); num(v.get("minRange"), &p)? },
+            optimal_range: { let p = format!("{path}.optimalRange"); num(v.get("optimalRange"), &p)? },
+            max_range: { let p = format!("{path}.maxRange"); num(v.get("maxRange"), &p)? },
+            implicit_range: { let p = format!("{path}.implicitRange"); boolean(v.get("implicitRange"), &p)? },
+            extreme_range: { let p = format!("{path}.extremeRange"); num(v.get("extremeRange"), &p)? },
+            relation_mask: { let p = format!("{path}.relationMask"); (int(v.get("relationMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            category_mask: { let p = format!("{path}.categoryMask"); (int(v.get("categoryMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            barrage_min: { let p = format!("{path}.barrageMin"); num(v.get("barrageMin"), &p)? },
+            barrage_max: { let p = format!("{path}.barrageMax"); num(v.get("barrageMax"), &p)? },
+            barrage_delay: { let p = format!("{path}.barrageDelay"); num(v.get("barrageDelay"), &p)? },
+            trigger_single: { let p = format!("{path}.triggerSingle"); boolean(v.get("triggerSingle"), &p)? },
+            zoom_max: { let p = format!("{path}.zoomMax"); num(v.get("zoomMax"), &p)? },
+            action: { let p = format!("{path}.action"); num(v.get("action"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(13);
+        { let x = Value::Num(self.min_range); fields.push(("minRange", x)); }
+        { let x = Value::Num(self.optimal_range); fields.push(("optimalRange", x)); }
+        { let x = Value::Num(self.max_range); fields.push(("maxRange", x)); }
+        { let x = Value::Bool(self.implicit_range); fields.push(("implicitRange", x)); }
+        { let x = Value::Num(self.extreme_range); fields.push(("extremeRange", x)); }
+        { let x = Value::Num(self.relation_mask as f64); fields.push(("relationMask", x)); }
+        { let x = Value::Num(self.category_mask as f64); fields.push(("categoryMask", x)); }
+        { let x = Value::Num(self.barrage_min); fields.push(("barrageMin", x)); }
+        { let x = Value::Num(self.barrage_max); fields.push(("barrageMax", x)); }
+        { let x = Value::Num(self.barrage_delay); fields.push(("barrageDelay", x)); }
+        { let x = Value::Bool(self.trigger_single); fields.push(("triggerSingle", x)); }
+        { let x = Value::Num(self.zoom_max); fields.push(("zoomMax", x)); }
+        { let x = Value::Num(self.action); fields.push(("action", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiWeaponPolicies {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiWeaponPolicies {
+            weapon: { let p = format!("{path}.weapon"); cx.def_in("weapon", v.get("weapon"), &p)? },
+            levels: { let p = format!("{path}.levels"); { let mut out = Vec::new(); for (i, e) in list(v.get("levels"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(AiWeaponPolicy::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = cx.def_out("weapon", self.weapon); fields.push(("weapon", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.levels.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("levels", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiWeaponPolicyContent {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiWeaponPolicyContent {
+            weapons: { let p = format!("{path}.weapons"); { let mut out = Vec::new(); for (i, e) in list(v.get("weapons"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(AiWeaponPolicies::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.weapons.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("weapons", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiCapture {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

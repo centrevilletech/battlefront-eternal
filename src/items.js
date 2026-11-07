@@ -138,16 +138,6 @@ export class Items {
   blast(explosion, position) {
     return this.sim.blast(explosion, position);
   }
-
-  // targets: soldiers who can take power-ups or set off mines, each with
-  // position, velocity, team, relation(team) (below 0 an enemy, above 0 a
-  // friend), healthType, and give(def) -> whether anything was taken.
-  update(dt, targets = []) {
-    return this.sim.update(dt, targets);
-  }
-
-  // A power-up: taken by the first soldier touching it that gets something.
-
 }
 
 // A model's size: the largest of its parts' bounding spheres, centre kept.
