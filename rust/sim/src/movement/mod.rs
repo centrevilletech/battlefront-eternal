@@ -11,6 +11,8 @@
 //! Math.sin and Math.cos: the same as the JavaScript tick's under Node, and
 //! the server's where a client's own V8 parts from it in the last bit.
 
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub(crate) mod native;
 pub mod scene;
 pub mod soldier;
 
@@ -73,12 +75,16 @@ struct Movers {
 /// and lastGround between the same sequential movement operations.
 pub struct MovementOwner {
     movers: Option<Movers>,
+    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+    native_copies: native::Copies,
     io: [f64; IO_LEN],
     /// Body eligibility follows collision-world order, as in movement-kernel.js.
     flags: [u8; MAX_BODIES],
 }
 impl MovementOwner {
-    pub const fn new() -> Self { Self { movers: None, io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
+    pub const fn new() -> Self { Self { movers: None,
+        #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+        native_copies: native::Copies::new(), io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
     pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
     pub fn flags_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.flags }
 }

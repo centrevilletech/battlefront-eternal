@@ -121,8 +121,6 @@ type Handler = dyn Fn(&Context, &Record) -> Reply;
 
 struct Owner {
     world: RefCell<Option<Box<crate::world::owner::World>>>,
-    collision: RefCell<Option<collision::NativeCollision>>,
-    movement: RefCell<Option<movement::NativeMovement>>,
     exchange: RefCell<ImportExchange>,
     handlers: RefCell<HashMap<u32, Rc<Handler>>>,
     active: Cell<usize>,
@@ -151,8 +149,6 @@ impl Context {
     pub fn new() -> Self {
         Self(Rc::new(Owner {
             world: RefCell::new(Some(crate::world::owner::World::new())),
-            collision: RefCell::new(None),
-            movement: RefCell::new(None),
             exchange: RefCell::new(ImportExchange::new()),
             handlers: RefCell::new(HashMap::new()),
             active: Cell::new(0),
@@ -170,12 +166,15 @@ impl Context {
         self.0.active.set(self.0.active.get() + 1);
         Ok(Flight(self.clone()))
     }
-    fn store<T>(&self, f: impl FnOnce(&mut Sim) -> T) -> Result<T, Error> {
+    fn world<T>(&self, f: impl FnOnce(&mut crate::world::owner::World) -> T) -> Result<T, Error> {
         let mut owner = self.0.world.borrow_mut();
         let world = owner
             .as_mut()
             .ok_or_else(|| Error::new(ErrorKind::Disposed, "context disposed"))?;
-        Ok(f(&mut world.sim))
+        Ok(f(world))
+    }
+    fn store<T>(&self, f: impl FnOnce(&mut Sim) -> T) -> Result<T, Error> {
+        self.world(|w| f(&mut w.sim))
     }
     pub fn dispose(&self) -> Result<(), Error> {
         self.check()?;
@@ -186,14 +185,10 @@ impl Context {
             ));
         }
         let world = self.0.world.borrow_mut().take();
-        let collision = self.0.collision.borrow_mut().take();
-        let movement = self.0.movement.borrow_mut().take();
         let handlers = std::mem::take(&mut *self.0.handlers.borrow_mut());
         // Drop user-owned closures only after releasing all owner borrows.
         drop(handlers);
         drop(world);
-        drop(movement);
-        drop(collision);
         Ok(())
     }
     /// Replacement affects the next invocation. The current handler is cloned
@@ -422,5 +417,40 @@ impl clock::Host for ClockHost<'_> {
     }
     fn step(&mut self, state: &mut WorldClockState, dt: f64, tick: f64) {
         self.call(state, WorldClockCall::Step, dt, tick);
+    }
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+    use crate::collision::Corners;
+
+    #[test]
+    fn native_leaf_calls_share_the_world_geometry_and_movers() {
+        let context = Context::new();
+        let tree = context.collision_shape(
+            Corners::F64(vec![0., 0., 0., 1., 0., 0., 0., 0., 1.]),
+            vec![0, 1, 2], vec![0],
+        ).unwrap();
+        let set = context.collision_fixed_set(tree, &[], &[], 0.).unwrap();
+        // Build through the shared owner, then consume through the native API.
+        // Separate native storage would either reject these IDs or miss edits.
+        let world = context.world(|w| {
+            assert_eq!(w.collision.state.trees.len(), 1);
+            let world = w.collision.world_new(tree, -1, -1);
+            w.collision.world_statics(world, set);
+            world
+        }).unwrap();
+        let mover = context.movement_new(world, [0.; 21]).unwrap();
+        context.world(|w| { w.movement.mover(mover).position.x = 37.; }).unwrap();
+        assert_eq!(context.movement_snapshot(mover).unwrap().mover.position.x, 37.);
+        let next = context.world(|w| w.movement.new_mover(world as usize, |_| {})).unwrap();
+        assert_eq!(next, mover + 1);
+        assert!(context.movement_snapshot(next).is_err());
+        // Native handle allocation follows canonical IDs even when an internal
+        // service admitted a mover between two public calls.
+        assert_eq!(context.movement_new(world, [0.; 21]).unwrap(), next + 1);
+        assert_eq!(context.movement_snapshot(mover).unwrap().mover.position.x, 37.);
+        context.dispose().unwrap();
     }
 }

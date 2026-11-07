@@ -3,7 +3,7 @@
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
 pub mod firing;
-pub(crate) mod allocation;
+pub(crate) use crate::vehicles::allocation;
 pub mod riders;
 pub(super) mod geometry;
 pub use crate::vehicles::f2_delta as delta;

@@ -13,7 +13,7 @@ impl Census {
     pub(crate) const fn new() -> Self {
         Self { active: false, count: 0, group: 0, groups: [0; 3], stage: 0, stages: [0; 10] }
     }
-    fn record(&mut self) {
+    pub(crate) fn record(&mut self) {
         if !self.active { return; }
         self.count += 1; self.groups[self.group] += 1; self.stages[self.stage] += 1;
     }
@@ -39,19 +39,18 @@ pub fn enter(group: usize) -> Scope {
 }
 // The module allocator owns counting for every native phase. F2 only labels
 // its active scheduler/group here, so a coordinated span needs no second allocator.
-pub(crate) fn count() { fleet(Census::record); }
 pub fn begin() { fleet(Census::begin); }
 pub fn end() { fleet(|c| c.active = false); }
-#[no_mangle]
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
 pub extern "C" fn f2_allocations() -> u32 { fleet(|c| c.count) }
-#[no_mangle]
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
 pub extern "C" fn f2_core_allocations() -> u32 { fleet(|c| c.groups[CORE]) }
-#[no_mangle]
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
 pub extern "C" fn f2_ordnance_allocations() -> u32 { fleet(|c| c.groups[ORDNANCE]) }
-#[no_mangle]
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
 pub extern "C" fn f2_lifecycle_allocations() -> u32 { fleet(|c| c.groups[LIFECYCLE]) }
 /// Allocation census by the Vehicles.update scheduler slot.
-#[no_mangle]
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
 pub extern "C" fn f2_stage_allocations(stage: usize) -> u32 {
     fleet(|c| c.stages.get(stage).copied().unwrap_or(0))
 }

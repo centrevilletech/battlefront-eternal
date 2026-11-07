@@ -918,10 +918,10 @@ pub fn push_walls(s: &mut State, world: usize, p: &Probes, caches: &mut (impl Pr
 /// Retained collision.js gather banks. Caches and the current two-call
 /// query belong to the collision owner, independently of movement's gathers.
 pub(crate) struct Gathers {
-    gathered: Option<Gathered>,
+    pub(super) gathered: Option<Gathered>,
     pub(crate) caches: Vec<GatherCache>,
-    query: Bounds,
-    out: Vec<f64>, near: Vec<u32>, pub(crate) input: Vec<f64>,
+    pub(super) query: Bounds,
+    pub(super) out: Vec<f64>, pub(super) near: Vec<u32>, pub(crate) input: Vec<f64>,
     push_points: Vec<[f64; 3]>, push_ids: Vec<i64>,
     pub(crate) places: [u8; MAX_BODIES], push_out: Option<Gathered>, push_near: Vec<u32>,
 }

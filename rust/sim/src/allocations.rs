@@ -14,8 +14,7 @@ pub struct Diagnostics {
     totals: Totals,
     trace: Trace,
     output: Option<Block>,
-    #[cfg(target_arch = "wasm32")]
-    fleet: crate::vehicles::module::f2::allocation::Census,
+    fleet: crate::vehicles::allocation::Census,
 }
 struct Totals { calls: AtomicUsize, reallocs: AtomicUsize, bytes: AtomicUsize }
 struct Trace {
@@ -28,8 +27,7 @@ impl Default for Diagnostics { fn default() -> Self { Self::new() } }
 impl Diagnostics {
     pub const fn new() -> Self {
         Self { totals: Totals::new(), trace: Trace::new(), output: None,
-            #[cfg(target_arch = "wasm32")]
-            fleet: crate::vehicles::module::f2::allocation::Census::new() }
+            fleet: crate::vehicles::allocation::Census::new() }
     }
     pub fn prepare(&mut self) { self.output = Some(prepared_output()); }
     pub fn begin(&mut self) { self.trace.begin(); }
@@ -39,6 +37,7 @@ impl Diagnostics {
     pub fn record(&mut self, bytes: usize, reallocation: bool) {
         self.totals.record(bytes, reallocation);
         self.trace.record(bytes, reallocation);
+        self.fleet.record();
     }
     pub fn snapshot(&self) -> Counts { self.totals.snapshot() }
     pub fn publish(&mut self) -> *const f64 {
@@ -102,50 +101,73 @@ impl Counts {
     }
 }
 
+// Project only the field being observed. In particular, neither preparing
+// the output nor publishing it may lend the entire cell to allocator hooks.
+use std::ptr::{addr_of, addr_of_mut};
 #[cfg(target_arch = "wasm32")]
-mod facade {
+mod storage {
     use super::*;
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::ptr::{addr_of, addr_of_mut};
-
-    // The allocator object is stateless. Only fixed instrumentation is lent
-    // here: output encoding may use its disjoint, already reserved block.
     static mut DIAGNOSTICS: Diagnostics = Diagnostics::new();
+    pub(super) fn with<R>(run: impl FnOnce(*mut Diagnostics) -> R) -> R {
+        run(addr_of_mut!(DIAGNOSTICS))
+    }
+    pub(super) fn record(bytes: usize, reallocation: bool) {
+        with(|d| unsafe { record_in(d, bytes, reallocation) });
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+mod storage {
+    use super::*;
+    use std::cell::UnsafeCell;
+    thread_local! {
+        static DIAGNOSTICS: UnsafeCell<Diagnostics> = const { UnsafeCell::new(Diagnostics::new()) };
+    }
+    pub(super) fn with<R>(run: impl FnOnce(*mut Diagnostics) -> R) -> R {
+        DIAGNOSTICS.with(|d| run(d.get()))
+    }
+    pub(super) fn record(bytes: usize, reallocation: bool) {
+        // A harness may allocate from another TLS destructor after this cell
+        // has been destroyed. Shutdown cannot revive or panic its recorder.
+        let _ = DIAGNOSTICS.try_with(|d| unsafe { record_in(d.get(), bytes, reallocation) });
+    }
+}
+unsafe fn record_in(d: *mut Diagnostics, bytes: usize, reallocation: bool) {
+    (&*addr_of!((*d).totals)).record(bytes, reallocation);
+    (&mut *addr_of_mut!((*d).trace)).record(bytes, reallocation);
+    (&mut *addr_of_mut!((*d).fleet)).record();
+}
+/// Allocator hook. Native totals stay zero unless a harness calls this from
+/// its counting allocator; the library never installs a native allocator.
+pub fn record(bytes: usize, reallocation: bool) { storage::record(bytes, reallocation); }
+pub(crate) fn prepare() {
+    let output = prepared_output();
+    storage::with(|d| unsafe { *addr_of_mut!((*d).output) = Some(output); });
+}
+pub(crate) fn fleet<R>(run: impl FnOnce(&mut crate::vehicles::allocation::Census) -> R) -> R {
+    storage::with(|d| unsafe { run(&mut *addr_of_mut!((*d).fleet)) })
+}
+pub(crate) fn begin() { storage::with(|d| unsafe { (&mut *addr_of_mut!((*d).trace)).begin(); }); }
+pub(crate) fn end() { storage::with(|d| unsafe { (*addr_of_mut!((*d).trace)).recording = false; }); }
+pub fn snapshot() -> Counts { storage::with(|d| unsafe { (&*addr_of!((*d).totals)).snapshot() }) }
+pub(crate) struct Stage(F3AllocationStage);
+impl Drop for Stage {
+    fn drop(&mut self) { storage::with(|d| unsafe { (*addr_of_mut!((*d).trace)).stage(self.0); }); }
+}
+pub(crate) fn at(stage: F3AllocationStage) -> Stage {
+    Stage(storage::with(|d| unsafe { (&mut *addr_of_mut!((*d).trace)).stage(stage) }))
+}
+/// Read after the phase. Total counters include every request; this trace
+/// retains only the first records, without growing the publication bank.
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
+pub extern "C" fn f3_allocation_trace() -> *const f64 {
+    storage::with(|d| unsafe { encode(&*addr_of!((*d).trace), (&mut *addr_of_mut!((*d).output)).as_mut().expect("prepared allocation census")) })
+}
+
+#[cfg(target_arch = "wasm32")]
+mod allocator {
+    use super::record;
+    use std::alloc::{GlobalAlloc, Layout, System};
     struct Counted;
-    fn record(bytes: usize, reallocation: bool) {
-        crate::vehicles::module::f2::allocation::count();
-        unsafe {
-            (&*addr_of!(DIAGNOSTICS.totals)).record(bytes, reallocation);
-            (&mut *addr_of_mut!(DIAGNOSTICS.trace)).record(bytes, reallocation);
-        }
-    }
-    pub(crate) fn prepare() {
-        // Reserving can itself call the allocator. Finish it before taking the
-        // output loan, and never lend the enclosing Diagnostics across it.
-        let output = prepared_output();
-        unsafe { *addr_of_mut!(DIAGNOSTICS.output) = Some(output); }
-    }
-    // The allocation hook may run during an allocation by Fleet itself. Lend
-    // only these fixed diagnostic cells, never the semantic Fleet root.
-    pub(crate) fn fleet<R>(run: impl FnOnce(&mut crate::vehicles::module::f2::allocation::Census) -> R) -> R {
-        unsafe { run(&mut *addr_of_mut!(DIAGNOSTICS.fleet)) }
-    }
-    pub(crate) fn begin() { unsafe { (&mut *addr_of_mut!(DIAGNOSTICS.trace)).begin(); } }
-    pub(crate) fn end() { unsafe { (*addr_of_mut!(DIAGNOSTICS.trace)).recording = false; } }
-    pub(crate) fn snapshot() -> Counts { unsafe { (&*addr_of!(DIAGNOSTICS.totals)).snapshot() } }
-    pub(crate) struct Stage(F3AllocationStage);
-    impl Drop for Stage {
-        fn drop(&mut self) { unsafe { (*addr_of_mut!(DIAGNOSTICS.trace)).stage(self.0); } }
-    }
-    pub(crate) fn at(stage: F3AllocationStage) -> Stage {
-        Stage(unsafe { (&mut *addr_of_mut!(DIAGNOSTICS.trace)).stage(stage) })
-    }
-    /// Read after the phase. Total counters include every request; this trace
-    /// retains only the first records, without growing the publication bank.
-    #[no_mangle]
-    pub extern "C" fn f3_allocation_trace() -> *const f64 {
-        unsafe { encode(&*addr_of!(DIAGNOSTICS.trace), (&mut *addr_of_mut!(DIAGNOSTICS.output)).as_mut().expect("prepared allocation census")) }
-    }
     unsafe impl GlobalAlloc for Counted {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 { record(layout.size(), false); System.alloc(layout) }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 { record(layout.size(), false); System.alloc_zeroed(layout) }
@@ -155,5 +177,49 @@ mod facade {
     #[global_allocator]
     static ALLOCATOR: Counted = Counted;
 }
-#[cfg(target_arch = "wasm32")]
-pub(crate) use facade::{at, begin, end, fleet, prepare, snapshot};
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::vehicles::allocation as fleet_census;
+
+    #[test]
+    fn ordinary_native_allocations_do_not_install_a_counter() {
+        let before = snapshot();
+        let bytes = std::hint::black_box(vec![17_u8; 4096]);
+        assert_eq!(snapshot().since(before), Counts { calls: 0, reallocs: 0, bytes: 0 });
+        std::hint::black_box(bytes);
+    }
+
+    #[test]
+    fn scoped_stages_and_fleet_counts_share_one_bounded_trace() {
+        prepare();
+        begin();
+        fleet_census::begin();
+        let before = snapshot();
+        {
+            let _stage = at(F3AllocationStage::Other);
+            let _group = fleet_census::enter(fleet_census::ORDNANCE);
+            let _slot = fleet_census::nested(fleet_census::Stage::Fire);
+            record(11, false);
+        }
+        // Restored scopes attribute this overflow to the outer phase. The
+        // trace clips, while total and fleet counters retain every request.
+        for _ in 0..TRACE_CAPACITY + 7 { record(23, true); }
+        end();
+        fleet_census::end();
+        assert_eq!(snapshot().since(before), Counts { calls: 1, reallocs: TRACE_CAPACITY + 7, bytes: 11 + 23 * (TRACE_CAPACITY + 7) });
+        assert_eq!(fleet_census::f2_allocations(), (TRACE_CAPACITY + 8) as u32);
+        assert_eq!(fleet_census::f2_ordnance_allocations(), 1);
+        assert_eq!(fleet_census::f2_core_allocations(), (TRACE_CAPACITY + 7) as u32);
+        assert_eq!(fleet_census::f2_stage_allocations(fleet_census::Stage::Fire as usize), 1);
+        storage::with(|d| unsafe {
+            assert_eq!((*d).trace.rows[0].stage, F3AllocationStage::Other);
+            assert_eq!((*d).trace.rows[1].stage, F3AllocationStage::Input);
+        });
+        let before = snapshot();
+        f3_allocation_trace();
+        assert_eq!(snapshot(), before);
+        storage::with(|d| unsafe { assert_eq!((*d).output.as_ref().unwrap().rows(), TRACE_CAPACITY); });
+    }
+}

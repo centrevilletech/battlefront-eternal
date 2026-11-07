@@ -5,10 +5,7 @@ use crate::collision::{Body, Corners};
 use bfe_content::collision::MapCollision;
 use bfe_content::install::{BvhTree, Installed};
 
-#[path = "../collision/native.rs"]
-mod owner;
-pub(super) use owner::NativeCollision;
-pub use owner::{CollisionQuery, CollisionResult};
+pub use crate::collision::native::{CollisionQuery, CollisionResult};
 
 #[derive(Clone, Debug)]
 pub enum CollisionError {
@@ -36,21 +33,11 @@ impl std::error::Error for CollisionError {}
 type Result<T> = std::result::Result<T, CollisionError>;
 
 impl Context {
-    // The only consumer is the private, callback-free native movement
-    // operation. No public API accepts this closure or lends the State.
-    pub(super) fn movement_collision<T>(&self, world: u32, f: impl FnOnce(&mut crate::collision::State) -> T) -> Result<T> {
-        self.collision_owner(|owner| Ok(f(owner.movement_state(world)?)))
-    }
-
-    // Only private, callback-free operations enter this borrow. No API accepts
-    // a caller closure or returns a reference to the owner, State or scratch.
-    fn collision_owner<T>(&self, f: impl FnOnce(&mut NativeCollision) -> Result<T>) -> Result<T> {
+    // Only private, callback-free operations enter this borrow. The owned
+    // result is copied before World is released to another context operation.
+    fn collision_owner<T>(&self, f: impl FnOnce(&mut crate::collision::CollisionOwner) -> Result<T>) -> Result<T> {
         let _flight = self.enter()?;
-        f(self
-            .0
-            .collision
-            .borrow_mut()
-            .get_or_insert_with(NativeCollision::default))
+        self.world(|w| f(&mut w.collision))?
     }
 
     /// Install decoded content and its existing packed BVHs. As with the
@@ -62,7 +49,7 @@ impl Context {
         buildings: &BvhTree,
         terrain: Option<&BvhTree>,
     ) -> Result<Installed> {
-        self.collision_owner(|owner| owner.install(content, buildings, terrain))
+        self.collision_owner(|owner| owner.native_install(content, buildings, terrain))
     }
     /// Build a body's immutable tree with the existing native BVH builder.
     pub fn collision_shape(
@@ -71,7 +58,7 @@ impl Context {
         index: Vec<u32>,
         polygons: Vec<u32>,
     ) -> Result<u32> {
-        self.collision_owner(|owner| owner.shape(positions, index, polygons))
+        self.collision_owner(|owner| owner.native_shape(positions, index, polygons))
     }
     pub fn collision_fixed_set(
         &self,
@@ -80,11 +67,11 @@ impl Context {
         polygons: &[u32],
         offset: f64,
     ) -> Result<u32> {
-        self.collision_owner(|owner| owner.add_fixed_set(tree, bounds, polygons, offset))
+        self.collision_owner(|owner| owner.native_add_fixed_set(tree, bounds, polygons, offset))
     }
     /// Append a body to a world's order. The slot is local and never reused.
     pub fn collision_body(&self, world: u32, body: Body) -> Result<u32> {
-        self.collision_owner(|owner| owner.body(world, body))
+        self.collision_owner(|owner| owner.native_body(world, body))
     }
     pub fn collision_place(
         &self,
@@ -93,22 +80,22 @@ impl Context {
         matrix: [f64; 16],
         inverse: [f64; 16],
     ) -> Result<()> {
-        self.collision_owner(|owner| owner.place(body, bounds, matrix, inverse))
+        self.collision_owner(|owner| owner.native_place(body, bounds, matrix, inverse))
     }
     pub fn collision_order(&self, world: u32, bodies: &[u32]) -> Result<()> {
-        self.collision_owner(|owner| owner.order(world, bodies))
+        self.collision_owner(|owner| owner.native_order(world, bodies))
     }
     pub fn collision_remove(&self, world: u32, body: u32) -> Result<bool> {
-        self.collision_owner(|owner| owner.remove(world, body))
+        self.collision_owner(|owner| owner.native_remove(world, body))
     }
     /// A cache is bound to its world. Numeric ids have meaning only here.
     pub fn collision_cache(&self, world: u32, margin: f64) -> Result<u32> {
-        self.collision_owner(|owner| owner.cache(world, margin))
+        self.collision_owner(|owner| owner.native_cache(world, margin))
     }
     /// Atomic query from owned scene facts and plain enabled flags. Callers
     /// can invoke this from a host callback, then reenter any context safely.
     pub fn collision_query(&self, query: CollisionQuery, flags: &[u8]) -> Result<CollisionResult> {
-        self.collision_owner(|owner| owner.run(query, flags))
+        self.collision_owner(|owner| owner.native_run(query, flags))
     }
     pub fn collision_ground(
         &self,
@@ -117,6 +104,6 @@ impl Context {
         z: f64,
         top: f64,
     ) -> Result<Option<(f64, [f64; 3])>> {
-        self.collision_owner(|owner| owner.ground(world, x, z, top))
+        self.collision_owner(|owner| owner.native_ground(world, x, z, top))
     }
 }

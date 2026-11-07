@@ -25,6 +25,8 @@
 
 use std::ptr::addr_of_mut;
 
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub(crate) mod native;
 pub mod spheres;
 pub mod broad;
 pub mod build;
@@ -173,13 +175,17 @@ pub struct CollisionOwner {
     pub(crate) candidates: [u32; MAX_BODIES],
     pub(crate) enabled: [u8; MAX_BODIES],
     pub(crate) gathers: spheres::Gathers,
+    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+    native_cache_worlds: Vec<Option<u32>>,
 }
 impl CollisionOwner {
     pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
     pub fn enabled_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.enabled }
     pub const fn new() -> Self {
         Self { state: State { positions: Vec::new(), trees: Vec::new(), grids: Vec::new(), bodies: Vec::new(), worlds: Vec::new(), sets: Vec::new(), fixed_version: 0 },
-            io: [0.; IO_LEN], candidates: [0; MAX_BODIES], enabled: [0; MAX_BODIES], gathers: spheres::Gathers::new() }
+            io: [0.; IO_LEN], candidates: [0; MAX_BODIES], enabled: [0; MAX_BODIES], gathers: spheres::Gathers::new(),
+            #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+            native_cache_worlds: Vec::new() }
     }
 }
 impl Default for CollisionOwner { fn default() -> Self { Self::new() } }

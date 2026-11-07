@@ -4,10 +4,7 @@ use super::collision::CollisionError;
 use super::{Context, Error};
 use crate::movement::{soldier::Input, IO_LEN};
 
-#[path = "../movement/native.rs"]
-mod owner;
-pub use owner::MovementResult;
-pub(super) use owner::NativeMovement;
+pub use crate::movement::native::MovementResult;
 
 #[derive(Clone, Debug)]
 pub enum MovementError {
@@ -44,25 +41,22 @@ impl std::error::Error for MovementError {}
 type Result<T> = std::result::Result<T, MovementError>;
 
 impl Context {
-    fn movement_owner<T>(&self, f: impl FnOnce(&mut NativeMovement) -> Result<T>) -> Result<T> {
+    fn movement_owner<T>(&self, f: impl FnOnce(&mut crate::movement::MovementOwner, &mut crate::collision::CollisionOwner) -> Result<T>) -> Result<T> {
         let _flight = self.enter()?;
-        f(self
-            .0
-            .movement
-            .borrow_mut()
-            .get_or_insert_with(NativeMovement::default))
+        self.world(|w| f(&mut w.movement, &mut w.collision))?
     }
     /// A new local slot, never reused. Class words follow movement's CLASS
     /// exchange slots. The collision world must already be fully installed.
     pub fn movement_new(&self, world: u32, class: [f64; 21]) -> Result<u32> {
-        self.movement_owner(|owner| {
-            self.movement_collision(world, |_| owner.new_mover(world, class))?
+        self.movement_owner(|owner, collision| {
+            collision.native_movement_state(world)?;
+            owner.native_new_mover(world, class)
         })
     }
     /// Load the existing exchange state without ticking. An unknown code
     /// changes nothing and returns UnknownState, matching legacy fallback.
     pub fn movement_load(&self, id: u32, io: [f64; IO_LEN]) -> Result<()> {
-        self.movement_owner(|owner| owner.load(id, io))
+        self.movement_owner(|owner, _| owner.native_load(id, io))
     }
     /// Advance the stored mover using owned input and flags.
     pub fn movement_advance(
@@ -72,9 +66,9 @@ impl Context {
         dt: f64,
         flags: Vec<u8>,
     ) -> Result<MovementResult> {
-        self.movement_owner(|owner| {
-            let world = owner.world(id)?;
-            self.movement_collision(world, |s| owner.advance(id, input, dt, flags, s))?
+        self.movement_owner(|owner, collision| {
+            let world = owner.native_world(id)?;
+            owner.native_advance(id, input, dt, flags, collision.native_movement_state(world)?)
         })
     }
     /// The existing movement exchange as an owned, atomic native operation.
@@ -85,16 +79,16 @@ impl Context {
         io: [f64; IO_LEN],
         flags: Vec<u8>,
     ) -> Result<MovementResult> {
-        self.movement_owner(|owner| {
-            let world = owner.world(id)?;
-            self.movement_collision(world, |s| owner.tick(id, io, flags, s))?
+        self.movement_owner(|owner, collision| {
+            let world = owner.native_world(id)?;
+            owner.native_tick(id, io, flags, collision.native_movement_state(world)?)
         })
     }
     pub fn movement_snapshot(&self, id: u32) -> Result<MovementResult> {
-        self.movement_owner(|owner| owner.snapshot(id))
+        self.movement_owner(|owner, _| owner.native_snapshot(id))
     }
     /// Release a mover and its caches. Copies previously returned stay valid.
     pub fn movement_remove(&self, id: u32) -> Result<()> {
-        self.movement_owner(|owner| owner.remove(id))
+        self.movement_owner(|owner, _| owner.native_remove(id))
     }
 }

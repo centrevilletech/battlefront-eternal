@@ -1,12 +1,12 @@
-//! Owned collision storage for the native context. No legacy export or
-//! ambient storage is used here. The geometric kernels are shared verbatim.
-use super::CollisionError;
+//! Native validation and owned result copies over CollisionOwner. Geometry,
+//! cast buffers and gather banks are the same storage used by the shared kernels.
+use crate::abi::context::CollisionError;
 use crate::collision::{
-    self, broad, spheres, Body, Corners, Grid, Hit, Ray, State, Tree, World, IO_LEN, MAX_BODIES,
+    self, broad, spheres, Body, CollisionOwner, Corners, Hit, Ray, State, Tree, IO_LEN, MAX_BODIES,
     MISS,
 };
 use bfe_content::bvh::{build, Positions};
-use bfe_content::collision::{MapCollision, TriangleGrid};
+use bfe_content::collision::MapCollision;
 use bfe_content::install::{self, BvhTree, CollisionKernel, Installed};
 
 /// Inputs are already-decoded geometry and numeric facts. Enabled flags are
@@ -69,43 +69,13 @@ pub struct CollisionResult {
     pub near: Vec<u32>,
 }
 
-struct Cache {
-    world: u32,
-    value: spheres::GatherCache,
-}
-pub(crate) struct NativeCollision {
-    state: State,
-    io: [f64; IO_LEN],
-    candidates: Vec<u32>,
-    enabled: Vec<u8>,
-    caches: Vec<Cache>,
-    gathered: spheres::Gathered,
-    query: spheres::Bounds,
-    words: Vec<f64>,
-    near: Vec<u32>,
-}
-impl Default for NativeCollision {
-    fn default() -> Self {
-        Self {
-            state: State::default(),
-            io: [0.0; IO_LEN],
-            candidates: vec![0; MAX_BODIES],
-            enabled: vec![0; MAX_BODIES],
-            caches: Vec::new(),
-            gathered: spheres::Gathered::new(),
-            query: [0.0; 6],
-            words: Vec::new(),
-            near: Vec::new(),
-        }
-    }
-}
 type Result<T> = std::result::Result<T, CollisionError>;
 fn invalid(message: &'static str) -> CollisionError {
     CollisionError::Invalid(message)
 }
 
-impl NativeCollision {
-    pub(super) fn movement_state(&mut self, world: u32) -> Result<&mut State> {
+impl CollisionOwner {
+    pub(crate) fn native_movement_state(&mut self, world: u32) -> Result<&mut State> {
         let world = self.valid_world(world)?;
         if self.state.worlds[world].statics.is_none() {
             return Err(invalid("collision world has no fixed set"));
@@ -113,7 +83,7 @@ impl NativeCollision {
         Ok(&mut self.state)
     }
 
-    pub(super) fn install(
+    pub(crate) fn native_install(
         &mut self,
         col: &MapCollision,
         buildings: &BvhTree,
@@ -122,7 +92,7 @@ impl NativeCollision {
         // Installation retains the existing partial-state/error contract.
         install::install(self, col, buildings, terrain).map_err(CollisionError::Content)
     }
-    pub(super) fn shape(
+    pub(crate) fn native_shape(
         &mut self,
         positions: Corners,
         index: Vec<u32>,
@@ -155,7 +125,7 @@ impl NativeCollision {
         });
         Ok((self.state.trees.len() - 1) as u32)
     }
-    pub(super) fn add_fixed_set(
+    pub(crate) fn native_add_fixed_set(
         &mut self,
         tree: u32,
         bounds: &[f32],
@@ -191,7 +161,7 @@ impl NativeCollision {
         }
         Ok(())
     }
-    pub(super) fn body(&mut self, world: u32, body: Body) -> Result<u32> {
+    pub(crate) fn native_body(&mut self, world: u32, body: Body) -> Result<u32> {
         let world = self.valid_world(world)?;
         if body.tree >= self.state.trees.len() {
             return Err(invalid("invalid body tree"));
@@ -214,7 +184,7 @@ impl NativeCollision {
         self.state.worlds[world].version += 1;
         Ok(id)
     }
-    pub(super) fn place(
+    pub(crate) fn native_place(
         &mut self,
         body: u32,
         bounds: [f64; 6],
@@ -235,7 +205,7 @@ impl NativeCollision {
         }
         Ok(())
     }
-    pub(super) fn order(&mut self, world: u32, order: &[u32]) -> Result<()> {
+    pub(crate) fn native_order(&mut self, world: u32, order: &[u32]) -> Result<()> {
         let world = self.valid_world(world)?;
         if order.len() > MAX_BODIES {
             return Err(CollisionError::Capacity);
@@ -251,7 +221,7 @@ impl NativeCollision {
     }
     /// Remove a body's first place in this world's order. Slots are never
     /// recycled, like the legacy kernel; the next body gets a new local id.
-    pub(super) fn remove(&mut self, world: u32, body: u32) -> Result<bool> {
+    pub(crate) fn native_remove(&mut self, world: u32, body: u32) -> Result<bool> {
         let world = self.valid_world(world)?;
         if body as usize >= self.state.bodies.len() {
             return Err(invalid("invalid collision body"));
@@ -264,15 +234,14 @@ impl NativeCollision {
         w.version += 1;
         Ok(index.is_some())
     }
-    pub(super) fn cache(&mut self, world: u32, margin: f64) -> Result<u32> {
+    pub(crate) fn native_cache(&mut self, world: u32, margin: f64) -> Result<u32> {
         self.valid_world(world)?;
-        self.caches.push(Cache {
-            world,
-            value: spheres::GatherCache::new(margin),
-        });
-        Ok((self.caches.len() - 1) as u32)
+        self.native_cache_worlds.resize(self.gathers.caches.len(), None);
+        self.native_cache_worlds.push(Some(world));
+        self.gathers.caches.push(spheres::GatherCache::new(margin));
+        Ok((self.gathers.caches.len() - 1) as u32)
     }
-    pub(super) fn ground(
+    pub(crate) fn native_ground(
         &mut self,
         world: u32,
         x: f64,
@@ -297,7 +266,7 @@ impl NativeCollision {
             self.enabled[c] = flags[self.candidates[c] as usize];
         }
     }
-    pub(super) fn run(&mut self, query: CollisionQuery, flags: &[u8]) -> Result<CollisionResult> {
+    pub(crate) fn native_run(&mut self, query: CollisionQuery, flags: &[u8]) -> Result<CollisionResult> {
         let mut count = 0;
         let code = match query {
             CollisionQuery::Cast {
@@ -367,36 +336,36 @@ impl NativeCollision {
                 }
                 if let Some(id) = cache {
                     if self
-                        .caches
+                        .native_cache_worlds
                         .get(id as usize)
-                        .is_none_or(|c| c.world != world)
+                        .is_none_or(|&w| w != Some(world))
                     {
                         return Err(invalid("invalid gather cache for world"));
                     }
                 }
                 self.sphere(center, radius);
-                (self.query, count) = spheres::gather_candidates_into(
+                (self.gathers.query, count) = spheres::gather_candidates_into(
                     &self.state,
                     w,
                     center,
                     radius,
                     blockers.map(|b| b as usize),
-                    cache.map(|id| &mut self.caches[id as usize].value),
+                    cache.map(|id| &mut self.gathers.caches[id as usize]),
                     ignore as i64,
-                    &mut self.gathered,
+                    self.gathers.gathered.get_or_insert_with(spheres::Gathered::new),
                     &mut self.candidates,
                 );
                 self.enabled(count, flags);
                 let n = spheres::gather_complete(
                     &self.state,
                     w,
-                    &self.query,
+                    &self.gathers.query,
                     &self.candidates[..count],
                     &self.enabled[..count],
-                    &mut self.gathered,
-                    &mut self.words,
+                    self.gathers.gathered.get_or_insert_with(spheres::Gathered::new),
+                    &mut self.gathers.out,
                 );
-                self.io[59] = self.words.len() as f64;
+                self.io[59] = self.gathers.out.len() as f64;
                 n as i32
             }
             CollisionQuery::Overlap {
@@ -463,8 +432,8 @@ impl NativeCollision {
             } => {
                 let grid = self.valid_grid(grid)?;
                 self.sphere(center, radius);
-                spheres::terrain_near(&mut self.state, grid, center, radius, &mut self.near);
-                self.near.len() as i32
+                spheres::terrain_near(&mut self.state, grid, center, radius, &mut self.gathers.near);
+                self.gathers.near.len() as i32
             }
         };
         Ok(CollisionResult {
@@ -472,71 +441,8 @@ impl NativeCollision {
             io: self.io,
             candidates: self.candidates[..count].to_vec(),
             enabled: self.enabled[..count].to_vec(),
-            words: self.words.clone(),
-            near: self.near.clone(),
+            words: self.gathers.out.clone(),
+            near: self.gathers.near.clone(),
         })
-    }
-}
-
-// The content installer already defines the construction order and errors.
-// This adapter only chooses the storage each existing owned type goes into.
-impl CollisionKernel for NativeCollision {
-    fn positions(&mut self, data: &[f32]) -> usize {
-        self.state.positions.push(Corners::F32(data.to_vec()));
-        self.state.positions.len() - 1
-    }
-    fn grid(&mut self, positions: usize, index: &[u32], g: &TriangleGrid, triangles: usize) -> i32 {
-        self.state.grids.push(Grid {
-            positions,
-            index: index.to_vec(),
-            cells: g.cells.clone(),
-            start: g.start.clone(),
-            stamp: vec![0; triangles],
-            serial: 0,
-            min_x: g.min_x,
-            min_z: g.min_z,
-            max_x: g.max_x,
-            max_z: g.max_z,
-            size: g.size,
-            nx: g.nx,
-            nz: g.nz,
-        });
-        (self.state.grids.len() - 1) as i32
-    }
-    fn tree(&mut self, positions: usize, index: &[u32], tree: &BvhTree) -> u32 {
-        self.state.trees.push(Tree {
-            roots: tree.roots.clone(),
-            positions,
-            index: index.to_vec(),
-            indexed: !index.is_empty(),
-            indirect: tree.indirect.clone(),
-            polygons: Vec::new(),
-        });
-        (self.state.trees.len() - 1) as u32
-    }
-    fn world(&mut self, tree: u32, terrain: i32, grid: i32) -> u32 {
-        self.state.worlds.push(World {
-            tree: tree as usize,
-            terrain: (terrain >= 0).then_some(terrain as usize),
-            grid: (grid >= 0).then_some(grid as usize),
-            order: Vec::new(),
-            prepared: Vec::new(),
-            version: 0,
-            statics: None,
-            broad: Default::default(),
-        });
-        (self.state.worlds.len() - 1) as u32
-    }
-    fn fixed_set(&mut self, tree: u32, bounds: &[f32], polygons: &[u32], offset: f64) -> u32 {
-        self.state.sets.push(spheres::FixedSet {
-            tree: tree as usize,
-            bounds: bounds.to_vec(),
-            polygons: polygons.to_vec(),
-            offset,
-        });
-        (self.state.sets.len() - 1) as u32
-    }
-    fn world_statics(&mut self, world: u32, set: u32) {
-        self.state.worlds[world as usize].statics = Some(set as usize);
     }
 }

@@ -26,6 +26,8 @@
 //! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
 //! vectors and quaternions from rust/three, operation by operation.
 
+#[path = "module/f2/allocation.rs"]
+pub(crate) mod allocation;
 pub mod build;
 pub mod class;
 pub mod damage;
