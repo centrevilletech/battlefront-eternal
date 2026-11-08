@@ -309,19 +309,8 @@ jobs:
           PY
 
       - name: Run native Rust test suites
-        continue-on-error: true
         working-directory: rust
-        shell: bash
-        run: |
-          if ! cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-native -p bfe-transport -p bfe-online --features sim/replay; then
-            echo "::warning title=aarch64 test failure (bfe-presentation unit_oracle::display_goldens)::cargo test failed on linux-arm64 in bfe-presentation unit_oracle::display_goldens; continuing ARM64 package build."
-            {
-              echo "### Linux ARM64 Test Notice"
-              echo "- \`bfe-presentation\` \`unit_oracle::display_goldens\` failed on \`aarch64\`; continuing ARM64 package build with \`continue-on-error\`."
-              echo ""
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-native -p bfe-transport -p bfe-online --features sim/replay
 
       - name: Build native bfe-client and bfeserver (release, locked)
         id: build

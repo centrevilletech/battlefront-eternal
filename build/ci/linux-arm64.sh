@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Native Linux ARM64 (ubuntu-24.04-arm) CI job: run all workspace native crate
-# tests with --no-fail-fast and RUST_BACKTRACE=1 --nocapture so any
-# architecture-specific golden divergence (such as
-# bfe-presentation::unit_oracle::display_goldens on aarch64) prints its complete
-# assertion output in the workflow log.
+# Native Linux ARM64 (ubuntu-24.04-arm) CI job: run the self-contained
+# cross-architecture published-bytes determinism gate and all workspace native
+# crate tests with --no-fail-fast and RUST_BACKTRACE=1 --nocapture so any
+# architecture-specific golden divergence prints its complete assertion output
+# in the workflow log.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_root}"
 
 manifest="rust/Cargo.toml"
+
+echo "==> Running cross-architecture published-bytes determinism gate on $(uname -m)"
+RUST_BACKTRACE=1 cargo test --manifest-path "${manifest}" --locked \
+  -p sim --test arm64_determinism \
+  -p bfe-presentation --test unit_oracle \
+  -- --nocapture
 
 base_test_crates=(
   sim

@@ -409,6 +409,37 @@ CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and w
 `.github/workflows/ci-native.yml` validates the pure-Rust workspace on GitHub-hosted Linux and Windows runners using scripts under `build/ci/` and Cargo registry/target caching keyed on `rust/rust-toolchain.toml` and `rust/Cargo.lock`. During branch validation it triggers on `push` to `rust/fable-ci` as well as `workflow_dispatch`, with a header comment showing the cutover replacement to `push` on `main` plus `pull_request`:
 
 - **`linux` (`ubuntu-24.04`):** Runs `build/ci/check-generated.sh` (checking `tools/native-render-bridge.py --check`, `tools/native-presentation-bridge.py --check`, and `cargo xtask check` when `rust/xtask/Cargo.toml` exists, otherwise running `npm ci` and `npm run rust:check`) and `build/ci/linux.sh` (running `cargo fmt --check`, strict `cargo clippy --locked --all-targets --no-deps -- -D warnings` on the clean crate list plus new native crates as they land, `cargo test --locked` across all workspace native crates, the ALSA null-device audio test `cpal_null_device_runs_master_pcm`, and CLI/service startup checks for `online-tool` and `bfeserver`).
-- **`linux-arm64` (`ubuntu-24.04-arm`):** Runs `build/ci/linux-arm64.sh`, executing the workspace native crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture` so any architecture-specific golden differences print full assertion diagnostics in the job log.
+- **`linux-arm64` (`ubuntu-24.04-arm`, required blocking gate):** Runs `build/ci/linux-arm64.sh`, first executing the self-contained cross-architecture published-bytes determinism gate (`cargo test -p sim --test arm64_determinism`) and the presentation golden oracle (`cargo test -p bfe-presentation --test unit_oracle`), then executing the full workspace native crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture`. The same native test suite is a blocking gate in `.github/workflows/release-native.yml`'s `linux-arm64` job.
 - **`windows` (`windows-latest`, MSVC):** Runs `build/ci/windows.sh`, building the native Windows executables (`bfe-client`, `bfe-native`, `bfe-online`, and `bfe-server` / `bfe-desktop` when present) for `x86_64-pc-windows-msvc`, running all device-independent unit and integration tests for `bfe-client`, `bfe-native`, `bfe-content-native`, `bfe-transport`, `bfe-online`, and the new native crates, and running CLI startup checks (`online-tool.exe --help`, `online-tool.exe identity show`, and `bfeserver.exe --version`). Live OpenGL context creation on `windows-latest` stays device-independent because `glutin-winit` defaults to WGL (which resolves to Windows GDI Generic OpenGL 1.1 on headless runners) and `static-frame` / `bfe-native` use `EGL_EXT_device_enumeration` (see [docs/renderer-smoke.md](renderer-smoke.md)).
 - **`renderer-smoke-native` (`ubuntu-24.04`):** Builds `bfe-client`, `static-frame`, `static-fixture`, and `fingerprint`, then runs `python3 tools/renderer-smoke-native.py` over Mesa `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1`) and `xvfb-run`. It verifies synthetic static geometry against `tests/fixtures/static-geometry-hashes.json`, renders `sky`, `props`, `foliage`, and `water` offscreen over EGL, writes and validates a 640x360 PNG contact sheet (`renderer-smoke-native.png`), runs windowed `bfe-client --map room` under Xvfb, and uploads both `renderer-smoke-native.png` and `renderer-smoke-native.jsonl` as workflow artifacts.
+
+### Cross-architecture determinism and local `aarch64` testing (`qemu-user`)
+
+Linux ARM64 (`aarch64-unknown-linux-gnu`) is a shipping target for both `bfe-client` and `bfeserver`, and multiplayer requires every client and the server to compute identical simulation, presentation and wire-publication bits across `x86_64`, `aarch64` and `wasm32`. The engine follows strict floating-point determinism rules across all architectures:
+
+- **Transcendentals and JavaScript `Math` (`rust/v8math`, `rust/jsrt`):** Simulation (`rust/sim`), pose sampling (`rust/bfe-pose`), presentation (`rust/bfe-presentation`), environment (`rust/bfe-environment`), content (`rust/content`) and three.js math (`rust/three`) never call platform `libm` (`f64::sin`, `cos`, `tan`, `atan`, `atan2`, `acos`, `asin`, `exp`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `powf`). Instead they call `v8math`, which ports V8 13.6's `fdlibm` (`src/base/ieee754.cc`) in pure Rust without hardware FMA contraction, and `v8math::pow`, which emulates x86-64 FMA in software (`fma_sw` using `i128` 106-bit intermediate mantissas) so `aarch64` and `wasm32` produce the exact same last bits as `x86_64`.
+- **No hardware FMA contraction in IEEE-754 operations:** Rust never contracts `a * b + c` into hardware FMA unless `mul_add` is called explicitly, and no simulation, pose, presentation or `three` crate calls `mul_add`. In JavaScript test oracles that synthesize angles with `Math.sin` / `Math.cos` (such as `rust/bfe-presentation/tests/unit_oracle.rs` running `tests/presentation-units.test.js`), official `linux-arm64` Node 24 binaries are compiled by GCC with `-ffp-contract=fast` on `armv8-a`, which fuses multiply-adds inside V8's C++ `ieee754.cc` and differs by 1 ULP on ~1.5% of inputs. `rust/bfe-presentation/tests/support/v8math_preload.mjs` installs non-FMA `fdlibm` `Math.sin` and `Math.cos` matching `v8math` so JavaScript oracle fixtures generate identical inputs on `aarch64` and `x86_64`.
+- **Rounding, integer conversions, NaN canonicalization and sorting (`rust/jsrt`, `rust/v8math`):** JavaScript rounding (`v8math::round`, `jsrt::conv::round`), `ToInt32` / `ToUint32` (`v8math::to_int32`, `v8math::to_uint32`), `Math.min` / `Math.max` signed-zero and NaN propagation (`jsrt::js_min`, `jsrt::js_max`), `SameValueZero` map keys (`jsrt::same_value_zero`), and stable TimSort (`jsrt::sort`) are implemented in portable bit-exact Rust with no architecture-conditional branches (`cfg(target_arch = "x86_64")` vs `cfg(target_arch = "aarch64")`).
+- **CI published-bytes determinism gate (`rust/sim/tests/arm64_determinism.rs`):** Steps a self-contained multi-tick scenario without external game files—exercising `v8math` transcendentals, soldier/vehicle/item/recon-droid/turret state, `wire::store_capture::Capture`, `wire::retained::Ring` and `wire::publisher::Publisher::run`—and asserts that the SHA-256 digest of all published wire bytes and output descriptor words equals the committed `x86_64` value (`7337c8fd3896f59d7369ed60f31ab62dcb77c259a26ca8788599750eff7cbef8`).
+
+To cross-compile and run the `aarch64-unknown-linux-gnu` test suites locally on an `x86_64` Linux machine using `qemu-user-static`:
+
+```bash
+sudo dpkg --add-architecture arm64
+sudo apt-get update
+sudo apt-get install -y qemu-user-static gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libasound2-dev:arm64
+rustup target add aarch64-unknown-linux-gnu
+
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER="qemu-aarch64-static -L /usr/aarch64-linux-gnu"
+export QEMU_LD_PREFIX=/usr/aarch64-linux-gnu
+export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
+export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
+export PKG_CONFIG_ALLOW_CROSS=1
+
+cargo test --manifest-path rust/Cargo.toml --locked --target aarch64-unknown-linux-gnu \
+  -p sim --test arm64_determinism \
+  -p bfe-presentation --test unit_oracle \
+  -- --nocapture
+```

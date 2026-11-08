@@ -130,7 +130,7 @@ jobs:
           restore-keys: |
             cargo-linux-arm64-${{ hashFiles('rust/rust-toolchain.toml') }}-
 
-      - name: Run arm64 native workspace tests (--no-fail-fast, nocapture)
+      - name: Run arm64 native determinism gate and workspace tests
         run: bash build/ci/linux-arm64.sh
 
   windows:
