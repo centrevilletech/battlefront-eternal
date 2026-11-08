@@ -10,6 +10,7 @@
 //   - `cargo xtask audio-schema`        (`tools/audio-schema.mjs`)
 //   - `cargo xtask audio-codec-schema`  (`tools/audio-codec-schema.mjs`)
 //   - `cargo xtask host-contract`       (`tools/host-contract.mjs`)
+//   - `cargo xtask matrix`              (`tools/world-hash-matrix.mjs`)
 //   - `cargo xtask build` / `check`     (`tools/build-rust.mjs`)
 //   - `ar-sorted`                       (`tools/ar-sorted.mjs`)
 //
@@ -22,6 +23,7 @@ mod build;
 mod host_contract;
 mod json;
 mod layouts;
+mod matrix;
 mod schema_eval;
 mod shaders;
 mod sim_schema;
@@ -93,6 +95,7 @@ fn main() {
     //   - `audio-schema`: audio mixer frame layout codegen (`layouts::audio_schema`)
     //   - `audio-codec-schema`: ADPCM/PCM codec header layout codegen (`layouts::audio_codec_schema`)
     //   - `host-contract`: boundary wire contract hash & table codegen (`host_contract::host_contract`)
+    //   - `matrix`: native world-hash matrix runner (`matrix::run_matrix`)
     //   - `build`: full generator + Wasm build pipeline (`build::run_build`)
     //   - `check`: runs all nine generators in `--check` verification mode
     //   - `ar-sorted`: deterministic `ar` wrapper sorting archive members by basename
@@ -110,6 +113,7 @@ fn main() {
         "audio-schema" => layouts::audio_schema(&root, check),
         "audio-codec-schema" => layouts::audio_codec_schema(&root, check),
         "host-contract" => host_contract::host_contract(&root, check),
+        "matrix" => matrix::run_matrix(&root, rest),
         "build" => build::run_build(&root, rest),
         "check" => {
             let mut check_args = vec!["--check".to_string()];
@@ -122,7 +126,7 @@ fn main() {
         }
         "ar-sorted" => process::exit(build::run_ar_sorted(rest)),
         _ => Err(
-            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|host-contract|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|build|check> [--check|--export-json DIR]"
+            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|host-contract|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|matrix|build|check> [--check|--export-json DIR]"
                 .to_string(),
         ),
     };

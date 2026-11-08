@@ -2409,11 +2409,14 @@ name = "sim"
 version = "0.1.0"
 dependencies = [
  "audio-control",
+ "base64 0.22.1",
  "bfe-pose",
  "bfe-presentation",
  "content",
+ "flate2",
  "jsrt",
  "serde_json",
+ "sha1",
  "sim-replay",
  "three",
  "v8math",

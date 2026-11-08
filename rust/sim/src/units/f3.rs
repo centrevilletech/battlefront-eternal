@@ -1414,6 +1414,9 @@ pub(crate) fn bind_ai_stream_in(units: &mut super::owner::Units, id:u32,stream:c
     if units.state.as_mut().expect("prepared unit service").shared_random[id as usize].is_none() {units.state.as_mut().expect("prepared unit service").shared_bindings.push(id);}
     units.state.as_mut().expect("prepared unit service").shared_random[id as usize]=Some(stream);
 }
+/// The entries `bind_ai_stream_in` bound, in binding order (a host observing
+/// the page's random state digest reads their seeds).
+pub(crate) fn shared_bindings_in(units: &super::owner::Units) -> &[u32] { &units.state.as_ref().expect("prepared unit service").shared_bindings }
 /// useClassicRandom changes the arsenal's spread generators only. Combat's
 /// chunks roll retains its gameplay stream, independently of bot attachment.
 pub fn use_ai_stream_in(world_ctx: &mut crate::world::owner::World, key:&F3UnitKey,id:u32) {

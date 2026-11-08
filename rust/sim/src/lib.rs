@@ -35,6 +35,11 @@ pub mod client;
 pub mod combat;
 pub mod flight;
 pub mod gen;
+// The authority host's per-tick duties around the native step (native
+// only: the WebAssembly host keeps them in JavaScript, and the Context it
+// runs on exists only in unwinding native builds).
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub mod host;
 // The generator's test schemas' code (rust/sim/schema-test), for its tests.
 #[cfg(test)]
 mod gen_test;

@@ -213,6 +213,35 @@ pub fn f3_building_in(world_ctx: &mut crate::world::owner::World) {
         f3::prepare_prop_target_in(&mut world_ctx.units, fact);
     }
 }
+/// Every registered target's facts for an observer (its registry id,
+/// whether it stands, its team, its position and its life), by id.
+pub(crate) fn target_facts_in(world_ctx: &crate::world::owner::World) -> Vec<(f64, bool, f64, [f64; 3], f64)> {
+    let props = f3::props_read(&world_ctx.units);
+    let mut out = Vec::new();
+    for (id, slot) in props.member_slots.iter().enumerate() {
+        let Some(index) = slot else { continue };
+        let entry = &props.entries[*index];
+        let frame = entry.frame(&world_ctx.battle);
+        let mut position = Vector3::default();
+        position.set_from_matrix_position(&entry.settings.matrix);
+        out.push((id as f64, frame.alive(), entry.target_team, [position.x, position.y, position.z], frame.target_generation.unwrap_or(0.0)));
+    }
+    out
+}
+/// Every building entry's three bodies (built, destroyed, unbuilt, the
+/// page's LOOKS order) as kernel slots, for the enabled flags the page
+/// wrote when a building changed its shown state.
+pub(crate) fn prop_body_kernels_in(world_ctx: &crate::world::owner::World) -> Vec<(usize, [Option<u32>; 3])> {
+    let props = f3::props_read(&world_ctx.units);
+    let collision = world_ctx.fleet.collision.as_ref();
+    props.entries.iter().enumerate().map(|(index, entry)| {
+        let mut kernels = [None; 3];
+        for (k, body) in entry.bodies.iter().enumerate() {
+            kernels[k] = body.and_then(|b| collision.and_then(|c| c.kernel_of(b)));
+        }
+        (index, kernels)
+    }).collect()
+}
 // heroes.meleeStrike acquires every registry member first, then these
 // otherwise-unregistered buildings. The shared targeting kernel still caps
 // the complete sequence at ten and visits those candidates in reverse order.

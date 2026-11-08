@@ -14,6 +14,7 @@
 //! | --- | --- | --- |
 //! | step setup | `world_step_init(&self, WorldTickSetup) -> Result<(), Error>` | `World::step_init`: binds the water clock once a battle |
 //! | step | `world_step(&self, WorldTickInput) -> Result<WorldTickOutput, Error>` | `World::step` under `catch_unwind`; a panic poisons the context |
+//! | tick | `world_tick(&self, WorldTickInput) -> Result<WorldTickOutput, Error>` | native only: the authority host's duties around `world_step` (crate::host); publication stays the caller's |
 //! | publish | `world_publish_into(&self, session: u32, facts: &[f64], out: &mut Publication) -> Result<(), Error>` | `facts` is a `WireWorldFacts` row; the shared `wire_publish_in` body; spans in the block are offsets into `Publication::bytes`; `out` keeps its capacity |
 //! | publish, owned | `world_publish(&self, session: u32, facts: &[f64]) -> Result<Publication, Error>` | the same into a new publication |
 //! | read | `read_bank(&self, bank: u32, out: &mut Vec<f64>) -> Result<usize, Error>` | copies one `bank::*` block into `out`, returns its word count |
@@ -38,6 +39,9 @@ pub use publish::{bank, Fault, Publication};
 mod replay;
 #[path = "context_admit.rs"]
 mod admit;
+#[path = "context_observe.rs"]
+mod observe;
+pub use observe::{PropTargetFacts, WeaponLevelFacts};
 
 use super::context::{Context, Error, ErrorKind};
 use crate::gen::{WorldTickInput, WorldTickOutput, WorldTickSetup};
@@ -106,5 +110,14 @@ impl Context {
             }
             w.step(&input)
         })
+    }
+
+    /// The authority's tick, native only: what the JavaScript server did
+    /// around `game.step` (the edges' advance, the owners' input banks, the
+    /// notices' drain and capture, the players' mirrors, the edges'
+    /// consumption; crate::host) with `world_step` between. A refused step
+    /// answers `accepted` false and leaves the host's state as it was.
+    pub fn world_tick(&self, input: WorldTickInput) -> Result<WorldTickOutput, Error> {
+        self.host(|host| host.tick(self, input))?.map_err(Error::host)
     }
 }

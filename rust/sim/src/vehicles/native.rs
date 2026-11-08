@@ -217,6 +217,11 @@ impl Collision {
 
     /// CollisionWorld.rayBodies binds both identities at construction, even
     /// for variants admitted after vehicle topology was prepared.
+    /// The kernel slot a store body was bound to (`bind_body`), for an
+    /// observer that keeps the page's enabled flags beside the world.
+    pub(crate) fn kernel_of(&self, body: Ref<Body>) -> Option<u32> {
+        self.bodies.get(body.slot as usize).copied().flatten().filter(|(bound, _)| bound.gen == body.gen).map(|(_, kernel)| kernel)
+    }
     pub fn bind_body(&mut self, body: Ref<Body>, kernel: u32) -> bool {
         if body.slot as usize >= MAX_BODIES || kernel as usize >= MAX_BODIES { return false; }
         if self.bodies.get(body.slot as usize).copied().flatten().is_some_and(|(old,_)|

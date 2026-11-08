@@ -84,6 +84,11 @@ impl Default for Eligibility { fn default() -> Self { Self { valid: false, posts
 // Only cold admission can replace definition maps or grow weapon defaults.
 pub struct Source { ordnance_ids: Vec<u32>, dynamic_faults: [StrId; 7], projectiles: super::store_projectiles::Capture, own_stagger: super::stagger::Stagger, eligibility: [Eligibility; 8], eligibility_key: Option<(f64, f64, bool)>, own: super::store_own::Capture, flight_names: [StrId; 14], pub capture: store_capture::Capture, states: [StrId; 3], world: super::store_world::Units, summaries: super::store_summaries::Summaries, stage: super::stagger::Stagger, peers: Vec<crate::gen::WireStorePeer>, input: Vec<f64>, fields: super::store_world::WorldFields, names: [StrId; 5] }
 impl Source {
+    /// The combat registry's id for an ordnance definition
+    /// (`registry.combat.definitionId`), 0 for one the registry lacks.
+    pub(crate) fn ordnance_id(&self, def: crate::store::DefId) -> f64 {
+        self.ordnance_ids.get(def.0 as usize).copied().filter(|&id| id != 0).map_or(0.0, f64::from)
+    }
     // InputMailbox retains held/view values at consumption, not at publish.
     // Qualified handles reject a retired connection instead of following its
     // replacement into another player correction.

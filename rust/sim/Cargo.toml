@@ -29,6 +29,10 @@ nav-twin = []
 world-twin = []
 # Replays a recorded admission call log through Context::invoke_export.
 admit-replay = []
+# The world-hash matrix's per-row worker (src/bin/world-hash-native.rs, run
+# by `cargo xtask matrix`): the three per-tick hashes tools/world-hash.mjs
+# prints, from the native world.
+world-hash-native = ["dep:flate2", "dep:sha1", "dep:base64"]
 
 [[bin]]
 name = "nav-twin"
@@ -44,6 +48,11 @@ required-features = ["world-twin"]
 name = "admit-replay"
 path = "src/bin/admit-replay.rs"
 required-features = ["admit-replay"]
+
+[[bin]]
+name = "world-hash-native"
+path = "src/bin/world-hash-native.rs"
+required-features = ["world-hash-native"]
 
 [dependencies]
 bfe-presentation = { path = "../bfe-presentation", default-features = false }
@@ -64,3 +73,8 @@ three = { path = "../three" }
 # draws, a flyer's targets in flight/targeting.rs), from P1's crate.
 jsrt = { path = "../jsrt" }
 sim-replay = { path = "../sim-replay", optional = true }
+# The matrix worker's inputs are gzip JSON and its fingerprints SHA-1
+# prefixes, as tools/world-hash.mjs makes them.
+flate2 = { version = "1", optional = true }
+sha1 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }

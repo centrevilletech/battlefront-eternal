@@ -37,6 +37,25 @@ struct Posed {
     pose: HullPose,
     turn_rates: Vec<f64>,
 }
+/// Each posed hull's seats as an observer reads them (the page's
+/// `Vehicle.seats[i].yawRate/target/weapons[].barrel/aimers[]`): by hull
+/// slot, per seat its yaw rate, its target, and per weapon its barrel and
+/// aimers' yaw, pitch, on-target flag, limit flag and facing.
+pub(crate) type SeatPoseFacts = (f64, Option<[f64; 3]>, Vec<(f64, Vec<(f64, f64, bool, Option<bool>, [f64; 3])>)>);
+pub(crate) fn seat_pose_facts_in(fleet: &Fleet) -> Vec<(u32, Vec<SeatPoseFacts>)> {
+    let mut out = Vec::new();
+    for (slot, posed) in fleet.poses.iter().enumerate() {
+        let Some(posed) = posed else { continue };
+        let seats = posed.pose.seats.iter().map(|seat| {
+            let weapons = seat.weapons.iter().map(|w| {
+                (w.barrel, w.aimers.iter().map(|a| (a.yaw, a.pitch, a.on_target, a.in_limits, [a.facing.x, a.facing.y, a.facing.z])).collect())
+            }).collect();
+            (seat.yaw_rate, seat.target.map(|t| [t.x, t.y, t.z]), weapons)
+        }).collect();
+        out.push((slot as u32, seats));
+    }
+    out
+}
 /// Vehicles owns cold definitions, retained rigs and each independent vehicle-phase bank.
 /// Canonical bodies stay in Store. Entry services project only the field they
 /// need, so a committed hull can be observed by a nested crew death without

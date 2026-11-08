@@ -130,6 +130,8 @@ struct Owner {
     handlers: RefCell<HashMap<u32, Rc<Handler>>>,
     active: Cell<usize>,
     poisoned: Cell<bool>,
+    /// The authority host's state between ticks (crate::host).
+    host: RefCell<crate::host::Authority>,
 }
 
 /// A handle cannot move to a different thread, even before its first call.
@@ -159,6 +161,7 @@ impl Context {
             handlers: RefCell::new(HashMap::new()),
             active: Cell::new(0),
             poisoned: Cell::new(false),
+            host: RefCell::new(crate::host::Authority::default()),
         }))
     }
     pub(crate) fn live(&self) -> Result<(), Error> {
@@ -193,6 +196,12 @@ impl Context {
             .as_mut()
             .ok_or_else(|| Error::new(ErrorKind::Disposed, "context disposed"))?;
         Ok(f(world))
+    }
+    /// The authority host's state. Its duties call this Context's entries,
+    /// which never reach the host's state, so the borrow cannot nest.
+    pub(crate) fn host<T>(&self, f: impl FnOnce(&mut crate::host::Authority) -> T) -> Result<T, Error> {
+        self.check()?;
+        Ok(f(&mut self.0.host.borrow_mut()))
     }
     fn store<T>(&self, f: impl FnOnce(&mut Sim) -> T) -> Result<T, Error> {
         self.world(|w| f(&mut w.sim))
