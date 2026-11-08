@@ -179,6 +179,18 @@ fn three_owners(rows:&mut [PresentationOwner],a:usize,b:usize,c:usize)->Result<(
         else if b==ids[0]{(z,x,y)}else{(z,y,x)})
 }
 pub enum PresentationOwner {
+    Wake(PageWake),
+    Jetpack(PageJetpack),
+    JetVolume(PageJetVolume),
+    Trail(PageTrail),
+    Shield(PageShield),
+    DeathTrace(PageDeathTrace),
+    GunnerView(PageGunnerView),
+    SoldierView(PageSoldierView),
+    PostEffects(PagePostEffects),
+    VehicleEffects(PageVehicleEffects),
+    AnalyticEffects(PageAnalyticEffects),
+
     Effects(PagePresentation),
     Units(PageUnits),
     Props(PageProps),
@@ -197,6 +209,18 @@ pub enum PresentationOwner {
     Timeline(bfe_pose::timeline::Timeline),
 }
 pub enum PresentationCommand {
+    Wake(PageWakeCommand),
+    Jetpack(PageJetpackCommand),
+    JetVolume(PageJetVolumeCommand),
+    Trail(PageTrailCommand),
+    Shield(PageShieldCommand),
+    DeathTrace(PageDeathTraceCommand),
+    GunnerView(PageGunnerViewCommand),
+    SoldierView(PageSoldierViewCommand),
+    PostEffects(PagePostEffectsCommand),
+    VehicleEffects(PageVehicleEffectsCommand),
+    AnalyticEffects(PageAnalyticEffectsCommand),
+
     Effects(PagePresentationCommand),
     Units(PageUnitsCommand),
     Props(PagePropsCommand),
@@ -227,10 +251,21 @@ impl PresentationOwner {
 }
 impl PresentationCommand {pub fn execute(&self,owner:&mut PresentationOwner)->Result<(),String>{match(self,owner){$((Self::$case(c),PresentationOwner::$case(p))=>c.execute(p),)*(Self::Network(c),PresentationOwner::Network(p))=>c.execute(p),(Self::Push,PresentationOwner::Timeline(t))=>{t.push();Ok(())},(Self::Present,PresentationOwner::Timeline(t))=>{t.present();Ok(())},(Self::Reset(e),PresentationOwner::Timeline(t))=>{t.reset(*e);Ok(())},(Self::Remove(e),PresentationOwner::Timeline(t))=>{t.remove(*e);Ok(())},_=>Err("presentation owner type mismatch".into())}}}
 };}
-owners!(Lightning,"pagelightning",PageLightningCommand;ArcCamera,"pagearccamera",PageArcCameraCommand;Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
+owners!(Wake,"pagewake",PageWakeCommand;Jetpack,"pagejetpack",PageJetpackCommand;JetVolume,"pagejetvolume",PageJetVolumeCommand;Trail,"pagetrail",PageTrailCommand;Shield,"pageshield",PageShieldCommand;DeathTrace,"pagedeathtrace",PageDeathTraceCommand;GunnerView,"pagegunnerview",PageGunnerViewCommand;SoldierView,"pagesoldierview",PageSoldierViewCommand;PostEffects,"pageposteffects",PagePostEffectsCommand;VehicleEffects,"pagevehicleeffects",PageVehicleEffectsCommand;AnalyticEffects,"pageanalyticeffects",PageAnalyticEffectsCommand;Lightning,"pagelightning",PageLightningCommand;ArcCamera,"pagearccamera",PageArcCameraCommand;Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
 impl PresentationOwner {
     pub fn new(class: &str, content: &str, preview: bool) -> Result<Self, String> {
         Ok(match class {
+            "pagewake" => Self::Wake(PageWake::new()),
+            "pagejetpack" => Self::Jetpack(PageJetpack::new(content)?),
+            "pagejetvolume" => Self::JetVolume(PageJetVolume::new()),
+            "pagetrail" => Self::Trail(PageTrail::new(content)),
+            "pageshield" => Self::Shield(PageShield::new()),
+            "pagedeathtrace" => Self::DeathTrace(PageDeathTrace::new()),
+            "pagegunnerview" => Self::GunnerView(PageGunnerView::new()),
+            "pagesoldierview" => Self::SoldierView(PageSoldierView::new()),
+            "pageposteffects" => Self::PostEffects(PagePostEffects::new(content)?),
+            "pagevehicleeffects" => Self::VehicleEffects(PageVehicleEffects::new()),
+            "pageanalyticeffects" => Self::AnalyticEffects(PageAnalyticEffects::new(content)?),
             "pagepresentation" => Self::Effects(PagePresentation::new(content)?),
             "pageunits" => Self::Units(if preview {
                 PageUnits::preview()
@@ -260,6 +295,17 @@ impl PresentationOwner {
 pub fn presentation_schema() -> Value {
     let mut map = serde_json::Map::new();
     for class in [
+        "pagewake",
+        "pagejetpack",
+        "pagejetvolume",
+        "pagetrail",
+        "pageshield",
+        "pagedeathtrace",
+        "pagegunnerview",
+        "pagesoldierview",
+        "pageposteffects",
+        "pagevehicleeffects",
+        "pageanalyticeffects",
         "pagepresentation",
         "pageunits",
         "pageprops",
@@ -280,7 +326,7 @@ pub fn presentation_schema() -> Value {
             class,
             if class == "pagelights" {
                 "0"
-            } else if class == "pageshellmusic" {
+            } else if ["pageshellmusic","pagejetpack","pageanalyticeffects"].contains(&class) {
                 "[]"
             } else {
                 r#"{"definitions":[],"groups":[]}"#

@@ -1,6 +1,9 @@
-import {sceneComponent,sceneTransform} from "./rust-render/scene-changes.js";
+import {sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
+import {EffectPhase} from './effects-gpu.js';
+import {SoldierFrame as F} from './presentation/visual-effects-layout.js';
+const BANKS=[['input',Float64Array]];
 const NETWORK_POSE = ['posture', 'air', 'dive', 'dead'];
 const WALKER_POSE = ["roll", "lean", "legs", "time"];
 
@@ -59,76 +62,35 @@ export class SoldierPresentation {
     // double field before reset installs an integer spawn angle.
     this.previousYaw = NaN;
     this.state = displayState(soldier,this.position,this.velocity);
+    this.phase=new EffectPhase('PageSoldierView',BANKS);
     this.reset();
   }
 
-  reset() {
-    const s = this.soldier;
-    this.networkFire = null;
-    this.networkFired = false;
-    this.deathPending = false;
-    this.clearNetworkState();
-    sceneTransform(this.position.copy(s.position));
-    this.velocity.copy(s.velocity);
-    this.previousPosition.copy(s.position);
-    this.previousVelocity.copy(s.velocity);
-    this.previousYaw = s.aimYaw;
-    this.tickYaw = 0;
-    this.previousStep = this.lastStep = s.groundAdjustment || 0;
-    this.stepOffset = 0;
-    this.state.aimYaw = s.aimYaw;
-    this.state.aimPitch = s.aimPitch;
-    this.capturePose();
-    if (s.mode !== undefined) for (const key of WALKER_POSE) this.state[key] = s[key];
+  clearNetworkState() {for(const key of NETWORK_POSE)delete this.state[key];}
+  networkReset() {this.networkFire=null;this.networkFired=false;this.deathPending=false;this.clearNetworkState();}
+  // The public fields are transport mirrors consumed by the existing body
+  // phase and prediction correction. No interpolation runs in these mirrors.
+  facts(command) {
+    this.phase.refresh();const x=this.phase.input,s=this.soldier;
+    x[F.COMMAND]=command;s.position.toArray(x,F.POSITION);s.velocity.toArray(x,F.VELOCITY);
+    x[F.YAW]=s.aimYaw;x[F.PITCH]=s.aimPitch;x[F.GROUND_STEP]=s.groundAdjustment||0;
+    x[F.HAS_MODE]=s.mode===undefined?0:1;x[F.MODE]=s.mode??NaN;x[F.REVERSE]=s.reverse?1:0;
+    for(let k=0;k<4;k++)x[F.POSE+k]=s[WALKER_POSE[k]]??NaN;
+    this.previousPosition.toArray(x,F.PREVIOUS_POSITION);this.previousVelocity.toArray(x,F.PREVIOUS_VELOCITY);
+    x[F.PREVIOUS_YAW]=this.previousYaw;x[F.TICK_YAW]=this.tickYaw??0;x[F.PREVIOUS_STEP]=this.previousStep??0;
+    x[F.LAST_STEP]=this.lastStep??0;x[F.STEP_OFFSET]=this.stepOffset??0;x[F.PREVIOUS_MODE]=this.previousMode??NaN;
+    for(let k=0;k<4;k++)x[F.PREVIOUS_POSE+k]=this.previousPose[WALKER_POSE[k]]??NaN;
   }
-
-  capturePose() {
-    const s = this.soldier;
-    this.previousMode = s.mode;
-    if (s.mode !== undefined) for (const key of WALKER_POSE) this.previousPose[key] = s[key];
+  publish(interval=false,shown=false) {
+    const x=this.phase.input;
+    this.previousPosition.fromArray(x,F.PREVIOUS_POSITION);this.previousVelocity.fromArray(x,F.PREVIOUS_VELOCITY);
+    this.previousYaw=x[F.PREVIOUS_YAW];this.tickYaw=x[F.TICK_YAW];this.previousStep=x[F.PREVIOUS_STEP];this.lastStep=x[F.LAST_STEP];this.stepOffset=x[F.STEP_OFFSET];
+    if(interval){this.previousMode=this.soldier.mode;if(this.soldier.mode!==undefined)for(let k=0;k<4;k++)this.previousPose[WALKER_POSE[k]]=x[F.PREVIOUS_POSE+k];}
+    if(shown){sceneTransform(this.position.fromArray(x,F.SHOWN_POSITION));this.velocity.fromArray(x,F.SHOWN_VELOCITY);this.state.aimYaw=x[F.SHOWN_YAW];this.state.aimPitch=x[F.SHOWN_PITCH];
+      if(this.soldier.mode!==undefined)for(let k=0;k<4;k++)this.state[WALKER_POSE[k]]=x[F.SHOWN_POSE+k];}
   }
-
-  clearNetworkState() {
-    for (const key of NETWORK_POSE) delete this.state[key];
-  }
-
-  beforeStep() {
-    const s = this.soldier;
-    this.previousPosition.copy(s.position);
-    this.previousVelocity.copy(s.velocity);
-    this.previousYaw = s.aimYaw;
-    this.previousStep = s.groundAdjustment || 0;
-    this.capturePose();
-  }
-
-  afterStep() {
-    const s = this.soldier;
-    this.tickYaw = Math.atan2(Math.sin(s.aimYaw - this.previousYaw), Math.cos(s.aimYaw - this.previousYaw));
-    if (s.position.distanceToSquared(this.previousPosition) > 100) this.reset();
-  }
-
-  update(dt, alpha = 1) {
-    const s = this.soldier;
-    this.networkFired = false;
-    alpha = THREE.MathUtils.clamp(alpha, 0, 1);
-    sceneTransform(this.position.lerpVectors(this.previousPosition, s.position, alpha));
-    this.velocity.lerpVectors(this.previousVelocity, s.velocity, alpha);
-    this.state.aimYaw = s.aimYaw - this.tickYaw * (1 - alpha);
-    this.state.aimPitch = s.aimPitch;
-    if (s.mode !== undefined) for (const key of WALKER_POSE) {
-      const previous = this.previousPose[key], current = s[key];
-      // Roll is an accumulated angle: wrapping it reverses fast spins.
-      // A new mode owns a different clip clock and must not interpolate from
-      // the fold/unfold clip that just ended.
-      const same = this.previousMode === s.mode && Number.isFinite(previous) && Number.isFinite(current);
-      const restart = key === "time" && (s.reverse ? current > previous : current < previous);
-      this.state[key] = same && !restart ? THREE.MathUtils.lerp(previous, current, alpha) : current;
-    }
-    const step = THREE.MathUtils.lerp(this.previousStep, s.groundAdjustment || 0, alpha);
-    this.stepOffset = THREE.MathUtils.clamp(this.stepOffset + step - this.lastStep, -0.45, 0.45);
-    this.lastStep = step;
-    this.stepOffset *= Math.exp(-Math.max(dt, 0) / 0.075);
-    sceneComponent(this.position,"y","-=",this.stepOffset);
-    return this.state;
-  }
+  reset(){this.networkReset();this.facts(1);this.phase.frame();this.publish(true,true);}
+  beforeStep(){this.facts(2);this.phase.frame();this.publish(true);}
+  afterStep(){this.facts(3);this.phase.frame();const reset=Boolean(this.phase.input[F.TELEPORTED]);if(reset)this.networkReset();this.publish(reset,reset);}
+  update(dt,alpha=1){this.networkFired=false;this.facts(0);this.phase.input[F.DT]=dt;this.phase.input[F.ALPHA]=alpha;this.phase.frame();this.publish(false,true);return this.state;}
 }

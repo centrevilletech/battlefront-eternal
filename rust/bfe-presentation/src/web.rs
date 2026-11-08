@@ -2,6 +2,15 @@
 // The native host uses Presentation directly, with identical frame records.
 use super::*;
 use wasm_bindgen::prelude::*;
+// A cosmetic random source is host I/O. Calling the supplied function keeps
+// deterministic scene captures and ordinary browser random in the same phase.
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = "Function")]
+    pub type RandomSource;
+    #[wasm_bindgen(method, js_name = call)]
+    fn next(this: &RandomSource, context: &JsValue) -> f64;
+}
 #[wasm_bindgen]
 pub struct PagePresentation {
     inner: Presentation,
@@ -755,6 +764,224 @@ impl PageSniper {
     pub fn collect(&mut self){self.inner.collect(&mut ||page_random());}
     pub fn match_impacts(&mut self,count:usize){self.inner.match_impacts(count);}
     pub fn frame(&mut self){self.inner.frame(&mut ||page_random());}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageWake { inner: crate::unit_effects::jetpack::Wake }
+#[wasm_bindgen]
+impl PageWake {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn nozzles_ptr(&self)->*const f64{self.inner.nozzles.as_ptr()}
+    pub fn nozzles_len(&self)->usize{self.inner.nozzles.len()}
+    pub fn particles_ptr(&self)->*const f32{self.inner.particles.as_ptr()}
+    pub fn particles_len(&self)->usize{self.inner.particles.len()}
+    pub fn frame(&mut self,random:&RandomSource){self.inner.frame(&mut ||random.next(&JsValue::NULL));}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageJetpack { inner: crate::unit_effects::jetpack::Jetpack }
+#[wasm_bindgen]
+impl PageJetpack {
+    #[wasm_bindgen(constructor)]
+    pub fn new(content:&str)->Result<Self,JsValue>{let definitions=serde_json::from_str(content).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(Self{inner:crate::unit_effects::jetpack::Jetpack::new(definitions)})}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn local_ptr(&self)->*const f64{self.inner.local.as_ptr()}
+    pub fn local_len(&self)->usize{self.inner.local.len()}
+    pub fn nozzles_ptr(&self)->*const f64{self.inner.nozzles.as_ptr()}
+    pub fn nozzles_len(&self)->usize{self.inner.nozzles.len()}
+    pub fn wake_input_ptr(&self)->*const f64{self.inner.wake.input.as_ptr()}
+    pub fn wake_input_len(&self)->usize{self.inner.wake.input.len()}
+    pub fn wake_particles_ptr(&self)->*const f32{self.inner.wake.particles.as_ptr()}
+    pub fn wake_particles_len(&self)->usize{self.inner.wake.particles.len()}
+    pub fn volume_input_ptr(&self)->*const f64{self.inner.volume.input.as_ptr()}
+    pub fn volume_input_len(&self)->usize{self.inner.volume.input.len()}
+    pub fn volume_arrays_ptr(&self)->*const f32{self.inner.volume.arrays.as_ptr()}
+    pub fn volume_arrays_len(&self)->usize{self.inner.volume.arrays.len()}
+    pub fn frame(&mut self,random:&RandomSource){self.inner.frame(&mut ||random.next(&JsValue::NULL));}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageJetVolume { inner: crate::unit_effects::jetpack::Volume }
+#[wasm_bindgen]
+impl PageJetVolume {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn nozzles_ptr(&self)->*const f64{self.inner.nozzles.as_ptr()}
+    pub fn nozzles_len(&self)->usize{self.inner.nozzles.len()}
+    pub fn arrays_ptr(&self)->*const f32{self.inner.arrays.as_ptr()}
+    pub fn arrays_len(&self)->usize{self.inner.arrays.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageTrail { inner: crate::unit_effects::trail::Trail }
+#[wasm_bindgen]
+impl PageTrail {
+    #[wasm_bindgen(constructor)]
+    pub fn new(content:&str)->Self{Self{inner:crate::unit_effects::trail::Trail::new(content)}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn records_ptr(&self)->*const f32{self.inner.records.as_ptr()}
+    pub fn records_len(&self)->usize{self.inner.records.len()}
+    pub fn rays_ptr(&self)->*const f64{self.inner.rays.as_ptr()}
+    pub fn rays_len(&self)->usize{self.inner.rays.len()}
+    pub fn frame(&mut self,random:&RandomSource){self.inner.frame(&mut ||random.next(&JsValue::NULL));}
+    pub fn probe(&mut self){self.inner.probe();}
+    pub fn roof(&mut self){self.inner.roof();}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageShield { inner: crate::unit_effects::shield::Shield }
+#[wasm_bindgen]
+impl PageShield {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn impacts_ptr(&self)->*const f64{self.inner.impacts.as_ptr()}
+    pub fn impacts_len(&self)->usize{self.inner.impacts.len()}
+    pub fn powers_ptr(&self)->*const f32{self.inner.powers.as_ptr()}
+    pub fn powers_len(&self)->usize{self.inner.powers.len()}
+    pub fn blasts_ptr(&self)->*const f32{self.inner.blasts.as_ptr()}
+    pub fn blasts_len(&self)->usize{self.inner.blasts.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageDeathTrace { inner: crate::camera_effects::Trace }
+#[wasm_bindgen]
+impl PageDeathTrace {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn positions_ptr(&self)->*const f32{self.inner.positions.as_ptr()}
+    pub fn positions_len(&self)->usize{self.inner.positions.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageGunnerView { inner: crate::camera_effects::Gunner }
+#[wasm_bindgen]
+impl PageGunnerView {
+    pub fn wall(&mut self){self.inner.wall();}
+    pub fn resolve(&mut self){self.inner.resolve();}
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PageSoldierView { inner: crate::soldier_view::Soldier }
+#[wasm_bindgen]
+impl PageSoldierView {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+
+// Fixed phase banks are borrowed by both browser and native hosts.
+#[wasm_bindgen]
+pub struct PagePostEffects { inner: crate::post_effects::Posts }
+#[wasm_bindgen]
+impl PagePostEffects {
+    #[wasm_bindgen(constructor)]
+    pub fn new(content:&str)->Result<Self,JsValue>{let look=serde_json::from_str(content).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(Self{inner:crate::post_effects::Posts::new(look)})}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn counts_ptr(&self)->*const f64{self.inner.counts.as_ptr()}
+    pub fn counts_len(&self)->usize{self.inner.counts.len()}
+    pub fn art_ptr(&self)->*const u8{self.inner.art.as_ptr()}
+    pub fn art_len(&self)->usize{self.inner.art.len()}
+    pub fn frame(&mut self,count:usize,random:&RandomSource){self.inner.frame(count,&mut ||random.next(&JsValue::NULL));}
+    pub fn remaining(&mut self,count:usize){self.inner.remaining(count);}
+    pub fn beam_positions_ptr(&self)->*const f32{self.inner.beam_positions.as_ptr()}
+    pub fn beam_positions_len(&self)->usize{self.inner.beam_positions.len()}
+    pub fn beam_normals_ptr(&self)->*const f32{self.inner.beam_normals.as_ptr()}
+    pub fn beam_normals_len(&self)->usize{self.inner.beam_normals.len()}
+    pub fn beam_uv_ptr(&self)->*const f32{self.inner.beam_uv.as_ptr()}
+    pub fn beam_uv_len(&self)->usize{self.inner.beam_uv.len()}
+    pub fn beam_indices_ptr(&self)->*const u16{self.inner.beam_indices.as_ptr()}
+    pub fn beam_indices_len(&self)->usize{self.inner.beam_indices.len()}
+}
+
+// All hull and building effects share one admitted numeric frame.
+#[wasm_bindgen]
+pub struct PageVehicleEffects {inner:crate::vehicle_effects::Vehicles}
+#[wasm_bindgen]
+impl PageVehicleEffects {
+    #[wasm_bindgen(constructor)] pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn add(&mut self,content:&str)->Result<usize,JsValue>{let content=serde_json::from_str(content).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(self.inner.add(content))}
+    pub fn node_start(&self,id:usize)->usize{self.inner.node_start(id)}
+    pub fn output_start(&self,id:usize)->usize{self.inner.output_start(id)}
+    pub fn carrier(&mut self,id:usize){self.inner.carrier(id);}
+    pub fn inspect(&mut self){self.inner.inspect();}
+    pub fn frame(&mut self){self.inner.frame();}
+    pub fn resume(&mut self){self.inner.resume();}
+    pub fn complete(&mut self){self.inner.complete();}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn nodes_ptr(&self)->*const f64{self.inner.nodes.as_ptr()}
+    pub fn nodes_len(&self)->usize{self.inner.nodes.len()}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn output_len(&self)->usize{self.inner.output.len()}
+    pub fn status_ptr(&self)->*const f64{self.inner.status.as_ptr()}
+    pub fn status_len(&self)->usize{self.inner.status.len()}
+    pub fn inspection_ptr(&self)->*const f64{self.inner.inspection.as_ptr()}
+    pub fn inspection_len(&self)->usize{self.inner.inspection.len()}
+    pub fn header_ptr(&self)->*const f64{self.inner.frame.as_ptr()}
+    pub fn header_len(&self)->usize{self.inner.frame.len()}
+    pub fn order_ptr(&self)->*const u32{self.inner.order.as_ptr()}
+    pub fn order_len(&self)->usize{self.inner.order.len()}
+}
+
+// Analytic packing is one phase over all texture batches and emitters.
+#[wasm_bindgen]
+pub struct PageAnalyticEffects {inner:crate::analytic_effects::Analytic}
+#[wasm_bindgen]
+impl PageAnalyticEffects {
+    #[wasm_bindgen(constructor)]
+    pub fn new(content:&str)->Result<Self,JsValue>{let definitions=serde_json::from_str(content).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(Self{inner:crate::analytic_effects::Analytic::new(definitions)})}
+    pub fn add_batch(&mut self)->usize{self.inner.add_batch()}
+    pub fn track_rows(&self)->usize{self.inner.track_rows}
+    pub fn frame(&mut self){self.inner.frame();}
+    pub fn emitters(&mut self){self.inner.emitters();}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn emitters_ptr(&self)->*const f64{self.inner.emitters.as_ptr()}
+    pub fn emitters_len(&self)->usize{self.inner.emitters.len()}
+    pub fn data_ptr(&self)->*const f32{self.inner.data.as_ptr()}
+    pub fn data_len(&self)->usize{self.inner.data.len()}
+    pub fn epochs_ptr(&self)->*const f64{self.inner.epochs.as_ptr()}
+    pub fn epochs_len(&self)->usize{self.inner.epochs.len()}
+    pub fn definitions_ptr(&self)->*const i32{self.inner.definitions.as_ptr()}
+    pub fn definitions_len(&self)->usize{self.inner.definitions.len()}
+    pub fn tracks_ptr(&self)->*const f32{self.inner.tracks.as_ptr()}
+    pub fn tracks_len(&self)->usize{self.inner.tracks.len()}
+    pub fn batches_ptr(&self)->*const f64{self.inner.batches.as_ptr()}
+    pub fn batches_len(&self)->usize{self.inner.batches.len()}
+    pub fn spawns_ptr(&self)->*const f64{self.inner.spawns.as_ptr()}
+    pub fn spawns_len(&self)->usize{self.inner.spawns.len()}
+    pub fn arrays_ptr(&self)->*const f32{self.inner.arrays.as_ptr()}
+    pub fn arrays_len(&self)->usize{self.inner.arrays.len()}
 }
 
 // Arc and Classic lightning share one retained owner. The only synchronous

@@ -1116,3 +1116,11 @@ pub mod interface_batch_layout;
 pub mod rider_sources;
 
 pub mod unit_collision;
+
+pub mod visual_effects_layout;
+pub mod unit_effects;
+pub mod camera_effects;
+pub mod soldier_view;
+pub mod post_effects;
+pub mod vehicle_effects;
+pub mod analytic_effects;

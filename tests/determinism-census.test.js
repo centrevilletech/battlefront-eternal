@@ -32,7 +32,7 @@ const CENSUS = {
     'src/presentation-pkg/bfe_presentation.js': { page: 1 }, // native sniper and lightning cosmetic random primitive
     'src/sim/wasm/presentation/cameras.js': { page: 1 }, // injectable cosmetic shake stream
     'src/sim/module.js': { page: 1 }, // binds the camera's standard random primitive
-    'src/commandposts.js': { page: 2 }, // the post holograms' flicker (CommandPosts.present)
+    'src/commandposts.js': { page: 1 }, // native post flicker's supplied cosmetic random source
     'src/presentation/effects.js': { page: 1 }, // a displayed effect's recorded birth seed
     'src/game.js': { page: 3 }, // the sky's flyers, a droid's death blasts (presentEvent)
     'src/launch.js': { page: 3 },

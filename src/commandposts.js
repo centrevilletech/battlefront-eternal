@@ -33,16 +33,13 @@ import { buildRegion, inRegion } from "./regions.js";
 // value, no AI objective, off the maps, its hologram dark, and it is
 // announced lost (docs/objectives.md).
 
-const rate = (count) => 2 - 2 ** (1 - count);
-const attackRate = (counts, owner) => {
-  let sum = 0;
-  for (const [team, n] of counts) if (team !== owner && n > 0) sum += rate(n);
-  return sum;
-};
+import {EffectPhase} from './effects-gpu.js';
+import {PostFrame as F,PostState as S,PostTeam as T,VisualLimits as L} from './presentation/visual-effects-layout.js';
+const BANKS=[['input',Float64Array],['counts',Float64Array],['art',Uint8Array],['beam_positions',Float32Array],['beam_normals',Float32Array],['beam_uv',Float32Array],['beam_indices',Uint16Array]];
 
 class Post {
-  constructor(desc, rules, index) {
-    this.desc = desc;
+  constructor(desc, rules, index,phase) {
+    this.desc = desc;this.index=index;
     // Hoth's world places one post with no name; the network names posts,
     // so it takes its place in the list, the same on every machine.
     this.name = desc.name || `#${index}`;
@@ -50,12 +47,12 @@ class Post {
     this.team = desc.team;
     this.rules = rules;
     this.matrix = new THREE.Matrix4().fromArray(desc.matrix);
-    this.position = new THREE.Vector3().setFromMatrixPosition(this.matrix);
+    this.position = new THREE.Vector3().fromArray(this.matrix.elements,12);
     this.anchor = new THREE.Vector3().fromArray(desc.hologram);
     this.capture = desc.capture ? buildRegion(desc.capture) : null;
     // On the maps: its class's MapTexture at MapScale (extracts without
     // them draw every post).
-    this.mapped = !("mapTexture" in desc) || (Boolean(desc.mapTexture) && (desc.mapScale ?? 1) > 0);
+    this.mapped=index<L.POSTS&&Boolean(phase.input[index*F.STRIDE+F.MAPPED]);
     // Neutralize progress (0..1) against the owner, or capture progress (0..1)
     // toward `toward` while neutral.
     this.neutralize = 0;
@@ -77,15 +74,8 @@ class Post {
 
   // Seconds until the current capture or neutralize lands, or Infinity.
   remaining() {
-    const teams = [...this.counts.entries()].filter(([, n]) => n > 0);
-    if (this.team) {
-      const attack = attackRate(this.counts, this.team);
-      return attack ? ((1 - this.neutralize) * this.rules.neutralizeTime) / attack : Infinity;
-    }
-    if (teams.length !== 1) return Infinity;
-    const [team, n] = teams[0];
-    if (team !== this.toward && this.progress > 0) return Infinity;
-    return ((1 - this.progress) * this.rules.captureTime) / rate(n);
+    this.owner.writeCounts();this.owner.phase.kernel.remaining(this.owner.posts.length);
+    return this.index<L.POSTS?this.owner.phase.input[this.index*F.STRIDE+F.REMAINING]:Infinity;
   }
 
 }
@@ -97,27 +87,29 @@ class Hologram {
     this.settings = settings;
     this.post = post;
     this.look = look;
-    this.group = new THREE.Group();
+    this.group = new THREE.Group();sceneProperty(this.group,"visible",post.index<L.POSTS);
     sceneTransform(this.group.position.copy(post.anchor));
     this.logo = new THREE.Group();
     sceneComponent(this.logo.position,"y","=",look.height);
     sceneTransform(this.logo.scale.setScalar(look.size));
     this.group.add(this.logo);
     this.logos = logos;
-    this.logoMeshes = new Map();
+    this.logoMeshes = new Map();this.logoRecords=[];
     this.fade = 0; // 0..1, the logo's fade in
     this.flicker = 1;
     this.shownTeam = null;
 
     this.color = new THREE.Color(1, 1, 1);
     const beamTexture = gradientTexture();
+    const phase=post.owner.phase,at=post.index*F.STRIDE;phase.refresh();
+    const beamGeometry=new THREE.BufferGeometry();beamGeometry.setAttribute('position',new THREE.BufferAttribute(phase.beam_positions.slice(),3));beamGeometry.setAttribute('normal',new THREE.BufferAttribute(phase.beam_normals.slice(),3));beamGeometry.setAttribute('uv',new THREE.BufferAttribute(phase.beam_uv.slice(),2));beamGeometry.setIndex(new THREE.BufferAttribute(phase.beam_indices.slice(),1));beamGeometry.addGroup(0,phase.beam_indices.length,0);
     this.beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.35, 0.05, look.height, 16, 1, true).translate(0, look.height / 2, 0),
+      beamGeometry,
       ownedBasicEffect('basic', { visible: true,
         map: beamTexture,
         color: this.color,
         transparent: true,
-        opacity: 0.35 * look.beamIntensity,
+        opacity:phase.input[at+F.BEAM],
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -130,7 +122,7 @@ class Hologram {
         map: textures.flare,
         color: this.color,
         transparent: true,
-        opacity: 0.6 * (look.flareIntensity ?? 1),
+        opacity:phase.input[at+F.FLARE],
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -146,8 +138,8 @@ class Hologram {
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
     this.halo = new THREE.Sprite(haloMaterial);
-    sceneTransform(this.halo.scale.set(2.6, Math.max(look.height * 1.4, 2.6), 1));
-    sceneComponent(this.halo.position,"y","=",look.height * 0.45);
+    sceneTransform(this.halo.scale.fromArray(phase.input,at+F.HALO_SCALE));
+    sceneComponent(this.halo.position,"y","=",phase.input[at+F.HALO_HEIGHT]);
     this.group.add(this.halo);
     // Lights the world per vertex like the game's point lights: N.L times
     // (1 - d^2 / r^2) of the colour.
@@ -162,89 +154,45 @@ class Hologram {
     if (!this.logoMeshes.has(side)) {
       const make = this.logos.get(side);
       const logo = make ? make() : null;
-      this.logoMeshes.set(side, logo);
+      this.logoMeshes.set(side, logo);this.logoRecords.push({name:side,logo});
       if (logo) this.logo.add(logo);
     }
     return this.logoMeshes.get(side);
   }
 
-  update(dt, time, relation, teamNames, camera) {
-    const look = this.look;
-    const owner = this.post.team;
-    sceneProperty(this.group,"visible",this.post.active !== false);
-    if (!this.group.visible) return;
-    // Dark while a change is about to land; the new owner's logo fades in.
-    const landing = this.post.remaining() <= this.post.rules.holoTurnOnTime;
-    if (owner !== this.shownTeam) {
-      this.shownTeam = owner;
-      this.fade = 0;
-    }
-    const target = landing ? 0 : 1;
-    this.fade += Math.sign(target - this.fade) * Math.min(Math.abs(target - this.fade), dt / look.fadeInTime);
-    // A new flicker alpha now and then.
-    if (Math.random() < look.flickerRate * 60 * dt) {
-      this.flicker = look.flickerAlpha[0] + Math.random() * (look.flickerAlpha[1] - look.flickerAlpha[0]);
-    }
-    const color = look[relation] || look.neutral;
-    this.color.setRGB(color[0] / 255, color[1] / 255, color[2] / 255);
-    const distance = camera.position.distanceTo(this.group.position);
-    const reach = THREE.MathUtils.clamp((look.visibleDistance - distance) / (look.visibleDistance * 0.1), 0, 1);
-
-    sceneComponent(this.logo.rotation,"y","=",time * look.rotateRate * Math.PI * 2);
-    const side = owner ? (teamNames[owner] || "").toLowerCase() : null;
-    if (side) this.logoFor(side);
-    for (const [name, logo] of this.logoMeshes) {
-      if (!logo) continue;
-      sceneProperty(logo,"visible",name === side);
-      if (logo.visible) {
-        logo.userData.material.color.copy(this.color);
-        logo.userData.material.opacity = look.imageIntensity * this.flicker * this.fade * reach;
-      }
-    }
-    this.beam.material.color.copy(this.color);
-    this.flare.material.color.copy(this.color);
-    const emission = this.fade * this.flicker * reach;
-    this.halo.material.color.copy(this.color);
-    this.halo.material.opacity = 0.48 * emission;
-    sceneProperty(this.halo,"visible",reach > 0 && (this.settings?.get("bloom") ?? true));
-    this.beam.material.opacity = 0.35 * look.beamIntensity * emission;
-    this.flare.material.opacity = 0.6 * (look.flareIntensity ?? 1) * emission;
-    sceneProperty(this.beam,"visible",reach > 0);
-    sceneProperty(this.flare,"visible",reach > 0);
-    this.light.color.copy(this.color);
-    this.light.intensity = look.lightIntensity * (owner ? 0.4 + 0.6 * this.fade : 1);
+  write(phase,dt,time,relation,camera) {
+    const x=phase.input,at=this.post.index*F.STRIDE;if(this.post.index>=L.POSTS)return;
+    x[at+F.DT]=dt;x[at+F.TIME]=time;x[at+F.OWNER]=this.post.team??0;x[at+F.ACTIVE]=this.post.active===false?0:1;
+    x[at+F.TURN_ON_TIME]=this.post.rules.holoTurnOnTime;camera.position.toArray(x,at+F.CAMERA);this.group.position.toArray(x,at+F.POSITION);
+    const color=this.look[relation]||this.look.neutral;
+    for(let k=0;k<3;k++)x[at+F.COLOR+k]=color[k];
+  }
+  publish(phase,teamNames) {
+    const x=phase.input,at=this.post.index*F.STRIDE;
+    sceneProperty(this.group,"visible",this.post.index<L.POSTS&&Boolean(x[at+F.ACTIVE]));if(!this.group.visible)return;
+    const owner=this.post.team;this.fade=x[at+F.FADE];this.flicker=x[at+F.FLICKER];this.shownTeam=owner;
+    this.color.fromArray(x,at+F.COLOR);sceneComponent(this.logo.rotation,"y","=",x[at+F.ROTATION]);
+    const side=owner?(teamNames[owner]||''):null;if(side)this.logoFor(side);
+    for(let k=0;k<this.logoRecords.length;k++){const entry=this.logoRecords[k],logo=entry.logo;if(!logo)continue;sceneProperty(logo,"visible",entry.name===side);if(logo.visible){logo.userData.material.color.copy(this.color);logo.userData.material.opacity=x[at+F.IMAGE];}}
+    this.beam.material.color.copy(this.color);this.flare.material.color.copy(this.color);this.halo.material.color.copy(this.color);
+    this.halo.material.opacity=x[at+F.HALO];sceneProperty(this.halo,"visible",x[at+F.REACH]>0&&(this.settings?.get('bloom')??true));
+    this.beam.material.opacity=x[at+F.BEAM];this.flare.material.opacity=x[at+F.FLARE];
+    sceneProperty(this.beam,"visible",x[at+F.REACH]>0);sceneProperty(this.flare,"visible",x[at+F.REACH]>0);this.light.color.copy(this.color);this.light.intensity=x[at+F.LIGHT];
   }
 }
 
-let sharedHalo;
-function haloTexture() {
-  if (sharedHalo) return sharedHalo;
-  const size = 128;
-  const data = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const radius = Math.hypot((x + 0.5) / size * 2 - 1, (y + 0.5) / size * 2 - 1);
-    const alpha = Math.max(0, Math.exp(-radius * radius * 5) - Math.exp(-5));
-    data.set([255, 255, 255, Math.round(alpha * 255)], (y * size + x) * 4);
-  }
-  sharedHalo = new THREE.DataTexture(data, size, size);
-  sharedHalo.magFilter = THREE.LinearFilter;
-  sharedHalo.minFilter = THREE.LinearFilter;
-  sceneProperty(sharedHalo,"needsUpdate",true);
-  return sharedHalo;
+let sharedHalo,artPhase;
+// Texture shells only retain native pixels. The resource loader consumes
+// these authored sampler flags; no canvas or browser texel math is needed.
+function art(){if(!artPhase)artPhase=new EffectPhase('PagePostEffects',BANKS,'{}');artPhase.refresh();return artPhase.art;}
+function haloTexture(){
+  if(sharedHalo)return sharedHalo;
+  sharedHalo=new THREE.DataTexture(art().slice(0,128*128*4),128,128);
+  sharedHalo.magFilter=sharedHalo.minFilter=THREE.LinearFilter;sceneProperty(sharedHalo,"needsUpdate",true);return sharedHalo;
 }
-
-// A soft vertical gradient for the beam: bright at the base, gone at the top.
-export function gradientTexture() {
-  const data = new Uint8Array(4 * 64 * 4);
-  for (let y = 0; y < 64; y++) for (let x = 0; x < 4; x++) {
-    const at = (y * 4 + x) * 4;
-    data.set([255, 255, 255, Math.round((y + .5) / 64 * 255)], at);
-  }
-  const texture = new THREE.DataTexture(data, 4, 64);
-  texture.flipY = true;
-  texture.magFilter = texture.minFilter = THREE.LinearFilter;
-  sceneProperty(texture,"needsUpdate",true);
-  return texture;
+export function gradientTexture(){
+  const texture=new THREE.DataTexture(art().slice(128*128*4),4,64);texture.flipY=true;
+  texture.magFilter=texture.minFilter=THREE.LinearFilter;sceneProperty(texture,"needsUpdate",true);return texture;
 }
 
 export class CommandPosts {
@@ -254,10 +202,15 @@ export class CommandPosts {
   // captureTeam), settable later; without it every other team is an enemy.
   constructor(scene, map, { logos, textures, playerTeam, settings, teams = null, headless = false }) {
     const rules = map.commandPost || { neutralizeTime: 12, captureTime: 10, holoTurnOnTime: 2.2 };
-    this.posts = (map.commandPosts || []).map((desc, index) => new Post(desc, rules, index));
+    this.phase=new EffectPhase('PagePostEffects',BANKS,JSON.stringify({look:map.hologram||{},posts:map.commandPosts||[]}));
+    this.posts=(map.commandPosts||[]).map((desc,index)=>new Post(desc,rules,index,this.phase));
+    for(const post of this.posts)post.owner=this;
+    this.countTarget=0;this.countEntries=0;
+    // Map.forEach supplies scalar facts without allocating entry pairs.
+    this.writeCount=(population,team)=>{if(this.countEntries===256)return;const at=this.countTarget+S.TEAMS+this.countEntries++*T.STRIDE;this.phase.counts[at+T.TEAM]=team;this.phase.counts[at+T.POPULATION]=population;};
     this.playerTeam = playerTeam;
-    this.teams = teams;
-    this.teamNames = Object.fromEntries(Object.entries(map.mission?.teams || {}).map(([team, t]) => [Number(team), t.name]));
+    this.teams = teams;this.teamRelation=(a,b)=>this.teams.relation(a,b);this.teamLocals=t=>this.teams.locals(t);
+    this.teamNames = Object.fromEntries(Object.entries(map.mission?.teams || {}).map(([team, t]) => [Number(team), (t.name||'').toLowerCase()]));
     this.holograms = !headless && map.hologram
       ? this.posts.filter((post) => !("holoOdf" in post.desc) || post.desc.holoOdf).map((post) => new Hologram(post, map.hologram, logos, textures, settings))
       : [];
@@ -322,14 +275,23 @@ export class CommandPosts {
   // How a team looks to the viewer's team (src/targeting-facts.js radarRelation).
   look(viewer, team) {
     const teams = this.teams;
-    return teams ? radarRelation(viewer, team, (a, b) => teams.relation(a, b), (t) => teams.locals(t)) : radarRelation(viewer, team);
+    return teams ? radarRelation(viewer, team, this.teamRelation, this.teamLocals) : radarRelation(viewer, team);
   }
 
-  present(dt, camera) {
-    if (this.textures.logo) this.textures.logo.offset.y = (this.time * 0.25) % 1;
-    for (const hologram of this.holograms) {
-      hologram.update(dt, this.time, this.relation(hologram.post.team), this.teamNames, camera);
+  writeCounts(){
+    this.phase.refresh();const x=this.phase.counts;
+    for(let i=0;i<this.posts.length&&i<L.POSTS;i++){
+      const post=this.posts[i],at=i*S.STRIDE;x[at+S.OWNER]=post.team??0;x[at+S.NEUTRALIZE]=post.neutralize;x[at+S.PROGRESS]=post.progress;x[at+S.TOWARD]=post.toward;
+      x[at+S.NEUTRALIZE_TIME]=post.rules.neutralizeTime;x[at+S.CAPTURE_TIME]=post.rules.captureTime;
+      this.countTarget=at;this.countEntries=0;post.counts.forEach(this.writeCount);x[at+S.COUNT]=this.countEntries;
     }
+  }
+  present(dt,camera){
+    this.writeCounts();const phase=this.phase;phase.input[F.TIME]=this.time;
+    for(const h of this.holograms)h.write(phase,dt,this.time,this.relation(h.post.team),camera);
+    phase.kernel.frame(this.posts.length,Math.random);phase.refresh();
+    if(this.textures.logo)this.textures.logo.offset.y=phase.input[F.LOGO_OFFSET];
+    for(const h of this.holograms)h.publish(phase,this.teamNames);
   }
 
   // The post whose capture region holds this point, if any.

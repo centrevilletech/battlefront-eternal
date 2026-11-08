@@ -24,7 +24,7 @@ export class EffectResources {
     this.emitterTextures = new WeakMap();
     this.model = model;
     this.renderer = new ParticleRenderer(scene);
-    this.gpu = gpu ? new GpuEffects(this.library, this.renderer) : null;
+    this.gpu = gpu ? new GpuEffects(this.library, this.renderer, this) : null;
     this.effects = [];
     this.meshes = new Map(); // model name -> pooled meshes
   }

@@ -4,6 +4,9 @@ import {EFFECT} from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 
+import {EffectPhase} from './effects-gpu.js';
+import {ShieldFrame as F} from './presentation/visual-effects-layout.js';
+const BANKS=[['input',Float64Array],['impacts',Float64Array],['powers',Float32Array],['blasts',Float32Array]];
 const HITS = 6;
 
 
@@ -16,23 +19,13 @@ export class ShieldBubble {
   constructor(scene, look, texture, settings = null) {
     this.look = look;
     this.settings = settings;
-    this.fade = 0;
-    this.time = 0;
-    this.birth = 10;
-    this.on = false;
-    this.pop = 0;
-    this.fromPop = 0;
-    this.fromFade = 0;
-    this.flash = 0;
-    this.hitIndex = 0;
-    this.offset = new THREE.Vector3();
-    this.source = new THREE.Vector3();
-    this.cameraLocal = new THREE.Vector3();
+    this.phase=new EffectPhase('PageShield',BANKS);
+    this.fade=0;this.time=0;this.birth=10;this.pop=0;this.flash=0;this.hitIndex=0;
     const map = look.Texture ? texture(look.Texture) : null;
     this.map=map;this.impacts=new Float64Array(HITS*4);this.powers=new Float32Array(HITS);this.blasts=new Float32Array(HITS);
-    for(let i=0;i<HITS;i++){this.impacts[i*4+2]=1;this.impacts[i*4+3]=-1000;}
+    this.impacts.set(this.phase.impacts);
     // Sphere topology, defaults, side/blend policy and repeat sampler aliases
-    // are native cold recipes. Only hit history and live charge stay here.
+    // are native cold recipes. The page copies native hit and charge publications.
     const make=(row,width,height)=>{
       const asset=actorAsset({kind:'sphere',radius:1,widthSegments:width,heightSegments:height});
       const mesh=actorNode(asset,null),owner={map};
@@ -46,78 +39,39 @@ export class ShieldBubble {
     sceneTransform(this.aura.scale.setScalar(1.035));
   }
 
-  place(droideka, position = droideka.position) {
-    const [x, y, z] = droideka.shield?.def.ShieldOffset || [0, 1, 0];
-    const yaw = droideka.aimYaw;
-    this.offset.set(Math.cos(yaw) * x + Math.sin(yaw) * z, y, -Math.sin(yaw) * x + Math.cos(yaw) * z);
-    sceneTransform(this.mesh.position.copy(position)).add(this.offset);
+  facts(droideka,position=droideka.position) {
+    this.phase.refresh();const x=this.phase.input,shield=droideka.shield;
+    position.toArray(x,F.POSITION);x[F.YAW]=droideka.aimYaw;
+    const offset=shield?.def.ShieldOffset;
+    x[F.OFFSET]=offset?.[0]??0;x[F.OFFSET+1]=offset?.[1]??1;x[F.OFFSET+2]=offset?.[2]??0;
+    x[F.RADIUS]=shield?.def.ShieldRadius??this.look.Radius??1.25;x[F.HEIGHT]=this.look.Height??x[F.RADIUS];
+    x[F.MAX]=shield?.max??0;x[F.VALUE]=shield?.value??0;x[F.ON]=shield?.on?1:0;x[F.DEAD]=droideka.dead?1:0;x[F.ROLLED]=droideka.rolled?1:0;
+    x[F.ENHANCED]=this.settings?.get('droidekaEffects')!=='classic'?1:0;x[F.FADE_IN]=this.look.FadeIn??0;x[F.FADE_OUT]=this.look.FadeOut??0;
   }
-
-  // Called only when gameplay actually absorbs damage; source is optional.
-  hit(source, amount, droideka, kind = null) {
-    if (!(amount > 0)) return;
-    this.place(droideka);
-    const power = THREE.MathUtils.clamp(Math.sqrt(amount / Math.max(droideka.shield?.max || 1, 1)) * 3, 0.25, 1.5);
-    if (!source || ![source.x, source.y, source.z].every(Number.isFinite)) {
-      // Damage without provenance lights the field, without inventing a hit side.
-      this.flash = Math.max(this.flash, power);
-      return;
-    }
-    this.source.copy(source).sub(this.mesh.position);
-    const radius = droideka.shield?.def.ShieldRadius ?? this.look.Radius ?? 1.25;
-    this.source.x /= radius; this.source.y /= this.look.Height ?? radius; this.source.z /= radius;
-    if (this.source.lengthSq() < 1e-8) this.source.set(0, 1, 0);
-    this.source.normalize();
-    const i = this.hitIndex++ % HITS;
-    const at=i*4;this.impacts[at]=this.source.x;this.impacts[at+1]=this.source.y;this.impacts[at+2]=this.source.z;this.impacts[at+3]=this.time;
-    this.powers[i] = power;
-    this.blasts[i] = kind === "explosion" ? 1 : 0;
+  publish() {
+    const x=this.phase.input;this.fade=x[F.FADE];this.time=x[F.TIME];this.birth=x[F.BIRTH];this.pop=x[F.POP];this.flash=x[F.FLASH];this.hitIndex=x[F.HIT_INDEX];
+    this.charge=x[F.CHARGE];this.enhanced=Boolean(x[F.ENHANCED]);
+    this.impacts.set(this.phase.impacts);this.powers.set(this.phase.powers);this.blasts.set(this.phase.blasts);
+    sceneTransform(this.mesh.position.fromArray(x,F.CENTER));sceneTransform(this.mesh.scale.fromArray(x,F.SCALE));
+    sceneProperty(this.mesh,"visible",Boolean(x[F.VISIBLE]));sceneProperty(this.aura,"visible",Boolean(x[F.AURA]));
   }
-
-  update(dt, droideka, { position = droideka.position } = {}) {
-    dt = Math.max(dt, 0);
-    this.time += dt;
-    const shield = droideka.shield;
-    const on = Boolean(shield?.on && !droideka.dead && !droideka.rolled);
-    const enhanced = this.settings?.get("droidekaEffects") !== "classic";
-    if (on !== this.on) {
-      this.fromPop = this.pop;
-      this.fromFade = this.fade;
-      if (on) this.birth = 0;
-    }
-    this.on = on;
-    this.birth += dt;
-    const duration = enhanced ? (on ? 0.24 : 0.26) : (on ? this.look.FadeIn : this.look.FadeOut);
-    this.fade = THREE.MathUtils.clamp(this.fade + (on ? dt : -dt) / Math.max(duration || 0.15, 1e-3), 0, 1);
-    sceneProperty(this.mesh,"visible",this.fade > 0);
-    sceneProperty(this.aura,"visible",enhanced && this.mesh.visible);
-    this.place(droideka, position);
-    const f = this.fade;
-    // Native classic curve grows through 1.06 and settles to 1, shrinking off.
-    const classic = on ? (f < 0.94 ? f * 1.06 / 0.94 : 1 + (1 - f)) : f;
-    const progress = on ? (f - this.fromFade) / Math.max(1 - this.fromFade, 1e-4) : f / Math.max(this.fromFade, 1e-4);
-    const expansion = 1 + 2.2 * (progress - 1) ** 3 + 1.2 * (progress - 1) ** 2;
-    const pop = enhanced ? (on ? this.fromPop + (1 - this.fromPop) * expansion : this.fromPop * (0.7 + 0.3 * progress)) : classic;
-    this.pop = f > 0 ? pop : 0;
-    const radius = shield?.def.ShieldRadius ?? this.look.Radius ?? 1.25;
-    sceneTransform(this.mesh.scale.set(radius * Math.max(pop, 0.001), (this.look.Height ?? radius) * Math.max(pop, 0.001), radius * Math.max(pop, 0.001)));
-    this.flash *= Math.exp(-10 * dt);
-    this.enhanced=enhanced;this.charge=shield?.max>0?THREE.MathUtils.clamp(shield.value/shield.max,0,1):0;
+  hit(source,amount,droideka,kind=null) {
+    this.facts(droideka);const x=this.phase.input;x[F.COMMAND]=1;x[F.AMOUNT]=amount;x[F.HAS_SOURCE]=source?1:0;
+    if(source){x[F.SOURCE]=source.x;x[F.SOURCE+1]=source.y;x[F.SOURCE+2]=source.z;}
+    x[F.EXPLOSION]=kind==='explosion'?1:0;this.phase.frame();this.publish();
   }
-
-  // Gone with its body (off the field): nothing left drawn, nothing to fade.
-  hide() {
-    this.on = false;
-    this.fade = this.pop = 0;
-    sceneProperty(this.mesh,"visible",false);
+  update(dt,droideka,options) {
+    this.facts(droideka,options?.position??droideka.position);this.phase.input[F.DT]=dt;this.phase.input[F.COMMAND]=0;
+    this.phase.frame();this.publish();
   }
-
+  hide(){this.phase.refresh();this.phase.input[F.COMMAND]=2;this.phase.frame();this.publish();}
   // ShieldBubble.onBeforeRender's inside test is a view fact. Generated rows
   // publish it and hit history without material uniform-name dispatch.
   prepareActor(source,row,camera){const v=source.values;v.set(camera.projectionMatrix.elements,row.PROJECTION_MATRIX);
-    this.cameraLocal.copy(camera.position).sub(this.mesh.position).divide(this.mesh.scale);
-    v[row.SHIELD_TIME]=this.time;v[row.SHIELD_FADE]=this.fade;v[row.BIRTH]=this.birth;v[row.INSIDE]=this.cameraLocal.lengthSq()<1?1:0;v[row.FLASH]=this.flash;
+    this.phase.refresh();camera.position.toArray(this.phase.input,F.CAMERA);this.mesh.position.toArray(this.phase.input,F.CENTER);this.mesh.scale.toArray(this.phase.input,F.SCALE);
+    this.phase.input[F.COMMAND]=3;this.phase.frame();
+    v[row.SHIELD_TIME]=this.time;v[row.SHIELD_FADE]=this.fade;v[row.BIRTH]=this.birth;v[row.INSIDE]=this.phase.input[F.INSIDE];v[row.FLASH]=this.flash;
     if(row===EFFECT.ACTOR_SHIELD){v.set(camera.matrixWorldInverse.elements,row.VIEW_MATRIX);v[row.CHARGE]=this.charge??1;v[row.ENHANCED]=this.enhanced===false?0:1;
       lighting.sunDirection.value.toArray(v,row.SUN_DIRECTION);lighting.sunColor.value.toArray(v,row.SUN_COLOR);v.set(this.impacts,row.IMPACTS);v.set(this.powers,row.POWERS);v.set(this.blasts,row.BLASTS);}}
-  dispose(){this.mesh.removeFromParent();}
+  dispose(){this.phase.dispose();this.mesh.removeFromParent();}
 }

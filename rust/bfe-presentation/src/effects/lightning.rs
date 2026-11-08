@@ -362,11 +362,11 @@ impl Lightning{
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
  use super::*;
  use std::alloc::{GlobalAlloc,Layout,System};
  use std::cell::Cell;
- thread_local!{static TRACK:Cell<bool>=const{Cell::new(false)};static ALLOCS:Cell<usize>=const{Cell::new(0)};}
+ thread_local!{pub(crate) static TRACK:Cell<bool>=const{Cell::new(false)};pub(crate) static ALLOCS:Cell<usize>=const{Cell::new(0)};}
  struct Counting;
  unsafe impl GlobalAlloc for Counting{
   unsafe fn alloc(&self,l:Layout)->*mut u8{if TRACK.try_with(Cell::get).unwrap_or(false){ALLOCS.with(|n|n.set(n.get()+1));}System.alloc(l)}

@@ -4,18 +4,13 @@ import * as THREE from "three";
 import { makeHit } from "./collision.js";
 import { particleDepth } from "./particle-depth.js";
 
+import {EffectPhase} from './effects-gpu.js';
+import {TrailFrame as F,TrailParticle as P} from './presentation/visual-effects-layout.js';
+const BANKS=[['input',Float64Array],['records',Float32Array],['rays',Float64Array]];
 const CAPACITY = 160;
 const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
 
 
-
-function dustTint(name) {
-  if (/hot/i.test(name)) return [0.78, 0.83, 0.86];
-  if (/tat|geo/i.test(name)) return [0.66, 0.46, 0.28];
-  if (/end|kas|yav/i.test(name)) return [0.43, 0.37, 0.25];
-  if (/bes|kam/i.test(name)) return [0.59, 0.63, 0.65];
-  return [0.68, 0.61, 0.45];
-}
 
 // The trails by their meshes, for a renderer that draws them itself
 // (src/rust-render/effects.js): while a trail is `external`, three is shown
@@ -36,21 +31,13 @@ export class DroidekaTrail {
     this.count = 0;
     this.external = false;
     this.emitted = 0;
-    this.carry = 0;
-    this.probeAt = -Infinity;
-    this.outdoor = false;
-    this.terrain = false;
-    this.probePosition = new THREE.Vector3(Infinity, Infinity, Infinity);
-    this.previous = new THREE.Vector3();
-    this.origin = new THREE.Vector3();
-    this.hit = makeHit();
-    this.lastX = this.lastZ = 0;
-    this.ready = false;
-    this.records = new Float32Array(CAPACITY * 12);
+    this.phase=new EffectPhase('PageTrail',BANKS,mapName);
+    this.origin=new THREE.Vector3();this.hit=makeHit();
+    this.records=new Float32Array(CAPACITY*P.STRIDE);
     // DroidekaTrail keeps only simulation/draw arrays. Its plane, raster
     // state and tint layout are one native descriptor admitted before drawing.
     this.nativeKind=EFFECT.TRAIL.ID;this.family='trail';this.variant=0;this.texture=null;
-    this.values=new Float64Array(EFFECT.TRAIL.LENGTH);this.values.set(dustTint(mapName),EFFECT.TRAIL.TINT);
+    this.values=new Float64Array(EFFECT.TRAIL.LENGTH);for(let k=0;k<3;k++)this.values[EFFECT.TRAIL.TINT+k]=this.phase.input[F.TINT+k];
     this.capacity=CAPACITY;
     this.arrays={birth:new Float32Array(CAPACITY*4),drift:new Float32Array(CAPACITY*4),shape:new Float32Array(CAPACITY*4)};
     this.streams=Object.values(this.arrays);
@@ -64,85 +51,29 @@ export class DroidekaTrail {
     scene.add(this.mesh);
   }
 
-  probe(position) {
-    this.probeAt = this.time;
-    this.probePosition.copy(position);
-    this.outdoor = false;
-    this.origin.copy(position).y += 0.6;
-    const floor = this.collision.cast(this.origin, DOWN, 1.3, this.hit);
-    if (!floor || floor.normal.y < 0.45) return;
-    this.floor = floor.point.y;
-    this.terrain = floor.terrain;
-    this.origin.set(position.x, this.floor + 0.25, position.z);
-    this.outdoor = !this.collision.cast(this.origin, UP, 80, this.hit);
-  }
-
   clear() {
-    this.count = this.carry = 0;
-    sceneProperty(this.mesh,"visible",false);
+    this.phase.refresh();this.phase.input[F.CLEAR]=1;this.phase.frame(this.random);
+    this.count=0;sceneProperty(this.mesh,"visible",false);
   }
-
-  update(dt, soldier, { dead = soldier.dead, position = soldier.position } = {}) {
-    dt = Math.max(0, Math.min(dt, 0.1));
-    this.time += dt;
-    this.values[EFFECT.TRAIL.TRAIL_TIME] = this.time;
-    if ((this.settings?.get("droidekaEffects") ?? "enhanced") !== "enhanced") {
-      this.clear(); this.ready = false; return;
+  update(dt,soldier,options) {
+    const position=options?.position??soldier.position,dead=options?.dead??soldier.dead;
+    const phase=this.phase;phase.refresh();const x=phase.input;
+    x[F.DT]=dt;x[F.ENHANCED]=(this.settings?.get('droidekaEffects')??'enhanced')==='enhanced'?1:0;
+    position.toArray(x,F.POSITION);soldier.velocity.toArray(x,F.VELOCITY);
+    x[F.ROLLING]=soldier.mode===12?1:0;x[F.DEAD]=dead?1:0;x[F.AIR]=soldier.air?1:0;x[F.GROUNDED]=soldier.grounded===false?0:1;
+    phase.kernel.probe();
+    if(x[F.PROBE]){
+      this.origin.fromArray(phase.rays);const floor=this.collision.cast(this.origin,DOWN,1.3,this.hit);
+      x[F.FLOOR_HIT]=floor?1:0;x[F.FLOOR_NORMAL]=floor?.normal.y??0;x[F.FLOOR]=floor?.point.y??0;x[F.TERRAIN]=floor?.terrain?1:0;
+      x[F.ROOF]=1;
+      phase.kernel.roof();
+      if(x[F.ROOF_PROBE]){this.origin.fromArray(phase.rays);x[F.ROOF]=this.collision.cast(this.origin,UP,80,this.hit)?1:0;}
     }
-    const jumped = this.ready && this.previous.distanceToSquared(position) > 100;
-    if (jumped) this.clear();
-    for (let i = this.count - 1; i >= 0; i--) {
-      const at = i * 12;
-      if (this.time - this.records[at + 3] >= this.records[at + 7]) {
-        this.count--;
-        this.records.copyWithin(at, this.count * 12, this.count * 12 + 12);
-      }
-    }
-    const vx = soldier.velocity.x, vz = soldier.velocity.z;
-    const speed = Math.hypot(vx, vz);
-    const rolling = soldier.mode === 12 && !dead && !soldier.air && soldier.grounded !== false && speed > 2.2;
-    if (rolling && (this.time - this.probeAt > 0.08 || this.probePosition.distanceToSquared(position) > 0.25)) this.probe(position);
-    const wet = this.water?.over(position.x, position.z) && position.y < this.water.level + 0.12;
-    if (rolling && this.outdoor && !wet && dt > 0) {
-      const dx = vx / speed, dz = vz / speed;
-      const turn = this.ready ? Math.min(1, Math.abs(dx * this.lastZ - dz * this.lastX) / Math.max(dt * 2, 0.01)) : 0;
-      const strength = THREE.MathUtils.clamp((speed - 2.2) / 8, 0, 1);
-      this.carry += dt * (18 + strength * 38 + turn * 22);
-      const spawn = Math.min(Math.floor(this.carry), CAPACITY - this.count);
-      this.carry -= Math.floor(this.carry);
-      for (let n = 0; n < spawn; n++) {
-        const at = this.count++ * 12, f = (n + 1) / Math.max(spawn, 1);
-        const spread = (this.random() - 0.5) * (0.55 + turn * 0.4);
-        const r = this.records;
-        r[at] = (this.ready && !jumped ? THREE.MathUtils.lerp(this.previous.x, position.x, f) : position.x) - dx * 0.4 + dz * spread;
-        r[at + 1] = this.floor + 0.14 + this.random() * 0.12;
-        r[at + 2] = (this.ready && !jumped ? THREE.MathUtils.lerp(this.previous.z, position.z, f) : position.z) - dz * 0.4 - dx * spread;
-        r[at + 3] = this.time;
-        r[at + 4] = -dx * (0.4 + strength * 0.8) + dz * spread * 2;
-        r[at + 5] = 0.1 + this.random() * 0.25;
-        r[at + 6] = -dz * (0.4 + strength * 0.8) - dx * spread * 2;
-        r[at + 7] = 1.2 + this.random() * 0.8;
-        r[at + 8] = 0.3 + strength * 0.2 + this.random() * 0.17;
-        r[at + 9] = this.random() * 30;
-        r[at + 10] = (this.terrain ? 0.7 : 0.42) * (0.55 + strength * 0.45 + turn * 0.25);
-        r[at + 11] = this.terrain ? 1 : 0;
-        this.emitted++;
-      }
-      this.lastX = dx; this.lastZ = dz;
-    } else this.carry = 0;
-    this.previous.copy(position);
-    this.ready = true;
-    for (let i = 0; i < this.count; i++) {
-      for (let a = 0; a < 3; a++) {
-        const array = this.streams[a], from = i * 12 + a * 4, to = i * 4;
-        array[to] = this.records[from]; array[to + 1] = this.records[from + 1];
-        array[to + 2] = this.records[from + 2]; array[to + 3] = this.records[from + 3];
-      }
-    }
-    sceneProperty(this.mesh,"visible",this.count > 0);
+    x[F.WET]=this.water?.over(position.x,position.z)?1:0;x[F.WATER_LEVEL]=this.water?.level??NaN;
+    phase.frame(this.random);this.time=x[F.TIME];this.count=x[F.COUNT];this.emitted=x[F.EMITTED];
+    this.values[EFFECT.TRAIL.TRAIL_TIME]=this.time;this.records.set(phase.records);
+    for(let i=0;i<this.count;i++)for(let a=0;a<3;a++)for(let k=0;k<4;k++)this.streams[a][i*4+k]=this.records[i*P.STRIDE+a*4+k];
+    sceneProperty(this.mesh,"visible",this.count>0);
   }
-
-  dispose() {
-    this.mesh.removeFromParent();
-  }
+  dispose(){this.phase.dispose();this.mesh.removeFromParent();}
 }

@@ -22,6 +22,11 @@ for part in parts:
             new=f'pub fn {method}(&mut self,random:&[f64])->Result<(),String>{{let mut cursor=0;self.inner.{method}(&mut ||{{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value}});if cursor>random.len(){{return Err(String::from("sniper random service is short"));}}Ok(())}}'
             if old not in part:raise SystemExit('sniper random facade changed')
             part=part.replace(old,new)
+    # The supplied browser random function is recorded as a native frame tape.
+    part=part.replace('pub fn frame(&mut self,random:&RandomSource){self.inner.frame(&mut ||random.next(&JsValue::NULL));}',
+        'pub fn frame(&mut self,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("cosmetic random service is short"));}Ok(())}')
+    part=part.replace('pub fn frame(&mut self,count:usize,random:&RandomSource){self.inner.frame(count,&mut ||random.next(&JsValue::NULL));}',
+        'pub fn frame(&mut self,count:usize,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(count,&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("cosmetic random service is short"));}Ok(())}')
     if cls=='PageLightning':
         setup='let mut cursor=0;let mut collision=crate::effects::lightning::RecordedCollision{values:casts,cursor:0};'
         random='&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value}'

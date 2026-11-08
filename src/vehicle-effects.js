@@ -1,5 +1,7 @@
 import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
+import {EffectPhase} from './effects-gpu.js';
+import {VehicleFxInput as I,VehicleFxFrame as F,VehicleFxQuery as Q,VehicleFxRecord as O,VehicleFxStatus as S,VehicleFxNode as N,VehicleFxInspect as T,VehicleFxAction as A,VisualLimits as L} from './presentation/visual-effects-layout.js';
 import { VisualFeet } from "./presentation/feet.js";
 
 // What a hull shows beyond its model, at Classic (docs/vehicles.md,
@@ -45,26 +47,11 @@ import { VisualFeet } from "./presentation/feet.js";
 // simulated here, in a worker or on a server looks the same. Missing
 // attach points fall back to the hull's root, as the original game's do.
 
-const EMPTY=Object.freeze([]);
-const ACTIVE_FLIGHT = new Set(["TakingOff", "Flying", "Landing"]);
-const WATER_HEIGHT = 4; // m above the surface a hover still raises spray (the port's)
-const CHUNK_OVERKILL = -50; // the health Debris flings pieces at full speed for
-const DYING_INTERVAL = 0.4; // s, DeathAnimationExplosionTime unless set
-const _matrix = new THREE.Matrix4();
-const _offset = new THREE.Matrix4();
-const _position = new THREE.Vector3();
-const _origin = new THREE.Vector3();
-const _quaternion = new THREE.Quaternion();
-const _scale = new THREE.Vector3();
-const _velocity = new THREE.Vector3();
-const _bind = new THREE.Matrix4();
-const _local = new THREE.Matrix4();
-const UP = new THREE.Vector3(0, 1, 0);
-const STILL = Object.freeze(new THREE.Vector3());
+const EMPTY=Object.freeze([]),UP=new THREE.Vector3(0,1,0),STILL=Object.freeze(new THREE.Vector3());
+const BANKS=[['header',Float64Array],['order',Uint32Array],['input',Float64Array],['nodes',Float64Array],['output',Float64Array],['status',Float64Array],['inspection',Float64Array]];
+const REFUSED=Object.freeze({refused:true});
+const FLIGHT_STATES=['Landed','TakingOff','Flying','Landing'];
 
-// A placed turret as the rules above see a hull: alive while built,
-// standing still, its nodes the built model's, a new life each time it is
-// built again (its health then fills up from the wreck's).
 class BuildingView {
   constructor(building) {
     const rig = building.looks?.built || building.rig || null;
@@ -75,7 +62,7 @@ class BuildingView {
     this.bones = rig?.bones || [];
     this.velocity = STILL;
     this.aiTarget = { generation: 0 };
-    this.built = false;
+
   }
 
   // The collision it has now (a wreck's, once destroyed): its pieces start
@@ -87,258 +74,115 @@ class BuildingView {
   // A destructible post's death animation left (src/props.js ObjectivePost).
   get dying() { return this.building.dying ?? 0; }
 
-  // Before each frame: a building built since the last is a new life.
-  next() {
-    const built = this.building.alive;
-    if (built && !this.built) this.aiTarget.generation += 1;
-    this.built = built;
-    return this;
-  }
+
 }
 
-// The thrust scale for a speed, from one of the class's ThrustEffect
-// entries and its [MinSpeed, MaxSpeed].
-export function thrustScale(entry, speed, [min, max]) {
-  const top = max || 1;
-  const start = (top - min) * entry.scaleStart + min;
-  const span = top - start;
-  const t = span > 1e-6 ? THREE.MathUtils.clamp((speed - start) / span, 0, 1) : speed > start ? 1 : 0;
-  return entry.minScale + (entry.maxScale - entry.minScale) * t;
-}
 
-// Whether a damage entry burns at a health (both in hit points).
-export function damageBurns(entry, health, maxHealth) {
-  return health > entry.stop * maxHealth && health <= entry.start * maxHealth;
+// Resolve names, bind chains and debris resource identities only at admission.
+// Every numeric transform and effect decision uses the generated phase banks.
+function content(v){
+  const fx=v.def?.fx||{},nodes=[v.root],names=[],frameNodes=new Set([0]);
+  const nodeId=node=>{node=node||v.root;let id=nodes.indexOf(node);if(id<0){id=nodes.length;nodes.push(node);}return id;};
+  const nameId=name=>{let id=names.indexOf(name);if(id<0){id=names.length;names.push(name);}return id;};
+  const entry=e=>{const node=nodeId(v.byName?.[e.node]);frameNodes.add(node);return {...e,effect:nameId(e.effect),node};};
+  const thrust=(fx.thrust||EMPTY).map(entry),damage=(fx.damage||EMPTY).map(entry);
+  const dust=fx.deathDust?{entry:entry(fx.deathDust),delay:fx.deathDust.delay||0}:null;
+  const dying=fx.dying?{span:fx.dying.span||0,interval:fx.dying.interval??.4,effects:(fx.dying.effects||EMPTY).map(nameId),final:(fx.dying.final||EMPTY).map(entry)}:null;
+  const bones=(v.bones||EMPTY).map(nodeId),bind=[];let body=v.byName?.bone_root,valid=Boolean(body&&v.bones&&v.bindPositions&&v.bindQuaternions);
+  if(valid)for(let bone=body;bone!==v.root;bone=bone?.parent){const i=bone?v.bones.indexOf(bone):-1;if(i<0){valid=false;break;}bind.push({position:v.bindPositions[i].toArray(),quaternion:v.bindQuaternions[i].toArray(),scale:bone.scale.toArray()});}
+  const bodyIndex=valid?nodeId(body):null;if(bodyIndex!==null)frameNodes.add(bodyIndex);
+  const carrier=new THREE.Object3D();sceneProperty(carrier,"matrixAutoUpdate",false);
+  const normalBones={...v.byName,'':v.root},fallenBones={...v.byName,'':carrier};
+  for(const chunk of fx.chunks||EMPTY){const node=String(chunk.ChunkNodeName||'').toLowerCase();if(!normalBones[node])normalBones[node]=v.root;if(!fallenBones[node])fallenBones[node]=carrier;}
+  const water=fx.water?nameId(fx.water):null;
+  return {descriptor:{thrust,damage,dust,dying,water,speed:fx.speed||[10,30],nodes:nodes.length,bones,body:bodyIndex,bind},
+    nodes,names,frameNodes:Array.from(frameNodes),carrier,normalBones,fallenBones,debrisOptions:{centre:true,floor:0},persistent:thrust.length+damage.length+1,events:2+(dying?.final.length||0)};
 }
-
-// Where a dead walker's pieces start. They are modelled in its standing
-// pose, in the hull's frame; its death animation has since brought its body
-// down (the AT-TE's by 2.5 m, onto its belly). Carried by its body bone
-// (bone_root) from where that pose has it to where the animation left it,
-// they start where the body lies instead of jumping back up to where it
-// stood; a piece that would start below the ground starts on it (Debris,
-// floor). Null for a hull without that bone (the root carries its pieces).
-const _carrier = new THREE.Object3D();
-sceneProperty(_carrier,"matrixAutoUpdate",false);
-export function bodyCarrier(v) {
-  const body = v.byName?.bone_root;
-  if (!body || !v.bones || !v.bindQuaternions || !v.bindPositions) return null;
-  _bind.identity();
-  for (let bone = body; bone !== v.root; bone = bone.parent) {
-    const i = bone ? v.bones.indexOf(bone) : -1;
-    if (i < 0) return null;
-    _bind.premultiply(_local.compose(v.bindPositions[i], v.bindQuaternions[i], bone.scale));
-  }
-  body.updateWorldMatrix(true, false);
-  sceneTransform(_carrier.matrix.copy(body.matrixWorld)).multiply(_local.copy(_bind).invert());
-  sceneTransform(_carrier.matrixWorld.copy(_carrier.matrix));
-  return _carrier;
+function writeNode(phase,row,index){const node=row.nodes[index];node.updateWorldMatrix(true,false);const at=(row.nodeStart+index)*N.STRIDE;for(let n=0;n<16;n++)phase.nodes[at+N.MATRIX+n]=node.matrixWorld.elements[n];}
+function writeNodes(phase,row){for(let k=0;k<row.frameNodes.length;k++)writeNode(phase,row,row.frameNodes[k]);}
+// Cold diagnostic readers use the same native rules as the complete frame.
+// They are retained public fixture APIs, never called by the battle phase.
+let inspection;
+function inspector(){if(!inspection)inspection=new EffectPhase('PageVehicleEffects',BANKS);inspection.refresh();return inspection;}
+export function thrustScale(entry,speed,speeds){const p=inspector(),x=p.inspection;x[T.SPEED]=speed;x[T.MIN_SPEED]=speeds[0];x[T.MAX_SPEED]=speeds[1];x[T.MIN_SCALE]=entry.minScale;x[T.MAX_SCALE]=entry.maxScale;x[T.SCALE_START]=entry.scaleStart;p.kernel.inspect();return x[T.SCALE];}
+export function damageBurns(entry,health,maxHealth){const p=inspector(),x=p.inspection;x[T.HEALTH]=health;x[T.MAX_HEALTH]=maxHealth;x[T.START]=entry.start;x[T.STOP]=entry.stop;p.kernel.inspect();return Boolean(x[T.BURNS]);}
+const carriers=new WeakMap();
+export function bodyCarrier(v){
+  const p=inspector();let row=carriers.get(v);if(!row){row=content(v);row.id=p.kernel.add(JSON.stringify(row.descriptor));if(row.id>=L.VEHICLES)return null;row.nodeStart=p.kernel.node_start(row.id);carriers.set(v,row);p.buffer=null;p.refresh();}
+  writeNodes(p,row);p.kernel.carrier(row.id);const at=row.id*I.STRIDE;if(!p.input[at+I.CARRIER_VALID])return null;
+  sceneTransform(row.carrier.matrix.fromArray(p.input,at+I.CARRIER));sceneTransform(row.carrier.matrixWorld.copy(row.carrier.matrix));return row.carrier;
 }
 
 export class VehicleEffects {
-  constructor({ effects, water = null, debris = null, random = Math.random }) {
-    this.effects = effects;
-    this.water = water;
-    this.debris = debris;
-    this.random = random; // the dying explosions' picks (the page's own)
-    this.states = new WeakMap();
-    this.feet = new VisualFeet();
-    this.views = new WeakMap(); // building -> BuildingView
+  constructor({effects,water=null,debris=null,random=Math.random}){
+    this.effects=effects;this.water=water;this.debris=debris;this.random=random;this.feet=new VisualFeet();this.views=new WeakMap();
+    this.phase=new EffectPhase('PageVehicleEffects',BANKS);this.rows=new WeakMap();this.active=new Array(L.VEHICLES);this.count=0;this.position=new THREE.Vector3();this.velocity=new THREE.Vector3();this.quaternion=new THREE.Quaternion();this.origin=new THREE.Vector3();
   }
-
-  update(vehicles, dt, turrets = null, objectives = null) {
+  register(v){
+    let row=this.rows.get(v);if(row)return row===REFUSED?null:row;
+    row=content(v);row.id=this.phase.kernel.add(JSON.stringify(row.descriptor));if(row.id>=L.VEHICLES){this.rows.set(v,REFUSED);return null;}
+    row.nodeStart=this.phase.kernel.node_start(row.id);row.outputStart=this.phase.kernel.output_start(row.id);row.handles=new Array(row.persistent).fill(null);
+    this.rows.set(v,row);this.phase.buffer=null;this.phase.refresh();return row;
+  }
+  prepareBuilding(building){
+    if(!building.desc?.fx)return;let view=this.views.get(building);if(!view)this.views.set(building,(view=new BuildingView(building)));
+    if(view.root){this.feet.write(view);this.write(view,this.dt);}
+  }
+  write(v,dt){
+    if(!v.def?.fx||!v.root)return;const row=this.register(v);if(!row)return;const phase=this.phase;phase.refresh();if(this.count===this.active.length)return;this.phase.order[this.count]=row.id;this.active[this.count++]=v;
+    const x=phase.input,at=row.id*I.STRIDE;x[at+I.PRESENT]=1;x[at+I.DT]=dt;x[at+I.GENERATION]=v.aiTarget?.generation??0;x[at+I.ALIVE]=v.alive?1:0;
+    x[at+I.HEALTH]=v.health;x[at+I.MAX_HEALTH]=v.maxHealth;x[at+I.FLYING]=v.flying?1:0;x[at+I.FLIGHT_STATE]=FLIGHT_STATES.indexOf(v.flightState);x[at+I.BUILDING]=v.building?1:0;
+    v.velocity.toArray(x,at+I.VELOCITY);v.root.position.toArray(x,at+I.POSITION);x[at+I.WATER_LEVEL]=this.water?.level??NaN;x[at+I.WATER_OVER]=row.descriptor.water!==null&&this.water?.over?.(v.root.position.x,v.root.position.z)?1:0;x[at+I.DYING]=v.dying??0;
+    writeNodes(phase,row);
+    for(let k=0;k<row.persistent;k++){const h=row.handles[k],at=(row.outputStart+k)*S.STRIDE;phase.status[at+S.PRESENT]=h?1:0;phase.status[at+S.DONE]=h?.done?1:0;}
+  }
+  update(vehicles,dt,turrets=null,objectives=null){
+    this.dt=dt;this.phase.refresh();for(let i=0;i<this.phase.input.length;i+=I.STRIDE)this.phase.input[i+I.PRESENT]=0;this.count=0;
     this.feet.begin(dt);
-    for (const v of vehicles || EMPTY) this.feet.write(v);
-    for (const building of turrets || EMPTY) this.prepareBuilding(building);
-    for (const building of objectives || EMPTY) this.prepareBuilding(building);
-    this.feet.run();
-    for (const v of vehicles || EMPTY) this.updateVehicle(v, dt);
-    for (const building of turrets || EMPTY) this.presentBuilding(building,dt);
-    for (const building of objectives || EMPTY) this.presentBuilding(building,dt);
-  }
-  prepareBuilding(building) {
-    if (!building.desc?.fx) return;
-    let view=this.views.get(building);
-    if (!view) this.views.set(building,(view=new BuildingView(building)));
-    if(view.root)this.feet.write(view.next());
-  }
-  presentBuilding(building,dt) {
-    const view=this.views.get(building);
-    if(view?.root)this.updateVehicle(view,dt);
-  }
-
-  // The placed turrets (src/props.js LiveObjects.turrets): those whose
-  // class has damage effects or chunks.
-  updateBuildings(buildings, dt) { this.update(null,dt,buildings); }
-
-  state(v) {
-    let s = this.states.get(v);
-    if (!s) this.states.set(v, (s = { life: -1 }));
-    if (s.life !== v.aiTarget?.generation) {
-      this.stopAll(s);
-      Object.assign(s, { life: v.aiTarget?.generation, alive: v.alive, thrust: [], damage: [], water: null, dust: null,
-        dying: null });
+    for(const v of vehicles||EMPTY){this.feet.write(v);this.write(v,dt);}
+    for(const b of turrets||EMPTY)this.prepareBuilding(b);for(const b of objectives||EMPTY)this.prepareBuilding(b);
+    this.feet.run();this.phase.header[F.COUNT]=this.count;this.phase.kernel.frame();
+    let published=0,partial=null;
+    for(;;){
+      this.phase.refresh();const frame=this.phase.header;
+      if(partial){const row=this.rows.get(partial);this.publishRange(partial,row.persistent+1,row.persistent+2);partial=null;published++;}
+      const end=frame[F.CURSOR];
+      while(published<end){const v=this.active[published++];this.publish(v);if(v.alive)this.feet.apply(v,this.effects);}
+      if(!frame[F.PENDING])break;
+      partial=this.active[published];const row=this.rows.get(partial);this.publishRange(partial,0,row.persistent+1);
+      frame[F.RANDOM]=this.random();frame[F.RANDOM+1]=this.random();this.phase.kernel.resume();this.phase.refresh();
+      if(this.phase.header[F.PENDING]===Q.MATRIX){writeNode(this.phase,row,this.phase.header[F.NODE]);this.phase.kernel.complete();}
     }
-    return s;
+    for(let k=0;k<this.count;k++)this.active[k]=null;
   }
 
-  stopAll(s) {
-    for (const h of s.thrust || []) h?.stop();
-    for (const h of s.damage || []) h?.stop();
-    s.water?.stop();
-    if (s.thrust) s.thrust.length = 0;
-    if (s.damage) s.damage.length = 0;
-    s.water = null;
+  updateBuildings(buildings,dt){this.update(null,dt,buildings);}
+  publish(v){
+    const row=this.rows.get(v),x=this.phase.input,at=row.id*I.STRIDE;
+    this.stopRows(v);if(x[at+I.BLOW_APART]&&!x[at+I.FALLEN])this.blowApart(v);
+    this.publishRange(v,0,row.persistent+row.events);
+    if(x[at+I.BLOW_APART]&&x[at+I.FALLEN])this.blowApart(v);
   }
-
-  updateVehicle(v, dt) {
-    const fx = v.def?.fx;
-    if (!fx) return;
-    const s = this.state(v);
-    if (!v.alive) {
-      if (s.alive) this.destroyed(v, s, fx);
-      s.alive = false;
-      if (s.dying) this.updateDying(v, s, fx);
-      this.updateDust(v, s, fx, dt);
-      return;
+  stopRows(v){const row=this.rows.get(v),data=this.phase.output;for(let k=0;k<row.persistent;k++){const o=(row.outputStart+k)*O.STRIDE;if(data[o+O.STOP]||data[o+O.ACTION]===A.STOP){row.handles[k]?.stop();row.handles[k]=null;}}}
+  publishRange(v,start,end){
+    const row=this.rows.get(v),data=this.phase.output;
+    for(let k=start;k<end;k++){
+      const o=(row.outputStart+k)*O.STRIDE;let handle=row.handles[k];
+      if(data[o+O.STOP]||data[o+O.ACTION]===A.STOP){handle?.stop();if(k<row.persistent)row.handles[k]=null;handle=null;}
+      const action=data[o+O.ACTION];if(action!==A.PLAY&&action!==A.MOVE)continue;
+      sceneTransform(this.position.fromArray(data,o+O.POSITION));sceneTransform(this.quaternion.fromArray(data,o+O.QUATERNION));this.velocity.fromArray(data,o+O.VELOCITY);
+      const normal=data[o+O.NORMAL]?UP:null,velocity=k<row.persistent?this.velocity:null,quaternion=normal?null:this.quaternion;
+      if(action===A.PLAY){handle=this.effects.play(row.names[data[o+O.EFFECT]],this.position,normal,velocity,quaternion);if(k<row.persistent)row.handles[k]=handle;}
+      else handle.move(this.position,quaternion,velocity);
+      if(handle&&k<row.persistent){handle.scale=data[o+O.SCALE];handle.inherit=data[o+O.INHERIT];}
     }
-    s.alive = true;
-    if (fx.thrust) this.updateThrust(v, s, fx);
-    if (fx.damage) this.updateDamage(v, s, fx);
-    if (fx.water && this.water) this.updateWater(v, s, fx);
-    if (fx.stomp?.effect) this.feet.apply(v,this.effects);
   }
-
-  // The frame an entry hangs from: its node (else the hull's root) and
-  // offset, in the world as drawn this frame.
-  place(v, node, offset) {
-    const bone = (node && v.byName?.[node]) || v.root;
-    bone.updateWorldMatrix(true, false);
-    _matrix.copy(bone.matrixWorld);
-    if (offset) _matrix.multiply(_offset.makeTranslation(offset[0], offset[1], offset[2]));
-    _matrix.decompose(_position, _quaternion, _scale);
-  }
-
-  updateThrust(v, s, fx) {
-    const on = v.flying && ACTIVE_FLIGHT.has(v.flightState);
-    const speed = v.velocity.length();
-    fx.thrust.forEach((entry, i) => {
-      let handle = s.thrust[i];
-      if (!on) {
-        handle?.stop();
-        s.thrust[i] = null;
-        return;
-      }
-      this.place(v, entry.node, entry.offset);
-      if (!handle || handle.done) handle = s.thrust[i] = this.effects.play(entry.effect, _position, null, v.velocity, _quaternion);
-      else handle.move(_position, _quaternion, v.velocity);
-      if (handle) handle.scale = thrustScale(entry, speed, fx.speed || [10, 30]);
-    });
-  }
-
-  updateDamage(v, s, fx) {
-    fx.damage.forEach((entry, i) => {
-      let handle = s.damage[i];
-      if (!damageBurns(entry, v.health, v.maxHealth)) {
-        handle?.stop();
-        s.damage[i] = null;
-        return;
-      }
-      this.place(v, entry.node, entry.offset);
-      _velocity.copy(v.velocity);
-      if (!handle || handle.done) {
-        handle = s.damage[i] = this.effects.play(entry.effect, _position, null, _velocity, _quaternion);
-        if (handle) { handle.scale = entry.scale; handle.inherit = entry.inherit; }
-      } else handle.move(_position, _quaternion, _velocity);
-    });
-  }
-
-  updateWater(v, s, fx) {
-    const p = v.root.position;
-    const level = this.water.level;
-    const over = Number.isFinite(level) && this.water.over?.(p.x, p.z) && p.y - level < WATER_HEIGHT && p.y > level - WATER_HEIGHT;
-    if (!over) {
-      s.water?.stop();
-      s.water = null;
-      return;
+  blowApart(v){
+    const row=this.rows.get(v),x=this.phase.input,at=row.id*I.STRIDE;
+    if(this.debris&&v.def.fx.chunks?.length){
+      const fallen=Boolean(x[at+I.FALLEN]&&x[at+I.CARRIER_VALID]);if(fallen){sceneTransform(row.carrier.matrix.fromArray(x,at+I.CARRIER));sceneTransform(row.carrier.matrixWorld.copy(row.carrier.matrix));}
+      this.origin.fromArray(v.root.matrixWorld.elements,12);
+      row.debrisOptions.floor=this.origin.y;this.debris.blowApart(v.def.fx.chunks,fallen?row.fallenBones:row.normalBones,this.origin,v.velocity,-50,v.body??null,row.debrisOptions);
     }
-    _position.set(p.x, level, p.z);
-    if (!s.water || s.water.done) s.water = this.effects.play(fx.water, _position, UP, v.velocity);
-    else s.water.move(_position, null, v.velocity);
-  }
-
-  // Destroyed: its effects out; a dying walker's pieces wait for its end.
-  destroyed(v, s, fx) {
-    this.stopAll(s);
-    s.dying = v.dying > 0 && fx.dying ? { fired: 0, dust: !fx.deathDust } : null;
-    s.dust = fx.deathDust && !s.dying ? { left: fx.deathDust.delay || 0 } : null;
-    if (!s.dying) this.blowApart(v, fx);
-  }
-
-  // dead: a walker whose death animation has played (updateDying).
-  blowApart(v, fx, dead = false) {
-    if (!fx.chunks?.length || !this.debris || !v.root) return;
-    v.root.updateMatrixWorld(true);
-    // A chunk without a node of its own is modelled in the hull's frame, and
-    // so is one naming a node the model lacks (the spider walker's name the
-    // model itself), as attach points fall back to the root. The pieces fly
-    // at their full ChunkSpeed (a droid's pieces slow with how little it was
-    // overkilled; a hull's pace isn't traced), each from its own middle
-    // (Debris, centre).
-    const hull = (dead && bodyCarrier(v)) || v.root;
-    const bones = { ...v.byName, "": hull };
-    for (const chunk of fx.chunks) {
-      const node = String(chunk.ChunkNodeName || "").toLowerCase();
-      if (!bones[node]) bones[node] = hull;
-    }
-    _origin.setFromMatrixPosition(v.root.matrixWorld);
-    // None starts below the ground the hull stood on (a leg's piece, carried
-    // down with a fallen body).
-    this.debris.blowApart(fx.chunks, bones, _origin, v.velocity, CHUNK_OVERKILL, v.body ?? null, { centre: true, floor: _origin.y });
-  }
-
-  // A frame of a dying walker (the hull drawn in its death animation,
-  // Vehicle.present), timed by the simulation's dying clock, so a page
-  // drawing slowly, or a worker's or a server's hull, sees the same: an
-  // explosion each time another interval has passed (at most one a frame,
-  // as the original game's timer), at a node picked at random; its dust once
-  // its delay has passed; its pieces once it is gone.
-  updateDying(v, s, fx) {
-    if (!(v.dying > 0)) {
-      s.dying = null;
-      // An animated building's DeathEffects, each at its hardpoint, as its
-      // death clip ends.
-      for (const entry of fx.dying?.final || []) {
-        this.place(v, entry.node, null);
-        this.effects.play(entry.effect, _position, null, null, _quaternion);
-      }
-      this.blowApart(v, fx, true);
-      return;
-    }
-    const dying = fx.dying;
-    const elapsed = Math.max((dying.span || 0) - v.dying, 0);
-    if (!s.dying.dust && elapsed > (fx.deathDust.delay || 0)) {
-      s.dying.dust = true;
-      this.place(v, null, fx.deathDust.offset);
-      this.effects.play(fx.deathDust.effect, _position, UP);
-    }
-    const due = Math.floor(elapsed / Math.max(dying.interval ?? DYING_INTERVAL, 1e-3));
-    if (!dying.effects?.length || due <= s.dying.fired) return;
-    s.dying.fired = due;
-    const name = dying.effects[Math.floor(this.random() * dying.effects.length) % dying.effects.length];
-    const bones = v.bones?.length ? v.bones : [v.root];
-    const bone = bones[Math.floor(this.random() * bones.length) % bones.length] || v.root;
-    bone.updateWorldMatrix(true, false);
-    sceneTransform(bone.matrixWorld.decompose(_position, _quaternion, _scale));
-    this.effects.play(name, _position, null, null, _quaternion);
-  }
-
-  updateDust(v, s, fx, dt) {
-    if (!s.dust || dt <= 0) return;
-    s.dust.left -= dt;
-    if (s.dust.left > 0) return;
-    this.place(v, null, fx.deathDust.offset);
-    this.effects.play(fx.deathDust.effect, _position, UP);
-    s.dust = null;
   }
 }

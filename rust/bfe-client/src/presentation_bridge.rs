@@ -1320,6 +1320,554 @@ Self::collect(random)=>{let _=host.collect(random)?;},
 Self::match_impacts(count)=>{let _=host.match_impacts(*count);},
 Self::frame(random)=>{let _=host.frame(random)?;},
 }Ok(())}}
+pub struct PageWake { inner: bfe_presentation::unit_effects::jetpack::Wake }
+impl PageWake {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn nozzles_ptr(&self)->*const f64{self.inner.nozzles.as_ptr()}
+    pub fn nozzles_len(&self)->usize{self.inner.nozzles.len()}
+    pub fn particles_ptr(&self)->*const f32{self.inner.particles.as_ptr()}
+    pub fn particles_len(&self)->usize{self.inner.particles.len()}
+    pub fn frame(&mut self,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("cosmetic random service is short"));}Ok(())}
+}
+impl PageWake {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"nozzles"=>Ok(crate::session::bytes_mut(&mut self.inner.nozzles)),
+"particles"=>Ok(crate::session::bytes_mut(&mut self.inner.particles)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"nozzles"=>Ok(crate::session::bytes(&self.inner.nozzles)),
+"particles"=>Ok(crate::session::bytes(&self.inner.particles)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("nozzles", self.inner.nozzles.len()),
+("particles", self.inner.particles.len()),
+]}
+}
+pub enum PageWakeCommand {
+frame(Vec<f64>),
+}
+impl PageWakeCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame(a.f64s(0)?),
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageWake)->Result<(),String>{match self{
+Self::frame(random)=>{let _=host.frame(random)?;},
+}Ok(())}}
+pub struct PageJetpack { inner: bfe_presentation::unit_effects::jetpack::Jetpack }
+impl PageJetpack {
+    pub fn new(content:&str)->Result<Self,String>{let definitions=serde_json::from_str(content).map_err(|e|e.to_string())?;Ok(Self{inner:bfe_presentation::unit_effects::jetpack::Jetpack::new(definitions)})}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn local_ptr(&self)->*const f64{self.inner.local.as_ptr()}
+    pub fn local_len(&self)->usize{self.inner.local.len()}
+    pub fn nozzles_ptr(&self)->*const f64{self.inner.nozzles.as_ptr()}
+    pub fn nozzles_len(&self)->usize{self.inner.nozzles.len()}
+    pub fn wake_input_ptr(&self)->*const f64{self.inner.wake.input.as_ptr()}
+    pub fn wake_input_len(&self)->usize{self.inner.wake.input.len()}
+    pub fn wake_particles_ptr(&self)->*const f32{self.inner.wake.particles.as_ptr()}
+    pub fn wake_particles_len(&self)->usize{self.inner.wake.particles.len()}
+    pub fn volume_input_ptr(&self)->*const f64{self.inner.volume.input.as_ptr()}
+    pub fn volume_input_len(&self)->usize{self.inner.volume.input.len()}
+    pub fn volume_arrays_ptr(&self)->*const f32{self.inner.volume.arrays.as_ptr()}
+    pub fn volume_arrays_len(&self)->usize{self.inner.volume.arrays.len()}
+    pub fn frame(&mut self,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("cosmetic random service is short"));}Ok(())}
+}
+impl PageJetpack {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"local"=>Ok(crate::session::bytes_mut(&mut self.inner.local)),
+"nozzles"=>Ok(crate::session::bytes_mut(&mut self.inner.nozzles)),
+"wake_input"=>Ok(crate::session::bytes_mut(&mut self.inner.wake.input)),
+"wake_particles"=>Ok(crate::session::bytes_mut(&mut self.inner.wake.particles)),
+"volume_input"=>Ok(crate::session::bytes_mut(&mut self.inner.volume.input)),
+"volume_arrays"=>Ok(crate::session::bytes_mut(&mut self.inner.volume.arrays)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"local"=>Ok(crate::session::bytes(&self.inner.local)),
+"nozzles"=>Ok(crate::session::bytes(&self.inner.nozzles)),
+"wake_input"=>Ok(crate::session::bytes(&self.inner.wake.input)),
+"wake_particles"=>Ok(crate::session::bytes(&self.inner.wake.particles)),
+"volume_input"=>Ok(crate::session::bytes(&self.inner.volume.input)),
+"volume_arrays"=>Ok(crate::session::bytes(&self.inner.volume.arrays)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("local", self.inner.local.len()),
+("nozzles", self.inner.nozzles.len()),
+("wake_input", self.inner.wake.input.len()),
+("wake_particles", self.inner.wake.particles.len()),
+("volume_input", self.inner.volume.input.len()),
+("volume_arrays", self.inner.volume.arrays.len()),
+]}
+}
+pub enum PageJetpackCommand {
+frame(Vec<f64>),
+}
+impl PageJetpackCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame(a.f64s(0)?),
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageJetpack)->Result<(),String>{match self{
+Self::frame(random)=>{let _=host.frame(random)?;},
+}Ok(())}}
+pub struct PageJetVolume { inner: bfe_presentation::unit_effects::jetpack::Volume }
+impl PageJetVolume {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn nozzles_ptr(&self)->*const f64{self.inner.nozzles.as_ptr()}
+    pub fn nozzles_len(&self)->usize{self.inner.nozzles.len()}
+    pub fn arrays_ptr(&self)->*const f32{self.inner.arrays.as_ptr()}
+    pub fn arrays_len(&self)->usize{self.inner.arrays.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+impl PageJetVolume {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"nozzles"=>Ok(crate::session::bytes_mut(&mut self.inner.nozzles)),
+"arrays"=>Ok(crate::session::bytes_mut(&mut self.inner.arrays)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"nozzles"=>Ok(crate::session::bytes(&self.inner.nozzles)),
+"arrays"=>Ok(crate::session::bytes(&self.inner.arrays)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("nozzles", self.inner.nozzles.len()),
+("arrays", self.inner.arrays.len()),
+]}
+}
+pub enum PageJetVolumeCommand {
+frame,
+}
+impl PageJetVolumeCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageJetVolume)->Result<(),String>{match self{
+Self::frame=>{let _=host.frame();},
+}Ok(())}}
+pub struct PageTrail { inner: bfe_presentation::unit_effects::trail::Trail }
+impl PageTrail {
+    pub fn new(content:&str)->Self{Self{inner:bfe_presentation::unit_effects::trail::Trail::new(content)}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn records_ptr(&self)->*const f32{self.inner.records.as_ptr()}
+    pub fn records_len(&self)->usize{self.inner.records.len()}
+    pub fn rays_ptr(&self)->*const f64{self.inner.rays.as_ptr()}
+    pub fn rays_len(&self)->usize{self.inner.rays.len()}
+    pub fn frame(&mut self,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("cosmetic random service is short"));}Ok(())}
+    pub fn probe(&mut self){self.inner.probe();}
+    pub fn roof(&mut self){self.inner.roof();}
+}
+impl PageTrail {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"records"=>Ok(crate::session::bytes_mut(&mut self.inner.records)),
+"rays"=>Ok(crate::session::bytes_mut(&mut self.inner.rays)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"records"=>Ok(crate::session::bytes(&self.inner.records)),
+"rays"=>Ok(crate::session::bytes(&self.inner.rays)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("records", self.inner.records.len()),
+("rays", self.inner.rays.len()),
+]}
+}
+pub enum PageTrailCommand {
+frame(Vec<f64>),
+probe,
+roof,
+}
+impl PageTrailCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame(a.f64s(0)?),
+"probe"=>Self::probe,
+"roof"=>Self::roof,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageTrail)->Result<(),String>{match self{
+Self::frame(random)=>{let _=host.frame(random)?;},
+Self::probe=>{let _=host.probe();},
+Self::roof=>{let _=host.roof();},
+}Ok(())}}
+pub struct PageShield { inner: bfe_presentation::unit_effects::shield::Shield }
+impl PageShield {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn impacts_ptr(&self)->*const f64{self.inner.impacts.as_ptr()}
+    pub fn impacts_len(&self)->usize{self.inner.impacts.len()}
+    pub fn powers_ptr(&self)->*const f32{self.inner.powers.as_ptr()}
+    pub fn powers_len(&self)->usize{self.inner.powers.len()}
+    pub fn blasts_ptr(&self)->*const f32{self.inner.blasts.as_ptr()}
+    pub fn blasts_len(&self)->usize{self.inner.blasts.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+impl PageShield {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"impacts"=>Ok(crate::session::bytes_mut(&mut self.inner.impacts)),
+"powers"=>Ok(crate::session::bytes_mut(&mut self.inner.powers)),
+"blasts"=>Ok(crate::session::bytes_mut(&mut self.inner.blasts)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"impacts"=>Ok(crate::session::bytes(&self.inner.impacts)),
+"powers"=>Ok(crate::session::bytes(&self.inner.powers)),
+"blasts"=>Ok(crate::session::bytes(&self.inner.blasts)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("impacts", self.inner.impacts.len()),
+("powers", self.inner.powers.len()),
+("blasts", self.inner.blasts.len()),
+]}
+}
+pub enum PageShieldCommand {
+frame,
+}
+impl PageShieldCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageShield)->Result<(),String>{match self{
+Self::frame=>{let _=host.frame();},
+}Ok(())}}
+pub struct PageDeathTrace { inner: bfe_presentation::camera_effects::Trace }
+impl PageDeathTrace {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn positions_ptr(&self)->*const f32{self.inner.positions.as_ptr()}
+    pub fn positions_len(&self)->usize{self.inner.positions.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+impl PageDeathTrace {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"positions"=>Ok(crate::session::bytes_mut(&mut self.inner.positions)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"positions"=>Ok(crate::session::bytes(&self.inner.positions)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("positions", self.inner.positions.len()),
+]}
+}
+pub enum PageDeathTraceCommand {
+frame,
+}
+impl PageDeathTraceCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageDeathTrace)->Result<(),String>{match self{
+Self::frame=>{let _=host.frame();},
+}Ok(())}}
+pub struct PageGunnerView { inner: bfe_presentation::camera_effects::Gunner }
+impl PageGunnerView {
+    pub fn wall(&mut self){self.inner.wall();}
+    pub fn resolve(&mut self){self.inner.resolve();}
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+impl PageGunnerView {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+]}
+}
+pub enum PageGunnerViewCommand {
+wall,
+resolve,
+frame,
+}
+impl PageGunnerViewCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"wall"=>Self::wall,
+"resolve"=>Self::resolve,
+"frame"=>Self::frame,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageGunnerView)->Result<(),String>{match self{
+Self::wall=>{let _=host.wall();},
+Self::resolve=>{let _=host.resolve();},
+Self::frame=>{let _=host.frame();},
+}Ok(())}}
+pub struct PageSoldierView { inner: bfe_presentation::soldier_view::Soldier }
+impl PageSoldierView {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn frame(&mut self){self.inner.frame();}
+}
+impl PageSoldierView {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+]}
+}
+pub enum PageSoldierViewCommand {
+frame,
+}
+impl PageSoldierViewCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageSoldierView)->Result<(),String>{match self{
+Self::frame=>{let _=host.frame();},
+}Ok(())}}
+pub struct PagePostEffects { inner: bfe_presentation::post_effects::Posts }
+impl PagePostEffects {
+    pub fn new(content:&str)->Result<Self,String>{let look=serde_json::from_str(content).map_err(|e|e.to_string())?;Ok(Self{inner:bfe_presentation::post_effects::Posts::new(look)})}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn counts_ptr(&self)->*const f64{self.inner.counts.as_ptr()}
+    pub fn counts_len(&self)->usize{self.inner.counts.len()}
+    pub fn art_ptr(&self)->*const u8{self.inner.art.as_ptr()}
+    pub fn art_len(&self)->usize{self.inner.art.len()}
+    pub fn frame(&mut self,count:usize,random:&[f64])->Result<(),String>{let mut cursor=0;self.inner.frame(count,&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value});if cursor>random.len(){return Err(String::from("cosmetic random service is short"));}Ok(())}
+    pub fn remaining(&mut self,count:usize){self.inner.remaining(count);}
+    pub fn beam_positions_ptr(&self)->*const f32{self.inner.beam_positions.as_ptr()}
+    pub fn beam_positions_len(&self)->usize{self.inner.beam_positions.len()}
+    pub fn beam_normals_ptr(&self)->*const f32{self.inner.beam_normals.as_ptr()}
+    pub fn beam_normals_len(&self)->usize{self.inner.beam_normals.len()}
+    pub fn beam_uv_ptr(&self)->*const f32{self.inner.beam_uv.as_ptr()}
+    pub fn beam_uv_len(&self)->usize{self.inner.beam_uv.len()}
+    pub fn beam_indices_ptr(&self)->*const u16{self.inner.beam_indices.as_ptr()}
+    pub fn beam_indices_len(&self)->usize{self.inner.beam_indices.len()}
+}
+impl PagePostEffects {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"counts"=>Ok(crate::session::bytes_mut(&mut self.inner.counts)),
+"art"=>Ok(crate::session::bytes_mut(&mut self.inner.art)),
+"beam_positions"=>Ok(crate::session::bytes_mut(&mut self.inner.beam_positions)),
+"beam_normals"=>Ok(crate::session::bytes_mut(&mut self.inner.beam_normals)),
+"beam_uv"=>Ok(crate::session::bytes_mut(&mut self.inner.beam_uv)),
+"beam_indices"=>Ok(crate::session::bytes_mut(&mut self.inner.beam_indices)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"counts"=>Ok(crate::session::bytes(&self.inner.counts)),
+"art"=>Ok(crate::session::bytes(&self.inner.art)),
+"beam_positions"=>Ok(crate::session::bytes(&self.inner.beam_positions)),
+"beam_normals"=>Ok(crate::session::bytes(&self.inner.beam_normals)),
+"beam_uv"=>Ok(crate::session::bytes(&self.inner.beam_uv)),
+"beam_indices"=>Ok(crate::session::bytes(&self.inner.beam_indices)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("counts", self.inner.counts.len()),
+("art", self.inner.art.len()),
+("beam_positions", self.inner.beam_positions.len()),
+("beam_normals", self.inner.beam_normals.len()),
+("beam_uv", self.inner.beam_uv.len()),
+("beam_indices", self.inner.beam_indices.len()),
+]}
+}
+pub enum PagePostEffectsCommand {
+frame(usize,Vec<f64>),
+remaining(usize),
+}
+impl PagePostEffectsCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"frame"=>Self::frame(a.usize(0)?,a.f64s(1)?),
+"remaining"=>Self::remaining(a.usize(0)?),
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PagePostEffects)->Result<(),String>{match self{
+Self::frame(count,random)=>{let _=host.frame(*count,random)?;},
+Self::remaining(count)=>{let _=host.remaining(*count);},
+}Ok(())}}
+pub struct PageVehicleEffects {inner:bfe_presentation::vehicle_effects::Vehicles}
+impl PageVehicleEffects {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn add(&mut self,content:&str)->Result<usize,String>{let content=serde_json::from_str(content).map_err(|e|e.to_string())?;Ok(self.inner.add(content))}
+    pub fn node_start(&self,id:usize)->usize{self.inner.node_start(id)}
+    pub fn output_start(&self,id:usize)->usize{self.inner.output_start(id)}
+    pub fn carrier(&mut self,id:usize){self.inner.carrier(id);}
+    pub fn inspect(&mut self){self.inner.inspect();}
+    pub fn frame(&mut self){self.inner.frame();}
+    pub fn resume(&mut self){self.inner.resume();}
+    pub fn complete(&mut self){self.inner.complete();}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn nodes_ptr(&self)->*const f64{self.inner.nodes.as_ptr()}
+    pub fn nodes_len(&self)->usize{self.inner.nodes.len()}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn output_len(&self)->usize{self.inner.output.len()}
+    pub fn status_ptr(&self)->*const f64{self.inner.status.as_ptr()}
+    pub fn status_len(&self)->usize{self.inner.status.len()}
+    pub fn inspection_ptr(&self)->*const f64{self.inner.inspection.as_ptr()}
+    pub fn inspection_len(&self)->usize{self.inner.inspection.len()}
+    pub fn header_ptr(&self)->*const f64{self.inner.frame.as_ptr()}
+    pub fn header_len(&self)->usize{self.inner.frame.len()}
+    pub fn order_ptr(&self)->*const u32{self.inner.order.as_ptr()}
+    pub fn order_len(&self)->usize{self.inner.order.len()}
+}
+impl PageVehicleEffects {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"nodes"=>Ok(crate::session::bytes_mut(&mut self.inner.nodes)),
+"output"=>Ok(crate::session::bytes_mut(&mut self.inner.output)),
+"status"=>Ok(crate::session::bytes_mut(&mut self.inner.status)),
+"inspection"=>Ok(crate::session::bytes_mut(&mut self.inner.inspection)),
+"header"=>Ok(crate::session::bytes_mut(&mut self.inner.frame)),
+"order"=>Ok(crate::session::bytes_mut(&mut self.inner.order)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"nodes"=>Ok(crate::session::bytes(&self.inner.nodes)),
+"output"=>Ok(crate::session::bytes(&self.inner.output)),
+"status"=>Ok(crate::session::bytes(&self.inner.status)),
+"inspection"=>Ok(crate::session::bytes(&self.inner.inspection)),
+"header"=>Ok(crate::session::bytes(&self.inner.frame)),
+"order"=>Ok(crate::session::bytes(&self.inner.order)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("nodes", self.inner.nodes.len()),
+("output", self.inner.output.len()),
+("status", self.inner.status.len()),
+("inspection", self.inner.inspection.len()),
+("header", self.inner.frame.len()),
+("order", self.inner.order.len()),
+]}
+}
+pub enum PageVehicleEffectsCommand {
+add(String),
+node_start(usize),
+output_start(usize),
+carrier(usize),
+inspect,
+frame,
+resume,
+complete,
+}
+impl PageVehicleEffectsCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"add"=>Self::add(a.string(0)?),
+"node_start"=>Self::node_start(a.usize(0)?),
+"output_start"=>Self::output_start(a.usize(0)?),
+"carrier"=>Self::carrier(a.usize(0)?),
+"inspect"=>Self::inspect,
+"frame"=>Self::frame,
+"resume"=>Self::resume,
+"complete"=>Self::complete,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageVehicleEffects)->Result<(),String>{match self{
+Self::add(content)=>{let _=host.add(content)?;},
+Self::node_start(id)=>{let _=host.node_start(*id);},
+Self::output_start(id)=>{let _=host.output_start(*id);},
+Self::carrier(id)=>{let _=host.carrier(*id);},
+Self::inspect=>{let _=host.inspect();},
+Self::frame=>{let _=host.frame();},
+Self::resume=>{let _=host.resume();},
+Self::complete=>{let _=host.complete();},
+}Ok(())}}
+pub struct PageAnalyticEffects {inner:bfe_presentation::analytic_effects::Analytic}
+impl PageAnalyticEffects {
+    pub fn new(content:&str)->Result<Self,String>{let definitions=serde_json::from_str(content).map_err(|e|e.to_string())?;Ok(Self{inner:bfe_presentation::analytic_effects::Analytic::new(definitions)})}
+    pub fn add_batch(&mut self)->usize{self.inner.add_batch()}
+    pub fn track_rows(&self)->usize{self.inner.track_rows}
+    pub fn frame(&mut self){self.inner.frame();}
+    pub fn emitters(&mut self){self.inner.emitters();}
+    pub fn input_ptr(&self)->*const f64{self.inner.input.as_ptr()}
+    pub fn input_len(&self)->usize{self.inner.input.len()}
+    pub fn emitters_ptr(&self)->*const f64{self.inner.emitters.as_ptr()}
+    pub fn emitters_len(&self)->usize{self.inner.emitters.len()}
+    pub fn data_ptr(&self)->*const f32{self.inner.data.as_ptr()}
+    pub fn data_len(&self)->usize{self.inner.data.len()}
+    pub fn epochs_ptr(&self)->*const f64{self.inner.epochs.as_ptr()}
+    pub fn epochs_len(&self)->usize{self.inner.epochs.len()}
+    pub fn definitions_ptr(&self)->*const i32{self.inner.definitions.as_ptr()}
+    pub fn definitions_len(&self)->usize{self.inner.definitions.len()}
+    pub fn tracks_ptr(&self)->*const f32{self.inner.tracks.as_ptr()}
+    pub fn tracks_len(&self)->usize{self.inner.tracks.len()}
+    pub fn batches_ptr(&self)->*const f64{self.inner.batches.as_ptr()}
+    pub fn batches_len(&self)->usize{self.inner.batches.len()}
+    pub fn spawns_ptr(&self)->*const f64{self.inner.spawns.as_ptr()}
+    pub fn spawns_len(&self)->usize{self.inner.spawns.len()}
+    pub fn arrays_ptr(&self)->*const f32{self.inner.arrays.as_ptr()}
+    pub fn arrays_len(&self)->usize{self.inner.arrays.len()}
+}
+impl PageAnalyticEffects {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"emitters"=>Ok(crate::session::bytes_mut(&mut self.inner.emitters)),
+"data"=>Ok(crate::session::bytes_mut(&mut self.inner.data)),
+"epochs"=>Ok(crate::session::bytes_mut(&mut self.inner.epochs)),
+"definitions"=>Ok(crate::session::bytes_mut(&mut self.inner.definitions)),
+"tracks"=>Ok(crate::session::bytes_mut(&mut self.inner.tracks)),
+"batches"=>Ok(crate::session::bytes_mut(&mut self.inner.batches)),
+"spawns"=>Ok(crate::session::bytes_mut(&mut self.inner.spawns)),
+"arrays"=>Ok(crate::session::bytes_mut(&mut self.inner.arrays)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"emitters"=>Ok(crate::session::bytes(&self.inner.emitters)),
+"data"=>Ok(crate::session::bytes(&self.inner.data)),
+"epochs"=>Ok(crate::session::bytes(&self.inner.epochs)),
+"definitions"=>Ok(crate::session::bytes(&self.inner.definitions)),
+"tracks"=>Ok(crate::session::bytes(&self.inner.tracks)),
+"batches"=>Ok(crate::session::bytes(&self.inner.batches)),
+"spawns"=>Ok(crate::session::bytes(&self.inner.spawns)),
+"arrays"=>Ok(crate::session::bytes(&self.inner.arrays)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("emitters", self.inner.emitters.len()),
+("data", self.inner.data.len()),
+("epochs", self.inner.epochs.len()),
+("definitions", self.inner.definitions.len()),
+("tracks", self.inner.tracks.len()),
+("batches", self.inner.batches.len()),
+("spawns", self.inner.spawns.len()),
+("arrays", self.inner.arrays.len()),
+]}
+}
+pub enum PageAnalyticEffectsCommand {
+add_batch,
+track_rows,
+frame,
+emitters,
+}
+impl PageAnalyticEffectsCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"add_batch"=>Self::add_batch,
+"track_rows"=>Self::track_rows,
+"frame"=>Self::frame,
+"emitters"=>Self::emitters,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageAnalyticEffects)->Result<(),String>{match self{
+Self::add_batch=>{let _=host.add_batch();},
+Self::track_rows=>{let _=host.track_rows();},
+Self::frame=>{let _=host.frame();},
+Self::emitters=>{let _=host.emitters();},
+}Ok(())}}
 pub struct PageLightning {inner:bfe_presentation::effects::lightning::Lightning}
 impl PageLightning {
     pub fn new()->Self{Self{inner:Default::default()}}

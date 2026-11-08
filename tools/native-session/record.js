@@ -25,7 +25,7 @@
   for(const name of ['Float64Array','Float32Array','Uint32Array','Int32Array','Uint16Array','Uint8Array']){
     const Original=window[name];window[name]=new Proxy(Original,{construct(Target,args){const a=Reflect.construct(Target,args);if(args[0] instanceof ArrayBuffer&&args.length>1){let map=arrayViews.get(a.buffer);if(!map)arrayViews.set(a.buffer,map=new Map());map.set(a.byteOffset,Math.max(map.get(a.byteOffset)||0,a.byteLength));}return a;}});Object.defineProperty(Original.prototype,'constructor',{value:window[name],writable:true,configurable:true});
   }
-  const writable={pagelightning:['frame','unit_order','units','nodes','spawn','held'],pagearccamera:[],pageunits:['input','header','commands','places','weapons','collision_input','collision_actors'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],pagefeet:['input'],pagesniper:['input','matches'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
+  const writable={pagewake:['input','nozzles'],pagejetpack:['input','local','nozzles'],pagejetvolume:['input','nozzles'],pagetrail:['input'],pageshield:['input'],pagedeathtrace:['input'],pagegunnerview:['input'],pagesoldierview:['input'],pageposteffects:['input','counts'],pagevehicleeffects:['header','input','nodes','status','inspection','order'],pageanalyticeffects:['input','emitters','batches','spawns'],pagelightning:['frame','unit_order','units','nodes','spawn','held'],pagearccamera:[],pageunits:['input','header','commands','places','weapons','collision_input','collision_actors'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],pagefeet:['input'],pagesniper:['input','matches'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
   const contextId=gl=>{if(!contexts.has(gl))contexts.set(gl,contexts.size);return contexts.get(gl);};
   const scalar={f64:Float64Array,f32:Float32Array,u32:Uint32Array,i32:Int32Array,u16:Uint16Array,u8:Uint8Array};
   const remember=(m,kind,ptr,context,args,preview=false)=>{
@@ -117,7 +117,7 @@
         e[key]=(...raw)=>{if(!name.startsWith('__'))state.errors.push('unhandled '+key);return fn(...raw);};continue;}
       e[key]=(...raw)=>{
         const row=owners.get(kind+':'+m.id+':'+raw[0]);if(!row)throw Error('unregistered '+key);
-        flush(row);const args=[];let at=1;const lightningCall=kind==='pagelightning'&&['add','step','fixture'].includes(name),randomCall=lightningCall||kind==='pagesniper'&&['collect','frame'].includes(name);
+        flush(row);const args=[];let at=1;const suppliedRandom=['pagewake','pagejetpack','pagetrail','pageposteffects'].includes(kind)&&name==='frame';const lightningCall=kind==='pagelightning'&&['add','step','fixture'].includes(name),randomCall=suppliedRandom||lightningCall||kind==='pagesniper'&&['collect','frame'].includes(name);
         for(const [n,t]of spec.args){if(randomCall&&n==='random'||lightningCall&&n==='casts')continue;const [value,count]=arg(m,kind,t,raw,at);args.push(value);at+=count;}
         // Shared-memory writes and sealed packets carry the current frame.
         const checks=[];
@@ -125,7 +125,8 @@
         // The numeric phase owns when random draws occur. Capture its scalar
         // service answers alongside the call, leaving the live stream intact.
         const samples=randomCall?[]:null,previousRandom=Math.random;
-        if(samples)Math.random=()=>{const value=previousRandom();samples.push(value);return value;};
+        if(suppliedRandom){const source=raw[raw.length-1];raw[raw.length-1]=()=>{const value=source();samples.push(value);return value;};}
+        else if(samples)Math.random=()=>{const value=previousRandom();samples.push(value);return value;};
         // Lightning borrows the page collision owner synchronously. Record its
         // answers with the coarse call, just like the cosmetic random service.
         const casts=lightningCall?[]:null;

@@ -1,7 +1,12 @@
-import {sceneLayer,sceneProperty} from "./rust-render/scene-changes.js";
+import {sceneProperty,sceneLayer} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 
-import { unseatBody, turretAimPoint } from "./seats.js";
+import { unseatBody } from "./seats.js";
+
+import {EffectPhase} from './effects-gpu.js';
+import {GunnerFrame as F} from './presentation/visual-effects-layout.js';
+import {makeUnitHit} from './registry.js';
+const BANKS=[['input',Float64Array]];
 
 // Page view of the player at a turret. EntitySeats installs the world's lease;
 // The native network frame supplies unacknowledged look to prop and body phases;
@@ -29,8 +34,7 @@ export class Gunner {
     this.firstPerson = false; // the world's view: where its aim starts (the camera phase)
     this.viewFirstPerson = false; // the page's view: where its reticle's aim starts
     this.reticlePoint = new THREE.Vector3();
-    this.lookX = 0;
-    this.lookY = 0;
+    this.phase=new EffectPhase('PageGunnerView',BANKS);this.unitHit=makeUnitHit();this.origin=new THREE.Vector3();this.layerMeshes=new WeakMap();
     this.dir = new THREE.Vector3();
     this.target = new THREE.Vector3();
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
@@ -75,53 +79,43 @@ export class Gunner {
     this.hideRig(null);
   }
 
-  // Mouse counts while manning go to the drum.
-  look(dx, dy, sensitivity, invert) {
-    this.lookX += dx * sensitivity;
-    this.lookY += (invert ? dy : -dy) * sensitivity;
-  }
+  // Native network preview consumes mouse counts from the command history.
+  // This legacy input hook no longer retains a second, unread accumulator.
+  look() {}
 
-  // Where the HUD's reticle goes: from the drawn camera toward the point the
-  // shown aim meets (seats.js turretAimPoint, from the view's own aim
-  // origin), so it stays on what the gun turns to and the rounds go to even
-  // while walls pull the chase camera in off its rest, or it eases after a
-  // turn; the shown aim itself where nothing is shown.
-  reticleDirection(out) {
-    const turret = this.turret;
-    if (!turret?.aimOrigin) return this.viewDirection(out);
-    this.viewDirection(this.dir);
-    turretAimPoint(turret, this.viewFirstPerson, this.dir, this.collision, this.ordnance?.units, turret.lease?.unit ?? null, this.reticlePoint, this.hit,
-      this.shownYaw - turret.facing, this.shownPitch);
-    out.subVectors(this.reticlePoint, this.camera.position);
-    return out.lengthSq() > 1e-8 ? out.normalize() : out.copy(this.dir);
+  facts(yaw=this.shownYaw,pitch=this.shownPitch){
+    this.phase.refresh();const x=this.phase.input,t=this.turret;
+    x[F.ACTIVE]=t?1:0;x[F.YAW]=yaw;x[F.PITCH]=pitch;this.camera.position.toArray(x,F.CAMERA);
+    if(t){x[F.FACING]=t.facing;t.rig.root.updateWorldMatrix(true,false);x.set(t.rig.root.matrixWorld.elements,F.ROOT);
+      t.pivot.toArray(x,F.PIVOT);t.up.toArray(x,F.UP);t.camera.eye.toArray(x,F.EYE_OFFSET);t.camera.center.toArray(x,F.CENTER_OFFSET);t.camera.offset.toArray(x,F.TRACK_OFFSET);x[F.TILT]=t.camera.tilt;
+      x[F.FIRST]=this.viewFirstPerson?1:0;x[F.CANONICAL]=t.f2Seats?1:0;
+      if(t.f2Seats){t.f2Pose.eye.toArray(x,F.CANONICAL_EYE);t.f2Pose.chase.toArray(x,F.CANONICAL_CHASE);}
+    }
+    this.phase.frame();
   }
-
-  // The direction under the crosshair as shown.
-  viewDirection(out) {
-    const turret = this.turret;
-    if (!turret) return out.set(0, 0, 1);
-    return out.set(Math.sin(this.shownYaw) * Math.cos(this.shownPitch), Math.sin(this.shownPitch), Math.cos(this.shownYaw) * Math.cos(this.shownPitch));
+  reticleDirection(out){
+    if(!this.turret?.aimOrigin)return this.viewDirection(out);
+    this.facts();const x=this.phase.input,t=this.turret;
+    this.origin.fromArray(x,F.ORIGIN);this.dir.fromArray(x,F.DIRECTION);
+    const wall=this.collision?.cast(this.origin,this.dir,x[F.REACH],this.hit,t.bodies?.built||null);
+    x[F.WALL]=wall?1:0;x[F.WALL_DISTANCE]=wall?.distance??0;this.phase.kernel.wall();
+    const unit=this.ordnance?.units?.raycast?.(this.origin,this.dir,x[F.REACH],t.lease?.unit??null,this.unitHit);
+    x[F.UNIT]=unit?1:0;x[F.UNIT_DISTANCE]=unit?.distance??0;this.phase.kernel.resolve();this.reticlePoint.fromArray(x,F.POINT);
+    return out.fromArray(x,F.RETICLE);
   }
-
-  // The first-person eye: EyePointOffset in the turret's aim frame
-  // (Turret.eyePoint), at a world yaw and pitch (the shown ones).
-  eyePoint(out, yaw = this.shownYaw, pitch = this.shownPitch) {
-    const turret = this.turret;
-    return turret.eyePoint(out, yaw - turret.facing, pitch);
-  }
+  viewDirection(out){this.facts();return out.fromArray(this.phase.input,F.DIRECTION);}
+  eyePoint(out,yaw=this.shownYaw,pitch=this.shownPitch){this.facts(yaw,pitch);return out.fromArray(this.phase.input,F.EYE);}
 
   // The drum and gun out of the view (first person), as his own body is:
   // on the hidden layer, where they still cast their shadows.
   hideRig(turret) {
     if (this.hiddenRig === turret) return;
-    const layer = (t, value) => {
-      if (!t?.rig?.root) return;
-      const parts = [t.drum, t.gun].filter(Boolean);
-      for (const part of parts.length ? parts : [t.rig.root]) part.traverse((object) => { if (object.isMesh) sceneLayer(object.layers,"set",value); });
-    };
-    layer(this.hiddenRig, 0);
-    layer(turret, this.hiddenLayer);
+    this.layer(this.hiddenRig,0);this.layer(turret,this.hiddenLayer);
     this.hiddenRig = turret;
   }
-
+  layer(turret,value){
+    if(!turret?.rig?.root)return;let meshes=this.layerMeshes.get(turret);
+    if(!meshes){meshes=[];const visit=object=>{if(object.isMesh)meshes.push(object);};if(turret.drum||turret.gun){turret.drum?.traverse(visit);turret.gun?.traverse(visit);}else turret.rig.root.traverse(visit);this.layerMeshes.set(turret,meshes);}
+    for(const mesh of meshes)sceneLayer(mesh.layers,"set",value);
+  }
 }

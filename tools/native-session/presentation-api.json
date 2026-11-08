@@ -1377,6 +1377,586 @@
   },
   {
     "constructorArgs": [],
+    "class": "pagewake",
+    "name": "PageWake",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [
+          [
+            "random",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<(),String>"
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "nozzles",
+        "type": "f64",
+        "pointer": "nozzles_ptr",
+        "length": "nozzles_len"
+      },
+      {
+        "name": "particles",
+        "type": "f32",
+        "pointer": "particles_ptr",
+        "length": "particles_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "content",
+        "&str"
+      ]
+    ],
+    "class": "pagejetpack",
+    "name": "PageJetpack",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [
+          [
+            "random",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<(),String>"
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "local",
+        "type": "f64",
+        "pointer": "local_ptr",
+        "length": "local_len"
+      },
+      {
+        "name": "nozzles",
+        "type": "f64",
+        "pointer": "nozzles_ptr",
+        "length": "nozzles_len"
+      },
+      {
+        "name": "wake_input",
+        "type": "f64",
+        "pointer": "wake_input_ptr",
+        "length": "wake_input_len"
+      },
+      {
+        "name": "wake_particles",
+        "type": "f32",
+        "pointer": "wake_particles_ptr",
+        "length": "wake_particles_len"
+      },
+      {
+        "name": "volume_input",
+        "type": "f64",
+        "pointer": "volume_input_ptr",
+        "length": "volume_input_len"
+      },
+      {
+        "name": "volume_arrays",
+        "type": "f32",
+        "pointer": "volume_arrays_ptr",
+        "length": "volume_arrays_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagejetvolume",
+    "name": "PageJetVolume",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "nozzles",
+        "type": "f64",
+        "pointer": "nozzles_ptr",
+        "length": "nozzles_len"
+      },
+      {
+        "name": "arrays",
+        "type": "f32",
+        "pointer": "arrays_ptr",
+        "length": "arrays_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "content",
+        "&str"
+      ]
+    ],
+    "class": "pagetrail",
+    "name": "PageTrail",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [
+          [
+            "random",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "probe",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "roof",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "records",
+        "type": "f32",
+        "pointer": "records_ptr",
+        "length": "records_len"
+      },
+      {
+        "name": "rays",
+        "type": "f64",
+        "pointer": "rays_ptr",
+        "length": "rays_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pageshield",
+    "name": "PageShield",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "impacts",
+        "type": "f64",
+        "pointer": "impacts_ptr",
+        "length": "impacts_len"
+      },
+      {
+        "name": "powers",
+        "type": "f32",
+        "pointer": "powers_ptr",
+        "length": "powers_len"
+      },
+      {
+        "name": "blasts",
+        "type": "f32",
+        "pointer": "blasts_ptr",
+        "length": "blasts_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagedeathtrace",
+    "name": "PageDeathTrace",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "positions",
+        "type": "f32",
+        "pointer": "positions_ptr",
+        "length": "positions_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagegunnerview",
+    "name": "PageGunnerView",
+    "methods": [
+      {
+        "name": "wall",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "resolve",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagesoldierview",
+    "name": "PageSoldierView",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "content",
+        "&str"
+      ]
+    ],
+    "class": "pageposteffects",
+    "name": "PagePostEffects",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [
+          [
+            "count",
+            "usize"
+          ],
+          [
+            "random",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "remaining",
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "counts",
+        "type": "f64",
+        "pointer": "counts_ptr",
+        "length": "counts_len"
+      },
+      {
+        "name": "art",
+        "type": "u8",
+        "pointer": "art_ptr",
+        "length": "art_len"
+      },
+      {
+        "name": "beam_positions",
+        "type": "f32",
+        "pointer": "beam_positions_ptr",
+        "length": "beam_positions_len"
+      },
+      {
+        "name": "beam_normals",
+        "type": "f32",
+        "pointer": "beam_normals_ptr",
+        "length": "beam_normals_len"
+      },
+      {
+        "name": "beam_uv",
+        "type": "f32",
+        "pointer": "beam_uv_ptr",
+        "length": "beam_uv_len"
+      },
+      {
+        "name": "beam_indices",
+        "type": "u16",
+        "pointer": "beam_indices_ptr",
+        "length": "beam_indices_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagevehicleeffects",
+    "name": "PageVehicleEffects",
+    "methods": [
+      {
+        "name": "add",
+        "args": [
+          [
+            "content",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize,String>"
+      },
+      {
+        "name": "node_start",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": "usize"
+      },
+      {
+        "name": "output_start",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": "usize"
+      },
+      {
+        "name": "carrier",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "inspect",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "resume",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "complete",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "nodes",
+        "type": "f64",
+        "pointer": "nodes_ptr",
+        "length": "nodes_len"
+      },
+      {
+        "name": "output",
+        "type": "f64",
+        "pointer": "output_ptr",
+        "length": "output_len"
+      },
+      {
+        "name": "status",
+        "type": "f64",
+        "pointer": "status_ptr",
+        "length": "status_len"
+      },
+      {
+        "name": "inspection",
+        "type": "f64",
+        "pointer": "inspection_ptr",
+        "length": "inspection_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      },
+      {
+        "name": "order",
+        "type": "u32",
+        "pointer": "order_ptr",
+        "length": "order_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "content",
+        "&str"
+      ]
+    ],
+    "class": "pageanalyticeffects",
+    "name": "PageAnalyticEffects",
+    "methods": [
+      {
+        "name": "add_batch",
+        "args": [],
+        "result": "usize"
+      },
+      {
+        "name": "track_rows",
+        "args": [],
+        "result": "usize"
+      },
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "emitters",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "emitters",
+        "type": "f64",
+        "pointer": "emitters_ptr",
+        "length": "emitters_len"
+      },
+      {
+        "name": "data",
+        "type": "f32",
+        "pointer": "data_ptr",
+        "length": "data_len"
+      },
+      {
+        "name": "epochs",
+        "type": "f64",
+        "pointer": "epochs_ptr",
+        "length": "epochs_len"
+      },
+      {
+        "name": "definitions",
+        "type": "i32",
+        "pointer": "definitions_ptr",
+        "length": "definitions_len"
+      },
+      {
+        "name": "tracks",
+        "type": "f32",
+        "pointer": "tracks_ptr",
+        "length": "tracks_len"
+      },
+      {
+        "name": "batches",
+        "type": "f64",
+        "pointer": "batches_ptr",
+        "length": "batches_len"
+      },
+      {
+        "name": "spawns",
+        "type": "f64",
+        "pointer": "spawns_ptr",
+        "length": "spawns_len"
+      },
+      {
+        "name": "arrays",
+        "type": "f32",
+        "pointer": "arrays_ptr",
+        "length": "arrays_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
     "class": "pagelightning",
     "name": "PageLightning",
     "methods": [
