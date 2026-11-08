@@ -711,39 +711,40 @@ controls before setting capacity.
 
 ### Hosting from the client
 
-HOST launches the actual **bfeserver runtime** as a background process from
-Electron, with a bundled runtime for Windows and Linux (macOS is planned). It
-uses the same server entry point, simulation, protocol and configuration model
-as the standalone Linux service. The local player joins through the normal
-connection interface; the UI manages the process through local authenticated
-IPC.
+HOST starts the bundled **bfeserver** from the native desktop client on Windows
+and Linux (macOS is planned). It uses the same server entry point, simulation,
+protocol and configuration model as the standalone Linux service. The local
+player joins through the normal connection interface; the client manages the
+server over loopback HTTP authenticated with `<state>/operator-token`
+([docs/native-client.md](docs/native-client.md)).
 
-Offer LAN-only, private online and **public online**. A public app-hosted
+Offer LAN-only, private online and **public online**. A public client-hosted
 server registers with the master and appears in ONLINE exactly like a VPS
 server, with the same playlist, password, rules, bans and approved sponsor
 settings. Public hosting does not require a dedicated machine or a public IP:
 use direct connectivity where reachable and the relay where necessary.
 
-Minimizing the renderer must not suspend the server. Pausing opens the local
-menu without stopping the multiplayer clock. Closing the app with an active
-host offers **Keep server running in background**, **Stop server and quit**,
-and **Cancel**. Keeping it running closes the UI/local player connection but
-leaves bfeserver, remote players, master registration and relay sessions alive.
-Reopening the app discovers and authenticates to its existing local server;
-it must not spawn a duplicate. Keep a local management/stop command available
-when the renderer is closed. Show the session status before the player exits.
+Minimizing the client window must not suspend the server. Pausing opens the
+local menu without stopping the multiplayer clock. Closing the app with an
+active host offers **Keep server running**, **Stop server and quit**, and
+**Cancel**. Keeping it running closes the local window and player connection
+but leaves bfeserver, remote players, master registration and relay sessions
+alive. Reopening the app discovers and attaches to its existing local server;
+it does not start a duplicate. Keep a local management and stop command
+available when the window is closed. Show the session status before the player
+exits.
 
-The server process lifetime must be independent of the Electron parent when
-keep-running is selected; test that on every desktop platform. Sleep, OS
-shutdown or a server-process crash still interrupts hosting; warn about sleep
-while hosting. Stopping the server notifies players and unregisters it. No
-host migration is planned for v1. Hosted matches use the same relay path as
-standalone servers. Client updates may not terminate or replace the running
-server's runtime/data: defer shared-runtime updates until the server stops,
-or use versioned runtimes and a backward-compatible local management protocol.
+The hosted server lifetime is independent of the client when keep-running is
+selected; test that on every desktop platform. Sleep, OS shutdown or a server
+crash still interrupts hosting; warn about sleep while hosting. Stopping the
+server notifies players and unregisters it. No host migration is planned for
+v1. Hosted matches use the same relay path as standalone servers. Client
+updates may not terminate or replace the running server's runtime or data:
+defer shared-runtime updates until the server stops, or use versioned runtimes
+and a backward-compatible local management protocol.
 
 Hosting adds full simulation cost to rendering and prediction. Recommend a
-dedicated host for larger battles; being an Electron app does not guarantee
+dedicated host for larger battles; running the native client does not guarantee
 that an older PC can host 64 players.
 
 ## The dedicated server: bfeserver

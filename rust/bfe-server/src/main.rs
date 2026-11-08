@@ -256,74 +256,96 @@ fn admin_menu(stdin: &mut io::StdinLock<'_>, directory: &Path, port: u16) -> io:
     if let Some(req) = request {
         match operator_request(directory, &req, port) {
             Ok(resp) => {
-                if let Ok(pretty) = serde_json::to_string_pretty(&resp) {
-                    println!("{pretty}");
-                }
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&resp).unwrap_or_else(|_| "{}".to_string())
+                );
             }
-            Err(err) => eprintln!("Administration: {err}"),
+            Err(err) => {
+                eprintln!("{err}");
+            }
         }
     }
     Ok(())
 }
 
-/// Interactive terminal configuration menu (`async function menu()` in `src/main.js`).
+/// Interactive dedicated server configuration and control menu (`async function menu()` in `src/main.js`).
+/// Interactive top-level TUI menu porting `menu(dir, port)` from `packages/bfe-server/src/main.js`.
 ///
-/// Persists updated settings to `<directory>/config.json` with mode `0600` after each edit and
-/// on option `0` (`Save and exit`).
-/// Top-level interactive TUI configuration and launch menu porting `menu(dir)` from
-/// `packages/bfe-server/src/main.js`.
-///
-/// Allows operators to inspect and edit `config.json` (server name, UDP port, max players,
-/// visibility, master URL, playlist rotation, AI difficulty, content path, state budget) or jump
-/// into `admin_menu` / `serve` without hand-editing JSON.
+/// Displays current `ServerConfig` values (server name, ports, visibility, master directory URL,
+/// content directory, rotation) and lets the operator edit settings, start `serve()`, or enter
+/// `admin_menu()`.
 fn menu(directory: &Path, operator_port: u16) {
     let mut config = ServerConfig::load_from_dir(directory);
+    if !bfe_server::config::config_exists_in(directory) {
+        let _ = config.save_to_dir(directory);
+    }
     let stdin = io::stdin();
     let mut handle = stdin.lock();
     loop {
         println!(
-            "\nBattlefront Eternal server\n1  Server name\n2  Installed engine and imported game data\n3  Playlist\n4  Online notice and master\n5  Relay policy\n6  Global ban preference\n7  Show configuration\n8  Import owned gameplay bundle\n9  Live server administration\n0  Save and exit"
+            "\nBattlefront Eternal Dedicated Server\n1  Server name: {}\n2  Data directory: {}\n3  Playlist: {}\n4  Online listing: {}\n5  Relay policy: {}\n6  Global bans: {}\n7  Show config file\n8  Import gameplay bundle\n9  Live server admin\n0  Start server\nq  Quit",
+            config.name,
+            if config.data.is_empty() {
+                "(not configured)"
+            } else {
+                &config.data
+            },
+            config.rotation.join(", "),
+            if config.online_notice_accepted {
+                &config.master
+            } else {
+                "off"
+            },
+            config.relay_policy,
+            if config.honor_global_bans { "on" } else { "off" }
         );
         let Ok(choice) = prompt(&mut handle, "Choice: ") else {
             break;
         };
+        if choice == "q" {
+            break;
+        }
         if choice == "0" {
             let _ = config.save_to_dir(directory);
-            return;
+            if let Err(err) = serve(directory, operator_port) {
+                eprintln!("{err}");
+            }
+            break;
         }
         match choice.as_str() {
             "1" => {
-                if let Ok(name) = prompt(&mut handle, "Name: ") {
-                    config.name = name.chars().take(80).collect();
+                if let Ok(name) = prompt(&mut handle, "Server name: ") {
+                    let trimmed: String = name.trim().chars().take(80).collect();
+                    if !trimmed.is_empty() {
+                        config.name = trimmed;
+                    }
                 }
             }
             "2" => {
-                if let Ok(engine) = prompt(&mut handle, "Engine checkout directory: ") {
-                    config.engine = fs::canonicalize(&engine)
-                        .unwrap_or_else(|_| PathBuf::from(&engine))
-                        .to_string_lossy()
-                        .into_owned();
-                }
-                if let Ok(data) = prompt(&mut handle, "Imported game data directory: ") {
-                    config.data = fs::canonicalize(&data)
-                        .unwrap_or_else(|_| PathBuf::from(&data))
-                        .to_string_lossy()
-                        .into_owned();
+                if let Ok(d) = prompt(&mut handle, "Prepared game data directory: ") {
+                    if !d.trim().is_empty() {
+                        config.data = fs::canonicalize(d.trim())
+                            .unwrap_or_else(|_| PathBuf::from(d.trim()))
+                            .to_string_lossy()
+                            .into_owned();
+                    }
                 }
             }
             "3" => {
-                if let Ok(raw) =
-                    prompt(&mut handle, "Maps, comma separated (swbf1/nab2:rep:conquest): ")
-                {
-                    let maps: Vec<String> = raw
+                if let Ok(r) = prompt(
+                    &mut handle,
+                    "Comma-separated game/map:side:mode entries (for example swbf1/nab2:rep:conquest): ",
+                ) {
+                    let entries: Vec<String> = r
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
-                    if !maps.is_empty() && maps.iter().all(|m| valid_playlist_entry(m)) {
-                        config.rotation = maps;
+                    if !entries.is_empty() && entries.iter().all(|e| valid_playlist_entry(e)) {
+                        config.rotation = entries;
                     } else {
-                        println!("Invalid playlist.");
+                        println!("Invalid playlist entry.");
                     }
                 }
             }
@@ -536,19 +558,31 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     }
 
     println!("bfeserver service started; control menu: bfeserver");
+    let _ = io::stdout().flush();
 
     while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
         thread::sleep(Duration::from_millis(50));
     }
 
+    // Record graceful shutdown and unregistration (`shutdown()` in `src/main.js`) so `<state>/hosting.log`
+    // captures the unregistration of online directory and LAN discovery listeners when `HostController::stop`
+    // (`POST /admin {"action": "stop"}` in `electron/host.js`) or `SIGINT`/`SIGTERM` terminates the service.
+    println!("bfeserver stopping: unregistering service and closing sessions");
+    // Step 1: If registered with the online master directory, send `DELETE /v1/servers/:id` and close the signaling WebSocket.
     if let Some(online) = control.online.lock().unwrap().take() {
         online.close();
+        println!("bfeserver unregistered from online master directory");
     }
+    // Step 2: Stop the 60 Hz world tick thread, `BFE-LAN/1` UDP discovery responder, `/info` HTTP listener, and UDP game port.
     if let Some(mut local) = control.local.lock().unwrap().take() {
         local.close();
+        println!("bfeserver unregistered local game and LAN discovery listeners");
     }
+    // Step 3: Close the loopback `/admin` + `/healthz` listener and flush `operator.sqlite` (`OperatorStore::close`).
     op_http.close();
     operator.close();
+    println!("bfeserver stopped");
+    let _ = io::stdout().flush();
     Ok(())
 }
 

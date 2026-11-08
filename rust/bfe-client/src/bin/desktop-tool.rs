@@ -1,6 +1,6 @@
 //! CLI tool (`desktop-tool`) for exercising `bfe-desktop` paths, settings,
 //! content preparation, update feed verification, dry-run installer handoff,
-//! and rich presence formatting.
+//! rich presence formatting, and detached local server hosting (`HostController`).
 //!
 //! ## Subcommands
 //! - `desktop-tool paths`
@@ -23,11 +23,19 @@
 //!   Normalizes a sample multiplayer battle presence report, formats both the
 //!   Discord `SET_ACTIVITY` payload and Steam Friends rich-presence pairs, and
 //!   attempts a non-fatal local Discord IPC publish.
+//! - `desktop-tool host <start|status|stop|attach|join|restart|kick|ban|unban> [flags]`
+//!   Starts, queries, attaches to, or stops a detached `bfeserver` instance via
+//!   [`HostController`](bfe_desktop::host::HostController), porting `electron/host.js`
+//!   and the keep-running close workflow from `electron/main.js`.
+//!   Supports `--state-dir`, `--content-dir`, `--server-bin`, `--admin-port`, `--game-port`,
+//!   `--name`, `--mode <lan|public>`, `--map`, `--side`, `--max-players`, and `--relay`.
 //!
 //! ## Exit Codes
 //! - `0`: Subcommand completed cleanly and printed its JSON or NDJSON output.
 //! - `1`: Runtime validation, file I/O, or subprocess error.
 //! - `2`: Missing command-line subcommand.
+
+#![deny(warnings, clippy::all)]
 
 use std::collections::BTreeMap;
 use std::env;
@@ -35,6 +43,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use bfe_desktop::host::{
+    resolve_admin_port, resolve_game_port, resolve_server_executable, AiDifficulty, CloseChoice,
+    HostController, HostControllerConfig, HostMode, HostOptions, RelayPolicy, TeamAssignment,
+};
 use bfe_desktop::paths::{resolve_desktop_paths, update_paths, DesktopPathsOptions};
 use bfe_desktop::prepare::{
     checkout_content_version, read_prepare_state, toolchain_paths, verify_prepared_outputs,
@@ -476,6 +488,376 @@ fn cmd_presence_test() -> Result<(), String> {
     Ok(())
 }
 
+/// Executes `desktop-tool host <start|status|stop|attach|join|restart|kick|ban|unban|close-prompt|keep-running> [flags]`.
+///
+/// Exercises [`HostController`](bfe_desktop::host::HostController) (`createHostController` in
+/// `electron/host.js`) and the close-decision flow (`before-quit` in `electron/main.js`).
+///
+/// ## Supported Actions
+/// - `start`: writes `<state>/config.json` (mode `0600`), rotates `<state>/hosting.log` (mode `0600`)
+///   when larger than 8 MiB, spawns `bfeserver --serve` detached (`process_group(0)` on Unix;
+///   `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` on Windows; or `systemd-run --user`
+///   via `start_outside` when launched under native Linux Steam), waits up to 60 s for `/info`,
+///   and prints the `HostJoinInfo` JSON. If a server is already active, attaches to it instead.
+/// - `status`: queries `POST http://127.0.0.1:<admin_port>/admin` (`{"action": "status"}`) with
+///   `<state>/operator-token` and `GET http://127.0.0.1:<game_port>/info`, printing `HostStatus`.
+/// - `stop`: sends `POST /admin {"action": "stop"}` with `<state>/operator-token`, removes
+///   `<state>/attach.json`, and prints `{"ok": true}`.
+/// - `attach`: probes `<state>/operator-token`, `/admin`, and `/info` to adopt an existing
+///   server left running by a previous client session.
+/// - `join` / `restart` / `kick` / `ban` / `unban` / `close-prompt` / `keep-running`:
+///   exercises join info lookup, match restart, player moderation, and the close confirmation prompt.
+///
+/// Resolves `<userData>/server` (`stateRoot` in `electron/main.js`) and `content_root` from
+/// [`resolve_desktop_paths`], allowing CLI flags (`--state-dir`, `--content-dir`, `--server-bin`,
+/// `--admin-port`, `--game-port`, `--name`, `--mode`, `--map`, `--side`, `--max-players`,
+/// `--relay`, `--playlist`, `--bots`, `--auto-assign-teams`, `--consent`) to override defaults.
+fn cmd_host(args: &[String]) -> Result<(), String> {
+    // Require a host action (`start`, `status`, `stop`, `attach`, `join`, `restart`, `kick`, `ban`, `unban`).
+    let action = args.first().map(String::as_str).ok_or_else(|| {
+        "Usage: desktop-tool host <start|status|stop|attach|join|restart|kick|ban|unban> [flags]"
+            .to_string()
+    })?;
+
+    // Collect environment variables and resolve default desktop paths (`userData`, `contentRoot`, `settingsFile`).
+    let env_map = collect_env_map();
+    let home = env_map
+        .get("HOME")
+        .or_else(|| env_map.get("USERPROFILE"))
+        .map(PathBuf::from);
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let project_root = resolve_project_root();
+    let current_exe = env::current_exe().ok();
+    let dp = resolve_desktop_paths(&DesktopPathsOptions {
+        platform: current_platform_str().to_string(),
+        home,
+        cwd,
+        project_root: project_root.clone(),
+        exec_dir: current_exe
+            .as_ref()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf())),
+        resources_path: None,
+        packaged: false,
+        env: env_map.clone(),
+    });
+
+    // Check `settings.json` for `onlineNoticeAccepted` and `contentDir` when present.
+    let desktop_store = SettingsStore::new(&dp.settings_file);
+    let desktop_settings = desktop_store.load();
+
+    // Default `<state>` to `<userData>/server` (`path.join(app.getPath('userData'), 'server')` in `electron/main.js`).
+    let mut state_dir = env_map
+        .get("BFE_HOST_STATE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dp.user_data.join("server"));
+    // Resolve the prepared content directory from `BFE_CONTENT_DIR`, `BFE_DATA_DIR`, `settings.json`, or `dp.content_root`.
+    let mut content_dir = env_map
+        .get("BFE_CONTENT_DIR")
+        .or_else(|| env_map.get("BFE_DATA_DIR"))
+        .map(PathBuf::from)
+        .or_else(|| desktop_settings.content_dir.clone().map(PathBuf::from))
+        .unwrap_or_else(|| dp.content_root.clone());
+    // Resolve the bundled `bfeserver` binary alongside `desktop-tool` / `bfe-client` or in `rust/target/{release,debug}`.
+    let mut server_bin = resolve_server_executable(
+        &env_map,
+        current_exe.as_deref(),
+        Some(&project_root),
+    );
+    // Resolve `ADMIN_PORT` (`18460`) and `GAME_PORT` (`18461`) from `BFE_HOST_ADMIN_PORT` / `BFE_HOST_GAME_PORT`.
+    let mut admin_port = resolve_admin_port(&env_map);
+    let mut game_port = resolve_game_port(&env_map);
+    let mut online_consent = desktop_settings
+        .extra
+        .get("onlineNoticeAccepted")
+        .and_then(|v| v.as_bool())
+        == Some(true);
+
+    let mut opts = HostOptions::default();
+    let mut player_id: Option<String> = None;
+    let mut reason = String::new();
+
+    // Parse optional CLI flags for `desktop-tool host`, mapping each flag onto `HostControllerConfig`
+    // or `HostOptions` (`createHostController` in `electron/host.js`).
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            // Override the host state directory (`<userData>/server` by default).
+            "--state-dir" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    state_dir = PathBuf::from(v);
+                }
+            }
+            // Override the prepared game content directory (`contentRoot` in `electron/host.js`).
+            "--content-dir" | "--content" | "--data" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    content_dir = PathBuf::from(v);
+                }
+            }
+            // Override the `bfeserver` binary path (`executable` in `electron/host.js`).
+            "--server-bin" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    server_bin = PathBuf::from(v);
+                }
+            }
+            // Override the loopback `/admin` HTTP port (`BFE_HOST_ADMIN_PORT`, default `18460`).
+            "--admin-port" => {
+                i += 1;
+                if let Some(v) = args.get(i).and_then(|s| s.parse::<u16>().ok()) {
+                    admin_port = v;
+                }
+            }
+            // Override the UDP game and TCP `/info` port (`BFE_HOST_GAME_PORT`, default `18461`).
+            "--game-port" | "--port" => {
+                i += 1;
+                if let Some(v) = args.get(i).and_then(|s| s.parse::<u16>().ok()) {
+                    game_port = v;
+                }
+            }
+            // Set the hosted server display name (`options.name` in `electron/host.js`).
+            "--name" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.name = v.clone();
+                }
+            }
+            // Set visibility mode (`"lan"` or `"public"`, matching `options.mode` in `electron/host.js`).
+            "--mode" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.mode = HostMode::parse(v)
+                        .ok_or_else(|| "Invalid host settings".to_string())?;
+                }
+            }
+            // Shorthand flag for `--mode public`.
+            "--public" => {
+                opts.mode = HostMode::Public;
+            }
+            // Shorthand flag for `--mode lan` (private / LAN-only game).
+            "--lan" | "--private" => {
+                opts.mode = HostMode::Lan;
+            }
+            // Acknowledge the online privacy notice for `--mode public` (`consent` in `electron/host.js`).
+            "--consent" => {
+                online_consent = true;
+            }
+            // Select the initial map ID (`options.map` in `electron/host.js`, e.g. `nab2`).
+            "--map" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.map = v.clone();
+                }
+            }
+            // Select the faction ID (`options.side` in `electron/host.js`: `rep`, `cis`, `all`, `imp`).
+            "--side" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.side = v.clone();
+                }
+            }
+            // Set maximum human player capacity (`options.maxPlayers` in `electron/host.js`, `2..=64`).
+            "--max-players" => {
+                i += 1;
+                if let Some(v) = args.get(i).and_then(|s| s.parse::<u32>().ok()) {
+                    opts.max_players = v;
+                } else {
+                    return Err("Invalid host settings".to_string());
+                }
+            }
+            // Set TURN relay policy (`options.relay` in `electron/host.js`: `auto`, `always`, `never`).
+            "--relay" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.relay = RelayPolicy::parse(v)
+                        .ok_or_else(|| "Invalid host settings".to_string())?;
+                }
+            }
+            // Set an explicit comma-separated map rotation (`swbf1/<map>:<side>:conquest`).
+            "--playlist" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.playlist = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            // Set AI bot count per team (`SET GAME OPTIONS` `ai_units_per_team`).
+            "--bots" => {
+                i += 1;
+                if let Some(v) = args.get(i).and_then(|s| s.parse::<u32>().ok()) {
+                    opts.ai_units_per_team = Some(v);
+                }
+            }
+            // Set AI difficulty (`easy`, `medium`, or `hard`).
+            "--difficulty" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    opts.ai_difficulty = match v.as_str() {
+                        "easy" => Some(AiDifficulty::Easy),
+                        "medium" => Some(AiDifficulty::Medium),
+                        "hard" => Some(AiDifficulty::Hard),
+                        _ => return Err("Invalid host settings".to_string()),
+                    };
+                }
+            }
+            // Enable automatic team assignment (`autoAssignTeams: true` in `config.json`).
+            "--auto-assign-teams" => {
+                opts.team_assignment = Some(TeamAssignment::AutoAssign);
+            }
+            // Enable immediate player spawning (`autoSpawn: true` in `config.json`).
+            "--auto-spawn" => {
+                opts.auto_spawn = Some(true);
+            }
+            // Specify target 64-hex player identity for `kick`, `ban`, or `unban`.
+            "--id" => {
+                i += 1;
+                player_id = args.get(i).cloned();
+            }
+            // Specify moderation reason for `kick`, `ban`, or `unban`.
+            "--reason" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    reason = v.clone();
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    // Assemble the `HostControllerConfig` from resolved paths, ports, binary, and consent flag
+    // (`createHostController` parameters in `electron/host.js`).
+    let mut cfg = HostControllerConfig::new(state_dir, content_dir);
+    cfg.executable = server_bin;
+    cfg.engine_root = project_root;
+    cfg.admin_port = admin_port;
+    cfg.game_port = game_port;
+    cfg.online_consent = online_consent;
+
+    // Initialize `HostController` and ensure `<state>` exists with `0700` permissions on Unix.
+    let controller = HostController::new(cfg)?;
+
+    // Dispatch the requested `desktop-tool host` action through `HostController`.
+    match action {
+        // Start a detached `bfeserver` (or attach if already running) and print its `HostJoinInfo`.
+        "start" => {
+            let join = controller.start(&opts)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&join).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Query `/admin` (`{"action": "status"}`) and `/info` and print the combined `HostStatus`.
+        "status" => {
+            let status = controller.status();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&status).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Stop the running server via `POST /admin {"action": "stop"}` and remove `attach.json`.
+        "stop" => {
+            let res = controller.stop()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&res).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Probe `<state>/operator-token`, `/admin`, and `/info` to attach to an existing server.
+        "attach" => {
+            let attached = controller.attach()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "attached": attached.is_some(),
+                    "server": attached,
+                    "attachRecord": controller.read_attach_record(),
+                }))
+                .unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Query `joinInfo()` (`127.0.0.1:<game_port>` and `/info` metadata) for a running server.
+        "join" => {
+            let join = controller.join_info()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&join).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Trigger a match restart via `POST /admin {"action": "restart"}`.
+        "restart" => {
+            let res = controller.restart()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&res).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Kick a connected player by 64-hex identity (`POST /admin {"action": "kick", ...}`).
+        "kick" => {
+            let id = player_id.ok_or_else(|| "Missing --id <64-hex>".to_string())?;
+            let res = controller.kick(&id, &reason)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&res).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Ban a player for 24 hours by 64-hex identity (`POST /admin {"action": "ban", "hours": 24, ...}`).
+        "ban" => {
+            let id = player_id.ok_or_else(|| "Missing --id <64-hex>".to_string())?;
+            let res = controller.ban(&id, &reason)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&res).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Remove a local ban for a 64-hex identity (`POST /admin {"action": "unban", ...}`).
+        "unban" => {
+            let id = player_id.ok_or_else(|| "Missing --id <64-hex>".to_string())?;
+            let res = controller.unban(&id, &reason)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&res).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Print the `ClosePrompt` dialog strings when a server is active (`before-quit` in `electron/main.js`).
+        "close-prompt" => {
+            let prompt = controller.close_prompt();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&prompt).unwrap_or_default()
+            );
+            Ok(())
+        }
+        // Record `CloseChoice::KeepRunning` in `<state>/attach.json` without stopping the server.
+        "keep-running" => {
+            let allow_quit = controller.apply_close_choice(CloseChoice::KeepRunning)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "allowQuit": allow_quit,
+                    "attachRecord": controller.read_attach_record(),
+                }))
+                .unwrap_or_default()
+            );
+            Ok(())
+        }
+        other => Err(format!("Unknown host action: {other}")),
+    }
+}
+
 /// Entrypoint for `desktop-tool` subcommand dispatch.
 ///
 /// Returns exit code `0` on success, `1` on runtime errors, and `2` when invoked
@@ -484,7 +866,9 @@ fn main() -> ExitCode {
     // Skip `argv[0]` (the binary path) and inspect the top-level subcommand name.
     let args: Vec<String> = env::args().skip(1).collect();
     let Some(sub) = args.first().map(|s| s.as_str()) else {
-        eprintln!("Usage: desktop-tool <paths|settings|prepare|update|presence> ...");
+        eprintln!(
+            "Usage: desktop-tool <paths|settings|prepare|update|presence|host> ..."
+        );
         return ExitCode::from(2);
     };
 
@@ -494,6 +878,7 @@ fn main() -> ExitCode {
     // - `prepare`: run tools/prepare_content.py and stream NDJSON progress snapshots
     // - `update check` / `update install --dry-run`: inspect release feeds or staged installers
     // - `presence test`: normalize and format Discord + Steam rich presence payloads
+    // - `host <start|status|stop|attach|...>`: manage a detached `bfeserver` instance
     let result = match sub {
         "paths" => cmd_paths(),
         "settings" => {
@@ -516,6 +901,7 @@ fn main() -> ExitCode {
                 Err("Usage: desktop-tool presence test".to_string())
             }
         }
+        "host" => cmd_host(&args[1..]),
         other => Err(format!("Unknown subcommand: {}", other)),
     };
 

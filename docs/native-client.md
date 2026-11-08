@@ -139,3 +139,48 @@ water or Classic ocean surfaces.
 captured with `tools/native-session/capture.mjs`. `BFE_SESSION_VALIDATE=1`
 validates recorded renderer submissions and `BFE_SESSION_GL_CHECK=1` checks GL
 errors after each pass.
+
+## Hosting from the native client (`HostController`)
+
+`bfe_desktop::host::HostController` (`rust/bfe-desktop/src/host/mod.rs`) manages
+a detached `bfeserver` instance from the native client and via `desktop-tool host`:
+
+- **What runs**: `HostController::start` writes `<state>/config.json` (mode
+  `0600`, where `<state>` defaults to `<userData>/server` and can be overridden
+  with `BFE_HOST_STATE_DIR` or `--state-dir`) using the server's configuration
+  schema (`name`, `engine`, `data`, `rotation`, `maxPlayers`,
+  `onlineNoticeAccepted`, `master`, `relayPolicy`, `honorGlobalBans`, and
+  `gamePort`) and spawns the bundled `bfeserver --serve` binary detached from
+  the client (`process_group(0)` on Unix; `DETACHED_PROCESS |
+  CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` on Windows; or a transient
+  `systemd-run --user` unit when launched under native Linux Steam).
+- **Ports and environment overrides**:
+  - Loopback operator HTTP port (`/admin` and `/healthz`): `18460` by default,
+    overridable with `BFE_HOST_ADMIN_PORT` (or `--admin-port`).
+  - Game port (UDP `BFE-UDP/1` gameplay and TCP `GET /info`): `18461` by
+    default, overridable with `BFE_HOST_GAME_PORT` (or `--game-port`).
+  - Server executable path: resolved next to `bfe-client` (`bfeserver` on Linux,
+    `bfeserver.exe` on Windows), overridable with `BFE_HOST_SERVER_BIN` (or
+    `--server-bin`).
+- **Logs and state files**: Standard output and standard error from `bfeserver`
+  are appended to `<state>/hosting.log` (mode `0600`, truncated automatically
+  when exceeding 8 MiB). The bearer token in `<state>/operator-token` (mode
+  `0600`) authenticates `POST http://127.0.0.1:18460/admin` requests (`status`,
+  `stop`, `restart`, `kick`, `ban`, `unban`).
+- **Keep-running and attach behavior**: When the user closes the client while a
+  hosted server is active, `HostController::close_prompt` supplies the confirmation
+  dialog (`"Hosted server is running"`, `"Other players can keep playing after you
+  close the app."`) with choices `CloseChoice::KeepRunning` (`"Keep server
+  running"`), `CloseChoice::StopAndQuit` (`"Stop server and quit"`), and
+  `CloseChoice::Cancel` (`"Cancel"`). Choosing `KeepRunning` leaves `bfeserver`
+  alive and records `<state>/attach.json`. On the next client startup (or a
+  subsequent `HostController::start` / `HostController::attach` call), the
+  controller probes `<state>/operator-token`, `/admin`, and `/info` and attaches
+  to the running server instead of spawning a second `bfeserver` process.
+- **CLI subcommands (`desktop-tool host`)**:
+  ```bash
+  desktop-tool host start [--mode lan|public] [--map nab2] [--side rep] [--max-players 8]
+  desktop-tool host status
+  desktop-tool host attach
+  desktop-tool host stop
+  ```
