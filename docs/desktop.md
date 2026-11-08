@@ -1,9 +1,44 @@
-# Desktop client (Electron)
+# Desktop client
 
-The desktop client wraps the same engine the browser development build runs.
-MULTIPLAYER.md covers the release plan; this note covers what exists today.
+The desktop client ships as an installable application for Windows (`x64`) and
+Linux (`x64` and `arm64`), bundling the game runtime, the dedicated server,
+the content preparation tools and their standalone Python, FFmpeg and
+KTX-Software toolchain. MULTIPLAYER.md covers the release plan; this note
+covers what ships, where it installs and how it prepares game data.
 
-## What it does
+## What ships in the desktop package
+
+Native packages built by `.github/workflows/release-native.yml` and staged by
+`build/native/stage.py` lay out the unpacked application folder as follows:
+
+- `bfe-client` (`bfe-client.exe` on Windows): the native desktop client
+  executable (windowing, menus, loader, renderer, audio and UDP client). On
+  Linux, a relative `battlefront-eternal` symlink points to `bfe-client` so
+  existing desktop entries and CLI launchers continue to work across updates.
+- `bfeserver` (`bfeserver.exe` on Windows): the standalone native dedicated
+  server executable, used both when hosting a match from the desktop client
+  and in the headless Linux server archive
+  (`battlefront-eternal-server_<version>_linux-<amd64|arm64>.tar.xz`).
+- `resources/bfe-tree.json`: the SHA-256, byte size, file mode and symlink
+  index of the packaged tree, used by the in-app updater to reuse unchanged
+  files on disk.
+- `resources/bfe-release.json`: the build's version, release tag, commit, date
+  and update channel (`development-preview`).
+- `resources/tools/`: the Python extraction and preparation scripts
+  (`tools/*.py`) and `tools/content-version.json`.
+- `resources/toolchain/`: the target platform's standalone CPython 3.13
+  distribution (with Pillow, numpy, scipy, soundfile and soxr), static
+  `ffmpeg`, and KTX-Software's `ktx`.
+- `resources/legal/`: `LICENSE`, `THIRD-PARTY-NOTICES.md` and the full license
+  texts from `licenses/`.
+- `resources/assets/`: the application and Steam icons (`icon.png`,
+  `icon-512.png`, `icon-256.png`, `icon.svg`, `steam/`, and the freedesktop
+  `icons/hicolor/` theme tree).
+
+During the Electron transition, `.github/workflows/release.yml` packages the
+Electron host (`electron/main.js`, `electron/content.js`, `electron/preload.cjs`
+and `resources/app.asar`) with the same `resources/tools`,
+`resources/toolchain`, `resources/legal` and `resources/bfe-tree.json` layout:
 
 - `electron/main.js` opens one window on `app://bfe/`. The renderer is
   sandboxed, with context isolation and no Node. Navigation stays on that
@@ -40,13 +75,30 @@ MULTIPLAYER.md covers the release plan; this note covers what exists today.
   quit the game. Exit, Reload, Force Reload and the title bar's buttons
   remain; Alt+F4 still closes the window. macOS keeps its Command shortcuts.
 
+## Where packages install
+
+| Package | Default install location | Launchers and shortcuts |
+| --- | --- | --- |
+| Windows NSIS (`Battlefront-Eternal-<version>-win-x64.exe`) | `%LOCALAPPDATA%\Programs\Battlefront Eternal` (per-user, directory selectable in the installer) | Start Menu and Desktop shortcuts to `bfe-client.exe`; per-user uninstall entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Battlefront Eternal` |
+| Linux Debian (`Battlefront-Eternal-<version>-linux-<amd64\|arm64>.deb`) | `/opt/Battlefront Eternal` | `/usr/bin/battlefront-eternal`, `/usr/bin/bfe-client` and `/usr/bin/bfeserver` symlinks; `/usr/share/applications/battlefront-eternal.desktop`; `/usr/share/icons/hicolor/` icons |
+| Linux AppImage (`Battlefront-Eternal-<version>-linux-<x86_64\|arm64>.AppImage`) | Runs in place from any folder | Registers `~/.local/share/applications/battlefront-eternal.desktop`, hicolor icons and `~/.local/bin/battlefront` on launch |
+| Linux dedicated server (`battlefront-eternal-server_<version>_linux-<amd64\|arm64>.tar.xz`) | Extracted by the operator (`versions/<version>/` under the server root) | `bfeserver` at the archive root beside `tools/`, `toolchain/`, `legal/` and `bfe-tree.json` |
+
+On Windows, running `Uninstall Battlefront Eternal.exe` removes the installed
+application folder, shortcuts, and the in-app update sidecars in
+`%LOCALAPPDATA%\Battlefront Eternal` (`versions`, `launches`, `state.json` and
+`update.log`), unless the uninstaller is invoked with `/updated` during an
+upgrade (`build/native/installer.nsi`, `build/installer.nsh`). Player settings,
+identities, saves, prepared game data and hosted server state in
+`%APPDATA%\Battlefront Eternal` are never removed by uninstalling.
+
 ## Updates
 
-On Windows and Linux the client updates itself at every launch: Electron,
-the interface, the engine, the hosting runtime and the tools, without
-administrator rights. macOS is not supported yet and does not self-update.
-Prepared game data is refreshed only when a release changes what
-preparation produces. See [desktop-updates.md](desktop-updates.md).
+On Windows and Linux the client updates itself at every launch: the client
+binary, the dedicated server binary, the interface, the engine and the
+preparation tools, without administrator rights. macOS is not supported yet and
+does not self-update. Prepared game data is refreshed only when a release
+changes what preparation produces. See [desktop-updates.md](desktop-updates.md).
 
 ## Prepared content compatibility
 
@@ -54,7 +106,7 @@ preparation produces. See [desktop-updates.md](desktop-updates.md).
 startup check. Increase its map, side or common generation when generated gameplay
 assets change (common: what every side shares, its clips among them;
 stored in `.prepare.json` as `commonVersion`). The packaged client reads the same external resource as Python; the installer
-smoke test imports it inside the actual Electron archive.
+smoke test imports it inside the actual package archive.
 After the application update check, startup checks the state, map, side and common
 versions of every selected, imported, managed or discovered content folder.
 Outdated or unfinished content prepares again before the menu opens, from the
@@ -161,12 +213,12 @@ shows a retryable error on failure. A failed save never enables online access.
 ## First launch: finding and preparing the game
 
 Retail data is never packaged. On launch the app shows its loader
-(`electron/ui/`) and decides, in order (`electron/main.js`):
+and decides, in order:
 
 1. `--content-dir=<folder>` or `BFE_CONTENT_DIR`, or a data folder the player
    chose: used as it is.
 2. The Steam copy of Star Wars: Battlefront (2004), app 1058020, found by
-   `electron/discover.js`: the platform's Steam roots (the registry on
+   discovering the platform's Steam roots (the registry on
    Windows; native, Flatpak and Snap installs on Linux), every library in
    `libraryfolders.vdf` (`steamapps/` and `config/`), and the folder the app
    manifest names in any of them. A `steamapps/common` folder that only looks
@@ -344,8 +396,8 @@ battle's run has that file open. A refused rename is retried briefly and
 counted as done when a current record is already there, and a battle reuses the
 samples an earlier battle finished instead of remaking and rewriting them.
 
-Preparation runs `tools/prepare.py` with the bundled toolchain
-(`electron/prepare.js`), into the app's `game-data` folder:
+Preparation runs `tools/prepare.py` with the bundled toolchain, into the app's
+`game-data` folder:
 
 | Step (key) | Tool | After | Needs |
 | --- | --- | --- | --- |
@@ -467,8 +519,8 @@ looks.
 ### The toolchain
 
 `node build/fetch-toolchain.mjs [linux|mac|win] [x64|arm64 ...]` fills
-`toolchain/<os>-<arch>/` (gitignored), which electron-builder packs as
-`resources/toolchain` beside `resources/tools`:
+`toolchain/<os>-<arch>/` (gitignored), which `build/native/stage.py` and
+`electron-builder` pack as `resources/toolchain` beside `resources/tools`:
 
 - CPython 3.13 from python-build-standalone, with Pillow, numpy, scipy,
   soundfile and soxr installed for the target by pip, test suites pruned;
@@ -502,6 +554,17 @@ Discord's local socket. OPTIONS > STEAM & DISCORD has both. See
 
 ## Running and packaging
 
+For native builds, see "Building native packages locally" in
+[development.md](development.md). The scripts under `build/native/` stage the
+unpacked folder (`build/native/stage.py`), build the Linux `.deb` and
+`.AppImage` (`build/native/package-linux.py`), build the Windows NSIS installer
+(`build/native/package-windows.py`), pack the headless Linux server archive
+(`build/native/server-archive.py`), pack the content-addressed update payload
+(`build/native/update-payload.py`), and verify every artifact
+(`build/native/check-packages.py`).
+
+For the Electron host:
+
 ```bash
 npm run desktop        # desktop build, then Electron on it
 npm run dev            # in one terminal, then:
@@ -519,11 +582,11 @@ into `dist/`, since `public/` holds the extractor's retail-derived output.
 `sides`, `common` or `audio`. Use `build:desktop`, not `build`, before
 packaging. Vite bundles three and three-mesh-bvh, so no `node_modules` ship.
 
-Targets (`electron-builder.yml`):
+Targets:
 
 | Platform | Output | Architectures |
 | --- | --- | --- |
-| Linux (Ubuntu, Omarchy) | AppImage and deb | x64, arm64 |
+| Linux (Ubuntu, Omarchy) | AppImage, deb and server `.tar.xz` | x64, arm64 |
 | Windows | NSIS installer | x64 |
 | macOS (experimental, not supported yet) | dmg and zip | x64, arm64 |
 
@@ -543,19 +606,22 @@ only when the repository defines the secrets `MAC_CSC_LINK` and
 notarizes only when it also defines `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
 and `APPLE_TEAM_ID`.
 
-`.github/workflows/release.yml` builds the official Windows and Linux preview
-packages on GitHub-hosted runners for every push to main that changes more
-than documentation, and attaches them to a GitHub release tagged `preview-N`.
-The project's release host then publishes that release to
-get.battlefronteternal.com with `build/publish-distribution.py`, which signs
-the APT repository and the update channel
-([desktop-updates.md](desktop-updates.md)); the signing keys never leave that
-host. A Windows installer without a code-signing certificate shows a
+`.github/workflows/release-native.yml` builds the native Windows (`windows-latest`
+MSVC `x64`) and Linux (`ubuntu-24.04` `x64` and `ubuntu-24.04-arm` `arm64`)
+desktop installers, dedicated server archives and update payloads with the
+pinned Rust toolchain (`1.99.0`, `--locked`), runs the native Rust and
+distribution test suites, verifies each package on its runner with
+`build/native/check-packages.py`, and publishes the release through
+`build/publish-distribution.py`. `.github/workflows/release.yml` performs the
+same release publication for the Electron packages until the Electron host is
+retired. A Windows installer without a code-signing certificate shows a
 SmartScreen warning.
 
 ## Network process
 
-Online play runs in a separate Electron utility process
+In the native client (`bfe-client`), UDP transport, session authentication and
+server discovery run directly in Rust. In the Electron host, online play runs
+in a separate Electron utility process
 (`electron/net-process.js`, started on demand by `electron/net-host.js`). It
 owns the UDP sockets and the player's identity key and runs the engine's
 native UDP transport (`src/net/`). Each battle gets a fresh MessageChannel:

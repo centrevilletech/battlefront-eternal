@@ -72,10 +72,12 @@ def safe_relative(value):
     return (isinstance(value, str) and 0 < len(value) <= 512
             and all(part not in ('', '.', '..') and SAFE_PART.fullmatch(part) for part in value.split('/')))
 
-# The dedicated server archive (build/server-archive.mjs, docs/server-updates.md):
-# its root entries, and files every archive holds.
-SERVER_ENTRIES = {'bfe-tree.json', 'host-runtime', 'legal', 'toolchain', 'tools'}
+# The dedicated server archive (build/server-archive.mjs, build/native/server-archive.py,
+# docs/server-updates.md): its root entries, and files every archive holds for
+# either the Electron/Node server or the native bfeserver binary.
+SERVER_ENTRIES = {'bfe-tree.json', 'bfeserver', 'host-runtime', 'legal', 'toolchain', 'tools'}
 SERVER_FILES = ('host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json')
+NATIVE_SERVER_FILES = ('bfeserver', 'tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json')
 
 def archive_relative(name):
     return isinstance(name, str) and '\x00' not in name and all(part not in ('', '.', '..') for part in name.split('/'))
@@ -84,6 +86,7 @@ def check_server_archive(path):
     """Only files, folders and links inside the server's own entries: nothing
     the archive could write outside the folder it is unpacked into."""
     names = set()
+    modes = {}
     with tarfile.open(path, 'r:xz') as archive:
         for member in archive:
             name = member.name[2:] if member.name.startswith('./') else member.name
@@ -95,10 +98,20 @@ def check_server_archive(path):
                     raise ValueError(f'Unsafe link {member.name} in {path.name}')
             elif not (member.isfile() or member.isdir()):
                 raise ValueError(f'Unexpected entry type for {member.name} in {path.name}')
+            if member.isfile():
+                modes[name] = member.mode
             names.add(name)
-    for file in SERVER_FILES:
-        if file not in names:
-            raise ValueError(f'{path.name} lacks {file}')
+    has_host_runtime = any(name == 'host-runtime' or name.startswith('host-runtime/') for name in names)
+    if 'bfeserver' in names and not has_host_runtime:
+        for file in NATIVE_SERVER_FILES:
+            if file not in names:
+                raise ValueError(f'{path.name} lacks {file}')
+        if not (modes.get('bfeserver', 0) & 0o111):
+            raise ValueError(f'bfeserver in {path.name} is not executable')
+    else:
+        for file in SERVER_FILES:
+            if file not in names:
+                raise ValueError(f'{path.name} lacks {file}')
 
 def zstd_digest(path):
     """SHA-256 of a zstd blob's decompressed contents (zstd also checks the
@@ -117,12 +130,18 @@ def check_tree(tree, platform, version):
     files = tree.get('files')
     if not safe_relative(tree.get('executable')) or not isinstance(files, list) or not files:
         raise ValueError(f'Malformed update manifest for {platform}')
+    by_path = {}
     for item in files:
         if (not isinstance(item, dict) or not safe_relative(item.get('path')) or not re.fullmatch(r'[a-f0-9]{64}', str(item.get('sha256')))
                 or not isinstance(item.get('size'), int) or not isinstance(item.get('zsize'), int) or item.get('mode') not in (0o644, 0o755)):
             raise ValueError(f'Malformed update manifest entry for {platform}')
-    if tree['executable'] not in {item['path'] for item in files}:
+        by_path[item['path']] = item
+    if tree['executable'] not in by_path or by_path[tree['executable']]['mode'] != 0o755:
         raise ValueError(f'Update manifest for {platform} has no executable')
+    if 'server_executable' in tree:
+        server_executable = tree.get('server_executable')
+        if not safe_relative(server_executable) or server_executable not in by_path or by_path[server_executable]['mode'] != 0o755:
+            raise ValueError(f'Update manifest for {platform} has an invalid server executable')
     for link in tree.get('links', []):
         target = link.get('target') if isinstance(link, dict) else None
         if not safe_relative(link.get('path')) or not isinstance(target, str) or target.startswith('/') or not safe_relative(
@@ -178,9 +197,13 @@ def ingest_updates(source, stage, version, release_id, store):
         packed = subprocess.run(['zstd', '-19', '-q', '-c'], input=json.dumps(tree).encode(), stdout=subprocess.PIPE, check=True).stdout
         name = f'update-{platform}.json.zst'
         (stage / name).write_bytes(packed)
-        platforms[platform] = {'manifest': f'{release_id}/{name}', 'sha256': hashlib.sha256(packed).hexdigest(),
-                               'files': len(tree['files']), 'size': sum(item['size'] for item in tree['files']),
-                               'download': sum(unique.values())}
+        entry = {'manifest': f'{release_id}/{name}', 'sha256': hashlib.sha256(packed).hexdigest(),
+                 'files': len(tree['files']), 'size': sum(item['size'] for item in tree['files']),
+                 'download': sum(unique.values())}
+        if 'server_executable' in tree:
+            entry['executable'] = tree['executable']
+            entry['server_executable'] = tree['server_executable']
+        platforms[platform] = entry
         content = content or tree.get('content')
     return platforms, content
 

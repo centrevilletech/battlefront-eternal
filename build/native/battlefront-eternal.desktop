@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Battlefront Eternal
+Comment=Star Wars Battlefront II (2005) preservation and remaster runtime
+Exec="/opt/Battlefront Eternal/bfe-client" %U
+Icon=battlefront-eternal
+Terminal=false
+Type=Application
+Categories=Game;ActionGame;
+StartupWMClass=battlefront-eternal

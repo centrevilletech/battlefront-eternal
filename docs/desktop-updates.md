@@ -1,32 +1,36 @@
 # Desktop updates
 
-The desktop client updates itself when it starts on Windows (x64) and Linux
-(x64 and arm64): no reinstall, no password, the same way on every
-distribution. macOS is not supported yet and does not self-update
-(`electron/update/state.js` lists the platforms that do). An update covers
-everything in the app: Electron, the main process, the interface, the
-engine, the hosting runtime and the preparation tools. Prepared game data
-is never part of an update; it is refreshed only when a release changes
-what preparation produces.
+The desktop client updates itself when it starts on Windows (`x64`) and Linux
+(`x64` and `arm64`): no reinstall, no password, the same way on every
+distribution. macOS is not supported yet and does not self-update. An update
+covers everything in the application tree: `bfe-client`, `bfeserver`, the
+preparation scripts in `resources/tools/`, the standalone Python and FFmpeg
+toolchain in `resources/toolchain/`, legal notices in `resources/legal/` and
+icons in `resources/assets/` (as well as Electron and `resources/app.asar` in
+Electron builds). Prepared game data is never part of an update; it is
+refreshed only when a release changes what preparation produces.
 
 ## On every launch
 
-1. **Hand-off** (`electron/boot.js`, before the app loads). If the
-   user's update folder holds a version newer than the executable that
-   started, that version starts with the same arguments and this one
-   exits once its window is up. The installed package stays as it is
-   (the Debian package, the AppImage or the Windows installation) and is
-   the fallback.
-2. **Check** (`electron/main.js`, under the loader). The client asks the
-   release feed of its channel for the newest release. Offline, or with
-   the feed unreachable, it starts as it is after at most 5 seconds (a
-   refused connection fails at once).
+1. **Hand-off** (before the main window opens). If the user's update folder
+   holds a healthy version newer than the executable that started, that
+   version starts with the same arguments and this one exits once its window
+   is up. The installed package stays as it is (the Debian package, the
+   AppImage or the Windows installation) and serves as the fallback.
+2. **Check** (under the loader). The client asks the release feed of its
+   channel (`downloads/updates/development-preview.json`) for the newest
+   release. Offline, or with the feed unreachable, it starts as it is after at
+   most 5 seconds (a refused connection fails at once).
 3. **Install.** Files of the new release that any build on this computer
-   already has are reused (hard links on Linux, copies on Windows); the
-   rest are downloaded and checked. A typical release changes `app.asar`
-   and the build's file index: about 2 MB instead of a 300 MB installer.
-   The loader shows the progress and a SKIP FOR NOW button. Retried
-   downloads failing three times show TRY AGAIN and PLAY WITHOUT UPDATING.
+   already has are reused by SHA-256 from `resources/bfe-tree.json` (hard
+   links on Linux, copies on Windows); the rest are downloaded from the
+   content-addressed blob store (`downloads/updates/blobs/<aa>/<sha256>.zst`),
+   decompressed with Zstandard and checked against their SHA-256 and size. On
+   a native build where the Python and FFmpeg toolchain has not changed, an
+   update downloads only the changed `bfe-client` and `bfeserver` binaries and
+   manifest metadata rather than a full installer. The loader shows the
+   progress and a SKIP FOR NOW button. Retried downloads failing three times
+   show TRY AGAIN and PLAY WITHOUT UPDATING.
 4. **Restart.** The new version starts and the old one exits once the new
    window is up. About 15 seconds later the new version counts as healthy.
    Linux launchers are pointed at it, and versions nothing needs are
@@ -59,7 +63,7 @@ stay in the user data folder (`~/.config/Battlefront Eternal`,
 `%APPDATA%\Battlefront Eternal`), which no version owns.
 
 The player's settings (profile name, options, bindings) are kept in
-`player-settings.json` there by the main process, not in the page's
+`player-settings.json` there by the host process, not in browser
 localStorage alone (`electron/player-settings.js`). Chromium locks
 localStorage to one process per user data folder. An update installed
 while the game runs starts the new version while the old one is still up:
@@ -67,22 +71,23 @@ the old one waits for the new window and, under Steam, stays until the
 game ends. A second process gets an empty, in-memory localStorage, so the
 new version used to start as PLAYER 1 with default options and lose
 whatever it saved. The boot hand-off has no such problem: its parent
-waits before Electron is ready and holds no lock. The initial version with
+waits before the runtime is ready and holds no lock. The initial version with
 the file moves localStorage's settings into it. If that version was
 itself started by an update, it writes only the player's own changes
 until the next launch can read localStorage again.
 
 ### Debian and Ubuntu
 
-The package installs `/opt/Battlefront Eternal`, owned by root, with an
+The package installs `/opt/Battlefront Eternal`, owned by root, with symlinks
+in `/usr/bin/battlefront-eternal`, `/usr/bin/bfe-client` and
+`/usr/bin/bfeserver`. Native builds need no Chromium user-namespace sandbox or
+AppArmor profile. On Electron builds, `/opt/Battlefront Eternal` includes an
 AppArmor profile that allows user namespaces for that executable (Ubuntu
-24.04 denies them otherwise). A version started from it inherits the
-profile, so Chromium's sandbox works for versions in the user's folder
-too; this was verified on Ubuntu 24.04 with
-`apparmor_restrict_unprivileged_userns=1`. Where user namespaces are off
-entirely, the package's `chrome-sandbox` is setuid root and the started
-version uses it (`CHROME_DEVEL_SANDBOX`); versions in the user's folder
-never carry their own `chrome-sandbox`. `apt upgrade` still works: a newer
+24.04 denies them otherwise), and a version started from it inherits the
+profile. Native Linux builds also include a relative
+`battlefront-eternal -> bfe-client` symlink inside the version folder so
+existing launchers and `.desktop` entries continue to resolve across an update
+from an Electron build to a native build. `apt upgrade` still works: a newer
 package simply becomes the newest version.
 
 ### AppImage
@@ -92,17 +97,18 @@ repository, not in this one. It writes `~/.local/bin/battlefront-eternal`,
 which ran the AppImage unpacked on every start (for FUSE 3-only systems such
 as Omarchy). The app rewrites that launcher, and its own `battlefront`, to
 start `current` directly when there is one, and the AppImage otherwise.
-Where user namespaces are unavailable, the launcher adds `--no-sandbox`,
-as the AppImage's own launcher does. A version started from an AppImage
-gets none of the AppImage mount's paths (`PATH`, `LD_LIBRARY_PATH` and the
-rest disappear with the mount); the AppImage stays known as
-`BFE_APPIMAGE`.
+A version started from an AppImage gets none of the AppImage mount's paths
+(`PATH`, `LD_LIBRARY_PATH` and the rest disappear with the mount); the
+AppImage stays known as `BFE_APPIMAGE`.
 
 ### Windows
 
-The installer is per user; updates go beside it in the local application
-data folder, which needs no administrator rights. Uninstalling removes
-them (`build/installer.nsh`) and keeps the game data.
+The NSIS installer is per user (`%LOCALAPPDATA%\Programs\Battlefront Eternal`);
+updates go beside it in `%LOCALAPPDATA%\Battlefront Eternal`, which needs no
+administrator rights. Uninstalling removes `versions`, `launches`,
+`state.json` and `update.log` (`build/native/installer.nsi`,
+`build/installer.nsh`) unless invoked with `/updated`, and keeps the player's
+settings, saves and prepared game data in `%APPDATA%\Battlefront Eternal`.
 
 ## Trust
 
@@ -112,13 +118,14 @@ execution.
 
 - The channel file `downloads/updates/<channel>.json` is an envelope: the
   release JSON (version, release id, content generations and, per
-  platform, the manifest's path and SHA-256), its Ed25519 signature and
+  platform, the manifest's path, SHA-256, `executable`, optional
+  `server_executable`, file count and total size), its Ed25519 signature and
   the key id (the initial 16 hex digits of the SHA-256 of the public key's
   SubjectPublicKeyInfo).
 - Each platform's manifest (`downloads/<release>/update-<platform>.json.zst`)
   lists every file with its size, SHA-256, compressed size and mode, plus
-  links and empty folders. Paths and link targets must stay inside the
-  version folder.
+  links and empty folders. Both `executable` and `server_executable` (when
+  present) must be relative paths inside the version folder with mode `0755`.
 - Files come from a content-addressed store,
   `downloads/updates/blobs/<aa>/<sha256>.zst`, named by the SHA-256 of
   their contents. Each download is decompressed, hashed and sized before
@@ -138,8 +145,8 @@ the old key, then switch.
   then tries the next newest version, down to the installed package. After
   two such failures a version is set aside, and the feed is not asked for
   it again; a newer release clears the way.
-- Until its window is up, an error in the main process ends the run with a
-  logged reason instead of Electron's error dialog, so whatever started it
+- Until its window is up, an error during startup ends the run with a
+  logged reason instead of a blocking modal dialog, so whatever started it
   can carry on.
 - Collection keeps the running version, newer ones waiting for their first
   launch, the newest healthy version older than the running one, and any
@@ -152,36 +159,37 @@ the old key, then switch.
 A release's channel file names its content generations
 (`tools/content-version.json`). When they differ from the running
 version's, the loader says the game data is refreshed after the update.
-The new version's normal startup check (`electron/prepare.js:
-preparedFor`) then prepares again, and `tools/prepare.py` reruns only the
-steps the changed generations invalidate. Everything else is kept.
+The new version's normal startup check then prepares again, and
+`tools/prepare.py` reruns only the steps the changed generations invalidate.
+Everything else is kept.
 
 ## Release pipeline
 
-`.github/workflows/release.yml` builds the packages and update payloads and
-attaches them to a GitHub release tagged `preview-N`; the project's release
-host then signs and publishes that release. The scripts involved:
+`.github/workflows/release-native.yml` (and `.github/workflows/release.yml`
+for Electron builds) builds the packages and update payloads and attaches
+the public installers and server archives to a GitHub release tagged
+`preview-N`; the project's release host then signs and publishes that release.
+The scripts involved:
 
 - Every packaged build records its own files in `resources/bfe-tree.json`
-  (`build/tree-index.cjs`, after packing and again after signing).
-- `build/update-payload.mjs` turns each unpacked app (`linux-unpacked`,
-  `linux-arm64-unpacked`, `win-unpacked`) into `update-<platform>.tar`:
-  the manifest plus the files the store does not hold yet. The store's
-  `blobs.json` lists what it holds. Files are zstd level 19, told their
-  size; files over 32 MB use level 12. The initial payload of a platform
-  carries everything (about 250 MB, 1.5 minutes on an 8-core machine);
-  later ones carry only what changed. zstd's own worker threads are not
-  used: Node 22's asynchronous zstd writes empty frames with them, and
-  Electron's Node refuses them.
-- `build/check-update.mjs` has the packaged runtime of a platform, Windows
-  included, install its own build from its payload, check every file and
-  run the installed copy.
+  (`build/native/stage.py` for native builds, `build/tree-index.cjs` for
+  Electron builds).
+- `build/native/update-payload.py` (or `build/update-payload.mjs`) turns each
+  unpacked app (`linux-unpacked`, `linux-arm64-unpacked`, `win-unpacked`)
+  into `update-<platform>.tar`: `update-<platform>.json` plus the compressed
+  blobs the store does not hold yet. The store's `blobs.json` lists what it
+  holds (`sha256` to compressed byte size). Files up to 32 MB use Zstandard
+  level 19; files over 32 MB use level 12.
+- `build/native/check-packages.py` (and `build/check-update.mjs` for Electron)
+  verifies the unpacked tree, installers, server archive and update payload on
+  the runner, runs `bfe-client --help`, `bfeserver --help` and the bundled
+  Python interpreter, and reports package sizes.
 - `build/publish-distribution.py` checks every new blob against its name,
   adds it to the store and writes each platform's manifest into the
   release. After the release is live, it signs and replaces the channel
   file atomically, then deletes blobs no retained release lists.
-- `release.yml` sets `bfeUpdateChannel` (`development-preview`) in the
-  packaged `package.json`. Local builds have no channel and never update
+- Official release builds embed `resources/bfe-release.json` with channel
+  `development-preview`. Local builds without a release channel never update
   themselves or replace an installation.
 
 ## Measured

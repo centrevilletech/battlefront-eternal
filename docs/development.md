@@ -33,7 +33,7 @@ The extractor reads the game as Steam installs it, copied whole into `data/game/
 - `public/common/`: the soldier animations and effects from `Common/common.lvl`, and the HUD's fonts and text from `core.lvl`;
 - `public/audio/`: the battle's sound, its sound sub-level's samples and settings and the streams (music, voice-over, ambience) its mission opens.
 
-Set `BFE_GAME_DIR` to read a Steam installation in place (the folder holding `GameData`, see `tools/zero_paths.py`). The Electron client is covered in `docs/desktop.md`.
+Set `BFE_GAME_DIR` to read a Steam installation in place (the folder holding `GameData`, see `tools/zero_paths.py`). The desktop client is covered in `docs/desktop.md`.
 
 `docs/formats.md` describes what it reads. `docs/audio.md` covers the sound: the Original (2004) and Enhanced (2026) modes, speaker and headphone setup, and the optional upscaling.
 
@@ -268,14 +268,97 @@ them), `rust/three` (the three.js math subset the simulation uses), `rust/jsrt`
 (per-phase replays of recorded battles, [docs/sim-replay.md](sim-replay.md)).
 
 `rust/glbench` and `rust/bfe-native` are development measuring tools.
-`rust/bfe-client` is a separate native window, input, network and audio host
-(winit, glutin, cpal). It joins online servers with `--join`, inspects
-prepared maps with `--map`, and replays version-2 recorded sessions through
-the shared Rust presentation and renderer. It is not the packaged Electron
-launcher; modes and limitations are in [native-client.md](native-client.md).
+`rust/bfe-client` is the native desktop window, input, network and audio host
+(winit, glutin, cpal). It runs the front-end menus and loader, joins online
+servers with `--join`, inspects prepared maps with `--map`, and replays
+version-2 recorded sessions through the shared Rust presentation and renderer;
+see [native-client.md](native-client.md) and [desktop.md](desktop.md).
 `rust/bfe-node` is a development-only Node-API addon, built with
 `npm run host:addon` and not included in release bundles; the dedicated
-server steps battles in the WebAssembly instance ([docs/node-host.md](node-host.md)).
+server is built natively as `bfeserver` or steps battles in the WebAssembly
+instance ([docs/node-host.md](node-host.md)).
+
+## Building native packages locally
+
+Native desktop installers, dedicated server archives and update payloads are
+built from the compiled `bfe-client` and `bfeserver` binaries, the Python
+preparation scripts in `tools/`, the per-platform standalone toolchain fetched
+by `build/fetch-toolchain.mjs`, and the legal notices in `LICENSE`,
+`THIRD-PARTY-NOTICES.md` and `licenses/`.
+
+1. Compile `bfe-client` and `bfeserver` in release mode with the pinned Rust
+   toolchain (`1.99.0`):
+
+   ```bash
+   cargo build --manifest-path rust/Cargo.toml --release --locked --bin bfe-client --bin bfeserver
+   ```
+
+2. Fetch the standalone Python, FFmpeg and KTX-Software toolchain for the
+   target platform (`linux x64`, `linux arm64` or `win x64`):
+
+   ```bash
+   node build/fetch-toolchain.mjs linux x64
+   ```
+
+3. Stage the unpacked application directory (`dist/native/linux-unpacked`,
+   `dist/native/linux-arm64-unpacked` or `dist/native/win-unpacked`) and write
+   its `resources/bfe-tree.json` manifest:
+
+   ```bash
+   python3 build/native/stage.py \
+     --platform linux-x64 \
+     --client-bin rust/target/release/bfe-client \
+     --server-bin rust/target/release/bfeserver \
+     --toolchain-dir toolchain/linux-x64 \
+     --out-dir dist/native/linux-unpacked
+   ```
+
+4. Build the platform packages, dedicated server archive and update payload:
+
+   ```bash
+   # Linux (.deb, .AppImage, server .tar.xz and update-linux-x64.tar)
+   python3 build/native/package-linux.py \
+     --staged-dir dist/native/linux-unpacked \
+     --platform linux-x64 \
+     --version 0.1.0-preview.local \
+     --out-dir dist/native/packages
+   python3 build/native/server-archive.py \
+     --staged-dir dist/native/linux-unpacked \
+     --platform linux-x64 \
+     --version 0.1.0-preview.local \
+     --out-dir dist/native/packages
+   python3 build/native/update-payload.py \
+     --tree dist/native/linux-unpacked \
+     --platform linux-x64 \
+     --version 0.1.0-preview.local \
+     --out dist/native/packages/update-linux-x64.tar
+
+   # Windows (NSIS installer and update-win32-x64.tar)
+   python build/native/package-windows.py \
+     --staged-dir dist/native/win-unpacked \
+     --version 0.1.0-preview.local \
+     --out-dir dist/native/packages
+   python build/native/update-payload.py \
+     --tree dist/native/win-unpacked \
+     --platform win32-x64 \
+     --version 0.1.0-preview.local \
+     --out dist/native/packages/update-win32-x64.tar
+   ```
+
+5. Run `build/native/check-packages.py` to unpack or install each package,
+   smoke-test `bfe-client --help`, `bfeserver --help` and the bundled Python
+   interpreter, verify `bfe-tree.json` against the files on disk, and print the
+   package size report:
+
+   ```bash
+   python3 build/native/check-packages.py \
+     --platform linux-x64 \
+     --staged-dir dist/native/linux-unpacked \
+     --deb dist/native/packages/Battlefront-Eternal-0.1.0-preview.local-linux-amd64.deb \
+     --appimage dist/native/packages/Battlefront-Eternal-0.1.0-preview.local-linux-x86_64.AppImage \
+     --server-archive dist/native/packages/battlefront-eternal-server_0.1.0-preview.local_linux-amd64.tar.xz \
+     --update-payload dist/native/packages/update-linux-x64.tar
+   ```
 
 `rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have. `rust/v8math-check` compares it with V8, natively and as WebAssembly, and should run again whenever the server's Node or C library changes:
 
@@ -290,7 +373,7 @@ node v8math-check/check-wasm.mjs --chunks 0..64 --jobs 8 all             # the s
 
 Each chunk is 2^20 inputs made from bit patterns; the comments at the top of `v8math-check/src/main.rs` and `check-wasm.mjs` give the options. `target/release/v8math-check --bench` and `node v8math-check/bench.mjs` time the functions natively, as WebAssembly and in V8 itself.
 
-Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
+Because the WebAssembly is committed, building, testing and packaging the browser and Electron builds needs no Rust. Changing the Rust crates needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
 
 ```bash
 cargo install wasm-bindgen-cli --version 0.2.130 --locked
@@ -302,7 +385,7 @@ npm run rust:check    # rebuild all and compare with the committed files
 
 Commit the rebuilt files with the Rust change that made them; `npm run rust:check` before committing a change under `rust/` fails if one is out of date. After a merge, rebuild them rather than merging their lines (`.gitattributes` makes Git keep one side of a generated file that conflicts). A new toolchain or wasm-bindgen version changes the bytes as well, so commit the rebuilt files with it.
 
-CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `bfe-presentation`, `bfe-pose`, `bfe-environment`, `audio-control`, `content`, `v8math`, `audio` and `audio-decode`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.
+CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `bfe-presentation`, `bfe-pose`, `bfe-environment`, `audio-control`, `content`, `v8math`, `audio` and `audio-decode`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The Electron release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer. Native desktop and server packages are built and verified by `.github/workflows/release-native.yml`.
 
 ### Native CI (`.github/workflows/ci-native.yml`)
 
