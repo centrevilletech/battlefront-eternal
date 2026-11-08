@@ -1,3 +1,264 @@
+export class BfeDepthMarker {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        BfeDepthMarkerFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_bfedepthmarker_free(ptr, 0);
+    }
+    /**
+     * @param {Float64Array | number[]} cameras
+     * @param {number} role
+     */
+    begin_camera(cameras, role) {
+        const val2 = +role;
+        const ptr0 = passArrayF64ToWasm0(cameras, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bfedepthmarker_begin_camera(this.__wbg_ptr, ptr0, len0, val2);
+    }
+    finish() {
+        wasm.bfedepthmarker_finish(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    key_len() {
+        const ret = wasm.bfedepthmarker_key_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    key_ptr() {
+        const ret = wasm.bfedepthmarker_key_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.bfedepthmarker_new();
+        this.__wbg_ptr = ret;
+        BfeDepthMarkerFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_len() {
+        const ret = wasm.bfedepthmarker_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.bfedepthmarker_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    request() {
+        const ret = wasm.bfedepthmarker_request(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    screen_len() {
+        const ret = wasm.bfedepthmarker_screen_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    screen_ptr() {
+        const ret = wasm.bfedepthmarker_screen_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) BfeDepthMarker.prototype[Symbol.dispose] = BfeDepthMarker.prototype.free;
+
+export class BfePoseHistory {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        BfePoseHistoryFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_bfeposehistory_free(ptr, 0);
+    }
+    commit_frame() {
+        wasm.bfeposehistory_commit_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    current_len() {
+        const ret = wasm.bfeposehistory_current_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    current_ptr() {
+        const ret = wasm.bfeposehistory_current_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    flyer_frame() {
+        const ret = wasm.bfeposehistory_flyer_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {boolean} stepped
+     * @returns {number}
+     */
+    flyer_sample_frame(id, stepped) {
+        const ret = wasm.bfeposehistory_flyer_sample_frame(this.__wbg_ptr, id, stepped);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} skin
+     * @param {Float64Array | number[]} bind
+     * @returns {number}
+     */
+    model_frame(skin, bind) {
+        const val2 = +skin;
+        const ptr0 = passArrayF64ToWasm0(bind, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bfeposehistory_model_frame(this.__wbg_ptr, val2, ptr0, len0);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.bfeposehistory_new();
+        this.__wbg_ptr = ret;
+        BfePoseHistoryFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    poses_len() {
+        const ret = wasm.bfeposehistory_poses_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    poses_ptr() {
+        const ret = wasm.bfeposehistory_poses_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    prepare_frame(count) {
+        wasm.bfeposehistory_prepare_frame(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    records_len() {
+        const ret = wasm.bfeposehistory_records_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    records_ptr() {
+        const ret = wasm.bfeposehistory_records_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     */
+    release_frame(id) {
+        wasm.bfeposehistory_release_frame(this.__wbg_ptr, id);
+    }
+    /**
+     * @param {number} id
+     */
+    reset_frame(id) {
+        wasm.bfeposehistory_reset_frame(this.__wbg_ptr, id);
+    }
+    /**
+     * @param {number} id
+     * @param {number} skin
+     */
+    reskin_frame(id, skin) {
+        wasm.bfeposehistory_reskin_frame(this.__wbg_ptr, id, skin);
+    }
+    /**
+     * @returns {number}
+     */
+    selected_len() {
+        const ret = wasm.bfeposehistory_selected_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    selected_ptr() {
+        const ret = wasm.bfeposehistory_selected_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    sequence() {
+        const ret = wasm.bfeposehistory_sequence(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     * @returns {number}
+     */
+    skin_frame(count) {
+        const ret = wasm.bfeposehistory_skin_frame(this.__wbg_ptr, count);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @returns {number}
+     */
+    skin_start(id) {
+        const ret = wasm.bfeposehistory_skin_start(this.__wbg_ptr, id);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     * @param {Float64Array} input
+     * @param {Float32Array} bones
+     * @param {Float32Array} previous
+     */
+    write_frame(count, input, bones, previous) {
+        const val4 = +count;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArrayF64ToWasm0(input, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(bones, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF32ToWasm0(previous, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 8, 8); }
+            throw e;
+        }
+        wasm.bfeposehistory_write_frame(this.__wbg_ptr, val4, ptr0, len0, input, ptr1, len1, bones, ptr2, len2, previous);
+    }
+}
+if (Symbol.dispose) BfePoseHistory.prototype[Symbol.dispose] = BfePoseHistory.prototype.free;
+
 export class BfeRenderer {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -500,6 +761,12 @@ export class BfeRenderer {
         const ret = wasm.bferenderer_camera_acquire_frame(this.__wbg_ptr);
         return ret;
     }
+    /**
+     * @param {number} role
+     */
+    camera_canopy_view_frame(role) {
+        wasm.bferenderer_camera_canopy_view_frame(this.__wbg_ptr, role);
+    }
     camera_cascades_frame() {
         wasm.bferenderer_camera_cascades_frame(this.__wbg_ptr);
     }
@@ -516,6 +783,50 @@ export class BfeRenderer {
      */
     camera_copy_frame(from, to) {
         wasm.bferenderer_camera_copy_frame(this.__wbg_ptr, from, to);
+    }
+    /**
+     * @param {number} role
+     */
+    camera_depth_begin_frame(role) {
+        wasm.bferenderer_camera_depth_begin_frame(this.__wbg_ptr, role);
+    }
+    camera_depth_finish_frame() {
+        wasm.bferenderer_camera_depth_finish_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_depth_key_len() {
+        const ret = wasm.bferenderer_camera_depth_key_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_depth_key_ptr() {
+        const ret = wasm.bferenderer_camera_depth_key_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_depth_marker_len() {
+        const ret = wasm.bferenderer_camera_depth_marker_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_depth_marker_ptr() {
+        const ret = wasm.bferenderer_camera_depth_marker_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    camera_depth_request_frame() {
+        const ret = wasm.bferenderer_camera_depth_request_frame(this.__wbg_ptr);
+        return ret !== 0;
     }
     /**
      * @param {number} role
@@ -543,6 +854,12 @@ export class BfeRenderer {
     camera_extra_handles_ptr() {
         const ret = wasm.bferenderer_camera_extra_handles_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} role
+     */
+    camera_foliage_view_frame(role) {
+        wasm.bferenderer_camera_foliage_view_frame(this.__wbg_ptr, role);
     }
     camera_global_shader_frame() {
         wasm.bferenderer_camera_global_shader_frame(this.__wbg_ptr);
@@ -637,6 +954,14 @@ export class BfeRenderer {
         return ret !== 0;
     }
     /**
+     * @param {Float64Array | number[]} bounds
+     */
+    camera_mirror_bounds_frame(bounds) {
+        const ptr0 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_camera_mirror_bounds_frame(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * @returns {number}
      */
     camera_mirror_len() {
@@ -649,6 +974,16 @@ export class BfeRenderer {
     camera_mirror_ptr() {
         const ret = wasm.bferenderer_camera_mirror_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    camera_mirror_visibility_frame() {
+        wasm.bferenderer_camera_mirror_visibility_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {boolean}
+     */
+    camera_mirrored_frame() {
+        const ret = wasm.bferenderer_camera_mirrored_frame(this.__wbg_ptr);
+        return ret !== 0;
     }
     /**
      * @returns {number}
@@ -728,6 +1063,32 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} count
+     */
+    camera_placement_frame(count) {
+        wasm.bferenderer_camera_placement_frame(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_placement_len() {
+        const ret = wasm.bferenderer_camera_placement_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_placement_ptr() {
+        const ret = wasm.bferenderer_camera_placement_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} role
+     */
+    camera_post_facts_frame(role) {
+        wasm.bferenderer_camera_post_facts_frame(this.__wbg_ptr, role);
+    }
+    /**
      * @param {number} slot
      */
     camera_probe_frame(slot) {
@@ -735,6 +1096,26 @@ export class BfeRenderer {
     }
     camera_project_frame() {
         wasm.bferenderer_camera_project_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} role
+     */
+    camera_projection_view_frame(role) {
+        wasm.bferenderer_camera_projection_view_frame(this.__wbg_ptr, role);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_projection_view_len() {
+        const ret = wasm.bferenderer_camera_projection_view_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_projection_view_ptr() {
+        const ret = wasm.bferenderer_camera_projection_view_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     camera_reflect_frame() {
         wasm.bferenderer_camera_reflect_frame(this.__wbg_ptr);
@@ -749,6 +1130,46 @@ export class BfeRenderer {
     }
     camera_restore_frame() {
         wasm.bferenderer_camera_restore_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} root
+     * @param {number} generation
+     * @param {number} role
+     * @param {number} source
+     * @param {number} source_generation
+     * @param {boolean} view
+     * @param {number} now
+     * @param {number} handle
+     */
+    camera_scene_lights_frame(root, generation, role, source, source_generation, view, now, handle) {
+        wasm.bferenderer_camera_scene_lights_frame(this.__wbg_ptr, root, generation, role, source, source_generation, view, now, handle);
+    }
+    /**
+     * @param {number} role
+     * @param {boolean} follow
+     */
+    camera_scene_sky_frame(role, follow) {
+        wasm.bferenderer_camera_scene_sky_frame(this.__wbg_ptr, role, follow);
+    }
+    camera_scene_sky_restore_frame() {
+        wasm.bferenderer_camera_scene_sky_restore_frame(this.__wbg_ptr);
+    }
+    camera_scene_sky_save_frame() {
+        wasm.bferenderer_camera_scene_sky_save_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} role
+     */
+    camera_scene_uniform_frame(id, generation, role) {
+        wasm.bferenderer_camera_scene_uniform_frame(this.__wbg_ptr, id, generation, role);
+    }
+    /**
+     * @param {number} role
+     */
+    camera_scene_view_frame(role) {
+        wasm.bferenderer_camera_scene_view_frame(this.__wbg_ptr, role);
     }
     /**
      * @param {number} role
@@ -789,6 +1210,18 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {Uint32Array | number[]} nodes
+     * @param {number} single
+     * @param {number} generation
+     */
+    camera_sky_nodes_frame(nodes, single, generation) {
+        const val2 = +single;
+        const val3 = +generation;
+        const ptr0 = passArray32ToWasm0(nodes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_camera_sky_nodes_frame(this.__wbg_ptr, ptr0, len0, val2, val3);
+    }
+    /**
      * @returns {number}
      */
     camera_sky_ptr() {
@@ -800,6 +1233,60 @@ export class BfeRenderer {
      */
     camera_static_shadow_frame(index) {
         wasm.bferenderer_camera_static_shadow_frame(this.__wbg_ptr, index);
+    }
+    /**
+     * @param {boolean} uv
+     */
+    camera_uniform_frame(uv) {
+        wasm.bferenderer_camera_uniform_frame(this.__wbg_ptr, uv);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_uniform_input_len() {
+        const ret = wasm.bferenderer_camera_uniform_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_uniform_input_ptr() {
+        const ret = wasm.bferenderer_camera_uniform_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_uniform_output_len() {
+        const ret = wasm.bferenderer_camera_uniform_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_uniform_output_ptr() {
+        const ret = wasm.bferenderer_camera_uniform_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} role
+     */
+    camera_unit_view_frame(role) {
+        wasm.bferenderer_camera_unit_view_frame(this.__wbg_ptr, role);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_unit_view_len() {
+        const ret = wasm.bferenderer_camera_unit_view_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_unit_view_ptr() {
+        const ret = wasm.bferenderer_camera_unit_view_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -2212,6 +2699,13 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} role
+     * @param {number} view
+     */
+    motion_camera_frame(role, view) {
+        wasm.bferenderer_motion_camera_frame(this.__wbg_ptr, role, view);
+    }
+    /**
      * @param {number} program
      * @param {number} geometry
      * @param {number} max
@@ -2254,6 +2748,147 @@ export class BfeRenderer {
     motion_extras_ptr() {
         const ret = wasm.bferenderer_motion_extras_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    motion_history_commit_frame() {
+        wasm.bferenderer_motion_history_commit_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_current_len() {
+        const ret = wasm.bferenderer_motion_history_current_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_current_ptr() {
+        const ret = wasm.bferenderer_motion_history_current_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_flyer_frame() {
+        const ret = wasm.bferenderer_motion_history_flyer_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {boolean} stepped
+     * @returns {number}
+     */
+    motion_history_flyer_sample_frame(id, stepped) {
+        const ret = wasm.bferenderer_motion_history_flyer_sample_frame(this.__wbg_ptr, id, stepped);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} skin
+     * @param {Float64Array | number[]} bind
+     * @returns {number}
+     */
+    motion_history_model_frame(skin, bind) {
+        const val2 = +skin;
+        const ptr0 = passArrayF64ToWasm0(bind, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_motion_history_model_frame(this.__wbg_ptr, val2, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_poses_len() {
+        const ret = wasm.bferenderer_motion_history_poses_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_poses_ptr() {
+        const ret = wasm.bferenderer_motion_history_poses_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    motion_history_prepare_frame(count) {
+        wasm.bferenderer_motion_history_prepare_frame(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_records_len() {
+        const ret = wasm.bferenderer_motion_history_records_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_records_ptr() {
+        const ret = wasm.bferenderer_motion_history_records_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     */
+    motion_history_release_frame(id) {
+        wasm.bferenderer_motion_history_release_frame(this.__wbg_ptr, id);
+    }
+    /**
+     * @param {number} id
+     */
+    motion_history_reset_frame(id) {
+        wasm.bferenderer_motion_history_reset_frame(this.__wbg_ptr, id);
+    }
+    /**
+     * @param {number} id
+     * @param {number} skin
+     */
+    motion_history_reskin_frame(id, skin) {
+        wasm.bferenderer_motion_history_reskin_frame(this.__wbg_ptr, id, skin);
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_selected_len() {
+        const ret = wasm.bferenderer_motion_history_selected_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_selected_ptr() {
+        const ret = wasm.bferenderer_motion_history_selected_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_history_sequence() {
+        const ret = wasm.bferenderer_motion_history_sequence(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     * @returns {number}
+     */
+    motion_history_skin_frame(count) {
+        const ret = wasm.bferenderer_motion_history_skin_frame(this.__wbg_ptr, count);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @returns {number}
+     */
+    motion_history_skin_start(id) {
+        const ret = wasm.bferenderer_motion_history_skin_start(this.__wbg_ptr, id);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    motion_history_write_frame(count) {
+        wasm.bferenderer_motion_history_write_frame(this.__wbg_ptr, count);
     }
     /**
      * @returns {number}
@@ -2381,6 +3016,55 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} family
+     * @param {number} cascades
+     * @param {boolean} lamps
+     * @param {boolean} shadows
+     */
+    prepare_begin_frame(family, cascades, lamps, shadows) {
+        wasm.bferenderer_prepare_begin_frame(this.__wbg_ptr, family, cascades, lamps, shadows);
+    }
+    /**
+     * @param {number} family
+     * @param {number} cascades
+     * @param {boolean} lamps
+     * @param {boolean} shadows
+     * @returns {string}
+     */
+    prepare_keys_frame(family, cascades, lamps, shadows) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.bferenderer_prepare_keys_frame(this.__wbg_ptr, family, cascades, lamps, shadows);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {string}
+     */
+    prepare_next_frame() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.bferenderer_prepare_next_frame(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
      * @param {WebGL2RenderingContext} context
      * @param {GpuResources} resources
      * @param {Uint32Array | number[]} textures
@@ -2414,6 +3098,21 @@ export class BfeRenderer {
     recovery_commands() {
         const ret = wasm.bferenderer_recovery_commands(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    renderer_diagnostics_frame() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.bferenderer_renderer_diagnostics_frame(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * @param {number} id
@@ -2456,6 +3155,18 @@ export class BfeRenderer {
         } finally {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    scene_actor_depth_sources_frame() {
+        wasm.bferenderer_scene_actor_depth_sources_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} skin
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} serial
+     */
+    scene_actor_skin_frame(skin, id, generation, serial) {
+        wasm.bferenderer_scene_actor_skin_frame(this.__wbg_ptr, skin, id, generation, serial);
     }
     /**
      * @returns {number}
@@ -2597,6 +3308,14 @@ export class BfeRenderer {
         wasm.bferenderer_scene_groups_reserve(this.__wbg_ptr, count);
     }
     /**
+     * @param {number} count
+     * @returns {number}
+     */
+    scene_instances_frame(count) {
+        const ret = wasm.bferenderer_scene_instances_frame(this.__wbg_ptr, count);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     scene_lines_len() {
@@ -2611,6 +3330,15 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} id
+     * @param {number} generation
+     * @returns {boolean}
+     */
+    scene_mirrored_frame(id, generation) {
+        const ret = wasm.bferenderer_scene_mirrored_frame(this.__wbg_ptr, id, generation);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     scene_motion_events_len() {
@@ -2623,6 +3351,34 @@ export class BfeRenderer {
     scene_motion_events_ptr() {
         const ret = wasm.bferenderer_scene_motion_events_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} record
+     * @param {number} id
+     * @param {number} generation
+     */
+    scene_motion_locked_frame(record, id, generation) {
+        wasm.bferenderer_scene_motion_locked_frame(this.__wbg_ptr, record, id, generation);
+    }
+    /**
+     * @param {number} skin
+     * @param {number} id
+     * @param {number} generation
+     * @returns {number}
+     */
+    scene_motion_model_frame(skin, id, generation) {
+        const ret = wasm.bferenderer_scene_motion_model_frame(this.__wbg_ptr, skin, id, generation);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} slot
+     * @param {number} generation
+     * @returns {boolean}
+     */
+    scene_motion_source_frame(id, slot, generation) {
+        const ret = wasm.bferenderer_scene_motion_source_frame(this.__wbg_ptr, id, slot, generation);
+        return ret !== 0;
     }
     /**
      * @returns {number}
@@ -2653,6 +3409,151 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} root
+     * @param {number} generation
+     * @param {number} owner
+     * @param {number} maximum
+     * @returns {number}
+     */
+    scene_place_frame(root, generation, owner, maximum) {
+        const ret = wasm.bferenderer_scene_place_frame(this.__wbg_ptr, root, generation, owner, maximum);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_place_output_len() {
+        const ret = wasm.bferenderer_scene_place_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_place_output_ptr() {
+        const ret = wasm.bferenderer_scene_place_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_point_changes_len() {
+        const ret = wasm.bferenderer_scene_point_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_point_changes_ptr() {
+        const ret = wasm.bferenderer_scene_point_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     */
+    scene_point_root_frame(id, generation) {
+        wasm.bferenderer_scene_point_root_frame(this.__wbg_ptr, id, generation);
+    }
+    /**
+     * @param {number} count
+     */
+    scene_points_apply_frame(count) {
+        wasm.bferenderer_scene_points_apply_frame(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_frame() {
+        const ret = wasm.bferenderer_scene_pose_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_len() {
+        const ret = wasm.bferenderer_scene_pose_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_ptr() {
+        const ret = wasm.bferenderer_scene_pose_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} owner
+     * @param {number} owner_generation
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} node_start
+     * @param {number} node_count
+     * @param {number} skin_start
+     * @param {number} skin_count
+     * @returns {boolean}
+     */
+    scene_pose_register(owner, owner_generation, id, generation, node_start, node_count, skin_start, skin_count) {
+        const ret = wasm.bferenderer_scene_pose_register(this.__wbg_ptr, owner, owner_generation, id, generation, node_start, node_count, skin_start, skin_count);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} owner
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} skin
+     * @returns {number}
+     */
+    scene_pose_skin_offset(owner, id, generation, skin) {
+        const ret = wasm.bferenderer_scene_pose_skin_offset(this.__wbg_ptr, owner, id, generation, skin);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} owner
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} skin
+     * @param {number} node
+     * @param {number} bind
+     * @param {Uint32Array | number[]} bones
+     * @param {Float64Array | number[]} inverses
+     * @returns {boolean}
+     */
+    scene_pose_skin_register(owner, id, generation, skin, node, bind, bones, inverses) {
+        const val3 = +owner;
+        const val4 = +id;
+        const val5 = +generation;
+        const val6 = +skin;
+        const val7 = +node;
+        const val8 = +bind;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(bones, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(inverses, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_scene_pose_skin_register(this.__wbg_ptr, val3, val4, val5, val6, val7, val8, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_skins_len() {
+        const ret = wasm.bferenderer_scene_pose_skins_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_skins_ptr() {
+        const ret = wasm.bferenderer_scene_pose_skins_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     scene_queries() {
@@ -2673,6 +3574,30 @@ export class BfeRenderer {
         wasm.bferenderer_scene_reserve(this.__wbg_ptr, count);
     }
     /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @param {number} w
+     * @param {number} order
+     */
+    scene_rotation_frame(x, y, z, w, order) {
+        wasm.bferenderer_scene_rotation_frame(this.__wbg_ptr, x, y, z, w, order);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_rotation_len() {
+        const ret = wasm.bferenderer_scene_rotation_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_rotation_ptr() {
+        const ret = wasm.bferenderer_scene_rotation_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} changes
      * @param {number} groups
      * @param {number} worlds
@@ -2681,6 +3606,188 @@ export class BfeRenderer {
     scene_select(changes, groups, worlds) {
         const ret = wasm.bferenderer_scene_select(this.__wbg_ptr, changes, groups, worlds);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {Uint32Array | number[]} bones
+     * @param {Uint32Array | number[]} generations
+     * @param {Float64Array | number[]} inverses
+     * @param {Uint32Array | number[]} controls
+     * @returns {boolean}
+     */
+    scene_skeleton_register(id, generation, bones, generations, inverses, controls) {
+        const val5 = +id;
+        const val6 = +generation;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passArray32ToWasm0(bones, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(generations, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF64ToWasm0(inverses, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passArray32ToWasm0(controls, wasm.__wbindgen_malloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 4, 4); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_scene_skeleton_register(this.__wbg_ptr, val5, val6, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} count
+     * @param {number} words
+     */
+    scene_skin_admit_frame(id, generation, count, words) {
+        wasm.bferenderer_scene_skin_admit_frame(this.__wbg_ptr, id, generation, count, words);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_skin_admit_len() {
+        const ret = wasm.bferenderer_scene_skin_admit_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_skin_admit_ptr() {
+        const ret = wasm.bferenderer_scene_skin_admit_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {boolean} advance
+     * @returns {number}
+     */
+    scene_stamp_frame(advance) {
+        const ret = wasm.bferenderer_scene_stamp_frame(this.__wbg_ptr, advance);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} stamp
+     */
+    scene_stamp_set_frame(stamp) {
+        wasm.bferenderer_scene_stamp_set_frame(this.__wbg_ptr, stamp);
+    }
+    /**
+     * @param {number} changes
+     * @param {number} groups
+     * @param {number} worlds
+     * @param {number} transforms
+     */
+    scene_transform_apply_frame(changes, groups, worlds, transforms) {
+        wasm.bferenderer_scene_transform_apply_frame(this.__wbg_ptr, changes, groups, worlds, transforms);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_changes_len() {
+        const ret = wasm.bferenderer_scene_transform_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_changes_ptr() {
+        const ret = wasm.bferenderer_scene_transform_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_frame() {
+        const ret = wasm.bferenderer_scene_transform_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_phase_len() {
+        const ret = wasm.bferenderer_scene_transform_phase_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_phase_ptr() {
+        const ret = wasm.bferenderer_scene_transform_phase_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_updates() {
+        const ret = wasm.bferenderer_scene_transform_updates(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_values_len() {
+        const ret = wasm.bferenderer_scene_transform_values_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_values_ptr() {
+        const ret = wasm.bferenderer_scene_transform_values_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_visits() {
+        const ret = wasm.bferenderer_scene_transform_visits(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_frame() {
+        const ret = wasm.bferenderer_scene_tree_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_info_len() {
+        const ret = wasm.bferenderer_scene_tree_info_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_info_ptr() {
+        const ret = wasm.bferenderer_scene_tree_info_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_input_len() {
+        const ret = wasm.bferenderer_scene_tree_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_input_ptr() {
+        const ret = wasm.bferenderer_scene_tree_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} words
+     */
+    scene_tree_reserve(words) {
+        wasm.bferenderer_scene_tree_reserve(this.__wbg_ptr, words);
     }
     /**
      * @returns {number}
@@ -3586,6 +4693,32 @@ export class BfeScene {
         return ret >>> 0;
     }
     /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {Float32Array} out
+     * @param {number} count
+     * @param {Float64Array | number[]} visibility
+     * @returns {boolean}
+     */
+    scene_copy_skin_frame(id, generation, out, count, visibility) {
+        const val3 = +id;
+        const val4 = +generation;
+        const val5 = +count;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArrayF32ToWasm0(out, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(visibility, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bfescene_scene_copy_skin_frame(this.__wbg_ptr, val3, val4, ptr0, len0, out, val5, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     scene_facts_len() {
@@ -3620,6 +4753,30 @@ export class BfeScene {
         wasm.bfescene_scene_groups_reserve(this.__wbg_ptr, count);
     }
     /**
+     * @param {Float64Array} input
+     * @param {Float32Array} bones
+     * @param {number} count
+     * @param {number} base
+     * @returns {number}
+     */
+    scene_instances_frame(input, bones, count, base) {
+        const val3 = +count;
+        const val4 = +base;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArrayF64ToWasm0(input, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(bones, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 8, 8); }
+            throw e;
+        }
+        const ret = wasm.bfescene_scene_instances_frame(this.__wbg_ptr, ptr0, len0, input, ptr1, len1, bones, val3, val4);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     scene_lines_len() {
@@ -3646,6 +4803,44 @@ export class BfeScene {
     scene_motion_events_ptr() {
         const ret = wasm.bfescene_scene_motion_events_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} record
+     * @param {number} id
+     * @param {number} generation
+     * @param {Float64Array} input
+     */
+    scene_motion_locked_frame(record, id, generation, input) {
+        const val2 = +record;
+        const val3 = +id;
+        const val4 = +generation;
+        var ptr0 = passArrayF64ToWasm0(input, wasm.__wbindgen_malloc);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.bfescene_scene_motion_locked_frame(this.__wbg_ptr, val2, val3, val4, ptr0, len0, input);
+    }
+    /**
+     * @param {BfePoseHistory} history
+     * @param {number} skin
+     * @param {number} id
+     * @param {number} generation
+     * @returns {number}
+     */
+    scene_motion_model_frame(history, skin, id, generation) {
+        _assertClass(history, BfePoseHistory);
+        const ret = wasm.bfescene_scene_motion_model_frame(this.__wbg_ptr, history.__wbg_ptr, skin, id, generation);
+        return ret >>> 0;
+    }
+    /**
+     * @param {BfePoseHistory} history
+     * @param {number} id
+     * @param {number} slot
+     * @param {number} generation
+     * @returns {boolean}
+     */
+    scene_motion_source_frame(history, id, slot, generation) {
+        _assertClass(history, BfePoseHistory);
+        const ret = wasm.bfescene_scene_motion_source_frame(this.__wbg_ptr, history.__wbg_ptr, id, slot, generation);
+        return ret !== 0;
     }
     /**
      * @returns {number}
@@ -3676,6 +4871,151 @@ export class BfeScene {
         return ret >>> 0;
     }
     /**
+     * @param {number} root
+     * @param {number} generation
+     * @param {number} owner
+     * @param {number} maximum
+     * @returns {number}
+     */
+    scene_place_frame(root, generation, owner, maximum) {
+        const ret = wasm.bfescene_scene_place_frame(this.__wbg_ptr, root, generation, owner, maximum);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_place_output_len() {
+        const ret = wasm.bfescene_scene_place_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_place_output_ptr() {
+        const ret = wasm.bfescene_scene_place_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_point_changes_len() {
+        const ret = wasm.bfescene_scene_point_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_point_changes_ptr() {
+        const ret = wasm.bfescene_scene_point_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     */
+    scene_point_root_frame(id, generation) {
+        wasm.bfescene_scene_point_root_frame(this.__wbg_ptr, id, generation);
+    }
+    /**
+     * @param {number} count
+     */
+    scene_points_apply_frame(count) {
+        wasm.bfescene_scene_points_apply_frame(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_frame() {
+        const ret = wasm.bfescene_scene_pose_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_len() {
+        const ret = wasm.bfescene_scene_pose_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_ptr() {
+        const ret = wasm.bfescene_scene_pose_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} owner
+     * @param {number} owner_generation
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} node_start
+     * @param {number} node_count
+     * @param {number} skin_start
+     * @param {number} skin_count
+     * @returns {boolean}
+     */
+    scene_pose_register(owner, owner_generation, id, generation, node_start, node_count, skin_start, skin_count) {
+        const ret = wasm.bfescene_scene_pose_register(this.__wbg_ptr, owner, owner_generation, id, generation, node_start, node_count, skin_start, skin_count);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} owner
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} skin
+     * @returns {number}
+     */
+    scene_pose_skin_offset(owner, id, generation, skin) {
+        const ret = wasm.bfescene_scene_pose_skin_offset(this.__wbg_ptr, owner, id, generation, skin);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} owner
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} skin
+     * @param {number} node
+     * @param {number} bind
+     * @param {Uint32Array | number[]} bones
+     * @param {Float64Array | number[]} inverses
+     * @returns {boolean}
+     */
+    scene_pose_skin_register(owner, id, generation, skin, node, bind, bones, inverses) {
+        const val3 = +owner;
+        const val4 = +id;
+        const val5 = +generation;
+        const val6 = +skin;
+        const val7 = +node;
+        const val8 = +bind;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(bones, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(inverses, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bfescene_scene_pose_skin_register(this.__wbg_ptr, val3, val4, val5, val6, val7, val8, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_skins_len() {
+        const ret = wasm.bfescene_scene_pose_skins_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_skins_ptr() {
+        const ret = wasm.bfescene_scene_pose_skins_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     scene_queries() {
@@ -3689,6 +5029,30 @@ export class BfeScene {
         wasm.bfescene_scene_reserve(this.__wbg_ptr, count);
     }
     /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @param {number} w
+     * @param {number} order
+     */
+    scene_rotation_frame(x, y, z, w, order) {
+        wasm.bfescene_scene_rotation_frame(this.__wbg_ptr, x, y, z, w, order);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_rotation_len() {
+        const ret = wasm.bfescene_scene_rotation_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_rotation_ptr() {
+        const ret = wasm.bfescene_scene_rotation_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} changes
      * @param {number} groups
      * @param {number} worlds
@@ -3697,6 +5061,188 @@ export class BfeScene {
     scene_select(changes, groups, worlds) {
         const ret = wasm.bfescene_scene_select(this.__wbg_ptr, changes, groups, worlds);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {Uint32Array | number[]} bones
+     * @param {Uint32Array | number[]} generations
+     * @param {Float64Array | number[]} inverses
+     * @param {Uint32Array | number[]} controls
+     * @returns {boolean}
+     */
+    scene_skeleton_register(id, generation, bones, generations, inverses, controls) {
+        const val5 = +id;
+        const val6 = +generation;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passArray32ToWasm0(bones, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(generations, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF64ToWasm0(inverses, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passArray32ToWasm0(controls, wasm.__wbindgen_malloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 4, 4); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bfescene_scene_skeleton_register(this.__wbg_ptr, val5, val6, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} count
+     * @param {number} words
+     */
+    scene_skin_admit_frame(id, generation, count, words) {
+        wasm.bfescene_scene_skin_admit_frame(this.__wbg_ptr, id, generation, count, words);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_skin_admit_len() {
+        const ret = wasm.bfescene_scene_skin_admit_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_skin_admit_ptr() {
+        const ret = wasm.bfescene_scene_skin_admit_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} changes
+     * @param {number} groups
+     * @param {number} worlds
+     * @param {number} transforms
+     */
+    scene_transform_apply_frame(changes, groups, worlds, transforms) {
+        wasm.bfescene_scene_transform_apply_frame(this.__wbg_ptr, changes, groups, worlds, transforms);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_changes_len() {
+        const ret = wasm.bfescene_scene_transform_changes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_changes_ptr() {
+        const ret = wasm.bfescene_scene_transform_changes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_frame() {
+        const ret = wasm.bfescene_scene_transform_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_phase_len() {
+        const ret = wasm.bfescene_scene_transform_phase_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_phase_ptr() {
+        const ret = wasm.bfescene_scene_transform_phase_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_updates() {
+        const ret = wasm.bfescene_scene_transform_updates(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_values_len() {
+        const ret = wasm.bfescene_scene_transform_values_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_values_ptr() {
+        const ret = wasm.bfescene_scene_transform_values_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_transform_visits() {
+        const ret = wasm.bfescene_scene_transform_visits(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_frame() {
+        const ret = wasm.bfescene_scene_tree_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_info_len() {
+        const ret = wasm.bfescene_scene_tree_info_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_info_ptr() {
+        const ret = wasm.bfescene_scene_tree_info_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_input_len() {
+        const ret = wasm.bfescene_scene_tree_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    scene_tree_input_ptr() {
+        const ret = wasm.bfescene_scene_tree_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} words
+     */
+    scene_tree_reserve(words) {
+        wasm.bfescene_scene_tree_reserve(this.__wbg_ptr, words);
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     * @param {Float64Array} input
+     * @returns {boolean}
+     */
+    scene_uniform_world_frame(id, generation, input) {
+        const val2 = +id;
+        const val3 = +generation;
+        var ptr0 = passArrayF64ToWasm0(input, wasm.__wbindgen_malloc);
+        var len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bfescene_scene_uniform_world_frame(this.__wbg_ptr, val2, val3, ptr0, len0, input);
+        return ret !== 0;
     }
     /**
      * @returns {number}
@@ -3742,6 +5288,67 @@ export class BfeScene {
     }
 }
 if (Symbol.dispose) BfeScene.prototype[Symbol.dispose] = BfeScene.prototype.free;
+
+export class BfeUniformTransforms {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        BfeUniformTransformsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_bfeuniformtransforms_free(ptr, 0);
+    }
+    /**
+     * @param {boolean} uv
+     */
+    frame(uv) {
+        wasm.bfeuniformtransforms_frame(this.__wbg_ptr, uv);
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.bfeuniformtransforms_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.bfeuniformtransforms_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    mirrored() {
+        const ret = wasm.bfeuniformtransforms_mirrored(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    constructor() {
+        const ret = wasm.bfeuniformtransforms_new();
+        this.__wbg_ptr = ret;
+        BfeUniformTransformsFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_len() {
+        const ret = wasm.bfeuniformtransforms_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.bfeuniformtransforms_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) BfeUniformTransforms.prototype[Symbol.dispose] = BfeUniformTransforms.prototype.free;
 
 export class GpuResources {
     __destroy_into_raw() {
@@ -3795,6 +5402,17 @@ export class GpuResources {
             throw takeFromExternrefTable0(ret[1]);
         }
         return ret[0] >>> 0;
+    }
+    /**
+     * @param {number} r
+     * @param {number} g
+     * @param {number} b
+     * @param {number} alpha
+     * @param {boolean} premultiply
+     * @param {number} mask
+     */
+    clear(r, g, b, alpha, premultiply, mask) {
+        wasm.gpuresources_clear(this.__wbg_ptr, r, g, b, alpha, premultiply, mask);
     }
     /**
      * @param {number} source
@@ -4558,6 +6176,26 @@ export function fabric_description(authored) {
 }
 
 /**
+ * @param {number} family
+ * @param {number} cascades
+ * @param {boolean} lamps
+ * @param {boolean} shadows
+ * @returns {string}
+ */
+export function program_warmup_keys(family, cascades, lamps, shadows) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.program_warmup_keys(family, cascades, lamps, shadows);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * @param {WebGL2RenderingContext} gl
  * @returns {number}
  */
@@ -4649,6 +6287,9 @@ function __wbg_get_imports() {
             const v = arg0;
             const ret = typeof(v) === 'boolean' ? v : undefined;
             return isLikeNone(ret) ? 0xFFFFFF : ret ? 1 : 0;
+        },
+        __wbg___wbindgen_copy_to_typed_array_680b191e71920dc1: function(arg0, arg1, arg2) {
+            new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
         },
         __wbg___wbindgen_debug_string_f249a2a76caa9a55: function(arg0, arg1) {
             const ret = debugString(arg1);
@@ -5535,12 +7176,21 @@ function __wbg_get_imports() {
     };
 }
 
+const BfeDepthMarkerFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_bfedepthmarker_free(ptr, 1));
+const BfePoseHistoryFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_bfeposehistory_free(ptr, 1));
 const BfeRendererFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_bferenderer_free(ptr, 1));
 const BfeSceneFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_bfescene_free(ptr, 1));
+const BfeUniformTransformsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_bfeuniformtransforms_free(ptr, 1));
 const GpuResourcesFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_gpuresources_free(ptr, 1));

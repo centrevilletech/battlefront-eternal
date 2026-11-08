@@ -27,13 +27,16 @@ pub mod input {
     pub const LIGHT_LAYERS: usize = 884;
     pub const VIEW_WORLD: usize = 885;
     pub const SHADOW_METADATA: usize = 901;
-    pub const ORTHOGRAPHIC: usize = 925;
-    pub const ORTHO_BOUNDS: usize = 926;
-    pub const HAS_PARENT: usize = 930;
-    pub const PARENT_WORLD: usize = 931;
-    pub const LOCAL_MATRIX: usize = 947;
-    pub const USE_LOCAL_MATRIX: usize = 963;
-    pub const LEN: usize = 964;
+    pub const WATER_FADE: usize = 925;
+    pub const WATER_REACH: usize = 927;
+    pub const FAR_REACH: usize = 928;
+    pub const ORTHOGRAPHIC: usize = 929;
+    pub const ORTHO_BOUNDS: usize = 930;
+    pub const HAS_PARENT: usize = 934;
+    pub const PARENT_WORLD: usize = 935;
+    pub const LOCAL_MATRIX: usize = 951;
+    pub const USE_LOCAL_MATRIX: usize = 967;
+    pub const LEN: usize = 968;
 }
 pub mod camera {
     pub const POSITION: usize = 0;
@@ -86,7 +89,9 @@ pub mod mirror {
     pub const CLIP: usize = 1;
     pub const PROJECTION: usize = 5;
     pub const REFLECTION: usize = 21;
-    pub const LEN: usize = 37;
+    pub const VISIBLE: usize = 37;
+    pub const FAR_VISIBLE: usize = 38;
+    pub const LEN: usize = 39;
 }
 pub mod lens {
     pub const FOV: usize = 0;
@@ -160,6 +165,65 @@ pub mod shader_frame {
     pub const PADDING: usize = 71;
     pub const LIGHTS: usize = 72;
     pub const LEN: usize = 200;
+}
+pub mod history_pose {
+    pub const WORLD: usize = 0;
+    pub const INVERSE: usize = 16;
+    pub const LEN: usize = 32;
+}
+pub mod placement {
+    pub const POSITION: usize = 0;
+    pub const HIDDEN: usize = 3;
+    pub const LEN: usize = 4;
+}
+pub mod uniform_input {
+    pub const WORLD: usize = 0;
+    pub const VIEW: usize = 16;
+    pub const PROJECTION: usize = 32;
+    pub const EYE: usize = 48;
+    pub const UV: usize = 51;
+    pub const LEN: usize = 58;
+}
+pub mod uniform_output {
+    pub const WORLD: usize = 0;
+    pub const VIEW: usize = 16;
+    pub const PROJECTION: usize = 32;
+    pub const MODEL_VIEW: usize = 48;
+    pub const NORMAL: usize = 64;
+    pub const UV: usize = 73;
+    pub const EYE: usize = 82;
+    pub const LEN: usize = 85;
+}
+pub mod point_change {
+    pub const SLOT: usize = 0;
+    pub const GENERATION: usize = 1;
+    pub const COLOR: usize = 2;
+    pub const INTENSITY: usize = 5;
+    pub const RANGE: usize = 6;
+    pub const LEN: usize = 7;
+}
+pub mod depth_key {
+    pub const GROUP: usize = 0;
+    pub const ORDER: usize = 1;
+    pub const CENTER: usize = 2;
+    pub const ID: usize = 5;
+    pub const LEN: usize = 6;
+}
+pub mod depth_marker {
+    pub const MATRIX: usize = 0;
+    pub const GROUP: usize = 16;
+    pub const ORDER: usize = 17;
+    pub const REQUESTS: usize = 18;
+    pub const VISIBLE: usize = 19;
+    pub const LEN: usize = 20;
+}
+pub mod unit_view {
+    pub const PLANES: usize = 0;
+    pub const LEN: usize = 24;
+}
+pub mod history_receipt {
+    pub const STILL: usize = 1;
+    pub const CONSUMED: usize = 2;
 }
 pub mod light_command {
     pub const SEED: usize = 0;
@@ -287,5 +351,8 @@ pub mod limit {
     pub const SKY: usize = 256;
     pub const RAW_LIGHTS: usize = 1024;
     pub const PACKS: usize = 128;
+    pub const HISTORY_MODELS: usize = 131072;
+    pub const HISTORY_BONES: usize = 262144;
+    pub const PLACEMENT_ROOTS: usize = 4096;
     pub const EXTRA_CAMERAS: usize = 64;
 }

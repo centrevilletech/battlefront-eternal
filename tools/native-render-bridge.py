@@ -193,6 +193,14 @@ for module in ['static_world','static_depth']:
     source=re.sub(r'\s*self\.remember_\w+\([^\n]*\); // recovery\s*','\n',source)
     source=source.replace('JsValue::from_str','String::from').replace('JsValue','String')
     if module=='static_world':
+        # Browser loss resumes a previously journaled call. Native contexts
+        # admit directly; both wrappers use the same descriptor compiler below.
+        body=next(body for name,_,_,body in functions(source) if name=='static_world')
+        source=source.replace(body,"""
+        let resource=self.compile_static_world(source,far_view,low_res_scale,samplers,features,order,slot,object,None)?;
+        self.static_worlds.push(resource);
+        Ok(resource.item)
+"""+"    ",1)
         source=source.replace('self.static_worlds.push(resource);','self.static_recipes.push(super::StaticRecipe{source,far_view,low_res_scale,samplers:samplers.to_vec(),order,slot,object}); self.static_worlds.push(resource);')
         start=source.index('        let saved=std::mem::take(&mut self.recovery);')
         end=source.index('        result',start)+len('        result')

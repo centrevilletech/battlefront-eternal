@@ -1,3 +1,4 @@
+import {InstanceRecord as IR,PoseInstanceFlags as PF} from "./pose-layout.js";
 // Actor pose nodes carry no geometry/material shells. Rust retains source,
 // appearance, group and sampler descriptors; this publisher supplies matrices,
 // skins, per-object lighting/heat and the existing scene ordering identities.
@@ -12,11 +13,10 @@ const NO_HEAT={heat:0,base:0,scale:1,soot:0,tear:new THREE.Vector4(0,0,0,.3),dis
 export function writeActor(core,record,ctx){
  if(ctx.records>=256){core.skip(record.node,record.appearance,'actor instance capacity');return;}
  const node=record.node,skeleton=node.skeleton;let boneAt=0,count=0;
- if(skeleton){count=skeleton.bones.length;boneAt=ctx.skeletons.get(skeleton);if(boneAt===undefined){if(ctx.bones+count>core.bones.length/16){core.skip(node,record.appearance,'actor bone capacity');return;}skeleton.update();boneAt=ctx.bones;ctx.skeletons.set(skeleton,boneAt);ctx.bones+=count;core.bones.set(skeleton.actorPoseSkin||skeleton.boneMatrices,boneAt*16);}}
+ if(skeleton){count=skeleton.bones.length;boneAt=ctx.skeletons.get(skeleton);if(boneAt===undefined){if(ctx.bones+count>core.bones.length/16){core.skip(node,record.appearance,'actor bone capacity');return;}boneAt=ctx.bones;ctx.skeletons.set(skeleton,boneAt);ctx.bones+=count;}}
  const input=core.input,at=core.recordsAt+ctx.records*core.stride;
  input[at+R.PROGRAM]=record.handle;input[at+R.GEOMETRY]=ACTOR.KIND.RETAINED;input[at+R.BONES]=count;input[at+R.BONE_AT]=boneAt;
- input.set(node.matrixWorld.elements,at+R.WORLD);
- if(skeleton){input.set(node.bindMatrix.elements,at+R.BIND);input.set(node.bindMatrixInverse.elements,at+R.BIND_INVERSE);}
+ const native=core.registry.admitIfNew(node);input[at+IR.SOURCE_SLOT]=native?.slot??0xffffffff;input[at+IR.SOURCE_GENERATION]=native?.generation??0;input[at+IR.SOURCE_FLAGS]=PF.WORLD|(skeleton?PF.SKIN:0);
  const sphere=node.boundingSphere;input[at+R.SPHERE]=sphere.center.x;input[at+R.SPHERE+1]=sphere.center.y;input[at+R.SPHERE+2]=sphere.center.z;input[at+R.SPHERE+3]=sphere.radius;
  const look=record.look.values,heat=record.heated?(node.userData.heated||NO_HEAT):null;
  if(heat){input[at+R.LOOK]=heat.sun;input[at+R.LOOK+1]=heat.darken;input[at+R.LOOK+2]=heat.lighten;input[at+R.LOOK+3]=heat.brightness;}else for(let i=0;i<4;i++)input[at+R.LOOK+i]=look[i];

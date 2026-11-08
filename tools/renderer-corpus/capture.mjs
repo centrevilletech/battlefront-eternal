@@ -162,14 +162,6 @@ try {
    const hash=async data=> {const digest=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');};
    const text=s=>new TextEncoder().encode(s);
    const shaders=[],programs=[];
-   for(const p of R.info.programs || []) {
-     const attributes=[],uniforms=[];
-     for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_ATTRIBUTES);i++){const a=gl.getActiveAttrib(p.program,i);attributes.push({name:a.name,type:a.type,size:a.size,location:gl.getAttribLocation(p.program,a.name)});}
-     for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_UNIFORMS);i++){const u=gl.getActiveUniform(p.program,i);uniforms.push({name:u.name,type:u.type,size:u.size});}
-     const stages=[];
-     for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
-     programs.push({key:p.cacheKey,stages,attributes,uniforms});
-   }
    // Keep disposed warm programs in the inventory as well as live materials.
    // The tracker starts before application loading, so warm-up cannot hide a variant.
    const linkedPrograms=[];

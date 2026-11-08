@@ -40,7 +40,6 @@ export function interfaceFixture(g, assert) {
     renderer.setRenderTarget(target); renderer.setClearColor(0,0); renderer.clear();
     renderInterface(renderer,scene,camera,'spawn-holomap');
     renderInterface(renderer,preview,camera,'classic-spawn');
-    g.rust.settle();
     const data = new Uint8Array(64*64*4);
     renderer.readRenderTargetPixels(target,0,0,64,64,data);
     renderer.setRenderTarget(previous);
@@ -75,7 +74,6 @@ export async function shellInterfaceFixture(assert) {
   const pixels = () => {
     renderer.setClearColor(0,0); renderer.clear();
     surface.drawFrame(batch=>batch.quad(matrix,0,0,1024,surface.height,surface.solid,[0,0,1,1],[.25,.5,.75,1]));
-    core.settle();
     const gl=renderer.getContext(),data=new Uint8Array(64*64*4);
     gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,data);
     if(gl.getError())throw Error('Shell fixture GL error');

@@ -5,8 +5,13 @@ use crate::math::{self, Frustum, Mat4};
 #[path = "scene_layout.rs"]
 pub mod layout;
 use layout::{scene_fact as fact, scene_facts_header as header, scene_family as family, scene_capacity as capacity, scene_flags as flags, scene_mode as mode,
-    scene_node as row, scene_world_change as world_change, scene_group as group, scene_line_header as line_header, scene_motion_header as mh, scene_motion_event as me, scene_motion_kind as mk, scene_selection as selected, scene_view as view};
+    scene_node as row, scene_pose_ref as pose_ref, scene_world_change as world_change, scene_group as group, scene_line_header as line_header, scene_motion_header as mh, scene_motion_event as me, scene_motion_kind as mk, scene_selection as selected, scene_view as view};
 use std::cmp::Ordering;
+mod transforms;
+mod pose_join;
+mod skeletons;
+mod point_lights;
+mod placements;
 
 // Near/view/shadow selection has a small set of root/layer policies. One
 // retained traversal per scene root records authored topology once; each
@@ -28,10 +33,11 @@ struct Node {
     previous: usize,
     lod_visible: bool,
     motion_detached: u16, motion_cleared: bool,
+    pose_slot:usize,pose_next:usize,
 }
 impl Default for Node {
     fn default() -> Self {
-        Self { data: [0.; row::STRIDE], parent: NONE, first: NONE, next: NONE, previous: NONE, lod_visible: true, motion_detached:0, motion_cleared:false }
+        Self { data: [0.; row::STRIDE], parent: NONE, first: NONE, next: NONE, previous: NONE, lod_visible: true, motion_detached:0, motion_cleared:false,pose_slot:NONE,pose_next:NONE }
     }
 }
 
@@ -81,6 +87,12 @@ impl View {
 // Persistent scratch is reserved with the content. A paused producer coalesces
 // each touched identity, so queue volume is bounded by admitted nodes, not time.
 pub struct SceneRegistry {
+    pub skin_admit:Vec<f32>,
+    pub place_output:Vec<u32>,
+    pub points:point_lights::PointLights,
+    pub skeletons:skeletons::Skeletons,
+    pub transforms:transforms::Transforms,
+    pub poses:crate::scene_pose::ScenePoses,
     pub canopies: crate::scene_canopies::CanopySelection,
     nodes: Vec<Node>,
     hot: Vec<Hot>,
@@ -125,6 +137,7 @@ impl SceneRegistry {
     pub fn new(count: usize) -> Self {
         let count = count.clamp(1, capacity::NODES);
         Self {
+            skin_admit:Vec::new(),place_output:vec![0;crate::scene_pose_layout::pose_limits::MODELS],points:point_lights::PointLights::new(count),skeletons:Default::default(),transforms:transforms::Transforms::new(count),poses:Default::default(),
             canopies: Default::default(),
             nodes: vec![Node::default(); count],
             hot: vec![Hot::default(); count],
@@ -156,6 +169,7 @@ impl SceneRegistry {
     pub fn reserve(&mut self, count: usize) {
         let count = count.min(capacity::NODES);
         if count <= self.nodes.len() { return; }
+        self.transforms.reserve(count);self.points.reserve(count);
         self.nodes.resize(count, Node::default());
         self.hot.resize(count, Hot::default());
         self.authored.resize(count.div_ceil(32),0);
@@ -212,6 +226,27 @@ impl SceneRegistry {
         }
     }
 
+    pub fn world(&self,id:usize)->Option<Mat4>{
+        let n=self.nodes.get(id)?;let p=&n.data[row::POSE..row::POSE+pose_ref::STRIDE];
+        if p[pose_ref::OWNER]==0.{return self.transforms.world(id,n.data[row::GENERATION]).or_else(||n.data[row::WORLD..row::WORLD+16].try_into().ok());}
+        let owner=index(p[pose_ref::OWNER],crate::scene_pose_layout::pose_limits::OWNERS)?;
+        let model=index(p[pose_ref::ID],crate::scene_pose_layout::pose_limits::MODELS)?;
+        let generation=p[pose_ref::GENERATION];if !generation.is_finite()||generation<1.||generation>u32::MAX as f64||generation.fract()!=0.{return None;}
+        let node=index(p[pose_ref::NODE_START],crate::scene_pose_layout::pose_limits::SOURCE_NODES)?;
+        if let Some(pose)=self.poses.node(owner,model,generation as u32,node){return Some(pose.world);}
+        // Hidden actors can enter an aggregate skin before their first lazy
+        // placement. Their qualified cold bind world remains authoritative.
+        self.poses.slot(owner,model,generation as u32,node)?;
+        self.transforms.world(id,n.data[row::GENERATION]).or_else(||n.data[row::WORLD..row::WORLD+16].try_into().ok())
+    }
+    pub fn pose_ref(&self,id:usize,generation:f64)->Option<[f64;pose_ref::STRIDE]>{
+        if !generation.is_finite()||generation<1.||generation.fract()!=0.||generation>u32::MAX as f64{return None;}
+        let n=self.nodes.get(id)?;if n.data[row::GENERATION]!=generation||bits(n.data[row::FLAGS])&flags::ALIVE==0{return None;}
+        let pose=&n.data[row::POSE..row::POSE+pose_ref::STRIDE];
+        if pose.iter().any(|v|!v.is_finite()||*v<0.||v.fract()!=0.||*v>u32::MAX as f64){return None;}
+        pose.try_into().ok()
+    }
+
     // Generated rows are copied once per scene phase. Every imported length and
     // handle is validated here; malformed or stale rows leave their owner intact.
     pub fn apply(&mut self, count: usize) {
@@ -223,6 +258,7 @@ impl SceneRegistry {
             let generation = data[row::GENERATION];
             if !generation.is_finite() || generation < 1. || generation>u32::MAX as f64 || generation.fract() != 0.
                 || generation < self.nodes[id].data[row::GENERATION] { self.rejected += 1; continue; }
+            if let Some(world)=self.transforms.world(id,generation){data[row::WORLD..row::WORLD+16].copy_from_slice(&world); }
             // Object3D.remove may leave descendants retained for pooling.
             // Retiring the root must suppress that old subtree immediately;
             // it does not require walking or deleting its resource children.
@@ -278,9 +314,23 @@ impl SceneRegistry {
             h.generation=generation;h.resource=data[row::RESOURCE];h.render_order=data[row::RENDER_ORDER];
             h.object_id=data[row::OBJECT_ID];h.material_id=data[row::MATERIAL_ID];
             h.range=[data[row::RANGE],data[row::RANGE+1],data[row::RANGE+2]];
+            if authored_changed {self.set_authored(id);}
+            let p=&data[row::POSE..row::POSE+pose_ref::STRIDE];
+            let source=self.poses.slot(p[pose_ref::OWNER] as usize,p[pose_ref::ID] as usize,p[pose_ref::GENERATION] as u32,p[pose_ref::NODE_START] as usize).unwrap_or(NONE);
+            if source!=self.nodes[id].pose_slot {
+                let old=self.nodes[id].pose_slot;
+                if let Some(head)=self.poses.heads.get_mut(old){
+                    let mut at=*head;let mut previous=NONE;
+                    for _ in 0..self.nodes.len(){if at==NONE{break;}if at==id{let next=self.nodes[at].pose_next;if previous==NONE{*head=next;}else{self.nodes[previous].pose_next=next;}break;}previous=at;at=self.nodes[at].pose_next;}
+                }
+                self.nodes[id].pose_slot=source;self.nodes[id].pose_next=NONE;
+                if let Some(head)=self.poses.heads.get_mut(source){self.nodes[id].pose_next=*head;*head=id;}
+            }
+            if source!=NONE {if let Some(world)=self.poses.arena_world(source).copied(){self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&world);self.transforms.import_world(id,&world,generation);}}
+
             if bounds_changed && bits(data[row::FAMILIES])!=0 {self.refresh_bounds(id);}
             if relink && alive && parent != NONE { self.link(id, parent); }
-            if authored_changed {self.set_authored(id);}
+            if authored_changed||relink{self.transform_dirty(id);}
         }
     }
     // Object3D.visible or an LOD level choice, as one bit per node. Queries
@@ -290,6 +340,24 @@ impl SceneRegistry {
         if self.visible(id) {self.authored[id/32]|=bit;} else {self.authored[id/32]&=!bit;}
     }
 
+    // Changed native worlds refresh only qualified drawing subscribers.
+    pub fn pose_frame(&mut self)->usize{
+        let count=self.poses.apply();
+        for i in 0..self.poses.changed.len(){
+            let source=self.poses.changed[i];let Some(world)=self.poses.arena_world(source).copied()else{continue;};
+            let mut id=self.poses.heads[source];
+            for _ in 0..self.nodes.len(){if id==NONE{break;}self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&world);self.transforms.import_world(id,&world,self.nodes[id].data[row::GENERATION]);if bits(self.nodes[id].data[row::FAMILIES])!=0{self.refresh_bounds(id);}id=self.nodes[id].pose_next;}
+        }
+        count
+    }
+
+    pub fn tree_frame(&mut self)->usize{
+        let count=self.poses.import_stream();
+        for i in 0..self.poses.changed.len(){
+            let source=self.poses.changed[i];let Some(world)=self.poses.arena_world(source).copied()else{continue;};let mut id=self.poses.heads[source];
+            for _ in 0..self.nodes.len(){if id==NONE{break;}self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&world);self.transforms.import_world(id,&world,self.nodes[id].data[row::GENERATION]);if bits(self.nodes[id].data[row::FAMILIES])!=0{self.refresh_bounds(id);}id=self.nodes[id].pose_next;}
+        }count
+    }
     // RetainedScene.flush changes descriptor or pose rows independently. A
     // matrix update cannot invalidate every root's visibility and layer list.
     fn invalidate_visibility(&mut self) {
@@ -327,6 +395,7 @@ impl SceneRegistry {
             let from=at+world_change::WORLD;
             if (0..16).all(|k|self.world_changes[from+k].to_bits()==self.nodes[id].data[row::WORLD+k].to_bits()){continue;}
             self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&self.world_changes[from..from+16]);
+            let world=self.nodes[id].data[row::WORLD..row::WORLD+16].try_into().unwrap_or(IDENTITY);self.transforms.import_world(id,&world,self.nodes[id].data[row::GENERATION]);
             if bits(self.nodes[id].data[row::FAMILIES])!=0{self.refresh_bounds(id);}
         }
     }
@@ -724,11 +793,12 @@ impl SceneRegistry {
         }
         if advance {self.nodes[id].motion_detached=0;}
         let source=self.nodes[id].data[row::MOTION_SOURCE] as usize;
-        let world=&self.nodes[source].data;let far=self.nodes[id].data[row::MOTION_FAR];
-        let dx=world[row::WORLD+12]-self.view[view::EYE];
-        let dy=world[row::WORLD+13]-self.view[view::EYE+1];
-        let dz=world[row::WORLD+14]-self.view[view::EYE+2];
+        let world=self.world(source).unwrap_or(IDENTITY);let far=self.nodes[id].data[row::MOTION_FAR];
+        let dx=world[12]-self.view[view::EYE];
+        let dy=world[13]-self.view[view::EYE+1];
+        let dz=world[14]-self.view[view::EYE+2];
         let visible=shown==Some(true) && dx*dx+dy*dy+dz*dz<far*far;
+        if advance&&visible{let world=self.world(source).unwrap_or(IDENTITY);self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&world);self.transforms.import_world(id,&world,self.nodes[id].data[row::GENERATION]);self.refresh_bounds(id);}
         // Emit one history reset on entering hidden/far state. Repeated
         // paused queries neither grow a host queue nor resend that reset.
         if advance {

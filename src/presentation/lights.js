@@ -1,3 +1,4 @@
+import {publishPointLight} from "../rust-render/point-inputs.js";
 import {sceneTransform} from "../rust-render/scene-changes.js";
 import * as THREE from "three";
 import { LightFrame as F, LightCommand as C, LightOutput as O, LightHeader as H,
@@ -87,7 +88,7 @@ export class LightPool {
       const light = this.lights[i], at = i * O.STRIDE;
       sceneTransform(light.position.set(out[at + O.POSITION], out[at + O.POSITION + 1], out[at + O.POSITION + 2]));
       light.color.setRGB(out[at + O.RGB], out[at + O.RGB + 1], out[at + O.RGB + 2]);
-      light.intensity = out[at + O.SCALE]; light.distance = out[at + O.RADIUS];
+      light.intensity = out[at + O.SCALE]; light.distance = out[at + O.RADIUS];publishPointLight(light);
     }
     // Clearing the queue cursors leaves every byte of storage reusable.
     // The live timed bank is retained entirely on the native side.

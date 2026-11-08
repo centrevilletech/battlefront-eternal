@@ -1,3 +1,4 @@
+import { rendererFailure } from './rust-render/failure.js';
 import {sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {lightActor as setActorLight,glowLook,actorDescription} from './actor-resources.js';
 import { SurfaceOwner } from './environment/module.js';
@@ -2427,7 +2428,7 @@ async function start() {
   // The spawn screen's camera shot ({ position, quaternion }), or null.
   let viewShot = null;
   if (!headless) observePresentation(runtimeProfile);
-  const unitView = { position: new THREE.Vector3(), frustum: new THREE.Frustum(), frame: 0, matrix: new THREE.Matrix4() };
+  const unitView = { position: new THREE.Vector3(), frame: 0 };
   const flightDebug = !headless && new URLSearchParams(location.search).has('flightDebug') ? new FlightDebug(scene) : null;
   let clock = 0;
   // liveLoop: the display loop's frames (bounded catch-up); tools and replays pass false.
@@ -2475,7 +2476,7 @@ async function start() {
     // body batch, rust/bfe-presentation/src/units.rs rider_sample).
     unitView.frame += 1;
     sceneTransform(unitView.position.copy(camera.position));
-    unitView.frustum.setFromProjectionMatrix(sceneTransform(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)));
+    graphics.rust.cameras.unitView(unitView,camera);
     const ownEyes = combat.usesEyeView && !combat.dead && !gunner.active && !driver?.active && !remotes.active;
     // The own camera consumes only the predicted snapshot. Its motion cue
     // precedes the body/arms batch; held, death and seat views need this
@@ -2599,7 +2600,6 @@ async function start() {
       hud.render();
       runtimeProfile?.finish("hudDraw", hudDrawStart);
       graphics.rust.frame.execute();
-      graphics.frameInfo=graphics.renderer.info.render;
       graphics.profiler.end();graphics.profiler.frameEnd();
     }
     if(!draw)graphics.rust.frame.execute();
@@ -3075,9 +3075,7 @@ async function start() {
     // World-image loading already awaits Rust's paced uploads. Render-target
     // images belong to their first binding, not this image preload pass: eager
     // uploads would allocate dormant water variants and temporary old sizes.
-    graphics.warmup();
-    const programs = () => renderer.info.programs || [];
-    while (performance.now() < deadline && programs().some((program) => program.isReady && !program.isReady())) await frame();
+    await graphics.rust.prepare(()=>graphics.warmup());
     await graphics.prepareRenderer(gpuIdle, () => hud.render());
     await frame();
     await frame();
@@ -3182,6 +3180,8 @@ async function start() {
 try { return await start(); }
 catch (error) {
   try { releaseAnimation(); } finally { battleBackend?.close(); battleBackend = null; }
+  // Native resource failures can precede the paced loading prepare.
+  if (!headless && typeof error === "string") throw rendererFailure(renderer,error);
   throw error;
 }
 }

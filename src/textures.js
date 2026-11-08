@@ -1,3 +1,4 @@
+import { contextLimits } from "./rust-render/browser.js";
 import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
 import { PngTextureLoader } from "./texture-images.js";
@@ -71,7 +72,7 @@ export class TextureLibrary {
       // One transferred payload backs every authored mip view. Rust retains
       // those blocks once per Source after upload; cloned sampler descriptors
       // must not retain another encoded KTX container or decoded RGBA chain.
-      this.capabilities.then(bits => basisImage(twin, this.renderer.capabilities.maxTextureSize, bits)).then(async image => {
+      this.capabilities.then(bits => basisImage(twin, contextLimits(this.renderer).maxTextureSize, bits)).then(async image => {
         try {
         const mips = image.mips.map(m => ({ width: m.width, height: m.height,
           data: new Uint8Array(image.data.buffer, image.data.byteOffset + m.offset, m.length) }));

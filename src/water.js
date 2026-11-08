@@ -47,6 +47,8 @@ export class Water extends WaterState {
     const recipe = environmentRecipe(RECIPE.WATER,data,surfaceOwner);
     this.host.refresh();
     const oceanLook = recipe.oceanAlways, ocean = recipe.ocean;
+    this.bounds = new THREE.Box3();
+    if (!recipe.empty) { this.bounds.min.fromArray(recipe.bounds[0]); this.bounds.max.fromArray(recipe.bounds[1]); }
     this.cellBounds = recipe.cells.map(box => new THREE.Box3(new THREE.Vector3().fromArray(box), new THREE.Vector3().fromArray(box, 3)));
     this.height = data.height;
     this.cell = data.cell;

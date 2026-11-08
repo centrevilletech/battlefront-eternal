@@ -1,3 +1,4 @@
+import { contextLimits } from "../rust-render/browser.js";
 // Interface image IO retains dimensions for glyph/art layout and a native
 // sampler id. Rust owns image storage, sampling, aliases and loss restoration.
 import {pngImage} from '../texture-decode.js';
@@ -31,6 +32,6 @@ export async function publishImage(renderer,image,decoded,width=decoded.width,he
 export class InterfaceImages {
  constructor(renderer){this.renderer=renderer;this.failure=null;}
  load(url,onLoad){const renderer=this.renderer,gpu=renderer.resources.gpu,image={interfaceImage:true,sample:gpu.ui_image(1),width:0,height:0,ready:false,revision:0,observers:new Set(),gpu};
-  pngImage(url,Math.min(MAX_SIZE,renderer.capabilities.maxTextureSize)).then(async decoded=>{try{if(renderer.resources.disposed)return;await publishImage(renderer,image,decoded);await onLoad?.(image);}finally{decoded.release();}}).catch(cause=>{this.failure??=rendererFailure(renderer,cause);renderer.resources.failure=this.failure;});return image;
+  pngImage(url,Math.min(MAX_SIZE,contextLimits(renderer).maxTextureSize)).then(async decoded=>{try{if(renderer.resources.disposed)return;await publishImage(renderer,image,decoded);await onLoad?.(image);}finally{decoded.release();}}).catch(cause=>{this.failure??=rendererFailure(renderer,cause);renderer.resources.failure=this.failure;});return image;
  }
 }

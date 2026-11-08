@@ -9,7 +9,7 @@ class TerrainPass {
     this.name = "terrain";
     this.phase = "near";
     this.grounds = [];
-    this.pending = [];
+    this.pending = [];this.pendingAt=0;
     this.entries = new WeakMap();
   }
 
@@ -25,13 +25,14 @@ class TerrainPass {
 
   prepareNative() {
     const core = this.core;
-    for (const { group, source, samplers } of this.pending) {
+    for (;this.pendingAt<this.pending.length;this.pendingAt++) {
+      const {group,source,samplers}=this.pending[this.pendingAt];
       const id = core.rust.static_world(source, false, 1, samplers,
         staticFeatures(core), group.userData.worldOrder, 0, group.id);
       const entry = { group, id, shown: true, stale: false };
       this.grounds.push(entry); this.entries.set(group, entry);
     }
-    this.pending.length = 0;
+    this.pending.length = 0;this.pendingAt=0;
     core.rust.sort(core.byName.world.byProgram ?? false);
   }
 

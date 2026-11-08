@@ -40,7 +40,7 @@ export async function checkResources(renderer, assert) {
     const authored=image.data.slice();
     const texture=new THREE.DataTexture(image.data,16,8);textures.push(texture);
     setPngSource(texture,image,'fixture');texture.needsUpdate=true;
-    const id=owner.textureId(texture),handle=renderer.properties.get(texture).__webglTexture;
+    const id=owner.textureId(texture),handle=owner.gpu.texture(owner.textureId(texture));
     assert('PNG upload releases host RGBA storage',texture.image.data===null);
     assert('Consumed PNG transport buffers are detached without waiting for GC',image.data.byteLength===0&&image.encoded.byteLength===0);
     image.release();
@@ -48,9 +48,9 @@ export async function checkResources(renderer, assert) {
     // Texture.clone shares Source but owns its sampler. Register both before
     // changing wrap so this proves an existing allocation can split safely.
     const clone=texture.clone();textures.push(clone);owner.textureId(clone);
-    assert('Identical sampler clones share physical GPU storage',renderer.properties.get(clone).__webglTexture===handle);
+    assert('Identical sampler clones share physical GPU storage',owner.gpu.texture(owner.textureId(clone))===handle);
     clone.wrapS=THREE.RepeatWrapping;owner.textureId(clone);
-    assert('Changed wrap settings split storage without changing logical ids',owner.textureId(texture)===id&&renderer.properties.get(clone).__webglTexture!==handle);
+    assert('Changed wrap settings split storage without changing logical ids',owner.textureId(texture)===id&&owner.gpu.texture(owner.textureId(clone))!==handle);
     // A sampler may be different before its first registration, not only after
     // a revision. That clone must use GPU texels rather than decode PNG again.
     const fresh=texture.clone();textures.push(fresh);fresh.wrapT=THREE.RepeatWrapping;
@@ -64,7 +64,7 @@ export async function checkResources(renderer, assert) {
     // owner still performs every upload; the fixture creates no image storage.
     const rasterPixels=t=>{
       const fb=gl.createFramebuffer(),pixels=new Uint8Array(16*8*4);
-      gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,renderer.properties.get(t).__webglTexture,0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,owner.gpu.texture(owner.textureId(t)),0);
       gl.readPixels(0,0,16,8,gl.RGBA,gl.UNSIGNED_BYTE,pixels);gl.deleteFramebuffer(fb);renderer.setRenderTarget(before);return pixels;
     };
     assert('PNG upload preserves every straight-alpha texel',rasterPixels(texture).every((v,i)=>v===authored[i]));
@@ -123,17 +123,17 @@ export async function checkResources(renderer, assert) {
     if(aniso)for(const [min,mag,expected]of [[THREE.LinearFilter,THREE.LinearFilter,1],[THREE.LinearMipmapLinearFilter,THREE.NearestFilter,1],[THREE.NearestMipmapNearestFilter,THREE.LinearFilter,1],[THREE.LinearMipmapLinearFilter,THREE.LinearFilter,8]]){
       const t=new THREE.DataTexture(new Uint8Array(16*8*4),16,8);textures.push(t);
       t.generateMipmaps=true;t.minFilter=min;t.magFilter=mag;t.anisotropy=8;t.needsUpdate=true;owner.textureId(t);
-      const handle=renderer.properties.get(t).__webglTexture;
-      assert(`Anisotropy follows filter eligibility ${min}/${mag}`,gl.getTexParameter(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT)===Math.min(expected,renderer.capabilities.getMaxAnisotropy()));
+      const handle=owner.gpu.texture(owner.textureId(t));
+      assert(`Anisotropy follows filter eligibility ${min}/${mag}`,gl.getTexParameter(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT)===Math.min(expected,(gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)||1)));
       t.anisotropy=1;t.needsUpdate=true;owner.textureId(t);
-      assert('Filtering revisions retain storage and reset eligible anisotropy',renderer.properties.get(t).__webglTexture===handle&&gl.getTexParameter(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT)===1);
+      assert('Filtering revisions retain storage and reset eligible anisotropy',owner.gpu.texture(owner.textureId(t))===handle&&gl.getTexParameter(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT)===1);
     }
 
     // A lazy image starts as an allocated transparent 1x1 sample, then replaces
     // its immutable storage after decode. Verify texels and stable logical id,
     // not just a mock registry size or successful module initialization.
     const lazy=new THREE.Texture();textures.push(lazy);
-    const lazyId=owner.textureId(lazy),placeholder=renderer.properties.get(lazy).__webglTexture;
+    const lazyId=owner.textureId(lazy),placeholder=owner.gpu.texture(owner.textureId(lazy));
     lazy.isDataTexture=true;lazy.image={width:16,height:8,data:new Uint8Array(16*8*4).fill(77)};
     lazy.minFilter=THREE.NearestFilter;lazy.magFilter=THREE.NearestFilter;lazy.generateMipmaps=false;lazy.needsUpdate=true;
     assert('Lazy source replacement retains its sampler id',owner.textureId(lazy)===lazyId);
@@ -165,12 +165,12 @@ export async function checkResources(renderer, assert) {
       assert('Rust MSAA resolves visible color',resolved.every((v,i)=>Math.abs(v-[191,64,128,255][i%4])<=1));
       assert('Resolve and read restore both framebuffer bindings',gl.getParameter(gl.READ_FRAMEBUFFER_BINDING)===draw&&gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING)===draw);
     }
-    const old=owner.targetId(b),oldTexture=renderer.properties.get(b.texture).__webglTexture;
+    const old=owner.targetId(b),oldTexture=owner.gpu.texture(owner.textureId(b.texture));
     b.setSize(8,4);renderer.setRenderTarget(b);
-    assert('Target resize retains logical and physical texture identity',owner.targetId(b)===old&&renderer.properties.get(b.texture).__webglTexture===oldTexture);
+    assert('Target resize retains logical and physical texture identity',owner.targetId(b)===old&&owner.gpu.texture(owner.textureId(b.texture))===oldTexture);
     gl.clearColor(1,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     assert('Resized target storage is writable',read(b).every((v,i)=>v===[255,0,0,255][i%4]));
-    gl.bindTexture(gl.TEXTURE_2D,renderer.properties.get(b.depthTexture).__webglTexture);
+    gl.bindTexture(gl.TEXTURE_2D,owner.gpu.texture(owner.textureId(b.depthTexture)));
     assert('Resized depth storage retains the original immutable representation',gl.getTexParameter(gl.TEXTURE_2D,gl.TEXTURE_IMMUTABLE_FORMAT)===true);
     const disposed=target(),deadFb=owner.gpu.framebuffer(owner.targetId(disposed),false,0);
     disposed.setSize(7,3);disposed.dispose();
@@ -234,22 +234,22 @@ export async function checkResources(renderer, assert) {
     // or throwing on a slow machine. Requests exceed every real preset here.
     for(const requested of [-1,0x7fffffff]){
       const t=new THREE.WebGLRenderTarget(4,4,{samples:requested});targets.push(t);renderer.setRenderTarget(t);
-      assert('Sample-count boundary clamps safely',gl.getParameter(gl.SAMPLES)===(requested<0?0:renderer.capabilities.maxSamples));
+      assert('Sample-count boundary clamps safely',gl.getParameter(gl.SAMPLES)===(requested<0?0:gl.getParameter(gl.MAX_SAMPLES)));
     }
     // Storm clouds use volume storage. Exercise that separate upload overload
     // after float targets, when stale unpack state would be visible as errors.
     const volume=new THREE.Data3DTexture(new Uint8Array(4*4*4).fill(23),4,4,4);textures.push(volume);
     volume.format=THREE.RedFormat;volume.needsUpdate=true;owner.textureId(volume);
-    assert('Rust owns 3D volume texture storage',Boolean(renderer.properties.get(volume).__webglTexture));
+    assert('Rust owns 3D volume texture storage',Boolean(owner.gpu.texture(owner.textureId(volume))));
     // CubeCamera temporarily suppresses mip generation while faces are drawn.
     // The last face must re-enable the full sampleable range without replacing
     // its texture or clearing faces that earlier draws already populated.
     const cube=new THREE.WebGLCubeRenderTarget(16,{samples:4,generateMipmaps:true,minFilter:THREE.LinearMipmapLinearFilter});targets.push(cube);
     cube.texture.generateMipmaps=false;renderer.setRenderTarget(cube,0);
-    assert('Cube targets ignore multisample requests',gl.getParameter(gl.SAMPLES)===0&&renderer.properties.get(cube).__webglMultisampledFramebuffer===undefined);
+    assert('Cube targets ignore multisample requests',gl.getParameter(gl.SAMPLES)===0);
     const cubeFb=gl.getParameter(gl.FRAMEBUFFER_BINDING);cube.samples=2;renderer.setRenderTarget(cube,0);
     assert('Ignored cube sample changes retain face storage',gl.getParameter(gl.FRAMEBUFFER_BINDING)===cubeFb);
-    const cubeHandle=renderer.properties.get(cube.texture).__webglTexture;
+    const cubeHandle=owner.gpu.texture(owner.textureId(cube.texture));
     cube.texture.generateMipmaps=true;owner.textureId(cube.texture);
     gl.bindTexture(gl.TEXTURE_CUBE_MAP,cubeHandle);
     assert('Cube final face exposes the full generated mip range',gl.getTexParameter(gl.TEXTURE_CUBE_MAP,gl.TEXTURE_MAX_LEVEL)===4);
@@ -310,6 +310,6 @@ export async function checkResources(renderer, assert) {
     // Disposing descriptors must release Rust storage without native listeners.
     renderer.setRenderTarget(before);
     for(const t of targets)t.dispose();for(const t of textures)t.dispose();
-    renderer.resetState();renderer.setRenderTarget(before);
+    renderer.setRenderTarget(before);
   }
 }

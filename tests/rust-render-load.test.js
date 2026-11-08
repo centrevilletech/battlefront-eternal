@@ -35,3 +35,12 @@ test('GPU identification works when driver details are unavailable', () => {
   assert.match(rendererFailure(renderer(false), new Error('link failed')).message, /WebGL GPU: link failed/);
   assert.match(rendererFailure({ getContext() { throw Error('unavailable'); } }, 'load failed').message, /unknown GPU: load failed/);
 });
+
+// WASM resource compilers can reject with a string before paced warmup.
+// Their original message must survive the browser's required-load boundary.
+test('native shader rejection retains its cause and GPU label',async()=>{
+ await assert.rejects(loadRenderer({renderer:renderer()},async()=>{throw 'vertex shader rejected';}),error=>{
+  assert.equal(error.message,'Battle renderer failed on Fixture GPU: vertex shader rejected');
+  assert.equal(error.cause,'vertex shader rejected');return true;
+ });
+});

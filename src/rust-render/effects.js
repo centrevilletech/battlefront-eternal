@@ -191,9 +191,9 @@ class EffectsPass {
     if (!ready) return true;
     // (None: the target cleared all the same, as three's render of the
     // empty volumes' scene would leave it.)
-    const b = record.batch, count = Math.max(0, b.count), source = renderer.getRenderTarget();
+    const b = record.batch, count = Math.max(0, b.count);
     const target = volume.target;
-    if(target.nativeTarget===undefined && !renderer.properties.get(target.texture).__webglTexture) renderer.initRenderTarget(target);
+    core.resources.targetId(target);
     const texture = core.texture(target.texture);
     if (texture < 0) return false;
     const depth = particleDepth.map.value ? core.texture(particleDepth.map.value) : -1;
@@ -207,8 +207,6 @@ class EffectsPass {
     this.writeSoft(depth);
     core.frame.volume(record.id,texture,target,count,b.capacity,at);
     record.capacity = b.capacity;
-    renderer.resetState();
-    renderer.setRenderTarget(source);
     return true;
   }
 
@@ -537,7 +535,7 @@ class EffectsPass {
     const depthCopy = particleDepth.sortedCopy(ctx.renderer, camera);
     // The resource owner allocates a target on first use. The ordered copy below is
     // Rust's, so nothing else would make the depth snapshot before it blits into it.
-    if (depthCopy && !ctx.renderer.properties.get(depthCopy.target.depthTexture).__webglTexture) ctx.renderer.initRenderTarget(depthCopy.target);
+    if(depthCopy)core.resources.targetId(depthCopy.target);
     const depth = reads && particleDepth.map.value ? core.texture(particleDepth.map.value) : -1;
     for(let i=0;i<this.ownerList.length;i++){const gpu=this.ownerList[i].gpu;need+=Math.min(gpu.count,gpu.emitterRows)*EMITTER_FLOATS;}
     core.views();

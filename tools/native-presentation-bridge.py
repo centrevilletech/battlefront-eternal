@@ -99,19 +99,19 @@ for part in parts:
         for n,t,expr in banks:output.append(f'(\"{n}\", {expr}.len()),')
         output+= [']}','}']
     output+=['pub enum '+cls+'Command {']
-    def owned(t):return 'String' if t=='&str' else 'Vec<f64>' if t=='&[f64]' else t
+    def owned(t):return 'String' if t=='&str' else 'Vec<'+t[2:-1]+'>' if t.startswith('&[') else t
     for n,args,r in methods:output.append(n+('('+','.join(owned(t) for _,t in args)+')' if args else '')+',')
     output+=['}', 'impl '+cls+'Command {', 'pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{']
     for n,args,r in methods:
         decoded=[]
         for i,(_,t) in enumerate(args):
-            ac='string' if t=='&str' else 'f64s' if t=='&[f64]' else t[4:-1]+'s' if t.startswith('Vec<') else t
+            ac='string' if t=='&str' else t[2:-1]+'s' if t.startswith('&[') else t[4:-1]+'s' if t.startswith('Vec<') else t
             decoded.append(f'a.{ac}({i})?')
         output.append(f'"{n}"=>Self::{n}'+('('+','.join(decoded)+')' if args else '')+',')
     output+=['_=>return Err(format!("unknown presentation command {name}")),})}',
         'pub fn execute(&self,host:&mut '+cls+')->Result<(),String>{match self{']
     for n,args,r in methods:
-        names=[n for n,t in args];passed=[n if t in ['&str','&[f64]'] else n+'.clone()' if t.startswith('Vec<') else '*'+n for n,t in args]
+        names=[n for n,t in args];passed=[n if t=='&str' or t.startswith('&[') else n+'.clone()' if t.startswith('Vec<') else '*'+n for n,t in args]
         call=(cls+'::' if n in static_methods else 'host.')+n+'('+','.join(passed)+')'
         # Hot page exchanges return primitive statuses to avoid JS result
         # tuples. Native sessions still propagate their cold error channel.

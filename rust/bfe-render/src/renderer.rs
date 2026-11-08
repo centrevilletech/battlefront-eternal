@@ -44,6 +44,7 @@ use glow::HasContext;
 
 pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub core: Core<C, M>,
+    pub prepare: crate::prepare::Prepare,
     pub frames: crate::frame::FrameBank<C>,
     pub scene: crate::scene::SceneRegistry,
     pub cameras: crate::cameras::Cameras,
@@ -80,7 +81,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        let renderer = Renderer { cameras: crate::cameras::Cameras::default(), scene: crate::scene::SceneRegistry::default(), frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies };
+        let renderer = Renderer { prepare: crate::prepare::Prepare::default(), cameras: crate::cameras::Cameras::default(), scene: crate::scene::SceneRegistry::default(), frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies };
         renderer
     }
 

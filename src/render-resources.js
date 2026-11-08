@@ -84,11 +84,13 @@ export class RenderResources {
     renderer.setViewport = (x,y,width,height) => { if(x?.isVector4)setViewport(x);else setViewport(x,y,width,height);this.nativeViewport(this.viewport); };
     renderer.readRenderTargetPixels = (target,x,y,w,h,data,face = 0) => this.gpu.read(this.targetId(target),x,y,w,h,data,face);
     renderer.readRenderTargetPixelsAsync = async (...args) => { renderer.readRenderTargetPixels(...args); return args[5]; };
-    renderer.domElement.addEventListener("webglcontextlost", () => { this.lost = true;this.gpu.suspend(); });
-    renderer.domElement.addEventListener("webglcontextrestored", () => {
+    this.onLost = () => { this.lost = true;this.gpu.suspend(); };
+    renderer.domElement.addEventListener("webglcontextlost", this.onLost);
+    this.onRestored = () => {
       if (this.disposed) return;
       try { this.rebuild(); } catch (error) { throw rendererFailure(renderer, error); }
-    });
+    };
+    renderer.domElement.addEventListener("webglcontextrestored", this.onRestored);
     this.nativeViewport(this.viewport);
   }
 
@@ -141,6 +143,10 @@ export class RenderResources {
   }
 
   owns(texture) { return this.entries.has(texture); }
+
+  // A retained resource id, never a browser renderer property row.
+  handle(texture) { return this.gpu.texture(this.textureId(texture)); }
+  uploaded(texture) { return Boolean(this.entries.get(texture)?.handle); }
 
   // Static draw descriptors retain a numeric sampler. Late asset uploads and
   // shared-source clones still use this bank; drawing never adopts a handle
@@ -238,10 +244,9 @@ export class RenderResources {
     entry.generation=image.generation;
     if (!this.lost) {
       this.gpu.upload(entry.id);
-      const properties=this.renderer.properties.get(texture);
       const handle=this.gpu.texture(entry.id);
-      if(properties.__webglTexture!==handle)this.revision++;
-      properties.__webglTexture=handle;properties.__version=texture.version;properties.__webglInit=true;
+      if(entry.handle!==handle)this.revision++;
+      entry.handle=handle;
       // PNG upload no longer needs its large host RGBA allocation. The encoded
       // Rust source remains available for CPU requests and context restoration.
       if (image.png && texture.image.data) texture.image.data=null;
@@ -373,6 +378,8 @@ export class RenderResources {
   dispose() {
     if(this.disposed)return;
     this.disposed=true;cancelAnimationFrame(this.uploadFrame);
+    this.renderer.domElement.removeEventListener("webglcontextlost",this.onLost);
+    this.renderer.domElement.removeEventListener("webglcontextrestored",this.onRestored);
     for(let i=this.uploadAt;i<this.uploads.length;i++)this.uploads[i].reject(new Error("Renderer resources disposed"));
     this.uploads.length=0;this.samples.clear();this.targetRows.clear();
     this.gpu.free();
@@ -384,7 +391,8 @@ export class RenderResources {
   // PNG reconstruction runs synchronously in Rust from retained encoded bytes.
   rebuild() {
     this.gpu.rebuild();this.lost=false;
-    for (const entry of this.samples) { const texture=entry.texture.deref();if (texture) { const p=this.renderer.properties.get(texture);p.__webglTexture=this.gpu.texture(entry.id);p.__version=texture.version;p.__webglInit=true; } }
+    for (const entry of this.samples) entry.handle=this.gpu.texture(entry.id);
+    this.revision++;
     this.bind(this.current,this.face,this.level);
   }
 }

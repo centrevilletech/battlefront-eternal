@@ -231,10 +231,10 @@ test("the near scene: Rust draws every registered item", () => {
   const z = sceneTransform(sceneTransform(new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld))
     .applyMatrix4(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))).z;
   assert.deepEqual([...core.transparentObjects.subarray(0, 6)], [1, 7, 0, 2, z, holo.id]);
-  assert.equal(renderer.info.render.frame, 1);
+  assert.equal(core.rust.scene_stamp_frame(false), 1, "the near phase advances the native battle stamp");
   assert.ok(calls.some((c) => c[0] === "resolveTarget"), "the target resolved");
-  assert.ok(!calls.some((c) => c[0] === "resetState"), "three's state is reset when three is next used");
-  assert.equal(core.stale, true);
+  assert.ok(!calls.some((c) => c[0] === "resetState"), "native phases never resume a browser cache");
+  assert.equal(core.stale, undefined);
 });
 
 test("the near scene: an item no pass claims is skipped and reported once, the frame still drawn", () => {
@@ -258,24 +258,17 @@ test("the near scene: an item no pass claims is skipped and reported once, the f
   assert.equal(core.byName.near.cover(renderer, scene, new THREE.PerspectiveCamera()), false);
 });
 
-test("phases drawn between three's renders reset three's state once, when three is next used", () => {
+test("native phases leave no browser state-cache continuation", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   core.addPass({ name: "a", phase: "view", draw() { this.complete = true; } });
   core.byName.view.draw = function () { this.complete = true; };
-  const viewScene = new THREE.Scene();
-  assert.equal(core.cover("view", renderer, viewScene, camera), true);
+  assert.equal(core.cover("view", renderer, new THREE.Scene(), camera), true);
   core.publishView("image", renderer, null, camera);
   core.publishView("hud", renderer, scene, camera);
-  assert.equal(calls.filter((c) => c[0] === "resetState").length, 0, "none yet");
-  assert.equal(core.stale, true);
-  core.settle();
-  assert.deepEqual(calls.slice(-2).map((c) => c[0]), ["resetState", "setRenderTarget"]);
-  assert.equal(calls.filter((c) => c[0] === "resetState").length, 1, "one for the three phases");
-  // Publishing another scene does not introduce a state-reset continuation.
-  calls.length = 0;
   core.publishView("near", renderer, scene, camera);
   assert.equal(calls.some(c=>c[0]==="resetState"),false);
-  assert.equal(core.stale, true);
+  assert.equal(core.settle,undefined);
+  assert.equal(core.stale,undefined);
 });
 
 test("a command post's beam, hidden until the player comes near: registered from its catalog program, taken from three's list the first frame it shows", () => {
@@ -325,7 +318,7 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   assert.deepEqual(calls.filter(c=>c[0]==="frame_aux_frame").map(c=>c[2]),[R.MIRROR0_NEAR,R.MIRROR0_IMAGE,R.MIRROR0_TRANSPARENT]);
   assert.equal(core.frameMeta[R.MIRROR0_TRANSPARENT*M.LEN+M.STEPS],0,"the image has a separate packet");
   assert.equal(core.postInput[1], -2, "the image into the target bound now");
-  assert.equal(core.stale, true, "three's state reset when three is next used");
+  assert.equal(core.stale, undefined, "native draws retain no browser cache continuation");
   // Not the frame's camera, nor a render something three draws itself is in.
   assert.throws(() => core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust/);
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
@@ -399,7 +392,18 @@ test('transparent hooks retain written rows after renderer memory growth',()=>{
  pass.take(items,{renderer,scene,camera});
  assert.equal(before.byteLength,0);assert.equal(core.transparentObjects[0],2);
  const stride=core.rust.transparent_object_stride();
- assert.deepEqual([...core.transparentObjects.slice(6,22)],first.matrixWorld.elements);
- assert.deepEqual([...core.transparentObjects.slice(6+stride,22+stride)],second.matrixWorld.elements);
+ assert.deepEqual([...core.transparentObjects.slice(6,22)],[...first.matrixWorld.elements]);
+ assert.deepEqual([...core.transparentObjects.slice(6+stride,22+stride)],[...second.matrixWorld.elements]);
  assert.equal(items.length,0);
+});
+
+// A holomap or shell preview is an auxiliary native packet. It must retain
+// the explicitly bound target rather than inheriting the last battle canvas.
+test("auxiliary interface submission preserves its offscreen target",()=>{
+ const {core,renderer}=bridge();
+ const target=new THREE.WebGLRenderTarget(37,19,{depthBuffer:false});
+ renderer.setRenderTarget(target);core.frame.interfaceEnd(1);core.views();
+ const at=R.HUD0*B.LEN;
+ assert.equal(core.frameBindings[at+B.TARGET],core.resources.targetId(target));
+ assert.equal(core.frameBindings[at+B.WIDTH],37);assert.equal(core.frameBindings[at+B.HEIGHT],19);
 });

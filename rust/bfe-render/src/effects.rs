@@ -99,6 +99,9 @@ struct Batch<C: HasContext> {
     blend: Blend,
     vao: C::VertexArray,
     vbo: C::Buffer,
+    // EffectsPass publishes changed instance ranges only. Keep the complete
+    // native buffer so recovery never asks the browser to resend an old prefix.
+    retained: Vec<f32>,
     // Instances the vertex buffer has room for.
     capacity: usize,
     fixed_instances: bool,
@@ -426,7 +429,7 @@ impl<C: HasContext> EffectsPass<C> {
         b.copy_from_slice(&blend[..7]);
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { core.textures.get(texture as usize).copied() }, blend: b,
-            vao, vbo, capacity: 0, fixed_instances:false,bounded:false,multiplier:1,constants:vec![],sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
+            vao, vbo, retained:vec![], capacity: 0, fixed_instances:false,bounded:false,multiplier:1,constants:vec![],sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
             camera_slots: ["projectionMatrix", "modelViewMatrix"].map(|name| p.uniforms.iter().find(|u| u.0 == name).and_then(|u| u.1.clone())),
             values: vec![], value_slots: vec![], value_cache: vec![], samplers: vec![], samplers_3d: vec![], index_count: 6, interleaved: false, side: 2, depth: None,
         });
@@ -449,8 +452,21 @@ impl<C: HasContext> EffectsPass<C> {
         let Some(b)=self.batches.get_mut(id as usize) else {return};
         let count=if capacity==0&&b.stride==0{crate::effect_resources::MAX_PARTICLES}else{crate::effect_resources::Descriptor::count(capacity)};
         unsafe {core.gl.bind_buffer(glow::ARRAY_BUFFER,Some(b.vbo));core.gl.buffer_data_size(glow::ARRAY_BUFFER,(count*b.stride*4) as i32,glow::DYNAMIC_DRAW);core.gl.bind_buffer(glow::ARRAY_BUFFER,None);}
-        b.capacity=count;b.bounded=true;
+        b.capacity=count;b.bounded=true;b.retained.resize(count*b.stride,0.);
         self.staging.reserve(count.saturating_mul(b.stride).saturating_sub(self.staging.len()));
+    }
+
+    // Recovery replays registration ids before restoring their changed-range
+    // buffers. Fixed fountain seeds already belong to the resource journal.
+    pub fn restore_instances<M:MultiDraw>(&mut self,core:&mut Core<C,M>,old:&mut Self) {
+        for (id,previous) in old.batches.iter_mut().enumerate() {
+            let Some(batch)=self.batches.get_mut(id) else {continue};
+            if batch.fixed_instances || previous.retained.is_empty() || batch.stride!=previous.stride {continue;}
+            batch.retained=std::mem::take(&mut previous.retained);batch.capacity=previous.capacity;
+            unsafe {core.gl.bind_buffer(glow::ARRAY_BUFFER,Some(batch.vbo));core.gl.buffer_data_u8_slice(glow::ARRAY_BUFFER,bytes(&batch.retained),glow::DYNAMIC_DRAW);}
+        }
+        unsafe {core.gl.bind_buffer(glow::ARRAY_BUFFER,None);}
+        core.state.reset();
     }
 
     // FountainJets' seeds and rope numbers are immutable resources. Their
@@ -507,7 +523,7 @@ impl<C: HasContext> EffectsPass<C> {
         let Some(b)=self.batches.get_mut(batch as usize)else{return;};
         if capacity<=b.capacity{return;}
         unsafe{core.gl.bind_buffer(glow::ARRAY_BUFFER,Some(b.vbo));core.gl.buffer_data_size(glow::ARRAY_BUFFER,(capacity*b.stride*4)as i32,glow::DYNAMIC_DRAW);core.gl.bind_buffer(glow::ARRAY_BUFFER,None);}
-        b.capacity=capacity;self.staging.resize(self.staging.len().max(capacity*b.stride),0.);
+        b.capacity=capacity;b.retained.resize(capacity*b.stride,0.);self.staging.resize(self.staging.len().max(capacity*b.stride),0.);
     }
     /// Native admission seals the emitter texture's fixed maximum too. The
     /// normal uploader owns its format and sampler state; replaying a cold
@@ -910,21 +926,25 @@ impl<C: HasContext> EffectsPass<C> {
             if !b.fixed_instances && !b.bounded && capacity != b.capacity {
                 gl.buffer_data_size(glow::ARRAY_BUFFER, (capacity.max(count) * b.stride * 4) as i32, glow::DYNAMIC_DRAW);
                 b.capacity = capacity.max(count);
+                b.retained.resize(b.capacity*b.stride,0.);
                 stats.gl_calls += 1;
             }
             if !b.fixed_instances && from < count && b.stride > 0 {
                 let n = count - from;
                 if b.interleaved {
+                    b.retained[from*b.stride..count*b.stride].copy_from_slice(&self.data[at..at+n*b.stride]);
                     crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.data[at..at + n * b.stride]));
                 } else {
                     interleave(&mut self.staging, &self.data, at, n, span.source, &b.sizes, b.stride);
+                    b.retained[from*b.stride..count*b.stride].copy_from_slice(&self.staging);
                     crate::core::spare_view_slot();
                     gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
                 }
                 stats.gl_calls += 1;
             }
             let program = &mut core.programs[b.program];
+
             state.use_program(gl, stats, program.program);
             // Its own values, after its instances.
             let mut v=span.values;
@@ -1028,7 +1048,8 @@ impl<C: HasContext> EffectsPass<C> {
             }
             stats.gl_calls += 4;
             for pass in &m.passes {
-                let program = &core.programs[pass.program];
+                let program = &mut core.programs[pass.program];
+
                 state.use_program(gl, stats, program.program);
                 if let Some(l) = pass.model.as_ref() {
                     set_value(gl, stats, &mut self.held, pass.model_cache, &(Cow::Borrowed("modelMatrix"), 16, 0), Some(l), &IDENTITY, program.material_owners.get() == 3);
@@ -1081,7 +1102,8 @@ impl<C: HasContext> EffectsPass<C> {
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         for pass in &m.passes {
-            let program = &core.programs[pass.program];
+            let program = &mut core.programs[pass.program];
+
             state.use_program(gl, stats, program.program);
             if let Some(l) = pass.model_view.as_ref() {
                 unsafe { gl.uniform_matrix_4_f32_slice(Some(l), false, &mv) };

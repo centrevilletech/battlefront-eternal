@@ -159,6 +159,27 @@ fn refused_mirrors_keep_the_preceding_reflection(){
     for i in 0..C::LEN{assert_eq!(c.output[R::MIRROR*C::LEN+i].to_bits(),c.output[R::MIRROR_PLAIN*C::LEN+i].to_bits());}
 }
 
+#[test]
+fn view_light_metadata_survives_visibility_changes_without_proxy_objects(){
+    let mut c=Cameras::default();c.input[I::LIGHT_COUNT]=1.;c.input[I::LIGHT_LAYERS]=1.;c.input[I::LIGHT_FAR]=200.;
+    c.input[I::VIEW_WORLD..I::VIEW_WORLD+16].copy_from_slice(&[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,2.,3.,4.,1.]);
+    c.light_input[P::SHOWN]=1.;c.light_input[P::LAYERS]=1.;c.light_input[P::COLOR]=0.5;c.light_input[P::INTENSITY]=2.;
+    c.view_light_snapshot(1);c.light_input[P::LAYERS]=2.;c.view_lights(0,0);
+    assert_eq!(c.packs[K::COUNT],1.);assert_eq!(&c.packs[K::VALUES..K::VALUES+3],&[2.,3.,4.]);
+    c.light_input[P::SHOWN]=0.;c.view_lights(0,0);assert_eq!(c.packs[K::COUNT],0.);
+    c.light_input[P::SHOWN]=1.;c.view_light_snapshot(1);c.view_lights(0,0);assert_eq!(c.packs[K::COUNT],0.,"new source list snapshots current layers");
+    c.view_light_snapshot(usize::MAX);c.view_lights(0,usize::MAX);assert!(c.clipped);
+}
+
+#[test]
+fn conservative_placement_uses_the_unshifted_native_camera(){
+    use bfe_render::cameras::layout::placement as a;
+    let mut c=Cameras::default();c.main();
+    c.placement[a::POSITION+2]=-10.;c.placement[a::LEN+a::POSITION]=100.;c.placement[a::LEN+a::POSITION+2]=-10.;
+    c.placement(2);assert_eq!(c.placement[a::HIDDEN],0.);assert_eq!(c.placement[a::LEN+a::HIDDEN],1.);
+    c.placement(usize::MAX);assert!(c.clipped);
+}
+
 // Thousands of map/view identities must retain lights without depending on
 // host garbage collection. Recycled generations cannot mutate a newer pair.
 #[test]
@@ -187,7 +208,7 @@ fn light_pack_leases_recycle_and_reject_retained_pairs(){
 fn independent_cameras_match_frozen_matrix_publications(){
     let fixture:Value=serde_json::from_str(include_str!("independent-cameras.json")).unwrap();let mut c=Cameras::default();
     for case in fixture.as_array().unwrap(){
-        for pair in case["input"].as_array().unwrap(){let at=pair[0].as_u64().unwrap() as usize;for(i,v)in pair[1].as_array().unwrap().iter().enumerate(){c.input[at+i]=value(v);}}
+        for pair in case["input"].as_array().unwrap(){let at=match pair[0].as_str().unwrap(){"hasParent"=>I::HAS_PARENT,"lens"=>I::LENS,"localMatrix"=>I::LOCAL_MATRIX,"orthoBounds"=>I::ORTHO_BOUNDS,"orthographic"=>I::ORTHOGRAPHIC,"parentWorld"=>I::PARENT_WORLD,"position"=>I::POSITION,"published"=>I::PUBLISHED,"quaternion"=>I::QUATERNION,"scale"=>I::SCALE,"up"=>I::UP,"useLocalMatrix"=>I::USE_LOCAL_MATRIX,_=>panic!("unknown frozen camera field")};for(i,v)in pair[1].as_array().unwrap().iter().enumerate(){c.input[at+i]=value(v);}}
         let handle=c.extra_leases.acquire();let role=c.import(handle).unwrap();
         for(at,matrix)in [C::WORLD,C::INVERSE,C::PROJECTION,C::PROJECTION_INVERSE].into_iter().zip(case["matrices"].as_array().unwrap()){
             for(i,v)in matrix.as_array().unwrap().iter().enumerate(){assert_eq!(c.output[role*C::LEN+at+i].to_bits(),value(v).to_bits(),"{} matrix {at}/{i}",case["label"]);}
@@ -195,4 +216,16 @@ fn independent_cameras_match_frozen_matrix_publications(){
     }
     let stale=c.extra_leases.acquire();for _ in 0..10000{let h=c.extra_leases.acquire();assert!(c.import(h).is_some());}
     assert!(c.import(stale).is_none());assert!(!c.extra_leases.release(stale));assert!(c.clipped);
+}
+
+// A stalled producer can issue more requests than any map without reserving
+// another row. The next view starts with an empty marker and the same storage.
+#[test]
+fn depth_marker_requests_allocate_nothing_during_a_long_pause(){
+ use bfe_render::cameras::depth_marker::DepthMarker;
+ let mut marker=DepthMarker::default();let mut screen=[0.;16];screen[0]=1.;screen[5]=1.;screen[10]=1.;screen[15]=1.;
+ marker.begin(&screen);ALLOCS.with(|n|n.set(0));TRACK.with(|on|on.set(true));
+ for i in 0..100000{marker.key=[0.,0.,i as f64*0.125,1.,-4.,i as f64];marker.request();}marker.finish();
+ TRACK.with(|on|on.set(false));assert_eq!(ALLOCS.with(Cell::get),0);assert_eq!(marker.output[bfe_render::cameras::layout::depth_marker::REQUESTS],100000.);
+ marker.begin(&screen);marker.finish();assert_eq!(marker.output[bfe_render::cameras::layout::depth_marker::VISIBLE],0.);
 }

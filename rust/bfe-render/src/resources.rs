@@ -587,6 +587,17 @@ impl GpuResources {
         self.gl.viewport(x,y,width,height); self.gl.scissor(sx,sy,sw,sh);
         if clipped { self.gl.enable(Gl::SCISSOR_TEST); } else { self.gl.disable(Gl::SCISSOR_TEST); } Ok(())
     }
+    // BattleCanvas.clear ports WebGLRenderer.clear without a second state cache.
+    // Colour values stay in gamma space and are premultiplied exactly once.
+    // The next native phase resets its own cache before submitting any draw.
+    pub fn clear(&self, r:f64, g:f64, b:f64, alpha:f64, premultiply:bool, mask:u32) {
+        if self.lost { return; }
+        let pre=if premultiply {alpha} else {1.};
+        self.gl.color_mask(true,true,true,true);self.gl.depth_mask(true);self.gl.stencil_mask(u32::MAX);
+        self.gl.clear_color((r*pre) as f32,(g*pre) as f32,(b*pre) as f32,alpha as f32);
+        self.gl.clear_depth(1.);self.gl.clear_stencil(0);
+        self.gl.clear(mask & (Gl::COLOR_BUFFER_BIT|Gl::DEPTH_BUFFER_BIT|Gl::STENCIL_BUFFER_BIT));
+    }
     pub fn framebuffer(&self, id: u32, multisample: bool, face: u32) -> Result<WebGlFramebuffer,JsValue> {
         let target = self.target_ref(id)?;
         if multisample { if let Some(fb) = &target.multisample { return Ok(fb.clone()); } }

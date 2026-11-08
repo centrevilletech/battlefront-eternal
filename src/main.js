@@ -8,7 +8,7 @@ if (isBattle(location.search)) startBattle();
 else startShell();
 
 function failed(what, error) {
-  document.querySelector("#hud").textContent = `Failed to load ${what}: ${error.message}`;
+  document.querySelector("#hud").textContent = `Failed to load ${what}: ${error?.message ?? String(error)}`;
   console.error(error);
 }
 

@@ -1,7 +1,8 @@
 import '../fixtures/native-render-descriptors.js';
-import {actor_source_description,actor_appearance_description,actor_effect_description} from '../../src/rust-pkg/bfe_render.js';
+import {actor_source_description,actor_appearance_description,actor_effect_description,program_warmup_keys} from '../../src/rust-pkg/bfe_render.js';
 import {ACTOR} from '../../src/rust-render/actor-layout.js';
 import { LINE as D } from '../../src/rust-render/line-layout.js';
+import {TransformChange} from "../../src/rust-render/scene-transform-layout.js";
 // Stand-ins for the Rust renderer's tests (tests/rust-render*.test.js): the
 // WebAssembly module (src/rust-pkg) and the page's side of three that the
 // bridge (src/rust-render/index.js) is given. One module answers every
@@ -26,11 +27,12 @@ import { LINE as D } from '../../src/rust-render/line-layout.js';
 //   own (an object, or a function of { calls, region } making one); a test
 //   can also set one on the instance later.
 import { FACTS as F, STATE as S, BINDING as B, META as M, ROLE as R, LINE as V, LIMIT as L, STATS as T } from "../../src/rust-render/frame-layout.js";
-import { INPUT as CI, CAMERA as CC, CASCADE as CW, LIGHT as CL, PACK as CP, MIRROR as CM, ROLE as CR, LIMIT as CX, LIGHT_INPUT as CLI, LIGHT_OUTPUT as CLO } from "../../src/rust-render/camera-layout.js";
+import { FACTS as PF, STATE as PS } from "../../src/rust-render/post-layout.js";
+import { DEPTH_KEY as DK,DEPTH_MARKER as DM,POINT_CHANGE as PC, UNIFORM_INPUT as UI, UNIFORM_OUTPUT as UO, INPUT as CI, CAMERA as CC, CASCADE as CW, LIGHT as CL, PACK as CP, MIRROR as CM, ROLE as CR, LIMIT as CX, LIGHT_INPUT as CLI, LIGHT_OUTPUT as CLO } from "../../src/rust-render/camera-layout.js";
 import * as THREE from "three";
 
 import { readFileSync } from "node:fs";
-import { initSync, BfeScene } from "../../src/rust-pkg/bfe_render.js";
+import { initSync, BfeScene, BfePoseHistory, BfeUniformTransforms, BfeDepthMarker } from "../../src/rust-pkg/bfe_render.js";
 import { SceneNode, SceneGroup, SceneWorldChange } from "../../src/rust-render/scene-layout.js";
 
 // Visibility fixtures use the real CPU-only producer. Only GPU registration
@@ -40,6 +42,7 @@ const sceneWasm = initSync({ module: readFileSync(new URL("../../src/rust-pkg/bf
 export const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export const LENGTHS = {
+  camera_unit_view:24,scene_rotation:3,camera_depth_key:DK.LEN,camera_depth_marker:DM.LEN,camera_projection_view:16,camera_uniform_input:UI.LEN,camera_uniform_output:UO.LEN,
   camera_extra_handles:CX.EXTRA_CAMERAS,camera_pack_handles:CX.PACKS,
   camera_light_input:CLI.LEN,camera_light_output:CLO.LEN,
   camera_input:CI.LEN,camera_output:CR.COUNT*CC.LEN,camera_windows:CX.CASCADES*CW.LEN,camera_lights:CX.RAW_LIGHTS*CL.LEN,camera_packs:CX.PACKS*CP.LEN,camera_mirror:CM.LEN,camera_sky:CX.SKY*3,
@@ -57,13 +60,31 @@ export const LENGTHS = {
 };
 export const LAYOUT = { records_at: 200, record_stride: 100, transparent_object_stride: 40 };
 
-export const QUIET = ["camera_global_shader_frame","camera_shader_frame","camera_pack_shader_frame","transparent_bucket_shown", "foliage_on"];
+export const QUIET = ["camera_lights_frame","camera_view_lights_frame","camera_global_shader_frame","camera_shader_frame","camera_pack_shader_frame","transparent_bucket_shown", "foliage_on"];
 
 // Shader-upload fixtures submit individual phases. Supply the scene-fact
 // publication normally performed by coverNear/cover before those calls; the
 // production native selector still makes every visibility and ordering choice.
 export function prepareSceneFixture(core) {
   if(core.renderer.renderLists)core.registry.items = core.renderer.renderLists.get(core.graphics.scene, 0);
+  // These upload fixtures start at scene selection, after the ordinary camera
+  // phase. Supply its retained publication without duplicating camera math.
+  // Foliage publishes a view before scene selection. Seed that existing
+  // publication boundary from authored fixture matrices, without a JS solver.
+  const main=core.cameras.main;
+  core.cameras.main=function(camera){
+    const world=Float64Array.from(camera.matrixWorld.elements),inverse=Float64Array.from(camera.matrixWorldInverse.elements),projection=Float64Array.from(camera.projectionMatrix.elements),projectionInverse=Float64Array.from(camera.projectionMatrixInverse.elements);
+    const result=main.call(this,camera);core.views();const out=core.cameraOutput,at=CR.MAIN*CC.LEN;
+    out.set(world,at+CC.WORLD);out.set(inverse,at+CC.INVERSE);out.set(projection,at+CC.PROJECTION);out.set(projectionInverse,at+CC.PROJECTION_INVERSE);out.set(world.subarray(12,15),at+CC.POSITION);out[at+CC.LENS+4]=camera.zoom??1;
+    this.roles.set(camera,CR.MAIN);return result;
+  };
+  const select=core.registry.select;
+  core.registry.select=function(scene,camera,...args){
+    const role=core.cameras.roles.get(camera)??core.cameras.bindings.get(camera);
+    if(role!==undefined){core.views();const out=core.cameraOutput,at=role*CC.LEN;
+      out.set(camera.projectionMatrix.elements,at+CC.PROJECTION);out.set(camera.matrixWorldInverse.elements,at+CC.INVERSE);out.set(camera.matrixWorld.elements,at+CC.WORLD);out[at+CC.LENS+4]=camera.zoom??1;}
+    return select.call(this,scene,camera,...args);
+  };
   const publish = core.publishView;
   core.publishView = function(name, renderer, scene, camera, ...args) {
     if (scene && camera) {
@@ -77,14 +98,16 @@ export function prepareSceneFixture(core) {
   return core;
 }
 
-export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 25 } = {}) {
+export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 27 } = {}) {
   const calls = [];
-  const nativeScene=new BfeScene();
+  const nativeScene = new BfeScene();
+  const nativeHistory = new BfePoseHistory();
+  const nativeTransforms=new BfeUniformTransforms();const nativeDepth=new BfeDepthMarker();
   const memory = { buffer: new ArrayBuffer(memoryBytes) };
   const sizes = { ...LENGTHS, ...lengths }, values = { ...LAYOUT, ...layout }, silent = new Set(quiet);
   const length = (name) => { const n = sizes[name] ?? 1024; return typeof n === "function" ? n() : n; };
   const regions = new Map(), regionBytes = new Map();
-  let next = 0;
+  let next=0,sceneStamp=0,prepareKeys=[],prepareAt=0;
   const region = (name) => {
     const bytes=Math.ceil(Math.max(length(name),1024)*8/16)*16;
     if (!regions.has(name) || regionBytes.get(name)<bytes) {
@@ -97,9 +120,60 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
     return regions.get(name);
   };
   if (typeof methods === "function") methods = methods({ calls, region });
-  for (const name of ["changes", "world_changes", "view", "output", "order", "facts", "visible", "groups", "lines", "motion_events", "canopy_bounds", "canopy_view", "canopy_output", "canopy_states"]) sizes["scene_" + name] = () => nativeScene["scene_" + name + "_len"]();
+  for (const name of ["changes", "world_changes", "view", "output", "order", "facts", "visible", "groups", "lines", "motion_events", "canopy_bounds", "canopy_view", "canopy_output", "canopy_states", "transform_changes", "transform_values", "transform_phase", "point_changes", "pose", "pose_skins", "tree_input", "tree_info", "place_output", "skin_admit"]) sizes["scene_" + name] = () => nativeScene["scene_" + name + "_len"]();
   const sceneArray = name => new Float64Array(sceneWasm.memory.buffer, nativeScene["scene_" + name + "_ptr"](), nativeScene["scene_" + name + "_len"]());
+  const sceneCopy=(name,count)=>{const target=sceneArray(name);target.set(new Float64Array(memory.buffer,region("scene_"+name),Math.min(count,target.length)));};
+  const sceneOutput=name=>{const source=sceneArray(name);new Float64Array(memory.buffer,region("scene_"+name),source.length).set(source);};
+  const sceneSkins=()=>{const source=new Float32Array(sceneWasm.memory.buffer,nativeScene.scene_pose_skins_ptr(),nativeScene.scene_pose_skins_len());new Float32Array(memory.buffer,region("scene_pose_skins"),source.length).set(source);};
+  // History assertions exercise the Rust producer, not a JS history twin.
+  for(const name of ["poses","selected","records","current"])sizes["motion_history_"+name]=()=>nativeHistory[name+"_len"]();
+  const historyInput=name=>{
+    const Type=name==="poses"?Float64Array:name==="current"?Float32Array:Uint32Array;
+    const target=new Type(sceneWasm.memory.buffer,nativeHistory[name+"_ptr"](),nativeHistory[name+"_len"]());
+    target.set(new Type(memory.buffer,region("motion_history_"+name),target.length));
+  };
   methods = {
+    scene_place_frame(...args){const count=nativeScene.scene_place_frame(...args);const source=new Uint32Array(sceneWasm.memory.buffer,nativeScene.scene_place_output_ptr(),nativeScene.scene_place_output_len());new Uint32Array(memory.buffer,region('scene_place_output'),source.length).set(source);return count;},
+    scene_rotation_frame(...args){nativeScene.scene_rotation_frame(...args);const values=new Float64Array(sceneWasm.memory.buffer,nativeScene.scene_rotation_ptr(),nativeScene.scene_rotation_len());row('scene_rotation').set(values);},
+    scene_transform_apply_frame(changes,groups,worlds,transforms){
+      sceneCopy("changes",changes*SceneNode.STRIDE);sceneCopy("groups",groups*SceneGroup.STRIDE);sceneCopy("world_changes",worlds*SceneWorldChange.STRIDE);sceneCopy("transform_changes",transforms*TransformChange.STRIDE);
+      nativeScene.scene_transform_apply_frame(changes,groups,worlds,transforms);sceneOutput("transform_values");
+    },
+    scene_transform_frame(){sceneCopy("transform_phase",nativeScene.scene_transform_phase_len());const updates=nativeScene.scene_transform_frame();sceneOutput("transform_values");return updates;},
+    scene_transform_updates:()=>nativeScene.scene_transform_updates(),scene_transform_visits:()=>nativeScene.scene_transform_visits(),
+    scene_skin_admit_frame(...args){nativeScene.scene_skin_admit_frame(...args);const source=new Float32Array(sceneWasm.memory.buffer,nativeScene.scene_skin_admit_ptr(),nativeScene.scene_skin_admit_len());new Float32Array(memory.buffer,region('scene_skin_admit'),source.length).set(source);},
+    scene_motion_locked_frame(record,id,generation){nativeScene.scene_motion_locked_frame(record,id,generation,new Float64Array(memory.buffer,region('motion_input'),length('motion_input')));},
+    scene_skeleton_register:(...args)=>nativeScene.scene_skeleton_register(...args),
+    scene_point_root_frame:(...args)=>nativeScene.scene_point_root_frame(...args),
+    scene_points_apply_frame(count){sceneCopy("point_changes",count*PC.LEN);nativeScene.scene_points_apply_frame(count);},
+    scene_pose_register:(...args)=>nativeScene.scene_pose_register(...args),
+    scene_pose_frame(){sceneCopy("pose",nativeScene.scene_pose_len());const count=nativeScene.scene_pose_frame();sceneOutput("transform_values");sceneSkins();return count;},
+    scene_tree_reserve:words=>nativeScene.scene_tree_reserve(words),
+    scene_pose_skin_register:(...args)=>nativeScene.scene_pose_skin_register(...args),
+    scene_pose_skin_offset:(...args)=>nativeScene.scene_pose_skin_offset(...args),
+    scene_tree_frame(){sceneCopy("tree_input",nativeScene.scene_tree_input_len());sceneCopy("tree_info",nativeScene.scene_tree_info_len());const count=nativeScene.scene_tree_frame();sceneOutput("transform_values");sceneSkins();return count;},
+    scene_instances_frame(count){return nativeScene.scene_instances_frame(new Float64Array(memory.buffer,region("input"),length("input")),new Float32Array(memory.buffer,region("bones"),length("bones")),count,values.records_at);},
+    scene_motion_model_frame:(skin,id,generation)=>nativeScene.scene_motion_model_frame(nativeHistory,skin,id,generation),
+    scene_motion_source_frame(id,slot,generation){
+      const ready=nativeScene.scene_motion_source_frame(nativeHistory,id,slot,generation);
+      for(const name of ["poses","current"]){const Type=name==="poses"?Float64Array:Float32Array;const source=new Type(sceneWasm.memory.buffer,nativeHistory[name+"_ptr"](),nativeHistory[name+"_len"]());new Type(memory.buffer,region("motion_history_"+name),source.length).set(source);}return ready;
+    },
+    motion_history_flyer_frame:()=>nativeHistory.flyer_frame(),
+    motion_history_flyer_sample_frame:(...args)=>nativeHistory.flyer_sample_frame(...args),
+    motion_history_sequence:()=>nativeHistory.sequence(),
+    motion_history_skin_frame:count=>nativeHistory.skin_frame(count),
+    motion_history_skin_start:id=>nativeHistory.skin_start(id),
+    motion_history_model_frame:(skin,bind)=>nativeHistory.model_frame(skin,bind),
+    motion_history_reskin_frame:(id,skin)=>nativeHistory.reskin_frame(id,skin),
+    motion_history_reset_frame:id=>nativeHistory.reset_frame(id),
+    motion_history_release_frame:id=>nativeHistory.release_frame(id),
+    motion_history_prepare_frame:count=>{for(const name of ["poses","selected","current"])historyInput(name);nativeHistory.prepare_frame(count);},
+    motion_history_commit_frame:()=>nativeHistory.commit_frame(),
+    motion_history_write_frame:count=>{
+      historyInput("records");
+      nativeHistory.write_frame(count,new Float64Array(memory.buffer,region("motion_input"),length("motion_input")),
+        new Float32Array(memory.buffer,region("motion_bones"),length("motion_bones")),new Float32Array(memory.buffer,region("motion_previous"),length("motion_previous")));
+    },
     scene_canopy_reserve: (count,generation) => nativeScene.scene_canopy_reserve(count,generation),
     scene_canopy_select: () => {
       for (const name of ["canopy_bounds", "canopy_view"]) {
@@ -112,6 +186,11 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
       const states = new Float32Array(sceneWasm.memory.buffer, nativeScene.scene_canopy_states_ptr(), nativeScene.scene_canopy_states_len());
       new Float32Array(memory.buffer, region("scene_canopy_states"), states.length).set(states);
       return count;
+    },
+    scene_mirrored_frame(id,generation){
+      const a=row('camera_uniform_input');if(!nativeScene.scene_uniform_world_frame(id,generation,a))return false;
+      new Float64Array(sceneWasm.memory.buffer,nativeTransforms.input_ptr(),nativeTransforms.input_len()).set(a);
+      return nativeTransforms.mirrored();
     },
     scene_reserve: count => nativeScene.scene_reserve(count),
     scene_groups_reserve:count=>nativeScene.scene_groups_reserve(count),
@@ -143,12 +222,59 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
   const actorSources=[],actorModels=new Map();let actorHandles=0;
   let packSequence=0,cameraSequence=0;
   const frameMethods={
+    prepare_keys_frame:program_warmup_keys,
+    prepare_begin_frame(family,cascades,lamps,shadows){prepareKeys=JSON.parse(program_warmup_keys(family,cascades,lamps,shadows));prepareAt=0;},
+    prepare_next_frame(){return prepareKeys[prepareAt++]||"";},
+    scene_stamp_frame(advance){if(advance)sceneStamp++;return sceneStamp;},
+    renderer_diagnostics_frame(){return JSON.stringify({frame:sceneStamp,programs:counts.get('add_owned_program')||0});},
+    camera_post_facts_frame(role){const source=row('camera_output'),out=row('post_chain_input'),at=role*CC.LEN;for(const [to,from]of [[PF.PROJECTION,CC.PROJECTION],[PF.VIEW,CC.INVERSE],[PF.WORLD,CC.WORLD]])out.set(source.subarray(at+from,at+from+16),to);},
+    camera_canopy_view_frame(role){const source=row('camera_output'),out=row('scene_canopy_view'),at=role*CC.LEN;for(const [to,from]of [[5,CC.PROJECTION],[21,CC.INVERSE],[37,CC.WORLD]])out.set(source.subarray(at+from,at+from+16),to);out.set(source.subarray(at+CC.POSITION,at+CC.POSITION+3),53);},
+    camera_foliage_view_frame(role){const source=row('camera_output'),out=row('foliage_input'),at=role*CC.LEN;for(const [to,from]of [[0,CC.PROJECTION],[16,CC.INVERSE],[32,CC.WORLD]])out.set(source.subarray(at+from,at+from+16),to);out.set(source.subarray(at+CC.POSITION,at+CC.POSITION+3),48);},
+    camera_scene_view_frame(role){const source=row('camera_output'),out=row('scene_view'),at=role*CC.LEN;out.set(source.subarray(at+CC.PROJECTION,at+CC.PROJECTION+16),5);out.set(source.subarray(at+CC.INVERSE,at+CC.INVERSE+16),21);out.set(source.subarray(at+CC.WORLD+12,at+CC.WORLD+15),37);out[40]=source[at+CC.LENS+4];},
+
+    camera_depth_begin_frame(role){nativeDepth.begin_camera(row('camera_output'),role);},
+    camera_depth_request_frame(){new Float64Array(sceneWasm.memory.buffer,nativeDepth.key_ptr(),nativeDepth.key_len()).set(row('camera_depth_key'));return nativeDepth.request();},
+    camera_depth_finish_frame(){nativeDepth.finish();row('camera_depth_marker').set(new Float64Array(sceneWasm.memory.buffer,nativeDepth.output_ptr(),nativeDepth.output_len()));},
+    camera_scene_uniform_frame(id,generation,role){
+      const a=row('camera_uniform_input'),camera=row('camera_output'),at=role*CC.LEN;
+      nativeScene.scene_uniform_world_frame(id,generation,a);a.set(camera.subarray(at+CC.INVERSE,at+CC.INVERSE+16),UI.VIEW);a.set(camera.subarray(at+CC.PROJECTION,at+CC.PROJECTION+16),UI.PROJECTION);a.set(camera.subarray(at+CC.WORLD+12,at+CC.WORLD+15),UI.EYE);
+      new Float64Array(sceneWasm.memory.buffer,nativeTransforms.input_ptr(),nativeTransforms.input_len()).set(a);nativeTransforms.frame(false);row('camera_uniform_output').set(new Float64Array(sceneWasm.memory.buffer,nativeTransforms.output_ptr(),nativeTransforms.output_len()));
+    },
+    camera_mirrored_frame(){
+      new Float64Array(sceneWasm.memory.buffer,nativeTransforms.input_ptr(),nativeTransforms.input_len()).set(row('camera_uniform_input'));
+      return nativeTransforms.mirrored();
+    },
+    camera_uniform_frame(uv){
+      new Float64Array(sceneWasm.memory.buffer,nativeTransforms.input_ptr(),nativeTransforms.input_len()).set(row('camera_uniform_input'));
+      nativeTransforms.frame(uv);
+      row('camera_uniform_output').set(new Float64Array(sceneWasm.memory.buffer,nativeTransforms.output_ptr(),nativeTransforms.output_len()));
+    },
+    motion_camera_frame(role,view){
+      const out=row('motion_input'),cameras=row('camera_output'),post=row('post_chain_state');
+      for(const [to,from]of [[0,role*CC.LEN+CC.PROJECTION],[16,role*CC.LEN+CC.INVERSE],[32,view*CC.LEN+CC.PROJECTION],[48,view*CC.LEN+CC.INVERSE]])out.set(cameras.subarray(from,from+16),to);
+      out.set(post.subarray(PS.CURRENT,PS.CURRENT+16),64);out.set(post.subarray(PS.PREVIOUS,PS.PREVIOUS+16),80);
+    },
     actor_source(authored,vertices,indices){calls.push(['actor_source',authored]);actorSources.push(JSON.parse(actor_source_description(authored,vertices,indices)));return actorSources.length-1;},
     actor_material(source,authored,skin,cascades,lamps,view,samplers){calls.push(['actor_material',source,authored,skin,cascades,lamps,view,samplers]);const policy=JSON.parse(actor_appearance_description(authored,skin,view?0:cascades,lamps)),facts=actorSources[source],row=new Float64Array(ACTOR.DESCRIPTOR.LEN),d=ACTOR.DESCRIPTOR;row[d.HANDLE]=actorHandles++;row[d.BLENDED]=+policy.blended;row[d.LAMPS]=+policy.lamps;row[d.HEATED]=+policy.heated;row.set(facts.bounds,d.BOUNDS);row[d.COUNT]=facts.indexCount;return row;},
     actor_effect(source,kind,shadows,view,texture,authored){calls.push(['actor_effect',source,kind,shadows,view,texture,authored]);const policy=JSON.parse(actor_effect_description(kind,shadows,view,texture,authored)),key=JSON.stringify([source,kind,shadows,view,texture,authored]);if(!actorModels.has(key))actorModels.set(key,actorModels.size);return Float64Array.of(actorModels.get(key),...actorSources[source].bounds.slice(0,3),...policy.defaults);},
     camera_acquire_frame(){const slot=cameraSequence%CX.EXTRA_CAMERAS,handle=(Math.floor(cameraSequence++/CX.EXTRA_CAMERAS)+1)*CX.EXTRA_CAMERAS+slot;row('camera_extra_handles')[slot]=handle;return handle;},
     camera_release_frame(handle){const a=row('camera_extra_handles'),slot=handle%CX.EXTRA_CAMERAS;if(a[slot]!==handle)return false;a[slot]=-1;return true;},
-    camera_import_frame(handle){return CR.EXTRA0+handle%CX.EXTRA_CAMERAS;},
+    camera_import_frame(handle){
+      const role=CR.EXTRA0+handle%CX.EXTRA_CAMERAS,a=row('camera_input'),out=row('camera_output'),at=role*CC.LEN;
+      const c=a[CI.ORTHOGRAPHIC]?new THREE.OrthographicCamera(a[CI.ORTHO_BOUNDS],a[CI.ORTHO_BOUNDS+1],a[CI.ORTHO_BOUNDS+2],a[CI.ORTHO_BOUNDS+3],a[CI.LENS+2],a[CI.LENS+3]):new THREE.PerspectiveCamera(a[CI.LENS],a[CI.LENS+1],a[CI.LENS+2],a[CI.LENS+3]);
+      c.zoom=a[CI.LENS+4];c.filmGauge=a[CI.LENS+5];c.filmOffset=a[CI.LENS+6];
+      if(a[CI.LENS+7])c.setViewOffset(a[CI.LENS+8],a[CI.LENS+9],a[CI.LENS+10],a[CI.LENS+11],a[CI.LENS+12],a[CI.LENS+13]);
+      c.updateProjectionMatrix();
+      c.position.fromArray(a,CI.POSITION);c.quaternion.fromArray(a,CI.QUATERNION);c.scale.fromArray(a,CI.SCALE);c.up.fromArray(a,CI.UP);
+      if(a[CI.USE_LOCAL_MATRIX])c.matrix.fromArray(a,CI.LOCAL_MATRIX);else c.updateMatrix();
+      if(a[CI.HAS_PARENT])c.matrixWorld.multiplyMatrices(new THREE.Matrix4().fromArray(a,CI.PARENT_WORLD),c.matrix);else c.matrixWorld.copy(c.matrix);
+      c.matrixWorldInverse.copy(c.matrixWorld).invert();
+      out.set(c.position.toArray(),at+CC.POSITION);out.set(c.up.toArray(),at+CC.UP);out.set(c.quaternion.toArray(),at+CC.QUATERNION);
+      out.set(a.subarray(CI.LENS,CI.LENS+14),at+CC.LENS);
+      out.set(c.matrixWorld.elements,at+CC.WORLD);out.set(c.matrixWorldInverse.elements,at+CC.INVERSE);
+      out.set(c.projectionMatrix.elements,at+CC.PROJECTION);out.set(c.projectionMatrixInverse.elements,at+CC.PROJECTION_INVERSE);
+      return role;
+    },
     camera_pack_acquire_frame(){const slot=packSequence%CX.PACKS,handle=(Math.floor(packSequence++/CX.PACKS)+1)*CX.PACKS+slot;row('camera_pack_handles')[slot]=handle;return handle;},
     camera_pack_release_frame(handle){const a=row('camera_pack_handles'),slot=handle%CX.PACKS;if(a[slot]!==handle)return false;a[slot]=-1;return true;},
     camera_pack_shader_frame(pack){const out=row('input'),input=row('camera_packs'),at=(pack%CX.PACKS)*CP.LEN;out[70]=input[at+CP.COUNT];for(let i=0;i<out[70]*8;i++)out[72+i]=input[at+CP.VALUES+i];},
@@ -264,6 +390,8 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
 // Presentation tests isolate the command boundary from real WebGL storage.
 // Backend smoke tests exercise GpuResources itself, including restore/copies.
 export function standinResources(renderer, calls) {
+  const fixtureGL=renderer.getContext?.();if(fixtureGL&&!fixtureGL.isContextLost){fixtureGL.isContextLost=()=>false;renderer.getContext=()=>fixtureGL;}
+  renderer.domElement ??= new EventTarget();renderer.dispose ??= ()=>{};
   renderer.getActiveCubeFace ??= ()=>0;renderer.getActiveMipmapLevel ??= ()=>0;
   renderer.getCurrentViewport ??= v=>v.set(0,0,800,600);
   renderer.getViewport ??= v=>v.set(0,0,800,600);renderer.getScissor ??= v=>v.set(0,0,800,600);
@@ -287,6 +415,7 @@ export function standinResources(renderer, calls) {
     disposeEffectTarget(){},
     targetId:target=>{target.viewport ??= new THREE.Vector4(0,0,target.width||1,target.height||1);target.scissor ??= target.viewport.clone();if(!ids.has(target))ids.set(target,next++);return ids.get(target);},
 
+    handle: texture => typeof texture === "number" ? handles[texture] : renderer.properties.get(texture).__webglTexture,
     owns: texture => ids.has(texture),
     staticAnisotropy(value) { calls.push(["static_anisotropy",value]); },
     staticSample(texture) { return typeof texture === "number" ? texture : this.textureId(texture); },

@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "records": {
+    "TransformChange": {
+      "slot": 1,
+      "generation": 1,
+      "flags": 1,
+      "position": 3,
+      "quaternion": 4,
+      "scale": 3,
+      "local": 16,
+      "world": 16,
+      "bind": 16
+    },
+    "TransformState": {
+      "local": 16,
+      "world": 16,
+      "bindInverse": 16,
+      "bind": 16,
+      "position": 3,
+      "quaternion": 4,
+      "scale": 3
+    },
+    "TransformPhase": {
+      "root": 1,
+      "generation": 1,
+      "force": 1,
+      "children": 1
+    },
+    "TransformRotation": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  "limits": {
+    "TransformFlags": {
+      "autoLocal": 1,
+      "autoWorld": 2,
+      "dirty": 4,
+      "stop": 8,
+      "skinned": 16,
+      "detached": 32,
+      "native": 64,
+      "attached": 128,
+      "retained": 256,
+      "nativePosition": 512
+    },
+    "RotationOrder": {
+      "xyz": 0,
+      "yxz": 1,
+      "zxy": 2,
+      "zyx": 3,
+      "yzx": 4,
+      "xzy": 5
+    }
+  }
+}

@@ -77,25 +77,8 @@ export function ownedBasicEffect(shape, parameters) {
 // that has no twin; cascade-chunk variants follow the cascade setting. Anything
 // a later setting needs is linked when the settings change (EffectsPass).
 export function effectProgramKeys(core) {
-  const shadows = core.shadowsOn(), csm = Boolean(core.graphics.csm), keys = [];
-  for (const [key, layout] of Object.entries(programLayouts)) {
-    if (!key.startsWith("effects/")) continue;
-    const twin = layout.shadowOf !== undefined || layout.shadowTwin !== undefined;
-    if (twin && (layout.shadowOf !== undefined) !== shadows) continue;
-    const select = layout.selector;
-    if (select && select.csmChunks !== undefined && select.csmChunks !== csm) continue;
-    keys.push(key);
-  }
-  return keys;
+  return JSON.parse(core.rust.prepare_keys_frame(2,core.graphics.csm?.lights.length||0,!!core.graphics.settings.get('lampLighting'),core.shadowsOn()));
 }
 
-// Link those programs one at a time with `settle()` awaited between them, so the
-// driver's link waits fall on the loading screen and not in one long stall.
-// A program already made (a later warmup, a restored context) costs nothing.
-export async function warmEffectPrograms(core, settle) {
-  for (const key of effectProgramKeys(core)) {
-    if (core.ownedPrograms?.has(key)) continue;
-    ownedProgram(core, key, null);
-    await settle();
-  }
-}
+// Loading remains paced without a browser-side variant selector.
+export async function warmEffectPrograms(core,settle){await core.prewarm(2,settle);}

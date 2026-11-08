@@ -4,7 +4,7 @@ import {SurfaceOwner,stepSurface} from './helpers/surfaces.js';
 // Exercise real native resource owners over repeated admissions. No stand-in
 // can prove GPU uploads, qualified handles or restoration journal bounds.
 import * as THREE from 'three';
-import {actorAsset,nativeActorSource,actorSkin,releaseActorSkin} from '../src/actor-resources.js';
+import {actorAsset,actorNode,actorLook,nativeActorSource,actorSkin,releaseActorSkin} from '../src/actor-resources.js';
 import {EFFECT} from '../src/rust-render/effect-layout.js';
 export function checkRendererLifetimes(g,assert){
  const core=g.rust,r=core.rust,resources=g.renderer.resources,gl=g.renderer.getContext();
@@ -19,7 +19,7 @@ export function checkRendererLifetimes(g,assert){
    r.actor_effect(source.id,EFFECT.ACTOR_SHIELD.ID,true,false,core.texture(repeat),'{}');
  }
  assert('Shield spawn churn reuses model, texture and recovery recipes',r.recovery_commands()===cold&&JSON.stringify(JSON.parse(r.resource_diagnostics()).resources)===JSON.stringify(counts));
- const skeleton={bones:[{}],boneMatrices:Float32Array.from(new THREE.Matrix4().elements)};
+ const bone=new THREE.Bone(),skeleton=new THREE.Skeleton([bone]),skinNode=actorNode(asset,actorLook('body'),true);skinNode.add(bone);skinNode.bind(skeleton);
  actorSkin(core,skeleton);releaseActorSkin(core,skeleton);const skinCold=r.recovery_commands(),textureCold=core.textureSources.length;
  for(let i=0;i<10000;i++){
    skeleton.boneMatrices=Float32Array.from(new THREE.Matrix4().elements);

@@ -77,12 +77,12 @@ export class PageProps {
         parentTurn: t.drumParentTurn ? [t.drumParentTurn.x,t.drumParentTurn.y,t.drumParentTurn.z,t.drumParentTurn.w] : null,
         gunBind: t.gunBind ? [t.gunBind.x,t.gunBind.y,t.gunBind.z,t.gunBind.w] : null,
         up: [t.up.x,t.up.y,t.up.z], yawFactor: t.yawFactor, pitchFactor: t.pitchFactor }));
-      ownTree(row);
+      row.poseSource=this;ownTree(row);
       return row;
     });
     this.refresh();
-    for (let i = 0; i < this.propTrees.length; i++) { this.propTrees[i].start = this.propOutput[i * PO.STRIDE + PO.NODE_START]; ownTree(this.propTrees[i]); }
-    for (let i = 0; i < this.trapTrees.length; i++) { this.trapTrees[i].start = this.trapOutput[i * TO.STRIDE + TO.NODE_START]; ownTree(this.trapTrees[i]); }
+    for (let i = 0; i < this.propTrees.length; i++) { this.propTrees[i].start = this.propOutput[i * PO.STRIDE + PO.NODE_START]; this.propTrees[i].poseSource=this;ownTree(this.propTrees[i]); }
+    for (let i = 0; i < this.trapTrees.length; i++) { this.trapTrees[i].start = this.trapOutput[i * TO.STRIDE + TO.NODE_START]; this.trapTrees[i].poseSource=this;ownTree(this.trapTrees[i]); }
   }
   // A clip's handle, loading it once.
   clip(clip) {

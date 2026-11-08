@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { contextLimits } from "./rust-render/browser.js";
 import { STATE } from "./rust-render/post-layout.js";
 import { motionVectors } from "./motion-vectors.js";
 
@@ -53,8 +54,7 @@ export const UPSCALERS = {
 export class Upscaler {
   constructor(renderer) {
     this.renderer = renderer;
-    const extensions = renderer.extensions;
-    this.floats = extensions.has("EXT_color_buffer_float") || extensions.has("EXT_color_buffer_half_float");
+    this.floats = contextLimits(renderer).floats;
     const target = filter => new THREE.WebGLRenderTarget(1, 1, {
       type: this.floats ? THREE.HalfFloatType : THREE.UnsignedByteType,
       depthBuffer: false, minFilter: filter, magFilter: filter, generateMipmaps: false,
@@ -93,9 +93,9 @@ export class Upscaler {
 
   // Motion geometry still belongs to its existing phase. It consumes native
   // current/previous matrices; no history clock or post commit lives here.
-  drawMotion(renderer, { root, camera, viewScene, view, depth }) {
-    this.depth = depth;
-    const input=this.motionInput;input.root=root;input.camera=camera;input.viewScene=viewScene;input.view=view;input.depth=depth;
+  drawMotion(renderer, frame) {
+    this.depth=frame.depth;
+    const input=this.motionInput;input.root=frame.root;input.camera=frame.camera;input.viewScene=frame.viewScene;input.view=frame.view;input.depth=frame.depth;
     return motionVectors.render(renderer,input);
   }
   dispose() { for (const target of this.history) target.dispose(); this.velocity.dispose(); this.motion.dispose(); }

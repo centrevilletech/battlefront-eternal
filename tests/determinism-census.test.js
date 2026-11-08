@@ -41,7 +41,7 @@ const CENSUS = {
     'src/vehicle-effects.js': { page: 1 },
   },
   'performance.now': {
-    'src/game.js': { page: 20 }, // frames, loading and the page's own clocks
+    'src/game.js': { page: 19 }, // frames, loading and the page's own clocks
     'src/local-lights.js': { page: 1 },
     'src/point-lights.js': { page: 1 },
     'src/render-resources.js': { page: 2 }, // upload-fence deadline while loading, never a world step

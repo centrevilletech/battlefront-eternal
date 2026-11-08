@@ -68,6 +68,7 @@ struct View {
 /// Fixed exchange storage. Resource registration may allocate; frame() never
 /// grows a collection, including when all actors change pose in one frame.
 pub struct Units {
+    pub scene_pose:crate::scene_pose::Publisher,
     pub collision:crate::unit_collision::Collision,
     pub rider_sources:crate::rider_sources::Bindings,
     pub network:crate::network::Bindings,
@@ -105,6 +106,7 @@ impl Units {
     }
     fn with_capacity(actors: usize, nodes: usize, commands: usize, weapons: usize) -> Self {
         Self {
+            scene_pose:crate::scene_pose::Publisher::new(nodes),
             network:Default::default(),
             rider_sources:Default::default(),
             collision:Default::default(),
@@ -199,8 +201,12 @@ impl Units {
             compose: true,
             stale: false,
         });
+        let actor=&self.actors[id];
+        for (skin,&node) in actor.rig.bones.iter().enumerate(){self.scene_pose.bone(actor.node_start+node as usize,actor.skin_start+skin);}
         id
     }
+    // The phase has completed its original lazy placement before packing.
+    pub fn publish_scene_pose(&mut self){self.scene_pose.publish(&self.nodes,&self.changed,self.header[h::CHANGED] as usize,&self.skin,&self.output);}
     /// Native resource pools can lend a skeleton to another identity whose
     /// generation happens to equal the previous body's. Force the ordinary
     /// life-boundary path without constructing another rig or animator.

@@ -167,6 +167,6 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     graphics.scene.add(mesh);
     meshes.push(mesh);
   }
-  if (sources.size) graphics.rust.byName.shadow.admitNative(JSON.parse(graphics.rust.rust.static_depth_finish()), sources);
+  if (sources.size) graphics.rust.byName.shadow.queueNative(sources);
   return meshes;
 }

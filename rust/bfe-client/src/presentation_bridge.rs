@@ -99,6 +99,12 @@ impl PageUnits {
             inner: bfe_presentation::units::Units::preview(),
         }
     }
+    pub fn scene_pose_owner(&mut self,id:u32,generation:u32){self.inner.scene_pose.owner(id,generation);}
+    pub fn scene_pose_targets(&mut self,start:usize,targets:&[u8],models:usize){self.inner.scene_pose.targets(start,targets,models);}
+    // Cold scene admission imports an existing retained pose without stepping it.
+    pub fn scene_pose_admit_frame(&mut self){self.inner.publish_scene_pose();}
+    pub fn scene_pose_ptr(&self)->*const f64{self.inner.scene_pose.data.as_ptr()}
+    pub fn scene_pose_len(&self)->usize{self.inner.scene_pose.data.len()}
     pub fn input_len(&self) -> usize {
         self.inner.input.len()
     }
@@ -201,20 +207,25 @@ impl PageUnits {
     pub fn prepare_aim(&mut self,count:usize){self.inner.aim_frame(count);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
+        self.inner.publish_scene_pose();
     }
     pub fn present_first_person(&mut self) {
         self.inner.attachment_frame();
+        self.inner.publish_scene_pose();
     }
     pub fn place_actors(&mut self, count: usize) {
         self.inner.place_actors(count);
+        self.inner.publish_scene_pose();
     }
     pub fn refresh_actor(&mut self, id: usize) {
         self.inner.refresh_actor(id);
+        self.inner.publish_scene_pose();
     }
 }
 impl PageUnits {pub fn load_prepared(&mut self,data:bfe_presentation::unit_content::Input)->usize{self.inner.load(data)} pub fn view_prepared(&mut self,data:bfe_presentation::unit_content::FirstPersonInput,attachments:&str)->Result<usize,String>{let attachments:Vec<bfe_presentation::units::Attachment>=serde_json::from_str(attachments).map_err(|e|e.to_string())?;let id=self.inner.view(data);self.inner.view_attach(id,&attachments);Ok(id)}}
 impl PageUnits {
 pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"scene_pose"=>Ok(crate::session::bytes_mut(&mut self.inner.scene_pose.data)),
 "input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
 "commands"=>Ok(crate::session::bytes_mut(&mut self.inner.commands)),
 "output"=>Ok(crate::session::bytes_mut(&mut self.inner.output)),
@@ -230,6 +241,7 @@ pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
 "collision_actors"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.actors)),
 _=>Err(format!("unknown presentation input bank {name}")),}}
 pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"scene_pose"=>Ok(crate::session::bytes(&self.inner.scene_pose.data)),
 "input"=>Ok(crate::session::bytes(&self.inner.input)),
 "commands"=>Ok(crate::session::bytes(&self.inner.commands)),
 "output"=>Ok(crate::session::bytes(&self.inner.output)),
@@ -245,6 +257,7 @@ pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 "collision_actors"=>Ok(crate::session::bytes(&self.inner.collision.actors)),
 _=>Err(format!("unknown presentation bank {name}")),}}
 pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("scene_pose", self.inner.scene_pose.data.len()),
 ("input", self.inner.input.len()),
 ("commands", self.inner.commands.len()),
 ("output", self.inner.output.len()),
@@ -261,6 +274,9 @@ pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ]}
 }
 pub enum PageUnitsCommand {
+scene_pose_owner(u32,u32),
+scene_pose_targets(usize,Vec<u8>,usize),
+scene_pose_admit_frame,
 load_content(String),
 add_actor(usize,String,String),
 add_view(String,String),
@@ -274,6 +290,9 @@ refresh_actor(usize),
 }
 impl PageUnitsCommand {
 pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"scene_pose_owner"=>Self::scene_pose_owner(a.u32(0)?,a.u32(1)?),
+"scene_pose_targets"=>Self::scene_pose_targets(a.usize(0)?,a.u8s(1)?,a.usize(2)?),
+"scene_pose_admit_frame"=>Self::scene_pose_admit_frame,
 "load_content"=>Self::load_content(a.string(0)?),
 "add_actor"=>Self::add_actor(a.usize(0)?,a.string(1)?,a.string(2)?),
 "add_view"=>Self::add_view(a.string(0)?,a.string(1)?),
@@ -286,6 +305,9 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 "refresh_actor"=>Self::refresh_actor(a.usize(0)?),
 _=>return Err(format!("unknown presentation command {name}")),})}
 pub fn execute(&self,host:&mut PageUnits)->Result<(),String>{match self{
+Self::scene_pose_owner(id,generation)=>{let _=host.scene_pose_owner(*id,*generation);},
+Self::scene_pose_targets(start,targets,models)=>{let _=host.scene_pose_targets(*start,targets,*models);},
+Self::scene_pose_admit_frame=>{let _=host.scene_pose_admit_frame();},
 Self::load_content(data)=>{let _=host.load_content(data)?;},
 Self::add_actor(content,inverses,attachments)=>{let _=host.add_actor(*content,inverses,attachments)?;},
 Self::add_view(data,attachments)=>{let _=host.add_view(data,attachments)?;},

@@ -2,6 +2,7 @@
 // descriptors. Rust owns texture storage and targets. This core
 // registers those resources, publishes frame
 // inputs, and treats incomplete coverage or a failed program as a fatal error.
+import { contextReady } from "./browser.js";
 import { INPUT as CAMERA_INPUT } from "./camera-layout.js";
 import { CameraOwner } from "./cameras.js";
 import { BattleFrame } from "./frame.js";
@@ -34,7 +35,7 @@ import { linesPass } from "./lines.js";
 import { InterfacePass } from "./interface.js";
 import { bindInterfaceRenderer } from "./draw-guard.js";
 import { GL_TYPES } from "./geometry-types.js";
-import { ownsEffectSource } from "./programs.js";
+import { ownedProgram, ownsEffectSource } from "./programs.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -60,11 +61,6 @@ const LIGHT_COUNT = 70;
 const VIEWS = {far:VIEW_FAR,near:VIEW_NEAR,transparent:VIEW_NEAR,view:VIEW_FIRST_PERSON,
   hud:null,mirror:VIEW_SPARE,mirrorTransparent:VIEW_SPARE,farMirror:VIEW_FAR_MIRROR,
   probe:VIEW_FAR,motion:null,shadow:null,lines:null,image:null,skyClouds:null,underwater:null};
-
-// three's renderer's entry points that read or change its state cache, each
-// settling a deferred phase's GL state first (watchThree).
-const SETTLES = ["render", "clear", "clearColor", "clearDepth", "clearStencil", "setClearColor", "setClearAlpha", "compile",
-  "compileAsync", "setViewport", "setScissor", "setScissorTest", "resetState", "dispose"];
 
 // The renderer with each registration call it is given kept (typed arrays
 // copied), so another build of it can be given the same scene. The phases'
@@ -102,7 +98,9 @@ function groupsOf(geometry) {
 
 export async function createRustRender(graphics) {
   const { module, wasm } = await rendererModule();
+  await contextReady(graphics.renderer);
   await installResources(graphics.renderer);
+  await contextReady(graphics.renderer);
   return new RustRender(graphics, wasm, module.BfeRenderer);
 }
 
@@ -152,20 +150,24 @@ export class RustRender {
     this.stride = this.rust.record_stride();
     this.addView("input", Float64Array, () => this.rust.input_ptr(), () => this.rust.input_len());
     this.addView("bones", Float32Array, () => this.rust.bones_ptr(), () => this.rust.bones_len());
-    // Phases drawn between three's renders reset three's state once, when
-    // three is next used.
-    this.stale = false;
-    this.settleThree = null;
-    this.watchThree();
     this.contextLost = false;
-    this.renderer.domElement?.addEventListener?.("webglcontextlost", (event) => {
+    this.onLost = (event) => {
       event.preventDefault();
       this.contextLost = true;
-      this.stale = false;
-    });
-    this.renderer.domElement?.addEventListener?.("webglcontextrestored", () => {
+    };
+    this.onRestored = () => {
       try { this.rebuild(); } catch (error) { this.fail(error); }
-    });
+    };
+    this.renderer.domElement.addEventListener("webglcontextlost", this.onLost);
+    this.renderer.domElement.addEventListener("webglcontextrestored", this.onRestored);
+    const dispose = this.renderer.dispose.bind(this.renderer);
+    this.renderer.dispose = () => {
+      if (this.disposed) return;
+      this.disposed = true;
+      this.renderer.domElement.removeEventListener("webglcontextlost", this.onLost);
+      this.renderer.domElement.removeEventListener("webglcontextrestored", this.onRestored);
+      this.rust.free();dispose();
+    };
     // The passes' work before three lists a render of the near scene
     // (beforeSort): hooked first, so that what hooks in after it
     // (particle-depth.js's copier) sees what they registered.
@@ -193,16 +195,15 @@ export class RustRender {
   // The scene and texture owners keep their CPU resources. Rust replays its
   // retained resource descriptions into the restored context, preserving ids.
   rebuild() {
-    this.stale = false;
+
     const renderer = this.renderer, ids = new Uint32Array(this.textureSources.length);
-    this.graphics.warmup();
     this.textures.clear();
     this.sampleTextures = new WeakMap();
     for (let id = 0; id < this.textureSources.length; id++) {
       const texture = this.textureSources[id];
       if (typeof texture === "number") { ids[id] = texture; continue; }
       ids[id] = this.resources.owns(texture) ? this.resources.textureId(texture) : this.resources.gpu.retired_sample();
-      const handle = renderer.properties.get(texture).__webglTexture;
+      const handle = this.resources.handle(texture);
       this.textures.set(handle,id);
       this.sampleTextures.set(texture,{id,handle,version:this.resources.owns(texture)?texture.version:-1,source:texture.source,sourceVersion:texture.source.version,revision:this.resources.revision,width:texture.image?.width,height:texture.image?.height,depth:texture.image?.depth});
     }
@@ -215,8 +216,36 @@ export class RustRender {
     this.byName.water.full = true;
     for (const window of this.graphics.cascadeWindows || []) window.invalidate();
     this.graphics.upscaler?.invalidate?.();
-    renderer.resetState();
+
     this.contextLost = false;
+  }
+
+  // Graphics' loading preparation can be interrupted between native resource
+  // admission and packet publication. The journal restores ownership first;
+  // the browser supplies only the context-ready wait before resuming facts.
+  async prepare(action) {
+    for(;;){
+      await contextReady(this.renderer);
+      try{const value=action();if(!this.gl.isContextLost())return value;}
+      catch(error){if(!this.gl.isContextLost())this.fail(error);}
+      await contextReady(this.renderer);
+    }
+  }
+
+  // Native preparation owns variant policy and links; this host only yields
+  // to the browser loading screen and publishes the admitted layout receipt.
+  async prewarm(family,settle) {
+    await contextReady(this.renderer);
+    this.rust.prepare_begin_frame(family,this.graphics.csm?.lights.length||0,!!this.graphics.settings.get("lampLighting"),this.shadowsOn());
+    for(;;){
+      await contextReady(this.renderer);
+      let key;
+      try{key=this.rust.prepare_next_frame();}
+      catch(error){if(this.gl.isContextLost()){await contextReady(this.renderer);continue;}this.fail(error);}
+      if(!key)return;
+      if(this.ownedPrograms?.has(key))continue;
+      ownedProgram(this,key,null);await settle();
+    }
   }
 
   addPass(pass) {
@@ -230,7 +259,7 @@ export class RustRender {
   // Whether the frame has shadow receivers' inputs to give (C2: the cascades'
   // block and maps).
   shadowsOn() {
-    return this.renderer.shadowMap.enabled && Boolean(this.graphics.csm) && lighting.cascadeMaps.value.length > 0;
+    return Boolean(this.graphics.shadowsEnabled && this.graphics.csm && lighting.cascadeMaps.value.length > 0);
   }
 
   // Transparent candidates retained as roots enter the battle scene.
@@ -299,7 +328,7 @@ export class RustRender {
     this.textureSources[id]=texture;
     this.sampleTextures.set(texture,{id,handle,version:texture.version,source:texture.source,sourceVersion:texture.source.version,revision:this.resources.revision,width:texture.image?.width,height:texture.image?.height,depth:texture.image?.depth});
     if(this.recording)this.recording.textures[id]={handle,width:texture.image?.width??0,height:texture.image?.height??0};
-    this.stale=true;
+
   }
 
 
@@ -353,7 +382,7 @@ export class RustRender {
       // The far image the materials read (lighting.farMap: the far target,
       // or a mirror's own far image while it draws).
       const image = lighting.farMap.value ?? this.graphics.farTarget.texture;
-      const far = this.renderer.properties.get(image).__webglTexture;
+      const far = this.resources.handle(image);
       if (far !== this.farTexture) { this.farTexture = far; this.rust.set_far_map(this.texture(image)); }
     }
     // The Enhanced inputs first: they may register the cascades' maps and send
@@ -524,38 +553,6 @@ export class RustRender {
     return ctx;
   }
 
-  // Three's state cache, out of date after a deferred phase, made good before
-  // three is next used: every entry point of three's renderer that uses it
-  // (render, targets, clears, reads, uploads, compiles, viewport) settles
-  // first. Settling resets three's state and binds again the target three
-  // believes bound (a phase leaves three's own idea of it unchanged).
-  watchThree() {
-    const renderer = this.renderer;
-    if (renderer.__rustSettles) return;
-    renderer.__rustSettles = true;
-    const resetState = renderer.resetState?.bind(renderer), setRenderTarget = renderer.setRenderTarget?.bind(renderer), getRenderTarget = renderer.getRenderTarget?.bind(renderer);
-    this.settleThree = () => {
-      if (!this.stale || this.frame?.active) return;
-      this.stale = false;
-      const target = getRenderTarget();
-      resetState();
-      setRenderTarget(target);
-    };
-    for (const name of SETTLES) {
-      const f = renderer[name];
-      if (typeof f !== "function") continue;
-      const bridge = this;
-      renderer[name] = function (...args) {
-        bridge.settleThree?.();
-        return f.apply(this, args);
-      };
-    }
-  }
-
-  settle() {
-    this.settleThree?.();
-  }
-
   // Keep the scene's matrix/light hooks and MSAA resolve around a required
   // Rust phase. Incomplete ownership stops drawing with the missing pass.
   cover(name, renderer, scene, camera) {
@@ -598,6 +595,7 @@ export class RustRender {
 
   // Keep the failure visible and stop this battle. No other drawer takes over.
   fail(error, renderer = this.renderer) {
+    if(this.gl.isContextLost()){this.contextLost=true;throw error;}
     const failure = rendererFailure(renderer, error);
     this.failure = failure;
     this.errors.push(failure.message);
@@ -606,11 +604,8 @@ export class RustRender {
     throw failure;
   }
 
-  // A multisampled target's samples into its texture, as three's
-  // updateMultisampleRenderTarget blits them (r170, one colour texture; the
-  // depth too where the target resolves it), with its state cache kept.
-  // With three's state stale (a deferred phase), the binds are made directly
-  // (three's cache is reset before its next use anyway).
+  // Resolve through the native resource owner outside a sealed frame.
+  // During battle collection Rust places each resolve after its draw.
   resolve(target) {
     if (!this.frame?.active) this.resources.resolve(target);
   }

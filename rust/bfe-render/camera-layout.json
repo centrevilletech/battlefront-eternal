@@ -1,87 +1,320 @@
 {
   "version": 1,
   "input": [
-    ["position", 3],
-    ["quaternion", 4],
-    ["scale", 3],
-    ["up", 3],
-    ["lens", 14],
-    ["published", 1],
-    ["matrices", 64],
-    ["farRange", 2],
-    ["viewRange", 2],
-    ["cascadeCount", 1],
-    ["mapSize", 1],
-    ["maxFar", 1],
-    ["lightRange", 2],
-    ["margin", 1],
-    ["sun", 3],
-    ["reset", 1],
-    ["shift", 2],
-    ["waterLevel", 1],
-    ["nearReflection", 1],
-    ["skyCount", 1],
-    ["skyFollow", 768],
-    ["lightCount", 1],
-    ["lightEye", 3],
-    ["lightFar", 1],
-    ["lightLayers", 1],
-    ["viewWorld", 16],
-    ["shadowMetadata", 24],
-    ["orthographic", 1],
-    ["orthoBounds", 4],
-    ["hasParent", 1],
-    ["parentWorld", 16],
-    ["localMatrix", 16],
-    ["useLocalMatrix", 1]
+    [
+      "position",
+      3
+    ],
+    [
+      "quaternion",
+      4
+    ],
+    [
+      "scale",
+      3
+    ],
+    [
+      "up",
+      3
+    ],
+    [
+      "lens",
+      14
+    ],
+    [
+      "published",
+      1
+    ],
+    [
+      "matrices",
+      64
+    ],
+    [
+      "farRange",
+      2
+    ],
+    [
+      "viewRange",
+      2
+    ],
+    [
+      "cascadeCount",
+      1
+    ],
+    [
+      "mapSize",
+      1
+    ],
+    [
+      "maxFar",
+      1
+    ],
+    [
+      "lightRange",
+      2
+    ],
+    [
+      "margin",
+      1
+    ],
+    [
+      "sun",
+      3
+    ],
+    [
+      "reset",
+      1
+    ],
+    [
+      "shift",
+      2
+    ],
+    [
+      "waterLevel",
+      1
+    ],
+    [
+      "nearReflection",
+      1
+    ],
+    [
+      "skyCount",
+      1
+    ],
+    [
+      "skyFollow",
+      768
+    ],
+    [
+      "lightCount",
+      1
+    ],
+    [
+      "lightEye",
+      3
+    ],
+    [
+      "lightFar",
+      1
+    ],
+    [
+      "lightLayers",
+      1
+    ],
+    [
+      "viewWorld",
+      16
+    ],
+    [
+      "shadowMetadata",
+      24
+    ],
+    [
+      "waterFade",
+      2
+    ],
+    [
+      "waterReach",
+      1
+    ],
+    [
+      "farReach",
+      1
+    ],
+    [
+      "orthographic",
+      1
+    ],
+    [
+      "orthoBounds",
+      4
+    ],
+    [
+      "hasParent",
+      1
+    ],
+    [
+      "parentWorld",
+      16
+    ],
+    [
+      "localMatrix",
+      16
+    ],
+    [
+      "useLocalMatrix",
+      1
+    ]
   ],
   "camera": [
-    ["position", 3],
-    ["quaternion", 4],
-    ["up", 3],
-    ["lens", 14],
-    ["world", 16],
-    ["inverse", 16],
-    ["projection", 16],
-    ["projectionInverse", 16],
-    ["direction", 3],
-    ["frustum", 24]
+    [
+      "position",
+      3
+    ],
+    [
+      "quaternion",
+      4
+    ],
+    [
+      "up",
+      3
+    ],
+    [
+      "lens",
+      14
+    ],
+    [
+      "world",
+      16
+    ],
+    [
+      "inverse",
+      16
+    ],
+    [
+      "projection",
+      16
+    ],
+    [
+      "projectionInverse",
+      16
+    ],
+    [
+      "direction",
+      3
+    ],
+    [
+      "frustum",
+      24
+    ]
   ],
   "cascade": [
-    ["center", 3],
-    ["half", 1],
-    ["held", 1],
-    ["dirty", 1],
-    ["moved", 1],
-    ["breaks", 2],
-    ["vertices", 24],
-    ["position", 3],
-    ["target", 3],
-    ["matrix", 16],
-    ["plane", 9],
-    ["extent", 4],
-    ["range", 2]
+    [
+      "center",
+      3
+    ],
+    [
+      "half",
+      1
+    ],
+    [
+      "held",
+      1
+    ],
+    [
+      "dirty",
+      1
+    ],
+    [
+      "moved",
+      1
+    ],
+    [
+      "breaks",
+      2
+    ],
+    [
+      "vertices",
+      24
+    ],
+    [
+      "position",
+      3
+    ],
+    [
+      "target",
+      3
+    ],
+    [
+      "matrix",
+      16
+    ],
+    [
+      "plane",
+      9
+    ],
+    [
+      "extent",
+      4
+    ],
+    [
+      "range",
+      2
+    ]
   ],
   "light": [
-    ["position", 3],
-    ["color", 3],
-    ["intensity", 1],
-    ["range", 1],
-    ["layers", 1],
-    ["shown", 1],
-    ["proxy", 1],
-    ["initialShown", 1],
-    ["initialLayers", 1]
+    [
+      "position",
+      3
+    ],
+    [
+      "color",
+      3
+    ],
+    [
+      "intensity",
+      1
+    ],
+    [
+      "range",
+      1
+    ],
+    [
+      "layers",
+      1
+    ],
+    [
+      "shown",
+      1
+    ],
+    [
+      "proxy",
+      1
+    ],
+    [
+      "initialShown",
+      1
+    ],
+    [
+      "initialLayers",
+      1
+    ]
   ],
   "pack": [
-    ["count", 1],
-    ["values", 128]
+    [
+      "count",
+      1
+    ],
+    [
+      "values",
+      128
+    ]
   ],
   "mirror": [
-    ["valid", 1],
-    ["clip", 4],
-    ["projection", 16],
-    ["reflection", 16]
+    [
+      "valid",
+      1
+    ],
+    [
+      "clip",
+      4
+    ],
+    [
+      "projection",
+      16
+    ],
+    [
+      "reflection",
+      16
+    ],
+    [
+      "visible",
+      1
+    ],
+    [
+      "farVisible",
+      1
+    ]
   ],
   "roles": [
     "main",
@@ -195,48 +428,238 @@
     "sky": 256,
     "rawLights": 1024,
     "packs": 128,
+    "historyModels": 131072,
+    "historyBones": 262144,
+    "placementRoots": 4096,
     "extraCameras": 64
   },
+  "placement": [
+    [
+      "position",
+      3
+    ],
+    [
+      "hidden",
+      1
+    ]
+  ],
+  "pointChange": [
+    [
+      "slot",
+      1
+    ],
+    [
+      "generation",
+      1
+    ],
+    [
+      "color",
+      3
+    ],
+    [
+      "intensity",
+      1
+    ],
+    [
+      "range",
+      1
+    ]
+  ],
+  "uniformInput": [
+    [
+      "world",
+      16
+    ],
+    [
+      "view",
+      16
+    ],
+    [
+      "projection",
+      16
+    ],
+    [
+      "eye",
+      3
+    ],
+    [
+      "uv",
+      7
+    ]
+  ],
+  "uniformOutput": [
+    [
+      "world",
+      16
+    ],
+    [
+      "view",
+      16
+    ],
+    [
+      "projection",
+      16
+    ],
+    [
+      "modelView",
+      16
+    ],
+    [
+      "normal",
+      9
+    ],
+    [
+      "uv",
+      9
+    ],
+    [
+      "eye",
+      3
+    ]
+  ],
+  "historyPose": [
+    [
+      "world",
+      16
+    ],
+    [
+      "inverse",
+      16
+    ]
+  ],
   "lens": [
-    ["fov", 1],
-    ["aspect", 1],
-    ["near", 1],
-    ["far", 1],
-    ["zoom", 1],
-    ["filmGauge", 1],
-    ["filmOffset", 1],
-    ["viewEnabled", 1],
-    ["fullWidth", 1],
-    ["fullHeight", 1],
-    ["width", 1],
-    ["height", 1],
-    ["offsetX", 1],
-    ["offsetY", 1]
+    [
+      "fov",
+      1
+    ],
+    [
+      "aspect",
+      1
+    ],
+    [
+      "near",
+      1
+    ],
+    [
+      "far",
+      1
+    ],
+    [
+      "zoom",
+      1
+    ],
+    [
+      "filmGauge",
+      1
+    ],
+    [
+      "filmOffset",
+      1
+    ],
+    [
+      "viewEnabled",
+      1
+    ],
+    [
+      "fullWidth",
+      1
+    ],
+    [
+      "fullHeight",
+      1
+    ],
+    [
+      "width",
+      1
+    ],
+    [
+      "height",
+      1
+    ],
+    [
+      "offsetX",
+      1
+    ],
+    [
+      "offsetY",
+      1
+    ]
   ],
   "source": [
-    ["world", 16],
-    ["inverse", 16],
-    ["projection", 16],
-    ["projectionInverse", 16]
+    [
+      "world",
+      16
+    ],
+    [
+      "inverse",
+      16
+    ],
+    [
+      "projection",
+      16
+    ],
+    [
+      "projectionInverse",
+      16
+    ]
   ],
   "sky": [
-    ["follow", 1],
-    ["scale", 1],
-    ["offset", 1]
+    [
+      "follow",
+      1
+    ],
+    [
+      "scale",
+      1
+    ],
+    [
+      "offset",
+      1
+    ]
   ],
   "lightInput": [
-    ["direction", 3],
-    ["colors", 18],
-    ["range", 2],
-    ["strength", 1],
-    ["flags", 1],
-    ["flash", 1]
+    [
+      "direction",
+      3
+    ],
+    [
+      "colors",
+      18
+    ],
+    [
+      "range",
+      2
+    ],
+    [
+      "strength",
+      1
+    ],
+    [
+      "flags",
+      1
+    ],
+    [
+      "flash",
+      1
+    ]
   ],
   "lightOutput": [
-    ["direction", 3],
-    ["colors", 18],
-    ["range", 2],
-    ["strength", 1]
+    [
+      "direction",
+      3
+    ],
+    [
+      "colors",
+      18
+    ],
+    [
+      "range",
+      2
+    ],
+    [
+      "strength",
+      1
+    ]
   ],
   "lightCommands": [
     "seed",
@@ -246,35 +669,157 @@
     "flash",
     "restore"
   ],
+  "historyReceipts": {
+    "still": 1,
+    "consumed": 2
+  },
   "lightFlags": {
     "direction": 64,
     "range": 128,
     "strength": 256
   },
   "shaderFrame": [
-    ["projection", 16],
-    ["view", 16],
-    ["eye", 3],
-    ["time", 1],
-    ["sunDirection", 3],
-    ["bump", 1],
-    ["sunColor", 3],
-    ["shadowStrength", 1],
-    ["ambient", 3],
-    ["aaSamples", 1],
-    ["ambientTop", 3],
-    ["terrainShade", 1],
-    ["ambientBottom", 3],
-    ["farAaSamples", 1],
-    ["characterAmbient", 3],
-    ["cascadeNear", 1],
-    ["fogColor", 3],
-    ["cascadeFar", 1],
-    ["fade", 2],
-    ["resolution", 2],
-    ["fogRange", 2],
-    ["lightCount", 1],
-    ["padding", 1],
-    ["lights", 128]
+    [
+      "projection",
+      16
+    ],
+    [
+      "view",
+      16
+    ],
+    [
+      "eye",
+      3
+    ],
+    [
+      "time",
+      1
+    ],
+    [
+      "sunDirection",
+      3
+    ],
+    [
+      "bump",
+      1
+    ],
+    [
+      "sunColor",
+      3
+    ],
+    [
+      "shadowStrength",
+      1
+    ],
+    [
+      "ambient",
+      3
+    ],
+    [
+      "aaSamples",
+      1
+    ],
+    [
+      "ambientTop",
+      3
+    ],
+    [
+      "terrainShade",
+      1
+    ],
+    [
+      "ambientBottom",
+      3
+    ],
+    [
+      "farAaSamples",
+      1
+    ],
+    [
+      "characterAmbient",
+      3
+    ],
+    [
+      "cascadeNear",
+      1
+    ],
+    [
+      "fogColor",
+      3
+    ],
+    [
+      "cascadeFar",
+      1
+    ],
+    [
+      "fade",
+      2
+    ],
+    [
+      "resolution",
+      2
+    ],
+    [
+      "fogRange",
+      2
+    ],
+    [
+      "lightCount",
+      1
+    ],
+    [
+      "padding",
+      1
+    ],
+    [
+      "lights",
+      128
+    ]
+  ],
+  "depthKey": [
+    [
+      "group",
+      1
+    ],
+    [
+      "order",
+      1
+    ],
+    [
+      "center",
+      3
+    ],
+    [
+      "id",
+      1
+    ]
+  ],
+  "depthMarker": [
+    [
+      "matrix",
+      16
+    ],
+    [
+      "group",
+      1
+    ],
+    [
+      "order",
+      1
+    ],
+    [
+      "requests",
+      1
+    ],
+    [
+      "visible",
+      1
+    ]
+  ],
+  "unitView": [
+    [
+      "planes",
+      24
+    ]
   ]
 }

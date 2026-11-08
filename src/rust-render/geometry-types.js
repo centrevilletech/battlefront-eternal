@@ -10,7 +10,7 @@ export function staticFeatures(core, far = false) {
   scene.traverseVisible(o => {
     if (!o.layers.test(camera.layers)) return;
     if (o.isPointLight) points++;
-    if (o.isDirectionalLight && o.castShadow && core.renderer.shadowMap.enabled) shadows++;
+    if (o.isDirectionalLight && o.castShadow && core.graphics.shadowsEnabled) shadows++;
   });
   return Uint32Array.of(shadows, points, core.graphics.csm ? 1 : 0, core.graphics.settings.get("lampLighting") ? 1 : 0);
 }

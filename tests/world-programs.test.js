@@ -10,7 +10,7 @@ function fixture(s) {
   const material={defines:Object.fromEntries(s.defines),side:s.side,map:s.map?{}:null,version:0,
     userData:{bfeFabric:s.fabric,bfeTree:s.tree}};
   const calls=[];
-  const core={graphics:{scene,camera,csm:s.csm?{}:null,settings:{get:()=>s.lamps}},renderer:{shadowMap:{enabled:true}},
+  const core={graphics:{scene,camera,shadowsEnabled:true,csm:s.csm?{}:null,settings:{get:()=>s.lamps}},renderer:{shadowMap:{enabled:true}},
     rust:{add_owned_program(key){calls.push(key);return calls.length;}}};
   return {core,material,calls};
 }

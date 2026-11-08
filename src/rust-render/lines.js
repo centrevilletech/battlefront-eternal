@@ -4,8 +4,6 @@
 import {Family,Mode,S} from './scene.js';
 import {SceneLineHeader as H} from './scene-layout.js';
 import {ownedGeometryProgram} from './programs.js';
-import {programLayouts} from '../render-programs.js';
-const LINE_KEYS=Object.keys(programLayouts).filter(key=>key.startsWith('utility/line-'));
 import { LINE as D } from './line-layout.js';
 
 
@@ -32,8 +30,6 @@ class LinesPass {
     for(const object of added||[])if(object.userData.lineSource)this.discover(object,camera,scene);
     this.count=core.registry.select(scene,camera,Family.LINE,Mode.VIEW,camera.layers.mask,D.LIMIT.SOURCES);
   }
-  programs(){for(const key of LINE_KEYS)ownedGeometryProgram(this.core,key);}
-  async warm(settle){for(const key of LINE_KEYS){ownedGeometryProgram(this.core,key);await settle();}}
 
   // Native frame packets preserve each mirrored/main view's matrices. Live
   // points are the same world geometry in those views and upload by serial.
@@ -57,7 +53,7 @@ class LinesPass {
       }
       n++;
     }
-    input[D.VIEW.COUNT]=n;core.rust.line_frame(view);core.stale=true;
+    input[D.VIEW.COUNT]=n;core.rust.line_frame(view);
   }
 }
 export function linesPass(core){return new LinesPass(core);}

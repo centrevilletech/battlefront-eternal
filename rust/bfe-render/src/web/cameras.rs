@@ -1,9 +1,90 @@
 // Graphics camera publications use fixed native storage. Scalar commands
 // preserve the old phase boundaries without returning allocated arrays.
 use super::BfeRenderer;
+mod cpu;
 use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 impl BfeRenderer {
+    pub fn camera_scene_lights_frame(&mut self,root:u32,generation:u32,role:u32,source:u32,source_generation:u32,view:bool,now:f64,handle:f64){let Some(pack)=self.r.cameras.pack_leases.touch(handle)else{return;};self.r.scene.point_lights_frame(&mut self.r.cameras,root as usize,generation as f64,role as usize,source as usize,source_generation as f64,view,now,pack);}
+    // Scene selection reads the same camera publication as shader draws.
+    // Query receipts compare native f64 words without a camera facade copy.
+    pub fn camera_scene_view_frame(&mut self,role:u32){
+        use crate::cameras::layout::{camera as C,role as R,lens as N};
+        use crate::scene::layout::scene_view as V;
+        let role=role as usize;if role>=R::COUNT{return;}
+        let a=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];let out=&mut self.r.scene.view;
+        out[V::PROJECTION..V::PROJECTION+16].copy_from_slice(&a[C::PROJECTION..C::PROJECTION+16]);
+        out[V::VIEW..V::VIEW+16].copy_from_slice(&a[C::INVERSE..C::INVERSE+16]);
+        out[V::EYE..V::EYE+3].copy_from_slice(&a[C::WORLD+12..C::WORLD+15]);out[V::ZOOM]=a[C::LENS+N::ZOOM];
+    }
+    pub fn camera_post_facts_frame(&mut self,role:u32){
+        use crate::cameras::layout::{camera as C,role as R};use crate::post_chain::layout::facts as F;
+        let role=role as usize;if role>=R::COUNT{return;}
+        let a=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];let out=&mut self.r.post_chain.input;
+        for (to,from) in [(F::PROJECTION,C::PROJECTION),(F::VIEW,C::INVERSE),(F::WORLD,C::WORLD)]{out[to..to+16].copy_from_slice(&a[from..from+16]);}
+    }
+    pub fn scene_mirrored_frame(&self,id:u32,generation:u32)->bool{
+        if self.r.scene.pose_ref(id as usize,generation as f64).is_none(){return false;}
+        self.r.scene.world(id as usize).is_some_and(|world|crate::math::determinant_mirrors(&world))
+    }
+    pub fn camera_canopy_view_frame(&mut self,role:u32){
+        use crate::cameras::layout::{camera as C,role as R};use crate::scene::layout::scene_canopy_view as V;
+        let role=role as usize;if role>=R::COUNT{return;}
+        let a=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];let out=&mut self.r.scene.canopies.view;
+        for(to,from)in[(V::PROJECTION,C::PROJECTION),(V::VIEW,C::INVERSE),(V::WORLD,C::WORLD)]{out[to..to+16].copy_from_slice(&a[from..from+16]);}
+        out[V::EYE..V::EYE+3].copy_from_slice(&a[C::POSITION..C::POSITION+3]);
+    }
+    pub fn camera_foliage_view_frame(&mut self,role:u32){
+        use crate::cameras::layout::{camera as C,role as R};use crate::foliage as F;
+        let role=role as usize;if role>=R::COUNT{return;}
+        let a=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];let out=&mut self.r.foliage.input;
+        for(to,from)in[(F::IN_PROJECTION,C::PROJECTION),(F::IN_VIEW,C::INVERSE),(F::IN_WORLD,C::WORLD)]{out[to..to+16].copy_from_slice(&a[from..from+16]);}
+        out[F::IN_EYE..F::IN_EYE+3].copy_from_slice(&a[C::POSITION..C::POSITION+3]);
+    }
+    pub fn camera_sky_nodes_frame(&mut self,nodes:&[u32],single:u32,generation:u32){self.r.cameras.sky_nodes(nodes,single,generation);}
+    pub fn camera_scene_sky_frame(&mut self,role:u32,follow:bool){self.r.cameras.scene_sky(&mut self.r.scene,role as usize,follow);}
+    pub fn camera_scene_sky_save_frame(&mut self){self.r.cameras.save_sky(&self.r.scene);}
+    pub fn camera_scene_sky_restore_frame(&mut self){self.r.cameras.restore_sky(&mut self.r.scene);}
+    pub fn camera_unit_view_ptr(&mut self)->u32{self.r.cameras.unit_view.as_mut_ptr() as u32}
+    pub fn camera_unit_view_len(&self)->u32{self.r.cameras.unit_view.len() as u32}
+    pub fn camera_unit_view_frame(&mut self,role:u32){
+        self.camera_projection_view_frame(role);let frustum=crate::math::Frustum::from_matrix(&self.r.cameras.projection_view);
+        for (i,plane) in frustum.planes.iter().enumerate(){self.r.cameras.unit_view[i*4..i*4+3].copy_from_slice(&plane.n);self.r.cameras.unit_view[i*4+3]=plane.c;}
+    }
+    pub fn camera_depth_key_ptr(&mut self)->u32{self.r.cameras.depth.key.as_mut_ptr() as u32}
+    pub fn camera_depth_key_len(&self)->u32{self.r.cameras.depth.key.len() as u32}
+    pub fn camera_depth_marker_ptr(&mut self)->u32{self.r.cameras.depth.output.as_mut_ptr() as u32}
+    pub fn camera_depth_marker_len(&self)->u32{self.r.cameras.depth.output.len() as u32}
+    pub fn camera_depth_begin_frame(&mut self,role:u32){self.camera_projection_view_frame(role);self.r.cameras.depth.begin(&self.r.cameras.projection_view);}
+    pub fn camera_depth_request_frame(&mut self)->bool{self.r.cameras.depth.request()}
+    pub fn camera_depth_finish_frame(&mut self){self.r.cameras.depth.finish();}
+    pub fn camera_projection_view_ptr(&mut self)->u32{self.r.cameras.projection_view.as_mut_ptr() as u32}
+    pub fn camera_projection_view_len(&self)->u32{self.r.cameras.projection_view.len() as u32}
+    pub fn camera_projection_view_frame(&mut self,role:u32){
+        use crate::cameras::layout::{camera as c,role as r};let role=role as usize;if role>=r::COUNT{return;}
+        let source=&self.r.cameras.output[role*c::LEN..(role+1)*c::LEN];let projection=source[c::PROJECTION..c::PROJECTION+16].try_into().unwrap_or([0.;16]);let view=source[c::INVERSE..c::INVERSE+16].try_into().unwrap_or([0.;16]);self.r.cameras.projection_view=crate::math::mul(&projection,&view);
+    }
+    pub fn camera_scene_uniform_frame(&mut self,id:u32,generation:u32,role:u32){
+        use crate::cameras::layout::{uniform_input as i,camera as c,role as r};let role=role as usize;if role>=r::COUNT{return;}
+        let Some(world)=self.r.scene.pose_ref(id as usize,generation as f64).and_then(|_|self.r.scene.world(id as usize))else{return;};
+        let camera=&self.r.cameras.output[role*c::LEN..(role+1)*c::LEN];let a=&mut self.r.cameras.uniforms.input;
+        a[i::WORLD..i::WORLD+16].copy_from_slice(&world);a[i::VIEW..i::VIEW+16].copy_from_slice(&camera[c::INVERSE..c::INVERSE+16]);a[i::PROJECTION..i::PROJECTION+16].copy_from_slice(&camera[c::PROJECTION..c::PROJECTION+16]);a[i::EYE..i::EYE+3].copy_from_slice(&camera[c::WORLD+12..c::WORLD+15]);self.r.cameras.uniforms.frame(false);
+    }
+    pub fn camera_uniform_input_ptr(&mut self)->u32{self.r.cameras.uniforms.input.as_mut_ptr() as u32}
+    pub fn camera_uniform_input_len(&self)->u32{self.r.cameras.uniforms.input.len() as u32}
+    pub fn camera_uniform_output_ptr(&mut self)->u32{self.r.cameras.uniforms.output.as_mut_ptr() as u32}
+    pub fn camera_uniform_output_len(&self)->u32{self.r.cameras.uniforms.output.len() as u32}
+    pub fn camera_uniform_frame(&mut self,uv:bool){self.r.cameras.uniforms.frame(uv);}
+    pub fn camera_mirrored_frame(&self)->bool{
+        use crate::cameras::layout::uniform_input as I;
+        let world=self.r.cameras.uniforms.input[I::WORLD..I::WORLD+16].try_into().unwrap_or([0.;16]);
+        crate::math::determinant_mirrors(&world)
+    }
+    pub fn camera_mirror_bounds_frame(&mut self,bounds:&[f64]){self.r.cameras.mirror_bounds(bounds);}
+    pub fn camera_mirror_visibility_frame(&mut self){self.r.cameras.mirror_visibility();}
+    pub fn camera_placement_ptr(&mut self)->u32 {self.r.cameras.placement.as_mut_ptr() as u32}
+    pub fn camera_placement_len(&self)->u32 {self.r.cameras.placement.len() as u32}
+    pub fn camera_placement_frame(&mut self,count:u32){self.r.cameras.placement(count as usize);}
     pub fn camera_input_ptr(&mut self)->u32 {self.r.cameras.input.as_mut_ptr() as u32}
     pub fn camera_input_len(&self)->u32 {self.r.cameras.input.len() as u32}
     pub fn camera_output_ptr(&mut self)->u32 {self.r.cameras.output.as_mut_ptr() as u32}

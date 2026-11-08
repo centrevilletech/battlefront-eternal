@@ -52,7 +52,12 @@ for path in sorted(web.glob('*.rs')):
             aname, ty = arg.split(':', 1)
             parsed.append((aname.strip(), ty.strip()))
         methods.append((name, parsed, ret))
-        edits.append((m.end(), '\n        self.remember_' + name + '(' + ', '.join(n for n,t in parsed) + '); // recovery\n'))
+        pos = m.end()
+        if name == 'static_world' and 'let resource=match' in text[pos:]:
+            pos = text.index('let resource=match', pos) - 1
+            edits.append((pos, '\n        self.remember_' + name + '(' + ', '.join(n for n,t in parsed) + '); // recovery\n       '))
+        else:
+            edits.append((pos, '\n        self.remember_' + name + '(' + ', '.join(n for n,t in parsed) + '); // recovery\n'))
     # Insert from the end so earlier source offsets remain valid. The emitted
     # hook runs before its resource operation, preserving call chronology.
     for pos, add in reversed(edits): text = text[:pos] + add + text[pos:]
@@ -302,6 +307,8 @@ out += ['}', '#[wasm_bindgen]', 'impl BfeRenderer {',
         '        // still owns CPU mirrors needed below, but none of its GL handles is valid.',
         '        let mut saved = std::mem::take(&mut self.recovery);',
         '        let mut old = std::mem::replace(&mut self.r, BfeRenderer::new(context).r);',
+        '        self.r.core.scene_stamp = old.core.scene_stamp;',
+        '        std::mem::swap(&mut self.r.prepare, &mut old.prepare);',
         '        self.static_worlds.clear();',
         '        self.water_geometry.clear();',
         '        self.actor_resources.geometry.clear();self.actor_resources.effects.clear();self.actor_resources.materials.clear();self.actor_resources.recipes.clear();self.actor_resources.motions.clear();',
@@ -349,6 +356,7 @@ out += ['        // Scene identity and sparse changes are CPU state, not GPU reg
         '        // These passes own dynamic GPU buffers backed by the moved mirrors.',
         '        // Populate them before the first restored frame can sample their VAOs.']
 out += [f'        self.r.{name}.reupload(&mut self.r.core);' for name in ('hud','interface','canopies','water','far')]
+out += ['        self.r.effects.restore_instances(&mut self.r.core,&mut old.effects);']
 out += ['        // Keep the same history for another loss. Only successful completion',
         '        // enables recording again; the caller treats any earlier error as fatal.',
         '        self.recovery = saved;', '        self.rebuilding = false;', '        Ok(())', '    }', '}']

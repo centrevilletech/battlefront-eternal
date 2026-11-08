@@ -1,9 +1,7 @@
 import {sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
-import { prepareActors, warmActorPrograms } from "./rust-render/actors.js";
-import { prewarmWorldPrograms } from "./rust-render/world-programs.js";
-import { requireRustDraws } from "./rust-render/draw-guard.js";
+import { prepareActors } from "./rust-render/actors.js";
+import { BattleCanvas, contextLimits } from "./rust-render/browser.js";
 import { loadRustRenderer } from "./rust-render/load.js";
-import { warmEffectPrograms } from "./rust-render/effect-material.js";
 import * as THREE from "three";
 import { ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
@@ -11,18 +9,12 @@ import { FACTS as F, STATE as S, ROLE as R } from "./rust-render/frame-layout.js
 import { CAMERA_ROLE, shadowShells } from "./rust-render/cameras.js";
 import { RenderProfiler } from "./render-profiler.js";
 import { LocalLights } from "./local-lights.js";
-import { installPointLights } from "./point-lights.js";
 import { boltLook } from "./blaster-bolts.js";
 import { sniperLook } from "./sniper-trace.js";
 import { UPSCALERS, Upscaler } from "./upscaler.js";
 import { pageGpu, rendererName } from "./gpu-info.js";
 import { lighting, setFog, setLighting } from "./materials.js";
 import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
-
-// Graphics.cullOffView retains its broad gameplay-root sphere until native
-// presentation owns that lazy-placement boundary.
-const cullFrustum=new THREE.Frustum(),cullMatrix=new THREE.Matrix4();
-const cullSphere=new THREE.Sphere(new THREE.Vector3(),5);
 
 // The frame, laid out like the 2004 game's. Everything is in gamma space, as
 // Direct3D 9 drew it: textures are not decoded from sRGB, light adds and
@@ -47,8 +39,6 @@ const cullSphere=new THREE.Sphere(new THREE.Vector3(),5);
 // (cascades.rs): the map's static casters are cached per cascade
 // window, and only the moving casters are drawn each frame.
 THREE.ColorManagement.enabled = false;
-// Each scene packs the point lights its materials read as it draws.
-installPointLights();
 
 // The shadow pass's depth material: the transform and, for cut-out casters,
 // the alpha test, and nothing else. Three's own writes a packed depth colour
@@ -58,19 +48,7 @@ installPointLights();
 export class Graphics {
   constructor(container, settings) {
     this.settings = settings;
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-    requireRustDraws(this.renderer);
-    // Where the browser offers it, shader programs link on the driver's own
-    // threads instead of on the GPU process's main thread, which also
-    // serves every other canvas on the page: the loading screen's keeps
-    // drawing through warmup(), and the page waits on a program only when
-    // it first draws with it (or in game.js loaded(), which asks each
-    // program whether it is ready). Nothing changes where the extension
-    // is missing.
-    this.renderer.extensions.get("KHR_parallel_shader_compile");
-    this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.info.autoReset = false;
+    this.renderer = new BattleCanvas();
     this.profiler = new RenderProfiler(this.renderer);
     // Which GPU draws, and whether Chromium has it drawing in software
     // (gpu-info.js): VIDEO OPTIONS and the stats line say so.
@@ -81,14 +59,13 @@ export class Graphics {
     this.scene = new THREE.Scene();
     // Every renderer.render() would re-walk the scene and recompose every
     // matrix (thousands of bones), and water renders this scene twice a
-    // frame. updateScene() does it once per frame instead.
+    // frame. The native frame requests one world publication instead.
     sceneProperty(this.scene,"matrixWorldAutoUpdate",false);
     this.sceneFrame = -1;
     this.frameCount = 0;
     // Soldiers' roots (game.js, each frame) that the near scene's own pass
     // may leave out while out of view (cullOffView), and those left out.
     this.cullRoots = [];
-    this.offView = [];
     // The battle's native unit placement, given the scene about to be
     // updated: the deferred soldiers this update will reach are placed in
     // one call before the walk (game.js installs it).
@@ -117,12 +94,9 @@ export class Graphics {
     this.shadowCaches = [];
     this.shadowMaps = [];
     this.shadowPasses = { static: 0, dynamic: 0 };
-    this.maxAnisotropy = Math.max(1, this.renderer.capabilities.getMaxAnisotropy());
-    // MAX_SAMPLES alone can advertise counts unavailable to a target format.
-    const gl = this.renderer.getContext();
-    const colorSamples = [...gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA8, gl.SAMPLES)];
-    const depthSamples = [...gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES)];
-    this.supportedSamples = colorSamples.filter((n) => depthSamples.includes(n)).sort((a, b) => a - b);
+    const limits = contextLimits(this.renderer);
+    this.maxAnisotropy = Math.max(1, limits.maxAnisotropy);
+    this.supportedSamples = limits.samples;
     this.textures = new Set();
     this.textureRevision = 0;
     this.casters = new Set();
@@ -135,8 +109,6 @@ export class Graphics {
     // layer }, layer 0 for the dome's parts and 1 on for the models on its
     // horizon.
     this.skyLayers = [];
-    this.viewLights = [];
-    this.viewLightSources = [];
 
     // The map's distances (the engine's defaults until a map sets them):
     // NearSceneRange is the fade start and end at the shortest and longest
@@ -170,11 +142,20 @@ export class Graphics {
     this.background.material.depthTest = true;
     sceneProperty(this.background,"renderOrder",1e9);
     this.scene.add(this.background);
-    // Three supplies resource objects and compiled sources to the required
+    // Scene shells supply authored resource facts to the required
     // battle renderer. Loading errors propagate to the loading screen.
     this.rust = null;
+    // Diagnostic snapshots are requested explicitly. No browser render-info
+    // object is retained or updated while drawing the frame.
+    Object.defineProperty(this,"frameInfo",{get:()=>this.rust?JSON.parse(this.rust.rust.renderer_diagnostics_frame()):null});
     this.playerRoot = null;
-    this.rustReady = loadRustRenderer(this).then((rust) => { this.rust = rust; return rust; });
+    this.rustReady = loadRustRenderer(this).then((rust) => {
+      this.rust=rust;
+      // A context lost during creation has no capability facts yet. Resolve
+      // settings from restored facts before any asset or preparation can draw.
+      if(!limits.ready){const facts=contextLimits(this.renderer);this.maxAnisotropy=Math.max(1,facts.maxAnisotropy);this.supportedSamples=facts.samples;this.applyScale();this.applyAntialiasing();}
+      return rust;
+    });
     // Construction starts the fetch before preparation awaits it. Attach a
     // rejection handler now without consuming the promise's failure.
     this.rustReady.catch(() => {});
@@ -279,86 +260,48 @@ export class Graphics {
     }
   }
 
-  // The main scene's matrices, once per frame, by whichever pass draws it
-  // first (the water's reflection, or render()).
-  updateScene() {
-    if (this.sceneFrame === this.frameCount) return;
-    this.sceneFrame = this.frameCount;
-    if (this.placeUnits) this.placeUnits(this.scene);
-    const registry=this.rust.registry;registry.worlds.update(registry.admitIfNew(this.scene));
-  }
-
-  // A soldier wholly out of the camera's view is hidden for the near
-  // scene's own pass: neither its bones' matrices (updateVisible skips a
-  // hidden subtree and refreshes it when shown) nor the renderer's walk
-  // over it. Nothing else may draw the near scene this frame: not with
-  // shadows (a soldier out of view casts into it), the temporal upscaler
-  // (its motion proxies) or a reflection that already updated the scene.
-  cullOffView() {
-    this.restoreOffView();
-    if (this.csm || this.upscaling === "temporal" || this.sceneFrame === this.frameCount || !this.cullRoots.length) return;
-    const camera = this.camera;
-    cullFrustum.setFromProjectionMatrix(cullMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    for (const root of this.cullRoots) {
-      if (!root.visible || root.parent !== this.scene) continue;
-      cullSphere.center.copy(root.position);
-      cullSphere.center.y += 1;
-      if (cullFrustum.intersectsSphere(cullSphere)) continue;
-      sceneProperty(root,"visible",false);
-      this.offView.push(root);
-    }
-  }
-
-  restoreOffView() {
-    for (const root of this.offView) sceneProperty(root,"visible",true);
-    this.offView.length = 0;
-  }
-
   // warmupPaced links each owned family under the loading screen. Lines also
   // prewarm their finite variants: a cable or debug helper can appear later.
   async warmupPaced(settle) {
     await this.rustReady;
-    const before = this.rust.shaderPrograms?.length ?? 0, started = performance.now();
-    await warmActorPrograms(this.rust, settle);
-    await warmEffectPrograms(this.rust, settle);
+    const before = this.frameInfo?.programs ?? 0, started = performance.now();
+    await this.rust.prewarm(1,settle);
+    await this.rust.prewarm(2,settle);
     await this.rust.byName.post.warm(settle);
-    const rest = this.warmup().programs;
-    return { programs: (this.rust.shaderPrograms?.length ?? 0) - before, rest, ms: performance.now() - started };
+    const rest = (await this.rust.prepare(()=>this.warmup())).programs;
+    return { programs: (this.frameInfo?.programs ?? 0) - before, rest, ms: performance.now() - started };
   }
 
-  // Compile and adopt scene resources through Rust under the loading screen.
-  // Two preparation frames establish dynamic inputs before joining a battle,
-  // whose incoming entity records must never wait behind that work.
+  // Native source admission links world, foliage and canopy variants while
+  // two loading frames establish dynamic inputs. Incoming battle records
+  // must never wait behind that preparation.
   async prepareRenderer(settle, draw) {
     await this.rustReady;
-    prewarmWorldPrograms(this.rust);
     for (let i = 0; i < 2; i++) {
-      this.render(0);
-      draw();
+      await this.rust.prepare(()=>{this.render(0);draw();});
       await settle();
     }
     // Preserve the existing scene programs' admission identities. Utility
     // variants link after preparation has discovered world and HUD resources,
     // while the loading screen still owns the context and before play begins.
-    await this.rust.byName.lines.warm(settle);
+    await this.rust.prewarm(3,settle);
   }
 
   // warmup prepares source-owned actor and shadow resources, including hidden
   // pooled casters. Program counts describe the native catalog, not Three.
   warmup() {
-    const before = this.rust.shaderPrograms?.length ?? 0, started = performance.now();
+    const before = this.frameInfo?.programs ?? 0, started = performance.now();
     const renderer = this.renderer, target = renderer.getRenderTarget();
     this.rust.byName.post.programs();
     // warmup keeps setRenderTarget's cold admission order. Samplers and
     // attachments settle before shadow targets and the first scene draw.
     try {
       renderer.setRenderTarget(this.sceneTarget);
-      this.rust.settle();
       prepareActors(this.rust);
       renderer.setRenderTarget(this.farTarget);
       if (this.csm) this.rust.byName.shadow.prepare();
     } finally { renderer.setRenderTarget(target); }
-    return { programs: (this.rust.shaderPrograms?.length ?? 0) - before, ms: performance.now() - started };
+    return { programs: (this.frameInfo?.programs ?? 0) - before, ms: performance.now() - started };
   }
 
   // Every caster names a source-owned depth variant. The hardware depth
@@ -464,7 +407,7 @@ export class Graphics {
     lighting.cascadeMaps.value = [];
     lighting.cascadePlanes.value = [];
     const preset = SHADOW_PRESETS[this.settings.get("shadows")];
-    this.renderer.shadowMap.enabled = Boolean(preset);
+    this.shadowsEnabled = Boolean(preset);
     if (preset) {
       this.csm = shadowShells(this,preset);
       for (const light of this.csm.lights) {
@@ -570,16 +513,6 @@ export class Graphics {
     }
   }
 
-  // Root light identities are graph facts; native packing replaces the old
-  // cloned first-person lights and their per-frame transformed proxies.
-  syncViewLights() {
-    const sources=this.viewLightSources;let count=0,changed=false;
-    for(const child of this.scene.children)if(child.isPointLight){if(sources[count]!==child)changed=true;sources[count++]=child;}
-    if(sources.length!==count)changed=true;sources.length=count;
-    if(changed){this.viewLights=sources.map(source=>({source,shown:source.visible,layers:source.layers.mask}));}
-    this.viewScene.userData.nativeViewLights=this.viewLights;
-  }
-
   setVehicleMotion(amount, turn) {
     this.vehicleMotion = amount; this.vehicleTurn = turn;
   }
@@ -600,7 +533,6 @@ export class Graphics {
 // must not hide it by clearing the canvas or selecting a different drawer.
     if (this.rust.failure) throw this.rust.failure;
     const { renderer, camera } = this;
-    renderer.info.reset();
     this.profiler.begin();
     const temporal = this.upscaling === "temporal";
     lighting.time.value = time;
@@ -612,19 +544,18 @@ export class Graphics {
     this.rust.cameras.main(camera);
     this.rust.byName.post.begin(camera);
     if (this.csm) {
-      this.updateScene();this.limitShadows();this.rust.cameras.cascades();
+      this.rust.frame.prepareWorlds();this.limitShadows();this.rust.cameras.cascades();
     }
     const far=this.farCamera;
     this.rust.cameras.derived(far,CAMERA_ROLE.FAR);
     if (temporal) this.upscaler.shift(far);
     this.rust.cameras.sky(this.skyLayers,CAMERA_ROLE.MAIN);
-    if(this.sky&&!this.skyLayers.length)sceneTransform(this.sky.position.copy(camera.position));
     this.rust.frame.target(this.farTarget);
     this.rust.cover("far", renderer, this.farScene, far);
 
     // 2. The near scene over it, then the first-person weapon.
-    this.cullOffView();
-    this.updateScene();
+    this.rust.frame.placement();
+    this.rust.frame.prepareWorlds();
     if (temporal) this.upscaler.shift(camera);
     this.rust.frame.target(this.sceneTarget);
     if (this.csm) this.rust.frame.shadowProducer();
@@ -642,7 +573,6 @@ export class Graphics {
     for(const child of this.viewScene.children)if(child.visible&&!child.isLight){viewShown=true;break;}
     this.rust.views();this.rust.frameFacts[F.VIEW_SHOWN]=+viewShown;
     if (viewShown) {
-      this.syncViewLights();
       const view = this.viewCamera;
       this.rust.cameras.derived(view,CAMERA_ROLE.VIEW);
       if (temporal) this.upscaler.shift(view);
@@ -656,7 +586,7 @@ export class Graphics {
     }
 
     this.rust.byName.post.prepare();
-    this.restoreOffView();
+    this.rust.frame.restorePlacement();
   }
 
   // The stats line's part: the 3D view's size (adaptive resolution moves
@@ -689,7 +619,7 @@ export class Graphics {
       softFocus: Boolean(this.blur && this.settings.get("softFocus")),
       softParticles: Boolean(this.settings.get("softParticles")),
       particleDepthCopies: this.particleDepth.copies,
-      frame: this.frameInfo,
+      frame: JSON.parse(this.rust.rust.renderer_diagnostics_frame()),
       shadows: this.shadowInfo,
       shadowPasses: { ...this.shadowPasses },
       // Lifetime counters distinguish dropped pass submissions from source
@@ -702,7 +632,7 @@ export class Graphics {
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },
       // Native geometry counters remain; texture/target storage belongs to Rust.
-      memory: { ...this.renderer.info.memory, resources: JSON.parse(this.renderer.resources.gpu.memory()) },
+      memory: { resources: JSON.parse(this.renderer.resources.gpu.memory()) },
       gpu: pageGpu(),
     };
   }

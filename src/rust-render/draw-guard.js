@@ -9,6 +9,7 @@ export function requireRustDraws(renderer) {
   guarded.add(renderer);
   renderer.battleThreeCalls = 0;
   renderer.battleCompileCalls = 0;
+  renderer.battleStateCalls = 0;
   // Source ownership is complete even for helpers created during play. Both
   // compiler entry points must fail before Three can reflect a battle program.
   const compile = () => {

@@ -357,6 +357,8 @@ impl<C: HasContext> GlState<C> {
 
 pub struct Core<C: HasContext, M: MultiDraw> {
     pub gl: C,
+    // Native preparation cadence replaces WebGLInfo.render.frame.
+    pub scene_stamp: u32,
     pub(crate) multi: M,
     pub(crate) programs: Vec<Program<C>>,
     pub(crate) owned_programs: Vec<(String, u32)>,
@@ -468,7 +470,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let lamp_texture = upload_texture(&gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
-            gl, multi, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
@@ -743,6 +745,9 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     }
 
     // A phase's start: its stats from zero, nothing known of the GL state.
+    // Only explicit diagnostics reads these retained allocation counts.
+    pub fn program_count(&self)->usize {self.programs.len()}
+    pub fn geometry_total(&self)->usize {self.geometries.len()}
     pub fn begin_phase(&mut self) {
         self.stats = Stats::default();
         self.state.reset();
@@ -776,10 +781,9 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         Camera { view, frustum, light_count: (input[FRAME_LIGHT_COUNT] as usize).min(MAX_LIGHTS) }
     }
 
-    // The state the opaque passes draw in, whatever three left: depth tested
+    // The opaque passes' native baseline: depth tested
     // (less or equal; each draw says whether it writes), no blending, polygon
     // offset or stencil, every channel written, counter-clockwise front faces.
-    // renderer.resetState() follows the phase.
     pub fn opaque(&mut self) {
         let (gl, state, stats) = (&self.gl, &mut self.state, &mut self.stats);
         state.depth_test(gl, stats, true);
@@ -894,11 +898,9 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         }
     }
 
-    // A framebuffer of the renderer's own over registered textures: a colour
-    // texture, a depth texture (three's shadow maps: glow on the web can't
-    // take a framebuffer three made), or both; made the first time a phase asks
-    // for it (it binds the new one: call it inside a phase, whose end has
-    // three reset its state). A depth-only one reads and writes no colour.
+    // Retained auxiliary attachments over registered colour/depth textures.
+    // GpuResources owns ordinary frame targets; journal replay reconstructs
+    // these attachments with their draw owner. Depth-only targets write no colour.
     pub fn framebuffer(&mut self, color: Option<u32>, depth: Option<u32>) -> Result<u32, String> {
         if let Some(i) = self.framebuffers.iter().position(|f| f.0 == color && f.1 == depth) {
             return Ok(i as u32);
@@ -954,17 +956,11 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.stats.gl_calls += 1;
     }
 
-    // A phase's end: no vertex array bound and counter-clockwise front faces,
-    // as three's resetState expects; the phase's stats.
+    // Native phases retain their own GL state. Completion publishes statistics
+    // and any deferred fault; no browser renderer needs a reset or rebind.
     pub fn fail(&mut self, error: String) { self.fault.get_or_insert(error); }
 
     pub fn end_phase(&mut self) -> Result<Stats, String> {
-        unsafe {
-            self.gl.bind_vertex_array(None);
-            self.gl.front_face(glow::CCW);
-        }
-        self.state.front = Some(glow::CCW);
-        self.stats.gl_calls += 2;
         match self.fault.take() { Some(error) => Err(error), None => Ok(self.stats) }
     }
 }

@@ -1117,6 +1117,8 @@ pub mod rider_sources;
 
 pub mod unit_collision;
 
+pub mod scene_pose;
+pub mod scene_pose_layout;
 pub mod visual_effects_layout;
 pub mod unit_effects;
 pub mod camera_effects;

@@ -12,7 +12,6 @@ import { standinModule, standinThree, fakeProgram, GL } from "./support/rust-sta
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 const { lighting } = await import("../src/materials.js");
-globalThis.__pointLights = await import("../src/point-lights.js");
 
 // The bridge over stand-ins, with three's shadow maps on (two cascades) or
 // off, and lamps on or off; the near scene's material a program is for.
@@ -23,7 +22,7 @@ function bridge({ shadows = false, lamps = false } = {}) {
     intensity: 1, bias: -0.015 / 2999, normalBias: 0, radius: 1, mapSize: new THREE.Vector2(1024, 1024),
     matrix: new THREE.Matrix4().makeTranslation(i + 1, 2, 3) } })) } : null;
   const three = standinThree(calls, { graphics: { csm, settings: { get: (k) => settings.get(k) ?? false } } });
-  three.renderer.shadowMap.enabled = shadows;
+  three.graphics.shadowsEnabled = shadows;
   const core = prepareSceneFixture(new RustRender(three.graphics, { memory }, BfeRenderer));
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const material = new THREE.ShaderMaterial();
@@ -106,16 +105,14 @@ test("a draw's lamps: the sources select() gives, as lamp table indices, in its 
 });
 
 test("the frame block survives the renderer's memory growing while the Enhanced inputs are written", () => withCascades(() => {
-  const { installPointLights } = globalThis.__pointLights;
-  installPointLights();
   const { core, memory, region, scene, camera, renderer, graphics } = bridge({ shadows: true, lamps: true });
   graphics.localLights = { sources: [{ position: new THREE.Vector3(1, 2, 3), radius: 6, color: new THREE.Vector3(1, 1, 1) }], select: () => [] };
   const light = new THREE.PointLight(0xffffff, 1, 10);
   sceneTransform(light.position.set(4, 5, 6));
   scene.add(light);
   scene.updateMatrixWorld(true);
-  core.rust.camera_lights_frame=()=>core.cameraPacks.set([1,4,5,6,10,1,1,1,0]);
-  scene.onBeforeRender(renderer, scene, camera);
+  core.rust.camera_scene_lights_frame=()=>core.cameraPacks.set([1,4,5,6,10,1,1,1,0]);
+  core.registry.admitIfNew(scene);
   // Sending the lamp table grows the memory: every view of the old one detaches.
   let grown = 0;
   core.rust.set_lamps = () => { const old = new Uint8Array(memory.buffer); memory.buffer = new ArrayBuffer(old.length * 2); new Uint8Array(memory.buffer).set(old); grown++; };

@@ -2,8 +2,6 @@
 // a numeric appearance handle; frames carry only pose and live lighting values.
 import {ACTOR} from './actor-layout.js';
 import {nativeActorSource} from '../actor-resources.js';
-import {programLayouts} from '../render-programs.js';
-import {ownedProgram} from './programs.js';
 export function actorFailure(message) {
   const error=Error(message);error.ownedActor=true;error.skippable=true;return error;
 }
@@ -54,38 +52,8 @@ export function nativeActorRecord(core,node,view=false){
  core.buffer=null;core.views();
  return {node,appearance:node.material,look,handle:facts[d.HANDLE],blended:!!facts[d.BLENDED],lamps:!!facts[d.LAMPS],heated:!!facts[d.HEATED],view};
 }
-// The actors/ programs a battle with the current settings can use: those with
-// no selector, and selector variants for this cascade count (or none) whose
-// lamp mode matches. Warming only these keeps load time down without leaving a
-// first-use compile for the frame.
-function actorKeys(core) {
-  const cascades=core.graphics.csm?.lights.length || 0;
-  const lamps=Boolean(core.graphics.settings.get('lampLighting'));
-  const keys=[];
-  for(const [key,layout] of Object.entries(programLayouts)) {
-    if(!key.startsWith('actors/'))continue;
-    const s=layout.selector;
-    if(!s){keys.push(key);continue;}
-    // Derived variants (tools/actor-shader-compose.py) are for materials no census saw: linked on first use.
-    if(layout.derived)continue;
-    if(![0,cascades].includes(s.cascades))continue;
-    const dynamic=s.defines.some(([name])=>name==='DYNAMIC');
-    if(s.lamps===(dynamic && lamps))keys.push(key);
-  }
-  return keys;
-}
-
-// Driver waits belong on the loading screen, with a GPU/UI settling point
-// between new programs. A later warmup only reuses the context-local IDs.
-export async function warmActorPrograms(core, settle) {
-  const renderer=core.renderer,target=renderer.getRenderTarget();
-  for(const key of actorKeys(core)) {
-    if(core.ownedPrograms?.has(key))continue;
-    ownedProgram(core,key,null);
-    renderer.resetState();renderer.setRenderTarget(target);
-    await settle();
-  }
-}
+// Browser callers supply pacing only; native Prepare selects and links keys.
+export async function warmActorPrograms(core,settle){await core.prewarm(1,settle);}
 
 // Existing paced catalog warming is cold loading work. Native admission still
 // owns every actual actor variant, group, sampler slot and fixed-function state.

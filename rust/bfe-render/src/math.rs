@@ -5,6 +5,12 @@
 
 pub type Mat4 = [f64; 16];
 
+// ShadowPass.add tested Matrix4.determinant, including its full f64 order.
+// Preserve that boundary rather than substituting an affine sign shortcut.
+pub fn determinant_mirrors(world:&Mat4)->bool{
+    let mut matrix=three::Matrix4::default();matrix.elements=*world;matrix.determinant()<0.
+}
+
 // Matrix4.multiplyMatrices(a, b).
 pub fn mul(a: &Mat4, b: &Mat4) -> Mat4 {
     let (a11, a12, a13, a14) = (a[0], a[4], a[8], a[12]);
@@ -33,6 +39,16 @@ pub fn mul(a: &Mat4, b: &Mat4) -> Mat4 {
     t[11] = a41 * b13 + a42 * b23 + a43 * b33 + a44 * b43;
     t[15] = a41 * b14 + a42 * b24 + a43 * b34 + a44 * b44;
     t
+}
+
+// Vector4.applyMatrix4 keeps all four terms, including translation times w.
+pub fn transform4(m:&Mat4,p:[f64;4])->[f64;4]{
+    let [x,y,z,w]=p;[
+        m[0]*x+m[4]*y+m[8]*z+m[12]*w,
+        m[1]*x+m[5]*y+m[9]*z+m[13]*w,
+        m[2]*x+m[6]*y+m[10]*z+m[14]*w,
+        m[3]*x+m[7]*y+m[11]*z+m[15]*w,
+    ]
 }
 
 // Matrix3.getNormalMatrix(m): setFromMatrix4, invert, transpose.
@@ -168,5 +184,34 @@ mod tests {
         m[0] = 2.0; m[5] = 4.0; m[10] = 8.0; m[15] = 1.0;
         let n = normal_matrix(&m);
         assert_eq!(n, [0.5, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.125]);
+    }
+}
+
+// writeUniform's view and UV transforms retain their own native scratch bank.
+// The caller supplies facts; no Three model-view/normal/texture matrix changes.
+pub struct UniformTransforms{
+    pub input:[f64;crate::cameras::layout::uniform_input::LEN],
+    pub output:[f64;crate::cameras::layout::uniform_output::LEN],
+}
+impl Default for UniformTransforms{
+    fn default()->Self{Self{input:[0.;crate::cameras::layout::uniform_input::LEN],output:[0.;crate::cameras::layout::uniform_output::LEN]}}
+}
+impl UniformTransforms{
+    pub fn frame(&mut self,uv:bool){
+        use crate::cameras::layout::{uniform_input as i,uniform_output as o};
+        if uv{
+            let a=&self.input;let mut matrix=three::Matrix3::default();
+            matrix.set_uv_transform(a[i::UV],a[i::UV+1],a[i::UV+2],a[i::UV+3],a[i::UV+4],a[i::UV+5],a[i::UV+6]);
+            self.output[o::UV..o::UV+9].copy_from_slice(&matrix.elements);return;
+        }
+        let world=self.input[i::WORLD..i::WORLD+16].try_into().unwrap_or([0.;16]);
+        let view=self.input[i::VIEW..i::VIEW+16].try_into().unwrap_or([0.;16]);
+        let model_view=mul(&view,&world);let normal=normal_matrix(&model_view);
+        self.output[o::WORLD..o::WORLD+16].copy_from_slice(&world);
+        self.output[o::VIEW..o::VIEW+16].copy_from_slice(&view);
+        self.output[o::PROJECTION..o::PROJECTION+16].copy_from_slice(&self.input[i::PROJECTION..i::PROJECTION+16]);
+        self.output[o::MODEL_VIEW..o::MODEL_VIEW+16].copy_from_slice(&model_view);
+        self.output[o::NORMAL..o::NORMAL+9].copy_from_slice(&normal);
+        self.output[o::EYE..o::EYE+3].copy_from_slice(&self.input[i::EYE..i::EYE+3]);
     }
 }

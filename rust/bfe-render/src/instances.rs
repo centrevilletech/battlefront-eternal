@@ -195,6 +195,7 @@ impl<C: HasContext> InstancePass<C> {
             }
             let template = self.templates.len();
             self.templates.push(row);
+            if (rec[REC_GEOMETRY] as usize) >= geometries.len() || (!blended && (rec[REC_PROGRAM] as usize) >= programs.len()) { continue; }
             if blended {
                 let b = rec[REC_BLEND] as usize;
                 if b < self.blends.len() && self.blended.len() < 64 {

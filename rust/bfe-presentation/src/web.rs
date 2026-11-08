@@ -84,6 +84,12 @@ impl PageUnits {
             inner: crate::units::Units::preview(),
         }
     }
+    pub fn scene_pose_owner(&mut self,id:u32,generation:u32){self.inner.scene_pose.owner(id,generation);}
+    pub fn scene_pose_targets(&mut self,start:usize,targets:&[u8],models:usize){self.inner.scene_pose.targets(start,targets,models);}
+    // Cold scene admission imports an existing retained pose without stepping it.
+    pub fn scene_pose_admit_frame(&mut self){self.inner.publish_scene_pose();}
+    pub fn scene_pose_ptr(&self)->*const f64{self.inner.scene_pose.data.as_ptr()}
+    pub fn scene_pose_len(&self)->usize{self.inner.scene_pose.data.len()}
     pub fn input_len(&self) -> usize {
         self.inner.input.len()
     }
@@ -186,15 +192,19 @@ impl PageUnits {
     pub fn prepare_aim(&mut self,count:usize){self.inner.aim_frame(count);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
+        self.inner.publish_scene_pose();
     }
     pub fn present_first_person(&mut self) {
         self.inner.attachment_frame();
+        self.inner.publish_scene_pose();
     }
     pub fn place_actors(&mut self, count: usize) {
         self.inner.place_actors(count);
+        self.inner.publish_scene_pose();
     }
     pub fn refresh_actor(&mut self, id: usize) {
         self.inner.refresh_actor(id);
+        self.inner.publish_scene_pose();
     }
 }
 

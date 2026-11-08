@@ -64,7 +64,7 @@ test('native post facts survive resource registration and retain program binding
  const target=()=>new THREE.WebGLRenderTarget(800,600,{depthBuffer:false});
  Object.assign(graphics,{quarterTarget:target(),bloomTarget:target(),bloomScratch:target(),postTarget:target(),aaTarget:target(),
   renderSize:new THREE.Vector2(800,600),outputSize:new THREE.Vector2(800,600),postRevision:0,vehicleMotion:0,vehicleTurn:0,blur:null,
-  upscaler:new Upscaler({extensions:{has:()=>true}})});
+  upscaler:new Upscaler({getContext:()=>({isContextLost:()=>false,getExtension:()=>({}),getParameter:()=>4096,getInternalformatParameter:()=>[4,2]})})});
  const backing=new WebAssembly.Memory({initial:512});memory.buffer=backing.buffer;
  const core=new RustRender(graphics,{memory},BfeRenderer),add=core.rust.add_texture.bind(core.rust);
  core.rust.add_texture=(...args)=>{const id=add(...args);backing.grow(1);memory.buffer=backing.buffer;return id;};

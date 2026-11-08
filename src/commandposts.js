@@ -1,3 +1,4 @@
+import {publishPointLight} from "./rust-render/point-inputs.js";
 import {sceneComponent,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import { ownedBasicEffect } from './rust-render/effect-material.js';
 import * as THREE from "three";
@@ -177,7 +178,7 @@ class Hologram {
     this.beam.material.color.copy(this.color);this.flare.material.color.copy(this.color);this.halo.material.color.copy(this.color);
     this.halo.material.opacity=x[at+F.HALO];sceneProperty(this.halo,"visible",x[at+F.REACH]>0&&(this.settings?.get('bloom')??true));
     this.beam.material.opacity=x[at+F.BEAM];this.flare.material.opacity=x[at+F.FLARE];
-    sceneProperty(this.beam,"visible",x[at+F.REACH]>0);sceneProperty(this.flare,"visible",x[at+F.REACH]>0);this.light.color.copy(this.color);this.light.intensity=x[at+F.LIGHT];
+    sceneProperty(this.beam,"visible",x[at+F.REACH]>0);sceneProperty(this.flare,"visible",x[at+F.REACH]>0);this.light.color.copy(this.color);this.light.intensity=x[at+F.LIGHT];publishPointLight(this.light);
   }
 }
 

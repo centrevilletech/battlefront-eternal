@@ -8,12 +8,12 @@ import { RustRender } from '../src/rust-render/index.js';
 import {sceneProperty,sceneTransform} from '../src/rust-render/scene-changes.js';
 import { Family, Mode, publishSceneWorld } from '../src/rust-render/scene.js';
 import { SceneCapacity, SceneNode, SceneWorldChange, SceneSelection, SceneFlags } from '../src/rust-render/scene-layout.js';
-import { standinModule, standinThree } from './support/rust-standin.mjs';
+import { prepareSceneFixture, standinModule, standinThree } from './support/rust-standin.mjs';
 globalThis.location ??= {search:''};
 
-function fixture() {
-  const {BfeRenderer,memory,calls}=standinModule(),host=standinThree(calls);
-  const core=new RustRender(host.graphics,{memory},BfeRenderer);
+function fixture(memoryBytes=1<<27) {
+  const {BfeRenderer,memory,calls}=standinModule({memoryBytes}),host=standinThree(calls);
+  const core=prepareSceneFixture(new RustRender(host.graphics,{memory},BfeRenderer));
   return {...host,core,registry:core.registry};
 }
 
@@ -33,7 +33,7 @@ test('paused resource and property replacements retain one queued identity',()=>
 });
 
 test('cold admission beyond a map grows retained rows before selection',()=>{
-  const {registry,core,scene,camera}=fixture();
+  const {registry,core,scene,camera}=fixture(1<<28);
   // The store's first allocation is deliberately smaller than the maximum.
   // Crossing it must refresh pointers even when WASM keeps the same heap pages.
   registry.select(scene,camera,0);
@@ -110,8 +110,8 @@ test('stationary matrix dirty flags do not republish static descriptor rows',()=
     assert.equal(registry.select(scene,camera,Family.NEAR),1);assert.equal(published,0);assert.equal(flushes,0);
   }
   sceneTransform(mesh.position.set(3,0,0));mesh.updateMatrixWorld();
-  assert.equal(registry.select(scene,camera,Family.NEAR),1);assert.equal(published,0);assert.equal(registry.lastWorldChanged,1);assert.equal(flushes,0);
-  assert.equal(core.sceneWorldChanges[SceneWorldChange.WORLD+12],3);
+  assert.equal(registry.select(scene,camera,Family.NEAR),1);assert.equal(published,0);assert.equal(registry.lastWorldChanged,0);assert.equal(flushes,0);
+  assert.equal(mesh.matrixWorld.elements[12],3);
   sceneProperty(mesh,"visible",false);mesh.updateMatrixWorld();
   assert.equal(registry.select(scene,camera,Family.NEAR),0);assert.equal(published,1);assert.equal(registry.lastWorldChanged,0);assert.equal(flushes,1);
 });

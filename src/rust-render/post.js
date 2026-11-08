@@ -1,6 +1,7 @@
+import {MIRROR as MI} from "./camera-layout.js";
 // Uniform packing for auxiliary screen draws, plus the retained post host.
 // Post policy, uniform values and temporal commit belong to post_chain.rs;
-// source-bearing utility materials still serve the separate scene passes.
+// auxiliary screen materials carry values for declared native catalog keys.
 import * as THREE from "three";
 import { ownedProgram, ownsEffectSource } from "./programs.js";
 import { ownedEffectProgram } from "./effect-material.js";
@@ -14,10 +15,7 @@ const ATTRIBUTES = "position:0,uv:1";
 
 // Screen passes bind declared catalog layouts. A source-free material without
 // a key is unsupported at admission; no browser program can supply its source.
-export function plainProgramKnown(core, material) {
-  return core.ownedPrograms?.has(material.userData?.bfeProgram) || false;
-}
-export function plainProgram(core, material, attributes) {
+export function ownedScreenProgram(core, material, attributes) {
   if (ownsEffectSource(material)) {
     const entry = ownedEffectProgram(core, material, PLAIN);
     if (attributes !== null && entry.attributes.map(([n,l]) => `${n}:${l}`).join(",") !== attributes) throw Error(`Attribute layout for ${entry.key}: ${attributes}`);
@@ -30,31 +28,41 @@ export function plainProgram(core, material, attributes) {
 // A uniform's value as three would set it for a full-screen pass (the
 // object's and camera's matrices, else the material's), into f64 slots at
 // `o` (slot, type, values); false when it has none the renderer can give.
-const eye = new THREE.Vector3();
-const IDENTITY3 = new THREE.Matrix3();
-// A map's uv transform, as refreshTransformUniform sets it.
-const transform = (map) => { if (!map) return IDENTITY3; if (map.matrixAutoUpdate) map.updateMatrix(); return map.matrix; };
+import {UNIFORM_INPUT as UI,UNIFORM_OUTPUT as UO} from "./camera-layout.js";
+// Native matrix outputs are copied directly to a uniform row. No object or
+// texture matrix acts as scratch, including repeated first-person draws.
+function matrixUniform(core,out,o,slot,type,name,material,object,camera){
+  if(name==="reflectionMatrix"){
+    core.views();out[o]=slot;out[o+1]=type;for(let k=0;k<16;k++)out[o+2+k]=core.cameraMirror[MI.REFLECTION+k];return true;
+  }
+  let field,length;
+  if(name==="mapTransform"||name==="alphaMapTransform"){
+    if(!material||material.uniforms)return false;
+    const map=name==="mapTransform"?material.map:material.alphaMap;
+    out[o]=slot;out[o+1]=type;
+    core.cameras.uv(map,out,o+2);return true;
+  }else{
+    switch(name){case "modelMatrix":field=UO.WORLD;length=16;break;case "modelViewMatrix":field=UO.MODEL_VIEW;length=16;break;
+      case "normalMatrix":field=UO.NORMAL;length=9;break;case "projectionMatrix":field=UO.PROJECTION;length=16;break;
+      case "viewMatrix":field=UO.VIEW;length=16;break;case "cameraPosition":field=UO.EYE;length=3;break;default:return false;}
+    const node=core.registry.admitIfNew(object);core.registry.worlds.flush();core.rust.camera_scene_uniform_frame(node.slot,node.generation,core.cameras.query(camera));
+  }
+  core.views();out[o]=slot;out[o+1]=type;for(let k=0;k<length;k++)out[o+2+k]=core.cameraUniformOutput[field+k];return true;
+}
 // The uniforms of a built-in material three's refreshUniformsCommon sets
 // that a basic material's program may read.
 const BUILTIN = {
   diffuse: (m) => m.color,
   opacity: (m) => m.opacity,
   map: (m) => m.map,
-  mapTransform: (m) => transform(m.map),
   alphaMap: (m) => m.alphaMap,
-  alphaMapTransform: (m) => transform(m.alphaMap),
   alphaTest: (m) => m.alphaTest,
 };
 export function writeUniform(core, out, o, slot, uniform, material, object, camera) {
   const { name, type } = uniform;
   let value;
-  if (name === "projectionMatrix") value = camera.projectionMatrix;
-  else if (name === "modelViewMatrix") value = object.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object.matrixWorld);
-  else if (name === "modelMatrix") value = object.matrixWorld;
-  else if (name === "normalMatrix") value = object.normalMatrix.getNormalMatrix(object.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object.matrixWorld));
-  else if (name === "viewMatrix") value = camera.matrixWorldInverse;
-  else if (name === "cameraPosition") value = eye.setFromMatrixPosition(camera.matrixWorld);
-  else if (name === "isOrthographic") value = camera.isOrthographicCamera === true;
+  if(matrixUniform(core,out,o,slot,type,name,material,object,camera))return true;
+  if (name === "isOrthographic") value = camera.isOrthographicCamera === true;
   else if (material && !material.uniforms) {
     // A built-in material (MeshBasicMaterial): its values as three's
     // refreshUniforms sets them.
@@ -69,9 +77,8 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
   }
   out[o] = slot; out[o + 1] = type;
   if (type === SAMPLER || type === SAMPLER_3D) {
-    // None, or a texture three has no pixels for (a target never drawn, an
-    // image still loading): three's empty texture, which these passes only
-    // read behind a switch that is off (the composite's glow without bloom).
+    // Absent or pending inputs use the native bank's empty sampler. These
+    // passes read it only behind disabled effects, such as glow without bloom.
     if (value === null || value === undefined) { out[o + 2] = -1; return true; }
     if (!value.isTexture) return false;
     // Registration precedes record writes. A repeated sampler read must not
@@ -111,18 +118,25 @@ class PostPass {
     this.bindPrograms();
   }
   async warm(settle) {
-    if (this.ready) return;
-    for (let i = 0; i < POST_KEYS.length; i++) {
-      this.programIds[i] = ownedProgram(this.core, POST_KEYS[i], ATTRIBUTES).id;
-      await settle();
-    }
-    this.bindPrograms();
+    if(this.ready)return;
+    await this.core.prewarm(4,settle);this.programs();
   }
   bindPrograms() {
     const core = this.core;
     core.views(); core.postFacts.set(this.programIds, FACTS.PROGRAMS);
     this.ready = true; core.stale = true;
-    core.graphics.upscaler.core = core;
+    const upscaler=core.graphics.upscaler;upscaler.core=core;
+    if(this.boundMatrices!==upscaler){
+      for(const name of ["current","previous"]){
+        const field=name==="current"?STATE.CURRENT:STATE.PREVIOUS;let buffer=null,address=-1,view=null;
+        Object.defineProperty(upscaler[name],"elements",{configurable:true,get(){
+          core.views();const values=core.postState,next=values.byteOffset+field*8;
+          if(buffer!==values.buffer||address!==next){buffer=values.buffer;address=next;view=new Float64Array(buffer,address,16);}
+          return view;
+        }});
+      }
+      this.boundMatrices=upscaler;
+    }
   }
 
   // Resource ids change only at cold admission, resize or context restoration.
@@ -142,11 +156,11 @@ class PostPass {
     this.resource(u.history[0], RESOURCE.HISTORY0); this.resource(u.history[1], RESOURCE.HISTORY1);
     this.resource(u.velocity, RESOURCE.VELOCITY); this.resource(u.motion, RESOURCE.MOTION);
     this.revision = g.postRevision; this.epoch = epoch; this.depth = null;
-    core.stale = true;
+
   }
 
   // One native temporal preparation publishes jitter and current/previous
-  // matrices. The scene/motion hosts only copy those published camera facts.
+  // matrices. Motion consumers borrow those native publications directly.
   begin(camera) {
     const core = this.core, g = core.graphics, u = g.upscaler;
     this.programs(); this.resources(); core.views();
@@ -161,10 +175,9 @@ class PostPass {
     f[FACTS.OUTPUT_WIDTH] = g.outputSize.x; f[FACTS.OUTPUT_HEIGHT] = g.outputSize.y;
     core.renderer.getViewport(this.viewport).multiplyScalar(core.renderer.getPixelRatio()).floor();
     f[FACTS.CANVAS_WIDTH] = this.viewport.z; f[FACTS.CANVAS_HEIGHT] = this.viewport.w;
-    f.set(camera.projectionMatrix.elements, FACTS.PROJECTION); f.set(camera.matrixWorldInverse.elements, FACTS.VIEW); f.set(camera.matrixWorld.elements, FACTS.WORLD);
+    core.rust.camera_post_facts_frame(core.cameras.query(camera));
     core.rust.post_chain_begin_frame();
-    const s = core.postState, current = u.current.elements, previous = u.previous.elements;
-    for (let i = 0; i < 16; i++) { current[i] = s[STATE.CURRENT+i]; previous[i] = s[STATE.PREVIOUS+i]; }
+    const s=core.postState;
     u.jitter.set(s[STATE.JITTER], s[STATE.JITTER+1]);
   }
 
@@ -185,7 +198,7 @@ class PostPass {
   target(target) {
     const core = this.core;
     core.renderer.initRenderTarget(target);
-    const handle = core.renderer.properties.get(target.texture).__webglTexture;
+    const handle = core.resources.handle(target.texture);
     if (!handle) throw Error("Post target allocation failed");
     let id = this.targets.get(handle);
     if (id === undefined) {

@@ -75,6 +75,7 @@ pub struct BfeRenderer {
     hud_model: crate::hud_model::HudModel,
     rebuilding: bool,
     static_worlds: Vec<static_world::StaticSlot>,
+    static_retry: Option<crate::prepare::PendingWorld>,
     static_sources: Vec<static_world::StaticSource>,
     line_resources:crate::line_resources::Lines,
     actor_resources:crate::actor_resources::Bank,
@@ -88,11 +89,32 @@ impl BfeRenderer {
     pub fn new(context: web_sys::WebGl2RenderingContext) -> BfeRenderer {
         let ext = context.get_extension("WEBGL_multi_draw").ok().flatten().map(|e| e.unchecked_into::<web_sys::WebglMultiDraw>());
         let multi = WebMultiDraw(ext, context.clone(), None);
-        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false, static_worlds: vec![], static_sources: vec![],line_resources:crate::line_resources::Lines::default(),actor_resources:crate::actor_resources::Bank::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new() }
+        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false, static_worlds: vec![], static_retry: None, static_sources: vec![],line_resources:crate::line_resources::Lines::default(),actor_resources:crate::actor_resources::Bank::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new() }
     }
 
     // Where the page writes the frame's values and records (f64), and the
     // drawn soldiers' bone matrices (f32), as byte offsets into memory.
+    // Pacing is browser I/O; the native owner chooses every preload variant.
+    pub fn prepare_begin_frame(&mut self,family:u32,cascades:u32,lamps:bool,shadows:bool) {self.r.prepare.begin(family,cascades,lamps,shadows);}
+    pub fn prepare_next_frame(&mut self)->Result<String,JsValue> {
+        while let Some(key)=self.r.prepare.next_key(){
+            if self.r.core.has_owned_program(key){continue;}
+            self.add_owned_program(key)?;return Ok(key.to_string());
+        }
+        Ok(String::new())
+    }
+    pub fn prepare_keys_frame(&self,family:u32,cascades:u32,lamps:bool,shadows:bool)->String {crate::prepare::Prepare::keys(family,cascades,lamps,shadows)}
+    pub fn scene_stamp_set_frame(&mut self,stamp:u32) {self.r.core.scene_stamp=stamp;}
+    // Diagnostic allocation happens only on explicit inspection, never drawing.
+    pub fn renderer_diagnostics_frame(&self)->String {
+        let calls:u64=self.r.frames.stats.chunks(crate::frame_plan::layout::stats::LEN)
+            .map(|row|row[crate::frame_plan::layout::stats::PASS_DRAWS..].iter().map(|v|*v as u64).sum::<u64>()).sum();
+        serde_json::json!({"frame":self.r.core.scene_stamp,"calls":calls,"programs":self.r.core.program_count(),"geometries":self.r.core.geometry_total(),"samples":self.r.core.textures.len()}).to_string()
+    }
+    pub fn scene_stamp_frame(&mut self, advance:bool)->u32 {
+        if advance { self.r.core.scene_stamp=self.r.core.scene_stamp.wrapping_add(1); }
+        self.r.core.scene_stamp
+    }
     pub fn input_ptr(&mut self) -> u32 { self.r.core.input.as_mut_ptr() as u32 }
     pub fn input_len(&self) -> u32 { self.r.core.input.len() as u32 }
     pub fn bones_ptr(&mut self) -> u32 { self.r.core.bones.as_mut_ptr() as u32 }

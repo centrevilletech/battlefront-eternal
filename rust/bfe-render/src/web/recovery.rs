@@ -1512,6 +1512,8 @@ impl BfeRenderer {
         // still owns CPU mirrors needed below, but none of its GL handles is valid.
         let saved = std::mem::take(&mut self.recovery);
         let mut old = std::mem::replace(&mut self.r, BfeRenderer::new(context).r);
+        self.r.core.scene_stamp = old.core.scene_stamp;
+        std::mem::swap(&mut self.r.prepare, &mut old.prepare);
         self.static_worlds.clear();
         self.water_geometry.clear();
         self.actor_resources.geometry.clear();self.actor_resources.effects.clear();self.actor_resources.materials.clear();self.actor_resources.recipes.clear();self.actor_resources.motions.clear();
@@ -1694,6 +1696,7 @@ impl BfeRenderer {
         self.r.canopies.reupload(&mut self.r.core);
         self.r.water.reupload(&mut self.r.core);
         self.r.far.reupload(&mut self.r.core);
+        self.r.effects.restore_instances(&mut self.r.core,&mut old.effects);
         // Keep the same history for another loss. Only successful completion
         // enables recording again; the caller treats any earlier error as fatal.
         self.recovery = saved;

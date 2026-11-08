@@ -1,3 +1,7 @@
+import {prepareSceneFixture,standinModule,standinThree} from "./support/rust-standin.mjs";
+globalThis.location??={search:""};
+import {RustRender} from "../src/rust-render/index.js";
+import {sceneProperty} from "../src/rust-render/scene-changes.js";
 import './fixtures/native-anim.js';
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -436,9 +440,9 @@ test("own unit publication retains predicted fields and never regenerates matric
       }
       if (worldElements) assert.equal(actor.root.matrixWorld.elements, worldElements);
       worldElements = actor.root.matrixWorld.elements;
-      assert.ok(Array.isArray(worldElements), "Three matrices keep ordinary arrays");
+      assert.ok(worldElements instanceof Float64Array, "named readbacks borrow native f64 storage");
       assert.deepEqual(
-        worldElements,
+        Array.from(worldElements),
         Array.from(bridge.nodes.subarray(row.start * N.STRIDE + N.WORLD, row.start * N.STRIDE + N.WORLD + 16)),
       );
       assert.deepEqual(
@@ -530,7 +534,7 @@ test("prepared actors retain bind matrices until their own first presented frame
     bridge.write(later.row, later.unit, 1);
     bridge.run();
     later.actor.root.updateMatrixWorld();
-    assert.equal(later.actor.root.matrixWorld.elements, bind);
+    assert.ok(later.actor.root.matrixWorld.elements instanceof Float64Array);
     assert.equal(later.actor.root.matrixWorld.elements[12], later.unit.soldier.position.x);
   } finally {
     bridge.kernel.free();
@@ -614,6 +618,8 @@ test("remote actors are placed by the scene update only once drawn, while their 
   const shown = prepare(1),
     hidden = prepare(2),
     late = prepare(3);
+  const cpu=standinModule(),host=standinThree(cpu.calls);host.graphics.scene=scene;
+  const renderer=prepareSceneFixture(new RustRender(host.graphics,{memory:cpu.memory},cpu.BfeRenderer));renderer.registry.admit(scene);
   const bind = hidden.actor.root.matrixWorld.toArray();
   const world = (row) =>
     Array.from({ length: row.objects.length }, (_, i) =>
@@ -649,7 +655,7 @@ test("remote actors are placed by the scene update only once drawn, while their 
     assert.equal(late.row.stale, false);
     assert.equal(shown.row.stale, true);
     // Shown before the scene update: placed with the drawn soldiers.
-    hidden.actor.root.visible = true;
+    sceneProperty(hidden.actor.root,"visible",true);
     bridge.placeShown(scene);
     assert.ok(all.every(({ row }) => !row.stale));
     assert.deepEqual(hidden.actor.root.matrixWorld.toArray(), world(hidden.row)[0]);
@@ -662,7 +668,7 @@ test("remote actors are placed by the scene update only once drawn, while their 
     }
     // Lazy placement can revisit the same phase prefix. Already-published
     // worlds must remain read-only until their next actual native change.
-    for(const {row} of all)for(const object of row.objects)if(object)Object.freeze(object.matrixWorld.elements);
+    for(const {row} of all)for(const object of row.objects)if(object)Object.defineProperty(object.matrixWorld,"elements",{configurable:true,get(){throw Error("publication must not read or write the query matrix facade");}});
     assert.doesNotThrow(()=>bridge.publishChanged());
   } finally {
     bridge.kernel.free();

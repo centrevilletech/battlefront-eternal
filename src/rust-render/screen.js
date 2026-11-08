@@ -9,7 +9,7 @@
 import * as THREE from "three";
 import { ownedEffectProgram } from "./effect-material.js";
 import { ownsEffectSource } from "./programs.js";
-import { plainProgram, writeUniform } from "./post.js";
+import { ownedScreenProgram, writeUniform } from "./post.js";
 import { blendOf, stateOf } from "./transparent.js";
 
 // post.rs's step and state layouts.
@@ -38,7 +38,7 @@ function views(core) {
 // No stencil, polygon offset or alpha coverage can enter this draw contract;
 // registration reports unsupported state before a native phase submits it.
 export function screenProgram(core, material, attributes = ATTRIBUTES) {
-  const program = plainProgram(core, material, attributes);
+  const program = ownedScreenProgram(core, material, attributes);
   if (!program) return program;
   const state = stateOf(material);
   if (program.uniforms.length > MAX_UNIFORMS || !state || !(state.flags & COLOR_WRITE) || !blendOf(material)) return null;
@@ -60,8 +60,6 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
     if (u.type < 32) continue;
     const value = material.uniforms?.[u.name]?.value;
     if (!value?.isTexture) continue;
-    const p = renderer.properties.get(value);
-    if (!value.isRenderTargetTexture && value.version > 0 && p.__version !== value.version && value.image) renderer.initTexture(value);
     core.texture(value);
   }
   views(core);
@@ -194,7 +192,7 @@ class FogPass {
     const geometry = core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] });
     if (geometry === null || geometry === undefined) throw new Error("Missing Rust underwater fog geometry");
     this.made.set(current, { id: geometry, count: fog.geometry.index.count });
-    core.stale = true;
+
   }
 
   // As three starts a render of the near scene: the frame's own, the
@@ -209,7 +207,7 @@ class FogPass {
       const geometry = core.geometry(fog.geometry, program);
       if (geometry === null || geometry === undefined) throw Error("Owned underwater geometry failed to register");
       this.made.set(fog.material, { id: geometry, count: fog.geometry.index.count });
-      renderer.resetState(); renderer.setRenderTarget(target);
+       renderer.setRenderTarget(target);
     }
     const take = !core.contextLost && fog.visible && fog.parent === scene && camera === graphics.camera
       && target === graphics.sceneTarget && this.made.has(fog.material);

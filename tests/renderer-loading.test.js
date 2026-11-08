@@ -11,7 +11,7 @@ test('renderer preparation waits for the bridge and settles both adoption draws'
     rustReady: new Promise(resolve => { ready = resolve; }),
     render(time) { events.push(['scene', time]); },
   };
-  graphics.rust = { graphics, byName: { lines: { async warm(settle) { events.push("utilities");await settle(); } } } };
+  graphics.rust = { graphics, async prepare(fn) { fn(); }, async prewarm(phase, settle) { if (phase === 3) { events.push("utilities"); await settle(); } } };
   let settle;
   const prepared = Graphics.prototype.prepareRenderer.call(graphics,
     () => { events.push('settle'); return new Promise(resolve => { settle = resolve; }); },
@@ -40,6 +40,6 @@ test('renderer preparation propagates a draw failure rather than admitting a ses
   const graphics = { scene: new Scene(), farScene: new Scene(),
     rustReady: Promise.resolve(), render() { throw Error('draw failed'); },
   };
-  graphics.rust = { graphics };
+  graphics.rust = { graphics, async prepare(fn) { fn(); }, async prewarm() {} };
   await assert.rejects(Graphics.prototype.prepareRenderer.call(graphics, () => {}, () => {}), /draw failed/);
 });

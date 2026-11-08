@@ -1,9 +1,9 @@
 // Draw the battle scene in Rust: opaque passes, far image, then ordered
 // transparency. Retained scene facts select the remaining transparent inputs.
-// Three still maintains scene transforms, target allocation and resolve state.
+// Scene transforms remain published inputs; the Rust bank owns targets and resolves.
 import * as THREE from "three";
 import { writeScreenStep } from "./screen.js";
-import { plainProgram, plainProgramKnown } from "./post.js";
+import { ownedScreenProgram } from "./post.js";
 
 // post.rs's step layout, and its target for the framebuffer bound now.
 const MAX_UNIFORMS = 12;
@@ -34,14 +34,10 @@ export class NearPass {
     // configuration three's would draw as walked here: its clear (no
     // background or fog of three's), its sort, and the far scene's image in it.
     if (!this.ours(renderer, scene, camera, target) || graphics.background.parent !== scene) return false;
-    if (!renderer.autoClear || !renderer.autoClearColor || !renderer.autoClearDepth || !renderer.autoClearStencil || !renderer.sortObjects) return false;
-    if (scene.background || scene.fog || scene.overrideMaterial || renderer.localClippingEnabled || renderer.clippingPlanes?.length) return false;
-    // The far image is a catalog program. Linking it on first use changes GL
-    // state, even if validation subsequently fails.
-    const fresh = !plainProgramKnown(core, graphics.background.material);
-    const left = () => { if (fresh) core.stale = true; return false; };
-    const program = plainProgram(core, graphics.background.material, ATTRIBUTES);
-    if (!program || program.uniforms.length > MAX_UNIFORMS) return left();
+    if (!renderer.autoClear) return false;
+    if (scene.background || scene.fog || scene.overrideMaterial) return false;
+    const program = ownedScreenProgram(core, graphics.background.material, ATTRIBUTES);
+    if (!program || program.uniforms.length > MAX_UNIFORMS) return false;
     try {
       if (scene.matrixWorldAutoUpdate === true) scene.updateMatrixWorld();
       if (camera.parent === null && camera.matrixWorldAutoUpdate === true) camera.updateMatrixWorld();
@@ -52,8 +48,7 @@ export class NearPass {
         core.publishView(this.scenePhase, renderer, scene, camera, null, { priming: true });
       }
       const items = core.registry.near(scene, camera);
-      renderer.info.render.frame++;
-      if (renderer.info.autoReset) renderer.info.reset();
+      core.rust.scene_stamp_frame(true);
       const ctx=core.publishView(this.scenePhase, renderer, scene, camera, items);
       core.frame.sceneTail(ctx,this);
       core.resolve(target);
@@ -82,7 +77,7 @@ export class NearPass {
   // look equivalent in an ordinary single-sample capture.
   writeImage(camera) {
     const core=this.core,background=core.graphics.background;
-    const program=plainProgram(core,background.material,ATTRIBUTES);
+    const program=ownedScreenProgram(core,background.material,ATTRIBUTES);
     if(!program || !writeScreenStep(core,0,program,background.material,background,camera)) core.fail(new Error("Cannot draw far-scene image"));
   }
 

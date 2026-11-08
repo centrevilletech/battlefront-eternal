@@ -86,7 +86,7 @@ class FarPass {
     this.tables=new Map();this.scratch=[];
     this.all=[];this.nextSlot=SLOTS;this.found=[];this.count=0;
     this.color=new THREE.Color();this.complete=false;this.mode='incomplete';this.unclaimed=0;
-    this.nativePending = [];
+    this.nativePending = [];this.nativeAt=0;
   }
 
   // The static world no longer constructs browser geometry/material shells.
@@ -134,7 +134,8 @@ class FarPass {
 
   prepareNative() {
     const core = this.core;
-    for (const cold of this.nativePending) {
+    for (;this.nativeAt<this.nativePending.length;this.nativeAt++) {
+      const cold=this.nativePending[this.nativeAt];
       const { item, source, tree, scale, map, bump } = cold;
       const samplers = cold.samplers || new Int32Array(STATIC.SAMPLERS.LENGTH).fill(-1);
       if (!cold.samplers) {
@@ -145,7 +146,7 @@ class FarPass {
       }
       item.id = core.rust.static_world(source, true, scale, samplers, staticFeatures(core, true), item.object.userData.worldOrder, item.slot, item.object.id);
     }
-    this.nativePending.length = 0;
+    this.nativePending.length = 0;this.nativeAt=0;
   }
 
   register() {
@@ -204,7 +205,7 @@ class FarPass {
     if (Array.isArray(material) || !(material.isShaderMaterial || ownsEffectSource(material) || material.userData?.bfeFamily === "world") || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
     // three draws a two-sided blended material in two passes.
     if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
-    if (sceneTransform(mesh.matrixWorld.determinant()) < 0) return null;
+    if (core.cameras.mirrored(mesh)) return null;
     const geometry = mesh.geometry;
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length) return null;
     // Unindexed (a full-screen triangle, the storm's bolt): drawn through an
@@ -539,8 +540,7 @@ class FarPass {
 
   // A texture's new contents, uploaded as three would before a draw.
   upload(texture) {
-    const renderer = this.core.renderer, properties = renderer.properties.get(texture);
-    if (texture.version > 0 && properties.__version !== texture.version) renderer.initTexture(texture);
+    if(texture?.version>0)this.core.resources.textureId(texture);
   }
 }
 

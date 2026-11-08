@@ -3500,6 +3500,42 @@ export class PageUnits {
     refresh_actor(id) {
         wasm.pageunits_refresh_actor(this.__wbg_ptr, id);
     }
+    scene_pose_admit_frame() {
+        wasm.pageunits_scene_pose_admit_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_len() {
+        const ret = wasm.pageunits_scene_pose_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} generation
+     */
+    scene_pose_owner(id, generation) {
+        wasm.pageunits_scene_pose_owner(this.__wbg_ptr, id, generation);
+    }
+    /**
+     * @returns {number}
+     */
+    scene_pose_ptr() {
+        const ret = wasm.pageunits_scene_pose_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} start
+     * @param {Uint8Array | number[]} targets
+     * @param {number} models
+     */
+    scene_pose_targets(start, targets, models) {
+        const val2 = +start;
+        const val3 = +models;
+        const ptr0 = passArray8ToWasm0(targets, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.pageunits_scene_pose_targets(this.__wbg_ptr, val2, ptr0, len0, val3);
+    }
     /**
      * @returns {number}
      */

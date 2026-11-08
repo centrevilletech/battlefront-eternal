@@ -132,14 +132,14 @@ class TransparentPass {
     if (ownsEffectSource(ownedMaterial)) {
       let entry=this.taken.get(item.object);
       if(!entry || entry.material!==ownedMaterial || entry.version!==ownedMaterial.version){
-        entry=this.registerObject(item,true);if(!entry)return false;this.taken.set(item.object,entry);this.core.stale=true;
+        entry=this.registerObject(item,true);if(!entry)return false;this.taken.set(item.object,entry);
       }
       return !item.group;
     }
     if(ownedMaterial.userData.bfeFamily === "world") {
       let entry=this.taken.get(item.object);
       if(!entry || entry.material!==ownedMaterial || entry.version!==ownedMaterial.version){
-        entry=this.registerBucket(item);if(!entry)return false;this.taken.set(item.object,entry);this.core.stale=true;
+        entry=this.registerBucket(item);if(!entry)return false;this.taken.set(item.object,entry);
       }
       return !item.group;
     }
@@ -180,7 +180,7 @@ class TransparentPass {
         if (this.taken.has(object)) continue;
         const entry = this.registerObject({ object, material: object.material, geometry: object.geometry, group: null }, true);
         if (entry) this.taken.set(object, entry);
-        // (Once three has drawn it, as three lists it.)
+        // Retry after the resource owner has admitted its pending sample.
         else if (entry === undefined && object.parent) this.retry.add(object);
       }
     } catch (error) {
@@ -253,9 +253,9 @@ class TransparentPass {
     r[o + OBJ.DIFFUSE] = c.r; r[o + OBJ.DIFFUSE + 1] = c.g; r[o + OBJ.DIFFUSE + 2] = c.b; r[o + OBJ.DIFFUSE + 3] = material.opacity;
     r[o + OBJ.ROTATION] = material.rotation ?? 0;
     r[o + OBJ.CENTER] = object.center?.x ?? 0; r[o + OBJ.CENTER + 1] = object.center?.y ?? 0;
-    // refreshTransformUniform: the map's matrix, brought up to date first.
+    // refreshTransformUniform uses the native f64 UV publication directly.
     const map = material.map;
-    if (map) { if (map.matrixAutoUpdate) map.updateMatrix(); r.set(map.matrix.elements, o + OBJ.MAP); }
+    if (map) this.core.cameras.uv(map,r,o+OBJ.MAP);
   }
 
   // Copy commands use the same group/render/depth/id keys as blended draws.
@@ -319,7 +319,7 @@ class TransparentPass {
 
   // An owned basic mesh or sprite (bfeShape names which): it has a catalog
   // program from the moment it is made, so nothing waits on a draw.
-  registerObject(item, compiled = false) {
+  registerObject(item, retryLoading = false) {
     const core = this.core, rust = core.rust;
     const { object, material, geometry } = item;
     const kind = material.userData?.bfeShape;
@@ -335,7 +335,7 @@ class TransparentPass {
     if (g === null) return null;
     let map = -1;
     // (Built without a draw, its texture may still be loading: looked at again.)
-    if (passes.programs[0].names.has("map")) { map = core.texture(material.map); if (map < 0) return compiled ? undefined : null; }
+    if (passes.programs[0].names.has("map")) { map = core.texture(material.map); if (map < 0) return retryLoading ? undefined : null; }
     const start = geometry.drawRange.start, count = Math.min(geometry.drawRange.count, geometry.index.count - start);
     const id = rust.transparent_object(kind, g, start, count, new Uint32Array(blend), state.func, state.flags);
     passes.sides.forEach((side, i) => rust.transparent_object_pass(id, passes.programs[i].id, side));

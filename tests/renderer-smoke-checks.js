@@ -22,7 +22,7 @@ import { Water } from '../src/water.js';
 import { loadEnvironment } from '../src/environment/module.js';
 import { Settings } from '../src/settings.js';
 import { actorMaterial, worldMaterial, lighting } from '../src/materials.js';
-import { plainProgram } from '../src/rust-render/post.js';
+import { ownedScreenProgram } from '../src/rust-render/post.js';
 import { writeScreenStep } from '../src/rust-render/screen.js';
 import { ownWorldMaterial } from '../src/rust-render/world-programs.js';
 import { ownedBasicEffect, ownedEffectMaterial } from '../src/rust-render/effect-material.js';
@@ -73,7 +73,7 @@ export async function checkRenderer(backend, manifests) {
   const originals = new Map();
   let compilingKey=null,checkShadowAttachments=false,shadowAttachments=0;
   const shadowHandles=new Set(),depthPrograms=new Set();
-  let observeShadow=null, observeSquares=null;
+  let observeShadow=null, observeSquares=null, observeBasic=null;
   // Hook the context prototype before initialization so Rust's WASM imports
   // and the remaining native compiler both pass through the same diagnostics.
   // The current catalog key tags even a failure inside a driver's compile call.
@@ -91,7 +91,7 @@ export async function checkRenderer(backend, manifests) {
         if (!ok) throw new Error(`${compilingKey || "fixture"}: program link: ${this.getProgramInfoLog(args[0])}`);
       } else {
         if(name.startsWith('draw') && this.isEnabled(this.SAMPLE_ALPHA_TO_COVERAGE) && this.getParameter(this.SAMPLES)>1){alphaCoverageDraws++;alphaSamples.add(this.getParameter(this.SAMPLES));}
-        if(name.startsWith('draw')){observeShadow?.(this);observeSquares?.(this);}
+        if(name.startsWith('draw')){observeShadow?.(this);observeSquares?.(this);observeBasic?.(this);}
         if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
         if (error && error !== this.CONTEXT_LOST_WEBGL) {
@@ -165,7 +165,6 @@ export async function checkRenderer(backend, manifests) {
       for(const variant of variants)assert(`${variant.key}: compiles and links`,variant.accepted,variant);
       console.log(`renderer smoke: family-result ${JSON.stringify(row)}`);
     }
-    g.rust.stale=true;
     assert('All manifest families were checked',shaderFamilies.length>0);
     // Every WebGL upload goes through a typed-array view of WebAssembly memory. When the externref table
     // is full, making that view's JS value grows memory and detaches the view, and the GL call reads an
@@ -269,16 +268,23 @@ export async function checkRenderer(backend, manifests) {
     particles.begin(); particles.push(-1, 1, .5, 1, .4, .2, 1, .3); particles.end();
     // SquareBatch's planar instance records and trailing live facts must keep
     // distinct offsets, even after earlier effect owners occupy the packet.
-    const haze={nativeKind:EFFECT.SQUARE.ID,variant:0,texture:white,capacity:5,count:5,
+    const haze={nativeKind:EFFECT.SQUARE.ID,variant:0,texture:white,capacity:5,count:5,serial:1,
       values:Float64Array.of(.25,.5,.75,1,1,0,0,0,1,0),
       arrays:{center:Float32Array.from([0,1,0,.1,1,1,0,.1,2,1,0,.1,3,1,0,.1,4,1,0,.1]),spin:new Float32Array(10)},mesh:new THREE.Object3D()};
     haze.mesh.name='fixture-haze';haze.mesh.frustumCulled=false;haze.mesh.renderOrder=10;
     g.scene.add(haze.mesh);squareBatches.set(g.scene,[haze]);
-    let squareDraws=0,squareValues=true;
+    let squareDraws=0,squareValues=true,squareStreams=true;
+    const squarePrefix=Float32Array.of(0,1,0,.1,0,0),squareBuffer=new Float32Array(6);
     observeSquares=context=>{
       const program=context.getParameter(context.CURRENT_PROGRAM);
       if(!(program instanceof WebGLProgram)||context.getAttribLocation(program,'center')<0||context.getAttribLocation(program,'spin')<0)return;
       squareDraws++;
+      // A fixed serial publishes no repeated instance bytes. Read the native
+      // VBO to prove that recovery retained its earlier changed-range prefix.
+      const binding=context.getParameter(context.ARRAY_BUFFER_BINDING),location=context.getAttribLocation(program,'center');
+      context.bindBuffer(context.ARRAY_BUFFER,context.getVertexAttrib(location,context.VERTEX_ATTRIB_ARRAY_BUFFER_BINDING));
+      context.getBufferSubData(context.ARRAY_BUFFER,0,squareBuffer);context.bindBuffer(context.ARRAY_BUFFER,binding);
+      squareStreams&&=squareBuffer.every((v,i)=>v===squarePrefix[i]);
       for(const [name,expected] of [['tint',[.25,.5,.75,1]],['axisU',[1,0,0]],['axisV',[0,1,0]]]){
         const actual=context.getUniform(program,context.getUniformLocation(program,name));
         squareValues&&=actual?.length===expected.length&&actual.every((v,i)=>v===expected[i]);
@@ -288,6 +294,9 @@ export async function checkRenderer(backend, manifests) {
     batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.quad(new THREE.Matrix4(),88,12,120,40,pendingImage,[0,0,1,1],[1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
     const hud = { batch, scene: hudScene, camera: hudCamera };
     g.treeCanopies = new TreeCanopies(g, { texture: 'leaves', instances: [{ matrix: new THREE.Matrix4().makeTranslation(-6,2,-10).elements, bounds: [[-3,-3,-1],[3,3,1]] }] }, () => white);
+    // Cold canopy registration completes on the renderer-ready promise. Keep
+    // the same admitted scene on both sides of the later context-loss await.
+    await g.rustReady;
     const instances = [{ position: new THREE.Vector3(2,-1,1), matrix: new THREE.Matrix4(), tint: [1,1,1], sphere: null, cullDistance: Infinity, maxDistance: 100 }];
     const foliage = { kinds: new Map([[0,{ map: white, def: { Alpha: 1 }, cards: [{ x:0,y:0,z:0,width:.4,height:.8,grey:1,part:0,phase:0,rate:1 }], grass: true, instances }]]), nearEnd: () => 100, time: 0, drawer: null };
     g.scene.userData.foliage = foliage;
@@ -305,7 +314,6 @@ export async function checkRenderer(backend, manifests) {
       return texture;
     };
     let poison = makePoison();
-    g.renderer.resetState();
     const rust = g.rust.rust;
     observeShadow=context=>{if(checkShadowAttachments && depthPrograms.has(context.getParameter(context.CURRENT_PROGRAM))){
       const actual=context.getFramebufferAttachmentParameter(context.DRAW_FRAMEBUFFER,context.DEPTH_ATTACHMENT,context.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
@@ -319,7 +327,7 @@ export async function checkRenderer(backend, manifests) {
         if (name === 'add_program' || name === 'add_program_lamps') programKinds.add(args[0]);
                 if (name === 'battle_frame') {
           gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,poison);
-          if(checkShadowAttachments){shadowHandles.clear();for(const target of [...g.shadowMaps,...g.shadowCaches])shadowHandles.add(g.renderer.properties.get(target.depthTexture).__webglTexture);}
+          if(checkShadowAttachments){shadowHandles.clear();for(const target of [...g.shadowMaps,...g.shadowCaches])shadowHandles.add(g.renderer.resources.handle(target.depthTexture));}
         }
         let value = fn.apply(target, args);
         if(name==='battle_frame' || name==='frame_aux_frame'){
@@ -417,10 +425,10 @@ export async function checkRenderer(backend, manifests) {
       }
       g.projection='';
     };
-    const resizedDepth=g.shadowMaps[0].depthTexture,depthId=g.rust.texture(resizedDepth),depthHandle=g.renderer.properties.get(resizedDepth).__webglTexture;
+    const resizedDepth=g.shadowMaps[0].depthTexture,depthId=g.rust.texture(resizedDepth),depthHandle=g.renderer.resources.handle(resizedDepth);
     const shadowSize=g.csm.shadowMapSize;
     checkShadowAttachments=true;resizeShadows(shadowSize*2);capture();
-    assert('Mid-frame shadow resize replaces storage while retaining its sampler id',g.rust.texture(resizedDepth)===depthId&&g.renderer.properties.get(resizedDepth).__webglTexture!==depthHandle);
+    assert('Mid-frame shadow resize replaces storage while retaining its sampler id',g.rust.texture(resizedDepth)===depthId&&g.renderer.resources.handle(resizedDepth)!==depthHandle);
     {const pixels=terrainShadowPixels();assert('Resized maps still draw shadowed receivers',pixels>0&&shadowAttachments>0,{pixels,shadowAttachments});}
     resizeShadows(shadowSize);capture();checkShadowAttachments=false;
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
@@ -479,8 +487,8 @@ export async function checkRenderer(backend, manifests) {
     const motionTarget = new THREE.WebGLRenderTarget(64,64,{type:THREE.HalfFloatType,depthBuffer:false});
     const depthValues = new Float32Array(64*64).fill((g.camera.far - g.camera.near*g.camera.far/8)/(g.camera.far-g.camera.near));
     const depth = new THREE.DataTexture(depthValues,64,64,THREE.RedFormat,THREE.FloatType); depth.needsUpdate = true;
-    const current = new THREE.Matrix4().multiplyMatrices(g.camera.projectionMatrix,g.camera.matrixWorldInverse);
-    const previous = current.clone(); previous.elements[12] += .02;
+    const current = g.upscaler.current.multiplyMatrices(g.camera.projectionMatrix,g.camera.matrixWorldInverse);
+    const previous = g.upscaler.previous.copy(current); previous.elements[12] += .02;
     const motion = () => {
       motionVectors.render(g.renderer,{target:motionTarget,root:g.scene,camera:g.camera,viewScene:g.viewScene,view:g.viewCamera,depth,current,previous});
       const pixels = new Uint16Array(64*64*4); g.renderer.readRenderTargetPixels(motionTarget,0,0,64,64,pixels); return pixels;
@@ -552,7 +560,7 @@ export async function checkRenderer(backend, manifests) {
     const retainedMaterial=new THREE.MeshBasicMaterial({color:0xff4020,depthTest:false,depthWrite:false});
     retainedMaterial.userData.bfeProgram='interface/basic';
     const retainedMesh=new THREE.Mesh(retainedGeometry,retainedMaterial);
-    const retainedProgram=plainProgram(g.rust,retainedMaterial,'position:0');
+    const retainedProgram=ownedScreenProgram(g.rust,retainedMaterial,'position:0');
     const retainedId=g.rust.geometry(retainedGeometry,{id:retainedProgram.id,attributes:[['position',0]]});
     const bytes=a=>new Uint8Array(a.buffer,a.byteOffset,a.byteLength);
     g.rust.rust.geometry_buffer_sub_data(retainedId,0,0,bytes(Float32Array.of(-.7,1,0,.5,1,0)));
@@ -621,7 +629,14 @@ export async function checkRenderer(backend, manifests) {
     // invalidates the old GL objects; only a reconstruction can reproduce this frame.
     // Comparing after several warm draws also lets invalidated histories settle.
     const ui = interfaceFixture(g, assert);
-    const beforeLoss = capture();
+    // Both native producers share the basic catalog program. A warm frame
+    // must retain each material's colour after the other producer uses it.
+    const basicValues=new Set();
+    observeBasic=context=>{const program=context.getParameter(context.CURRENT_PROGRAM),color=context.getUniformLocation(program,'diffuse'),opacity=context.getUniformLocation(program,'opacity');if(!color||!opacity)return;
+      const rgb=context.getUniform(program,color),alpha=context.getUniform(program,opacity);basicValues.add(Array.from(rgb,x=>Math.round(x*255)).join(',')+':'+Math.round(alpha*100));};
+    const beforeLoss=capture(),beforeControl=capture();observeBasic=null;
+    assert('Shared basic programs retain both native material values',basicValues.has('34,119,170:50')&&basicValues.has('255,255,255:70'),Array.from(basicValues));
+    assert('Generated frame is stable before context loss',beforeLoss.every((v,i)=>v===beforeControl[i]));
     const loss = gl.getExtension('WEBGL_lose_context');
     if (!loss) throw new Error('Context-loss extension unavailable');
     const canvas = g.renderer.domElement;
@@ -671,7 +686,6 @@ export async function checkRenderer(backend, manifests) {
     }
     poison = makePoison();
     {const error=gl.getError();if(error)throw Error(`After poison: GL ${error}`);}
-    g.renderer.resetState();
     for (let i=0;i<4;i++) capture();
     {
       const sample=g.renderer.resources.gpu.texture(lossSample),fb=gl.createFramebuffer(),rgba=new Uint8Array(4);
@@ -683,7 +697,9 @@ export async function checkRenderer(backend, manifests) {
     // A successful context event alone does not prove programs, VAOs, indices,
     // textures, target handles and shared CPU inputs were all reconstructed.
     const afterLoss = capture();
-    assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
+    assert('Restored Rust frame matches its generated fixture',beforeLoss.every((v,i)=>v===afterLoss[i]),{
+      different:beforeLoss.reduce((n,v,i)=>n+(v!==afterLoss[i]),0),first:beforeLoss.findIndex((v,i)=>v!==afterLoss[i])});
+    assert('Versioned particle prefixes survive restoration',squareStreams);
     const retainedAfter=retainedPixels();
     assert('Overlapping vertex and index updates survive restoration',retainedBefore.every((v,i)=>v===retainedAfter[i]));
     g.renderer.setRenderTarget(duringLoss);gl.clearColor(1,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);

@@ -3,6 +3,7 @@ import {sceneNodes} from "../rust-render/scene-changes.js";
 // Unit poses and first-person attachments are two record batches, split by
 // the current JS camera phase. Each changed row is published once.
 // Event hooks queue commands; none calls WebAssembly for an individual actor.
+import {bindPoseReadback,bindSkinReadback} from "./pose-readback.js";
 import {UnitCollision} from "./unit-collision.js";
 import { lighting } from "../materials.js";
 import { presentationProfile } from "../presentation-profile.js";
@@ -18,6 +19,7 @@ import {
   UnitHeader as H,
   UnitWeapon as W,
   VehicleHeader as VEHICLE_HEADER,
+  UnitLimits,
 } from "./layout.js";
 // The node record's generated offsets as plain constants: the per-node
 // copies below read them for every placed bone.
@@ -25,12 +27,9 @@ const NODE = N.STRIDE,
   NODE_POSITION = N.POSITION,
   NODE_QUATERNION = N.QUATERNION,
   NODE_SCALE = N.SCALE,
-  NODE_MATRIX = N.MATRIX,
-  NODE_WORLD = N.WORLD,
   NODE_EULER = N.EULER,
   NODE_EULER_SYNC = N.EULER_SYNC,
-  NODE_VERSION = N.LOCAL_VERSION,
-  NODE_WORLD_VERSION = N.WORLD_VERSION;
+  NODE_VERSION = N.LOCAL_VERSION;
 const POSTURES = ["stand", "crouch", "prone"],
   AIR = [null, "jump", "fall", "thrown", "jet"];
 const GAITS = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
@@ -93,7 +92,7 @@ function ownTree(objects, row) {
     // keep their class's shape for the renderer's walks.
     sceneProperty(object,"matrixAutoUpdate",false);
     sceneProperty(object,"matrixWorldAutoUpdate",false);
-    if (object === objects[0] || object.isSkinnedMesh) {
+    {
       object.updateMatrixWorld = nativeUpdate;
       object.updateWorldMatrix = nativeUpdate;
     }
@@ -225,13 +224,6 @@ export class PageUnits {
     this.rotations = new Array(nodes).fill(null);
     // The local version each node's Three fields were last written from.
     this.versions = new Float64Array(nodes);
-    this.worldVersions = new Float64Array(nodes);
-    // Each node's Three matrices stay ordinary arrays, written from the
-    // native records when it is placed. Typed views in Matrix4.elements
-    // would make every Three matrix reader polymorphic.
-    this.locals = new Array(nodes).fill(null);
-    this.worlds = new Array(nodes).fill(null);
-    this.worldNodes=new Array(nodes).fill(null);
     this.commandCount = 0;
     this.sequence = 0;
     this.aimSequence=0;this.aimComplete=-1;this.aimQueue=[];
@@ -279,19 +271,21 @@ export class PageUnits {
       const object = row.objects[i],
         id = row.start + i;
       if (object) {
-        object.userData.presentationNode=id;this.worldNodes[id]=sceneNodes.get(object)||null;
-        this.worldVersions[id]=-1;
+        object.userData.presentationNode=id;
         this.positions[id] = object.position;
         this.quaternions[id] = object.quaternion;
         this.scales[id] = object.scale;
         this.rotations[id] = object.rotation;
-        this.locals[id] = object.matrix.elements;
-        this.worlds[id] = object.matrixWorld.elements;
+        bindPoseReadback(this,row,object,id,i);
         // Retained draw worlds have no bone consumer. Resolve transport
         // targets cold so pose publication never probes the registry per bone.
         object.matrixWorldNeedsUpdate = false;
       }
     }
+  }
+  bindScenePose(row){
+    const node=sceneNodes.get(row.objects[0]);if(!node||row.scenePoseOwner)return;
+    node.owner.poseOwner(this).model(row,row.objects,row.start,row.actor?row.id:UnitLimits.ACTORS+row.id,row.skinStart||0,row.actor?.bones.length||0);
   }
   publishNodes() {
     // Every presented actor on the field has a current root place after a
@@ -306,38 +300,9 @@ export class PageUnits {
     }
     this.publishChanged();
   }
-  publishChanged() {
-    // The phase lists every node whose local or world record moved. Plain
-    // Three fields keep each vector in V8's fast mode; accessor properties
-    // would turn every bound vector into a slow dictionary object.
-    const changed = this.changed,
-      count = this.header[H.CHANGED],
-      data = this.nodes,
-      positions = this.positions,
-      worlds = this.worlds;
-    for (let i = 0; i < count; i++) {
-      const id = changed[i];
-      if (positions[id] === null) continue;
-      // refreshRow can append to a phase's changed prefix and publish it again.
-      // Local and world receipts independently suppress rows already imported.
-      if (data[id * NODE + NODE_VERSION] !== this.versions[id]) this.publishLocal(data, id, false);
-      const version=data[id * NODE + NODE_WORLD_VERSION];
-      if(version===this.worldVersions[id])continue;
-      this.worldVersions[id]=version;
-      const world = worlds[id],
-        at = id * NODE + NODE_WORLD;
-      const worldNode=this.worldNodes[id];
-      if(worldNode)worldNode.worldVersion++;
-      // Rust's world receipt already proved these values changed. Publish the
-      // retained draw row and readback in one copy, without another identity
-      // lookup or sixteen scalar comparisons against the previous native pose.
-      if(worldNode && (worldNode.families || worldNode.object.isLOD)){
-        const retained=worldNode.world;
-        for(let k=0;k<16;k++){const value=data[at+k];retained[k]=value;world[k]=value;}
-        worldNode.nativeWorld=true;worldNode.owner.touch(worldNode,false);
-      }else for (let k = 0; k < 16; k++) world[k] = data[at + k];
-    }
-  }
+  // Native publication resolves draw worlds and skin bytes without a
+  // per-bone JS loop. Named readbacks borrow the existing owner arrays.
+  publishChanged(){this.scenePoseOwner?.publish();}
   publishLocal(data, id, force) {
     // Resource bind values stand until the node's first native pose. A
     // world-only change (a parent moved) leaves the local fields as they are.
@@ -360,12 +325,6 @@ export class PageUnits {
     s.x = data[at + NODE_SCALE];
     s.y = data[at + NODE_SCALE + 1];
     s.z = data[at + NODE_SCALE + 2];
-    // A foreign root write leaves Three's local matrix alone.
-    if (fresh) {
-      const local = this.locals[id],
-        from = at + NODE_MATRIX;
-      for (let k = 0; k < 16; k++) local[k] = data[from + k];
-    }
     // Bones with Euler sync switched off keep the rotation they last held.
     if (data[at + NODE_EULER_SYNC] !== 0) {
       const e = this.rotations[id];
@@ -425,7 +384,7 @@ export class PageUnits {
     this.rows.push(row);this.aimQueue.push(null);
     this.bindSkin(row);
     this.byActor.set(actor, row);
-    this.attachNodes(row);
+    this.attachNodes(row);bindSkinReadback(this,row);this.bindScenePose(row);
     const reset = presentation.reset.bind(presentation);
     presentation.reset = () => {
       reset();
@@ -489,7 +448,7 @@ export class PageUnits {
     };
     this.views.push(row);
     view.presentationRow = row;
-    this.attachNodes(row);
+    this.attachNodes(row);this.bindScenePose(row);
     view.play = (event, weapon) => {
       const kind = event === "shoot" ? 0 : event === "throw" ? 1 : event === "prepareThrow" ? 2 : -1;
       if (kind < 0) return;
@@ -624,12 +583,7 @@ export class PageUnits {
     input[F.HAS_VIEW] = view ? 1 : 0;
     if (view) {
       vector(input, F.CAMERA_POSITION, view.position);
-      for (let i = 0; i < 6; i++) {
-        const plane = view.frustum.planes[i],
-          at = F.FRUSTUM + i * 4;
-        vector(input, at, plane.normal);
-        input[at + 3] = plane.constant;
-      }
+      input.set(view.planes,F.FRUSTUM);
     }
     this.count = 0;
     this.aimSequence++;
@@ -862,16 +816,7 @@ export class PageUnits {
   publishSkin(row) {
     // Only a placed row: attached skin bindings are native output too, and
     // the authored binding stands until the actor's first placement.
-    const inverse = row.bindInverse,
-      body = row.actor.body.bindMatrixInverse.elements,
-      shadow = row.actor.shadow;
-    for (let k = 0; k < 16; k++) body[k] = inverse[k];
-    if (shadow) {
-      const elements = shadow.bindMatrixInverse.elements;
-      for (let k = 0; k < 16; k++) elements[k] = inverse[k];
-    }
     if (this.output[row.id * O.STRIDE + O.SKIN_CHANGED]) {
-      row.actor.skeleton.boneMatrices.set(row.skin);
       row.actor.skeleton.presentationSkinDirty = true;
       row.actor.skeleton.update();
     }
@@ -880,15 +825,7 @@ export class PageUnits {
     // Graphics.updateVisible reaches a root only through visible ancestors
     // up to the scene. Soldiers it will draw are placed together; hidden or
     // off-view ones keep their last placement, as three's matrices did.
-    const places = this.places;
-    let count = 0;
-    for (let r = 0; r < this.rows.length; r++) {
-      const row = this.rows[r];
-      if (!row.stale) continue;
-      let object = row.actor.root;
-      while (object !== null && object !== scene && object.visible) object = object.parent;
-      if (object === scene) places[count++] = row.id;
-    }
+    const places=this.places,count=this.scenePoseOwner.visible(scene,places,this.rows);
     if (!count) return;
     this.kernel.place_actors(count);
     this.publishPlaced(count);

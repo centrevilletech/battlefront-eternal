@@ -1,3 +1,4 @@
+import { contextLimits } from "./rust-render/browser.js";
 // Keep original art and glyph coverage. Generated lossless atlases share the
 // source UVs; missing upgrades simply retain the imported native bitmap.
 import { rendererFailure } from "./rust-render/failure.js";
@@ -24,9 +25,9 @@ export class RasterHudAssets {
       const width = entry.width * manifest.scale, height = entry.height * manifest.scale;
       // An oversized optional atlas keeps its already loaded native bitmap.
       // Check before decode so it cannot allocate unusable full-size pixels.
-      if (Math.max(width, height) > this.renderer.capabilities.maxTextureSize) return;
+      if (Math.max(width, height) > contextLimits(this.renderer).maxTextureSize) return;
       const atlasUrl = `/common/raster-hud/${entry.file}`;
-      const image = await pngImage(atlasUrl, this.renderer.capabilities.maxTextureSize);
+      const image = await pngImage(atlasUrl, contextLimits(this.renderer).maxTextureSize);
       try {
       if (image.width !== width || image.height !== height) throw Error(`HUD atlas dimensions: ${atlasUrl}`);
       await new Promise((resolve) => requestAnimationFrame(resolve));

@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { programLayouts } from '../src/render-programs.js';
 import { effectProgramKeys } from '../src/rust-render/effect-material.js';
+import {initSync,program_warmup_keys} from '../src/rust-pkg/bfe_render.js';
+initSync({module:fs.readFileSync(new URL('../src/rust-pkg/bfe_render_bg.wasm',import.meta.url))});
 
 const effects = Object.entries(programLayouts).filter(([key]) => key.startsWith('effects/'));
 
@@ -57,7 +59,7 @@ test('every effects key written in the source resolves to the catalog', () => {
 
 test('the settings link one of each pair and every program that has no twin', () => {
   for (const shadows of [true, false]) for (const csm of [true, false]) {
-    const keys = new Set(effectProgramKeys({ shadowsOn: () => shadows, graphics: { csm: csm ? {} : null } }));
+    const keys = new Set(effectProgramKeys({ rust:{prepare_keys_frame:program_warmup_keys},shadowsOn: () => shadows, graphics: {settings:{get:()=>false}, csm: csm ? {lights:[{}]} : null } }));
     for (const [key, layout] of effects) {
       const select = layout.selector;
       if (select?.csmChunks !== undefined && select.csmChunks !== csm) { assert.ok(!keys.has(key), `${key} belongs to the other cascade setting`); continue; }

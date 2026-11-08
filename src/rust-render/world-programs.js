@@ -31,7 +31,7 @@ export function ownedWorldProgram(core, material, scene = core.graphics.scene, c
   scene.traverseVisible(o => {
     if (!o.layers.test(camera.layers)) return;
     if (o.isPointLight) points++;
-    if (o.isDirectionalLight && o.castShadow && core.renderer.shadowMap.enabled) shadows++;
+    if (o.isDirectionalLight && o.castShadow && core.graphics.shadowsEnabled) shadows++;
   });
   const csm = Boolean(shadowState);
   const lamps = lampLighting && material.defines.DYNAMIC !== undefined && material.defines.NO_POINT === undefined && material.defines.FAR === undefined;
@@ -46,22 +46,4 @@ export function ownedWorldProgram(core, material, scene = core.graphics.scene, c
   program.aliased = Boolean(material.userData.bfeFabric);
   entries.set(material, { shadowState, lampLighting, version: material.version, scene, side, program });
   return program;
-}
-
-// Load all map variants before the preparation draws. Visibility may expose a
-// bucket later, but it must not trigger shader compilation during play.
-export function prewarmWorldPrograms(core) {
-  const g = core.graphics;
-  for (const [scene, camera] of [[g.scene,g.camera],[g.farScene,g.farCamera]]) scene.traverse(object => {
-    const material = object.material;
-    if (material?.userData?.bfeFamily !== 'world') return;
-    if (material.transparent && material.side === 2 && !material.forceSinglePass) {
-      ownedWorldProgram(core,material,scene,camera,0);
-      ownedWorldProgram(core,material,scene,camera,1);
-    } else ownedWorldProgram(core,material,scene,camera);
-  });
-  for (const kind of g.scene.userData.foliage?.kinds.values() || []) {
-    ownedGeometryProgram(core,'world/foliage-'+(kind.grass?'grass':'leaves')+(g.csm?'-shadows':''));
-  }
-  if (g.treeCanopies) ownedGeometryProgram(core,g.csm?'world/canopies':'world/canopies-no-shadows');
 }

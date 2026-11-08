@@ -1,4 +1,6 @@
-import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
+import {skinOwners} from "./rust-render/skin-joins.js";
+import {admitSkeleton} from "./rust-render/scene-skeletons.js";
+import {sceneNodes,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 // Authored model bytes are also read by muzzle, debris and collision queries.
 // Rendering sees only a native source identity; no BufferGeometry/Attribute or
 // material descriptor is retained in this cold asset I/O and pose-node boundary.
@@ -55,9 +57,14 @@ export function actorGeometry(core,asset,key,whole=false){return core.rust.actor
 // Float32 array is pose transport shared with the existing publication owner.
 export function actorSkin(core,skeleton){
  const cache=core.actorSkins??=new WeakMap();let entry=cache.get(skeleton);if(cache.has(skeleton))return entry;
- const count=skeleton.bones.length,words=core.rust.actor_skin_words(count),data=new Float32Array(words);for(let i=0;i<Math.min(words,skeleton.boneMatrices.length);i++)data[i]=skeleton.boneMatrices[i];skeleton.boneMatrices=data;skeleton.actorPoseSkin=data.subarray(0,count*16);
+ let object=skinOwners.get(skeleton);if(!object&&core.graphics?.crowdShadows?.skeleton===skeleton)object=core.graphics.crowdShadows.mesh;
+ if(!object)for(const node of core.registry.nodes)if(node.object.skeleton===skeleton){object=node.object;break;}
+ if(!object)return null;skinOwners.set(skeleton,object);const source=core.registry.admitIfNew(object);if(!source){cache.set(skeleton,null);return null;}admitSkeleton(core.registry,source);core.registry.worlds.update?core.registry.worlds.update(source,true,true):core.registry.worlds.flush();
+ const count=skeleton.bones.length,words=core.rust.actor_skin_words(count),data=new Float32Array(words);
+ if(!core.skinAdmitView){core.addView('sceneSkinAdmit',Uint32Array,()=>core.rust.scene_skin_admit_ptr(),()=>core.rust.scene_skin_admit_len());core.skinAdmitView=true;}
+ core.rust.scene_skin_admit_frame(source.slot,source.generation,count,words);core.buffer=null;core.views();const bits=new Uint32Array(data.buffer);for(let i=0;i<words;i++)bits[i]=core.sceneSkinAdmit[i];
  const sample=core.resources.gpu.skin_image(count,data),texture=core.texture(sample),id=core.rust.actor_skin(texture,count);
- if(id===undefined){core.resources.gpu.release_skin_image(sample);cache.set(skeleton,null);return null;}skeleton.actorGpuOwner=core;entry={id,slot:core.rust.actor_skin_slot(id),sample,texture,data,words,offset:core.rust.actor_skin_offset(id),serial:NaN};cache.set(skeleton,entry);return entry;
+ if(id===undefined){core.resources.gpu.release_skin_image(sample);cache.set(skeleton,null);return null;}skeleton.actorGpuOwner=core;entry={source,id,slot:core.rust.actor_skin_slot(id),sample,texture,data,words,offset:core.rust.actor_skin_offset(id),serial:NaN};cache.set(skeleton,entry);return entry;
 }
 // Glow colour/opacity are live appearance facts used by combat and the native
 // effect-model publisher. Their geometry, program and raster policy are Rust's.
@@ -77,8 +84,8 @@ function skinnedActorPoint(index,out){const asset=this.userData.actorAsset;actor
  for(let i=0;i<4;i++){const weight=r.kind==='rig'?r.weights[index*4+i]:i===0?1:0;if(weight===0)continue;const joint=r.kind==='rig'?r.joints[index*4+i]:actorJoint(asset,index);skinMatrix.multiplyMatrices(this.skeleton.bones[joint].matrixWorld,this.skeleton.boneInverses[joint]);sceneTransform(skinPoint.copy(skinVertex).applyMatrix4(skinMatrix));out.addScaledVector(skinPoint,weight);}return sceneTransform(out.applyMatrix4(this.bindMatrixInverse));
 }
 
-export function publishActorSkin(core,skeleton,serial){const skin=actorSkin(core,skeleton);if(!skin)return null;if(!core.actorSkinViews){core.addView('actorBones',Float32Array,()=>core.rust.actor_bones_ptr(),()=>core.rust.actor_bones_len());core.addView('actorSkinInput',Float64Array,()=>core.rust.actor_skin_input_ptr(),()=>core.rust.actor_skin_input_len());core.actorSkinViews=true;}core.views();if(skin.serial!==serial){core.actorBones.set(skeleton.boneMatrices,skin.offset);core.actorSkinInput[skin.slot]=serial;skin.serial=serial;}return skin;}
+export function publishActorSkin(core,skeleton,serial){const skin=actorSkin(core,skeleton);if(!skin)return null;core.rust.scene_actor_skin_frame(skin.id,skin.source.slot,skin.source.generation,serial);return skin;}
 
-function bindActor(skeleton,matrix){THREE.SkinnedMesh.prototype.bind.call(this,skeleton,matrix);skeleton.actorPoseSkin??=skeleton.boneMatrices;}
+function bindActor(skeleton,matrix){skinOwners.set(skeleton,this);THREE.SkinnedMesh.prototype.bind.call(this,skeleton,matrix);skeleton.actorPoseSkin??=skeleton.boneMatrices;const node=sceneNodes.get(this);if(node){node.owner.worlds.changed(node,false,true);admitSkeleton(node.owner,node);}}
 
 export function releaseActorSkin(core,skeleton){const skin=core.actorSkins?.get(skeleton);if(!skin)return;core.rust.actor_skin_release(skin.id);core.resources.gpu.release_skin_image(skin.sample);core.actorSkins.delete(skeleton);if(skeleton.actorGpuOwner===core)skeleton.actorGpuOwner=null;}

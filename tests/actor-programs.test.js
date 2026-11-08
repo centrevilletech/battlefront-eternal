@@ -4,16 +4,19 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {actorMaterial} from '../src/materials.js';
 import {warmActorPrograms} from '../src/rust-render/actors.js';
+import {RustRender} from '../src/rust-render/index.js';
+globalThis.location ??= {search:''};
+import {standinModule,standinThree} from './support/rust-standin.mjs';
 import {programLayouts} from '../src/render-programs.js';
 
-test('actor warmup settles each new program and reuses the cache',async()=>{
- const calls=[],settled=[],target={},core={graphics:{settings:{get:()=>false},csm:null},renderer:{getRenderTarget:()=>target,resetState(){},setRenderTarget(t){assert.equal(t,target);}},rust:{add_owned_program(key){calls.push(key);return calls.length;}}};
- await warmActorPrograms(core,async()=>{settled.push(calls.length);});
- assert.ok(calls.length>0);
- assert.deepEqual(settled,calls.map((_,i)=>i+1));
- const first=calls.length;
- await warmActorPrograms(core,async()=>assert.fail('Cached warmup must not settle'));
- assert.equal(calls.length,first);
+test('actor warmup settles each native catalog receipt and reuses it',async()=>{
+ const {BfeRenderer,memory,calls}=standinModule(),{graphics}=standinThree(calls);
+ const core=new RustRender(graphics,{memory},BfeRenderer),settled=[];
+ const count=()=>calls.filter(row=>row[0]==='add_owned_program').length;
+ await warmActorPrograms(core,async()=>settled.push(count()));
+ assert.ok(settled.length>0);assert.deepEqual(settled,settled.map((_,i)=>i+1));
+ const first=count();await warmActorPrograms(core,async()=>assert.fail('Cached preload must not settle'));
+ assert.equal(count(),first);
 });
 
 
@@ -24,7 +27,7 @@ test('fabric depth shells retain built-in texture transform values',async()=>{
  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({map}));addFabricWind(mesh);
  const depth=mesh.customDepthMaterial,out=new Float64Array(20);
  assert.equal(depth.vertexShader,undefined);assert.equal(depth.uniforms,undefined);
- const pass=shadowPass({addView(){}});
+ const pass=shadowPass({addView(){},cameras:{uv(map,out,offset){out.set(map.matrix.elements,offset);}}});
  assert.equal(pass.uniform(out,0,0,{name:'mapTransform',type:9},{object:mesh,depth},new THREE.PerspectiveCamera()),true);
  assert.deepEqual(Array.from(out.subarray(2,11)),Array.from(map.matrix.elements));
 });

@@ -243,7 +243,7 @@ test('native cube parent readback publishes pose without camera-only fields',()=
  const owner={core:{views(){},cameraOutput:output},roles:new WeakMap(),bindings:new WeakMap(),shells:[]};
  CameraOwner.prototype.bind.call(owner,cube,CR.PROBE_PARENT0);
  assert.doesNotThrow(()=>CameraOwner.prototype.read.call(owner,cube,CR.PROBE_PARENT0));
- assert.deepEqual(cube.position.toArray(),[3,5,7]);assert.deepEqual(cube.matrixWorld.elements,new THREE.Matrix4().makeTranslation(3,5,7).elements);
+ assert.deepEqual(cube.position.toArray(),[3,5,7]);assert.deepEqual([...cube.matrixWorld.elements],new THREE.Matrix4().makeTranslation(3,5,7).elements);assert.equal(cube.matrixWorld.elements.buffer,output.buffer);
  assert.equal(cube.projectionMatrix,undefined);cube.updateMatrixWorld();assert.equal(cube.matrixWorld.elements[13],5);
  cube.renderTarget.dispose();
 });

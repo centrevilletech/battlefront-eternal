@@ -34,9 +34,29 @@ impl BfeRenderer {
     }
     #[allow(clippy::too_many_arguments)]
     pub fn static_world(&mut self, source:u32, far_view:bool, low_res_scale:f64, samplers:&[i32], features:&[u32], order:u32, slot:u32, object:u32)->Result<u32,JsValue> {
+        // A failed cold call was already replayed during restoration. Return
+        // that qualified id without extending the journal or duplicating a draw.
+        if !self.rebuilding {
+            if let Some(pending)=&self.static_retry {
+                if pending.matches(source,far_view,low_res_scale,samplers,features,order,slot,object) {
+                    if let Some(item)=pending.item {self.static_retry=None;return Ok(item);}
+                }
+            }
+        }
         self.remember_static_world(source, far_view, low_res_scale, samplers, features, order, slot, object); // recovery
- let resource=self.compile_static_world(source,far_view,low_res_scale,samplers,features,order,slot,object,None)?;
+        let resource=match self.compile_static_world(source,far_view,low_res_scale,samplers,features,order,slot,object,None) {
+            Ok(resource)=>resource,
+            Err(error)=>{
+                if !self.rebuilding {self.static_retry=Some(crate::prepare::PendingWorld::new(source,far_view,low_res_scale,samplers,features,order,slot,object));}
+                return Err(error);
+            }
+        };
         self.static_worlds.push(resource);
+        if self.rebuilding {
+            if let Some(pending)=&mut self.static_retry {
+                if pending.matches(source,far_view,low_res_scale,samplers,features,order,slot,object){pending.item=Some(resource.item);}
+            }
+        }
         Ok(resource.item)
     }
     // One typed settings command replaces every material version scan. Its

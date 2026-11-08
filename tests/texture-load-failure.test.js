@@ -19,7 +19,7 @@ class DecoderPort{
 function fixture(){
  let finish;const done=new Promise(resolve=>{finish=resolve;});
  const manager={resolveURL:url=>url,itemStart(){},itemError(){},itemEnd(){finish();}};
- const gl={RENDERER:7937,getExtension:()=>null,getParameter:()=> 'Fixture GPU'};
+ const gl={RENDERER:7937,isContextLost:()=>false,getInternalformatParameter:()=>[4],getExtension:()=>null,getParameter:()=> 'Fixture GPU'};
  const renderer={getContext:()=>gl,capabilities:{maxTextureSize:2048},resources:{enqueue:async()=>{throw Error('upload failed');}}};
  const library=new TextureLibrary({manager,renderer,compressed:false});library.twins.set('/asset.png','/asset.ktx2');
  return {library,renderer,done};

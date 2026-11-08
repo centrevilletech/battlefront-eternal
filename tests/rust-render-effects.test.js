@@ -249,7 +249,7 @@ test("an analytic batch: its owner's emitters, and its instances from the first 
 test('native glow models share source handles and publish current values and matrices',()=>{
  const {core,calls,scene,frame,entry}=bridge(),asset=actorAsset({kind:'plane',width:1,height:1}),look=glowLook(null,0xffffff,.75);look.color.setRGB(1,.5,.25);
  const group=new THREE.Group(),part=glowNode(asset,look),other=glowNode(asset,look);sceneTransform(group.position.set(1,2,-6));group.add(part,other);scene.add(group);scene.updateMatrixWorld(true);frame();
- assert.equal(core.fxInput[0],2);assert.equal(entry(0)[1],entry(1)[1]);assert.deepEqual(Array.from(core.fxMatrices.slice(0,16)),part.matrixWorld.elements);assert.equal(calls.filter(c=>c[0]==='actor_source').length,1);assert.equal(part.geometry,undefined);assert.equal(look.isMaterial,undefined);
+ assert.equal(core.fxInput[0],2);assert.equal(entry(0)[1],entry(1)[1]);assert.deepEqual(Array.from(core.fxMatrices.slice(0,16)),Array.from(part.matrixWorld.elements));assert.equal(calls.filter(c=>c[0]==='actor_source').length,1);assert.equal(part.geometry,undefined);assert.equal(look.isMaterial,undefined);
  const row=EFFECT.ACTOR_GLOW;assert.deepEqual(Array.from(core.fxData.slice(row.DIFFUSE,row.DIFFUSE+3)),[1,.5,.25]);assert.equal(core.fxData[row.OPACITY],.75);sceneProperty(other,"visible",false);frame();assert.equal(core.fxInput[0],1);sceneProperty(group,"visible",false);frame();assert.equal(core.fxInput[0],0);
 });
 

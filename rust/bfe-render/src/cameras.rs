@@ -1,9 +1,11 @@
 //! Graphics' derived cameras and light inputs, preserving Three's f64 order.
 //! Scene discovery and object visibility remain borrowed facts. No camera
 //! operation walks a registry, changes an actor pose or calls a browser hook.
+pub mod depth_marker;
 #[path="camera_layout.rs"]
 pub mod layout;
-use layout::{input as I,camera as C,lens as N,source as U,role as R,limit as L,mirror as H,light as P,pack as K,sky as Y};
+mod scene_sky;
+use layout::{input as I,camera as C,lens as N,source as U,role as R,limit as L,mirror as H,light as P,pack as K,sky as Y,placement as A};
 use three::{Matrix4,Quaternion,Vector3 as V,Vector4,Plane};
 use three::matrix::CoordinateSystem::WebGL;
 use jsrt::{v8math as m,conv::{js_min,js_max,to_uint32}};
@@ -37,6 +39,15 @@ impl Camera {
     fn look(&mut self,at:V) {let mut rotation=Matrix4::default();rotation.look_at(&self.p,&at,&self.up);self.q.set_from_rotation_matrix(&rotation);self.compose(V::new(1.,1.,1.));}
 }
 pub struct Cameras {
+    pub unit_view:[f64;layout::unit_view::LEN],
+    pub depth:depth_marker::DepthMarker,
+    pub projection_view:[f64;16],
+    sky_nodes:Vec<[u32;2]>,sky_single:Option<[u32;2]>,sky_saved:Vec<[f64;3]>,
+    pub history:crate::pose_history::PoseHistory,
+    pub uniforms:crate::math::UniformTransforms,
+    pub placement:Vec<f64>,
+    mirror_bounds:Vec<[f64;6]>,
+    view_lights:Vec<[f64;2]>,view_light_count:usize,
     pub extra_leases:crate::leases::Leases<{L::EXTRA_CAMERAS}>,
     pub pack_leases:crate::leases::Leases<{L::PACKS}>,pub rejected_packs:u32,
     pub settings:crate::camera_lights::LightSettings,
@@ -50,7 +61,7 @@ impl Default for Cameras {
         let mut input=vec![0.;I::LEN];input[I::SCALE..I::SCALE+3].fill(1.);input[I::UP+1]=1.;
         input[I::QUATERNION+3]=1.;input[I::LENS+N::FOV]=60.;input[I::LENS+N::ASPECT]=1.;
         input[I::LENS+N::NEAR]=0.5;input[I::LENS+N::FAR]=200.;input[I::LENS+N::ZOOM]=1.;input[I::LENS+N::FILM_GAUGE]=35.;
-        Self{extra_leases:crate::leases::Leases::default(),pack_leases:crate::leases::Leases::default(),rejected_packs:0,settings:crate::camera_lights::LightSettings::default(),input,output:vec![0.;R::COUNT*C::LEN],cascades:super::cascades::Cascades::default(),sky:vec![0.;L::SKY*3],
+        Self{unit_view:[0.;layout::unit_view::LEN],depth:Default::default(),projection_view:[0.;16],sky_nodes:Vec::new(),sky_single:None,sky_saved:vec![[0.;3];L::SKY+1],uniforms:Default::default(),history:Default::default(),mirror_bounds:Vec::new(),placement:vec![0.;L::PLACEMENT_ROOTS*A::LEN],view_lights:vec![[0.;2];L::RAW_LIGHTS],view_light_count:0,extra_leases:crate::leases::Leases::default(),pack_leases:crate::leases::Leases::default(),rejected_packs:0,settings:crate::camera_lights::LightSettings::default(),input,output:vec![0.;R::COUNT*C::LEN],cascades:super::cascades::Cascades::default(),sky:vec![0.;L::SKY*3],
             light_input:vec![0.;L::RAW_LIGHTS*P::LEN],packs:vec![0.;L::PACKS*K::LEN],mirror:[0.;H::LEN],cameras:[Camera::default();R::COUNT],saved:[Matrix4::default();R::COUNT],shifted:[false;R::COUNT],clipped:false,last_main:[0.;I::FAR_RANGE],main_valid:false}
     }
 }
@@ -190,6 +201,69 @@ impl Cameras {
     }
     // packPointLights's arithmetic and view-light proxies. Discovery, layers
     // and parent visibility arrive as graph facts, preserving source order.
+    // Water cells are immutable content, admitted once before any view asks
+    // for visibility. A malformed tail cannot become a partial bounds record.
+    pub fn mirror_bounds(&mut self,bounds:&[f64]){
+        let count=(bounds.len()/6).min(65537);
+        if bounds.len()%6!=0||bounds.len()/6>count{self.clipped=true;}
+        self.mirror_bounds.resize(count,[0.;6]);
+        for(i,row)in self.mirror_bounds.iter_mut().enumerate(){row.copy_from_slice(&bounds[i*6..i*6+6]);}
+    }
+    fn water_visible(&self,projection:&Matrix4,inverse:&Matrix4)->bool{
+        let screen=crate::math::mul(&projection.elements,&inverse.elements);
+        let frustum=crate::math::Frustum::from_matrix(&screen);
+        let test=|b:&[f64;6]|frustum.aabb(&[b[0],b[1],b[2]],&[b[3],b[4],b[5]]);
+        self.mirror_bounds.first().is_some_and(test)&&self.mirror_bounds.iter().skip(1).any(test)
+    }
+    // BattleFrame.mirror and Water.farInView used two separately constructed
+    // projections. Keep the far-span division/multiplication and lens order.
+    pub fn mirror_visibility(&mut self){
+        let main=self.cameras[R::MAIN];let a=&self.input;
+        self.mirror[H::VISIBLE]=self.water_visible(&main.projection,&main.inverse) as u8 as f64;
+        self.mirror[H::FAR_VISIBLE]=0.;
+        if main.p.y<a[I::WATER_LEVEL]{return;}
+        let far=a[I::FAR_RANGE+1];if !(far>a[I::WATER_FADE]){return;}
+        let scale=if a[I::FAR_REACH]>0.{far/a[I::FAR_REACH]}else{1.};
+        let end=if a[I::WATER_REACH]>0.{a[I::WATER_REACH]*scale}else{far};
+        if !(end>a[I::WATER_FADE+1]){return;}
+        let mut view=main;view.lens[N::NEAR]=js_max(main.lens[N::NEAR],0.1);view.lens[N::FAR]=end;
+        view.lens[N::ZOOM]=1.;view.lens[N::FILM_GAUGE]=35.;view.lens[N::FILM_OFFSET]=0.;view.lens[N::VIEW_ENABLED]=0.;view.project();
+        self.mirror[H::FAR_VISIBLE]=self.water_visible(&view.projection,&main.inverse) as u8 as f64;
+    }
+    // Graphics.cullOffView conservatively skipped a root's lazy placement
+    // with a five-metre sphere, centred one metre above its authored position.
+    pub fn placement(&mut self,count:usize){
+        let camera=self.cameras[R::MAIN];
+        let screen=crate::math::mul(&camera.projection.elements,&camera.inverse.elements);
+        let frustum=crate::math::Frustum::from_matrix(&screen);
+        if count>L::PLACEMENT_ROOTS{self.clipped=true;}
+        for row in self.placement.chunks_exact_mut(A::LEN).take(count.min(L::PLACEMENT_ROOTS)){
+            let center=[row[A::POSITION],row[A::POSITION+1]+1.,row[A::POSITION+2]];
+            row[A::HIDDEN]=(!frustum.sphere(&center,5.)) as u8 as f64;
+        }
+    }
+    // Graphics.syncViewLights snapshotted authored visibility/layers whenever
+    // the root source list changed. Retain that metadata without view proxies.
+    pub fn view_light_snapshot(&mut self,count:usize){
+        self.view_light_count=count.min(L::RAW_LIGHTS);
+        if count>self.view_light_count{self.clipped=true;}
+        for i in 0..self.view_light_count{
+            let row=&self.light_input[i*P::LEN..(i+1)*P::LEN];
+            self.view_lights[i]=[row[P::SHOWN],row[P::LAYERS]];
+        }
+    }
+    pub fn view_lights(&mut self,pack:usize,ordinary:usize){
+        let ordinary=ordinary.min(L::RAW_LIGHTS);
+        let count=(self.input[I::LIGHT_COUNT] as usize).min(L::RAW_LIGHTS);
+        for i in ordinary..count {
+            let source=i-ordinary;
+            let row=&mut self.light_input[i*P::LEN..(i+1)*P::LEN];row[P::PROXY]=1.;
+            if source<self.view_light_count {
+                row[P::INITIAL_SHOWN]=self.view_lights[source][0];row[P::INITIAL_LAYERS]=self.view_lights[source][1];
+            }else{row[P::INITIAL_SHOWN]=0.;row[P::INITIAL_LAYERS]=0.;}
+        }
+        self.lights(pack);
+    }
     pub fn lights(&mut self,pack:usize) {
         if pack>=L::PACKS{self.clipped=true;return;}let eye=vector(&self.input,I::LIGHT_EYE);let far=self.input[I::LIGHT_FAR];let layers=to_uint32(self.input[I::LIGHT_LAYERS]);
         let mut parent=Matrix4::default();parent.elements.copy_from_slice(&self.input[I::VIEW_WORLD..I::VIEW_WORLD+16]);

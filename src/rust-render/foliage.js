@@ -49,10 +49,7 @@ class FoliagePass {
     if (!this.input) { core.addView("foliageInput", Float64Array, () => core.rust.foliage_input_ptr(), () => core.rust.foliage_input_len()); this.input = true; }
     core.views();
     const input = core.foliageInput;
-    input.set(camera.projectionMatrix.elements, IN.PROJECTION);
-    input.set(camera.matrixWorldInverse.elements, IN.VIEW);
-    input.set(camera.matrixWorld.elements, IN.WORLD);
-    input[IN.EYE] = camera.position.x; input[IN.EYE + 1] = camera.position.y; input[IN.EYE + 2] = camera.position.z;
+    core.cameras.main(camera);core.rust.camera_foliage_view_frame(core.cameras.query(camera));
     input[IN.END] = foliage.nearEnd();
     input[IN.TIME] = foliage.time;
     this.selected = core.rust.foliage_frame();
@@ -88,9 +85,9 @@ class FoliagePass {
     // Texture transforms are a cold loader input, shared with the existing
     // source/sampler owner. No material version or UV scan runs in a frame.
     const map = kind.map;
-    if (map.matrixAutoUpdate) map.updateMatrix();
+    const uv=new Float64Array(9);core.cameras.uv(map,uv,0);
     const id = core.rust.foliage_class(texture, Boolean(kind.grass), Boolean(core.graphics.csm), JSON.stringify(kind.def), cards, rows, bounds,
-      Float32Array.from(map.matrix.elements));
+      Float32Array.from(uv));
 
     this.classes.set(kind, id);
   }

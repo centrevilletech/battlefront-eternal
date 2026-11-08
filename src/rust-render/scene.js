@@ -1,3 +1,6 @@
+import {PointInputs} from "./point-inputs.js";
+import {admitSkeleton} from "./scene-skeletons.js";
+import {UnitLimits} from "../presentation/layout.js";
 // Object3D shells publish only at mutation boundaries. The retained native
 // registry owns parent visibility, layer tests, culling and order keys.
 import { SceneNode as N, SceneWorldChange as W, SceneView as V, SceneSelection as S, SceneFlags as F,
@@ -5,6 +8,8 @@ import { SceneNode as N, SceneWorldChange as W, SceneView as V, SceneSelection a
   SceneGroup as G, SceneFact as Fact, SceneFactsHeader as Header, SceneFamily as Family, SceneMode as Mode, SceneCapacity as Capacity } from "./scene-layout.js";
 export { Family, Mode, S };
 import {sceneNodes,resourceNodes} from "./scene-changes.js";
+import {TreePoseOwner} from "./pose-streams.js";
+import {ScenePoseOwner} from "./scene-poses.js";
 import {SceneWorlds} from "./scene-worlds.js";
 
 // Presentation and rendering have distinct WASM memories. A native publisher
@@ -27,7 +32,7 @@ export function publishSceneWorld(object, data, at) {
   const node = observers.get(object);
   if (!node) return;
   node.worldVersion++;
-  if (!node.families && !object.isLOD) return;
+  if(!node.families&&!object.isLOD&&!node.transformStop)return;
   let changed = !node.nativeWorld;
   for (let k = 0; k < 16; k++) {
     const value = data[at + k];
@@ -51,7 +56,8 @@ export class RetainedScene {
   constructor(core) {
     this.core = core;
     this.nodes = [];
-    this.worlds=new SceneWorlds(this,publishSceneWorld);
+    this.worlds=new SceneWorlds(this,publishSceneWorld);this.transforms=this.worlds;this.points=new PointInputs(this);this.poseOwners=[];
+    core.addView("scenePoseWords",Uint32Array,()=>core.rust.scene_pose_ptr(),()=>core.rust.scene_pose_len()*2);
     this.nextSibling = 0;
     // A node occupies at most one pending row during a long load or pause.
     // The coalescing bitmap and queue have identical content-sized bounds.
@@ -92,6 +98,8 @@ export class RetainedScene {
     core.addView("sceneOrder", Float64Array, () => core.rust.scene_order_ptr(), () => core.rust.scene_order_len());
   }
 
+  treePoseOwner(source){if(source.treePoseOwner?.registry===this)return source.treePoseOwner;const owner=new TreePoseOwner(this,source);this.poseOwners.push(owner);source.treePoseOwner=owner;return owner;}
+  poseOwner(source){if(source.scenePoseOwner?.registry===this)return source.scenePoseOwner;const owner=new ScenePoseOwner(this,source);this.poseOwners.push(owner);source.scenePoseOwner=owner;return owner;}
   // Cold topology admission and child events replace RustRender.watchScene.
   // Moving a retained subtree updates just its parent and insertion identity.
   admit(object, parent = null, root = true, scope = 0) {
@@ -118,11 +126,12 @@ export class RetainedScene {
     // Capture shell identity once, before a pass can claim the drawable.
     // The retained item is also the generic near packet's permanent payload;
     // producing a view does not allocate another per-object item wrapper.
-    node.world = node.row.subarray(N.WORLD, N.WORLD + 16);
+    node.world = node.row.subarray(N.WORLD, N.WORLD + 16); node.world.set(object.matrixWorld.elements);
     observers.set(object, node); this.nodes.push(node);
-    this.worlds.admit(node);
+    this.worlds.admit(node);this.points.admit(node);
+    const packet=object.userData.poseStream;if(packet&&!packet.owner)this.treePoseOwner(packet.source||packet).model(packet);
     const presentation=object.userData.presentationRow;
-    if(presentation&&object.userData.presentationNode!==undefined)presentation.units.worldNodes[object.userData.presentationNode]=node;
+    if(presentation&&object.userData.presentationNode!==undefined){if(!presentation.scenePoseOwner)this.poseOwner(presentation.units).model(presentation,presentation.objects,presentation.start,presentation.actor?presentation.id:UnitLimits.ACTORS+presentation.id,presentation.skinStart||0,presentation.actor?.bones.length||0);}
     object.addEventListener("childadded", event => this.admit(event.child, node));
     // Removal only changes this node's root relationship. Its descendants
     // remain admitted for model pooling, and Rust suppresses the detached tree.
@@ -134,6 +143,7 @@ export class RetainedScene {
     this.resources(node);
     this.enqueue(node); this.touch(node);
     for (let i = 0; i < object.children.length; i++) this.admit(object.children[i], node, false);
+    admitSkeleton(this,node);
     return node;
   }
 
@@ -278,15 +288,6 @@ export class RetainedScene {
     const changes=core.sceneChanges,groups=core.sceneGroups;let groupAt=0,written=0;
     for (let i = 0; i < count; i++) {
       const node = this.nodes[this.dirty[i]], object = node.object, out = node.row, o = 0;
-      const world = node.nativeWorld ? null : object.matrixWorld.elements;
-      // Object3D.updateMatrix marks even stationary shells dirty. Compare the
-      // retained matrix before importing a row; the dirty flag alone is not a
-      // resource/property mutation and must not republish static descriptors.
-      if (!node.propertiesDirty && world) {
-        let changed = false;
-        for (let k = 0; k < 16; k++) if (!Object.is(world[k], node.world[k])) { changed = true; break; }
-        if (!changed) continue;
-      }
       if (node.propertiesDirty) {
         const materials = materialsOf(object);
         let material = materials, visible = !materials || materials.visible !== false;
@@ -348,7 +349,7 @@ export class RetainedScene {
       // RetainedScene.flush imports descriptor facts only after a property or
       // resource mutation. A pose updates sixteen values in the cached row;
       // typed-array copy transports it without inspecting the shell again.
-      if (world) out.set(world, N.WORLD);
+      if(node.pose)out.set(node.pose,N.POSE);
       changes.set(out, written++ * N.STRIDE);
     }
     for (let i = 0; i < count; i++) this.queued[this.dirty[i]] = 0;
@@ -363,27 +364,23 @@ export class RetainedScene {
     const sourceRoot=motionRoot?this.admitIfNew(motionRoot):null;
     const root = this.admitIfNew(scene, families), core = this.core;
     if (!root) return 0;
-    let changes=0;this.groupChanged=0;
-    if(this.changed)changes=this.flush();
+    if(scene.matrixWorldAutoUpdate)this.worlds.update(root,false,true);else this.worlds.flush();
     if(core.buffer!==core.wasm.memory.buffer)core.views();
     const view = core.sceneView;
     view[V.ROOT] = root.slot; view[V.GENERATION] = root.generation;
     view[V.MOTION_ROOT]=sourceRoot?.slot??-1;view[V.MOTION_ROOT+1]=sourceRoot?.generation??0;
     view[V.LAYERS] = layers; view[V.FAMILIES] = families; view[V.MODE] = mode;view[V.OUTPUT_LIMIT]=limit;
-    view.set(camera.projectionMatrix.elements, V.PROJECTION); view.set(camera.matrixWorldInverse.elements, V.VIEW);
-    const world = camera.matrixWorld.elements;
-    view[V.EYE] = world[12]; view[V.EYE + 1] = world[13]; view[V.EYE + 2] = world[14]; view[V.ZOOM] = camera.zoom ?? 1;
+    core.rust.camera_scene_view_frame(core.cameras.query(camera));
     // An identical consecutive query already owns the published output and
     // fact banks. Compare exact doubles; camera cells cannot approximate clips.
     // Motion queries advance lifecycle even when every input bit is unchanged.
-    let same=this.lastValid && !changes && !this.groupChanged && !this.worldChanged && mode!==Mode.MOTION_PREPARE && mode!==Mode.PROXY;
+    let same=this.lastValid && mode!==Mode.MOTION_PREPARE && mode!==Mode.PROXY;
     for(let i=0;same && i<V.STRIDE;i++)if(!Object.is(view[i],this.lastView[i]))same=false;
     if(same){this.querySkips++;return this.lastCount;}
     this.lastView.set(view);this.lastValid=true;this.queryCalls++;
-    const count = core.rust.scene_select(changes,this.groupChanged,this.worldChanged);
+    const count = core.rust.scene_select(0,0,0);
     // Only consumed identities are cleared. Later preparation mutations start
     // a new sparse prefix; unchanged family queries never call flush at all.
-    this.lastWorldChanged=this.worldChanged;
     for(let i=0;i<this.worldChanged;i++)this.poseQueued[this.poseDirty[i]]=0;
     this.worldChanged=0;
     if(core.buffer!==core.wasm.memory.buffer)core.views();
@@ -412,9 +409,7 @@ export class RetainedScene {
     view[CV.GENERATION] = canopies.nativeGeneration; view[CV.CAMERA] = camera.id;
     view[CV.ENABLED] = +(core.graphics.settings.get("treeDetail") !== "original");
     view[CV.LAYERS] = camera.layers.mask; view[CV.NODE_LAYERS] = canopies.node.layers.mask;
-    view.set(camera.projectionMatrix.elements, CV.PROJECTION);
-    view.set(camera.matrixWorldInverse.elements, CV.VIEW); view.set(camera.matrixWorld.elements, CV.WORLD);
-    view[CV.EYE] = camera.position.x; view[CV.EYE + 1] = camera.position.y; view[CV.EYE + 2] = camera.position.z;
+    core.rust.camera_canopy_view_frame(core.cameras.query(camera));
     core.rust.scene_canopy_select(); core.views();
     return core.sceneCanopyOutput[CH.COUNT];
   }

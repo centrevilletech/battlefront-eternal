@@ -12,7 +12,8 @@ export function generate(check = false) {
     result.LEN = at; return result;
   };
   const enumerate = rows => Object.fromEntries(rows.map((name, i) => [constant(name), i]));
-  const modules = Object.fromEntries(["input","camera","cascade","light","pack","mirror","lens","source","sky","lightInput","lightOutput","shaderFrame"].map(name=>[name,fields(schema[name])]));
+  const modules = Object.fromEntries(["input","camera","cascade","light","pack","mirror","lens","source","sky","lightInput","lightOutput","shaderFrame","historyPose","placement","uniformInput","uniformOutput","pointChange","depthKey","depthMarker","unitView"].map(name=>[name,fields(schema[name])]));
+  modules.history_receipt=Object.fromEntries(Object.entries(schema.historyReceipts).map(([k,v])=>[constant(k),v]));
   modules.light_command=enumerate(schema.lightCommands);
   modules.light_flag=Object.fromEntries(Object.entries(schema.lightFlags).map(([k,v])=>[constant(k),v]));
   modules.role={...enumerate(schema.roles),COUNT:schema.roles.length};

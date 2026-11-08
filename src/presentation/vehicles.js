@@ -1,5 +1,6 @@
+import {TreePublication} from "../rust-render/pose-streams.js";
+import {PoseTreeKind} from "../rust-render/pose-layout.js";
 import {sceneProperty,sceneTransform} from "../rust-render/scene-changes.js";
-import { publishSceneWorld } from "../rust-render/scene.js";
 // The page's hulls in one native phase (rust/bfe-presentation vehicles.rs),
 // which replaces Vehicle.present's pose (the root between ticks or at its
 // record's sample, poseCrew, the gear, seats, barrels, wheels and a dying
@@ -138,7 +139,7 @@ export class PageVehicles {
     const aimers = v.seats.flatMap((seat) => seat.weapons.flatMap((w) => w.aimers));
     const muzzles = v.seats.flatMap((seat) => seat.weapons.flatMap((w) => w.muzzles.filter((m) => m.barrel && m.rest)));
     for (const o of nodes) sceneProperty(o,"matrixAutoUpdate",sceneProperty(o,"matrixWorldAutoUpdate",false));
-    v.root.updateMatrixWorld = published;
+    for(const object of nodes)object.updateMatrixWorld=object.updateWorldMatrix=published;
     rig = { id, pairs, aimers, muzzles, nodes, skinned, seats: seats.length, wheels: descriptor.wheels.length,
       frames: [new THREE.Quaternion(), new THREE.Quaternion()], sides: [new Array(pairs).fill(0), new Array(pairs).fill(0)],
       slots: [0, 1].map((slot) => [this.kernel.slot_input(id, slot), this.kernel.slot_output(id, slot)]) };
@@ -146,6 +147,7 @@ export class PageVehicles {
     rig.inSeats = pairs * 3; rig.inKicks = rig.inSeats + rig.seats * S.STRIDE; rig.inWheels = rig.inKicks + muzzles.length;
     rig.outSides = O.STRIDE; rig.outAimers = O.STRIDE + pairs;
     rig.outNodes = rig.outAimers + aimers.length * AO.STRIDE; rig.outSkins = rig.outNodes + nodes.length * N.STRIDE;
+    rig.publication=new TreePublication(this,nodes,PoseTreeKind.VEHICLE);
     this.rigs.set(v.root, rig);
     v.nativeDisplay={owner:this,rig};
     return rig;
@@ -310,15 +312,7 @@ export class PageVehicles {
       sceneTransform(root.quaternion.set(out[o + O.QUATERNION], out[o + O.QUATERNION + 1], out[o + O.QUATERNION + 2], out[o + O.QUATERNION + 3]));
       (v.flightFrameQ ||= rig.frames[v.predictionSource ? 1 : 0]).set(out[o + O.FRAME], out[o + O.FRAME + 1], out[o + O.FRAME + 2], out[o + O.FRAME + 3]);
     }
-    for (let i = 0, b = o + rig.outNodes; i < rig.nodes.length; i++, b += N.STRIDE) {
-      publishSceneWorld(rig.nodes[i], out, b + N.WORLD);
-      const m = rig.nodes[i].matrix.elements, w = rig.nodes[i].matrixWorld.elements;
-      for (let j = 0; j < 16; j++) { m[j] = out[b + j]; w[j] = out[b + N.WORLD + j]; }
-    }
-    for (let i = 0, b = o + rig.outSkins; i < rig.skinned.length; i++, b += 16) {
-      const m = rig.skinned[i].bindMatrixInverse.elements;
-      for (let j = 0; j < 16; j++) m[j] = out[b + j];
-    }
+    rig.publication.publish(out,o+rig.outNodes);
     if (mode === M.DYING) return;
     v.age = out[o + O.AGE];
     v.visual.set(out[o + O.VISUAL], out[o + O.VISUAL + 1], out[o + O.VISUAL + 2]);

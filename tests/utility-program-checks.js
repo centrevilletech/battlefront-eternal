@@ -19,11 +19,11 @@ export async function checkOwnedUtilityDraws() {
   const results=[],fixtures=[];
   try {
     await g.rustReady;
-    const renderer=g.renderer,core=g.rust,pass=core.byName.lines,camera=g.camera;
+    const renderer=g.renderer,core=g.rust,camera=g.camera;
     // The global scene hook packs lights through an explicit native owner.
-    reference.nativeCameraOwner=core.cameras;
+    scene.onBeforeRender=()=>{};
     renderer.setSize(64,64);camera.aspect=1;camera.near=.1;camera.far=100;camera.position.set(0,0,0);camera.quaternion.identity();camera.updateProjectionMatrix();camera.updateMatrixWorld();
-    g.warmup();core.frame.reserve();pass.programs();const programs=core.shaderPrograms.length;
+    g.warmup();core.frame.reserve();await core.prewarm(3,async()=>{});const programs=core.shaderPrograms.length;
     // Different colours, depths and non-unit W exercise interpolation and the
     // model-view/projection order. Loops are indexed with a shortened draw range.
     // Rust's catalog descriptors supply keys and defines. The fixture derives
@@ -81,7 +81,7 @@ export async function checkOwnedUtilityDraws() {
     const lost=wait('webglcontextlost');loss.loseContext();await lost;await new Promise(resolve=>setTimeout(resolve,50));
     const restored=wait('webglcontextrestored');loss.restoreContext();await restored;
     for(const fixture of fixtures)compare(fixture,'restored');
-    results.push({stage:'ownership',ok:core.shaderPrograms.length===programs&&renderer.battleThreeCalls===0&&renderer.battleCompileCalls===0&&!core.errors.length,programs:core.shaderPrograms.length,errors:core.errors});
+    results.push({stage:'ownership',ok:core.shaderPrograms.length===programs&&renderer.battleThreeCalls===0&&renderer.battleCompileCalls===0&&renderer.battleStateCalls===0&&!core.errors.length,programs:core.shaderPrograms.length,errors:core.errors});
     return {ok:results.every(row=>row.ok),results};
   } finally {reference.dispose();referenceTarget.dispose();target.dispose();g.renderer.dispose();g.renderer.domElement.remove();}
 }

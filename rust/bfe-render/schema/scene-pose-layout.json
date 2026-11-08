@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "records": {
+    "PoseHeader": {
+      "owner": 1,
+      "generation": 1,
+      "sequence": 1,
+      "worlds": 1,
+      "skins": 1,
+      "binds": 1,
+      "words": 1,
+      "rejected": 1,
+      "clipped": 1
+    },
+    "InstanceRecord": {
+      "kind": 1,
+      "program": 1,
+      "geometry": 1,
+      "groups": 1,
+      "textures": 4,
+      "bones": 1,
+      "boneAt": 1,
+      "sphere": 4,
+      "box": 6,
+      "world": 16,
+      "bindInverse": 16,
+      "look": 4,
+      "flags": 1,
+      "sourceSlot": 1,
+      "sourceGeneration": 1,
+      "sourceFlags": 1,
+      "bind": 16,
+      "extra": 20,
+      "blend": 4
+    },
+    "PoseWorld": {
+      "index": 1,
+      "model": 1,
+      "generation": 1,
+      "world": 16
+    },
+    "PoseSkin": {
+      "index": 1,
+      "model": 1,
+      "generation": 1,
+      "bits": 8
+    },
+    "PoseBind": {
+      "model": 1,
+      "generation": 1,
+      "inverse": 16
+    },
+    "PoseTreeHeader": {
+      "owner": 1,
+      "generation": 1,
+      "model": 1,
+      "count": 1,
+      "kind": 1,
+      "words": 1
+    },
+    "PoseDepthSource": {
+      "world": 16,
+      "view": 16,
+      "projection": 16,
+      "bind": 16,
+      "inverse": 16,
+      "slot": 1,
+      "generation": 1,
+      "role": 1
+    }
+  },
+  "limits": {
+    "PoseLimits": {
+      "owners": 512,
+      "models": 8192,
+      "nodes": 65536,
+      "bones": 65536,
+      "copyWords": 4096,
+      "sourceNodes": 131072
+    },
+    "PoseInstanceFlags": {
+      "world": 1,
+      "skin": 2
+    },
+    "PoseTreeKind": {
+      "tree": 1,
+      "vehicle": 2
+    }
+  },
+  "imports": {
+    "PoseTreeNode": {
+      "file": "presentation-layout.json",
+      "record": "SceneNode"
+    },
+    "PoseVehicleNode": {
+      "file": "presentation-layout.json",
+      "record": "VehicleNode"
+    }
+  }
+}

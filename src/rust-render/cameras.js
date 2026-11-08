@@ -1,14 +1,17 @@
 import {sceneProperty,sceneTransform} from "./scene-changes.js";
-// Graphics' camera shells expose native publications to audio, controls and
-// the scene consumers awaiting registry admission. They never solve a view.
+// Audio and prediction read the retained camera facades. PageAudio and the
+// gameplay camera owner remove those queries; draws use native row identities.
 import * as THREE from "three";
 import { lighting, bindLighting } from "../materials.js";
 import { INPUT as I, CAMERA as C, CASCADE as W, LENS as N, ROLE as R, SKY as Y, LIMIT as L, LIGHT_INPUT as LI, LIGHT_OUTPUT as LO, LIGHT_COMMAND as LC, LIGHT_FLAG as LF, SOURCE as U } from "./camera-layout.js";
+import {DEPTH_MARKER as DM,DEPTH_KEY as DK,MIRROR as MI,UNIFORM_INPUT as UI,UNIFORM_OUTPUT as UO} from "./camera-layout.js";
 const noop=()=>{};
 const lensNames=["fov","aspect","near","far","zoom","filmGauge","filmOffset"];
 const lensDefaults=[60,1,.5,200,1,35,0];
 const lightNames=["sunColor","ambient","ambientTop","ambientBottom","characterAmbient","fogColor"];
 const lightDefaults=[128,128,128],sunDefault=[0,-1,0];
+const matrixFields=["matrix","matrixWorld","matrixWorldInverse","projectionMatrix","projectionMatrixInverse"];
+const matrixOffsets=[C.WORLD,C.WORLD,C.INVERSE,C.PROJECTION,C.PROJECTION_INVERSE];
 const viewNames=["fullWidth","fullHeight","width","height","offsetX","offsetY"];
 // Graph keys are weak. A collected pair gives its lease back; generations
 // make a delayed finalizer harmless after the bounded bank has reused it.
@@ -19,9 +22,9 @@ export class CameraOwner {
   // Weak keys follow the lifetime of the existing graph readback shells.
   constructor(core){
     this.core=core;core.renderer.nativeCameraOwner=this;this.roles=new WeakMap();this.bindings=new WeakMap();this.shells=new Array(R.COUNT);this.weak=new WeakRef(this);this.extra=new WeakMap();this.shifted=new Uint8Array(R.COUNT);
-    for(const name of ["input","output","windows","sky","lights","packs","mirror"]){
-      const key="camera"+name[0].toUpperCase()+name.slice(1);
-      core.addView(key,Float64Array,()=>core.rust[`camera_${name}_ptr`](),()=>core.rust[`camera_${name}_len`]());
+    for(const name of ["input","output","windows","sky","lights","packs","mirror","placement","uniformInput","uniformOutput","projectionView","depthKey","depthMarker","unitView"]){
+      const key="camera"+name[0].toUpperCase()+name.slice(1),native=name.replace(/[A-Z]/g,c=>"_"+c.toLowerCase());
+      core.addView(key,Float64Array,()=>core.rust[`camera_${native}_ptr`](),()=>core.rust[`camera_${native}_len`]());
     }
     core.addView("cameraLightInput",Float64Array,()=>core.rust.camera_light_input_ptr(),()=>core.rust.camera_light_input_len());
     core.addView("cameraLightOutput",Float64Array,()=>core.rust.camera_light_output_ptr(),()=>core.rust.camera_light_output_len());
@@ -31,17 +34,96 @@ export class CameraOwner {
     this.bind(g.camera,R.MAIN,false);this.bind(g.farCamera,R.FAR);this.bind(g.viewCamera,R.VIEW);
     for(let i=0;i<(g.csm?.lights.length||0);i++)this.bind(g.csm.lights[i].shadow.camera,R.SHADOW0+i);
     for(let i=0;i<(g.cascadeWindows?.length||0);i++)this.bindWindow(g.cascadeWindows[i],i);
-    this.configureShadows();this.seedLights();bindLighting(this);if(g.environmentFacts)this.environment(g.environmentFacts);
+    this.depthProjection(g.particleDepth);this.configureShadows();this.seedLights();bindLighting(this);if(g.environmentFacts)this.environment(g.environmentFacts);
     // The front end builds this renderer without a battle camera.
     if(g.camera)g.camera.updateProjectionMatrix=()=>this.project(g.camera);
     this.bind(g.cascadeCamera,R.CASCADE);this.bind(g.shadowCamera,R.SHADOW_DYNAMIC);this.bind(g.staticShadowCamera,R.SHADOW_STATIC);
+  }
+  // Body visibility samples the camera before its current pose update, as
+  // game.frame did. The unit phase consumes these native planes directly.
+  unitView(view,camera){
+    if(this.bindings.get(camera)===R.MAIN)this.main(camera);
+    this.core.rust.camera_unit_view_frame(this.query(camera));
+    if(!view.nativeView){const core=this.core;Object.defineProperty(view,'planes',{get(){core.views();return core.cameraUnitView;}});view.nativeView=true;}
+  }
+  // ParticleDepth retains resource lifetime and request callbacks. Its host
+  // delegates the view-dependent marker to the native camera owner; the depth
+  // resource owner removes these call adapters when it removes that host.
+  depthProjection(depth){
+    if(!depth?.requesters)return;const owner=this;let buffer=null,address=-1,view=null;
+    const matrix=()=>{const core=owner.core;core.views();const values=core.cameraDepthMarker,at=values.byteOffset+DM.MATRIX*8;if(buffer!==values.buffer||address!==at){buffer=values.buffer;address=at;view=new Float64Array(buffer,address,16);}return view;};
+    depth.place=function(renderer,scene,camera,target){
+      const copier=this.copier;if(target!==this.source||camera!==this.camera||!this.pending){sceneProperty(copier,'visible',false);return;}
+      const core=owner.core;this.armed=false;core.rust.camera_depth_begin_frame(owner.query(camera));this.placing=true;
+      try{for(const request of this.requesters)request(camera);}finally{this.placing=false;}
+      core.rust.camera_depth_finish_frame();core.views();const output=core.cameraDepthMarker;this.requests=output[DM.REQUESTS];
+      sceneProperty(copier,'visible',false);if(!output[DM.VISIBLE])return;
+      if(this.nativeMarker!==copier){for(const target of [copier.matrixWorld,copier.matrix])Object.defineProperty(target,'elements',{configurable:true,get:matrix});this.nativeMarker=copier;}
+      sceneProperty(this.group,'renderOrder',output[DM.GROUP]);sceneProperty(copier,'renderOrder',output[DM.ORDER]);sceneProperty(copier,'visible',true);this.armed=true;
+    };
+    depth.request=function(key,required=false){if(!this.placing||(!required&&!this.enabled))return false;const core=owner.core;core.views();for(let i=0;i<DK.LEN;i++)core.cameraDepthKey[i]=key[i];return core.rust.camera_depth_request_frame();};
   }
   // Derived shells carry layers and resource references for scene consumers.
   // Automatic matrix updates would overwrite the native publication.
   bind(camera,role,derived=true){
     if(!camera)return;
     this.bindings.set(camera,role);this.shells[role]=camera;
-    if(derived){sceneProperty(camera,"matrixAutoUpdate",false);sceneProperty(camera,"matrixWorldAutoUpdate",false);camera.updateMatrixWorld=noop;camera.updateWorldMatrix=noop;camera.updateProjectionMatrix=noop;}
+    if(derived){
+      sceneProperty(camera,"matrixAutoUpdate",false);sceneProperty(camera,"matrixWorldAutoUpdate",false);
+      camera.updateMatrixWorld=noop;camera.updateWorldMatrix=noop;camera.updateProjectionMatrix=noop;
+      this.facades??=new WeakSet();
+      if(!this.facades.has(camera)){
+        const owner=this;
+        for(let i=0;i<matrixFields.length;i++){
+          const matrix=camera[matrixFields[i]];if(!matrix)continue;
+          const offset=matrixOffsets[i];
+          Object.defineProperty(matrix,"elements",{configurable:true,get(){return CameraOwner.prototype.matrix.call(owner,camera,offset);}});
+        }
+        this.facades.add(camera);
+      }
+    }
+  }
+  // Derived camera facades borrow the native f64 publication. Rebinding is
+  // cold after heap growth; ordinary draws never copy matrices through Three.
+  matrix(camera,offset){
+    const core=this.core;core.views();const role=this.roles.get(camera)??this.bindings.get(camera);
+    this.matrixRows??=new Array(R.COUNT);let rows=this.matrixRows[role];
+    const values=core.cameraOutput;
+    if(!rows||rows.buffer!==values.buffer||rows.address!==values.byteOffset){
+      rows={buffer:values.buffer,address:values.byteOffset,values:[]};
+      for(let i=0;i<matrixOffsets.length;i++){
+        const field=matrixOffsets[i];rows.values[field]=new Float64Array(values.buffer,values.byteOffset+(role*C.LEN+field)*8,16);
+      }
+      this.matrixRows[role]=rows;
+    }
+    return rows.values[offset];
+  }
+  // Water visibility consumes authored boxes once; both view projections and
+  // the far-span transform remain in the native camera owner thereafter.
+  mirrorVisible(water){
+    const core=this.core,g=core.graphics;
+    if(this.boundWater!==water){
+      const count=water.cellBounds.length,bounds=new Float64Array((count+1)*6);
+      water.bounds.min.toArray(bounds,0);water.bounds.max.toArray(bounds,3);
+      for(let i=0;i<count;i++){water.cellBounds[i].min.toArray(bounds,(i+1)*6);water.cellBounds[i].max.toArray(bounds,(i+1)*6+3);}
+      core.rust.camera_mirror_bounds_frame(bounds);this.boundWater=water;
+      const owner=this;let buffer=null,address=-1,view=null;
+      Object.defineProperty(water.reflectionMatrix,'elements',{configurable:true,get(){owner.core.views();const a=owner.core.cameraMirror,at=a.byteOffset+MI.REFLECTION*8;if(buffer!==a.buffer||address!==at){buffer=a.buffer;address=at;view=new Float64Array(buffer,address,16);}return view;}});
+    }
+    core.views();const input=core.cameraInput;
+    input[I.WATER_LEVEL]=water.level;lighting.fade.value.toArray(input,I.WATER_FADE);
+    input[I.WATER_REACH]=water.farReach||0;input[I.FAR_REACH]=g.farReach?.[1]||0;
+    core.rust.camera_mirror_visibility_frame();
+  }
+  // Texture.updateMatrix's f64 operation order belongs to the uniform owner.
+  // An explicitly authored matrix remains a raw input, without Three math.
+  uv(map,out,offset){
+    if(!map){for(let k=0;k<9;k++)out[offset+k]=k%4===0?1:0;return;}
+    if(!map.matrixAutoUpdate){for(let k=0;k<9;k++)out[offset+k]=map.matrix.elements[k];return;}
+    const core=this.core;core.views();const a=core.cameraUniformInput;
+    a[UI.UV]=map.offset.x;a[UI.UV+1]=map.offset.y;a[UI.UV+2]=map.repeat.x;a[UI.UV+3]=map.repeat.y;
+    a[UI.UV+4]=map.rotation;a[UI.UV+5]=map.center.x;a[UI.UV+6]=map.center.y;
+    core.rust.camera_uniform_frame(true);for(let k=0;k<9;k++)out[offset+k]=core.cameraUniformOutput[UO.UV+k];
   }
   packValid(pack){this.core.views();return pack.owner===this&&pack.native>=0&&this.core.cameraPackHandles[pack.native%L.PACKS]===pack.native;}
   acquirePack(pack){
@@ -82,6 +164,10 @@ export class CameraOwner {
     if(view)for(let i=0;i<viewNames.length;i++)a[I.LENS+N.FULL_WIDTH+i]=view[viewNames[i]];
     const source=camera.userData.nativeView;a[I.PUBLISHED]=+!!source;if(source)a.set(source,I.MATRICES);
   }
+  // Unnamed standalone clients publish authored camera facts once at admission.
+  // Battle views already have stable native roles before any scene query.
+  query(camera){const role=this.roles.get(camera)??this.bindings.get(camera);return role!==undefined&&role<R.EXTRA0?role:this.shaderRole(camera);}
+  mirrored(object){const node=this.core.registry.admitIfNew(object);this.core.registry.worlds.flush();return !!node&&this.core.rust.scene_mirrored_frame(node.slot,node.generation);}
   // Light uniforms remain readback facades for authored materials. Their
   // arithmetic and shader publication use the same native settings owner.
   // Preserve the pre-map defaults when a scene client starts before content.
@@ -139,7 +225,7 @@ export class CameraOwner {
     const changed=core.rust.camera_main_frame();
     // PageCameras has already published its readback. Import that record once
     // without copying the same matrices back into the same Three facade.
-    if(source)this.roles.set(camera,R.MAIN);else if(changed)this.read(camera,R.MAIN);
+    if(source){if(!this.facades?.has(camera))this.bind(camera,R.MAIN);this.roles.set(camera,R.MAIN);}else if(changed)this.read(camera,R.MAIN);
     const g=core.graphics;a[I.FAR_RANGE]=g.farCamera.near;a[I.FAR_RANGE+1]=g.farCamera.far;
     a[I.VIEW_RANGE]=g.viewCamera.near;a[I.VIEW_RANGE+1]=g.viewCamera.far;
   }
@@ -157,19 +243,22 @@ export class CameraOwner {
     const core=this.core;core.views();const a=core.cameraOutput,at=role*C.LEN;
     sceneTransform(camera.position.fromArray(a,at+C.POSITION));camera.up.fromArray(a,at+C.UP);
     const q=camera.quaternion;q._x=a[at+C.QUATERNION];q._y=a[at+C.QUATERNION+1];q._z=a[at+C.QUATERNION+2];q._w=a[at+C.QUATERNION+3];
-    sceneTransform(camera.matrix.fromArray(a,at+C.WORLD));sceneTransform(camera.matrixWorld.fromArray(a,at+C.WORLD));
+    if(!this.facades?.has(camera)){sceneTransform(camera.matrix.fromArray(a,at+C.WORLD));sceneTransform(camera.matrixWorld.fromArray(a,at+C.WORLD));}
     // CubeCamera's parent is an Object3D. Only its six children carry lens,
     // inverse and projection fields; the parent publishes pose alone.
     if(camera.isCamera){
       for(let i=0;i<lensNames.length;i++)camera[lensNames[i]]=a[at+C.LENS+i];
-      camera.matrixWorldInverse.fromArray(a,at+C.INVERSE);
-      camera.projectionMatrix.fromArray(a,at+C.PROJECTION);camera.projectionMatrixInverse.fromArray(a,at+C.PROJECTION_INVERSE);
+      if(!this.facades?.has(camera)){
+        camera.matrixWorldInverse.fromArray(a,at+C.INVERSE);
+        camera.projectionMatrix.fromArray(a,at+C.PROJECTION);camera.projectionMatrixInverse.fromArray(a,at+C.PROJECTION_INVERSE);
+      }
     }
     camera.matrixWorldNeedsUpdate=false;
   }
   // Graphics.prepareFrame publishes these views at their original boundaries.
   // Shader blocks borrow their native rows directly, before another view.
   projection(camera,role){
+    if(this.facades?.has(camera))return;
     this.core.views();const a=this.core.cameraOutput,at=role*C.LEN;
     camera.projectionMatrix.fromArray(a,at+C.PROJECTION);camera.projectionMatrixInverse.fromArray(a,at+C.PROJECTION_INVERSE);
   }
@@ -179,13 +268,32 @@ export class CameraOwner {
   // Reading unused rows could replace an idle view camera's near/far range.
   shift(camera){const core=this.core,role=this.bindings.get(camera);if(role===undefined)return;core.views();core.cameraInput[I.SHIFT]=core.postState[core.graphics.upscaler.shiftOffset];core.cameraInput[I.SHIFT+1]=core.postState[core.graphics.upscaler.shiftOffset+1];this.shifted[role]=1;core.rust.camera_shift_frame(role);this.projection(camera,role);}
   restore(){this.core.rust.camera_restore_frame();for(let i=0;i<R.COUNT;i++)if(this.shifted[i]){this.projection(this.shells[i],i);this.shifted[i]=0;}}
-  // Sky movement is computed in the camera owner. Existing mesh identities
-  // and visibility remain graph facts until the scene registry consumes them.
-  sky(layers,role,follow=true){
-    const core=this.core;core.views();const a=core.cameraInput,n=Math.min(layers.length,L.SKY);a[I.SKY_COUNT]=n;
-    for(let i=0;i<n;i++){const f=layers[i].follow,at=I.SKY_FOLLOW+i*Y.LEN;a[at+Y.FOLLOW]=+!!f;a[at+Y.SCALE]=f?.[0]??0;a[at+Y.OFFSET]=f?.[1]??0;}
-    core.rust.camera_sky_frame(role,follow);for(let i=0;i<n;i++)sceneTransform(layers[i].mesh.position.fromArray(core.cameraSky,i*3));
+  // Sky bindings change only at content admission. Follow metadata remains
+  // authored input; no displayed view copies a resulting position to Three.
+  bindSky(layers){
+    const core=this.core,single=core.graphics.sky,count=Math.min(layers.length,L.SKY);
+    let changed=this.skyObjects?.length!==count||this.boundSingle!==single;
+    for(let i=0;!changed&&i<count;i++){
+      const item=layers[i],f=item.follow,at=i*Y.LEN;
+      changed=this.skyObjects[i]!==item.mesh||this.skyFacts[at+Y.FOLLOW]!==+!!f||!Object.is(this.skyFacts[at+Y.SCALE],f?.[0]??0)||!Object.is(this.skyFacts[at+Y.OFFSET],f?.[1]??0);
+    }
+    if(changed){
+      this.skyObjects=new Array(count);this.skyFacts=new Float64Array(count*Y.LEN);this.boundSingle=single;const nodes=new Uint32Array(count*2);
+      for(let i=0;i<count;i++){
+        const item=layers[i],f=item.follow,at=i*Y.LEN,node=core.registry.admitIfNew(item.mesh);this.skyObjects[i]=item.mesh;
+        if(node){node.transformPositionNative=true;core.registry.worlds.touch(node);}
+        nodes[i*2]=node?.slot??0xffffffff;nodes[i*2+1]=node?.generation??0;
+        this.skyFacts[at+Y.FOLLOW]=+!!f;this.skyFacts[at+Y.SCALE]=f?.[0]??0;this.skyFacts[at+Y.OFFSET]=f?.[1]??0;
+      }
+      const standalone=single&&this.skyObjects.indexOf(single)<0?core.registry.admitIfNew(single):null;
+      if(standalone){standalone.transformPositionNative=true;core.registry.worlds.touch(standalone);}
+      core.rust.camera_sky_nodes_frame(nodes,standalone?.slot??0xffffffff,standalone?.generation??0);core.views();core.cameraInput[I.SKY_COUNT]=count;core.cameraInput.set(this.skyFacts,I.SKY_FOLLOW);
+    }
+    core.registry.worlds.flush();
   }
+  sky(layers,role,follow=true){this.bindSky(layers);this.core.rust.camera_scene_sky_frame(role,follow);}
+  saveSky(layers){this.bindSky(layers);this.core.rust.camera_scene_sky_save_frame();}
+  restoreSky(){this.core.rust.camera_scene_sky_restore_frame();}
   // Completion and invalidation change these flags natively. Readback
   // accessors observe that publication even before another view is prepared.
   bindWindow(window,index){
@@ -208,26 +316,13 @@ export class CameraOwner {
   cascades(){
     const core=this.core,g=core.graphics,csm=g.csm;
     core.rust.camera_cascades_frame();this.read(g.cascadeCamera,R.CASCADE);
-    const out=core.cameraWindows;
-    for(let i=0;i<csm.lights.length;i++){
-      const at=i*W.LEN,light=csm.lights[i],window=g.cascadeWindows[i],camera=light.shadow.camera;
-      window.center.fromArray(out,at+W.CENTER);window.half=out[at+W.HALF];
-      sceneTransform(light.position.fromArray(out,at+W.POSITION));sceneTransform(light.target.position.fromArray(out,at+W.TARGET));
-      // Translation-only light/target facades are retained for scene readers.
-      light.matrixWorld.elements[12]=light.position.x;light.matrixWorld.elements[13]=light.position.y;light.matrixWorld.elements[14]=light.position.z;
-      light.target.matrixWorld.elements[12]=light.target.position.x;light.target.matrixWorld.elements[13]=light.target.position.y;light.target.matrixWorld.elements[14]=light.target.position.z;
-      camera.left=out[at+W.EXTENT];camera.right=out[at+W.EXTENT+1];camera.top=out[at+W.EXTENT+2];camera.bottom=out[at+W.EXTENT+3];
-      // Fitting publishes the projection now; the shadow pass publishes pose.
-      const row=(R.SHADOW0+i)*C.LEN;camera.projectionMatrix.fromArray(core.cameraOutput,row+C.PROJECTION);camera.projectionMatrixInverse.fromArray(core.cameraOutput,row+C.PROJECTION_INVERSE);
-    }
+
   }
   // LightShadow.updateMatrices used this late boundary. Only selected passes
   // advance the receiver matrix; a held reflection reads the preceding one.
   shadow(light){
     const core=this.core,index=light.userData.nativeCascade,role=R.SHADOW0+index;
-    core.rust.camera_shadow_frame(index);this.read(light.shadow.camera,role);core.views();
-    const planes=light.shadow.getFrustum().planes,start=role*C.LEN+C.FRUSTUM;
-    for(let i=0;i<6;i++){planes[i].normal.fromArray(core.cameraOutput,start+i*4);planes[i].constant=core.cameraOutput[start+i*4+3];}
+    core.rust.camera_shadow_frame(index);this.read(light.shadow.camera,role);
   }
 }
 export { R as CAMERA_ROLE };
@@ -243,7 +338,7 @@ export function shadowShells(g,preset){
       light.shadow.mapSize.set(preset.size,preset.size);light.shadow.bias=-.015/2999;light.shadow.normalBias=0;light.shadow.camera.near=1;light.shadow.camera.far=3000;
       sceneProperty(light,"matrixAutoUpdate",sceneProperty(light,"matrixWorldAutoUpdate",false));sceneProperty(light.target,"matrixAutoUpdate",sceneProperty(light.target,"matrixWorldAutoUpdate",false));
       g.rust?.cameras.bind(light.shadow.camera,R.SHADOW0+i);g.scene.add(light);g.scene.add(light.target);csm.lights.push(light);
-      const window={center:new THREE.Vector3(),half:0,held:false,dirty:true,moved:false,invalidate(){g.rust?.rust.camera_invalidate_frame(i);}};g.cascadeWindows.push(window);g.rust?.cameras.bindWindow(window,i);
+      const window={held:false,dirty:true,moved:false,invalidate(){g.rust?.rust.camera_invalidate_frame(i);}};g.cascadeWindows.push(window);g.rust?.cameras.bindWindow(window,i);
     }
     return csm;
   }

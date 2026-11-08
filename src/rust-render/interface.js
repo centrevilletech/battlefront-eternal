@@ -1,33 +1,33 @@
-// Interface scenes publish native source/appearance handles plus live UI state.
-// Geometry, groups, shader/raster/sampler descriptors and uniform packing are
-// retained in Rust. Scene selection and matrices keep their existing producer.
+// Interface scenes publish native resource handles and live UI facts. The
+// shared registry selects anchors and order/depth keys; Rust retains their
+// descriptors, packs uniforms and owns every draw, including spawn previews.
 import * as THREE from 'three';
 import {UI} from './interface-layout.js';
 import {UI_RESOURCE as U} from './interface-resource-layout.js';
 import {nativeActorSource,actorSkin,publishActorSkin} from '../actor-resources.js';
 import {imageSample} from '../interface/images.js';
 export class InterfacePass {
- constructor(core){this.core=core;this.nodes=new WeakMap();this.rows=[];this.count=0;this.frame=0;this.skeletons=new WeakMap();this.screen=new THREE.Matrix4();this.frustum=new THREE.Frustum();this.size=new THREE.Vector2();
+ constructor(core){this.core=core;this.nodes=new WeakMap();this.rows=[];this.count=0;this.frame=0;this.skeletons=new WeakMap();this.size=new THREE.Vector2();
   core.addView('interfaceInput',Float64Array,()=>core.rust.interface_input_ptr(),()=>core.rust.interface_input_len());core.addView('uiDirty',Float64Array,()=>core.rust.ui_dirty_ptr(),()=>core.rust.ui_dirty_len());
  }
  render(scene,camera){const core=this.core,renderer=core.renderer;if(core.contextLost)return;if(core.failure)throw core.failure;
   if(scene.matrixWorldAutoUpdate)scene.updateMatrixWorld();if(camera.parent===null&&camera.matrixWorldAutoUpdate)camera.updateMatrixWorld();scene.onBeforeRender(renderer,scene,camera,renderer.getRenderTarget());
-  this.screen.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);this.frustum.setFromProjectionMatrix(this.screen);renderer.getSize(this.size);this.ratio=renderer.getPixelRatio();core.frame.interfaceBegin();this.frame++;this.count=0;this.walk(scene,camera,0);
-  core.stale=true;core.settle();core.views();core.rust.ui_resources_frame(core.resources.gpu);core.views();
+  renderer.getSize(this.size);this.ratio=renderer.getPixelRatio();core.frame.interfaceBegin();this.frame++;this.count=0;this.select(scene,camera);
+  core.views();core.rust.ui_resources_frame(core.resources.gpu);core.views();
   for(let i=0;i<this.count;i++)this.write(this.rows[i],i,camera);
-  if(core.frame.active)core.frame.interfaceEnd(this.count);else core.rust.interface_frame(this.count);core.stale=true;scene.onAfterRender(renderer,scene,camera);
+  core.frame.interfaceEnd(this.count);scene.onAfterRender(renderer,scene,camera);
  }
- // Hidden parents suppress descendants; layer mismatch affects only that node.
- // Material/group identity is resolved cold, without transient group objects.
- walk(node,camera,order){if(!node.visible)return;if(node.layers.test(camera.layers)){if(node.isGroup)order=node.renderOrder;
-  if(node.userData.actorAsset&&(!node.frustumCulled||this.frustum.intersectsObject(node))){
-   if(node.isSkinnedMesh)this.skin(node);
+ // Spawn, scoreboard and overlay anchors share native visibility, layer and
+ // clip/depth facts with the battle. No interface view walks its scene tree.
+ select(scene,camera){const items=this.core.registry.near(scene,camera);
+  for(let i=0;i<items.length;i++){const item=items[i],node=item.object;if(!node.userData.actorAsset)continue;
+   if(node.skeleton)this.skin(node);
    const batch=node.userData.interfaceBatch,looks=batch?batch.looks:node.material,groups=batch?batch.drawGroups:null;
-   if(batch){for(let i=0;i<groups.length;i++){const group=groups[i];this.add(node,looks[group.materialIndex],group.start,group.count,camera,order);}}
-   else if(Array.isArray(looks)){const source=this.source(node);for(let i=0;i<source.facts.groups.length;i++){const g=source.facts.groups[i];this.add(node,looks[g[2]],g[0],g[1],camera,order);}}
-   else{const source=this.source(node);this.add(node,looks,0,source.facts.indexCount||source.facts.count,camera,order);}
+   if(batch){for(let j=0;j<groups.length;j++){const group=groups[j];this.add(node,looks[group.materialIndex],group.start,group.count,item.groupOrder,item.z);}}
+   else if(Array.isArray(looks)){const source=this.source(node);for(let j=0;j<source.facts.groups.length;j++){const group=source.facts.groups[j];this.add(node,looks[group[2]],group[0],group[1],item.groupOrder,item.z);}}
+   else{const source=this.source(node);this.add(node,looks,0,source.facts.indexCount||source.facts.count,item.groupOrder,item.z);}
   }
- }for(let i=0;i<node.children.length;i++)this.walk(node.children[i],camera,order);}
+ }
  source(node){let entry=this.nodes.get(node);if(!entry||entry.asset!==node.userData.actorAsset){entry={asset:node.userData.actorAsset,source:nativeActorSource(this.core,node.userData.actorAsset),looks:new WeakMap(),streams:new Map()};this.nodes.set(node,entry);}return entry.source;}
  skin(node){const skeleton=node.skeleton;if(this.skeletons.get(skeleton)===this.frame)return;skeleton.update();publishActorSkin(this.core,skeleton,-this.frame-1);this.skeletons.set(skeleton,this.frame);}
  // One immutable descriptor per source/appearance/skin. The renderer may grow
@@ -41,9 +41,9 @@ export class InterfacePass {
   record={handle:facts[U.META.APPEARANCE],look,skin,skeleton:node.skeleton,state};
   entry.looks.set(look,record);core.buffer=null;core.views();return record;
  }
- add(node,look,first,count,camera,order){if(!look?.interfaceAppearance||count<=0)return;if(this.count>=UI.MAX_DRAWS){this.core.rust.frame_overflow_frame();return;}const descriptor=this.admit(node,look);if(!descriptor)return;
+ add(node,look,first,count,order,depth){if(!look?.interfaceAppearance||look.visible===false||count<=0)return;if(this.count>=UI.MAX_DRAWS){this.core.rust.frame_overflow_frame();return;}const descriptor=this.admit(node,look);if(!descriptor)return;
   this.streams(node,descriptor);let row=this.rows[this.count];if(!row)this.rows[this.count]=row={};row.node=node;row.descriptor=descriptor;row.first=first;row.count=count;row.order=order;
-  const b=node.boundingSphere?.center;const e=node.matrixWorld.elements,s=this.screen.elements,x=b?.x||0,y=b?.y||0,z=b?.z||0;const wx=e[0]*x+e[4]*y+e[8]*z+e[12],wy=e[1]*x+e[5]*y+e[9]*z+e[13],wz=e[2]*x+e[6]*y+e[10]*z+e[14];row.depth=s[2]*wx+s[6]*wy+s[10]*wz+s[14];this.count++;
+  row.depth=depth;this.count++;
  }
  // A source's arrays are publication data, not BufferAttributes. Dirty spans
  // feed the existing native frame-upload queue in one coarse resource sweep.

@@ -1,3 +1,4 @@
+import { contextLimits } from "./rust-render/browser.js";
 import {sceneProperty} from "./rust-render/scene-changes.js";
 // Rust decodes PNG sources; scene objects retain texture descriptors.
 import * as THREE from "three";
@@ -35,7 +36,7 @@ export class PngTextureLoader {
     // Loading-manager completion covers decoding, too. Merely receiving the
     // file must not release a battle whose materials still hold empty images.
     this.manager.itemStart(path);
-    pngImage(path, this.renderer.capabilities.maxTextureSize).then(async image => {
+    pngImage(path, contextLimits(this.renderer).maxTextureSize).then(async image => {
       try {
       texture.image = { data: image.data, width: image.width, height: image.height };
       setPngSource(texture, image, path);

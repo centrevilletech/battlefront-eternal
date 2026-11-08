@@ -330,6 +330,238 @@
       "result": "Result<(),String>"
     },
     {
+      "name": "camera_scene_lights_frame",
+      "args": [
+        [
+          "root",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "role",
+          "u32"
+        ],
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "source_generation",
+          "u32"
+        ],
+        [
+          "view",
+          "bool"
+        ],
+        [
+          "now",
+          "f64"
+        ],
+        [
+          "handle",
+          "f64"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_scene_view_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_post_facts_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_mirrored_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "camera_canopy_view_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_foliage_view_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_sky_nodes_frame",
+      "args": [
+        [
+          "nodes",
+          "&[u32]"
+        ],
+        [
+          "single",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_scene_sky_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ],
+        [
+          "follow",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_scene_sky_save_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_scene_sky_restore_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_unit_view_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_depth_begin_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_depth_request_frame",
+      "args": [],
+      "result": "bool"
+    },
+    {
+      "name": "camera_depth_finish_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_projection_view_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_scene_uniform_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_uniform_frame",
+      "args": [
+        [
+          "uv",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_mirrored_frame",
+      "args": [],
+      "result": "bool"
+    },
+    {
+      "name": "camera_mirror_bounds_frame",
+      "args": [
+        [
+          "bounds",
+          "&[f64]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_mirror_visibility_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_placement_frame",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
       "name": "camera_pack_acquire_frame",
       "args": [],
       "result": "f64"
@@ -1820,6 +2052,80 @@
       "result": ""
     },
     {
+      "name": "prepare_begin_frame",
+      "args": [
+        [
+          "family",
+          "u32"
+        ],
+        [
+          "cascades",
+          "u32"
+        ],
+        [
+          "lamps",
+          "bool"
+        ],
+        [
+          "shadows",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "prepare_next_frame",
+      "args": [],
+      "result": "Result<String,String>"
+    },
+    {
+      "name": "prepare_keys_frame",
+      "args": [
+        [
+          "family",
+          "u32"
+        ],
+        [
+          "cascades",
+          "u32"
+        ],
+        [
+          "lamps",
+          "bool"
+        ],
+        [
+          "shadows",
+          "bool"
+        ]
+      ],
+      "result": "String"
+    },
+    {
+      "name": "scene_stamp_set_frame",
+      "args": [
+        [
+          "stamp",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "renderer_diagnostics_frame",
+      "args": [],
+      "result": "String"
+    },
+    {
+      "name": "scene_stamp_frame",
+      "args": [
+        [
+          "advance",
+          "bool"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
       "name": "set_shadow_maps",
       "args": [
         [
@@ -2063,6 +2369,137 @@
       "result": ""
     },
     {
+      "name": "motion_history_flyer_frame",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "motion_history_flyer_sample_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "stepped",
+          "bool"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "motion_camera_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ],
+        [
+          "view",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "motion_history_sequence",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "motion_history_skin_frame",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "motion_history_skin_start",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "motion_history_model_frame",
+      "args": [
+        [
+          "skin",
+          "u32"
+        ],
+        [
+          "bind",
+          "&[f64]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "motion_history_reskin_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "skin",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "motion_history_reset_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "motion_history_release_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "motion_history_prepare_frame",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "motion_history_write_frame",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "motion_history_commit_frame",
+      "args": [],
+      "result": ""
+    },
+    {
       "name": "motion_record_stride",
       "args": [],
       "result": "u32"
@@ -2132,6 +2569,376 @@
       "name": "scene_canopy_select",
       "args": [],
       "result": "u32"
+    },
+    {
+      "name": "scene_transform_apply_frame",
+      "args": [
+        [
+          "changes",
+          "u32"
+        ],
+        [
+          "groups",
+          "u32"
+        ],
+        [
+          "worlds",
+          "u32"
+        ],
+        [
+          "transforms",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_transform_frame",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_transform_updates",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_transform_visits",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_pose_register",
+      "args": [
+        [
+          "owner",
+          "u32"
+        ],
+        [
+          "owner_generation",
+          "u32"
+        ],
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "node_start",
+          "u32"
+        ],
+        [
+          "node_count",
+          "u32"
+        ],
+        [
+          "skin_start",
+          "u32"
+        ],
+        [
+          "skin_count",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "scene_pose_frame",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_tree_reserve",
+      "args": [
+        [
+          "words",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_pose_skin_offset",
+      "args": [
+        [
+          "owner",
+          "u32"
+        ],
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "skin",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "scene_pose_skin_register",
+      "args": [
+        [
+          "owner",
+          "u32"
+        ],
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "skin",
+          "u32"
+        ],
+        [
+          "node",
+          "u32"
+        ],
+        [
+          "bind",
+          "u32"
+        ],
+        [
+          "bones",
+          "&[u32]"
+        ],
+        [
+          "inverses",
+          "&[f64]"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "scene_tree_frame",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "scene_instances_frame",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "scene_motion_model_frame",
+      "args": [
+        [
+          "skin",
+          "u32"
+        ],
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "scene_motion_source_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "scene_skeleton_register",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "bones",
+          "&[u32]"
+        ],
+        [
+          "generations",
+          "&[u32]"
+        ],
+        [
+          "inverses",
+          "&[f64]"
+        ],
+        [
+          "controls",
+          "&[u32]"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "scene_point_root_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_points_apply_frame",
+      "args": [
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_place_frame",
+      "args": [
+        [
+          "root",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "owner",
+          "u32"
+        ],
+        [
+          "maximum",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "scene_skin_admit_frame",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "count",
+          "u32"
+        ],
+        [
+          "words",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_actor_skin_frame",
+      "args": [
+        [
+          "skin",
+          "u32"
+        ],
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ],
+        [
+          "serial",
+          "f64"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_motion_locked_frame",
+      "args": [
+        [
+          "record",
+          "u32"
+        ],
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "generation",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "scene_actor_depth_sources_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "scene_rotation_frame",
+      "args": [
+        [
+          "x",
+          "f64"
+        ],
+        [
+          "y",
+          "f64"
+        ],
+        [
+          "z",
+          "f64"
+        ],
+        [
+          "w",
+          "f64"
+        ],
+        [
+          "order",
+          "u32"
+        ]
+      ],
+      "result": ""
     },
     {
       "name": "scene_reserve",
@@ -2902,6 +3709,48 @@
       "length": "actor_bones_len"
     },
     {
+      "name": "camera_unit_view",
+      "type": "f64",
+      "pointer": "camera_unit_view_ptr",
+      "length": "camera_unit_view_len"
+    },
+    {
+      "name": "camera_depth_key",
+      "type": "f64",
+      "pointer": "camera_depth_key_ptr",
+      "length": "camera_depth_key_len"
+    },
+    {
+      "name": "camera_depth_marker",
+      "type": "f64",
+      "pointer": "camera_depth_marker_ptr",
+      "length": "camera_depth_marker_len"
+    },
+    {
+      "name": "camera_projection_view",
+      "type": "f64",
+      "pointer": "camera_projection_view_ptr",
+      "length": "camera_projection_view_len"
+    },
+    {
+      "name": "camera_uniform_input",
+      "type": "f64",
+      "pointer": "camera_uniform_input_ptr",
+      "length": "camera_uniform_input_len"
+    },
+    {
+      "name": "camera_uniform_output",
+      "type": "f64",
+      "pointer": "camera_uniform_output_ptr",
+      "length": "camera_uniform_output_len"
+    },
+    {
+      "name": "camera_placement",
+      "type": "f64",
+      "pointer": "camera_placement_ptr",
+      "length": "camera_placement_len"
+    },
+    {
       "name": "camera_input",
       "type": "f64",
       "pointer": "camera_input_ptr",
@@ -3136,6 +3985,30 @@
       "length": "shadow_input_len"
     },
     {
+      "name": "motion_history_poses",
+      "type": "f64",
+      "pointer": "motion_history_poses_ptr",
+      "length": "motion_history_poses_len"
+    },
+    {
+      "name": "motion_history_selected",
+      "type": "u32",
+      "pointer": "motion_history_selected_ptr",
+      "length": "motion_history_selected_len"
+    },
+    {
+      "name": "motion_history_records",
+      "type": "u32",
+      "pointer": "motion_history_records_ptr",
+      "length": "motion_history_records_len"
+    },
+    {
+      "name": "motion_history_current",
+      "type": "f32",
+      "pointer": "motion_history_current_ptr",
+      "length": "motion_history_current_len"
+    },
+    {
       "name": "motion_input",
       "type": "f64",
       "pointer": "motion_input_ptr",
@@ -3212,6 +4085,72 @@
       "type": "f32",
       "pointer": "scene_canopy_states_ptr",
       "length": "scene_canopy_states_len"
+    },
+    {
+      "name": "scene_transform_changes",
+      "type": "f64",
+      "pointer": "scene_transform_changes_ptr",
+      "length": "scene_transform_changes_len"
+    },
+    {
+      "name": "scene_transform_values",
+      "type": "f64",
+      "pointer": "scene_transform_values_ptr",
+      "length": "scene_transform_values_len"
+    },
+    {
+      "name": "scene_transform_phase",
+      "type": "f64",
+      "pointer": "scene_transform_phase_ptr",
+      "length": "scene_transform_phase_len"
+    },
+    {
+      "name": "scene_pose",
+      "type": "f64",
+      "pointer": "scene_pose_ptr",
+      "length": "scene_pose_len"
+    },
+    {
+      "name": "scene_tree_input",
+      "type": "f64",
+      "pointer": "scene_tree_input_ptr",
+      "length": "scene_tree_input_len"
+    },
+    {
+      "name": "scene_tree_info",
+      "type": "f64",
+      "pointer": "scene_tree_info_ptr",
+      "length": "scene_tree_info_len"
+    },
+    {
+      "name": "scene_pose_skins",
+      "type": "f32",
+      "pointer": "scene_pose_skins_ptr",
+      "length": "scene_pose_skins_len"
+    },
+    {
+      "name": "scene_point_changes",
+      "type": "f64",
+      "pointer": "scene_point_changes_ptr",
+      "length": "scene_point_changes_len"
+    },
+    {
+      "name": "scene_place_output",
+      "type": "u32",
+      "pointer": "scene_place_output_ptr",
+      "length": "scene_place_output_len"
+    },
+    {
+      "name": "scene_skin_admit",
+      "type": "f32",
+      "pointer": "scene_skin_admit_ptr",
+      "length": "scene_skin_admit_len"
+    },
+    {
+      "name": "scene_rotation",
+      "type": "f64",
+      "pointer": "scene_rotation_ptr",
+      "length": "scene_rotation_len"
     },
     {
       "name": "scene_groups",

@@ -1,3 +1,5 @@
+import {PoseDepthSource as DS} from "./pose-layout.js";
+import {admitSkeleton} from "./scene-skeletons.js";
 import {sceneLayer,sceneProperty,sceneTransform} from "./scene-changes.js";
 import {Family,Mode,S as Selected} from './scene.js';
 import {ACTOR} from './actor-layout.js';
@@ -106,6 +108,11 @@ class ShadowPass {
     this.commandViews = Array.from({length:capacity + 1}, (_, n) => this.scratch.subarray(0, S.FIRST + n * DRAW));
   }
 
+  // buildWorld publishes immutable sources while loading. GPU depth work
+  // waits for native program preparation, where loss can suspend and resume.
+  queueNative(roots){for(const [source,root]of roots)this.nativeRoots.set(source,root);this.nativePending=true;}
+  finishNative(){if(!this.nativePending)return;this.admitNative(JSON.parse(this.core.rust.static_depth_finish()),this.nativeRoots);this.nativePending=false;}
+
   // Native static casters keep only scene anchors and numeric resource ids.
   // Descriptor admission, cells, uniforms and GPU restoration belong to Rust.
   admitNative(metadata, roots) {
@@ -136,6 +143,7 @@ class ShadowPass {
 
   // Compile source-owned depth variants before the battle's first cascade.
   prepare() {
+    this.finishNative();
     const graphics = this.core.graphics;
     for (const target of [...graphics.shadowMaps, ...graphics.shadowCaches]) this.core.renderer.initRenderTarget(target);
     const depths = new Set(this.core.graphics.depthMaterials.values());
@@ -172,6 +180,7 @@ class ShadowPass {
   draw() {
     const req = this.request;
     if (!req) return;
+    this.finishNative();
     const core = this.core, { renderer, light, scene, camera, from } = req, shadow = light.shadow;
     // As three's pass does for the light: its camera placed, its frustum.
     core.cameras.shadow(light);
@@ -195,8 +204,8 @@ class ShadowPass {
         const d = this.draws[i], o = S.FIRST + n * DRAW;
         if(d.actor!==undefined){
           out[o+D.PROGRAM]=ACTOR.KIND.ACTOR_DEPTH;out[o+D.GEOMETRY]=d.actor;const a=o+D.FIRST,r=ACTOR.DEPTH,node=d.object;
-          out.set(node.matrixWorld.elements,a+r.WORLD);out.set(shadowCamera.matrixWorldInverse.elements,a+r.VIEW);out.set(shadowCamera.projectionMatrix.elements,a+r.PROJECTION);
-          if(node.skeleton){out.set(node.bindMatrix.elements,a+r.BIND);out.set(node.bindMatrixInverse.elements,a+r.INVERSE);publishActorSkin(core,node.skeleton,renderer.info.render.frame);}
+          const source=core.registry.admitIfNew(node);out[a+DS.SLOT]=source.slot;out[a+DS.GENERATION]=source.generation;out[a+DS.ROLE]=core.cameras.query(shadowCamera);
+          if(node.skeleton)publishActorSkin(core,node.skeleton,core.rust.scene_stamp_frame(false));
           n++;continue;
         }
         if (d.native !== undefined) {
@@ -226,7 +235,7 @@ class ShadowPass {
       return;
     }
     input.set(this.commandViews[n]);
-    core.rust.actor_depth_frame();
+    core.rust.scene_actor_depth_sources_frame?.();core.rust.actor_depth_frame();
     if (this.nativeInput) {
       core.rust.camera_static_shadow_frame(light.userData.nativeCascade);
       core.staticShadowInput[STATIC.SHADOW.TIME] = lighting.time.value;
@@ -245,7 +254,6 @@ class ShadowPass {
       if(object.userData.actorAsset){this.addActor(object,shadowCamera,renderer);continue;}
       if(object.userData.nativeShadow){this.draws.push(object.userData.nativeShadow);continue;}
       if(!object.isMesh){core.skip(object,object.material,'a line or points caster');continue;}
-      object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse,object.matrixWorld);
       if(object.isSkinnedMesh)this.bones(object,renderer);
       const group=core.sceneOutput[at+Selected.GROUP],mi=core.sceneOutput[at+Selected.MATERIAL_INDEX];
       this.add(object,object.geometry,group<0?object.material:object.material[mi],group<0?null:object.geometry.groups[group],camera,shadowCamera,renderer);
@@ -258,14 +266,13 @@ class ShadowPass {
     const look=Array.isArray(node.material)?node.material[0]:node.material;if(!isActorMaterial(look))return;
     let record=this.actorNodes.get(node);
     if(!record||record.appearance!==node.material||record.skeleton!==node.skeleton){
-      const core=this.core,source=nativeActorSource(core,node.userData.actorAsset),skin=node.skeleton?actorSkin(core,node.skeleton):null;
+      const core=this.core;admitSkeleton(core.registry,core.registry.admitIfNew(node));const source=nativeActorSource(core,node.userData.actorAsset),skin=node.skeleton?actorSkin(core,node.skeleton):null;
       if(node.skeleton&&!skin){this.clipped++;return;}
       const id=core.rust.actor_depth(source.id,JSON.stringify(look.authored),skin?skin.id:-1,actorSample(core,look));if(id===undefined){this.clipped++;return;}
       record={actor:id,object:node,appearance:node.material,skin,skeleton:node.skeleton};this.actorNodes.set(node,record);core.buffer=null;core.views();
     }
-    if(node.skeleton)this.bonesActor(node,renderer);this.draws.push(record);
+    this.draws.push(record);
   }
-  bonesActor(node,renderer){const skeleton=node.skeleton,frame=renderer.info.render.frame;if(this.boneFrames.get(skeleton)!==frame){skeleton.update();this.boneFrames.set(skeleton,frame);}}
 
   // A caster's draw: its depth material as three's getDepthMaterial dresses it
   // for this material, its program, geometry and range.
@@ -281,7 +288,6 @@ class ShadowPass {
     if(object.userData.fabricWind)depth.userData.bfeProgram=depth.alphaTest>0 ? "actors/depth-fabric-cutout" : "actors/depth-fabric";
     depth.map = material.map;
     if (object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || depth.wireframe) { this.core.skip(object, material, "caster kind no pass draws"); return; }
-    object.onBeforeShadow(renderer, object, camera, shadowCamera, geometry, depth, group);
     const program = ownedProgram(this.core, depth.userData.bfeProgram, null);
     // Cutout casters can be met before their colour pass, especially during
     // preparation: register the depth material's maps here rather than
@@ -299,19 +305,17 @@ class ShadowPass {
     const g = this.geometry(geometry, program, end > start ? end : 0);
     if (g === null) { this.core.skip(object, material, "geometry the renderer cannot hold"); return; }
     if (end - start > 0 && end - start !== Infinity) {
-      this.draws.push({ program, geometry: g, start, count: end - start, side: depth.side, mirrored: sceneTransform(object.matrixWorld.determinant()) < 0, object, depth });
+      this.draws.push({ program, geometry: g, start, count: end - start, side: depth.side, mirrored: this.core.cameras.mirrored(object), object, depth });
     }
-    object.onAfterShadow(renderer, object, camera, shadowCamera, geometry, depth, group);
   }
 
   // A skinned caster's bones, worked out once a frame as three's shadow pass
   // does (objects.update), and its bone texture sent as three would bind it.
   bones(object, renderer) {
-    const skeleton = object.skeleton, frame = renderer.info.render.frame;
+    const skeleton = object.skeleton, frame = this.core.rust.scene_stamp_frame(false);
     if (this.boneFrames.get(skeleton) !== frame) { skeleton.update(); this.boneFrames.set(skeleton, frame); }
     if (skeleton.boneTexture === null) skeleton.computeBoneTexture();
-    const props = renderer.properties.get(skeleton.boneTexture);
-    if (props.__version !== skeleton.boneTexture.version) renderer.initTexture(skeleton.boneTexture);
+    this.core.resources.textureId(skeleton.boneTexture);
   }
 
   geometry(geometry, program, need = Infinity) {

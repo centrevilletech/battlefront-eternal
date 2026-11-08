@@ -192,7 +192,9 @@ export const HELPERS_SRC = `(() => { const b = __bf, g = b.graphics;
   // Loading draws vary with decoder latency. The last shadow cascade updates
   // on alternating render frames, so fixed authority ticks and TAA jitter alone
   // cannot define its phase. Start beyond all preparation cache stamps.
-  g.frameCount=1000000;b.renderer.info.render.frame=1000000;
+  g.frameCount=1000000;
+  if(g.rust.rust.scene_stamp_set_frame)g.rust.rust.scene_stamp_set_frame(1000000);
+  else b.renderer.info.render.frame=1000000;
   const G = window.__gate = { frameStats: {}, phaseCalls: 0, inRust: 0 };
   G.key = (code, down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code, bubbles: true }));
   G.look = (x, y) => document.dispatchEvent(new MouseEvent('mousemove', { movementX: x, movementY: y || 0, bubbles: true }));

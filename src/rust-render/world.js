@@ -11,7 +11,7 @@ class WorldPass {
     this.count = 0;
     this.meshes = []; // scene node and numeric native descriptor id
     this.lampNode = null;
-    this.nativePending = [];
+    this.nativePending = [];this.nativeAt=0;
     this.entries = new WeakMap();
     this.settingsDirty = false;
     // The settings owner holds a weak listener, so a closed battle can collect
@@ -43,7 +43,7 @@ class WorldPass {
       core.rust.static_depth_replace(mesh.userData.nativeDepthSource,source,texture);
       shadow.nativeRoots.delete(mesh.userData.nativeSource);
       shadow.nativeRoots.set(source,mesh);
-      shadow.admitNative(JSON.parse(core.rust.static_depth_finish()),shadow.nativeRoots);
+      shadow.queueNative(shadow.nativeRoots);
     }
     mesh.userData.nativeSource=source;
     this.core.registry.claim(mesh);
@@ -53,7 +53,8 @@ class WorldPass {
 
   prepareNative() {
     const core = this.core;
-    for (const cold of this.nativePending) {
+    for (;this.nativeAt<this.nativePending.length;this.nativeAt++) {
+      const cold=this.nativePending[this.nativeAt];
       const { mesh, source, tree, map, bump } = cold;
       const samplers = new Int32Array(STATIC.SAMPLERS.LENGTH).fill(-1);
       samplers[STATIC.SAMPLERS.MAP] = map == null ? -1 : core.texture(core.resources.staticSample(map));
@@ -67,7 +68,7 @@ class WorldPass {
       mesh.userData.nativeWorld = id;
       this.count++;
     }
-    this.nativePending.length = 0;
+    this.nativePending.length = 0;this.nativeAt=0;
     core.rust.sort(false);
   }
 

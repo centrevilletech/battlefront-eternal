@@ -1,11 +1,10 @@
-import {WaterViewResult as WATER_POLICY} from '../environment/layout.js';
 import {sceneLayer,sceneProperty,sceneTransform} from "./scene-changes.js";
 // Graphics.render and BattleHud.render still calculate view inputs during the
 // scene transition. This host seals named packets; Rust alone orders passes.
 import * as THREE from "three";
 import { FACTS as F, STATE as S, BINDING as B, META as M, KIND as K, ROLE as R, LIMIT as L, STATS as T, UI, UI_CAPACITY } from "./frame-layout.js";
 import { CAMERA_ROLE as CR } from "./cameras.js";
-import { CAMERA as CA, MIRROR as MI, INPUT as CI } from "./camera-layout.js";
+import { CAMERA as CA, MIRROR as MI, INPUT as CI, PLACEMENT as PL, LIMIT as CL } from "./camera-layout.js";
 import { lighting } from "../materials.js";
 import { particleDepth } from "../particle-depth.js";
 import { motionVectors } from "../motion-vectors.js";
@@ -36,8 +35,9 @@ export class BattleFrame {
     this.metrics=Array.from({length:R.COUNT},()=>new Float64Array(T.LEN));
     this.color=new THREE.Color();this.viewport=new THREE.Vector4();this.scissor=new THREE.Vector4();
     this.current=null;this.face=0;this.level=0;this.pendingClear=0;this.preparingFog=false;
-    this.skyPositions=new Float64Array(256*3);this.skyMasks=new Int32Array(256);this.skyVisible=new Uint8Array(256);
+    this.skyMasks=new Int32Array(CL.SKY);this.skyVisible=new Uint8Array(CL.SKY);
     this.resolution=new THREE.Vector2();this.normal=new THREE.Vector3(0,1,0);
+    this.placementRoots=new Array(CL.PLACEMENT_ROOTS).fill(null);this.placementHidden=new Array(CL.PLACEMENT_ROOTS).fill(null);this.placementCount=0;
     this.reserved=false;
     for(const name of ["facts","state","bindings","meta","stats","lines"]){
       const title="frame"+name[0].toUpperCase()+name.slice(1);
@@ -52,6 +52,33 @@ export class BattleFrame {
       get:()=>{core.views();return core.frameState[S.FRAME];},
       set:value=>{core.views();core.frameState[S.FRAME]=value;}});
   }
+  // One world phase serves the first main-scene view, including a mirror.
+  // The unit owner preserves its existing lazy placement boundary.
+  prepareWorlds(){
+    const core=this.core,g=core.graphics;
+    if(g.sceneFrame===g.frameCount)return;
+    g.sceneFrame=g.frameCount;const registry=core.registry,root=registry.admitIfNew(g.scene);
+    if(g.placeUnits)g.placeUnits(g.scene);registry.worlds.update(root);
+  }
+  // Native clipping alone decides which roots defer placement. Publishing
+  // those flags preserves the original visible-parent boundary for all views.
+  placement(){
+    this.restorePlacement();const core=this.core,g=core.graphics;
+    if(g.csm||g.upscaling==="temporal"||g.sceneFrame===g.frameCount||!g.cullRoots.length)return;
+    core.views();const rows=core.cameraPlacement;let count=0;
+    for(let i=0;i<g.cullRoots.length&&count<CL.PLACEMENT_ROOTS;i++){
+      const root=g.cullRoots[i];if(!root.visible||root.parent!==g.scene)continue;
+      this.placementRoots[count]=root;root.position.toArray(rows,count*PL.LEN+PL.POSITION);count++;
+    }
+    core.rust.camera_placement_frame(count);
+    for(let i=0;i<count;i++)if(rows[i*PL.LEN+PL.HIDDEN]){
+      const root=this.placementRoots[i];sceneProperty(root,"visible",false);this.placementHidden[this.placementCount++]=root;
+    }
+  }
+  restorePlacement(){
+    for(let i=0;i<this.placementCount;i++){sceneProperty(this.placementHidden[i],"visible",true);this.placementHidden[i]=null;}
+    this.placementCount=0;
+  }
   // Resource descriptors can still arrive during scene preparation. They are
   // admitted cold, but a preparation target never binds a framebuffer.
   installPreparationHost() {
@@ -61,7 +88,6 @@ export class BattleFrame {
     r.getRenderTarget=()=>this.active?this.current:get();
     r.getActiveCubeFace=()=>this.active?this.face:face();r.getActiveMipmapLevel=()=>this.active?this.level:level();
     const vp=r.getCurrentViewport.bind(r);r.getCurrentViewport=out=>this.active?out.copy(this.viewport):vp(out);
-    const reset=r.resetState.bind(r);r.resetState=()=>{if(!this.active)reset();};
     for(const name of ["clear","clearColor","clearDepth","clearStencil"]){
       const original=r[name].bind(r);
       r[name]=(color=true,depth=true,stencil=true)=>{if(!this.active)return original(color,depth,stencil);
@@ -133,8 +159,9 @@ export class BattleFrame {
     this.reserve();
     const core=this.core;this.binding(role);core.views();const m=core.frameMeta,at=role*M.LEN;
     m[at+M.KIND]=kind;m[at+M.RECORDS]=ctx?.records||0;m[at+M.BONES]=ctx?.bones||0;m[at+M.STEPS]=ctx?.steps||0;m[at+M.FX_WORDS]=ctx?.fxWords||0;
+    if(ctx&&ctx.records&&(kind===K.SCENE||kind===K.VIEW||kind===K.TRANSPARENT))core.rust.scene_instances_frame(ctx.records);
     core.rust.frame_publish_frame(role);
-    if(!this.active){if(!core.rust.frame_aux_frame(core.resources.gpu,role))core.fail(Error(core.rust.frame_error_frame()));core.stale=true;core.views();for(let i=0;i<T.LEN;i++)this.metrics[role][i]=core.frameStats[role*T.LEN+i];}
+    if(!this.active){if(!core.rust.frame_aux_frame(core.resources.gpu,role))core.fail(Error(core.rust.frame_error_frame()));core.views();for(let i=0;i<T.LEN;i++)this.metrics[role][i]=core.frameStats[role*T.LEN+i];}
   }
   // Full UI stores drop later packets, retaining the earlier visible layers.
   publish(name,ctx) {
@@ -157,7 +184,7 @@ export class BattleFrame {
   // Dirty UI streams must be captured before a later preview rewrites them.
   // Admission is cold and reserves storage only for an actual interface view.
   interfaceBegin() {
-    if(!this.active)return;
+    if(!this.active){this.reserve();this.core.rust.frame_admit_interface_frame(R.HUD0);this.core.rust.frame_ui_slot_frame(R.HUD0);return;}
     if(this.ui>=this.uiEnd){this.core.rust.frame_ui_slot_frame(R.COUNT);this.core.rust.frame_overflow_frame();return;}
     const role=this.uiRole();
     this.core.rust.frame_admit_interface_frame(role);this.core.rust.frame_ui_slot_frame(role);
@@ -165,6 +192,13 @@ export class BattleFrame {
   // InterfacePass has finished geometry/uniform publication. No browser
   // draw follows; the packet retains its own ordered records and dirty bytes.
   interfaceEnd(count) {
+    if(!this.active){
+      const core=this.core,role=R.HUD0,r=core.renderer;
+      // Auxiliary previews bind their target outside battle collection.
+      this.target(r.getRenderTarget(),r.getActiveCubeFace(),r.getActiveMipmapLevel());
+      core.views();core.frameMeta[role*M.LEN+M.COUNT]=count;
+      this.seal(role,K.INTERFACE,null);return;
+    }
     if(this.ui>=this.uiEnd){this.core.rust.frame_overflow_frame();return;}
     const core=this.core,role=this.uiRole();
     this.uiFacts(K.INTERFACE);this.binding(role);core.views();const at=role*M.LEN;
@@ -235,11 +269,11 @@ export class BattleFrame {
     const core=this.core,g=core.graphics,r=core.renderer,w=water;
     sceneProperty(w.farGroup,"visible",false);
     if(w.ocean){sceneProperty(w.group,"visible",false);sceneProperty(w.underwaterFog,"visible",false);return;}
-    core.cameras.main(camera);const policy=w.surfacePolicy(camera);
-    const visible=Boolean(policy[WATER_POLICY.NEAR_VISIBLE]),farVisible=Boolean(policy[WATER_POLICY.FAR_VISIBLE]);
+    core.cameras.main(camera);core.cameras.mirrorVisible(w);core.views();
+    const below=camera.position.y<w.level,visible=!!core.cameraMirror[MI.VISIBLE],farVisible=!!core.cameraMirror[MI.FAR_VISIBLE];
     sceneProperty(w.group,"visible",visible);sceneProperty(w.farGroup,"visible",farVisible);sceneProperty(w.mirrorPass,"visible",sceneProperty(w.farMirror,"visible",false));
     w.surfaceUniforms.cameraRange.value.set(camera.near,camera.far);
-    w.resizeReflection(policy);w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
+    w.resizeReflection();w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
     core.views();const f=core.frameFacts;
     f[F.MIRROR_ENABLED]=1;f[F.MIRROR_VISIBLE]=+visible;f[F.MIRROR_FAR_VISIBLE]=+farVisible;f[F.MIRROR_LOW]=+!!w.lowPass?.visible;
     f[F.MIRROR_NEAR]=+(w.reflectionFar&&w.quality.planarNear);f[F.MIRROR_LEVEL]=w.level;f[F.MIRROR_SIZE]=w.target.width;f[F.MIRROR_SIZE+1]=w.target.height;
@@ -252,21 +286,15 @@ export class BattleFrame {
     core.views();core.cameraInput[CI.WATER_LEVEL]=w.level;core.cameraInput[CI.NEAR_REFLECTION]=+!!w.reflectionFar;
     core.rust.camera_reflect_frame();core.views();
     core.cameras.bind(mirror,CR.MIRROR);core.cameras.read(mirror,CR.MIRROR);
-    w.plainProjection.fromArray(core.cameraOutput,CR.MIRROR_PLAIN*CA.LEN+CA.PROJECTION);
     if(!core.cameraMirror[MI.VALID])return;
-    w.reflectionMatrix.fromArray(core.cameraMirror,MI.REFLECTION);
     core.views();core.frameFacts[F.MIRROR_CLIP_VALID]=1;
-    const layers=g.skyLayers,n=Math.min(layers.length,256),sky=g.sky;
-    const sx=sky?.position.x,sy=sky?.position.y,sz=sky?.position.z;
-    for(let i=0;i<n;i++){const mesh=layers[i].mesh;mesh.position.toArray(this.skyPositions,i*3);this.skyMasks[i]=mesh.layers.mask;this.skyVisible[i]=+mesh.visible;sceneTransform(mesh.position.copy(mirror.position));}
-    // A standalone sky is represented in skyLayers by the loader. Preserve
-    // its legacy follow position as well when a synthetic scene omits it.
-    if(sky)sceneTransform(sky.position.copy(mirror.position));
+    const layers=g.skyLayers,n=Math.min(layers.length,CL.SKY);core.cameras.saveSky(layers);
+    for(let i=0;i<n;i++){const mesh=layers[i].mesh;this.skyMasks[i]=mesh.layers.mask;this.skyVisible[i]=+mesh.visible;}
+    core.cameras.sky(layers,CR.MIRROR,false);
 
     const bg=g.background.material.uniforms.map.value,farMap=lighting.farMap.value,soft=particleDepth.enabled.value,rings=w.rings.visible;
     this.resolution.copy(lighting.resolution.value);
     const near=!!(w.reflectionFar&&w.quality.planarNear);this.target(near?w.reflectionFar:w.target);
-    w.obliqueProjection.copy(mirror.projectionMatrix);
     let skyCount=0;for(let i=0;i<n;i++)if(this.skyVisible[i])skyCount++;
     try {
       if(skyCount){
@@ -282,14 +310,14 @@ export class BattleFrame {
       if(near){
         sceneProperty(w.group,"visible",false);sceneProperty(w.rings,"visible",false);particleDepth.enabled.value=0;
         lighting.resolution.value.set(w.target.width,w.target.height);lighting.farMap.value=w.reflectionFar.texture;g.background.material.uniforms.map.value=w.reflectionFar.texture;
-        g.updateScene();this.target(w.target);this.role=R.MIRROR0_NEAR;core.coverMirror(r,g.scene,mirror);
+        this.prepareWorlds();this.target(w.target);this.role=R.MIRROR0_NEAR;core.coverMirror(r,g.scene,mirror);
       }
     }finally{
       sceneProperty(w.group,"visible",visible);sceneProperty(w.mirrorPass,"visible",sceneProperty(w.farMirror,"visible",true));sceneProperty(w.rings,"visible",rings);
       lighting.farMap.value=farMap;lighting.resolution.value.copy(this.resolution);particleDepth.enabled.value=soft;g.background.material.uniforms.map.value=bg;
       this.target(null);
-      for(let i=0;i<n;i++){const mesh=layers[i].mesh;sceneTransform(mesh.position.fromArray(this.skyPositions,i*3));sceneProperty(mesh.layers,"mask",this.skyMasks[i]);sceneProperty(mesh,"visible",!!this.skyVisible[i]);}
-      if(sky)sceneTransform(sky.position.set(sx,sy,sz));sceneLayer(mirror.layers,"set",0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
+      for(let i=0;i<n;i++){const mesh=layers[i].mesh;sceneProperty(mesh.layers,"mask",this.skyMasks[i]);sceneProperty(mesh,"visible",!!this.skyVisible[i]);}
+      core.cameras.restoreSky();sceneLayer(mirror.layers,"set",0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
     }
   }
   // Surface containment is still a camera/math fact. Rust selects the low
@@ -320,7 +348,7 @@ export class BattleFrame {
     const core=this.core;core.views();
     const started=performance.now(),ok=core.rust.battle_frame(core.resources.gpu);
     core.phaseMs.frame=performance.now()-started;core.views();
-    this.active=false;core.stale=true;
+    this.active=false;
     if(!ok && core.gl.isContextLost()){core.rust.frame_error_frame();this.cancel();return true;}
     for(let role=0;role<R.COUNT;role++)for(let i=0;i<T.LEN;i++)this.metrics[role][i]=core.frameStats[role*T.LEN+i];
     if(core.frameState[S.MOTION_COMPLETE])motionVectors.commit();
