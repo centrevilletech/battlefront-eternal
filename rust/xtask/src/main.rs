@@ -1,6 +1,7 @@
 // Command-line entry point for `cargo xtask`, replacing the legacy Node.js
 // build and code-generation scripts under `tools/`:
 //   - `cargo xtask schema`              (`tools/sim-schema.mjs`)
+//   - `cargo xtask schema --export-json DIR` (converts `.mjs` schemas to `.json`)
 //   - `cargo xtask shaders`             (`tools/render-shaders.mjs`)
 //   - `cargo xtask presentation-schema` (`tools/presentation-schema.mjs`)
 //   - `cargo xtask environment-schema`  (`tools/environment-schema.mjs`)
@@ -41,6 +42,27 @@ pub fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+// Extracts the directory argument from `--export-json <DIR>` or `--export-json=<DIR>`
+// when passed to `cargo xtask schema`.
+fn parse_export_json_arg(args: &[String]) -> Result<Option<String>, String> {
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--export-json" {
+            let dir = args
+                .get(i + 1)
+                .filter(|s| !s.starts_with('-'))
+                .ok_or_else(|| "usage: cargo xtask schema --export-json <DIR>".to_string())?;
+            return Ok(Some(dir.clone()));
+        }
+        if let Some(dir) = arg.strip_prefix("--export-json=") {
+            if dir.is_empty() {
+                return Err("usage: cargo xtask schema --export-json <DIR>".to_string());
+            }
+            return Ok(Some(dir.to_string()));
+        }
+    }
+    Ok(None)
+}
+
 // Dispatches `cargo xtask <subcommand>` or acts as the deterministic `ar-sorted`
 // archiver wrapper when invoked via a symlink/copy named `ar-sorted`.
 fn main() {
@@ -61,7 +83,8 @@ fn main() {
     let check = rest.iter().any(|a| a == "--check");
 
     // Dispatch the requested xtask subcommand:
-    //   - `schema` / `sim-schema`: simulation store Rust & JS codegen (`sim_schema_js::run_sim_schema`)
+    //   - `schema` / `sim-schema`: simulation store Rust & JS codegen (`sim_schema_js::run_sim_schema`),
+    //     or `.mjs` -> `.json` schema export when `--export-json <DIR>` is passed
     //   - `shaders` / `render-shaders`: GLSL shader table codegen (`shaders::render_shaders`)
     //   - `presentation-schema`: presentation frame/command layout codegen (`layouts::presentation_schema`)
     //   - `environment-schema`: environment config/state layout codegen (`layouts::environment_schema`)
@@ -74,7 +97,11 @@ fn main() {
     //   - `check`: runs all nine generators in `--check` verification mode
     //   - `ar-sorted`: deterministic `ar` wrapper sorting archive members by basename
     let res = match sub {
-        "schema" | "sim-schema" => sim_schema_js::run_sim_schema(&root, check),
+        "schema" | "sim-schema" => match parse_export_json_arg(rest) {
+            Ok(Some(dir)) => schema_eval::export_schemas_json(&root, &dir),
+            Ok(None) => sim_schema_js::run_sim_schema(&root, check),
+            Err(e) => Err(e),
+        },
         "shaders" | "render-shaders" => shaders::render_shaders(&root, check),
         "presentation-schema" => layouts::presentation_schema(&root, check),
         "environment-schema" => layouts::environment_schema(&root, check),
@@ -95,7 +122,7 @@ fn main() {
         }
         "ar-sorted" => process::exit(build::run_ar_sorted(rest)),
         _ => Err(
-            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|host-contract|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|build|check> [--check]"
+            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|host-contract|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|build|check> [--check|--export-json DIR]"
                 .to_string(),
         ),
     };
@@ -110,7 +137,7 @@ fn main() {
 mod tests {
     use super::*;
     use crate::json::JsonValue;
-    use crate::schema_eval::{eval_schema_module, LoadedSchema};
+    use crate::schema_eval::{eval_schema_module, load_json_schema, load_schemas, LoadedSchema};
     use crate::sim_schema::{build_model, parse_type, rust_file, TARGETS};
     use crate::sim_schema_js::js_file;
     use std::fs;
@@ -174,14 +201,18 @@ mod tests {
             ),
             ("ref", Some("character"), true, false)
         );
-        assert!(parse_type("list:(f64|undefined)|null", "x")
-            .unwrap()
-            .nullable
-            .null);
-        assert!(parse_type("list:ref:character|null", "x")
-            .unwrap()
-            .nullable
-            .null);
+        assert!(
+            parse_type("list:(f64|undefined)|null", "x")
+                .unwrap()
+                .nullable
+                .null
+        );
+        assert!(
+            parse_type("list:ref:character|null", "x")
+                .unwrap()
+                .nullable
+                .null
+        );
         assert!(parse_type("list:(f64)", "x")
             .unwrap_err()
             .contains("can be null or undefined"));
@@ -189,11 +220,11 @@ mod tests {
             .unwrap_err()
             .contains("no list"));
 
-        let num_key = parse_type("map:num:list:thing", "x")
-            .unwrap()
-            .key
-            .unwrap();
-        assert_eq!((num_key.base.as_str(), num_key.of.as_deref()), ("num", None));
+        let num_key = parse_type("map:num:list:thing", "x").unwrap().key.unwrap();
+        assert_eq!(
+            (num_key.base.as_str(), num_key.of.as_deref()),
+            ("num", None)
+        );
         let ref_key = parse_type("map:ref:Who:list:thing", "x")
             .unwrap()
             .key
@@ -203,12 +234,14 @@ mod tests {
             ("ref", Some("Who"))
         );
         assert!(parse_type("map:ref:person", "x").unwrap().key.is_none());
-        assert!(parse_type("obj:(rec:Spot|null)", "x")
-            .unwrap()
-            .value
-            .unwrap()
-            .nullable
-            .null);
+        assert!(
+            parse_type("obj:(rec:Spot|null)", "x")
+                .unwrap()
+                .value
+                .unwrap()
+                .nullable
+                .null
+        );
         assert!(parse_type("obj:map:f64", "x")
             .unwrap_err()
             .contains("no map"));
@@ -269,10 +302,12 @@ mod tests {
         .err()
         .unwrap()
         .contains("no kind or union nobody"));
-        assert!(model_from_json("x", r#"{"unions":{"U":["null","Float64Array(2)"]}}"#)
-            .err()
-            .unwrap()
-            .contains("cannot be a union's variant"));
+        assert!(
+            model_from_json("x", r#"{"unions":{"U":["null","Float64Array(2)"]}}"#)
+                .err()
+                .unwrap()
+                .contains("cannot be a union's variant")
+        );
     }
 
     // Verifies identity-kind rules, `$publish` field lists, and `$observe`
@@ -299,10 +334,12 @@ mod tests {
         assert_eq!(kind.key, None);
         assert_eq!(kind.home_kind_name, None);
 
-        assert!(model_from_json("x", r#"{"kinds":{"snapshot":{"fields":{"life":"f64"}}}}"#)
-            .err()
-            .unwrap()
-            .contains("needs a home list"));
+        assert!(
+            model_from_json("x", r#"{"kinds":{"snapshot":{"fields":{"life":"f64"}}}}"#)
+                .err()
+                .unwrap()
+                .contains("needs a home list")
+        );
         assert!(model_from_json(
             "x",
             r#"{"kinds":{"snapshot":{"identity":true,"key":"id","fields":{"life":"f64"}}}}"#
@@ -317,7 +354,10 @@ mod tests {
         )
         .unwrap();
         let pose = pub_model.records.get("Pose").unwrap();
-        assert_eq!(pose.publish, vec!["position".to_string(), "tick".to_string()]);
+        assert_eq!(
+            pose.publish,
+            vec!["position".to_string(), "tick".to_string()]
+        );
         assert_eq!(pose.fields.len(), 3);
 
         let obs_model = model_from_json(
@@ -332,40 +372,102 @@ mod tests {
         assert_eq!(obs_model.records.get("Detail").unwrap().fields.len(), 2);
     }
 
-    // Evaluates two real declarative `.mjs` schema files (`phase.mjs` and
-    // `flight.mjs`, which exercises helper arrow functions, ternary expressions,
-    // and object spread syntax) and compares the resulting `JsonValue` trees
-    // against expected JSON fixtures. Also verifies `layoutOnly` extraction and
-    // rejection of unsupported JS statements.
-    // Verifies `schema_eval::eval_schema_module` on three real schema files
-    // from `rust/sim/schema/`:
-    //   1. `phase.mjs`: declarative `enums` and `records` object literal.
-    //   2. `flight.mjs`: exercises top-level `const fixed = (type, js) => ...`
-    //      arrow function helpers, ternary conditionals (`js ? { js } : {}`),
-    //      and object spread (`...`) evaluation while preserving V8 key order.
-    //   3. `hud.mjs`: verifies `export const layoutOnly = true` is extracted
-    //      into the boolean flag alongside the default export object.
-    // Note: Schema files intentionally remain `.mjs` JavaScript-syntax sources
-    // because `host_contract.rs` hashes `rust/sim/schema/*.mjs` into `HOST_SCHEMA`.
+    // Evaluates declarative `.mjs` schema files (or `.json` equivalents after
+    // conversion) and compares the resulting `JsonValue` trees against expected
+    // JSON fixtures. Also verifies `layoutOnly` extraction and rejection of
+    // unsupported JS statements.
     #[test]
     fn evaluator_matches_expected_json_for_real_schemas() {
         let root = repo_root();
+        let load_one = |stem: &str| -> (JsonValue, bool) {
+            let mjs = root.join(format!("rust/sim/schema/{stem}.mjs"));
+            if mjs.exists() {
+                eval_schema_module(&fs::read_to_string(&mjs).unwrap(), &format!("{stem}.mjs"))
+                    .unwrap()
+            } else {
+                let json = root.join(format!("rust/sim/schema/{stem}.json"));
+                load_json_schema(&fs::read_to_string(&json).unwrap(), &format!("{stem}.json"))
+                    .unwrap()
+            }
+        };
 
-        let (phase_val, phase_layout_only) =
-            eval_schema_module(&fs::read_to_string(root.join("rust/sim/schema/phase.mjs")).unwrap(), "phase.mjs").unwrap();
+        let (phase_val, phase_layout_only) = load_one("phase");
         assert!(!phase_layout_only);
         let expected_phase = r#"{"enums":{"BpQueryOp":["members","buildingAttacker","vehicleAttacker","victims","draw"],"BpActionOp":["post","mobile","kill","effect","over"]},"records":{"BpInput":{"dt":"f64","spawning":"bool"},"BpMember":{"unit":"ref:unit","soldier":"bool","alive":"bool","removed":"bool","seated":"bool","held":"bool","captures":"bool","playerMounted":"bool","team":"f64","position":"f64x3","character":"ref:character|null"},"BpHull":{"vehicle":"ref:vehicle","alive":"bool","position":"f64x3"},"BpQueryArgs":{"op":"enum:BpQueryOp","building":"ref:building|null","vehicle":"ref:vehicle|null"},"BpQueryResult":{"members":"list:rec:BpMember","hulls":"list:rec:BpHull","character":"ref:character|null","number":"f64"},"BpActionArgs":{"op":"enum:BpActionOp","post":"rec:PostEvent|null","mobile":"rec:PsMobileEvent|null","unit":"ref:unit|null","vehicle":"ref:vehicle|null","name":"str|null","position":"f64x3","number":"f64"}}}"#;
         assert_eq!(phase_val.to_json_compact(), expected_phase);
 
-        let (flight_val, flight_layout_only) =
-            eval_schema_module(&fs::read_to_string(root.join("rust/sim/schema/flight.mjs")).unwrap(), "flight.mjs").unwrap();
+        let (flight_val, flight_layout_only) = load_one("flight");
         assert!(!flight_layout_only);
         let expected_flight = r#"{"enums":{"FlightState":["Landed","TakingOff","Flying","Landing","Destroyed"],"FlightClass":["fighter","scout","bomber","transport"]},"kinds":{"vehicle":{"fields":{"flightState":"enum:FlightState|null","grounded":"bool","altitude":"f64","throttle":"f64","airspeed":"f64","stateTime":"f64","floorY":"f64","bank":"f64","gearFoot":{"type":"f64|null","mirror":false},"radius":{"type":"f64","mirror":false},"team":"f64|undefined","flightClass":{"type":"enum:FlightClass|undefined","mirror":false},"minSpeed":{"type":"f64|undefined","mirror":false},"midSpeed":{"type":"f64|undefined","mirror":false},"boostSpeed":{"type":"f64|undefined","mirror":false},"power":"f64|undefined","stickX":"f64|undefined","stickY":"f64|undefined","flightRollRate":"f64|undefined","rollLock":"bool|undefined","boosting":"bool|undefined","trick":"str|undefined","trickTime":"f64|undefined","trickCooldown":"f64|undefined","trickPending":"f64|undefined","trickDirection":"f64|undefined","gear":"f64|undefined","landingMessage":"str|undefined","landingMessageTime":"f64|undefined","flightTrickRight":"vec3|undefined","flightClock":"f64|undefined","boostExhausted":"bool|undefined","landingReason":"str|undefined","flightWarning":"str|undefined","terrainWarning":"bool|undefined","flightAssistId":"f64|undefined","flightLockId":"f64|undefined","flightLockGeneration":"f64|undefined","flightLockTimer":"f64|undefined","flightLostLOS":"f64|undefined","flightLockState":"str|undefined","flightStart":"vec3|undefined","flightEnd":"vec3|undefined","flightStartQ":"quat|undefined","flightTrickLoopQ":"quat|undefined","flightTrickEndQ":"quat|undefined","flightPreviousQ":"quat|undefined","flightTickQ":"quat|undefined","flightActionHeld":"bool|undefined","trickHeld":"bool|undefined","immelmannHeld":"bool|undefined","flightFrameQ":"quat|undefined"},"skip":{"flightConfig":"its class's tuning (src/flight/config.js flightConfig): the class definition's speeds and handling under the live FLIGHT_CLASSES entry","flightLeanQ":"drawFlyer's scratch, set before every read"}}}}"#;
         assert_eq!(flight_val.to_json_compact(), expected_flight);
 
-        let (_hud_val, hud_layout_only) =
-            eval_schema_module(&fs::read_to_string(root.join("rust/sim/schema/hud.mjs")).unwrap(), "hud.mjs").unwrap();
+        let (_hud_val, hud_layout_only) = load_one("hud");
         assert!(hud_layout_only);
+    }
+
+    // Verifies that `cargo xtask schema --export-json DIR` exports every `.mjs`
+    // schema to `.json` and that `load_schemas` + `sim_schema_js::generate_all`
+    // produce byte-for-byte identical generated files from `.json` sources.
+    #[test]
+    fn export_json_roundtrips_and_regenerates_byte_identically() {
+        let root = repo_root();
+        if !root.join("rust/sim/schema/client.mjs").exists() {
+            return;
+        }
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = env::temp_dir().join(format!("xtask-export-json-{}-{nanos}", process::id()));
+        let tmp_schema = tmp.join("rust/sim/schema");
+        let tmp_schema_test = tmp.join("rust/sim/schema-test");
+        fs::create_dir_all(&tmp_schema).unwrap();
+        fs::create_dir_all(&tmp_schema_test).unwrap();
+
+        // Copy `rust/sim/schema-test/shelf.mjs` into `tmp_schema_test`, export both
+        // directories to `.json`, and delete the `.mjs` files so `load_schemas` reads
+        // exclusively from the exported `.json` files.
+        for entry in fs::read_dir(root.join("rust/sim/schema-test")).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("mjs") {
+                fs::copy(&path, tmp_schema_test.join(entry.file_name())).unwrap();
+            }
+        }
+        schema_eval::export_schemas_json(&root, &tmp_schema.to_string_lossy()).unwrap();
+        schema_eval::export_schemas_json(&root, &tmp_schema_test.to_string_lossy()).unwrap();
+        let _ = fs::remove_file(tmp_schema_test.join("shelf.mjs"));
+
+        // Verify that `load_schemas` over the JSON-only directories produces the exact
+        // same `LoadedSchema` list (file stem, V8-ordered `JsonValue`, and `layout_only`)
+        // as `load_schemas` over the `.mjs` directories.
+        let mjs_main = load_schemas(&root.join("rust/sim/schema"), true).unwrap();
+        let json_main = load_schemas(&tmp_schema, true).unwrap();
+        assert_eq!(mjs_main.len(), json_main.len());
+        for (a, b) in mjs_main.iter().zip(json_main.iter()) {
+            assert_eq!(a.file, b.file);
+            assert_eq!(a.layout_only, b.layout_only);
+            assert_eq!(a.schema, b.schema, "schema mismatch for {}", a.file);
+        }
+
+        // Verify that `generate_all` against the JSON-only temp workspace produces
+        // byte-for-byte identical contents for all 94 generated Rust and JS files.
+        let from_mjs = sim_schema_js::generate_all(&root).unwrap();
+        let from_json = sim_schema_js::generate_all(&tmp).unwrap();
+        assert_eq!(from_mjs.len(), from_json.len());
+        for ((p_mjs, c_mjs), (p_json, c_json)) in from_mjs.iter().zip(from_json.iter()) {
+            let rel_mjs = p_mjs.strip_prefix(&root).unwrap();
+            let rel_json = p_json.strip_prefix(&tmp).unwrap();
+            assert_eq!(rel_mjs, rel_json);
+            assert_eq!(
+                c_mjs,
+                c_json,
+                "generated file differs for {}",
+                rel_mjs.display()
+            );
+        }
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     // Compiles a small synthetic schema containing a constant, an enum, a tagged

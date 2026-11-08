@@ -1,4 +1,4 @@
-// Declarative JavaScript schema module evaluator (`schema_eval.rs`).
+// Declarative JavaScript and JSON schema loader and exporter (`schema_eval.rs`).
 //
 // Why this module exists:
 // The 40 simulation and boundary schema files in `rust/sim/schema/*.mjs` (plus the
@@ -6,8 +6,10 @@
 // modules (`export default { ... }`). Converting those `.mjs` files to `.json` on
 // disk would change the SHA-256 wire compatibility fingerprint computed by
 // `host_contract.rs` (`HOST_SCHEMA` hashes every file under `rust/sim/schema`),
-// which is a release-boundary decision reserved for the lead. Instead, `xtask`
-// evaluates those `.mjs` files directly in Rust without invoking Node.js.
+// which is a release-boundary decision reserved for the deletion sweep.
+// Until the deletion sweep converts `rust/sim/schema/*.mjs` to `.json` via
+// `cargo xtask schema --export-json DIR`, `xtask` evaluates `.mjs` files directly
+// in Rust without invoking Node.js, and seamlessly reads `<stem>.json` once exported.
 //
 // Evaluated JavaScript subset:
 // 1. Lexical tokens:
@@ -56,51 +58,201 @@
 // conditional spread `...(js ? { js } : {})`.
 
 use crate::json::JsonValue;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-// Loaded representation of a single `.mjs` schema file, corresponding to one entry
-// returned by `loadSchemas(dir)` in `tools/sim-schema.mjs`.
+// Loaded representation of a single `.mjs` or `.json` schema file, corresponding to
+// one entry returned by `loadSchemas(dir)` in `tools/sim-schema.mjs`.
 pub struct LoadedSchema {
-    // Filename stem without the `.mjs` extension (e.g. `"client"` for `client.mjs`).
+    // Filename stem without the `.mjs` or `.json` extension (e.g. `"client"`).
     pub file: String,
     // Evaluated `export default` object preserving V8 property insertion order.
     pub schema: JsonValue,
-    // Value of `export const layoutOnly = true` when present; `false` otherwise.
+    // Value of `export const layoutOnly = true` (or `"$layoutOnly": true` in JSON).
     pub layout_only: bool,
 }
 
-// Ports `loadSchemas(dir)` from `tools/sim-schema.mjs`.
+// Returns true when `name` is a simulation store JSON schema file (`*.json`
+// excluding presentation/transport `*-layout.json` files).
+fn is_sim_json_schema(name: &str) -> bool {
+    name.ends_with(".json") && !name.ends_with("-layout.json")
+}
+
+// Parses a `.json` simulation schema file exported by `export_schemas_json`,
+// extracting and stripping the top-level `"$layoutOnly"` boolean marker when present
+// so the returned `(JsonValue, bool)` matches `eval_schema_module` byte-for-byte.
+pub fn load_json_schema(source: &str, filename: &str) -> Result<(JsonValue, bool), String> {
+    let parsed = JsonValue::parse(source).map_err(|e| format!("{filename}: {e}"))?;
+    let JsonValue::Object(entries) = parsed else {
+        return Err(format!("{filename}: schema root must be a JSON object"));
+    };
+    let mut layout_only = false;
+    let mut filtered = Vec::with_capacity(entries.len());
+    for (k, v) in entries {
+        if k == "$layoutOnly" {
+            layout_only = v
+                .as_bool()
+                .ok_or_else(|| format!("{filename}: $layoutOnly must be a boolean"))?;
+        } else {
+            filtered.push((k, v));
+        }
+    }
+    Ok((JsonValue::Object(filtered), layout_only))
+}
+
+// Serializes an evaluated `(schema, layout_only)` pair into a canonical 2-space
+// pretty-printed JSON document with a trailing newline. When `layout_only` is true,
+// prepends `"$layoutOnly": true` as the first top-level object property.
+pub fn format_schema_json(
+    schema: &JsonValue,
+    layout_only: bool,
+    filename: &str,
+) -> Result<String, String> {
+    let JsonValue::Object(entries) = schema else {
+        return Err(format!("{filename}: schema root must be a JSON object"));
+    };
+    let mut out_entries = Vec::with_capacity(entries.len() + usize::from(layout_only));
+    if layout_only {
+        out_entries.push(("$layoutOnly".to_string(), JsonValue::Bool(true)));
+    }
+    for (k, v) in entries {
+        if k != "$layoutOnly" {
+            out_entries.push((k.clone(), v.clone()));
+        }
+    }
+    let doc = JsonValue::Object(out_entries);
+    Ok(format!("{}\n", doc.to_json_pretty()))
+}
+
+// Resolves `dir_arg` passed to `cargo xtask schema --export-json <DIR>` against
+// either the repository root (when `root/dir_arg` exists or `dir_arg` begins with
+// `rust/`) or the current working directory.
+fn resolve_export_dir(root: &Path, dir_arg: &str) -> PathBuf {
+    let p = Path::new(dir_arg);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    let from_root = root.join(p);
+    if from_root.exists() || dir_arg.starts_with("rust/") || dir_arg.starts_with("rust\\") {
+        return from_root;
+    }
+    p.to_path_buf()
+}
+
+// Exports declarative `.mjs` schema modules to `<DIR>/<stem>.json` (`cargo xtask schema --export-json <DIR>`).
 //
-// Ordering rule: directory entries ending in `.mjs` are sorted lexicographically by
-// byte order (`files.sort()`), matching `.sort()` on UTF-16 code units in Node.js for
-// ASCII filenames. When `include_layouts` is `false`, schemas exporting
-// `layoutOnly = true` are skipped just like `if (mod.layoutOnly) continue;` in
-// `tools/sim-schema.mjs`.
+// Source selection rule:
+// - If `<DIR>` already contains `.mjs` files (for example `rust/sim/schema` or
+//   `rust/sim/schema-test`), evaluates every `<stem>.mjs` in `<DIR>` and writes
+//   `<DIR>/<stem>.json` alongside it.
+// - Otherwise, evaluates every `<stem>.mjs` in `rust/sim/schema` and writes
+//   `<DIR>/<stem>.json` into `<DIR>` (creating `<DIR>` if needed).
+pub fn export_schemas_json(root: &Path, dir_arg: &str) -> Result<(), String> {
+    let target_dir = resolve_export_dir(root, dir_arg);
+    fs::create_dir_all(&target_dir).map_err(|e| format!("{}: {e}", target_dir.display()))?;
+
+    let has_mjs = fs::read_dir(&target_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .any(|name| name.ends_with(".mjs"));
+
+    let src_dir = if has_mjs {
+        target_dir.clone()
+    } else {
+        root.join("rust/sim/schema")
+    };
+
+    let mut mjs_files: Vec<String> = fs::read_dir(&src_dir)
+        .map_err(|e| format!("{}: {e}", src_dir.display()))?
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().into_string().ok()?;
+            if name.ends_with(".mjs") {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect();
+    mjs_files.sort();
+
+    if mjs_files.is_empty() {
+        return Err(format!(
+            "no .mjs schema files found in {}",
+            src_dir.display()
+        ));
+    }
+
+    for file in &mjs_files {
+        let src_path = src_dir.join(file);
+        let text = fs::read_to_string(&src_path).map_err(|e| format!("{file}: {e}"))?;
+        let (schema, layout_only) = eval_schema_module(&text, file)?;
+        let json_text = format_schema_json(&schema, layout_only, file)?;
+        let stem = file.strip_suffix(".mjs").unwrap();
+        let dst_path = target_dir.join(format!("{stem}.json"));
+        fs::write(&dst_path, json_text).map_err(|e| format!("{}: {e}", dst_path.display()))?;
+    }
+
+    println!(
+        "exported {} schema files to {}",
+        mjs_files.len(),
+        target_dir.display()
+    );
+    Ok(())
+}
+
+// Ports `loadSchemas(dir)` from `tools/sim-schema.mjs`, supporting both `.mjs`
+// schema modules and `.json` schema files (excluding `*-layout.json`).
+//
+// Ordering rule: schema stems are sorted by `<stem>.mjs` in lexicographical byte
+// order (`Array.prototype.sort()` on UTF-16 code units in Node.js for ASCII
+// filenames, so `client-timing.mjs` sorts before `client.mjs`). When both
+// `<stem>.json` and `<stem>.mjs` exist, `<stem>.json` takes precedence. When
+// `include_layouts` is `false`, schemas with `layoutOnly = true` are skipped.
 pub fn load_schemas(dir: &Path, include_layouts: bool) -> Result<Vec<LoadedSchema>, String> {
     if !dir.exists() {
         return Ok(Vec::new());
     }
-    let mut files: Vec<String> = fs::read_dir(dir)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| {
-            let name = e.ok()?.file_name().into_string().ok()?;
-            if name.ends_with(".mjs") { Some(name) } else { None }
-        })
-        .collect();
-    files.sort();
+    let mut stems_set = BTreeSet::new();
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let Some(name) = entry.ok().and_then(|e| e.file_name().into_string().ok()) else {
+            continue;
+        };
+        if let Some(stem) = name.strip_suffix(".mjs") {
+            stems_set.insert(stem.to_string());
+        } else if is_sim_json_schema(&name) {
+            if let Some(stem) = name.strip_suffix(".json") {
+                stems_set.insert(stem.to_string());
+            }
+        }
+    }
+
+    // Sort by `<stem>.mjs` so `'-'` (0x2d) vs `'.'` (0x2e) ordering matches
+    // `fs.readdirSync(dir).sort()` over `.mjs` filenames (`client-timing` before `client`).
+    let mut stems: Vec<String> = stems_set.into_iter().collect();
+    stems.sort_by(|a, b| format!("{a}.mjs").cmp(&format!("{b}.mjs")));
 
     let mut out = Vec::new();
-    for file in files {
-        let path = dir.join(&file);
-        let text = fs::read_to_string(&path).map_err(|e| format!("{file}: {e}"))?;
-        let (schema, layout_only) = eval_schema_module(&text, &file)?;
+    for stem in stems {
+        let json_name = format!("{stem}.json");
+        let json_path = dir.join(&json_name);
+        let (schema, layout_only) = if json_path.exists() {
+            let text = fs::read_to_string(&json_path).map_err(|e| format!("{json_name}: {e}"))?;
+            load_json_schema(&text, &json_name)?
+        } else {
+            let mjs_name = format!("{stem}.mjs");
+            let mjs_path = dir.join(&mjs_name);
+            let text = fs::read_to_string(&mjs_path).map_err(|e| format!("{mjs_name}: {e}"))?;
+            eval_schema_module(&text, &mjs_name)?
+        };
         if layout_only && !include_layouts {
             continue;
         }
-        let stem = file.strip_suffix(".mjs").unwrap().to_string();
-        out.push(LoadedSchema { file: stem, schema, layout_only });
+        out.push(LoadedSchema {
+            file: stem,
+            schema,
+            layout_only,
+        });
     }
     Ok(out)
 }
@@ -132,7 +284,12 @@ impl Val {
 // that evaluate individual layout-only `.mjs` files (`audio.mjs`, `environment.mjs`, etc.).
 pub fn eval_schema_module(source: &str, filename: &str) -> Result<(JsonValue, bool), String> {
     let tokens = tokenize(source, filename)?;
-    let mut parser = ModuleParser { tokens: &tokens, pos: 0, filename, env: HashMap::new() };
+    let mut parser = ModuleParser {
+        tokens: &tokens,
+        pos: 0,
+        filename,
+        env: HashMap::new(),
+    };
     parser.parse_module()
 }
 
@@ -187,16 +344,46 @@ fn tokenize(src: &str, filename: &str) -> Result<Vec<Tok>, String> {
             continue;
         }
         match b {
-            b'{' => { out.push(Tok::LBrace); i += 1; }
-            b'}' => { out.push(Tok::RBrace); i += 1; }
-            b'[' => { out.push(Tok::LBracket); i += 1; }
-            b']' => { out.push(Tok::RBracket); i += 1; }
-            b'(' => { out.push(Tok::LParen); i += 1; }
-            b')' => { out.push(Tok::RParen); i += 1; }
-            b':' => { out.push(Tok::Colon); i += 1; }
-            b',' => { out.push(Tok::Comma); i += 1; }
-            b';' => { out.push(Tok::Semi); i += 1; }
-            b'?' => { out.push(Tok::Question); i += 1; }
+            b'{' => {
+                out.push(Tok::LBrace);
+                i += 1;
+            }
+            b'}' => {
+                out.push(Tok::RBrace);
+                i += 1;
+            }
+            b'[' => {
+                out.push(Tok::LBracket);
+                i += 1;
+            }
+            b']' => {
+                out.push(Tok::RBracket);
+                i += 1;
+            }
+            b'(' => {
+                out.push(Tok::LParen);
+                i += 1;
+            }
+            b')' => {
+                out.push(Tok::RParen);
+                i += 1;
+            }
+            b':' => {
+                out.push(Tok::Colon);
+                i += 1;
+            }
+            b',' => {
+                out.push(Tok::Comma);
+                i += 1;
+            }
+            b';' => {
+                out.push(Tok::Semi);
+                i += 1;
+            }
+            b'?' => {
+                out.push(Tok::Question);
+                i += 1;
+            }
             // Distinguish `=>` (arrow function token) from `=` (binding assignment).
             b'=' => {
                 if i + 1 < bytes.len() && bytes[i + 1] == b'>' {
@@ -255,26 +442,37 @@ fn tokenize(src: &str, filename: &str) -> Result<Vec<Tok>, String> {
                 if b == b'-' {
                     i += 1;
                 }
-                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.' || bytes[i] == b'_') {
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.' || bytes[i] == b'_')
+                {
                     i += 1;
                 }
                 let raw = src[start..i].replace('_', "");
-                let num: f64 = if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
-                    u64::from_str_radix(hex, 16).map_err(|e| format!("{filename}: {e}"))? as f64
-                } else {
-                    raw.parse().map_err(|e| format!("{filename}: invalid number '{raw}': {e}"))?
-                };
+                let num: f64 =
+                    if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+                        u64::from_str_radix(hex, 16).map_err(|e| format!("{filename}: {e}"))? as f64
+                    } else {
+                        raw.parse()
+                            .map_err(|e| format!("{filename}: invalid number '{raw}': {e}"))?
+                    };
                 out.push(Tok::Num(num));
             }
             // ASCII identifiers and keywords (`const`, `export`, `default`, `true`, `false`, `null`).
             _ if b.is_ascii_alphabetic() || b == b'_' || b == b'$' => {
                 let start = i;
-                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$') {
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+                {
                     i += 1;
                 }
                 out.push(Tok::Ident(src[start..i].to_string()));
             }
-            _ => return Err(format!("{filename}: unexpected character '{}' at byte {i}", b as char)),
+            _ => {
+                return Err(format!(
+                    "{filename}: unexpected character '{}' at byte {i}",
+                    b as char
+                ))
+            }
         }
     }
     Ok(out)
@@ -296,7 +494,10 @@ impl<'a> ModuleParser<'a> {
 
     // Consumes and returns the current token, or errors on unexpected EOF.
     fn next(&mut self) -> Result<&'a Tok, String> {
-        let t = self.tokens.get(self.pos).ok_or_else(|| format!("{}: unexpected EOF", self.filename))?;
+        let t = self
+            .tokens
+            .get(self.pos)
+            .ok_or_else(|| format!("{}: unexpected EOF", self.filename))?;
         self.pos += 1;
         Ok(t)
     }
@@ -305,7 +506,10 @@ impl<'a> ModuleParser<'a> {
     fn expect(&mut self, expected: &Tok) -> Result<(), String> {
         let t = self.next()?;
         if t != expected {
-            return Err(format!("{}: expected {:?}, got {:?}", self.filename, expected, t));
+            return Err(format!(
+                "{}: expected {:?}, got {:?}",
+                self.filename, expected, t
+            ));
         }
         Ok(())
     }
@@ -326,7 +530,12 @@ impl<'a> ModuleParser<'a> {
                     self.pos += 1;
                     let name = match self.next()? {
                         Tok::Ident(s) => s.clone(),
-                        other => return Err(format!("{}: expected identifier after const, got {:?}", self.filename, other)),
+                        other => {
+                            return Err(format!(
+                                "{}: expected identifier after const, got {:?}",
+                                self.filename, other
+                            ))
+                        }
                     };
                     self.expect(&Tok::Eq)?;
                     let val = self.parse_expr()?;
@@ -349,7 +558,12 @@ impl<'a> ModuleParser<'a> {
                         Tok::Ident(s) if s == "const" => {
                             let name = match self.next()? {
                                 Tok::Ident(n) => n.clone(),
-                                other => return Err(format!("{}: expected ident, got {:?}", self.filename, other)),
+                                other => {
+                                    return Err(format!(
+                                        "{}: expected ident, got {:?}",
+                                        self.filename, other
+                                    ))
+                                }
                             };
                             self.expect(&Tok::Eq)?;
                             let val = self.parse_expr()?;
@@ -363,14 +577,22 @@ impl<'a> ModuleParser<'a> {
                                 self.pos += 1;
                             }
                         }
-                        other => return Err(format!("{}: unexpected export {:?}", self.filename, other)),
+                        other => {
+                            return Err(format!("{}: unexpected export {:?}", self.filename, other))
+                        }
                     }
                 }
-                other => return Err(format!("{}: unexpected top-level token {:?}", self.filename, other)),
+                other => {
+                    return Err(format!(
+                        "{}: unexpected top-level token {:?}",
+                        self.filename, other
+                    ))
+                }
             }
         }
 
-        let schema = default_export.ok_or_else(|| format!("{}: missing export default", self.filename))?;
+        let schema =
+            default_export.ok_or_else(|| format!("{}: missing export default", self.filename))?;
         Ok((schema, layout_only))
     }
 
@@ -441,7 +663,11 @@ impl<'a> ModuleParser<'a> {
                         self.expect(&Tok::RParen)?;
                         match self.env.get(name) {
                             Some(Val::FixedFn) => {
-                                let ty = args.first().cloned().ok_or("fixed() missing type arg")?.into_json(self.filename)?;
+                                let ty = args
+                                    .first()
+                                    .cloned()
+                                    .ok_or("fixed() missing type arg")?
+                                    .into_json(self.filename)?;
                                 let mut fields = vec![
                                     ("type".to_string(), ty),
                                     ("mirror".to_string(), JsonValue::Bool(false)),
@@ -454,11 +680,17 @@ impl<'a> ModuleParser<'a> {
                             _ => Err(format!("{}: unknown function {name}", self.filename)),
                         }
                     } else {
-                        self.env.get(name).cloned().ok_or_else(|| format!("{}: unknown identifier {name}", self.filename))
+                        self.env
+                            .get(name)
+                            .cloned()
+                            .ok_or_else(|| format!("{}: unknown identifier {name}", self.filename))
                     }
                 }
             },
-            other => Err(format!("{}: unexpected token in expression: {:?}", self.filename, other)),
+            other => Err(format!(
+                "{}: unexpected token in expression: {:?}",
+                self.filename, other
+            )),
         }
     }
 
@@ -487,13 +719,21 @@ impl<'a> ModuleParser<'a> {
                     Tok::Ident(s) => s.clone(),
                     Tok::Str(s) => s.clone(),
                     Tok::Num(n) => (*n as i64).to_string(),
-                    other => return Err(format!("{}: expected object key, got {:?}", self.filename, other)),
+                    other => {
+                        return Err(format!(
+                            "{}: expected object key, got {:?}",
+                            self.filename, other
+                        ))
+                    }
                 };
                 let val = if self.peek() == Some(&Tok::Colon) {
                     self.pos += 1;
                     self.parse_expr()?
                 } else {
-                    self.env.get(&key).cloned().ok_or_else(|| format!("{}: unknown shorthand {key}", self.filename))?
+                    self.env
+                        .get(&key)
+                        .cloned()
+                        .ok_or_else(|| format!("{}: unknown shorthand {key}", self.filename))?
                 };
                 if let Val::Json(j) = val {
                     if let Some(existing) = entries.iter_mut().find(|(ek, _)| ek == &key) {
