@@ -22,6 +22,20 @@ for part in parts:
             new=f'pub fn {method}(&mut self,random:&[f64])->Result<(),String>{{let mut cursor=0;self.inner.{method}(&mut ||{{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value}});if cursor>random.len(){{return Err(String::from("sniper random service is short"));}}Ok(())}}'
             if old not in part:raise SystemExit('sniper random facade changed')
             part=part.replace(old,new)
+    if cls=='PageLightning':
+        setup='let mut cursor=0;let mut collision=crate::effects::lightning::RecordedCollision{values:casts,cursor:0};'
+        random='&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value}'
+        check='if cursor>random.len()||collision.cursor>casts.len(){return Err(String::from("lightning service recording is short"));}'
+        replacements=[
+            ('pub fn add(&mut self,def:usize,classic:bool,enhanced:bool,host:&crate::effects::lightning_web::Host)->usize{self.inner.add(def,classic,enhanced,&mut ||page_random(),&mut crate::effects::lightning_web::BrowserCollision(host))}',
+             'pub fn add(&mut self,def:usize,classic:bool,enhanced:bool,random:&[f64],casts:&[f64])->Result<usize,JsValue>{'+setup+'let result=self.inner.add(def,classic,enhanced,'+random+',&mut collision);'+check+'Ok(result)}'),
+            ('pub fn step(&mut self,host:&crate::effects::lightning_web::Host){self.inner.step(&mut ||page_random(),&mut crate::effects::lightning_web::BrowserCollision(host));}',
+             'pub fn step(&mut self,random:&[f64],casts:&[f64])->Result<(),JsValue>{'+setup+'self.inner.step('+random+',&mut collision);'+check+'Ok(())}'),
+            ('pub fn fixture(&mut self,data:&str,host:&crate::effects::lightning_web::Host)->Result<String,JsValue>{let input=serde_json::from_str(data).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(self.inner.fixture(input,&mut ||page_random(),&mut crate::effects::lightning_web::BrowserCollision(host)))}',
+             'pub fn fixture(&mut self,data:&str,random:&[f64],casts:&[f64])->Result<String,JsValue>{let input=serde_json::from_str(data).map_err(|e|JsValue::from_str(&e.to_string()))?;'+setup+'let result=self.inner.fixture(input,'+random+',&mut collision);'+check+'Ok(result)}')]
+        for old,new in replacements:
+            if old not in part:raise SystemExit('lightning service facade changed')
+            part=part.replace(old,new)
     part=part.replace('crate::','bfe_presentation::').replace('JsValue','String')
     part=re.sub(r'String::from_str\(&e.to_string\(\)\)','e.to_string()',part)
     part=part[:part.rfind('}')+1].replace('String::from_str','String::from')

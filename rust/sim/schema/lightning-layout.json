@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "records": {
+    "LightningFrame": {
+      "dt": 1,
+      "enhanced": 1,
+      "eye": 3,
+      "camera": 4,
+      "layers": 1,
+      "units": 1,
+      "hasView": 1,
+      "orderCount": 1
+    },
+    "LightningUnit": {
+      "generation": 1,
+      "alive": 1,
+      "soldier": 1,
+      "removed": 1,
+      "root": 3,
+      "combat": 1,
+      "dead": 1,
+      "mounted": 1,
+      "walker": 1,
+      "seat": 1,
+      "held": 1,
+      "shown": 1,
+      "own": 1,
+      "hasOrigin": 1,
+      "origin": 3,
+      "hasMuzzle": 1,
+      "muzzle": 3,
+      "hasWeapon": 1,
+      "cone": 1,
+      "charging": 1,
+      "pressed": 1,
+      "maxPressed": 1,
+      "color": 4,
+      "shield": 1,
+      "center": 3,
+      "radius": 3,
+      "hasHand": 1,
+      "hand": 3,
+      "hasWrist": 1,
+      "wrist": 3,
+      "grip": 3,
+      "parent": 16,
+      "listed": 1,
+      "firstPerson": 1,
+      "bodyVisible": 1,
+      "hasCurrentMuzzle": 1,
+      "currentMuzzle": 3
+    },
+    "LightningNode": {
+      "position": 3,
+      "quaternion": 4,
+      "scale": 3,
+      "matrixAutoUpdate": 1,
+      "matrix": 16
+    },
+    "LightningSpawn": {
+      "start": 3,
+      "end": 3,
+      "charge": 1,
+      "follow": 1,
+      "followAt": 3,
+      "followUnit": 1
+    },
+    "LightningBolt": {
+      "active": 1,
+      "classicLife": 1,
+      "age": 1,
+      "delay": 1,
+      "arrived": 1,
+      "air": 1,
+      "shooter": 1,
+      "source": 1,
+      "target": 1,
+      "from": 3,
+      "to": 3,
+      "start": 3,
+      "end": 3
+    },
+    "LightningShock": {
+      "active": 1,
+      "generation": 1,
+      "age": 1,
+      "life": 1,
+      "strength": 1,
+      "intensity": 1,
+      "time": 1,
+      "seed": 1,
+      "color": 3,
+      "shield": 1,
+      "show": 1,
+      "overlayIntensity": 1
+    },
+    "LightningJoint": {
+      "on": 1,
+      "quaternion": 4
+    },
+    "LightningLight": {
+      "kind": 1,
+      "position": 3,
+      "color": 3,
+      "radius": 1,
+      "scale": 1
+    },
+    "LightningCapsule": {
+      "a": 3,
+      "b": 3,
+      "na": 3,
+      "nb": 3,
+      "color": 4,
+      "size": 4
+    },
+    "LightningCounts": {
+      "bolts": 1,
+      "sparks": 1,
+      "capsules": 1,
+      "viewCapsules": 1,
+      "vertices": 1,
+      "indices": 1,
+      "lights": 1,
+      "texture": 1,
+      "dropped": 1,
+      "aim": 1,
+      "follow": 1,
+      "enhancedActive": 1
+    },
+    "LightningCamera": {
+      "pixelAngle": 1,
+      "nearDepth": 1
+    }
+  },
+  "limits": {
+    "LightningLimits": {
+      "bolts": 512,
+      "units": 1024,
+      "nodesPerUnit": 128,
+      "joints": 10,
+      "children": 32,
+      "arcs": 16,
+      "sparks": 600,
+      "capsules": 16384,
+      "vertices": 16384,
+      "lights": 4096
+    },
+    "LightningReaders": {
+      "pose": 1,
+      "caster": 2,
+      "origin": 4,
+      "view": 8,
+      "current": 16,
+      "details": 32
+    }
+  }
+}

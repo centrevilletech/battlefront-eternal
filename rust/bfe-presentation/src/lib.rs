@@ -1,5 +1,6 @@
 //! Persistent effect state, independent of the window, GL backend and clock.
 //! The host submits ordered commands once; the kernel publishes draw records.
+pub mod effects;
 pub mod layout;
 pub mod cameras;
 pub mod aim;

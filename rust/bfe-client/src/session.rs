@@ -187,6 +187,8 @@ pub enum PresentationOwner {
     Ordnance(PageOrdnance),
     Feet(PageFeet),
     Sniper(PageSniper),
+    Lightning(PageLightning),
+    ArcCamera(PageArcCamera),
     Network(PageNetwork),
     Warning(PageWarning),
     Lights(PageLights),
@@ -203,6 +205,8 @@ pub enum PresentationCommand {
     Ordnance(PageOrdnanceCommand),
     Feet(PageFeetCommand),
     Sniper(PageSniperCommand),
+    Lightning(PageLightningCommand),
+    ArcCamera(PageArcCameraCommand),
     Network(PageNetworkCommand),
     Warning(PageWarningCommand),
     Lights(PageLightsCommand),
@@ -223,7 +227,7 @@ impl PresentationOwner {
 }
 impl PresentationCommand {pub fn execute(&self,owner:&mut PresentationOwner)->Result<(),String>{match(self,owner){$((Self::$case(c),PresentationOwner::$case(p))=>c.execute(p),)*(Self::Network(c),PresentationOwner::Network(p))=>c.execute(p),(Self::Push,PresentationOwner::Timeline(t))=>{t.push();Ok(())},(Self::Present,PresentationOwner::Timeline(t))=>{t.present();Ok(())},(Self::Reset(e),PresentationOwner::Timeline(t))=>{t.reset(*e);Ok(())},(Self::Remove(e),PresentationOwner::Timeline(t))=>{t.remove(*e);Ok(())},_=>Err("presentation owner type mismatch".into())}}}
 };}
-owners!(Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
+owners!(Lightning,"pagelightning",PageLightningCommand;ArcCamera,"pagearccamera",PageArcCameraCommand;Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
 impl PresentationOwner {
     pub fn new(class: &str, content: &str, preview: bool) -> Result<Self, String> {
         Ok(match class {
@@ -238,6 +242,8 @@ impl PresentationOwner {
             "pageitems" => Self::Items(PageItems::new()),
             "pageordnance" => Self::Ordnance(PageOrdnance::new()),
             "pagefeet" => Self::Feet(PageFeet::new()),
+            "pagelightning" => Self::Lightning(PageLightning::new()),
+            "pagearccamera" => Self::ArcCamera(PageArcCamera::new()),
             "pagesniper" => Self::Sniper(PageSniper::new()),
             "pagenetwork" => Self::Network(PageNetwork::new()),
             "pagewarning" => Self::Warning(PageWarning::new()),
@@ -266,6 +272,8 @@ pub fn presentation_schema() -> Value {
         "pagelights",
         "pageshellmusic",
         "pageinterfacebatch",
+        "pagelightning",
+        "pagearccamera",
     ] {
         // Empty authored effects still constructs the same bounded scalar banks.
         if let Ok(mut p) = PresentationOwner::new(

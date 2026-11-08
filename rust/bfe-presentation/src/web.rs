@@ -756,3 +756,55 @@ impl PageSniper {
     pub fn match_impacts(&mut self,count:usize){self.inner.match_impacts(count);}
     pub fn frame(&mut self){self.inner.frame(&mut ||page_random());}
 }
+
+// Arc and Classic lightning share one retained owner. The only synchronous
+// foreign service answers rays in the existing page collision memory.
+#[wasm_bindgen]
+pub struct PageLightning {inner:crate::effects::lightning::Lightning}
+#[wasm_bindgen]
+impl PageLightning {
+    #[wasm_bindgen(constructor)] pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn definition(&mut self,data:&str)->Result<usize,JsValue>{Ok(self.inner.definition(serde_json::from_str(data).map_err(|e|JsValue::from_str(&e.to_string()))?))}
+    pub fn actor(&mut self,id:usize,data:&str)->Result<usize,JsValue>{Ok(self.inner.actor(id,serde_json::from_str(data).map_err(|e|JsValue::from_str(&e.to_string()))?))}
+    pub fn used_ptr(&self)->*const u32{self.inner.used.as_ptr()}
+    pub fn unit_order_ptr(&self)->*const u32{self.inner.unit_order.as_ptr()}
+    pub fn aim_ptr(&self)->*const u32{self.inner.aim.as_ptr()}
+    pub fn readers_ptr(&self)->*const u32{self.inner.readers.as_ptr()}
+    pub fn follows_ptr(&self)->*const u32{self.inner.follows.as_ptr()}
+    pub fn prepare(&mut self){self.inner.prepare();}
+    pub fn frame_ptr(&self)->*const f64{self.inner.frame.as_ptr()}
+    pub fn units_ptr(&self)->*const f64{self.inner.units.as_ptr()}
+    pub fn nodes_ptr(&self)->*const f64{self.inner.nodes.as_ptr()}
+    pub fn nodes_len(&self)->usize{self.inner.nodes.len()}
+    pub fn spawn_ptr(&self)->*const f64{self.inner.spawn.as_ptr()}
+    pub fn held_ptr(&self)->*const f64{self.inner.held.as_ptr()}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn shocks_output_ptr(&self)->*const f64{self.inner.shocks_output.as_ptr()}
+    pub fn joints_ptr(&self)->*const f64{self.inner.joints.as_ptr()}
+    pub fn lights_ptr(&self)->*const f64{self.inner.lights.as_ptr()}
+    pub fn capsules_ptr(&self)->*const f32{self.inner.capsules.as_ptr()}
+    pub fn view_capsules_ptr(&self)->*const f32{self.inner.view_capsules.as_ptr()}
+    pub fn positions_ptr(&self)->*const f32{self.inner.positions.as_ptr()}
+    pub fn uvs_ptr(&self)->*const f32{self.inner.uvs.as_ptr()}
+    pub fn colors_ptr(&self)->*const f32{self.inner.colors.as_ptr()}
+    pub fn indices_ptr(&self)->*const u32{self.inner.indices.as_ptr()}
+    pub fn counts_ptr(&self)->*const u32{self.inner.counts.as_ptr()}
+    pub fn add(&mut self,def:usize,classic:bool,enhanced:bool,host:&crate::effects::lightning_web::Host)->usize{self.inner.add(def,classic,enhanced,&mut ||page_random(),&mut crate::effects::lightning_web::BrowserCollision(host))}
+    pub fn step(&mut self,host:&crate::effects::lightning_web::Host){self.inner.step(&mut ||page_random(),&mut crate::effects::lightning_web::BrowserCollision(host));}
+    pub fn inspect(&self)->String{self.inner.inspect()}
+    pub fn inject_shock(&mut self,id:usize,data:&str)->Result<(),JsValue>{self.inner.inject_shock(id,data).map_err(|e|JsValue::from_str(&e.to_string()))}
+    pub fn fixture(&mut self,data:&str,host:&crate::effects::lightning_web::Host)->Result<String,JsValue>{let input=serde_json::from_str(data).map_err(|e|JsValue::from_str(&e.to_string()))?;Ok(self.inner.fixture(input,&mut ||page_random(),&mut crate::effects::lightning_web::BrowserCollision(host)))}
+    pub fn clear(&mut self){self.inner.clear();}
+}
+
+
+// Numeric camera publication belongs to the effect's draw phase. The browser
+// supplies only the selected framebuffer dimensions and authored camera facts.
+#[wasm_bindgen]
+pub struct PageArcCamera {inner:crate::effects::lightning::DrawCamera}
+#[wasm_bindgen]
+impl PageArcCamera {
+    #[wasm_bindgen(constructor)] pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn step(&mut self,fov:f64,zoom:f64,near:f64,height:f64){self.inner.step(fov,zoom,near,height);}
+}

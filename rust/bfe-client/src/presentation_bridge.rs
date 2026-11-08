@@ -1320,3 +1320,170 @@ Self::collect(random)=>{let _=host.collect(random)?;},
 Self::match_impacts(count)=>{let _=host.match_impacts(*count);},
 Self::frame(random)=>{let _=host.frame(random)?;},
 }Ok(())}}
+pub struct PageLightning {inner:bfe_presentation::effects::lightning::Lightning}
+impl PageLightning {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn definition(&mut self,data:&str)->Result<usize,String>{Ok(self.inner.definition(serde_json::from_str(data).map_err(|e|e.to_string())?))}
+    pub fn actor(&mut self,id:usize,data:&str)->Result<usize,String>{Ok(self.inner.actor(id,serde_json::from_str(data).map_err(|e|e.to_string())?))}
+    pub fn used_ptr(&self)->*const u32{self.inner.used.as_ptr()}
+    pub fn unit_order_ptr(&self)->*const u32{self.inner.unit_order.as_ptr()}
+    pub fn aim_ptr(&self)->*const u32{self.inner.aim.as_ptr()}
+    pub fn readers_ptr(&self)->*const u32{self.inner.readers.as_ptr()}
+    pub fn follows_ptr(&self)->*const u32{self.inner.follows.as_ptr()}
+    pub fn prepare(&mut self){self.inner.prepare();}
+    pub fn frame_ptr(&self)->*const f64{self.inner.frame.as_ptr()}
+    pub fn units_ptr(&self)->*const f64{self.inner.units.as_ptr()}
+    pub fn nodes_ptr(&self)->*const f64{self.inner.nodes.as_ptr()}
+    pub fn nodes_len(&self)->usize{self.inner.nodes.len()}
+    pub fn spawn_ptr(&self)->*const f64{self.inner.spawn.as_ptr()}
+    pub fn held_ptr(&self)->*const f64{self.inner.held.as_ptr()}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn shocks_output_ptr(&self)->*const f64{self.inner.shocks_output.as_ptr()}
+    pub fn joints_ptr(&self)->*const f64{self.inner.joints.as_ptr()}
+    pub fn lights_ptr(&self)->*const f64{self.inner.lights.as_ptr()}
+    pub fn capsules_ptr(&self)->*const f32{self.inner.capsules.as_ptr()}
+    pub fn view_capsules_ptr(&self)->*const f32{self.inner.view_capsules.as_ptr()}
+    pub fn positions_ptr(&self)->*const f32{self.inner.positions.as_ptr()}
+    pub fn uvs_ptr(&self)->*const f32{self.inner.uvs.as_ptr()}
+    pub fn colors_ptr(&self)->*const f32{self.inner.colors.as_ptr()}
+    pub fn indices_ptr(&self)->*const u32{self.inner.indices.as_ptr()}
+    pub fn counts_ptr(&self)->*const u32{self.inner.counts.as_ptr()}
+    pub fn add(&mut self,def:usize,classic:bool,enhanced:bool,random:&[f64],casts:&[f64])->Result<usize,String>{let mut cursor=0;let mut collision=bfe_presentation::effects::lightning::RecordedCollision{values:casts,cursor:0};let result=self.inner.add(def,classic,enhanced,&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value},&mut collision);if cursor>random.len()||collision.cursor>casts.len(){return Err(String::from("lightning service recording is short"));}Ok(result)}
+    pub fn step(&mut self,random:&[f64],casts:&[f64])->Result<(),String>{let mut cursor=0;let mut collision=bfe_presentation::effects::lightning::RecordedCollision{values:casts,cursor:0};self.inner.step(&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value},&mut collision);if cursor>random.len()||collision.cursor>casts.len(){return Err(String::from("lightning service recording is short"));}Ok(())}
+    pub fn inspect(&self)->String{self.inner.inspect()}
+    pub fn inject_shock(&mut self,id:usize,data:&str)->Result<(),String>{self.inner.inject_shock(id,data).map_err(|e|e.to_string())}
+    pub fn fixture(&mut self,data:&str,random:&[f64],casts:&[f64])->Result<String,String>{let input=serde_json::from_str(data).map_err(|e|e.to_string())?;let mut cursor=0;let mut collision=bfe_presentation::effects::lightning::RecordedCollision{values:casts,cursor:0};let result=self.inner.fixture(input,&mut ||{let value=random.get(cursor).copied().unwrap_or(0.5);cursor+=1;value},&mut collision);if cursor>random.len()||collision.cursor>casts.len(){return Err(String::from("lightning service recording is short"));}Ok(result)}
+    pub fn clear(&mut self){self.inner.clear();}
+}
+impl PageLightning {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"used"=>Ok(crate::session::bytes_mut(&mut self.inner.used)),
+"unit_order"=>Ok(crate::session::bytes_mut(&mut self.inner.unit_order)),
+"aim"=>Ok(crate::session::bytes_mut(&mut self.inner.aim)),
+"readers"=>Ok(crate::session::bytes_mut(&mut self.inner.readers)),
+"follows"=>Ok(crate::session::bytes_mut(&mut self.inner.follows)),
+"frame"=>Ok(crate::session::bytes_mut(&mut self.inner.frame)),
+"units"=>Ok(crate::session::bytes_mut(&mut self.inner.units)),
+"nodes"=>Ok(crate::session::bytes_mut(&mut self.inner.nodes)),
+"spawn"=>Ok(crate::session::bytes_mut(&mut self.inner.spawn)),
+"held"=>Ok(crate::session::bytes_mut(&mut self.inner.held)),
+"output"=>Ok(crate::session::bytes_mut(&mut self.inner.output)),
+"shocks_output"=>Ok(crate::session::bytes_mut(&mut self.inner.shocks_output)),
+"joints"=>Ok(crate::session::bytes_mut(&mut self.inner.joints)),
+"lights"=>Ok(crate::session::bytes_mut(&mut self.inner.lights)),
+"capsules"=>Ok(crate::session::bytes_mut(&mut self.inner.capsules)),
+"view_capsules"=>Ok(crate::session::bytes_mut(&mut self.inner.view_capsules)),
+"positions"=>Ok(crate::session::bytes_mut(&mut self.inner.positions)),
+"uvs"=>Ok(crate::session::bytes_mut(&mut self.inner.uvs)),
+"colors"=>Ok(crate::session::bytes_mut(&mut self.inner.colors)),
+"indices"=>Ok(crate::session::bytes_mut(&mut self.inner.indices)),
+"counts"=>Ok(crate::session::bytes_mut(&mut self.inner.counts)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"used"=>Ok(crate::session::bytes(&self.inner.used)),
+"unit_order"=>Ok(crate::session::bytes(&self.inner.unit_order)),
+"aim"=>Ok(crate::session::bytes(&self.inner.aim)),
+"readers"=>Ok(crate::session::bytes(&self.inner.readers)),
+"follows"=>Ok(crate::session::bytes(&self.inner.follows)),
+"frame"=>Ok(crate::session::bytes(&self.inner.frame)),
+"units"=>Ok(crate::session::bytes(&self.inner.units)),
+"nodes"=>Ok(crate::session::bytes(&self.inner.nodes)),
+"spawn"=>Ok(crate::session::bytes(&self.inner.spawn)),
+"held"=>Ok(crate::session::bytes(&self.inner.held)),
+"output"=>Ok(crate::session::bytes(&self.inner.output)),
+"shocks_output"=>Ok(crate::session::bytes(&self.inner.shocks_output)),
+"joints"=>Ok(crate::session::bytes(&self.inner.joints)),
+"lights"=>Ok(crate::session::bytes(&self.inner.lights)),
+"capsules"=>Ok(crate::session::bytes(&self.inner.capsules)),
+"view_capsules"=>Ok(crate::session::bytes(&self.inner.view_capsules)),
+"positions"=>Ok(crate::session::bytes(&self.inner.positions)),
+"uvs"=>Ok(crate::session::bytes(&self.inner.uvs)),
+"colors"=>Ok(crate::session::bytes(&self.inner.colors)),
+"indices"=>Ok(crate::session::bytes(&self.inner.indices)),
+"counts"=>Ok(crate::session::bytes(&self.inner.counts)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("used", self.inner.used.len()),
+("unit_order", self.inner.unit_order.len()),
+("aim", self.inner.aim.len()),
+("readers", self.inner.readers.len()),
+("follows", self.inner.follows.len()),
+("frame", self.inner.frame.len()),
+("units", self.inner.units.len()),
+("nodes", self.inner.nodes.len()),
+("spawn", self.inner.spawn.len()),
+("held", self.inner.held.len()),
+("output", self.inner.output.len()),
+("shocks_output", self.inner.shocks_output.len()),
+("joints", self.inner.joints.len()),
+("lights", self.inner.lights.len()),
+("capsules", self.inner.capsules.len()),
+("view_capsules", self.inner.view_capsules.len()),
+("positions", self.inner.positions.len()),
+("uvs", self.inner.uvs.len()),
+("colors", self.inner.colors.len()),
+("indices", self.inner.indices.len()),
+("counts", self.inner.counts.len()),
+]}
+}
+pub enum PageLightningCommand {
+definition(String),
+actor(usize,String),
+prepare,
+add(usize,bool,bool,Vec<f64>,Vec<f64>),
+step(Vec<f64>,Vec<f64>),
+inspect,
+inject_shock(usize,String),
+fixture(String,Vec<f64>,Vec<f64>),
+clear,
+}
+impl PageLightningCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"definition"=>Self::definition(a.string(0)?),
+"actor"=>Self::actor(a.usize(0)?,a.string(1)?),
+"prepare"=>Self::prepare,
+"add"=>Self::add(a.usize(0)?,a.bool(1)?,a.bool(2)?,a.f64s(3)?,a.f64s(4)?),
+"step"=>Self::step(a.f64s(0)?,a.f64s(1)?),
+"inspect"=>Self::inspect,
+"inject_shock"=>Self::inject_shock(a.usize(0)?,a.string(1)?),
+"fixture"=>Self::fixture(a.string(0)?,a.f64s(1)?,a.f64s(2)?),
+"clear"=>Self::clear,
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageLightning)->Result<(),String>{match self{
+Self::definition(data)=>{let _=host.definition(data)?;},
+Self::actor(id,data)=>{let _=host.actor(*id,data)?;},
+Self::prepare=>{let _=host.prepare();},
+Self::add(def,classic,enhanced,random,casts)=>{let _=host.add(*def,*classic,*enhanced,random,casts)?;},
+Self::step(random,casts)=>{let _=host.step(random,casts)?;},
+Self::inspect=>{let _=host.inspect();},
+Self::inject_shock(id,data)=>{let _=host.inject_shock(*id,data)?;},
+Self::fixture(data,random,casts)=>{let _=host.fixture(data,random,casts)?;},
+Self::clear=>{let _=host.clear();},
+}Ok(())}}
+pub struct PageArcCamera {inner:bfe_presentation::effects::lightning::DrawCamera}
+impl PageArcCamera {
+    pub fn new()->Self{Self{inner:Default::default()}}
+    pub fn output_ptr(&self)->*const f64{self.inner.output.as_ptr()}
+    pub fn step(&mut self,fov:f64,zoom:f64,near:f64,height:f64){self.inner.step(fov,zoom,near,height);}
+}
+impl PageArcCamera {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"output"=>Ok(crate::session::bytes_mut(&mut self.inner.output)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"output"=>Ok(crate::session::bytes(&self.inner.output)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("output", self.inner.output.len()),
+]}
+}
+pub enum PageArcCameraCommand {
+step(f64,f64,f64,f64),
+}
+impl PageArcCameraCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"step"=>Self::step(a.f64(0)?,a.f64(1)?,a.f64(2)?,a.f64(3)?),
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageArcCamera)->Result<(),String>{match self{
+Self::step(fov,zoom,near,height)=>{let _=host.step(*fov,*zoom,*near,*height);},
+}Ok(())}}

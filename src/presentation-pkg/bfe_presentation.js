@@ -1,3 +1,39 @@
+export class PageArcCamera {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageArcCameraFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagearccamera_free(ptr, 0);
+    }
+    constructor() {
+        const ret = wasm.pagearccamera_new();
+        this.__wbg_ptr = ret;
+        PageArcCameraFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.pagearccamera_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} fov
+     * @param {number} zoom
+     * @param {number} near
+     * @param {number} height
+     */
+    step(fov, zoom, near, height) {
+        wasm.pagearccamera_step(this.__wbg_ptr, fov, zoom, near, height);
+    }
+}
+if (Symbol.dispose) PageArcCamera.prototype[Symbol.dispose] = PageArcCamera.prototype.free;
+
 export class PageFeet {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -335,6 +371,284 @@ export class PageItems {
     }
 }
 if (Symbol.dispose) PageItems.prototype[Symbol.dispose] = PageItems.prototype.free;
+
+export class PageLightning {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageLightningFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagelightning_free(ptr, 0);
+    }
+    /**
+     * @param {number} id
+     * @param {string} data
+     * @returns {number}
+     */
+    actor(id, data) {
+        const val2 = +id;
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagelightning_actor(this.__wbg_ptr, val2, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {number} def
+     * @param {boolean} classic
+     * @param {boolean} enhanced
+     * @param {any} host
+     * @returns {number}
+     */
+    add(def, classic, enhanced, host) {
+        const ret = wasm.pagelightning_add(this.__wbg_ptr, def, classic, enhanced, host);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    aim_ptr() {
+        const ret = wasm.pagelightning_aim_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    capsules_ptr() {
+        const ret = wasm.pagelightning_capsules_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    clear() {
+        wasm.pagelightning_clear(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    colors_ptr() {
+        const ret = wasm.pagelightning_colors_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    counts_ptr() {
+        const ret = wasm.pagelightning_counts_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {string} data
+     * @returns {number}
+     */
+    definition(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagelightning_definition(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {string} data
+     * @param {any} host
+     * @returns {string}
+     */
+    fixture(data, host) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.pagelightning_fixture(this.__wbg_ptr, ptr0, len0, host);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    follows_ptr() {
+        const ret = wasm.pagelightning_follows_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_ptr() {
+        const ret = wasm.pagelightning_frame_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    held_ptr() {
+        const ret = wasm.pagelightning_held_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    indices_ptr() {
+        const ret = wasm.pagelightning_indices_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {string} data
+     */
+    inject_shock(id, data) {
+        const val2 = +id;
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagelightning_inject_shock(this.__wbg_ptr, val2, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @returns {string}
+     */
+    inspect() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pagelightning_inspect(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    joints_ptr() {
+        const ret = wasm.pagelightning_joints_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    lights_ptr() {
+        const ret = wasm.pagelightning_lights_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pagelightning_new();
+        this.__wbg_ptr = ret;
+        PageLightningFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    nodes_len() {
+        const ret = wasm.pagelightning_nodes_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    nodes_ptr() {
+        const ret = wasm.pagelightning_nodes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.pagelightning_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    positions_ptr() {
+        const ret = wasm.pagelightning_positions_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    prepare() {
+        wasm.pagelightning_prepare(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    readers_ptr() {
+        const ret = wasm.pagelightning_readers_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    shocks_output_ptr() {
+        const ret = wasm.pagelightning_shocks_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    spawn_ptr() {
+        const ret = wasm.pagelightning_spawn_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {any} host
+     */
+    step(host) {
+        wasm.pagelightning_step(this.__wbg_ptr, host);
+    }
+    /**
+     * @returns {number}
+     */
+    unit_order_ptr() {
+        const ret = wasm.pagelightning_unit_order_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    units_ptr() {
+        const ret = wasm.pagelightning_units_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    used_ptr() {
+        const ret = wasm.pagelightning_used_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    uvs_ptr() {
+        const ret = wasm.pagelightning_uvs_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    view_capsules_ptr() {
+        const ret = wasm.pagelightning_view_capsules_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageLightning.prototype[Symbol.dispose] = PageLightning.prototype.free;
 
 export class PageLights {
     __destroy_into_raw() {
@@ -2007,6 +2321,14 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_4c88d8bf264fd984: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_cast_4e16be1b530fcca5: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+            const ret = arg0.cast(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            return ret;
+        },
+        __wbg_normal_3353539eda715d4c: function(arg0, arg1) {
+            const ret = arg0.normal(arg1 >>> 0);
+            return ret;
+        },
         __wbg_random_298d5763e452935f: function() {
             const ret = Math.random();
             return ret;
@@ -2031,6 +2353,9 @@ function __wbg_get_imports() {
     };
 }
 
+const PageArcCameraFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagearccamera_free(ptr, 1));
 const PageFeetFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagefeet_free(ptr, 1));
@@ -2040,6 +2365,9 @@ const PageInterfaceBatchFinalization = (typeof FinalizationRegistry === 'undefin
 const PageItemsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pageitems_free(ptr, 1));
+const PageLightningFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagelightning_free(ptr, 1));
 const PageLightsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagelights_free(ptr, 1));

@@ -25,7 +25,7 @@
   for(const name of ['Float64Array','Float32Array','Uint32Array','Int32Array','Uint16Array','Uint8Array']){
     const Original=window[name];window[name]=new Proxy(Original,{construct(Target,args){const a=Reflect.construct(Target,args);if(args[0] instanceof ArrayBuffer&&args.length>1){let map=arrayViews.get(a.buffer);if(!map)arrayViews.set(a.buffer,map=new Map());map.set(a.byteOffset,Math.max(map.get(a.byteOffset)||0,a.byteLength));}return a;}});Object.defineProperty(Original.prototype,'constructor',{value:window[name],writable:true,configurable:true});
   }
-  const writable={pageunits:['input','header','commands','places','weapons','collision_input','collision_actors'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],pagefeet:['input'],pagesniper:['input','matches'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
+  const writable={pagelightning:['frame','unit_order','units','nodes','spawn','held'],pagearccamera:[],pageunits:['input','header','commands','places','weapons','collision_input','collision_actors'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],pagefeet:['input'],pagesniper:['input','matches'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
   const contextId=gl=>{if(!contexts.has(gl))contexts.set(gl,contexts.size);return contexts.get(gl);};
   const scalar={f64:Float64Array,f32:Float32Array,u32:Uint32Array,i32:Int32Array,u16:Uint16Array,u8:Uint8Array};
   const remember=(m,kind,ptr,context,args,preview=false)=>{
@@ -117,8 +117,8 @@
         e[key]=(...raw)=>{if(!name.startsWith('__'))state.errors.push('unhandled '+key);return fn(...raw);};continue;}
       e[key]=(...raw)=>{
         const row=owners.get(kind+':'+m.id+':'+raw[0]);if(!row)throw Error('unregistered '+key);
-        flush(row);const args=[];let at=1;const randomCall=kind==='pagesniper'&&['collect','frame'].includes(name);
-        for(const [n,t]of spec.args){if(randomCall&&n==='random')continue;const [value,count]=arg(m,kind,t,raw,at);args.push(value);at+=count;}
+        flush(row);const args=[];let at=1;const lightningCall=kind==='pagelightning'&&['add','step','fixture'].includes(name),randomCall=lightningCall||kind==='pagesniper'&&['collect','frame'].includes(name);
+        for(const [n,t]of spec.args){if(randomCall&&n==='random'||lightningCall&&n==='casts')continue;const [value,count]=arg(m,kind,t,raw,at);args.push(value);at+=count;}
         // Shared-memory writes and sealed packets carry the current frame.
         const checks=[];
         state.calls.push({kind:'call',owner:row.id,name,args,checks});
@@ -126,7 +126,11 @@
         // service answers alongside the call, leaving the live stream intact.
         const samples=randomCall?[]:null,previousRandom=Math.random;
         if(samples)Math.random=()=>{const value=previousRandom();samples.push(value);return value;};
-        state.depth++;let out;try{out=fn(...raw);}finally{state.depth--;if(samples){Math.random=previousRandom;args.push(blob(new Uint8Array(Float64Array.from(samples).buffer)));}}
+        // Lightning borrows the page collision owner synchronously. Record its
+        // answers with the coarse call, just like the cosmetic random service.
+        const casts=lightningCall?[]:null;
+        if(casts){const host=raw[at];raw[at]={cast(...ray){const distance=host.cast(...ray);casts.push(distance,distance<0?0:host.normal(0),distance<0?0:host.normal(1),distance<0?0:host.normal(2));return distance;},normal:axis=>host.normal(axis)};}
+        state.depth++;let out;try{out=fn(...raw);}finally{state.depth--;if(samples){Math.random=previousRandom;args.push(blob(new Uint8Array(Float64Array.from(samples).buffer)));}if(casts)args.push(blob(new Uint8Array(Float64Array.from(casts).buffer)));}
         if(kind==='bferenderer'&&spec.result.includes('core::Stats')&&!out[3]){const stats=new Uint32Array(m.real.memory.buffer,out[0],out[1]);const totals=state.passDraws[row.id]??=defaults.stats.names.map(()=>0);for(let i=0;i<totals.length;i++)totals[i]+=stats[defaults.stats.prefix+i];}
         if(kind==='bferenderer'&&['battle_frame','frame_aux_frame'].includes(name)&&out){const stats=new Float64Array(m.real.memory.buffer,m.real.bferenderer_frame_stats_ptr(row.ptr),m.real.bferenderer_frame_stats_len(row.ptr));const totals=state.passDraws[row.id]??=defaults.stats.names.map(()=>0);const stride=defaults.stats.prefix+totals.length;for(let at=name==='frame_aux_frame'?args[1]*stride:0,end=name==='frame_aux_frame'?Math.min(stats.length,(args[1]+1)*stride):stats.length;at<end;at+=stride)for(let i=0;i<totals.length;i++)totals[i]+=stats[at+defaults.stats.prefix+i];}
         if(name==='interface_buffer_init'){(row.streams??=[]).push(out);}

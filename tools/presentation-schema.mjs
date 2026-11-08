@@ -6,6 +6,7 @@ const upper=s=>s.replace(/[A-Z]/g,(c,i)=>(i?'_':'')+c).toUpperCase();
 // One layout file per phase, so presentation, timeline, ordnance and item records
 // regenerate independently: [schema, page module, Rust module].
 const LAYOUTS=[
+ ['lightning-layout.json','src/presentation/lightning-layout.js','rust/bfe-presentation/src/effects/lightning_layout.rs'],
  ['sniper-layout.json','src/presentation/sniper-layout.js','rust/bfe-presentation/src/sniper_layout.rs'],
  ['network-layout.json','src/runtime/network-layout.js','rust/bfe-presentation/src/network_layout.rs'],
  ['interface-batch-layout.json','src/interface/batch-layout.js','rust/bfe-presentation/src/interface_batch_layout.rs'],

@@ -1,119 +1,28 @@
 import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
 import {actorNode,actorLook} from './actor-resources.js';
 import {ACTOR} from './rust-render/actor-layout.js';
-import { ownedEffectMaterial } from './rust-render/effect-material.js';
-import { EFFECT } from './rust-render/effect-layout.js';
-import * as THREE from "three";
-import { lighting } from "./materials.js";
-import { particleDepth } from "./particle-depth.js";
-import { sheathColor } from "./blaster-bolts.js";
-import {UnitLimits} from './presentation/layout.js';
-const EMPTY_UNITS=[];
-
-// The Enhanced look of the arc caster's lightning (Video > Bolt Caster; the
-// HUD names the weapon DN BOLT CASTER). Presentation only: the bolts are the
-// ones the world throws (Lightning.spawn, from combat.js's arc() here or a
-// worker's or a server's presentation events), with their own ends, charge
-// and timing; what they strike and how hard is untouched. Classic keeps the
-// 2004 textured ribbons (lightning.js).
-//
-// A bolt is drawn as real lightning, from the game's own LightningBolt
-// settings (Width, SpreadFactor, the branches and children, the colours):
-//
-//   - its channel is a jagged line by midpoint displacement. The coarse kinks
-//     writhe smoothly; the fine ones jump to a new shape with each strike,
-//     20 to 35 times a second, and its brightness jumps with them.
-//   - it leaves the gun as a leader that races to its target in a few
-//     hundredths of a second, then flashes with the return stroke. A link of
-//     the chain waits for the one before it to land, so the lightning is seen
-//     jumping from one soldier to the next.
-//   - thinner children twist about the main channel, and short branches fork
-//     off it, both redrawn with each strike.
-//   - it lights the ground and soldiers around it (the frame's point lights,
-//     ordnance.js LightPool) from the gun, along the bolt and where it lands,
-//     flickering with the strikes, and throws sparks where it lands.
-//   - a soldier it strikes is shocked: arcs crawl over his body bone to bone
-//     and to the ground, a crackling glow covers him (a skinned overlay of his
-//     own body's buffers), and his upper body twitches on top of whatever he
-//     is playing (the page's bones only: what is hit is decided elsewhere).
-//   - a droideka with its shield up is not touched: the bolt stops on the
-//     bubble and electricity spreads over the shield from where it struck
-//     (the world's own hit ripples the bubble there).
-//   - a gun held at a charge crackles at its muzzle, more as the charge
-//     builds.
-//
-// Everything is drawn in one instanced draw of glowing capsules (one per
-// segment), shaded per pixel from the closest distance between the view ray
-// and the segment, as blaster-bolts.js draws plasma, so the lightning reads
-// the same side on and end on (the shooter's own view down it). Where two
-// segments of a line meet, each pixel belongs to only one of them (the plane
-// halving the angle between them decides), so the glow is seamless instead of
-// beaded at every joint.
-
-const LINK_DELAY = 0.05; // s between a chain's links landing
-const LEADER = 0.035; // s for a leader to cross, plus LEADER_PER_M a metre
-const LEADER_PER_M = 0.0014;
-const AFTERGLOW = 0.1; // s a bolt outlives FadeTime here, fading
-const SHOCK_BASE = 0.7; // s a struck soldier is shocked, plus SHOCK_CHARGE x charge
-const SHOCK_CHARGE = 0.7;
-const SPARK_GRAVITY = 9.8;
-const MAX_POINTS = 257; // a channel's points (depth 8)
-const UP = new THREE.Vector3(0, 1, 0);
-const SIDE = new THREE.Vector3(1, 0, 0);
-
-// The upper body's bones a shock twitches (radians at full strength). The
-// hands are left alone: whatever they hold stays steady enough to read.
-const TWITCH = {
-  bone_b_spine: 0.08, bone_ribcage: 0.1, bone_neck: 0.12, bone_head: 0.18,
-  bone_l_clavicle: 0.1, bone_r_clavicle: 0.1, bone_l_upperarm: 0.26, bone_r_upperarm: 0.26,
-  bone_l_forearm: 0.32, bone_r_forearm: 0.32,
-};
-
-// A seeded random number in [0, 1) from two integers, without state.
-function hash(seed, n) {
-  let t = (seed ^ Math.imul(n | 0, 0x9e3779b1)) >>> 0;
-  t = Math.imul(t ^ (t >>> 16), 0x85ebca6b);
-  t = Math.imul(t ^ (t >>> 13), 0xc2b2ae35);
-  return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
-}
-const signed = (seed, n) => hash(seed, n) * 2 - 1;
-// Smooth value noise along one axis, in [-1, 1].
-function wave(seed, x) {
-  const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
-  return signed(seed, i) * (1 - u) + signed(seed, i + 1) * u;
-}
-const newSeed = () => (Math.random() * 0xffffffff) >>> 0;
-// A set of arcs (a shock's, a muzzle's) emptied for its next one: what it
-// held is kept in `spare` for reuse, so a crackle that changes shape 30
-// times a second makes no garbage.
-function restart(owner) {
-  const spare = (owner.spare ||= []);
-  for (const arc of owner.arcs) spare.push(arc);
-  owner.arcs.length = 0;
-  return spare;
-}
-
-
-// One interleaved instance buffer (a single upload a frame): name, size,
-// offset in floats.
-const STRIDE = 20;
-const LAYOUT = [["iA", 3, 0], ["iB", 3, 3], ["iNA", 3, 6], ["iNB", 3, 9], ["iColor", 4, 12], ["iSize", 4, 16]];
-
-
-
-
-
-// The batches by their meshes, for a renderer that draws them itself
-// (src/rust-render/effects.js): while a batch is `external`, three is shown
-// it never and uploads it nothing.
-export const arcBatches = new WeakMap();
-
-// Glowing capsules, one instance a segment; a sphere is a segment of no
-// length.
+import {EFFECT} from './rust-render/effect-layout.js';
+import * as THREE from 'three';
+import {lighting} from './materials.js';
+import {particleDepth} from './particle-depth.js';
+import {presentationModule} from './presentation/module.js';
+import {LightningFrame as F,LightningUnit as U,LightningNode as N,LightningSpawn as S,
+ LightningBolt as B,LightningShock as O,LightningJoint as J,LightningLight as I,
+ LightningCapsule as A,LightningCamera as C,LightningReaders as R,LightningCounts as H,LightningLimits as L} from './presentation/lightning-layout.js';
+const STRIDE=A.STRIDE;
+const EMPTY=[];
+export const arcBatches=new WeakMap();
+const TWITCH={bone_b_spine:.08,bone_ribcage:.1,bone_neck:.12,bone_head:.18,
+ bone_l_clavicle:.1,bone_r_clavicle:.1,bone_l_upperarm:.26,bone_r_upperarm:.26,
+ bone_l_forearm:.32,bone_r_forearm:.32};
+const WHITE=[130,170,255,255];
+function vector(a,o,p){a[o]=p.x;a[o+1]=p.y;a[o+2]=p.z;}
+function bind(batch,data){batch.data=batch.arrays.interleaved=data;batch.capacity=L.CAPSULES;}
 export class ArcBatch {
   // soft: faded against the scene's depth (not for the first-person view's
   // own scene, which has a depth range of its own).
-  constructor(capacity = 512, { soft = true } = {}) {
+  constructor(capacity = 512, { soft = true, data = null } = {}) {
+    this.cameraLoaded=presentationModule();this.cameraKernel=new this.cameraLoaded.module.PageArcCamera();this.cameraAddress=this.cameraKernel.output_ptr();this.cameraBuffer=this.cameraLoaded.memory.buffer;this.cameraOutput=new Float64Array(this.cameraBuffer,this.cameraAddress,C.STRIDE);
     this.soft = soft;
     this.count = 0;
     this.external = false;
@@ -127,7 +36,7 @@ export class ArcBatch {
     this.texture=null;this.values=new Float64Array(layout.LENGTH);this.stride=STRIDE;
     this.values[layout.EYE_FADE]=soft?0.12:0;this.values[layout.EYE_FADE+1]=soft?0.5:0;
     this.values[layout.CLOSE_RANGE]=soft?2.5:0;this.values[layout.PIXEL_ANGLE]=0.002;this.values[layout.NEAR_DEPTH]=0.51;
-    this.arrays={interleaved:null};
+    this.arrays={};Object.defineProperty(this.arrays,"interleaved",{get:()=>this.data,set:data=>{this.data=data;}});
     this.mesh = new THREE.Object3D(); this.mesh.userData.effectBatch=this;
     this.mesh.name = "arc-lightning";
     sceneProperty(this.mesh,"frustumCulled",false);
@@ -144,12 +53,17 @@ export class ArcBatch {
         // The pixels being drawn: under an upscaler, the 3D frame's.
         const target = renderer.getRenderTarget();
         const height = target ? target.height : renderer.getDrawingBufferSize(size).y;
-        this.values[layout.PIXEL_ANGLE] = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
-        this.values[layout.NEAR_DEPTH] = camera.near * 1.02;
+        this.cameraKernel.step(camera.fov,camera.zoom,camera.near,height);
+        const buffer=this.cameraLoaded.memory.buffer;if(this.cameraBuffer!==buffer){this.cameraBuffer=buffer;this.cameraOutput=new Float64Array(buffer,this.cameraAddress,C.STRIDE);}
+        this.values[layout.PIXEL_ANGLE]=this.cameraOutput[C.PIXEL_ANGLE];
+        this.values[layout.NEAR_DEPTH]=this.cameraOutput[C.NEAR_DEPTH];
       }
     };
-    this.grow(Math.max(capacity,16384));
+    if(data)bind(this,data);else this.grow(Math.max(capacity,16384));
   }
+
+  get data(){if(this.owner)this.owner.refresh();return this._data;}
+  set data(data){this._data=data;}
 
   grow(capacity) {
     const data = new Float32Array(capacity * STRIDE);
@@ -190,1135 +104,176 @@ export class ArcBatch {
   }
 }
 
-// The crackling glow over a shocked soldier: his body's own buffers and
-// skeleton drawn again, a little proud of the skin, in light. Its clock is
-// its own (shockTime, not the frame's time). Veins of
-// noise fixed to the skin (its bind pose) jump to a new pattern 24 times a
-// second, brightest edge on.
-
-
-
-
-// A path's points, reused frame to frame.
-class Path {
-  constructor(capacity = MAX_POINTS) {
-    this.points = Array.from({ length: capacity }, () => new THREE.Vector3());
-    this.count = 0;
-  }
-}
-
+// Scene handles, muzzle callbacks and actor-resource identities stay on the
+// page. Numeric state and both draw families share one required Rust owner.
 export class ArcLightning {
-  // lights: the frame's short-lived point lights (ordnance.js LightPool);
-  // units: the page's soldiers (registry.js Units), to find the shooter and
-  // the soldiers struck; collision: where sparks land; effects: the
-  // LightningBolt settings by name (a charging gun's colour); viewScene: the
-  // first-person weapon's own scene (graphics.js), where what crackles over
-  // the player's own arms and gun is drawn over them; bubbleOf(unit): a
-  // droideka's shield bubble as this page draws it (droideka-shield.js).
-  constructor(scene, { lights = null, units = null, collision = null, effects = null, viewScene = null, bubbleOf = (unit) => unit?.bubble ?? null } = {}) {
-    this.scene = scene;
-    this.bubbleOf = bubbleOf;
-    this.effects = effects;
-    this.lights = lights;
-    this.units = units;
-    this.collision = collision;
-    // Sized for a busy fight (a dozen guns at once): growing mid-battle
-    // makes new buffers.
-    this.batch = new ArcBatch(4096);
-    scene.add(this.batch.mesh);
-    this.out = this.batch;
-    this.viewBatch = null;
-    if (viewScene) {
-      this.viewBatch = new ArcBatch(64, { soft: false });
-      this.viewBatch.mesh.name = "arc-lightning-view";
-      viewScene.add(this.viewBatch.mesh);
-    }
-    // The effect batch stays shown empty during preparation. Shock programs
-    // register from the actor catalog and need no temporary skinned mesh.
-    sceneProperty(this.batch.mesh,"visible",true);
-    this.warming = 90;
-    const beforeWarm=this.batch.mesh.onBeforeRender;
-    this.batch.mesh.onBeforeRender=(renderer,scene,camera,geometry,material,group)=>{
-      if(this.warming>0)this.warming--;
-      beforeWarm(renderer,scene,camera,geometry,material,group);
-    };
-    this.bolts = [];
-    this.shocks = new Map(); // unit -> its shock
-    this.shields = new Map(); // unit -> the shock on his shield
-    this.charges = new Map(); // unit -> its muzzle crackle
-    this.chargeUnits=new Array(UnitLimits.ACTORS).fill(null);
-    this.aimUnits=new Array(UnitLimits.ACTORS).fill(null);
-    while(this.chargeUnits.length)this.chargeUnits.pop();
-    while(this.aimUnits.length)this.aimUnits.pop();
-    this.readersReady=false;
-    this.sparks = [];
-    this.sparkPool = []; // spent sparks, reused
-    this.overlays = new WeakMap(); // actor -> its shock glow
-    this.joints = new WeakMap(); // actor -> the bones a shock twitches
-    this.colors = new WeakMap(); // LightningBolt def -> its drawn colours
-    this.chests = new WeakMap(); // actor -> the bone a bolt strikes him at
-    this.chestAt = new WeakMap(); // actor -> his chest this frame
-    this.placed = new WeakMap(); // object -> the frame its world matrix was placed
-    this.frame = 0;
-    this.time = 0;
-    this.main = new Path();
-    this.child = new Path();
-    this.branch = new Path();
-    this.twig = new Path();
-    this.web = new Path(16);
-    this.normals = Array.from({ length: MAX_POINTS }, () => new THREE.Vector3());
-    this.hasNormal = new Uint8Array(MAX_POINTS);
-    this.dir = new THREE.Vector3();
-    this.u = new THREE.Vector3();
-    this.w = new THREE.Vector3();
-    this.a = new THREE.Vector3();
-    this.b = new THREE.Vector3();
-    this.c = new THREE.Vector3();
-    this.d = new THREE.Vector3();
-    this.e = new THREE.Vector3();
-    this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
-    this.euler = new THREE.Euler();
-    // displace()'s settings, filled in for each line drawn (no object a
-    // line).
-    this.jag = { rough: 0, spread: 0, seed: 0, jag: 0, time: 0, writhe: 0, coarse: 0 };
-    this.active = false;
+ constructor(scene,{lights=null,units=null,collision=null,effects=null,viewScene=null,bubbleOf=unit=>unit?.bubble??null}={},draw=true){
+  this.scene=scene;this.lights=lights;this.units=units;this.collision=collision;this.effects=effects;this.viewScene=viewScene;this.bubbleOf=bubbleOf;
+  this.loaded=presentationModule();this.kernel=new this.loaded.module.PageLightning();this.buffer=null;
+  this.overlays=new WeakMap();this.unitIds=new WeakMap();this.unitRows=new Array(L.UNITS).fill(null);this.unitCount=0;
+  this.actorRows=new Array(L.UNITS).fill(null);this.definitions=new WeakMap();this.defs=[];
+  this.handles=Array.from({length:L.BOLTS},()=>({def:null,follow:null,start:new THREE.Vector3(),end:new THREE.Vector3()}));
+  this.aimUnits=Object.create(Array.prototype);for(let i=0;i<L.UNITS;i++)this.aimUnits[i]=null;this.aimUnits.length=0;this.batch=null;this.viewBatch=null;
+  this.position=new THREE.Vector3();this.direction=new THREE.Vector3();this.rgb=[0,0,0];
+  this.hit={distance:0,point:new THREE.Vector3(),normal:new THREE.Vector3()};this.warming=90;this.refresh();
+  for(const name in this.effects?.lightning){const def=this.effects.lightning[name];if(def&&typeof def==='object')this.definition(def);}
+  if(draw)this.enable();
+ }
+ enable(){if(this.batch)return;this.refresh();this.batch=new ArcBatch(L.CAPSULES,{data:this.capsules});this.batch.owner=this;this.scene.add(this.batch.mesh);
+  if(this.viewScene){this.viewBatch=new ArcBatch(L.CAPSULES,{soft:false,data:this.viewCapsules});this.viewBatch.owner=this;this.viewBatch.mesh.name='arc-lightning-view';this.viewScene.add(this.viewBatch.mesh);}
+  sceneProperty(this.batch.mesh,"visible",true);const before=this.batch.mesh.onBeforeRender;
+  this.batch.mesh.onBeforeRender=(renderer,scene,camera,geometry,material,group)=>{if(this.warming>0)this.warming--;before(renderer,scene,camera,geometry,material,group);};
+ }
+ // Cold resource admission can grow shared memory. Rebind every borrowed
+ // input and draw array together before either host or renderer reads it.
+ refresh(){const b=this.loaded.memory.buffer;if(this.buffer===b)return;this.buffer=b;const k=this.kernel;
+  this.frame=new Float64Array(b,k.frame_ptr(),F.STRIDE);this.facts=new Float64Array(b,k.units_ptr(),L.UNITS*U.STRIDE);
+  this.nodes=new Float64Array(b,k.nodes_ptr(),k.nodes_len());this.birth=new Float64Array(b,k.spawn_ptr(),S.STRIDE);
+  this.held=new Float64Array(b,k.held_ptr(),L.BOLTS*3);this.output=new Float64Array(b,k.output_ptr(),L.BOLTS*B.STRIDE);
+  this.shockOutput=new Float64Array(b,k.shocks_output_ptr(),L.UNITS*O.STRIDE);this.jointOutput=new Float64Array(b,k.joints_ptr(),L.UNITS*L.JOINTS*J.STRIDE);
+  this.lightOutput=new Float64Array(b,k.lights_ptr(),L.LIGHTS*I.STRIDE);this.counts=new Uint32Array(b,k.counts_ptr(),H.STRIDE);
+  this.used=new Uint32Array(b,k.used_ptr(),L.UNITS);this.unitOrder=new Uint32Array(b,k.unit_order_ptr(),L.UNITS);this.aim=new Uint32Array(b,k.aim_ptr(),L.UNITS);this.readers=new Uint32Array(b,k.readers_ptr(),L.UNITS);this.follows=new Uint32Array(b,k.follows_ptr(),L.BOLTS);
+  this.capsules=new Float32Array(b,k.capsules_ptr(),L.CAPSULES*A.STRIDE);this.viewCapsules=new Float32Array(b,k.view_capsules_ptr(),L.CAPSULES*A.STRIDE);
+  this.positions=new Float32Array(b,k.positions_ptr(),L.VERTICES*3);this.uvs=new Float32Array(b,k.uvs_ptr(),L.VERTICES*2);this.colors=new Float32Array(b,k.colors_ptr(),L.VERTICES*4);this.indices=new Uint32Array(b,k.indices_ptr(),L.VERTICES*3);
+  if(this.batch)bind(this.batch,this.capsules);if(this.viewBatch)bind(this.viewBatch,this.viewCapsules);
+ }
+ definition(def){let id=this.definitions.get(def);if(id!==undefined)return id;id=this.kernel.definition(JSON.stringify(def));this.definitions.set(def,id);this.defs[id]=def;this.refresh();return id;}
+ // Unit ids are host leases, independent of bolt compaction. Removed facade
+ // objects release their slot before another body can use it.
+ unitId(unit){if(!unit)return -1;let id=this.unitIds.get(unit);if(id!==undefined)return id;
+  id=this.unitRows.indexOf(null);if(id<0)return -1;this.unitRows[id]=unit;this.unitIds.set(unit,id);if(id>=this.unitCount)this.unitCount=id+1;return id;
+ }
+ // Only cold topology is discovered here. Local transforms are copied into
+ // generated rows; Rust composes and places the bones used by shock effects.
+ actor(id){const unit=this.unitRows[id],actor=unit?.actor;if(!actor?.root)return null;let row=this.actorRows[id];if(row?.actor===actor)return row;
+  if(row?.overlay)sceneProperty(row.overlay,"visible",false);
+  const wanted=new Set([actor.root]);for(const bone of actor.bones||EMPTY){let node=bone;while(node&&node!==actor.root){wanted.add(node);node=node.parent;}}
+  const nodes=[],parents=[];actor.root.traverse(node=>{if(wanted.has(node)&&nodes.length<L.NODES_PER_UNIT){parents.push(nodes.indexOf(node.parent));nodes.push(node);}});
+  const bones=[],low=[];for(const bone of actor.bones||EMPTY){const at=nodes.indexOf(bone);if(at<0||/^hp_|dummyroot|^bone_root$/i.test(bone.name))continue;bones.push(at);if(/foot|toe|calf|hand/i.test(bone.name))low.push(at);}
+  const twitch=[],joints=[];for(const name in TWITCH){const bone=actor.byName?.[name],at=nodes.indexOf(bone);if(at<0)continue;twitch.push([at,TWITCH[name]]);joints.push(bone);}
+  const chest=actor.byName?.bone_ribcage||(actor.bones||EMPTY).find(b=>/ribcage|spine/i.test(b.name));const index=nodes.indexOf(chest);
+  const nodeStart=this.kernel.actor(id,JSON.stringify({parents,bones,low,chest:index<0?null:index,twitch}));this.buffer=null;this.refresh();
+  row={actor,nodes,joints,nodeStart,overlay:null,view:null,wrist:null};this.actorRows[id]=row;return row;
+ }
+ // All fields are foreign observations, without distance, lifetime or shape
+ // decisions. The native prepare phase selects the expensive pose readers.
+ publishUnits(detailed=false){this.refresh();const x=this.facts;
+  for(let id=0;id<this.unitCount;id++){const unit=this.unitRows[id];x[id*U.STRIDE+U.LISTED]=0;x[id*U.STRIDE+U.REMOVED]=unit?.removed?1:0;if(unit?.removed&&!this.used[id]){this.unitIds.delete(unit);this.unitRows[id]=null;x[id*U.STRIDE+U.ALIVE]=0;}}
+  let orderCount=0;for(const unit of this.units?.all?.()||EMPTY){const id=this.unitId(unit);if(id<0)continue;if(orderCount<L.UNITS)this.unitOrder[orderCount++]=id;
+   const o=id*U.STRIDE,actor=unit.actor,combat=unit.combat,weapon=combat?.arsenal?.current?.(0);
+   x[o+U.LISTED]=1;x[o+U.FIRST_PERSON]=combat?.firstPerson?1:0;x[o+U.GENERATION]=unit.generation||0;x[o+U.ALIVE]=actor?.root?1:0;x[o+U.SOLDIER]=unit.soldier?1:0;x[o+U.REMOVED]=unit.removed?1:0;
+   const ownView=combat?.firstPerson?combat.view:null;x[o+U.OWN]=ownView?.root?.visible&&ownView.bones?.length?1:0;
+   x[o+U.COMBAT]=combat?1:0;x[o+U.DEAD]=unit.dead||combat?.dead?1:0;x[o+U.MOUNTED]=combat?.mounted?1:0;x[o+U.CHARGING]=weapon?.charging&&weapon.def?.ordnance?.LightningEffect?1:0;
+   if(detailed)this.publishDetails(id);
   }
-
-  // The settings for the next displace().
-  jagged(rough, spread, seed, jag, time = 0, writhe = 0, coarse = 0) {
-    const o = this.jag;
-    o.rough = rough; o.spread = spread; o.seed = seed; o.jag = jag; o.time = time; o.writhe = writhe; o.coarse = coarse;
-    return o;
+  for(let id=0;id<this.unitCount;id++)if(this.unitRows[id]&&!x[id*U.STRIDE+U.LISTED]&&!this.used[id]){this.unitIds.delete(this.unitRows[id]);this.unitRows[id]=null;x[id*U.STRIDE+U.ALIVE]=0;}
+  this.frame[F.UNITS]=this.unitCount;this.frame[F.ORDER_COUNT]=orderCount;
+ }
+ // Idle Enhanced frames publish charging observations only. Rust requests the
+ // remaining resource facts for the bodies and guns it will actually read.
+ publishDetails(id,camera=null){const unit=this.unitRows[id];if(!unit)return;const o=id*U.STRIDE,x=this.facts,actor=unit.actor,combat=unit.combat,weapon=combat?.arsenal?.current?.(0),def=weapon?.def;
+   if(actor?.root)vector(x,o+U.ROOT,actor.root.position);
+   x[o+U.BODY_VISIBLE]=actor?.body?.visible?1:0;x[o+U.WALKER]=unit.walker?1:0;x[o+U.SEAT]=unit.seat?1:0;x[o+U.HELD]=unit.held?.frame?1:0;
+   x[o+U.SHOWN]=actor?.root.visible&&actor.body?.visible!==false&&(!camera||camera.layers.test(actor.body?.layers??actor.root.layers))?1:0;
+   const view=combat?.firstPerson?combat.view:null;x[o+U.OWN]=view?.root?.visible&&view.bones?.length?1:0;
+   let lightningWeapon=null;for(const entry of combat?.arsenal?.weapons||EMPTY)if(entry.def?.ordnance?.LightningEffect){lightningWeapon=entry;break;}x[o+U.HAS_WEAPON]=lightningWeapon?1:0;x[o+U.CONE]=lightningWeapon?.def?.ordnance?.ConeLength??30;
+   x[o+U.PRESSED]=weapon?.held||0;x[o+U.MAX_PRESSED]=weapon?.levels?.[0]?.MaxPressedTime||def?.MaxPressedTime||1;
+   const bolt=this.effects?.lightning?.[def?.ordnance?.LightningEffect],color=bolt?.Color||WHITE;for(let i=0;i<4;i++)x[o+U.COLOR+i]=color[i];
+   const bubble=this.bubbleOf(unit),shield=bubble?.on&&bubble.mesh?.visible?bubble:null;x[o+U.SHIELD]=shield?1:0;if(shield){vector(x,o+U.CENTER,shield.mesh.position);vector(x,o+U.RADIUS,shield.mesh.scale);}
+ }
+ publishOrigin(id){const unit=this.unitRows[id],o=id*U.STRIDE,combat=unit?.combat;const origin=combat?.drawnGunOrigin?.(this.position);this.refresh();this.facts[o+U.HAS_ORIGIN]=origin?1:0;if(origin)vector(this.facts,o+U.ORIGIN,origin);}
+ publishPose(id,camera,flags){const unit=this.unitRows[id];if(!unit?.actor)return;const row=flags&(R.POSE|R.VIEW)?this.actor(id):this.actorRows[id];this.publishDetails(id,camera);const o=id*U.STRIDE,actor=unit.actor,combat=unit.combat;let x=this.facts;
+  // Copy retained local matrices before asking unrelated gun resources to
+  // refresh their lazy pose. A body-only shock never queries a muzzle.
+  if(flags&R.POSE){const parent=actor.root.parent?.matrixWorld?.elements||IDENTITY;for(let i=0;i<16;i++)x[o+U.PARENT+i]=parent[i];
+   if(row)for(let i=0;i<row.nodes.length;i++){const node=row.nodes[i],at=row.nodeStart+i*N.STRIDE,q=node.quaternion;this.nodes[at+N.MATRIX_AUTO_UPDATE]=node.matrixAutoUpdate?1:0;
+    this.nodes[at+N.QUATERNION]=q.x;this.nodes[at+N.QUATERNION+1]=q.y;this.nodes[at+N.QUATERNION+2]=q.z;this.nodes[at+N.QUATERNION+3]=q.w;
+    if(node.matrixAutoUpdate){vector(this.nodes,at+N.POSITION,node.position);vector(this.nodes,at+N.SCALE,node.scale);}
+    else{const matrix=node.matrix.elements;for(let k=0;k<16;k++)this.nodes[at+N.MATRIX+k]=matrix[k];}
+   }
   }
-
-  // A bolt as Lightning.spawn made it: { def, start, end, charge, follow }.
-  add(bolt) {
-    const def = bolt.def;
-    const record = {
-      bolt, def,
-      charge: THREE.MathUtils.clamp(Number(bolt.charge) || 0, 0, 1),
-      start: bolt.start.clone(), end: bolt.end.clone(),
-      from: new THREE.Vector3().copy(bolt.start), to: new THREE.Vector3().copy(bolt.end),
-      born: this.time, age: 0, delay: 0,
-      life: Math.max(def.FadeTime || 0.6, 0.25) + AFTERGLOW,
-      seed: newSeed(), jag: newSeed(), branchSeed: newSeed(), nextStrike: 0, strike: 1, flash: 0,
-      arrived: false, air: false, shooter: null, shooterGeneration: 0, weapon: null,
-      source: null, sourceGeneration: 0, target: null, targetGeneration: 0,
-      surface: null, floor: null, children: [],
-    };
-    let colors = this.colors.get(def);
-    if (!colors) {
-      const sheath = sheathColor(def.Color || [130, 170, 255, 255]);
-      // A touch deeper than the authored colour, so the core's white stands
-      // out. (Shared by its bolts: read, never written.)
-      colors = { rgb: sheath.map((c) => Math.pow(c, 1.6)), childRgb: sheathColor(def.ChildColor || def.Color || [140, 180, 255, 100]).map((c) => Math.pow(c, 1.4)) };
-      this.colors.set(def, colors);
-    }
-    record.rgb = colors.rgb;
-    record.childRgb = colors.childRgb;
-    const children = Math.max(Math.floor((def.NumChildren ?? 1) * record.charge), 1);
-    for (let i = 0; i < children; i++) record.children.push({ seed: newSeed(), next: 0, on: true });
-    // A link of a chain starts where an earlier bolt of the same shot ended.
-    let parent = null;
-    for (const other of this.bolts) if (this.time - other.born < 0.25 && other.end.distanceToSquared(record.start) < 1e-4) parent = other;
-    if (parent) {
-      record.delay = parent.delay + LINK_DELAY;
-      record.source = parent.target;
-      record.sourceGeneration = parent.targetGeneration;
-      // It struck something to link on from.
-      parent.air = false;
-    }
-    if (bolt.follow) this.findShooter(record);
-    const struck = this.unitAt(record.end, record.shooter);
-    if (struck) {
-      record.target = struck;
-      record.targetGeneration = struck.generation;
-    } else this.findSurface(record);
-    // A lone bolt that met nothing ran the cone's whole length into the air
-    // (else it ended on a mine or a droid): it fizzles out there.
-    if (!struck && !record.surface && !parent) {
-      const reach = record.weapon?.def?.ordnance?.ConeLength ?? 30;
-      record.air = Math.abs(record.start.distanceTo(record.end) - reach) < 0.1;
-    }
-    this.bolts.push(record);
+  if(flags&R.CASTER){let weapon=null;for(const entry of combat?.arsenal?.weapons||EMPTY)if(entry.def?.ordnance?.LightningEffect){weapon=entry;break;}
+   const at=weapon?combat?.firePoint?.(weapon):null;this.refresh();x=this.facts;x[o+U.HAS_MUZZLE]=at?.position?1:0;if(at?.position)vector(x,o+U.MUZZLE,at.position);
   }
-
-  // Who threw a bolt held to a gun: the soldier whose gun origin as drawn
-  // is where the bolt's own hold puts its start.
-  findShooter(record) {
-    this.units?.prepareAim?.();
-    const at = record.bolt.follow(this.a) || this.a.copy(record.start);
-    let best = null, nearest = 0.5 * 0.5;
-    for (const unit of this.units?.all?.() || []) {
-      const combat = unit.combat;
-      if (!combat || unit.removed || !unit.soldier || typeof combat.drawnGunOrigin !== "function") continue;
-      const origin = combat.drawnGunOrigin(this.b);
-      if (!origin) continue;
-      const d = origin.distanceToSquared(at);
-      if (d < nearest) { nearest = d; best = unit; }
-    }
-    if (!best) return;
-    record.shooter = best;
-    record.shooterGeneration = best.generation;
-    record.weapon = best.combat.arsenal?.weapons?.find((w) => w.def?.ordnance?.LightningEffect) || null;
+  if(flags&R.CURRENT){const at=combat?.firePoint?.(combat.arsenal?.current?.(0));this.refresh();x=this.facts;x[o+U.HAS_CURRENT_MUZZLE]=at?.position?1:0;if(at?.position)vector(x,o+U.CURRENT_MUZZLE,at.position);}
+  if(flags&R.ORIGIN){this.publishOrigin(id);x=this.facts;}
+  if(!(flags&R.VIEW))return;const view=combat?.firstPerson?combat.view:null;x[o+U.HAS_HAND]=view?.hand?1:0;x[o+U.HAS_WRIST]=0;
+  if(view?.root&&row){if(row.view!==view){row.view=view;row.wrist=view.bones?.find(b=>/l_wrist|l_hand/i.test(b.name))||null;}
+   if(view.hand){view.hand.getWorldPosition(this.position);vector(x,o+U.HAND,this.position);}
+   (view.hand||view.root).getWorldPosition(this.position);vector(x,o+U.GRIP,this.position);
+   if(row.wrist){row.wrist.getWorldPosition(this.position);vector(x,o+U.WRIST,this.position);x[o+U.HAS_WRIST]=1;}
   }
+ }
 
-  // The soldier a bolt's end is on (it ends 1 m above his feet), if any.
-  unitAt(point, exclude) {
-    let best = null, nearest = 1.6 * 1.6;
-    for (const unit of this.units?.all?.() || []) {
-      if (!unit.soldier || unit.removed || !unit.actor?.root || unit === exclude) continue;
-      const p = unit.actor.root.position;
-      const dx = p.x - point.x, dy = p.y + 1 - point.y, dz = p.z - point.z;
-      const d = dx * dx + dy * dy + dz * dz;
-      if (d < nearest) { nearest = d; best = unit; }
-    }
-    return best;
+ // Birth is a producer command, not a displayed per-bolt call. PrepareAim's
+ // complete search is needed only for a newly admitted held bolt.
+ spawn(def,start,end,charge,follow=null,classic=false,enhanced=true){const definition=this.definition(def);if(enhanced){if(follow)this.units?.prepareAim?.();this.publishUnits(true);}
+  // Admission needs roots and gun origins only. Bone and muzzle readers are
+  // selected by the native prepare phase once their qualified ids are known.
+  if(enhanced&&follow){vector(this.birth,S.FOLLOW_AT,follow(this.position)||start);for(let id=0;id<this.unitCount;id++)if(this.unitRows[id])this.publishOrigin(id);}
+  this.refresh();const x=this.birth;vector(x,S.START,start);vector(x,S.END,end);x[S.CHARGE]=charge;x[S.FOLLOW]=follow?1:0;
+  x[S.FOLLOW_UNIT]=this.unitId(follow?.unit);
+  const id=this.kernel.add(definition,classic,enhanced,this);this.refresh();if(id>=L.BOLTS)return -1;const handle=this.handles[id];handle.def=def;handle.follow=follow;handle.start.copy(start);handle.end.copy(end);return id;
+ }
+ add(bolt){return this.spawn(bolt.def,bolt.start,bolt.end,bolt.charge,bolt.follow,false,true);}
+ // The browser only answers collision memory queries already constructed by
+ // Rust. Reused vectors and hit storage keep these callbacks allocation-free.
+ cast(x,y,z,dx,dy,dz,length){if(!this.collision)return -1;this.position.set(x,y,z);this.direction.set(dx,dy,dz);const hit=this.collision.cast(this.position,this.direction,length,this.hit);return hit?hit.distance:-1;}
+ normal(axis){return axis===0?this.hit.normal.x:axis===1?this.hit.normal.y:this.hit.normal.z;}
+ update(dt,camera,enhanced=true){this.refresh();const wasEnhanced=Boolean(this.counts[H.ENHANCED_ACTIVE]);this.frame[F.DT]=dt;this.frame[F.ENHANCED]=enhanced?1:0;this.frame[F.HAS_VIEW]=this.viewScene?1:0;
+  vector(this.frame,F.EYE,camera.position);const q=camera.quaternion;this.frame[F.CAMERA]=q.x;this.frame[F.CAMERA+1]=q.y;this.frame[F.CAMERA+2]=q.z;this.frame[F.CAMERA+3]=q.w;this.frame[F.LAYERS]=camera.layers.mask;
+  if(enhanced||wasEnhanced)this.publishUnits();this.kernel.prepare();this.refresh();
+  // An ordinary array-like length keeps the reserved indexed storage. Clear
+  // old references in place so the reader list creates no frame garbage.
+  for(let i=0;i<this.aimUnits.length;i++)this.aimUnits[i]=null;this.aimUnits.length=0;for(let i=0;i<this.counts[H.AIM];i++){const unit=this.unitRows[this.aim[i]];if(unit)this.aimUnits[this.aimUnits.length++]=unit;}this.units?.prepareAim?.(this.aimUnits);
+  for(let i=0;i<this.counts[H.FOLLOW];i++){const id=this.follows[i],handle=this.handles[id];if(handle.follow){handle.follow(handle.start);vector(this.held,id*3,handle.start);}}
+  for(let id=0;id<this.unitCount;id++)if(this.readers[id])this.publishPose(id,camera,this.readers[id]);
+  this.kernel.step(this);this.refresh();if(enhanced||wasEnhanced)this.apply();
+ }
+ // Shock material and quaternion rows are native results. The host writes
+ // them onto existing scene resources without recomputing the visual effect.
+ apply(){for(let id=0;id<this.unitCount;id++){const row=this.actorRows[id];if(!row)continue;const o=id*O.STRIDE,x=this.shockOutput;
+   for(let i=0;i<row.joints.length;i++){const at=(id*L.JOINTS+i)*J.STRIDE;if(this.jointOutput[at+J.ON])sceneTransform(row.joints[i].quaternion.fromArray(this.jointOutput,at+J.QUATERNION));}
+   if(x[o+O.ACTIVE]){const overlay=this.overlay(row.actor);row.overlay=overlay;if(overlay){sceneProperty(overlay,"visible",Boolean(x[o+O.SHOW]));sceneProperty(overlay.layers,"mask",row.actor.body.layers.mask);const v=overlay.material.values,r=ACTOR.LOOK;v[r.SHOCK_TIME]=x[o+O.TIME];v[r.INTENSITY]=x[o+O.OVERLAY_INTENSITY];v[r.SEED]=x[o+O.SEED];for(let i=0;i<3;i++)v[r.COLOR+i]=x[o+O.COLOR+i];}}
+   else if(row.overlay)sceneProperty(row.overlay,"visible",false);
   }
-
-  // A bolt that struck no one: the surface it stopped on, if it did, for
-  // its sparks to fly off.
-  findSurface(record) {
-    if (!this.collision) return;
-    const dir = this.dir.subVectors(record.end, record.start);
-    const length = dir.length();
-    if (length < 0.1) return;
-    dir.divideScalar(length);
-    const hit = this.collision.cast(record.start, dir, length + 0.25, this.hit);
-    if (hit && Math.abs(hit.distance - length) < 0.35) record.surface = hit.normal.clone();
-  }
-
-  // Charging selection is shared by aim collection and drawing. Cache the
-  // bounded unit prefix so weapon selection is not repeated for the army.
-  collectAim(out) {
-    const charging=this.chargeUnits;while(charging.length)charging.pop();
-    for(const unit of this.units?.all?.()||EMPTY_UNITS){const combat=unit.combat;
-      if(!combat||unit.removed||unit.dead||combat.dead||combat.mounted||!unit.soldier)continue;
-      const weapon=combat.arsenal?.current?.(0);
-      if(!weapon?.charging||!weapon.def?.ordnance?.LightningEffect){this.charges.delete(unit);continue;}
-      if(charging.length<UnitLimits.ACTORS)charging.push(unit);
-      if(!combat.firstPerson&&!out.includes(unit)&&out.length<UnitLimits.ACTORS)out.push(unit);
-    }
-    this.readersReady=true;
-  }
-  update(dt, camera) {
-    // A standalone arc owner collects the same phase as Lightning.update.
-    // The outer owner includes held bolts before preparing this shared set.
-    if(!this.readersReady){while(this.aimUnits.length)this.aimUnits.pop();this.collectAim(this.aimUnits);this.units?.prepareAim?.(this.aimUnits);}
-    this.readersReady=false;
-    this.time += dt;
-    this.frame++;
-    this.active = true;
-    this.batch.begin();
-    this.viewBatch?.begin();
-    try {
-      // Shocks first: a bolt ends on a body as its twitch leaves it.
-      for (const shock of this.shocks.values()) this.drawShock(shock, dt, camera);
-      for (const shock of this.shields.values()) this.drawShieldShock(shock, dt);
-      const bolts = this.bolts;
-      let kept = 0;
-      for (let i = 0; i < bolts.length; i++) if (this.drawBolt(bolts[i], dt, camera)) bolts[kept++] = bolts[i];
-      bolts.length = kept;
-      this.drawSparks(dt);
-      this.drawCharges(dt, camera);
-    } catch (error) {
-      // A look must never stop the battle: report it once and start clean.
-      if (!this.failed) console.error("Bolt caster lightning:", error);
-      this.failed = true;
-      this.out = this.batch;
-      this.clear();
-      this.active = true;
-      this.batch.begin();
-      this.viewBatch?.begin();
-    }
-    this.batch.end(this.warming > 0);
-    this.viewBatch?.end();
-  }
-
-  // Classic is on: nothing of this look stays on show.
-  clear() {
-    this.readersReady=false;
-    while(this.chargeUnits.length)this.chargeUnits.pop();
-    if (!this.active) return;
-    this.active = false;
-    this.bolts.length = 0;
-    this.sparks.length = 0;
-    for (const shock of [...this.shocks.values()]) this.endShock(shock);
-    this.shields.clear();
-    this.charges.clear();
-    this.batch.begin();
-    this.batch.end(this.warming > 0);
-    this.viewBatch?.begin();
-    this.viewBatch?.end();
-  }
-
-  // The player's own first-person arms, when they are what is drawn of him.
-  firstPersonView(unit) {
-    const view = unit.combat?.firstPerson ? unit.combat.view : null;
-    return this.viewBatch && view?.root?.visible && view.bones?.length ? view : null;
-  }
-
-  // A soldier's shield bubble while it is up, else null.
-  shieldOf(unit) {
-    const bubble = unit ? this.bubbleOf(unit) : null;
-    return bubble?.on && bubble.mesh?.visible ? bubble : null;
-  }
-
-  // Whether a point is outside a bubble (an ellipsoid: its mesh's position
-  // and scale).
-  outside(bubble, point) {
-    const c = bubble.mesh.position, r = bubble.mesh.scale;
-    return ((point.x - c.x) / r.x) ** 2 + ((point.y - c.y) / r.y) ** 2 + ((point.z - c.z) / r.z) ** 2 > 1;
-  }
-
-  // The point on a bubble on the line from its centre toward `toward`
-  // (where a line from there to the centre crosses it).
-  onShield(bubble, toward, out) {
-    const c = bubble.mesh.position, r = bubble.mesh.scale;
-    const x = (toward.x - c.x) / r.x, y = (toward.y - c.y) / r.y, z = (toward.z - c.z) / r.z;
-    const l = Math.hypot(x, y, z) || 1;
-    return out.set(c.x + (x / l) * r.x, c.y + (y / l) * r.y, c.z + (z / l) * r.z);
-  }
-
-  // Whether a unit is still the body it was (not gone, nor given a new life).
-  same(unit, generation) {
-    return Boolean(unit && !unit.removed && unit.generation === generation && unit.actor);
-  }
-
-  // Where a bolt strikes a soldier: his ribcage as drawn (or 1 m above his
-  // feet).
-  chest(unit, out) {
-    const actor = unit.actor;
-    let bone = this.chests.get(actor);
-    if (bone === undefined) {
-      bone = actor.byName?.bone_ribcage || actor.bones?.find((b) => /ribcage|spine/i.test(b.name)) || null;
-      this.chests.set(actor, bone);
-    }
-    if (bone) {
-      // Asked for by every bolt ending on him, his shock and the links
-      // leaving him: his bones are placed once a frame.
-      let at = this.chestAt.get(actor);
-      if (!at) this.chestAt.set(actor, at = { frame: -1, point: new THREE.Vector3() });
-      if (at.frame !== this.frame) {
-        at.point.setFromMatrixPosition(this.place(bone));
-        at.frame = this.frame;
-      }
-      return out.copy(at.point);
-    }
-    return out.copy(actor.root.position).setY(actor.root.position.y + 1);
-  }
-
-  // A bone's (or any object's) world matrix brought up to date along its
-  // chain, once a frame, as three's updateWorldMatrix(true, false) does it.
-  place(object) {
-    if (this.placed.get(object) === this.frame) return object.matrixWorld;
-    const parent = object.parent;
-    if (parent !== null) this.place(parent);
-    if (object.matrixAutoUpdate) object.updateMatrix();
-    if (parent === null) sceneTransform(object.matrixWorld.copy(object.matrix));
-    else sceneTransform(object.matrixWorld.multiplyMatrices(parent.matrixWorld, object.matrix));
-    this.placed.set(object, this.frame);
-    return object.matrixWorld;
-  }
-
-  // The drawn start of a bolt this frame: its shooter's muzzle as drawn
-  // (the gun in his hands, or in first person the arms' gun), else where
-  // its hold put it, else where it was thrown from.
-  boltFrom(record, out) {
-    const shooter = record.shooter;
-    if (shooter && this.same(shooter, record.shooterGeneration) && !shooter.combat?.dead && !shooter.combat?.mounted && record.weapon) {
-      const at = shooter.combat.firePoint?.(record.weapon);
-      if (at?.position) return out.copy(at.position);
-    }
-    if (record.source && this.same(record.source, record.sourceGeneration)) {
-      // From a droideka's shield, it leaves the bubble toward its next target.
-      const bubble = this.shieldOf(record.source);
-      if (bubble) return this.onShield(bubble, record.to, out);
-      return this.chest(record.source, out);
-    }
-    return out.copy(record.bolt.follow ? record.bolt.start : record.start);
-  }
-
-  // The drawn end of a bolt this frame: the chest of the soldier it struck
-  // as drawn, or in first person the player's own hands (his eye is just
-  // above his chest), else where it was thrown to.
-  boltTo(record, out) {
-    const target = record.target;
-    if (target && this.same(target, record.targetGeneration)) {
-      const own = this.firstPersonView(target);
-      if (own?.hand) return own.hand.getWorldPosition(out);
-      // A droideka's shield up: it stops on the bubble, on the side it came
-      // from.
-      const bubble = this.shieldOf(target);
-      if (bubble && this.outside(bubble, record.from)) return this.onShield(bubble, record.from, out);
-      return this.chest(target, out);
-    }
-    return out.copy(record.end);
-  }
-
-  // One bolt's frame; false once it is over.
-  drawBolt(record, dt, camera) {
-    record.age += dt;
-    const t = record.age - record.delay;
-    if (t < 0) return true;
-    if (t >= record.life) return false;
-    const def = record.def;
-    const charge = record.charge;
-    const from = this.boltFrom(record, record.from);
-    const to = this.boltTo(record, record.to);
-    const length = from.distanceTo(to);
-    if (length < 0.05) return true;
-    // The leader crosses, then the return stroke flashes.
-    const leader = LEADER + LEADER_PER_M * length;
-    const reach = Math.min(t / leader, 1);
-    if (reach >= 1 && !record.arrived) {
-      record.arrived = true;
-      record.flash = 1;
-      this.land(record);
-    }
-    record.flash = Math.max(record.flash - dt * 8, 0);
-    if (this.time >= record.nextStrike) {
-      record.jag = newSeed();
-      record.branchSeed = newSeed();
-      record.strike = 0.62 + 0.38 * Math.random();
-      if (Math.random() < 0.12) record.strike *= 0.45;
-      record.nextStrike = this.time + 0.028 + Math.random() * 0.045;
-      if (record.arrived && !record.air && !record.own && Math.random() < 0.45) this.spray(record, to, 1 + Math.floor(Math.random() * 3), 0.6);
-    }
-    const remain = 1 - t / record.life;
-    const fade = remain > 0.45 ? 1 : Math.pow(remain / 0.45, 1.4);
-    const widthScale = (0.3 + 0.7 * charge) * (0.75 + 0.25 * fade);
-    const brightness = (0.55 + 0.45 * charge) * record.strike * fade * (1 + 1.5 * record.flash);
-    // As it dies the colour cools toward violet.
-    const cool = 1 - fade;
-    const rgb = this.rgb ||= [0, 0, 0];
-    rgb[0] = THREE.MathUtils.lerp(record.rgb[0], 0.62, cool * 0.6);
-    rgb[1] = THREE.MathUtils.lerp(record.rgb[1], 0.42, cool * 0.6);
-    rgb[2] = record.rgb[2];
-
-    // The channel.
-    this.basis(from, to);
-    const depth = THREE.MathUtils.clamp(Math.ceil(Math.log2(length / 0.32)), 2, 8);
-    const spread = Math.max(def.SpreadFactor ?? 0.8, 0.1) * 0.75 * Math.min(1, 0.4 + length / 16);
-    displace(this.main, from, to, depth, this.u, this.w, this.jagged(0.2, spread, record.seed, record.jag, this.time, 2.6, 2));
-    const n = this.main.count - 1;
-    const width = def.Width ?? 0.5;
-    const core = width * 0.07 * widthScale;
-    const glow = width * 0.3 * widthScale;
-    const shown = reach * n;
-    this.line(this.main, shown, rgb, brightness, core, glow, 0.9, record.air ? 0.25 : 0.7);
-    if (reach < 1) {
-      // The leader's head.
-      const at = Math.min(Math.floor(shown), n - 1);
-      const tip = this.d.lerpVectors(this.main.points[at], this.main.points[at + 1], shown - at);
-      this.batch.push(tip, tip, null, null, rgb, 1.4 * brightness, core * 2.2, glow * 2.2, 1);
-    }
-
-    // Children twisting about the channel, and branches, once it has landed.
-    if (record.arrived) {
-      const childWidth = def.ChildWidth ?? width * 0.8;
-      const childAlpha = (def.ChildColor?.[3] ?? 100) / 255;
-      const amplitude = (def.ChildSpreadFactor ?? 1) * 0.2 * (0.6 + 0.4 * charge) * Math.min(1, 0.35 + length / 12);
-      for (const child of record.children) {
-        if (this.time >= child.next) {
-          child.seed = newSeed();
-          child.on = Math.random() < 0.78;
-          child.next = this.time + 0.02 + Math.random() * 0.04;
-        }
-        if (!child.on) continue;
-        this.twist(this.main, this.child, child.seed, amplitude);
-        this.line(this.child, this.child.count - 1, record.childRgb, brightness * (0.5 + childAlpha), childWidth * 0.035 * widthScale, childWidth * 0.2 * widthScale, 0.5, 1);
-      }
-      this.branches(record, rgb, brightness, core, glow, charge);
-    }
-
-    // The flares at the gun and where it lands, and the light it throws.
-    const flicker = brightness * (0.85 + 0.15 * Math.random());
-    if (record.shooter || record.bolt.follow) this.batch.push(from, from, null, null, rgb, 0.9 * flicker, core * 1.5, glow * (from.distanceToSquared(camera.position) < 2.25 ? 0.6 : 1.1), 1);
-    if (record.arrived && !record.air && !record.own) {
-      this.batch.push(to, to, null, null, rgb, flicker, core * 2, glow * 1.8, 1);
-      this.batch.push(to, to, null, null, rgb, 0.18 * flicker, 0, glow * 6, 0);
-    } else if (record.arrived && record.air) this.fizzle(record, to, rgb, brightness, core, glow);
-    if (this.lights) {
-      const light = 1.1 * flicker;
-      if (record.shooter || record.bolt.follow) this.lights.add(from, rgb, 4 + 2.5 * charge, light * 0.8);
-      if (record.arrived && !record.air) this.lights.add(to, rgb, 5 + 4 * charge, light);
-      if (length > 10 && reach >= 1) this.lights.add(this.c.lerpVectors(from, to, 0.5), rgb, Math.min(length * 0.5, 10), light * 0.6);
-    }
-    return true;
-  }
-
-  // An orthonormal pair across the line from a to b.
-  basis(a, b) {
-    const dir = this.dir.subVectors(b, a).normalize();
-    this.u.crossVectors(dir, Math.abs(dir.y) > 0.95 ? SIDE : UP).normalize();
-    this.w.crossVectors(dir, this.u).normalize();
-  }
-
-  // A child strand: the channel's points (every other one) pushed off it by
-  // a smooth twist, nothing at the ends.
-  twist(main, out, seed, amplitude) {
-    const n = main.count - 1;
-    const stride = n >= 16 ? 2 : 1;
-    const m = Math.floor(n / stride);
-    for (let k = 0; k <= m; k++) {
-      const i = Math.min(k * stride, n);
-      const s = i / n;
-      const envelope = Math.pow(Math.sin(Math.PI * s), 0.7);
-      const x = (wave(seed, k * 0.42) * amplitude + signed(seed, k * 3 + 7) * 0.04) * envelope;
-      const y = (wave(seed + 101, k * 0.42) * amplitude + signed(seed, k * 3 + 8) * 0.04) * envelope;
-      out.points[k].copy(main.points[i]).addScaledVector(this.u, x).addScaledVector(this.w, y);
-    }
-    out.count = m + 1;
-  }
-
-  // Branches forking off the channel for this strike, some forking again.
-  branches(record, rgb, brightness, core, glow, charge) {
-    const def = record.def;
-    const main = this.main;
-    const n = main.count - 1;
-    const length = record.from.distanceTo(record.to);
-    const most = Math.round((def.MaxBranches ?? 3) * (0.5 + 0.5 * charge)) + (length > 12 ? 1 : 0);
-    const odds = 0.35 + (def.BranchFactor ?? 0.15);
-    for (let k = 0; k < most; k++) {
-      const seed = record.branchSeed + k * 977;
-      if (hash(seed, 1) > odds) continue;
-      const at = Math.floor(n * (0.12 + 0.68 * hash(seed, 2)));
-      const start = main.points[at];
-      const next = main.points[Math.min(at + 1, n)];
-      const angle = hash(seed, 3) * Math.PI * 2;
-      const spread = (def.BranchSpreadFactor ?? 0.8) * (0.7 + 0.8 * hash(seed, 4));
-      const dir = this.d.subVectors(next, start).normalize()
-        .addScaledVector(this.u, Math.cos(angle) * spread).addScaledVector(this.w, Math.sin(angle) * spread).normalize();
-      const reach = (def.BranchLength ?? 4) * (0.22 + 0.45 * hash(seed, 5)) * (0.55 + 0.45 * charge);
-      const end = this.e.copy(start).addScaledVector(dir, reach);
-      this.forkBasis(dir);
-      displace(this.branch, start, end, 3, this.bu, this.bw, this.jagged(0.3, 0.35, seed, seed ^ 0x5bd1e995));
-      this.line(this.branch, this.branch.count - 1, rgb, brightness * 0.8, core * 0.75, glow * 0.7, 0.7, 0.1);
-      if (hash(seed, 6) < 0.45) {
-        const from = this.branch.points[3 + Math.floor(hash(seed, 7) * 2)];
-        const angle2 = angle + (hash(seed, 8) - 0.5) * 2.4;
-        const dir2 = this.d.copy(dir).addScaledVector(this.u, Math.cos(angle2) * 0.9).addScaledVector(this.w, Math.sin(angle2) * 0.9).normalize();
-        const end2 = this.e.copy(from).addScaledVector(dir2, reach * 0.45);
-        this.forkBasis(dir2);
-        displace(this.twig, from, end2, 2, this.bu, this.bw, this.jagged(0.3, 0.2, seed + 5, seed ^ 0x27d4eb2f));
-        this.line(this.twig, this.twig.count - 1, rgb, brightness * 0.6, core * 0.45, glow * 0.45, 0.5, 0.05);
-      }
-    }
-  }
-
-  // A bolt's end in the air: short forks spraying on from it, new with
-  // each strike.
-  fizzle(record, to, rgb, brightness, core, glow) {
-    const dir = this.d.subVectors(record.to, record.from).normalize();
-    for (let k = 0; k < 3; k++) {
-      const seed = record.branchSeed + 31 * k + 7;
-      const angle = hash(seed, 1) * Math.PI * 2;
-      const way = this.e.copy(dir).addScaledVector(this.u, Math.cos(angle) * 0.9).addScaledVector(this.w, Math.sin(angle) * 0.9).normalize();
-      const end = this.c.copy(to).addScaledVector(way, 0.3 + 0.6 * hash(seed, 2));
-      this.forkBasis(way);
-      displace(this.twig, to, end, 2, this.bu, this.bw, this.jagged(0.32, 0.12, seed, seed ^ 0x2545f491));
-      this.line(this.twig, this.twig.count - 1, rgb, brightness * 0.5, core * 0.3, glow * 0.4, 0.4, 0.05);
-    }
-  }
-
-  forkBasis(dir) {
-    this.bu ||= new THREE.Vector3();
-    this.bw ||= new THREE.Vector3();
-    this.bu.crossVectors(dir, Math.abs(dir.y) > 0.95 ? SIDE : UP).normalize();
-    this.bw.crossVectors(dir, this.bu).normalize();
-  }
-
-  // A path's first `shown` segments (the last in part) as capsules, its
-  // widths falling from 1 at its start to `taper` at its end.
-  line(path, shown, rgb, brightness, core, glow, hot, taper) {
-    const points = path.points;
-    const n = Math.min(Math.ceil(shown), path.count - 1);
-    if (n < 1 || brightness <= 0.002) return;
-    const normals = this.normals;
-    const has = this.hasNormal;
-    for (let i = 1; i < n; i++) {
-      const prev = points[i - 1], at = points[i], next = points[i + 1];
-      const ix = at.x - prev.x, iy = at.y - prev.y, iz = at.z - prev.z;
-      const ox = next.x - at.x, oy = next.y - at.y, oz = next.z - at.z;
-      const li = Math.sqrt(ix * ix + iy * iy + iz * iz), lo = Math.sqrt(ox * ox + oy * oy + oz * oz);
-      if (li < 1e-6 || lo < 1e-6) { has[i] = 0; continue; }
-      const ki = 1 / li, ko = 1 / lo;
-      const nx = ix * ki, ny = iy * ki, nz = iz * ki;
-      const m = normals[i];
-      m.x = nx + ox * ko; m.y = ny + oy * ko; m.z = nz + oz * ko;
-      const l = Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
-      if (l < 0.1) { m.x = nx; m.y = ny; m.z = nz; }
-      else { const k = 1 / l; m.x *= k; m.y *= k; m.z *= k; }
-      has[i] = 1;
-    }
-    // Written straight into the batch (ArcBatch.push's layout): a line's
-    // segments are most of what is drawn, and this is their hot loop.
-    const out = this.out;
-    out.reserve(n);
-    const d = out.data;
-    const r = rgb[0], g = rgb[1], bl = rgb[2];
-    const last = Math.max(path.count - 1, 1);
-    for (let i = 0; i < n; i++) {
-      const a = points[i];
-      let b = points[i + 1];
-      if (i === n - 1 && shown < n) b = this.c.lerpVectors(a, b, shown - i);
-      const scale = 1 + (taper - 1) * ((i + 0.5) / last);
-      const o = out.count++ * STRIDE;
-      d[o] = a.x; d[o + 1] = a.y; d[o + 2] = a.z;
-      d[o + 3] = b.x; d[o + 4] = b.y; d[o + 5] = b.z;
-      if (i > 0 && has[i]) { const na = normals[i]; d[o + 6] = na.x; d[o + 7] = na.y; d[o + 8] = na.z; } else d[o + 6] = d[o + 7] = d[o + 8] = 0;
-      if (i + 1 < n && has[i + 1]) { const nb = normals[i + 1]; d[o + 9] = nb.x; d[o + 10] = nb.y; d[o + 11] = nb.z; } else d[o + 9] = d[o + 10] = d[o + 11] = 0;
-      d[o + 12] = r; d[o + 13] = g; d[o + 14] = bl; d[o + 15] = brightness;
-      d[o + 16] = core * scale; d[o + 17] = glow * scale; d[o + 18] = hot; d[o + 19] = 0;
-    }
-  }
-
-  // The bolt has landed: sparks, a flash of light, and a shock for the
-  // soldier it struck.
-  land(record) {
-    if (record.air) return;
-    const to = this.boltTo(record, this.c);
-    record.own = Boolean(record.target && this.firstPersonView(record.target));
-    const unit = record.target && this.same(record.target, record.targetGeneration) ? record.target : null;
-    const bubble = unit ? this.shieldOf(unit) : null;
-    // Off a shield the sparks glance away from the bubble.
-    if (bubble) record.surface = this.d.subVectors(to, bubble.mesh.position).normalize().clone();
-    if (!record.own) this.spray(record, to, 10 + Math.round(16 * record.charge), 1);
-    this.lights?.flash(to, record.rgb, 6 + 4 * record.charge, 0.16);
-    if (!unit) return;
-    if (bubble) {
-      this.shieldStruck(record, unit, bubble, to);
-      return;
-    }
-    const life = SHOCK_BASE + SHOCK_CHARGE * record.charge;
-    const strength = 0.6 + 0.4 * record.charge;
-    let shock = this.shocks.get(unit);
-    if (shock && shock.generation !== unit.generation) {
-      this.endShock(shock);
-      shock = null;
-    }
-    if (shock) {
-      shock.life = Math.max(shock.life - shock.age, life);
-      shock.age = 0;
-      shock.strength = Math.max(shock.strength, strength);
-      shock.rgb = record.rgb;
-      return;
-    }
-    this.shocks.set(unit, {
-      unit, generation: unit.generation, age: 0, life, strength, rgb: record.rgb, seed: newSeed(),
-      flicker: 1, nextFlicker: 0, arcs: [], nextArcs: 0, nextTwitch: 0, twitch: null,
-    });
-  }
-
-  // Sparks off where a bolt lands: thrown back toward the shooter and up,
-  // falling, skipping once off the floor.
-  spray(record, at, count, speed) {
-    let floor = record.floor;
-    if (floor === null) {
-      floor = at.y - 1.5;
-      if (record.target?.actor?.root) floor = record.target.actor.root.position.y;
-      else if (this.collision) {
-        const hit = this.collision.cast(this.a.copy(at).setY(at.y + 0.2), this.b.set(0, -1, 0), 4, this.hit);
-        if (hit) floor = at.y + 0.2 - hit.distance;
-      }
-      record.floor = floor;
-    }
-    const back = this.d.subVectors(record.from, record.to).normalize();
-    const away = record.surface || back;
-    for (let i = 0; i < count && this.sparks.length < 600; i++) {
-      // Spent sparks are reused: a burst of them is a few dozen objects.
-      const spark = this.sparkPool.pop() || { p: new THREE.Vector3(), v: new THREE.Vector3(), age: 0, life: 0, floor: 0, bounced: false, rgb: null };
-      const v = spark.v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-      v.addScaledVector(away, 0.9).addScaledVector(UP, 0.6).normalize().multiplyScalar((2 + Math.random() * 4.5) * speed);
-      spark.p.copy(at);
-      spark.age = 0;
-      spark.life = 0.25 + Math.random() * 0.4;
-      spark.floor = floor;
-      spark.bounced = false;
-      spark.rgb = record.rgb;
-      this.sparks.push(spark);
-    }
-  }
-
-  drawSparks(dt) {
-    const sparks = this.sparks, batch = this.batch;
-    let kept = 0;
-    for (let i = 0; i < sparks.length; i++) {
-      const spark = sparks[i];
-      if (this.stepSpark(spark, dt)) sparks[kept++] = spark;
-      else this.sparkPool.push(spark);
-    }
-    sparks.length = kept;
-    if (!kept) return;
-    // Each a short streak (ArcBatch.push's layout, written here).
-    batch.reserve(kept);
-    const d = batch.data;
-    for (let i = 0; i < kept; i++) {
-      const { p, v, rgb } = sparks[i];
-      const k = 1 - sparks[i].age / sparks[i].life;
-      const brightness = 1.4 * Math.pow(k, 0.7);
-      if (brightness <= 0.002) continue;
-      const o = batch.count++ * STRIDE;
-      d[o] = p.x; d[o + 1] = p.y; d[o + 2] = p.z;
-      d[o + 3] = p.x - v.x * 0.022; d[o + 4] = p.y - v.y * 0.022; d[o + 5] = p.z - v.z * 0.022;
-      d[o + 6] = d[o + 7] = d[o + 8] = d[o + 9] = d[o + 10] = d[o + 11] = 0;
-      d[o + 12] = rgb[0]; d[o + 13] = rgb[1]; d[o + 14] = rgb[2]; d[o + 15] = brightness;
-      d[o + 16] = 0.006; d[o + 17] = 0.022; d[o + 18] = 1; d[o + 19] = 0;
-    }
-  }
-
-  // A spark's flight this frame; false once it is spent.
-  stepSpark(spark, dt) {
-    spark.age += dt;
-    if (spark.age >= spark.life) return false;
-    spark.v.y -= SPARK_GRAVITY * dt;
-    spark.p.addScaledVector(spark.v, dt);
-    if (spark.p.y < spark.floor) {
-      spark.p.y = spark.floor;
-      if (spark.bounced) return false;
-      spark.bounced = true;
-      spark.v.y *= -0.35;
-      spark.v.x *= 0.55;
-      spark.v.z *= 0.55;
-    }
-    return true;
-  }
-
-  // A shocked soldier's frame: arcs over him, his glow, his light and his
-  // twitch.
-  drawShock(shock, dt, camera) {
-    const unit = shock.unit;
-    shock.age += dt;
-    if (!this.same(unit, shock.generation) || shock.age >= shock.life) {
-      this.endShock(shock);
-      return;
-    }
-    if (this.time >= shock.nextFlicker) {
-      shock.flicker = 0.5 + 0.5 * Math.random();
-      shock.nextFlicker = this.time + 1 / 30;
-    }
-    const k = 1 - shock.age / shock.life;
-    const attack = Math.min(shock.age / 0.04, 1);
-    const intensity = attack * Math.pow(k, 1.2) * shock.flicker * shock.strength * (1 + 1.4 * Math.max(0, 1 - shock.age / 0.15));
-    const actor = unit.actor;
-    if (!unit.walker && !unit.seat && !unit.held?.frame) this.twitch(shock, intensity);
-    // His glow, on whatever layer his body is (his own body in first person
-    // is on a hidden one).
-    const overlay = this.overlay(actor);
-    if (overlay) {
-      sceneProperty(overlay,"visible",intensity > 0.01 && actor.body.visible);
-      sceneProperty(overlay.layers,"mask",actor.body.layers.mask);
-      const u=overlay.material.values,r=ACTOR.LOOK;
-      u[r.SHOCK_TIME]= this.time;
-      u[r.INTENSITY]= intensity * 0.7;
-      u[r.SEED]= (shock.seed % 1000) * 0.37;
-      for(let i=0;i<3;i++)u[r.COLOR+i]=shock.rgb[i];
-    }
-    const shown = actor.root.visible && actor.body?.visible !== false && camera.layers.test(actor.body?.layers ?? actor.root.layers);
-    const chest = this.chest(unit, this.e);
-    const own = shown ? null : this.firstPersonView(unit);
-    if (shown) {
-      if (this.time >= shock.nextArcs) this.pickArcs(shock, intensity);
-      for (const arc of shock.arcs) this.drawCrawl(shock, arc, intensity);
-    } else if (own) {
-      // His own arms and gun in first person, over them.
-      own.root.updateMatrixWorld(true);
-      if (this.time >= shock.nextArcs) this.pickArmArcs(shock, own);
-      this.out = this.viewBatch;
-      for (const arc of shock.arcs) this.drawArmArc(shock, own, arc, intensity, camera);
-      this.out = this.batch;
-    }
-    this.lights?.add(chest, shock.rgb, 3 + 1.5 * shock.strength, 0.9 * intensity);
-  }
-
-  // A new set of arcs over the player's own first-person gun (his hands
-  // are mostly below the view): along it between its grip and its muzzle,
-  // a little off its line, and now and then down to his other hand.
-  pickArmArcs(shock, view) {
-    shock.nextArcs = this.time + 0.03 + Math.random() * 0.035;
-    const spare = restart(shock);
-    const arc = (t1, t2) => {
-      const arc = spare.pop() || { gun: true, t1: 0, t2: 0, o1: [0, 0], o2: [0, 0], seed: 0 };
-      arc.t1 = t1; arc.t2 = t2;
-      shock.arcs.push(arc);
-      return arc;
-    };
-    const off = (o) => { o[0] = (Math.random() * 2 - 1) * 0.035; o[1] = (Math.random() * 2 - 1) * 0.035; };
-    const count = 2 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < count; i++) {
-      const t1 = 0.25 + Math.random() * 0.75;
-      const t2 = THREE.MathUtils.clamp(t1 + (Math.random() < 0.5 ? -1 : 1) * (0.15 + Math.random() * 0.35), 0.2, 1);
-      const a = arc(t1, t2);
-      off(a.o1); off(a.o2);
-      a.seed = newSeed();
-    }
-    shock.wrist ||= view.bones.find((bone) => /l_wrist|l_hand/i.test(bone.name)) || null;
-    if (shock.wrist && Math.random() < 0.5) {
-      const a = arc(0.3 + Math.random() * 0.4, -1);
-      off(a.o1);
-      a.o2[0] = a.o2[1] = 0;
-      a.seed = newSeed();
-    }
-  }
-
-  // A point along the first-person gun (t from its grip, 0, to its muzzle,
-  // 1; -1 for his other hand), pushed across the view by `o`.
-  gunPoint(shock, view, t, o, camera, out) {
-    if (t < 0) return shock.wrist ? out.setFromMatrixPosition(shock.wrist.matrixWorld) : null;
-    const combat = shock.unit.combat;
-    const at = combat?.firePoint?.(combat.arsenal?.current?.(0));
-    if (!at?.position) return null;
-    const grip = (view.hand || view.root).getWorldPosition(this.d);
-    out.lerpVectors(grip, at.position, t);
-    this.right ||= new THREE.Vector3();
-    this.upward ||= new THREE.Vector3();
-    sceneTransform(this.right.set(1, 0, 0).applyQuaternion(camera.quaternion));
-    sceneTransform(this.upward.set(0, 1, 0).applyQuaternion(camera.quaternion));
-    return out.addScaledVector(this.right, o[0]).addScaledVector(this.upward, o[1]);
-  }
-
-  drawArmArc(shock, view, arc, intensity, camera) {
-    const pa = this.gunPoint(shock, view, arc.t1, arc.o1, camera, this.a);
-    const pb = pa && this.gunPoint(shock, view, arc.t2, arc.o2, camera, this.b);
-    if (!pb) return;
-    this.basis(pa, pb);
-    displace(this.twig, pa, pb, 3, this.u, this.w, this.jagged(0.3, 0.04, arc.seed, newSeed()));
-    this.line(this.twig, this.twig.count - 1, shock.rgb, 1.3 * intensity, 0.0025, 0.012, 0.9, 1);
-  }
-
-  // A new set of arcs over a shocked body: bone to bone across it, and now
-  // and then from a limb to the ground.
-  pickArcs(shock, intensity) {
-    const actor = shock.unit.actor;
-    shock.nextArcs = this.time + 0.03 + Math.random() * 0.035;
-    shock.bones ||= (actor.bones || []).filter((bone) => !/^hp_|dummyroot|^bone_root$/i.test(bone.name));
-    shock.low ||= shock.bones.filter((bone) => /foot|toe|calf|hand/i.test(bone.name));
-    const bones = shock.bones;
-    const spare = restart(shock);
-    const arc = (a, b, seed) => {
-      const arc = spare.pop() || { a: null, b: null, ground: false, gx: 0, gz: 0, seed: 0 };
-      arc.a = a; arc.b = b; arc.ground = false; arc.seed = seed;
-      shock.arcs.push(arc);
-      return arc;
-    };
-    if (!bones.length) return;
-    const count = 2 + Math.round(2.5 * Math.min(intensity, 1.2));
-    for (let i = 0; i < count; i++) {
-      const a = bones[Math.floor(Math.random() * bones.length)];
-      const pa = this.a.setFromMatrixPosition(this.place(a));
-      let b = null;
-      for (let tries = 0; tries < 6 && !b; tries++) {
-        const candidate = bones[Math.floor(Math.random() * bones.length)];
-        if (candidate === a) continue;
-        const d = pa.distanceTo(this.b.setFromMatrixPosition(this.place(candidate)));
-        if (d > 0.15 && d < 0.95) b = candidate;
-      }
-      if (b) arc(a, b, newSeed());
-    }
-    if (Math.random() < 0.4) {
-      const low = shock.low;
-      const a = (low.length ? low : bones)[Math.floor(Math.random() * (low.length || bones.length))];
-      const angle = Math.random() * Math.PI * 2, out = 0.35 + Math.random() * 0.6;
-      const ground = arc(a, null, 0);
-      ground.ground = true;
-      ground.gx = Math.sin(angle) * out;
-      ground.gz = Math.cos(angle) * out;
-      ground.seed = newSeed();
-    }
-  }
-
-  // One arc over a shocked body, its ends just off the skin.
-  drawCrawl(shock, arc, intensity) {
-    const root = shock.unit.actor.root.position;
-    const pa = this.a.setFromMatrixPosition(this.place(arc.a));
-    this.offSkin(pa, root, 0.07);
-    const pb = this.b;
-    if (arc.b) {
-      pb.setFromMatrixPosition(this.place(arc.b));
-      this.offSkin(pb, root, 0.07);
-    } else pb.set(root.x + arc.gx, root.y + 0.03, root.z + arc.gz);
-    this.basis(pa, pb);
-    displace(this.twig, pa, pb, 3, this.u, this.w, this.jagged(0.34, 0.1, arc.seed, newSeed()));
-    this.line(this.twig, this.twig.count - 1, shock.rgb, 1.1 * intensity, 0.006, 0.03, 0.8, arc.b ? 1 : 0.4);
-  }
-
-  // A point on a body pushed out from his axis, onto his skin.
-  offSkin(point, root, by) {
-    const dx = point.x - root.x, dz = point.z - root.z;
-    const l = Math.hypot(dx, dz);
-    if (l > 1e-4) { point.x += (dx / l) * by; point.z += (dz / l) * by; }
-  }
-
-  // The upper body jerked off its pose. A bone the animation wrote this
-  // frame takes that as its pose; one it left keeps the last one.
-  twitch(shock, intensity) {
-    const actor = shock.unit.actor;
-    if (!shock.twitch) {
-      // His bones' records are kept for his next shock.
-      let joints = this.joints.get(actor);
-      if (!joints) {
-        joints = [];
-        for (const [name, amount] of Object.entries(TWITCH)) {
-          const bone = actor.byName?.[name];
-          if (bone) joints.push({ bone, amount, base: new THREE.Quaternion(), applied: new THREE.Quaternion(), on: false, offset: new THREE.Quaternion() });
-        }
-        this.joints.set(actor, joints);
-      }
-      for (const joint of joints) {
-        joint.on = false;
-        joint.offset.identity();
-      }
-      shock.twitch = joints;
-    }
-    if (this.time >= shock.nextTwitch) {
-      shock.nextTwitch = this.time + 0.04 + Math.random() * 0.035;
-      const strength = Math.min(intensity, 1);
-      for (const joint of shock.twitch) {
-        const r = joint.amount * strength;
-        this.euler.set((Math.random() * 2 - 1) * r, (Math.random() * 2 - 1) * r, (Math.random() * 2 - 1) * r);
-        joint.offset.setFromEuler(this.euler);
-      }
-    }
-    for (const joint of shock.twitch) {
-      const q = joint.bone.quaternion;
-      if (!joint.on || !q.equals(joint.applied)) joint.base.copy(q);
-      joint.on = true;
-      joint.applied.copy(joint.base).multiply(joint.offset);
-      q.copy(joint.applied);
-    }
-  }
-
-  // A bolt stopped by a droideka's shield: electricity spreads over it from
-  // where it struck (the world's own hit, from where the arc started, ripples
-  // the bubble there).
-  shieldStruck(record, unit, bubble, at) {
-    const c = bubble.mesh.position, r = bubble.mesh.scale;
-    const impact = new THREE.Vector3((at.x - c.x) / r.x, (at.y - c.y) / r.y, (at.z - c.z) / r.z).normalize();
-    const life = 0.55 + 0.45 * record.charge;
-    const strength = 0.6 + 0.4 * record.charge;
-    const shock = this.shields.get(unit);
-    if (shock && shock.generation === unit.generation) {
-      shock.life = Math.max(shock.life - shock.age, life);
-      shock.age = 0;
-      shock.impact.copy(impact);
-      shock.strength = Math.max(shock.strength, strength);
-      return;
-    }
-    this.shields.set(unit, { unit, generation: unit.generation, impact, age: 0, life, strength, rgb: record.rgb, flicker: 1, nextFlicker: 0, arcs: [], nextArcs: 0 });
-  }
-
-  // The shock on a shield: arcs racing over the bubble out from where it was
-  // struck, a flare there, and its light.
-  drawShieldShock(shock, dt) {
-    const unit = shock.unit;
-    shock.age += dt;
-    const bubble = this.same(unit, shock.generation) ? this.shieldOf(unit) : null;
-    if (!bubble || shock.age >= shock.life) {
-      this.shields.delete(unit);
-      return;
-    }
-    if (this.time >= shock.nextFlicker) {
-      shock.flicker = 0.55 + 0.45 * Math.random();
-      shock.nextFlicker = this.time + 1 / 30;
-    }
-    const k = 1 - shock.age / shock.life;
-    const intensity = Math.min(shock.age / 0.03, 1) * Math.pow(k, 1.3) * shock.flicker * shock.strength * (1 + 1.2 * Math.max(0, 1 - shock.age / 0.12));
-    if (this.time >= shock.nextArcs) {
-      shock.nextArcs = this.time + 0.03 + Math.random() * 0.03;
-      const spare = restart(shock);
-      const count = 4 + Math.round(4 * Math.min(intensity, 1));
-      for (let i = 0; i < count; i++) {
-        const arc = spare.pop() || { a: new THREE.Vector3(), b: new THREE.Vector3() };
-        this.turned(shock.impact, Math.random() * 0.3, arc.a);
-        // A couple stay about the strike; the rest race far round the bubble.
-        const reach = i < 2 ? 0.3 + Math.random() * 0.4 : 0.8 + Math.random() * (0.8 + 0.6 * k);
-        this.turned(shock.impact, reach, arc.b);
-        shock.arcs.push(arc);
-      }
-    }
-    const c = bubble.mesh.position, r = bubble.mesh.scale;
-    const points = this.web.points, m = points.length - 1;
-    for (const arc of shock.arcs) {
-      // Along the bubble from a to b, a jag across it, just off its skin.
-      const jag = newSeed();
-      for (let i = 0; i <= m; i++) {
-        const t = i / m, sway = Math.sin(Math.PI * t) * 0.07;
-        const d = this.e.copy(arc.a).lerp(arc.b, t).normalize();
-        this.basis(this.a.set(0, 0, 0), d);
-        d.addScaledVector(this.u, signed(jag, i * 2) * sway).addScaledVector(this.w, signed(jag, i * 2 + 1) * sway).normalize();
-        points[i].set(c.x + d.x * r.x * 1.02, c.y + d.y * r.y * 1.02, c.z + d.z * r.z * 1.02);
-      }
-      this.web.count = m + 1;
-      this.line(this.web, m, shock.rgb, 1.4 * intensity, 0.008, 0.045, 0.85, 0.3);
-    }
-    const at = this.onShield(bubble, this.e.copy(c).add(this.a.set(shock.impact.x * r.x, shock.impact.y * r.y, shock.impact.z * r.z)), this.c);
-    this.batch.push(at, at, null, null, shock.rgb, 1.3 * intensity, 0.03, 0.22, 1);
-    this.lights?.add(at, shock.rgb, 3.5 + 1.5 * shock.strength, 0.8 * intensity);
-  }
-
-  // A unit direction turned off `from` by `angle` (radians) toward a random
-  // side.
-  turned(from, angle, out) {
-    this.basis(this.a.set(0, 0, 0), from);
-    const spin = Math.random() * Math.PI * 2;
-    out.copy(from).multiplyScalar(Math.cos(angle))
-      .addScaledVector(this.u, Math.sin(angle) * Math.cos(spin)).addScaledVector(this.w, Math.sin(angle) * Math.sin(spin));
-    return out.normalize();
-  }
-
-  endShock(shock) {
-    this.shocks.delete(shock.unit);
-    for (const joint of shock.twitch || []) {
-      if (joint.on && joint.bone.quaternion.equals(joint.applied)) sceneTransform(joint.bone.quaternion.copy(joint.base));
-      joint.on = false;
-    }
-    const overlay = this.overlays.get(shock.unit.actor);
-    if (overlay) sceneProperty(overlay,"visible",false);
-  }
-
-  // His shock glow, built the first time he is shocked.
-  overlay(actor) {
-    let overlay = this.overlays.get(actor);
-    if (overlay !== undefined) return overlay;
-    const body = actor.body;
-    overlay = null;
-    if (body?.isSkinnedMesh && body.skeleton) {
-      overlay=actorNode(body.userData.actorAsset,actorLook('shock'),true);
-      overlay.name = "arc-shock";
-      sceneProperty(overlay,"boundingSphere",body.boundingSphere);
-      sceneProperty(overlay,"renderOrder",6);
-      sceneProperty(overlay,"visible",false);
-      sceneProperty(overlay,"castShadow",false);
-      overlay.receiveShadow = false;
-      (body.parent || actor.root).add(overlay);
-      sceneTransform(overlay.position.copy(body.position));
-      sceneTransform(overlay.quaternion.copy(body.quaternion));
-      sceneTransform(overlay.scale.copy(body.scale));
-      overlay.bind(body.skeleton, body.bindMatrix);
-    }
-    this.overlays.set(actor, overlay);
-    return overlay;
-  }
-
-  // A gun held at a charge crackles at its muzzle, more as it builds: arcs
-  // reaching out from it and wrapping back along the barrel, a pulsing glow,
-  // and its light.
-  drawCharges(dt, camera) {
-    for (const unit of this.chargeUnits) {
-      const combat = unit.combat;
-      if (!combat || unit.removed || unit.dead || combat.dead || combat.mounted || !unit.soldier) continue;
-      const weapon = combat.arsenal?.current?.(0);
-      const def = weapon?.def;
-      if (!weapon?.charging || !def?.ordnance?.LightningEffect) { this.charges.delete(unit); continue; }
-      const at = combat.firePoint?.(weapon);
-      if (!at?.position) continue;
-      const most = weapon.levels?.[0]?.MaxPressedTime || def.MaxPressedTime || 1;
-      const charge = THREE.MathUtils.clamp((weapon.held || 0) / most, 0, 1);
-      let crackle = this.charges.get(unit);
-      if (!crackle) this.charges.set(unit, crackle = { arcs: [], next: 0, rgb: null });
-      if (!crackle.rgb) {
-        const bolt = this.effects?.lightning?.[def.ordnance.LightningEffect];
-        crackle.rgb = sheathColor(bolt?.Color || [130, 170, 255, 255]).map((c) => Math.pow(c, 1.6));
-      }
-      const muzzle = this.c.copy(at.position);
-      // Along the barrel, back from the muzzle: toward the eye in first
-      // person, the gun's origin otherwise.
-      const back = combat.firstPerson ? this.d.copy(camera.position) : combat.drawnGunOrigin?.(this.d);
-      if (back) back.sub(muzzle);
-      const barrel = back && back.lengthSq() > 1e-4 ? back.normalize() : null;
-      const near = muzzle.distanceToSquared(camera.position) < 2.25;
-      const size = near ? 0.55 : 1;
-      if (this.time >= crackle.next) {
-        crackle.next = this.time + 0.03 + Math.random() * 0.03;
-        const spare = restart(crackle);
-        const arc = () => {
-          const arc = spare.pop() || { v: new THREE.Vector3(), reach: 0, along: 0, seed: 0 };
-          crackle.arcs.push(arc);
-          return arc;
-        };
-        const out = 1 + Math.round(3 * charge);
-        for (let i = 0; i < out; i++) {
-          const a = arc();
-          const v = a.v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-          if (barrel) v.addScaledVector(barrel, -0.6).normalize();
-          a.reach = (0.08 + Math.random() * (0.1 + 0.4 * charge)) * size;
-          a.along = 0;
-          a.seed = newSeed();
-        }
-        // Well charged, now and then one reaches out much further.
-        if (charge > 0.5 && Math.random() < charge * 0.6) {
-          const a = arc();
-          const v = a.v.set(Math.random() * 2 - 1, Math.random() * 1.6 - 1, Math.random() * 2 - 1).normalize();
-          if (barrel) v.addScaledVector(barrel, -0.8).normalize();
-          a.reach = (0.45 + Math.random() * 0.6 * charge) * size;
-          a.along = 0;
-          a.seed = newSeed();
-        }
-        const wrap = barrel ? Math.round(1 + 2 * charge * Math.random()) : 0;
-        for (let i = 0; i < wrap; i++) {
-          const a = arc();
-          a.v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-          a.reach = (0.015 + Math.random() * 0.04) * size;
-          a.along = (0.08 + Math.random() * (0.12 + 0.2 * charge)) * size;
-          a.seed = newSeed();
-        }
-      }
-      const rgb = crackle.rgb;
-      const bright = 0.45 + 1.1 * charge;
-      // The player's own gun in first person: over it, in its own scene.
-      if (this.firstPersonView(unit)) this.out = this.viewBatch;
-      for (const arc of crackle.arcs) {
-        const end = this.b.copy(muzzle);
-        if (arc.along && barrel) end.addScaledVector(barrel, arc.along);
-        end.addScaledVector(arc.v, arc.reach);
-        this.basis(muzzle, end);
-        const long = arc.reach > 0.4 * size;
-        displace(this.twig, muzzle, end, long ? 3 : 2, this.u, this.w, this.jagged(0.36, long ? 0.14 : 0.06, arc.seed, newSeed()));
-        this.line(this.twig, this.twig.count - 1, rgb, bright, 0.005 * size, 0.024 * size, 0.8, 0.3);
-      }
-      const pulse = 0.85 + 0.15 * Math.sin(this.time * 38) + (charge >= 0.98 ? 0.25 * Math.random() : 0);
-      this.out.push(muzzle, muzzle, null, null, rgb, bright * pulse, (0.015 + 0.02 * charge) * size, (0.05 + 0.16 * charge) * size * pulse, 1);
-      this.out = this.batch;
-      this.lights?.add(muzzle, rgb, 1.5 + 2.5 * charge, (0.3 + 0.7 * charge) * pulse);
-    }
-  }
+  if(this.lights)for(let i=0;i<this.counts[H.LIGHTS];i++){const o=i*I.STRIDE,x=this.lightOutput;this.position.fromArray(x,o+I.POSITION);for(let k=0;k<3;k++)this.rgb[k]=x[o+I.COLOR+k];if(x[o+I.KIND])this.lights.flash(this.position,this.rgb,x[o+I.RADIUS],x[o+I.SCALE]);else this.lights.add(this.position,this.rgb,x[o+I.RADIUS],x[o+I.SCALE]);}
+  if(this.batch){this.batch.count=this.counts[H.CAPSULES];this.batch.end();}if(this.viewBatch){this.viewBatch.count=this.counts[H.VIEW_CAPSULES];this.viewBatch.end();}
+ }
+ clear(){this.refresh();this.kernel.clear();this.refresh();this.apply();}
+ // This is resource creation only. Rust decides whether, when and how strongly
+ // to show the retained overlay; it shares the body's owned asset and skeleton.
+ overlay(actor){const cached=this.overlays.get(actor);if(cached!==undefined)return cached;const body=actor.body;if(!body?.isSkinnedMesh||!body.skeleton){this.overlays.set(actor,null);return null;}
+  const overlay=actorNode(body.userData.actorAsset,actorLook('shock'),true);overlay.name='arc-shock';sceneProperty(overlay,"boundingSphere",body.boundingSphere);sceneProperty(overlay,"renderOrder",6);sceneProperty(overlay,"visible",false);sceneProperty(overlay,"castShadow",false);overlay.receiveShadow=false;
+  (body.parent||actor.root).add(overlay);sceneTransform(overlay.position.copy(body.position));sceneTransform(overlay.quaternion.copy(body.quaternion));sceneTransform(overlay.scale.copy(body.scale));overlay.bind(body.skeleton,body.bindMatrix);this.overlays.set(actor,overlay);return overlay;
+ }
 }
+const IDENTITY=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 
-// A jagged line from a to b in 2^depth segments, by midpoint displacement
-// across the line (u, w): the coarse levels (below `coarse`) writhe smoothly
-// with `time`, the finer ones take the shape of the strike's `jag`. Each
-// level's push is a share (`rough`) of its segment's length, at most
-// `spread` (less at each finer level).
-const FINER = Array.from({ length: 9 }, (_, level) => Math.pow(0.64, level));
-export function displace(path, a, b, depth, u, w, { rough, spread, seed, jag, time, writhe, coarse }) {
-  const n = 1 << depth;
-  const p = path.points;
-  p[0].copy(a);
-  p[n].copy(b);
-  const length = a.distanceTo(b);
-  const ux = u.x, uy = u.y, uz = u.z, wx = w.x, wy = w.y, wz = w.z;
-  for (let level = 0, step = n; level < depth; level++, step >>= 1) {
-    const half = step >> 1;
-    const reach = Math.min((length / (1 << level)) * rough, spread * FINER[level]);
-    const fine = level >= coarse;
-    const sx = (seed + level * 13 + 1) >>> 0, sy = (seed + level * 13 + 2) >>> 0, phase = time * writhe;
-    for (let i = half; i < n; i += step) {
-      let x, y;
-      if (fine) {
-        x = signed(jag, i * 2);
-        y = signed(jag, i * 2 + 1);
-      } else {
-        x = wave(sx, phase + i * 0.61);
-        y = wave(sy, phase + i * 0.61 + 17.3);
-      }
-      const q = p[i], l = p[i - half], r = p[i + half];
-      const kx = x * reach, ky = y * reach;
-      q.x = l.x + (r.x - l.x) * 0.5; q.y = l.y + (r.y - l.y) * 0.5; q.z = l.z + (r.z - l.z) * 0.5;
-      q.x += ux * kx; q.y += uy * kx; q.z += uz * kx;
-      q.x += wx * ky; q.y += wy * ky; q.z += wz * ky;
-    }
-  }
-  path.count = n + 1;
-  return path;
+// Cold inspection preserves the effect tools' producer/fixture surface. None
+// of these snapshots participates in the displayed frame or renderer upload.
+class NativeSet {
+ constructor(owner,key){this.owner=owner;this.key=key;}
+ get size(){return this.owner.inspect()[this.key].length;}
+ has(unit){const id=this.owner.unitIds.get(unit);return id!==undefined&&this.owner.inspect()[this.key].includes(id);}
+ set(unit,record){const owner=this.owner,id=owner.unitId(unit);if(id<0)return this;owner.actor(id);owner.kernel.inject_shock(id,JSON.stringify(record,(key,value)=>key==='unit'?undefined:value));return this;}
 }
+Object.defineProperties(ArcLightning.prototype,{
+ bolts:{get(){const owner=this;return owner.inspect().bolts.map(id=>{let record=owner.handles[id].inspection;if(record)return record;record={};
+  for(const [key,field] of [['age',B.AGE],['delay',B.DELAY],['life',B.CLASSIC_LIFE]])Object.defineProperty(record,key,{get(){owner.refresh();return owner.output[id*B.STRIDE+field];}});
+  for(const [key,field] of [['arrived',B.ARRIVED],['air',B.AIR]])Object.defineProperty(record,key,{get(){owner.refresh();return Boolean(owner.output[id*B.STRIDE+field]);}});
+  for(const [key,field] of [['shooter',B.SHOOTER],['source',B.SOURCE],['target',B.TARGET]])Object.defineProperty(record,key,{get(){owner.refresh();return owner.unitRows[owner.output[id*B.STRIDE+field]]||null;}});
+  for(const [key,field] of [['from',B.FROM],['to',B.TO],['start',B.START],['end',B.END]])Object.defineProperty(record,key,{get(){owner.refresh();return new THREE.Vector3().fromArray(owner.output,id*B.STRIDE+field);}});
+  owner.handles[id].inspection=record;return record;});}},
+ shocks:{get(){return this.shockSet||(this.shockSet=new NativeSet(this,'shocks'));}},
+ shields:{get(){return this.shieldSet||(this.shieldSet=new NativeSet(this,'shields'));}},
+ charges:{get(){return this.chargeSet||(this.chargeSet=new NativeSet(this,'charges'));}},
+ sparks:{get(){const values=this.inspect().sparks,pool=this.sparkInspections||(this.sparkInspections=[]);for(let i=0;i<values.length;i++){const a=values[i],s=pool[i]||(pool[i]={p:new THREE.Vector3(),v:new THREE.Vector3()});s.p.fromArray(a.p);s.v.fromArray(a.v);s.age=a.age;s.life=a.life;s.bounced=a.bounced;}return pool.slice(0,values.length);}},
+ sparkPool:{get(){const n=this.inspect().sparks.length;return (this.sparkInspections||EMPTY).slice(n);}}
+});
+ArcLightning.prototype.inspect=function(){this.refresh();return JSON.parse(this.kernel.inspect());};
+ArcLightning.prototype.line=function(path,shown,rgb,brightness,core,glow,hot,taper){this.kernel.fixture(JSON.stringify({kind:'line',points:path.points.slice(0,path.count).map(p=>p.toArray()),shown,rgb,brightness,core,glow,hot,taper,count:this.batch.count}),this);this.refresh();this.batch.count=this.counts[H.CAPSULES];};
+ArcLightning.prototype.spray=function(record,at,count,speed){this.kernel.fixture(JSON.stringify({kind:'spray',from:record.from.toArray(),to:record.to.toArray(),at:at.toArray(),floor:record.floor,surface:record.surface?.toArray()||null,rgb:record.rgb,count,speed}),this);this.refresh();};
+ArcLightning.prototype.drawSparks=function(dt){this.kernel.fixture(JSON.stringify({kind:'sparks',dt,count:this.batch.count}),this);this.refresh();this.batch.count=this.counts[H.CAPSULES];};
+let fixtureOwner;
+export function displace(path,a,b,depth,u,w,options){fixtureOwner||=new ArcLightning(new THREE.Scene(),{},false);const points=JSON.parse(fixtureOwner.kernel.fixture(JSON.stringify({kind:'displace',a:a.toArray(),b:b.toArray(),depth,u:u.toArray(),w:w.toArray(),...options}),fixtureOwner));path.count=points.length;for(let i=0;i<points.length;i++)path.points[i].fromArray(points[i]);return path;}

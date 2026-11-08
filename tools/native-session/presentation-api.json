@@ -1374,5 +1374,288 @@
         "length": "counts_len"
       }
     ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagelightning",
+    "name": "PageLightning",
+    "methods": [
+      {
+        "name": "definition",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize,String>"
+      },
+      {
+        "name": "actor",
+        "args": [
+          [
+            "id",
+            "usize"
+          ],
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize,String>"
+      },
+      {
+        "name": "prepare",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "add",
+        "args": [
+          [
+            "def",
+            "usize"
+          ],
+          [
+            "classic",
+            "bool"
+          ],
+          [
+            "enhanced",
+            "bool"
+          ],
+          [
+            "random",
+            "&[f64]"
+          ],
+          [
+            "casts",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<usize,String>"
+      },
+      {
+        "name": "step",
+        "args": [
+          [
+            "random",
+            "&[f64]"
+          ],
+          [
+            "casts",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "inspect",
+        "args": [],
+        "result": "String"
+      },
+      {
+        "name": "inject_shock",
+        "args": [
+          [
+            "id",
+            "usize"
+          ],
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "fixture",
+        "args": [
+          [
+            "data",
+            "&str"
+          ],
+          [
+            "random",
+            "&[f64]"
+          ],
+          [
+            "casts",
+            "&[f64]"
+          ]
+        ],
+        "result": "Result<String,String>"
+      },
+      {
+        "name": "clear",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "used",
+        "type": "u32",
+        "pointer": "used_ptr",
+        "length": "used_len"
+      },
+      {
+        "name": "unit_order",
+        "type": "u32",
+        "pointer": "unit_order_ptr",
+        "length": "unit_order_len"
+      },
+      {
+        "name": "aim",
+        "type": "u32",
+        "pointer": "aim_ptr",
+        "length": "aim_len"
+      },
+      {
+        "name": "readers",
+        "type": "u32",
+        "pointer": "readers_ptr",
+        "length": "readers_len"
+      },
+      {
+        "name": "follows",
+        "type": "u32",
+        "pointer": "follows_ptr",
+        "length": "follows_len"
+      },
+      {
+        "name": "frame",
+        "type": "f64",
+        "pointer": "frame_ptr",
+        "length": "frame_len"
+      },
+      {
+        "name": "units",
+        "type": "f64",
+        "pointer": "units_ptr",
+        "length": "units_len"
+      },
+      {
+        "name": "nodes",
+        "type": "f64",
+        "pointer": "nodes_ptr",
+        "length": "nodes_len"
+      },
+      {
+        "name": "spawn",
+        "type": "f64",
+        "pointer": "spawn_ptr",
+        "length": "spawn_len"
+      },
+      {
+        "name": "held",
+        "type": "f64",
+        "pointer": "held_ptr",
+        "length": "held_len"
+      },
+      {
+        "name": "output",
+        "type": "f64",
+        "pointer": "output_ptr",
+        "length": "output_len"
+      },
+      {
+        "name": "shocks_output",
+        "type": "f64",
+        "pointer": "shocks_output_ptr",
+        "length": "shocks_output_len"
+      },
+      {
+        "name": "joints",
+        "type": "f64",
+        "pointer": "joints_ptr",
+        "length": "joints_len"
+      },
+      {
+        "name": "lights",
+        "type": "f64",
+        "pointer": "lights_ptr",
+        "length": "lights_len"
+      },
+      {
+        "name": "capsules",
+        "type": "f32",
+        "pointer": "capsules_ptr",
+        "length": "capsules_len"
+      },
+      {
+        "name": "view_capsules",
+        "type": "f32",
+        "pointer": "view_capsules_ptr",
+        "length": "view_capsules_len"
+      },
+      {
+        "name": "positions",
+        "type": "f32",
+        "pointer": "positions_ptr",
+        "length": "positions_len"
+      },
+      {
+        "name": "uvs",
+        "type": "f32",
+        "pointer": "uvs_ptr",
+        "length": "uvs_len"
+      },
+      {
+        "name": "colors",
+        "type": "f32",
+        "pointer": "colors_ptr",
+        "length": "colors_len"
+      },
+      {
+        "name": "indices",
+        "type": "u32",
+        "pointer": "indices_ptr",
+        "length": "indices_len"
+      },
+      {
+        "name": "counts",
+        "type": "u32",
+        "pointer": "counts_ptr",
+        "length": "counts_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagearccamera",
+    "name": "PageArcCamera",
+    "methods": [
+      {
+        "name": "step",
+        "args": [
+          [
+            "fov",
+            "f64"
+          ],
+          [
+            "zoom",
+            "f64"
+          ],
+          [
+            "near",
+            "f64"
+          ],
+          [
+            "height",
+            "f64"
+          ]
+        ],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "output",
+        "type": "f64",
+        "pointer": "output_ptr",
+        "length": "output_len"
+      }
+    ]
   }
 ]

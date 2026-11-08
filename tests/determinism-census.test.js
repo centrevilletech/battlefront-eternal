@@ -29,15 +29,13 @@ const content = contentPath();
 const CENSUS = {
   'Math.random': {
     'src/ai/random.js': { legacy: 1 },
-    'src/arc-lightning.js': { page: 58 },
-    'src/presentation-pkg/bfe_presentation.js': { page: 1 }, // native sniper cosmetic random primitive
+    'src/presentation-pkg/bfe_presentation.js': { page: 1 }, // native sniper and lightning cosmetic random primitive
     'src/sim/wasm/presentation/cameras.js': { page: 1 }, // injectable cosmetic shake stream
     'src/sim/module.js': { page: 1 }, // binds the camera's standard random primitive
     'src/commandposts.js': { page: 2 }, // the post holograms' flicker (CommandPosts.present)
     'src/presentation/effects.js': { page: 1 }, // a displayed effect's recorded birth seed
     'src/game.js': { page: 3 }, // the sky's flyers, a droid's death blasts (presentEvent)
     'src/launch.js': { page: 3 },
-    'src/lightning.js': { page: 1 },
     'src/player-body.js': { page: 2 }, // the spawn screen's preview fidgets
     'src/props.js': { page: 3 }, // build holograms' flicker, the power droids' idle turn (LiveObjects.present)
     'src/vehicle-effects.js': { page: 1 },
