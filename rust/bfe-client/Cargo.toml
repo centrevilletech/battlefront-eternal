@@ -37,3 +37,4 @@ sim = { path = "../sim" }
 content = { path = "../content" }
 
 base64 = "0.22"
+bfe-desktop = { path = "../bfe-desktop" }
