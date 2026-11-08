@@ -1,0 +1,237 @@
+name: Native CI
+
+# Runs on GitHub-hosted runners only. No job in this repository may target a
+# self-hosted runner: pull requests from forks run the workflow files they
+# carry, so a self-hosted label here would hand a stranger's code a machine.
+#
+# Validation trigger note: GitHub cannot dispatch a new workflow file by name
+# until it exists on the default branch. During validation on `rust/fable-ci`,
+# `push: branches: [rust/fable-ci]` starts the run automatically when the branch
+# is pushed. At cutover, replace `branches: [rust/fable-ci]` with
+# `branches: [main]` and add `pull_request:` alongside `workflow_dispatch:`:
+#
+# on:
+#   push:
+#     branches: [main]
+#   pull_request:
+#   workflow_dispatch:
+
+on:
+  push:
+    branches: [rust/fable-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    name: Linux Native (x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install JavaScript dependencies for Rust test oracles and legacy generator check
+        run: npm ci
+
+      - name: Pinned renderer C++ compiler (while legacy npm run rust:check fallback is active)
+        run: |
+          if [[ ! -f rust/xtask/Cargo.toml ]]; then
+            bash build/install-render-compiler.sh
+          fi
+
+      - name: Install Linux audio headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev alsa-utils
+
+      - name: Install Rust toolchain
+        run: bash build/ci/install-rust.sh
+
+      - name: Cache Cargo registry, target, and wasm-bindgen CLI
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.cargo/bin/wasm-bindgen
+            rust/target/
+          key: cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Install wasm-bindgen-cli (used while legacy generator fallback is active)
+        run: |
+          if [[ ! -f rust/xtask/Cargo.toml ]]; then
+            rustup target add wasm32-unknown-unknown
+            version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' rust/Cargo.lock)
+            if [[ "$(wasm-bindgen --version 2>/dev/null)" != "wasm-bindgen ${version}" ]]; then
+              cargo install wasm-bindgen-cli --version "${version}" --locked
+            fi
+          fi
+
+      - name: Check generated Rust and bridge files
+        run: bash build/ci/check-generated.sh
+
+      - name: Run Linux native lint, tests, and startup checks
+        run: bash build/ci/linux.sh
+
+  linux-arm64:
+    name: Linux Native (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install JavaScript dependencies for Rust test oracles
+        run: npm ci
+
+      - name: Install Linux audio headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+
+      - name: Install Rust toolchain
+        run: bash build/ci/install-rust.sh --minimal
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-linux-arm64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-linux-arm64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Run arm64 native workspace tests (--no-fail-fast, nocapture)
+        run: bash build/ci/linux-arm64.sh
+
+  windows:
+    name: Windows Native (x86_64 MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: bash
+        env:
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+        run: bash build/ci/install-rust.sh --minimal
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-windows-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-windows-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Build and test Windows native crates
+        shell: bash
+        env:
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+        run: bash build/ci/windows.sh
+
+  renderer-smoke-native:
+    name: Native Software-GL Renderer Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Mesa software OpenGL and Xvfb dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libegl1 \
+            libegl-mesa0 \
+            libgl1-mesa-dri \
+            libglx-mesa0 \
+            libwayland-client0 \
+            libwayland-cursor0 \
+            libwayland-egl1 \
+            libxcb-xkb1 \
+            libxcursor1 \
+            libxi6 \
+            libxinerama1 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libxrandr2 \
+            mesa-utils \
+            xvfb
+
+      - name: Install Rust toolchain
+        run: bash build/ci/install-rust.sh --minimal
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-smoke-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-smoke-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+            cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+            cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Build native renderer smoke binaries
+        run: |
+          cargo build --manifest-path rust/Cargo.toml --locked \
+            -p bfe-client --bin bfe-client --bin static-frame \
+            -p bfe-content-native --example static-fixture --example fingerprint
+
+      - name: Run native software-OpenGL renderer smoke
+        run: |
+          python3 tools/renderer-smoke-native.py \
+            --output renderer-smoke-native.jsonl \
+            --png-out renderer-smoke-native.png
+
+      - name: Upload renderer-smoke-native artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: renderer-smoke-native
+          path: |
+            renderer-smoke-native.png
+            renderer-smoke-native.jsonl
+          if-no-files-found: error
