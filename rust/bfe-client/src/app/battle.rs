@@ -38,11 +38,7 @@ use bfe_battle_ui::{
         SpawnPort, SpawnPostEntry, SpawnRequest, SpawnScreenController, SpawnTeamFacts,
     },
 };
-use bfe_presentation::{
-    aim::View as AimView,
-    cameras::math::V8,
-    network_layout::{net_kind as k, net_record as r},
-};
+use bfe_presentation::{aim::View as AimView, cameras::math::V8};
 use bfe_render::{
     hud as render_hud,
     hud_model::layout::{HudArt as A, HudFrame as H},
@@ -450,45 +446,25 @@ impl LiveScoreboardPort {
                 });
             }
         } else {
-            self.inner.characters.push(CharacterStatsEntry {
-                slot: 0,
-                team: receiver.own.team.clamp(1, 2) as i32,
-                name: profile_name.to_string(),
-                kills: 0,
-                team_kills: 0,
-                deaths: 0,
-                points: 0,
-                human: true,
-                local: true,
-                ping: Some(24),
-                link_kind: "direct4".to_string(),
-                record: CharacterRecord::default(),
-            });
-            for (slot, row) in receiver.active_slots() {
-                if row[r::ID] == receiver.own.id && row[r::GENERATION] == receiver.own.generation {
+            // scoreboardPort.roster reads the server's Character slots, not
+            // visible unit rows. Spawn schema 3 identifies the local slot even
+            // when that player's unit is dead or outside snapshot visibility.
+            for (slot, c) in receiver.roster.rows() {
+                if c.team != 1 && c.team != 2 {
                     continue;
                 }
-                let kind = row[r::KIND] as u32;
-                if kind != k::SOLDIER && kind != k::DROIDEKA {
-                    continue;
-                }
-                let team = (row[r::TEAM] as i32).clamp(1, 2);
                 self.inner.characters.push(CharacterStatsEntry {
-                    slot: slot + 1,
-                    team,
-                    name: if team == 1 {
-                        format!("Unit #{}", slot + 1)
-                    } else {
-                        format!("Droid #{}", slot + 1)
-                    },
-                    kills: 0,
-                    team_kills: 0,
-                    deaths: 0,
-                    points: 0,
-                    human: false,
-                    local: false,
-                    ping: None,
-                    link_kind: String::new(),
+                    slot,
+                    team: c.team as i32,
+                    name: c.name().into_owned(),
+                    kills: c.kills as i32,
+                    team_kills: c.team_kills as i32,
+                    deaths: c.deaths as i32,
+                    points: c.captures as i32,
+                    human: c.human,
+                    local: receiver.roster.local == Some(slot),
+                    ping: if c.human { c.ping.map(i32::from) } else { None },
+                    link_kind: crate::online::roster::LINKS[c.link].into(),
                     record: CharacterRecord::default(),
                 });
             }
@@ -1312,6 +1288,7 @@ impl BattleController {
 
         // 5. Build HUD + battle UI overlay batch before `scene.draw(&view)`.
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
+        reset_hud_layer(&mut self.scene.bridge.hud_model.input);
         if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
@@ -1384,6 +1361,7 @@ impl BattleController {
         self.scene.bridge.hud_model.input[H::HEIGHT] = self.height;
         self.scene.bridge.hud_model.input[H::ASPECT] = self.aspect;
         self.scene.bridge.hud_model.input[H::FOV] = 60.0;
+
 
         let spawn_open = self.spawn_ctrl.is_open();
         let menu_open = self.pause_menu.is_open;
@@ -2003,4 +1981,92 @@ fn dom_code_to_keycode(code: &str) -> Option<KeyCode> {
         "F4" => F4,
         _ => return None,
     })
+}
+
+// HudInput.facts in src/hud-input.js rewrites layer facts every frame. A
+// closed spawn screen releases its battlefield map so HudModel draws the
+// bottom-left minimap. Online and Instant Action share this boundary.
+fn reset_hud_layer(input: &mut [f64]) {
+    for at in [
+        H::LAYER,
+        H::SPAWN_MAP,
+        H::VIEW_TEAMS,
+        H::HIDE_TEAMS,
+        H::FLIP,
+        H::COVERED,
+    ] {
+        input[at] = 0.;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scoreboard_uses_published_characters_instead_of_visible_units() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        let bytes = [
+            2, 0, 0, 0, 2, 1, 1, 7, 0, 1, 0, 3, 0, 4, 0, 1, 0, 1, 6, b'P', b'l', b'a', b'y', b'e',
+            b'r', 2, 0, 2, 0, 0, 0, 5, 0, 1, 0, 255, 255, 0, 3, b'B', b'o', b't',
+        ];
+        receiver.roster.receive(4, 70000, &bytes).unwrap();
+        receiver.roster.local = Some(0);
+        let mut board = LiveScoreboardPort::new(true, "cw");
+        board.sync_from_state("unused", &[[0.; 4]; 8], false, &receiver, None);
+        let rows = board.roster();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "Player");
+        assert_eq!((rows[0].kills, rows[0].deaths, rows[0].points), (5, 3, 4));
+        assert!(rows[0].human && rows[0].local);
+        assert_eq!(rows[0].ping, Some(1));
+        assert_eq!(board.players().unwrap().len(), 1);
+        assert!(!rows[1].human);
+    }
+
+    #[test]
+    fn spawn_close_restores_javascript_minimap_at_both_resolutions() {
+        use bfe_render::hud_model::HudModel;
+        for (width, height) in [(1280., 720.), (1920., 1080.)] {
+            let mut hud = HudModel::new();
+            let h = interface_height(width, height);
+            hud.input[H::HEIGHT] = h;
+            hud.input[H::MAP] = 1.;
+            hud.input[H::PLAYER] = 1.;
+            hud.input[H::MAP_IMAGE] = A::MAP_MASK as f64;
+            hud.input[H::MAP_HALF] = 500.;
+            for asset in &mut hud.assets {
+                asset.ready = true;
+            }
+            // A frame after spawn used to retain these, drawing the 419.84
+            // unit spawn map on the right instead of the 143.36 unit minimap.
+            hud.input[H::LAYER] = 1.;
+            hud.input[H::SPAWN_MAP] = 1.;
+            reset_hud_layer(&mut hud.input);
+            hud.build(0);
+            let draw = hud
+                .batch
+                .draws
+                .iter()
+                .find(|d| d.texture == A::MAP_MASK)
+                .unwrap();
+            let first = draw.first / 6 * 12;
+            let positions = &hud.batch.position[first..first + 12];
+            // Frozen interface/space.js anchorMatrix and HudModel.map math:
+            // left = 5%, width = 143.36 / 1024, bottom = 95% of the canvas.
+            let xs: Vec<f64> = positions
+                .as_chunks::<3>().0.iter()
+                .map(|p| (p[0] as f64 / 1024. + 0.5) * width)
+                .collect();
+            let ys: Vec<f64> = positions
+                .as_chunks::<3>().0.iter()
+                .map(|p| (0.5 - p[1] as f64 / 768.) * height)
+                .collect();
+            let left = xs.iter().copied().fold(f64::INFINITY, f64::min);
+            let right = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let bottom = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            assert!((left - width * 0.05).abs() < 0.001);
+            assert!((right - left - width * 143.36 / 1024.).abs() < 0.001);
+            assert!((bottom - height * 0.95).abs() < 0.001);
+        }
+    }
 }

@@ -163,7 +163,22 @@ impl<'a> Arguments<'a> {
         }
     }
 }
-macro_rules! arrays{($($method:ident,$ty:ty,$n:literal);*)=>{$(impl Arguments<'_>{pub fn $method(&self,i:usize)->Result<Vec<$ty>,String>{let data=self.raw(i)?;if data.len()%$n!=0{return Err("unaligned scalar blob".into());}Ok(data.chunks_exact($n).map(|b|<$ty>::from_le_bytes(b.try_into().unwrap())).collect())}})*};}
+// Scalar blobs must contain complete little-endian values. Checking the
+// remainder also covers byte arrays, whose element width is exactly one.
+macro_rules! arrays {
+    ($($method:ident,$ty:ty,$n:literal);*) => {
+        $(impl Arguments<'_> {
+            pub fn $method(&self, i: usize) -> Result<Vec<$ty>, String> {
+                let data = self.raw(i)?;
+                let chunks = data.chunks_exact($n);
+                if !chunks.remainder().is_empty() {
+                    return Err("unaligned scalar blob".into());
+                }
+                Ok(chunks.map(|b| <$ty>::from_le_bytes(b.try_into().unwrap())).collect())
+            }
+        })*
+    };
+}
 arrays!(f64s,f64,8;f32s,f32,4;u32s,u32,4;i32s,i32,4;u16s,u16,2;u8s,u8,1);
 
 use crate::presentation_bridge::*;

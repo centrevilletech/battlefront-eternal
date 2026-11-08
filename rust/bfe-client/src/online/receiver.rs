@@ -108,6 +108,7 @@ struct Early {
 }
 pub struct Receiver {
     flight: bfe_sim::prediction::corrections::FlightState,
+    pub roster: super::roster::Roster,
     pub publications: Box<super::publications::Publications>,
     pub network: Shared,
     pub clock: super::clock::Clock,
@@ -159,6 +160,7 @@ impl Receiver {
                 quaternions: Vec::with_capacity(6),
                 ..Default::default()
             },
+            roster: Default::default(),
             publications: Box::new(Default::default()),
             network: Rc::new(RefCell::new(session)),
             clock: Default::default(),
@@ -257,6 +259,7 @@ impl Receiver {
             self.estimator.reset();
             self.clock.reset();
             self.publications.reset();
+            self.roster.reset();
         }
         self.epoch = owner.header[h::EPOCH];
         let tick = owner.header[h::TICK];
@@ -279,6 +282,10 @@ impl Receiver {
                 let offset = row[r::PAYLOAD_OFFSET] as usize;
                 let length = row[r::PAYLOAD_LENGTH] as usize;
                 if let Some(bytes) = owner.leases.payloads.get(offset..offset + length) {
+                    if kind == k::SUMMARY && self.roster.receive(row[r::SCHEMA] as u32, id, bytes).is_none() {
+                        self.fault = Some("invalid roster summary");
+                        return;
+                    }
                     self.publications.push(row, bytes);
                 }
                 continue;

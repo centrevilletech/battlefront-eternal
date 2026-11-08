@@ -45,3 +45,5 @@ mod collision;
 mod stream_assets;
 
 mod seat_view;
+
+pub mod roster;

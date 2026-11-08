@@ -382,6 +382,20 @@ mod tests {
     use super::*;
     use crate::browser::{BattleSummary, ServerContract};
 
+    // Recorded empty /info fields, wrapped in the LAN reply envelope. The
+    // same ServerEntry decoder serves direct HTTP discovery and the browser.
+    #[test]
+    fn accepts_null_operator_metadata() {
+        let reply = br#"{"magic":"BFE-LAN/1","type":"server","nonce":"00000000000000000000000000000000","info":{"id":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","name":"Native LAN paired engine","port":18451,"description":null,"location":null,"players":2,"maxPlayers":8}}"#;
+        let server = parse_server_packet(reply, &"0".repeat(32), Ipv4Addr::LOCALHOST.into()).unwrap();
+        assert!(server.description.is_empty());
+        assert!(server.location.is_empty());
+        assert_eq!(server.players, 2);
+        let info: serde_json::Value = serde_json::from_slice(reply).unwrap();
+        let direct: ServerEntry = serde_json::from_value(info["info"].clone()).unwrap();
+        assert_eq!(server.name, direct.name);
+    }
+
     // Spawns a single-shot mock `BFE-LAN/1` UDP responder thread that waits for
     // one `"discover"` datagram on `sock` and echoes a `"server"` reply carrying
     // the caller's `nonce` and `info`.

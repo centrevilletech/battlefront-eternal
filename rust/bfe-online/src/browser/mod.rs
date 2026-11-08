@@ -537,7 +537,7 @@ pub struct ServerEntry {
     #[serde(default)]
     pub name: String,
     // Two-line operator description shown in `GAME INFO`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_text")]
     pub description: String,
     // Responder IP populated for LAN discovery and Direct Connect `/info` results.
     #[serde(default)]
@@ -552,7 +552,7 @@ pub struct ServerEntry {
     #[serde(rename = "maxPlayers", default)]
     pub max_players: u32,
     // Operator-supplied region text (`"Alabama, US"`, `"Frankfurt, DE"`).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_text")]
     pub location: String,
     // Optional explicit ISO 3166-1 alpha-2 country code (`"US"`, `"DE"`).
     #[serde(default)]
@@ -1275,6 +1275,12 @@ impl ServerBrowserService for ServerBrowser {
         }
         None
     }
+}
+
+// server-browser-view.js renders absent description/location as empty text.
+// The dedicated server publishes JSON null for an empty operator setting.
+fn null_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
 }
 
 #[cfg(test)]
