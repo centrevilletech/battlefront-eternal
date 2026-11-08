@@ -3,6 +3,7 @@
 //! invoking JavaScript. Input clocks and transport keep their host lifetime.
 
 pub mod resources;
+pub mod timing;
 use crate::collision::State;
 use crate::combat::defs::K;
 use crate::combat::weapons::{Arsenal, ShotKind};

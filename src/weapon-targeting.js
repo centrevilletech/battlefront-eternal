@@ -1,5 +1,7 @@
 import { weaponAI } from './weapon-policy.js';
 import { derivedFrom } from './combat-sources.js';
+import {targetFrame,runTargetFrame,vehicleMissilePolicy} from './targeting-facts.js';
+import {PageTargetFrameLayout as F,VehicleMissilePolicyLayout as P} from './sim/gen/page-targeting.js';
 
 export const hasMissileLock = def => def?.base === 'launcher' && def.ordnance?.base === 'missile';
 
@@ -7,20 +9,17 @@ export const hasMissileLock = def => def?.base === 'launcher' && def.ordnance?.b
 // fields. Enable the same acquisition and guidance path as infantry launchers
 // without changing their damage, ammunition, speed or firing schedules. The
 // Imperial IFT-T carries the same concussion missile as the Republic IFT-X.
-const tankMissiles = new Set(['rep_weap_hover_fightertank_missile', 'imp_weap_hover_fightertank_missile', 'all_weap_hover_combatspeeder_missile']);
 export function vehicleMissileDefinition(def) {
-  if (!tankMissiles.has(def?.class)) return def;
-  return derivedFrom({ ...def, base: 'launcher', LockOnRange: 150, LockOnAngle: 6,
-    LockOffAngle: 10, LockTime: 1, ClearLockOnFire: 1,
-    TargetEnemy: 1, TargetFriendly: 0, TargetNeutral: 0,
-    TargetPerson: 0, TargetAnimal: 0, TargetDroid: 0, TargetVehicle: 1, TargetBuilding: 0,
-    ai: { ...weaponAI(def), relationMask: 1, categoryMask: 8, extremeRange: 150 },
-    ordnance: derivedFrom({ ...def.ordnance, base: 'missile', TurnRate: 6, ScaleTime: 1 }, def.ordnance) }, def);
+  const p=vehicleMissilePolicy(def?.class);if(!p[P.enabled])return def;
+  return derivedFrom({...def,base:'launcher',LockOnRange:p[P.lockOnRange],LockOnAngle:p[P.lockOnAngle],LockOffAngle:p[P.lockOffAngle],LockTime:p[P.lockTime],ClearLockOnFire:p[P.clearLockOnFire],
+    TargetEnemy:p[P.targetEnemy],TargetFriendly:p[P.targetFriendly],TargetNeutral:p[P.targetNeutral],TargetPerson:p[P.targetPerson],TargetAnimal:p[P.targetAnimal],TargetDroid:p[P.targetDroid],TargetVehicle:p[P.targetVehicle],TargetBuilding:p[P.targetBuilding],
+    ai:{...weaponAI(def),relationMask:p[P.relationMask],categoryMask:p[P.categoryMask],extremeRange:p[P.extremeRange]},
+    ordnance:derivedFrom({...def.ordnance,base:'missile',TurnRate:p[P.turnRate],ScaleTime:p[P.scaleTime]},def.ordnance)},def);
 }
 
 export function targetingWeapon(arsenal) {
   const primary = arsenal?.current(0), secondary = arsenal?.current(1);
-  return [primary, secondary].find(w => hasMissileLock(w?.def)) || primary;
+  return hasMissileLock(primary?.def)?primary:hasMissileLock(secondary?.def)?secondary:primary;
 }
 
 export function lockedUnit(weapon, units) {
@@ -45,18 +44,17 @@ export const seatLockTarget = lease => lease && !lease.human ? botLockTarget(lea
 // The original HUD's eight five-unit radial ticks. The horizontal camera
 // FOV already includes zoom in the port.
 export function lockTickRadii(def, camera, height = 768) {
-  const vfov = (camera?.fov ?? 46.826) * Math.PI / 180;
-  const hfov = 2 * Math.atan(Math.tan(vfov / 2) * (camera?.aspect ?? 4 / 3));
-  const angle = Math.max(0, Number(def?.LockOffAngle) || 0) * Math.PI / 180;
-  return [1024 * angle / hfov, height * angle / (hfov * .75)];
+  const angle=Number(def?.LockOffAngle)||0;
+  return tickRadii(angle,angle,camera,height);
+}
+const radii=[0,0];
+function tickRadii(yaw,pitch,camera,height){
+  const f=targetFrame();f[F.fov]=camera?.fov??46.826;f[F.aspect]=camera?.aspect??4/3;f[F.height]=height;f[F.yaw]=yaw;f[F.pitch]=pitch;
+  runTargetFrame(4);radii[0]=f[F.x];radii[1]=f[F.y];return radii;
 }
 
-// A reticle without art (a seat's weapon with no ReticuleTexture): its four
-// ticks sit as far out as the weapon's spread reaches now, yaw across and
-// pitch up and down, by the same measure.
-export function spreadTickRadii(weapon, camera, height = 768) {
-  const [yaw, pitch] = weapon?.spread?.(0, "stand", false) ?? [0, 0];
-  const across = lockTickRadii({ LockOffAngle: yaw }, camera, height)[0];
-  const up = lockTickRadii({ LockOffAngle: pitch }, camera, height)[1];
-  return [across, up];
+// A reticle without art uses the native spread angles in the same view.
+export function spreadTickRadii(weapon,camera,height=768){
+  const spread=weapon?.spread?.(0,'stand',false);
+  return tickRadii(spread?.[0]??0,spread?.[1]??0,camera,height);
 }

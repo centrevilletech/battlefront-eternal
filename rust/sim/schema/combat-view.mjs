@@ -1,0 +1,9 @@
+// Published combat presentation decisions. Resource objects never cross.
+export default {records:{
+  CombatView: {$layout:true,dt:'f64',dead:'bool',mounted:'bool',remote:'bool',secondaryBusy:'bool',primaryEmpty:'bool',secondaryEmpty:'bool',model:'bool',secondaryWork:'f64',primary:'bool',secondary:'bool',primaryRepair:'bool',secondaryRepair:'bool',repairLock:'bool',charging:'bool',thrown:'bool',unalerted:'bool',held:'f64',maxPressed:'f64',
+    slot:'u32',shown:'bool',repairAlert:'bool',holdAlert:'bool',chargeAction:'u32',glow:'bool',tint:'f64',refreshHeld:'bool',
+    health:'f64',maxHealth:'f64',target:'bool',targetHealth:'f64',targetMax:'f64',shield:'bool',shieldValue:'f64',shieldMax:'f64',jetRecharge:'f64',fuel:'f64',jetBorder:'f64',jetting:'bool',turret:'bool',
+    healthFill:'f64',hullHealth:'f64',hullMax:'f64',hullFill:'f64',second:'u32',fill:'f64',look:'u32',zoom:'f64',firstPerson:'bool',zoomFirstPerson:'bool',eye:'bool',scope:'bool',
+    flashLength:'f64',flashColor:'f64x4',lightColor:'f64x4',flashRGB:'vec3',flashAlpha:'f64',lightRGB:'vec3',repairDelay:'f64',
+    zoomMin:'f64',zoomMax:'f64',zoomRate:'f64',zoomCount:'u32',zooms:'f64x3'},
+}};

@@ -27,6 +27,8 @@ pub mod impacts;
 pub mod history;
 pub mod owners;
 pub mod targeting;
+pub mod page_targeting;
+pub mod view;
 // Native construction and service entry points for the owning unit phase.
 #[allow(clippy::too_many_arguments)]
 pub mod module;

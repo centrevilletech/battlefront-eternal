@@ -10,6 +10,10 @@ import { modelGroup } from "./models.js";
 import { motionVectors } from "./motion-vectors.js";
 import { HEALTH_SCALES } from "./ordnance.js";
 import { Arsenal } from "./weapons.js";
+import {clientExports as x} from "./runtime/fixed-clock.js";
+import {CombatViewLayout as C} from "./sim/gen/combat-view.js";
+import {PageTargetFrameLayout as F} from "./sim/gen/page-targeting.js";
+import {targetFrame,runTargetFrame,prepareTargeting} from "./targeting-facts.js";
 import { targetingWeapon } from "./weapon-targeting.js";
 import { CombatWorld } from "./combat-world.js";
 
@@ -26,16 +30,26 @@ const FLASH_SCALE = 0.6;
 export const BLAST_BODY = { stand: [1.0, 1.4626, 1.4], crouch: [0.75, 1.1023, 0.6], prone: [0.35, 1.622, 0.2] };
 // The animation banks a charge doesn't put on alert.
 const UNALERTED_BANKS = new Set(["tool", "lightsabre", "sabre", "gam"]);
-// The soldiers whose charge presentCharge has on show: the page's own
-// drawing, kept off the combat object so a world worker's state never
-// carries or overwrites it.
-const CHARGE_SHOWN = new WeakSet();
-const RETICLE_REACH = 1024; // m along the aim to the point the reticle marks
-
-const color01 = (rgba = [255, 255, 255, 255]) => {
-  const a = (rgba[3] ?? 255) / 255;
-  return [(rgba[0] / 255) * a, (rgba[1] / 255) * a, (rgba[2] / 255) * a];
-};
+// Private native decisions are keyed by the combat resource identity. Cold
+// admission owns the fixed record; a frame only refreshes detached views.
+const views=new WeakMap();
+const viewFinalizers=new FinalizationRegistry(handle=>x.combat_view_drop(handle));
+function view(combat){
+  let state=views.get(combat);
+  if(!state){const handle=x.combat_view_create();state={handle,pointer:x.combat_view_words(handle),words:null};views.set(combat,state);viewFinalizers.register(combat,handle);}
+  if(!state.words||state.words.length===0)state.words=new Float64Array(x.memory.buffer,state.pointer,C.words);
+  return state;
+}
+function decide(combat,op){const state=view(combat);x.combat_view_run(state.handle,op);return view(combat).words;}
+const zoomView={};
+const WHITE=[255,255,255,255],BAR_LOOKS=['normal','low','pulse'];
+function projection(origin,direction,camera){
+  camera.updateMatrixWorld();const f=targetFrame();
+  f[F.origin]=origin.x;f[F.origin+1]=origin.y;f[F.origin+2]=origin.z;
+  f[F.direction]=direction.x;f[F.direction+1]=direction.y;f[F.direction+2]=direction.z;
+  const matrix=camera.matrixWorldInverse.elements;for(let i=0;i<16;i++)f[F.matrix+i]=matrix[i];
+  f[F.fov]=camera.fov;f[F.aspect]=camera.aspect;return runTargetFrame(3);
+}
 
 // A repair lock as a plain key: a building's index (l3) or a vehicle's (v1)
 // among what the lock can pick, "" for none; and back.
@@ -69,6 +83,7 @@ export class PlayerCombat {
     this.collision = collision;
     this.camera = camera;
     this.ordnance = ordnance;
+    prepareTargeting(ordnance?.units);
     this.lights = lights;
     this.texture = texture;
     this.hud = hud;
@@ -143,7 +158,7 @@ export class PlayerCombat {
         sceneProperty(flash,"visible",false);
         group.add(flash);
       }
-      this.held.set(name, { group, flash, muzzle, flashLeft: 0, flashLength: 0, flashAlpha: 1 });
+      this.held.set(name, { group, flash, muzzle, flashLeft: 0, flashLength: 0, flashAlpha: 1, lightRGB: [0,0,0] });
       if (weapon.def.base === "melee") attachBlade(group, point, weapon.def, texture);
     }
 
@@ -191,8 +206,8 @@ export class PlayerCombat {
   static zooms(def) {
     let out=ZOOM_LEVELS.get(def);
     if(out)return out;
-    out = [1];
-    for (const zoom of [def.ZoomMin || 1, def.ZoomRate ? 0 : def.ZoomMax || 1]) if (zoom > out[out.length - 1]) out.push(zoom);
+    const f=view(zoomView).words;f[C.zoomMin]=def.ZoomMin||1;f[C.zoomMax]=def.ZoomMax||1;f[C.zoomRate]=def.ZoomRate||0;decide(zoomView,6);
+    out=[];for(let i=0;i<f[C.zoomCount];i++)out.push(f[C.zooms+i]);
     ZOOM_LEVELS.set(def,out);return out;
   }
 
@@ -207,7 +222,7 @@ export class PlayerCombat {
   // Sniper rifles force the eye view while scoped, even when the player's
   // preferred view is third person. Camera, aim and body visibility share it.
   get usesEyeView() {
-    return Boolean(this.firstPerson || (this.zoom > 1 && this.arsenal.current(0)?.def.ZoomFirstPerson));
+    const zoom=this.zoom,f=view(this).words;f[C.firstPerson]=+!!this.firstPerson;f[C.zoom]=zoom;f[C.zoomFirstPerson]=+!!this.arsenal.current(0)?.def.ZoomFirstPerson;decide(this,3);return !!f[C.eye];
   }
 
   // The zoom factor in use (1 when not zoomed).
@@ -263,21 +278,21 @@ export class PlayerCombat {
   // primary. A page drawing a soldier whose world is elsewhere knows his
   // tool is at work from its ticks (presentRepairTick).
   updateHeld() {
-    const thrown = this.arsenal.current(1);
-    const weapon = thrown?.busy || thrown?.shownAtWork > 0 ? thrown : this.arsenal.current(0);
-    const name = weapon?.def.GeometryName || null;
-    const hide = weapon?.handEmpty || this.mounted;
+    const thrown = this.arsenal.current(1),primary=this.arsenal.current(0);
+    const f=view(this).words;f[C.primaryEmpty]=+!!primary?.handEmpty;f[C.secondaryEmpty]=+!!thrown?.handEmpty;f[C.secondaryBusy]=+!!thrown?.busy;f[C.secondaryWork]=thrown?.shownAtWork??0;f[C.dead]=+!!this.dead;f[C.mounted]=+!!this.mounted;decide(this,0);
+    const weapon=f[C.slot]?thrown:primary;
+    const name=weapon?.def.GeometryName||null;
     // The one model in the hand, if any. Every remote body's record calls
     // this; its models are made hidden and shown only here, so they are
     // touched only when that model changes.
-    const model = !this.dead && !hide ? name : null;
+    const model = f[C.model] ? name : null;
     if (model !== this.heldModel) {
       for (const [key, held] of this.held) sceneProperty(held.group,"visible",key === model);
       this.heldModel = model;
     }
     // The weapon in the hand, for the first-person view, and its bank for
     // the body's upper layer.
-    this.shown = this.dead || this.mounted ? null : weapon;
+    this.shown = f[C.shown] ? weapon : null;
     this.animator.setBank?.(weapon?.bank || "rifle");
   }
 
@@ -295,20 +310,15 @@ export class PlayerCombat {
   // player's show as his own does. dt also runs down how long a repair tool
   // known to be at work only from its ticks stays in the hand.
   presentCharge(dt = 0) {
-    const tool = this.arsenal.current(1);
-    if (tool?.shownAtWork > 0 && (tool.shownAtWork -= dt) <= 0) this.updateHeld();
-    // A repair lock keeps the soldier alert (the world's update does this
-    // from its own lock); a page has the lock from the soldier's record.
-    if (this.repairLock && !this.dead && !this.mounted && (this.arsenal.current(0)?.repair || tool?.repair)) this.animator.fire?.();
-    const weapon = this.dead || this.mounted || this.remotes?.active ? null : this.arsenal.current(0);
-    const charging = Boolean(weapon?.charging);
-    if (charging !== CHARGE_SHOWN.has(this)) {
-      if (charging) CHARGE_SHOWN.add(this);
-      else CHARGE_SHOWN.delete(this);
-      if (charging && weapon.thrown) this.weaponAction("charge", weapon.bank, this.soldier.posture);
-      else if (!charging) this.endWeaponAction("charge");
-    }
-    if (charging && !weapon.thrown && !UNALERTED_BANKS.has(weapon.bank)) this.animator.holdAlert?.();
+    const tool=this.arsenal.current(1),primary=this.arsenal.current(0),f=view(this).words;
+    f[C.dt]=dt;f[C.secondaryWork]=tool?.shownAtWork??0;f[C.dead]=+!!this.dead;f[C.mounted]=+!!this.mounted;f[C.remote]=+!!this.remotes?.active;
+    f[C.repairLock]=+!!this.repairLock;f[C.primaryRepair]=+!!primary?.repair;f[C.secondaryRepair]=+!!tool?.repair;
+    f[C.primary]=+!!primary;f[C.charging]=+!!primary?.charging;f[C.thrown]=+!!primary?.thrown;f[C.unalerted]=+UNALERTED_BANKS.has(primary?.bank);f[C.held]=primary?.held??0;f[C.maxPressed]=primary?.levels?.[0]?.MaxPressedTime||1;
+    decide(this,1);if(tool&&tool.shownAtWork>0)tool.shownAtWork=f[C.secondaryWork];if(f[C.refreshHeld])this.updateHeld();
+    if(f[C.repairAlert])this.animator.fire?.();
+    const weapon=primary,charging=!!f[C.glow];
+    if(f[C.chargeAction]===1)this.weaponAction('charge',weapon.bank,this.soldier.posture);else if(f[C.chargeAction]===2)this.endWeaponAction('charge');
+    if(f[C.holdAlert])this.animator.holdAlert?.();
     const name = charging && weapon.def.ChargeUpEffect;
     const at = name ? this.firePoint(weapon) : null;
     if (!at) {
@@ -319,14 +329,14 @@ export class PlayerCombat {
     this.glow ||= this.effects?.play(name, at.position, null, null, at.quaternion) || null;
     if (!this.glow) return;
     this.glow.move(at.position, at.quaternion);
-    this.glow.tint = Math.min(weapon.held / (weapon.levels[0].MaxPressedTime || 1), 1);
+    this.glow.tint = f[C.tint];
   }
 
   // Nothing of a charge left on show (a new life, a body taken off the field).
   clearCharge() {
     this.glow?.kill();
     this.glow = null;
-    if (CHARGE_SHOWN.delete(this)) this.endWeaponAction("charge");
+    if(decide(this,2)[C.chargeAction]===2)this.endWeaponAction('charge');
   }
 
   weaponAction(action, bank, posture) {
@@ -367,7 +377,7 @@ export class PlayerCombat {
   // tick's way here.
   presentRepairTick(weapon) {
     if (weapon.channel === 1) {
-      weapon.shownAtWork = (weapon.def.ShotDelay || 0) + 0.25;
+      const f=view(this).words;f[C.repairDelay]=weapon.def.ShotDelay||0;decide(this,5);weapon.shownAtWork=f[C.secondaryWork];
       this.updateHeld();
     }
     // Each tick is the tool firing: the first-person arms play its bank's
@@ -394,7 +404,9 @@ export class PlayerCombat {
     const held = this.held.get(weapon.def.GeometryName);
     if (!held?.muzzle) return null;
     held.muzzle.updateWorldMatrix(true, false);
-    sceneTransform(held.muzzle.matrixWorld.decompose(this.at.position, this.at.quaternion, this.at.scale));
+    sceneTransform(held.muzzle.matrixWorld);
+    const f=targetFrame(),matrix=held.muzzle.matrixWorld.elements;for(let i=0;i<16;i++)f[F.matrix+i]=matrix[i];runTargetFrame(5);
+    this.at.position.fromArray(f,F.point);this.at.quaternion.fromArray(f,F.rotation);this.at.scale.fromArray(f,F.scale);
     return this.at;
   }
 
@@ -409,31 +421,28 @@ export class PlayerCombat {
     const d = weapon.def;
     held.flashLength = d.FlashLength || 0.1;
     held.flashLeft = held.flashLength;
-    const [r, g, b, a = 255] = d.FlashColor || [255, 255, 255, 255];
-    held.flashAlpha = a / 255;
-    held.flash.userData.material.color.setRGB(r / 255, g / 255, b / 255);
+    const f=view(this).words,color=d.FlashColor||WHITE,light=d.FlashLightColor||WHITE;
+    for(let i=0;i<4;i++){f[C.flashColor+i]=color[i]??255;f[C.lightColor+i]=light[i]??255;}decide(this,4);
+    held.flashAlpha=f[C.flashAlpha];held.flash.userData.material.color.setRGB(f[C.flashRGB],f[C.flashRGB+1],f[C.flashRGB+2]);
+    for(let i=0;i<3;i++)held.lightRGB[i]=f[C.lightRGB+i];
     if (held.light && this.lights.pending(held.light)) return;
     held.flash.getWorldPosition(this.worldPoint);
-    held.light = this.lights.flash(this.worldPoint, color01(d.FlashLightColor), d.FlashLightRadius || 0, d.FlashLightDuration || 0);
+    held.light = this.lights.flash(this.worldPoint, held.lightRGB, d.FlashLightRadius || 0, d.FlashLightDuration || 0);
   }
 
   // The HUD while flying a droid: its weapons and health, its reticle, and
   // the blaster's scope zoomed in first person.
   droidHud(droid) {
-    this.hud.setPlayer(droid.arsenal, droid.health / (droid.def.MaxHealth || 40), droid.def.HealthTexture);
+    const f=view(this).words;f[C.health]=droid.health;f[C.maxHealth]=droid.def.MaxHealth||40;decide(this,3);
+    this.hud.setPlayer(droid.arsenal,f[C.healthFill],droid.def.HealthTexture);
     this.hud.setSecondBar(null);
     const blaster = droid.arsenal.current(0);
     const zoom = this.remotes.zoom;
     this.hud.setScope(zoom > 1 && this.firstPerson ? blaster?.def.ScopeTexture : null);
-    const far = this.worldPoint.copy(droid.eye).addScaledVector(droid.aimDir, RETICLE_REACH);
-    (this.hudCamera || this.camera).updateMatrixWorld();
-    const p = sceneTransform(this.screen.copy(far).applyMatrix4((this.hudCamera || this.camera).matrixWorldInverse));
-    if (p.z >= 0) {
-      this.hud.setReticle(null);
-      return;
-    }
-    const ndcY = p.y / (-p.z * Math.tan(THREE.MathUtils.degToRad((this.hudCamera || this.camera).fov) / 2));
-    this.hud.setReticle(0.5 - 0.5 * ndcY, blaster);
+    const p=projection(droid.eye,droid.aimDir,this.hudCamera||this.camera);
+    if(!p[F.value]){this.hud.setReticle(null);return;}
+    this.hud.setReticle(p[F.y],blaster);
+
   }
 
   // The HUD: the weapons and health, the reticle at the height of the point
@@ -452,54 +461,28 @@ export class PlayerCombat {
     // His own health on the top bar, seated or not, with hud_health (a
     // class's HealthTexture is the icon others see it by); what he sits in
     // (a vehicle, from any of its seats, or a turret) on the panel under it.
-    this.hud.setPlayer(arsenal, this.health / this.maxHealth);
-    this.hud.setHull?.(turret ? turret.desc.settings.HealthTexture || "hud_vehiclehealth" : null, turret ? turret.health / turret.maxHealth : 0);
-    // A jetpack's fuel, on foot.
-    const s = this.soldier;
-    const jet = s.jet;
-    const target = this.lockedTarget();
-    // A droid serving him: the health bar and the rounds pulse.
-    const station = !turret && !this.dead ? this.live?.supplying?.(s.position) : null;
-    this.hud.setSupply?.(Boolean(station?.servedHealth), Boolean(station?.servedAmmo));
-    if (!turret && !this.dead && target) {
-      // A repair weapon at work: its target's health.
-      const f = THREE.MathUtils.clamp(target.health / target.maxHealth, 0, 1);
-      this.hud.setSecondBar(target.desc.settings.HealthTexture || "hud_active_repair_icon", f, f <= 0.5 ? "low" : "normal");
-    } else if (!turret && !this.dead && s.shield) {
-      // A droideka's shield.
-      const f = s.shield.max > 0 ? s.shield.value / s.shield.max : 0;
-      this.hud.setSecondBar("hud_shield_icon", f, f <= 0.25 ? "low" : "normal");
-    } else if (!turret && !this.dead && jet.recharge > 0) {
-      const low = s.fuel <= jet.minBorder;
-      this.hud.setSecondBar("hud_jetpack_icon", s.fuel, low ? (s.air === "jet" ? "pulse" : "low") : "normal");
-    } else {
-      this.hud.setSecondBar(null);
-    }
+    const s=this.soldier,jet=s.jet,target=this.lockedTarget(),weaponForScope=turret?targetingWeapon(arsenal):this.arsenal.current(0),zoom=this.zoom,f=view(this).words;
+    f[C.health]=this.health;f[C.maxHealth]=this.maxHealth;f[C.dead]=+!!this.dead;f[C.turret]=+!!turret;f[C.hullHealth]=turret?.health??0;f[C.hullMax]=turret?.maxHealth??1;
+    f[C.target]=+!!target;f[C.targetHealth]=target?.health??0;f[C.targetMax]=target?.maxHealth??1;f[C.shield]=+!!s.shield;f[C.shieldValue]=s.shield?.value??0;f[C.shieldMax]=s.shield?.max??0;
+    f[C.jetRecharge]=jet?.recharge??0;f[C.fuel]=s.fuel;f[C.jetBorder]=jet?.minBorder??0;f[C.jetting]=+(s.air==='jet');f[C.zoom]=zoom;f[C.firstPerson]=+!!this.firstPerson;f[C.zoomFirstPerson]=+!!weaponForScope?.def.ZoomFirstPerson;decide(this,3);
+    this.hud.setPlayer(arsenal,f[C.healthFill]);
+    this.hud.setHull?.(turret?turret.desc.settings.HealthTexture||'hud_vehiclehealth':null,f[C.hullFill]);
+    const station=!turret&&!this.dead?this.live?.supplying?.(s.position):null;
+    this.hud.setSupply?.(Boolean(station?.servedHealth),Boolean(station?.servedAmmo));
+    const icon=f[C.second]===1?target.desc.settings.HealthTexture||'hud_active_repair_icon':f[C.second]===2?'hud_shield_icon':f[C.second]===3?'hud_jetpack_icon':null;
+    this.hud.setSecondBar(icon,f[C.fill],BAR_LOOKS[f[C.look]]);
     const weapon = turret ? targetingWeapon(arsenal) : this.arsenal.current(0);
-    const scoped = !turret && this.zoom > 1 && (this.firstPerson || weapon?.def.ZoomFirstPerson);
+    const scoped = !!f[C.scope];
     this.hud.setScope(scoped ? weapon.def.ScopeTexture : null);
     if (this.dead) {
       this.hud.setReticle(null);
       return;
     }
-    const far = this.worldPoint;
-    if (turret) far.copy((this.hudCamera || this.camera).position).addScaledVector((aimPreview?.reticleDirection?.(this.side) ?? aimPreview?.viewDirection(this.side) ?? turret.viewDirection(this.side)), RETICLE_REACH);
-    else {
-      const aim = pose ? this.viewAim : this;
-      // Eye-view sights follow the eye ray, including the prone eye offset.
-      // Projecting a parallel ray from the gun leaves a visible scope offset.
-      if (this.usesEyeView) far.copy(aim.eyePoint);
-      else far.copy(aim.origin);
-      far.addScaledVector(aim.aimDir, RETICLE_REACH);
-    }
-    (this.hudCamera || this.camera).updateMatrixWorld();
-    const p = sceneTransform(this.screen.copy(far).applyMatrix4((this.hudCamera || this.camera).matrixWorldInverse));
-    if (p.z >= 0) {
-      this.hud.setReticle(null);
-      return;
-    }
-    const ndcY = p.y / (-p.z * Math.tan(THREE.MathUtils.degToRad((this.hudCamera || this.camera).fov) / 2));
-    const ndcX = p.x / (-p.z * Math.tan(THREE.MathUtils.degToRad((this.hudCamera || this.camera).fov) / 2) * (this.hudCamera || this.camera).aspect);
+    let origin,direction;
+    if(turret){origin=(this.hudCamera||this.camera).position;direction=aimPreview?.reticleDirection?.(this.side)??aimPreview?.viewDirection(this.side)??turret.viewDirection(this.side);}
+    else{const aim=pose?this.viewAim:this;origin=this.usesEyeView?aim.eyePoint:aim.origin;direction=aim.aimDir;}
+    const p=projection(origin,direction,this.hudCamera||this.camera);
+    if(!p[F.value]){this.hud.setReticle(null);return;}
     // A vehicle seat shows both channels' reticles (src/hud.js drawReticle).
     // A craft's pilot's stays on the screen's centre line, as the
     // original game keeps every reticle, while his chase camera swings after
@@ -507,6 +490,6 @@ export class PlayerCombat {
     const weapons = turret?.slot ? this.hudWeapons : null;
     if (weapons) { weapons[0] = arsenal.current(0); weapons[1] = arsenal.current(1); }
     const piloting = turret?.flying && turret.seatIndex === 0;
-    this.hud.setReticle(0.5 - 0.5 * ndcY, weapon, turret?.slot && !piloting ? 0.5 + 0.5 * ndcX : 0.5, weapons);
+    this.hud.setReticle(p[F.y], weapon, turret?.slot && !piloting ? p[F.x] : 0.5, weapons);
   }
 }

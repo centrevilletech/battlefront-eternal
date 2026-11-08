@@ -1,68 +1,33 @@
 import * as THREE from "three";
 import { flightBindings } from "./flight/controls.js";
 
-// Getting into a vehicle, out of it and from seat to seat, and what a seat's
-// keys do, as one set of rules for everyone aboard: the player (a page's own
-// battle or the world worker's, src/vehicles.js VehicleDriver), a network
-// human on a dedicated server or a desktop host (src/runtime/
-// multiplayer-world.js), and the bots (src/ai/classic/vehicles). Every path
-// that seats or unseats someone, or reads a seated person's keys, asks here
-// (docs/vehicles.md "Boarding, leaving and seat controls").
-
-const UP_EYE = 1.7; // m: the soldier's eye above his feet, where his E looks from
-const eye = new THREE.Vector3();
-const aim = new THREE.Vector3();
-
-// A person (the player, a network human) rather than a bot, by unit or lease.
-export const personUnit = (unit) => Boolean(unit && (unit.human || unit.networkHuman));
-export const personLease = (lease) => Boolean(lease && (lease.human || lease.unit?.networkHuman));
-
-// A craft off the ground: taking off, flying or landing.
-export const inFlight = (v) => Boolean(v?.flying && v.alive && v.flightState !== "Landed");
-
-// The registry's relation (1 friend, 0 neutral, -1 enemy) without alliances.
-export const teamRelation = (a, b) => (a === b ? (a ? 1 : 0) : !a || !b ? 0 : -1);
-
-// Whether a unit may get into anything now: alive, a soldier on foot in no
-// seat (not a droideka), of a class that may enter vehicles (NoEnterVehicles);
-// a person not in a jump, fall or jet (the player's E has always waited for
-// his feet).
-export function canBoard(unit, person = personUnit(unit)) {
-  if (!unit || !unit.alive || unit.dead || unit.seat || unit.walker || !unit.soldier) return false;
-  if (Number.parseFloat(unit.classDef?.NoEnterVehicles ?? 0) !== 0) return false;
-  return !person || !unit.soldier.air;
+// Browser identity transport for native seat eligibility and control records.
+import {clientExports as x} from './runtime/fixed-clock.js';
+import {PageSeatFrameLayout as F,PageSeatRowLayout as R} from './sim/gen/page-targeting.js';
+const handle=x.page_seat_create(),framePtr=x.page_seat_frame(handle),rowsPtr=x.page_seat_rows(handle);
+let frame,rows;
+const eye=new THREE.Vector3(),aim=new THREE.Vector3();
+function refresh(){if(!frame||frame.length===0){frame=new Float64Array(x.memory.buffer,framePtr,F.words);rows=new Float64Array(x.memory.buffer,rowsPtr,128*R.words);}}
+function run(op){return x.page_seat_run(handle,op);}
+function leaseFacts(lease){refresh();frame[F.human]=+!!lease?.human;frame[F.networkHuman]=+!!lease?.unit?.networkHuman;frame[F.lease]=+!!lease;frame[F.released]=+!!lease?.released;}
+export function personUnit(unit){refresh();frame[F.human]=+!!unit?.human;frame[F.networkHuman]=+!!unit?.networkHuman;return !!run(0);}
+export function personLease(lease){leaseFacts(lease);return !!run(0);}
+function vehicleFacts(v){refresh();frame[F.alive]=+!!v?.alive;frame[F.flying]=+!!v?.flying;frame[F.inFlight]=+(v?.flightState!=='Landed');}
+export function inFlight(v){vehicleFacts(v);return !!run(1);}
+export const teamRelation=(a,b)=>x.page_relation(a,b);
+export function canBoard(unit,person=personUnit(unit)){
+  refresh();frame[F.alive]=+!!unit?.alive;frame[F.dead]=+!!unit?.dead;frame[F.seated]=+!!unit?.seat;frame[F.walker]=+!!unit?.walker;frame[F.soldier]=+!!unit?.soldier;
+  frame[F.noEnter]=Number.parseFloat(unit?.classDef?.NoEnterVehicles??0);frame[F.person]=+!!person;frame[F.air]=+!!unit?.soldier?.air;return !!run(2);
 }
-
-// The seat a soldier of `team` boarding `vehicle` takes, or -1 when he may
-// not. As the 2004 game's boarding eligibility has it (docs/
-// ai-vehicles.md "Soldier boarding eligibility"):
-// - the hull is alive;
-// - a hull anyone holds, in any seat (pilot, gunner or passenger), takes
-//   only that crew's friends (relation above 0). An empty hull of any team
-//   takes a person;
-// - a bot boards only its own team's hulls (a hull of no team, anyone's),
-//   and only a free seat;
-// - a person takes `preferred` when it is free (the player's last seat),
-//   else the first seat that is free or a bot holds (Vehicles.displace moves
-//   the bot on). He never takes another person's seat.
-export function boardingSeat(vehicle, { team = 0, person = false, relation = teamRelation, preferred = -1 } = {}) {
-  if (!vehicle?.alive || !vehicle.seats?.length) return -1;
-  for (const seat of vehicle.seats) {
-    const lease = seat.lease;
-    if (lease && !lease.released && !(relation(team, lease.team) > 0)) return -1;
+export function boardingSeat(vehicle,{team=0,person=false,relation=teamRelation,preferred=-1}={}){
+  refresh();const seats=vehicle?.seats;let count=0;
+  if(seats)for(let i=0;i<seats.length&&i<128;i++){
+    const lease=seats[i].lease,at=count++*R.words;
+    rows[at+R.lease]=+!!lease;rows[at+R.released]=+!!lease?.released;rows[at+R.relation]=lease?relation(team,lease.team):0;
+    rows[at+R.free]=+!!vehicle.seatFree(i);rows[at+R.person]=+personLease(lease);
   }
-  if (!person) {
-    const own = vehicle.controllingTeam;
-    if (own > 0 && own !== team) return -1;
-    if (preferred >= 0) return vehicle.seatFree(preferred) ? preferred : -1;
-    return vehicle.firstFreeSeat();
-  }
-  if (preferred >= 0 && vehicle.seatFree(preferred)) return preferred;
-  for (let i = 0; i < vehicle.seats.length; i++) {
-    const lease = vehicle.seats[i].lease;
-    if (vehicle.seatFree(i) || lease && !personLease(lease)) return i;
-  }
-  return -1;
+  frame[F.alive]=+!!vehicle?.alive;frame[F.team]=team;frame[F.person]=+!!person;frame[F.own]=vehicle?.controllingTeam??NaN;frame[F.preferred]=preferred;frame[F.count]=count;
+  return run(3);
 }
 
 // Makes seat `index` his: a bot holding it moves on to the next free seat,
@@ -81,9 +46,8 @@ export const boardingReach = { mount };
 
 function mount(world, unit, person) {
   if (!canBoard(unit, person)) return null;
-  const s = unit.soldier;
-  eye.set(s.position.x, s.position.y + UP_EYE, s.position.z);
-  aim.set(Math.sin(s.aimYaw) * Math.cos(s.aimPitch), Math.sin(s.aimPitch), Math.cos(s.aimYaw) * Math.cos(s.aimPitch));
+  const s=unit.soldier;refresh();frame[F.position]=s.position.x;frame[F.position+1]=s.position.y;frame[F.position+2]=s.position.z;frame[F.yaw]=s.aimYaw;frame[F.pitch]=s.aimPitch;run(7);
+  eye.set(frame[F.eye],frame[F.eye+1],frame[F.eye+2]);aim.set(frame[F.aim],frame[F.aim+1],frame[F.aim+2]);
   const vehicles = world.vehicles;
   const relation = vehicles?.relation ?? teamRelation;
   const vehicle = vehicles?.enterable(eye, aim, (v) => boardingSeat(v, { team: unit.team, person, relation }) >= 0) ?? null;
@@ -97,9 +61,7 @@ function mount(world, unit, person) {
 // Whether a person may take this turret from whoever mans it: unmanned,
 // or manned by a bot lease (TurretSeats.man / the local crew vacates it).
 export function turretTakeover(turret) {
-  if (!turret?.gunner) return true;
-  const lease = turret.lease;
-  return Boolean(lease && !lease.released && !personLease(lease));
+  leaseFacts(turret?.lease);frame[F.gunner]=+!!turret?.gunner;return !!run(4);
 }
 
 // Whether the one holding `lease` may get out now. A person may at any time:
@@ -107,7 +69,7 @@ export function turretTakeover(turret) {
 // exit has no airborne test). A bot stays aboard a craft in flight (the
 // Classic AI never bails out of one).
 export function mayLeave(vehicle, lease) {
-  return personLease(lease) || !inFlight(vehicle);
+  leaseFacts(lease);vehicleFacts(vehicle);return !!run(5);
 }
 
 // A rider killed on his seat leaves it at once, his body falling from where
@@ -144,9 +106,7 @@ export function leaveKilled(unit) {
 // other seat ("turret") only aims and fires its own guns. Read for the seat
 // held when the keys are read, never kept from before a seat change.
 export function seatControl(vehicle, index) {
-  if (!vehicle?.seats?.[index]) return null;
-  if (index > 0) return "turret";
-  return vehicle.flying ? "flight" : "drive";
+  vehicleFacts(vehicle);frame[F.preferred]=index;frame[F.count]=vehicle?.seats?.length??0;return ['flight','drive','turret'][run(6)]??null;
 }
 
 // The key map a seat reads (which keys queue which actions, and which are

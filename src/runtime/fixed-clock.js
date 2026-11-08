@@ -1,68 +1,60 @@
-// One gameplay clock. Rendering only supplies elapsed time; integer ticks
-// determine gameplay time. A task has bounded work and retains catch-up debt.
-//
-// Two optional limits keep a machine that cannot keep up from spiralling
-// (each catch-up batch making the next frame later still):
-// - budget: wall-clock seconds of ticks per advance. The batch shrinks to
-//   what the measured cost of a tick fits in, never below one tick.
-// - maxDebt: ticks of debt kept. Beyond it the excess is dropped: offline,
-//   the world runs slower than real time instead of falling further behind.
-//   `dropped` counts every tick given up this way.
-// Neither changes the tick sequence or a tick's length, only how many run per
-// advance, so gameplay results are the same at any speed. An advance with
-// `limited` false ignores both (tools and replays that must run every tick).
-const now = () => (globalThis.performance ? performance.now() : Date.now());
+// Browser clock I/O. Rust retains compensated elapsed time, tick order,
+// budget decisions and catch-up debt; callbacks only execute requested ticks.
+import {simImports} from '../sim/module.js';
+import {SIM_WASM} from '../sim-wasm.js';
+import {ClientTimingLayout as L} from '../sim/gen/client-timing.js';
+// Timing is needed before asynchronous battle admission, including workers.
+// Compile this private client owner once; no frame creates another instance.
+function loadClientTiming(){
+  const bytes=Uint8Array.fromBase64?Uint8Array.fromBase64(SIM_WASM):Uint8Array.from(atob(SIM_WASM),c=>c.charCodeAt(0));
+  return new WebAssembly.Instance(new WebAssembly.Module(bytes),simImports({bridge:null})).exports;
+}
+export const clientExports=loadClientTiming();
+const finalizers = new FinalizationRegistry(handle => clientExports.client_timing_drop(handle));
+const now = () => globalThis.performance ? performance.now() : Date.now();
 
+// A fixed generated record is both the command input and publication view.
+// Memory growth invalidates views, so refresh only at native call boundaries.
+export class NativeTiming {
+  constructor(source, options, fields = []) {
+    Object.defineProperty(source,'nativeTiming',{value:this});
+    this.handle=clientExports.client_timing_create();this.pointer=clientExports.client_timing_words(this.handle);this.refresh();
+    for(const [name,value] of Object.entries(options))this.words[L[name]]=value;
+    clientExports.client_timing_setup(this.handle);this.refresh();
+    this.offsetsPointer=clientExports.client_timing_offsets(this.handle);this.gapsPointer=clientExports.client_timing_gaps(this.handle);
+    if(options.window!==undefined)Object.defineProperty(source,'offsets',{get:()=>this.ring(false)});
+    if(options.gapWindow!==undefined)Object.defineProperty(source,'gaps',{get:()=>this.ring(true)});
+    for(const name of new Set([...Object.keys(options),...fields]))Object.defineProperty(source,name==='recovery'?'recover':name,{configurable:true,enumerable:true,
+      get:()=>{this.refresh();const n=this.words[L[name]];return name==='capped'||name==='started'||name==='recover'||name==='extrapolate'?!!n:(name==='offset'||name==='arrivedAt'||name==='dropped')&&Number.isNaN(n)?null:n;},
+      set:value=>{this.refresh();this.words[L[name]]=value===null?NaN:value;}});
+    finalizers.register(this,this.handle);
+  }
+  refresh(){if(!this.words||this.words.length===0)this.words=new Float64Array(clientExports.memory.buffer,this.pointer,L.words);}
+  ring(gaps){this.refresh();const key=gaps?'gapWords':'offsetWords';if(!this[key]||this[key].length===0)this[key]=new Float64Array(clientExports.memory.buffer,gaps?this.gapsPointer:this.offsetsPointer,this.words[gaps?L.gapWindow:L.window]);return this[key];}
+  run(op,a=0,b=0,c=0,d=0,e=0){const result=clientExports.client_timing_run(this.handle,op,a,b,c,d,e);this.refresh();return result;}
+}
 export class FixedClock {
-  constructor({ hz = 60, maxSteps = 8, budget = Infinity, maxDebt = Infinity } = {}) {
-    if (!(hz > 0) || !Number.isInteger(maxSteps) || maxSteps < 1 || !(budget > 0) || !(maxDebt >= 0)) throw new Error('invalid fixed clock');
-    this.hz = hz; this.dt = 1 / hz; this.maxSteps = maxSteps;
-    this.budget = budget; this.maxDebt = maxDebt;
+  constructor({hz=60,maxSteps=8,budget=Infinity,maxDebt=Infinity}={}){
+    new NativeTiming(this,{hz,maxSteps,budget,maxDebt},['dt','tick','elapsed','compensation','debt','alpha','overloads','dropped','stepCost']);
+    if(!this.nativeTiming.run(21))throw Error('invalid fixed clock');
     this.reset();
   }
-  reset() {
-    this.tick = 0; this.elapsed = 0; this.compensation = 0;
-    this.debt = 0; this.alpha = 0; this.overloads = 0;
-    this.dropped = 0; this.stepCost = 0;
+  reset(){this.nativeTiming.run(19);}
+  advance(seconds,step,limited=true){
+    const owner=this.nativeTiming,x=clientExports;
+    // Wall-clock reads stay in their original callback order. Unlimited
+    // replay does not sample the host clock or apply the live debt limits.
+    const timed=limited&&this.budget!==Infinity;
+    const count=x.client_clock_begin(owner.handle,typeof seconds==='number'?seconds:NaN,+!!limited);
+    owner.refresh();if(count===-2)return 0;if(count<0)throw Error('invalid elapsed time');
+    let finished=false;
+    try{
+      x.client_clock_start(owner.handle,timed?now():0);
+      if(count>0){let more;do{const start=timed?now():0;step(this.dt,owner.run(23));x.client_clock_complete(owner.handle);owner.refresh();more=x.client_clock_stepped(owner.handle,start,timed?now():0);owner.refresh();}while(more);}
+      const ran=x.client_clock_finish(owner.handle,+!!limited);finished=true;owner.refresh();return ran;
+    }finally{if(!finished)x.client_clock_abort(owner.handle);}
   }
-  advance(seconds, step, limited = true) {
-    if (!Number.isFinite(seconds) || seconds < 0) throw new Error('invalid elapsed time');
-    const value = seconds - this.compensation;
-    const sum = this.elapsed + value;
-    this.compensation = (sum - this.elapsed) - value;
-    this.elapsed = sum;
-    const target = Math.floor(this.elapsed * this.hz + 1e-8);
-    const budget = limited ? this.budget : Infinity;
-    let limit = this.maxSteps;
-    if (budget !== Infinity && this.stepCost > 0) limit = Math.max(1, Math.min(limit, Math.floor(budget * 1000 / this.stepCost)));
-    const count = Math.min(Math.max(0, target - this.tick), limit);
-    const batchStart = budget !== Infinity ? now() : 0;
-    let ran = 0;
-    while (ran < count) {
-      const start = budget !== Infinity ? now() : 0;
-      step(this.dt, this.tick + 1);
-      this.tick++; ran++;
-      if (budget !== Infinity) {
-        // Smoothed milliseconds per tick; and the batch also ends once it
-        // has used the budget, before the cost is known.
-        const end = now(), cost = end - start;
-        this.stepCost = this.stepCost ? this.stepCost + (cost - this.stepCost) * 0.1 : cost;
-        if (end - batchStart >= budget * 1000) break;
-      }
-    }
-    this.debt = Math.max(0, target - this.tick);
-    if (limited && this.debt > this.maxDebt) {
-      const drop = this.debt - this.maxDebt;
-      this.elapsed -= drop / this.hz;
-      this.compensation = 0;
-      this.dropped += drop;
-      this.debt = this.maxDebt;
-    }
-    this.alpha = this.debt ? 1 : Math.max(0, Math.min(1, this.elapsed * this.hz - this.tick));
-    if (this.debt) this.overloads++;
-    return ran;
-  }
-  // Explicit suspend/resume rebasing discards wall-clock time, never ticks.
-  rebase() { this.elapsed = this.tick / this.hz; this.compensation = this.debt = this.alpha = 0; }
-  get time() { return this.tick / this.hz; }
+
+  rebase(){this.nativeTiming.run(20);}
+  get time(){return this.nativeTiming.run(22);}
 }

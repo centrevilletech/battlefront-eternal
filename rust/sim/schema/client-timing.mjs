@@ -1,0 +1,8 @@
+// Native client clocks publish fixed records; rings stay with their owner.
+export default { records: {
+  ClientTiming: { $layout:true, hz:'f64', window:'f64', gapWindow:'f64', margin:'f64', maxLead:'f64', cooldownAcks:'f64', calmAcks:'f64', recover:'bool', extrapolate:'bool',
+    at:'f64', count:'f64', offset:'f64', dropped:'f64', gapAt:'f64', gapCount:'f64', arrivedAt:'f64', arrivedTick:'f64', latest:'f64', lead:'f64', late:'f64', worstGap:'f64', extra:'f64', cooldown:'f64', calm:'f64', measuredKey:'f64', capped:'bool',
+    clock:'f64', minDelay:'f64', maxDelay:'f64', trim:'f64', snap:'f64', delay:'f64', rate:'f64', started:'bool', waits:'f64',
+    limit:'f64', elapsed:'f64', presented:'f64', deadline:'f64', target:'f64', scale:'f64', age:'f64', time:'f64', frames:'f64', slow:'f64', cpuBound:'f64', headroom:'f64', recovery:'f64',
+    dt:'f64', maxSteps:'f64', budget:'f64', maxDebt:'f64', tick:'f64', compensation:'f64', debt:'f64', alpha:'f64', overloads:'f64', stepCost:'f64', result:'f64' },
+} };

@@ -3278,6 +3278,139 @@ impl BlockHeader {
     }
 }
 
+impl ClientTiming {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientTiming {
+            hz: { let p = format!("{path}.hz"); num(v.get("hz"), &p)? },
+            window: { let p = format!("{path}.window"); num(v.get("window"), &p)? },
+            gap_window: { let p = format!("{path}.gapWindow"); num(v.get("gapWindow"), &p)? },
+            margin: { let p = format!("{path}.margin"); num(v.get("margin"), &p)? },
+            max_lead: { let p = format!("{path}.maxLead"); num(v.get("maxLead"), &p)? },
+            cooldown_acks: { let p = format!("{path}.cooldownAcks"); num(v.get("cooldownAcks"), &p)? },
+            calm_acks: { let p = format!("{path}.calmAcks"); num(v.get("calmAcks"), &p)? },
+            recover: { let p = format!("{path}.recover"); boolean(v.get("recover"), &p)? },
+            extrapolate: { let p = format!("{path}.extrapolate"); boolean(v.get("extrapolate"), &p)? },
+            at: { let p = format!("{path}.at"); num(v.get("at"), &p)? },
+            count: { let p = format!("{path}.count"); num(v.get("count"), &p)? },
+            offset: { let p = format!("{path}.offset"); num(v.get("offset"), &p)? },
+            dropped: { let p = format!("{path}.dropped"); num(v.get("dropped"), &p)? },
+            gap_at: { let p = format!("{path}.gapAt"); num(v.get("gapAt"), &p)? },
+            gap_count: { let p = format!("{path}.gapCount"); num(v.get("gapCount"), &p)? },
+            arrived_at: { let p = format!("{path}.arrivedAt"); num(v.get("arrivedAt"), &p)? },
+            arrived_tick: { let p = format!("{path}.arrivedTick"); num(v.get("arrivedTick"), &p)? },
+            latest: { let p = format!("{path}.latest"); num(v.get("latest"), &p)? },
+            lead: { let p = format!("{path}.lead"); num(v.get("lead"), &p)? },
+            late: { let p = format!("{path}.late"); num(v.get("late"), &p)? },
+            worst_gap: { let p = format!("{path}.worstGap"); num(v.get("worstGap"), &p)? },
+            extra: { let p = format!("{path}.extra"); num(v.get("extra"), &p)? },
+            cooldown: { let p = format!("{path}.cooldown"); num(v.get("cooldown"), &p)? },
+            calm: { let p = format!("{path}.calm"); num(v.get("calm"), &p)? },
+            measured_key: { let p = format!("{path}.measuredKey"); num(v.get("measuredKey"), &p)? },
+            capped: { let p = format!("{path}.capped"); boolean(v.get("capped"), &p)? },
+            clock: { let p = format!("{path}.clock"); num(v.get("clock"), &p)? },
+            min_delay: { let p = format!("{path}.minDelay"); num(v.get("minDelay"), &p)? },
+            max_delay: { let p = format!("{path}.maxDelay"); num(v.get("maxDelay"), &p)? },
+            trim: { let p = format!("{path}.trim"); num(v.get("trim"), &p)? },
+            snap: { let p = format!("{path}.snap"); num(v.get("snap"), &p)? },
+            delay: { let p = format!("{path}.delay"); num(v.get("delay"), &p)? },
+            rate: { let p = format!("{path}.rate"); num(v.get("rate"), &p)? },
+            started: { let p = format!("{path}.started"); boolean(v.get("started"), &p)? },
+            waits: { let p = format!("{path}.waits"); num(v.get("waits"), &p)? },
+            limit: { let p = format!("{path}.limit"); num(v.get("limit"), &p)? },
+            elapsed: { let p = format!("{path}.elapsed"); num(v.get("elapsed"), &p)? },
+            presented: { let p = format!("{path}.presented"); num(v.get("presented"), &p)? },
+            deadline: { let p = format!("{path}.deadline"); num(v.get("deadline"), &p)? },
+            target: { let p = format!("{path}.target"); num(v.get("target"), &p)? },
+            scale: { let p = format!("{path}.scale"); num(v.get("scale"), &p)? },
+            age: { let p = format!("{path}.age"); num(v.get("age"), &p)? },
+            time: { let p = format!("{path}.time"); num(v.get("time"), &p)? },
+            frames: { let p = format!("{path}.frames"); num(v.get("frames"), &p)? },
+            slow: { let p = format!("{path}.slow"); num(v.get("slow"), &p)? },
+            cpu_bound: { let p = format!("{path}.cpuBound"); num(v.get("cpuBound"), &p)? },
+            headroom: { let p = format!("{path}.headroom"); num(v.get("headroom"), &p)? },
+            recovery: { let p = format!("{path}.recovery"); num(v.get("recovery"), &p)? },
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+            max_steps: { let p = format!("{path}.maxSteps"); num(v.get("maxSteps"), &p)? },
+            budget: { let p = format!("{path}.budget"); num(v.get("budget"), &p)? },
+            max_debt: { let p = format!("{path}.maxDebt"); num(v.get("maxDebt"), &p)? },
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            compensation: { let p = format!("{path}.compensation"); num(v.get("compensation"), &p)? },
+            debt: { let p = format!("{path}.debt"); num(v.get("debt"), &p)? },
+            alpha: { let p = format!("{path}.alpha"); num(v.get("alpha"), &p)? },
+            overloads: { let p = format!("{path}.overloads"); num(v.get("overloads"), &p)? },
+            step_cost: { let p = format!("{path}.stepCost"); num(v.get("stepCost"), &p)? },
+            result: { let p = format!("{path}.result"); num(v.get("result"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(59);
+        { let x = Value::Num(self.hz); fields.push(("hz", x)); }
+        { let x = Value::Num(self.window); fields.push(("window", x)); }
+        { let x = Value::Num(self.gap_window); fields.push(("gapWindow", x)); }
+        { let x = Value::Num(self.margin); fields.push(("margin", x)); }
+        { let x = Value::Num(self.max_lead); fields.push(("maxLead", x)); }
+        { let x = Value::Num(self.cooldown_acks); fields.push(("cooldownAcks", x)); }
+        { let x = Value::Num(self.calm_acks); fields.push(("calmAcks", x)); }
+        { let x = Value::Bool(self.recover); fields.push(("recover", x)); }
+        { let x = Value::Bool(self.extrapolate); fields.push(("extrapolate", x)); }
+        { let x = Value::Num(self.at); fields.push(("at", x)); }
+        { let x = Value::Num(self.count); fields.push(("count", x)); }
+        { let x = Value::Num(self.offset); fields.push(("offset", x)); }
+        { let x = Value::Num(self.dropped); fields.push(("dropped", x)); }
+        { let x = Value::Num(self.gap_at); fields.push(("gapAt", x)); }
+        { let x = Value::Num(self.gap_count); fields.push(("gapCount", x)); }
+        { let x = Value::Num(self.arrived_at); fields.push(("arrivedAt", x)); }
+        { let x = Value::Num(self.arrived_tick); fields.push(("arrivedTick", x)); }
+        { let x = Value::Num(self.latest); fields.push(("latest", x)); }
+        { let x = Value::Num(self.lead); fields.push(("lead", x)); }
+        { let x = Value::Num(self.late); fields.push(("late", x)); }
+        { let x = Value::Num(self.worst_gap); fields.push(("worstGap", x)); }
+        { let x = Value::Num(self.extra); fields.push(("extra", x)); }
+        { let x = Value::Num(self.cooldown); fields.push(("cooldown", x)); }
+        { let x = Value::Num(self.calm); fields.push(("calm", x)); }
+        { let x = Value::Num(self.measured_key); fields.push(("measuredKey", x)); }
+        { let x = Value::Bool(self.capped); fields.push(("capped", x)); }
+        { let x = Value::Num(self.clock); fields.push(("clock", x)); }
+        { let x = Value::Num(self.min_delay); fields.push(("minDelay", x)); }
+        { let x = Value::Num(self.max_delay); fields.push(("maxDelay", x)); }
+        { let x = Value::Num(self.trim); fields.push(("trim", x)); }
+        { let x = Value::Num(self.snap); fields.push(("snap", x)); }
+        { let x = Value::Num(self.delay); fields.push(("delay", x)); }
+        { let x = Value::Num(self.rate); fields.push(("rate", x)); }
+        { let x = Value::Bool(self.started); fields.push(("started", x)); }
+        { let x = Value::Num(self.waits); fields.push(("waits", x)); }
+        { let x = Value::Num(self.limit); fields.push(("limit", x)); }
+        { let x = Value::Num(self.elapsed); fields.push(("elapsed", x)); }
+        { let x = Value::Num(self.presented); fields.push(("presented", x)); }
+        { let x = Value::Num(self.deadline); fields.push(("deadline", x)); }
+        { let x = Value::Num(self.target); fields.push(("target", x)); }
+        { let x = Value::Num(self.scale); fields.push(("scale", x)); }
+        { let x = Value::Num(self.age); fields.push(("age", x)); }
+        { let x = Value::Num(self.time); fields.push(("time", x)); }
+        { let x = Value::Num(self.frames); fields.push(("frames", x)); }
+        { let x = Value::Num(self.slow); fields.push(("slow", x)); }
+        { let x = Value::Num(self.cpu_bound); fields.push(("cpuBound", x)); }
+        { let x = Value::Num(self.headroom); fields.push(("headroom", x)); }
+        { let x = Value::Num(self.recovery); fields.push(("recovery", x)); }
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        { let x = Value::Num(self.max_steps); fields.push(("maxSteps", x)); }
+        { let x = Value::Num(self.budget); fields.push(("budget", x)); }
+        { let x = Value::Num(self.max_debt); fields.push(("maxDebt", x)); }
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.compensation); fields.push(("compensation", x)); }
+        { let x = Value::Num(self.debt); fields.push(("debt", x)); }
+        { let x = Value::Num(self.alpha); fields.push(("alpha", x)); }
+        { let x = Value::Num(self.overloads); fields.push(("overloads", x)); }
+        { let x = Value::Num(self.step_cost); fields.push(("stepCost", x)); }
+        { let x = Value::Num(self.result); fields.push(("result", x)); }
+        a.object("", fields)
+    }
+}
+
 impl ClientGroundNumbers {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -4307,6 +4440,149 @@ impl ClientShot {
         { let x = Value::Num(self.swing); fields.push(("swing", x)); }
         { let x = Value::Num(self.actor_at as f64); fields.push(("actorAt", x)); }
         { let x = match &self.visual_gun { Some(v) => v.to_value(cx, a), None => Value::Undefined }; fields.push(("visualGun", x)); }
+        a.object("", fields)
+    }
+}
+
+impl CombatView {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(CombatView {
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            mounted: { let p = format!("{path}.mounted"); boolean(v.get("mounted"), &p)? },
+            remote: { let p = format!("{path}.remote"); boolean(v.get("remote"), &p)? },
+            secondary_busy: { let p = format!("{path}.secondaryBusy"); boolean(v.get("secondaryBusy"), &p)? },
+            primary_empty: { let p = format!("{path}.primaryEmpty"); boolean(v.get("primaryEmpty"), &p)? },
+            secondary_empty: { let p = format!("{path}.secondaryEmpty"); boolean(v.get("secondaryEmpty"), &p)? },
+            model: { let p = format!("{path}.model"); boolean(v.get("model"), &p)? },
+            secondary_work: { let p = format!("{path}.secondaryWork"); num(v.get("secondaryWork"), &p)? },
+            primary: { let p = format!("{path}.primary"); boolean(v.get("primary"), &p)? },
+            secondary: { let p = format!("{path}.secondary"); boolean(v.get("secondary"), &p)? },
+            primary_repair: { let p = format!("{path}.primaryRepair"); boolean(v.get("primaryRepair"), &p)? },
+            secondary_repair: { let p = format!("{path}.secondaryRepair"); boolean(v.get("secondaryRepair"), &p)? },
+            repair_lock: { let p = format!("{path}.repairLock"); boolean(v.get("repairLock"), &p)? },
+            charging: { let p = format!("{path}.charging"); boolean(v.get("charging"), &p)? },
+            thrown: { let p = format!("{path}.thrown"); boolean(v.get("thrown"), &p)? },
+            unalerted: { let p = format!("{path}.unalerted"); boolean(v.get("unalerted"), &p)? },
+            held: { let p = format!("{path}.held"); num(v.get("held"), &p)? },
+            max_pressed: { let p = format!("{path}.maxPressed"); num(v.get("maxPressed"), &p)? },
+            slot: { let p = format!("{path}.slot"); (int(v.get("slot"), &p, 0.0, u32::MAX as f64)? as u32) },
+            shown: { let p = format!("{path}.shown"); boolean(v.get("shown"), &p)? },
+            repair_alert: { let p = format!("{path}.repairAlert"); boolean(v.get("repairAlert"), &p)? },
+            hold_alert: { let p = format!("{path}.holdAlert"); boolean(v.get("holdAlert"), &p)? },
+            charge_action: { let p = format!("{path}.chargeAction"); (int(v.get("chargeAction"), &p, 0.0, u32::MAX as f64)? as u32) },
+            glow: { let p = format!("{path}.glow"); boolean(v.get("glow"), &p)? },
+            tint: { let p = format!("{path}.tint"); num(v.get("tint"), &p)? },
+            refresh_held: { let p = format!("{path}.refreshHeld"); boolean(v.get("refreshHeld"), &p)? },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            max_health: { let p = format!("{path}.maxHealth"); num(v.get("maxHealth"), &p)? },
+            target: { let p = format!("{path}.target"); boolean(v.get("target"), &p)? },
+            target_health: { let p = format!("{path}.targetHealth"); num(v.get("targetHealth"), &p)? },
+            target_max: { let p = format!("{path}.targetMax"); num(v.get("targetMax"), &p)? },
+            shield: { let p = format!("{path}.shield"); boolean(v.get("shield"), &p)? },
+            shield_value: { let p = format!("{path}.shieldValue"); num(v.get("shieldValue"), &p)? },
+            shield_max: { let p = format!("{path}.shieldMax"); num(v.get("shieldMax"), &p)? },
+            jet_recharge: { let p = format!("{path}.jetRecharge"); num(v.get("jetRecharge"), &p)? },
+            fuel: { let p = format!("{path}.fuel"); num(v.get("fuel"), &p)? },
+            jet_border: { let p = format!("{path}.jetBorder"); num(v.get("jetBorder"), &p)? },
+            jetting: { let p = format!("{path}.jetting"); boolean(v.get("jetting"), &p)? },
+            turret: { let p = format!("{path}.turret"); boolean(v.get("turret"), &p)? },
+            health_fill: { let p = format!("{path}.healthFill"); num(v.get("healthFill"), &p)? },
+            hull_health: { let p = format!("{path}.hullHealth"); num(v.get("hullHealth"), &p)? },
+            hull_max: { let p = format!("{path}.hullMax"); num(v.get("hullMax"), &p)? },
+            hull_fill: { let p = format!("{path}.hullFill"); num(v.get("hullFill"), &p)? },
+            second: { let p = format!("{path}.second"); (int(v.get("second"), &p, 0.0, u32::MAX as f64)? as u32) },
+            fill: { let p = format!("{path}.fill"); num(v.get("fill"), &p)? },
+            look: { let p = format!("{path}.look"); (int(v.get("look"), &p, 0.0, u32::MAX as f64)? as u32) },
+            zoom: { let p = format!("{path}.zoom"); num(v.get("zoom"), &p)? },
+            first_person: { let p = format!("{path}.firstPerson"); boolean(v.get("firstPerson"), &p)? },
+            zoom_first_person: { let p = format!("{path}.zoomFirstPerson"); boolean(v.get("zoomFirstPerson"), &p)? },
+            eye: { let p = format!("{path}.eye"); boolean(v.get("eye"), &p)? },
+            scope: { let p = format!("{path}.scope"); boolean(v.get("scope"), &p)? },
+            flash_length: { let p = format!("{path}.flashLength"); num(v.get("flashLength"), &p)? },
+            flash_color: { let p = format!("{path}.flashColor"); numbers::<4>(v.get("flashColor"), &p)? },
+            light_color: { let p = format!("{path}.lightColor"); numbers::<4>(v.get("lightColor"), &p)? },
+            flash_rgb: { let p = format!("{path}.flashRGB"); vec3(v.get("flashRGB"), &p)? },
+            flash_alpha: { let p = format!("{path}.flashAlpha"); num(v.get("flashAlpha"), &p)? },
+            light_rgb: { let p = format!("{path}.lightRGB"); vec3(v.get("lightRGB"), &p)? },
+            repair_delay: { let p = format!("{path}.repairDelay"); num(v.get("repairDelay"), &p)? },
+            zoom_min: { let p = format!("{path}.zoomMin"); num(v.get("zoomMin"), &p)? },
+            zoom_max: { let p = format!("{path}.zoomMax"); num(v.get("zoomMax"), &p)? },
+            zoom_rate: { let p = format!("{path}.zoomRate"); num(v.get("zoomRate"), &p)? },
+            zoom_count: { let p = format!("{path}.zoomCount"); (int(v.get("zoomCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            zooms: { let p = format!("{path}.zooms"); numbers::<3>(v.get("zooms"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(64);
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.mounted); fields.push(("mounted", x)); }
+        { let x = Value::Bool(self.remote); fields.push(("remote", x)); }
+        { let x = Value::Bool(self.secondary_busy); fields.push(("secondaryBusy", x)); }
+        { let x = Value::Bool(self.primary_empty); fields.push(("primaryEmpty", x)); }
+        { let x = Value::Bool(self.secondary_empty); fields.push(("secondaryEmpty", x)); }
+        { let x = Value::Bool(self.model); fields.push(("model", x)); }
+        { let x = Value::Num(self.secondary_work); fields.push(("secondaryWork", x)); }
+        { let x = Value::Bool(self.primary); fields.push(("primary", x)); }
+        { let x = Value::Bool(self.secondary); fields.push(("secondary", x)); }
+        { let x = Value::Bool(self.primary_repair); fields.push(("primaryRepair", x)); }
+        { let x = Value::Bool(self.secondary_repair); fields.push(("secondaryRepair", x)); }
+        { let x = Value::Bool(self.repair_lock); fields.push(("repairLock", x)); }
+        { let x = Value::Bool(self.charging); fields.push(("charging", x)); }
+        { let x = Value::Bool(self.thrown); fields.push(("thrown", x)); }
+        { let x = Value::Bool(self.unalerted); fields.push(("unalerted", x)); }
+        { let x = Value::Num(self.held); fields.push(("held", x)); }
+        { let x = Value::Num(self.max_pressed); fields.push(("maxPressed", x)); }
+        { let x = Value::Num(self.slot as f64); fields.push(("slot", x)); }
+        { let x = Value::Bool(self.shown); fields.push(("shown", x)); }
+        { let x = Value::Bool(self.repair_alert); fields.push(("repairAlert", x)); }
+        { let x = Value::Bool(self.hold_alert); fields.push(("holdAlert", x)); }
+        { let x = Value::Num(self.charge_action as f64); fields.push(("chargeAction", x)); }
+        { let x = Value::Bool(self.glow); fields.push(("glow", x)); }
+        { let x = Value::Num(self.tint); fields.push(("tint", x)); }
+        { let x = Value::Bool(self.refresh_held); fields.push(("refreshHeld", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.max_health); fields.push(("maxHealth", x)); }
+        { let x = Value::Bool(self.target); fields.push(("target", x)); }
+        { let x = Value::Num(self.target_health); fields.push(("targetHealth", x)); }
+        { let x = Value::Num(self.target_max); fields.push(("targetMax", x)); }
+        { let x = Value::Bool(self.shield); fields.push(("shield", x)); }
+        { let x = Value::Num(self.shield_value); fields.push(("shieldValue", x)); }
+        { let x = Value::Num(self.shield_max); fields.push(("shieldMax", x)); }
+        { let x = Value::Num(self.jet_recharge); fields.push(("jetRecharge", x)); }
+        { let x = Value::Num(self.fuel); fields.push(("fuel", x)); }
+        { let x = Value::Num(self.jet_border); fields.push(("jetBorder", x)); }
+        { let x = Value::Bool(self.jetting); fields.push(("jetting", x)); }
+        { let x = Value::Bool(self.turret); fields.push(("turret", x)); }
+        { let x = Value::Num(self.health_fill); fields.push(("healthFill", x)); }
+        { let x = Value::Num(self.hull_health); fields.push(("hullHealth", x)); }
+        { let x = Value::Num(self.hull_max); fields.push(("hullMax", x)); }
+        { let x = Value::Num(self.hull_fill); fields.push(("hullFill", x)); }
+        { let x = Value::Num(self.second as f64); fields.push(("second", x)); }
+        { let x = Value::Num(self.fill); fields.push(("fill", x)); }
+        { let x = Value::Num(self.look as f64); fields.push(("look", x)); }
+        { let x = Value::Num(self.zoom); fields.push(("zoom", x)); }
+        { let x = Value::Bool(self.first_person); fields.push(("firstPerson", x)); }
+        { let x = Value::Bool(self.zoom_first_person); fields.push(("zoomFirstPerson", x)); }
+        { let x = Value::Bool(self.eye); fields.push(("eye", x)); }
+        { let x = Value::Bool(self.scope); fields.push(("scope", x)); }
+        { let x = Value::Num(self.flash_length); fields.push(("flashLength", x)); }
+        { let x = { let items = self.flash_color.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("flashColor", x)); }
+        { let x = { let items = self.light_color.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("lightColor", x)); }
+        { let x = a.vec3(self.flash_rgb); fields.push(("flashRGB", x)); }
+        { let x = Value::Num(self.flash_alpha); fields.push(("flashAlpha", x)); }
+        { let x = a.vec3(self.light_rgb); fields.push(("lightRGB", x)); }
+        { let x = Value::Num(self.repair_delay); fields.push(("repairDelay", x)); }
+        { let x = Value::Num(self.zoom_min); fields.push(("zoomMin", x)); }
+        { let x = Value::Num(self.zoom_max); fields.push(("zoomMax", x)); }
+        { let x = Value::Num(self.zoom_rate); fields.push(("zoomRate", x)); }
+        { let x = Value::Num(self.zoom_count as f64); fields.push(("zoomCount", x)); }
+        { let x = { let items = self.zooms.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("zooms", x)); }
         a.object("", fields)
     }
 }
@@ -11115,6 +11391,267 @@ impl FlightMissileArgs {
         { let x = match &self.flight_class { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("flightClass", x)); }
         { let x = Value::Num(self.life); fields.push(("life", x)); }
         { let x = Value::Num(self.speed); fields.push(("speed", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PageTargetFrame {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PageTargetFrame {
+            origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            far: { let p = format!("{path}.far"); num(v.get("far"), &p)? },
+            angle: { let p = format!("{path}.angle"); num(v.get("angle"), &p)? },
+            lock_range: { let p = format!("{path}.lockRange"); num(v.get("lockRange"), &p)? },
+            relation_mask: { let p = format!("{path}.relationMask"); (int(v.get("relationMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            category_mask: { let p = format!("{path}.categoryMask"); (int(v.get("categoryMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+            index: { let p = format!("{path}.index"); (int(v.get("index"), &p, i32::MIN as f64, i32::MAX as f64)? as i32) },
+            best: { let p = format!("{path}.best"); (int(v.get("best"), &p, i32::MIN as f64, i32::MAX as f64)? as i32) },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+            lockable: { let p = format!("{path}.lockable"); boolean(v.get("lockable"), &p)? },
+            score: { let p = format!("{path}.score"); num(v.get("score"), &p)? },
+            distance: { let p = format!("{path}.distance"); num(v.get("distance"), &p)? },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            rotation: { let p = format!("{path}.rotation"); quat(v.get("rotation"), &p)? },
+            scale: { let p = format!("{path}.scale"); vec3(v.get("scale"), &p)? },
+            fov: { let p = format!("{path}.fov"); num(v.get("fov"), &p)? },
+            aspect: { let p = format!("{path}.aspect"); num(v.get("aspect"), &p)? },
+            height: { let p = format!("{path}.height"); num(v.get("height"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            x: { let p = format!("{path}.x"); num(v.get("x"), &p)? },
+            y: { let p = format!("{path}.y"); num(v.get("y"), &p)? },
+            z: { let p = format!("{path}.z"); num(v.get("z"), &p)? },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+            other: { let p = format!("{path}.other"); num(v.get("other"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(27);
+        { let x = a.vec3(self.origin); fields.push(("origin", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = Value::Num(self.far); fields.push(("far", x)); }
+        { let x = Value::Num(self.angle); fields.push(("angle", x)); }
+        { let x = Value::Num(self.lock_range); fields.push(("lockRange", x)); }
+        { let x = Value::Num(self.relation_mask as f64); fields.push(("relationMask", x)); }
+        { let x = Value::Num(self.category_mask as f64); fields.push(("categoryMask", x)); }
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = Value::Num(self.index as f64); fields.push(("index", x)); }
+        { let x = Value::Num(self.best as f64); fields.push(("best", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        { let x = Value::Bool(self.lockable); fields.push(("lockable", x)); }
+        { let x = Value::Num(self.score); fields.push(("score", x)); }
+        { let x = Value::Num(self.distance); fields.push(("distance", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = a.quat(self.rotation); fields.push(("rotation", x)); }
+        { let x = a.vec3(self.scale); fields.push(("scale", x)); }
+        { let x = Value::Num(self.fov); fields.push(("fov", x)); }
+        { let x = Value::Num(self.aspect); fields.push(("aspect", x)); }
+        { let x = Value::Num(self.height); fields.push(("height", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = Value::Num(self.x); fields.push(("x", x)); }
+        { let x = Value::Num(self.y); fields.push(("y", x)); }
+        { let x = Value::Num(self.z); fields.push(("z", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        { let x = Value::Num(self.other); fields.push(("other", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PageTargetRow {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PageTargetRow {
+            eligible: { let p = format!("{path}.eligible"); boolean(v.get("eligible"), &p)? },
+            viewer: { let p = format!("{path}.viewer"); boolean(v.get("viewer"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            seated: { let p = format!("{path}.seated"); boolean(v.get("seated"), &p)? },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            kind: { let p = format!("{path}.kind"); num(v.get("kind"), &p)? },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+            center: { let p = format!("{path}.center"); vec3(v.get("center"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            box_radius: { let p = format!("{path}.boxRadius"); num(v.get("boxRadius"), &p)? },
+            has_box: { let p = format!("{path}.hasBox"); boolean(v.get("hasBox"), &p)? },
+            half: { let p = format!("{path}.half"); vec3(v.get("half"), &p)? },
+            hull: { let p = format!("{path}.hull"); boolean(v.get("hull"), &p)? },
+            min: { let p = format!("{path}.min"); vec3(v.get("min"), &p)? },
+            max: { let p = format!("{path}.max"); vec3(v.get("max"), &p)? },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            relation: { let p = format!("{path}.relation"); num(v.get("relation"), &p)? },
+            category: { let p = format!("{path}.category"); (int(v.get("category"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(18);
+        { let x = Value::Bool(self.eligible); fields.push(("eligible", x)); }
+        { let x = Value::Bool(self.viewer); fields.push(("viewer", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.seated); fields.push(("seated", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.kind); fields.push(("kind", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        { let x = a.vec3(self.center); fields.push(("center", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = Value::Num(self.box_radius); fields.push(("boxRadius", x)); }
+        { let x = Value::Bool(self.has_box); fields.push(("hasBox", x)); }
+        { let x = a.vec3(self.half); fields.push(("half", x)); }
+        { let x = Value::Bool(self.hull); fields.push(("hull", x)); }
+        { let x = a.vec3(self.min); fields.push(("min", x)); }
+        { let x = a.vec3(self.max); fields.push(("max", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = Value::Num(self.relation); fields.push(("relation", x)); }
+        { let x = Value::Num(self.category as f64); fields.push(("category", x)); }
+        a.object("", fields)
+    }
+}
+
+impl VehicleMissilePolicy {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(VehicleMissilePolicy {
+            enabled: { let p = format!("{path}.enabled"); boolean(v.get("enabled"), &p)? },
+            lock_on_range: { let p = format!("{path}.lockOnRange"); num(v.get("lockOnRange"), &p)? },
+            lock_on_angle: { let p = format!("{path}.lockOnAngle"); num(v.get("lockOnAngle"), &p)? },
+            lock_off_angle: { let p = format!("{path}.lockOffAngle"); num(v.get("lockOffAngle"), &p)? },
+            lock_time: { let p = format!("{path}.lockTime"); num(v.get("lockTime"), &p)? },
+            clear_lock_on_fire: { let p = format!("{path}.clearLockOnFire"); num(v.get("clearLockOnFire"), &p)? },
+            target_enemy: { let p = format!("{path}.targetEnemy"); num(v.get("targetEnemy"), &p)? },
+            target_friendly: { let p = format!("{path}.targetFriendly"); num(v.get("targetFriendly"), &p)? },
+            target_neutral: { let p = format!("{path}.targetNeutral"); num(v.get("targetNeutral"), &p)? },
+            target_person: { let p = format!("{path}.targetPerson"); num(v.get("targetPerson"), &p)? },
+            target_animal: { let p = format!("{path}.targetAnimal"); num(v.get("targetAnimal"), &p)? },
+            target_droid: { let p = format!("{path}.targetDroid"); num(v.get("targetDroid"), &p)? },
+            target_vehicle: { let p = format!("{path}.targetVehicle"); num(v.get("targetVehicle"), &p)? },
+            target_building: { let p = format!("{path}.targetBuilding"); num(v.get("targetBuilding"), &p)? },
+            relation_mask: { let p = format!("{path}.relationMask"); (int(v.get("relationMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            category_mask: { let p = format!("{path}.categoryMask"); (int(v.get("categoryMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            extreme_range: { let p = format!("{path}.extremeRange"); num(v.get("extremeRange"), &p)? },
+            turn_rate: { let p = format!("{path}.turnRate"); num(v.get("turnRate"), &p)? },
+            scale_time: { let p = format!("{path}.scaleTime"); num(v.get("scaleTime"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(19);
+        { let x = Value::Bool(self.enabled); fields.push(("enabled", x)); }
+        { let x = Value::Num(self.lock_on_range); fields.push(("lockOnRange", x)); }
+        { let x = Value::Num(self.lock_on_angle); fields.push(("lockOnAngle", x)); }
+        { let x = Value::Num(self.lock_off_angle); fields.push(("lockOffAngle", x)); }
+        { let x = Value::Num(self.lock_time); fields.push(("lockTime", x)); }
+        { let x = Value::Num(self.clear_lock_on_fire); fields.push(("clearLockOnFire", x)); }
+        { let x = Value::Num(self.target_enemy); fields.push(("targetEnemy", x)); }
+        { let x = Value::Num(self.target_friendly); fields.push(("targetFriendly", x)); }
+        { let x = Value::Num(self.target_neutral); fields.push(("targetNeutral", x)); }
+        { let x = Value::Num(self.target_person); fields.push(("targetPerson", x)); }
+        { let x = Value::Num(self.target_animal); fields.push(("targetAnimal", x)); }
+        { let x = Value::Num(self.target_droid); fields.push(("targetDroid", x)); }
+        { let x = Value::Num(self.target_vehicle); fields.push(("targetVehicle", x)); }
+        { let x = Value::Num(self.target_building); fields.push(("targetBuilding", x)); }
+        { let x = Value::Num(self.relation_mask as f64); fields.push(("relationMask", x)); }
+        { let x = Value::Num(self.category_mask as f64); fields.push(("categoryMask", x)); }
+        { let x = Value::Num(self.extreme_range); fields.push(("extremeRange", x)); }
+        { let x = Value::Num(self.turn_rate); fields.push(("turnRate", x)); }
+        { let x = Value::Num(self.scale_time); fields.push(("scaleTime", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PageSeatFrame {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PageSeatFrame {
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            seated: { let p = format!("{path}.seated"); boolean(v.get("seated"), &p)? },
+            walker: { let p = format!("{path}.walker"); boolean(v.get("walker"), &p)? },
+            soldier: { let p = format!("{path}.soldier"); boolean(v.get("soldier"), &p)? },
+            air: { let p = format!("{path}.air"); boolean(v.get("air"), &p)? },
+            no_enter: { let p = format!("{path}.noEnter"); num(v.get("noEnter"), &p)? },
+            person: { let p = format!("{path}.person"); boolean(v.get("person"), &p)? },
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            own: { let p = format!("{path}.own"); num(v.get("own"), &p)? },
+            preferred: { let p = format!("{path}.preferred"); (int(v.get("preferred"), &p, i32::MIN as f64, i32::MAX as f64)? as i32) },
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+            flying: { let p = format!("{path}.flying"); boolean(v.get("flying"), &p)? },
+            in_flight: { let p = format!("{path}.inFlight"); boolean(v.get("inFlight"), &p)? },
+            gunner: { let p = format!("{path}.gunner"); boolean(v.get("gunner"), &p)? },
+            lease: { let p = format!("{path}.lease"); boolean(v.get("lease"), &p)? },
+            released: { let p = format!("{path}.released"); boolean(v.get("released"), &p)? },
+            human: { let p = format!("{path}.human"); boolean(v.get("human"), &p)? },
+            network_human: { let p = format!("{path}.networkHuman"); boolean(v.get("networkHuman"), &p)? },
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            eye: { let p = format!("{path}.eye"); vec3(v.get("eye"), &p)? },
+            aim: { let p = format!("{path}.aim"); vec3(v.get("aim"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(24);
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.seated); fields.push(("seated", x)); }
+        { let x = Value::Bool(self.walker); fields.push(("walker", x)); }
+        { let x = Value::Bool(self.soldier); fields.push(("soldier", x)); }
+        { let x = Value::Bool(self.air); fields.push(("air", x)); }
+        { let x = Value::Num(self.no_enter); fields.push(("noEnter", x)); }
+        { let x = Value::Bool(self.person); fields.push(("person", x)); }
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = Value::Num(self.own); fields.push(("own", x)); }
+        { let x = Value::Num(self.preferred as f64); fields.push(("preferred", x)); }
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = Value::Bool(self.flying); fields.push(("flying", x)); }
+        { let x = Value::Bool(self.in_flight); fields.push(("inFlight", x)); }
+        { let x = Value::Bool(self.gunner); fields.push(("gunner", x)); }
+        { let x = Value::Bool(self.lease); fields.push(("lease", x)); }
+        { let x = Value::Bool(self.released); fields.push(("released", x)); }
+        { let x = Value::Bool(self.human); fields.push(("human", x)); }
+        { let x = Value::Bool(self.network_human); fields.push(("networkHuman", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = a.vec3(self.eye); fields.push(("eye", x)); }
+        { let x = a.vec3(self.aim); fields.push(("aim", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PageSeatRow {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PageSeatRow {
+            lease: { let p = format!("{path}.lease"); boolean(v.get("lease"), &p)? },
+            released: { let p = format!("{path}.released"); boolean(v.get("released"), &p)? },
+            relation: { let p = format!("{path}.relation"); num(v.get("relation"), &p)? },
+            free: { let p = format!("{path}.free"); boolean(v.get("free"), &p)? },
+            person: { let p = format!("{path}.person"); boolean(v.get("person"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Bool(self.lease); fields.push(("lease", x)); }
+        { let x = Value::Bool(self.released); fields.push(("released", x)); }
+        { let x = Value::Num(self.relation); fields.push(("relation", x)); }
+        { let x = Value::Bool(self.free); fields.push(("free", x)); }
+        { let x = Value::Bool(self.person); fields.push(("person", x)); }
         a.object("", fields)
     }
 }

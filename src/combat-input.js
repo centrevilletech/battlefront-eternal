@@ -1,12 +1,9 @@
-// Shared by authoritative combat and immediate, cosmetic firing feedback.
-export function infantryFireBlocked(soldier, gunUnderwater, stick = 0) {
-  return Boolean(soldier && ((soldier.air && soldier.air !== 'jet') ||
-    soldier.dive || soldier.lock > 0 || soldier.rolled ||
-    (soldier.posture === 'prone' && stick > 0.1)) || gunUnderwater);
+// Immediate cosmetic feedback reads the same native fire and direction rules.
+import {PageFireFlag_VALUE as Flag} from './sim/gen/page-targeting.js';
+import {clientExports as x} from './runtime/fixed-clock.js';
+export function infantryFireBlocked(soldier,gunUnderwater,stick=0){
+  let flags=gunUnderwater?1<<Flag.underwater:0;
+  if(soldier){if(soldier.air&&soldier.air!=='jet')flags|=1<<Flag.air;if(soldier.dive)flags|=1<<Flag.dive;if(soldier.rolled)flags|=1<<Flag.rolled;if(soldier.posture==='prone')flags|=1<<Flag.prone;}
+  return !!x.page_fire_blocked(flags,stick,soldier?.lock??0);
 }
-
-// Direction toward a damage source in the same view convention as the HUD.
-export function damageDirection(x, z, yaw) {
-  return Math.atan2(-x * Math.cos(yaw) + z * Math.sin(yaw),
-    x * Math.sin(yaw) + z * Math.cos(yaw));
-}
+export const damageDirection=(xValue,z,yaw)=>x.page_damage_direction(xValue,z,yaw);
