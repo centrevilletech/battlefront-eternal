@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {Water} from '../src/water.js';
-import {WaterState} from '../src/runtime/water-state.js';
+import {WaterState,loadWaterState} from '../src/runtime/water-state.js';
 
-test('native water grid is positive Z and independent of the negative-Z foliage grid',()=>{
+test('native water grid is positive Z and independent of the negative-Z foliage grid',async()=>{
+  await loadWaterState();
   const w=new WaterState({height:-72.5,cell:32,offset:[1024,1024],grid:64,cells:[[33,32,0]],look:{OscillationEnable:[0]}});
   assert.equal(w.over(40,17),true);assert.equal(w.over(40,-17),false);
   const hit=new THREE.Vector3();

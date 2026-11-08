@@ -1,10 +1,27 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeGround } from './collision.js';
-import { AtmosphereHost } from './environment/module.js';
+import { loaded, AtmosphereHost } from './environment/module.js';
 import { AtmosphereConfig as ATMOSPHERE, AtmosphereStats as STATS, DustConfig as DUST, SquareBatch as SQUARE, View as VIEW } from './environment/layout.js';
 import { particleDepth } from './particle-depth.js';
+
+// Cold recipes share the required environment module. Only authored JSON and
+// numeric results cross; asset handles and scene objects stay in this host.
+let content;
+export function environmentRecipe(kind, data, owner = null) {
+  const x = owner?.x || (content ??= new WebAssembly.Instance(loaded(), {
+    surface_math: {surface_sin:Math.sin,surface_cos:Math.cos,surface_tan:Math.tan,surface_atan2:Math.atan2,surface_hypot:Math.hypot},
+    env: {host_debris_cast:()=>0,host_debris_hit:()=>0,host_debris_low:()=>0,host_debris_event:()=>{},host_shore_tile:()=>0,host_shore_exposed:()=>0,host_cast:()=>0,host_cast_out:()=>0,host_ground:()=>NaN,host_cover:()=>-100000,host_impact:()=>-Infinity,host_impact_normal:()=>0},
+  }).exports);
+  const bytes = new TextEncoder().encode(JSON.stringify(data,(_,v)=>Object.is(v,-0)?'~negative zero~':v).replaceAll('"~negative zero~"','-0.0'));
+  const at = x.content_input(bytes.length);
+  new Uint8Array(x.memory.buffer,at,bytes.length).set(bytes);
+  if (x.content_recipe(kind)) throw Error('Invalid environment content');
+  owner?.refresh();
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(x.memory.buffer,x.content_output(),x.content_length())));
+}
 
 // The world's haze (map.json `atmosphere`, tools/zero_atmosphere.py), drawn
 // as the 2004 engine draws it:
@@ -75,13 +92,10 @@ export class Atmosphere {
     const fogMap = fog && texture(fog.texture);
     const classes = [];
     const dust = data?.dust;
-    for (const [name, def] of Object.entries(dust?.classes || {})) {
-      const map = texture(def.texture);
-      const instances = dust.instances.filter(i => i.class === name).map(i => i.position);
-      if (!map || !instances.length || !def.count) continue;
-      let seed = 0;
-      for (const ch of name) seed = (Math.imul(seed, 31) + ch.charCodeAt(0)) >>> 0;
-      classes.push({ def, map, name, instances, seed });
+    const recipe = environmentRecipe(RECIPE.ATMOSPHERE, {fogCloud:fog,dust:{classes:Object.entries(dust?.classes||{}),instances:dust?.instances||[]}}, surfaceOwner);
+    for (const source of recipe.classes) {
+      const {name,instances,seed} = source, def = dust.classes[name], map = texture(def.texture);
+      if (map) classes.push({def,map,name,instances,seed});
     }
     // The terrain's height under a grid corner, asked of the collision world
     // by the phase the first time it needs it.
@@ -96,7 +110,7 @@ export class Atmosphere {
       config[ATMOSPHERE.SIZE] = fog.size; config[ATMOSPHERE.DENSITY] = fog.density;
       config[ATMOSPHERE.VELOCITY] = fog.velocity[0]; config[ATMOSPHERE.VELOCITY + 1] = fog.velocity[1];
       config[ATMOSPHERE.ROTATION] = fog.rotation;
-      config[ATMOSPHERE.ALPHA] = (fog.color[3] ?? 255) / 255;
+      config[ATMOSPHERE.ALPHA] = recipe.alpha;
       config[ATMOSPHERE.HEIGHT] = fog.height;
     }
     config[ATMOSPHERE.CLASSES] = classes.length;
@@ -121,8 +135,7 @@ export class Atmosphere {
     this.host.start(classes.length + Number(Boolean(fogMap)));
     const records = this.host.batches;
     if (fogMap) {
-      const c = fog.color;
-      this.batches.push(new SquareBatch(scene, fogMap, 'map-fog-cloud', records[0], [c[0] / 255, c[1] / 255, c[2] / 255, 1]));
+      this.batches.push(new SquareBatch(scene, fogMap, 'map-fog-cloud', records[0], recipe.tint));
     }
     classes.forEach(({ map, name }, k) => this.batches.push(new SquareBatch(scene, map, `map-dust-${name}`, records[k + Number(Boolean(fogMap))])));
     for(let k=0;k<this.batches.length;k++){this.host.bindArray(this.batches[k].arrays,"center",h=>h.batches[k].center);this.host.bindArray(this.batches[k].arrays,"spin",h=>h.batches[k].spin);}

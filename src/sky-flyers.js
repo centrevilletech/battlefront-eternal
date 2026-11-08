@@ -1,4 +1,6 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
+import { environmentRecipe } from "./atmosphere.js";
 import * as THREE from "three";
 import {actorDescription,actorNode} from "./actor-resources.js";
 import {ACTOR} from "./rust-render/actor-layout.js";
@@ -65,9 +67,7 @@ export const SKY_SETTING = "oceanEffects";
 // original draws them or (`enhanced`) as the Enhanced sky does. A map
 // prepared before the Enhanced lists has only the original's.
 export function battleFlyers(data, mission, enhanced = false) {
-  const table = enhanced && data?.enhanced ? data.enhanced : data?.missions;
-  const indices = table?.[mission] || [];
-  return indices.map((i) => data.flyers[i]).filter((def) => def && def.count > 0);
+  return environmentRecipe(RECIPE.FLYERS, {data,mission,enhanced}).map(i => data.flyers[i]);
 }
 
 // Whether the Enhanced sky is on.
@@ -108,14 +108,12 @@ export class SkyFlyers {
     }
     // Rust keeps the ships; the page's draws are built over its records.
     this.host = new SkyHost(surfaceOwner, kept.length);
+    const radii = kept.map(({parts}) => environmentRecipe(RECIPE.RADIUS, parts.map(part => actorDescription(part.asset).bounds), surfaceOwner));
+    this.host.refresh();
     const config = this.host.config;
     config[SKY_CONFIG.SEED] = seed;
     config[SKY_CONFIG.CLASSES] = kept.length;
     config[SKY_CONFIG.ENHANCED] = this.enhanced ? 1 : 0;
-    const radii = kept.map(({ parts }) => parts.reduce((r, part) => {
-      const b=actorDescription(part.asset).bounds;
-      return Math.max(r,Math.sqrt(b[0]*b[0]+b[1]*b[1]+b[2]*b[2])+b[3]);
-    }, 0));
     kept.forEach(({ def, modes }, i) => {
       const at = SKY_CONFIG.STRIDE + i * SKY_CLASS.STRIDE;
       config[at + SKY_CLASS.COUNT] = def.count;
@@ -160,7 +158,7 @@ export class SkyFlyers {
 
   // Whether a class flies in the current mode.
   active(kind) {
-    return this.enhanced ? kind.enhanced : kind.classic;
+    return this.host.x.sky_active(kind.index)!==0;
   }
 
   // Classic or Enhanced, as the setting changes: classes coming in start
@@ -173,7 +171,7 @@ export class SkyFlyers {
   }
 
   get count() {
-    return this.classes.reduce((sum, kind) => sum + (this.active(kind) ? kind.def.count : 0), 0);
+    return this.host.x.sky_count();
   }
 
   prepareFrame(dt, camera = null) {
@@ -249,9 +247,6 @@ export class SkyFlyers {
     this.unsubscribe?.();
     this.group.removeFromParent();
     for (const kind of this.classes) {
-      for (const m of [...kind.draws, ...kind.fades]) {
-
-      }
       for (const m of kind.motions) {
         this.motion?.removeExtra?.(m);
 

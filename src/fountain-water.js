@@ -1,4 +1,7 @@
 import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
+import {environmentRecipe} from './atmosphere.js';
+import {EnvironmentResult as RESULT} from './environment/layout.js';
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from './render-resources.js';
 import * as THREE from 'three';
@@ -19,6 +22,9 @@ export class FountainWater {
     // EnvironmentVolume consumes these reflection facts. Analytic basin water
     // has no planar reflection image; it samples its native opaque copy.
     this.reflectionUniforms={reflection:{value:null},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0}};
+    // The enclosing environment frame refreshes this value with its lighting.
+    const sky=environmentRecipe(RECIPE.FOUNTAIN_SKY,lighting.ambientTop.value.toArray(),wakes.host.owner);
+    wakes.host.refresh();wakes.host.result.set(sky,RESULT.SKY);
     this.original=[];this.models=[];
     const source=(mesh,tier=false)=>{
       const row={mesh,tier,owner:this,active:false,center:null};mesh.userData.effectModel=row;
@@ -51,8 +57,8 @@ export class FountainWater {
     if(this.tier)sceneProperty(this.tier,"visible",enabled);
   }
   update(time) {
-    this.time=time;this.captured=false;const v=this.values,top=lighting.ambientTop.value;
-    v[ROW.WATER_TIME]=time;v[ROW.SKY]=Math.min(1,top.x*1.4+.15);v[ROW.SKY+1]=Math.min(1,top.y*1.4+.16);v[ROW.SKY+2]=Math.min(1,top.z*1.4+.2);
+    this.time=time;this.captured=false;const v=this.values;
+    v[ROW.WATER_TIME]=time;for(let i=0;i<3;i++)v[ROW.SKY+i]=this.wakes.host.result[RESULT.SKY+i];
     lighting.sunDirection.value.toArray(v,ROW.WATER_SUN_DIRECTION);lighting.sunColor.value.toArray(v,ROW.WATER_SUN_COLOR);
     v.set(this.wakes.host.wakePoints,ROW.WAKES);v.set(this.wakes.host.wakeMotion,ROW.MOTION);
   }

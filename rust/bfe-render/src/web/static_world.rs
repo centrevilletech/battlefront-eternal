@@ -132,3 +132,12 @@ impl BfeRenderer {
         }
     }
 }
+
+// Blended map cloth still needs a browser geometry shell. Its cold numeric
+// streams and bounds use the same native compiler as opaque static cloth.
+#[wasm_bindgen]
+pub fn fabric_description(authored:&str)->Result<String,JsValue>{
+    let cloth:crate::static_special::Cloth=serde_json::from_str(authored).map_err(|e|JsValue::from_str(&e.to_string()))?;
+    let cloth=cloth.compile().map_err(JsValue::from_str)?;
+    serde_json::to_string(&cloth).map_err(|e|JsValue::from_str(&e.to_string()))
+}

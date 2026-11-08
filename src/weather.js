@@ -1,4 +1,6 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
+import { environmentRecipe } from './atmosphere.js';
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
@@ -17,10 +19,9 @@ export class Weather {
     // The rain's authored numbers: its range (drops fall within this of the eye) and
     // how many drops the classic rain has; the Enhanced rain uses up to 32 times
     // as many (the geometry's capacity), within 8192.
-    Object.assign(this,{collision,water,settings});const p=data.precipitation;
-    this.nativeRange=THREE.MathUtils.clamp(p.Range?.[0]??12.5,4,40);
-    this.nativeCount=THREE.MathUtils.clamp(Math.round(p.ParticleDensity?.[0]??256),32,2048);
-    this.capacity=Math.min(8192,this.nativeCount*32);
+    Object.assign(this,{collision,water,settings});
+    this.recipe=environmentRecipe(RECIPE.WEATHER,data,surfaceOwner);
+    this.nativeRange=this.recipe.range;this.nativeCount=this.recipe.count;this.capacity=this.recipe.capacity;
     // The mode decides the cover cache's range and size: the Enhanced rain reaches
     // farther and needs a finer cache.
     const enhanced=settings?.get('rainEffects')==='enhanced';
@@ -53,11 +54,10 @@ export class Weather {
     this.visibility='anchor';this.arrays={seed:this.host.seeds};this.resources=null;
     this.samples=new Int32Array(1);this.samples.fill(-1);
     this.values=new Float64Array(EFFECT.RAIN.LENGTH);
-    const v=this.values,c=p.Color||[216,220,228],wind=data.wind||[0,0],alpha=p.AlphaMinMax||[.3,.45];
-    v.set(wind,EFFECT.RAIN.WIND);v.set(alpha,EFFECT.RAIN.ALPHA);
-    for(let i=0;i<3;i++)v[EFFECT.RAIN.COLOR+i]=c[i]/255;
-    v[EFFECT.RAIN.VELOCITY]=p.Velocity?.[0]??9;v[EFFECT.RAIN.VELOCITY_RANGE]=p.VelocityRange?.[0]??1;
-    v[EFFECT.RAIN.WIDTH]=p.ParticleSize?.[0]??.02;v[EFFECT.RAIN.STREAK]=p.StreakLength?.[0]??1;
+    const v=this.values,recipe=this.recipe;
+    v.set(recipe.wind,EFFECT.RAIN.WIND);v.set(recipe.alpha,EFFECT.RAIN.ALPHA);v.set(recipe.color,EFFECT.RAIN.COLOR);
+    v[EFFECT.RAIN.VELOCITY]=recipe.velocity;v[EFFECT.RAIN.VELOCITY_RANGE]=recipe.velocityRange;
+    v[EFFECT.RAIN.WIDTH]=recipe.width;v[EFFECT.RAIN.STREAK]=recipe.streak;
     this.mesh=new THREE.Object3D();this.mesh.name='map-precipitation';this.mesh.userData.effectBatch=this;
     this.mist=new THREE.Object3D();this.mist.name='rain-ground-mist';
     const mist=this.mistBatch={nativeKind:EFFECT.RAIN.ID,family:'rain',variant:0,texture:null,visibility:'anchor',
@@ -80,7 +80,7 @@ export class Weather {
     this.unsubscribe=settings?.onChange(key=>{if(key==='rainEffects')this.applyMode(false);});
   }
   // How far the rain reaches in a mode.
-  rangeFor(enhanced){return enhanced?Math.min(40,this.nativeRange*3.2):this.nativeRange;}
+  rangeFor(enhanced){return enhanced?this.recipe.enhancedRange:this.recipe.range;}
   // Classic or Enhanced rain, live: a new cover cache of the mode's range and
   // size (filled whole in the next frame), the splashes hidden until then.
   // Classic or Enhanced rain, live: a new cover cache of the mode's range and size

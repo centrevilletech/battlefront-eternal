@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { Debris } from '../src/debris.js';
 import { DebrisIds, debrisState } from './sim-capture/debris-state.mjs';
 import { ClassicRandom } from '../src/ai/random.js';
+await Debris.load();
 import { Handle, MAGIC, RECORD, Writer, readRecords } from './sim-capture/format.mjs';
 
 const args = process.argv.slice(2), option = (key, fallback) => { const i = args.indexOf(`--${key}`); return i < 0 ? fallback : args[i + 1]; };

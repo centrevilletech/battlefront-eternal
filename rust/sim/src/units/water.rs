@@ -158,3 +158,81 @@ pub fn soldier_step_at(
 
 #[allow(unused_imports)]
 use arr as _arr;
+
+// WaterState's surviving host queries use this immutable grid bank. A released
+// facade returns its slot, so changing battles does not retain old map cells.
+// These exports never advance water: Game.step's native clock remains sole.
+#[cfg(target_arch = "wasm32")]
+mod queries {
+    use super::*;
+    use std::cell::RefCell;
+    struct Grid { state: WaterState, numbers: Vec<f64> }
+    #[derive(Default)]
+    struct Queries { input: Vec<u8>, grids: Vec<Option<Grid>>, point: [f64; 3] }
+    thread_local! { static QUERIES: RefCell<Queries> = RefCell::new(Queries::default()); }
+    #[no_mangle]
+    pub extern "C" fn water_query_input(length: u32) -> *mut u8 {
+        QUERIES.with_borrow_mut(|q| { q.input.resize((length as usize).min(16*1024*1024), 0); q.input.as_mut_ptr() })
+    }
+    #[no_mangle]
+    pub extern "C" fn water_query_new() -> u32 {
+        QUERIES.with_borrow_mut(|q| {
+            let data: serde_json::Value = serde_json::from_slice(&q.input).unwrap_or_default();
+            let number = |key: &str| data[key].as_f64().unwrap_or(0.0);
+            let grid = number("grid");
+            // Set preserves first occurrence order, including duplicate cells
+            // in a cold input. Sound/map import reads that original number list.
+            let mut numbers=Vec::new();let mut cells=HashSet::new();
+            for c in data["cells"].as_array().into_iter().flatten(){
+                let number=c[1].as_f64().unwrap_or(0.0)*grid+c[0].as_f64().unwrap_or(0.0);
+                if cells.insert((number+0.0).to_bits()){numbers.push(number);}
+            }
+            let state = WaterState { height: number("height"), cell: number("cell"), grid,
+                offset: [data["offset"][0].as_f64().unwrap_or(0.0),data["offset"][1].as_f64().unwrap_or(0.0)],
+                cells,
+                bobbing: data["look"]["OscillationEnable"][0].as_f64().unwrap_or(1.0)>0.0,
+                simulation_time:0.0, physics_wave:0.0 };
+            let at = q.grids.iter().position(Option::is_none).unwrap_or(q.grids.len());
+            if at == q.grids.len() { q.grids.push(None); }
+            q.grids[at] = Some(Grid {state,numbers}); at as u32
+        })
+    }
+    #[no_mangle]
+    pub extern "C" fn water_query_release(id:u32) { QUERIES.with_borrow_mut(|q| { if let Some(row)=q.grids.get_mut(id as usize) {*row=None;} }); }
+    #[no_mangle]
+    pub extern "C" fn water_query_bobbing(id:u32)->u32 { QUERIES.with_borrow(|q| q.grids.get(id as usize).and_then(Option::as_ref).map_or(0,|g|u32::from(g.state.bobbing))) }
+    #[no_mangle]
+    pub extern "C" fn water_query_cells(id:u32)->*const f64 { QUERIES.with_borrow(|q| q.grids.get(id as usize).and_then(Option::as_ref).map_or(std::ptr::null(),|g|g.numbers.as_ptr())) }
+    #[no_mangle]
+    pub extern "C" fn water_query_count(id:u32)->u32 { QUERIES.with_borrow(|q| q.grids.get(id as usize).and_then(Option::as_ref).map_or(0,|g|g.numbers.len() as u32)) }
+    #[no_mangle]
+    pub extern "C" fn water_query_level(height:f64,wave:f64)->f64 { height+wave }
+    #[no_mangle]
+    pub extern "C" fn water_query_over(id:u32,x:f64,z:f64)->u32 { QUERIES.with_borrow(|q| q.grids.get(id as usize).and_then(Option::as_ref).map_or(0,|g|u32::from(g.state.over(x,z)))) }
+    // WaterState.crossing reads the current published level, independently of
+    // display dt. Reusing WaterState::crossing keeps exact lerp operation order.
+    #[no_mangle]
+    pub extern "C" fn water_query_crossing(id:u32,level:f64,ax:f64,ay:f64,az:f64,bx:f64,by:f64,bz:f64)->u32 {
+        QUERIES.with_borrow_mut(|q| {
+            let Some(grid)=q.grids.get_mut(id as usize).and_then(Option::as_mut) else {return 0;};
+            grid.state.height=level;grid.state.physics_wave=0.0;
+            let Some(p)=grid.state.crossing(&Vector3::new(ax,ay,az),&Vector3::new(bx,by,bz)) else {return 0;};
+            q.point=[p.x,p.y,p.z];1
+        })
+    }
+    #[no_mangle]
+    pub extern "C" fn water_query_point()->*const f64 { QUERIES.with_borrow(|q|q.point.as_ptr()) }
+}
+
+#[cfg(test)]
+mod grid_tests {
+    use super::*;
+    #[test]
+    fn grid_queries_clamp_edges_and_cross_only_downward() {
+        let water=WaterState{height:2.,cell:32.,offset:[16.,16.],grid:2.,cells:[0f64.to_bits(),3f64.to_bits()].into_iter().collect(),bobbing:false,simulation_time:0.,physics_wave:0.};
+        assert!(water.over(-1000.,-1000.));assert!(water.over(1000.,1000.));assert!(!water.over(-1000.,1000.));
+        let from=Vector3::new(20.,3.,20.);let to=Vector3::new(22.,1.,22.);
+        assert_eq!(water.crossing(&from,&to),Some(Vector3::new(21.,2.,21.)));
+        assert!(water.crossing(&to,&from).is_none());assert!(water.crossing(&Vector3::new(-20.,3.,20.),&Vector3::new(-20.,1.,20.)).is_none());
+    }
+}

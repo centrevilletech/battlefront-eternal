@@ -8,6 +8,7 @@
 pub trait Math {
     fn sin(x: f64) -> f64;
     fn cos(x: f64) -> f64;
+    fn tan(x: f64) -> f64;
     fn atan2(y: f64, x: f64) -> f64;
     fn hypot(x: f64, y: f64) -> f64;
 }
@@ -15,6 +16,7 @@ pub struct V8;
 impl Math for V8 {
     fn sin(x: f64) -> f64 { v8math::sin(x) }
     fn cos(x: f64) -> f64 { v8math::cos(x) }
+    fn tan(x: f64) -> f64 { v8math::tan(x) }
     fn atan2(y: f64, x: f64) -> f64 { v8math::atan2(y, x) }
     fn hypot(x: f64, y: f64) -> f64 { v8math::hypot(x, y) }
 }
@@ -24,6 +26,7 @@ impl Math for V8 {
 extern "C" {
     fn surface_sin(x: f64) -> f64;
     fn surface_cos(x: f64) -> f64;
+    fn surface_tan(x: f64) -> f64;
     fn surface_atan2(y: f64, x: f64) -> f64;
     fn surface_hypot(x: f64, y: f64) -> f64;
 }
@@ -35,6 +38,7 @@ impl Math for Page {
     // touch phase storage or re-enter any environment export.
     fn sin(x: f64) -> f64 { unsafe { surface_sin(x) } }
     fn cos(x: f64) -> f64 { unsafe { surface_cos(x) } }
+    fn tan(x: f64) -> f64 { unsafe { surface_tan(x) } }
     fn atan2(y: f64, x: f64) -> f64 { unsafe { surface_atan2(y, x) } }
     fn hypot(x: f64, y: f64) -> f64 { unsafe { surface_hypot(x, y) } }
 }

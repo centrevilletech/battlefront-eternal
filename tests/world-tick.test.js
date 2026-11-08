@@ -6,7 +6,7 @@ import { F4Live } from '../src/sim/wasm/f4-live.js';
 import { F4Tail } from '../src/sim/wasm/f4-tail.js';
 import { HumanSpawnMirror } from '../src/sim/gen/index.js';
 import { IMPORT_TABLE } from '../src/sim/gen/index.js';
-import { WaterState } from '../src/runtime/water-state.js';
+import { WaterState,loadWaterState } from '../src/runtime/water-state.js';
 import { WorldTick } from '../src/runtime/world-tick.js';
 import { WorldTickInputMirror, WorldTickInputLayout, putWorldTickInput,
   WorldTickOutputMirror, syncWorldTickOutput } from '../src/sim/gen/world.js';
@@ -80,6 +80,7 @@ test('invalid world time returns a bounded result before any phase runs',async()
 
 
 test('the enclosing tick advances gameplay water before the body and item phases',async()=>{
+  await loadWaterState();
   const water=new WaterState({height:1,cell:10,offset:[0,0],grid:2,cells:[[0,0]],look:{OscillationEnable:[1]}});
   const f=await fixture(water);
   f.tick.run(1/60,1,true,null,false,true,0,false,0);f.tick.finish();f.tick.complete();

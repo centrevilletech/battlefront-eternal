@@ -21,27 +21,48 @@ fn join(parent:&mut [usize],a:usize,b:usize) { let a=root(parent,a);let b=root(p
 // Float32BufferAttribute conversion, including anchor interpolation.
 pub fn fabric(g:&mut Geometry)->Result<(), &'static str> {
     if g.index.len()>3_145_728 { return Err("fabric subdivision capacity"); }
-    let stride=g.stride as usize/4;let count=g.vertices.len()/stride;
+    let stride=g.stride as usize/4;
+    let vertices=g.vertices.iter().map(|v|*v as f64).collect::<Vec<_>>();
+    let (rows,index)=fabric_rows(&vertices,stride,&g.index)?;
+    let width=stride+2;
+    g.fabric=true;g.interleaved=false;
+    g.vertices=rows.into_iter().map(|v|v as f32).collect();g.index=index;
+    // Three's setIndex promotes at 65535, reserving that value rather than
+    // selecting width from the number of vertices alone.
+    g.index_width=if g.index.iter().any(|v|*v>=65535) {4} else {2};
+    g.attributes.push(Attribute {name:"fabricAnchor".into(),size:2,offset:g.stride});g.stride=(width*4) as i32;
+    g.update_bounds();
+    // fabricGeometry gives wind displacement its existing conservative margin.
+    for k in 4..7 {g.bounds[k]-=0.18;}for k in 7..10 {g.bounds[k]+=0.18;}g.bounds[3]+=0.18;
+    Ok(())
+}
+
+// fabricGeometry's cold shell also serves blended map records. Share the
+// subdivision implementation with static descriptors and keep normalized
+// source attributes in f64 until the final Float32BufferAttribute boundary.
+fn fabric_rows(vertices:&[f64],stride:usize,indices:&[u32])->Result<(Vec<f64>,Vec<u32>), &'static str> {
+    if stride<3||vertices.len()%stride!=0||indices.len()%3!=0||indices.len()>3_145_728||indices.iter().any(|i|*i as usize>=vertices.len()/stride){return Err("invalid fabric stream");}
+    let count=vertices.len()/stride;
     // fabricGeometry rounds weld positions to millimetres only to discover
     // connected cloth pieces; original UV and normal seams remain separate.
     let mut parent:Vec<_>=(0..count).collect();let mut welded=HashMap::new();
     for v in 0..count {
-        let key = [0,1,2].map(|k|(g.vertices[v*stride+k] as f64*1000.+0.5).floor() as i64);
+        let key = [0,1,2].map(|k|(vertices[v*stride+k]*1000.+0.5).floor() as i64);
         if let Some(&held)=welded.get(&key) { join(&mut parent,v,held); } else { welded.insert(key,v); }
     }
-    for t in g.index.chunks_exact(3) {join(&mut parent,t[0] as usize,t[1] as usize);join(&mut parent,t[0] as usize,t[2] as usize);}
+    for t in indices.chunks_exact(3) {join(&mut parent,t[0] as usize,t[1] as usize);join(&mut parent,t[0] as usize,t[2] as usize);}
     let mut bounds:HashMap<usize,(f64,f64)>=HashMap::new();
-    for v in 0..count { let id=root(&mut parent,v);let y=g.vertices[v*stride+1] as f64;
+    for v in 0..count { let id=root(&mut parent,v);let y=vertices[v*stride+1];
         let b=bounds.entry(id).or_insert((f64::INFINITY,f64::NEG_INFINITY));b.0=b.0.min(y);b.1=b.1.max(y);
     }
     // Every piece carries its own top and height. These anchors must be
     // interpolated along with positions through both subdivision rounds.
     let width=stride+2;let mut rows=Vec::with_capacity(count*width);
     for v in 0..count {
-        rows.extend(g.vertices[v*stride..(v+1)*stride].iter().map(|v|*v as f64));
+        rows.extend_from_slice(&vertices[v*stride..(v+1)*stride]);
         let b=bounds[&root(&mut parent,v)];rows.extend_from_slice(&[b.1,(b.1-b.0).max(0.01)]);
     }
-    let mut index=g.index.clone();
+    let mut index=indices.to_vec();
     for _ in 0..2 {
         let mut cache=HashMap::new();let mut next=Vec::with_capacity(index.len()*4);
         // Reuse each undirected edge once per subdivision round. The first
@@ -58,16 +79,32 @@ pub fn fabric(g:&mut Geometry)->Result<(), &'static str> {
         }
         index=next;
     }
-    g.fabric=true;g.interleaved=false;
-    g.vertices=rows.into_iter().map(|v|v as f32).collect();g.index=index;
-    // Three's setIndex promotes at 65535, reserving that value rather than
-    // selecting width from the number of vertices alone.
-    g.index_width=if g.index.iter().any(|v|*v>=65535) {4} else {2};
-    g.attributes.push(Attribute {name:"fabricAnchor".into(),size:2,offset:g.stride});g.stride=(width*4) as i32;
-    g.update_bounds();
-    // fabricGeometry gives wind displacement its existing conservative margin.
-    for k in 4..7 {g.bounds[k]-=0.18;}for k in 7..10 {g.bounds[k]+=0.18;}g.bounds[3]+=0.18;
-    Ok(())
+    Ok((rows,index))
+}
+
+#[derive(serde::Deserialize,serde::Serialize)]
+pub struct ClothAttribute {pub name:String,pub size:usize,pub values:Vec<f64>}
+#[derive(serde::Deserialize,serde::Serialize)]
+pub struct Cloth {pub attributes:Vec<ClothAttribute>,pub index:Vec<u32>,#[serde(default)]pub bounds:[f64;10]}
+impl Cloth {
+    // fabricGeometry accepts arbitrary draw attributes, including normalized
+    // colours. Reordering only the internal position stream leaves the host's
+    // attribute identities and exact original component values intact.
+    pub fn compile(mut self)->Result<Self,&'static str>{
+        let position=self.attributes.iter().position(|a|a.name=="position"&&a.size==3).ok_or("fabric position missing")?;
+        self.attributes.swap(0,position);let count=self.attributes[0].values.len()/3;
+        let stride=self.attributes.iter().map(|a|a.size).sum::<usize>();
+        if count>8_388_608||stride>64||self.attributes.iter().any(|a|a.size==0||a.values.len()!=count*a.size){return Err("invalid fabric attributes");}
+        let mut vertices=Vec::with_capacity(count*stride);
+        for i in 0..count{for a in &self.attributes{vertices.extend_from_slice(&a.values[i*a.size..(i+1)*a.size]);}}
+        if self.index.is_empty(){self.index=(0..count as u32).collect();}
+        let (rows,index)=fabric_rows(&vertices,stride,&self.index)?;let width=stride+2;
+        let mut offset=0;for a in &mut self.attributes{a.values.clear();for row in rows.chunks_exact(width){a.values.extend(row[offset..offset+a.size].iter().map(|v|*v as f32 as f64));}offset+=a.size;}
+        self.attributes.push(ClothAttribute{name:"fabricAnchor".into(),size:2,values:rows.chunks_exact(width).flat_map(|r|r[stride..].iter().map(|v|*v as f32 as f64)).collect()});
+        let mut geometry=Geometry{vertices:rows.into_iter().map(|v|v as f32).collect(),index:vec![],index_width:4,interleaved:false,fabric:true,tree_groups:None,attributes:vec![],stride:(width*4) as i32,bounds:[0.;10]};
+        geometry.update_bounds();for k in 4..7{geometry.bounds[k]-=0.18;}for k in 7..10{geometry.bounds[k]+=0.18;}geometry.bounds[3]+=0.18;
+        self.bounds=geometry.bounds;self.index=index;self.attributes.swap(0,position);Ok(self)
+    }
 }
 
 // TreeCanopies.adapt assigns each connected original billboard to its nearest
@@ -149,5 +186,24 @@ mod tests {
         let geometry = Geometry::new(&record,&vertices,&index).unwrap();
         assert!(geometry.tree_groups.is_none());
         assert_eq!(geometry.attributes.len(),1);
+    }
+}
+
+#[cfg(test)]
+mod cloth_tests {
+    use super::*;
+    #[test]
+    fn subdivided_cloth_preserves_normalized_attributes_and_component_anchors(){
+        // A single triangle has six edges after one split and sixteen
+        // triangles after two. Normalized colour stays double until output.
+        let cloth=Cloth{attributes:vec![
+            ClothAttribute{name:"color".into(),size:1,values:vec![1./255.,2./255.,3./255.]},
+            ClothAttribute{name:"position".into(),size:3,values:vec![0.,0.,0.,2.,0.,0.,0.,4.,0.]},
+        ],index:vec![0,1,2],bounds:[0.;10]}.compile().unwrap();
+        assert_eq!(cloth.index.len(),48);assert_eq!(&cloth.index[..12],&[0,6,8,6,3,7,8,7,5,6,7,8]);
+        let p=&cloth.attributes[1].values;assert_eq!(p.len(),45);
+        let anchor=&cloth.attributes[2].values;assert!(anchor.chunks_exact(2).all(|v|v==[4.,4.]));
+        assert_eq!(cloth.attributes[0].values[3],((1./255.+2./255.)*0.5) as f32 as f64);
+        assert_eq!(cloth.bounds[4],-0.18);assert_eq!(cloth.bounds[8],4.18);
     }
 }

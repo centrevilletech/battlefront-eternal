@@ -291,8 +291,10 @@ impl Sky {
         sky
     }
 
-    fn active(&self, i: usize) -> bool {
-        if self.enhanced { self.kinds[i].enhanced } else { self.kinds[i].classic }
+    // SkyFlyers.count is a native metadata query, independent of the eye.
+    pub fn count(&self)->usize { self.kinds.iter().enumerate().filter(|(i,_)|self.active(*i)).map(|(_,k)|k.count).sum() }
+    pub fn active(&self, i: usize) -> bool {
+        self.kinds.get(i).is_some_and(|k|if self.enhanced {k.enhanced}else{k.classic})
     }
 
     fn launch(&mut self, i: usize, s: usize) {

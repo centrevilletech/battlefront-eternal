@@ -150,7 +150,8 @@
     "EnvironmentFrame": {
       "reach": 1,
       "enhanced": 1,
-      "dt": 1
+      "dt": 1,
+      "ambientTop": 3
     },
     "EnvironmentResult": {
       "sources": 1,
@@ -158,7 +159,8 @@
       "fountains": 1,
       "time": 1,
       "dt": 1,
-      "modeChanged": 1
+      "modeChanged": 1,
+      "sky": 3
     },
     "DstFrame": {
       "dt": 1,
@@ -353,6 +355,81 @@
       "time": 1,
       "cursor": 1,
       "overflow": 1
+    },
+    "DebrisLaunch": {
+      "matrix": 16,
+      "bounds": 6,
+      "origin": 3,
+      "velocity": 3,
+      "health": 1,
+      "center": 1,
+      "floor": 1,
+      "speed": 1,
+      "omega": 3,
+      "still": 1,
+      "collisions": 1,
+      "trail": 1,
+      "smoke": 1,
+      "impact": 1,
+      "childCount": 1,
+      "children": "Debris.CHILDREN*3"
+    },
+    "DebrisPiece": {
+      "position": 3,
+      "previous": 3,
+      "velocity": 3,
+      "quaternion": 4,
+      "omega": 3,
+      "hits": 1,
+      "lift": 1,
+      "thin": 1,
+      "resting": 1,
+      "flight": 1,
+      "left": 1,
+      "shift": 3,
+      "hasShift": 1,
+      "impactPoint": 3,
+      "settleFrom": 4,
+      "settleTo": 4,
+      "settleY": 2,
+      "settleT": 1,
+      "hasSettle": 1
+    },
+    "WaterView": {
+      "far": 1,
+      "fade": 2,
+      "authoredFar": 1,
+      "waterFar": 1,
+      "near": 1,
+      "fov": 1,
+      "aspect": 1,
+      "inverse": 16,
+      "scale": 1,
+      "maxSize": 1,
+      "size": 2,
+      "level": 1,
+      "eyeY": 1,
+      "hasBumps": 1,
+      "planar": 1
+    },
+    "WaterViewResult": {
+      "range": 2,
+      "visible": 1,
+      "dimensions": 2,
+      "enhanced": 1,
+      "planar": 1,
+      "distort": 1,
+      "underwater": 1
+    },
+    "ShoreQuery": {
+      "center": 3,
+      "radius": 1,
+      "bounds": 6
+    },
+    "DebrisScratch": {
+      "ray": 3,
+      "start": 3,
+      "out": 3
     }
   },
   "enums": {
@@ -374,6 +451,25 @@
     "SurfaceCommandKind": [
       "ripple",
       "wader"
+    ],
+    "DebrisEvent": [
+      "admit",
+      "move",
+      "impact",
+      "stopTrail",
+      "settle",
+      "retire",
+      "clear"
+    ],
+    "EnvironmentRecipe": [
+      "snow",
+      "weather",
+      "atmosphere",
+      "sources",
+      "water",
+      "flyers",
+      "radius",
+      "fountainSky"
     ]
   },
   "limits": {
@@ -429,6 +525,10 @@
       "count": 8,
       "actors": 256,
       "states": 1024
+    },
+    "Debris": {
+      "capacity": 4096,
+      "children": 1024
     }
   },
   "blocks": {

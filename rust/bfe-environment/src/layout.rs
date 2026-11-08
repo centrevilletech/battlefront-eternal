@@ -165,7 +165,8 @@ pub mod environment_frame {
     pub const REACH: usize = 0;
     pub const ENHANCED: usize = 1;
     pub const DT: usize = 2;
-    pub const STRIDE: usize = 3;
+    pub const AMBIENT_TOP: usize = 3;
+    pub const STRIDE: usize = 6;
 }
 pub mod environment_result {
     pub const SOURCES: usize = 0;
@@ -174,7 +175,8 @@ pub mod environment_result {
     pub const TIME: usize = 3;
     pub const DT: usize = 4;
     pub const MODE_CHANGED: usize = 5;
-    pub const STRIDE: usize = 6;
+    pub const SKY: usize = 6;
+    pub const STRIDE: usize = 9;
 }
 pub mod dst_frame {
     pub const DT: usize = 0;
@@ -391,6 +393,87 @@ pub mod wake_result {
     pub const OVERFLOW: usize = 2;
     pub const STRIDE: usize = 3;
 }
+pub mod debris_launch {
+    pub const MATRIX: usize = 0;
+    pub const BOUNDS: usize = 16;
+    pub const ORIGIN: usize = 22;
+    pub const VELOCITY: usize = 25;
+    pub const HEALTH: usize = 28;
+    pub const CENTER: usize = 29;
+    pub const FLOOR: usize = 30;
+    pub const SPEED: usize = 31;
+    pub const OMEGA: usize = 32;
+    pub const STILL: usize = 35;
+    pub const COLLISIONS: usize = 36;
+    pub const TRAIL: usize = 37;
+    pub const SMOKE: usize = 38;
+    pub const IMPACT: usize = 39;
+    pub const CHILD_COUNT: usize = 40;
+    pub const CHILDREN: usize = 41;
+    pub const STRIDE: usize = 3113;
+}
+pub mod debris_piece {
+    pub const POSITION: usize = 0;
+    pub const PREVIOUS: usize = 3;
+    pub const VELOCITY: usize = 6;
+    pub const QUATERNION: usize = 9;
+    pub const OMEGA: usize = 13;
+    pub const HITS: usize = 16;
+    pub const LIFT: usize = 17;
+    pub const THIN: usize = 18;
+    pub const RESTING: usize = 19;
+    pub const FLIGHT: usize = 20;
+    pub const LEFT: usize = 21;
+    pub const SHIFT: usize = 22;
+    pub const HAS_SHIFT: usize = 25;
+    pub const IMPACT_POINT: usize = 26;
+    pub const SETTLE_FROM: usize = 29;
+    pub const SETTLE_TO: usize = 33;
+    pub const SETTLE_Y: usize = 37;
+    pub const SETTLE_T: usize = 39;
+    pub const HAS_SETTLE: usize = 40;
+    pub const STRIDE: usize = 41;
+}
+pub mod water_view {
+    pub const FAR: usize = 0;
+    pub const FADE: usize = 1;
+    pub const AUTHORED_FAR: usize = 3;
+    pub const WATER_FAR: usize = 4;
+    pub const NEAR: usize = 5;
+    pub const FOV: usize = 6;
+    pub const ASPECT: usize = 7;
+    pub const INVERSE: usize = 8;
+    pub const SCALE: usize = 24;
+    pub const MAX_SIZE: usize = 25;
+    pub const SIZE: usize = 26;
+    pub const LEVEL: usize = 28;
+    pub const EYE_Y: usize = 29;
+    pub const HAS_BUMPS: usize = 30;
+    pub const PLANAR: usize = 31;
+    pub const STRIDE: usize = 32;
+}
+pub mod water_view_result {
+    pub const RANGE: usize = 0;
+    pub const VISIBLE: usize = 2;
+    pub const DIMENSIONS: usize = 3;
+    pub const ENHANCED: usize = 5;
+    pub const PLANAR: usize = 6;
+    pub const DISTORT: usize = 7;
+    pub const UNDERWATER: usize = 8;
+    pub const STRIDE: usize = 9;
+}
+pub mod shore_query {
+    pub const CENTER: usize = 0;
+    pub const RADIUS: usize = 3;
+    pub const BOUNDS: usize = 4;
+    pub const STRIDE: usize = 10;
+}
+pub mod debris_scratch {
+    pub const RAY: usize = 0;
+    pub const START: usize = 3;
+    pub const OUT: usize = 6;
+    pub const STRIDE: usize = 9;
+}
 pub mod dst_command_kind {
     pub const BLOW_APART: f64 = 0.0;
     pub const DIED: f64 = 1.0;
@@ -409,6 +492,25 @@ pub mod dst_event_kind {
 pub mod surface_command_kind {
     pub const RIPPLE: f64 = 0.0;
     pub const WADER: f64 = 1.0;
+}
+pub mod debris_event {
+    pub const ADMIT: f64 = 0.0;
+    pub const MOVE: f64 = 1.0;
+    pub const IMPACT: f64 = 2.0;
+    pub const STOP_TRAIL: f64 = 3.0;
+    pub const SETTLE: f64 = 4.0;
+    pub const RETIRE: f64 = 5.0;
+    pub const CLEAR: f64 = 6.0;
+}
+pub mod environment_recipe {
+    pub const SNOW: f64 = 0.0;
+    pub const WEATHER: f64 = 1.0;
+    pub const ATMOSPHERE: f64 = 2.0;
+    pub const SOURCES: f64 = 3.0;
+    pub const WATER: f64 = 4.0;
+    pub const FLYERS: f64 = 5.0;
+    pub const RADIUS: f64 = 6.0;
+    pub const FOUNTAIN_SKY: f64 = 7.0;
 }
 pub mod squares {
     pub const CAPACITY: usize = 4096;
@@ -462,6 +564,10 @@ pub mod wakes {
     pub const COUNT: usize = 8;
     pub const ACTORS: usize = 256;
     pub const STATES: usize = 1024;
+}
+pub mod debris {
+    pub const CAPACITY: usize = 4096;
+    pub const CHILDREN: usize = 1024;
 }
 pub mod dst_result_at {
     pub const REFS: usize = 8;

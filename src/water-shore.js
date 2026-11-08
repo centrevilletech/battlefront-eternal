@@ -3,9 +3,8 @@ import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 
-import { Surface as LIMITS, SurfaceFrame as FRAME, SurfaceResult as RESULT, ShoreTriangle as TRIANGLE } from './environment/layout.js';
+import { Surface as LIMITS, SurfaceFrame as FRAME, SurfaceResult as RESULT, ShoreTriangle as TRIANGLE, ShoreQuery as QUERY } from './environment/layout.js';
 
-const TILE = 8;
 const MAX_PATCHES = LIMITS.SHORE_PATCHES;
 const DOWN = new THREE.Vector3(0, -1, 0);
 
@@ -20,6 +19,8 @@ export class WaterShore {
     this.origin = new THREE.Vector3();
     this.hit = makeHit();
     this.box = new THREE.Box3();
+    this.queryBuffer=this.host.owner.x.memory.buffer;
+    this.query=new Float64Array(this.queryBuffer,this.host.owner.x.surface_shore_query_ptr(),QUERY.STRIDE);
     this.terrainQuery = {
       intersectsBounds: box => box.intersectsBox(this.box),
       intersectsTriangle: triangle => { this.copyTriangle(triangle); return false; },
@@ -69,14 +70,15 @@ export class WaterShore {
   }
   collect(tx, tz, height) {
     this.triangleCount = 0;
-    const x = tx * TILE, z = tz * TILE;
-    this.origin.set(x + TILE / 2, height, z + TILE / 2);
-    const polygons = this.collision.gather(this.origin, TILE / 2);
+    const x=this.host.owner.x,buffer=x.memory.buffer;
+    if(this.queryBuffer!==buffer){this.queryBuffer=buffer;this.query=new Float64Array(buffer,x.surface_shore_query_ptr(),QUERY.STRIDE);}
+    const q=this.query;this.origin.fromArray(q,QUERY.CENTER);
+    const polygons = this.collision.gather(this.origin, q[QUERY.RADIUS]);
     for (let p = 0; p < polygons.length; p++) {
       const triangles = polygons[p].triangles;
       for (let t = 0; t < triangles.length; t++) this.copyTriangle(triangles[t]);
     }
-    this.box.min.set(x, height - 0.1, z); this.box.max.set(x + TILE, height + 0.1, z + TILE);
+    this.box.min.fromArray(q,QUERY.BOUNDS);this.box.max.fromArray(q,QUERY.BOUNDS+3);
     this.collision.terrain?.shapecast(this.terrainQuery);
     return this.triangleCount;
   }

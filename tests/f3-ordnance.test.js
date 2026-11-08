@@ -9,7 +9,8 @@ import { attachCombatCapture } from '../src/runtime/network-entity-combat.js';
 import { SimEvents } from '../src/sim-events.js';
 import { captureOrdnanceOwner } from '../src/ordnance-owner.js';
 import { navigateMissile } from '../src/flight/targeting.js';
-import { WaterState } from '../src/runtime/water-state.js';
+import { WaterState, loadWaterState } from '../src/runtime/water-state.js';
+await loadWaterState();
 
 test('the first owned water contact uses its construction-time mirror record', async() => {
   const water = new WaterState({

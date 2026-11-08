@@ -7,8 +7,10 @@
 
 pub mod atmosphere;
 pub mod common;
+pub mod content;
 pub mod cover;
 pub mod destruction;
+pub mod debris;
 pub mod environment;
 pub mod fx;
 pub mod layout;
@@ -18,6 +20,7 @@ pub mod solver;
 pub mod weather;
 pub mod snow;
 pub mod surfaces;
+pub mod surface_policy;
 pub mod shore;
 pub mod surface_math;
 pub mod wakes;
@@ -210,7 +213,7 @@ impl EnvironmentPhase {
         self.camera.read(&self.view);
         let dt = self.frame[layout::environment_frame::DT].max(0.0).min(0.1);
         self.time += dt;
-        let (reach, enhanced) = (self.frame[layout::environment_frame::REACH], self.frame[layout::environment_frame::ENHANCED] != 0.0);
+        let (reach, enhanced) = (v8math::max(90.,self.frame[layout::environment_frame::REACH]), self.frame[layout::environment_frame::ENHANCED] != 0.0);
         self.visibility.as_ref().expect("start first").update(&self.camera, reach, enhanced, &mut self.result);
         let changed = self.mode != Some(enhanced);
         if changed { self.wakes.clear(); }
@@ -233,6 +236,10 @@ impl EnvironmentPhase {
                 if eligible && visible && !playing { if reset { 2.0 } else { 1.0 } }
                 else if (eligible && !visible && playing) || (reset && self.handles[i] != 0.0) { -1.0 } else { 0.0 };
         }
+        // FountainWater.update derives its ambient sky in the enclosing phase.
+        for (i,bias) in [0.15,0.16,0.2].into_iter().enumerate() {
+            self.result[layout::environment_result::SKY+i]=v8math::min(1.,self.frame[layout::environment_frame::AMBIENT_TOP+i]*1.4+bias);
+        }
         self.result[layout::environment_result::TIME] = self.time;
         self.result[layout::environment_result::DT] = dt;
         self.result[layout::environment_result::MODE_CHANGED] = f64::from(changed);
@@ -252,17 +259,24 @@ mod exports {
     // the page never re-enters a call.
     static mut SURFACES: Option<surfaces::Phase> = None;
     static mut SHORE_INPUT: Vec<f64> = Vec::new();
+    static mut SHORE_QUERY:[f64;layout::shore_query::STRIDE]=[0.;layout::shore_query::STRIDE];
 
     #[link(wasm_import_module = "env")]
     extern "C" {
         fn host_shore_tile(x: f64, z: f64, height: f64) -> u32;
         fn host_shore_exposed(x: f64, z: f64, height: f64) -> u32;
     }
+    #[no_mangle]
+    pub extern "C" fn surface_shore_query_ptr()->*const f64{addr_of_mut!(SHORE_QUERY).cast::<f64>()}
     struct ShoreQueries;
     impl shore::Queries for ShoreQueries {
         fn triangles(&mut self, x: f64, z: f64, height: f64, output: &mut [f64]) -> usize {
             // SAFETY: the callback writes only SHORE_INPUT, a disjoint input
             // block. No phase state is borrowed by or exposed to the host.
+            // WaterShore.collect asks collision for native tile bounds. This
+            // block is disjoint from the borrowed phase, just like triangles.
+            let tx=x*8.;let tz=z*8.;
+            unsafe{let row=&mut *addr_of_mut!(SHORE_QUERY);row[layout::shore_query::CENTER..layout::shore_query::CENTER+3].copy_from_slice(&[tx+4.,height,tz+4.]);row[layout::shore_query::RADIUS]=4.;row[layout::shore_query::BOUNDS..layout::shore_query::BOUNDS+6].copy_from_slice(&[tx,height-0.1,tz,tx+8.,height+0.1,tz+8.]);}
             let count = unsafe { host_shore_tile(x, z, height) } as usize;
             let n = count.min(layout::surface::SHORE_TRIANGLES) * layout::shore_triangle::STRIDE;
             unsafe { output[..n].copy_from_slice(&(&*addr_of_mut!(SHORE_INPUT))[..n]); }
@@ -565,6 +579,10 @@ mod exports {
     pub extern "C" fn sky_set_enhanced(on: u32) { sky_phase().sky.as_mut().expect("sky_start first").set_enhanced(on != 0) }
     #[no_mangle]
     pub extern "C" fn sky_update() { sky_phase().update() }
+    #[no_mangle]
+    pub extern "C" fn sky_count()->u32 {sky_phase().sky.as_ref().map_or(0,|s|s.count() as u32)}
+    #[no_mangle]
+    pub extern "C" fn sky_active(index:u32)->u32 {sky_phase().sky.as_ref().map_or(0,|s|u32::from(s.active(index as usize)))}
     /// A class's records, by the order the page names them: solid matrices and
     /// looks, fading ones, motion's matrices, previous matrices and shown flags.
     #[no_mangle]

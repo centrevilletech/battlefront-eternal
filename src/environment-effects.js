@@ -1,4 +1,6 @@
-import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
+import {sceneProperty} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
+import { environmentRecipe } from './atmosphere.js';
 import {glowLook} from './actor-resources.js';
 import * as THREE from 'three';
 import {PageEffects} from './presentation/effects.js';
@@ -18,13 +20,11 @@ class ResourceList {
   constructor(capacity) { this.length=0;for(let i=0;i<capacity;i++)this[i]=null; }
   push(value) { this[this.length++]=value; }
 }
-const EMPTY_ACTORS=[];
-const UP=new THREE.Vector3(0,1,0),FORWARD=new THREE.Vector3(0,0,1);
+const UP=new THREE.Vector3(0,1,0);
 // The effects placed objects carry (tools/zero_environment.py). Fountains and
 // steam vents have Enhanced forms; the rest (torches, campfires, smoke, mist,
 // waterspouts) play their stock effect in either mode while in view, out to
 // the near scene's end.
-const ENHANCED=new Set(['waterfountain','prop_steamgrate','prop_steampipe']);
 export class EnvironmentEffects {
   static async load({map,graphics,settings,loadTexture,presentationLoaded,surfaceOwner}) {
     // Maps whose objects carry no effects have no file (a dev server answers
@@ -48,25 +48,17 @@ export class EnvironmentEffects {
     this.graphics=graphics;this.settings=settings;this.data=data;this.time=0;this.mode=null;
     this.group=new THREE.Group();this.group.name='map-environment-effects';graphics.scene.add(this.group);
     this.classic=new PageEffects(this.group,data.effects,{texture,model},presentationLoaded);this.classic.preload();
-    const enhanced=data.instances.filter(i=>ENHANCED.has(i.effect)),steam=enhanced.some(i=>i.effect!=='waterfountain');
-    this.instances=data.instances.map(item=>{
-      const matrix=new THREE.Matrix4().fromArray(item.matrix),position=new THREE.Vector3().setFromMatrixPosition(matrix),quaternion=new THREE.Quaternion().setFromRotationMatrix(matrix);
-      const fountain=item.effect==='waterfountain',pipe=item.effect==='prop_steampipe',classic=!ENHANCED.has(item.effect);
-      const direction=sceneTransform((pipe?FORWARD:UP).clone().applyQuaternion(quaternion));
-      const volume={position:position.clone(),direction,extent:new THREE.Vector3(...(fountain?[10,1.5,10]:pipe?[2.5,4,2.5]:[6,5.5,6])),kind:fountain?2:pipe?1:0};
-      if(!fountain&&!pipe&&["hp_steam_1","hp_steam_5"].includes(item.hardpoint))volume.extent.set(7,6,7);
-      const jet=fountain?{position:position.clone(),direction:UP,extent:new THREE.Vector3(5,5.3,5),kind:3}:null;
-      // Smoke and mist rise well above where they start.
-      const sphere=classic?new THREE.Sphere(position.clone().addScaledVector(UP,8),16):new THREE.Sphere(position.clone().addScaledVector(direction,2),fountain?9:7);
-      return {...item,position,quaternion,volume,jet,classic,handle:null,sphere};
+    const recipe=environmentRecipe(RECIPE.SOURCES,{...data,effects:Object.entries(data.effects)},surfaceOwner);
+    this.instances=data.instances.map((item,k)=>{
+      const r=recipe.instances[k],position=new THREE.Vector3().fromArray(r.position),quaternion=new THREE.Quaternion().fromArray(r.quaternion);
+      const direction=new THREE.Vector3().fromArray(r.direction);
+      const volume={position:position.clone(),direction,extent:new THREE.Vector3().fromArray(r.extent),kind:r.kind};
+      const jet=r.fountain?{position:position.clone(),direction:UP,extent:new THREE.Vector3(5,5.3,5),kind:3}:null;
+      const sphere=new THREE.Sphere(new THREE.Vector3().fromArray(r.sphere),r.sphere[3]);
+      return {...item,position,quaternion,volume,jet,classic:r.classic,handle:null,sphere,
+        slot:r.slot,level:r.level,low:r.low};
     });
-    // Each fountain's fixed slot in the jets' uniforms, and the levels of its
-    // pools: Enhanced fills the inner tier to its lip (TIER, fountain-jets.js).
-    for(const [slot,f] of this.instances.filter(i=>i.jet).entries()){
-      const basin=data.basins.reduce((a,b)=>Math.hypot(b.center[0]-f.position.x,b.center[2]-f.position.z)<Math.hypot(a.center[0]-f.position.x,a.center[2]-f.position.z)?b:a,data.basins[0]);
-      const water=basin?basin.center[1]:f.position.y-.2;
-      f.slot=slot;f.level=water+TIER.rise;f.low=water+TIER.outer;
-    }
+    const enhanced=this.instances.filter(i=>!i.classic),steam=enhanced.some(i=>!i.jet);
     this.visibleVolumes=new ResourceList(this.instances.length);this.visibleFountains=new ResourceList(this.instances.length);
     // Which placed effects are in view is the Rust phase's: each instance's sphere
     // (where it plays), its position and what kind it is.
@@ -86,7 +78,7 @@ export class EnvironmentEffects {
     this.steam=!data.basins.length&&steam?new SteamWisps(this.group,this.wakes,texture("thicksmoke2")):null;
 
     this.stats={activeSources:0,volumes:0,classicParticles:0};
-    this.warmup=new Map(Object.entries(data.effects).map(([name,defs])=>[name,Math.min(4,Math.max(...defs.map(d=>d.transformer?.lifetime||0)))]));
+    this.warmup=new Map(Object.entries(recipe.warmup));
   }
   prepareFrame(dt,camera,actors) {
     this.host.refresh();
@@ -95,7 +87,8 @@ export class EnvironmentEffects {
     const view=this.host.view;
     view.set(camera.matrixWorld.elements,VIEW.CAMERA);view.set(camera.matrixWorldInverse.elements,VIEW.INVERSE);view.set(camera.projectionMatrix.elements,VIEW.PROJECTION);
     view[VIEW.POSITION]=camera.position.x;view[VIEW.POSITION+1]=camera.position.y;view[VIEW.POSITION+2]=camera.position.z;
-    this.host.frame[FRAME.REACH]=Math.max(90,lighting.fade.value.y);this.host.frame[FRAME.ENHANCED]=mode==='enhanced'?1:0;
+    lighting.ambientTop.value.toArray(this.host.frame,FRAME.AMBIENT_TOP);
+    this.host.frame[FRAME.REACH]=lighting.fade.value.y;this.host.frame[FRAME.ENHANCED]=mode==='enhanced'?1:0;
     this.host.frame[FRAME.DT]=dt;
     this.wakes.prepare(actors);
   }

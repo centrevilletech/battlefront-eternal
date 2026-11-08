@@ -73,7 +73,7 @@ import {loadAIWeaponData} from "./ai-data.js";
 import { CommandHistory, queueHumanCommand, stillCommand } from "./runtime/commands.js";
 import { InputLead, advanceInputClock } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
-import { WaterState } from "./runtime/water-state.js";
+import { WaterState,loadWaterState } from "./runtime/water-state.js";
 
 import { spawnPlacedItems } from "./placed-items.js";
 import { FixedClock } from "./runtime/fixed-clock.js";
@@ -108,6 +108,7 @@ async function loadSimulationBackend(factory) {
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = loadWasmBackend } = {}) {
+await Promise.all([loadWaterState(),Debris.load()]);
 if(headless)await(await import('./rust-render/load.js')).rendererModule();
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");

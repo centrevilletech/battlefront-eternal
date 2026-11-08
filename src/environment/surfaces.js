@@ -7,7 +7,7 @@ import { Surface as LIMITS, SurfaceConfig as CONFIG, SurfaceFrame as FRAME,
 export class SurfaceHost {
   constructor(owner) {
     this.owner = owner;
-    this.bindings = []; this.buffer = null; this.refresh();
+    this.bindings = []; this.buffer = null; this.refresh();owner.hosts.push(this);
     // Contacts acquire an id only at first observation. The WeakMap retains
     // no object after its page owner dies; native rows expire independently.
     // This map carries identity, never wave or animation state.

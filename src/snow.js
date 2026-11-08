@@ -1,12 +1,13 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
+import { environmentRecipe } from './atmosphere.js';
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
 import { SnowHost } from './environment/module.js';
-import { Snow as LIMITS, SnowConfig as CONFIG, SnowResult as RESULT, View as VIEW } from './environment/layout.js';
+import { SnowResult as RESULT, View as VIEW } from './environment/layout.js';
 
-const BOX = LIMITS.BOX;
 
 // Snow: a world's Precipitation of Type("Quads") (Hoth), as the 2004 engine
 // draws it. `ParticleDensity` flakes fill a 5 m box, and the box repeats over
@@ -36,12 +37,9 @@ const BOX = LIMITS.BOX;
 export class Snow {
   constructor({ data, scene, collision, water, texture, surfaceOwner }) {
     const p = data.precipitation;
-    const get = (key, fallback) => p[key]?.[0] ?? fallback;
     // The flakes of one box: how many, and how they fall and ease.
-    const count = THREE.MathUtils.clamp(Math.round(get('ParticleDensity', 30) + get('ParticleDensityRange', 0)), 1, 2048);
-    const [alphaMin, alphaMax = alphaMin] = p.AlphaMinMax || [0.5, 0.5];
-    const range = THREE.MathUtils.clamp(p.Range?.[0] ?? 10, 2, 60);
-    const boxLimit = Math.max(1, Math.min(LIMITS.MAX_BOXES, Math.floor(LIMITS.MAX_FLAKES / count)));
+    const recipe = environmentRecipe(RECIPE.SNOW, data, surfaceOwner);
+    const count = recipe.count, range = recipe.range, boxLimit = recipe.boxes;
     // A roof or floor over a cell: what a cast straight down first hits, or
     // open water over it if higher (the cover cache's query).
     const down = new THREE.Vector3(0, -1, 0), from = new THREE.Vector3(), hit = makeHit();
@@ -52,22 +50,13 @@ export class Snow {
       return height;
     };
     this.host = new SnowHost(surfaceOwner, cover);
-    const config = this.host.config;
-    config[CONFIG.COUNT] = count;
-    config[CONFIG.FALL] = get('Velocity', 10); config[CONFIG.WANDER] = get('VelocityRange', 1);
-    config[CONFIG.ALPHA_MIN] = alphaMin; config[CONFIG.ALPHA_MAX] = alphaMax;
-    config[CONFIG.SPIN_BASE] = get('Rotation', 0); config[CONFIG.SPIN_RANGE] = get('RotationRange', 2);
-    const wind = data.wind || [0, 0];
-    config[CONFIG.WIND] = wind[0]; config[CONFIG.WIND + 1] = wind[1];
-    config[CONFIG.GUST_RANGE] = data.gusts?.range ?? 0; config[CONFIG.GUST_RATE] = data.gusts?.rate ?? 0;
-    config[CONFIG.RANGE] = range;
-    config[CONFIG.BOX_LIMIT] = boxLimit;
+    this.host.config.set(recipe.config);
     this.host.start();
     this.flakeCount = count;
     this.range = range;
     this.boxLimit = boxLimit;
     // The cache of cover heights the shader clips snow against.
-    const size = Math.sqrt(this.host.heights.length);
+    const size = recipe.coverSize;
     // Snow's persistent phase arrays supply texels directly to the native
     // image owner. Count and camera axes are typed facts, not uniforms.
     this.cover = { heights:this.host.heights,cell:this.host.cell,size,queries:0 };
@@ -76,10 +65,10 @@ export class Snow {
     this.texture=texture(p.Texture?.[0]);this.count=0;this.capacity=0;this.arrays={};
     this.visibility='anchor';this.resources=null;this.samples=new Uint32Array(3);this.samples.fill(-1);
     this.values=new Float64Array(EFFECT.SNOW.LENGTH);
-    const v=this.values,c=p.Color||[192,192,192,160];
-    v[EFFECT.SNOW.FLAKE_COUNT]=count;v[EFFECT.SNOW.SIZE]=p.ParticleSize?.[0]??0.02;
+    const v=this.values;
+    v[EFFECT.SNOW.FLAKE_COUNT]=count;v[EFFECT.SNOW.SIZE]=recipe.size;
     v[EFFECT.SNOW.CAMERA_RIGHT]=1;v[EFFECT.SNOW.CAMERA_UP+1]=1;
-    for(let i=0;i<4;i++)v[EFFECT.SNOW.TINT+i]=(c[i]??255)/255;
+    v.set(recipe.tint,EFFECT.SNOW.TINT);
     v[EFFECT.SNOW.COVER_CELL]=this.cover.cell;v[EFFECT.SNOW.COVER_SIZE]=size;
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = 'map-snow';

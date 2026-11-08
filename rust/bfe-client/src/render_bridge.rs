@@ -1502,6 +1502,15 @@ impl BfeRenderer {
     }
 }
 
+// Blended map cloth still needs a browser geometry shell. Its cold numeric
+// streams and bounds use the same native compiler as opaque static cloth.
+
+pub fn fabric_description(authored:&str)->Result<String,String>{
+    let cloth:bfe_render::static_special::Cloth=serde_json::from_str(authored).map_err(|e|String::from(&e.to_string()))?;
+    let cloth=cloth.compile().map_err(String::from)?;
+    serde_json::to_string(&cloth).map_err(|e|String::from(&e.to_string()))
+}
+
 }
 mod static_depth {
 // Cold depth-resource admission from the same native source as world colour.

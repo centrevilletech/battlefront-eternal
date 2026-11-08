@@ -318,7 +318,7 @@ test('a placed turret burns its damage effects while built and flies apart when 
 
 test('a piece passes through the wreck it starts inside, and lands on the ground', async () => {
   const { CollisionWorld, nativeVehicles } = await import('./helpers/native-vehicles.js');
-  const { Debris } = await import('../src/debris.js');
+  const { Debris } = await import('../src/debris.js'); await Debris.load();
   const box = (x, y, z, w, h, d) => {
     const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);
     return [g.attributes.position.array, g.index.array, new Uint32Array(g.index.count / 3)];
@@ -357,7 +357,7 @@ const ground = async () => {
 };
 
 test('a hull\'s piece flies out from where it is modelled, spins about its middle and comes to lie on the ground', async () => {
-  const { Debris } = await import('../src/debris.js');
+  const { Debris } = await import('../src/debris.js'); await Debris.load();
   const debris = new Debris({ scene: new THREE.Scene(), collision: await ground(), effects: fakeEffects(), model: plate });
   // Carried by the hull's root, on the ground, as every node-less chunk is.
   const root = new THREE.Object3D(); root.updateMatrixWorld(true);

@@ -17,3 +17,4 @@ crate-type = ["cdylib", "rlib"]
 jsrt = { path = "../jsrt" }
 three = { path = "../three" }
 v8math = { path = "../v8math" }
+serde_json = { version = "1", features = ["float_roundtrip"] }

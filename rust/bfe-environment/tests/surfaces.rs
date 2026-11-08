@@ -87,3 +87,30 @@ fn wake_identity_capacity_and_a_long_pause_keep_fixed_storage() {
     assert!(wakes.points.chunks_exact(4).all(|p|p[3]==-100.0));
     assert_eq!(ALLOCATIONS.with(Cell::get),before);
 }
+
+// Classic Debris.update is a retained presentation phase too. A paused burst
+// must not grow its bank, and ordinary motion/retirement allocates nothing.
+#[test]
+fn classic_debris_full_burst_and_view_queries_do_not_allocate() {
+    use bfe_environment::{debris::{Phase as Debris,Host,Hit},surface_policy::Policy};
+    use bfe_environment::layout::{debris as limits,debris_launch as launch,water_view as view};
+    use three::{Vector3,Quaternion,Matrix4};
+    struct Scene;
+    impl Host for Scene {
+        fn cast(&mut self,_:usize,_:Vector3,_:Vector3,_:f64)->Option<Hit>{None}
+        fn low(&mut self,_:usize,_:Quaternion)->f64{0.}
+        fn event(&mut self,_:usize,_:f64,_:&[f64]){}
+    }
+    let mut debris=Debris::new();let mut scene=Scene;
+    debris.input[launch::MATRIX..launch::MATRIX+16].copy_from_slice(&Matrix4::default().elements);
+    debris.input[launch::HEALTH]=-50.;debris.input[launch::SPEED]=8.;
+    let mut policy=Policy::default();policy.configure(&serde_json::json!({"grid":1,"cell":32,"height":0,"offset":[0,0],"cells":[[0,0]],"look":{}}));
+    policy.input[view::FAR]=1500.;policy.input[view::FADE]=150.;policy.input[view::FADE+1]=200.;policy.input[view::FOV]=50.;policy.input[view::ASPECT]=1.5;policy.input[view::NEAR]=0.5;
+    policy.input[view::INVERSE..view::INVERSE+16].copy_from_slice(&Matrix4::default().elements);
+    let before=ALLOCATIONS.with(Cell::get);
+    for id in 0..limits::CAPACITY {debris.launch(id,&mut scene);}
+    debris.launch(usize::MAX,&mut scene);
+    for _ in 0..2400{debris.update(1./60.,&mut scene);policy.update::<V8>();}
+    assert_eq!(ALLOCATIONS.with(Cell::get)-before,0);
+    assert_eq!(debris.free(),0);
+}

@@ -1,3 +1,6 @@
+import {SurfaceHost} from '../src/environment/surfaces.js';
+import {SkyHost,VisibilityHost} from '../src/environment/module.js';
+import {SkyConfig as SKY,SkyClass as CLASS,EnvironmentInstance as INSTANCE} from '../src/environment/layout.js';
 // A module can grow after resource admission. Exercise the displayed owner,
 // including numeric draw packets which borrowed arrays before detachment.
 import test from 'node:test';
@@ -46,4 +49,21 @@ test('surface growth preserves queued rings and rebinds native shore and lightni
   for(let i=0;i<100;i++){phase.update(0,camera,null);phase.publishWater(camera);}
   assert.equal(host.bindings.length,bindings);assert.equal(host.frame,frame);assert.equal(host.positions,points);
   storm.dispose();shore.dispose();texture.dispose();
+});
+
+// Loading-time warm draws can run before the first SurfaceFrame. A later
+// source admission must repair retained sky/ring aliases at that boundary.
+test('cold environment admission refreshes borrowed motion and surface arrays before a frame',()=>{
+  const owner=new SurfaceOwner(),surface=new SurfaceHost(owner),sky=new SkyHost(owner,1);
+  sky.config[SKY.CLASSES]=1;sky.config[SKY.STRIDE+CLASS.COUNT]=2;
+  sky.config[SKY.STRIDE+CLASS.DISTANCE]=1000;sky.config[SKY.STRIDE+CLASS.LIFE_TIME]=100;
+  sky.config[SKY.STRIDE+CLASS.CLASSIC]=1;sky.start();
+  const packet={matrices:sky.arrays(0)[4]},rings={positions:surface.positions};
+  sky.bindArray(packet,'matrices',h=>h.arrays(0)[4]);surface.bindArray(rings,'positions','positions');
+  const previous=packet.matrices;
+  owner.x.memory.grow(1);
+  const placed=new VisibilityHost(owner,1);placed.config[INSTANCE.SPHERE+3]=16;placed.start();
+  assert.equal(previous.byteLength,0);
+  assert.equal(packet.matrices.buffer,owner.x.memory.buffer);assert.equal(packet.matrices.length,32);
+  assert.equal(rings.positions,surface.positions);assert.equal(rings.positions.buffer,owner.x.memory.buffer);
 });

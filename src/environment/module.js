@@ -1,6 +1,7 @@
 // The destruction and weather phase's WebAssembly module (rust/bfe-environment),
 // required: compiled once while the battle loads and instantiated for each
 // owner. A failure is reported to the player; nothing stands in for it.
+import {loadWaterState} from "../runtime/water-state.js";
 import { ENVIRONMENT_WASM } from "../environment-wasm.js";
 import { Dst, DstBurst, DstChunk, DstChunkAt, DstCommand, DstFrame, DstMatrixAt, DstSlotState, DstSlotStatic, DstStation, DstStationState, EnvironmentFrame, SkyFrame, Sky, WeatherFrame, WeatherResult, SnowConfig, SnowResult, Squares, View, WakeFrame, WakeActor, WakeResult, Wakes } from "./layout.js";
 
@@ -9,6 +10,7 @@ let compiled = null;
 
 export function loadEnvironment() {
   compiling ||= (async () => {
+    await loadWaterState();
     const text = atob(ENVIRONMENT_WASM);
     const bytes = new Uint8Array(text.length);
     for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
@@ -26,7 +28,7 @@ export function loaded() {
 
 // The host functions the module imports (what it asks of the page's
 // collision world); an owner that does not use one is given the empty answer.
-const imports = (host = {}) => ({ surface_math: { surface_sin: Math.sin, surface_cos: Math.cos, surface_atan2: Math.atan2, surface_hypot: Math.hypot }, env: { host_shore_tile: () => 0, host_shore_exposed: () => 0, host_cast: () => 0, host_cast_out: () => 0, host_ground: () => NaN, host_cover: () => -100000, host_impact: () => -Infinity, host_impact_normal: () => 0, ...host } });
+const imports = (host = {}) => ({ surface_math: { surface_sin: Math.sin, surface_cos: Math.cos, surface_tan: Math.tan, surface_atan2: Math.atan2, surface_hypot: Math.hypot }, env: { host_debris_cast:()=>0,host_debris_hit:()=>0,host_debris_low:()=>0,host_debris_event:()=>{}, host_shore_tile: () => 0, host_shore_exposed: () => 0, host_cast: () => 0, host_cast_out: () => 0, host_ground: () => NaN, host_cover: () => -100000, host_impact: () => -Infinity, host_impact_normal: () => 0, ...host } });
 
 // An instance for the destruction effects (rust/bfe-environment destruction.rs
 // and fx.rs): the pools of hot and smoke particles, the arcs, the pieces of
@@ -91,6 +93,8 @@ export class DestructionHost {
 // Shared hosts borrow memory only until the next allocation. Producers bind
 // their retained draw arrays here so a growth refresh also repairs aliases.
 // A cold mode can replace one vector while every other borrowed row stays put.
+// Admission refreshes all owners before loading-time renderer warm draws: those
+// draws can read sky motion before SurfaceFrame has supplied its first frame.
 function borrow(old,Type,buffer,offset,length) { return old&&old.buffer===buffer&&old.byteOffset===offset&&old.length===length?old:new Type(buffer,offset,length); }
 class SharedHost {
   constructor(owner) { this.owner=owner;this.x=owner.x;this.buffer=null;this.bindings=[];owner.hosts.push(this); }
@@ -101,7 +105,7 @@ class SharedHost {
 
 export class AtmosphereHost extends SharedHost {
   constructor(owner,classes,instances,fog,ground) {
-    super(owner);owner.attach({host_ground:ground});this.x.atm_new(classes,instances,+!!fog);this.batches=[];this.batchCount=0;this.refresh();
+    super(owner);owner.attach({host_ground:ground});this.x.atm_new(classes,instances,+!!fog);this.batches=[];this.batchCount=0;this.refresh();owner.refresh();
   }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
@@ -112,11 +116,11 @@ export class AtmosphereHost extends SharedHost {
     this.publishBindings();return true;
   }
   // Building haze can move its vectors without growing the memory buffer.
-  start(batches) { this.x.atm_start();this.batchCount=batches;this.refresh(true); }
+  start(batches) { this.x.atm_start();this.batchCount=batches;this.refresh(true);this.owner.refresh(); }
 }
 
 export class SnowHost extends SharedHost {
-  constructor(owner,cast) { super(owner);owner.attach({host_cover:cast});this.x.snow_new();this.started=false;this.refresh(); }
+  constructor(owner,cast) { super(owner);owner.attach({host_cover:cast});this.x.snow_new();this.started=false;this.refresh();owner.refresh(); }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
     this.config=borrow(this.config,Float64Array,b,x.snow_config_ptr(),SnowConfig.STRIDE);
@@ -126,7 +130,7 @@ export class SnowHost extends SharedHost {
     }
     this.publishBindings();return true;
   }
-  start() { this.x.snow_start();this.started=true;this.refresh(true); }
+  start() { this.x.snow_start();this.started=true;this.refresh(true);this.owner.refresh(); }
 }
 
 export class SkyHost extends SharedHost {
@@ -140,7 +144,7 @@ export class SkyHost extends SharedHost {
     }
     this.publishBindings();return true;
   }
-  start() { this.x.sky_start();this.started=true;this.refresh(true); }
+  start() { this.x.sky_start();this.started=true;this.refresh(true);this.owner.refresh(); }
   arrays(class_) {
     this.refresh();return this.classArrays[class_]??=Array.from({length:Sky.ARRAYS},(_,w)=>new Float32Array(this.buffer,this.x.sky_array_ptr(class_,w),this.x.sky_array_len(class_,w)));
   }
@@ -148,7 +152,7 @@ export class SkyHost extends SharedHost {
 
 export class WeatherHost extends SharedHost {
   constructor(owner,capacity,enhanced,range,size,cover,impact,normal) {
-    super(owner);owner.attach({host_cover:cover,host_impact:impact,host_impact_normal:i=>normal[i]});this.x.weather_new(capacity,+!!enhanced,range,size);this.refresh();
+    super(owner);owner.attach({host_cover:cover,host_impact:impact,host_impact_normal:i=>normal[i]});this.x.weather_new(capacity,+!!enhanced,range,size);this.refresh();owner.refresh();
   }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
@@ -171,7 +175,7 @@ export class VisibilityHost extends SharedHost {
     }
     this.publishBindings();return true;
   }
-  start() { this.x.vis_start();this.started=true;this.refresh(true); }
+  start() { this.x.vis_start();this.started=true;this.refresh(true);this.owner.refresh(); }
 }
 
 // All surface owners on a battle share this module and its retained state. Their
