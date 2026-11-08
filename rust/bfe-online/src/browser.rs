@@ -1,0 +1,1753 @@
+// Pure server browser state machine, filtering, sorting, selection, refresh
+// cadence, battle query sanitization, compatibility checking, and GAME INFO
+// inspector formatting.
+//
+// Ports `src/shell/server-browser.js`, `src/shell/server-browser-view.js`, and
+// `src/runtime/battle-query.js`.
+
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+
+use bfe_transport::layout::{network_contract, VERSION as TRANSPORT_LAYOUT_VERSION};
+use serde::{Deserialize, Serialize};
+
+// Auto-refresh interval (30s) when the server browser is open, matching
+// `REFRESH_EVERY` in `src/shell/server-browser.js`.
+pub const REFRESH_EVERY_MS: u64 = 30_000;
+
+// Quiet retry interval (10s) after a refresh error while keeping stale rows,
+// matching `RETRY_EVERY` in `src/shell/server-browser.js`.
+pub const RETRY_EVERY_MS: u64 = 10_000;
+
+// Browser listing sources (`SOURCES` in `src/shell/server-browser.js`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    Internet,
+    Lan,
+}
+
+impl Source {
+    pub const ALL: [Source; 2] = [Source::Internet, Source::Lan];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Internet => "internet",
+            Self::Lan => "lan",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Internet => "INTERNET",
+            Self::Lan => "LAN",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "internet" => Some(Self::Internet),
+            "lan" => Some(Self::Lan),
+            _ => None,
+        }
+    }
+}
+
+// Ping filter choices (`PINGS` in `src/shell/server-browser.js`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PingFilter {
+    #[default]
+    Any,
+    Under50,
+    Under100,
+    Under150,
+}
+
+impl PingFilter {
+    pub const ALL: [PingFilter; 4] = [
+        PingFilter::Any,
+        PingFilter::Under50,
+        PingFilter::Under100,
+        PingFilter::Under150,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Under50 => "50",
+            Self::Under100 => "100",
+            Self::Under150 => "150",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Any => "ANY PING",
+            Self::Under50 => "UNDER 50 MS",
+            Self::Under100 => "UNDER 100 MS",
+            Self::Under150 => "UNDER 150 MS",
+        }
+    }
+
+    pub fn threshold_ms(self) -> Option<u32> {
+        match self {
+            Self::Any => None,
+            Self::Under50 => Some(50),
+            Self::Under100 => Some(100),
+            Self::Under150 => Some(150),
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "any" => Some(Self::Any),
+            "50" => Some(Self::Under50),
+            "100" => Some(Self::Under100),
+            "150" => Some(Self::Under150),
+            _ => None,
+        }
+    }
+}
+
+// Era filter choices (`ERAS` in `src/shell/server-browser.js`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EraOption {
+    All,
+    Cw,
+    Gcw,
+}
+
+impl EraOption {
+    pub const ALL: [EraOption; 3] = [EraOption::All, EraOption::Cw, EraOption::Gcw];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Cw => "cw",
+            Self::Gcw => "gcw",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "ALL ERAS",
+            Self::Cw => "CLONE WARS",
+            Self::Gcw => "GALACTIC CIVIL WAR",
+        }
+    }
+}
+
+// Sortable table columns (`COLUMNS` in `src/shell/server-browser.js`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortColumn {
+    Name,
+    Players,
+    Map,
+    Mode,
+    Era,
+    Ping,
+    Location,
+}
+
+impl SortColumn {
+    pub const ALL: [SortColumn; 7] = [
+        SortColumn::Name,
+        SortColumn::Players,
+        SortColumn::Map,
+        SortColumn::Mode,
+        SortColumn::Era,
+        SortColumn::Ping,
+        SortColumn::Location,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Players => "players",
+            Self::Map => "map",
+            Self::Mode => "mode",
+            Self::Era => "era",
+            Self::Ping => "ping",
+            Self::Location => "location",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Name => "GAME NAME",
+            Self::Players => "PLAYERS",
+            Self::Map => "MAP",
+            Self::Mode => "MODE",
+            Self::Era => "ERA",
+            Self::Ping => "PING",
+            Self::Location => "LOCATION",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "name" => Some(Self::Name),
+            "players" => Some(Self::Players),
+            "map" => Some(Self::Map),
+            "mode" => Some(Self::Mode),
+            "era" => Some(Self::Era),
+            "ping" => Some(Self::Ping),
+            "location" => Some(Self::Location),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SortSpec {
+    pub column: SortColumn,
+    pub dir: i8,
+}
+
+impl Default for SortSpec {
+    // Matches `this.sort = { key: "ping", dir: 1 }` in `src/shell/server-browser.js`.
+    fn default() -> Self {
+        Self {
+            column: SortColumn::Ping,
+            dir: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Filters {
+    pub name: String,
+    pub map: String,
+    pub era: String,
+    pub ping: PingFilter,
+    pub hide_full: bool,
+    pub hide_empty: bool,
+}
+
+impl Default for Filters {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            map: "all".to_string(),
+            era: "all".to_string(),
+            ping: PingFilter::Any,
+            hide_full: false,
+            hide_empty: false,
+        }
+    }
+}
+
+impl Filters {
+    pub fn is_filtered(&self) -> bool {
+        !self.name.trim().is_empty()
+            || self.map != "all"
+            || self.era != "all"
+            || self.ping != PingFilter::Any
+            || self.hide_full
+            || self.hide_empty
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilterUpdate {
+    Name(String),
+    Map(String),
+    Era(String),
+    Ping(PingFilter),
+    HideFull(bool),
+    HideEmpty(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum BrowserState {
+    #[default]
+    Idle,
+    Loading,
+    Notice,
+    Ready,
+    Error(String),
+}
+
+impl BrowserState {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Loading => "loading",
+            Self::Notice => "notice",
+            Self::Ready => "ready",
+            Self::Error(_) => "error",
+        }
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        match self {
+            Self::Error(msg) => Some(msg.as_str()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshKind {
+    Initial,
+    Quiet,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserKey {
+    ArrowUp,
+    ArrowDown,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+}
+
+impl BrowserKey {
+    pub fn from_key_name(key: &str) -> Option<Self> {
+        match key {
+            "ArrowUp" => Some(Self::ArrowUp),
+            "ArrowDown" => Some(Self::ArrowDown),
+            "PageUp" => Some(Self::PageUp),
+            "PageDown" => Some(Self::PageDown),
+            "Home" => Some(Self::Home),
+            "End" => Some(Self::End),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EndpointAddr {
+    pub address: String,
+    pub port: u16,
+    #[serde(default)]
+    pub transport: Option<String>,
+    #[serde(default)]
+    pub verified: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerContract {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub protocol: u32,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(alias = "simulation", default)]
+    pub sim: String,
+    #[serde(rename = "tickRate", default)]
+    pub tick_rate: u32,
+}
+
+impl ServerContract {
+    // Returns the active `NETWORK_CONTRACT` constants generated in
+    // `bfe_transport::layout::network_contract`.
+    pub fn current() -> Self {
+        Self {
+            version: format!("BFE-UDP/{TRANSPORT_LAYOUT_VERSION}"),
+            protocol: network_contract::PROTOCOL as u32,
+            profile: network_contract::PROFILE.to_string(),
+            sim: network_contract::SIMULATION.to_string(),
+            tick_rate: 30,
+        }
+    }
+}
+
+impl Default for ServerContract {
+    fn default() -> Self {
+        Self::current()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BattleSummary {
+    #[serde(default)]
+    pub map: String,
+    #[serde(rename = "mapName", default)]
+    pub map_name: String,
+    #[serde(default)]
+    pub side: String,
+    #[serde(default)]
+    pub era: String,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub bots: Option<bool>,
+    #[serde(rename = "autoAssignTeams", default)]
+    pub auto_assign_teams: Option<bool>,
+    #[serde(rename = "aiPerTeam", default)]
+    pub ai_per_team: Option<u32>,
+    #[serde(default)]
+    pub heroes: Option<String>,
+    #[serde(rename = "friendlyFire", default)]
+    pub friendly_fire: Option<bool>,
+    #[serde(default)]
+    pub difficulty: Option<String>,
+    #[serde(default)]
+    pub reinforcements: Option<f64>,
+    #[serde(rename = "victoryScore", default)]
+    pub victory_score: Option<f64>,
+    #[serde(rename = "minPlayers", default)]
+    pub min_players: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RotationItem {
+    Slug(String),
+    Entry {
+        #[serde(default)]
+        map: String,
+        #[serde(default)]
+        era: String,
+        #[serde(default)]
+        mode: String,
+    },
+}
+
+impl RotationItem {
+    // Extracts the map id from either `"swbf1/kam1:cw:conquest"` or
+    // `{ map: "kam1", ... }`, matching `src/shell/server-browser-view.js`.
+    pub fn map_id(&self) -> Option<&str> {
+        match self {
+            Self::Slug(s) => {
+                let rest = s.strip_prefix("swbf1/").unwrap_or(s.as_str());
+                let id = rest.split(':').next().unwrap_or("");
+                (!id.is_empty()).then_some(id)
+            }
+            Self::Entry { map, .. } => (!map.is_empty()).then_some(map.as_str()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RawSponsor {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub logo: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServerEntry {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub players: u32,
+    #[serde(rename = "maxPlayers", default)]
+    pub max_players: u32,
+    #[serde(default)]
+    pub location: String,
+    #[serde(default)]
+    pub country: String,
+    #[serde(default)]
+    pub endpoints: Vec<EndpointAddr>,
+    #[serde(rename = "relayPolicy", default)]
+    pub relay_policy: Option<String>,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub battle: Option<BattleSummary>,
+    #[serde(default)]
+    pub bots: Option<bool>,
+    #[serde(rename = "autoAssignTeams", default)]
+    pub auto_assign_teams: Option<bool>,
+    #[serde(default)]
+    pub rotation: Vec<RotationItem>,
+    #[serde(default)]
+    pub simulation: Option<String>,
+    #[serde(default)]
+    pub protocol: Option<u32>,
+    #[serde(default)]
+    pub contract: Option<ServerContract>,
+    #[serde(default)]
+    pub uptime: Option<u64>,
+    #[serde(default)]
+    pub sponsor: Option<RawSponsor>,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+    #[serde(rename = "publicKey", default)]
+    pub public_key: Option<String>,
+    #[serde(rename = "latencyMs", default)]
+    pub latency_ms: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapCatalogEntry {
+    pub id: String,
+    pub name: String,
+}
+
+impl MapCatalogEntry {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PingQuality {
+    Good,
+    Fair,
+    Slow,
+    Poor,
+    Dead,
+}
+
+impl PingQuality {
+    // Signal bars (`q0`..`q4`) matching `quality(ms)` in
+    // `src/shell/server-browser-view.js`: 4 under 60ms, 3 under 100ms, 2 under
+    // 160ms, 1 otherwise, 0 when unknown.
+    pub fn bars(self) -> u8 {
+        match self {
+            Self::Good => 4,
+            Self::Fair => 3,
+            Self::Slow => 2,
+            Self::Poor => 1,
+            Self::Dead => 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SponsorInfo {
+    pub name: String,
+    pub url: Option<String>,
+    pub logo: Option<String>,
+    pub display_link: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameInfo {
+    pub map_id: String,
+    pub preview_caption: String,
+    pub compatible: bool,
+    pub country: String,
+    pub flag: String,
+    pub chips: Vec<String>,
+    pub facts: Vec<(&'static str, String)>,
+    pub sponsor: Option<SponsorInfo>,
+}
+
+// Trait contract published for the `shell` lane so the server browser UI can
+// drive either the live `ServerBrowser` or a test fixture.
+pub trait ServerBrowserService {
+    fn source(&self) -> Source;
+    fn set_source(&mut self, source: Source) -> bool;
+    fn filters(&self) -> &Filters;
+    fn set_filter(&mut self, update: FilterUpdate) -> bool;
+    fn clear_filters(&mut self);
+    fn sort_spec(&self) -> SortSpec;
+    fn sort_by(&mut self, column: SortColumn);
+    fn rows(&self) -> Vec<&ServerEntry>;
+    fn selected(&self) -> Option<&ServerEntry>;
+    fn select(&mut self, id: Option<&str>);
+    fn key(&mut self, key: BrowserKey, shown_rows: usize) -> bool;
+    fn describe(&self, server: &ServerEntry, maps: &[MapCatalogEntry]) -> GameInfo;
+    fn state(&self) -> &BrowserState;
+    fn needs_refresh(&self, now_ms: u64) -> Option<RefreshKind>;
+}
+
+// Ports `compatible(server, contract)` in `src/shell/server-browser.js`:
+//   (server?.simulation ?? contract.simulation) === contract.simulation &&
+//   (server?.protocol ?? contract.protocol) === contract.protocol
+// Also checks `server.contract` when populated.
+pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
+    let sim = server
+        .simulation
+        .as_deref()
+        .or_else(|| {
+            server
+                .contract
+                .as_ref()
+                .map(|c| c.sim.as_str())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or(contract.sim.as_str());
+    let proto = server
+        .protocol
+        .or_else(|| {
+            server
+                .contract
+                .as_ref()
+                .map(|c| c.protocol)
+                .filter(|&p| p != 0)
+        })
+        .unwrap_or(contract.protocol);
+    sim == contract.sim && proto == contract.protocol
+}
+
+// Ports `battleParams(query)` from `src/runtime/battle-query.js`: filters a
+// raw query string down to the first valid occurrence of each allowed battle
+// key (`map`, `side`, `mission`, `era`, `ai`, `seed`, `match`).
+pub fn battle_params(query: Option<&str>) -> String {
+    let Some(raw) = query else {
+        return String::new();
+    };
+    let trimmed = raw.strip_prefix('?').unwrap_or(raw);
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let mut seen = Vec::<String>::new();
+    let mut pairs = Vec::<(String, String)>::new();
+    for part in trimmed.split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        let (k, v) = match part.split_once('=') {
+            Some((k, v)) => (k, v),
+            None => (part, ""),
+        };
+        if seen.iter().any(|existing| existing == k) {
+            continue;
+        }
+        if valid_battle_param(k, v) {
+            seen.push(k.to_string());
+            pairs.push((k.to_string(), v.to_string()));
+        }
+    }
+    pairs
+        .into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn valid_battle_param(key: &str, value: &str) -> bool {
+    match key {
+        "map" | "side" | "mission" => {
+            (1..=64).contains(&value.len())
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        }
+        "era" => matches!(value, "cw" | "gcw"),
+        "ai" => matches!(value, "classic" | "off"),
+        "seed" => (1..=10).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_digit()),
+        "match" => {
+            value.len() == 32
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }
+        _ => false,
+    }
+}
+
+// Builds a key/value map of battle parameters from a structured `BattleSummary`.
+pub fn battle_summary_params(battle: Option<&BattleSummary>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let b = battle.cloned().unwrap_or_default();
+    if !b.map.is_empty() && valid_battle_param("map", &b.map) {
+        out.insert("map".to_string(), b.map);
+    }
+    if !b.side.is_empty() && valid_battle_param("side", &b.side) {
+        out.insert("side".to_string(), b.side);
+    }
+    if !b.era.is_empty() && valid_battle_param("era", &b.era) {
+        out.insert("era".to_string(), b.era);
+    }
+    if !b.mode.is_empty() {
+        out.insert("mode".to_string(), b.mode);
+    }
+    if let Some(bots) = b.bots {
+        out.insert("ai".to_string(), if bots { "classic" } else { "off" }.to_string());
+    }
+    out
+}
+
+// Ports `errorText(error)` in `src/shell/server-browser.js`: strips Electron's
+// `"Error invoking remote method '...': "` prefix and leading `"*Error: "`
+// prefix.
+pub fn error_text(raw: &str) -> String {
+    let mut s = raw.trim();
+    if let Some(rest) = s.strip_prefix("Error invoking remote method '") {
+        if let Some((_, after_quote)) = rest.split_once("': ") {
+            s = after_quote.trim();
+        }
+    }
+    if let Some((prefix, rest)) = s.split_once(": ") {
+        if prefix.ends_with("Error") && prefix.bytes().all(|b| b.is_ascii_alphabetic()) {
+            s = rest.trim();
+        }
+    }
+    s.to_string()
+}
+
+// Ports `ERAS` lookup in `src/shell/server-browser.js`.
+pub fn era_label(era: &str) -> String {
+    match era {
+        "cw" => "CLONE WARS".to_string(),
+        "gcw" => "GALACTIC CIVIL WAR".to_string(),
+        "" => String::new(),
+        other => other.to_ascii_uppercase(),
+    }
+}
+
+// Ports `MODES` lookup in `src/shell/server-browser.js`.
+pub fn mode_label(mode: &str) -> String {
+    match mode {
+        "conquest" | "" => "CONQUEST".to_string(),
+        other => other.to_ascii_uppercase(),
+    }
+}
+
+// Resolves a map slug against the map catalog or uppercases the slug.
+pub fn map_name(id: &str, maps: &[MapCatalogEntry]) -> String {
+    if let Some(found) = maps.iter().find(|m| m.id == id) {
+        return found.name.clone();
+    }
+    if !id.is_empty() {
+        id.to_ascii_uppercase()
+    } else {
+        "UNKNOWN".to_string()
+    }
+}
+
+// Ports `uptimeText(seconds)` in `src/shell/server-browser-view.js`.
+pub fn uptime_text(seconds: Option<u64>) -> String {
+    let Some(secs) = seconds else {
+        return String::new();
+    };
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3_600;
+    let minutes = (secs % 3_600) / 60;
+    if days > 0 {
+        format!("{days}D {hours}H")
+    } else if hours > 0 {
+        format!("{hours}H {minutes}M")
+    } else {
+        format!("{}M", minutes.max(1))
+    }
+}
+
+// Ports `countryOf(location)` in `src/shell/server-browser-view.js`
+// (`"Alabama, US"` -> `"US"`), also checking `server.country` as fallback.
+pub fn country_of(server: &ServerEntry) -> String {
+    let loc = server.location.trim();
+    if let Some((_, tail)) = loc.rsplit_once(',') {
+        let code = tail.trim();
+        if is_two_ascii_upper(code) {
+            return code.to_string();
+        }
+    }
+    let direct = server.country.trim();
+    if is_two_ascii_upper(direct) {
+        return direct.to_string();
+    }
+    String::new()
+}
+
+// Ports `flagOf(location)` in `src/shell/server-browser-view.js`.
+pub fn flag_of(country_or_location: &str) -> String {
+    let code = if is_two_ascii_upper(country_or_location.trim()) {
+        country_or_location.trim()
+    } else if let Some((_, tail)) = country_or_location.trim().rsplit_once(',') {
+        let trimmed = tail.trim();
+        if is_two_ascii_upper(trimmed) {
+            trimmed
+        } else {
+            return String::new();
+        }
+    } else {
+        return String::new();
+    };
+    let bytes = code.as_bytes();
+    let first = char::from_u32(0x1F1E6 + u32::from(bytes[0] - b'A')).unwrap();
+    let second = char::from_u32(0x1F1E6 + u32::from(bytes[1] - b'A')).unwrap();
+    let mut out = String::with_capacity(8);
+    out.push(first);
+    out.push(second);
+    out
+}
+
+fn is_two_ascii_upper(s: &str) -> bool {
+    s.len() == 2 && s.bytes().all(|b| b.is_ascii_uppercase())
+}
+
+// Ports `quality(ms)` signal bar levels in `src/shell/server-browser-view.js`:
+// 4 bars under 60ms, 3 under 100ms, 2 under 160ms, 1 otherwise, 0 when None.
+pub fn ping_quality(latency_ms: Option<u32>) -> (PingQuality, String) {
+    match latency_ms {
+        None => (PingQuality::Dead, "-".to_string()),
+        Some(ms) if ms < 60 => (PingQuality::Good, format!("{ms} MS")),
+        Some(ms) if ms < 100 => (PingQuality::Fair, format!("{ms} MS")),
+        Some(ms) if ms < 160 => (PingQuality::Slow, format!("{ms} MS")),
+        Some(ms) => (PingQuality::Poor, format!("{ms} MS")),
+    }
+}
+
+// Validates and formats sponsor attribution for GAME INFO, matching
+// `src/shell/server-browser-view.js`.
+pub fn clean_sponsor(raw: Option<&RawSponsor>) -> Option<SponsorInfo> {
+    let raw = raw?;
+    let trimmed_name = raw.name.trim();
+    if trimmed_name.is_empty() {
+        return None;
+    }
+    let name: String = trimmed_name.chars().take(60).collect();
+    let url_parts = raw.url.as_deref().and_then(clean_https_url);
+    let logo = raw
+        .logo
+        .as_deref()
+        .and_then(clean_https_url)
+        .map(|(href, _)| href);
+    let (url, display_link) = match url_parts {
+        Some((href, display)) => (Some(href), Some(display)),
+        None => (None, None),
+    };
+    Some(SponsorInfo {
+        name,
+        url,
+        logo,
+        display_link,
+    })
+}
+
+fn clean_https_url(value: &str) -> Option<(String, String)> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.len() > 240 {
+        return None;
+    }
+    let rest = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("HTTPS://"))?;
+    let (authority, path_and_more) = match rest.find(['/', '?', '#']) {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+    if authority.is_empty() || authority.contains('@') || authority.contains(char::is_whitespace) {
+        return None;
+    }
+    let host_port = authority.to_ascii_lowercase();
+    let host_only = if host_port.starts_with('[') {
+        host_port.split(']').next()?.to_string() + "]"
+    } else {
+        host_port.split(':').next()?.to_string()
+    };
+    if host_only.is_empty() {
+        return None;
+    }
+    let normalized_path = if path_and_more.is_empty() {
+        "/".to_string()
+    } else if path_and_more.starts_with('/') {
+        path_and_more.to_string()
+    } else {
+        format!("/{path_and_more}")
+    };
+    let href = format!("https://{host_port}{normalized_path}");
+    let pathname = normalized_path
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("/")
+        .trim_end_matches('/');
+    let display_host = host_only.strip_prefix("www.").unwrap_or(&host_only);
+    let display = format!("{display_host}{pathname} \u{2197}");
+    Some((href, display))
+}
+
+// Ports `describe(server)` in `src/shell/server-browser-view.js`.
+pub fn describe_server(
+    server: &ServerEntry,
+    maps: &[MapCatalogEntry],
+    contract: &ServerContract,
+) -> GameInfo {
+    let ok = compatible(server, contract);
+    let battle = server.battle.as_ref();
+    let map_id = battle.map(|b| b.map.as_str()).unwrap_or("");
+    let preview_caption = battle
+        .and_then(|b| {
+            let trimmed = b.map_name.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+        .or_else(|| {
+            maps.iter()
+                .find(|m| m.id == map_id)
+                .map(|m| m.name.clone())
+        })
+        .unwrap_or_default();
+
+    let mut chips = Vec::with_capacity(4);
+    let mode_str = battle.map(|b| b.mode.as_str()).unwrap_or("");
+    if !mode_str.is_empty() {
+        chips.push(mode_label(mode_str));
+    }
+    let era_str = battle.map(|b| b.era.as_str()).unwrap_or("");
+    let era_chip = era_label(era_str);
+    if !era_chip.is_empty() {
+        chips.push(era_chip);
+    }
+    let bots_flag = server.bots.or_else(|| battle.and_then(|b| b.bots));
+    if let Some(bots) = bots_flag {
+        chips.push(if bots {
+            "BOTS FILL TEAMS".to_string()
+        } else {
+            "NO BOTS".to_string()
+        });
+    }
+    let auto_teams_flag = server
+        .auto_assign_teams
+        .or_else(|| battle.and_then(|b| b.auto_assign_teams));
+    if let Some(auto_teams) = auto_teams_flag {
+        chips.push(if auto_teams {
+            "TEAMS ASSIGNED".to_string()
+        } else {
+            "PICK YOUR TEAM".to_string()
+        });
+    }
+
+    let country = country_of(server);
+    let flag = flag_of(&country);
+
+    let next_battle = if let Some(second) = server.rotation.get(1) {
+        if let Some(next_id) = second.map_id() {
+            map_name(next_id, maps)
+        } else {
+            "-".to_string()
+        }
+    } else if server.rotation.len() == 1 {
+        "SAME BATTLE".to_string()
+    } else {
+        "-".to_string()
+    };
+
+    let rotation_len = server.rotation.len();
+    let rotation_text = if rotation_len > 0 {
+        format!(
+            "{rotation_len} {}",
+            if rotation_len == 1 {
+                "BATTLE"
+            } else {
+                "BATTLES"
+            }
+        )
+    } else {
+        "-".to_string()
+    };
+
+    let up = uptime_text(server.uptime);
+    let up_text = if up.is_empty() { "-".to_string() } else { up };
+
+    let sim_source = server
+        .simulation
+        .as_deref()
+        .or_else(|| server.contract.as_ref().map(|c| c.sim.as_str()))
+        .unwrap_or(contract.sim.as_str());
+    let version_text = if ok {
+        let digits: String = sim_source.chars().filter(|ch| ch.is_ascii_digit()).collect();
+        let sim_num = if digits.is_empty() { "?" } else { &digits };
+        format!("SIM {sim_num} \u{2713}")
+    } else {
+        "UPDATE TO JOIN".to_string()
+    };
+
+    let link_text = match server.relay_policy.as_deref() {
+        Some("always") => "RELAYED",
+        Some("never") => "DIRECT",
+        _ if server.address.is_some() => "LAN",
+        _ => "DIRECT OR RELAY",
+    }
+    .to_string();
+
+    let ping_fact = match server.latency_ms {
+        Some(ms) => format!("{ms} MS"),
+        None => "NO ANSWER".to_string(),
+    };
+
+    let loc_trimmed = server.location.trim();
+    let location_fact = if loc_trimmed.is_empty() {
+        "UNKNOWN".to_string()
+    } else {
+        loc_trimmed.to_string()
+    };
+
+    let facts = vec![
+        (
+            "PLAYERS",
+            format!("{} OF {}", server.players, server.max_players),
+        ),
+        ("PING", ping_fact),
+        ("LOCATION", location_fact),
+        ("NEXT", next_battle),
+        ("ROTATION", rotation_text),
+        ("UP FOR", up_text),
+        ("VERSION", version_text),
+        ("LINK", link_text),
+    ];
+
+    GameInfo {
+        map_id: map_id.to_string(),
+        preview_caption,
+        compatible: ok,
+        country,
+        flag,
+        chips,
+        facts,
+        sponsor: clean_sponsor(server.sponsor.as_ref()),
+    }
+}
+
+pub struct ServerBrowser {
+    source: Source,
+    filters: Filters,
+    sort: SortSpec,
+    servers: Vec<ServerEntry>,
+    selected_id: Option<String>,
+    state: BrowserState,
+    stale: String,
+    refreshed_at: u64,
+    failed_at: u64,
+    loads: u64,
+    busy: bool,
+    contract: ServerContract,
+}
+
+impl Default for ServerBrowser {
+    fn default() -> Self {
+        Self::new(ServerContract::current())
+    }
+}
+
+impl ServerBrowser {
+    pub fn new(contract: ServerContract) -> Self {
+        Self {
+            source: Source::Internet,
+            filters: Filters::default(),
+            sort: SortSpec::default(),
+            servers: Vec::new(),
+            selected_id: None,
+            state: BrowserState::Idle,
+            stale: String::new(),
+            refreshed_at: 0,
+            failed_at: 0,
+            loads: 0,
+            busy: false,
+            contract,
+        }
+    }
+
+    pub fn contract(&self) -> &ServerContract {
+        &self.contract
+    }
+
+    pub fn servers(&self) -> &[ServerEntry] {
+        &self.servers
+    }
+
+    pub fn selected_id(&self) -> Option<&str> {
+        self.selected_id.as_deref()
+    }
+
+    pub fn stale(&self) -> &str {
+        &self.stale
+    }
+
+    pub fn refreshed_at(&self) -> u64 {
+        self.refreshed_at
+    }
+
+    pub fn failed_at(&self) -> u64 {
+        self.failed_at
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.busy
+    }
+
+    pub fn active_load_token(&self) -> u64 {
+        self.loads
+    }
+
+    // Begins a refresh operation and returns `Some(token)` (`loads` in
+    // `src/shell/server-browser.js`), or `None` if `quiet` is true while a
+    // load is already busy (`if (quiet && this.busy) return`).
+    pub fn begin_refresh(&mut self, quiet: bool) -> Option<u64> {
+        if quiet && self.busy {
+            return None;
+        }
+        self.loads += 1;
+        self.busy = true;
+        if !(quiet && self.state == BrowserState::Ready) {
+            self.state = BrowserState::Loading;
+        }
+        Some(self.loads)
+    }
+
+    // Applies a completed server list if `token` matches the latest request.
+    pub fn finish_refresh_ok(&mut self, token: u64, list: Vec<ServerEntry>, now_ms: u64) -> bool {
+        if token != self.loads {
+            return false;
+        }
+        self.busy = false;
+        self.stale.clear();
+        self.servers = list;
+        self.state = BrowserState::Ready;
+        self.refreshed_at = now_ms;
+        self.failed_at = 0;
+        self.keep_selection();
+        true
+    }
+
+    // Transitions to the privacy notice state if `token` matches.
+    pub fn finish_refresh_notice(&mut self, token: u64) -> bool {
+        if token != self.loads {
+            return false;
+        }
+        self.busy = false;
+        self.stale.clear();
+        self.servers.clear();
+        self.selected_id = None;
+        self.state = BrowserState::Notice;
+        true
+    }
+
+    // Applies a failed refresh if `token` matches the latest request. When a
+    // quiet refresh fails while `Ready`, preserves the current rows and records
+    // `stale` and `failed_at`.
+    pub fn finish_refresh_err(&mut self, token: u64, quiet: bool, err: &str, now_ms: u64) -> bool {
+        if token != self.loads {
+            return false;
+        }
+        self.busy = false;
+        let cleaned = error_text(err).to_ascii_uppercase();
+        let msg = if cleaned.is_empty() {
+            "THE SERVER LIST COULD NOT BE LOADED".to_string()
+        } else {
+            cleaned
+        };
+        if quiet && self.state == BrowserState::Ready {
+            self.stale = msg;
+            self.failed_at = now_ms;
+        } else {
+            self.servers.clear();
+            self.selected_id = None;
+            self.state = BrowserState::Error(msg);
+        }
+        true
+    }
+
+    // Ports filter predicate in `ServerList.rows()` in `src/shell/server-browser.js`.
+    pub fn matches_filters(&self, server: &ServerEntry) -> bool {
+        let q = self.filters.name.trim().to_ascii_lowercase();
+        if !q.is_empty() {
+            let name = server.name.to_ascii_lowercase();
+            let map_name = server
+                .battle
+                .as_ref()
+                .map(|b| b.map_name.to_ascii_lowercase())
+                .unwrap_or_default();
+            let loc = server.location.to_ascii_lowercase();
+            if !name.contains(&q) && !map_name.contains(&q) && !loc.contains(&q) {
+                return false;
+            }
+        }
+        if self.filters.map != "all" {
+            let map = server.battle.as_ref().map(|b| b.map.as_str()).unwrap_or("");
+            if map != self.filters.map {
+                return false;
+            }
+        }
+        if self.filters.era != "all" {
+            let era = server.battle.as_ref().map(|b| b.era.as_str()).unwrap_or("");
+            if era != self.filters.era {
+                return false;
+            }
+        }
+        if let Some(max_ping) = self.filters.ping.threshold_ms() {
+            let Some(ms) = server.latency_ms else {
+                return false;
+            };
+            if ms >= max_ping {
+                return false;
+            }
+        }
+        if self.filters.hide_full
+            && server.max_players > 0
+            && server.players >= server.max_players
+        {
+            return false;
+        }
+        if self.filters.hide_empty && server.players == 0 {
+            return false;
+        }
+        true
+    }
+
+    // Ports `compare(column.value(a), column.value(b)) * this.sort.dir || i - j`
+    // in `src/shell/server-browser.js`.
+    fn compare_entries(&self, a: (usize, &ServerEntry), b: (usize, &ServerEntry)) -> Ordering {
+        let ord = match self.sort.column {
+            SortColumn::Players => a.1.players.cmp(&b.1.players),
+            SortColumn::Ping => {
+                let av = a.1.latency_ms.map(u64::from).unwrap_or(u64::MAX);
+                let bv = b.1.latency_ms.map(u64::from).unwrap_or(u64::MAX);
+                av.cmp(&bv)
+            }
+            SortColumn::Name => a
+                .1
+                .name
+                .to_ascii_lowercase()
+                .cmp(&b.1.name.to_ascii_lowercase()),
+            SortColumn::Map => {
+                let am = a
+                    .1
+                    .battle
+                    .as_ref()
+                    .map(|bt| {
+                        if !bt.map_name.is_empty() {
+                            bt.map_name.as_str()
+                        } else {
+                            bt.map.as_str()
+                        }
+                    })
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let bm = b
+                    .1
+                    .battle
+                    .as_ref()
+                    .map(|bt| {
+                        if !bt.map_name.is_empty() {
+                            bt.map_name.as_str()
+                        } else {
+                            bt.map.as_str()
+                        }
+                    })
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                am.cmp(&bm)
+            }
+            SortColumn::Mode => {
+                let am = a
+                    .1
+                    .battle
+                    .as_ref()
+                    .map(|bt| bt.mode.as_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let bm = b
+                    .1
+                    .battle
+                    .as_ref()
+                    .map(|bt| bt.mode.as_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                am.cmp(&bm)
+            }
+            SortColumn::Era => {
+                let ae = a
+                    .1
+                    .battle
+                    .as_ref()
+                    .map(|bt| bt.era.as_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let be = b
+                    .1
+                    .battle
+                    .as_ref()
+                    .map(|bt| bt.era.as_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                ae.cmp(&be)
+            }
+            SortColumn::Location => a
+                .1
+                .location
+                .to_ascii_lowercase()
+                .cmp(&b.1.location.to_ascii_lowercase()),
+        };
+        let directed = if self.sort.dir < 0 {
+            ord.reverse()
+        } else {
+            ord
+        };
+        if directed == Ordering::Equal {
+            a.0.cmp(&b.0)
+        } else {
+            directed
+        }
+    }
+
+    // Ports `keep()` in `src/shell/server-browser.js`: preserves `selected_id`
+    // if it still appears in the filtered rows, otherwise selects the first
+    // visible row.
+    pub fn keep_selection(&mut self) {
+        let visible_ids: Vec<String> = self.rows().into_iter().map(|s| s.id.clone()).collect();
+        if let Some(current) = &self.selected_id {
+            if visible_ids.iter().any(|id| id == current) {
+                return;
+            }
+        }
+        self.selected_id = visible_ids.into_iter().next();
+    }
+}
+
+impl ServerBrowserService for ServerBrowser {
+    fn source(&self) -> Source {
+        self.source
+    }
+
+    // Ports `setSource(source)` in `src/shell/server-browser.js`. Returns true
+    // when the source changed so the caller can trigger a refresh.
+    fn set_source(&mut self, next: Source) -> bool {
+        if self.source == next {
+            return false;
+        }
+        self.source = next;
+        self.servers.clear();
+        self.selected_id = None;
+        self.stale.clear();
+        true
+    }
+
+    fn filters(&self) -> &Filters {
+        &self.filters
+    }
+
+    fn set_filter(&mut self, update: FilterUpdate) -> bool {
+        let changed = match update {
+            FilterUpdate::Name(v) => {
+                let changed = self.filters.name != v;
+                self.filters.name = v;
+                changed
+            }
+            FilterUpdate::Map(v) => {
+                let changed = self.filters.map != v;
+                self.filters.map = v;
+                changed
+            }
+            FilterUpdate::Era(v) => {
+                let changed = self.filters.era != v;
+                self.filters.era = v;
+                changed
+            }
+            FilterUpdate::Ping(v) => {
+                let changed = self.filters.ping != v;
+                self.filters.ping = v;
+                changed
+            }
+            FilterUpdate::HideFull(v) => {
+                let changed = self.filters.hide_full != v;
+                self.filters.hide_full = v;
+                changed
+            }
+            FilterUpdate::HideEmpty(v) => {
+                let changed = self.filters.hide_empty != v;
+                self.filters.hide_empty = v;
+                changed
+            }
+        };
+        if changed {
+            self.keep_selection();
+        }
+        changed
+    }
+
+    fn clear_filters(&mut self) {
+        self.filters = Filters::default();
+        self.keep_selection();
+    }
+
+    fn sort_spec(&self) -> SortSpec {
+        self.sort
+    }
+
+    // Ports `sortBy(key)` in `src/shell/server-browser.js`.
+    fn sort_by(&mut self, column: SortColumn) {
+        if self.sort.column == column {
+            self.sort.dir = -self.sort.dir;
+        } else {
+            self.sort.column = column;
+            self.sort.dir = if column == SortColumn::Players { -1 } else { 1 };
+        }
+    }
+
+    // Ports `rows()` in `src/shell/server-browser.js`.
+    fn rows(&self) -> Vec<&ServerEntry> {
+        let mut indexed: Vec<(usize, &ServerEntry)> = self
+            .servers
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| self.matches_filters(s))
+            .collect();
+        indexed.sort_by(|&a, &b| self.compare_entries(a, b));
+        indexed.into_iter().map(|(_, s)| s).collect()
+    }
+
+    // Ports `selected()` in `src/shell/server-browser.js`.
+    fn selected(&self) -> Option<&ServerEntry> {
+        let id = self.selected_id.as_deref()?;
+        self.rows().into_iter().find(|s| s.id == id)
+    }
+
+    fn select(&mut self, id: Option<&str>) {
+        self.selected_id = id.filter(|s| !s.is_empty()).map(str::to_string);
+    }
+
+    // Ports `key(code)` in `src/shell/server-browser.js`. Returns false at
+    // the top (`ArrowUp` at 0) and bottom (`ArrowDown` at last row) so focus
+    // passes naturally to the toolbar above or footer below.
+    fn key(&mut self, key: BrowserKey, shown_rows: usize) -> bool {
+        let visible_ids: Vec<String> = self.rows().into_iter().map(|s| s.id.clone()).collect();
+        if visible_ids.is_empty() {
+            return false;
+        }
+        let current = self
+            .selected_id
+            .as_ref()
+            .and_then(|sel| visible_ids.iter().position(|id| id == sel))
+            .unwrap_or(0);
+        let page = shown_rows.saturating_sub(1).max(1);
+        let last = visible_ids.len() - 1;
+        let next = match key {
+            BrowserKey::ArrowUp => {
+                if current == 0 {
+                    return false;
+                }
+                current - 1
+            }
+            BrowserKey::ArrowDown => {
+                if current >= last {
+                    return false;
+                }
+                current + 1
+            }
+            BrowserKey::PageUp => current.saturating_sub(page),
+            BrowserKey::PageDown => (current + page).min(last),
+            BrowserKey::Home => 0,
+            BrowserKey::End => last,
+        };
+        self.selected_id = Some(visible_ids[next].clone());
+        true
+    }
+
+    fn describe(&self, server: &ServerEntry, maps: &[MapCatalogEntry]) -> GameInfo {
+        describe_server(server, maps, &self.contract)
+    }
+
+    fn state(&self) -> &BrowserState {
+        &self.state
+    }
+
+    // Ports `tick()` in `src/shell/server-browser.js` (`since > (stale ? 10 : 30) * 1000`).
+    fn needs_refresh(&self, now_ms: u64) -> Option<RefreshKind> {
+        if self.busy || self.state == BrowserState::Loading {
+            return None;
+        }
+        if self.state == BrowserState::Idle {
+            return Some(RefreshKind::Initial);
+        }
+        if self.state != BrowserState::Ready {
+            return None;
+        }
+        if !self.stale.is_empty() {
+            if now_ms.saturating_sub(self.failed_at) > RETRY_EVERY_MS {
+                return Some(RefreshKind::Quiet);
+            }
+        } else if now_ms.saturating_sub(self.refreshed_at) > REFRESH_EVERY_MS {
+            return Some(RefreshKind::Quiet);
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_servers() -> Vec<ServerEntry> {
+        let contract = ServerContract::current();
+        vec![
+            ServerEntry {
+                id: "a".to_string(),
+                name: "Alpha".to_string(),
+                players: 12,
+                max_players: 64,
+                latency_ms: Some(90),
+                location: "Alabama, US".to_string(),
+                simulation: Some(contract.sim.clone()),
+                protocol: Some(contract.protocol),
+                uptime: Some(9_120),
+                bots: Some(true),
+                auto_assign_teams: Some(true),
+                rotation: vec![
+                    RotationItem::Slug("swbf1/nab2:cw:conquest".to_string()),
+                    RotationItem::Slug("swbf1/hot1:gcw:conquest".to_string()),
+                ],
+                sponsor: Some(RawSponsor {
+                    name: " Outer Rim Hosting ".to_string(),
+                    url: Some("https://www.outerrim.example/servers/".to_string()),
+                    logo: Some("https://cdn.outerrim.example/banner.png".to_string()),
+                }),
+                battle: Some(BattleSummary {
+                    map: "nab2".to_string(),
+                    map_name: "NABOO: THEED".to_string(),
+                    era: "cw".to_string(),
+                    mode: "conquest".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ServerEntry {
+                id: "b".to_string(),
+                name: "Bravo".to_string(),
+                players: 64,
+                max_players: 64,
+                latency_ms: Some(20),
+                location: "Alabama, US".to_string(),
+                simulation: Some(contract.sim.clone()),
+                protocol: Some(contract.protocol),
+                battle: Some(BattleSummary {
+                    map: "hot1".to_string(),
+                    map_name: "HOTH: ECHO BASE".to_string(),
+                    era: "gcw".to_string(),
+                    mode: "conquest".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ServerEntry {
+                id: "c".to_string(),
+                name: "Charlie".to_string(),
+                players: 0,
+                max_players: 64,
+                latency_ms: None,
+                location: "Frankfurt, DE".to_string(),
+                simulation: Some(contract.sim.clone()),
+                protocol: Some(contract.protocol),
+                battle: Some(BattleSummary {
+                    map: "nab2".to_string(),
+                    map_name: "NABOO: THEED".to_string(),
+                    era: "cw".to_string(),
+                    mode: "conquest".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ServerEntry {
+                id: "d".to_string(),
+                name: "Delta".to_string(),
+                players: 3,
+                max_players: 64,
+                latency_ms: Some(140),
+                location: "Alabama, US".to_string(),
+                simulation: Some("bfe-sim-1".to_string()),
+                protocol: Some(contract.protocol),
+                battle: Some(BattleSummary {
+                    map: "nab2".to_string(),
+                    map_name: "NABOO: THEED".to_string(),
+                    era: "cw".to_string(),
+                    mode: "conquest".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        ]
+    }
+
+    #[test]
+    fn sorts_by_ping_by_default_unknown_last_and_players_starts_fullest() {
+        let mut browser = ServerBrowser::default();
+        let token = browser.begin_refresh(false).unwrap();
+        browser.finish_refresh_ok(token, test_servers(), 1_000);
+
+        assert_eq!(browser.state(), &BrowserState::Ready);
+        let ids: Vec<&str> = browser.rows().into_iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["b", "a", "d", "c"]);
+        assert_eq!(browser.selected().map(|s| s.id.as_str()), Some("b"));
+
+        browser.sort_by(SortColumn::Players);
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a", "d", "c"]
+        );
+
+        browser.sort_by(SortColumn::Players);
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["c", "d", "a", "b"]
+        );
+
+        browser.sort_by(SortColumn::Name);
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b", "c", "d"]
+        );
+    }
+
+    #[test]
+    fn filters_by_name_map_era_ping_full_and_empty_and_preserves_selection() {
+        let mut browser = ServerBrowser::default();
+        let token = browser.begin_refresh(false).unwrap();
+        browser.finish_refresh_ok(token, test_servers(), 1_000);
+
+        browser.set_filter(FilterUpdate::Name("hoth".to_string()));
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["b"]
+        );
+
+        browser.set_filter(FilterUpdate::Name("frankfurt".to_string()));
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["c"]
+        );
+
+        browser.set_filter(FilterUpdate::Name(String::new()));
+        browser.set_filter(FilterUpdate::Era("gcw".to_string()));
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["b"]
+        );
+
+        browser.set_filter(FilterUpdate::Era("all".to_string()));
+        browser.set_filter(FilterUpdate::Ping(PingFilter::Under100));
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
+
+        browser.set_filter(FilterUpdate::Ping(PingFilter::Any));
+        browser.set_filter(FilterUpdate::HideFull(true));
+        assert!(!browser.rows().iter().any(|s| s.id == "b"));
+        assert_eq!(browser.selected().map(|s| s.id.as_str()), Some("a"));
+
+        browser.set_filter(FilterUpdate::HideEmpty(true));
+        assert_eq!(
+            browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["a", "d"]
+        );
+
+        browser.set_filter(FilterUpdate::Map("hot1".to_string()));
+        assert!(browser.rows().is_empty());
+        assert!(browser.selected().is_none());
+    }
+
+    #[test]
+    fn navigates_rows_with_keys_and_hands_off_focus_at_ends() {
+        let mut browser = ServerBrowser::default();
+        let token = browser.begin_refresh(false).unwrap();
+        browser.finish_refresh_ok(token, test_servers(), 1_000);
+
+        assert_eq!(browser.selected_id(), Some("b"));
+        assert!(!browser.key(BrowserKey::ArrowUp, 3));
+        assert!(browser.key(BrowserKey::ArrowDown, 3));
+        assert_eq!(browser.selected_id(), Some("a"));
+        assert!(browser.key(BrowserKey::End, 3));
+        assert_eq!(browser.selected_id(), Some("c"));
+        assert!(!browser.key(BrowserKey::ArrowDown, 3));
+        assert!(browser.key(BrowserKey::Home, 3));
+        assert!(browser.key(BrowserKey::PageDown, 3));
+        assert_eq!(browser.selected_id(), Some("d"));
+    }
+
+    #[test]
+    fn describes_game_info_facts_chips_flags_sponsor_and_battle_params() {
+        let browser = ServerBrowser::default();
+        let servers = test_servers();
+        let maps = vec![
+            MapCatalogEntry::new("nab2", "Naboo: Theed"),
+            MapCatalogEntry::new("hot1", "Hoth: Echo Base"),
+        ];
+
+        let info_a = browser.describe(&servers[0], &maps);
+        assert!(info_a.compatible);
+        assert_eq!(info_a.country, "US");
+        assert_eq!(info_a.flag, "\u{1F1FA}\u{1F1F8}");
+        assert_eq!(
+            info_a.chips,
+            vec![
+                "CONQUEST",
+                "CLONE WARS",
+                "BOTS FILL TEAMS",
+                "TEAMS ASSIGNED"
+            ]
+        );
+        assert_eq!(info_a.facts[0], ("PLAYERS", "12 OF 64".to_string()));
+        assert_eq!(info_a.facts[1], ("PING", "90 MS".to_string()));
+        assert_eq!(info_a.facts[2], ("LOCATION", "Alabama, US".to_string()));
+        assert_eq!(info_a.facts[3], ("NEXT", "Hoth: Echo Base".to_string()));
+        assert_eq!(info_a.facts[4], ("ROTATION", "2 BATTLES".to_string()));
+        assert_eq!(info_a.facts[5], ("UP FOR", "2H 32M".to_string()));
+        assert_eq!(info_a.facts[7], ("LINK", "DIRECT OR RELAY".to_string()));
+
+        let info_d = browser.describe(&servers[3], &maps);
+        assert!(!info_d.compatible);
+        assert_eq!(
+            info_d.facts[6],
+            ("VERSION", "UPDATE TO JOIN".to_string())
+        );
+
+        let raw_q = format!(
+            "?map=bes2&side=imp&ai=off&seed=1&match={}&noreload=1&shell=1&ai=classic&era=gcw",
+            "a".repeat(32)
+        );
+        assert_eq!(
+            battle_params(Some(&raw_q)),
+            format!(
+                "map=bes2&side=imp&ai=off&seed=1&match={}&era=gcw",
+                "a".repeat(32)
+            )
+        );
+        assert_eq!(
+            battle_params(Some("?map=../x&side=rep&ai=enhanced&seed=12345678901")),
+            "side=rep"
+        );
+        assert_eq!(battle_params(None), "");
+    }
+
+    #[test]
+    fn schedules_periodic_refresh_and_quiet_retry_and_formats_errors() {
+        let mut browser = ServerBrowser::default();
+        assert_eq!(browser.needs_refresh(0), Some(RefreshKind::Initial));
+
+        let token = browser.begin_refresh(false).unwrap();
+        browser.finish_refresh_ok(token, test_servers(), 0);
+        assert_eq!(browser.needs_refresh(30_000), None);
+        assert_eq!(browser.needs_refresh(31_000), Some(RefreshKind::Quiet));
+
+        let token2 = browser.begin_refresh(true).unwrap();
+        // While busy, another quiet refresh is not started.
+        assert_eq!(browser.begin_refresh(true), None);
+        browser.finish_refresh_err(
+            token2,
+            true,
+            "Error invoking remote method 'bfe:network': Error: Can't reach the online service (ETIMEDOUT). Check your connection and try again.",
+            31_000,
+        );
+        assert_eq!(browser.state(), &BrowserState::Ready);
+        assert_eq!(browser.rows().len(), 4);
+        assert_eq!(
+            browser.stale(),
+            "CAN'T REACH THE ONLINE SERVICE (ETIMEDOUT). CHECK YOUR CONNECTION AND TRY AGAIN."
+        );
+        assert_eq!(browser.needs_refresh(36_000), None);
+        assert_eq!(browser.needs_refresh(42_000), Some(RefreshKind::Quiet));
+
+        assert_eq!(
+            error_text("Error invoking remote method 'bfe:network': TypeError: fetch failed"),
+            "fetch failed"
+        );
+        assert_eq!(
+            error_text("Error: Accept the online privacy notice first."),
+            "Accept the online privacy notice first."
+        );
+    }
+}

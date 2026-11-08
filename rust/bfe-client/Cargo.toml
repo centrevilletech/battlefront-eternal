@@ -30,6 +30,7 @@ three = { path = "../three" }
 bfe-environment = { path = "../bfe-environment" }
 
 bfe-transport = { path = "../bfe-transport" }
+bfe-online = { path = "../bfe-online" }
 sim = { path = "../sim" }
 content = { path = "../content" }
 
