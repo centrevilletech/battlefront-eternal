@@ -71,6 +71,18 @@ pub enum GatePhase {
 
 /// Automated driver for `--script gate`, `--script gate-fast`, and `--script ia:<MAP>`.
 pub struct GateDriver {
+    online_duel: bool,
+    duel_input_tick: u32,
+    spawn_posts: std::collections::BTreeMap<u8,String>,
+    observed_second: u64,
+    observed_health: f64,
+    observed_alive: bool,
+    observed_end: bool,
+    audio_events: [u64;27],
+    voice_decodes: u64,
+    audio_frames: u64,
+    audio_peak: f32,
+    observed_map: String,
     pub phase: GatePhase,
     pub phase_started: Instant,
     pub phase_frames: u64,
@@ -109,6 +121,18 @@ impl GateDriver {
             std::env::temp_dir().join("bfe-gate-screenshots")
         });
         Self {
+            online_duel: script_name == "online-duel",
+            spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS").ok().and_then(|v|serde_json::from_str(&v).ok()).unwrap_or_default(),
+            duel_input_tick: u32::MAX,
+            observed_second: u64::MAX,
+            observed_health: f64::NAN,
+            observed_alive: false,
+            observed_end: false,
+            audio_events: [0;27],
+            voice_decodes: 0,
+            audio_frames: 0,
+            audio_peak: 0.,
+            observed_map: String::new(),
             phase: GatePhase::StartupLoader,
             phase_started: Instant::now(),
             phase_frames: 0,
@@ -284,7 +308,126 @@ impl GateDriver {
         }
     }
 
+    // A diagnostic driver uses the same pointer counts and trigger edges as
+    // a human. It never changes authoritative positions, health or scores.
+    fn duel_frame(
+        &mut self,
+        battle: &mut BattleController,
+        settings: &mut AppSettingsStore,
+    ) -> Result<(), String> {
+        use super::battle::BattleAuthority;
+        use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+        let second = self.phase_started.elapsed().as_secs();
+        if let BattleAuthority::Online { client, map_id, .. } = &battle.authority {
+            let own = client.receiver.own;
+            let changed = own.health != self.observed_health
+                || own.alive != self.observed_alive
+                || *map_id != self.observed_map
+                || battle.scoreboard_ctrl.ended != self.observed_end;
+            if second != self.observed_second || changed {
+                self.observed_second = second;
+                self.observed_health = own.health;
+                self.observed_alive = own.alive;
+                self.observed_end = battle.scoreboard_ctrl.ended;
+                self.observed_map = map_id.clone();
+                let roster: Vec<_> = client.receiver.roster.rows().filter(|(_,c)|c.human).map(|(slot,c)|serde_json::json!({"slot":slot,"team":c.team,"name":c.name(),"kills":c.kills,"deaths":c.deaths})).collect();
+                let targets: Vec<_> = client.receiver.active().filter(|row| row[r::KIND] == k::SOLDIER as f64).map(|row|serde_json::json!({"id":row[r::ID],"health":row[r::HEALTH],"position":&row[r::POSITION..r::POSITION+3]})).collect();
+                let audio = battle.scene.online.as_ref().map(|p|serde_json::json!({"shots":p.sound.events,"eventCounts":p.sound.event_counts.to_vec(),"frames":p.sound.device_frames(),"peak":p.sound.peak(),"decoded":p.sound.decoded,"voiceDecoded":p.sound.voice_decoded}));
+                println!(
+                    "[online-observation] {}",
+                    serde_json::json!({"second":second,"map":map_id,"own":client.summary(),"health":own.health,"spawnScreen":battle.spawn_ctrl.is_open(),"endScreen":battle.scoreboard_ctrl.ended,"roster":roster,"targets":targets,"audio":audio})
+                );
+                if changed || (battle.scoreboard_ctrl.ended && second.is_multiple_of(5)) {
+                    self.save_battle_shot(
+                        battle,
+                        &format!("online-{second:04}-health-{}.png", own.health as i32),
+                    )?;
+                }
+            }
+        }
+        if battle.scoreboard_ctrl.ended {
+            if battle.scoreboard_port.next_ready {
+                battle.scoreboard_port.done_triggered = true;
+            }
+            return Ok(());
+        }
+        if battle.spawn_ctrl.is_open() {
+            if let BattleAuthority::Online { client, .. } = &battle.authority {
+                // Wait for the server's initial correction before selecting a
+                // side or consuming the spawn screen. These are ordinary
+                // eligible command-post selections, not position overrides.
+                if !client.receiver.complete || client.receiver.corrections == 0 {
+                    return Ok(());
+                }
+                if let Some(post) = self.spawn_posts.get(&client.receiver.own.team) {
+                    battle
+                        .spawn_ctrl
+                        .model
+                        .select_post(&battle.spawn_port, post);
+                }
+            }
+            battle.trigger_spawn();
+            return Ok(());
+        }
+        // The driver runs at render frequency, while pointer counts are
+        // consumed by the fixed input step. Repeating the same correction
+        // between steps multiplies the turn on an uncapped renderer.
+        if self.duel_input_tick == battle.input_tick {
+            return Ok(());
+        }
+        self.duel_input_tick = battle.input_tick;
+        if let BattleAuthority::Online { client, .. } = &battle.authority {
+            let own = client.receiver.own;
+            let target = client.receiver.active().find(|row| {
+                row[r::KIND] == k::SOLDIER as f64
+                    && (row[r::TEAM] == 1. || row[r::TEAM] == 2.)
+                    && row[r::TEAM] != own.team as f64
+                    && row[r::HEALTH] > 0.
+            });
+            if let Some(target) = target {
+                let dx = target[r::POSITION] - own.position[0];
+                let dz = target[r::POSITION + 2] - own.position[2];
+                let range = dx.hypot(dz);
+                // AimView.Basis faces (sin(yaw), cos(yaw)) in the XZ plane.
+                let yaw = dx.atan2(dz);
+                let pitch = (target[r::POSITION + 1] - own.position[1]).atan2(range);
+                let delta = (yaw - client.sender.yaw + std::f64::consts::PI)
+                    .rem_euclid(std::f64::consts::TAU)
+                    - std::f64::consts::PI;
+                let turn = client.replay.body.as_ref().map_or(4., |b| b.max_turn);
+                let scale = settings.player.shell.mouse_sensitivity as f64 * turn / 2048.;
+                // Soldier.look caps displacement within each server step.
+                // Approach the target with ordinary pointer motion instead
+                // of asking for an instantaneous half-turn.
+                battle.input.motion(
+                    -delta.clamp(-0.04, 0.04) / scale,
+                    -(pitch - client.sender.pitch).clamp(-0.04, 0.04) / scale,
+                );
+                battle.input.key(KeyCode::KeyW, range > 12.);
+                battle.input.key(KeyCode::Space, second.is_multiple_of(7));
+                // Alternate the firing side, leaving a visible victim HUD.
+                // Preserve ammunition while walking between distant spawns.
+                battle.input.mouse(
+                    MouseButton::Left,
+                    own.team == ((second / 45) % 2 + 1) as u8 && range < 30. && second % 8 < 5,
+                );
+                battle.input.key(KeyCode::KeyR, second % 8 == 6);
+            }
+        }
+        Ok(())
+    }
+
     pub fn accumulate_battle_metrics(&mut self, battle: &BattleController) {
+        // Retained counters cover the shared online/Instant Action sound
+        // adapter. Formatting is deferred until a diagnostic report is saved.
+        if let Some(scene) = &battle.scene.online {
+            for (total, count) in self.audio_events.iter_mut().zip(scene.sound.event_counts) {
+                *total = (*total).max(count);
+            }
+            self.voice_decodes = self.voice_decodes.max(scene.sound.voice_decoded);
+            self.audio_frames = self.audio_frames.max(scene.sound.device_frames());
+            self.audio_peak = self.audio_peak.max(scene.sound.peak());
+        }
         self.steady_allocs_after_warmup = self
             .steady_allocs_after_warmup
             .max(battle.steady_allocs_after_warmup);
@@ -308,7 +451,9 @@ impl GateDriver {
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "02-gate.png")?;
                     shell.app.unlock_gate();
-                    if self.target_map.is_some() {
+                    if self.online_duel {
+                        self.transition_to(GatePhase::MainMenuAfterIa);
+                    } else if self.target_map.is_some() {
                         self.transition_to(GatePhase::LaunchIaPlaylist);
                     } else {
                         self.transition_to(GatePhase::MainMenu);
@@ -440,6 +585,15 @@ impl GateDriver {
         self.phase_frames += 1;
         let elapsed = self.phase_started.elapsed().as_secs_f64();
         self.accumulate_battle_metrics(battle);
+
+        if self.online_duel {
+            self.duel_frame(battle, settings)?;
+            if elapsed >= self.battle_duration_s {
+                self.online_battle_completed = true;
+                battle.pause_menu.window_close_triggered += 1;
+            }
+            return Ok(());
+        }
 
         match self.phase {
             GatePhase::IaNab2Spawn => {
@@ -610,6 +764,7 @@ impl GateDriver {
         let summary = serde_json::json!({
             "status": "PASS",
             "glErrors": self.gl_errors,
+            "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
             "steadyFramesMeasured": self.steady_frames_measured,
             "worldRendererBlocks": self.world_renderer_blocks,

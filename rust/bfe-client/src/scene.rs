@@ -697,6 +697,7 @@ impl Scene {
                 replay,history,&world.elements,&mut self.bridge);
             resources.cameras.frame(receiver,replay,&mut resources.hulls,&mut resources.turrets,camera,dt);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
+            resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }
     }

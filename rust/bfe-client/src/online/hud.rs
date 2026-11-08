@@ -35,6 +35,8 @@ const ART: [&str; 15] = [
 #[derive(Clone, Debug)]
 pub struct HudClassMeta {
     pub registry_id: usize,
+    pub team: u8,
+    pub roster_order: usize,
     pub side: String,
     pub class_name: String,
     pub display_name: String,
@@ -223,8 +225,36 @@ impl Prepared {
                         }
                     }
                 }
+                // SpawnPort.roster follows the mission's team table. Faction
+                // names do not imply team numbers: several Clone Wars maps
+                // put CIS in team one and Republic in team two.
+                let mut team = 0;
+                let mut roster_order = usize::MAX;
+                for candidate in 1..=2 {
+                    let roster = content
+                        .content
+                        .battle
+                        .world
+                        .get("mission")
+                        .and_then(|m| m.get("teams"))
+                        .and_then(|t| t.get(&candidate.to_string()))
+                        .and_then(|t| t.get("classes"))
+                        .and_then(bfe_content::Value::as_array)
+                        .unwrap_or(&[]);
+                    if let Some(order) = roster.iter().position(|r| {
+                        r.at(0)
+                            .and_then(bfe_content::Value::as_str)
+                            .is_some_and(|name| name.eq_ignore_ascii_case(&class_name))
+                    }) {
+                        team = candidate;
+                        roster_order = order;
+                        break;
+                    }
+                }
                 result.class_meta.push(HudClassMeta {
                     registry_id: reg_id as usize,
+                    team,
+                    roster_order,
                     side,
                     class_name,
                     display_name,

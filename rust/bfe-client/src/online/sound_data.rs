@@ -188,6 +188,9 @@ pub struct Prepared {
     pub output: Output,
     pub actor_classes: Vec<usize>,
     pub weapon_classes: Vec<usize>,
+    pub combat_classes: Vec<usize>,
+    pub posts: Vec<(usize,[f64;post::STRIDE])>,
+    pub voice_segments: Vec<bool>,
     pub prediction_weapons: Vec<([f64; weapon::STRIDE], usize)>,
     pub actor_limits: Vec<[f64; 3]>,
     pub streams: super::stream_assets::Assets,
@@ -256,6 +259,7 @@ impl Prepared {
         let mut stream_ids = BTreeMap::new();
         let mut segment_ids = BTreeMap::new();
         let mut segments = Vec::new();
+        let mut voice_segments = Vec::new();
         for stream_name in data.manifest.get("streams").and_then(Value::as_array).unwrap_or(&[]) {
             let name = text(Some(stream_name));
             let Ok(raw) = content.textures.read(&format!("audio/streams/{name}.json")) else {
@@ -298,6 +302,7 @@ impl Prepared {
                 row[segment::DURATION] = entry[2].as_f64().unwrap_or(0.) / substreams as f64 / rate;
                 row[segment::CHANNELS] = (channels * substreams) as f64;
                 import(&mut runtime, import::SEGMENT, &row)?;
+                voice_segments.push(name.ends_with("_vo"));
                 segments.push(super::stream_assets::Segment { file, offset, length, rate, channels, substreams, interleave });
             }
         }
@@ -659,6 +664,24 @@ impl Prepared {
             config[if team == 1 { config::BOUNDS1 } else { config::BOUNDS2 }] =
                 resolve(mission.and_then(|m| m.get("outOfBounds")).and_then(|m| m.get(&key)));
         }
+        // ControlResources.mission resolves each listener/bleeding-team cue.
+        // A zero normal flag deliberately suppresses its ordinary warning.
+        for listener in 1..=2 {
+            for actor in 1..=2 {
+                let found = mission
+                    .and_then(|m| m.get("bleeding"))
+                    .and_then(Value::as_array)
+                    .and_then(|rows| {
+                        rows.iter().find(|r| {
+                            number(r.at(0)) == listener as f64
+                                && number(r.at(1)) == actor as f64
+                                && r.at(3).map_or(1., |v| number(Some(v))) != 0.
+                        })
+                    });
+                config[config::BLEED11 + (listener - 1) * 2 + actor - 1] =
+                    resolve(found.and_then(|r| r.at(2)));
+            }
+        }
         let space = data.table("space").last().map(|(_, id)| &data.objects[*id].data);
         let preset =
             space.and_then(|s| s.get("I3DL2ReverbPreset")).and_then(Value::as_str).and_then(|name| data.object("I3DL2ReverbPreset", name));
@@ -747,11 +770,39 @@ impl Prepared {
         // lookup into these tables, including sparse class and weapon ids.
         let actor_classes = defs.registry.classes.iter().map(|name| classes.get(name).copied().unwrap_or(usize::MAX)).collect();
         let weapon_classes = defs.registry.weapons.iter().map(|name| classes.get(name).copied().unwrap_or(usize::MAX)).collect();
+        // Combat definitions use their own one-based registry, independent
+        // of weapon ids. Terminals carry this id after the projectile retires.
+        let combat_classes = std::iter::once(usize::MAX).chain(defs.registry.combat.iter().map(|(name,def)|classes.get(text(def.get("class"))).or_else(||classes.get(name)).copied().unwrap_or(usize::MAX))).collect();
+        // SoundControl.post reads mission-authored VO by listener/owner side.
+        // Resolve those names at admission; live summaries supply only facts.
+        let mut sides = ["", "", ""];
+        for (team, side) in sides.iter_mut().enumerate().skip(1) {
+            let class = content.content.battle.world.get("mission").and_then(|m|m.get("teams")).and_then(|t|t.get(&team.to_string())).and_then(|t|t.get("classes")).and_then(|c|c.at(0)).and_then(|c|c.at(0)).and_then(Value::as_str).unwrap_or("");
+            *side = match class.split('_').next().unwrap_or("") { "rep"=>"Rep", "cis"=>"Cis", "all"=>"All", "imp"=>"Imp", _=>"" };
+        }
+        let mut posts = Vec::new();
+        for (slot,name) in defs.registry.posts.iter().enumerate() {
+            let meta = world.and_then(|w|w.get("posts")).and_then(|p|p.get(name));
+            let mut row = [-1.;post::STRIDE]; row[post::ID]=slot as f64;
+            row[post::CLASS]=classes.get(meta.and_then(|m|m.get("class")).and_then(Value::as_str).unwrap_or("com_bldg_controlzone")).map_or(-1.,|id|*id as f64);
+            row[post::PRESENT]=0.; row[post::ACTIVE]=0.; row[post::BUILDING_ALIVE]=1.;
+            for k in 0..3 { row[post::X+k]=meta.and_then(|m|m.get("position")).and_then(|p|p.at(k)).map_or(0.,|v|number(Some(v))); }
+            for listener in 1..=2 { for owner in 1..=2 {
+                for (base,suffix) in [(post::INFO11,"Info"),(post::CAPTURE11,"Capture"),(post::LOST11,"Lost")] {
+                    let key=format!("VO_{}_{}{}",sides[listener],sides[owner],suffix);
+                    row[base+(listener-1)*2+owner-1]=resolve(meta.and_then(|m|m.get("vo")).and_then(|v|v.get(&key)));
+                }
+            }}
+            posts.push((slot+1,row));
+        }
         Ok(Self {
             runtime,
             output,
             actor_classes,
             weapon_classes,
+            combat_classes,
+            posts,
+            voice_segments,
             prediction_weapons,
             actor_limits,
             music,

@@ -65,6 +65,8 @@ pub enum BattleTransition {
     QuitToMainMenu,
     /// Leave an Online battle (or disconnect) back to the Multiplayer Server Browser.
     LeaveOnline { reason: Option<String> },
+    /// Rejoin the ready server match after the end table.
+    NextOnlineBattle { launch: MultiplayerLaunch },
     /// Exit the entire application to the desktop (`EXIT TO WINDOWS`).
     ExitToWindows,
 }
@@ -89,25 +91,27 @@ impl LiveSpawnPort {
         era: &str,
     ) -> Self {
         let is_gcw = era.eq_ignore_ascii_case("gcw");
-        let (side1, name1, logo1, side2, name2, logo2) = if is_gcw {
-            (
-                "all",
-                "REBEL ALLIANCE",
-                "com_icon_alliance",
-                "imp",
-                "GALACTIC EMPIRE",
-                "com_icon_imperial",
-            )
-        } else {
-            (
-                "rep",
-                "REPUBLIC",
-                "com_icon_republic",
-                "cis",
-                "CIS",
-                "com_icon_cis",
-            )
+        // The mission, rather than the era, assigns faction to team number.
+        // Keep the era defaults only for content-free interface fixtures.
+        let side1 = class_meta
+            .iter()
+            .find(|c| c.team == 1)
+            .map(|c| c.side.as_str())
+            .unwrap_or(if is_gcw { "all" } else { "rep" });
+        let side2 = class_meta
+            .iter()
+            .find(|c| c.team == 2)
+            .map(|c| c.side.as_str())
+            .unwrap_or(if is_gcw { "imp" } else { "cis" });
+        let faction = |side: &str| match side {
+            "rep" => ("REPUBLIC", "com_icon_republic"),
+            "cis" => ("CIS", "com_icon_cis"),
+            "all" => ("REBEL ALLIANCE", "com_icon_alliance"),
+            "imp" => ("GALACTIC EMPIRE", "com_icon_imperial"),
+            _ => ("", ""),
         };
+        let (name1, logo1) = faction(side1);
+        let (name2, logo2) = faction(side2);
 
         let objective_text = strings
             .get("ifs.spawndisplay.spawnprompt")
@@ -116,58 +120,64 @@ impl LiveSpawnPort {
                 "ELIMINATE ENEMY REINFORCEMENTS OR CAPTURE ALL COMMAND POSTS".to_string()
             });
 
-        let build_roster = |target_side: &str| -> (Vec<SpawnClassEntry>, Vec<usize>) {
-            let mut entries = Vec::new();
-            let mut reg_ids = Vec::new();
-            for c in class_meta {
-                if c.side.eq_ignore_ascii_case(target_side) && entries.len() < 5 {
-                    let weapons = if c.weapons.is_empty() {
-                        vec!["BLASTER RIFLE".to_string(), "BLASTER PISTOL".to_string()]
-                    } else {
-                        c.weapons.clone()
-                    };
-                    entries.push(SpawnClassEntry {
-                        class_name: c.class_name.clone(),
-                        display_name: c.display_name.to_ascii_uppercase(),
-                        weapons,
-                        eligible: true,
-                    });
-                    reg_ids.push(c.registry_id);
-                }
-            }
-            if entries.is_empty() {
-                for (i, c) in class_meta.iter().take(5).enumerate() {
-                    entries.push(SpawnClassEntry {
-                        class_name: c.class_name.clone(),
-                        display_name: c.display_name.to_ascii_uppercase(),
-                        weapons: if c.weapons.is_empty() {
-                            vec!["BLASTER RIFLE".to_string()]
+        let build_roster =
+            |target_team: u8, target_side: &str| -> (Vec<SpawnClassEntry>, Vec<usize>) {
+                let mut entries = Vec::new();
+                let mut reg_ids = Vec::new();
+                let mut classes: Vec<_> = class_meta
+                    .iter()
+                    .filter(|c| c.team == target_team)
+                    .collect();
+                classes.sort_by_key(|c| c.roster_order);
+                for c in classes {
+                    if entries.len() < 5 {
+                        let weapons = if c.weapons.is_empty() {
+                            vec!["BLASTER RIFLE".to_string(), "BLASTER PISTOL".to_string()]
                         } else {
                             c.weapons.clone()
-                        },
+                        };
+                        entries.push(SpawnClassEntry {
+                            class_name: c.class_name.clone(),
+                            display_name: c.display_name.to_ascii_uppercase(),
+                            weapons,
+                            eligible: true,
+                        });
+                        reg_ids.push(c.registry_id);
+                    }
+                }
+                if entries.is_empty() {
+                    for (i, c) in class_meta.iter().take(5).enumerate() {
+                        entries.push(SpawnClassEntry {
+                            class_name: c.class_name.clone(),
+                            display_name: c.display_name.to_ascii_uppercase(),
+                            weapons: if c.weapons.is_empty() {
+                                vec!["BLASTER RIFLE".to_string()]
+                            } else {
+                                c.weapons.clone()
+                            },
+                            eligible: true,
+                        });
+                        reg_ids.push(c.registry_id.max(i + 1));
+                    }
+                }
+                if entries.is_empty() {
+                    entries.push(SpawnClassEntry {
+                        class_name: format!("{target_side}_inf_trooper"),
+                        display_name: format!("{name1} TROOPER"),
+                        weapons: vec![
+                            "BLASTER RIFLE".to_string(),
+                            "BLASTER PISTOL".to_string(),
+                            "THERMAL DETONATOR (4)".to_string(),
+                        ],
                         eligible: true,
                     });
-                    reg_ids.push(c.registry_id.max(i + 1));
+                    reg_ids.push(1);
                 }
-            }
-            if entries.is_empty() {
-                entries.push(SpawnClassEntry {
-                    class_name: format!("{target_side}_inf_trooper"),
-                    display_name: format!("{name1} TROOPER"),
-                    weapons: vec![
-                        "BLASTER RIFLE".to_string(),
-                        "BLASTER PISTOL".to_string(),
-                        "THERMAL DETONATOR (4)".to_string(),
-                    ],
-                    eligible: true,
-                });
-                reg_ids.push(1);
-            }
-            (entries, reg_ids)
-        };
+                (entries, reg_ids)
+            };
 
-        let (roster1, ids1) = build_roster(side1);
-        let (roster2, ids2) = build_roster(side2);
+        let (roster1, ids1) = build_roster(1, side1);
+        let (roster2, ids2) = build_roster(2, side2);
 
         let mut posts = Vec::new();
         let mut post_ids = Vec::new();
@@ -251,7 +261,13 @@ impl LiveSpawnPort {
         teams: &[[f64; 4]; 8],
         post_meta: &[HudPostMeta],
         own_alive: bool,
+        own_team: u8,
     ) {
+        // The spawn port follows the server-selected side across death; the
+        // default team must not turn an opposing human into a teammate.
+        if (1..=2).contains(&own_team) {
+            self.human.team = own_team;
+        }
         self.human.phase = if own_alive {
             "alive".to_string()
         } else {
@@ -263,9 +279,7 @@ impl LiveSpawnPort {
         }
         for (i, pm) in post_meta.iter().enumerate() {
             if let Some(p) = self.posts.get_mut(i) {
-                if pm.team == 1 || pm.team == 2 {
-                    p.owner = pm.team;
-                }
+                p.owner = pm.team;
             }
         }
     }
@@ -297,7 +311,7 @@ impl SpawnPort for LiveSpawnPort {
             .iter()
             .map(|p| {
                 let mut e = p.clone();
-                e.eligible = p.owner == team || p.owner == 0;
+                e.eligible = p.owner == team;
                 e
             })
             .collect()
@@ -345,6 +359,7 @@ impl SpawnPort for LiveSpawnPort {
 pub struct LiveScoreboardPort {
     pub inner: WorldScoreboardPort,
     pub done_triggered: bool,
+    pub next_ready: bool,
 }
 
 impl LiveScoreboardPort {
@@ -388,6 +403,7 @@ impl LiveScoreboardPort {
         Self {
             inner,
             done_triggered: false,
+            next_ready: !network,
         }
     }
 
@@ -501,7 +517,7 @@ impl ScoreboardPort for LiveScoreboardPort {
         self.inner.state()
     }
     fn can_restart(&self) -> bool {
-        true
+        self.next_ready
     }
     fn restart(&mut self) -> bool {
         self.done_triggered = true;
@@ -818,7 +834,12 @@ impl BattleController {
         }
         spawn_ctrl.open(&mut spawn_port, OpenReason::Start, height);
 
-        let scoreboard_port = LiveScoreboardPort::new(is_online, era);
+        let mut scoreboard_port = LiveScoreboardPort::new(is_online, era);
+        for (header, team) in scoreboard_port.inner.teams.iter_mut().zip(&spawn_port.teams) {
+            if let Some(header) = header {
+                header.name=team.name.clone();header.side=Some(team.side.clone());header.logo=Some(team.logo.clone());
+            }
+        }
         let scoreboard_ctrl =
             ScoreboardController::try_with_family(GameFamily::Swbf1, height).map_err(|e| e.to_string())?;
 
@@ -907,9 +928,13 @@ impl BattleController {
     /// Programmatically spawns the human player if the spawn screen is open.
     pub fn trigger_spawn(&mut self) {
         if self.spawn_ctrl.is_open() {
-            self.spawn_ctrl.spawn(&mut self.spawn_port);
-            self.flush_spawn_requests();
-            self.spawn_ctrl.close(&mut self.spawn_port);
+            // SpawnController.spawn can refuse an unavailable selection.
+            // Keep choosing until a request exists, as the JS spawn screen
+            // does while authoritative eligibility is still arriving.
+            if self.spawn_ctrl.spawn(&mut self.spawn_port).is_some() {
+                self.flush_spawn_requests();
+                self.spawn_ctrl.close(&mut self.spawn_port);
+            }
         }
     }
 
@@ -961,17 +986,10 @@ impl BattleController {
                     if client.receiver.own.team != 0 && client.receiver.own.team != team {
                         client.sender.request_team(&client.receiver, team);
                     }
-                    let cid = if class_idx == 0 && client.receiver.own.class != 0 {
-                        client.receiver.own.class
-                    } else {
-                        class_reg_id as usize
-                    };
-                    let pid = if class_idx == 0 {
-                        0
-                    } else {
-                        post_reg_id as usize
-                    };
-                    client.sender.request_spawn(&client.receiver, cid, pid);
+                    // SpawnModel.commit names the selected authored class and
+                    // post. Index zero is a real first class, not an instruction
+                    // to discard its post and ask the server to pick another.
+                    client.sender.request_spawn(&client.receiver, class_reg_id as usize, post_reg_id as usize);
                 }
             }
         }
@@ -1034,6 +1052,11 @@ impl BattleController {
     ) -> Result<Option<BattleTransition>, String> {
         let dt = dt.clamp(0.0, 0.1);
         self.elapsed_s += dt;
+
+        if let BattleAuthority::Online { client, launch, .. } = &mut self.authority {
+            client.poll_rotation(launch.address.as_deref().unwrap_or(""), launch.port.unwrap_or(18451));
+            self.scoreboard_port.next_ready = client.rotation_ready;
+        }
 
         // 1. Flush any pending spawn/respawn requests from UI interactions.
         self.flush_spawn_requests();
@@ -1100,8 +1123,16 @@ impl BattleController {
                     request: request.clone(),
                     next_index: playlist_index + 1,
                 })),
-                BattleAuthority::Online { .. } => {
-                    Ok(Some(BattleTransition::LeaveOnline { reason: None }))
+                BattleAuthority::Online { client, launch, .. } => {
+                    if client.rotation_ready {
+                        let mut launch = launch.clone();
+                        if let Some(next) = &client.receiver.next_match {
+                            let query = bfe_content::mission::Query::parse(&next.query);
+                            launch.map = query.get("map").into();
+                            launch.side = query.get("side").into();
+                        }
+                        Ok(Some(BattleTransition::NextOnlineBattle { launch }))
+                    } else { Ok(None) }
                 }
             };
         }
@@ -1326,6 +1357,7 @@ impl BattleController {
                     &replicas.hud.teams,
                     &replicas.hud.post_meta,
                     receiver.own.alive,
+                    receiver.own.team,
                 );
                 self.scoreboard_port.sync_from_state(
                     profile_name,
@@ -1336,11 +1368,18 @@ impl BattleController {
                 );
             }
             BattleAuthority::Online { client, .. } => {
+                let previous_team = self.spawn_port.human.team;
                 self.spawn_port.sync_from_hud(
                     &replicas.hud.teams,
                     &replicas.hud.post_meta,
                     client.receiver.own.alive,
+                    client.receiver.own.team,
                 );
+                // spawn-screen/index.js follows the authoritative teamChanged
+                // event even when its initial screen opened before welcome.
+                if self.spawn_port.human.team != previous_team {
+                    self.spawn_ctrl.notify_team_changed(&self.spawn_port, self.spawn_port.human.team, 0.25);
+                }
                 self.scoreboard_port.sync_from_state(
                     profile_name,
                     &replicas.hud.teams,
@@ -2002,6 +2041,39 @@ fn reset_hud_layer(input: &mut [f64]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mission_team_order_drives_spawn_classes() {
+        let class = |team, side: &str, name: &str, id, order| HudClassMeta {
+            team,
+            side: side.into(),
+            class_name: name.into(),
+            registry_id: id,
+            roster_order: order,
+            display_name: name.into(),
+            weapons: vec![],
+        };
+        let classes = [
+            class(2, "rep", "rep_soldier", 4, 0),
+            class(1, "cis", "cis_assault", 8, 1),
+            class(1, "cis", "cis_soldier", 7, 0),
+        ];
+        let port =
+            LiveSpawnPort::from_hud_meta(&classes, &[], &std::collections::HashMap::new(), "cw");
+        assert_eq!(port.teams[0].side, "cis");
+        assert_eq!(port.teams[1].side, "rep");
+        assert_eq!(port.class_registry_ids[0], vec![7, 8]);
+        assert_eq!(port.rosters[1][0].class_name, "rep_soldier");
+    }
+
+    #[test]
+    fn respawn_keeps_the_authoritative_side() {
+        let mut port =
+            LiveSpawnPort::from_hud_meta(&[], &[], &std::collections::HashMap::new(), "cw");
+        port.sync_from_hud(&[[0.; 4]; 8], &[], false, 2);
+        assert_eq!(port.human_state().team, 2);
+        assert_eq!(port.human_state().phase, "awaiting");
+    }
+
     #[test]
     fn scoreboard_uses_published_characters_instead_of_visible_units() {
         let mut receiver = Receiver::new(serde_json::Value::Null);

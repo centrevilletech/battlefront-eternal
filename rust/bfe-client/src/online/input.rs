@@ -31,6 +31,8 @@ struct Pointer {
     x: f64,
     y: f64,
     zoom: f64,
+    scale: f64,
+    invert: bool,
 }
 pub struct Sender {
     pub history: Box<super::replay::History>,
@@ -48,6 +50,8 @@ pub struct Sender {
     pointers: [Pointer; 128],
     pointer_at: usize,
     pointer_count: usize,
+    mouse_scale: f64,
+    invert: bool,
     pub yaw: f64,
     pub pitch: f64,
     pub sent: u64,
@@ -89,6 +93,8 @@ impl Default for Sender {
             pointers: [Pointer::default(); 128],
             pointer_at: 0,
             pointer_count: 0,
+            mouse_scale: 1.,
+            invert: false,
             yaw: 0.,
             pitch: 0.,
             sent: 0,
@@ -164,6 +170,11 @@ impl Sender {
         if !receiver.welcomed || receiver.spectator || receiver.corrections == 0 {
             return;
         }
+        // game.js applyLook and NetworkSession's view context use the same
+        // mouse settings. Advertising a fixed scale made the server turn
+        // twice as far as the default desktop prediction requested.
+        self.mouse_scale = if c.has_mouse_scale && c.mouse_scale.is_finite() && c.mouse_scale > 0. { c.mouse_scale.min(2.) } else { 1. };
+        self.invert = c.invert.unwrap_or(false);
         self.sequence = self.sequence.wrapping_add(1).max(1);
         // TargetLead uses the same transit estimate and future bound as the
         // page. Sequences remain distinct even when that bound holds a tick.
@@ -262,7 +273,7 @@ impl Sender {
                 self.refused += 1;
             }
             let to = (self.pointer_at + self.pointer_count) % 128;
-            self.pointers[to] = Pointer { sequence: state.sequence, x: look.x, y: look.y, zoom: receiver.own.zoom.max(1.) };
+            self.pointers[to] = Pointer { sequence: state.sequence, x: look.x, y: look.y, zoom: receiver.own.zoom.max(1.), scale: self.mouse_scale, invert: self.invert };
             self.pointer_count += 1;
         }
         self.preview(receiver);
@@ -299,7 +310,7 @@ impl Sender {
         };
         for i in 0..self.pointer_count {
             let p = self.pointers[(self.pointer_at + i) % 128];
-            body.look_raw(p.x / p.zoom, p.y / p.zoom, 1., false);
+            body.look_raw(p.x / p.zoom, p.y / p.zoom, p.scale, p.invert);
         }
         self.yaw = body.aim_yaw;
         self.pitch = body.aim_pitch;
@@ -385,9 +396,9 @@ impl Sender {
             }
             let start = at;
             at += v::STRIDE;
-            x[start + v::FLAGS] = 2. + 32. + 64. + 128.;
+            x[start + v::FLAGS] = 2. + 32. + 64. + 128. + self.invert as u8 as f64;
             x[start + v::PROFILE_FOUND] = 1.;
-            x[start + v::MOUSE_SCALE] = 1.;
+            x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = 1280. / 720.;
             x[start + v::VIEW_TICK] = (receiver.latest - 6.).max(0.);
             for state in &states[..commands] {
@@ -475,5 +486,40 @@ impl std::io::Write for Bytes {
     }
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pointer_preview_retains_the_command_mouse_settings() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.complete = true;
+        receiver.corrections = 1;
+        receiver.own.generation = 1.;
+        let mut sender = Sender::default();
+        let command = ClientCommand {
+            mouse_scale: 0.5,
+            has_mouse_scale: true,
+            invert: Some(true),
+            ..Default::default()
+        };
+        sender.tick(
+            &command,
+            &ClientLook { x: 12., y: -8. },
+            &Default::default(),
+            &receiver,
+            1.,
+            0.,
+        );
+        assert_eq!(sender.mouse_scale, 0.5);
+        assert!(sender.invert);
+        assert_eq!(sender.pointer_count, 1);
+        let pointer = sender.pointers[sender.pointer_at];
+        assert_eq!(pointer.scale, 0.5);
+        assert!(pointer.invert);
+        assert_eq!((pointer.x, pointer.y), (12., -8.));
     }
 }

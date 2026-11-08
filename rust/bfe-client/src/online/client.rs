@@ -16,6 +16,8 @@ pub struct Client {
     pub replay: Box<super::replay::Replay>,
     pub endpoint: Box<Endpoint>,
     pub camera: Box<MapCamera>,
+    rotation_probe: Option<super::rotation::Probe>,
+    pub rotation_ready: bool,
     dt: f64,
     started: bool,
     authenticated: bool,
@@ -35,6 +37,8 @@ impl Client {
             sender: Box::new(Sender::new(&resources.turns)),
             endpoint,
             camera: Box::new(camera),
+            rotation_probe: None,
+            rotation_ready: false,
             dt: 0.,
             started: false,
             authenticated: false,
@@ -47,13 +51,15 @@ impl Client {
     pub fn receive(&mut self, dt: f64) -> Result<(), String> {
         self.dt = dt.clamp(0., 8. / 60.);
         let receiver = &mut *self.receiver;
-        self.endpoint
+        let receipt = self.endpoint
             .pump(&mut |lane, text, bytes, now| {
                 if text || lane == Lane::State {
                     receiver.message(text, bytes, now);
                 }
             })
-            .map_err(|e| self.endpoint.failure(e))?;
+            .map_err(|e| self.endpoint.failure(e));
+        if self.receiver.next_match.is_none() { receipt?; }
+        let receiver = &mut *self.receiver;
         if !self.authenticated && self.endpoint.ready() {
             info::authenticated(&self.endpoint.server_hello)?;
             self.authenticated = true;
@@ -64,6 +70,9 @@ impl Client {
         if let Some(error) = receiver.error() {
             return Err(error);
         }
+        // A server closes the old transport while loading its next world.
+        // Preserve the end table and wait for the readiness probe in that gap.
+        if receiver.next_match.is_some() { return Ok(()); }
         while let Some(bytes) = receiver.pong() {
             if !self.endpoint.send(Lane::Events, true, bytes).map_err(|e| self.endpoint.failure(e))? {
                 break;
@@ -85,14 +94,26 @@ impl Client {
     // A queued input and its durable edges share one transport flush.
     // The sender advances delivery accounting only after queue admission.
     pub fn send(&mut self) -> Result<(), String> {
+        if self.receiver.next_match.is_some() { return Ok(()); }
         self.sender.spawn(&self.receiver);
         self.sender.send(&mut self.endpoint, &mut self.receiver)?;
         self.endpoint.flush().map_err(|e| e.to_string())
     }
+    // NetworkSession.scheduleRotation waits out the advertised delay before
+    // probing. Starting one worker is a cold match-boundary operation.
+    pub fn poll_rotation(&mut self, host: &str, port: u16) {
+        if self.rotation_ready { return; }
+        if let Some(next) = &self.receiver.next_match {
+            if self.rotation_probe.is_none() && self.endpoint.now() >= next.ready_at {
+                self.rotation_probe = Some(super::rotation::Probe::start(format!("{host}:{port}"), next.query.clone()));
+            }
+        }
+        if self.rotation_probe.as_ref().is_some_and(|p| p.ready()) { self.rotation_ready = true; }
+    }
     // Timed diagnostic output is cold: formatting never enters a frame.
     pub fn summary(&self) -> serde_json::Value {
         let own = self.receiver.own;
-        serde_json::json!({"frames":self.frames,"identity":self.endpoint.identity.iter().map(|b|format!("{b:02x}")).collect::<String>(),"welcomed":self.receiver.welcomed,"playerId":own.id,"generation":own.generation,"alive":own.alive,"position":own.position,"packets":self.receiver.packets,"corrections":self.receiver.corrections,"sent":self.sender.sent,"fireEdges":self.sender.fire_edges,"refused":self.receiver.refused+self.sender.refused})
+        serde_json::json!({"frames":self.frames,"identity":self.endpoint.identity.iter().map(|b|format!("{b:02x}")).collect::<String>(),"welcomed":self.receiver.welcomed,"playerId":own.id,"generation":own.generation,"alive":own.alive,"position":own.position,"team":own.team,"yaw":own.yaw,"predictedYaw":self.sender.yaw,"packets":self.receiver.packets,"corrections":self.receiver.corrections,"sent":self.sender.sent,"fireEdges":self.sender.fire_edges,"refused":self.receiver.refused+self.sender.refused})
     }
 }
 impl World for Client {

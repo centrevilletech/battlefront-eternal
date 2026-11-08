@@ -992,6 +992,15 @@ impl StandaloneWindowApp {
                                 }
                                 self.state = AppState::Shell;
                             }
+                            BattleTransition::NextOnlineBattle { launch } => {
+                                if let Some(shell) = &mut self.shell {
+                                    shell.prepare_map_loading(&launch.map, &self.audio_router);
+                                }
+                                self.state = AppState::BattleLoading {
+                                    target: BattleLoadTarget::Online { launch },
+                                    frames_drawn: 0,
+                                };
+                            }
                             BattleTransition::LeaveOnline { reason } => {
                                 self.restore_shell_audio(&content_dir);
                                 if let Some(shell) = &mut self.shell {

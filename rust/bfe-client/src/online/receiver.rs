@@ -96,6 +96,10 @@ struct Message<'a> {
     #[serde(default)]
     time: Option<f64>,
     #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    delay_ms: Option<f64>,
+    #[serde(default)]
     received: Ids,
     #[serde(default)]
     results: Results,
@@ -108,6 +112,7 @@ struct Early {
 }
 pub struct Receiver {
     flight: bfe_sim::prediction::corrections::FlightState,
+    pub next_match: Option<super::rotation::NextMatch>,
     pub roster: super::roster::Roster,
     pub publications: Box<super::publications::Publications>,
     pub network: Shared,
@@ -160,6 +165,7 @@ impl Receiver {
                 quaternions: Vec::with_capacity(6),
                 ..Default::default()
             },
+            next_match: None,
             roster: Default::default(),
             publications: Box::new(Default::default()),
             network: Rc::new(RefCell::new(session)),
@@ -530,6 +536,12 @@ impl Receiver {
                     for &id in &m.results.0.values[..m.results.0.count] {
                         self.outcomes.add(id);
                     }
+                }
+            }
+            "match" => {
+                match super::rotation::NextMatch::new(m.query.unwrap_or_default(), m.delay_ms, now) {
+                    Ok(next) => self.next_match = Some(next),
+                    Err(error) => self.fault = Some(error),
                 }
             }
             "ping" => {

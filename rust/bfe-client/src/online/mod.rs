@@ -47,3 +47,7 @@ mod stream_assets;
 mod seat_view;
 
 pub mod roster;
+
+pub mod rotation;
+
+mod sound_events;
