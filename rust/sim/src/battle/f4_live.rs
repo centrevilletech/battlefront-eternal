@@ -140,6 +140,8 @@ fn bind_descriptor(w: &mut Root, phase: &mut F4Phase) {
 // The retained banks the descriptor names, for a native host that reads them
 // by name rather than by address (Context::read_bank); None before f4_live_init.
 pub(crate) fn counters_bank_in(w: &Root) -> Option<&[f64]> { w.battle.io.as_ref().map(|io| &io.counters[..]) }
+pub(crate) fn live_input_bank_mut_in(w: &mut Root) -> Option<&mut [f64]> { w.battle.io.as_mut().map(|io| &mut io.live[..]) }
+pub(crate) fn tail_input_bank_mut_in(w: &mut Root) -> Option<&mut [f64]> { w.battle.io.as_mut().map(|io| &mut io.tail[..]) }
 pub(crate) fn buildings_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref().map(|live| &live.buildings.publication.words[..]) }
 pub(crate) fn animated_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref().map(|live| &live.animated.publication.words[..]) }
 pub(crate) fn traps_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref().map(|live| &live.traps.publication.words[..]) }

@@ -97,6 +97,9 @@ impl Cache {
     /// F2 can retain its packed values for the same generated delta reader.
     pub fn borrowed(words: usize) -> Self { Self::with_storage(words, true) }
     fn with_storage(words: usize, borrowed: bool) -> Self {
+        // A native descriptor has no address. Retain its changed values so
+        // F3 and F4 readers can apply the same generated sparse rows.
+        let borrowed = borrowed && cfg!(target_arch = "wasm32");
         let mut delta = Delta::default();
         delta.value.mask.reserve(words.div_ceil(MASK_BITS));
         if !borrowed { delta.value.values.reserve(words); }

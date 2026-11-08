@@ -240,7 +240,7 @@ pub(crate) fn veh_collider_in(world_ctx: &mut crate::world::owner::World, walls:
 pub(crate) fn prepare_collision_in(world_ctx: &mut crate::world::owner::World) {
     let Some(c) = world_ctx.fleet.collision.as_mut() else { return };
     let state = &mut world_ctx.collision.state;
-    c.prepare(state);
+    c.prepare_with(state, &mut world_ctx.collision.gathers.caches);
     let words = F2BodyHeader::WORDS + (state.worlds[c.world].order.len() + state.worlds[c.world].prepared.len())
         * (F2BodyToggle::WORDS + F2BodyPlaced::WORDS);
     let changes = &mut world_ctx.fleet.changes;
@@ -744,7 +744,7 @@ impl VehicleWorld for JsWorld<'_, '_> {
         let Some(&reference) = world_ctx.sim.store.vehicles.vehicles.get(hull) else { return false };
         let Some(vehicle) = world_ctx.sim.store.vehicle.get(reference) else { return false };
         let Some(collision) = world_ctx.fleet.collision.as_mut() else { return false };
-        let Some(undo) = collision.push_walls_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), vehicle.body.slot,
+        let Some(undo) = collision.push_walls_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), Some(&mut world_ctx.collision.gathers.caches), vehicle.body.slot,
             probes, radius, q, own, previous, position, velocity, terrain) else { return false };
         undo
     }
@@ -758,7 +758,7 @@ impl VehicleWorld for JsWorld<'_, '_> {
         let Some(&reference) = world_ctx.sim.store.vehicles.vehicles.get(hull) else { return super::SpringPolygons::Native(&[]) };
         let Some(vehicle) = world_ctx.sim.store.vehicle.get(reference) else { return super::SpringPolygons::Native(&[]) };
         let Some(collision) = world_ctx.fleet.collision.as_mut() else { return super::SpringPolygons::Native(&[]) };
-        let Some(polygons) = collision.spring_polygons_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), vehicle.body.slot,
+        let Some(polygons) = collision.spring_polygons_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), Some(&mut world_ctx.collision.gathers.caches), vehicle.body.slot,
             index, center, radius) else { return super::SpringPolygons::Native(&[]) };
         super::SpringPolygons::Native(polygons)
     }

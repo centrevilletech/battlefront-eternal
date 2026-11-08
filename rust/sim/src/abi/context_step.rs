@@ -36,6 +36,8 @@ mod publish;
 pub use publish::{bank, Fault, Publication};
 #[path = "context_replay.rs"]
 mod replay;
+#[path = "context_admit.rs"]
+mod admit;
 
 use super::context::{Context, Error, ErrorKind};
 use crate::gen::{WorldTickInput, WorldTickOutput, WorldTickSetup};

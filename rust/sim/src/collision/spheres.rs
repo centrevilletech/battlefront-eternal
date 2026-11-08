@@ -921,7 +921,7 @@ pub(crate) struct Gathers {
     pub(super) gathered: Option<Gathered>,
     pub(crate) caches: Vec<GatherCache>,
     pub(super) query: Bounds,
-    pub(super) out: Vec<f64>, pub(super) near: Vec<u32>, pub(crate) input: Vec<f64>,
+    pub(crate) out: Vec<f64>, pub(crate) near: Vec<u32>, pub(crate) input: Vec<f64>,
     push_points: Vec<[f64; 3]>, push_ids: Vec<i64>,
     pub(crate) places: [u8; MAX_BODIES], push_out: Option<Gathered>, push_near: Vec<u32>,
 }

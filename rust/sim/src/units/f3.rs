@@ -551,6 +551,17 @@ pub(crate) fn aim_header_bank_in(w: &crate::world::owner::World) -> Option<&[f64
 pub(crate) fn foreign_header_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.foreign_header[..]) }
 pub(crate) fn bounds_cache_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.bounds_cache[..]) }
 pub(crate) fn acknowledgement_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.acknowledgement[..]) }
+// The banks a host writes before a step or a command, for a host without
+// the module's memory: the same rows the page writes at the descriptor's
+// addresses, taken by name.
+pub(crate) fn input_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.input[..]) }
+pub(crate) fn separation_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.separation[..]) }
+pub(crate) fn aim_input_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.aim_input[..]) }
+pub(crate) fn aim_header_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.aim_header[..]) }
+pub(crate) fn acknowledgement_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.acknowledgement[..]) }
+pub(crate) fn random_globals_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.random_globals[..]) }
+pub(crate) fn random_states_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.random_states[..]) }
+pub(crate) fn foreign_header_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.foreign_header[..]) }
 
 /// Publish the touched body only; do not compute hit shapes as a side effect.
 // Unit.spawn, remove and scalar setters must be visible before returning to
@@ -800,6 +811,18 @@ s.phase_input_slots.reserve(size.saturating_sub(s.phase_input_slots.len())); }
     let words=crate::store::block::HEADER+F3Publication::WORDS+
         weapons*F3WeaponView::WORDS+F3ControlView::WORDS;
     world_ctx.units.state.as_mut().expect("prepared unit service").publication[slot as usize]=crate::vehicles::f2_delta::Cache::borrowed(words);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Native publications carry values as well as masks. Reserve the
+        // complete admitted roster here, before its first changed-row flush.
+        let state = world_ctx.units.state.as_mut().expect("prepared unit service");
+        let heap: usize = state.publication.iter().map(|cache| {
+            let words = cache.next.words.capacity(); words + words.div_ceil(crate::vehicles::f2_delta::MASK_BITS)
+        }).sum();
+        state.block.heap.reserve(heap.saturating_sub(state.block.heap.len()));
+        let total = crate::store::block::HEADER + state.publication.len() * F2Delta::WORDS + heap;
+        state.block.words.reserve(total.saturating_sub(state.block.words.len()));
+    }
 
     let bindings = &mut world_ctx.units.state.as_mut().expect("prepared unit service").random_bindings;
     if bindings.len() <= slot as usize { bindings.resize_with(slot as usize + 1, Vec::new); }
@@ -1668,6 +1691,14 @@ pub fn f3_acquire_in(world_ctx: &mut crate::world::owner::World, class: u32) -> 
 // output has separate storage so it cannot replace a pending body publication.
 // Reuse result capacity even when a shorter query previously emptied the list.
 
+/// UnitRegistry.raycast's selection mask follows registry ids, including
+/// inactive members. Refuse an incomplete snapshot before replacing any bits.
+pub fn f3_sensor_mask_in(world_ctx: &mut crate::world::owner::World, mask: &[bool]) -> bool {
+    let Some(state) = world_ctx.units.state.as_mut() else { return false };
+    if mask.len() != world_ctx.sim.store.units.list.len() || mask.len() > state.input.len() { return false; }
+    for (word, &enabled) in state.input.iter_mut().zip(mask) { *word = if enabled { 1.0 } else { 0.0 }; }
+    true
+}
 pub fn f3_sensor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
     let input = F3Sensor::take(&world_ctx.units.state.as_mut().expect("prepared unit service").command, &[]);
     match input.mode {
@@ -1792,7 +1823,7 @@ pub(crate) fn raycast_in(world_ctx: &mut crate::world::owner::World,
 ) -> Option<super::registry::UnitHit> {
 module::with_registry_in(world_ctx, |world, registry, slab| {
         registry.raycast_with(slab, &super::shapes::v3(origin), &super::shapes::v3(direction), far, exclude,
-            &mut |m, _, world: &mut module::ModuleWorld<'_, '_>| !masked || world.w.units.state.as_ref().expect("prepared unit service").input[super::registry::target_id(m) as usize] != 0.0,
+            &mut |m, _, world: &mut module::ModuleWorld<'_, '_>| !masked || world.w.units.state.as_ref().expect("prepared unit service").input.get(super::registry::target_id(m) as usize).is_some_and(|&word| word != 0.0),
             riders, world, |world| world)
     })
 }
@@ -2661,3 +2692,21 @@ pub(crate) fn recon_ref(units:&super::owner::Units)->Option<&crate::recon::Autho
 pub(crate) fn recon_services_ref(units:&super::owner::Units)->&crate::recon::module::Services { &units.state.as_ref().expect("prepared unit service").recon_services }
 
 pub(crate) fn with_owner_rows<T>(w:&mut crate::world::owner::World,run:impl FnOnce(&mut Store,&mut Ownership)->T)->T { with_rows_in(&mut w.sim.store,w.units.state.as_mut().expect("prepared unit service"),run) }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_sensor_masks {
+    use super::*;
+    #[test]
+    fn sensor_mask_is_complete_and_bounded_before_writing() {
+        let mut w = crate::world::owner::World::new();
+        assert!(!f3_sensor_mask_in(&mut w, &[]));
+        f3_init_in(&mut w, 0, f64::NAN, 0);
+        w.sim.store.units.list.push(Member::Unit(Ref::new(0, 1)));
+        w.sim.store.units.list.push(Member::Unit(Ref::new(1, 1)));
+        assert!(f3_sensor_mask_in(&mut w, &[true, false]));
+        assert!(!f3_sensor_mask_in(&mut w, &[false]));
+        assert_eq!(&w.units.state.as_ref().unwrap().input[..2], &[1., 0.]);
+        assert!(f3_sensor_mask_in(&mut w, &[false, true]));
+        assert_eq!(&w.units.state.as_ref().unwrap().input[..2], &[0., 1.]);
+    }
+}

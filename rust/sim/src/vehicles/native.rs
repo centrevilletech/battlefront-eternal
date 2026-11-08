@@ -255,7 +255,17 @@ impl Collision {
 
     /// CollisionWorld construction sizes native wall-query storage from the
     /// loaded level. A new part of the map must not allocate on first contact.
+    /// The page's prediction prepares through the module's cache bank.
     pub fn prepare(&mut self, s: &State) {
+        #[cfg(target_arch = "wasm32")]
+        self.prepare_with(s, spheres::caches());
+        // Native prediction owns its query scratch and gathers directly.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.prepare_with(s, &mut []);
+    }
+    // The gather caches are the collision owner's bank, lent by the caller:
+    // a native host has no process-global world to take them from.
+    pub fn prepare_with(&mut self, s: &State, caches: &mut [GatherCache]) {
         let w = &s.worlds[self.world];
         if self.prepared != Some(w.version) {
             self.gathered.prepare(s,self.world,self.blockers);
@@ -273,7 +283,7 @@ impl Collision {
             self.points.reserve(c.walls.len().saturating_sub(self.points.len()));
             for &id in c.walls.iter().chain(&c.springs) {
                 if id >= 0 {
-                    if let Some(cache) = retained_cache(spheres::caches(), id) {
+                    if let Some(cache) = retained_cache(caches, id) {
                         cache.reserve(statics,blockers,w.order.len() + w.prepared.len());
                     }
                 }
@@ -401,7 +411,7 @@ impl Collision {
     /// the hull's probes through its own caches, the barriers, the bodies'
     /// flags now. None: the hull's body is not one this knows.
     #[allow(clippy::too_many_arguments)]
-    pub fn push_walls_in(&mut self, s: &mut State, flags: &[u8], body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
+    pub fn push_walls_in(&mut self, s: &mut State, flags: &[u8], bank: Option<&mut [GatherCache]>, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
         let walls = &self.colliders.get(body as usize)?.as_ref()?.walls;
         if walls.len() < probes.len() {
             return None;
@@ -410,15 +420,17 @@ impl Collision {
         if walls.len() > 256 { return None; }
         // Uncached probes need only this query's scratch. Retained keys must
         // be both bounded and distinct before lending several mutable caches.
-        let mut caches = if walls.iter().any(|&id| id >= 0) {
-            wall_caches(spheres::caches(), walls)?
-        } else { [const { None }; 256] };
+        let mut caches = match bank {
+            Some(bank) if walls.iter().any(|&id| id >= 0) => wall_caches(bank, walls)?,
+            _ => [const { None }; 256],
+        };
         self.points.clear();
         self.points.extend(probes.iter().map(|p| [p.x, p.y, p.z]));
         let p = Probes { points: &self.points, radius, q: [q.x, q.y, q.z, q.w], own: own.map(|o| [o.x, o.y, o.z, o.w]), previous: [previous.x, previous.y, previous.z], terrain };
         let mut h = Pushed { position: [position.x, position.y, position.z], velocity: [velocity.x, velocity.y, velocity.z], undo_turn: false };
-        let n = s.worlds[self.world].order.len();
-        spheres::push_walls(s, self.world, &p, &mut caches[..probes.len()], self.blockers, &flags[..n], &mut h, &mut self.gathered, &mut self.near);
+        let n = s.worlds.get(self.world)?.order.len();
+        let flags = flags.get(..n)?;
+        spheres::push_walls(s, self.world, &p, &mut caches[..probes.len()], self.blockers, flags, &mut h, &mut self.gathered, &mut self.near);
         position.set(h.position[0], h.position[1], h.position[2]);
         velocity.set(h.velocity[0], h.velocity[1], h.velocity[2]);
         Some(h.undo_turn)
@@ -441,11 +453,12 @@ impl Collision {
     /// The polygons near a hover's spring `index` (CollisionWorld.gather
     /// through the spring's cache, with the barriers: rayGather), into
     /// `out`. None: the hull's body is not one this knows.
-    pub fn spring_polygons_in(&mut self, s: &mut State, flags: &[u8], body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
+    pub fn spring_polygons_in(&mut self, s: &mut State, flags: &[u8], bank: Option<&mut [GatherCache]>, body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
         let id = *self.collider(body)?.springs.get(index).unwrap_or(&-1);
-        let cache = if id >= 0 { Some(retained_cache(spheres::caches(), id)?) } else { None };
-        let n = s.worlds[self.world].order.len();
-        spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &flags[..n], &mut self.gathered);
+        let cache = match bank { Some(bank) if id >= 0 => Some(retained_cache(bank, id)?), _ => None };
+        let n = s.worlds.get(self.world)?.order.len();
+        let flags = flags.get(..n)?;
+        spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, flags, &mut self.gathered);
         // CollisionWorld.gather already retains every triangle. A second
         // owned copy grows on first contact with each new part of the map.
         Some(self.gathered.list())
@@ -526,17 +539,25 @@ impl Collision {
     }
     pub fn push_walls(&mut self, s: &mut State, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
         #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.push_walls_in(s, crate::abi::world().movement.flags_mut(), body, probes, radius, q, own, previous, position, velocity, terrain); }
+        if self.authoritative { return self.push_walls_in(s, crate::abi::world().movement.flags_mut(), Some(spheres::caches()), body, probes, radius, q, own, previous, position, velocity, terrain); }
         let flags = std::mem::take(&mut self.flags);
-        let result = self.push_walls_in(s, &flags, body, probes, radius, q, own, previous, position, velocity, terrain);
+        #[cfg(target_arch = "wasm32")]
+        let bank = Some(spheres::caches().as_mut_slice());
+        #[cfg(not(target_arch = "wasm32"))]
+        let bank = None;
+        let result = self.push_walls_in(s, &flags, bank, body, probes, radius, q, own, previous, position, velocity, terrain);
         self.flags = flags;
         result
     }
     pub fn spring_polygons(&mut self, s: &mut State, body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
         #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.spring_polygons_in(s, crate::abi::world().movement.flags_mut(), body, index, center, radius); }
+        if self.authoritative { return self.spring_polygons_in(s, crate::abi::world().movement.flags_mut(), Some(spheres::caches()), body, index, center, radius); }
         let flags = std::mem::take(&mut self.flags);
-        let found = self.spring_polygons_in(s, &flags, body, index, center, radius).is_some();
+        #[cfg(target_arch = "wasm32")]
+        let bank = Some(spheres::caches().as_mut_slice());
+        #[cfg(not(target_arch = "wasm32"))]
+        let bank = None;
+        let found = self.spring_polygons_in(s, &flags, bank, body, index, center, radius).is_some();
         self.flags = flags;
         found.then(|| self.gathered.list())
     }
@@ -774,5 +795,35 @@ mod tests {
         assert!(!r.in_death_region(&Vector3::new(2.1, 50.5, 0.0)));
         assert!(r.in_death_region(&Vector3::new(0.0, -110.5, 0.0)));
         assert!(!r.in_death_region(&Vector3::new(0.0, -110.0, 0.0)));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_query_owners {
+    use super::*;
+    #[test]
+    fn wall_and_spring_queries_borrow_the_world_cache_bank() {
+        let mut w = crate::world::owner::World::new();
+        w.collision.state.worlds.push(crate::collision::World { tree: 0, terrain: None, grid: None,
+            order: Vec::new(), prepared: Vec::new(), version: 0, statics: Some(0), broad: Default::default() });
+        w.collision.state.positions.push(crate::collision::Corners::F32(Vec::new()));
+        w.collision.state.trees.push(crate::collision::Tree { roots: Vec::new(), positions: 0, index: Vec::new(), indexed: false, indirect: Vec::new(), polygons: Vec::new() });
+        w.collision.state.sets.push(spheres::FixedSet { tree: 0, bounds: Vec::new(), polygons: Vec::new(), offset: 0. });
+        w.collision.gathers.caches.push(GatherCache::new(0.75));
+        w.collision.gathers.caches.push(GatherCache::new(0.75));
+        let mut collision = Collision::new(0, None);
+        collision.add_collider(0, Collider { kernel: 0, local_bounds: [0.; 6], walls: vec![0], springs: vec![1] });
+        collision.prepare_with(&w.collision.state, &mut w.collision.gathers.caches);
+        let mut position = Vector3::default(); let mut velocity = Vector3::default();
+        let probes = [Vector3::default()]; let q = Quaternion::default();
+        for _ in 0..100 {
+            assert!(collision.push_walls_in(&mut w.collision.state, &[], Some(&mut w.collision.gathers.caches),
+                0, &probes, 1., &q, None, &Vector3::default(), &mut position, &mut velocity, false).is_some());
+            assert!(collision.spring_polygons_in(&mut w.collision.state, &[], Some(&mut w.collision.gathers.caches), 0, 0, &position, 1.).unwrap().is_empty());
+        }
+        // A stale cache key refuses rather than borrowing another world's bank.
+        assert!(collision.spring_polygons_in(&mut w.collision.state, &[], Some(&mut []), 0, 0, &position, 1.).is_none());
+        collision.prepare(&w.collision.state);
+        assert!(collision.spring_polygons(&mut w.collision.state, 0, 0, &position, 1.).unwrap().is_empty());
     }
 }

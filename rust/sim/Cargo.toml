@@ -27,6 +27,8 @@ replay = ["dep:sim-replay", "bfe-pose/replay"]
 nav-twin = []
 # Whole-world corpus runner; native entry integration is opt-in.
 world-twin = []
+# Replays a recorded admission call log through Context::invoke_export.
+admit-replay = []
 
 [[bin]]
 name = "nav-twin"
@@ -37,6 +39,11 @@ required-features = ["nav-twin"]
 name = "world-twin"
 path = "src/bin/world-twin.rs"
 required-features = ["world-twin"]
+
+[[bin]]
+name = "admit-replay"
+path = "src/bin/admit-replay.rs"
+required-features = ["admit-replay"]
 
 [dependencies]
 bfe-presentation = { path = "../bfe-presentation", default-features = false }

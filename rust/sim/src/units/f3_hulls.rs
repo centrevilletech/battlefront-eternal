@@ -79,6 +79,8 @@ pub(crate) fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Veh
     let v = world_ctx.sim.store.vehicle.get_mut(r).unwrap();
     v.target_id = id as f64;
     let body = v.body;
+    // The fleet's collision view and the kernel's state are two owners of
+    // this world: borrow both, never a process-global state.
     let collision = world_ctx.fleet.collision.as_mut().expect("prepared fleet collision");
     let state = &mut world_ctx.collision.state;
     let kernel = collision.kernel_slot(body.slot).expect("prepared hull body");
@@ -271,7 +273,9 @@ impl HullDamageWorld for HullDamage<'_, '_> {
         notice_in(self.w, reference_in(&self.w.sim, index), F3HullEvent::Damaged, amount, *attacker);
     }
     fn set_damage_body(&mut self, body: u32, enabled: bool) {
-        self.w.fleet.collision.as_mut().expect("fleet collision").enable_body_in(&self.w.collision.state, self.w.movement.flags_mut(), body, enabled).expect("hull collision body");
+        if let Some(collision) = self.w.fleet.collision.as_mut() {
+            collision.enable_body_in(&self.w.collision.state, self.w.movement.flags_mut(), body, enabled);
+        }
     }
     fn start_respawn(&mut self, index: usize) { f2::respawn_clock_in(self.w, index); }
     fn destroy_hull_crew(&mut self, index: usize) { f2::live_seats::destroyed_with_in(self.w, index, Some(self.services.reborrow())); }

@@ -7,15 +7,17 @@ use bfe_sim::store::block::HEADER;
 fn delta(p: &Publication, i: usize) -> F4Delta { let (row, heap) = p.block.read(i); F4Delta::take(row, heap) }
 fn apply(p: &Publication, d: &F4Delta, into: &mut Vec<f64>) {
     let source = p.encoded(&d.target).expect("retained qualified cache");
-    assert_eq!(d.source, 0); assert!(d.values.is_empty());
-    into.resize(d.length as usize, 0.0); let mut value = 0;
+    assert_eq!(d.source, 0); assert_eq!(d.borrowed_words, 0);
+    into.resize(d.length as usize, 0.0); let mut values = d.values.iter();
     for (i, &mask) in d.mask.iter().enumerate() {
         let mut bits = mask;
         while bits != 0 { let bit = bits.trailing_zeros() as usize;
-            into[i * 32 + bit] = source[i * 32 + bit]; value += 1; bits &= bits - 1;
+            let value = *values.next().expect("changed native value");
+            assert_eq!(value.to_bits(), source[i * 32 + bit].to_bits());
+            into[i * 32 + bit] = value; bits &= bits - 1;
         }
     }
-    assert_eq!(value, d.borrowed_words as usize);
+    assert!(values.next().is_none());
 }
 fn character(image: &[f64]) -> Character {
     let mut out = Character::default(); out.take_export(&image[HEADER..], &image[image[2] as usize..]); out
@@ -34,7 +36,7 @@ fn variable_stat_records_publish_growth_shrink_and_only_changed_words() {
     let Nullable::Value(record) = character(&image).record else { panic!("record missing"); };
     assert_eq!(record.slots[0].classes[0].time, 2.5);
     s.character.get_mut(c).unwrap().captures = 3.0; p.mark(&h); assert_eq!(p.flush(&s), 1);
-    assert_eq!(delta(&p, 0).borrowed_words, 1); apply(&p, &delta(&p, 0), &mut image);
+    assert_eq!(delta(&p, 0).values.len(), 1); apply(&p, &delta(&p, 0), &mut image);
     assert_eq!(character(&image).captures, 3.0);
     s.character.get_mut(c).unwrap().record = Nullable::Null; p.mark(&h); assert_eq!(p.flush(&s), 1);
     apply(&p, &delta(&p, 0), &mut image); assert!(matches!(character(&image).record, Nullable::Null));
@@ -58,7 +60,7 @@ fn retired_store_rows_survive_slot_reuse_and_old_lives_cannot_mark_replacements(
     let next = s.character.insert(Character::default()); let b = p.register(Source::Character(next), 1.0, 1024);
     assert_eq!(a.slot, b.slot); assert_ne!(a.generation, b.generation); assert!(!p.mark(&a));
     assert_eq!(p.flush(&s), 2); let retired = delta(&p, 0); assert!(retired.retired); assert_eq!(retired.target, a);
-    assert_eq!(retired.borrowed_words, 1); assert_eq!(delta(&p, 1).target, b);
+    assert_eq!(retired.values, [7.0]); assert_eq!(delta(&p, 1).target, b);
     assert_eq!(character(p.encoded(&a).unwrap()).captures, 7.0);
     assert_eq!(character(p.encoded(&b).unwrap()).captures, 0.0);
     p.flush(&s); assert!(p.encoded(&a).is_none());
@@ -81,7 +83,7 @@ fn changing_character_statistics_reuses_encoding_masks_and_publication_storage()
         p.mark(&h); assert_eq!(p.flush(&s), 1);
     }
     let requests = allocation::stop(); assert_eq!(requests, 0);
-    assert_eq!(delta(&p, 0).borrowed_words, 2);
+    assert_eq!(delta(&p, 0).values.len(), 2);
 }
 
 #[test]
@@ -101,7 +103,7 @@ fn variable_statistics_can_exceed_the_cold_hint_without_losing_their_identity() 
 }
 
 #[test]
-fn borrowed_retirements_keep_each_generation_through_a_capacity_burst() {
+fn retirements_keep_each_generation_through_a_capacity_burst() {
     let mut s = Store::default(); let mut r = s.character.insert(Character::default());
     let mut p = Publication::new(0); let mut h = p.register(Source::Character(r), 1.0, 0);
     p.flush(&s); let mut retired = Vec::new();

@@ -3,7 +3,7 @@
 pub mod codec;
 pub mod owner;
 pub mod buffered;
-mod module;
+pub(crate) mod module;
 pub mod records;
 pub mod ring;
 pub mod presentation;
@@ -18,7 +18,7 @@ pub use module::Runtime;
 pub mod registry;
 pub mod shots;
 pub mod combat;
-mod census;
+pub(crate) mod census;
 pub mod store_capture;
 pub mod store_world;
 pub mod store_summaries;

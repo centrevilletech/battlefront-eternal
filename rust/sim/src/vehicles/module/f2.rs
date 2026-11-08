@@ -282,6 +282,36 @@ pub(crate) fn pads_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f
 pub(crate) fn lives_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.scheduler.publication.as_ref().map(|p| &p.lives.words[..]) }
 pub(crate) fn poses_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { geometry::bank_in(&world_ctx.fleet.geometry) }
 pub(crate) fn seats_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { live_seats::descriptor_bank(&world_ctx.fleet) }
+pub(crate) fn seats_child_bank_in<'w>(world_ctx: &'w crate::world::owner::World, which: &str) -> Option<&'w [f64]> { live_seats::child_bank(&world_ctx.fleet, which) }
+pub(crate) fn seats_input_bank_in(world_ctx: &mut crate::world::owner::World) -> Option<&mut [f64]> { live_seats::input_bank_mut(&mut world_ctx.fleet) }
+pub(crate) fn fleet_input_bank_in(world_ctx: &mut crate::world::owner::World) -> &mut [f64] { &mut world_ctx.fleet.scheduler.io[..] }
+/// Firing inputs are a subsegment of F2Input, not the fleet query bank.
+/// Offsets come from the generated header; malformed or full banks refuse.
+pub fn firing_input_bank_mut_in(world_ctx: &mut crate::world::owner::World) -> Option<&mut [f64]> {
+    let words = &mut world_ctx.fleet.scheduler.io;
+    if words.len() < F2Input::WORDS { return None; }
+    let input = F2Input::take(words, &[]);
+    if (input.firing as usize) < F2Input::WORDS { return None; }
+    words.get_mut(input.firing as usize..input.end as usize)
+}
+pub fn firing_write_inputs_in(world_ctx: &mut crate::world::owner::World, changes: &[FfWeaponChange]) -> bool {
+    let io = &mut world_ctx.fleet.scheduler.io;
+    if io.len() < F2Input::WORDS { return false; }
+    let input = F2Input::take(io, &[]);
+    let start = input.firing as usize;
+    if start < F2Input::WORDS || input.end < input.firing || input.end as usize > io.len() { return false; }
+    let Some(words) = io.get_mut(start..) else { return false };
+    if words.len() < FfInputs::WORDS || changes.len() > (words.len() - FfInputs::WORDS) / FfWeaponChange::WORDS { return false; }
+    FfInputs { count: changes.len() as u32 }.put(words, &mut Vec::new());
+    for (row, change) in words[FfInputs::WORDS..].chunks_exact_mut(FfWeaponChange::WORDS).zip(changes) {
+        change.put(row, &mut Vec::new());
+    }
+    io[F2Input::END] = (start + FfInputs::WORDS + changes.len() * FfWeaponChange::WORDS) as f64;
+    true
+}
+pub(crate) fn bodies_bank_in(world_ctx: &crate::world::owner::World) -> &[f64] { &world_ctx.fleet.changes[..] }
+pub(crate) fn firing_weapons_bank_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.firing.as_ref()?; Some(firing::weapons_words_in(world_ctx)) }
+pub(crate) fn firing_cables_bank_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.firing.as_ref()?; Some(firing::cables_words_in(world_ctx)) }
 pub(crate) fn firing_bank_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.firing.as_ref()?; Some(firing::phase_words_in(world_ctx)) }
 
 /// Publish without a getter crossing from JS, also before a synchronous hook.
@@ -497,8 +527,9 @@ fn foreign_in(world_ctx: &mut crate::world::owner::World) {
             roll_lock: k.roll_lock, target_lock: k.target_lock, bot: k.bot, response_curve: k.response_curve, no_assist: k.no_assist,
         })));
     }
-    let n = firing::inputs_in(&world_ctx.units,crate::world::deferred_in(&world_ctx.tick),&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, &world_ctx.fleet.scheduler.io[h.firing as usize..h.end as usize]);
-    assert_eq!(h.firing as usize + n, h.end as usize, "F2 foreign input length");
+    if let Some(data) = world_ctx.fleet.scheduler.io.get(h.firing as usize..h.end as usize) {
+        firing::inputs_in(&world_ctx.units,crate::world::deferred_in(&world_ctx.tick),&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, data);
+    }
 }
 
 // Vehicles.update and the adjacent TurretSeats slot retain their ordering.
@@ -716,3 +747,36 @@ mod exports {
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{f2_register, f2_prepare_body, f2_init, f2_step, f2_command, f2_retire};
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_firing_inputs {
+    use super::*;
+    #[test]
+    fn firing_subsegment_uses_phase_bank_and_refuses_overflow() {
+        let mut w = crate::world::owner::World::new();
+        let start = F2Input::WORDS + 3;
+        w.fleet.scheduler.io.resize(start + FfInputs::WORDS + 2 * FfWeaponChange::WORDS, 0.);
+        w.fleet.input.resize(4, 17.);
+        let end = w.fleet.scheduler.io.len();
+        F2Input { firing: start as u32, end: end as u32, ..Default::default() }
+            .put(fleet_input_bank_in(&mut w), &mut Vec::new());
+        let changes = [FfWeaponChange { hull: crate::store::Ref::new(u32::MAX, 7), ..Default::default() }, FfWeaponChange::default()];
+        assert!(firing_write_inputs_in(&mut w, &changes));
+        assert_eq!(w.fleet.input, [17.; 4]);
+        let saved = w.fleet.scheduler.io.clone();
+        assert!(!firing_write_inputs_in(&mut w, &[changes[0].clone(), changes[1].clone(), FfWeaponChange::default()]));
+        assert_eq!(w.fleet.scheduler.io, saved);
+        assert!(firing_write_inputs_in(&mut w, &[]));
+        assert_eq!(firing_input_bank_mut_in(&mut w).unwrap().len(), FfInputs::WORDS);
+        assert!(firing_write_inputs_in(&mut w, &changes));
+        let words = firing_input_bank_mut_in(&mut w).unwrap();
+        assert_eq!(FfInputs::take(words, &[]).count, 2);
+        assert_eq!(FfWeaponChange::take(&words[FfInputs::WORDS..], &[]), changes[0]);
+        let owned = words.to_vec();
+        // Unknown and stale identities are refused by the firing owner too.
+        assert_eq!(firing::inputs_in(&w.units, false, &mut w.fleet.firing, &mut w.sim.strings, &owned), owned.len());
+        w.fleet.scheduler.io[F2Input::FIRING] = u32::MAX as f64;
+        assert!(firing_input_bank_mut_in(&mut w).is_none());
+        assert!(!firing_write_inputs_in(&mut w, &changes));
+    }
+}

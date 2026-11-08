@@ -13,8 +13,9 @@ impl Context {
     /// recording made for the battle.
     pub fn world_replay_admit(&self, admission: &Value) -> Result<WorldTickSetup, Error> {
         self.check()?;
-        let _ = admission;
-        Err(unavailable("world_replay_admit"))
+        if !crate::world::admit::provided() { return Err(unavailable("world_replay_admit")); }
+        let (files, options) = super::admit::recorded(admission)?;
+        Ok(self.world_admit(&files, &options)?.setup)
     }
 
     /// Applies one frame's recorded input, fire and mount commands and

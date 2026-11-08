@@ -2723,3 +2723,48 @@ fn seat_birth_rejects_invalid_holder_index_and_occupant_generations() {
     assert!(pool.construct(&store,&mut seats,&mut entities,lease,None).is_none());
     assert!(pool.read(control).is_some());
 }
+
+#[test]
+fn native_sparse_publications_retain_values_without_allocating() {
+    use crate::{battle::publication::{Publication, Source}, gen::Store, vehicles::f2_delta::Cache};
+    let mut cache = Cache::borrowed(64);
+    let mut applied = Vec::with_capacity(64);
+    let mut store = Store::default();
+    let mut publication = Publication::new(1);
+    let handle = publication.register(Source::Battle, 1., 0);
+    publication.flush_rows(&store);
+    // Warm both swap buffers before counting. Sparse values preserve bits,
+    // including signed zero and NaN payloads, across acknowledgements.
+    for _ in 0..2 { cache.encode(1, 2, 3, |row, _| row.fill(0.)); }
+    applied.extend_from_slice(&cache.last.words);
+    ALLOCATIONS.with(|c| c.set(0)); COUNTING.with(|c| c.set(true));
+    for tick in 0..10_000 {
+        let bits = [tick as f64, -0., f64::from_bits(0x7ff8000000000001)];
+        assert!(cache.prepare_rows(1, 2, 3, |row, _| row[..3].copy_from_slice(&bits)));
+        let delta = &cache.delta.value;
+        assert_eq!(delta.source, 0); assert_eq!(cache.borrowed_words(), 0);
+        applied.resize(delta.length as usize, 0.);
+        let mut values = delta.values.iter();
+        for (index, word) in applied.iter_mut().enumerate() {
+            if delta.mask[index / 32] & (1 << (index % 32)) != 0 { *word = *values.next().unwrap(); }
+        }
+        assert!(values.next().is_none());
+        assert!(applied.iter().zip(&cache.next.words).all(|(a,b)| a.to_bits() == b.to_bits()));
+        cache.commit();
+        store.battle.over_time = tick as f64;
+        assert!(publication.mark(&handle)); publication.flush_rows(&store);
+    }
+    COUNTING.with(|c| c.set(false)); assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+}
+
+#[test]
+fn native_control_acknowledgement_checks_the_owning_publication() {
+    use bfe_sim::{ai::{nav::Nav, owned::entry::ai_controls_acknowledge_in}, gen::{AiColdSettings, AiCapacity}};
+    let mut w = crate::world::owner::World::new();
+    assert!(!ai_controls_acknowledge_in(&mut w, 0));
+    let input = AiColdSettings { capacity: AiCapacity { scopes: 2, registry: 1, characters: 1, controls: 1, ..Default::default() }, ..Default::default() };
+    w.ai.begin(Nav::empty(Default::default()), &input, &mut w.sim.strings, Default::default());
+    let version = w.ai.battle().unwrap().state.control_views.version();
+    assert!(!ai_controls_acknowledge_in(&mut w, version.wrapping_add(1)));
+    assert!(ai_controls_acknowledge_in(&mut w, version));
+}

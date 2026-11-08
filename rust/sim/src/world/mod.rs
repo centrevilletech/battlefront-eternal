@@ -1,4 +1,7 @@
 //! World-step state and the remaining phase boundaries.
+// Native hosts admit from content; the module's host admits through its exports.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod admit;
 pub mod owner;
 pub mod clock;
 pub mod events;

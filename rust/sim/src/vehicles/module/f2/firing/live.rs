@@ -256,6 +256,9 @@ fn bind_phase(w: &mut crate::world::owner::World, value: &mut FfPhase) {
 pub(crate) fn phase_words_in(w: &mut crate::world::owner::World) -> &[f64] {
     &firing_state(&mut w.fleet.firing, &mut w.sim.strings).phase
 }
+/// The weapons and cables publication blocks the phase descriptor points at, by name.
+pub(crate) fn weapons_words_in(w: &mut crate::world::owner::World) -> &[f64] { &firing_state(&mut w.fleet.firing, &mut w.sim.strings).output.words[..] }
+pub(crate) fn cables_words_in(w: &mut crate::world::owner::World) -> &[f64] { &firing_state(&mut w.fleet.firing, &mut w.sim.strings).cable_output.words[..] }
 #[cfg(target_arch = "wasm32")]
 fn bind_supply(w: &mut crate::world::owner::World, value: &mut FfSupplyResult) {
     value.output = firing_state(&mut w.fleet.firing, &mut w.sim.strings).output.ptr() as u32;
@@ -869,12 +872,14 @@ impl State {
         for c in st.crafts.iter_mut().flatten() {
             for used in &mut c.consumed { *used = false; }
         }
+        if data.len() < FfInputs::WORDS { return 0; }
         let header = FfInputs::take(data, &[]); o += FfInputs::WORDS;
-        for _ in 0..header.count {
+        let count = (header.count as usize).min((data.len() - o) / FfWeaponChange::WORDS);
+        for _ in 0..count {
             let a = FfWeaponChange::take(&data[o..], &[]); o += FfWeaponChange::WORDS;
-            let c = st.crafts[a.hull.slot as usize].as_ref().unwrap();
+            let Some(c) = st.crafts.get(a.hull.slot as usize).and_then(Option::as_ref) else { continue };
             if c.id != a.hull || c.life != a.life { continue; }
-            let wr = c.seats[a.seat as usize][a.weapon as usize];
+            let Some(&wr) = c.seats.get(a.seat as usize).and_then(|seat| seat.get(a.weapon as usize)) else { continue };
             // A newly boarded native bot supersedes the earlier unoccupied
             // seat input. Its target hint was frozen after AI at the source slot.
             if whole_tick && st.weapons.get(wr).unwrap().input.target != -2 {continue;}

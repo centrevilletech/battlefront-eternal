@@ -59,8 +59,7 @@ pub(crate) struct Preview { frame: [f64; BodyPreviewFrame::WORDS], looks: Vec<f6
 pub(crate) struct Owner { aims: Option<Vec<f64>>, preview: Option<Preview> }
 impl Owner { pub(crate) const fn new() -> Self { Self { aims: None, preview: None } } }
 
-#[cfg(target_arch = "wasm32")]
-mod module {
+pub(crate) mod module {
     use super::*;
     use crate::{gen::{BodySpawn,BodySpawnOutput}};
     // Fixed pointers survive calls. Only WASM memory growth detaches a host

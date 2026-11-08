@@ -22,6 +22,11 @@ impl Default for Exchange {
 impl Exchange {
     /// The counters bank the descriptor names, for a native host reading by name.
     pub fn counters(&self)->&[f64] {&self.counters}
+    /// The banks a host writes before the AI phase, by name, for a host
+    /// without the module's memory.
+    pub fn bank_mut(&mut self,which:&str)->Option<&mut [f64]> {
+        Some(match which {"header"=>&mut self.header[..],"cameras"=>&mut self.camera_words[..],"journal"=>&mut self.journal_words[..],_=>return None})
+    }
     pub fn new(cameras:usize,journal:usize)->Self {
         Self {camera_words:vec![0.;cameras*AiPhaseCamera::WORDS],journal_words:vec![0.;journal*AiJournalEvent::WORDS],
             cameras:Vec::with_capacity(cameras),journal:AiJournalInput {sequence:0.,records:Vec::with_capacity(journal)},..Self::default()}

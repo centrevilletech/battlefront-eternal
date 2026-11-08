@@ -111,7 +111,7 @@ pub fn update_mounted(weapon: &mut crate::gen::Weapon, index: u32, class: &crate
 
 mod targeting;
 pub use targeting::*;
-mod live;
+pub(crate) mod live;
 pub use live::*;
 pub(crate) use live::State;
 

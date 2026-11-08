@@ -66,24 +66,34 @@ fn changed_words_keep_order_across_mask_boundaries() {
 // A borrowed publication has the same mask and acknowledgement contract as
 // packed values. Only the source of the changed words differs at the boundary.
 #[test]
-fn borrowed_publications_retain_unread_words_and_one_writer_heap() {
+fn publications_retain_unread_words_and_one_writer_heap() {
     let mut cache = Cache::borrowed(128);
     let heap = cache.next.heap.as_ptr();
-    assert_eq!(cache.delta.value.values.capacity(), 0);
+    if cfg!(target_arch = "wasm32") { assert_eq!(cache.delta.value.values.capacity(), 0); }
+    else { assert!(cache.delta.value.values.capacity() >= 128); }
     assert!(cache.prepare(3, 1, 2, |row, heap| {
         row[0] = 7.0; row[1] = -0.0; heap.extend([17.0, 19.0]);
     }));
-    assert_eq!(cache.delta.value.source, 0);
     assert_eq!(cache.next.words[HEADER], 7.0);
-    assert_eq!(cache.borrowed_words(), 9);
-    assert!(cache.delta.value.values.is_empty());
+    if cfg!(target_arch = "wasm32") {
+        assert_ne!(cache.delta.value.source, 0);
+        assert_eq!(cache.borrowed_words(), 9);
+        assert!(cache.delta.value.values.is_empty());
+    } else {
+        assert_eq!(cache.delta.value.source, 0);
+        assert_eq!(cache.borrowed_words(), 0);
+        assert_eq!(cache.delta.value.values.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            cache.next.words.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+    }
     cache.commit();
     assert_eq!(cache.next.heap.as_ptr(), heap);
     assert!(cache.prepare(3, 1, 2, |row, heap| {
         row[0] = 8.0; row[1] = -0.0; heap.extend([17.0, 19.0]);
     }));
     assert_eq!(cache.delta.value.mask, [1 << HEADER]);
-    assert_eq!(cache.borrowed_words(), 1);
+    assert_eq!(cache.borrowed_words(), if cfg!(target_arch = "wasm32") { 1 } else { 0 });
+    #[cfg(not(target_arch = "wasm32"))]
+    assert_eq!(cache.delta.value.values, [8.0]);
     // Another unpublished barrier compares against the same consumed row.
     assert!(!cache.prepare(3, 1, 2, |row, heap| {
         row[0] = 7.0; row[1] = -0.0; heap.extend([17.0, 19.0]);

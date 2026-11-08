@@ -1747,6 +1747,18 @@ fn bind_descriptor(state:&mut State,riders:&super::riders::Riders,descriptor:&mu
 pub(super) fn descriptor_words(fleet:&super::super::Fleet)->&[f64] { &fleet.seats.as_ref().expect("prepared native seats").io }
 /// The same bank for a native host reading by name; None before the seats are prepared.
 pub(super) fn descriptor_bank(fleet:&super::super::Fleet)->Option<&[f64]> { fleet.seats.as_ref().map(|seats|&seats.io[..]) }
+/// The descriptor's child banks by name, for a native host that cannot
+/// follow the descriptor's addresses: the blocks the seat phase publishes.
+pub(super) fn child_bank<'f>(fleet:&'f super::super::Fleet,which:&str)->Option<&'f [f64]> {
+    let state=fleet.seats.as_ref()?;
+    Some(match which {
+        "input"=>&state.input[..], "leases"=>&state.leases.words[..], "units"=>&state.units.words[..], "controls"=>&state.controls.words[..],
+        "effects"=>&state.effects.words[..], "ordnance"=>&state.ordnance_output.words[..], "turrets"=>&state.turret_output.words[..],
+        "events"=>&state.event_output.words[..], "riders"=>fleet.riders.words(), _=>return None,
+    })
+}
+/// The seat input bank a host writes its header, relation, control and look rows into.
+pub(super) fn input_bank_mut(fleet:&mut super::super::Fleet)->Option<&mut [f64]> { fleet.seats.as_mut().map(|seats|&mut seats.input[..]) }
 
 #[cfg(test)]
 pub(crate) fn admit_test_seats(fleet:&mut super::super::Fleet,owner:crate::vehicles::f2_seats::Seats) { seats_state(&mut fleet.seats).owner=owner; }

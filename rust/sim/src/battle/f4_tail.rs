@@ -120,8 +120,26 @@ pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
     }
     super::f4_live::descriptor_words(w)
 }
+/// HumanSpawn's commands share the tail owner's retained bank. Native hosts
+/// publish a count and no address; Chromium keeps its existing typed view.
+pub fn f4_tail_write_commands_in(w: &mut Root, commands: &[HsCommand]) -> bool {
+    let Some(tail) = w.battle.tail.as_mut() else { return false };
+    if commands.len() > tail.commands.capacity() || commands.len() > tail.input.len() / HsCommand::WORDS { return false; }
+    // Check both owners before changing the command bank or its header.
+    if w.battle.io.is_none() { return false; }
+    for (row, command) in tail.input.chunks_exact_mut(HsCommand::WORDS).zip(commands) {
+        command.put(row, &mut Vec::new());
+    }
+    let address = 0;
+    #[cfg(target_arch = "wasm32")]
+    let address = tail.input.as_ptr() as u32;
+    let input = super::f4_live::tail_input_bank_mut_in(w).expect("checked tail input");
+    input[F4TailInput::HUMAN_COMMANDS] = address as f64;
+    input[F4TailInput::HUMAN_COUNT] = commands.len() as f64;
+    true
+}
 pub fn f4_tail_commands_in(w: &mut Root) -> Option<&mut [f64]> {
-    Some(&mut state(&mut w.battle).input[..])
+    w.battle.tail.as_mut().map(|tail| &mut tail.input[..])
 }
 pub fn f4_tail_unit_class_in(w: &mut Root) {
     let (row, heap) = w.sim.calls.args();
@@ -424,3 +442,31 @@ mod exports {
 
 pub(crate) trait SpawnContext: super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld {}
 impl<T:super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld> SpawnContext for T {}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_commands {
+    use super::*;
+    #[test]
+    fn tail_commands_are_owned_bounded_and_addressless() {
+        let mut w = Root::new();
+        assert!(!f4_tail_write_commands_in(&mut w, &[]));
+        f3::f3_init_in(&mut w, 0, f64::NAN, 0);
+        w.sim.calls.result(F4BattleSetup::WORDS, |row, heap| F4BattleSetup::default().put(row, heap));
+        super::super::f4_core::f4_battle_init_in(&mut w);
+        w.sim.calls.result(F4LiveSetup::WORDS, |row, heap| F4LiveSetup::default().put(row, heap));
+        super::super::f4_live::f4_live_init_in(&mut w);
+        w.sim.calls.result(F4TailSetup::WORDS, |row, heap| F4TailSetup { command_capacity: 2, ..Default::default() }.put(row, heap));
+        f4_tail_init_in(&mut w);
+        let commands = [HsCommand { kind: HsCommandKind::Suicide, ..Default::default() }, HsCommand { kind: HsCommandKind::Cancel, ..Default::default() }];
+        assert!(f4_tail_write_commands_in(&mut w, &commands));
+        let input = super::super::f4_live::tail_input(&mut w.battle);
+        assert_eq!((input.human_count, input.human_commands), (2, 0));
+        let saved = f4_tail_commands_in(&mut w).unwrap().to_vec();
+        assert!(!f4_tail_write_commands_in(&mut w, &[commands[0].clone(), commands[1].clone(), commands[0].clone()]));
+        assert_eq!(f4_tail_commands_in(&mut w).unwrap(), saved);
+        state(&mut w.battle).decode_commands(&input, &w.sim.strings);
+        assert_eq!(state(&mut w.battle).commands.len(), 2);
+        assert!(f4_tail_write_commands_in(&mut w, &[]));
+        assert_eq!(super::super::f4_live::tail_input(&mut w.battle).human_count, 0);
+    }
+}

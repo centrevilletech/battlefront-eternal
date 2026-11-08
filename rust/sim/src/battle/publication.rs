@@ -45,6 +45,8 @@ impl Entry {
         let (slot, generation) = source.identity();
         let words = HEADER + source.words() + heap;
         let mut delta = F4Delta::default(); delta.mask.reserve(words.div_ceil(32));
+        #[cfg(not(target_arch = "wasm32"))]
+        delta.values.reserve(words);
         Self { source, handle: F4Handle { kind: source.kind(), slot, generation, life },
             cache: Cache::borrowed(words), delta, dirty: true, budget: F4Delta::WORDS + words + words.div_ceil(32), heap }
     }
@@ -61,6 +63,11 @@ impl Entry {
             self.delta.length = self.cache.last.words.len() as u32;
             self.delta.mask.clear(); self.delta.mask.extend_from_slice(&self.cache.delta.value.mask);
             self.delta.source = 0;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.delta.values.clear();
+                self.delta.values.extend_from_slice(&self.cache.delta.value.values);
+            }
             self.delta.borrowed_words = self.cache.borrowed_words() as u32;
         }
         changed
@@ -192,5 +199,31 @@ impl Publication {
     pub fn encoded(&self, h: &F4Handle) -> Option<&[f64]> {
         if let Some(r) = self.find(h) { return Some(&self.entries.get(r)?.cache.last.words); }
         self.published_retired.iter().find(|e| e.handle == *h).map(|e| e.cache.last.words.as_slice())
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_values {
+    use super::*;
+    #[test]
+    fn addressless_deltas_reconstruct_changed_rows() {
+        let mut store = Store::default();
+        let mut publication = Publication::new(1);
+        let handle = publication.register(Source::Battle, 1., 0);
+        let mut applied = Vec::new();
+        for tick in 0..3 {
+            store.battle.over_time = tick as f64;
+            publication.mark(&handle); assert_eq!(publication.flush_rows(&store), 1);
+            let (row, heap) = publication.block.read(0);
+            let delta = F4Delta::take(row, heap);
+            assert_eq!((delta.source, delta.borrowed_words), (0, 0));
+            applied.resize(delta.length as usize, 0.);
+            let mut values = delta.values.iter();
+            for (i, word) in applied.iter_mut().enumerate() {
+                if delta.mask[i / 32] & (1 << (i % 32)) != 0 { *word = *values.next().unwrap(); }
+            }
+            assert!(values.next().is_none());
+            assert!(applied.iter().zip(publication.encoded(&handle).unwrap()).all(|(a,b)| a.to_bits() == b.to_bits()));
+        }
     }
 }

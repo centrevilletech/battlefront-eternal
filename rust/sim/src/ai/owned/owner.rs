@@ -10,6 +10,10 @@ use crate::{ai::{combat::{binding::CombatAi,enhanced::EnhancedCombat,weapons_ai:
 
 #[derive(Default)]
 pub struct Owner {process:Process,battle:Option<Box<Battle>>}
+impl Owner {
+    /// The boundary exchange of the admitted battle, for a host writing its banks by name.
+    pub(crate) fn exchange_mut(&mut self)->Option<&mut super::exchange::Exchange> { self.battle.as_deref_mut().map(|b|&mut b.exchange) }
+}
 pub struct Battle {
     pub state:State,
     pub runtime:Runtime,

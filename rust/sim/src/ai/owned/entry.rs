@@ -52,6 +52,14 @@ pub fn ai_world_boundary_in(w:&mut World)->Option<&[f64]> {
 // The retained banks the descriptor names, for a native host that reads them
 // by name rather than by address (Context::read_bank); None before ai_world_begin.
 pub fn ai_counters_bank_in(w:&World)->Option<&[f64]> { w.ai.battle().map(|battle|battle.exchange.counters()) }
+/// The native reader acknowledges the exact control publication it consumed.
+/// Stale versions cannot clear a newer set of structural identities.
+pub fn ai_controls_acknowledge_in(w: &mut World, version: u32) -> bool {
+    let Some(battle) = w.ai.battle_mut() else { return false };
+    if battle.state.control_views.version() != version { return false; }
+    battle.state.control_views.acknowledge(version);
+    true
+}
 pub fn ai_controls_bank_in(w:&World)->Option<&[f64]> { w.ai.battle().map(|battle|battle.state.control_views.words()) }
 
 /// ai.update crosses once. Decisions, mounted aim and recursive physical
