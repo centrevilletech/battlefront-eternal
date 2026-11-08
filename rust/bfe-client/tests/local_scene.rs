@@ -7,7 +7,12 @@ use bfe_client::input::Input;
 use glow::HasContext;
 use local::window::Observer;
 use std::{alloc::{GlobalAlloc, Layout, System}, cell::{Cell, RefCell}, rc::Rc, time::Duration};
-use winit::{event::MouseButton, event_loop::EventLoop, keyboard::KeyCode, platform::x11::EventLoopBuilderExtX11};
+use winit::{event::MouseButton, event_loop::EventLoop, keyboard::KeyCode};
+// The event loop is built off the main thread; each desktop platform names that permission differently.
+#[cfg(windows)]
+use winit::platform::windows::EventLoopBuilderExtWindows;
+#[cfg(all(unix, not(target_os = "macos")))]
+use winit::platform::x11::EventLoopBuilderExtX11;
 
 thread_local! { static COUNT: Cell<Option<usize>> = const { Cell::new(None) }; }
 struct Allocator;
