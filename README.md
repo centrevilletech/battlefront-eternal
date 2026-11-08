@@ -54,8 +54,10 @@ ARM64), and update themselves.
 *Star Wars: Battlefront II* (2005) maps, units, vehicles, modes and
 interface; mixed playlists from both games; Galactic Conquest and the
 Historical Campaign; macOS builds and signed Windows installers; easier
-dedicated server setup; leaderboards; custom maps and mods. Dates depend on
-testing and are not promised.
+dedicated server setup; leaderboards; custom maps and mods; a Vulkan
+renderer backend for the native client, followed by FSR upscaling on every GPU
+and DLSS as an optional add-on for RTX cards. Dates depend on testing and are
+not promised.
 
 ## Play
 
