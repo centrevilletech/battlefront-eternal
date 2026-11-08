@@ -76,7 +76,7 @@ use bfe_desktop::linux::{
     updating_launcher, IntegrateLinuxDesktopOptions, LauncherCommandStatus,
 };
 use bfe_desktop::paths::{
-    content_candidates, default_prepared_dir, parse_content_arg, update_paths, ContentCandidateEnv,
+    content_candidates, default_prepared_dir, parse_content_arg, ContentCandidateEnv,
 };
 use bfe_desktop::prepare::{
     apply_event, checkout_content_version, clear_prepared_for, create_snapshot, estimate,
@@ -110,20 +110,20 @@ use bfe_desktop::steam::vdf::{
     compute_shortcut_app_id, compute_shortcut_game_id, parse_shortcuts_vdf,
     serialize_shortcuts_vdf, ShortcutEntry,
 };
+use bfe_desktop::launch::{settle_with, SettleOptions};
 use bfe_desktop::update::feed::{
-    canonical_json, feed_signing_payload, parse_and_verify_feed, resolve_channel_feed_url,
-    select_update_target, verify_feed_signature, SelectTargetOptions, VerifyFeedOptions,
-    FEED_FORMAT, FEED_SCHEMA,
+    decode_and_validate_manifest, encode_zstd_store_frame, join_url, verify_envelope,
+    ChannelPayload, ChannelPlatformEntry, ChannelRelease, ManifestFileEntry, PlatformManifest,
+    SignedChannelEnvelope,
 };
-use bfe_desktop::update::install::{
-    apply_pending_installer, register_downloaded_installer, stage_payload_from_archive,
-    ApplyInstallerOptions,
-};
+use bfe_desktop::update::handoff::{check_and_install, CheckOutcome, UpdaterContext};
+use bfe_desktop::update::install::InstallProgress;
+use bfe_desktop::update::keys::{encode_spki_pem, key_id_from_verifying_key, KEYS, PRODUCTION_KEY_ID};
 use bfe_desktop::update::state::{
-    mark_active_payload_boot_succeeded, payload_slot_dir, read_update_state,
-    resolve_active_payload_for_launch, MAX_FAILED_BOOTS,
+    choose_launch, collect, installed_versions, read_state, record_attempt, record_healthy,
+    versions_dir, INSTALL_RECORD, MAX_ATTEMPTS,
 };
-use bfe_desktop::update::tree::{hash_file, hash_payload_tree};
+use bfe_desktop::update::tree::{safe_relative_path, sha256_bytes};
 use bfe_desktop::update::version::{compare_versions, is_newer_version, parse_version};
 
 /// Scoped temporary directory that cleans itself up on drop.
@@ -1575,352 +1575,222 @@ fn steam_vdf_roundtrips_and_manages_non_steam_shortcuts_and_overlay() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Update tests (ports electron/update.test.js)
+// 9. Update tests (ports tests/desktop-update.test.js)
 // ---------------------------------------------------------------------------
 
-/// Creates a synthetic update payload directory with `package.json`, `electron/boot.js`,
-/// `src/index.html`, `tools/prepare_content.py`, and `tools/content-version.json`.
-fn make_payload_dir(root: &Path, version: &str, extra_text: &str) {
-    // Populate all 5 required payload files checked by `verify_payload_directory`.
-    fs::create_dir_all(root.join("electron")).unwrap();
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::create_dir_all(root.join("tools")).unwrap();
+/// Verifies SemVer/Debian version ordering, Ed25519 channel envelope verification,
+/// Zstandard manifest decompression, content-addressed blob installation with
+/// `bfe-tree.json` reuse, `settle`, and `MAX_ATTEMPTS` crash-loop rollback.
+///
+/// Mirrors `tests/desktop-update.test.js`.
+#[test]
+fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
+    let _ = Value::Null;
+    // 1. Version ordering rules (`0.1.0-preview.9 < 0.1.0-preview.10 < 0.1.0`, Debian `~` == `-`).
+    assert_eq!(parse_version("v1.2.3").unwrap().major, 1);
+    assert_eq!(compare_versions("0.1.0-preview.10", "0.1.0-preview.9"), Some(1));
+    assert_eq!(compare_versions("0.1.0~preview.262", "0.1.0-preview.262"), Some(0));
+    assert_eq!(compare_versions("0.1.0", "0.1.0-preview.999"), Some(1));
+    assert!(is_newer_version("0.1.0-preview.332", "0.1.0-preview.331"));
+
+    // 2. Pinned production key table contains only `33913637e5932c25`.
+    assert_eq!(KEYS.len(), 1);
+    assert_eq!(KEYS[0].0, PRODUCTION_KEY_ID);
+
+    // 3. Relative path and URL safety checks.
+    assert_eq!(safe_relative_path("resources/app.asar").as_deref(), Some("resources/app.asar"));
+    assert_eq!(safe_relative_path("../escape"), None);
+    assert_eq!(safe_relative_path("/abs/path"), None);
+    assert_eq!(safe_relative_path(r"win\path"), None);
+    assert_eq!(
+        join_url("https://download.battlefronteternal.com/", "updates/development-preview.json").unwrap(),
+        "https://download.battlefronteternal.com/updates/development-preview.json"
+    );
+    assert!(join_url("https://download.battlefronteternal.com", "../secret").is_err());
+
+    // 4. Synthetic signed channel envelope, Zstandard manifest, blob install, settle, and rollback.
+    let tmp = TempDir::new("update-channel");
+    let http_root = tmp.path().join("http");
+    let update_root = tmp.path().join("root");
+    let boot_dir = tmp.path().join("bootstrap");
+    fs::create_dir_all(boot_dir.join("resources")).unwrap();
+
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let pub_pem = encode_spki_pem(&signing_key.verifying_key());
+    let key_id = key_id_from_verifying_key(&signing_key.verifying_key());
+    let keys = BTreeMap::from([(key_id.clone(), pub_pem)]);
+
+    let shared_data = b"unchanged-resource-payload";
+    let shared_sha = sha256_bytes(shared_data);
+    fs::write(boot_dir.join("resources/asset.dat"), shared_data).unwrap();
     fs::write(
-        root.join("package.json"),
+        boot_dir.join("resources/bfe-release.json"),
+        r#"{"version":"0.1.0-preview.331","channel":"development-preview"}"#,
+    )
+    .unwrap();
+    fs::write(
+        boot_dir.join("resources/bfe-tree.json"),
         format!(
-            "{}\n",
-            serde_json::to_string_pretty(&json!({
-                "name": "battlefront-eternal",
-                "version": version
-            }))
-            .unwrap()
+            r#"{{"version":"0.1.0-preview.331","platform":"linux-x64","files":[{{"path":"resources/asset.dat","size":{},"sha256":"{shared_sha}","mode":420}}]}}"#,
+            shared_data.len()
         ),
     )
     .unwrap();
-    fs::write(
-        root.join("electron/boot.js"),
-        format!("module.exports = {{ start() {{ return {:?}; }} }};\n", extra_text),
-    )
-    .unwrap();
-    fs::write(root.join("src/index.html"), "<!doctype html><title>BFE</title>\n").unwrap();
-    fs::write(root.join("tools/prepare_content.py"), "#!/usr/bin/env python3\n").unwrap();
-    fs::write(
-        root.join("tools/content-version.json"),
-        bfe_desktop::prepare::CHECKOUT_CONTENT_VERSION_JSON,
-    )
-    .unwrap();
-}
 
-/// Builds a minimal Stored ZIP archive from a directory for payload staging tests.
-fn build_stored_zip_from_dir(source_dir: &Path, output_zip: &Path) {
-    let tree = hash_payload_tree(source_dir).unwrap();
-    let mut local_parts = Vec::<u8>::new();
-    let mut central_parts = Vec::<u8>::new();
-    let mut count = 0u16;
+    let write_release = |rel_id: &str, ver: &str, exe_bytes: &[u8]| -> serde_json::Value {
+        let rel_meta = format!(r#"{{"version":"{ver}","channel":"development-preview"}}"#);
+        let specs: Vec<(&str, &[u8], u32)> = vec![
+            ("bfe-client", exe_bytes, 0o755),
+            ("resources/asset.dat", shared_data, 0o644),
+            ("resources/bfe-release.json", rel_meta.as_bytes(), 0o644),
+        ];
+        let mut files = Vec::new();
+        for (rel_p, raw, mode) in specs {
+            let sha = sha256_bytes(raw);
+            let zst = encode_zstd_store_frame(raw);
+            let blob_rel = format!("updates/blobs/{}/{sha}.zst", &sha[..2]);
+            let full = http_root.join(&blob_rel);
+            fs::create_dir_all(full.parent().unwrap()).unwrap();
+            fs::write(&full, &zst).unwrap();
+            files.push(ManifestFileEntry {
+                path: rel_p.to_string(),
+                size: raw.len() as u64,
+                sha256: sha,
+                mode: Some(mode),
+                blob: Some(blob_rel),
+                compressed_size: Some(zst.len() as u64),
+            });
+        }
+        let manifest = PlatformManifest {
+            version: ver.to_string(),
+            release_id: Some(rel_id.to_string()),
+            revision: Some("4b59932a".to_string()),
+            platform: "linux-x64".to_string(),
+            executable: "bfe-client".to_string(),
+            server_executable: None,
+            files,
+            links: Vec::new(),
+            dirs: Vec::new(),
+        };
+        let manifest_zst = encode_zstd_store_frame(&serde_json::to_vec(&manifest).unwrap());
+        let manifest_sha = sha256_bytes(&manifest_zst);
+        let manifest_rel = format!("{rel_id}/update-linux-x64.json.zst");
+        let manifest_full = http_root.join(&manifest_rel);
+        fs::create_dir_all(manifest_full.parent().unwrap()).unwrap();
+        fs::write(&manifest_full, &manifest_zst).unwrap();
 
-    for f in &tree.files {
-        let data = fs::read(source_dir.join(&f.path)).unwrap();
-        let name_bytes = f.path.as_bytes();
-        let mut crc_hasher = crc32fast::Hasher::new();
-        crc_hasher.update(&data);
-        let crc = crc_hasher.finalize();
-        let size = data.len() as u32;
-        let offset = local_parts.len() as u32;
-
-        // Emit 30-byte local file header + filename + uncompressed payload bytes.
-        local_parts.extend_from_slice(&0x04034b50u32.to_le_bytes());
-        local_parts.extend_from_slice(&20u16.to_le_bytes());
-        local_parts.extend_from_slice(&0x0800u16.to_le_bytes());
-        local_parts.extend_from_slice(&0u16.to_le_bytes());
-        local_parts.extend_from_slice(&0u16.to_le_bytes());
-        local_parts.extend_from_slice(&0x21u16.to_le_bytes());
-        local_parts.extend_from_slice(&crc.to_le_bytes());
-        local_parts.extend_from_slice(&size.to_le_bytes());
-        local_parts.extend_from_slice(&size.to_le_bytes());
-        local_parts.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
-        local_parts.extend_from_slice(&0u16.to_le_bytes());
-        local_parts.extend_from_slice(name_bytes);
-        local_parts.extend_from_slice(&data);
-
-        // Emit 46-byte central directory header + filename.
-        central_parts.extend_from_slice(&0x02014b50u32.to_le_bytes());
-        central_parts.extend_from_slice(&20u16.to_le_bytes());
-        central_parts.extend_from_slice(&20u16.to_le_bytes());
-        central_parts.extend_from_slice(&0x0800u16.to_le_bytes());
-        central_parts.extend_from_slice(&0u16.to_le_bytes());
-        central_parts.extend_from_slice(&0u16.to_le_bytes());
-        central_parts.extend_from_slice(&0x21u16.to_le_bytes());
-        central_parts.extend_from_slice(&crc.to_le_bytes());
-        central_parts.extend_from_slice(&size.to_le_bytes());
-        central_parts.extend_from_slice(&size.to_le_bytes());
-        central_parts.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
-        central_parts.extend_from_slice(&0u16.to_le_bytes());
-        central_parts.extend_from_slice(&0u16.to_le_bytes());
-        central_parts.extend_from_slice(&0u16.to_le_bytes());
-        central_parts.extend_from_slice(&0u16.to_le_bytes());
-        central_parts.extend_from_slice(&0u32.to_le_bytes());
-        central_parts.extend_from_slice(&offset.to_le_bytes());
-        central_parts.extend_from_slice(name_bytes);
-        count += 1;
-    }
-
-    // Emit the 22-byte End of Central Directory (EOCD) record after all central directory headers.
-    let central_offset = local_parts.len() as u32;
-    let central_size = central_parts.len() as u32;
-    let mut eocd = Vec::with_capacity(22);
-    eocd.extend_from_slice(&0x06054b50u32.to_le_bytes());
-    eocd.extend_from_slice(&0u16.to_le_bytes());
-    eocd.extend_from_slice(&0u16.to_le_bytes());
-    eocd.extend_from_slice(&count.to_le_bytes());
-    eocd.extend_from_slice(&count.to_le_bytes());
-    eocd.extend_from_slice(&central_size.to_le_bytes());
-    eocd.extend_from_slice(&central_offset.to_le_bytes());
-    eocd.extend_from_slice(&0u16.to_le_bytes());
-
-    let mut all = local_parts;
-    all.extend_from_slice(&central_parts);
-    all.extend_from_slice(&eocd);
-    fs::write(output_zip, all).unwrap();
-}
-
-/// Signs an unsigned feed JSON value with an Ed25519 [`SigningKey`] and attaches the `signature` block.
-fn sign_test_feed(unsigned: &Value, signing_key: &SigningKey, key_id: &str) -> Value {
-    // Sign the canonical JSON byte payload and attach `signature.{algorithm, keyId, value}`.
-    let payload = feed_signing_payload(unsigned);
-    let sig = signing_key.sign(&payload);
-    let mut signed = unsigned.clone();
-    signed.as_object_mut().unwrap().insert(
-        "signature".to_string(),
-        json!({
-            "algorithm": "ed25519",
-            "keyId": key_id,
-            "value": BASE64_STANDARD.encode(sig.to_bytes()),
-        }),
-    );
-    signed
-}
-
-/// Formats a raw 32-byte Ed25519 verifying key as an RFC 8410 SPKI PEM block.
-fn spki_pem_from_verifying_key(vk: &[u8; 32]) -> String {
-    // Prepend the 12-byte RFC 8410 Ed25519 SPKI ASN.1 header to the 32-byte public key.
-    let mut der = Vec::with_capacity(44);
-    der.extend_from_slice(&[
-        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
-    ]);
-    der.extend_from_slice(vk);
-    format!(
-        "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----",
-        BASE64_STANDARD.encode(&der)
-    )
-}
-
-/// Verifies SemVer/Debian version ordering, Ed25519 feed verification, payload staging,
-/// crash-loop rollback, tamper detection, and dry-run installer handoff.
-///
-/// Mirrors `electron/update.test.js`.
-#[test]
-fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
-    // Verify SemVer/Debian comparison rules (`0.2.0 > 0.2.0-nightly.20260416.1`).
-    assert_eq!(parse_version("v1.2.3").unwrap().major, 1);
-    assert_eq!(compare_versions("0.2.0", "0.1.9"), Some(1));
-    assert_eq!(
-        compare_versions("0.2.0", "0.2.0-nightly.20260416.1"),
-        Some(1)
-    );
-    assert!(is_newer_version("0.2.1", "0.2.0"));
-    assert_eq!(
-        canonical_json(&json!({"b": 1, "a": {"d": true, "c": [3, 2, 1]}})),
-        r#"{"a":{"c":[3,2,1],"d":true},"b":1}"#
-    );
-    assert_eq!(
-        resolve_channel_feed_url("https://battlefronteternal.com/updates", Some("nightly"), false)
-            .unwrap(),
-        "https://battlefronteternal.com/updates/nightly.json"
-    );
-    assert!(
-        resolve_channel_feed_url("http://evil.example.com/updates", Some("stable"), false).is_err()
-    );
-
-    // Ed25519 signature verification and target selection.
-    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
-    let pub_pem = spki_pem_from_verifying_key(signing_key.verifying_key().as_bytes());
-    let key_id = "test-key-2026";
-    let public_keys = BTreeMap::from([(key_id.to_string(), pub_pem)]);
-
-    let unsigned = json!({
-        "format": FEED_FORMAT,
-        "schema": FEED_SCHEMA,
-        "channel": "stable",
-        "generatedAt": "2026-04-16T00:00:00.000Z",
-        "releases": [{
-            "version": "0.2.0",
-            "channel": "stable",
-            "publishedAt": "2026-04-16T00:00:00.000Z",
-            "notes": "Fast payload update",
-            "minShellVersion": "0.1.0",
-            "payload": {
-                "url": "https://battlefronteternal.com/updates/bfe-payload-0.2.0.zip",
-                "size": 1024,
-                "sha256": "a".repeat(64),
-                "treeSha256": "b".repeat(64),
-                "minShellVersion": "0.1.0"
+        let payload = ChannelPayload {
+            channel: "development-preview".to_string(),
+            published_at: Some("2026-11-08T00:00:00Z".to_string()),
+            release: ChannelRelease {
+                id: rel_id.to_string(),
+                version: ver.to_string(),
+                revision: Some("4b59932a".to_string()),
+                platforms: BTreeMap::from([(
+                    "linux-x64".to_string(),
+                    ChannelPlatformEntry {
+                        manifest: manifest_rel,
+                        sha256: manifest_sha,
+                        size: manifest_zst.len() as u64,
+                        total_size: None,
+                    },
+                )]),
             },
-            "installers": {
-                "linux-x64": {
-                    "url": "https://battlefronteternal.com/updates/Battlefront-Eternal-0.2.0.AppImage",
-                    "size": 4096,
-                    "sha256": "c".repeat(64),
-                    "kind": "appimage",
-                    "fileName": "Battlefront-Eternal-0.2.0.AppImage"
-                }
-            }
-        }]
+        };
+        let payload_bytes = serde_json::to_vec(&payload).unwrap();
+        let sig = signing_key.sign(&payload_bytes);
+        let env_obj = SignedChannelEnvelope {
+            key: key_id.clone(),
+            payload: BASE64_STANDARD.encode(&payload_bytes),
+            signature: BASE64_STANDARD.encode(sig.to_bytes()),
+        };
+        let val = serde_json::to_value(&env_obj).unwrap();
+        let chan_file = http_root.join("updates/development-preview.json");
+        fs::create_dir_all(chan_file.parent().unwrap()).unwrap();
+        fs::write(&chan_file, serde_json::to_vec_pretty(&val).unwrap()).unwrap();
+        val
+    };
+
+    let env_332 = write_release("preview-332", "0.1.0-preview.332", b"#!/bin/sh\nexit 0\n");
+    let verified = verify_envelope(&env_332, &keys).unwrap();
+    assert_eq!(verified.release.version, "0.1.0-preview.332");
+
+    // Verify compressed manifest decoding and hash checking.
+    let m_bytes = fs::read(http_root.join("preview-332/update-linux-x64.json.zst")).unwrap();
+    let m_entry = &verified.release.platforms["linux-x64"];
+    let decoded = decode_and_validate_manifest(&m_bytes, &m_entry.sha256, "0.1.0-preview.332", "linux-x64").unwrap();
+    assert_eq!(decoded.executable, "bfe-client");
+    assert!(decode_and_validate_manifest(&m_bytes, &"0".repeat(64), "0.1.0-preview.332", "linux-x64").is_err());
+
+    let ctx = UpdaterContext {
+        own_dir: boot_dir,
+        own_version: None,
+        own_channel: None,
+        root: Some(update_root.clone()),
+        feed_url: Some(format!("file://{}", http_root.display())),
+        keys,
+        platform: "linux".to_string(),
+        arch: "x64".to_string(),
+        argv: vec!["bfe-client".to_string()],
+        is_packaged: true,
+        env: BTreeMap::new(),
+        home: tmp.path().to_path_buf(),
+        launch_timeout_ms: 2000,
+        fetch_timeout_ms: 5000,
+        blob_timeout_ms: 5000,
+        concurrency: 2,
+    };
+
+    let res_332 = check_and_install::<fn(InstallProgress)>(&ctx, None);
+    assert!(matches!(
+        res_332,
+        CheckOutcome::Installed {
+            reused: 1,
+            downloaded: 2,
+            ..
+        }
+    ));
+    assert!(versions_dir(&update_root)
+        .join("0.1.0-preview.332")
+        .join(INSTALL_RECORD)
+        .exists());
+
+    // Settle 0.1.0-preview.332 -> marked healthy in state.json.
+    let settle_out = settle_with(&SettleOptions {
+        own_dir: versions_dir(&update_root).join("0.1.0-preview.332"),
+        own_version: None,
+        own_channel: None,
+        root: Some(update_root.clone()),
+        bootstrap_version: Some("0.1.0-preview.331".to_string()),
+        platform: "linux".to_string(),
+        arch: "x64".to_string(),
+        env: BTreeMap::new(),
+        home: tmp.path().to_path_buf(),
     });
-    let signed = sign_test_feed(&unsigned, &signing_key, key_id);
-    assert!(verify_feed_signature(&signed, Some(&public_keys)).unwrap());
+    assert!(settle_out.settled);
+    assert_eq!(read_state(&update_root).healthy, vec!["0.1.0-preview.332".to_string()]);
 
-    let parsed = parse_and_verify_feed(
-        &signed,
-        &VerifyFeedOptions {
-            expected_channel: Some("stable".to_string()),
-            public_keys: Some(public_keys.clone()),
-            allow_insecure_local: false,
-            allow_unsigned: false,
-        },
-    )
-    .unwrap();
+    // Install 0.1.0-preview.333, fail MAX_ATTEMPTS (2) times, and verify rollback to 0.1.0-preview.332.
+    write_release("preview-333", "0.1.0-preview.333", b"#!/bin/sh\nexit 1\n");
+    let res_333 = check_and_install::<fn(InstallProgress)>(&ctx, None);
+    assert!(matches!(res_333, CheckOutcome::Installed { .. }));
+    assert_eq!(installed_versions(&update_root, Some("linux-x64")).len(), 2);
 
-    // When `shell_version >= minShellVersion`, `select_update_target` chooses the fast `"payload"` update.
-    let sel_payload = select_update_target(
-        &parsed,
-        &SelectTargetOptions {
-            current_version: "0.1.0".to_string(),
-            shell_version: "0.1.0".to_string(),
-            platform: "linux".to_string(),
-            arch: "x64".to_string(),
-            allow_payload: true,
-        },
-    )
-    .unwrap();
-    assert!(sel_payload.available);
-    assert_eq!(sel_payload.kind, "payload");
-
-    // Stage 0.2.0 and 0.3.0 payloads, verify crash-loop rollback to 0.2.0.
-    let tmp = TempDir::new("update-slots");
-    let paths = update_paths(&tmp.path().join("userData"));
-
-    let src020 = tmp.path().join("src-0.2.0");
-    make_payload_dir(&src020, "0.2.0", "boot-0.2.0");
-    let tree020 = hash_payload_tree(&src020).unwrap();
-    let zip020 = tmp.path().join("payload-0.2.0.zip");
-    build_stored_zip_from_dir(&src020, &zip020);
-    let (sz020, sha020) = hash_file(&zip020).unwrap();
-
-    stage_payload_from_archive(
-        &paths,
-        &zip020,
-        "0.2.0",
-        "stable",
-        &bfe_desktop::update::feed::PayloadArtifact {
-            url: "https://battlefronteternal.com/updates/payload-0.2.0.zip".to_string(),
-            size: sz020,
-            sha256: sha020,
-            tree_sha256: tree020.tree_sha256.clone(),
-            min_shell_version: "0.1.0".to_string(),
-            format: "zip".to_string(),
-        },
-    )
-    .unwrap();
-
-    // Boot and confirm `0.2.0` so it becomes the known-good fallback slot when `0.3.0` is staged.
-    let boot1 = resolve_active_payload_for_launch(&paths, "0.1.0", true).unwrap();
-    assert_eq!(boot1.payload_version.as_deref(), Some("0.2.0"));
-    mark_active_payload_boot_succeeded(&paths).unwrap();
-
-    let src030 = tmp.path().join("src-0.3.0");
-    make_payload_dir(&src030, "0.3.0", "boot-0.3.0");
-    let tree030 = hash_payload_tree(&src030).unwrap();
-    let zip030 = tmp.path().join("payload-0.3.0.zip");
-    build_stored_zip_from_dir(&src030, &zip030);
-    let (sz030, sha030) = hash_file(&zip030).unwrap();
-
-    stage_payload_from_archive(
-        &paths,
-        &zip030,
-        "0.3.0",
-        "stable",
-        &bfe_desktop::update::feed::PayloadArtifact {
-            url: "https://battlefronteternal.com/updates/payload-0.3.0.zip".to_string(),
-            size: sz030,
-            sha256: sha030,
-            tree_sha256: tree030.tree_sha256.clone(),
-            min_shell_version: "0.1.0".to_string(),
-            format: "zip".to_string(),
-        },
-    )
-    .unwrap();
-
-    // Simulate `MAX_FAILED_BOOTS` unconfirmed launches of `0.3.0` before triggering rollback.
-    for _ in 0..MAX_FAILED_BOOTS {
-        let attempt = resolve_active_payload_for_launch(&paths, "0.1.0", false).unwrap();
-        assert_eq!(attempt.payload_version.as_deref(), Some("0.3.0"));
-        assert!(!attempt.rolled_back);
+    for _ in 0..MAX_ATTEMPTS {
+        record_attempt(&update_root, "0.1.0-preview.333").unwrap();
     }
-
-    // The next launch after `MAX_FAILED_BOOTS` unconfirmed boots automatically rolls back to `0.2.0`.
-    let rolled = resolve_active_payload_for_launch(&paths, "0.1.0", true).unwrap();
-    assert!(rolled.rolled_back);
-    assert_eq!(rolled.payload_version.as_deref(), Some("0.2.0"));
+    assert!(read_state(&update_root).bad.contains(&"0.1.0-preview.333".to_string()));
     assert_eq!(
-        rolled.state.rolled_back_version.as_deref(),
-        Some("0.3.0")
+        choose_launch(&update_root, "0.1.0-preview.331", Some("linux-x64"), None)
+            .unwrap()
+            .version,
+        "0.1.0-preview.332"
     );
 
-    // Tampered payload detection rolls back to the base shell when no healthy previous slot remains.
-    let slot020 = payload_slot_dir(&paths, "0.2.0").unwrap();
-    fs::write(slot020.join("electron/boot.js"), "// tampered\n").unwrap();
-    let tampered = resolve_active_payload_for_launch(&paths, "0.1.0", true).unwrap();
-    assert!(tampered.rolled_back);
-    assert_eq!(tampered.payload_dir, None);
-
-    // Dry-run pending installer handoff writes the helper script without replacing the executable.
-    let dummy_installer = tmp.path().join("Battlefront-Eternal-0.4.0.AppImage");
-    fs::write(&dummy_installer, "#!/bin/sh\necho installer\n").unwrap();
-    let (inst_sz, inst_sha) = hash_file(&dummy_installer).unwrap();
-    register_downloaded_installer(
-        &paths,
-        &dummy_installer,
-        "0.4.0",
-        "stable",
-        &bfe_desktop::update::feed::InstallerArtifact {
-            url: "https://battlefronteternal.com/updates/Battlefront-Eternal-0.4.0.AppImage"
-                .to_string(),
-            size: inst_sz,
-            sha256: inst_sha,
-            kind: "appimage".to_string(),
-            file_name: Some("Battlefront-Eternal-0.4.0.AppImage".to_string()),
-        },
-    )
-    .unwrap();
-    assert!(read_update_state(&paths.state_file)
-        .pending_installer
-        .is_some());
-
-    let applied = apply_pending_installer(
-        &paths,
-        &ApplyInstallerOptions {
-            platform: "linux".to_string(),
-            env: BTreeMap::from([(
-                "APPIMAGE".to_string(),
-                "/opt/Battlefront-Eternal.AppImage".to_string(),
-            )]),
-            exec_path: PathBuf::from("/opt/Battlefront-Eternal.AppImage"),
-            dry_run: true,
-        },
-    )
-    .unwrap();
-    assert_eq!(applied.action, "dry-run");
-    assert!(applied.script_path.unwrap().exists());
+    // Calling record_healthy clears bad/attempts; collect prunes versions not in keep/healthy.
+    record_healthy(&update_root, "0.1.0-preview.331").unwrap();
+    let pruned = collect(&update_root, &[], 2);
+    assert_eq!(pruned, vec!["0.1.0-preview.333".to_string()]);
 }
 
 // ---------------------------------------------------------------------------

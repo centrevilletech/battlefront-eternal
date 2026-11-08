@@ -198,6 +198,11 @@ pub fn compare_versions(a: &str, b: &str) -> Option<i32> {
 /// Checks whether `candidate` is strictly newer than `current` (`compare_versions(candidate, current) == Some(1)`).
 ///
 /// Mirrors `isNewer` in `electron/update/version.js`.
-pub fn is_newer_version(candidate: &str, current: &str) -> bool {
+pub fn is_newer(candidate: &str, current: &str) -> bool {
     compare_versions(candidate, current) == Some(1)
+}
+
+/// Alias for [`is_newer`].
+pub fn is_newer_version(candidate: &str, current: &str) -> bool {
+    is_newer(candidate, current)
 }

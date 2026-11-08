@@ -47,7 +47,7 @@ use bfe_desktop::host::{
     resolve_admin_port, resolve_game_port, resolve_server_executable, AiDifficulty, CloseChoice,
     HostController, HostControllerConfig, HostMode, HostOptions, RelayPolicy, TeamAssignment,
 };
-use bfe_desktop::paths::{resolve_desktop_paths, update_paths, DesktopPathsOptions};
+use bfe_desktop::paths::{resolve_desktop_paths, DesktopPathsOptions};
 use bfe_desktop::prepare::{
     checkout_content_version, read_prepare_state, toolchain_paths, verify_prepared_outputs,
     PrepareSession, PrepareSpawnOptions, ToolchainOptions,
@@ -58,12 +58,10 @@ use bfe_desktop::presence::activity::{
 };
 use bfe_desktop::presence::discord::try_publish_discord_activity;
 use bfe_desktop::settings::{PlayerSettingsStore, SettingsStore};
-use bfe_desktop::update::feed::{
-    normalize_channel, parse_and_verify_feed, resolve_channel_feed_url, select_update_target,
-    SelectTargetOptions, VerifyFeedOptions,
-};
-use bfe_desktop::update::install::{apply_pending_installer, ApplyInstallerOptions};
-use bfe_desktop::update::keys::FEED;
+use bfe_desktop::update::feed::{join_url, normalize_channel, verify_envelope};
+use bfe_desktop::update::keys::{default_keys, FEED};
+use bfe_desktop::update::state::{choose_launch, installed_versions, platform_key, read_state, state_file_path};
+use bfe_desktop::update::version::is_newer;
 
 /// Returns the platform string matching Node/Electron conventions (`"linux"`, `"darwin"`, `"win32"`).
 fn current_platform_str() -> &'static str {
@@ -315,43 +313,38 @@ fn cmd_update_check(args: &[String]) -> Result<(), String> {
         i += 1;
     }
 
-    // Resolve the release channel feed endpoint URL from `BFE_UPDATE_FEED_URL` or the default feed constant.
+    // Resolve the release channel feed endpoint URL from `BFE_UPDATE_FEED` / `BFE_UPDATE_FEED_URL` or `FEED`.
     let env_map = collect_env_map();
     let base_url = env_map
-        .get("BFE_UPDATE_FEED_URL")
+        .get("BFE_UPDATE_FEED")
+        .or_else(|| env_map.get("BFE_UPDATE_FEED_URL"))
         .cloned()
         .unwrap_or_else(|| FEED.to_string());
-    let feed_url = resolve_channel_feed_url(&base_url, Some(&channel), true)?;
+    let feed_url = join_url(&base_url, &format!("updates/{channel}.json"))?;
 
-    // When a local feed file is supplied, verify its Ed25519 signature and select the update target.
+    // When a local channel envelope file is supplied, verify its Ed25519 signature and report release metadata.
     if let Some(path) = feed_file.or_else(|| env_map.get("BFE_UPDATE_FEED_FILE").map(PathBuf::from))
     {
         let raw = fs::read_to_string(&path)
             .map_err(|e| format!("Failed reading {}: {}", path.display(), e))?;
         let val: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| format!("Invalid JSON: {}", e))?;
-        let feed = parse_and_verify_feed(
-            &val,
-            &VerifyFeedOptions {
-                expected_channel: Some(channel.clone()),
-                public_keys: None,
-                allow_insecure_local: true,
-                allow_unsigned: false,
-            },
-        )?;
-        let selection = select_update_target(
-            &feed,
-            &SelectTargetOptions {
-                current_version: env!("CARGO_PKG_VERSION").to_string(),
-                shell_version: env!("CARGO_PKG_VERSION").to_string(),
-                platform: current_platform_str().to_string(),
-                arch: current_arch_str().to_string(),
-                allow_payload: true,
-            },
-        )?;
+        let payload = verify_envelope(&val, &default_keys())?;
+        let plat = platform_key(current_platform_str(), current_arch_str());
+        let has_platform = plat
+            .map(|p| payload.release.platforms.contains_key(p))
+            .unwrap_or(false);
+        let available = is_newer(&payload.release.version, env!("CARGO_PKG_VERSION")) && has_platform;
         println!(
             "{}",
-            serde_json::to_string_pretty(&selection).unwrap_or_default()
+            serde_json::to_string_pretty(&serde_json::json!({
+                "available": available,
+                "channel": payload.channel,
+                "version": payload.release.version,
+                "releaseId": payload.release.id,
+                "platform": plat,
+            }))
+            .unwrap_or_default()
         );
         return Ok(());
     }
@@ -373,8 +366,8 @@ fn cmd_update_check(args: &[String]) -> Result<(), String> {
 
 /// Executes `desktop-tool update install --dry-run [--state-dir <DIR>]`.
 ///
-/// Requires `--dry-run` so the CLI never overwrites the running binary or spawns a
-/// detached OS installer during diagnostics.
+/// Inspects `<root>/state.json` and `<root>/versions/` in dry-run mode without spawning
+/// a child process.
 fn cmd_update_install(args: &[String]) -> Result<(), String> {
     // Require `--dry-run` so the CLI never replaces the running executable unintentionally.
     let dry_run = args.iter().any(|a| a == "--dry-run");
@@ -391,15 +384,14 @@ fn cmd_update_install(args: &[String]) -> Result<(), String> {
         i += 1;
     }
 
-    // Resolve the target `userData` directory from `--state-dir` or default platform paths.
     let env_map = collect_env_map();
-    let user_data = state_dir.unwrap_or_else(|| {
+    let root = state_dir.unwrap_or_else(|| {
         let home = env_map
             .get("HOME")
             .or_else(|| env_map.get("USERPROFILE"))
             .map(PathBuf::from);
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        resolve_desktop_paths(&DesktopPathsOptions {
+        let dp = resolve_desktop_paths(&DesktopPathsOptions {
             platform: current_platform_str().to_string(),
             home,
             cwd,
@@ -408,37 +400,29 @@ fn cmd_update_install(args: &[String]) -> Result<(), String> {
             resources_path: None,
             packaged: false,
             env: env_map.clone(),
-        })
-        .user_data
+        });
+        dp.update_root.unwrap_or(dp.user_data)
     });
 
-    // Inspect the update state file or run `apply_pending_installer` in dry-run mode.
-    let up = update_paths(&user_data);
-    if !up.state_file.exists() {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "action": "dry-run",
-                "status": "no-pending-installer",
-                "stateFile": up.state_file,
-            }))
-            .unwrap_or_default()
-        );
-        return Ok(());
-    }
+    let plat = platform_key(current_platform_str(), current_arch_str());
+    let state = read_state(&root);
+    let versions: Vec<String> = installed_versions(&root, plat)
+        .into_iter()
+        .map(|v| v.version)
+        .collect();
+    let candidate = choose_launch(&root, env!("CARGO_PKG_VERSION"), plat, None).map(|v| v.version);
 
-    let res = apply_pending_installer(
-        &up,
-        &ApplyInstallerOptions {
-            platform: current_platform_str().to_string(),
-            env: env_map,
-            exec_path: env::current_exe().unwrap_or_else(|_| PathBuf::from("bfe-client")),
-            dry_run: true,
-        },
-    )?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&res).unwrap_or_default()
+        serde_json::to_string_pretty(&serde_json::json!({
+            "action": "dry-run",
+            "stateFile": state_file_path(&root),
+            "installedVersions": versions,
+            "launchCandidate": candidate,
+            "healthy": state.healthy,
+            "bad": state.bad,
+        }))
+        .unwrap_or_default()
     );
     Ok(())
 }

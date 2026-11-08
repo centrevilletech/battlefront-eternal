@@ -87,8 +87,12 @@ AppArmor profile that allows user namespaces for that executable (Ubuntu
 profile. Native Linux builds also include a relative
 `battlefront-eternal -> bfe-client` symlink inside the version folder so
 existing launchers and `.desktop` entries continue to resolve across an update
-from an Electron build to a native build. `apt upgrade` still works: a newer
-package simply becomes the newest version.
+from an Electron build to a native build. On X11, the native windowing backend
+loads `libxkbcommon-x11.so.0` (`libxkbcommon-x11-0`); Electron packages already
+pull in `libxkbcommon0` through `libgtk-3-0` while standard desktop
+installations include `libxkbcommon-x11-0`, and the native Debian package lists
+`libxkbcommon-x11-0` in `Depends` so `apt upgrade` installs it automatically.
+`apt upgrade` still works: a newer package simply becomes the newest version.
 
 ### AppImage
 
@@ -112,9 +116,9 @@ settings, saves and prepared game data in `%APPDATA%\Battlefront Eternal`.
 
 ## Trust
 
-Only releases signed with a key listed in `electron/update/keys.js` are
-installed. Choosing another master server or feed grants no code
-execution.
+Only releases signed with a key listed in `rust/bfe-desktop/src/update/keys.rs`
+(and `electron/update/keys.js` in Electron builds) are installed. Choosing
+another master server or feed grants no code execution.
 
 - The channel file `downloads/updates/<channel>.json` is an envelope: the
   release JSON (version, release id, content generations and, per
@@ -136,8 +140,8 @@ execution.
 
 The private key stays on the release host and is never in this repository.
 Keep a copy offline: without it no installed client accepts another update.
-To rotate, add the new public key to `keys.js`, ship a release signed with
-the old key, then switch.
+To rotate, add the new public key to `keys.rs` and `keys.js`, ship a release
+signed with the old key, then switch.
 
 ## Recovery
 

@@ -1,8 +1,8 @@
 //! Startup update check, content resolution, and background `PrepareSession` host.
 //!
 //! Responsibilities:
-//! 1. Inspect any staged self-update handoff (`bfe_desktop::update::install::apply_pending_installer`)
-//!    and check the release feed (`bfe_desktop::update::feed`) with a hard <= 3s timeout
+//! 1. Hand off to any newer installed version (`bfe_desktop::update::handoff::boot_handoff_or_continue`)
+//!    and schedule/check the release channel (`bfe_desktop::update::feed`) with a bounded timeout
 //!    so an offline or unreachable update server never delays startup beyond 5 seconds.
 //! 2. Resolve prepared content via [`bfe_desktop::prepare::resolve_startup_content`].
 //! 3. When raw game files are discovered (`StartupMode::Prepare` or `StartupMode::Confirm`),
@@ -13,18 +13,16 @@
 
 use crate::app::settings::{current_arch_str, current_platform_str, AppSettingsStore};
 use bfe_desktop::{
-    paths::{likely_content_dirs, update_paths},
+    paths::likely_content_dirs,
     prepare::{
         resolve_startup_content, toolchain_paths, PrepareSession, PrepareSnapshot,
         PrepareSpawnOptions, StartupMode, ToolchainOptions,
     },
     update::{
-        feed::{
-            normalize_channel, parse_and_verify_feed, resolve_channel_feed_url,
-            select_update_target, SelectTargetOptions, VerifyFeedOptions,
-        },
-        install::{apply_pending_installer, ApplyInstallerOptions},
-        keys::FEED,
+        feed::{join_url, normalize_channel, verify_envelope},
+        handoff::{boot_handoff_or_continue, schedule_background_check},
+        keys::{default_keys, FEED},
+        version::is_newer,
     },
 };
 use bfe_render::interface::{Font, Glyph};
@@ -49,40 +47,32 @@ pub enum UpdateCheckOutcome {
     OfflineSkipped(String),
 }
 
-/// Checks for a pending installer handoff and queries the update feed with a bounded
-/// timeout (<= 2.5 seconds) so offline hosts proceed to the game well within 5 seconds.
+/// Hands off to any newer installed version under `<root>/versions` and schedules
+/// a background update check against the published channel.
 pub fn run_bounded_update_check(
     store: &AppSettingsStore,
     skip_network: bool,
 ) -> UpdateCheckOutcome {
-    let env_map: BTreeMap<String, String> = env::vars().collect();
-    let up = update_paths(&store.paths.user_data);
-    if up.state_file.exists() {
-        let _ = apply_pending_installer(
-            &up,
-            &ApplyInstallerOptions {
-                platform: current_platform_str().to_string(),
-                env: env_map.clone(),
-                exec_path: env::current_exe().unwrap_or_else(|_| PathBuf::from("bfe-client")),
-                dry_run: true,
-            },
-        );
-    }
+    boot_handoff_or_continue();
 
     if skip_network || !store.desktop.auto_check_updates {
         return UpdateCheckOutcome::UpToDate;
     }
 
+    schedule_background_check();
+
+    let env_map: BTreeMap<String, String> = env::vars().collect();
     let channel = normalize_channel(Some(&store.desktop.update_channel)).to_string();
     if let Some(feed_file) = env_map.get("BFE_UPDATE_FEED_FILE").map(PathBuf::from) {
         return check_local_feed_file(&feed_file, &channel);
     }
 
     let base_url = env_map
-        .get("BFE_UPDATE_FEED_URL")
+        .get("BFE_UPDATE_FEED")
+        .or_else(|| env_map.get("BFE_UPDATE_FEED_URL"))
         .cloned()
         .unwrap_or_else(|| FEED.to_string());
-    let Ok(feed_url) = resolve_channel_feed_url(&base_url, Some(&channel), true) else {
+    let Ok(feed_url) = join_url(&base_url, &format!("updates/{channel}.json")) else {
         return UpdateCheckOutcome::OfflineSkipped("invalid update feed URL".to_string());
     };
 
@@ -98,54 +88,31 @@ pub fn run_bounded_update_check(
     }
 }
 
-fn check_local_feed_file(path: &Path, channel: &str) -> UpdateCheckOutcome {
+fn check_local_feed_file(path: &Path, _channel: &str) -> UpdateCheckOutcome {
     let Ok(raw) = std::fs::read_to_string(path) else {
         return UpdateCheckOutcome::OfflineSkipped("missing feed file".to_string());
     };
     let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return UpdateCheckOutcome::OfflineSkipped("malformed feed JSON".to_string());
     };
-    let Ok(feed) = parse_and_verify_feed(
-        &val,
-        &VerifyFeedOptions {
-            expected_channel: Some(channel.to_string()),
-            public_keys: None,
-            allow_insecure_local: true,
-            allow_unsigned: false,
-        },
-    ) else {
+    let Ok(payload) = verify_envelope(&val, &default_keys()) else {
         return UpdateCheckOutcome::OfflineSkipped("feed signature verification failed".to_string());
     };
-    let Ok(sel) = select_update_target(
-        &feed,
-        &SelectTargetOptions {
-            current_version: env!("CARGO_PKG_VERSION").to_string(),
-            shell_version: env!("CARGO_PKG_VERSION").to_string(),
-            platform: current_platform_str().to_string(),
-            arch: current_arch_str().to_string(),
-            allow_payload: true,
-        },
-    ) else {
-        return UpdateCheckOutcome::UpToDate;
-    };
-    if !sel.available || sel.kind == "none" {
-        UpdateCheckOutcome::UpToDate
-    } else {
+    if is_newer(&payload.release.version, env!("CARGO_PKG_VERSION")) {
         UpdateCheckOutcome::UpdateAvailable {
-            version: sel
-                .target_version
-                .or_else(|| feed.releases.first().map(|r| r.version.clone()))
-                .unwrap_or_default(),
-            kind: sel.kind,
+            version: payload.release.version,
+            kind: "release".to_string(),
         }
+    } else {
+        UpdateCheckOutcome::UpToDate
     }
 }
 
-fn fetch_and_check_feed(feed_url: &str, _channel: &str) -> UpdateCheckOutcome {
-    // Only local `file://` or explicitly reachable endpoints are fetched without
-    // stalling startup; unreachable remote hosts fail fast.
+fn fetch_and_check_feed(feed_url: &str, channel: &str) -> UpdateCheckOutcome {
+    // Only local `file://` endpoints are inspected synchronously here; remote
+    // HTTP/HTTPS channels are handled by `schedule_background_check()`.
     if let Some(local_path) = feed_url.strip_prefix("file://") {
-        return check_local_feed_file(Path::new(local_path), _channel);
+        return check_local_feed_file(Path::new(local_path), channel);
     }
     UpdateCheckOutcome::OfflineSkipped("offline or no local feed configured".to_string())
 }
@@ -315,6 +282,14 @@ impl StartupContentState {
     /// Polls any running background `PrepareSession` without blocking.
     /// Returns `Some(ready_dir)` once preparation reaches a playable/complete state.
     pub fn poll(&mut self, store: &mut AppSettingsStore) -> Option<PathBuf> {
+        // Once the window exists and the first frame enters `poll`, signal launch
+        // readiness (`BFE_LAUNCH_TOKEN`) and schedule the 10-second update settlement.
+        static LAUNCH_LIFECYCLE: std::sync::Once = std::sync::Once::new();
+        LAUNCH_LIFECYCLE.call_once(|| {
+            bfe_desktop::launch::ready();
+            bfe_desktop::launch::schedule_settle();
+        });
+
         let Self::Preparing {
             session,
             latest,

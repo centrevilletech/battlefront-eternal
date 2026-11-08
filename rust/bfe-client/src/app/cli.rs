@@ -149,6 +149,23 @@ where
                 let dir = it.next().ok_or("missing value for --content-dir")?;
                 opts.content_dir = Some(PathBuf::from(dir));
             }
+            s if s.starts_with("--content-dir=") => {
+                let dir = &s["--content-dir=".len()..];
+                if dir.is_empty() {
+                    return Err("missing value for --content-dir".into());
+                }
+                opts.content_dir = Some(PathBuf::from(dir));
+            }
+            "--no-sandbox"
+            | "--disable-setuid-sandbox"
+            | "--in-process-gpu"
+            | "--disable-direct-composition"
+            | "--force_high_performance_gpu"
+            | "--steam"
+            | "--appimage-extract-and-run" => {}
+            s if s.starts_with("--dev-url=")
+                || s.starts_with("--query=")
+                || s.starts_with("--network-family-autoselection-attempt-timeout=") => {}
             "--no-audio" => {
                 opts.audio = false;
             }
@@ -244,6 +261,30 @@ mod tests {
     fn default_no_args_selects_standalone() {
         let res = parse_args(Vec::<String>::new()).expect("standalone");
         assert!(matches!(res, CliDispatch::Standalone(_)));
+    }
+
+    #[test]
+    fn bootstrap_and_launcher_flags_are_ignored() {
+        let res = parse_args(vec![
+            "--no-sandbox".into(),
+            "--disable-setuid-sandbox".into(),
+            "--in-process-gpu".into(),
+            "--disable-direct-composition".into(),
+            "--force_high_performance_gpu".into(),
+            "--steam".into(),
+            "--appimage-extract-and-run".into(),
+            "--dev-url=http://127.0.0.1:18449".into(),
+            "--query=map=nab2".into(),
+            "--network-family-autoselection-attempt-timeout=250".into(),
+            "--content-dir=/opt/example/content".into(),
+        ])
+        .expect("standalone with bootstrap flags");
+        match res {
+            CliDispatch::Standalone(opts) => {
+                assert_eq!(opts.content_dir, Some(PathBuf::from("/opt/example/content")));
+            }
+            other => panic!("expected Standalone, got {other:?}"),
+        }
     }
 
     #[test]

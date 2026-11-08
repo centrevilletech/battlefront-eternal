@@ -253,6 +253,7 @@ name = "bfe-desktop"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "basis-transcode",
  "crc32fast",
  "ed25519-dalek",
  "flate2",
@@ -262,6 +263,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "ureq",
  "windows-sys 0.61.2",
 ]
 

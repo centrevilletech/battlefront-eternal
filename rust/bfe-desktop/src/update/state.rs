@@ -1,31 +1,19 @@
-//! Persistent desktop auto-update state, version slot management, crash-loop
+//! Persistent desktop auto-update state, installed version enumeration, crash-loop
 //! rollback guard, and `current` symlink updates.
 //!
 //! Mirrors `electron/update/state.js` (`INSTALL_RECORD`, `MAX_ATTEMPTS`,
-//! `SUPPORTED_PLATFORMS`, `versionsDir`, `platformKey`, `pointCurrent`) and
-//! provides structured slot state management.
-//!
-//! ## Update Lifecycle & Crash-Loop Guard
-//! 1. When a new payload version is installed and verified, [`activate_payload_slot`]
-//!    promotes the prior `active` slot to `previous` and sets the new slot as `active`
-//!    with `confirmed: false` and `boot_attempts: 0`.
-//! 2. On each startup before the shell loads the payload, [`resolve_active_payload_for_launch`]
-//!    checks `active.boot_attempts < MAX_ATTEMPTS` (`2`), verifies the payload directory's
-//!    tree SHA-256, and increments `boot_attempts`.
-//! 3. Once the application completes startup cleanly, [`mark_active_payload_boot_succeeded`]
-//!    sets `confirmed: true` and resets `boot_attempts: 0`.
-//! 4. If an unconfirmed payload crashes or fails tree verification twice, it is rolled back
-//!    to `previous` (or cleared back to the base shell) and pruned by [`prune_payload_slots`].
+//! `SUPPORTED_PLATFORMS`, `updateRoot`, `platformKey`, `versionsDir`, `readState`,
+//! `writeState`, `installedVersions`, `chooseLaunch`, `recordAttempt`,
+//! `recordHealthy`, `pointCurrent`, `collect`).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::paths::UpdatePaths;
-use crate::update::feed::normalize_channel;
-use crate::update::tree::verify_payload_directory;
+use crate::paths::{normalize_lexical, resolve_from, update_root_with};
 use crate::update::version::{compare_versions, parse_version};
 
 /// Filename of the completion marker record written last inside an installed
@@ -39,22 +27,370 @@ pub const INSTALL_RECORD: &str = ".bfe-install.json";
 /// Mirrors `MAX_ATTEMPTS` in `electron/update/state.js`.
 pub const MAX_ATTEMPTS: u32 = 2;
 
-/// Alias for [`MAX_ATTEMPTS`] used by payload slot rollback checks.
-pub const MAX_FAILED_BOOTS: u32 = MAX_ATTEMPTS;
-
 /// Platforms supported by the built-in auto-updater (`linux-x64`, `linux-arm64`, `win32-x64`).
 ///
 /// Mirrors `SUPPORTED_PLATFORMS` in `electron/update/state.js`.
 pub const SUPPORTED_PLATFORMS: &[&str] = &["linux-x64", "linux-arm64", "win32-x64"];
 
-/// Schema version for `update-state.json` (`1`).
-pub const STATE_SCHEMA: u32 = 1;
+/// Maps an OS and CPU architecture identifier to one of [`SUPPORTED_PLATFORMS`].
+///
+/// Accepts both Node/Electron names (`"win32"`, `"x64"`, `"arm64"`) and Rust
+/// `std::env::consts` names (`"windows"`, `"x86_64"`, `"aarch64"`).
+///
+/// Mirrors `platformKey` in `electron/update/state.js`.
+pub fn platform_key(platform: &str, arch: &str) -> Option<&'static str> {
+    let norm_plat = match platform {
+        "linux" => "linux",
+        "win32" | "windows" => "win32",
+        _ => return None,
+    };
+    let norm_arch = match arch {
+        "x64" | "x86_64" => "x64",
+        "arm64" | "aarch64" => "arm64",
+        _ => return None,
+    };
+    match (norm_plat, norm_arch) {
+        ("linux", "x64") => Some("linux-x64"),
+        ("linux", "arm64") => Some("linux-arm64"),
+        ("win32", "x64") => Some("win32-x64"),
+        _ => None,
+    }
+}
+
+/// Returns the [`platform_key`] for the host target where this binary was compiled.
+pub fn current_platform_key() -> Option<&'static str> {
+    platform_key(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Resolves the root directory for installed versions and `state.json`, honouring
+/// `BFE_UPDATE_ROOT` first and falling back to [`update_root_with`].
+///
+/// Mirrors `root = env.BFE_UPDATE_ROOT || updateRoot({ platform, env })` in
+/// `electron/update/index.js` and `updateRoot` in `electron/update/state.js`.
+pub fn resolve_update_root(
+    platform: &str,
+    env_map: &HashMap<String, String>,
+    home: &Path,
+) -> Option<PathBuf> {
+    if let Some(explicit) = env_map.get("BFE_UPDATE_ROOT").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(explicit));
+    }
+    update_root_with(platform, env_map, home)
+}
 
 /// Returns `<root>/versions`.
 ///
 /// Mirrors `versionsDir` in `electron/update/state.js`.
 pub fn versions_dir(root: &Path) -> PathBuf {
     root.join("versions")
+}
+
+/// Returns `<root>/state.json`.
+///
+/// Mirrors `stateFile` in `electron/update/state.js`.
+pub fn state_file_path(root: &Path) -> PathBuf {
+    root.join("state.json")
+}
+
+/// Persistent launch-attempt and version-health state stored in `<root>/state.json`.
+///
+/// Mirrors `defaultState` and `normalizeState` in `electron/update/state.js`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct State {
+    /// Unconfirmed launch attempt counts keyed by version string.
+    #[serde(default)]
+    pub attempts: BTreeMap<String, u32>,
+    /// Versions that exceeded [`MAX_ATTEMPTS`] without calling [`record_healthy`].
+    #[serde(default)]
+    pub bad: Vec<String>,
+    /// Recently confirmed healthy versions, newest confirmation first (up to 10).
+    #[serde(default)]
+    pub healthy: Vec<String>,
+}
+
+/// Single file entry inside `<version>/.bfe-install.json`.
+///
+/// Mirrors the `files` array written by `installRelease` in `electron/update/install.js`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstallFileEntry {
+    /// Relative POSIX path beneath the version directory.
+    pub path: String,
+    /// Uncompressed file size in bytes.
+    pub size: u64,
+    /// Lowercase hex SHA-256 of the uncompressed file.
+    pub sha256: String,
+    /// Optional POSIX file permission mode (`0o755` for executables, `0o644` for regular files).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
+}
+
+fn deserialize_files_or_count<'de, D>(deserializer: D) -> Result<Vec<InstallFileEntry>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum FilesOrCount {
+        Entries(Vec<InstallFileEntry>),
+        Count(#[allow(dead_code)] u64),
+    }
+
+    match Option::<FilesOrCount>::deserialize(deserializer)? {
+        Some(FilesOrCount::Entries(entries)) => Ok(entries),
+        Some(FilesOrCount::Count(_)) | None => Ok(Vec::new()),
+    }
+}
+
+/// Completion marker written last to `<root>/versions/<version>/.bfe-install.json`.
+///
+/// Mirrors `record` in `installRelease` (`electron/update/install.js`) and
+/// `installedVersions` (`electron/update/state.js`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstallRecord {
+    /// Semantic version string matching the parent directory name.
+    pub version: String,
+    /// Release identifier (`"preview-332"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_id: Option<String>,
+    /// Source git commit SHA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// Platform key (`"linux-x64"`, `"linux-arm64"`, `"win32-x64"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    /// Relative path to the main executable inside the version directory.
+    pub executable: String,
+    /// Manifest file list (or integer file count when written by Electron's `installRelease`).
+    #[serde(default, deserialize_with = "deserialize_files_or_count")]
+    pub files: Vec<InstallFileEntry>,
+    /// ISO-8601 timestamp when installation completed.
+    #[serde(rename = "installedAt", default, skip_serializing_if = "Option::is_none")]
+    pub installed_at: Option<String>,
+}
+
+/// Verified installed version discovered under `<root>/versions/<version>`.
+///
+/// Mirrors the objects returned by `installedVersions` in `electron/update/state.js`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledVersion {
+    /// Semantic version string (`"0.1.0-preview.332"`).
+    pub version: String,
+    /// Release identifier (`"preview-332"`), if present in `.bfe-install.json`.
+    pub release_id: Option<String>,
+    /// Source git commit SHA, if present in `.bfe-install.json`.
+    pub revision: Option<String>,
+    /// Platform key (`"linux-x64"`, etc.), if present in `.bfe-install.json`.
+    pub platform: Option<String>,
+    /// Absolute or root-joined path to `<root>/versions/<version>`.
+    pub dir: PathBuf,
+    /// Resolved path to the executable inside `dir`.
+    pub executable: PathBuf,
+    /// ISO-8601 timestamp when installation completed.
+    pub installed_at: Option<String>,
+}
+
+/// Sanitizes a raw [`State`] loaded from disk, dropping invalid version strings,
+/// zero counts, and duplicate entries in `bad` and `healthy`.
+///
+/// Mirrors `normalizeState` in `electron/update/state.js`.
+pub fn normalize_state(raw: State) -> State {
+    let mut attempts = BTreeMap::new();
+    for (version, count) in raw.attempts {
+        if parse_version(&version).is_some() && count > 0 {
+            attempts.insert(version, count);
+        }
+    }
+    let mut bad = Vec::new();
+    let mut seen_bad = BTreeSet::new();
+    for v in raw.bad {
+        if parse_version(&v).is_some() && seen_bad.insert(v.clone()) {
+            bad.push(v);
+        }
+    }
+    let mut healthy = Vec::new();
+    let mut seen_healthy = BTreeSet::new();
+    for v in raw.healthy {
+        if parse_version(&v).is_some() && seen_healthy.insert(v.clone()) {
+            healthy.push(v);
+        }
+    }
+    State {
+        attempts,
+        bad,
+        healthy,
+    }
+}
+
+/// Reads and normalizes `<root>/state.json`, returning [`State::default`] when
+/// missing or corrupt.
+///
+/// Mirrors `readState` in `electron/update/state.js`.
+pub fn read_state(root: &Path) -> State {
+    let path = state_file_path(root);
+    let Ok(bytes) = fs::read(&path) else {
+        return State::default();
+    };
+    let Ok(parsed) = serde_json::from_slice::<State>(&bytes) else {
+        return State::default();
+    };
+    normalize_state(parsed)
+}
+
+/// Atomically writes `state` to `<root>/state.json` via a sibling `.tmp` rename.
+///
+/// Mirrors `writeState` in `electron/update/state.js` and `writeJsonAtomic` in
+/// `electron/update/fs.js`.
+pub fn write_state(root: &Path, state: &State) -> Result<State, String> {
+    let normalized = normalize_state(state.clone());
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let target = state_file_path(root);
+    let mut nonce = [0u8; 6];
+    let _ = getrandom::getrandom(&mut nonce);
+    let hex_nonce: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+    let temp = root.join(format!(
+        ".state.json.tmp-{}-{}",
+        std::process::id(),
+        hex_nonce
+    ));
+    let mut payload = serde_json::to_vec_pretty(&normalized).map_err(|e| e.to_string())?;
+    payload.push(b'\n');
+    if let Err(err) = fs::write(&temp, &payload).and_then(|_| fs::rename(&temp, &target)) {
+        let _ = fs::remove_file(&temp);
+        return Err(err.to_string());
+    }
+    Ok(normalized)
+}
+
+/// Lists all valid installed versions under `<root>/versions`, sorted newest-first.
+///
+/// Only directories containing a valid `.bfe-install.json` whose `version` matches
+/// the directory name and whose `executable` resolves inside the version directory
+/// and exists on disk are returned.
+///
+/// Mirrors `installedVersions` in `electron/update/state.js`.
+pub fn installed_versions(root: &Path, platform: Option<&str>) -> Vec<InstalledVersion> {
+    let dir = versions_dir(root);
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut list = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+            continue;
+        };
+        let ver_dir = dir.join(&name);
+        let record_path = ver_dir.join(INSTALL_RECORD);
+        let Ok(raw) = fs::read(&record_path) else {
+            continue;
+        };
+        let Ok(record) = serde_json::from_slice::<InstallRecord>(&raw) else {
+            continue;
+        };
+        if parse_version(&record.version).is_none() || record.version != name {
+            continue;
+        }
+        if let Some(expected_plat) = platform {
+            if record.platform.as_deref() != Some(expected_plat) {
+                continue;
+            }
+        }
+        if record.executable.is_empty() {
+            continue;
+        }
+        let norm_dir = normalize_lexical(&ver_dir);
+        let exe = resolve_from(&norm_dir, Path::new(&record.executable));
+        if (exe != norm_dir && !exe.starts_with(&norm_dir)) || !exe.exists() {
+            continue;
+        }
+        list.push(InstalledVersion {
+            version: record.version,
+            release_id: record.release_id,
+            revision: record.revision,
+            platform: record.platform,
+            dir: ver_dir,
+            executable: exe,
+            installed_at: record.installed_at,
+        });
+    }
+    list.sort_by(|a, b| {
+        match compare_versions(&b.version, &a.version).unwrap_or(0) {
+            cmp if cmp < 0 => std::cmp::Ordering::Less,
+            cmp if cmp > 0 => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        }
+    });
+    list
+}
+
+/// Selects the newest installed version newer than `current_version` that is eligible
+/// for launch handoff (not `own_dir`, not in `state.bad`, and either in `state.healthy`
+/// or with fewer than [`MAX_ATTEMPTS`] unconfirmed attempts).
+///
+/// Mirrors `chooseLaunch` in `electron/update/state.js`.
+pub fn choose_launch(
+    root: &Path,
+    current_version: &str,
+    platform: Option<&str>,
+    own_dir: Option<&Path>,
+) -> Option<InstalledVersion> {
+    parse_version(current_version)?;
+    let state = read_state(root);
+    let candidates = installed_versions(root, platform);
+    let resolved_own = own_dir.map(normalize_lexical);
+    for item in candidates {
+        if compare_versions(&item.version, current_version).unwrap_or(0) <= 0 {
+            break;
+        }
+        if let Some(own) = &resolved_own {
+            if normalize_lexical(&item.dir) == *own {
+                continue;
+            }
+        }
+        if state.bad.contains(&item.version) {
+            continue;
+        }
+        let attempts = state.attempts.get(&item.version).copied().unwrap_or(0);
+        let healthy = state.healthy.contains(&item.version);
+        if !healthy && attempts >= MAX_ATTEMPTS {
+            continue;
+        }
+        return Some(item);
+    }
+    None
+}
+
+/// Increments the launch attempt counter for `version` in `<root>/state.json`.
+/// When an unconfirmed version reaches [`MAX_ATTEMPTS`], adds it to `state.bad`.
+///
+/// Mirrors `recordAttempt` in `electron/update/state.js`.
+pub fn record_attempt(root: &Path, version: &str) -> Result<State, String> {
+    let mut state = read_state(root);
+    let count = state.attempts.get(version).copied().unwrap_or(0) + 1;
+    state.attempts.insert(version.to_string(), count);
+    if !state.healthy.contains(&version.to_string())
+        && count >= MAX_ATTEMPTS
+        && !state.bad.contains(&version.to_string())
+    {
+        state.bad.push(version.to_string());
+    }
+    write_state(root, &state)
+}
+
+/// Records `version` as healthy in `<root>/state.json`, clearing any failed attempt
+/// counter or `bad` marker and placing `version` at the front of `healthy` (capped at 10).
+///
+/// Mirrors `recordHealthy` in `electron/update/state.js`.
+pub fn record_healthy(root: &Path, version: &str) -> Result<State, String> {
+    let mut state = read_state(root);
+    state.attempts.remove(version);
+    state.bad.retain(|v| v != version);
+    state.healthy.retain(|v| v != version);
+    state.healthy.insert(0, version.to_string());
+    state.healthy.truncate(10);
+    write_state(root, &state)
 }
 
 /// Atomically points `<root>/current` at the relative path from `root` to `dir`
@@ -66,8 +402,13 @@ pub fn point_current(root: &Path, dir: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
+        let norm_root = normalize_lexical(root);
+        let norm_dir = normalize_lexical(dir);
         let link = root.join("current");
-        let target = dir.strip_prefix(root).unwrap_or(dir);
+        let target = norm_dir
+            .strip_prefix(&norm_root)
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|_| dir.strip_prefix(root).unwrap_or(dir).to_path_buf());
         if let Ok(existing) = fs::read_link(&link) {
             if existing == target {
                 return false;
@@ -80,7 +421,7 @@ pub fn point_current(root: &Path, dir: &Path) -> bool {
         }
         let temp = root.join(format!(".current-{}", std::process::id()));
         let _ = fs::remove_file(&temp);
-        if symlink(target, &temp).is_ok() && fs::rename(&temp, &link).is_ok() {
+        if symlink(&target, &temp).is_ok() && fs::rename(&temp, &link).is_ok() {
             return true;
         }
         let _ = fs::remove_file(&temp);
@@ -93,439 +434,68 @@ pub fn point_current(root: &Path, dir: &Path) -> bool {
     }
 }
 
-/// Installed payload slot record stored in `update-state.json` (`active` or `previous`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PayloadSlot {
-    /// Semantic version string (`"0.2.1"`).
-    pub version: String,
-    /// Release channel (`"stable"` or `"nightly"`).
-    pub channel: String,
-    /// Minimum shell version required by this payload.
-    pub min_shell_version: String,
-    /// Expected tree SHA-256 of the payload directory.
-    pub tree_sha256: String,
-    /// Archive SHA-256 of the downloaded `.zip` payload, if known.
-    pub archive_sha256: Option<String>,
-    /// Timestamp when the slot was installed.
-    pub installed_at: Option<String>,
-    /// Number of consecutive boots that have not yet called [`mark_active_payload_boot_succeeded`].
-    #[serde(default)]
-    pub boot_attempts: u32,
-    /// Whether the payload has completed at least one healthy boot.
-    #[serde(default)]
-    pub confirmed: bool,
-}
-
-/// Pending downloaded full installer record stored in `update-state.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PendingInstaller {
-    /// Target version of the downloaded installer.
-    pub version: String,
-    /// Channel of the downloaded installer.
-    pub channel: String,
-    /// Installer package kind (`"appimage"`, `"nsis"`, `"dmg"`, `"zip"`, `"tar.gz"`).
-    pub kind: String,
-    /// Local path to the downloaded installer file.
-    pub path: String,
-    /// Expected SHA-256 hex digest of the installer file.
-    pub sha256: String,
-    /// Expected byte size of the installer file.
-    pub size: u64,
-    /// Timestamp when the installer finished downloading.
-    pub downloaded_at: Option<String>,
-}
-
-/// Persistent update state serialized to `<userData>/updates/update-state.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateState {
-    /// State schema version (`1`).
-    pub schema: u32,
-    /// Selected update channel (`"stable"` or `"nightly"`).
-    pub channel: String,
-    /// Whether automatic background update checks are enabled.
-    pub auto_check: bool,
-    /// Currently active payload slot, if any.
-    pub active: Option<PayloadSlot>,
-    /// Previously active payload slot kept for instant rollback, if any.
-    pub previous: Option<PayloadSlot>,
-    /// Pending full installer waiting to be applied on restart, if any.
-    pub pending_installer: Option<PendingInstaller>,
-    /// Timestamp of the last completed update check.
-    pub last_check_at: Option<String>,
-    /// Version discovered during the last update check.
-    pub last_available_version: Option<String>,
-    /// Last update error message or rollback code.
-    pub last_error: Option<String>,
-    /// Version that was most recently rolled back due to failed boots or tampering.
-    pub rolled_back_version: Option<String>,
-}
-
-impl Default for UpdateState {
-    fn default() -> Self {
-        Self {
-            schema: STATE_SCHEMA,
-            channel: "stable".to_string(),
-            auto_check: true,
-            active: None,
-            previous: None,
-            pending_installer: None,
-            last_check_at: None,
-            last_available_version: None,
-            last_error: None,
-            rolled_back_version: None,
-        }
-    }
-}
-
-/// Validates and normalizes a [`PayloadSlot`].
+/// Garbage-collects installed version directories under `<root>/versions` that are
+/// not in `keep_versions` or the first `keep_healthy` entries of `state.healthy`,
+/// and prunes launch readiness files under `<root>/launches` older than 5 minutes.
 ///
-/// Returns `None` if `version`, `min_shell_version`, or `tree_sha256` is invalid.
-pub fn normalize_slot(slot: Option<PayloadSlot>) -> Option<PayloadSlot> {
-    let s = slot?;
-    if parse_version(&s.version).is_none() || parse_version(&s.min_shell_version).is_none() {
-        return None;
+/// Mirrors `collect` in `electron/update/state.js`.
+pub fn collect(root: &Path, keep_versions: &[String], keep_healthy: usize) -> Vec<String> {
+    let mut state = read_state(root);
+    let mut keep: BTreeSet<String> = keep_versions
+        .iter()
+        .filter(|v| !v.is_empty())
+        .cloned()
+        .collect();
+    for version in state.healthy.iter().take(keep_healthy) {
+        keep.insert(version.clone());
     }
-    if s.tree_sha256.len() != 64
-        || !s
-            .tree_sha256
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-    {
-        return None;
-    }
-    Some(PayloadSlot {
-        version: s.version,
-        channel: normalize_channel(Some(&s.channel)).to_string(),
-        min_shell_version: s.min_shell_version,
-        tree_sha256: s.tree_sha256,
-        archive_sha256: s.archive_sha256.filter(|h| {
-            h.len() == 64
-                && h.chars()
-                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        }),
-        installed_at: s.installed_at,
-        boot_attempts: s.boot_attempts,
-        confirmed: s.confirmed,
-    })
-}
 
-/// Validates and normalizes an [`UpdateState`].
-pub fn normalize_update_state(state: UpdateState) -> UpdateState {
-    // Discard any pending installer entry whose version, path, or SHA-256 is malformed.
-    let pending = state.pending_installer.and_then(|p| {
-        if parse_version(&p.version).is_none() || p.path.is_empty() || p.kind.is_empty() {
-            return None;
-        }
-        if p.sha256.len() != 64
-            || !p
-                .sha256
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        {
-            return None;
-        }
-        Some(PendingInstaller {
-            version: p.version,
-            channel: normalize_channel(Some(&p.channel)).to_string(),
-            kind: p.kind,
-            path: p.path,
-            sha256: p.sha256,
-            size: p.size,
-            downloaded_at: p.downloaded_at,
-        })
-    });
-
-    UpdateState {
-        schema: STATE_SCHEMA,
-        channel: normalize_channel(Some(&state.channel)).to_string(),
-        auto_check: state.auto_check,
-        active: normalize_slot(state.active),
-        previous: normalize_slot(state.previous),
-        pending_installer: pending,
-        last_check_at: state.last_check_at,
-        last_available_version: state.last_available_version,
-        last_error: state.last_error,
-        rolled_back_version: state.rolled_back_version,
-    }
-}
-
-/// Reads and normalizes `<state_file>` (`update-state.json`), returning
-/// [`UpdateState::default`] if missing or corrupt.
-///
-/// Mirrors `readState` in `electron/update/state.js`.
-pub fn read_update_state(state_file: &Path) -> UpdateState {
-    let Ok(raw) = fs::read_to_string(state_file) else {
-        return UpdateState::default();
-    };
-    let Ok(parsed) = serde_json::from_str::<UpdateState>(&raw) else {
-        return UpdateState::default();
-    };
-    normalize_update_state(parsed)
-}
-
-/// Atomically writes `state` to `state_file` via a PID-tagged `.tmp` sibling file.
-///
-/// Mirrors `writeState` in `electron/update/state.js`.
-pub fn write_update_state(state_file: &Path, state: &UpdateState) -> Result<UpdateState, String> {
-    let normalized = normalize_update_state(state.clone());
-    if let Some(parent) = state_file.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let tmp = state_file.with_extension(format!("json.{}.tmp", std::process::id()));
-    let mut bytes = serde_json::to_vec_pretty(&normalized).map_err(|e| e.to_string())?;
-    bytes.push(b'\n');
-    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, state_file).map_err(|e| e.to_string())?;
-    Ok(normalized)
-}
-
-/// Resolves the payload slot directory (`<payloads_dir>/<version>`) for `version`,
-/// rejecting invalid versions or path traversal.
-pub fn payload_slot_dir(paths: &UpdatePaths, version: &str) -> Result<PathBuf, String> {
-    let parsed = parse_version(version)
-        .ok_or_else(|| format!("Invalid payload slot version: {}", version))?;
-    let slot_dir = paths.payloads_dir.join(&parsed.raw);
-    if !slot_dir.starts_with(&paths.payloads_dir) || slot_dir == paths.payloads_dir {
-        return Err(format!("Refusing unsafe payload slot path for {}", version));
-    }
-    Ok(slot_dir)
-}
-
-/// Activates a newly installed [`PayloadSlot`] in `update-state.json`, moving any
-/// previous `active` slot of a different version into `previous`.
-pub fn activate_payload_slot(
-    paths: &UpdatePaths,
-    new_slot: PayloadSlot,
-) -> Result<UpdateState, String> {
-    let normalized_new =
-        normalize_slot(Some(new_slot)).ok_or_else(|| "Invalid payload slot metadata.".to_string())?;
-    let mut current = read_update_state(&paths.state_file);
-
-    // Keep the prior active slot as `previous` so we can roll back in one step if needed.
-    let previous = match &current.active {
-        Some(act) if act.version != normalized_new.version => Some(act.clone()),
-        _ => current.previous.clone(),
-    };
-
-    current.channel = normalized_new.channel.clone();
-    current.active = Some(PayloadSlot {
-        boot_attempts: 0,
-        confirmed: false,
-        ..normalized_new
-    });
-    current.previous = previous;
-    current.last_error = None;
-    current.rolled_back_version = None;
-
-    write_update_state(&paths.state_file, &current)
-}
-
-/// Marks the currently active payload slot as confirmed healthy (`confirmed: true, boot_attempts: 0`).
-///
-/// Mirrors `recordHealthy` in `electron/update/state.js`.
-pub fn mark_active_payload_boot_succeeded(paths: &UpdatePaths) -> Result<UpdateState, String> {
-    let mut current = read_update_state(&paths.state_file);
-    let Some(mut active) = current.active.take() else {
-        return Ok(current);
-    };
-    active.boot_attempts = 0;
-    active.confirmed = true;
-    current.active = Some(active);
-    write_update_state(&paths.state_file, &current)
-}
-
-/// Removes payload directories under `paths.payloads_dir` that are not referenced
-/// by `state.active` or `state.previous`.
-///
-/// Mirrors the unused-version cleanup in `collect` in `electron/update/state.js`.
-pub fn prune_payload_slots(paths: &UpdatePaths, state: Option<&UpdateState>) -> Vec<String> {
-    let owned_state;
-    let current = match state {
-        Some(s) => s,
-        None => {
-            owned_state = read_update_state(&paths.state_file);
-            &owned_state
-        }
-    };
-    let mut keep = BTreeSet::new();
-    if let Some(act) = &current.active {
-        keep.insert(act.version.clone());
-    }
-    if let Some(prev) = &current.previous {
-        keep.insert(prev.version.clone());
-    }
-    let Ok(entries) = fs::read_dir(&paths.payloads_dir) else {
-        return Vec::new();
-    };
+    let dir = versions_dir(root);
     let mut removed = Vec::new();
-    for entry in entries.flatten() {
-        if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-            continue;
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+                continue;
+            };
+            if keep.contains(&name) {
+                continue;
+            }
+            let target = dir.join(&name);
+            let _ = fs::remove_dir_all(&target);
+            if !target.exists() {
+                removed.push(name.clone());
+                state.attempts.remove(&name);
+                state.bad.retain(|v| v != &name);
+                state.healthy.retain(|v| v != &name);
+            }
         }
-        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
-            continue;
-        };
-        if keep.contains(&name) {
-            continue;
-        }
-        let candidate = paths.payloads_dir.join(&name);
-        if fs::remove_dir_all(&candidate).is_ok() {
-            removed.push(name);
+        if !removed.is_empty() {
+            let _ = write_state(root, &state);
         }
     }
-    removed
-}
 
-/// Result returned by [`resolve_active_payload_for_launch`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LaunchPayloadResolution {
-    /// Verified payload directory to boot from, or `None` to boot from the base shell.
-    pub payload_dir: Option<PathBuf>,
-    /// Active payload version when `payload_dir` is `Some`.
-    pub payload_version: Option<String>,
-    /// Updated [`UpdateState`].
-    pub state: UpdateState,
-    /// True if a broken or crash-looping active slot was rolled back during resolution.
-    pub rolled_back: bool,
-}
-
-/// Evaluates `update-state.json` at startup to decide whether to launch from an
-/// installed payload slot or fall back to the bundled shell.
-///
-/// Enforces:
-/// 1. `active.version > shell_version` and `shell_version >= active.min_shell_version`
-///    (otherwise clears stale payload slots superseded by a newly installed shell).
-/// 2. Crash-loop rollback when `!active.confirmed && active.boot_attempts >= MAX_FAILED_BOOTS`
-///    (matching `chooseLaunch` and `MAX_ATTEMPTS` in `electron/update/state.js`).
-/// 3. Directory integrity via [`verify_payload_directory`].
-/// 4. Increments `boot_attempts` before launching an unconfirmed slot.
-pub fn resolve_active_payload_for_launch(
-    paths: &UpdatePaths,
-    shell_version: &str,
-    verify_hash: bool,
-) -> Result<LaunchPayloadResolution, String> {
-    let mut state = read_update_state(&paths.state_file);
-    let Some(active) = state.active.clone() else {
-        return Ok(LaunchPayloadResolution {
-            payload_dir: None,
-            payload_version: None,
-            state,
-            rolled_back: false,
-        });
-    };
-
-    // Check if the native shell binary was upgraded to or past the active payload version,
-    // or if the payload requires a newer shell version than the running binary.
-    let newer_than_shell = compare_versions(&active.version, shell_version) == Some(1);
-    let shell_compatible =
-        compare_versions(shell_version, &active.min_shell_version).unwrap_or(-1) >= 0;
-    if !newer_than_shell || !shell_compatible {
-        state.active = None;
-        state.previous = None;
-        let cleared = write_update_state(&paths.state_file, &state)?;
-        prune_payload_slots(paths, Some(&cleared));
-        return Ok(LaunchPayloadResolution {
-            payload_dir: None,
-            payload_version: None,
-            state: cleared,
-            rolled_back: false,
-        });
-    }
-
-    // Helper closure to promote `state.previous` if healthy, or clear back to the base shell.
-    let promote_previous_or_clear =
-        |mut st: UpdateState, failed_version: String, reason: String| -> Result<LaunchPayloadResolution, String> {
-            let fallback = st.previous.take();
-            if let Some(prev) = fallback {
-                let prev_newer = compare_versions(&prev.version, shell_version) == Some(1);
-                let prev_compat =
-                    compare_versions(shell_version, &prev.min_shell_version).unwrap_or(-1) >= 0;
-                if prev_newer && prev_compat {
-                    if let Ok(prev_dir) = payload_slot_dir(paths, &prev.version) {
-                        let check = verify_payload_directory(
-                            &prev_dir,
-                            Some(&prev.version),
-                            Some(&prev.tree_sha256),
-                            verify_hash,
-                        );
-                        if check.ok {
-                            st.active = Some(PayloadSlot {
-                                boot_attempts: 1,
-                                ..prev.clone()
-                            });
-                            st.previous = None;
-                            st.rolled_back_version = Some(failed_version);
-                            st.last_error = Some(reason);
-                            let next = write_update_state(&paths.state_file, &st)?;
-                            prune_payload_slots(paths, Some(&next));
-                            return Ok(LaunchPayloadResolution {
-                                payload_dir: Some(prev_dir),
-                                payload_version: Some(prev.version),
-                                state: next,
-                                rolled_back: true,
-                            });
+    // Prune stale readiness tokens older than 5 minutes in `<root>/launches`.
+    let launches = root.join("launches");
+    if let Ok(entries) = fs::read_dir(&launches) {
+        let cutoff = SystemTime::now().checked_sub(Duration::from_secs(5 * 60));
+        for entry in entries.flatten() {
+            let file = launches.join(entry.file_name());
+            if let (Some(cutoff_time), Ok(meta)) = (cutoff, fs::metadata(&file)) {
+                if let Ok(mtime) = meta.modified() {
+                    if mtime < cutoff_time {
+                        if meta.is_dir() {
+                            let _ = fs::remove_dir_all(&file);
+                        } else {
+                            let _ = fs::remove_file(&file);
                         }
                     }
                 }
             }
-            st.active = None;
-            st.previous = None;
-            st.rolled_back_version = Some(failed_version);
-            st.last_error = Some(reason);
-            let next = write_update_state(&paths.state_file, &st)?;
-            prune_payload_slots(paths, Some(&next));
-            Ok(LaunchPayloadResolution {
-                payload_dir: None,
-                payload_version: None,
-                state: next,
-                rolled_back: true,
-            })
-        };
-
-    // Roll back unconfirmed slots that have already failed `MAX_FAILED_BOOTS` startups.
-    if !active.confirmed && active.boot_attempts >= MAX_FAILED_BOOTS {
-        let ver = active.version.clone();
-        let reason = format!(
-            "Update {} failed to start {} times and was rolled back.",
-            ver, active.boot_attempts
-        );
-        return promote_previous_or_clear(state, ver, reason);
-    }
-
-    let slot_dir = match payload_slot_dir(paths, &active.version) {
-        Ok(d) => d,
-        Err(err) => {
-            let ver = active.version.clone();
-            return promote_previous_or_clear(state, ver, err);
         }
-    };
-
-    let check = verify_payload_directory(
-        &slot_dir,
-        Some(&active.version),
-        Some(&active.tree_sha256),
-        verify_hash,
-    );
-    if !check.ok {
-        let ver = active.version.clone();
-        let reason = check
-            .reason
-            .unwrap_or_else(|| format!("Update {} failed integrity verification.", ver));
-        return promote_previous_or_clear(state, ver, reason);
     }
 
-    state.active = Some(PayloadSlot {
-        boot_attempts: active.boot_attempts + 1,
-        ..active.clone()
-    });
-    let updated = write_update_state(&paths.state_file, &state)?;
-    Ok(LaunchPayloadResolution {
-        payload_dir: Some(slot_dir),
-        payload_version: Some(active.version),
-        state: updated,
-        rolled_back: false,
-    })
+    removed
 }
