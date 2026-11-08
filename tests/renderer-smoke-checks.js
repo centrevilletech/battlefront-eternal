@@ -1,3 +1,4 @@
+import {sceneTransform,sceneComponent} from '../src/rust-render/scene-changes.js';
 import {checkRendererLifetimes} from './renderer-lifetime-checks.js';
 import {packPointLights} from "../src/point-lights.js";
 import {SHADER_FRAME as CAMERA_FRAME, LIMIT as CAMERA_LIMIT} from "../src/rust-render/camera-layout.js";
@@ -200,7 +201,7 @@ export async function checkRenderer(backend, manifests) {
     // A missing first-use handle cannot justify skipping or redrawing in Three.
     const pendingImage = new THREE.DataTexture(new Uint8Array([80,130,200,255]),1,1);
     g.setMap({ post: { blur: { enabled: true, blend: .25, downsize: .25 } }, lighting: { sunDirection: [.4, -1, -.2], ambient: [70, 70, 70], sunColor: [180, 180, 180] }, distance: { nearScene: [40, 40, 80, 80] } });
-    g.camera.position.set(0, 0, 8); g.camera.lookAt(0, 0, 0);
+    sceneTransform(g.camera.position.set(0, 0, 8)); sceneTransform(g.camera.lookAt(0, 0, 0));
     const geometry = new THREE.PlaneGeometry(1.2, 1.2); geometry.setAttribute('tangent', new THREE.Float32BufferAttribute([1,0,0,1,0,0,1,0,0,1,0,0],3)); geometry.setAttribute('binormal', new THREE.Float32BufferAttribute([0,1,0,0,1,0,0,1,0,0,1,0],3));
     // Match a captured map light-count variant with zero-intensity generated lights.
     for(let i=0;i<15;i++)g.scene.add(new THREE.PointLight(0,0,1));
@@ -506,19 +507,19 @@ export async function checkRenderer(backend, manifests) {
     lateGlowGroup.userData.material=lateGlowMaterial;lateGlowGroup.add(lateGlow);g.scene.add(lateGlowGroup);
     lateGlow.position.set(basin.x,water.level+1,basin.z);lateGlow.frustumCulled=false;
     settings.set('waterQuality','ultra');
-    g.camera.position.set(basin.x,water.level+3,basin.z+6);g.camera.lookAt(basin.x,water.level+1,basin.z);g.camera.updateMatrixWorld(true);
+    sceneTransform(g.camera.position.set(basin.x,water.level+3,basin.z+6));sceneTransform(g.camera.lookAt(basin.x,water.level+1,basin.z));g.camera.updateMatrixWorld(true);
     stepSurface(water,0,g.camera);const mirrors=g.rust.byName.mirrorCover.drawn;
     compare('Ultra reflection with a new glow');
     assert('Ultra reflection discovers a new glow before the main view',Boolean(g.rust.byName.effects.glows.get(lateGlow)));
     assert('Ultra reflection draws the complete near scene',g.rust.byName.mirrorCover.drawn>mirrors);
     settings.set('waterQuality','high');
-    g.camera.position.set(basin.x,water.level-1,basin.z);
+    sceneTransform(g.camera.position.set(basin.x,water.level-1,basin.z));
     g.camera.lookAt(basin.x+1,water.level-1,basin.z);g.camera.updateMatrixWorld(true);
     stepSurface(water,0,g.camera);
     compare('High underwater composite');
     assert('High underwater fog issues a Rust composite',g.rust.frameStats[(FRAME_ROLE.FOG+1)*FRAME_STATS.LEN-1]>0);
     settings.set('waterQuality','low');
-    g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);stepSurface(water,0,g.camera);
+    sceneTransform(g.camera.position.copy(cameraAt));sceneTransform(g.camera.quaternion.copy(cameraRotation));g.camera.updateMatrixWorld(true);stepSurface(water,0,g.camera);
 
     // After readiness changes, all retained draws must still sample the same id.
     // Reallocating the logical id would leave previously registered program rows
@@ -612,7 +613,7 @@ export async function checkRenderer(backend, manifests) {
     g.rust.frame.execute();
     assert('Full overlay stores clip instead of throwing',g.rust.frameState[FRAME_STATE.CLIPPED]===1);
     assert('Clipped frames retain their completion stamp',g.rust.frameState[FRAME_STATE.FRAME]===completed);
-    resumed.position.x=3;
+    sceneComponent(resumed.position,"x","=",3);
     capture();
     assert('The next frame refreshes transforms after clipping',resumed.matrixWorld.elements[12]===3);
     g.scene.remove(resumed);

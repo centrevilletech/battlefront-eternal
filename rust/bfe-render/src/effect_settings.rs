@@ -23,6 +23,10 @@ pub(crate) fn program<C:HasContext,M:MultiDraw>(core:&mut Core<C,M>,old:usize,sh
     let previous=crate::programs::spec(current)?;
     let spec=crate::programs::spec(&next)?;
     let program=core.add_owned_program(&next)? as usize;
+    // A descriptor keeps its material owner when settings select its twin.
+    // Preserve existing owners of that target program as well.
+    let owners=core.programs[old].material_owners.get();
+    core.programs[program].material_owners.set(core.programs[program].material_owners.get() | owners);
     // Sampler assignments are descriptor-specific. Preserve their units when
     // switching variants, rather than relying on link-time zero defaults.
     unsafe{

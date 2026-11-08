@@ -383,6 +383,7 @@ impl<C: HasContext> TransparentPass<C> {
     pub fn object_pass<M: MultiDraw>(&mut self, core: &Core<C, M>, o: u32, program: u32, side: u32) {
         let p = program as usize;
         self.things[o as usize].passes.push((p, side));
+        core.programs[p].material_owners.set(core.programs[p].material_owners.get() | 2);
         self.uniforms.entry(p).or_insert_with(|| {
             let (gl, program) = (&core.gl, core.programs[p].program);
             let at = |name: &str| unsafe { gl.get_uniform_location(program, name) };
@@ -425,6 +426,9 @@ impl<C: HasContext> TransparentPass<C> {
             let (state, stats) = (&mut core.state, &mut core.stats);
             state.use_program(gl, stats, core.programs[p].program);
             let u = self.uniforms.get_mut(&p).unwrap();
+            // EffectsPass may have written this same program since our last
+            // object. Publish this material again rather than trust our copy.
+            if core.programs[p].material_owners.get() == 3 { u.values.fill(f32::NAN); }
             unsafe {
                 gl.uniform_matrix_4_f32_slice(u.model_view.as_ref(), false, &mv32);
                 stats.gl_calls += 1;

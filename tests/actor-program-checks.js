@@ -1,3 +1,5 @@
+import {sceneProperty} from '../src/rust-render/scene-changes.js';
+import {Family,Mode} from '../src/rust-render/scene.js';
 import {actorPart} from './helpers/actor-resources.js';
 import {ACTOR} from '../src/rust-render/actor-layout.js';
 // Drawn actor ownership on a real context, run inside the renderer smoke
@@ -44,10 +46,10 @@ export async function checkOwnedActorDraws() {
     const shield=new ShieldBubble(graphics.scene,{Texture:'field',Radius:.5,Height:.7},()=>texture,{get:()=> 'enhanced'});
     shield.update(.3,{position:new THREE.Vector3(1.5,0,0),aimYaw:0,shield:{on:true,value:1,max:1,def:{}},dead:false,rolled:false});
 
-    const shock=ArcLightning.prototype.overlay.call({overlays:new WeakMap()},{body,root});shock.visible=true;shock.material.values[ACTOR.LOOK.INTENSITY]=.5;
-    const changedRig=actorMaterial('dynamic',{map:texture});changedRig.authored.rigidSkin=true;rig.material=changedRig;
-    gun.material=actorMaterial('unlit',{map:texture,scroll:[.1,0]});view.material=actorMaterial('unlit',{map:texture,scroll:[.1,0]});
-    body.material=heatMaterial(material);
+    const shock=ArcLightning.prototype.overlay.call({overlays:new WeakMap()},{body,root});sceneProperty(shock,"visible",true);shock.material.values[ACTOR.LOOK.INTENSITY]=.5;
+    const changedRig=actorMaterial('dynamic',{map:texture});changedRig.authored.rigidSkin=true;sceneProperty(rig,"material",changedRig);
+    sceneProperty(gun,'material',actorMaterial('unlit',{map:texture,scroll:[.1,0]}));sceneProperty(view,'material',actorMaterial('unlit',{map:texture,scroll:[.1,0]}));
+    sceneProperty(body,"material",heatMaterial(material));
     body.userData.heated={heat:.5,tear:new THREE.Vector4(0,0,0,.3),base:.3,scale:1,soot:1,dissolve:.25,sun:1,brightness:1,darken:0,lighten:0};
     const pendingMap=new THREE.DataTexture(null,1,1);
     const flyingRoot=new THREE.Group(),flying=actorPart(new THREE.PlaneGeometry(.3,.3),partMaterial({flags:1,texture:'part'},()=>pendingMap));
@@ -59,8 +61,9 @@ export async function checkOwnedActorDraws() {
     pendingMap.image.data=new Uint8Array([180,90,50,255]);pendingMap.needsUpdate=true;await graphics.renderer.resources.publishStatic(pendingMap);graphics.render(1/60);
     const flyingUpdated=typeof flying.material.map==='number'&&flying.material.map>=0;
     const flyingOwned=Boolean(flyingRecord&&flying.geometry===undefined&&flying.material.isMaterial===undefined);
-    instances.reveal(true);const flyingRevealed=flying.geometry===undefined;instances.reveal(false);
-    graphics.scene.remove(flyingRoot);const flyingRemoved=!instances.records.some(r=>r.node===flying);
+    // Registry selection owns visibility; drawing must never restore shells.
+    const flyingRevealed=typeof instances.reveal==='undefined'&&flying.geometry===undefined;
+    graphics.scene.remove(flyingRoot);graphics.rust.registry.select(graphics.scene,graphics.camera,Family.INSTANCE,Mode.INSTANCE);const flyingRemoved=!graphics.rust.registry.shown(flying);
     const errors=graphics.rust.errors,gl=graphics.renderer.getContext().getError();
     const near=graphics.rust.phaseStats.near,viewStats=graphics.rust.phaseStats.view,transparent=graphics.rust.phaseStats.transparent;
     const heatedOwned=instances.byNode.get(body)?.appearance===body.material&&instances.byNode.get(body)?.heated===true;

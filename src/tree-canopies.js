@@ -21,12 +21,6 @@ export class TreeCanopies {
     this.states = new Float32Array(data.instances.length * 4);
     this.stateVersion = 0;
     this.stateMap = null;
-    // Native source/sampler policy is installed after the asynchronous renderer
-    // exists. Authored state rows have their own CPU owner during cold loading.
-    graphics.rustReady?.then(core => {
-      core.registry.registerCanopies(this);
-      this.stateMap = core.resources.gpu.canopy_state(this.groups.length, this.states);
-    });
     // Whether any canopy is near. Changed leaf slots are copied to Rust
     // as [dirtyFirst, dirtyEnd); the browser does not upload these attributes.
     this.drawn = false;
@@ -106,6 +100,14 @@ export class TreeCanopies {
       const previous = scene.onBeforeRender;
       scene.onBeforeRender = (...args) => { previous?.apply(scene, args); this.update(args[2]); };
     }
+    // All groups exist before native admission. A ready renderer must see them
+    // on its first synchronous draw, not at a later promise yield during loss.
+    const admit = core => {
+      core.registry.registerCanopies(this);
+      this.stateMap = core.resources.gpu.canopy_state(this.groups.length, this.states);
+    };
+    if (graphics.rust) admit(graphics.rust);
+    else graphics.rustReady?.then(admit);
   }
 
   // The native selector owns culling, stable distance order and slot changes.

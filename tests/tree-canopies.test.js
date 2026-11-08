@@ -12,17 +12,28 @@ function fixture(count = 16, locations = null) {
   let detail = 'enhanced';
   const {BfeRenderer,memory,calls}=standinModule(),{graphics}=standinThree(calls);
   graphics.settings={get:key=>key==='treeDetail'?detail:undefined};
-  const core=new RustRender(graphics,{memory},BfeRenderer);graphics.rust=core;
+  const core=new RustRender(graphics,{memory},BfeRenderer);graphics.rust=core;graphics.rustReady=Promise.resolve(core);
   const instances = Array.from({length:count},(_,i)=>({
     matrix:new THREE.Matrix4().makeTranslation(...(locations?.[i] || [0,0,-30-i])).toArray(),
     bounds:[[-4,0,-4],[4,12,4]],
   }));
   const trees = new TreeCanopies(graphics,{instances,texture:'native-leaves'},()=>new THREE.Texture());
-  core.registry.registerCanopies(trees);trees.stateMap=core.resources.gpu.canopy_state(trees.groups.length,trees.states);
   const camera = new THREE.PerspectiveCamera(75,1,0.1,1000);
   camera.position.set(0,6,0);camera.updateMatrixWorld(true);
-  return {trees,camera,graphics,selected:()=>{core.views();const rows=core.sceneCanopyOutput;return Array.from({length:rows[H.COUNT]},(_,i)=>rows[H.STRIDE+i*S.STRIDE+S.ID]);},setDetail:value=>{detail=value;}};
+  return {trees,camera,graphics,calls,selected:()=>{core.views();const rows=core.sceneCanopyOutput;return Array.from({length:rows[H.COUNT]},(_,i)=>rows[H.STRIDE+i*S.STRIDE+S.ID]);},setDetail:value=>{detail=value;}};
 }
+
+test('a ready renderer admits complete canopies before the first draw',async()=>{
+  const f=fixture();
+  assert.equal(f.trees.nativeGeneration,1);
+  assert.equal(typeof f.trees.stateMap,'number');
+  assert.equal(f.calls.filter(c=>c[0]==='canopy_state').length,1);
+  f.trees.update(f.camera);assert.equal(f.selected().length,12);
+  // Yielding for a later context event cannot introduce another admission.
+  await Promise.resolve();
+  assert.equal(f.calls.filter(c=>c[0]==='canopy_state').length,1);
+  assert.equal(f.trees.nativeGeneration,1);
+});
 
 test('enhanced canopy budget leaves excluded originals available',()=>{
   const f=fixture();f.trees.update(f.camera);

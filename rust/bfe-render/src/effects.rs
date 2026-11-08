@@ -281,11 +281,11 @@ fn reserve_values(held:&mut Vec<Vec<f32>>,ids:&mut HashMap<(usize,String),usize>
 // A material value into a program, when it holds another (`held`, by
 // program and name).
 #[allow(clippy::too_many_arguments)]
-fn set_value<C: HasContext>(gl: &C, stats: &mut Stats, held: &mut [Vec<f32>], cache: usize, value: &MaterialValue, location: Option<&C::UniformLocation>, values: &[f32]) {
+fn set_value<C: HasContext>(gl: &C, stats: &mut Stats, held: &mut [Vec<f32>], cache: usize, value: &MaterialValue, location: Option<&C::UniformLocation>, values: &[f32], shared: bool) {
     if value.2==3{return;}
     let Some(location) = location else { return };
     let Some(held) = held.get_mut(cache) else { return };
-    if held.as_slice() == values {
+    if !shared && held.as_slice() == values {
         return;
     }
     unsafe {
@@ -420,6 +420,7 @@ impl<C: HasContext> EffectsPass<C> {
             (vao, vbo)
         };
         let p = &core.programs[program as usize];
+        p.material_owners.set(p.material_owners.get() | 1);
         let slots = NAMES.map(|name| p.uniforms.iter().position(|(n, _, _)| n == name));
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
@@ -717,6 +718,7 @@ impl<C: HasContext> EffectsPass<C> {
     pub fn mesh_pass<M: MultiDraw>(&mut self, core: &Core<C, M>, mesh: u32, program: u32, side: u32, locations: &[u32]) -> u32 {
         let gl = &core.gl;
         let m = &mut self.meshes[mesh as usize];
+        core.programs[program as usize].material_owners.set(core.programs[program as usize].material_owners.get() | 1);
         let p = core.programs[program as usize].program;
         let vao = unsafe {
             let vao = gl.create_vertex_array().unwrap();
@@ -772,6 +774,7 @@ impl<C: HasContext> EffectsPass<C> {
     pub fn model_pass<M: MultiDraw>(&mut self, core: &Core<C, M>, model: u32, program: u32, side: u32, geometry: u32) -> u32 {
         let gl = &core.gl;
         let m = &mut self.models[model as usize];
+        core.programs[program as usize].material_owners.set(core.programs[program as usize].material_owners.get() | 1);
         let p = core.programs[program as usize].program;
         let (model_view, normal, model, slots) = unsafe {
             (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), gl.get_uniform_location(p, "modelMatrix"),
@@ -926,10 +929,10 @@ impl<C: HasContext> EffectsPass<C> {
             // Its own values, after its instances.
             let mut v=span.values;
             for (k, value) in b.values.iter().enumerate() {
-                set_value(gl, stats, &mut self.held, b.value_cache[k], value, b.value_slots[k].as_ref(), &self.data[v..v + value.1]);
+                set_value(gl, stats, &mut self.held, b.value_cache[k], value, b.value_slots[k].as_ref(), &self.data[v..v + value.1], program.material_owners.get() == 3);
                 v += value.1;
             }
-            for constant in &b.constants{set_value(gl,stats,&mut self.held,constant.cache,&constant.value,constant.location.as_ref(),&constant.data);}
+            for constant in &b.constants{set_value(gl,stats,&mut self.held,constant.cache,&constant.value,constant.location.as_ref(),&constant.data, program.material_owners.get() == 3);}
             for &(unit, t) in &b.samplers {
                 state.bind_texture(gl, stats, unit, t);
             }
@@ -1028,13 +1031,13 @@ impl<C: HasContext> EffectsPass<C> {
                 let program = &core.programs[pass.program];
                 state.use_program(gl, stats, program.program);
                 if let Some(l) = pass.model.as_ref() {
-                    set_value(gl, stats, &mut self.held, pass.model_cache, &(Cow::Borrowed("modelMatrix"), 16, 0), Some(l), &IDENTITY);
+                    set_value(gl, stats, &mut self.held, pass.model_cache, &(Cow::Borrowed("modelMatrix"), 16, 0), Some(l), &IDENTITY, program.material_owners.get() == 3);
                 }
                 // The material's values, each set when the program holds another.
                 let values=m.fixed_values.as_deref().unwrap_or(&self.data);
                 let mut v=if m.fixed_values.is_some(){0}else{values_at};
                 for (k, value) in m.values.iter().enumerate() {
-                    set_value(gl, stats, &mut self.held, pass.cache[k], value, pass.slots[k].as_ref(), &values[v..v + value.1]);
+                    set_value(gl, stats, &mut self.held, pass.cache[k], value, pass.slots[k].as_ref(), &values[v..v + value.1], program.material_owners.get() == 3);
                     v += value.1;
                 }
                 if m.texture.is_some() {
@@ -1095,7 +1098,7 @@ impl<C: HasContext> EffectsPass<C> {
             }
             let mut v = values_at;
             for (k, value) in m.values.iter().enumerate() {
-                set_value(gl, stats, &mut self.held, pass.cache[k], value, pass.slots[k].as_ref(), &self.data[v..v + value.1]);
+                set_value(gl, stats, &mut self.held, pass.cache[k], value, pass.slots[k].as_ref(), &self.data[v..v + value.1], program.material_owners.get() == 3);
                 v += value.1;
             }
             if m.texture.is_some() {
