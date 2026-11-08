@@ -1,0 +1,19 @@
+[package]
+name = "bfe-shell"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Front-end shell screens, playlist/mission selection, loading timeline, and shell audio"
+
+[dependencies]
+audio = { path = "../audio" }
+audio-control = { path = "../audio-control" }
+audio-decode = { path = "../audio-decode" }
+bfe-content-native = { path = "../bfe-content-native" }
+bfe-online = { path = "../bfe-online" }
+bfe-render = { path = "../bfe-render" }
+content = { path = "../content" }
+jsrt = { path = "../jsrt" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

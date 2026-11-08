@@ -190,12 +190,14 @@ dependencies = [
  "bfe-pose",
  "bfe-presentation",
  "bfe-render",
+ "bfe-shell",
  "bfe-transport",
  "content",
  "cpal",
  "glow",
  "glutin",
  "glutin-winit",
+ "png",
  "raw-window-handle",
  "serde",
  "serde_json",
@@ -314,6 +316,22 @@ dependencies = [
  "v8math",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "bfe-shell"
+version = "0.1.0"
+dependencies = [
+ "audio",
+ "audio-control",
+ "audio-decode",
+ "bfe-content-native",
+ "bfe-online",
+ "bfe-render",
+ "content",
+ "jsrt",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
