@@ -1,13 +1,12 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
-import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
-import { environmentRecipe } from './atmosphere.js';
+import {EnvironmentDraw as DRAW, WeatherMode as MODE} from "./environment/layout.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
 import { RainImpacts } from './rain-impacts.js';
 import { RainSheets } from './rain-sheets.js';
-import { WeatherHost } from './environment/module.js';
+import { WeatherHost,drawValues } from './environment/module.js';
 import { WeatherFrame as WEATHER_FRAME, WeatherResult as RESULT } from './environment/layout.js';
 
 // The rain's clock, the camera's motion, the cover cache, the splashes and
@@ -16,36 +15,21 @@ import { WeatherFrame as WEATHER_FRAME, WeatherResult as RESULT } from './enviro
 // the phase's two queries of its collision world.
 export class Weather {
   constructor({data, scene, collision, water, settings, surfaceOwner}) {
-    // The rain's authored numbers: its range (drops fall within this of the eye) and
-    // how many drops the classic rain has; the Enhanced rain uses up to 32 times
-    // as many (the geometry's capacity), within 8192.
     Object.assign(this,{collision,water,settings});
-    this.recipe=environmentRecipe(RECIPE.WEATHER,data,surfaceOwner);
-    this.nativeRange=this.recipe.range;this.nativeCount=this.recipe.count;this.capacity=this.recipe.capacity;
-    // The mode decides the cover cache's range and size: the Enhanced rain reaches
-    // farther and needs a finer cache.
     const enhanced=settings?.get('rainEffects')==='enhanced';
-    // A roof or floor over a cell: what a cast straight down first hits, or
-    // open water over it if higher.
-    // The phase asks the page two things of its collision world. A roof or floor
-    // over a cell: what a cast straight down first hits, or open water over it
-    // if higher.
+    // These callbacks copy actual collision resources; Rust combines heights.
     const down=new THREE.Vector3(0,-1,0),from=new THREE.Vector3(),hit=makeHit(),normal=new Float64Array(4);
-    const height=(x,y,z)=>{const found=collision.cast(from.set(x,y,z),down,512,hit);let at=found?found.point.y:-100000;if(water?.over(x,z))at=Math.max(at,water.level);return at;};
-    // A splash's cast: where it ends, its normal and whether that is water.
-    // A splash's cast: where it ends, its normal and whether that is water (the
-    // normal and the flag are left in `normal` for the phase to read).
+    surfaceOwner.attach({host_water_over:(x,z)=>water?.over(x,z)?1:0,host_water_level:()=>water?.level??0});
+    const height=(x,y,z)=>collision.cast(from.set(x,y,z),down,512,hit)?.point.y??-100000;
     const impact=(x,y,z)=>{
-      const found=collision.cast(from.set(x,y,z),down,180,hit);
-      let at=found?.point.y??-Infinity;const n=found?.normal;
-      const wet=Boolean(water?.over(x,z)&&water.level>at);
-      if(wet)at=water.level;
+      const found=collision.cast(from.set(x,y,z),down,180,hit),n=found?.normal;
       if(n){normal[0]=n.x;normal[1]=n.y;normal[2]=n.z;}else normal[0]=normal[1]=normal[2]=0;
-      normal[3]=wet?1:0;return at;
+      return found?.point.y??-Infinity;
     };
     // The rain's clock, camera motion, cover cache and splashes are Rust's; this
     // keeps the meshes, materials and uniforms the shaders read.
-    this.host=new WeatherHost(surfaceOwner,this.capacity,enhanced,this.rangeFor(enhanced),enhanced?32:16,height,impact,normal);
+    this.host=new WeatherHost(surfaceOwner,0,false,0,0,height,impact,normal,{data,enhanced});
+    this.recipe=this.host.recipe;this.nativeRange=this.recipe.range;this.nativeCount=this.recipe.count;this.capacity=this.recipe.capacity;
     // The shader's values: where the eye is, how it moves, the wind, the drops'
     // look, and the cover texture its drops are clipped against.
     // Weather owns only phase facts and persistent seed/texel arrays. Rust
@@ -53,16 +37,13 @@ export class Weather {
     this.nativeKind=EFFECT.RAIN.ID;this.family='rain';this.variant=0;this.texture=null;
     this.visibility='anchor';this.arrays={seed:this.host.seeds};this.resources=null;
     this.samples=new Int32Array(1);this.samples.fill(-1);
-    this.values=new Float64Array(EFFECT.RAIN.LENGTH);
-    const v=this.values,recipe=this.recipe;
-    v.set(recipe.wind,EFFECT.RAIN.WIND);v.set(recipe.alpha,EFFECT.RAIN.ALPHA);v.set(recipe.color,EFFECT.RAIN.COLOR);
-    v[EFFECT.RAIN.VELOCITY]=recipe.velocity;v[EFFECT.RAIN.VELOCITY_RANGE]=recipe.velocityRange;
-    v[EFFECT.RAIN.WIDTH]=recipe.width;v[EFFECT.RAIN.STREAK]=recipe.streak;
+    drawValues(this.host,this,DRAW.RAIN,EFFECT.RAIN);
     this.mesh=new THREE.Object3D();this.mesh.name='map-precipitation';this.mesh.userData.effectBatch=this;
     this.mist=new THREE.Object3D();this.mist.name='rain-ground-mist';
     const mist=this.mistBatch={nativeKind:EFFECT.RAIN.ID,family:'rain',variant:0,texture:null,visibility:'anchor',
-      count:48,capacity:48,arrays:{seed:this.host.mist},values:new Float64Array(EFFECT.RAIN.LENGTH),mesh:this.mist,
+      count:48,capacity:48,arrays:{seed:this.host.mist},mesh:this.mist,
       prepareResources:resources=>this.prepareResources(resources)};
+    drawValues(this.host,mist,DRAW.MIST,EFFECT.RAIN);
     this.mist.userData.effectBatch=mist;
     // None of them is culled by three: the drops fill the view, and their
     // visibility is the phase's call (it hides all of them until the cover cache
@@ -76,30 +57,18 @@ export class Weather {
     this.host.bindArray(this.arrays,'seed',h=>h.seeds);this.host.bindArray(this.mistBatch.arrays,'seed',h=>h.mist);
     this.host.bindArray(this.impacts,'locations',h=>h.locations);this.host.bindArray(this.impacts,'normals',h=>h.normals);
     this.host.bindArray(this.impacts.arrays,'impact',h=>h.locations);this.host.bindArray(this.impacts.arrays,'surfaceNormal',h=>h.normals);
-    this.host.bindArray(this.cover,'heights',h=>h.cover.subarray(0,this.cover.size*this.cover.size));
+    this.host.bindArray(this.cover,'heights',h=>h.cover);
     this.unsubscribe=settings?.onChange(key=>{if(key==='rainEffects')this.applyMode(false);});
   }
-  // How far the rain reaches in a mode.
-  rangeFor(enhanced){return enhanced?this.recipe.enhancedRange:this.recipe.range;}
-  // Classic or Enhanced rain, live: a new cover cache of the mode's range and
-  // size (filled whole in the next frame), the splashes hidden until then.
-  // Classic or Enhanced rain, live: a new cover cache of the mode's range and size
-  // (filled whole in the next frame), the splashes hidden until then. The mode's
-  // first call (the constructor's) leaves the phase as it was built.
+  // Settings cross as a raw mode observation. Count, reach and cache shape
+  // come back from the retained native policy, including changes while paused.
   applyMode(first){
-    this.enhanced=this.settings?.get('rainEffects')==='enhanced';
-    this.range=this.rangeFor(this.enhanced);
-    this.count=this.enhanced?this.capacity:this.nativeCount;
-
-    const size=this.enhanced?32:16;
-    if(!first)this.host.mode(this.enhanced,this.range,size);
-    const heights=this.host.cover.subarray(0,size*size);
-    Object.assign(this.cover,{heights,size,cell:this.host.cell,queries:0});
-    const v=this.values;v[EFFECT.RAIN.ENHANCED]=this.enhanced?1:0;v[EFFECT.RAIN.RANGE]=this.range;
-    v[EFFECT.RAIN.COVER_CELL]=this.cover.cell;v[EFFECT.RAIN.COVER_SIZE]=size;
-    this.mistBatch.values.set(v);this.mistBatch.values[EFFECT.RAIN.EFFECT]=1;
+    if(!first){this.host.x.page_weather_mode(this.settings?.get('rainEffects')==='enhanced'?1:0);this.host.refresh(true);}
+    const m=this.host.modeResult;this.enhanced=Boolean(m[MODE.ENHANCED]);this.range=m[MODE.RANGE];this.count=m[MODE.COUNT];
+    const size=m[MODE.SIZE],heights=this.host.cover;
+    Object.assign(this.cover,{heights,size,cell:m[MODE.CELL],queries:0});
     if(this.resources){this.resources.gpu.weather_cover(this.samples[0],size,heights);this.imageBuffer=this.host.buffer;}
-    sceneProperty(this.mist,"visible",false);sceneProperty(this.impacts.mesh,"visible",false);
+    sceneProperty(this.mist,'visible',false);sceneProperty(this.impacts.mesh,'visible',false);
   }
   // The frame: the camera's place and the time go to the phase, which advances
   // the clock, the camera's motion, the cover cache and the splashes; what it
@@ -114,10 +83,7 @@ export class Weather {
     if(this.resources&&this.imageBuffer!==this.host.buffer){
       this.resources.gpu.weather_cover(this.samples[0],this.cover.size,this.cover.heights);this.imageBuffer=this.host.buffer;
     }
-    const r=this.host.result,v=this.values;
-    v[EFFECT.RAIN.RAIN_TIME]=r[RESULT.RAIN_TIME];
-    for(let i=0;i<3;i++){v[EFFECT.RAIN.EYE+i]=r[RESULT.EYE+i];v[EFFECT.RAIN.CAMERA_MOTION+i]=r[RESULT.CAMERA_MOTION+i];}
-    this.mistBatch.values.set(v);this.mistBatch.values[EFFECT.RAIN.EFFECT]=1;this.sheets.publishFrame();
+    const r=this.host.result;
     if(r[RESULT.CHANGED]&&this.resources)this.resources.gpu.effect_pixels(this.samples[0],this.cover.heights);
     this.cover.queries=r[RESULT.COVER_QUERIES];
     sceneProperty(this.mesh,"visible",r[RESULT.COVERED]===1);

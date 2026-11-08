@@ -141,8 +141,10 @@ pub fn recipe(kind:u32,data:&Value)->Value {
 }
 
 #[cfg(target_arch="wasm32")]
-mod exports {
+pub(crate) mod exports {
     use super::*;use std::cell::RefCell;
+    pub(crate) fn input()->Result<Value,serde_json::Error>{INPUT.with_borrow(|v|serde_json::from_slice(v))}
+    pub(crate) fn output(value:&Value){OUTPUT.with_borrow_mut(|v|*v=serde_json::to_vec(value).unwrap_or_default());}
     thread_local! {static INPUT:RefCell<Vec<u8>>=const{RefCell::new(Vec::new())};static OUTPUT:RefCell<Vec<u8>>=const{RefCell::new(Vec::new())};}
     #[no_mangle]pub extern "C" fn content_input(length:u32)->*mut u8 {INPUT.with_borrow_mut(|v|{v.resize(length as usize,0);v.as_mut_ptr()})}
     #[no_mangle]pub extern "C" fn content_recipe(kind:u32)->u32 {
@@ -180,3 +182,6 @@ mod tests {
         assert_eq!(r["bounds"][0][1],(1.1f64 as f32 as f64)-1.);assert_eq!(r["underwater"][3],0.);
     }
 }
+
+#[cfg(target_arch="wasm32")]
+pub(crate) use exports::{input,output};

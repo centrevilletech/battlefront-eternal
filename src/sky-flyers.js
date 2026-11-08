@@ -1,63 +1,17 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
 import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
-import { environmentRecipe } from "./atmosphere.js";
+import { environmentRecipe } from "./environment/module.js";
 import * as THREE from "three";
 import {actorDescription,actorNode} from "./actor-resources.js";
 import {ACTOR} from "./rust-render/actor-layout.js";
 import { SkyHost } from "./environment/module.js";
-import { SkyClass as SKY_CLASS, SkyConfig as SKY_CONFIG, SkyFrame as SKY_FRAME, SkyResult as SKY_RESULT } from "./environment/layout.js";
-import { lighting } from "./materials.js";
+import { SkyFrame as SKY_FRAME, SkyResult as SKY_RESULT, SkyPublication as PUBLICATION } from "./environment/layout.js";
 import { modelPack } from "./models.js";
-import { motionUniforms, motionVectors } from "./motion-vectors.js";
+import { motionVectors } from "./motion-vectors.js";
 import { SkyProbe } from "./sky-probe.js";
 
-// The sky's flyers: the sky config's SkyObjects (maps/<map>/sky/flyers.json,
-// tools/zero_sky.py), flown as the 2004 game flies them (SkyObjectClass;
-// docs/formats.md, "Sky flyers"):
-//
-//   - A class keeps NumObjects ships in the sky all the time. A ship starts
-//     Distance from the world's origin in a random direction, Height above
-//     it, fading in over 4 s. It heads across that direction, either way,
-//     turned inward by a random InDirectionFactor / 2 to InDirectionFactor
-//     times the inward direction, level, nose along its heading.
-//   - It flies at a velocity drawn once in its own axes (VelocityX right,
-//     VelocityY up, VelocityZ forward, each between its min and max), which
-//     Acceleration (in its axes too) adds to every frame. It never turns or
-//     banks.
-//   - Once it is more than Distance + 10 m from the origin across the
-//     ground, or older than LifeTime (its age starts at 80% to 100% of it,
-//     so it lives up to a fifth of LifeTime), its fade is set to -1: drawn
-//     as its absolute value, it jumps to full and fades out over 4 s, still
-//     flying, and the ship starts again somewhere else.
-//   - It is drawn in the far scene, after the dome, depth tested against
-//     the far terrain, without fog; lit by the map's ambient and sun, never
-//     by lamps; blended while it fades, still writing depth.
-//
-// That is Classic: the battle's own classes (those its script loads), cut
-// off by the far scene's far plane. Graphics > Ocean and sky's Enhanced
-// (the default) keeps the flight and adds:
-//
-//   - every class of the battle's era (flyers.json `enhanced`), so Bespin:
-//     Platforms has capital ships and Cloud City's Galactic Civil War battle
-//     Star Destroyers;
-//   - ships past the far plane drawn anyway, scaled toward the eye (their
-//     image unchanged) with their depth just inside the far plane, so the
-//     far scene's terrain still hides them; far off, low over the horizon,
-//     they take on the sky behind them (sky-probe.js);
-//   - smooth fades: a ship starts its fade-in 4 s back along its course, so
-//     it is solid where the original starts it, and fades out from where it
-//     is, without the jump;
-//   - fading ships write no depth (drawn after the solid ones), so they never
-//     hide a ship behind them.
-//
-// In both, ships draw their own motion for the temporal upscaler
-// (motion-vectors.js), so a crossing fighter doesn't smear.
-//
-// Presentation only, in the native environment phase: no simulation reads it, it isn't in the
-// content fingerprint, and each page draws its own random ships. A class is
-// one native instanced draw per model part, sorted far to near (Enhanced: another
-// for its fading ships).
-
+// Sky flight, fading, class selection, depth order and motion live in Rust.
+// The page retains model/texture identities and borrows the resulting arrays.
 // The setting whose Enhanced choice turns the Enhanced sky on.
 export const SKY_SETTING = "oceanEffects";
 
@@ -82,7 +36,7 @@ export class SkyFlyers {
   // texture(name): the sky folder's textures; scene: the far scene;
   // graphics: its far camera (Enhanced's reach), renderer (the sky probe)
   // and settings; seed: the ships' random draws (the engine's generator,
-  // src/atmosphere.js); motion: the temporal upscaler's motion pass.
+  // native environment); motion: the temporal upscaler's motion pass.
   constructor({ data, mission, buffer, indexBuffer, texture = () => null, scene = null, seed = 1,
     graphics = null, settings = graphics?.settings ?? null, motion = motionVectors, surfaceOwner }) {
     this.graphics = graphics;
@@ -93,43 +47,14 @@ export class SkyFlyers {
     sceneProperty(this.group,"matrixAutoUpdate",false);
     this.classes = [];
     this.time = 0;
-    this.stepped = false;
     this.probe = null;
     this.enhanced = enhancedSky(settings);
-    const classic = new Set(battleFlyers(data, mission, false));
-    const enhanced = new Set(battleFlyers(data, mission, true));
-    const models = modelPack(data?.models, buffer, indexBuffer);
-    const kept = [];
-    for (const def of data?.flyers || []) {
-      if (!classic.has(def) && !enhanced.has(def)) continue;
-      const parts = models.get(def.model);
-      if (!parts?.length) continue;
-      kept.push({ def, parts, modes: { classic: classic.has(def), enhanced: enhanced.has(def) } });
-    }
-    // Rust keeps the ships; the page's draws are built over its records.
-    this.host = new SkyHost(surfaceOwner, kept.length);
-    const radii = kept.map(({parts}) => environmentRecipe(RECIPE.RADIUS, parts.map(part => actorDescription(part.asset).bounds), surfaceOwner));
-    this.host.refresh();
-    const config = this.host.config;
-    config[SKY_CONFIG.SEED] = seed;
-    config[SKY_CONFIG.CLASSES] = kept.length;
-    config[SKY_CONFIG.ENHANCED] = this.enhanced ? 1 : 0;
-    kept.forEach(({ def, modes }, i) => {
-      const at = SKY_CONFIG.STRIDE + i * SKY_CLASS.STRIDE;
-      config[at + SKY_CLASS.COUNT] = def.count;
-      config[at + SKY_CLASS.DISTANCE] = def.distance;
-      config.set(def.height, at + SKY_CLASS.HEIGHT);
-      config[at + SKY_CLASS.IN_DIRECTION] = def.inDirection;
-      def.velocity.forEach((range, k) => config.set(range, at + SKY_CLASS.VELOCITY + k * 2));
-      config.set(def.acceleration, at + SKY_CLASS.ACCELERATION);
-      config[at + SKY_CLASS.LIFE_TIME] = def.lifeTime;
-      config[at + SKY_CLASS.RADIUS] = radii[i];
-      config[at + SKY_CLASS.CLASSIC] = modes.classic ? 1 : 0;
-      config[at + SKY_CLASS.ENHANCED] = modes.enhanced ? 1 : 0;
+    const models=modelPack(data?.models,buffer,indexBuffer),bounds={};
+    for(const [name,parts]of models)bounds[name]=parts.map(part=>actorDescription(part.asset).bounds);
+    this.host=new SkyHost(surfaceOwner,0,{data,mission,models:bounds,seed,enhanced:this.enhanced});
+    this.host.recipe.classes.forEach((row,k)=>{
+      const def=data.flyers[row.index];this.classes.push(this.build(def,models.get(def.model),texture,row,row.radius,k));
     });
-    this.host.start();
-    kept.forEach(({ def, parts, modes }, i) => this.classes.push(this.build(def, parts, texture, modes, radii[i], i)));
-    this.motionChecked = -1;
     this.unsubscribe = settings?.onChange?.((key) => { if (key === SKY_SETTING) this.setEnhanced(enhancedSky(settings)); }) || null;
     this.place(null);
     scene?.add(this.group);
@@ -164,9 +89,8 @@ export class SkyFlyers {
   // Classic or Enhanced, as the setting changes: classes coming in start
   // afresh; ships flying on keep their course under the new rules.
   setEnhanced(enhanced) {
-    if (enhanced === this.enhanced) return;
-    this.enhanced = enhanced;
-    this.host.x.sky_set_enhanced(enhanced ? 1 : 0);this.host.refresh(true);
+    if(!this.host.x.sky_set_enhanced(enhanced?1:0))return;
+    this.enhanced=enhanced;this.host.refresh(true);
     this.place(null);
   }
 
@@ -176,13 +100,12 @@ export class SkyFlyers {
 
   prepareFrame(dt, camera = null) {
     this.host.refresh();
-    if (dt > 0) this.stepped = true;
     this.frameCamera = camera;
-    if (this.enhanced && camera) this.prepareProbe();
+    if(this.host.x.sky_probe_needed()&&camera)this.prepareProbe();
     this.writeFrame(camera?.position || null, dt);
   }
   prepareProbe() {
-    if (!this.graphics?.renderer || !this.classes.length || this.probe) return;
+    if (!this.graphics?.renderer || this.probe) return;
     this.probe = new SkyProbe(this.graphics, 64, 1); this.probe.enabled = true;
 
   }
@@ -208,39 +131,21 @@ export class SkyFlyers {
   publishFrame() {
     this.host.refresh();
     const r = this.host.result;
-    this.time = r[SKY_RESULT.TIME] || 0;
-    if (this.enhanced && this.frameCamera && this.probe) this.probe.update(this.time, this.frameCamera);
-    const far = this.graphics?.farCamera?.far || 0;
-    for (const kind of this.classes) {
-      const at = kind.index * SKY_RESULT.STRIDE;
-      if (!r[at + SKY_RESULT.ON]) {
-        for (const m of kind.meshes) sceneProperty(m,"visible",false);
-        continue;
-      }
-      const solids = r[at + SKY_RESULT.SOLIDS], fadings = r[at + SKY_RESULT.FADINGS];
-      for (const m of kind.draws) {
-        m.count = solids;
-        sceneProperty(m,"visible",solids > 0);
-        m.userData.flyerSource.values[ACTOR.FLYER.REACH]=far;
-      }
-      for (const m of kind.fades) {
-        m.count = fadings;
-        sceneProperty(m,"visible",fadings > 0);
-        m.userData.flyerSource.values[ACTOR.FLYER.REACH]=far;
-      }
-      for (const m of kind.motions) sceneProperty(m,"visible",true);
-
+    this.time=r[SKY_RESULT.TIME]??0;
+    if(this.host.x.sky_probe_needed()&&this.frameCamera&&this.probe) this.probe.update(this.time, this.frameCamera);
+    const p=this.host.publication;
+    for(const kind of this.classes){
+      const pt=kind.index*PUBLICATION.STRIDE;
+      for(const m of kind.draws){m.count=p[pt+PUBLICATION.SOLID_COUNT];sceneProperty(m,'visible',Boolean(p[pt+PUBLICATION.SOLID_VISIBLE]));m.userData.flyerSource.values[ACTOR.FLYER.REACH]=p[pt+PUBLICATION.REACH];}
+      for(const m of kind.fades){m.count=p[pt+PUBLICATION.FADING_COUNT];sceneProperty(m,'visible',Boolean(p[pt+PUBLICATION.FADE_VISIBLE]));m.userData.flyerSource.values[ACTOR.FLYER.REACH]=p[pt+PUBLICATION.REACH];}
+      for(const m of kind.motions)sceneProperty(m,'visible',Boolean(p[pt+PUBLICATION.MOTION_VISIBLE]));
     }
   }
 
   // Before the motion pass draws a class (once a frame, motion-vectors.js):
   // a frame with no flight since the last one (paused) shows no motion.
   motionFrame() {
-    const frame = this.motion?.frame ?? 0;
-    if (frame === this.motionChecked) return;
-    this.motionChecked = frame;
-    this.still=this.stepped?0:1;
-    this.stepped = false;
+    this.still=this.host.x.page_sky_motion(this.motion?.frame??0);
   }
 
   dispose() {

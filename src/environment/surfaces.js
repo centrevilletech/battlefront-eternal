@@ -42,14 +42,14 @@ export class SurfaceHost {
     this.stormWidths = new Float32Array(buffer, x.surface_storm_ptr(3), LIMITS.STORM_VERTICES);
     this.stormEnergies = new Float32Array(buffer, x.surface_storm_ptr(4), LIMITS.STORM_VERTICES);
     for (let i = 0; i < this.bindings.length; i++) {
-      const binding=this.bindings[i];binding.target[binding.key]=this[binding.name];
+      const binding=this.bindings[i];binding.target[binding.key]=binding.get?binding.get(this):this[binding.name];
     }
     return true;
   }
   // Water.ringMesh, WaterShore and StormSky borrow native publication arrays.
   // Rebind those retained packets after growth, without BufferAttribute shells.
   bindArray(target,key,name) {
-    this.refresh();target[key]=this[name];this.bindings.push({target,key,name});
+    this.refresh();const get=typeof name==='function'?name:null;target[key]=get?get(this):this[name];this.bindings.push({target,key,name,get});
   }
   // Births are bounded while loading or paused. Water.ripple formerly shifted
   // at 100 births; native application preserves that newest-ring policy.

@@ -61,7 +61,8 @@
     "SquareBatch": {
       "count": 1,
       "axisU": 3,
-      "axisV": 3
+      "axisV": 3,
+      "visible": 1
     },
     "AtmosphereStats": {
       "fog": 1,
@@ -89,7 +90,8 @@
       "changed": 1,
       "queries": 1,
       "cameraRight": 3,
-      "cameraUp": 3
+      "cameraUp": 3,
+      "visible": 1
     },
     "SkyConfig": {
       "seed": 1,
@@ -160,7 +162,8 @@
       "time": 1,
       "dt": 1,
       "modeChanged": 1,
-      "sky": 3
+      "sky": 3,
+      "enhanced": 1
     },
     "DstFrame": {
       "dt": 1,
@@ -324,7 +327,9 @@
       "stormPosition": 3,
       "stormCount": 1,
       "stormDirty": 1,
-      "stormStrikes": 1
+      "stormStrikes": 1,
+      "ringVertices": 1,
+      "ringIndices": 1
     },
     "ShoreTriangle": {
       "a": 3,
@@ -410,7 +415,8 @@
       "level": 1,
       "eyeY": 1,
       "hasBumps": 1,
-      "planar": 1
+      "planar": 1,
+      "projection": 16
     },
     "WaterViewResult": {
       "range": 2,
@@ -419,7 +425,9 @@
       "enhanced": 1,
       "planar": 1,
       "distort": 1,
-      "underwater": 1
+      "underwater": 1,
+      "nearVisible": 1,
+      "farVisible": 1
     },
     "ShoreQuery": {
       "center": 3,
@@ -430,6 +438,54 @@
       "ray": 3,
       "start": 3,
       "out": 3
+    },
+    "PageFrame": {
+      "sunColor": 3,
+      "sunDirection": 3
+    },
+    "WeatherMode": {
+      "enhanced": 1,
+      "range": 1,
+      "count": 1,
+      "capacity": 1,
+      "size": 1,
+      "cell": 1
+    },
+    "SkyPublication": {
+      "solidVisible": 1,
+      "fadeVisible": 1,
+      "motionVisible": 1,
+      "reach": 1,
+      "solidCount": 1,
+      "fadingCount": 1
+    },
+    "SkyMotion": {
+      "frame": 1
+    },
+    "ShoreExposure": {
+      "position": 3,
+      "distance": 1,
+      "threshold": 1
+    },
+    "WaterDrawView": {
+      "projection": 16,
+      "inverse": 16,
+      "camera": 16,
+      "cameraRange": 2,
+      "sunColor": 3,
+      "reflectionMatrix": 16,
+      "tint": 3,
+      "resolution": 2,
+      "scene": 2,
+      "reflection": 1,
+      "fogColor": 3,
+      "fogRange": 2,
+      "eyeY": 1,
+      "far": 1
+    },
+    "FountainModel": {
+      "visible": 1,
+      "order": 1
     }
   },
   "enums": {
@@ -470,6 +526,28 @@
       "flyers",
       "radius",
       "fountainSky"
+    ],
+    "EnvironmentAdmission": [
+      "atmosphere",
+      "snow",
+      "weather",
+      "sky",
+      "sources",
+      "fountain",
+      "shore",
+      "waterMode"
+    ],
+    "EnvironmentDraw": [
+      "rain",
+      "mist",
+      "sheets",
+      "snow",
+      "square",
+      "fountain",
+      "shore",
+      "waterTint",
+      "waterReflection",
+      "waterTextured"
     ]
   },
   "limits": {

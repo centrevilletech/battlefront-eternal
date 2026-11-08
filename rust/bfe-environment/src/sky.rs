@@ -292,6 +292,8 @@ impl Sky {
     }
 
     // SkyFlyers.count is a native metadata query, independent of the eye.
+    pub fn enhanced(&self)->bool{self.enhanced}
+    pub fn probe_needed(&self)->bool{self.enhanced&&!self.kinds.is_empty()}
     pub fn count(&self)->usize { self.kinds.iter().enumerate().filter(|(i,_)|self.active(*i)).map(|(_,k)|k.count).sum() }
     pub fn active(&self, i: usize) -> bool {
         self.kinds.get(i).is_some_and(|k|if self.enhanced {k.enhanced}else{k.classic})
@@ -327,13 +329,14 @@ impl Sky {
             return;
         }
         // Which classes flew before the switch.
-        let was: Vec<bool> = (0..self.kinds.len()).map(|i| self.active(i)).collect();
+        let before=self.enhanced;
         self.enhanced = enhanced;
         for i in 0..self.kinds.len() {
             if !self.active(i) {
                 continue;
             }
-            if !was[i] {
+            let was=if before{self.kinds[i].enhanced}else{self.kinds[i].classic};
+            if !was {
                 self.relaunch(i);
             } else if enhanced {
                 let reach = self.kinds[i].distance + KILL_MARGIN;

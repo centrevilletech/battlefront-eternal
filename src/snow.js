@@ -1,57 +1,25 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
-import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
-import { environmentRecipe } from './atmosphere.js';
+import {EnvironmentDraw as DRAW} from "./environment/layout.js";
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
-import { SnowHost } from './environment/module.js';
+import { SnowHost,drawValues } from './environment/module.js';
 import { SnowResult as RESULT, View as VIEW } from './environment/layout.js';
 
 
-// Snow: a world's Precipitation of Type("Quads") (Hoth), as the 2004 engine
-// draws it. `ParticleDensity` flakes fill a 5 m box, and the box repeats over
-// the world's 5 m grid out to `Range` in view: the flakes keep their place in
-// the world as the camera moves through them. Each falls at `Velocity` with
-// the wind, wandering up to `VelocityRange` along each axis; every half
-// second its wander, its alpha (one end of AlphaMinMax or the other) and its
-// spin (Rotation ± RotationRange / 2 turns a second) ease a fifth of the way
-// toward new random ones. A flake is a camera-facing square reaching
-// `ParticleSize` from its centre to each side, the texture tinted `Color`;
-// boxes fade out over the last third of the range. Roofs stop it, as they
-// stop the rain (weather.js's cover cache, standing in for the engine's
-// rainshadow regions).
-//
-// The flakes (a few hundred), the wind, the cover cache and the choice of
-// boxes in view are a Rust phase's (rust/bfe-environment, snow.rs); one
-// instanced draw repeats the flakes over the boxes, nearest last. What is
-// here is the shell around them: the mesh, the material and the textures
-// the shader reads the phase's records from.
-
-
-
-
-
-
-
+// Native admission and the snow phase own density, cover and repeated boxes.
+// This shell retains the actual texture, scene anchor and GPU image handles.
 export class Snow {
   constructor({ data, scene, collision, water, texture, surfaceOwner }) {
     const p = data.precipitation;
-    // The flakes of one box: how many, and how they fall and ease.
-    const recipe = environmentRecipe(RECIPE.SNOW, data, surfaceOwner);
-    const count = recipe.count, range = recipe.range, boxLimit = recipe.boxes;
     // A roof or floor over a cell: what a cast straight down first hits, or
     // open water over it if higher (the cover cache's query).
     const down = new THREE.Vector3(0, -1, 0), from = new THREE.Vector3(), hit = makeHit();
-    const cover = (x, y, z) => {
-      const found = collision.cast(from.set(x, y, z), down, 512, hit);
-      let height = found ? found.point.y : -100000;
-      if (water?.over(x, z)) height = Math.max(height, water.level);
-      return height;
-    };
-    this.host = new SnowHost(surfaceOwner, cover);
-    this.host.config.set(recipe.config);
-    this.host.start();
+    surfaceOwner.attach({host_water_over:(x,z)=>water?.over(x,z)?1:0,host_water_level:()=>water?.level??0});
+    const cover=(x,y,z)=>collision.cast(from.set(x,y,z),down,512,hit)?.point.y??-100000;
+    this.host = new SnowHost(surfaceOwner, cover, data);
+    const recipe=this.host.recipe,count=recipe.count,range=recipe.range,boxLimit=recipe.boxes;
     this.flakeCount = count;
     this.range = range;
     this.boxLimit = boxLimit;
@@ -64,12 +32,7 @@ export class Snow {
     this.nativeKind=EFFECT.SNOW.ID;this.family='snow';this.variant=0;
     this.texture=texture(p.Texture?.[0]);this.count=0;this.capacity=0;this.arrays={};
     this.visibility='anchor';this.resources=null;this.samples=new Uint32Array(3);this.samples.fill(-1);
-    this.values=new Float64Array(EFFECT.SNOW.LENGTH);
-    const v=this.values;
-    v[EFFECT.SNOW.FLAKE_COUNT]=count;v[EFFECT.SNOW.SIZE]=recipe.size;
-    v[EFFECT.SNOW.CAMERA_RIGHT]=1;v[EFFECT.SNOW.CAMERA_UP+1]=1;
-    v.set(recipe.tint,EFFECT.SNOW.TINT);
-    v[EFFECT.SNOW.COVER_CELL]=this.cover.cell;v[EFFECT.SNOW.COVER_SIZE]=size;
+    drawValues(this.host,this,DRAW.SNOW,EFFECT.SNOW);
     this.mesh=new THREE.Object3D();this.mesh.userData.effectBatch=this;
     this.mesh.name = 'map-snow';
     sceneProperty(this.mesh,"frustumCulled",false);
@@ -95,11 +58,7 @@ export class Snow {
   }
   publishFrame() {
     this.host.refresh();
-    const r=this.host.result,v=this.values;
-    for(let i=0;i<3;i++){
-      v[EFFECT.SNOW.CAMERA_RIGHT+i]=r[RESULT.CAMERA_RIGHT+i];
-      v[EFFECT.SNOW.CAMERA_UP+i]=r[RESULT.CAMERA_UP+i];
-    }
+    const r=this.host.result;
     if(this.resources){
       if(this.imageBuffer!==this.host.buffer){
         const gpu=this.resources.gpu;
@@ -110,7 +69,7 @@ export class Snow {
     }
     this.cover.queries=r[RESULT.QUERIES];
     const boxes=r[RESULT.BOXES];this.count=r[RESULT.INSTANCES];
-    sceneProperty(this.mesh,"visible",r[RESULT.COVERED] === 1 && boxes > 0);
+    sceneProperty(this.mesh,"visible",Boolean(r[RESULT.VISIBLE]));
     this.stats.boxes = boxes; this.stats.flakes = r[RESULT.INSTANCES];
   }
   // The native descriptor fixes format/type/filter and derives dimensions

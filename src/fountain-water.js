@@ -1,7 +1,6 @@
 import {sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
-import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
-import {environmentRecipe} from './atmosphere.js';
-import {EnvironmentResult as RESULT} from './environment/layout.js';
+import {EnvironmentAdmission as ADMISSION,EnvironmentDraw as DRAW,FountainModel as MODEL} from "./environment/layout.js";
+import {admitEnvironment,drawValues,environmentTransfer} from './environment/module.js';
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
 import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from './render-resources.js';
 import * as THREE from 'three';
@@ -15,22 +14,21 @@ export class FountainWater {
   constructor(graphics,basins,wakes,foamMap=null,tier=null) {
     this.graphics=graphics;this.basins=basins;this.wakes=wakes;this.foamMap=foamMap;this.hasTier=Boolean(tier);
     this.time=0;this.enabled=false;this.captured=false;this.resources=null;this.surface=null;
-    this.values=new Float64Array(ROW.LENGTH);this.basinData=new Float64Array(20);this.samples=new Int32Array(4);this.samples.fill(-1);
-    this.values[ROW.HAS_TIER]=tier?1:0;this.values[ROW.HAS_FOAM]=foamMap?1:0;
-    for(let i=0;i<5;i++){const b=basins[i],at=i*4;this.basinData[at]=b?.center[0]??1e6;this.basinData[at+1]=b?.center[1]??1e6;this.basinData[at+2]=b?.center[2]??1e6;this.basinData[at+3]=b?.radius??0;}
-    this.values.set(this.basinData,ROW.BASINS);this.tierData=this.basinData.subarray(0,Math.min(5,basins.length)*4);
+    const recipe=admitEnvironment(ADMISSION.FOUNTAIN,{basins,tier:Boolean(tier),foam:Boolean(foamMap),sky:lighting.ambientTop.value.toArray()},wakes.host.owner);
+    drawValues(wakes.host,this,DRAW.FOUNTAIN,ROW);this.samples=new Int32Array(4);this.samples.fill(-1);
+    this.basinData=this.values.subarray(ROW.BASINS,ROW.BASINS+20);this.tierData=this.basinData.subarray(0,recipe.count*4);
+    wakes.host.bindArray(this,'basinData',()=>this.values.subarray(ROW.BASINS,ROW.BASINS+20));
+    wakes.host.bindArray(this,'tierData',()=>this.basinData.subarray(0,recipe.count*4));
+    const basinTextures=new Set(recipe.textures);
     // EnvironmentVolume consumes these reflection facts. Analytic basin water
     // has no planar reflection image; it samples its native opaque copy.
     this.reflectionUniforms={reflection:{value:null},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0}};
-    // The enclosing environment frame refreshes this value with its lighting.
-    const sky=environmentRecipe(RECIPE.FOUNTAIN_SKY,lighting.ambientTop.value.toArray(),wakes.host.owner);
-    wakes.host.refresh();wakes.host.result.set(sky,RESULT.SKY);
     this.original=[];this.models=[];
     const source=(mesh,tier=false)=>{
       const row={mesh,tier,owner:this,active:false,center:null};mesh.userData.effectModel=row;
       fountainWaters.set(mesh,this);this.models.push(row);return row;
     };
-    graphics.scene.traverse(mesh=>{if(mesh.isMesh&&basins.some(b=>b.texture===mesh.name)){
+    graphics.scene.traverse(mesh=>{if(mesh.isMesh&&basinTextures.has(mesh.name)){
       this.original.push({mesh,visible:mesh.visible,order:mesh.renderOrder});
       // Classic and enhanced appearances have independent native identities.
       // Hiding the authored surface must not hide its replacement's source.
@@ -41,6 +39,8 @@ export class FountainWater {
     }});
     if(tier){this.tier=new THREE.Object3D();this.tier.name='fountain-tier-water';sceneProperty(this.tier,"renderOrder",-16.9);
       sceneProperty(this.tier,"visible",false);source(this.tier,true);graphics.scene.add(this.tier);}
+    environmentTransfer(wakes.host.owner,'page_fountain_models',this.original.map(o=>({visible:o.visible,order:o.order})));
+    wakes.host.bindArray(this,'modelValues',h=>new Float64Array(h.buffer,h.x.page_fountain_models_ptr(),this.original.length*MODEL.STRIDE));
   }
   // Ports FountainWater's shared resource setup. Rust owns disc topology,
   // material slots, sampler units and the copy target's attachments.
@@ -51,16 +51,15 @@ export class FountainWater {
     return this.samples;
   }
   setEnabled(enabled) {
-    if(enabled===this.enabled)return;this.enabled=enabled;
+    if(!this.wakes.host.x.page_fountain_mode(enabled?1:0))return;this.enabled=enabled;
     for(const row of this.models){row.active=enabled;sceneProperty(row.mesh,"visible",enabled);}
-    for(const o of this.original){sceneProperty(o.mesh,"visible",enabled?false:o.visible);sceneProperty(o.mesh,"renderOrder",enabled?-17:o.order);}
+    for(let k=0;k<this.original.length;k++){const o=this.original[k],at=k*MODEL.STRIDE;sceneProperty(o.mesh,'visible',Boolean(this.modelValues[at+MODEL.VISIBLE]));sceneProperty(o.mesh,'renderOrder',this.modelValues[at+MODEL.ORDER]);}
     if(this.tier)sceneProperty(this.tier,"visible",enabled);
   }
+  // The enclosing native phase supplies time. Isolated resource consumers
+  // can publish that same scalar without advancing an environment clock.
   update(time) {
-    this.time=time;this.captured=false;const v=this.values;
-    v[ROW.WATER_TIME]=time;for(let i=0;i<3;i++)v[ROW.SKY+i]=this.wakes.host.result[RESULT.SKY+i];
-    lighting.sunDirection.value.toArray(v,ROW.WATER_SUN_DIRECTION);lighting.sunColor.value.toArray(v,ROW.WATER_SUN_COLOR);
-    v.set(this.wakes.host.wakePoints,ROW.WAKES);v.set(this.wakes.host.wakeMotion,ROW.MOTION);
+    this.time=time;this.captured=false;this.values[ROW.WATER_TIME]=time;
   }
   // The native transparent model preserves FountainWater.capture's ordered
   // colour/depth copy. Resizing changes storage, never logical sampler ids.

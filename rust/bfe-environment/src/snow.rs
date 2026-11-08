@@ -299,6 +299,7 @@ impl Snow {
         result[sr::BOXES] = boxes as f64;
         result[sr::INSTANCES] = (boxes * n) as f64;
         result[sr::COVERED] = f64::from(covered);
+        result[sr::VISIBLE] = f64::from(covered && boxes > 0);
         result[sr::CHANGED] = f64::from(changed);
         result[sr::QUERIES] = self.cover.queries as f64;
         result[sr::CAMERA_RIGHT..sr::CAMERA_RIGHT + 3].copy_from_slice(&[right.x, right.y, right.z]);

@@ -1,6 +1,6 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
 import * as THREE from "three";
-import {fabric_description} from "./rust-pkg/bfe_render.js";
+import {fabric_description,fabric_depth_program} from "./rust-pkg/bfe_render.js";
 // Cold browser resource transport. Connectivity, anchors, subdivision and
 // conservative wind bounds share the native static-resource compiler.
 export function fabricGeometry(source) {
@@ -32,7 +32,7 @@ export function addFabricWind(mesh) {
   depth.map = mesh.material.map;
   depth.alphaTest = mesh.material.alphaTest;
   depth.side = mesh.material.side;
-  depth.userData.bfeProgram = depth.alphaTest>0 ? "actors/depth-fabric-cutout" : "actors/depth-fabric";
+  depth.userData.bfeProgram = fabric_depth_program(depth.alphaTest);
   mesh.customDepthMaterial = depth;
   mesh.userData.fabricWind = true;
   return mesh;

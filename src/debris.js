@@ -21,7 +21,7 @@ export class Debris {
     if(this.x)return;
     this.x=new WebAssembly.Instance(loaded(),{
       surface_math:{surface_sin:Math.sin,surface_cos:Math.cos,surface_tan:Math.tan,surface_atan2:Math.atan2,surface_hypot:Math.hypot},
-      env:{host_cast:()=>0,host_cast_out:()=>0,host_ground:()=>NaN,host_cover:()=>-100000,host_impact:()=>-Infinity,host_impact_normal:()=>0,host_shore_tile:()=>0,host_shore_exposed:()=>0,
+      env:{host_water_over:()=>0,host_water_level:()=>0,host_cast:()=>0,host_cast_out:()=>0,host_ground:()=>NaN,host_cover:()=>-100000,host_impact:()=>-Infinity,host_impact_normal:()=>0,host_shore_tile:()=>0,host_shore_exposed:()=>0,
         host_debris_cast:(slot,ox,oy,oz,dx,dy,dz,far)=>{
           this.sync(slot);this.start.set(ox,oy,oz);this.ray.set(dx,dy,dz);
           return this.collision.cast(this.start,this.ray,far,this.hit,this.bySlot[slot].ignore)?1:0;

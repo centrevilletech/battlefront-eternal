@@ -1,9 +1,10 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
+import {admitEnvironment,drawValues} from './environment/module.js';
 import { EFFECT } from './rust-render/effect-layout.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 
-import { Surface as LIMITS, SurfaceFrame as FRAME, SurfaceResult as RESULT, ShoreTriangle as TRIANGLE, ShoreQuery as QUERY } from './environment/layout.js';
+import { Surface as LIMITS, SurfaceConfig as LIMIT_CONFIG, SurfaceResult as RESULT, ShoreTriangle as TRIANGLE, ShoreQuery as QUERY,EnvironmentDraw as DRAW,EnvironmentAdmission as ADMISSION } from './environment/layout.js';
 
 const MAX_PATCHES = LIMITS.SHORE_PATCHES;
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -13,7 +14,7 @@ export class WaterShore {
     this.water = water;
     this.collision = collision;
     this.graphics = graphics;
-    this.host = water.host;
+    this.host = water.host;this.host.config[LIMIT_CONFIG.HEIGHT]=water.height;
     this.count = 0;
     this.time = 0;
     this.origin = new THREE.Vector3();
@@ -27,12 +28,9 @@ export class WaterShore {
     };
     this.host.owner.attach({
       host_shore_tile: (x, z, height) => this.collect(x, z, height),
-      host_shore_exposed: (x, z, height) => {
-        if (!this.water.over(x, z)) return 0;
-        this.origin.set(x, height + 12, z);
-        const hit = this.collision.cast(this.origin, DOWN, 30, this.hit);
-        return !hit || hit.point.y < height - 0.08 ? 1 : 0;
-      },
+      host_water_over:(x,z)=>water.over(x,z)?1:0,
+      host_water_level:()=>water.level,
+      host_shore_exposed:(x,y,z,far)=>this.collision.cast(this.origin.set(x,y,z),DOWN,far,this.hit)?.point.y??-Infinity,
     });
     this.group = new THREE.Group();
     this.group.name = "water-shore-lapping";
@@ -41,9 +39,9 @@ export class WaterShore {
     // effect_resources.rs. Only native shore points and live matrices cross.
     this.batches=[0,1].map(splash=>{
       const batch={nativeKind:EFFECT.WATER_SHORE.ID,family:'waterShore',variant:0,texture:null,count:0,capacity:MAX_PATCHES,
-        visibility:'anchor',arrays:{shore:this.host.shore,phase:this.host.phases},values:new Float64Array(EFFECT.WATER_SHORE.LENGTH),serial:0};
+        visibility:'anchor',arrays:{shore:this.host.shore,phase:this.host.phases},serial:0};
       this.host.bindArray(batch.arrays,'shore','shore');this.host.bindArray(batch.arrays,'phase','phases');
-      batch.values[EFFECT.WATER_SHORE.HEIGHT]=water.height;batch.values[EFFECT.WATER_SHORE.SPLASH]=splash;
+      drawValues(this.host,batch,DRAW.SHORE,EFFECT.WATER_SHORE,splash);
       const mesh=batch.mesh=new THREE.Object3D();sceneProperty(mesh,"renderOrder",-17);sceneProperty(mesh,"frustumCulled",false);mesh.userData.effectBatch=batch;
       mesh.onBeforeRender=(renderer,scene,camera)=>{
         const v=batch.values;v.set(mesh.matrixWorld.elements,EFFECT.WATER_SHORE.MODEL_MATRIX);
@@ -54,7 +52,7 @@ export class WaterShore {
     });
     this.meshes=this.batches.map(batch=>batch.mesh);
     // The Rust renderer's water pass draws its meshes (src/rust-render/water.js).
-    water.shore = this;
+    water.shore = this;this.prepareFrame();
   }
 
   // CollisionWorld still owns the collision resource. This bridge copies the
@@ -84,17 +82,15 @@ export class WaterShore {
   }
   prepareFrame() {
     const quality = this.graphics.settings.get('waterQuality');
-    sceneProperty(this.group,"visible",quality === 'high' || quality === 'ultra');
-    this.host.frame[FRAME.SHORE_QUALITY] = quality === 'ultra' ? 2 : quality === 'high' ? 1 : 0;
+    if(quality!==this.quality){this.quality=quality;const mode=admitEnvironment(ADMISSION.SHORE,{quality},this.host.owner);sceneProperty(this.group,'visible',mode.visible);}
   }
   publishFrame() {
     this.host.refresh();
     if (!this.group.visible) return;
     const result = this.host.result;
     this.time = result[RESULT.SHORE_TIME];
-    for(const batch of this.batches)batch.values[EFFECT.WATER_SHORE.TIME]=this.time;
     if (!result[RESULT.SHORE_DIRTY]) return;
-    this.count = Math.min(result[RESULT.SHORE_COUNT],MAX_PATCHES);
+    this.count = result[RESULT.SHORE_COUNT];
     for(const batch of this.batches){batch.count=this.count;batch.serial++;}
   }
 

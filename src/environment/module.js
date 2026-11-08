@@ -3,7 +3,7 @@
 // owner. A failure is reported to the player; nothing stands in for it.
 import {loadWaterState} from "../runtime/water-state.js";
 import { ENVIRONMENT_WASM } from "../environment-wasm.js";
-import { Dst, DstBurst, DstChunk, DstChunkAt, DstCommand, DstFrame, DstMatrixAt, DstSlotState, DstSlotStatic, DstStation, DstStationState, EnvironmentFrame, SkyFrame, Sky, WeatherFrame, WeatherResult, SnowConfig, SnowResult, Squares, View, WakeFrame, WakeActor, WakeResult, Wakes } from "./layout.js";
+import { Dst, DstBurst, DstChunk, DstChunkAt, DstCommand, DstFrame, DstMatrixAt, DstSlotState, DstSlotStatic, DstStation, DstStationState, EnvironmentFrame, SkyFrame, Sky, WeatherFrame, WeatherResult, SnowConfig, SnowResult, Squares, View, WakeFrame, WakeActor, WakeResult, Wakes, EnvironmentAdmission as ADMISSION, SkyPublication, WeatherMode, PageFrame } from "./layout.js";
 
 let compiling = null;
 let compiled = null;
@@ -26,9 +26,26 @@ export function loaded() {
   return compiled;
 }
 
+// Cold authored bytes enter once; retained phase values are borrowed below.
+const encoder=new TextEncoder(),decoder=new TextDecoder();
+let content;
+function contentCall(kind,data,owner,admit) {
+  const x=owner?.x||(content??=new WebAssembly.Instance(loaded(),imports()).exports);
+  const bytes=encoder.encode(JSON.stringify(data,(_,v)=>Object.is(v,-0)?'~negative zero~':v).replaceAll('"~negative zero~"','-0.0'));
+  const at=x.content_input(bytes.length);new Uint8Array(x.memory.buffer,at,bytes.length).set(bytes);
+  if(x[admit===true?'page_admit':typeof admit==='string'?admit:'content_recipe'](kind))throw Error('Invalid environment content');
+  owner?.refresh();return JSON.parse(decoder.decode(new Uint8Array(x.memory.buffer,x.content_output(),x.content_length())));
+}
+export const environmentRecipe=(kind,data,owner=null)=>contentCall(kind,data,owner,false);
+export const environmentTransfer=(owner,entry,data)=>contentCall(0,data,owner,entry);
+export const admitEnvironment=(kind,data,owner)=>contentCall(kind,data,owner,true);
+export function drawValues(host,target,kind,row,index=0) {
+  host.bindArray(target,'values',h=>{const x=h.x||h.owner.x,at=x.page_values_ptr(kind,index);return new Float64Array(x.memory.buffer,at,row.LENGTH);});
+}
+
 // The host functions the module imports (what it asks of the page's
 // collision world); an owner that does not use one is given the empty answer.
-const imports = (host = {}) => ({ surface_math: { surface_sin: Math.sin, surface_cos: Math.cos, surface_tan: Math.tan, surface_atan2: Math.atan2, surface_hypot: Math.hypot }, env: { host_debris_cast:()=>0,host_debris_hit:()=>0,host_debris_low:()=>0,host_debris_event:()=>{}, host_shore_tile: () => 0, host_shore_exposed: () => 0, host_cast: () => 0, host_cast_out: () => 0, host_ground: () => NaN, host_cover: () => -100000, host_impact: () => -Infinity, host_impact_normal: () => 0, ...host } });
+const imports = (host = {}) => ({ surface_math: { surface_sin: Math.sin, surface_cos: Math.cos, surface_tan: Math.tan, surface_atan2: Math.atan2, surface_hypot: Math.hypot }, env: { host_debris_cast:()=>0,host_debris_hit:()=>0,host_debris_low:()=>0,host_debris_event:()=>{}, host_shore_tile: () => 0, host_shore_exposed: () => 0, host_cast: () => 0, host_cast_out: () => 0, host_water_over:()=>0,host_water_level:()=>0,host_ground: () => NaN, host_cover: () => -100000, host_impact: () => -Infinity, host_impact_normal: () => 0, ...host } });
 
 // An instance for the destruction effects (rust/bfe-environment destruction.rs
 // and fx.rs): the pools of hot and smoke particles, the arcs, the pieces of
@@ -97,15 +114,17 @@ export class DestructionHost {
 // draws can read sky motion before SurfaceFrame has supplied its first frame.
 function borrow(old,Type,buffer,offset,length) { return old&&old.buffer===buffer&&old.byteOffset===offset&&old.length===length?old:new Type(buffer,offset,length); }
 class SharedHost {
-  constructor(owner) { this.owner=owner;this.x=owner.x;this.buffer=null;this.bindings=[];owner.hosts.push(this); }
-  changed(force) { const b=this.x.memory.buffer;if(!force&&b===this.buffer)return false;this.buffer=b;return true; }
+  constructor(owner) { this.owner=owner;this.x=owner.x;this.buffer=null;this.bindings=[];owner.hosts.push(this);this.admitting=false; }
+  changed(force) { if(this.admitting)return false;const b=this.x.memory.buffer;if(!force&&b===this.buffer)return false;this.buffer=b;this.pageFrame=borrow(this.pageFrame,Float64Array,b,this.x.page_frame_ptr(),PageFrame.STRIDE);return true; }
   bindArray(target,key,get) { this.refresh();target[key]=get(this);this.bindings.push({target,key,get}); }
   publishBindings() { for(let i=0;i<this.bindings.length;i++){const b=this.bindings[i];b.target[b.key]=b.get(this);} }
 }
 
 export class AtmosphereHost extends SharedHost {
-  constructor(owner,classes,instances,fog,ground) {
-    super(owner);owner.attach({host_ground:ground});this.x.atm_new(classes,instances,+!!fog);this.batches=[];this.batchCount=0;this.refresh();owner.refresh();
+  constructor(owner,classes,instances,fog,ground,source=null) {
+    super(owner);owner.attach({host_ground:ground});this.batches=[];this.batchCount=0;
+    if(source){this.admitting=true;this.recipe=admitEnvironment(ADMISSION.ATMOSPHERE,source,owner);this.admitting=false;this.batchCount=this.recipe.batches.length;}else this.x.atm_new(classes,instances,+!!fog);
+    this.refresh(true);owner.refresh();
   }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
@@ -120,7 +139,7 @@ export class AtmosphereHost extends SharedHost {
 }
 
 export class SnowHost extends SharedHost {
-  constructor(owner,cast) { super(owner);owner.attach({host_cover:cast});this.x.snow_new();this.started=false;this.refresh();owner.refresh(); }
+  constructor(owner,cast,source=null) { super(owner);owner.attach({host_cover:cast});this.started=false;if(source){this.admitting=true;this.recipe=admitEnvironment(ADMISSION.SNOW,source,owner);this.admitting=false;this.started=true;}else this.x.snow_new();this.refresh(true);owner.refresh(); }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
     this.config=borrow(this.config,Float64Array,b,x.snow_config_ptr(),SnowConfig.STRIDE);
@@ -134,11 +153,12 @@ export class SnowHost extends SharedHost {
 }
 
 export class SkyHost extends SharedHost {
-  constructor(owner,classes) { super(owner);this.classes=classes;this.classArrays=[];this.started=false;this.x.sky_new(classes);this.refresh(); }
+  constructor(owner,classes,source=null) { super(owner);this.classes=classes;this.classArrays=[];this.started=false;if(source){this.admitting=true;this.recipe=admitEnvironment(ADMISSION.SKY,source,owner);this.admitting=false;this.classes=this.recipe.classes.length;this.started=true;}else this.x.sky_new(classes);this.refresh(true);owner.refresh(); }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
     this.config=borrow(this.config,Float64Array,b,x.sky_config_ptr(),x.sky_config_len());
     if(this.started){
+      this.publication=borrow(this.publication,Float64Array,b,x.page_sky_ptr(),this.classes*SkyPublication.STRIDE);
       this.frame=borrow(this.frame,Float64Array,b,x.sky_frame_ptr(),SkyFrame.STRIDE);this.result=borrow(this.result,Float64Array,b,x.sky_result_ptr(),x.sky_result_len());
       for(let i=0;i<this.classArrays.length;i++){const row=this.classArrays[i];if(row)for(let w=0;w<Sky.ARRAYS;w++)row[w]=borrow(row[w],Float32Array,b,x.sky_array_ptr(i,w),x.sky_array_len(i,w));}
     }
@@ -151,11 +171,12 @@ export class SkyHost extends SharedHost {
 }
 
 export class WeatherHost extends SharedHost {
-  constructor(owner,capacity,enhanced,range,size,cover,impact,normal) {
-    super(owner);owner.attach({host_cover:cover,host_impact:impact,host_impact_normal:i=>normal[i]});this.x.weather_new(capacity,+!!enhanced,range,size);this.refresh();owner.refresh();
+  constructor(owner,capacity,enhanced,range,size,cover,impact,normal,source=null) {
+    super(owner);owner.attach({host_cover:cover,host_impact:impact,host_impact_normal:i=>normal[i]});if(source){this.admitting=true;this.recipe=admitEnvironment(ADMISSION.WEATHER,source,owner);this.admitting=false;}else this.x.weather_new(capacity,+!!enhanced,range,size);this.refresh(true);owner.refresh();
   }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
+    this.modeResult=borrow(this.modeResult,Float64Array,b,x.page_weather_mode_ptr(),WeatherMode.STRIDE);
     this.frame=borrow(this.frame,Float64Array,b,x.weather_frame_ptr(),WeatherFrame.STRIDE);this.result=borrow(this.result,Float64Array,b,x.weather_result_ptr(),WeatherResult.STRIDE);
     this.cover=borrow(this.cover,Float32Array,b,x.weather_data_ptr(0),x.weather_data_len(0));this.locations=borrow(this.locations,Float32Array,b,x.weather_data_ptr(1),x.weather_data_len(1));this.normals=borrow(this.normals,Float32Array,b,x.weather_data_ptr(2),x.weather_data_len(2));this.seeds=borrow(this.seeds,Float32Array,b,x.weather_data_ptr(3),x.weather_data_len(3));this.mist=borrow(this.mist,Float32Array,b,x.weather_data_ptr(4),x.weather_data_len(4));
     this.streaks=borrow(this.streaks,Uint8Array,b,x.weather_streaks_ptr(),x.weather_streaks_len());this.cell=x.weather_cover_cell();this.publishBindings();return true;
@@ -165,7 +186,7 @@ export class WeatherHost extends SharedHost {
 }
 
 export class VisibilityHost extends SharedHost {
-  constructor(owner,count) { super(owner);this.count=count;this.started=false;this.x.vis_new(count);this.refresh(); }
+  constructor(owner,count,source=null) { super(owner);this.count=count;this.started=false;if(source){this.admitting=true;this.recipe=admitEnvironment(ADMISSION.SOURCES,source,owner);this.admitting=false;this.count=this.recipe.instances.length;this.started=true;}else this.x.vis_new(count);this.refresh(true);owner.refresh(); }
   refresh(force=false) {
     if(!this.changed(force))return false;const x=this.x,b=this.buffer;
     this.config=borrow(this.config,Float64Array,b,x.vis_config_ptr(),x.vis_config_len());
@@ -185,12 +206,14 @@ export class SurfaceOwner {
   constructor(module = loaded(), water = false) {
     this.callbacks = Object.create(null);this.hosts=[];
     const env = {
+      host_water_over:(x,z)=>this.callbacks.host_water_over?.(x,z)??0,
+      host_water_level:()=>this.callbacks.host_water_level?.()??0,
       host_ground: (x, z) => this.callbacks.host_ground(x, z),
       host_cover: (x, y, z) => this.callbacks.host_cover(x, y, z),
       host_impact: (x, y, z) => this.callbacks.host_impact(x, y, z),
       host_impact_normal: i => this.callbacks.host_impact_normal(i),
       host_shore_tile: (x, z, height) => this.callbacks.host_shore_tile(x, z, height),
-      host_shore_exposed: (x, z, height) => this.callbacks.host_shore_exposed(x, z, height),
+      host_shore_exposed:(x,y,z,far)=>this.callbacks.host_shore_exposed(x,y,z,far),
     };
     this.x = new WebAssembly.Instance(module, imports(env)).exports;
     this.x.surface_new(water ? 1 : 0);

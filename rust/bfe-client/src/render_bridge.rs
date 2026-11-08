@@ -1511,6 +1511,25 @@ pub fn fabric_description(authored:&str)->Result<String,String>{
     serde_json::to_string(&cloth).map_err(|e|String::from(&e.to_string()))
 }
 
+// Water's two screen composites share PlaneGeometry(2,2)'s exact vertices,
+// winding and UVs. Only BufferGeometry attribute installation stays in the
+// browser; the static compiler owns their numerical topology.
+
+pub fn water_screen_description()->String{
+    serde_json::json!({"attributes":[
+        {"name":"position","size":3,"values":[-1.,1.,0.,1.,1.,0.,-1.,-1.,0.,1.,-1.,0.]},
+        {"name":"normal","size":3,"values":[0.,0.,1.,0.,0.,1.,0.,0.,1.,0.,0.,1.]},
+        {"name":"uv","size":2,"values":[0.,1.,1.,1.,0.,0.,1.,0.]}
+    ],"index":[0,2,1,2,3,1]}).to_string()
+}
+
+// addFabricWind's depth program follows the material's admitted alpha test.
+// Preserve NaN's non-cutout result and keep shader selection with static data.
+
+pub fn fabric_depth_program(alpha_test:f64)->String{
+    if alpha_test>0.{"actors/depth-fabric-cutout"}else{"actors/depth-fabric"}.into()
+}
+
 }
 mod static_depth {
 // Cold depth-resource admission from the same native source as world colour.

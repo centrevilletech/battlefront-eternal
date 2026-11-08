@@ -24,7 +24,7 @@ let tiles=[],probes=[];
 host.owner.attach({host_shore_tile:()=>{
   const data=[0,-4,-40,0,4,-40,0,4,40,0,-4,-40,0,4,40,0,-4,40];
   host.triangles.set(data);tiles.push(data);return 2;
-},host_shore_exposed:(x,z)=>{const exposed=x>=0;probes.push(exposed);return exposed?1:0;}});
+},host_water_over:()=>1,host_water_level:()=>-2,host_shore_exposed:(x,y,z)=>{const exposed=x>=0;probes.push(exposed);return exposed?-Infinity:Infinity;}});
 const contact={},velocity=new THREE.Vector3(2,-1,3),point=new THREE.Vector3();
 for(let i=0;i<frames;i++) {
   tiles=[];probes=[];

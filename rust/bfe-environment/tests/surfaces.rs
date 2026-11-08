@@ -114,3 +114,34 @@ fn classic_debris_full_burst_and_view_queries_do_not_allocate() {
     assert_eq!(ALLOCATIONS.with(Cell::get)-before,0);
     assert_eq!(debris.free(),0);
 }
+
+// Admission may allocate, but publication and live rain mode changes reuse
+// retained storage. Exercise all producers in a long frame sequence, rather
+// than testing a helper independently of its real phase outputs.
+#[test]
+fn admitted_effects_and_draw_publication_do_not_allocate(){
+    use bfe_environment::{admission,publication::Publication,WeatherPhase,water_draw::Draws,surface_policy::Policy};
+    use bfe_environment::layout::{weather_mode as mode,sky_frame as sf,water_view as view};
+    use serde_json::json;
+    let mut rows=Publication::new();
+    let rain_data=json!({"precipitation":{"Range":[12.5],"ParticleDensity":[256],"Velocity":[9.]},"wind":[1.,2.]});
+    rows.weather(&rain_data,true);let m=rows.weather_mode;
+    let mut rain=WeatherPhase::new(m[mode::CAPACITY] as usize,true,m[mode::RANGE],m[mode::SIZE] as usize);
+    let(mut snow,snow_recipe)=admission::snow(&json!({"precipitation":{"ParticleDensity":[8],"Range":[4.]}}));rows.snow(&snow_recipe,snow.snow.as_ref().unwrap().cover.cell);
+    let(mut atmosphere,atmosphere_recipe)=admission::atmosphere(&json!({"data":{"dust":{"classes":[],"instances":[]}},"available":{},"fog":false}));rows.atmosphere(&atmosphere_recipe);
+    let(mut sky,_)=admission::sky(&json!({"data":{"flyers":[]},"models":{}}));
+    let(mut sources,_)=admission::sources(&json!({"instances":[],"basins":[],"effects":[]}));rows.fountain(&json!({"basins":[],"tier":true}));
+    let mut water=Phase::new(true);let mut draws=Draws::default();let mut policy=Policy::default();let mut wall=Wall{casts:0,gathers:0,dry:false,excess:false};
+    rain.frame[bfe_environment::layout::weather_frame::DT]=1./60.;snow.view[bfe_environment::layout::view::DT]=1./60.;sky.frame[sf::DT]=1./60.;
+    let before=ALLOCATIONS.with(Cell::get);
+    for i in 0..2400{
+        if i%120==0{rows.mode(i%240==0);let m=rows.weather_mode;rain.weather.set_mode(m[mode::ENHANCED]!=0.,m[mode::RANGE],m[mode::SIZE] as usize);}
+        rain.update(&mut |_,_,_|0.,&mut |_,_,_|bfe_environment::weather::Impact{y:0.,normal:[0.,1.,0.],water:true});rows.weather_frame(&rain.result);
+        snow.update(&mut |_,_,_|0.);rows.snow_frame(&snow.result);atmosphere.update(&mut |_,_|0.);rows.atmosphere_frame(&atmosphere.result);
+        sky.update();rows.sky_frame(&sky);assert_eq!(rows.sky_motion(i as f64),0.);assert_eq!(rows.sky_motion(i as f64),0.);assert_eq!(rows.sky_motion(i as f64+0.5),1.);
+        sources.update();rows.fountain_frame(&sources);water.update::<V8,_>(&mut wall);rows.shore_frame(&water);
+        policy.input[view::SCALE]=0.5;policy.input[view::MAX_SIZE]=1024.;policy.input[view::SIZE]=1200.;policy.input[view::SIZE+1]=800.;policy.update::<V8>();
+        for slot in 0..6{draws.prepare(slot,&water.result,&policy.result);}
+    }
+    assert_eq!(ALLOCATIONS.with(Cell::get),before);
+}

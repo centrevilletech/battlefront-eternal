@@ -8,6 +8,10 @@
 pub mod atmosphere;
 pub mod common;
 pub mod content;
+pub mod admission;
+pub mod publication;
+#[allow(dead_code)]
+mod effect_layout;
 pub mod cover;
 pub mod destruction;
 pub mod debris;
@@ -21,6 +25,7 @@ pub mod weather;
 pub mod snow;
 pub mod surfaces;
 pub mod surface_policy;
+pub mod water_draw;
 pub mod shore;
 pub mod surface_math;
 pub mod wakes;
@@ -243,6 +248,7 @@ impl EnvironmentPhase {
         self.result[layout::environment_result::TIME] = self.time;
         self.result[layout::environment_result::DT] = dt;
         self.result[layout::environment_result::MODE_CHANGED] = f64::from(changed);
+        self.result[layout::environment_result::ENHANCED]=f64::from(enhanced);
     }
 }
 
@@ -258,13 +264,43 @@ mod exports {
     // One static a piece of state: a WebAssembly instance is single-threaded and
     // the page never re-enters a call.
     static mut SURFACES: Option<surfaces::Phase> = None;
+    static mut PUBLICATION: Option<publication::Publication> = None;
+    fn publication()->&'static mut publication::Publication{unsafe{(*addr_of_mut!(PUBLICATION)).get_or_insert_with(publication::Publication::new)}}
+    #[no_mangle]pub extern "C" fn page_values_ptr(kind:u32,index:u32)->*mut f64{publication().values(kind,index as usize).as_mut_ptr()}
+    #[no_mangle]pub extern "C" fn page_frame_ptr()->*mut f64{publication().input.as_mut_ptr()}
+    #[no_mangle]pub extern "C" fn page_weather_mode_ptr()->*const f64{publication().weather_mode.as_ptr()}
+    #[no_mangle]pub extern "C" fn page_sky_ptr()->*const f64{publication().sky.as_ptr().cast()}
+    #[no_mangle]pub extern "C" fn page_fountain_models()->u32{let Ok(data)=content::input()else{return 1;};publication().fountain_models(&data);content::output(&serde_json::Value::Null);0}
+    #[no_mangle]pub extern "C" fn page_fountain_models_ptr()->*const f64{publication().fountain_models.as_ptr().cast()}
+    #[no_mangle]pub extern "C" fn page_fountain_mode(enabled:u32)->u32{u32::from(publication().fountain_mode(enabled!=0))}
+    #[no_mangle]pub extern "C" fn page_sky_motion(frame:f64)->f64{publication().sky_motion(frame)}
+    #[no_mangle]pub extern "C" fn page_weather_mode(enhanced:u32){
+        publication().mode(enhanced!=0);let m=publication().weather_mode;rain().weather.set_mode(enhanced!=0,m[layout::weather_mode::RANGE],m[layout::weather_mode::SIZE] as usize);
+    }
+    #[no_mangle]pub extern "C" fn water_draw_prepare(slot:u32){water_draw::exports::prepare(slot as usize,&surfaces().result)}
+    #[no_mangle]pub extern "C" fn page_admit(kind:u32)->u32{
+        let Ok(data)=content::input()else{return 1;};
+        let mut result=serde_json::Value::Null;
+        use layout::environment_admission as admit;
+        unsafe{if kind==admit::ATMOSPHERE as u32{let(p,r)=admission::atmosphere(&data);publication().atmosphere(&r);*addr_of_mut!(ATMOSPHERE)=Some(p);result=r;}
+        else if kind==admit::SNOW as u32{let(p,r)=admission::snow(&data);let cell=p.snow.as_ref().unwrap().cover.cell;publication().snow(&r,cell);*addr_of_mut!(SNOW)=Some(p);result=r;}
+        else if kind==admit::WEATHER as u32{let enhanced=data["enhanced"].as_bool().unwrap_or(false);let r=publication().weather(&data["data"],enhanced);let m=publication().weather_mode;*addr_of_mut!(WEATHER)=Some(WeatherPhase::new(m[layout::weather_mode::CAPACITY] as usize,enhanced,m[layout::weather_mode::RANGE],m[layout::weather_mode::SIZE] as usize));result=r;}
+        else if kind==admit::SKY as u32{let(p,r)=admission::sky(&data);publication().sky=vec![[0.;layout::sky_publication::STRIDE];p.result.len()/layout::sky_result::STRIDE];for(k,row)in publication().sky.iter_mut().enumerate(){let count=p.config[layout::sky_config::STRIDE+k*layout::sky_class::STRIDE+layout::sky_class::COUNT];row[layout::sky_publication::SOLID_COUNT]=count;row[layout::sky_publication::FADING_COUNT]=count;}*addr_of_mut!(SKY)=Some(p);result=r;}
+        else if kind==admit::SOURCES as u32{let(p,r)=admission::sources(&data);*addr_of_mut!(ENVIRONMENT)=Some(p);result=r;}
+        else if kind==admit::FOUNTAIN as u32{result=publication().fountain(&data);}
+        else if kind==admit::WATER_MODE as u32{result=water_draw::exports::mode(&data);}
+        else if kind==admit::SHORE as u32{let quality=match data["quality"].as_str(){Some("ultra")=>2.,Some("high")=>1.,_=>0.};surfaces().frame[layout::surface_frame::SHORE_QUALITY]=quality;result=serde_json::json!({"visible":quality>0.});}}
+        content::output(&result);0
+    }
     static mut SHORE_INPUT: Vec<f64> = Vec::new();
     static mut SHORE_QUERY:[f64;layout::shore_query::STRIDE]=[0.;layout::shore_query::STRIDE];
 
     #[link(wasm_import_module = "env")]
     extern "C" {
+        fn host_water_over(x:f64,z:f64)->u32;
+        fn host_water_level()->f64;
         fn host_shore_tile(x: f64, z: f64, height: f64) -> u32;
-        fn host_shore_exposed(x: f64, z: f64, height: f64) -> u32;
+        fn host_shore_exposed(x:f64,y:f64,z:f64,far:f64)->f64;
     }
     #[no_mangle]
     pub extern "C" fn surface_shore_query_ptr()->*const f64{addr_of_mut!(SHORE_QUERY).cast::<f64>()}
@@ -284,7 +320,7 @@ mod exports {
         }
         fn exposed(&mut self, x: f64, z: f64, height: f64) -> bool {
             // SAFETY: a scalar collision query with no phase re-entry.
-            unsafe { host_shore_exposed(x, z, height) != 0 }
+            unsafe {host_water_over(x,z)!=0&&host_shore_exposed(x,height+12.,z,30.)<height-0.08}
         }
     }
     fn surfaces() -> &'static mut surfaces::Phase {
@@ -295,7 +331,7 @@ mod exports {
     pub extern "C" fn surface_new(water: u32) {
         // SAFETY: called once during owner construction, before publication.
         unsafe { let mut phase = surfaces::Phase::new(water != 0); phase.prepare_math::<surface_math::Page>();
-            *addr_of_mut!(SURFACES) = Some(phase);
+            *addr_of_mut!(SURFACES) = Some(phase);publication();water_draw::exports::water_draw_input();
             *addr_of_mut!(SHORE_INPUT) = vec![0.0; layout::surface::SHORE_TRIANGLES * layout::shore_triangle::STRIDE]; }
     }
     #[no_mangle]
@@ -330,15 +366,15 @@ mod exports {
     /// All installed owners consume their already written blocks in page order.
     #[no_mangle]
     pub extern "C" fn surface_frame() {
-        surface_update();
+        surface_update();publication().shore_frame(surfaces());
         // SAFETY: the host is single-threaded; these tests borrow no owner
         // across the next call. Missing map systems simply have no instance.
         unsafe {
-            if (*addr_of_mut!(WEATHER)).is_some() { weather_update(); }
-            if (*addr_of_mut!(SNOW)).is_some() { snow_update(); }
-            if (*addr_of_mut!(ATMOSPHERE)).is_some() { atm_update(); }
+            if (*addr_of_mut!(WEATHER)).is_some() { weather_update(); publication().weather_frame(&rain().result); }
+            if (*addr_of_mut!(SNOW)).is_some() { snow_update(); publication().snow_frame(&snow().result); }
+            if (*addr_of_mut!(ATMOSPHERE)).is_some() { atm_update(); publication().atmosphere_frame(&atmosphere().result); }
             if (*addr_of_mut!(SKY)).is_some() { sky_update(); }
-            if (*addr_of_mut!(ENVIRONMENT)).is_some() { vis_update(); }
+            if (*addr_of_mut!(ENVIRONMENT)).is_some() { vis_update(); publication().fountain_frame(placed()); }
         }
     }
 
@@ -509,7 +545,8 @@ mod exports {
     }
     fn atm_update() {
         // SAFETY: the host import is a pure query of the page's terrain.
-        atmosphere().update(&mut |x, z| unsafe { host_ground(x, z) })
+        atmosphere().update(&mut |x, z| unsafe { host_ground(x, z) });
+        for row in atmosphere().result[layout::atmosphere_stats::STRIDE..].chunks_exact_mut(layout::square_batch::STRIDE){row[layout::square_batch::VISIBLE]=f64::from(row[layout::square_batch::COUNT]>0.);}
     }
 
     static mut SNOW: Option<SnowPhase> = None;
@@ -548,7 +585,7 @@ mod exports {
     pub extern "C" fn snow_cover_cell() -> f64 { snow().snow.as_ref().expect("snow_start first").cover.cell }
     fn snow_update() {
         // SAFETY: the host import is a pure query of the page's collision world.
-        snow().update(&mut |x, y, z| unsafe { host_cover(x, y, z) })
+        snow().update(&mut |x, y, z| unsafe { let roof=host_cover(x,y,z);if host_water_over(x,z)!=0{v8math::max(roof,host_water_level())}else{roof} })
     }
 
     static mut SKY: Option<SkyPhase> = None;
@@ -576,9 +613,10 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn sky_start() { sky_phase().start() }
     #[no_mangle]
-    pub extern "C" fn sky_set_enhanced(on: u32) { sky_phase().sky.as_mut().expect("sky_start first").set_enhanced(on != 0) }
+    pub extern "C" fn sky_set_enhanced(on:u32)->u32{let sky=sky_phase().sky.as_mut().expect("sky_start first");let changed=sky.enhanced()!=(on!=0);sky.set_enhanced(on!=0);u32::from(changed)}
+    #[no_mangle]pub extern "C" fn sky_probe_needed()->u32{sky_phase().sky.as_ref().map_or(0,|s|u32::from(s.probe_needed()))}
     #[no_mangle]
-    pub extern "C" fn sky_update() { sky_phase().update() }
+    pub extern "C" fn sky_update() { sky_phase().update();publication().sky_frame(sky_phase()); }
     #[no_mangle]
     pub extern "C" fn sky_count()->u32 {sky_phase().sky.as_ref().map_or(0,|s|s.count() as u32)}
     #[no_mangle]
@@ -630,10 +668,10 @@ mod exports {
     fn weather_update() {
         // SAFETY: the host imports are pure queries of the page's collision world.
         rain().update(
-            &mut |x, y, z| unsafe { host_cover(x, y, z) },
+            &mut |x, y, z| unsafe { let roof=host_cover(x,y,z);if host_water_over(x,z)!=0{v8math::max(roof,host_water_level())}else{roof} },
             &mut |x, y, z| unsafe {
-                let y = host_impact(x, y, z);
-                weather::Impact { y, normal: [host_impact_normal(0), host_impact_normal(1), host_impact_normal(2)], water: host_impact_normal(3) != 0.0 }
+                let roof=host_impact(x,y,z);let level=if host_water_over(x,z)!=0{host_water_level()}else{f64::NEG_INFINITY};let water=level>roof;
+                weather::Impact {y:if water{level}else{roof},normal:[host_impact_normal(0),host_impact_normal(1),host_impact_normal(2)],water}
             },
         )
     }

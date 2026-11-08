@@ -1,3 +1,4 @@
+import {WaterViewResult as WATER_POLICY} from '../environment/layout.js';
 import {sceneLayer,sceneProperty,sceneTransform} from "./scene-changes.js";
 // Graphics.render and BattleHud.render still calculate view inputs during the
 // scene transition. This host seals named packets; Rust alone orders passes.
@@ -234,12 +235,11 @@ export class BattleFrame {
     const core=this.core,g=core.graphics,r=core.renderer,w=water;
     sceneProperty(w.farGroup,"visible",false);
     if(w.ocean){sceneProperty(w.group,"visible",false);sceneProperty(w.underwaterFog,"visible",false);return;}
-    core.cameras.main(camera);sceneTransform(w.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));w.frustum.setFromProjectionMatrix(w.matrix);
-    let visible=false;if(w.frustum.intersectsBox(w.bounds))for(const box of w.cellBounds)if(w.frustum.intersectsBox(box)){visible=true;break;}
-    const below=camera.position.y<w.level,farVisible=!below&&w.farInView(camera);
+    core.cameras.main(camera);const policy=w.surfacePolicy(camera);
+    const visible=Boolean(policy[WATER_POLICY.NEAR_VISIBLE]),farVisible=Boolean(policy[WATER_POLICY.FAR_VISIBLE]);
     sceneProperty(w.group,"visible",visible);sceneProperty(w.farGroup,"visible",farVisible);sceneProperty(w.mirrorPass,"visible",sceneProperty(w.farMirror,"visible",false));
     w.surfaceUniforms.cameraRange.value.set(camera.near,camera.far);
-    w.resizeReflection();w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
+    w.resizeReflection(policy);w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
     core.views();const f=core.frameFacts;
     f[F.MIRROR_ENABLED]=1;f[F.MIRROR_VISIBLE]=+visible;f[F.MIRROR_FAR_VISIBLE]=+farVisible;f[F.MIRROR_LOW]=+!!w.lowPass?.visible;
     f[F.MIRROR_NEAR]=+(w.reflectionFar&&w.quality.planarNear);f[F.MIRROR_LEVEL]=w.level;f[F.MIRROR_SIZE]=w.target.width;f[F.MIRROR_SIZE+1]=w.target.height;

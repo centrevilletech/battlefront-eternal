@@ -65,7 +65,8 @@ pub mod square_batch {
     pub const COUNT: usize = 0;
     pub const AXIS_U: usize = 1;
     pub const AXIS_V: usize = 4;
-    pub const STRIDE: usize = 7;
+    pub const VISIBLE: usize = 7;
+    pub const STRIDE: usize = 8;
 }
 pub mod atmosphere_stats {
     pub const FOG: usize = 0;
@@ -96,7 +97,8 @@ pub mod snow_result {
     pub const QUERIES: usize = 4;
     pub const CAMERA_RIGHT: usize = 5;
     pub const CAMERA_UP: usize = 8;
-    pub const STRIDE: usize = 11;
+    pub const VISIBLE: usize = 11;
+    pub const STRIDE: usize = 12;
 }
 pub mod sky_config {
     pub const SEED: usize = 0;
@@ -176,7 +178,8 @@ pub mod environment_result {
     pub const DT: usize = 4;
     pub const MODE_CHANGED: usize = 5;
     pub const SKY: usize = 6;
-    pub const STRIDE: usize = 9;
+    pub const ENHANCED: usize = 9;
+    pub const STRIDE: usize = 10;
 }
 pub mod dst_frame {
     pub const DT: usize = 0;
@@ -356,7 +359,9 @@ pub mod surface_result {
     pub const STORM_COUNT: usize = 61;
     pub const STORM_DIRTY: usize = 62;
     pub const STORM_STRIKES: usize = 63;
-    pub const STRIDE: usize = 64;
+    pub const RING_VERTICES: usize = 64;
+    pub const RING_INDICES: usize = 65;
+    pub const STRIDE: usize = 66;
 }
 pub mod shore_triangle {
     pub const A: usize = 0;
@@ -450,7 +455,8 @@ pub mod water_view {
     pub const EYE_Y: usize = 29;
     pub const HAS_BUMPS: usize = 30;
     pub const PLANAR: usize = 31;
-    pub const STRIDE: usize = 32;
+    pub const PROJECTION: usize = 32;
+    pub const STRIDE: usize = 48;
 }
 pub mod water_view_result {
     pub const RANGE: usize = 0;
@@ -460,7 +466,9 @@ pub mod water_view_result {
     pub const PLANAR: usize = 6;
     pub const DISTORT: usize = 7;
     pub const UNDERWATER: usize = 8;
-    pub const STRIDE: usize = 9;
+    pub const NEAR_VISIBLE: usize = 9;
+    pub const FAR_VISIBLE: usize = 10;
+    pub const STRIDE: usize = 11;
 }
 pub mod shore_query {
     pub const CENTER: usize = 0;
@@ -473,6 +481,61 @@ pub mod debris_scratch {
     pub const START: usize = 3;
     pub const OUT: usize = 6;
     pub const STRIDE: usize = 9;
+}
+pub mod page_frame {
+    pub const SUN_COLOR: usize = 0;
+    pub const SUN_DIRECTION: usize = 3;
+    pub const STRIDE: usize = 6;
+}
+pub mod weather_mode {
+    pub const ENHANCED: usize = 0;
+    pub const RANGE: usize = 1;
+    pub const COUNT: usize = 2;
+    pub const CAPACITY: usize = 3;
+    pub const SIZE: usize = 4;
+    pub const CELL: usize = 5;
+    pub const STRIDE: usize = 6;
+}
+pub mod sky_publication {
+    pub const SOLID_VISIBLE: usize = 0;
+    pub const FADE_VISIBLE: usize = 1;
+    pub const MOTION_VISIBLE: usize = 2;
+    pub const REACH: usize = 3;
+    pub const SOLID_COUNT: usize = 4;
+    pub const FADING_COUNT: usize = 5;
+    pub const STRIDE: usize = 6;
+}
+pub mod sky_motion {
+    pub const FRAME: usize = 0;
+    pub const STRIDE: usize = 1;
+}
+pub mod shore_exposure {
+    pub const POSITION: usize = 0;
+    pub const DISTANCE: usize = 3;
+    pub const THRESHOLD: usize = 4;
+    pub const STRIDE: usize = 5;
+}
+pub mod water_draw_view {
+    pub const PROJECTION: usize = 0;
+    pub const INVERSE: usize = 16;
+    pub const CAMERA: usize = 32;
+    pub const CAMERA_RANGE: usize = 48;
+    pub const SUN_COLOR: usize = 50;
+    pub const REFLECTION_MATRIX: usize = 53;
+    pub const TINT: usize = 69;
+    pub const RESOLUTION: usize = 72;
+    pub const SCENE: usize = 74;
+    pub const REFLECTION: usize = 76;
+    pub const FOG_COLOR: usize = 77;
+    pub const FOG_RANGE: usize = 80;
+    pub const EYE_Y: usize = 82;
+    pub const FAR: usize = 83;
+    pub const STRIDE: usize = 84;
+}
+pub mod fountain_model {
+    pub const VISIBLE: usize = 0;
+    pub const ORDER: usize = 1;
+    pub const STRIDE: usize = 2;
 }
 pub mod dst_command_kind {
     pub const BLOW_APART: f64 = 0.0;
@@ -511,6 +574,28 @@ pub mod environment_recipe {
     pub const FLYERS: f64 = 5.0;
     pub const RADIUS: f64 = 6.0;
     pub const FOUNTAIN_SKY: f64 = 7.0;
+}
+pub mod environment_admission {
+    pub const ATMOSPHERE: f64 = 0.0;
+    pub const SNOW: f64 = 1.0;
+    pub const WEATHER: f64 = 2.0;
+    pub const SKY: f64 = 3.0;
+    pub const SOURCES: f64 = 4.0;
+    pub const FOUNTAIN: f64 = 5.0;
+    pub const SHORE: f64 = 6.0;
+    pub const WATER_MODE: f64 = 7.0;
+}
+pub mod environment_draw {
+    pub const RAIN: f64 = 0.0;
+    pub const MIST: f64 = 1.0;
+    pub const SHEETS: f64 = 2.0;
+    pub const SNOW: f64 = 3.0;
+    pub const SQUARE: f64 = 4.0;
+    pub const FOUNTAIN: f64 = 5.0;
+    pub const SHORE: f64 = 6.0;
+    pub const WATER_TINT: f64 = 7.0;
+    pub const WATER_REFLECTION: f64 = 8.0;
+    pub const WATER_TEXTURED: f64 = 9.0;
 }
 pub mod squares {
     pub const CAPACITY: usize = 4096;

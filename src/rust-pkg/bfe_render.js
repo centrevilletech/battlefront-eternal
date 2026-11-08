@@ -4516,6 +4516,23 @@ export function actor_source_description(authored, vertices, indices) {
 }
 
 /**
+ * @param {number} alpha_test
+ * @returns {string}
+ */
+export function fabric_depth_program(alpha_test) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.fabric_depth_program(alpha_test);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * @param {string} authored
  * @returns {string}
  */
@@ -4608,6 +4625,22 @@ export function ui_pick_vertices(authored) {
     var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v2;
+}
+
+/**
+ * @returns {string}
+ */
+export function water_screen_description() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.water_screen_description();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
 }
 function __wbg_get_imports() {
     const import0 = {

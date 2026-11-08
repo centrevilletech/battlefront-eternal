@@ -1,6 +1,4 @@
 import {sceneProperty} from "./rust-render/scene-changes.js";
-import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
-import { environmentRecipe } from './atmosphere.js';
 import {glowLook} from './actor-resources.js';
 import * as THREE from 'three';
 import {PageEffects} from './presentation/effects.js';
@@ -12,7 +10,7 @@ import { FountainSpray } from './fountain-spray.js';
 import { FountainJets, TIER } from './fountain-jets.js';
 import { SteamWisps } from './steam-wisps.js';
 import { VisibilityHost } from './environment/module.js';
-import { EnvironmentFrame as FRAME, EnvironmentInstance as INSTANCE, EnvironmentResult as RESULT, View as VIEW } from './environment/layout.js';
+import { EnvironmentFrame as FRAME, EnvironmentResult as RESULT, View as VIEW,PageFrame as PAGE } from './environment/layout.js';
 
 // Renderer resources consume a bounded indexed list. Keeping its numeric
 // slots avoids rebuilding Array backing stores when visibility changes.
@@ -48,59 +46,46 @@ export class EnvironmentEffects {
     this.graphics=graphics;this.settings=settings;this.data=data;this.time=0;this.mode=null;
     this.group=new THREE.Group();this.group.name='map-environment-effects';graphics.scene.add(this.group);
     this.classic=new PageEffects(this.group,data.effects,{texture,model},presentationLoaded);this.classic.preload();
-    const recipe=environmentRecipe(RECIPE.SOURCES,{...data,effects:Object.entries(data.effects)},surfaceOwner);
+    this.host=new VisibilityHost(surfaceOwner,0,{...data,effects:Object.entries(data.effects)});
+    const recipe=this.host.recipe;
     this.instances=data.instances.map((item,k)=>{
       const r=recipe.instances[k],position=new THREE.Vector3().fromArray(r.position),quaternion=new THREE.Quaternion().fromArray(r.quaternion);
-      const direction=new THREE.Vector3().fromArray(r.direction);
-      const volume={position:position.clone(),direction,extent:new THREE.Vector3().fromArray(r.extent),kind:r.kind};
-      const jet=r.fountain?{position:position.clone(),direction:UP,extent:new THREE.Vector3(5,5.3,5),kind:3}:null;
-      const sphere=new THREE.Sphere(new THREE.Vector3().fromArray(r.sphere),r.sphere[3]);
-      return {...item,position,quaternion,volume,jet,classic:r.classic,handle:null,sphere,
-        slot:r.slot,level:r.level,low:r.low};
+      const volume={position,direction:new THREE.Vector3().fromArray(r.direction),extent:new THREE.Vector3().fromArray(r.extent),kind:r.kind};
+      const jet=r.jet?{position,direction:new THREE.Vector3().fromArray(r.jet.direction),extent:new THREE.Vector3().fromArray(r.jet.extent),kind:r.jet.kind}:null;
+      return {...item,position,quaternion,volume,jet,classic:r.classic,handle:null,slot:r.slot,level:r.level,low:r.low,warmup:r.warmup};
     });
-    const enhanced=this.instances.filter(i=>!i.classic),steam=enhanced.some(i=>!i.jet);
+    this.resetSources=recipe.resets;
     this.visibleVolumes=new ResourceList(this.instances.length);this.visibleFountains=new ResourceList(this.instances.length);
-    // Which placed effects are in view is the Rust phase's: each instance's sphere
-    // (where it plays), its position and what kind it is.
-    this.host=new VisibilityHost(surfaceOwner,this.instances.length);
-    this.instances.forEach((i,k)=>{
-      const c=this.host.config,at=k*INSTANCE.STRIDE;
-      c[at+INSTANCE.SPHERE]=i.sphere.center.x;c[at+INSTANCE.SPHERE+1]=i.sphere.center.y;c[at+INSTANCE.SPHERE+2]=i.sphere.center.z;c[at+INSTANCE.SPHERE+3]=i.sphere.radius;
-      c[at+INSTANCE.POSITION]=i.position.x;c[at+INSTANCE.POSITION+1]=i.position.y;c[at+INSTANCE.POSITION+2]=i.position.z;
-      c[at+INSTANCE.CLASSIC]=i.classic?1:0;c[at+INSTANCE.JET]=i.jet?1:0;
-    });
-    this.host.start();
     this.wakes=new EnvironmentWakes(this.host);
-    this.water=data.basins.length?new FountainWater(graphics,data.basins,this.wakes,texture('waterfoam1'),TIER):null;
-    this.volume=enhanced.length?new EnvironmentVolume(this.group,enhanced.length*2,this.wakes,this.water?.reflectionUniforms):null;
-    this.spray=data.basins.length?new FountainSpray(this.group,this.wakes):null;
+    this.water=recipe.water?new FountainWater(graphics,data.basins,this.wakes,texture('waterfoam1'),TIER):null;
+    this.volume=recipe.volumeCapacity?new EnvironmentVolume(this.group,recipe.volumeCapacity,this.wakes,this.water?.reflectionUniforms):null;
+    this.spray=recipe.water?new FountainSpray(this.group,this.wakes):null;
     this.jets=this.water?new FountainJets(this.group,this.spray,graphics,{foam:texture('waterfoam1'),tier:true}):null;
-    this.steam=!data.basins.length&&steam?new SteamWisps(this.group,this.wakes,texture("thicksmoke2")):null;
+    this.steam=recipe.steam?new SteamWisps(this.group,this.wakes,texture("thicksmoke2")):null;
 
     this.stats={activeSources:0,volumes:0,classicParticles:0};
-    this.warmup=new Map(Object.entries(recipe.warmup));
   }
   prepareFrame(dt,camera,actors) {
     this.host.refresh();
-    const mode=this.settings.get('environmentEffects')==='classic'?'classic':'enhanced';
-    this.nextMode=mode;
+
     const view=this.host.view;
     view.set(camera.matrixWorld.elements,VIEW.CAMERA);view.set(camera.matrixWorldInverse.elements,VIEW.INVERSE);view.set(camera.projectionMatrix.elements,VIEW.PROJECTION);
     view[VIEW.POSITION]=camera.position.x;view[VIEW.POSITION+1]=camera.position.y;view[VIEW.POSITION+2]=camera.position.z;
     lighting.ambientTop.value.toArray(this.host.frame,FRAME.AMBIENT_TOP);
-    this.host.frame[FRAME.REACH]=lighting.fade.value.y;this.host.frame[FRAME.ENHANCED]=mode==='enhanced'?1:0;
+    this.host.frame[FRAME.REACH]=lighting.fade.value.y;this.host.frame[FRAME.ENHANCED]=this.settings.get('environmentEffects')==='classic'?0:1;
+    lighting.sunColor.value.toArray(this.host.pageFrame,PAGE.SUN_COLOR);lighting.sunDirection.value.toArray(this.host.pageFrame,PAGE.SUN_DIRECTION);
     this.host.frame[FRAME.DT]=dt;
     this.wakes.prepare(actors);
   }
   publishFrame() {
     this.host.refresh();
-    const r=this.host.result,n=this.instances.length,mode=this.nextMode,dt=r[RESULT.DT];
+    const r=this.host.result,n=this.instances.length,dt=r[RESULT.DT];
     this.time=r[RESULT.TIME];
     if(r[RESULT.MODE_CHANGED]) {
       // Native actions below restart only sources with Enhanced forms. Kill
       // them before flushing the particle owner, retaining the original order.
-      for(let k=0;k<n;k++)if(!this.instances[k].classic){this.instances[k].handle?.kill();this.instances[k].handle=null;this.host.handles[k]=0;}
-      this.classic.update(0);this.mode=mode;this.water?.setEnabled(mode==='enhanced');
+      for(const k of this.resetSources){this.instances[k].handle?.kill();this.instances[k].handle=null;this.host.handles[k]=0;}
+      this.classic.update(0);this.mode=r[RESULT.ENHANCED]?'enhanced':'classic';this.water?.setEnabled(Boolean(r[RESULT.ENHANCED]));
     }
     this.wakes.synced();
     this.visibleVolumes.length=0;this.visibleFountains.length=0;
@@ -110,7 +95,7 @@ export class EnvironmentEffects {
       if(action>0) {
         if(action===2&&i.handle){i.handle.kill();i.handle=null;}
         i.handle=this.classic.play(i.effect,i.position,UP,null,i.quaternion);
-        if(i.handle)this.classic.step(i.handle,this.warmup.get(i.effect)||0);
+        if(i.handle)this.classic.step(i.handle,i.warmup);
         this.host.handles[k]=i.handle?1:0;
       } else if(action<0&&i.handle){i.handle.kill();i.handle=null;this.host.handles[k]=0;}
     }
@@ -121,7 +106,7 @@ export class EnvironmentEffects {
     this.volume?.update(this.time,this.visibleVolumes);this.spray?.update(this.time,this.visibleFountains);this.water?.update(this.time);
     this.jets?.update(this.time,this.visibleFountains);
     this.steam?.update(this.time,this.visibleVolumes);
-    this.stats.volumes=this.visibleVolumes.length;
+    this.stats.volumes=r[RESULT.VOLUMES];
     this.stats.classicParticles=this.classic.particleCount;
   }
 

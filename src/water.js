@@ -1,42 +1,32 @@
-import {sceneComponent,sceneLayer,sceneProperty,sceneTransform} from "./rust-render/scene-changes.js";
-import {EnvironmentRecipe as RECIPE} from "./environment/layout.js";
-import { environmentRecipe } from './atmosphere.js';
+import {sceneComponent,sceneLayer,sceneProperty} from "./rust-render/scene-changes.js";
+import {EnvironmentRecipe as RECIPE,EnvironmentAdmission as ADMISSION,WaterDrawView as DRAW} from "./environment/layout.js";
+import { environmentRecipe,admitEnvironment,environmentTransfer } from './environment/module.js';
 import { EFFECT, EFFECT_TARGET } from './rust-render/effect-layout.js';
+import {water_screen_description} from "./rust-pkg/bfe_render.js";
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from "./render-resources.js";
 import { WaterState } from "./runtime/water-state.js";
 import * as THREE from "three";
 import { lighting } from "./materials.js";
-import { WATER_QUALITIES } from "./settings.js";
 import { OceanSurface } from "./ocean-surface.js";
 import { SurfaceHost } from "./environment/surfaces.js";
 import { Surface as LIMITS, SurfaceConfig as CONFIG, SurfaceFrame as FRAME, SurfaceResult as RESULT, WaterView as VIEW, WaterViewResult as POLICY } from "./environment/layout.js";
 
-// Terrain water, as the 2004 game draws it on PC: a flat surface over the
-// map's water cells (32 m squares on Theed) at the layer's height, bobbing
-// 0.06 m at 0.3 Hz.
-//
-// Two passes over the same surface, after the opaque scene:
-//   1. what lies under the water is multiplied by RefractionColor;
-//   2. a reflection, at ReflectionColor's alpha, plus white sun glints
-//      (N.H)^8, blended by a Fresnel term from FresnelMin looking straight
-//      down to FresnelMax at grazing angles.
-// The surface normal comes from the NormalMapTextures frames, cross-faded at
-// their frame rate and tiled Tile times per cell; the reflection is jittered
-// by the BumpMapTextures frames (0.03 of the screen, turned with the view).
-//
-// Low uses MainTexture and scrolling specular masks. High reflects nearby
-// geometry in screen space; Ultra uses a full mirrored scene. Enhanced water resolves opaque color/depth once for
-// depth-aware refraction/absorption, with animated world-space normal detail.
-//
-// Rings spread where things meet the water (radius growing 1.5 m/s, fading
-// in over the first 15% of their life and out over the rest), and under the
-// surface the screen takes UnderwaterColor.
-
+// Native surface and renderer owners retain water geometry, animation,
+// sampler selection and quality policy. This shell owns actual scene anchors,
+// texture identities and framebuffer copies for the browser renderer.
 const RIPPLE_MAX = LIMITS.RIPPLES;
 const RIPPLE_SEGMENTS = LIMITS.SEGMENTS;
 // Water.isSea is a cold content query, shared with the native surface recipe.
 export function isSea(data) { return environmentRecipe(RECIPE.WATER,data).sea; }
+
+// The native static compiler owns both screen quads. Attribute installation
+// is the BufferGeometry transport required by the existing screen consumer.
+function waterScreen(){
+  const data=JSON.parse(water_screen_description()),g=new THREE.BufferGeometry();
+  for(const a of data.attributes)g.setAttribute(a.name,new THREE.Float32BufferAttribute(a.values,a.size));
+  g.setIndex(data.index);return g;
+}
 
 export class Water extends WaterState {
   // data: the map's water (tools/zero_water.py); texture(name) gives a map
@@ -57,6 +47,7 @@ export class Water extends WaterState {
     const recipe = environmentRecipe(RECIPE.WATER,data,surfaceOwner);
     this.host.refresh();
     const oceanLook = recipe.oceanAlways, ocean = recipe.ocean;
+    this.cellBounds = recipe.cells.map(box => new THREE.Box3(new THREE.Vector3().fromArray(box), new THREE.Vector3().fromArray(box, 3)));
     this.height = data.height;
     this.cell = data.cell;
     this.offset = data.offset;
@@ -87,10 +78,10 @@ export class Water extends WaterState {
       sceneColor:{value:null},sceneDepth:{value:null},resolution:{value:new THREE.Vector2(1,1)},cameraRange:{value:new THREE.Vector2(.5,200)}};
     this.nativeSources=[];this.resourceCore=null;this.sourceId=-1;this.normalIds=null;this.bumpIds=null;this.maskIds=null;this.distort=0;
     this.group=new THREE.Group();
-    this.tintPass=this.surfaceAnchor(EFFECT.WATER_TINT,-20);
-    this.mirrorPass=this.surfaceAnchor(EFFECT.WATER_REFLECTION,-19);
+    this.tintPass=this.surfaceAnchor(EFFECT.WATER_TINT,-20,false,0);
+    this.mirrorPass=this.surfaceAnchor(EFFECT.WATER_REFLECTION,-19,false,1);
     this.mainMap=look.MainTexture?.[0]?texture(look.MainTexture[0]):null;
-    this.lowPass=this.mainMap?this.surfaceAnchor(EFFECT.WATER_TEXTURED,-20):null;
+    this.lowPass=this.mainMap?this.surfaceAnchor(EFFECT.WATER_TEXTURED,-20,false,2):null;
     this.group.add(this.tintPass,this.mirrorPass);if(this.lowPass)this.group.add(this.lowPass);
     graphics.scene.add(this.group);graphics.scene.userData.water=this;
 
@@ -103,21 +94,15 @@ export class Water extends WaterState {
     // from the eye's far camera (graphics.eyeLayer): mirrors leave it out.
     this.farReach = look.FarSceneRange?.[0] || 0;
     this.farRange=new Float64Array(2);
-    this.policySize=new THREE.Vector2();this.policyBuffer=null;
-    this.farTint = this.surfaceAnchor(EFFECT.WATER_TINT,-20,true);
-    this.farMirror = this.surfaceAnchor(EFFECT.WATER_REFLECTION,-19,true);
-    this.farLow = this.lowPass ? this.surfaceAnchor(EFFECT.WATER_TEXTURED,-20,true) : null;
+    this.policySize=new THREE.Vector2();this.policyBuffer=null;this.drawBuffer=null;
+    this.farTint = this.surfaceAnchor(EFFECT.WATER_TINT,-20,true,3);
+    this.farMirror = this.surfaceAnchor(EFFECT.WATER_REFLECTION,-19,true,4);
+    this.farLow = this.lowPass ? this.surfaceAnchor(EFFECT.WATER_TEXTURED,-20,true,5) : null;
     this.farGroup = new THREE.Group();
     this.farGroup.name = "far-water";
     this.farGroup.add(...[this.farTint, this.farMirror, this.farLow].filter(Boolean));
     sceneProperty(this.farGroup,"visible",false);
     graphics.farScene?.add(this.farGroup);
-    // Reflection selection still consumes the authored water bounds. This
-    // collision/culling fact has no vertex layout or GPU resource ownership.
-    this.bounds=new THREE.Box3();
-    if(!recipe.empty){this.bounds.min.fromArray(recipe.bounds[0]);this.bounds.max.fromArray(recipe.bounds[1]);}
-    this.cellBounds=recipe.cells.map(box=>new THREE.Box3(new THREE.Vector3().fromArray(box),new THREE.Vector3().fromArray(box,3)));
-
     // Rings.
     this.rings = this.ringMesh(texture("FXrippl1"));
     graphics.scene.add(this.rings);
@@ -125,7 +110,7 @@ export class Water extends WaterState {
     // The tint under the surface.
     const u = recipe.underwater;
     this.underwater = new THREE.Mesh(
-      new THREE.PlaneGeometry(2, 2),
+      waterScreen(),
       ownedEffectMaterial('effects/water-underwater-tint', {
         uniforms: { color: { value: new THREE.Vector4(...u) } },
         transparent: true,
@@ -145,7 +130,7 @@ export class Water extends WaterState {
     // is out of view (e.g. looking at the riverbed), so depth never goes stale.
     const surfaceUniforms = this.surfaceUniforms;
     this.underwaterFog = new THREE.Mesh(
-      new THREE.PlaneGeometry(2, 2),
+      waterScreen(),
       ownedEffectMaterial('effects/water-underwater-fog', {
         uniforms: {
           sceneColor: surfaceUniforms.sceneColor, sceneDepth: surfaceUniforms.sceneDepth,
@@ -160,8 +145,6 @@ export class Water extends WaterState {
     this.underwaterFog.onBeforeRender = (renderer, scene, camera) => this.captureSurface(renderer, camera);
     graphics.scene.add(this.underwaterFog);
 
-    this.frustum = new THREE.Frustum();
-    this.matrix = new THREE.Matrix4();
     this.forward = new THREE.Vector3();
     this.reflectionFar = null;
     this.surfaceBuffer = null;
@@ -174,9 +157,10 @@ export class Water extends WaterState {
 
   // Native water descriptors are independent of the scene node. Far snapshots
   // use the same typed values with their own camera and view-range facts.
-  surfaceAnchor(row,order,far=false) {
+  surfaceAnchor(row,order,far,slot) {
     const mesh=new THREE.Object3D();sceneProperty(mesh,"renderOrder",order);sceneProperty(mesh,"frustumCulled",false);
-    const source={family:'water',nativeKind:row.ID,row,owner:this,mesh,far,center:null,values:new Float64Array(row.LENGTH)};
+    const source={family:'water',nativeKind:row.ID,row,owner:this,mesh,far,slot,center:null};
+    this.host.bindArray(source,'values',h=>{const x=h.owner.x,at=x.water_draw_values(slot);return new Float64Array(x.memory.buffer,at,row.LENGTH);});
     mesh.userData.effectModel=source;if(far){mesh.name='far-water';sceneLayer(mesh.layers,"set",this.graphics.eyeLayer??4);}
     source.prepare=camera=>this.prepareSurface(source,camera);this.nativeSources.push(source);return mesh;
   }
@@ -191,43 +175,27 @@ export class Water extends WaterState {
     this.bumpIds=this.bumps?Int32Array.from(this.bumps.textures,sample):null;
     this.maskIds=this.masks?Int32Array.from(this.masks.textures,sample):null;
     this.mainId=this.mainMap?sample(this.mainMap):-1;this.reflectionId=-1;this.surfaceIds=null;
+    environmentTransfer(this.host.owner,'water_draw_samples',{normal:this.normalIds&&Array.from(this.normalIds),bump:this.bumpIds&&Array.from(this.bumpIds),mask:this.maskIds&&Array.from(this.maskIds),main:this.mainId,normalFallback:this.normalFallback,maskFallback:this.maskFallback});
   }
   prepareSurface(source,camera) {
-    const v=source.values,row=source.row,r=this.host.result,core=this.resourceCore;
+    const core=this.resourceCore,x=this.host.owner.x;
     if(source.nativeKind===EFFECT.WATER_TINT.ID)this.captureSurface(this.graphics.renderer,camera);
-    v.set(camera.projectionMatrix.elements,row.PROJECTION_MATRIX);v.set(camera.matrixWorldInverse.elements,row.VIEW_MATRIX);
-    const c=camera.matrixWorld.elements;v[row.CAMERA_POSITION]=c[12];v[row.CAMERA_POSITION+1]=c[13];v[row.CAMERA_POSITION+2]=c[14];
-    v[row.TIME]=this.time;v[row.CAMERA_RANGE]=camera.near;v[row.CAMERA_RANGE+1]=camera.far;
-    if(source.nativeKind===EFFECT.WATER_TINT.ID){
-      v[row.QUALITY]=this.quality.scale>0?1:0;v[row.UNDERWATER]=this.surfacePolicy(camera)[POLICY.UNDERWATER];
-      const tint=this.surfaceUniforms.tint.value;v[row.TINT]=tint.x;v[row.TINT+1]=tint.y;v[row.TINT+2]=tint.z;
-    }else{
-      for(let i=0;i<3;i++)v[row.TO_SUN+i]=r[RESULT.SUN+i];
-      if(source.nativeKind===EFFECT.WATER_TEXTURED.ID){
-        v[row.MAIN_MAP]=this.mainId;v[row.MASK_A]=this.maskIds?.[r[RESULT.MASK_A]]??this.maskFallback;
-        v[row.MASK_B]=this.maskIds?.[r[RESULT.MASK_A+1]]??this.maskFallback;v[row.MASK_MIX]=r[RESULT.MASK_A+2];
-      }else{
-        if(this.reflectionId<0){core.resources.targetId(this.target);this.reflectionId=core.texture(this.target.texture);}
-        v[row.REFLECTION]=this.reflectionId;v[row.QUALITY]=this.quality.scale>0?1:0;v[row.SCREEN_SPACE]=this.quality.scale&&!this.quality.planarNear?1:0;
-        lighting.sunColor.value.toArray(v,row.SUN_COLOR);v[row.DISTORT]=this.distort;v[row.VIEW_YAW]=r[RESULT.YAW];v.set(this.reflectionMatrix.elements,row.REFLECTION_MATRIX);
-        v[row.NORMAL_A]=this.normalIds?.[r[RESULT.NORMAL_A]]??this.normalFallback;v[row.NORMAL_B]=this.normalIds?.[r[RESULT.NORMAL_A+1]]??this.normalFallback;v[row.NORMAL_MIX]=r[RESULT.NORMAL_A+2];
-        v[row.BUMP_A]=this.bumpIds?.[r[RESULT.BUMP_A]]??this.normalFallback;v[row.BUMP_B]=this.bumpIds?.[r[RESULT.BUMP_A+1]]??this.normalFallback;v[row.BUMP_MIX]=r[RESULT.BUMP_A+2];
-      }
-    }
-    if(row.WADERS!==undefined)for(let i=0;i<32;i++)v[row.WADERS+i]=r[RESULT.WADERS+i];
-    if(row.SCENE_COLOR!==undefined){v[row.SCENE_COLOR]=this.surfaceIds?.[0]??-1;v[row.SCENE_DEPTH]=this.surfaceIds?.[1]??-1;
-      const size=this.surfaceUniforms.resolution.value;v[row.RESOLUTION]=size.x;v[row.RESOLUTION+1]=size.y;}
-    if(source.far){const span=this.farSpan(camera);v[row.SURFACE_RANGE]=span[0];v[row.SURFACE_RANGE+1]=span[1];lighting.fogColor.value.toArray(v,row.FOG_COLOR);lighting.fogRange.value.toArray(v,row.FOG_RANGE);}
+    if(this.reflectionId<0){core.resources.targetId(this.target);this.reflectionId=core.texture(this.target.texture);}
+    const at=x.water_draw_input(),buffer=x.memory.buffer;
+    if(this.drawBuffer!==buffer){this.drawBuffer=buffer;this.drawInput=new Float64Array(buffer,at,DRAW.STRIDE);}
+    const v=this.drawInput;
+    v.set(camera.projectionMatrix.elements,DRAW.PROJECTION);v.set(camera.matrixWorldInverse.elements,DRAW.INVERSE);v.set(camera.matrixWorld.elements,DRAW.CAMERA);
+    v[DRAW.CAMERA_RANGE]=camera.near;v[DRAW.CAMERA_RANGE+1]=camera.far;
+    lighting.sunColor.value.toArray(v,DRAW.SUN_COLOR);v.set(this.reflectionMatrix.elements,DRAW.REFLECTION_MATRIX);
+    this.surfaceUniforms.tint.value.toArray(v,DRAW.TINT);this.surfaceUniforms.resolution.value.toArray(v,DRAW.RESOLUTION);
+    v[DRAW.SCENE]=this.surfaceIds?.[0]??-1;v[DRAW.SCENE+1]=this.surfaceIds?.[1]??-1;v[DRAW.REFLECTION]=this.reflectionId;
+    lighting.fogColor.value.toArray(v,DRAW.FOG_COLOR);lighting.fogRange.value.toArray(v,DRAW.FOG_RANGE);
+    v[DRAW.EYE_Y]=camera.position.y;v[DRAW.FAR]=source.far?camera.far:this.graphics.farCamera?.far??0;
+    x.water_draw_prepare(source.slot);
   }
 
-  // Where the far water draws, in view depth: from the near scene's end out
-  // to the look's FarSceneRange (scaled with the view distance, as the far
-  // scene's own reach is) or else the far scene's reach. None when the far
-  // scene doesn't reach past the near scene's fade start, as the sky's draw
-  // decides for the low-res terrain and the water together (Yavin 4:
-  // Temple, both Rhen Vars, Jabba's Palace).
-  // One native per-view query owns range, projection/cell visibility and
-  // target dimensions. Rebind its fixed blocks only after memory growth.
+  // The per-view native query retains projection/cell visibility and target
+  // dimensions. Camera and viewport facts are copied only at this boundary.
   surfacePolicy(camera=this.graphics.camera,farCamera=this.graphics.farCamera) {
     const x=this.host.owner.x,buffer=x.memory.buffer;
     if(this.policyBuffer!==buffer){
@@ -239,7 +207,7 @@ export class Water extends WaterState {
     v[VIEW.FAR]=farCamera?.far||0;lighting.fade.value.toArray(v,VIEW.FADE);
     v[VIEW.AUTHORED_FAR]=this.graphics.farReach?.[1]||0;v[VIEW.WATER_FAR]=this.farReach;
     v[VIEW.NEAR]=camera?.near??.1;v[VIEW.FOV]=camera?.fov??50;v[VIEW.ASPECT]=camera?.aspect??1;
-    if(camera)v.set(camera.matrixWorldInverse.elements,VIEW.INVERSE);
+    if(camera){v.set(camera.matrixWorldInverse.elements,VIEW.INVERSE);v.set(camera.projectionMatrix.elements,VIEW.PROJECTION);}
     v[VIEW.SCALE]=q?.scale??0;v[VIEW.MAX_SIZE]=q?.maxSize??0;
     const size=this.graphics.renderSize||this.graphics.renderer.getDrawingBufferSize(this.policySize);
     size.toArray(v,VIEW.SIZE);v[VIEW.LEVEL]=this.level;v[VIEW.EYE_Y]=camera?.position.y??0;
@@ -252,32 +220,20 @@ export class Water extends WaterState {
   }
   farInView(camera) {return this.surfacePolicy(camera)[POLICY.VISIBLE]!==0;}
 
-  // The ocean drawn in place of the flat surface: always where the look
-  // asks for one, and on an Enhanced sea while ocean effects are enhanced.
-  get ocean() {
-    const surface = this.oceanSurface;
-    if (!surface) return null;
-    return this.oceanAlways || this.graphics.settings.get("oceanEffects") === "enhanced" ? surface : null;
-  }
+  get ocean(){return this.host.owner.x.water_draw_ocean()?this.oceanSurface:null;}
 
   applyQuality() {
-    const name = this.graphics.settings.get("waterQuality");
-    this.quality = WATER_QUALITIES[name] || WATER_QUALITIES.high;
-    if (this.oceanSurface) {
-      const active = Boolean(this.ocean);
-      sceneProperty(this.oceanSurface.near,"visible",sceneProperty(this.oceanSurface.far,"visible",active));
-      if (active) return; // textured ocean does not need planar reflection targets
-    }
+    const mode=admitEnvironment(ADMISSION.WATER_MODE,{quality:this.graphics.settings.get('waterQuality'),oceanEffects:this.graphics.settings.get('oceanEffects'),hasOcean:Boolean(this.oceanSurface),oceanAlways:this.oceanAlways,low:Boolean(this.lowPass)},this.host.owner);
+    this.quality=mode.quality;
+    if(this.oceanSurface){sceneProperty(this.oceanSurface.near,'visible',mode.ocean);sceneProperty(this.oceanSurface.far,'visible',mode.ocean);}
+    if(mode.ocean)return;
+    const enhanced=mode.enhanced;
+    if(this.lowPass)sceneProperty(this.lowPass,'visible',mode.low);
+    sceneProperty(this.tintPass,'visible',mode.surface);sceneProperty(this.mirrorPass,'visible',mode.surface);
+    if(!enhanced)sceneProperty(this.underwaterFog,'visible',false);
+    if(this.farLow)sceneProperty(this.farLow,'visible',mode.low);
+    sceneProperty(this.farTint,'visible',mode.surface);sceneProperty(this.farMirror,'visible',mode.surface);
     const policy=this.surfacePolicy();
-    const enhanced = policy[POLICY.ENHANCED]!==0;
-    if (this.lowPass) sceneProperty(this.lowPass,"visible",!enhanced);
-    sceneProperty(this.tintPass,"visible",enhanced || !this.lowPass);
-    sceneProperty(this.mirrorPass,"visible",enhanced || !this.lowPass);
-    if (!enhanced) sceneProperty(this.underwaterFog,"visible",false);
-    // The far scene's passes follow (their quality uniforms are these).
-    if (this.farLow) sceneProperty(this.farLow,"visible",this.lowPass.visible);
-    sceneProperty(this.farTint,"visible",this.tintPass.visible);
-    sceneProperty(this.farMirror,"visible",this.mirrorPass.visible);
     if (enhanced && !this.surfaceBuffer) {
       this.surfaceBuffer = new THREE.WebGLRenderTarget(1, 1, {
         depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
@@ -292,7 +248,7 @@ export class Water extends WaterState {
       this.surfaceUniforms.sceneDepth.value = null;
     }
     this.distort = policy[POLICY.DISTORT];
-    const planar = policy[POLICY.PLANAR]!==0;
+    const planar=mode.planar;
     if (planar && !this.reflectionFar) this.reflectionFar = new THREE.WebGLRenderTarget(1, 1);
     if (!planar && this.reflectionFar) {
       this.reflectionFar.dispose();
@@ -316,8 +272,8 @@ export class Water extends WaterState {
     u.cameraRange.value.set(camera.near, camera.far);
   }
 
-  resizeReflection() {
-    const r=this.surfacePolicy(),width=r[POLICY.DIMENSIONS],height=r[POLICY.DIMENSIONS+1];
+  resizeReflection(r=this.surfacePolicy()) {
+    const width=r[POLICY.DIMENSIONS],height=r[POLICY.DIMENSIONS+1];
     this.graphics.renderer.resources.resizeEffectTarget(this.target,width,height);
     this.reflectionFar?.setSize(width,height);
   }
@@ -355,7 +311,7 @@ export class Water extends WaterState {
     this.time = r[RESULT.TIME]; this.wave = r[RESULT.WAVE];
     sceneComponent(this.group.position,"y","=",sceneComponent(this.farGroup.position,"y","=",this.wave));
     this.surfaceUniforms.time.value=this.time;
-    const quads=r[RESULT.QUADS],rings=this.rings.userData.effectMesh;rings.vertex=quads*4;rings.index=quads*6;
+    const rings=this.rings.userData.effectMesh;rings.vertex=r[RESULT.RING_VERTICES];rings.index=r[RESULT.RING_INDICES];
     if (this.ocean) this.ocean.publishFrame(r, camera);
   }
 

@@ -250,5 +250,6 @@ impl Phase {
             }
         }
         self.result[out::QUADS] = q as f64;
+        self.result[out::RING_VERTICES]=(q*4) as f64;self.result[out::RING_INDICES]=(q*6) as f64;
     }
 }
