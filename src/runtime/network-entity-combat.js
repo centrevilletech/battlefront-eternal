@@ -1,83 +1,57 @@
 import {decodePresentation,PRESENTATION_SCHEMA} from './entity-presentation-events.js';
-import { ProjectileCapture, ProjectilePresentation, decodeProjectile } from './network-combat-projectile.js';
+import { ProjectileCapture, ProjectilePresentation } from './network-combat-projectile.js';
 import { Vector3 } from 'three';
-import { feedbackRecord, decodeFeedback } from './network-combat-feedback.js';
-import { explosionRecord, decodeExplosion } from './network-combat-explosion.js';
+import { feedbackRecord } from './network-combat-feedback.js';
 import { emitSound } from '../audio/events.js';
 import { WireCombat } from './wire-combat.js';
-import { OrdnanceFlag as FL } from '../presentation/ordnance-layout.js';
+import { SimBridge } from '../sim/runtime.js';
+import { resourceHost } from '../ordnance-world.js';
+import { OrdnanceFlag as FL, putCombatHost, CombatDispatch as CD, CombatInput as CI, CombatResult as CR, CombatOutput as CO, CombatOutputKind as CK } from '../presentation/ordnance-layout.js';
+import { presentationModule } from '../presentation/module.js';
 
 // Projectile identity is independent of trigger identity: pellets and automatic
 // rounds each have a lifetime. Terminal records retain the same identity.
 export const COMBAT_LAUNCH = 1, COMBAT_TERMINAL = 2;
 export const LAUNCH_PRESENTATION_TICKS = 24;
-const uint = n => { if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) throw Error('invalid combat integer'); return n; };
-const vector = v => [v.x, v.y, v.z];
-export function combatRecord({ id, generation, tick, schema, expiryTick, definitionId, ownerId=0, ownerGeneration=0, fireId=0, channel=0, launchTick=tick, executionTick=tick, position, direction, offset=[0,0,0], speed=0, life=0, merge=0, surface=5, native=null }) {
-  if(native)return native.bolt({id,generation,tick,schema,expiryTick,definitionId,ownerId,ownerGeneration,fireId,channel,launchTick,executionTick,position,direction,offset,speed,life,merge,surface});
-  if (![1,2].includes(schema)) throw Error('unsupported combat schema');
-  for(const vector of [position,direction,offset])if(!Array.isArray(vector)||vector.length!==3)throw Error('invalid combat vector');
-  const payload=new Uint8Array(schema===1?130:82), view=new DataView(payload.buffer);let at=0;
-  const u=n=>{view.setUint32(at,uint(n),true);at+=4;};
-  const f=n=>{if(!Number.isFinite(n))throw Error('nonfinite combat value');view.setFloat64(at,n,true);at+=8;};
-  for(const n of [expiryTick,definitionId,ownerId,ownerGeneration,fireId])u(n);f(launchTick);
-  for(const n of position)f(n);for(const n of direction)f(n);
-  view.setUint8(at++,surface);
-  if(schema===1){for(const n of offset)f(n);for(const n of [speed,life,merge])f(n);}
-  // Physical flight can start at a fractional, rewound view tick. The
-  // execution tick identifies the round across its shot, launch and impact.
-  u(executionTick);
-  if(channel!==0&&channel!==1)throw Error('invalid combat channel');view.setUint8(at++,channel);
-  return {kind:'combat',id:uint(id),generation:uint(generation),tick:uint(tick),schema,payload:payload.slice(0,at)};
+// Standalone tools use the same native services as a battle. This is cold
+// admission, not an alternate encoder or queue implementation.
+let standaloneBridge,encoder;
+export function combatBridge(){return standaloneBridge??=new SimBridge({exports:resourceHost(null).x});}
+export function combatEncoder(){return encoder??=new WireCombat({bridge:combatBridge()});}
+const vector=v=>[v.x,v.y,v.z];
+export function combatRecord({id,generation,tick,schema,expiryTick,definitionId,ownerId=0,ownerGeneration=0,fireId=0,channel=0,launchTick=tick,executionTick=tick,position,direction,offset=[0,0,0],speed=0,life=0,merge=0,surface=5,native=null}) {
+  return (native??combatEncoder()).bolt({id,generation,tick,schema,expiryTick,definitionId,ownerId,ownerGeneration,fireId,channel,launchTick,executionTick,position,direction,offset,speed,life,merge,surface});
 }
 export function decodeCombat(record){
   if(record.schema===PRESENTATION_SCHEMA)return decodePresentation(record);
-  if(record.schema===6||record.schema===7)return decodeProjectile(record);
-  if(record.schema===5)return decodeExplosion(record);
-  if(record.schema===3||record.schema===4)return decodeFeedback(record);
-  const {schema,payload}=record;if(record.kind!=='combat'||![1,2].includes(schema)||!(payload instanceof Uint8Array)||payload.length!==(schema===1?130:82))throw Error('invalid combat payload');
-  const view=new DataView(payload.buffer,payload.byteOffset,payload.byteLength);let at=0;
-  const u=()=>{const n=view.getUint32(at,true);at+=4;return n;},f=()=>{const n=view.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('nonfinite combat payload');return n;},v=()=>[f(),f(),f()];
-  const out={...record,expiryTick:u(),definitionId:u(),ownerId:u(),ownerGeneration:u(),fireId:u(),launchTick:f(),position:v(),direction:v(),surface:view.getUint8(at++)};
-  if(schema===1)Object.assign(out,{offset:v(),speed:f(),life:f(),merge:f()});
-  out.executionTick=u();
-  out.channel=view.getUint8(at++);
-  if(out.channel>1||out.launchTick<0||out.executionTick<out.launchTick||out.executionTick>record.tick)throw Error('invalid combat execution tick');
-  if(out.launchTick>record.tick||out.expiryTick<record.tick||out.expiryTick-record.tick>7320||out.surface>5||schema===1&&(out.life<0||out.life>120||out.speed<0||out.merge<=0))throw Error('invalid combat lifetime');
-  return out;
+  return {kind:record.kind,id:record.id,generation:record.generation,tick:record.tick,schema:record.schema,payload:record.payload,...decodeFields(record)};
+}
+
+const EMPTY_BYTES=new Uint8Array();
+export function decodeFields(record){
+  try{return JSON.parse(presentationModule().module.PageCombat.decode_record(String(record.kind),record.schema,record.tick,record.payload instanceof Uint8Array?record.payload:EMPTY_BYTES,record.payload instanceof Uint8Array));}
+  catch(error){throw Error(error);}
+}
+
+export function allocateCapture(capture){
+  let values;try{values=presentationModule().module.PageCombat.capture_identity(capture.nextId);}catch(error){throw Error(error);}
+  capture.nextId=values[1];return values[0];
 }
 
 export class CombatCapture {
   constructor({tick,definitionId,generation=1,maxRecords=4096,instance=null,bridge=null}){
-    Object.assign(this,{tick,definitionId,generation,maxRecords});this.nextId=1;this.projectiles=new WeakMap();this.pending=new Map();this.faults=[];
-    if(bridge||instance){this.native=new WireCombat({bridge:bridge??undefined,instance});Object.defineProperties(this,{
+    Object.assign(this,{tick,definitionId,generation,maxRecords});this.projectiles=new WeakMap();
+    this.native=new WireCombat({bridge:bridge??(instance?undefined:combatBridge()),instance});Object.defineProperties(this,{
       pending:{enumerable:true,configurable:true,get:()=>this.native.saved(decodeCombat)},
       nextId:{enumerable:true,configurable:true,get:()=>this.native.nextId,set:id=>{this.native.nextId=id;}},
       faults:{enumerable:true,configurable:true,get:()=>this.native.faults},
-    });}
+    });
   }
-  // A newer record replaces a pending one of the same identity (a dynamic
-  // projectile's newest sample), except a bolt's terminal: it queues beside
-  // its undrained launch. A bolt that ends before the next drain (a short
-  // flight, or one flown to its end inside its lag-compensated launch) would
-  // otherwise reach every client as an impact with no bolt to draw. The
-  // decoded view goes with it, so publication need not decode it again.
-  emit(record){if(this.native)return this.native.emit(this,record,decodeCombat);const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)return false;const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
+  allocate(){return allocateCapture(this);}
+  emit(record){return this.native.emit(this,record,decodeCombat);}
   launch(bolt,{tick:sampleTick,sample=null}={}){
-    if(this.nextId>0xffffffff)throw Error('combat identity exhausted');
-    // Native notices carry the original launch values even when catch-up has
-    // already retired this same pooled mirror. Identity still belongs to bolt.
-    const view=sample??bolt;
-    const tick=this.tick(),launchTick=sampleTick??tick;
-    const state={
-      launchTick,executionTick:tick,id:this.nextId++,generation:this.generation,
-      expiryTick:Math.ceil(launchTick+view.life*60)+120,
-      definitionId:this.definitionId(view.def),
-      ownerId:sample?sample.ownerId:bolt.networkFireUnit,
-      ownerGeneration:sample?sample.ownerGeneration:bolt.networkFireGeneration,
-      fireId:sample?sample.fireId:bolt.networkFireId,
-      channel:sample?sample.channel:bolt.networkFireChannel??0,
-    };
+    const view=sample??bolt,tick=this.tick();
+    const state=JSON.parse(presentationModule().module.PageCombat.capture_bolt(JSON.stringify({sample:!!sample,sampleTick,tick,id:this.allocate(),generation:this.generation,life:view.life,definitionId:this.definitionId(view.def),sampleOwner:[sample?.ownerId,sample?.ownerGeneration,sample?.fireId,sample?.channel],boltOwner:[bolt.networkFireUnit,bolt.networkFireGeneration,bolt.networkFireId,bolt.networkFireChannel]})));
     this.projectiles.set(bolt,state);
     this.emit(combatRecord({
       ...state,tick,schema:1,
@@ -86,159 +60,151 @@ export class CombatCapture {
       speed:view.speed,life:view.life,merge:view.merge,native:this.native,
     }));
   }
-  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic){dynamic.terminal=true;if(this.native)this.native.dynamic(dynamic);else this.dynamic.pending.set(dynamic.id,dynamic); }this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
-  explosion(definition,position,{wet=false}={}){if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(explosionRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet,native:this.native}));}
-  event(event){if(!['damage','death'].includes(event.kind))return;if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(feedbackRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),event,native:this.native}));}
-  fault(error){if(this.native)return this.native.fault(error);this.faults.push(String(error?.message??error).slice(0,160));if(this.faults.length>8)this.faults.shift();}
-  drainFaults(){return this.native?this.native.drainFaults():this.faults.splice(0);}
-  drain(){if(this.native)return this.native.drain(this,decodeCombat);const records=[...this.pending.values()];this.pending.clear();return records;}
-  dispose(){this.native?.dispose();}
+  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic){dynamic.terminal=true;this.native.dynamic(dynamic); }this.emit(combatRecord({...state,...JSON.parse(presentationModule().module.PageCombat.capture_terminal(JSON.stringify(state),this.tick())),tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
+  explosion(definition,position,{wet=false}={}){this.emit(this.native.explosion({id:this.allocate(),generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet}));}
+  event(event){if(!presentationModule().module.PageCombat.capture_feedback(event.kind))return;this.emit(feedbackRecord({id:this.allocate(),generation:this.generation,tick:this.tick(),event,native:this.native}));}
+  fault(error){this.native.fault(error);}
+  drainFaults(){return this.native.drainFaults();}
+  drain(){return this.native.drain(this,decodeCombat);}
+  dispose(){this.native.dispose();}
 }
 
-// A linear bolt's drawn flight cut at `point`, where its round stopped short
-// of the end of its launch ray (a soldier, a hull).
-function stopBolt(bolt,point){
-  const along=Math.max(0,(point[0]-bolt.position.x)*bolt.direction.x+(point[1]-bolt.position.y)*bolt.direction.y+(point[2]-bolt.position.z)*bolt.direction.z);
-  bolt.life=Math.min(bolt.life,along/Math.max(bolt.speed,1e-6));
-  bolt.merge=Math.max(Math.min(bolt.merge,along),1e-3);
-  return bolt;
-}
-
-// Presentation never calls Ordnance.fire/stepBolt/collision or a damage hook.
+// Rust retains the event and flight clocks. This map keeps only the host
+// resources and public readback objects consumed by trails, prediction and tests.
 export class CombatPresentation {
-  // muzzle(event, def): where the shooter's gun is drawn now, or null: a
-  // bolt leaves the gun as this page draws it (the server's headless body
-  // stands in its bind pose) and joins its authoritative path over MERGE.
-  // onExplosion(def, position): an explosion shown here (the view's shake).
-  constructor({ordnance,definition,predictedShots,muzzle=null,maxRecords=4096,onLaunch=()=>{},onFeedback=()=>{},onPresentation=()=>{},onExplosion=()=>{}}){Object.assign(this,{ordnance,definition,predictedShots,muzzle,maxRecords,onLaunch,onFeedback,onPresentation,onExplosion});this.records=new Map();this.flashes=new Map();this.epoch=null;this.dynamic=new ProjectilePresentation(ordnance,definition);}
-  reset(epoch){this.dynamic.reset();this.ordnance.clearProjectilePresentation();this.records.clear();this.flashes.clear();this.epoch=epoch;this.tick=0;this.presentedTick=0;this.prunedTick=null;}
-  // Once per visual tick: newer snapshots must not expire accepted events
-  // before delayed playout reaches them. Incoming stale records are still rejected.
-  prune(tick){if(tick===this.prunedTick)return;this.prunedTick=tick;for(const [key,expiry]of this.flashes)if(expiry<tick)this.flashes.delete(key);for(const [id,state]of this.records)if(state.expiryTick<tick&&!state.explosion)this.records.delete(id);}
-  // Records arrive ahead of the playout clock this page draws at (tick, in
-  // receive, is the newest snapshot's). A bolt flies on that clock from its
-  // launch to the point its terminal names, and the impact, an explosion
-  // and a dynamic projectile's end are shown when the clock reaches them,
-  // so nothing is cut short or played early by the playout delay; a bolt
-  // whose flight was shorter than that delay used to be gone before it was
-  // drawn. The player's own predicted rounds keep their immediate impacts.
-  receive(record,{epoch,tick}){
-    if(this.epoch!==null&&epoch<this.epoch)return false;
-    if(epoch!==this.epoch)this.reset(epoch);tick=this.tick=Math.max(this.tick,tick);this.prune(this.presentedTick??0);
-    const event=decodeCombat(record);if(event.expiryTick<tick)return false;
+  constructor({ordnance,definition,predictedShots,muzzle=null,maxRecords=4096,onLaunch=()=>{},onFeedback=()=>{},onPresentation=()=>{},onExplosion=()=>{}}) {
+    Object.assign(this,{ordnance,definition,predictedShots,muzzle,onLaunch,onFeedback,onPresentation,onExplosion});
+    this.loaded=presentationModule();this.kernel=new this.loaded.module.PageCombat(maxRecords);
+    this.records=new Map();this.definitions=new WeakMap();this.epoch=null;this.dynamic=new ProjectilePresentation(ordnance,definition);
+    this.refresh();
+  }
+  refresh() {
+    const b=this.loaded.memory.buffer,k=this.kernel;if(this.buffer===b)return;
+    this.buffer=b;this.input=new Float64Array(b,k.input_ptr(),k.input_len());
+    this.result=new Float64Array(b,k.result_ptr(),k.result_len());
+    this.output=new Float64Array(b,k.output_ptr(),k.output_len());
+  }
+  clear(epoch) {
+    this.dynamic.reset();this.ordnance.clearProjectilePresentation();this.records.clear();
+    this.epoch=epoch;this.tick=0;this.presentedTick=0;
+  }
+  reset(epoch) { this.kernel.reset(epoch);this.clear(epoch); }
+  // Each output names an ID, including removals: reused native slots never
+  // accidentally inherit a different round's mesh or deferred impact.
+  changes(epoch=this.epoch) {
+    const a=this.output;
+    for(let n=0;n<this.result[CR.ROWS];n++) {
+      const at=n*CO.STRIDE,id=a[at+CO.ID],kind=a[at+CO.KIND];
+      if(kind===CK.RESET)this.clear(epoch);
+      else if(kind===CK.REMOVE)this.records.delete(id);
+    }
+    this.tick=this.result[CR.TICK];this.presentedTick=this.result[CR.PRESENTED_TICK];
+  }
+  receive(record,{epoch,tick}) {
+    const event=decodeCombat(record),def=this.definition(event.definitionId);
+    let definition=def?this.definitions.get(def):'{}';
+    if(definition===undefined){const data={};for(const key of DEFINITION_FIELDS)data[key]=def[key];definition=JSON.stringify(data);this.definitions.set(def,definition);}
+    this.refresh();putCombatHost(this.input,0,event,def);
+    let accepted;try{accepted=this.kernel.receive_facts(epoch,tick,definition,!!def);}catch(error){throw Error(error);}
+    this.refresh();this.changes(epoch);
+    if(!accepted)return false;
+    const revive=this.result[CR.REVIVE]!==0;
+    const predicted=this.result[CR.CLAIM]!==0&&!!this.predictedShots?.claim({playerId:event.ownerId,generation:event.ownerGeneration,fireId:event.fireId,channel:event.channel},{tick:event.executionTick??event.launchTick});
+    if(this.result[CR.LAUNCH])this.onLaunch(event,def,predicted);
+    if(this.kernel.muzzle_request(predicted)) {
+      const muzzle=this.muzzle?.(event,def);this.refresh();
+      if(muzzle){this.input[CI.HAS_MUZZLE]=1;this.input[CI.MUZZLE]=muzzle.x;this.input[CI.MUZZLE+1]=muzzle.y;this.input[CI.MUZZLE+2]=muzzle.z;}
+    }
+    this.input[CI.DYNAMIC]=+this.dynamic.objects.has(record.id);
+    const resolved=this.kernel.resolve(predicted);this.refresh();
+    if(!resolved)return false;
     const old=this.records.get(record.id);
-    // A launch repeated after its terminal (its first copy lost) still flies
-    // to that terminal's impact while it can start in time.
-    if(old&&event.schema===1&&old.schema===2&&old.generation===event.generation&&!old.bolt&&!old.predicted&&tick-event.executionTick<=LAUNCH_PRESENTATION_TICKS+event.life*60){
-      const def=this.definition(event.definitionId);if(!def)throw Error('unknown combat definition');
-      if(this.launchPresentation(event,def))return false;
-      old.bolt=this.bolt(event,def);reach(old.bolt,old.position);if(old.impact)old.impact.at=null;return true;
+    if(revive) {
+      old.bolt=this.readBolt(old,event,def);if(old.impact)old.impact.at=null;return true;
     }
-    if(old&&(old.generation>event.generation||old.generation===event.generation&&([2,7].includes(old.schema)||old.tick>event.tick||old.tick===event.tick&&!([2,7].includes(event.schema)&&event.schema!==old.schema))))return false;
-    if(!old&&this.records.size>=this.maxRecords)throw Error('combat presentation capacity exceeded');
-    if(event.schema===PRESENTATION_SCHEMA){event.pending=this.onPresentation(event)===false;this.records.set(record.id,event);return true;}
-    if(event.schema===6||event.schema===7){this.records.set(record.id,event);this.dynamic.receive(event);if(event.schema===6)this.launchPresentation(event,this.definition(event.definitionId));return true;}
-    if(event.schema===3||event.schema===4){this.records.set(record.id,event);this.onFeedback(event);return true;}
-    if(event.schema===5){const def=this.definition(event.definitionId);if(!def)throw Error('unknown explosion definition');this.records.set(record.id,event);event.explosion={def,at:event.tick};return true;}
-    if(event.schema===2)this.dynamic.receive(event);
-    const def=this.definition(event.definitionId);if(!def)throw Error('unknown combat definition');
-    const state={...event};this.records.set(record.id,state);
-    const predicted=this.launchPresentation(event,def);
-    // A class drawn on where it stops (the sniper rifles' FadeOutTime,
-    // the ordnance phase's draw_bolt) keeps its streak: the terminal cuts its flight at
-    // the impact instead of ending it there and then.
-    if(event.schema===2&&def.FadeOutTime>0){
-      if(predicted)this.predictedShots.stop?.({playerId:event.ownerId,generation:event.ownerGeneration,fireId:event.fireId,channel:event.channel},{tick:event.executionTick,point:event.position});
-      else if(old?.bolt)state.bolt=stopBolt(old.bolt,event.position);
-      // Its launch never reached this page, the terminal having replaced it
-      // first (it struck within the tick it was fired, or a lag-compensated
-      // shot caught up to its target at once): from the shooter's gun as
-      // this page draws it to where it stopped.
-      else if(!old)state.bolt=this.landedBolt(event,def);
+    const state=event,dispatch=this.result[CR.DISPATCH];state.impactEffect=this.result[CR.IMPACT_EFFECT];
+    // Effects retain their own point/callback. Reserve them at event admission,
+    // so a delayed impact or explosion creates no numeric frame scratch.
+    if(this.result[CR.POINT])state.point=new Vector3(...state.position);
+    if(dispatch===CD.TERMINAL){
+      const point=state.point,name=this.loaded.module.PageCombat.impact_name(state.impactEffect,definition),sound=this.result[CR.SPLASH]?'splash':'impact',character=!!this.result[CR.CHARACTER];
+      state.impactName=name;
+      state.playImpact=(seed=null)=>{if(name)this.ordnance.effects.play(name,point,null,null,null,seed);emitSound(sound,def,point,character);};
     }
-    if(event.schema===1){
-      // The player's own round, predicted from the trigger press, flies as
-      // the cosmetic drew it; its authoritative copy is never drawn twice.
-      if(predicted)state.predicted=true;
-      else state.bolt=this.bolt(event,def);
-    }else{
+    this.records.set(record.id,state);
+    if(dispatch===CD.PRESENTATION)state.pending=this.onPresentation(event)===false;
+    else if(dispatch===CD.DYNAMIC)this.dynamic.receive(event);
+    else if(dispatch===CD.FEEDBACK)this.onFeedback(event);
+    else if(dispatch===CD.EXPLOSION)state.explosion={def,at:event.tick};
+    else {
+      if(dispatch===CD.TERMINAL)this.dynamic.receive(event);
+      if(this.result[CR.STOP_PREDICTED])this.predictedShots.stop?.({playerId:event.ownerId,generation:event.ownerGeneration,fireId:event.fireId,channel:event.channel},{tick:event.executionTick,point:event.position});
       state.predicted=predicted;
-      // A bolt in flight here goes on to the terminal's point, and its impact
-      // shows when it gets there; without one, the impact shows at its tick.
-      if(old?.bolt&&old.generation===event.generation){state.bolt=old.bolt;reach(state.bolt,event.position);}
-      if(event.surface===5);
-      else if(predicted&&!state.bolt&&!this.dynamic.objects.has(record.id)){if(tick-event.tick<=18)this.impact(state,def);}
-      else state.impact={def,at:state.bolt?null:event.tick};
+      if(this.result[CR.BOLT])state.bolt=this.readBolt(old,event,def);
+      if(this.result[CR.PENDING_IMPACT])state.impact={def,at:Number.isNaN(this.result[CR.IMPACT_AT])?null:this.result[CR.IMPACT_AT]};
+      if(this.result[CR.IMPACT])this.impact(state,def);
     }
     return true;
   }
-  bolt(event,def){return {def,position:new Vector3(...event.position),direction:new Vector3(...event.direction),offset:new Vector3(...event.offset),speed:event.speed,life:event.life,merge:event.merge,flown:0,drawn:0,networkFlightTick:event.launchTick,executionTick:event.executionTick,visualMuzzle:this.muzzle?()=>this.muzzle(event,def):null};}
-  impact(state,def){
-    const point=new Vector3(...state.position),name=state.surface===4?def.ImpactEffectWater??'watersplash_ord':state.surface===0?def.ImpactEffectTerrain:state.surface===2?def.ImpactEffectSoft||def.ImpactEffectStatic:state.surface===3?def.ImpactEffectRigid||def.ImpactEffectStatic:def.ImpactEffectStatic||def.ImpactEffectTerrain;
-    const play=(seed=null)=>{if(name)this.ordnance.effects.play(name,point,null,null,null,seed);emitSound(state.surface===4?'splash':'impact',def,point,state.surface===0);};
-    // An Enhanced sniper shot plays its impact when its drawn bolt gets
-    // there (sniper-trace.js), not before it.
+  // New resource facades are made only at event admission. The native phase
+  // publishes existing bolt numbers in place on subsequent displayed frames.
+  readBolt(old,event,def) {
+    let bolt=this.result[CR.REUSE_BOLT]?old?.bolt:undefined;
+    if(!bolt)bolt={def,position:new Vector3(),direction:new Vector3(),offset:new Vector3(),flown:0,drawn:0,
+      visualMuzzle:this.result[CR.FOLLOW_MUZZLE]&&this.muzzle?()=>this.muzzle(event,def):null};
+    this.copyBolt(bolt,0);return bolt;
+  }
+  copyBolt(bolt,at) {
+    const a=this.output;
+    bolt.position.set(a[at+CO.POSITION],a[at+CO.POSITION+1],a[at+CO.POSITION+2]);
+    bolt.direction.set(a[at+CO.DIRECTION],a[at+CO.DIRECTION+1],a[at+CO.DIRECTION+2]);
+    // The draw phase can resolve a muzzle offset once; later flight clock
+    // publications leave that native-draw readback on its resource facade.
+    if(a[at+CO.COPY_OFFSET])bolt.offset.set(a[at+CO.OFFSET],a[at+CO.OFFSET+1],a[at+CO.OFFSET+2]);
+    bolt.speed=a[at+CO.SPEED];bolt.life=a[at+CO.LIFE];bolt.merge=a[at+CO.MERGE];
+    bolt.networkFlightTick=a[at+CO.FLIGHT_TICK];bolt.executionTick=a[at+CO.EXECUTION_TICK];
+    bolt.started=!!a[at+CO.STARTED];
+  }
+  impact(state,def) {
+    const point=state.point,name=state.impactName,play=state.playImpact;
+    // Sniper trace owns its delayed impact resources after this handoff.
     if(this.ordnance.deferSniperImpact?.(def,point,play,state,Boolean(name&&this.ordnance.effects.library?.[name]&&this.ordnance.effects.freeCount)))return;
     play();
   }
-  landedBolt(event,def){
-    const start=this.muzzle?.(event,def);if(!start||!(def.Velocity>0))return undefined;
-    const direction=new Vector3(...event.position).sub(start),distance=direction.length();if(!(distance>1e-3))return undefined;
-    return {def,position:start,direction:direction.divideScalar(distance),offset:new Vector3(),speed:def.Velocity,life:distance/def.Velocity,merge:Math.min(8,distance),flown:0,drawn:0,networkFlightTick:event.launchTick,visualMuzzle:null};
-  }
-  launchPresentation(event,def){
-    const tick=this.tick;
-    // Held rounds have no trigger edge ID. Use the tick the weapon fired,
-    // shared with the shot presentation event, not a rewound flight tick or
-    // a later impact/sample tick. Every pellet and update claims one cosmetic.
-    const executionTick=event.executionTick??event.launchTick;
-    const predicted=!!this.predictedShots?.claim({playerId:event.ownerId,generation:event.ownerGeneration,fireId:event.fireId,channel:event.channel},{tick:executionTick});
-    const flashKey=`${event.ownerId}:${event.ownerGeneration}:${event.fireId}:${executionTick}:${event.channel}:${event.definitionId}`;
-    if(tick-executionTick<=LAUNCH_PRESENTATION_TICKS&&!this.flashes.has(flashKey)){this.flashes.set(flashKey,executionTick+LAUNCH_PRESENTATION_TICKS);this.onLaunch(event,def,predicted);}
-    return predicted;
-  }
-  // The bolts to draw this frame (Ordnance.present collects them with the
-  // world's), after the things the clock has reached. The explosions and
-  // impacts they trigger run in settle(), once the frame's draws are done, so a
-  // sniper impact finds the trace record its bolt's first draw made.
-  present(tick){this.tick=Math.max(this.tick??0,tick);this.presentedTick=Math.max(this.presentedTick??0,tick);this.prune(this.presentedTick);this.dynamic.present(tick);
-    for(const state of this.records.values())if(state.pending)state.pending=this.onPresentation(state)===false;
-    for(const state of this.records.values()){
-      const bolt=state.bolt;
-      if(bolt){
-        if(!bolt.started){
-          // A launch this clock has already passed (a lag-compensated shot
-          // rewound further back than this page's playout delay, or a late
-          // or repeated delivery) starts from the gun now, up to
-          // LAUNCH_PRESENTATION_TICKS after the tick it was fired on, not
-          // mid-flight or not at all.
-          bolt.started=true;
-          if(tick>bolt.networkFlightTick)bolt.networkFlightTick=Math.min(tick,Math.max(bolt.networkFlightTick,bolt.executionTick??0)+LAUNCH_PRESENTATION_TICKS);
-        }
-        // Resolved at its first draw, against the shooter's body as drawn
-        // now; a muzzle far from the launch (a respawn, a seat) is ignored.
-        let muzzle=null;
-        if(bolt.visualMuzzle){muzzle=bolt.visualMuzzle();bolt.visualMuzzle=null;}
+  present(tick) {
+    this.kernel.present(tick);this.refresh();this.changes();this.dynamic.present(tick);this.refresh();
+    // Retry resource admission before drawing, preserving the old callback order.
+    for(let n=0;n<this.result[CR.ROWS];n++) {
+      const at=n*CO.STRIDE;if(this.output[at+CO.KIND]!==CK.DRAW)continue;
+      const state=this.records.get(this.output[at+CO.ID]);if(state?.pending)state.pending=this.onPresentation(state)===false;
+    }
+    for(let n=0;n<this.result[CR.ROWS];n++) {
+      const at=n*CO.STRIDE;if(this.output[at+CO.KIND]!==CK.DRAW)continue;
+      const state=this.records.get(this.output[at+CO.ID]);if(!state)continue;
+      if(this.output[at+CO.BOLT]) {
+        const bolt=state.bolt;
+        // Flight geometry changes only on admission/terminal. The frame can
+        // change the first-draw clock, so publish just that touched value.
+        bolt.networkFlightTick=this.output[at+CO.FLIGHT_TICK];bolt.started=!!this.output[at+CO.STARTED];
+        let muzzle=null;if(this.output[at+CO.RESOLVE_MUZZLE]&&bolt.visualMuzzle){muzzle=bolt.visualMuzzle();bolt.visualMuzzle=null;}
         this.ordnance.draw.bolt(bolt,1,tick,muzzle,FL.RESOLVE_SHOWN);
       }
       this.ordnance.queueSniperImpact?.(state,tick);
-    }}
-  // What the draws set off: an explosion or impact whose tick the clock has
-  // reached, in the order the records arrived.
-  settle(tick){
-    this.ordnance.matchSniperImpacts?.();
-    for(const state of this.records.values()){
-      if(state.explosion&&tick>=state.explosion.at){const at=new Vector3(...state.position);this.ordnance.presentExplosion(state.explosion.def,at,state.wet);this.onExplosion(state.explosion.def,at);state.explosion=null;}
-      const bolt=state.bolt;
-      if(state.impact){
-        const at=state.impact.at??(bolt?.started?bolt.networkFlightTick+bolt.life*60:null);
-        if(at!==null&&tick>=at){if(tick-at<=18)this.impact(state,state.impact.def);state.impact=null;}
-      }
-    }}
+    }
+  }
+  settle(tick) {
+    this.ordnance.matchSniperImpacts?.();this.kernel.settle(tick);this.refresh();
+    for(let n=0;n<this.result[CR.ROWS];n++) {
+      const at=n*CO.STRIDE,state=this.records.get(this.output[at+CO.ID]);if(!state)continue;
+      if(this.output[at+CO.KIND]===CK.EXPLODE) {
+        const def=state.explosion.def,point=state.point;
+        this.ordnance.presentExplosion(def,point,state.wet);this.onExplosion(def,point);state.explosion=null;
+      } else if(this.output[at+CO.KIND]===CK.IMPACT){this.impact(state,this.definition(state.definitionId));state.impact=null;}
+    }
+  }
 }
-// A replicated bolt's flight, cut where its terminal says it ended.
-function reach(bolt,point){if(bolt.speed>0)bolt.life=Math.min(bolt.life,Math.max(0,(point[0]-bolt.position.x)*bolt.direction.x+(point[1]-bolt.position.y)*bolt.direction.y+(point[2]-bolt.position.z)*bolt.direction.z)/bolt.speed);}
-
+// Authored effect names remain resource handles. Rust selects their precedence.
+const DEFINITION_FIELDS=['FadeOutTime','Velocity','ImpactEffectTerrain','ImpactEffectStatic','ImpactEffectSoft','ImpactEffectRigid','ImpactEffectWater'];
 export function attachCombatCapture(game,capture){
   const ordnance=game.ordnance,launch=ordnance.onLaunch,impact=ordnance.onImpact,explode=ordnance.onExplosion,projectile=ordnance.onProjectile;
   capture.dynamic=new ProjectileCapture(capture,ordnance);

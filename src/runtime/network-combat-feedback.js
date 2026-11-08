@@ -1,52 +1,44 @@
-import {sceneTransform} from "../rust-render/scene-changes.js";
-import { damageDirection } from '../combat-input.js';
-import { radarRelation } from '../targeting-facts.js';
+import { combatEncoder, decodeCombat } from "./network-entity-combat.js";
+import { presentationModule } from '../presentation/module.js';
+import { FeedbackInput as FI, FeedbackOutput as FO } from '../presentation/ordnance-layout.js';
+let loaded,kernel,buffer,input,output;
+function nativeFeedback() {
+ loaded??=presentationModule();kernel??=new loaded.module.PageCombat(0);
+ const b=loaded.memory.buffer;
+ if(b!==buffer){buffer=b;input=new Float64Array(b,kernel.feedback_input_ptr(),kernel.feedback_input_len());output=new Float64Array(b,kernel.feedback_output_ptr(),kernel.feedback_output_len());}
+}
 // Damage/death notifications never apply health. Health and dead state remain
 // independently replicated actor state; losing this record cannot revive a body.
-export function feedbackRecord({id,generation,tick,event,native=null}){
- if(native)return native.feedback({id,generation,tick,event});
- const schema=event.kind==='damage'?3:event.kind==='death'?4:0;if(!schema)throw Error('unsupported combat feedback');
- const payload=new Uint8Array(78),v=new DataView(payload.buffer);let at=0;
- for(const n of [tick+18,event.target?.unit?.id??0,event.target?.generation??0,event.attacker?.unit?.id??0,event.attacker?.generation??0]){if(!Number.isSafeInteger(n)||n<0||n>0xffffffff)throw Error('invalid feedback identity');v.setUint32(at,n,true);at+=4;}
- for(const n of event.position){if(!Number.isFinite(n))throw Error('invalid feedback position');v.setFloat64(at,n,true);at+=8;}
- v.setInt32(at,event.team??-1,true);at+=4;v.setInt32(at,event.attackerTeam??-1,true);at+=4;const source=event.source;
- const hasSource=Array.isArray(source)&&source.length===3&&source.every(Number.isFinite);
- v.setUint16(at,hasSource?1:0,true);at+=2;
- for(const n of hasSource?source:[0,0,0]){v.setFloat64(at,n,true);at+=8;}
- return{kind:'combat',id,generation,tick,schema,payload};
-}
-export function decodeFeedback(record){
- if(![3,4].includes(record.schema)||record.payload?.length!==78)throw Error('invalid feedback payload');
- const v=new DataView(record.payload.buffer,record.payload.byteOffset,record.payload.byteLength);let at=0;const u=()=>{const n=v.getUint32(at,true);at+=4;return n;};
- const result={...record,expiryTick:u(),targetId:u(),targetGeneration:u(),attackerId:u(),attackerGeneration:u(),position:[]};
- for(let i=0;i<3;i++){const n=v.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('invalid feedback position');sceneTransform(result.position.push(n));}
- result.team=v.getInt32(at,true);at+=4;result.attackerTeam=v.getInt32(at,true);at+=4;
- const flags=v.getUint16(at,true);at+=2;if(flags>1)throw Error('invalid feedback flags');
- const source=[];for(let i=0;i<3;i++){const n=v.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('invalid feedback source');source.push(n);}
- result.source=flags?source:null;
- if(result.expiryTick!==record.tick+18)throw Error('invalid feedback expiry');return result;
-}
+export function feedbackRecord({id,generation,tick,event,native=null}){return (native??combatEncoder()).feedback({id,generation,tick,event});}
+export function decodeFeedback(record){return decodeCombat(record);}
 // Whether a decoded feedback record can matter to the page whose own unit
 // is unitId: presentFeedback only acts on damage (schema 3) dealt or taken
 // by the own unit, while a death (schema 4) feeds every kill message. The
 // server sends damage to those two pages only.
 export function feedbackConcerns(event,unitId){
- return event.schema!==3||(unitId!==undefined&&unitId!==null&&(event.attackerId===unitId||event.targetId===unitId));
+ return presentationModule().module.PageCombat.concerns(event.schema,event.targetId,event.attackerId,unitId??NaN);
 }
 export function presentFeedback(game,event){
  const target=game.units.byId(event.targetId),attacker=game.units.byId(event.attackerId),own=game.playerUnit;
- const targetMatches=target?.generation===event.targetGeneration,attackerMatches=attacker?.generation===event.attackerGeneration;
- // Who hurt the page's own player, and on his death who killed him: the
- // death camera turns to that one (game.js noteAttacker). No attacker is
- // null; one this page doesn't have is undefined.
- if(targetMatches&&target===own)game.noteAttacker?.(attackerMatches?attacker:event.attackerId?undefined:null,event.schema===4,event.tick);
- if(event.schema===3){
-  // A sniper hit this page already marked when its round landed (game.js).
-  if(attackerMatches&&attacker===own&&!game.claimPredictedHit?.(event.targetId))game.hud.hit(game.units.relation(event.attackerTeam,event.team));
-  if(targetMatches&&target===own&&event.source){
-   game.hud.damageFrom(damageDirection(event.source[0]-event.position[0],event.source[2]-event.position[2],own.soldier.aimYaw));
-  }
- }else if(targetMatches){
-  game.hud.killMessage({killer:attackerMatches?attacker:null,victim:target,relationToViewer:radarRelation(own.team,event.attackerTeam,(a,b)=>game.units.relation(a,b),team=>game.units.locals?.(team)??team>2)});
- }
+ // Resource lookups and mission relations are host facts, submitted together.
+ nativeFeedback();const a=input;a.fill(0);
+ a[FI.SCHEMA]=event.schema;a[FI.TARGET_PRESENT]=+!!target;a[FI.ATTACKER_PRESENT]=+!!attacker;
+ a[FI.TARGET_GENERATION]=event.targetGeneration;a[FI.ATTACKER_GENERATION]=event.attackerGeneration;
+ a[FI.TARGET_ACTUAL_GENERATION]=target?.generation??0;a[FI.ATTACKER_ACTUAL_GENERATION]=attacker?.generation??0;
+ a[FI.TARGET_OWN]=+(target===own);a[FI.ATTACKER_OWN]=+(attacker===own);a[FI.ATTACKER_ID]=event.attackerId;
+ a[FI.HAS_SOURCE]=+!!event.source;a[FI.YAW]=own?.soldier?.aimYaw??0;
+ a[FI.OWN_TEAM]=own?.team??0;a[FI.ATTACKER_TEAM]=event.attackerTeam;
+ const relation=game.units.relation?.(own?.team,event.attackerTeam)??0;
+ a[FI.RELATION]=typeof relation==='number'?relation:loaded.module.PageCombat.feedback_relation(relation);
+ a[FI.LOCALS]=+loaded.module.PageCombat.feedback_locals(Number(game.units.locals?.(event.attackerTeam)??NaN),event.attackerTeam);
+ if(event.source){a[FI.SOURCE]=event.source[0];a[FI.SOURCE+1]=event.source[1];a[FI.SOURCE+2]=event.source[2];}
+ if(event.position){a[FI.POSITION]=event.position[0];a[FI.POSITION+1]=event.position[1];a[FI.POSITION+2]=event.position[2];}
+ kernel.feedback();
+ const note=output[FO.NOTE_ATTACKER],who=output[FO.ATTACKER_KIND],hit=output[FO.HIT],damage=output[FO.DAMAGE],death=output[FO.DEATH],angle=output[FO.ANGLE],viewerRelation=output[FO.RELATION];
+ // Rust's decisions only drive notifications; replicated health stays separate.
+ if(note)game.noteAttacker?.(who===2?attacker:who===1?undefined:null,event.schema===4,event.tick);
+ if(hit&&!game.claimPredictedHit?.(event.targetId))game.hud.hit(game.units.relation(event.attackerTeam,event.team));
+ if(damage)game.hud.damageFrom(angle);
+ if(death)game.hud.killMessage({killer:who===2?attacker:null,victim:target,relationToViewer:RELATIONS[viewerRelation]});
 }
+const RELATIONS=['neutral','friendly','enemy','locals'];

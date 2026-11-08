@@ -197,6 +197,7 @@ pub enum PresentationOwner {
     Vehicles(PageVehicles),
     Items(PageItems),
     Ordnance(PageOrdnance),
+    Combat(PageCombat),
     Feet(PageFeet),
     Sniper(PageSniper),
     Lightning(PageLightning),
@@ -227,6 +228,7 @@ pub enum PresentationCommand {
     Vehicles(PageVehiclesCommand),
     Items(PageItemsCommand),
     Ordnance(PageOrdnanceCommand),
+    Combat(PageCombatCommand),
     Feet(PageFeetCommand),
     Sniper(PageSniperCommand),
     Lightning(PageLightningCommand),
@@ -251,7 +253,7 @@ impl PresentationOwner {
 }
 impl PresentationCommand {pub fn execute(&self,owner:&mut PresentationOwner)->Result<(),String>{match(self,owner){$((Self::$case(c),PresentationOwner::$case(p))=>c.execute(p),)*(Self::Network(c),PresentationOwner::Network(p))=>c.execute(p),(Self::Push,PresentationOwner::Timeline(t))=>{t.push();Ok(())},(Self::Present,PresentationOwner::Timeline(t))=>{t.present();Ok(())},(Self::Reset(e),PresentationOwner::Timeline(t))=>{t.reset(*e);Ok(())},(Self::Remove(e),PresentationOwner::Timeline(t))=>{t.remove(*e);Ok(())},_=>Err("presentation owner type mismatch".into())}}}
 };}
-owners!(Wake,"pagewake",PageWakeCommand;Jetpack,"pagejetpack",PageJetpackCommand;JetVolume,"pagejetvolume",PageJetVolumeCommand;Trail,"pagetrail",PageTrailCommand;Shield,"pageshield",PageShieldCommand;DeathTrace,"pagedeathtrace",PageDeathTraceCommand;GunnerView,"pagegunnerview",PageGunnerViewCommand;SoldierView,"pagesoldierview",PageSoldierViewCommand;PostEffects,"pageposteffects",PagePostEffectsCommand;VehicleEffects,"pagevehicleeffects",PageVehicleEffectsCommand;AnalyticEffects,"pageanalyticeffects",PageAnalyticEffectsCommand;Lightning,"pagelightning",PageLightningCommand;ArcCamera,"pagearccamera",PageArcCameraCommand;Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
+owners!(Combat,"pagecombat",PageCombatCommand;Wake,"pagewake",PageWakeCommand;Jetpack,"pagejetpack",PageJetpackCommand;JetVolume,"pagejetvolume",PageJetVolumeCommand;Trail,"pagetrail",PageTrailCommand;Shield,"pageshield",PageShieldCommand;DeathTrace,"pagedeathtrace",PageDeathTraceCommand;GunnerView,"pagegunnerview",PageGunnerViewCommand;SoldierView,"pagesoldierview",PageSoldierViewCommand;PostEffects,"pageposteffects",PagePostEffectsCommand;VehicleEffects,"pagevehicleeffects",PageVehicleEffectsCommand;AnalyticEffects,"pageanalyticeffects",PageAnalyticEffectsCommand;Lightning,"pagelightning",PageLightningCommand;ArcCamera,"pagearccamera",PageArcCameraCommand;Feet,"pagefeet",PageFeetCommand;Sniper,"pagesniper",PageSniperCommand;Effects,"pagepresentation",PagePresentationCommand;Units,"pageunits",PageUnitsCommand;Props,"pageprops",PagePropsCommand;Vehicles,"pagevehicles",PageVehiclesCommand;Items,"pageitems",PageItemsCommand;Ordnance,"pageordnance",PageOrdnanceCommand;Warning,"pagewarning",PageWarningCommand;Lights,"pagelights",PageLightsCommand;ShellMusic,"pageshellmusic",PageShellMusicCommand;Interface,"pageinterfacebatch",PageInterfaceBatchCommand);
 impl PresentationOwner {
     pub fn new(class: &str, content: &str, preview: bool) -> Result<Self, String> {
         Ok(match class {
@@ -276,6 +278,7 @@ impl PresentationOwner {
             "pagevehicles" => Self::Vehicles(PageVehicles::new()),
             "pageitems" => Self::Items(PageItems::new()),
             "pageordnance" => Self::Ordnance(PageOrdnance::new()),
+            "pagecombat" => Self::Combat(PageCombat::new(content.parse().map_err(|_| "invalid combat capacity")?)),
             "pagefeet" => Self::Feet(PageFeet::new()),
             "pagelightning" => Self::Lightning(PageLightning::new()),
             "pagearccamera" => Self::ArcCamera(PageArcCamera::new()),
@@ -312,6 +315,7 @@ pub fn presentation_schema() -> Value {
         "pagevehicles",
         "pageitems",
         "pageordnance",
+        "pagecombat",
         "timeline",
         "pagenetwork",
         "pagewarning",
@@ -324,7 +328,7 @@ pub fn presentation_schema() -> Value {
         // Empty authored effects still constructs the same bounded scalar banks.
         if let Ok(mut p) = PresentationOwner::new(
             class,
-            if class == "pagelights" {
+            if class == "pagelights" || class == "pagecombat" {
                 "0"
             } else if ["pageshellmusic","pagejetpack","pageanalyticeffects"].contains(&class) {
                 "[]"

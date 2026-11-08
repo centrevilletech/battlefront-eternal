@@ -650,6 +650,255 @@
     "name": "PageOrdnance",
     "methods": [
       {
+        "name": "host_begin",
+        "args": [
+          [
+            "bolts",
+            "bool"
+          ],
+          [
+            "sniper",
+            "bool"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "host_record",
+        "args": [],
+        "result": "i32"
+      },
+      {
+        "name": "host_count",
+        "args": [],
+        "result": "usize"
+      },
+      {
+        "name": "net_count",
+        "args": [],
+        "result": "usize"
+      },
+      {
+        "name": "net_full",
+        "args": [],
+        "result": "bool"
+      },
+      {
+        "name": "net_row",
+        "args": [],
+        "result": "usize"
+      },
+      {
+        "name": "host_class",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<i32,String>"
+      },
+      {
+        "name": "style_request",
+        "args": [
+          [
+            "index",
+            "usize"
+          ],
+          [
+            "role",
+            "u32"
+          ],
+          [
+            "enhanced",
+            "bool"
+          ]
+        ],
+        "result": "String"
+      },
+      {
+        "name": "style_batches",
+        "args": [
+          [
+            "index",
+            "usize"
+          ],
+          [
+            "core",
+            "f64"
+          ],
+          [
+            "glow",
+            "f64"
+          ],
+          [
+            "beam",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "style_pixels",
+        "args": [
+          [
+            "index",
+            "usize"
+          ],
+          [
+            "pixels",
+            "Vec<u8>"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "batch_handle",
+        "args": [],
+        "result": "i32"
+      },
+      {
+        "name": "host_report",
+        "args": [],
+        "result": "bool"
+      },
+      {
+        "name": "capture_style",
+        "args": [
+          [
+            "index",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "source_token",
+        "args": [
+          [
+            "slot",
+            "f64"
+          ]
+        ],
+        "result": "f64"
+      },
+      {
+        "name": "net_role",
+        "args": [
+          [
+            "kind",
+            "&str"
+          ]
+        ],
+        "result": "u32",
+        "static": true
+      },
+      {
+        "name": "net_sample",
+        "args": [
+          [
+            "at",
+            "usize"
+          ],
+          [
+            "slot",
+            "usize"
+          ],
+          [
+            "style",
+            "i32"
+          ],
+          [
+            "flags",
+            "u32"
+          ],
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "net_allocate",
+        "args": [],
+        "result": "i32"
+      },
+      {
+        "name": "net_release",
+        "args": [
+          [
+            "slot",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "bolt_view",
+        "args": [
+          [
+            "perspective",
+            "bool"
+          ],
+          [
+            "fov",
+            "f64"
+          ],
+          [
+            "zoom",
+            "f64"
+          ],
+          [
+            "height",
+            "f64"
+          ],
+          [
+            "previous",
+            "f64"
+          ]
+        ],
+        "result": "f64",
+        "static": true
+      },
+      {
+        "name": "sheath",
+        "args": [
+          [
+            "rgba",
+            "&[f64]"
+          ]
+        ],
+        "result": "Vec<f64>",
+        "static": true
+      },
+      {
+        "name": "vivid",
+        "args": [
+          [
+            "rgb",
+            "&[f64]"
+          ],
+          [
+            "power",
+            "f64"
+          ]
+        ],
+        "result": "Vec<f64>",
+        "static": true
+      },
+      {
+        "name": "texture_hue",
+        "args": [
+          [
+            "pixels",
+            "Vec<u8>"
+          ]
+        ],
+        "result": "Vec<f64>",
+        "static": true
+      },
+      {
         "name": "set_style",
         "args": [
           [
@@ -676,6 +925,12 @@
       }
     ],
     "banks": [
+      {
+        "name": "host",
+        "type": "f64",
+        "pointer": "host_ptr",
+        "length": "host_len"
+      },
       {
         "name": "input",
         "type": "f64",
@@ -1372,6 +1627,360 @@
         "type": "u32",
         "pointer": "counts_ptr",
         "length": "counts_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "capacity",
+        " usize"
+      ]
+    ],
+    "class": "pagecombat",
+    "name": "PageCombat",
+    "methods": [
+      {
+        "name": "feedback",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "decode_record",
+        "args": [
+          [
+            "kind",
+            "&str"
+          ],
+          [
+            "schema",
+            "f64"
+          ],
+          [
+            "tick",
+            "f64"
+          ],
+          [
+            "bytes",
+            "Vec<u8>"
+          ],
+          [
+            "valid",
+            "bool"
+          ]
+        ],
+        "result": "Result<String, String>",
+        "static": true
+      },
+      {
+        "name": "receive_facts",
+        "args": [
+          [
+            "epoch",
+            "f64"
+          ],
+          [
+            "tick",
+            "f64"
+          ],
+          [
+            "definition",
+            "&str"
+          ],
+          [
+            "has_definition",
+            "bool"
+          ]
+        ],
+        "result": "Result<bool,String>"
+      },
+      {
+        "name": "impact_name",
+        "args": [
+          [
+            "effect",
+            "usize"
+          ],
+          [
+            "definition",
+            "&str"
+          ]
+        ],
+        "result": "Result<String,String>",
+        "static": true
+      },
+      {
+        "name": "capture_bolt",
+        "args": [
+          [
+            "facts",
+            "&str"
+          ]
+        ],
+        "result": "Result<String,String>",
+        "static": true
+      },
+      {
+        "name": "capture_terminal",
+        "args": [
+          [
+            "state",
+            "&str"
+          ],
+          [
+            "tick",
+            "f64"
+          ]
+        ],
+        "result": "Result<String,String>",
+        "static": true
+      },
+      {
+        "name": "capture_feedback",
+        "args": [
+          [
+            "kind",
+            "&str"
+          ]
+        ],
+        "result": "bool",
+        "static": true
+      },
+      {
+        "name": "feedback_relation",
+        "args": [
+          [
+            "relation",
+            "&str"
+          ]
+        ],
+        "result": "f64",
+        "static": true
+      },
+      {
+        "name": "feedback_locals",
+        "args": [
+          [
+            "locals",
+            "f64"
+          ],
+          [
+            "team",
+            "f64"
+          ]
+        ],
+        "result": "bool",
+        "static": true
+      },
+      {
+        "name": "capture_identity",
+        "args": [
+          [
+            "id",
+            "f64"
+          ]
+        ],
+        "result": "Result<Vec<f64>,String>",
+        "static": true
+      },
+      {
+        "name": "event_plan",
+        "args": [
+          [
+            "event",
+            "&str"
+          ],
+          [
+            "facts",
+            "&str"
+          ]
+        ],
+        "result": "Result<String,String>",
+        "static": true
+      },
+      {
+        "name": "event_capture",
+        "args": [
+          [
+            "facts",
+            "&str"
+          ]
+        ],
+        "result": "Result<String,String>",
+        "static": true
+      },
+      {
+        "name": "event_ready",
+        "args": [
+          [
+            "kind",
+            "&str"
+          ],
+          [
+            "owner",
+            "f64"
+          ],
+          [
+            "generation",
+            "f64"
+          ],
+          [
+            "present",
+            "bool"
+          ],
+          [
+            "actual",
+            "f64"
+          ],
+          [
+            "mount",
+            "f64"
+          ],
+          [
+            "mount_generation",
+            "f64"
+          ],
+          [
+            "mount_present",
+            "bool"
+          ],
+          [
+            "mount_actual",
+            "f64"
+          ]
+        ],
+        "result": "bool",
+        "static": true
+      },
+      {
+        "name": "concerns",
+        "args": [
+          [
+            "schema",
+            "u32"
+          ],
+          [
+            "target",
+            "u32"
+          ],
+          [
+            "attacker",
+            "u32"
+          ],
+          [
+            "own",
+            "f64"
+          ]
+        ],
+        "result": "bool",
+        "static": true
+      },
+      {
+        "name": "visual_damage",
+        "args": [
+          [
+            "amount",
+            "f64"
+          ]
+        ],
+        "result": "f64",
+        "static": true
+      },
+      {
+        "name": "reset",
+        "args": [
+          [
+            "epoch",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "receive",
+        "args": [
+          [
+            "epoch",
+            "f64"
+          ],
+          [
+            "tick",
+            "f64"
+          ]
+        ],
+        "result": "bool"
+      },
+      {
+        "name": "muzzle_request",
+        "args": [
+          [
+            "predicted",
+            "bool"
+          ]
+        ],
+        "result": "bool"
+      },
+      {
+        "name": "resolve",
+        "args": [
+          [
+            "predicted",
+            "bool"
+          ]
+        ],
+        "result": "bool"
+      },
+      {
+        "name": "present",
+        "args": [
+          [
+            "tick",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "settle",
+        "args": [
+          [
+            "tick",
+            "f64"
+          ]
+        ],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "result",
+        "type": "f64",
+        "pointer": "result_ptr",
+        "length": "result_len"
+      },
+      {
+        "name": "output",
+        "type": "f64",
+        "pointer": "output_ptr",
+        "length": "output_len"
+      },
+      {
+        "name": "feedback_input",
+        "type": "f64",
+        "pointer": "feedback_input_ptr",
+        "length": "feedback_input_len"
+      },
+      {
+        "name": "feedback_output",
+        "type": "f64",
+        "pointer": "feedback_output_ptr",
+        "length": "feedback_output_len"
       }
     ]
   },

@@ -46,7 +46,7 @@ for part in parts:
     part=part[:part.rfind('}')+1].replace('String::from_str','String::from')
     # Every field in the native owners is initialized scalar storage. Pointer
     # getters serve browser views; native transports borrow their backing slices.
-    methods=[];banks=[]
+    methods=[];banks=[];static_methods=set()
     for m in re.finditer(r'pub fn (\w+)\((.*?)\)\s*(?:->\s*([^\{]+))?\{',part,re.S):
         start=m.end();depth=1;pos=start
         while depth:
@@ -65,6 +65,7 @@ for part in parts:
             continue
         if name=='bind_network' or cls=='PageFeet' and name=='heights':continue
         if name.endswith('_len') or name in ['new','preview','handles_len','feet_at','bodies_at','actor_node_start','actor_skin_start','view_node_start','slot_input','slot_output','entries_capacity']:continue
+        if '&self' not in m[2] and '&mut self' not in m[2]:static_methods.add(name)
         methods.append((name,args,(m[3] or '').strip()))
     joined=[method for method in methods if any(t.startswith('&Page') for _,t in method[1])]
     methods=[method for method in methods if method not in joined]
@@ -111,7 +112,7 @@ for part in parts:
         'pub fn execute(&self,host:&mut '+cls+')->Result<(),String>{match self{']
     for n,args,r in methods:
         names=[n for n,t in args];passed=[n if t in ['&str','&[f64]'] else n+'.clone()' if t.startswith('Vec<') else '*'+n for n,t in args]
-        call='host.'+n+'('+','.join(passed)+')'
+        call=(cls+'::' if n in static_methods else 'host.')+n+'('+','.join(passed)+')'
         # Hot page exchanges return primitive statuses to avoid JS result
         # tuples. Native sessions still propagate their cold error channel.
         if cls=='PageNetwork' and n in ['receive','outbound_run','outbound_batch']:
@@ -123,7 +124,7 @@ for part in parts:
     output+=['}Ok(())}}']
     ctor=re.search(r'pub fn new\((.*?)\)',part,re.S)[1]
     ctor_args=[a.strip().split(':',1) for a in ctor.split(',') if a.strip()]
-    meta.append({'constructorArgs':ctor_args,'class':prefix,'name':cls,'methods':[{'name':n,'args':a,'result':r} for n,a,r in methods+joined]+([{'name':'bind_network','args':[['network','&PageNetwork'],['slot','usize'],['id','f64'],['generation','f64'],['kind','f64']],'result':'Result<(),String>'}] if cls in ['PageUnits','PageVehicles'] else []),
+    meta.append({'constructorArgs':ctor_args,'class':prefix,'name':cls,'methods':[{'name':n,'args':a,'result':r,**({'static':True} if n in static_methods else {})} for n,a,r in methods+joined]+([{'name':'bind_network','args':[['network','&PageNetwork'],['slot','usize'],['id','f64'],['generation','f64'],['kind','f64']],'result':'Result<(),String>'}] if cls in ['PageUnits','PageVehicles'] else []),
         'banks':[{'name':n,'type':t,'pointer':n+'_ptr','length':n+'_len'} for n,t,e in banks]})
 for file,contents in [(ROOT/'rust/bfe-client/src/presentation_bridge.rs','\n'.join(output)+'\n'),(ROOT/'tools/native-session/presentation-api.json',json.dumps(meta,indent=2)+'\n')]:
     if '--check' in sys.argv:

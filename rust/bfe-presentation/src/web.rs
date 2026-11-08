@@ -438,6 +438,26 @@ impl PageOrdnance {
             inner: crate::ordnance::Ordnance::new(),
         }
     }
+    pub fn host_begin(&mut self,bolts:bool,sniper:bool){self.inner.host_begin(bolts,sniper);}
+    pub fn host_record(&mut self)->i32{self.inner.host_record()}
+    pub fn host_count(&self)->usize{self.inner.host.records}
+    pub fn net_count(&self)->usize{self.inner.host.net_count}
+    pub fn net_full(&self)->bool{self.inner.host.net_count>=crate::ordnance_layout::ordnance_limits::NET_COMMANDS}
+    pub fn net_row(&mut self)->usize{self.inner.host_net_row()}
+    pub fn host_class(&mut self,data:&str)->Result<i32,JsValue>{self.inner.host_class(data).map_err(|e|JsValue::from_str(&e))}
+    pub fn style_request(&mut self,index:usize,role:u32,enhanced:bool)->String{self.inner.host_style_request(index,role,enhanced)}
+    pub fn style_batches(&mut self,index:usize,core:f64,glow:f64,beam:f64){self.inner.host_style_batches(index,core,glow,beam);}
+    pub fn style_pixels(&mut self,index:usize,pixels:Vec<u8>){self.inner.host_style_pixels(index,&pixels);}
+    pub fn batch_handle(&mut self)->i32{self.inner.host.batch()}
+    pub fn host_report(&mut self)->bool{self.inner.host_report()}
+    pub fn capture_style(&mut self,index:usize){self.inner.sync_host_style(index);}
+    pub fn host_ptr(&self) -> *const f64 {self.inner.host.input.as_ptr()}
+    pub fn host_len(&self) -> usize {self.inner.host.input.len()}
+    pub fn source_token(&mut self, slot:f64) -> f64 {self.inner.host.token(slot)}
+    pub fn net_role(kind:&str)->u32{if kind=="beam"{2}else{0}}
+    pub fn net_sample(&mut self,at:usize,slot:usize,style:i32,flags:u32,data:&str)->Result<(),JsValue>{self.inner.host_net_sample(at,slot,style,flags,data).map_err(|e|JsValue::from_str(&e))}
+    pub fn net_allocate(&mut self) -> i32 {self.inner.host.allocate()}
+    pub fn net_release(&mut self, slot:usize) {self.inner.host.release(slot);}
     pub fn input_ptr(&self) -> *const f64 {
         self.inner.input.as_ptr()
     }
@@ -480,6 +500,19 @@ impl PageOrdnance {
     pub fn blaster_len(&self, attribute: usize) -> usize {
         self.inner.blaster_arrays()[attribute.min(3)].len()
     }
+    // BlasterBatch's view-dependent capsule width uses device/target facts.
+    pub fn bolt_view(perspective:bool,fov: f64, zoom: f64, height: f64,previous:f64) -> f64 {
+        if perspective{crate::ordnance::style::bolt_view(fov,zoom,height)}else{previous}
+    }
+    pub fn sheath(rgba: &[f64]) -> Vec<f64> {
+        crate::ordnance::style::sheath(rgba).to_vec()
+    }
+    pub fn vivid(rgb: &[f64], power: f64) -> Vec<f64> {
+        crate::ordnance::style::vivid(rgb, power).to_vec()
+    }
+    pub fn texture_hue(pixels: Vec<u8>) -> Vec<f64> {
+        crate::ordnance::style::texture_hue(&pixels)
+    }
     pub fn set_style(&mut self, index: usize) {
         self.inner.set_style(index);
     }
@@ -487,7 +520,7 @@ impl PageOrdnance {
         self.inner.net_flush(count);
     }
     pub fn present_ordnance(&mut self) {
-        self.inner.present();
+        self.inner.present_host();
     }
 }
 
@@ -764,6 +797,61 @@ impl PageSniper {
     pub fn collect(&mut self){self.inner.collect(&mut ||page_random());}
     pub fn match_impacts(&mut self,count:usize){self.inner.match_impacts(count);}
     pub fn frame(&mut self){self.inner.frame(&mut ||page_random());}
+}
+
+
+/// Replicated combat lifecycle shares the presentation memory; the host only
+/// answers resource/prediction requests and applies ordered output records.
+#[wasm_bindgen]
+pub struct PageCombat {
+    inner: crate::ordnance::network::Combat,
+    feedback_input: Vec<f64>,
+    feedback_output: Vec<f64>,
+}
+#[wasm_bindgen]
+impl PageCombat {
+    #[wasm_bindgen(constructor)]
+    pub fn new(capacity: usize) -> PageCombat {
+        Self { inner: crate::ordnance::network::Combat::new(capacity),
+            feedback_input: vec![0.0;crate::ordnance_layout::feedback_input::STRIDE],
+            feedback_output: vec![0.0;crate::ordnance_layout::feedback_output::STRIDE] }
+    }
+    pub fn input_ptr(&self) -> *const f64 { self.inner.input.as_ptr() }
+    pub fn input_len(&self) -> usize { self.inner.input.len() }
+    pub fn result_ptr(&self) -> *const f64 { self.inner.result.as_ptr() }
+    pub fn result_len(&self) -> usize { self.inner.result.len() }
+    pub fn output_ptr(&self) -> *const f64 { self.inner.output.as_ptr() }
+    pub fn output_len(&self) -> usize { self.inner.output.len() }
+    pub fn feedback_input_ptr(&self) -> *const f64 { self.feedback_input.as_ptr() }
+    pub fn feedback_input_len(&self) -> usize { self.feedback_input.len() }
+    pub fn feedback_output_ptr(&self) -> *const f64 { self.feedback_output.as_ptr() }
+    pub fn feedback_output_len(&self) -> usize { self.feedback_output.len() }
+    pub fn feedback(&mut self) { crate::ordnance::network::feedback(&self.feedback_input,&mut self.feedback_output); }
+    pub fn decode_record(kind: &str, schema: f64, tick: f64, bytes: Vec<u8>, valid: bool) -> Result<String, JsValue> {
+        if !valid{return Err(JsValue::from_str(if schema==8.0{"Invalid presentation payload"}else if schema==3.0||schema==4.0{"invalid feedback payload"}else{"invalid combat payload"}));}
+        crate::ordnance::codec::decode(kind,schema,tick,&bytes).map_err(|e|JsValue::from_str(&e))
+    }
+    pub fn receive_facts(&mut self,epoch:f64,tick:f64,definition:&str,has_definition:bool)->Result<bool,JsValue>{self.inner.receive_facts(epoch,tick,definition,has_definition).map_err(|e|JsValue::from_str(&e))}
+    pub fn impact_name(effect:usize,definition:&str)->Result<String,JsValue>{crate::ordnance::network::impact_name(effect,definition).map_err(|e|JsValue::from_str(&e))}
+    pub fn capture_bolt(facts:&str)->Result<String,JsValue>{crate::ordnance::network::capture_bolt(facts).map_err(|e|JsValue::from_str(&e))}
+    pub fn capture_terminal(state:&str,tick:f64)->Result<String,JsValue>{crate::ordnance::network::capture_terminal(state,tick).map_err(|e|JsValue::from_str(&e))}
+    pub fn capture_feedback(kind:&str)->bool{matches!(kind,"damage"|"death")}
+    pub fn feedback_relation(relation:&str)->f64{match relation{"friendly"=>1.0,"enemy"=>-1.0,_=>0.0}}
+    pub fn feedback_locals(locals:f64,team:f64)->bool{if locals.is_nan(){team>2.0}else{locals!=0.0}}
+    pub fn capture_identity(id:f64)->Result<Vec<f64>,JsValue>{if id>4294967295.0{return Err(JsValue::from_str("combat identity exhausted"));}Ok(vec![id,id+1.0])}
+    pub fn event_plan(event:&str,facts:&str)->Result<String,JsValue>{crate::ordnance::events::plan(event,facts).map_err(|e|JsValue::from_str(&e))}
+    pub fn event_capture(facts:&str)->Result<String,JsValue>{crate::ordnance::events::capture(facts).map_err(|e|JsValue::from_str(&e))}
+    pub fn event_ready(kind:&str,owner:f64,generation:f64,present:bool,actual:f64,mount:f64,mount_generation:f64,mount_present:bool,mount_actual:f64)->bool{crate::ordnance::events::ready(kind,owner,generation,present,actual,mount,mount_generation,mount_present,mount_actual)}
+    pub fn concerns(schema: u32, target: u32, attacker: u32, own: f64) -> bool {
+        schema!=3 || (own.is_finite()&&(target as f64==own||attacker as f64==own))
+    }
+    pub fn visual_damage(amount: f64) -> f64 { crate::ordnance::style::visual_damage(amount) }
+    pub fn reset(&mut self, epoch: f64) { self.inner.reset(epoch); }
+    pub fn receive(&mut self, epoch: f64, tick: f64) -> bool { self.inner.receive(epoch,tick) }
+    pub fn muzzle_request(&self,predicted:bool)->bool{self.inner.result[crate::ordnance_layout::combat_result::LANDED]!=0.0&&!predicted}
+    pub fn resolve(&mut self, predicted: bool) -> bool { self.inner.resolve(predicted) }
+    pub fn present(&mut self, tick: f64) { self.inner.present(tick); }
+    pub fn settle(&mut self, tick: f64) { self.inner.settle(tick); }
 }
 
 // Fixed phase banks are borrowed by both browser and native hosts.

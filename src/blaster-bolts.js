@@ -1,136 +1,63 @@
+import { presentationModule } from "./presentation/module.js";
 import {sceneProperty} from "./rust-render/scene-changes.js";
+import { OrdnanceLimits as L } from "./presentation/ordnance-layout.js";
 import { EFFECT } from "./rust-render/effect-layout.js";
 import * as THREE from "three";
 import { texturePixels } from "./texture-pixels.js";
 import { particleDepth } from "./particle-depth.js";
 
-// Enhanced blaster bolts: each one is a glowing capsule of plasma between its
-// head and tail, shaded per pixel from the closest distance between the view
-// ray and that segment. A white-hot core sits inside a saturated sheath and a
-// wide soft halo, so a bolt reads the same side-on, end-on and in the
-// distance, where its width is held to about a pixel and its brightness
-// thinned to match. The 2004 textured strips remain the Classic look
-// (ordnance.js); the game's own sizes and colors drive both.
-//
-// One instanced draw for every bolt and beam. The quad is fitted on the image
-// plane around both projected end discs, so it costs little more than the
-// bolt's own outline; fragments write the depth of their closest approach,
-// so walls hide the part of a bolt behind them.
 
 export const boltLook = { enhanced: false };
 
-const ATTRIBUTES = { iHead: 3, iTail: 3, iColor: 4, iSize: 4 };
-
-
-
-
-
-// A ParticleRenderer batch of its own kind (see ParticleRenderer.custom).
+// A scene anchor and borrowed native attribute arrays are the entire host.
 export class BlasterBatch {
-  constructor(capacity = 64) {
-    this.count = 0;
-    this.capacity = 0;
-    this.arrays = {};
-    // BlasterBatch retains capsule facts; effect_batch owns quad/raster policy.
-    this.nativeKind = EFFECT.BLASTER.ID;
-    this.variant = 0;
-    this.texture = null;
-    this.values = new Float64Array(EFFECT.BLASTER.LENGTH);
-    this.values[EFFECT.BLASTER.PIXEL_ANGLE] = 0.002;
-    this.mesh = new THREE.Object3D();
-    this.mesh.name = "blaster-bolts";
-    sceneProperty(this.mesh,"frustumCulled",false);
-    sceneProperty(this.mesh,"renderOrder",11);
-    const size = new THREE.Vector2();
-    this.mesh.onBeforeRender = (renderer, scene, camera) => {
-      particleDepth.capture(renderer, scene, camera);
-      if (camera.isPerspectiveCamera) {
-        // The pixels being drawn: under an upscaler, the 3D frame's.
-        const target = renderer.getRenderTarget();
-        const height = target ? target.height : renderer.getDrawingBufferSize(size).y;
-        this.values[EFFECT.BLASTER.PIXEL_ANGLE] = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(height, 1) / (camera.zoom || 1);
-      }
+  constructor(){
+    this.count=0;this.capacity=L.BLASTERS;this.attributes={};
+    this.nativeKind=EFFECT.BLASTER.ID;this.variant=0;this.texture=null;
+    this.values=new Float64Array(EFFECT.BLASTER.LENGTH);this.values[EFFECT.BLASTER.PIXEL_ANGLE]=.002;
+    this.mesh=new THREE.Object3D();this.mesh.name="blaster-bolts";
+    sceneProperty(this.mesh,"frustumCulled",false);sceneProperty(this.mesh,"renderOrder",11);
+    const size=new THREE.Vector2();
+    this.mesh.onBeforeRender=(renderer,scene,camera)=>{
+      particleDepth.capture(renderer,scene,camera);
+      const target=renderer.getRenderTarget();
+      this.values[EFFECT.BLASTER.PIXEL_ANGLE]=presentationModule().module.PageOrdnance.bolt_view(!!camera.isPerspectiveCamera,camera.fov??NaN,camera.zoom,target?target.height:renderer.getDrawingBufferSize(size).y,this.values[EFFECT.BLASTER.PIXEL_ANGLE]);
     };
-    this.grow(Math.max(capacity, 16384));
   }
-
-  grow(capacity) {
-    for (const [name, size] of Object.entries(ATTRIBUTES)) {
-      const array = new Float32Array(capacity * size);
-      if (this.arrays[name]) array.set(this.arrays[name]);
-      this.arrays[name] = array;
-    }
-    this.capacity = capacity;
+  begin(){this.count=0;}
+  // Another presentation owner may grow the shared memory after ordnance
+  // finished. Rebind before the renderer borrows its attributes.
+  get arrays(){
+    const owner=this.sourceOwner;
+    if(owner&&this.buffer!==owner.loaded.memory.buffer){owner.refresh();this.load(owner.blasters,this.count,owner);}
+    return this.attributes;
   }
-
-  begin() {
-    this.count = 0;
+  load(source,count,owner){
+    this.sourceOwner=owner;this.buffer=source[0].buffer;
+    this.attributes.iHead=source[0];this.attributes.iTail=source[1];this.attributes.iColor=source[2];this.attributes.iSize=source[3];this.count=count;
   }
-
-  // One bolt from its head back to its tail. `rgb` is the sheath colour with
-  // its largest channel at 1; `brightness` scales the whole bolt.
-  push(head, tail, rgb, brightness, core, glow, seed = 0, taper = 0.6) {
-    if(this.count===this.capacity){this.dropped=(this.dropped||0)+1;return;}
-    const i = this.count++;
-    const { iHead, iTail, iColor, iSize } = this.arrays;
-    iHead[i * 3] = head.x; iHead[i * 3 + 1] = head.y; iHead[i * 3 + 2] = head.z;
-    iTail[i * 3] = tail.x; iTail[i * 3 + 1] = tail.y; iTail[i * 3 + 2] = tail.z;
-    iColor[i * 4] = rgb[0]; iColor[i * 4 + 1] = rgb[1]; iColor[i * 4 + 2] = rgb[2]; iColor[i * 4 + 3] = brightness;
-    iSize[i * 4] = core; iSize[i * 4 + 1] = glow; iSize[i * 4 + 2] = seed; iSize[i * 4 + 3] = taper;
-  }
-
-  // `count` bolts the ordnance phase drew (head, tail, colour, size arrays),
-  // appended as push() would.
-  load(source, count) {
-    while (this.count + count > this.capacity) this.grow(this.capacity * 2);
-    const names = Object.keys(ATTRIBUTES);
-    for (let k = 0; k < names.length; k++) {
-      const size = ATTRIBUTES[names[k]];
-      this.arrays[names[k]].set(source[k].subarray(0, count * size), this.count * size);
-    }
-    this.count += count;
-  }
-
-  // The renderer reads the active prefix directly. No attribute versions or
-  // secondary Three upload ranges are published by Batch.end.
-  end() {
-    sceneProperty(this.mesh,"visible",this.count > 0);
-  }
+  end(){sceneProperty(this.mesh,"visible",this.count>0);}
 }
 
 // The sheath colour of a LaserGlowColor: its hue at full strength, so a dim
 // authored alpha doesn't make the bolt grey.
 export function sheathColor(rgba = [255, 255, 255, 255]) {
-  const peak = Math.max(rgba[0], rgba[1], rgba[2], 1);
-  return [rgba[0] / peak, rgba[1] / peak, rgba[2] / peak];
+  return Array.from(presentationModule().module.PageOrdnance.sheath(rgba));
 }
 
 // Deeper, film-like saturation for a sheath colour; the strongest channel
 // stays at 1, so the hue is kept and pale textures still read as coloured.
 export function vivid(rgb, power = 1.6) {
-  return rgb.map((c) => Math.pow(Math.max(c, 0), power));
+  return Array.from(presentationModule().module.PageOrdnance.vivid(rgb, power));
 }
 
-// The hue a laser texture shows: guns without a glow showed only their core
-// texture, so its colour is what the bolt looked like. Texels are weighted by
-// saturation, which skips the near-white middle and the dark fringe.
-// Undefined until the pixels are readable; null when the texture is grey.
 const hues = new WeakMap();
 export function textureHue(texture) {
   if (hues.has(texture)) return hues.get(texture);
   const pixels = texturePixels(texture);
   if (!pixels) return undefined;
-  const data = pixels.data;
-  const sum = [0, 0, 0];
-  let weight = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    const peak = Math.max(data[i], data[i + 1], data[i + 2]);
-    if (peak < 48 || data[i + 3] < 32) continue;
-    const saturation = 1 - Math.min(data[i], data[i + 1], data[i + 2]) / peak, w = saturation * saturation * peak;
-    sum[0] += (data[i] / peak) * w; sum[1] += (data[i + 1] / peak) * w; sum[2] += (data[i + 2] / peak) * w;
-    weight += w;
-  }
-  const hue = weight > 1 ? sheathColor(sum) : null;
+  const values = presentationModule().module.PageOrdnance.texture_hue(pixels.data);
+  const hue = values.length ? Array.from(values) : null;
   hues.set(texture, hue);
   return hue;
 }

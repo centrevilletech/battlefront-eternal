@@ -672,6 +672,26 @@ impl PageOrdnance {
             inner: bfe_presentation::ordnance::Ordnance::new(),
         }
     }
+    pub fn host_begin(&mut self,bolts:bool,sniper:bool){self.inner.host_begin(bolts,sniper);}
+    pub fn host_record(&mut self)->i32{self.inner.host_record()}
+    pub fn host_count(&self)->usize{self.inner.host.records}
+    pub fn net_count(&self)->usize{self.inner.host.net_count}
+    pub fn net_full(&self)->bool{self.inner.host.net_count>=bfe_presentation::ordnance_layout::ordnance_limits::NET_COMMANDS}
+    pub fn net_row(&mut self)->usize{self.inner.host_net_row()}
+    pub fn host_class(&mut self,data:&str)->Result<i32,String>{self.inner.host_class(data).map_err(|e|String::from(&e))}
+    pub fn style_request(&mut self,index:usize,role:u32,enhanced:bool)->String{self.inner.host_style_request(index,role,enhanced)}
+    pub fn style_batches(&mut self,index:usize,core:f64,glow:f64,beam:f64){self.inner.host_style_batches(index,core,glow,beam);}
+    pub fn style_pixels(&mut self,index:usize,pixels:Vec<u8>){self.inner.host_style_pixels(index,&pixels);}
+    pub fn batch_handle(&mut self)->i32{self.inner.host.batch()}
+    pub fn host_report(&mut self)->bool{self.inner.host_report()}
+    pub fn capture_style(&mut self,index:usize){self.inner.sync_host_style(index);}
+    pub fn host_ptr(&self) -> *const f64 {self.inner.host.input.as_ptr()}
+    pub fn host_len(&self) -> usize {self.inner.host.input.len()}
+    pub fn source_token(&mut self, slot:f64) -> f64 {self.inner.host.token(slot)}
+    pub fn net_role(kind:&str)->u32{if kind=="beam"{2}else{0}}
+    pub fn net_sample(&mut self,at:usize,slot:usize,style:i32,flags:u32,data:&str)->Result<(),String>{self.inner.host_net_sample(at,slot,style,flags,data).map_err(|e|String::from(&e))}
+    pub fn net_allocate(&mut self) -> i32 {self.inner.host.allocate()}
+    pub fn net_release(&mut self, slot:usize) {self.inner.host.release(slot);}
     pub fn input_ptr(&self) -> *const f64 {
         self.inner.input.as_ptr()
     }
@@ -714,6 +734,19 @@ impl PageOrdnance {
     pub fn blaster_len(&self, attribute: usize) -> usize {
         self.inner.blaster_arrays()[attribute.min(3)].len()
     }
+    // BlasterBatch's view-dependent capsule width uses device/target facts.
+    pub fn bolt_view(perspective:bool,fov: f64, zoom: f64, height: f64,previous:f64) -> f64 {
+        if perspective{bfe_presentation::ordnance::style::bolt_view(fov,zoom,height)}else{previous}
+    }
+    pub fn sheath(rgba: &[f64]) -> Vec<f64> {
+        bfe_presentation::ordnance::style::sheath(rgba).to_vec()
+    }
+    pub fn vivid(rgb: &[f64], power: f64) -> Vec<f64> {
+        bfe_presentation::ordnance::style::vivid(rgb, power).to_vec()
+    }
+    pub fn texture_hue(pixels: Vec<u8>) -> Vec<f64> {
+        bfe_presentation::ordnance::style::texture_hue(&pixels)
+    }
     pub fn set_style(&mut self, index: usize) {
         self.inner.set_style(index);
     }
@@ -721,17 +754,19 @@ impl PageOrdnance {
         self.inner.net_flush(count);
     }
     pub fn present_ordnance(&mut self) {
-        self.inner.present();
+        self.inner.present_host();
     }
 }
 impl PageOrdnance {
 pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"host"=>Ok(crate::session::bytes_mut(&mut self.inner.host.input)),
 "input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
 "net"=>Ok(crate::session::bytes_mut(&mut self.inner.net_input)),
 "style"=>Ok(crate::session::bytes_mut(&mut self.inner.style_input)),
 "header"=>Ok(crate::session::bytes_mut(&mut self.inner.header)),
 _=>Err(format!("unknown presentation input bank {name}")),}}
 pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"host"=>Ok(crate::session::bytes(&self.inner.host.input)),
 "input"=>Ok(crate::session::bytes(&self.inner.input)),
 "net"=>Ok(crate::session::bytes(&self.inner.net_input)),
 "style"=>Ok(crate::session::bytes(&self.inner.style_input)),
@@ -741,6 +776,7 @@ pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 _=>{if let Some(i)=name.strip_prefix("quad_").and_then(|s|s.parse::<usize>().ok()).filter(|i|*i<6){return Ok(crate::session::bytes(self.inner.quad_arrays()[i]));}if let Some(i)=name.strip_prefix("blaster_").and_then(|s|s.parse::<usize>().ok()).filter(|i|*i<4){return Ok(crate::session::bytes(self.inner.blaster_arrays()[i]));}Err(format!("unknown presentation bank {name}"))},
 }}
 pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("host", self.inner.host.input.len()),
 ("input", self.inner.input.len()),
 ("net", self.inner.net_input.len()),
 ("style", self.inner.style_input.len()),
@@ -750,17 +786,83 @@ pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ]}
 }
 pub enum PageOrdnanceCommand {
+host_begin(bool,bool),
+host_record,
+host_count,
+net_count,
+net_full,
+net_row,
+host_class(String),
+style_request(usize,u32,bool),
+style_batches(usize,f64,f64,f64),
+style_pixels(usize,Vec<u8>),
+batch_handle,
+host_report,
+capture_style(usize),
+source_token(f64),
+net_role(String),
+net_sample(usize,usize,i32,u32,String),
+net_allocate,
+net_release(usize),
+bolt_view(bool,f64,f64,f64,f64),
+sheath(Vec<f64>),
+vivid(Vec<f64>,f64),
+texture_hue(Vec<u8>),
 set_style(usize),
 flush_net(usize),
 present_ordnance,
 }
 impl PageOrdnanceCommand {
 pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"host_begin"=>Self::host_begin(a.bool(0)?,a.bool(1)?),
+"host_record"=>Self::host_record,
+"host_count"=>Self::host_count,
+"net_count"=>Self::net_count,
+"net_full"=>Self::net_full,
+"net_row"=>Self::net_row,
+"host_class"=>Self::host_class(a.string(0)?),
+"style_request"=>Self::style_request(a.usize(0)?,a.u32(1)?,a.bool(2)?),
+"style_batches"=>Self::style_batches(a.usize(0)?,a.f64(1)?,a.f64(2)?,a.f64(3)?),
+"style_pixels"=>Self::style_pixels(a.usize(0)?,a.u8s(1)?),
+"batch_handle"=>Self::batch_handle,
+"host_report"=>Self::host_report,
+"capture_style"=>Self::capture_style(a.usize(0)?),
+"source_token"=>Self::source_token(a.f64(0)?),
+"net_role"=>Self::net_role(a.string(0)?),
+"net_sample"=>Self::net_sample(a.usize(0)?,a.usize(1)?,a.i32(2)?,a.u32(3)?,a.string(4)?),
+"net_allocate"=>Self::net_allocate,
+"net_release"=>Self::net_release(a.usize(0)?),
+"bolt_view"=>Self::bolt_view(a.bool(0)?,a.f64(1)?,a.f64(2)?,a.f64(3)?,a.f64(4)?),
+"sheath"=>Self::sheath(a.f64s(0)?),
+"vivid"=>Self::vivid(a.f64s(0)?,a.f64(1)?),
+"texture_hue"=>Self::texture_hue(a.u8s(0)?),
 "set_style"=>Self::set_style(a.usize(0)?),
 "flush_net"=>Self::flush_net(a.usize(0)?),
 "present_ordnance"=>Self::present_ordnance,
 _=>return Err(format!("unknown presentation command {name}")),})}
 pub fn execute(&self,host:&mut PageOrdnance)->Result<(),String>{match self{
+Self::host_begin(bolts,sniper)=>{let _=host.host_begin(*bolts,*sniper);},
+Self::host_record=>{let _=host.host_record();},
+Self::host_count=>{let _=host.host_count();},
+Self::net_count=>{let _=host.net_count();},
+Self::net_full=>{let _=host.net_full();},
+Self::net_row=>{let _=host.net_row();},
+Self::host_class(data)=>{let _=host.host_class(data)?;},
+Self::style_request(index,role,enhanced)=>{let _=host.style_request(*index,*role,*enhanced);},
+Self::style_batches(index,core,glow,beam)=>{let _=host.style_batches(*index,*core,*glow,*beam);},
+Self::style_pixels(index,pixels)=>{let _=host.style_pixels(*index,pixels.clone());},
+Self::batch_handle=>{let _=host.batch_handle();},
+Self::host_report=>{let _=host.host_report();},
+Self::capture_style(index)=>{let _=host.capture_style(*index);},
+Self::source_token(slot)=>{let _=host.source_token(*slot);},
+Self::net_role(kind)=>{let _=PageOrdnance::net_role(kind);},
+Self::net_sample(at,slot,style,flags,data)=>{let _=host.net_sample(*at,*slot,*style,*flags,data)?;},
+Self::net_allocate=>{let _=host.net_allocate();},
+Self::net_release(slot)=>{let _=host.net_release(*slot);},
+Self::bolt_view(perspective,fov,zoom,height,previous)=>{let _=PageOrdnance::bolt_view(*perspective,*fov,*zoom,*height,*previous);},
+Self::sheath(rgba)=>{let _=PageOrdnance::sheath(rgba);},
+Self::vivid(rgb,power)=>{let _=PageOrdnance::vivid(rgb,*power);},
+Self::texture_hue(pixels)=>{let _=PageOrdnance::texture_hue(pixels.clone());},
 Self::set_style(index)=>{let _=host.set_style(*index);},
 Self::flush_net(count)=>{let _=host.flush_net(*count);},
 Self::present_ordnance=>{let _=host.present_ordnance();},
@@ -1319,6 +1421,147 @@ pub fn execute(&self,host:&mut PageSniper)->Result<(),String>{match self{
 Self::collect(random)=>{let _=host.collect(random)?;},
 Self::match_impacts(count)=>{let _=host.match_impacts(*count);},
 Self::frame(random)=>{let _=host.frame(random)?;},
+}Ok(())}}
+pub struct PageCombat {
+    inner: bfe_presentation::ordnance::network::Combat,
+    feedback_input: Vec<f64>,
+    feedback_output: Vec<f64>,
+}
+impl PageCombat {
+    pub fn new(capacity: usize) -> PageCombat {
+        Self { inner: bfe_presentation::ordnance::network::Combat::new(capacity),
+            feedback_input: vec![0.0;bfe_presentation::ordnance_layout::feedback_input::STRIDE],
+            feedback_output: vec![0.0;bfe_presentation::ordnance_layout::feedback_output::STRIDE] }
+    }
+    pub fn input_ptr(&self) -> *const f64 { self.inner.input.as_ptr() }
+    pub fn input_len(&self) -> usize { self.inner.input.len() }
+    pub fn result_ptr(&self) -> *const f64 { self.inner.result.as_ptr() }
+    pub fn result_len(&self) -> usize { self.inner.result.len() }
+    pub fn output_ptr(&self) -> *const f64 { self.inner.output.as_ptr() }
+    pub fn output_len(&self) -> usize { self.inner.output.len() }
+    pub fn feedback_input_ptr(&self) -> *const f64 { self.feedback_input.as_ptr() }
+    pub fn feedback_input_len(&self) -> usize { self.feedback_input.len() }
+    pub fn feedback_output_ptr(&self) -> *const f64 { self.feedback_output.as_ptr() }
+    pub fn feedback_output_len(&self) -> usize { self.feedback_output.len() }
+    pub fn feedback(&mut self) { bfe_presentation::ordnance::network::feedback(&self.feedback_input,&mut self.feedback_output); }
+    pub fn decode_record(kind: &str, schema: f64, tick: f64, bytes: Vec<u8>, valid: bool) -> Result<String, String> {
+        if !valid{return Err(String::from(if schema==8.0{"Invalid presentation payload"}else if schema==3.0||schema==4.0{"invalid feedback payload"}else{"invalid combat payload"}));}
+        bfe_presentation::ordnance::codec::decode(kind,schema,tick,&bytes).map_err(|e|String::from(&e))
+    }
+    pub fn receive_facts(&mut self,epoch:f64,tick:f64,definition:&str,has_definition:bool)->Result<bool,String>{self.inner.receive_facts(epoch,tick,definition,has_definition).map_err(|e|String::from(&e))}
+    pub fn impact_name(effect:usize,definition:&str)->Result<String,String>{bfe_presentation::ordnance::network::impact_name(effect,definition).map_err(|e|String::from(&e))}
+    pub fn capture_bolt(facts:&str)->Result<String,String>{bfe_presentation::ordnance::network::capture_bolt(facts).map_err(|e|String::from(&e))}
+    pub fn capture_terminal(state:&str,tick:f64)->Result<String,String>{bfe_presentation::ordnance::network::capture_terminal(state,tick).map_err(|e|String::from(&e))}
+    pub fn capture_feedback(kind:&str)->bool{matches!(kind,"damage"|"death")}
+    pub fn feedback_relation(relation:&str)->f64{match relation{"friendly"=>1.0,"enemy"=>-1.0,_=>0.0}}
+    pub fn feedback_locals(locals:f64,team:f64)->bool{if locals.is_nan(){team>2.0}else{locals!=0.0}}
+    pub fn capture_identity(id:f64)->Result<Vec<f64>,String>{if id>4294967295.0{return Err(String::from("combat identity exhausted"));}Ok(vec![id,id+1.0])}
+    pub fn event_plan(event:&str,facts:&str)->Result<String,String>{bfe_presentation::ordnance::events::plan(event,facts).map_err(|e|String::from(&e))}
+    pub fn event_capture(facts:&str)->Result<String,String>{bfe_presentation::ordnance::events::capture(facts).map_err(|e|String::from(&e))}
+    pub fn event_ready(kind:&str,owner:f64,generation:f64,present:bool,actual:f64,mount:f64,mount_generation:f64,mount_present:bool,mount_actual:f64)->bool{bfe_presentation::ordnance::events::ready(kind,owner,generation,present,actual,mount,mount_generation,mount_present,mount_actual)}
+    pub fn concerns(schema: u32, target: u32, attacker: u32, own: f64) -> bool {
+        schema!=3 || (own.is_finite()&&(target as f64==own||attacker as f64==own))
+    }
+    pub fn visual_damage(amount: f64) -> f64 { bfe_presentation::ordnance::style::visual_damage(amount) }
+    pub fn reset(&mut self, epoch: f64) { self.inner.reset(epoch); }
+    pub fn receive(&mut self, epoch: f64, tick: f64) -> bool { self.inner.receive(epoch,tick) }
+    pub fn muzzle_request(&self,predicted:bool)->bool{self.inner.result[bfe_presentation::ordnance_layout::combat_result::LANDED]!=0.0&&!predicted}
+    pub fn resolve(&mut self, predicted: bool) -> bool { self.inner.resolve(predicted) }
+    pub fn present(&mut self, tick: f64) { self.inner.present(tick); }
+    pub fn settle(&mut self, tick: f64) { self.inner.settle(tick); }
+}
+impl PageCombat {
+pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
+"input"=>Ok(crate::session::bytes_mut(&mut self.inner.input)),
+"result"=>Ok(crate::session::bytes_mut(&mut self.inner.result)),
+"output"=>Ok(crate::session::bytes_mut(&mut self.inner.output)),
+"feedback_input"=>Ok(crate::session::bytes_mut(&mut self.feedback_input)),
+"feedback_output"=>Ok(crate::session::bytes_mut(&mut self.feedback_output)),
+_=>Err(format!("unknown presentation input bank {name}")),}}
+pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
+"input"=>Ok(crate::session::bytes(&self.inner.input)),
+"result"=>Ok(crate::session::bytes(&self.inner.result)),
+"output"=>Ok(crate::session::bytes(&self.inner.output)),
+"feedback_input"=>Ok(crate::session::bytes(&self.feedback_input)),
+"feedback_output"=>Ok(crate::session::bytes(&self.feedback_output)),
+_=>Err(format!("unknown presentation bank {name}")),}}
+pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
+("input", self.inner.input.len()),
+("result", self.inner.result.len()),
+("output", self.inner.output.len()),
+("feedback_input", self.feedback_input.len()),
+("feedback_output", self.feedback_output.len()),
+]}
+}
+pub enum PageCombatCommand {
+feedback,
+decode_record(String,f64,f64,Vec<u8>,bool),
+receive_facts(f64,f64,String,bool),
+impact_name(usize,String),
+capture_bolt(String),
+capture_terminal(String,f64),
+capture_feedback(String),
+feedback_relation(String),
+feedback_locals(f64,f64),
+capture_identity(f64),
+event_plan(String,String),
+event_capture(String),
+event_ready(String,f64,f64,bool,f64,f64,f64,bool,f64),
+concerns(u32,u32,u32,f64),
+visual_damage(f64),
+reset(f64),
+receive(f64,f64),
+muzzle_request(bool),
+resolve(bool),
+present(f64),
+settle(f64),
+}
+impl PageCombatCommand {
+pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self,String>{let a=Arguments::new(args,blobs);Ok(match name{
+"feedback"=>Self::feedback,
+"decode_record"=>Self::decode_record(a.string(0)?,a.f64(1)?,a.f64(2)?,a.u8s(3)?,a.bool(4)?),
+"receive_facts"=>Self::receive_facts(a.f64(0)?,a.f64(1)?,a.string(2)?,a.bool(3)?),
+"impact_name"=>Self::impact_name(a.usize(0)?,a.string(1)?),
+"capture_bolt"=>Self::capture_bolt(a.string(0)?),
+"capture_terminal"=>Self::capture_terminal(a.string(0)?,a.f64(1)?),
+"capture_feedback"=>Self::capture_feedback(a.string(0)?),
+"feedback_relation"=>Self::feedback_relation(a.string(0)?),
+"feedback_locals"=>Self::feedback_locals(a.f64(0)?,a.f64(1)?),
+"capture_identity"=>Self::capture_identity(a.f64(0)?),
+"event_plan"=>Self::event_plan(a.string(0)?,a.string(1)?),
+"event_capture"=>Self::event_capture(a.string(0)?),
+"event_ready"=>Self::event_ready(a.string(0)?,a.f64(1)?,a.f64(2)?,a.bool(3)?,a.f64(4)?,a.f64(5)?,a.f64(6)?,a.bool(7)?,a.f64(8)?),
+"concerns"=>Self::concerns(a.u32(0)?,a.u32(1)?,a.u32(2)?,a.f64(3)?),
+"visual_damage"=>Self::visual_damage(a.f64(0)?),
+"reset"=>Self::reset(a.f64(0)?),
+"receive"=>Self::receive(a.f64(0)?,a.f64(1)?),
+"muzzle_request"=>Self::muzzle_request(a.bool(0)?),
+"resolve"=>Self::resolve(a.bool(0)?),
+"present"=>Self::present(a.f64(0)?),
+"settle"=>Self::settle(a.f64(0)?),
+_=>return Err(format!("unknown presentation command {name}")),})}
+pub fn execute(&self,host:&mut PageCombat)->Result<(),String>{match self{
+Self::feedback=>{let _=host.feedback();},
+Self::decode_record(kind,schema,tick,bytes,valid)=>{let _=PageCombat::decode_record(kind,*schema,*tick,bytes.clone(),*valid)?;},
+Self::receive_facts(epoch,tick,definition,has_definition)=>{let _=host.receive_facts(*epoch,*tick,definition,*has_definition)?;},
+Self::impact_name(effect,definition)=>{let _=PageCombat::impact_name(*effect,definition)?;},
+Self::capture_bolt(facts)=>{let _=PageCombat::capture_bolt(facts)?;},
+Self::capture_terminal(state,tick)=>{let _=PageCombat::capture_terminal(state,*tick)?;},
+Self::capture_feedback(kind)=>{let _=PageCombat::capture_feedback(kind);},
+Self::feedback_relation(relation)=>{let _=PageCombat::feedback_relation(relation);},
+Self::feedback_locals(locals,team)=>{let _=PageCombat::feedback_locals(*locals,*team);},
+Self::capture_identity(id)=>{let _=PageCombat::capture_identity(*id)?;},
+Self::event_plan(event,facts)=>{let _=PageCombat::event_plan(event,facts)?;},
+Self::event_capture(facts)=>{let _=PageCombat::event_capture(facts)?;},
+Self::event_ready(kind,owner,generation,present,actual,mount,mount_generation,mount_present,mount_actual)=>{let _=PageCombat::event_ready(kind,*owner,*generation,*present,*actual,*mount,*mount_generation,*mount_present,*mount_actual);},
+Self::concerns(schema,target,attacker,own)=>{let _=PageCombat::concerns(*schema,*target,*attacker,*own);},
+Self::visual_damage(amount)=>{let _=PageCombat::visual_damage(*amount);},
+Self::reset(epoch)=>{let _=host.reset(*epoch);},
+Self::receive(epoch,tick)=>{let _=host.receive(*epoch,*tick);},
+Self::muzzle_request(predicted)=>{let _=host.muzzle_request(*predicted);},
+Self::resolve(predicted)=>{let _=host.resolve(*predicted);},
+Self::present(tick)=>{let _=host.present(*tick);},
+Self::settle(tick)=>{let _=host.settle(*tick);},
 }Ok(())}}
 pub struct PageWake { inner: bfe_presentation::unit_effects::jetpack::Wake }
 impl PageWake {

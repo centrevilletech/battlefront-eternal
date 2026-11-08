@@ -56,6 +56,22 @@
     "OrdnanceStatus": [
       "ok",
       "versionMismatch"
+    ],
+    "CombatOutputKind": [
+      "remove",
+      "reset",
+      "state",
+      "draw",
+      "explode",
+      "impact"
+    ],
+    "CombatDispatch": [
+      "bolt",
+      "terminal",
+      "feedback",
+      "explosion",
+      "dynamic",
+      "presentation"
     ]
   },
   "records": {
@@ -157,6 +173,133 @@
       "c": 3,
       "d": 4,
       "e": 3
+    },
+    "CombatInput": {
+      "id": 1,
+      "generation": 1,
+      "schema": 1,
+      "tick": 1,
+      "expiryTick": 1,
+      "definitionId": 1,
+      "ownerId": 1,
+      "ownerGeneration": 1,
+      "fireId": 1,
+      "channel": 1,
+      "launchTick": 1,
+      "executionTick": 1,
+      "position": 3,
+      "direction": 3,
+      "offset": 3,
+      "speed": 1,
+      "life": 1,
+      "merge": 1,
+      "surface": 1,
+      "fadeOut": 1,
+      "velocity": 1,
+      "muzzle": 3,
+      "hasMuzzle": 1,
+      "dynamic": 1,
+      "impactMask": 1
+    },
+    "CombatResult": {
+      "accepted": 1,
+      "revive": 1,
+      "claim": 1,
+      "launch": 1,
+      "landed": 1,
+      "bolt": 1,
+      "stopPredicted": 1,
+      "impact": 1,
+      "tick": 1,
+      "presentedTick": 1,
+      "rows": 1,
+      "impactEffect": 1,
+      "pendingImpact": 1,
+      "impactAt": 1,
+      "dispatch": 1,
+      "point": 1,
+      "reuseBolt": 1,
+      "followMuzzle": 1,
+      "splash": 1,
+      "character": 1
+    },
+    "CombatOutput": {
+      "kind": 1,
+      "id": 1,
+      "bolt": 1,
+      "position": 3,
+      "direction": 3,
+      "offset": 3,
+      "speed": 1,
+      "life": 1,
+      "merge": 1,
+      "flightTick": 1,
+      "executionTick": 1,
+      "started": 1,
+      "resolveMuzzle": 1,
+      "copyOffset": 1
+    },
+    "FeedbackInput": {
+      "schema": 1,
+      "targetPresent": 1,
+      "attackerPresent": 1,
+      "targetGeneration": 1,
+      "attackerGeneration": 1,
+      "targetActualGeneration": 1,
+      "attackerActualGeneration": 1,
+      "targetOwn": 1,
+      "attackerOwn": 1,
+      "attackerId": 1,
+      "hasSource": 1,
+      "yaw": 1,
+      "ownTeam": 1,
+      "attackerTeam": 1,
+      "relation": 1,
+      "locals": 1,
+      "source": 3,
+      "position": 3
+    },
+    "FeedbackOutput": {
+      "noteAttacker": 1,
+      "attackerKind": 1,
+      "hit": 1,
+      "damage": 1,
+      "death": 1,
+      "angle": 1,
+      "relation": 1
+    },
+    "OrdnanceHost": {
+      "kind": 1,
+      "key": 1,
+      "style": 1,
+      "source": 1,
+      "alpha": 1,
+      "clockTick": 1,
+      "flown": 1,
+      "previousFlown": 1,
+      "drawn": 1,
+      "previousDrawn": 1,
+      "ended": 1,
+      "fade": 1,
+      "speed": 1,
+      "life": 1,
+      "merge": 1,
+      "flightTick": 1,
+      "position": 3,
+      "previous": 3,
+      "direction": 3,
+      "end": 3,
+      "velocity": 3,
+      "quaternion": 4,
+      "launch": 3,
+      "offset": 3,
+      "muzzle": 3,
+      "simSlot": 1,
+      "simGeneration": 1,
+      "muzzleOffset": 3,
+      "hasMesh": 1,
+      "hasTrail": 1,
+      "resolve": 1
     }
   },
   "version": 1,
@@ -171,6 +314,258 @@
       "views": 4096,
       "netSlots": 4096,
       "styles": 512
+    }
+  },
+  "hostWriters": {
+    "putOrdnanceHost": {
+      "record": "OrdnanceHost",
+      "args": [
+        "source",
+        "kind",
+        "style",
+        "token",
+        "index",
+        "alpha",
+        "clock",
+        "muzzle",
+        "resolve"
+      ],
+      "fields": {
+        "key": {
+          "arg": "token"
+        },
+        "kind": {
+          "arg": "kind"
+        },
+        "style": {
+          "arg": "style"
+        },
+        "source": {
+          "arg": "index"
+        },
+        "alpha": {
+          "arg": "alpha"
+        },
+        "clockTick": {
+          "arg": "clock"
+        },
+        "flightTick": {
+          "path": "networkFlightTick"
+        },
+        "launch": {
+          "path": "launchPosition",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "simSlot": {
+          "path": "simSlot"
+        },
+        "simGeneration": {
+          "path": "simGen"
+        },
+        "muzzle": {
+          "arg": "muzzle",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "hasMesh": {
+          "path": "mesh",
+          "presence": true
+        },
+        "hasTrail": {
+          "path": "trail",
+          "presence": true
+        },
+        "resolve": {
+          "arg": "resolve"
+        },
+        "flown": {
+          "path": "flown"
+        },
+        "previousFlown": {
+          "path": "previousFlown"
+        },
+        "drawn": {
+          "path": "drawn"
+        },
+        "previousDrawn": {
+          "path": "previousDrawn"
+        },
+        "ended": {
+          "path": "ended"
+        },
+        "fade": {
+          "path": "fade"
+        },
+        "speed": {
+          "path": "speed"
+        },
+        "life": {
+          "path": "life"
+        },
+        "merge": {
+          "path": "merge"
+        },
+        "position": {
+          "path": "position",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "previous": {
+          "path": "previous",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "direction": {
+          "path": "direction",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "end": {
+          "path": "end",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "velocity": {
+          "path": "velocity",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "quaternion": {
+          "path": "quaternion",
+          "components": [
+            "x",
+            "y",
+            "z",
+            "w"
+          ]
+        },
+        "offset": {
+          "path": "offset",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "muzzleOffset": {
+          "path": "muzzleOffset",
+          "components": [
+            "x",
+            "y",
+            "z"
+          ]
+        }
+      }
+    },
+    "putCombatHost": {
+      "record": "CombatInput",
+      "args": [
+        "source",
+        "definition"
+      ],
+      "fields": {
+        "id": {
+          "path": "id"
+        },
+        "generation": {
+          "path": "generation"
+        },
+        "schema": {
+          "path": "schema"
+        },
+        "tick": {
+          "path": "tick"
+        },
+        "expiryTick": {
+          "path": "expiryTick"
+        },
+        "definitionId": {
+          "path": "definitionId"
+        },
+        "ownerId": {
+          "path": "ownerId"
+        },
+        "ownerGeneration": {
+          "path": "ownerGeneration"
+        },
+        "fireId": {
+          "path": "fireId"
+        },
+        "channel": {
+          "path": "channel"
+        },
+        "launchTick": {
+          "path": "launchTick"
+        },
+        "executionTick": {
+          "path": "executionTick"
+        },
+        "position": {
+          "path": "position",
+          "indices": true
+        },
+        "direction": {
+          "path": "direction",
+          "indices": true
+        },
+        "offset": {
+          "path": "offset",
+          "indices": true
+        },
+        "speed": {
+          "path": "speed"
+        },
+        "life": {
+          "path": "life"
+        },
+        "merge": {
+          "path": "merge"
+        },
+        "surface": {
+          "path": "surface"
+        },
+        "fadeOut": {
+          "arg": "definition?.FadeOutTime"
+        },
+        "velocity": {
+          "arg": "definition?.Velocity"
+        },
+        "muzzle": {
+          "arg": "undefined",
+          "indices": true
+        },
+        "hasMuzzle": {
+          "arg": "undefined"
+        },
+        "dynamic": {
+          "arg": "undefined"
+        },
+        "impactMask": {
+          "arg": "undefined"
+        }
+      }
     }
   }
 }

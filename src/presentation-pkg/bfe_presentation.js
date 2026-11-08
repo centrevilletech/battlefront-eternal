@@ -208,6 +208,429 @@ export class PageArcCamera {
 }
 if (Symbol.dispose) PageArcCamera.prototype[Symbol.dispose] = PageArcCamera.prototype.free;
 
+/**
+ * Replicated combat lifecycle shares the presentation memory; the host only
+ * answers resource/prediction requests and applies ordered output records.
+ */
+export class PageCombat {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageCombatFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagecombat_free(ptr, 0);
+    }
+    /**
+     * @param {string} facts
+     * @returns {string}
+     */
+    static capture_bolt(facts) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(facts, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.pagecombat_capture_bolt(ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * @param {string} kind
+     * @returns {boolean}
+     */
+    static capture_feedback(kind) {
+        const ptr0 = passStringToWasm0(kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagecombat_capture_feedback(ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @returns {Float64Array}
+     */
+    static capture_identity(id) {
+        const ret = wasm.pagecombat_capture_identity(id);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
+     * @param {string} state
+     * @param {number} tick
+     * @returns {string}
+     */
+    static capture_terminal(state, tick) {
+        let deferred4_0;
+        let deferred4_1;
+        try {
+            const val2 = +tick;
+            const ptr0 = passStringToWasm0(state, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.pagecombat_capture_terminal(ptr0, len0, val2);
+            var ptr3 = ret[0];
+            var len3 = ret[1];
+            if (ret[3]) {
+                ptr3 = 0; len3 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred4_0 = ptr3;
+            deferred4_1 = len3;
+            return getStringFromWasm0(ptr3, len3);
+        } finally {
+            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+        }
+    }
+    /**
+     * @param {number} schema
+     * @param {number} target
+     * @param {number} attacker
+     * @param {number} own
+     * @returns {boolean}
+     */
+    static concerns(schema, target, attacker, own) {
+        const ret = wasm.pagecombat_concerns(schema, target, attacker, own);
+        return ret !== 0;
+    }
+    /**
+     * @param {string} kind
+     * @param {number} schema
+     * @param {number} tick
+     * @param {Uint8Array | number[]} bytes
+     * @param {boolean} valid
+     * @returns {string}
+     */
+    static decode_record(kind, schema, tick, bytes, valid) {
+        let deferred7_0;
+        let deferred7_1;
+        try {
+            const val3 = +schema;
+            const val4 = +tick;
+            const val5 = +valid;
+            let ptr0, len0, ptr1, len1;
+            try {
+                ptr0 = passStringToWasm0(kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                len0 = WASM_VECTOR_LEN;
+                ptr1 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+                len1 = WASM_VECTOR_LEN;
+            } catch (e) {
+                if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+                if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+                throw e;
+            }
+            const ret = wasm.pagecombat_decode_record(ptr0, len0, val3, val4, ptr1, len1, val5);
+            var ptr6 = ret[0];
+            var len6 = ret[1];
+            if (ret[3]) {
+                ptr6 = 0; len6 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred7_0 = ptr6;
+            deferred7_1 = len6;
+            return getStringFromWasm0(ptr6, len6);
+        } finally {
+            wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+        }
+    }
+    /**
+     * @param {string} facts
+     * @returns {string}
+     */
+    static event_capture(facts) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(facts, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.pagecombat_event_capture(ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * @param {string} event
+     * @param {string} facts
+     * @returns {string}
+     */
+    static event_plan(event, facts) {
+        let deferred4_0;
+        let deferred4_1;
+        try {
+            let ptr0, len0, ptr1, len1;
+            try {
+                ptr0 = passStringToWasm0(event, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                len0 = WASM_VECTOR_LEN;
+                ptr1 = passStringToWasm0(facts, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                len1 = WASM_VECTOR_LEN;
+            } catch (e) {
+                if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+                if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+                throw e;
+            }
+            const ret = wasm.pagecombat_event_plan(ptr0, len0, ptr1, len1);
+            var ptr3 = ret[0];
+            var len3 = ret[1];
+            if (ret[3]) {
+                ptr3 = 0; len3 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred4_0 = ptr3;
+            deferred4_1 = len3;
+            return getStringFromWasm0(ptr3, len3);
+        } finally {
+            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+        }
+    }
+    /**
+     * @param {string} kind
+     * @param {number} owner
+     * @param {number} generation
+     * @param {boolean} present
+     * @param {number} actual
+     * @param {number} mount
+     * @param {number} mount_generation
+     * @param {boolean} mount_present
+     * @param {number} mount_actual
+     * @returns {boolean}
+     */
+    static event_ready(kind, owner, generation, present, actual, mount, mount_generation, mount_present, mount_actual) {
+        const val2 = +owner;
+        const val3 = +generation;
+        const val4 = +present;
+        const val5 = +actual;
+        const val6 = +mount;
+        const val7 = +mount_generation;
+        const val8 = +mount_present;
+        const val9 = +mount_actual;
+        const ptr0 = passStringToWasm0(kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagecombat_event_ready(ptr0, len0, val2, val3, val4, val5, val6, val7, val8, val9);
+        return ret !== 0;
+    }
+    feedback() {
+        wasm.pagecombat_feedback(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    feedback_input_len() {
+        const ret = wasm.pagecombat_feedback_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    feedback_input_ptr() {
+        const ret = wasm.pagecombat_feedback_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} locals
+     * @param {number} team
+     * @returns {boolean}
+     */
+    static feedback_locals(locals, team) {
+        const ret = wasm.pagecombat_feedback_locals(locals, team);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    feedback_output_len() {
+        const ret = wasm.pagecombat_feedback_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    feedback_output_ptr() {
+        const ret = wasm.pagecombat_feedback_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {string} relation
+     * @returns {number}
+     */
+    static feedback_relation(relation) {
+        const ptr0 = passStringToWasm0(relation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagecombat_feedback_relation(ptr0, len0);
+        return ret;
+    }
+    /**
+     * @param {number} effect
+     * @param {string} definition
+     * @returns {string}
+     */
+    static impact_name(effect, definition) {
+        let deferred4_0;
+        let deferred4_1;
+        try {
+            const val2 = +effect;
+            const ptr0 = passStringToWasm0(definition, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.pagecombat_impact_name(val2, ptr0, len0);
+            var ptr3 = ret[0];
+            var len3 = ret[1];
+            if (ret[3]) {
+                ptr3 = 0; len3 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred4_0 = ptr3;
+            deferred4_1 = len3;
+            return getStringFromWasm0(ptr3, len3);
+        } finally {
+            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.pagecombat_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.pagecombat_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {boolean} predicted
+     * @returns {boolean}
+     */
+    muzzle_request(predicted) {
+        const ret = wasm.pagecombat_muzzle_request(this.__wbg_ptr, predicted);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} capacity
+     */
+    constructor(capacity) {
+        const ret = wasm.pagecombat_new(capacity);
+        this.__wbg_ptr = ret;
+        PageCombatFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_len() {
+        const ret = wasm.pagecombat_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.pagecombat_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} tick
+     */
+    present(tick) {
+        wasm.pagecombat_present(this.__wbg_ptr, tick);
+    }
+    /**
+     * @param {number} epoch
+     * @param {number} tick
+     * @returns {boolean}
+     */
+    receive(epoch, tick) {
+        const ret = wasm.pagecombat_receive(this.__wbg_ptr, epoch, tick);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} epoch
+     * @param {number} tick
+     * @param {string} definition
+     * @param {boolean} has_definition
+     * @returns {boolean}
+     */
+    receive_facts(epoch, tick, definition, has_definition) {
+        const val2 = +epoch;
+        const val3 = +tick;
+        const val4 = +has_definition;
+        const ptr0 = passStringToWasm0(definition, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagecombat_receive_facts(this.__wbg_ptr, val2, val3, ptr0, len0, val4);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * @param {number} epoch
+     */
+    reset(epoch) {
+        wasm.pagecombat_reset(this.__wbg_ptr, epoch);
+    }
+    /**
+     * @param {boolean} predicted
+     * @returns {boolean}
+     */
+    resolve(predicted) {
+        const ret = wasm.pagecombat_resolve(this.__wbg_ptr, predicted);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    result_len() {
+        const ret = wasm.pagecombat_result_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    result_ptr() {
+        const ret = wasm.pagecombat_result_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} tick
+     */
+    settle(tick) {
+        wasm.pagecombat_settle(this.__wbg_ptr, tick);
+    }
+    /**
+     * @param {number} amount
+     * @returns {number}
+     */
+    static visual_damage(amount) {
+        const ret = wasm.pagecombat_visual_damage(amount);
+        return ret;
+    }
+}
+if (Symbol.dispose) PageCombat.prototype[Symbol.dispose] = PageCombat.prototype.free;
+
 export class PageDeathTrace {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -1624,6 +2047,13 @@ export class PageOrdnance {
         wasm.__wbg_pageordnance_free(ptr, 0);
     }
     /**
+     * @returns {number}
+     */
+    batch_handle() {
+        const ret = wasm.pageordnance_batch_handle(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * @param {number} attribute
      * @returns {number}
      */
@@ -1641,6 +2071,18 @@ export class PageOrdnance {
         return ret >>> 0;
     }
     /**
+     * @param {boolean} perspective
+     * @param {number} fov
+     * @param {number} zoom
+     * @param {number} height
+     * @param {number} previous
+     * @returns {number}
+     */
+    static bolt_view(perspective, fov, zoom, height, previous) {
+        const ret = wasm.pageordnance_bolt_view(perspective, fov, zoom, height, previous);
+        return ret;
+    }
+    /**
      * @returns {number}
      */
     calls_len() {
@@ -1653,6 +2095,12 @@ export class PageOrdnance {
     calls_ptr() {
         const ret = wasm.pageordnance_calls_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} index
+     */
+    capture_style(index) {
+        wasm.pageordnance_capture_style(this.__wbg_ptr, index);
     }
     /**
      * @returns {number}
@@ -1675,6 +2123,61 @@ export class PageOrdnance {
         return ret >>> 0;
     }
     /**
+     * @param {boolean} bolts
+     * @param {boolean} sniper
+     */
+    host_begin(bolts, sniper) {
+        wasm.pageordnance_host_begin(this.__wbg_ptr, bolts, sniper);
+    }
+    /**
+     * @param {string} data
+     * @returns {number}
+     */
+    host_class(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageordnance_host_class(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0];
+    }
+    /**
+     * @returns {number}
+     */
+    host_count() {
+        const ret = wasm.pageordnance_host_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    host_len() {
+        const ret = wasm.pageordnance_host_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    host_ptr() {
+        const ret = wasm.pageordnance_host_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    host_record() {
+        const ret = wasm.pageordnance_host_record(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {boolean}
+     */
+    host_report() {
+        const ret = wasm.pageordnance_host_report(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     input_len() {
@@ -1691,6 +2194,27 @@ export class PageOrdnance {
     /**
      * @returns {number}
      */
+    net_allocate() {
+        const ret = wasm.pageordnance_net_allocate(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    net_count() {
+        const ret = wasm.pageordnance_net_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    net_full() {
+        const ret = wasm.pageordnance_net_full(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
     net_len() {
         const ret = wasm.pageordnance_net_len(this.__wbg_ptr);
         return ret >>> 0;
@@ -1701,6 +2225,48 @@ export class PageOrdnance {
     net_ptr() {
         const ret = wasm.pageordnance_net_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} slot
+     */
+    net_release(slot) {
+        wasm.pageordnance_net_release(this.__wbg_ptr, slot);
+    }
+    /**
+     * @param {string} kind
+     * @returns {number}
+     */
+    static net_role(kind) {
+        const ptr0 = passStringToWasm0(kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageordnance_net_role(ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    net_row() {
+        const ret = wasm.pageordnance_net_row(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} at
+     * @param {number} slot
+     * @param {number} style
+     * @param {number} flags
+     * @param {string} data
+     */
+    net_sample(at, slot, style, flags, data) {
+        const val2 = +at;
+        const val3 = +slot;
+        const val4 = +style;
+        const val5 = +flags;
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageordnance_net_sample(this.__wbg_ptr, val2, val3, val4, val5, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     constructor() {
         const ret = wasm.pageordnance_new();
@@ -1736,11 +2302,94 @@ export class PageOrdnance {
         wasm.pageordnance_set_style(this.__wbg_ptr, index);
     }
     /**
+     * @param {Float64Array | number[]} rgba
+     * @returns {Float64Array}
+     */
+    static sheath(rgba) {
+        const ptr0 = passArrayF64ToWasm0(rgba, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageordnance_sheath(ptr0, len0);
+        var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v2;
+    }
+    /**
+     * @param {number} slot
+     * @returns {number}
+     */
+    source_token(slot) {
+        const ret = wasm.pageordnance_source_token(this.__wbg_ptr, slot);
+        return ret;
+    }
+    /**
+     * @param {number} index
+     * @param {number} core
+     * @param {number} glow
+     * @param {number} beam
+     */
+    style_batches(index, core, glow, beam) {
+        wasm.pageordnance_style_batches(this.__wbg_ptr, index, core, glow, beam);
+    }
+    /**
+     * @param {number} index
+     * @param {Uint8Array | number[]} pixels
+     */
+    style_pixels(index, pixels) {
+        const val2 = +index;
+        const ptr0 = passArray8ToWasm0(pixels, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.pageordnance_style_pixels(this.__wbg_ptr, val2, ptr0, len0);
+    }
+    /**
      * @returns {number}
      */
     style_ptr() {
         const ret = wasm.pageordnance_style_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} index
+     * @param {number} role
+     * @param {boolean} enhanced
+     * @returns {string}
+     */
+    style_request(index, role, enhanced) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pageordnance_style_request(this.__wbg_ptr, index, role, enhanced);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @param {Uint8Array | number[]} pixels
+     * @returns {Float64Array}
+     */
+    static texture_hue(pixels) {
+        const ptr0 = passArray8ToWasm0(pixels, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageordnance_texture_hue(ptr0, len0);
+        var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v2;
+    }
+    /**
+     * @param {Float64Array | number[]} rgb
+     * @param {number} power
+     * @returns {Float64Array}
+     */
+    static vivid(rgb, power) {
+        const val2 = +power;
+        const ptr0 = passArrayF64ToWasm0(rgb, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageordnance_vivid(ptr0, len0, val2);
+        var v3 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v3;
     }
 }
 if (Symbol.dispose) PageOrdnance.prototype[Symbol.dispose] = PageOrdnance.prototype.free;
@@ -3395,6 +4044,9 @@ const PageAnalyticEffectsFinalization = (typeof FinalizationRegistry === 'undefi
 const PageArcCameraFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagearccamera_free(ptr, 1));
+const PageCombatFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagecombat_free(ptr, 1));
 const PageDeathTraceFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagedeathtrace_free(ptr, 1));
@@ -3474,12 +4126,25 @@ function _assertClass(instance, klass) {
     }
 }
 
+function getArrayF64FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
+}
+
 let cachedFloat32ArrayMemory0 = null;
 function getFloat32ArrayMemory0() {
     if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
         cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
     }
     return cachedFloat32ArrayMemory0;
+}
+
+let cachedFloat64ArrayMemory0 = null;
+function getFloat64ArrayMemory0() {
+    if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
+        cachedFloat64ArrayMemory0 = new Float64Array(wasm.memory.buffer);
+    }
+    return cachedFloat64ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -3510,9 +4175,23 @@ function passArray32ToWasm0(arg, malloc) {
     return ptr;
 }
 
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
 function passArrayF32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getFloat32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF64ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 8, 8) >>> 0;
+    getFloat64ArrayMemory0().set(arg, ptr / 8);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -3595,6 +4274,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedFloat32ArrayMemory0 = null;
+    cachedFloat64ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

@@ -105,6 +105,139 @@ pub mod ordnance_call {
     pub const E: usize = 17;
     pub const STRIDE: usize = 20;
 }
+pub mod combat_input {
+    pub const ID: usize = 0;
+    pub const GENERATION: usize = 1;
+    pub const SCHEMA: usize = 2;
+    pub const TICK: usize = 3;
+    pub const EXPIRY_TICK: usize = 4;
+    pub const DEFINITION_ID: usize = 5;
+    pub const OWNER_ID: usize = 6;
+    pub const OWNER_GENERATION: usize = 7;
+    pub const FIRE_ID: usize = 8;
+    pub const CHANNEL: usize = 9;
+    pub const LAUNCH_TICK: usize = 10;
+    pub const EXECUTION_TICK: usize = 11;
+    pub const POSITION: usize = 12;
+    pub const DIRECTION: usize = 15;
+    pub const OFFSET: usize = 18;
+    pub const SPEED: usize = 21;
+    pub const LIFE: usize = 22;
+    pub const MERGE: usize = 23;
+    pub const SURFACE: usize = 24;
+    pub const FADE_OUT: usize = 25;
+    pub const VELOCITY: usize = 26;
+    pub const MUZZLE: usize = 27;
+    pub const HAS_MUZZLE: usize = 30;
+    pub const DYNAMIC: usize = 31;
+    pub const IMPACT_MASK: usize = 32;
+    pub const STRIDE: usize = 33;
+}
+pub mod combat_result {
+    pub const ACCEPTED: usize = 0;
+    pub const REVIVE: usize = 1;
+    pub const CLAIM: usize = 2;
+    pub const LAUNCH: usize = 3;
+    pub const LANDED: usize = 4;
+    pub const BOLT: usize = 5;
+    pub const STOP_PREDICTED: usize = 6;
+    pub const IMPACT: usize = 7;
+    pub const TICK: usize = 8;
+    pub const PRESENTED_TICK: usize = 9;
+    pub const ROWS: usize = 10;
+    pub const IMPACT_EFFECT: usize = 11;
+    pub const PENDING_IMPACT: usize = 12;
+    pub const IMPACT_AT: usize = 13;
+    pub const DISPATCH: usize = 14;
+    pub const POINT: usize = 15;
+    pub const REUSE_BOLT: usize = 16;
+    pub const FOLLOW_MUZZLE: usize = 17;
+    pub const SPLASH: usize = 18;
+    pub const CHARACTER: usize = 19;
+    pub const STRIDE: usize = 20;
+}
+pub mod combat_output {
+    pub const KIND: usize = 0;
+    pub const ID: usize = 1;
+    pub const BOLT: usize = 2;
+    pub const POSITION: usize = 3;
+    pub const DIRECTION: usize = 6;
+    pub const OFFSET: usize = 9;
+    pub const SPEED: usize = 12;
+    pub const LIFE: usize = 13;
+    pub const MERGE: usize = 14;
+    pub const FLIGHT_TICK: usize = 15;
+    pub const EXECUTION_TICK: usize = 16;
+    pub const STARTED: usize = 17;
+    pub const RESOLVE_MUZZLE: usize = 18;
+    pub const COPY_OFFSET: usize = 19;
+    pub const STRIDE: usize = 20;
+}
+pub mod feedback_input {
+    pub const SCHEMA: usize = 0;
+    pub const TARGET_PRESENT: usize = 1;
+    pub const ATTACKER_PRESENT: usize = 2;
+    pub const TARGET_GENERATION: usize = 3;
+    pub const ATTACKER_GENERATION: usize = 4;
+    pub const TARGET_ACTUAL_GENERATION: usize = 5;
+    pub const ATTACKER_ACTUAL_GENERATION: usize = 6;
+    pub const TARGET_OWN: usize = 7;
+    pub const ATTACKER_OWN: usize = 8;
+    pub const ATTACKER_ID: usize = 9;
+    pub const HAS_SOURCE: usize = 10;
+    pub const YAW: usize = 11;
+    pub const OWN_TEAM: usize = 12;
+    pub const ATTACKER_TEAM: usize = 13;
+    pub const RELATION: usize = 14;
+    pub const LOCALS: usize = 15;
+    pub const SOURCE: usize = 16;
+    pub const POSITION: usize = 19;
+    pub const STRIDE: usize = 22;
+}
+pub mod feedback_output {
+    pub const NOTE_ATTACKER: usize = 0;
+    pub const ATTACKER_KIND: usize = 1;
+    pub const HIT: usize = 2;
+    pub const DAMAGE: usize = 3;
+    pub const DEATH: usize = 4;
+    pub const ANGLE: usize = 5;
+    pub const RELATION: usize = 6;
+    pub const STRIDE: usize = 7;
+}
+pub mod ordnance_host {
+    pub const KIND: usize = 0;
+    pub const KEY: usize = 1;
+    pub const STYLE: usize = 2;
+    pub const SOURCE: usize = 3;
+    pub const ALPHA: usize = 4;
+    pub const CLOCK_TICK: usize = 5;
+    pub const FLOWN: usize = 6;
+    pub const PREVIOUS_FLOWN: usize = 7;
+    pub const DRAWN: usize = 8;
+    pub const PREVIOUS_DRAWN: usize = 9;
+    pub const ENDED: usize = 10;
+    pub const FADE: usize = 11;
+    pub const SPEED: usize = 12;
+    pub const LIFE: usize = 13;
+    pub const MERGE: usize = 14;
+    pub const FLIGHT_TICK: usize = 15;
+    pub const POSITION: usize = 16;
+    pub const PREVIOUS: usize = 19;
+    pub const DIRECTION: usize = 22;
+    pub const END: usize = 25;
+    pub const VELOCITY: usize = 28;
+    pub const QUATERNION: usize = 31;
+    pub const LAUNCH: usize = 35;
+    pub const OFFSET: usize = 38;
+    pub const MUZZLE: usize = 41;
+    pub const SIM_SLOT: usize = 44;
+    pub const SIM_GENERATION: usize = 45;
+    pub const MUZZLE_OFFSET: usize = 46;
+    pub const HAS_MESH: usize = 49;
+    pub const HAS_TRAIL: usize = 50;
+    pub const RESOLVE: usize = 51;
+    pub const STRIDE: usize = 52;
+}
 pub mod ordnance_kind {
     pub const BEAM: u32 = 0;
     pub const BOLT: u32 = 1;
@@ -161,6 +294,22 @@ pub mod flight {
 pub mod ordnance_status {
     pub const OK: u32 = 0;
     pub const VERSION_MISMATCH: u32 = 1;
+}
+pub mod combat_output_kind {
+    pub const REMOVE: u32 = 0;
+    pub const RESET: u32 = 1;
+    pub const STATE: u32 = 2;
+    pub const DRAW: u32 = 3;
+    pub const EXPLODE: u32 = 4;
+    pub const IMPACT: u32 = 5;
+}
+pub mod combat_dispatch {
+    pub const BOLT: u32 = 0;
+    pub const TERMINAL: u32 = 1;
+    pub const FEEDBACK: u32 = 2;
+    pub const EXPLOSION: u32 = 3;
+    pub const DYNAMIC: u32 = 4;
+    pub const PRESENTATION: u32 = 5;
 }
 pub mod ordnance_limits {
     pub const HANDLES: usize = 64;

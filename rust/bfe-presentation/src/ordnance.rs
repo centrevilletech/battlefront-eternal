@@ -16,6 +16,11 @@
 //! does with its own objects (light requests, sniper trace touches, mesh and
 //! trail moves). Arithmetic follows the JS operation by operation in f64, so
 //! the quads the batches receive are the ones the JS pushed.
+pub mod codec;
+pub mod host;
+pub mod style;
+pub mod network;
+
 use crate::ordnance_layout::{
     call_kind as ck, flight, net_command as nc, net_flag, net_kind as nk, net_type as nt,
     ordnance_call as cl, ordnance_flag as fl, ordnance_frame as fr, ordnance_header as hd,
@@ -524,6 +529,7 @@ fn bolt_fade(fade_out: f64, after: f64) -> f64 {
 // (the replay tool, the tests) uses these fields directly. Everything is
 // sized once, so a frame never allocates.
 pub struct Ordnance {
+    pub host: host::Host,
     /// Frame header, then `records` rows of `ordnance_record::STRIDE`.
     pub input: Vec<f64>,
     /// Network commands, in arrival order.
@@ -556,6 +562,7 @@ impl Ordnance {
     pub fn new() -> Self {
         let quads = lim::HANDLES * lim::QUADS_PER_HANDLE;
         Ordnance {
+            host: host::Host::new(),
             input: vec![0.0; fr::STRIDE + lim::RECORDS * rc::STRIDE],
             net_input: vec![0.0; lim::NET_COMMANDS * nc::STRIDE],
             header: vec![0.0; hd::STRIDE],
@@ -1394,3 +1401,5 @@ fn changed_flight(a: &Vector3, b: &Vector3) -> bool {
     let dot = 0.0 + a.x * b.x + a.y * b.y + a.z * b.z;
     speed_a > 1e-6 && (speed_b < speed_a * 0.25 || dot < speed_a * speed_b * 0.5)
 }
+
+pub mod events;
