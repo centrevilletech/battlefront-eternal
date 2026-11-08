@@ -2,6 +2,11 @@
 //
 // Ports `src/scoreboard/` (`model.js`, `input.js`, `port.js`, `classic/layout.js`,
 // `classic/view.js`, `classic/pages.js`, `index.js`) and `src/battle-stats.js`.
+//
+// Submodules:
+// - `model` / `input` / `controller`: pure table state, `TabHold` & 0.4s double-click input, and orchestration;
+// - `layout` / `view` / `pages`: 1024xH Classic geometry, 2D batch drawing, and 3D hologram `Flight` interpolation;
+// - `stats`: two-slot per-character tallies, 9 personal stats, 8 post-battle awards, and `ScoreboardPort`.
 
 pub mod controller;
 pub mod input;

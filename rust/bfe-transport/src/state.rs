@@ -4,6 +4,7 @@
 //! possible size in every slot on a small-memory client.
 use crate::{Error,Result,codec::{Writer,varint_size},layout::{limits as l,data,frame}};
 const PLAIN:usize=l::MAX_DATAGRAM-data::BYTES-l::TAG;
+// Each queued state message tracks its ring offset and fragment progress in place.
 #[derive(Clone,Copy,Default)]
 struct Message{start:usize,length:usize,text:bool,fragment:u64,index:usize,count:usize}
 pub struct Queue{bytes:Vec<u8>,rows:Vec<Message>,head:usize,count:usize,tail:usize,used:usize,next:u64,pub dropped:u64}
@@ -21,6 +22,7 @@ impl Queue{
         let slot=(self.head+self.count)%self.rows.len();self.rows[slot]=Message{start:self.tail,length:bytes.len(),text,..Default::default()};
         self.tail=(self.tail+bytes.len())%self.bytes.len();self.used+=bytes.len();self.count+=1;Ok(())
     }
+    // Copy a ring span that may wrap across the end of the preallocated byte buffer.
     fn copy(&self,offset:usize,count:usize,out:&mut Writer<'_>)->Result<()>{
         let at=offset%self.bytes.len();let first=count.min(self.bytes.len()-at);out.span(&self.bytes[at..at+first])?;out.span(&self.bytes[..count-first])
     }
@@ -35,7 +37,7 @@ impl Queue{
         if row.count==0{
             if 2+varint_size(row.length as u64)?+row.length<=PLAIN-48{return Ok(None);}
             row.count=row.length.div_ceil(l::FRAGMENT_BYTES);row.fragment=self.next;
-            if self.next>=l::MAX_SAFE_INTEGER as u64{return Err(Error("datagram identifiers exhausted"));}self.next+=1;
+            if self.next>=l::MAX_SAFE_INTEGER{return Err(Error("datagram identifiers exhausted"));}self.next+=1;
         }
         let offset=row.index*l::FRAGMENT_BYTES;let count=(row.length-offset).min(l::FRAGMENT_BYTES);
         if 4+varint_size(row.fragment)?+varint_size(count as u64)?+count>out.remaining(){self.rows[self.head]=row;return Ok(None);}
@@ -46,13 +48,16 @@ impl Queue{
 struct Assembly{id:Option<u64>,at:f64,count:usize,bits:u32,lengths:[usize;l::MAX_FRAGMENTS],bytes:Vec<u8>}
 // Reassembly reserves every permitted part before first use. The final
 // contiguous assembly is borrowed only for the synchronous delivery callback.
+// Borrowed wire fields for one incoming FRAGMENT frame before slot reassembly.
+pub struct FragmentPart<'a>{pub id:u64,pub index:usize,pub count:usize,pub text:bool,pub bytes:&'a[u8]}
 pub struct Fragments{slots:Vec<Assembly>,whole:Vec<u8>}
 impl Default for Fragments{fn default()->Self{Self::new()}}
 impl Fragments{
     pub fn new()->Self{Self{slots:(0..l::MAX_PENDING_FRAGMENTS).map(|_|Assembly{id:None,at:0.,count:0,bits:0,lengths:[0;l::MAX_FRAGMENTS],bytes:vec![0;l::MAX_FRAGMENTS*PLAIN]}).collect(),whole:vec![0;l::MAX_FRAGMENTS*PLAIN]}}
     // A changed fragment count or repeated index cannot overwrite the first
     // accepted assembly. Timeout and oldest eviction keep stalled peers bounded.
-    pub fn receive(&mut self,id:u64,index:usize,count:usize,text:bool,bytes:&[u8],now:f64,deliver:&mut impl FnMut(bool,&[u8]))->Result<bool>{
+    pub fn receive(&mut self,part:FragmentPart<'_>,now:f64,deliver:&mut impl FnMut(bool,&[u8]))->Result<bool>{
+        let FragmentPart{id,index,count,text,bytes}=part;
         if count==0||count>l::MAX_FRAGMENTS||index>=count||bytes.len()>PLAIN{return Err(Error("invalid fragment"));}
         for row in &mut self.slots{if row.id.is_some()&&now-row.at>l::FRAGMENT_LIFETIME as f64{row.id=None;}}
         let slot=self.slots.iter().position(|row|row.id==Some(id)).or_else(||self.slots.iter().position(|row|row.id.is_none()))

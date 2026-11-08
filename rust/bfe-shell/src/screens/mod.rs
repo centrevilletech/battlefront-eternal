@@ -8,253 +8,31 @@
 //!   so all menu navigation, Instant Action playlist editing, era picker popups,
 //!   options pages, profile management, multiplayer gating, and exit confirmation
 //!   can be exercised in headless tests and drawn onto `bfe_render::interface::Batch`.
+//! - Every screen maps to its [`ShellMedia`] cue via [`ScreenId::media_id`]
+//!   (`"start"`, `"main"`, `"sp"`, `"ia"`, `"options"`, `"profile"`, `"mp"`),
+//!   matching `SCREEN_MEDIA` in `src/shell/media.js` and `mediaId()` in
+//!   `src/shell/index.js`.
+//! - Row lists are cached in `ShellApp::cached_rows` whenever the active screen
+//!   or underlying state changes so `draw_shell` can render at 60+ FPS with
+//!   zero per-frame heap allocations.
+//! - Sound cues (`"shell_select_change"`, `"shell_menu_accept"`,
+//!   `"shell_menu_enter"`, `"shell_menu_cancel"`, `"shell_menu_error"`,
+//!   `"shell_menu_exit"`, `"shell_keyboard_key"`, `"shell_keyboard_backspace"`)
+//!   are queued in `ShellApp::sound_queue` (`INTERFACE_SOUNDS` in `src/shell/audio.js`).
 
 use crate::{
-    data::{ShellData, ShellMap},
-    launch::{BattleRequest, GameFamily, PlaylistEntry, DEFAULT_MODE, MAX_PLAYLIST},
+    data::ShellData,
+    launch::{BattleRequest, GameFamily, PlaylistEntry},
     media::{MediaEvent, ShellMedia},
-    profile::{clean_player_name, has_profile, ProfileState, DEFAULT_PLAYER_NAME},
+    profile::ProfileState,
     version::{version_line, AboutInfo},
 };
-use bfe_online::{
-    browser::{
-        BattleSummary, BrowserState, RotationItem, ServerBrowser, ServerBrowserService,
-        ServerEntry, Source,
-    },
-    direct::{parse_direct_target, DEFAULT_DIRECT_PORT},
-};
+use bfe_online::{browser::ServerEntry, direct::DEFAULT_DIRECT_PORT};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Game picker options in Instant Action's `AVAILABLE MAPS` header:
-/// `BATTLEFRONT (2004)` is selected (`swbf1`), and `BATTLEFRONT II (2005), PLANNED`
-/// is listed as disabled (`swbf2`).
-///
-/// Mirrors `gamePicker()` in `src/shell/index.js`.
-pub const GAME_PICKER_OPTIONS: [(GameFamily, &str, bool); 2] = [
-    (GameFamily::Swbf1, "BATTLEFRONT (2004)", true),
-    (GameFamily::Swbf2, "BATTLEFRONT II (2005), PLANNED", false),
-];
-
-/// Source kind for a multiplayer session (`"LAN"` or `"ONLINE"`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MultiplayerKind {
-    Lan,
-    Online,
-}
-
-impl MultiplayerKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Lan => "LAN",
-            Self::Online => "ONLINE",
-        }
-    }
-
-    pub fn to_source(self) -> Source {
-        match self {
-            Self::Lan => Source::Lan,
-            Self::Online => Source::Internet,
-        }
-    }
-}
-
-/// Host game configuration submitted from the `HOST` screen/dialog.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostConfig {
-    pub server_name: String,
-    pub family: GameFamily,
-    pub map: String,
-    pub era: String,
-    pub mode: String,
-    pub max_players: u32,
-    pub bots: u32,
-    pub lan_only: bool,
-}
-
-/// Resolved multiplayer join or host target launched by the shell.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MultiplayerLaunch {
-    pub kind: MultiplayerKind,
-    pub server_id: String,
-    pub family: GameFamily,
-    pub map: String,
-    pub side: String,
-    pub era: String,
-    pub mode: String,
-    pub address: Option<String>,
-    pub port: Option<u16>,
-    pub relay_always: bool,
-    pub player_name: String,
-}
-
-/// Resolves a server's battle target (`family`, `map`, `side`, `era`, `mode`,
-/// `address`, `port`, `relay_always`) from its [`ServerEntry`] `battle` summary
-/// or `<family>/<map>:<side>:<mode>` rotation entry.
-///
-/// Mirrors `joinServer(server, kind)` in `src/shell/screens.js` and the
-/// `<family>/<map>:<side>:<mode>` rotation format in `MULTIPLAYER.md`
-/// (lines 106-183).
-pub fn resolve_server_join(
-    server: &ServerEntry,
-    kind: MultiplayerKind,
-    player_name: &str,
-) -> MultiplayerLaunch {
-    let (rot_family, rot_map, rot_side, rot_mode) = server
-        .rotation
-        .first()
-        .and_then(parse_rotation_mission)
-        .unwrap_or((GameFamily::Swbf1, "nab2", "rep", DEFAULT_MODE));
-
-    let battle = server.battle.as_ref();
-    let map = battle
-        .map(|b| b.map.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(rot_map)
-        .to_string();
-    let side = battle
-        .map(|b| b.side.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(rot_side)
-        .to_string();
-    let era = battle
-        .map(|b| b.era.as_str())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            if matches!(side.as_str(), "rep" | "cis" | "cw") {
-                "cw".to_string()
-            } else {
-                "gcw".to_string()
-            }
-        });
-    let mode = battle
-        .map(|b| b.mode.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(rot_mode)
-        .to_string();
-
-    let (address, port) = if kind == MultiplayerKind::Lan {
-        (
-            server.address.clone(),
-            Some(server.port.unwrap_or(DEFAULT_DIRECT_PORT)),
-        )
-    } else {
-        (None, None)
-    };
-    let relay_always =
-        kind != MultiplayerKind::Lan && server.relay_policy.as_deref() == Some("always");
-
-    MultiplayerLaunch {
-        kind,
-        server_id: server.id.clone(),
-        family: rot_family,
-        map,
-        side,
-        era,
-        mode,
-        address,
-        port,
-        relay_always,
-        player_name: clean_player_name(player_name),
-    }
-}
-
-fn parse_rotation_mission(item: &RotationItem) -> Option<(GameFamily, &str, &str, &str)> {
-    match item {
-        RotationItem::Slug(slug) => {
-            let (family, rest) = match slug.split_once('/') {
-                Some((fam, tail)) => (GameFamily::parse(fam)?, tail),
-                None => (GameFamily::Swbf1, slug.as_str()),
-            };
-            let mut parts = rest.split(':');
-            let map = parts.next().filter(|s| !s.is_empty())?;
-            let side = parts.next().filter(|s| !s.is_empty())?;
-            let mode = parts
-                .next()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(DEFAULT_MODE);
-            Some((family, map, side, mode))
-        }
-        RotationItem::Entry { map, era, mode } => {
-            if map.is_empty() {
-                return None;
-            }
-            let side = if era == "gcw" { "imp" } else { "rep" };
-            let mode_str = if mode.is_empty() {
-                DEFAULT_MODE
-            } else {
-                mode.as_str()
-            };
-            Some((GameFamily::Swbf1, map.as_str(), side, mode_str))
-        }
-    }
-}
-
-/// Builds a [`ServerEntry`] for a direct connection target (`"host:port"`),
-/// validating the address with [`bfe_online::direct::parse_direct_target`].
-pub fn direct_connect_entry(address: &str) -> Result<ServerEntry, String> {
-    let trimmed = address.trim();
-    let default_port = DEFAULT_DIRECT_PORT.to_string();
-    let (host_str, port_str) = if let Some(rest) = trimmed.strip_prefix('[') {
-        match rest.split_once(']') {
-            Some((h, after)) => {
-                let p = after.strip_prefix(':').unwrap_or(default_port.as_str());
-                (h, p)
-            }
-            None => (trimmed, default_port.as_str()),
-        }
-    } else {
-        match trimmed.rsplit_once(':') {
-            Some((h, p)) if !h.contains(':') => (h, p),
-            _ => (trimmed, default_port.as_str()),
-        }
-    };
-    let target = parse_direct_target(host_str, port_str).map_err(|e| e.to_string())?;
-    Ok(ServerEntry {
-        id: format!("direct-{}:{}", target.address, target.port),
-        name: target.host_port_string(),
-        address: Some(target.address),
-        port: Some(target.port),
-        players: 0,
-        max_players: 32,
-        rotation: vec![RotationItem::Slug("swbf1/nab2:rep:conquest".to_string())],
-        ..ServerEntry::default()
-    })
-}
-
-/// Builds a local hosted [`ServerEntry`] from a [`HostConfig`].
-pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
-    let side = if config.era == "cw" { "rep" } else { "all" };
-    let mode = if config.mode.is_empty() {
-        DEFAULT_MODE
-    } else {
-        config.mode.as_str()
-    };
-    ServerEntry {
-        id: "local-host".to_string(),
-        name: config.server_name.clone(),
-        address: Some("127.0.0.1".to_string()),
-        port: Some(DEFAULT_DIRECT_PORT),
-        players: 1,
-        max_players: config.max_players,
-        battle: Some(BattleSummary {
-            map: config.map.clone(),
-            side: side.to_string(),
-            era: config.era.clone(),
-            mode: mode.to_string(),
-            bots: Some(config.bots > 0),
-            ..BattleSummary::default()
-        }),
-        rotation: vec![RotationItem::Slug(format!(
-            "{}/{}:{side}:{mode}",
-            config.family.as_str(),
-            config.map
-        ))],
-        latency_ms: Some(1),
-        ..ServerEntry::default()
-    }
-}
+mod multiplayer;
+pub use self::multiplayer::*;
 
 /// Identifiers for every screen and modal in the shell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,13 +93,18 @@ impl ScreenId {
 /// Sub-pages of the `OPTIONS` screen (`bfe-interface` option pages).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OptionsPageId {
+    /// `GAME OPTIONS` (`menuTheme`, `battleSize`, `difficulty`, `reset`).
     Game,
+    /// `VIDEO OPTIONS` (`resolution`, `antialiasing`, `shadows`, `water`, `reset`).
     Video,
+    /// `AUDIO OPTIONS` (`masterVolume`, `musicVolume`, `effectsVolume`, `interfaceVolume`, `reset`).
     Audio,
+    /// `CONTROL OPTIONS` (`sensitivity`, `invertY`, `reset`).
     Controls,
 }
 
 impl OptionsPageId {
+    /// Returns the uppercase screen header title for this options sub-page.
     pub fn title(self) -> &'static str {
         match self {
             Self::Game => "GAME OPTIONS",
@@ -335,12 +118,16 @@ impl OptionsPageId {
 /// One row in a `Rows` menu screen (`id`, `label`, `disabled`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MenuRow {
+    /// Stable action identifier (`"sp"`, `"mp"`, `"options"`, server id, etc.).
     pub id: String,
+    /// Uppercase text rendered inside the row's bar.
     pub label: String,
+    /// Whether the row is non-selectable and rendered in `GREY`.
     pub disabled: bool,
 }
 
 impl MenuRow {
+    /// Constructs an enabled, selectable [`MenuRow`].
     pub fn enabled(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -349,6 +136,7 @@ impl MenuRow {
         }
     }
 
+    /// Constructs a disabled (`GREY`, non-selectable) [`MenuRow`].
     pub fn disabled(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -361,24 +149,36 @@ impl MenuRow {
 /// Focus target inside the `INSTANT ACTION` screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum IaFocus {
+    /// Left `AVAILABLE MAPS` listbox (`id: "available"`).
     #[default]
     Available,
+    /// Right `SELECTED MAPS` playlist listbox (`id: "selected"`).
     Selected,
+    /// Center `ADD` horizontal button (`id: "add"`).
     Add,
+    /// Center `REMOVE` horizontal button (`id: "remove"`).
     Remove,
+    /// Bottom-left `BACK` button (`id: "back"`).
     Back,
+    /// Bottom-center `PLAY IN ORDER` / `RANDOM ORDER` toggle button (`id: "order"`).
     Order,
+    /// Bottom-right `LAUNCH` button (`id: "launch"`).
     Launch,
 }
 
 /// Modal popup kind (`Ok` notice or `ConfirmExit` `YES`/`NO`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PopupState {
+    /// Single-button notice dialog (`okPopup` in `src/menus/index.js`).
     Notice {
+        /// Centered message text displayed above the `OK` button.
         message: String,
     },
+    /// Two-button confirmation dialog (`confirmPopup` in `src/menus/index.js`).
     ConfirmExit {
+        /// Prompt text (`"EXIT TO WINDOWS?"`).
         message: String,
+        /// Whether `YES` (`true`) or `NO` (`false`) currently has focus.
         selected_yes: bool,
     },
 }
@@ -397,26 +197,39 @@ pub enum ShellAction {
 /// Option value stored in [`ShellSettings`] for the `OPTIONS` pages.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OptionItem {
+    /// Setting key in `ShellSettings` (e.g. `"masterVolume"`, `"menuTheme"`).
     pub key: String,
+    /// Display label on the left side of the option row.
     pub label: String,
+    /// Formatted current value on the right side of the option row.
     pub value_text: String,
 }
 
 /// Player settings for volumes, theme, and options pages.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellSettings {
+    /// Master output volume (`0.0..=1.0`, default `1.0`).
     pub master_volume: f32,
+    /// Shell and battle music volume (`0.0..=1.0`, default `1.0`).
     pub music_volume: f32,
+    /// Menu interface and transition whoosh volume (`0.0..=1.0`, default `1.0`).
     pub interface_volume: f32,
+    /// Battle sound effects volume (`0.0..=1.0`, default `1.0`).
     pub effects_volume: f32,
+    /// Active front-end look (`"eternal"`, `"bf1"`, or `"bf2"`).
     pub menu_theme: String,
+    /// AI unit count preset (`"normal"`).
     pub battle_size: String,
+    /// AI difficulty preset (`"medium"`).
     pub difficulty: String,
+    /// Look sensitivity (`0.1..=1.0`, default `0.5`).
     pub mouse_sensitivity: f32,
+    /// Whether vertical mouse look is inverted (`false` by default).
     pub invert_y: bool,
 }
 
 impl Default for ShellSettings {
+    /// Returns the default player settings matching `src/settings.js`.
     fn default() -> Self {
         Self {
             master_volume: 1.0,
@@ -434,10 +247,15 @@ impl Default for ShellSettings {
 
 /// Complete state of the front-end shell (`createScreens` in `src/shell/screens.js`).
 pub struct ShellApp {
+    /// Loaded `shell.json`, `common.json`, and localization strings.
     pub data: ShellData,
+    /// Screen movie, camera flythrough, whoosh, and music controller (`src/shell/media.js`).
     pub media: ShellMedia,
+    /// Current audio, video, game, and control settings.
     pub settings: ShellSettings,
+    /// Player profile name and callsign editor state (`src/shell/profile-dialog.js`).
     pub profile: ProfileState,
+    /// Formatted bottom-right `MAIN MENU` version string (`src/shell/version.js`).
     pub version_text: String,
     /// Navigation stack of screens (`Gate` -> `Main` -> `Singleplayer` -> `InstantAction`, etc.).
     pub stack: Vec<ScreenId>,
@@ -472,7 +290,7 @@ pub struct ShellApp {
     /// Direct connect draft address (`"127.0.0.1:18451"`).
     pub direct_connect_draft: String,
     /// Pending multiplayer action after the profile prompt finishes.
-    pending_mp_after_profile: Option<PendingMpAction>,
+    pub(super) pending_mp_after_profile: Option<PendingMpAction>,
     /// Active modal popup (`Notice` or `ConfirmExit`), if any.
     pub popup: Option<PopupState>,
     /// Elapsed time on the click gate (for `gate::pulse`).
@@ -487,9 +305,13 @@ pub struct ShellApp {
     pub pending_action: Option<ShellAction>,
 }
 
+/// Multiplayer action deferred while `require_profile_for` prompts the player
+/// to replace `DEFAULT_PLAYER_NAME` (`"PLAYER 1"`) with a custom callsign.
 #[derive(Clone, Debug)]
-enum PendingMpAction {
+pub(super) enum PendingMpAction {
+    /// Resume hosting a local game once a profile callsign is saved.
     Host,
+    /// Resume joining the selected [`ServerEntry`] once a profile callsign is saved.
     Join(Box<ServerEntry>, MultiplayerKind),
 }
 
@@ -557,6 +379,8 @@ impl ShellApp {
             .copied()
             .unwrap_or(0)
             .min(self.cached_rows.len() - 1);
+        // If the stored cursor row is enabled, return it directly; otherwise
+        // fall back to the first enabled row in `cached_rows`.
         if !self.cached_rows[raw].disabled {
             return raw;
         }
@@ -602,6 +426,8 @@ impl ShellApp {
 
     /// Returns the topmost active [`ScreenId`].
     pub fn current_screen(&self) -> ScreenId {
+        // An active modal popup (`Notice` or `ConfirmExit`) takes input priority
+        // over the navigation stack.
         if self.popup.is_some() {
             return ScreenId::Popup;
         }
@@ -624,6 +450,8 @@ impl ShellApp {
         if dt.is_finite() && dt > 0.0 {
             self.gate_elapsed += dt;
             self.pulse_elapsed += dt;
+            // Step the shell media timeline (camera flythrough, bus dip, and
+            // `ShellMusic` silence interval) and record any started track.
             if let Some(step) = self.media.update(dt) {
                 self.media_events.push(MediaEvent::Music(step));
             }
@@ -681,6 +509,7 @@ impl ShellApp {
     /// Mirrors the `rowScreen` definitions in `src/shell/screens.js`.
     pub fn rows_for(&self, screen: ScreenId) -> Vec<MenuRow> {
         match screen {
+            // `main()` in `src/shell/screens.js`: 7 top-level rows.
             ScreenId::Main => vec![
                 MenuRow::enabled("sp", "SINGLEPLAYER"),
                 MenuRow::enabled("mp", "MULTIPLAYER"),
@@ -690,11 +519,14 @@ impl ShellApp {
                 MenuRow::enabled("import-content", "IMPORT CONTENT"),
                 MenuRow::enabled("quit", "EXIT TO WINDOWS"),
             ],
+            // `singleplayer()` in `src/shell/screens.js`: `HISTORICAL CAMPAIGN`
+            // and `GALACTIC CONQUEST` are disabled; `INSTANT ACTION` is enabled.
             ScreenId::Singleplayer => vec![
                 MenuRow::disabled("campaign", "HISTORICAL CAMPAIGN"),
                 MenuRow::disabled("conquest", "GALACTIC CONQUEST"),
                 MenuRow::enabled("instant", "INSTANT ACTION"),
             ],
+            // `optionsMenu` in `src/menus/options.js`: sub-page links and `CREDITS`.
             ScreenId::Options => vec![
                 MenuRow::enabled("game", "GAME OPTIONS"),
                 MenuRow::enabled("video", "VIDEO OPTIONS"),
@@ -704,17 +536,23 @@ impl ShellApp {
                 MenuRow::enabled("credits", "CREDITS"),
             ],
             ScreenId::OptionsPage(page) => self.option_rows(page),
+            // `profile()` in `src/shell/screens.js`: current player name
+            // (disabled header row), `CREATE PROFILE`, and `DELETE PROFILE`.
             ScreenId::Profile => vec![
                 MenuRow::disabled("player", self.profile.name.clone()),
                 MenuRow::enabled("new", "CREATE PROFILE"),
                 MenuRow::enabled("delete", "DELETE PROFILE"),
             ],
+            // Classic `multiplayer()` in `src/shell/screens.js`: `HOST`, `LAN`, `ONLINE`.
             ScreenId::Multiplayer => vec![
                 MenuRow::enabled("host", "HOST"),
                 MenuRow::enabled("lan", "LAN"),
                 MenuRow::enabled("online", "ONLINE"),
             ],
             ScreenId::MultiplayerList(kind) => {
+                // Mirrors `network(kind)` in `src/shell/screens.js`: privacy notice
+                // gate for `ONLINE`, error + `RETRY` on failure, or server rows
+                // followed by `REFRESH` (and `DIRECT CONNECTION` on `LAN`).
                 let mut rows = Vec::new();
                 if self.mp_needs_notice && kind != MultiplayerKind::Lan {
                     rows.push(MenuRow::enabled("notice", "ACCEPT ONLINE PRIVACY NOTICE"));
@@ -725,12 +563,16 @@ impl ShellApp {
                     rows.push(MenuRow::enabled("refresh", "RETRY"));
                     return rows;
                 }
+                // Format each discovered or master-listed server as
+                // `"<name>  <players>/<maxPlayers>"` (`network(kind)` in `screens.js`).
                 for srv in &self.mp_servers {
                     rows.push(MenuRow::enabled(
                         srv.id.clone(),
                         format!("{}  {}/{}", srv.name, srv.players, srv.max_players),
                     ));
                 }
+                // When no servers are returned, show a disabled placeholder row
+                // before `REFRESH` (and `DIRECT CONNECTION` on `LAN`).
                 if rows.is_empty() {
                     rows.push(MenuRow::disabled("empty", "NO SERVERS AVAILABLE"));
                 }
@@ -741,6 +583,7 @@ impl ShellApp {
                 rows
             }
             ScreenId::InstantActionEra => {
+                // Era picker rows (`"cw"` -> `"CLONE WARS"`, `"gcw"` -> `"GALACTIC CIVIL WAR"`).
                 if let Some((_, _, eras, _)) = &self.ia_era_choices {
                     eras.iter()
                         .map(|era| {
@@ -760,7 +603,10 @@ impl ShellApp {
         }
     }
 
+    /// Builds the `LABEL: VALUE` rows and `RESET TO DEFAULTS` row for an
+    /// [`OptionsPageId`] sub-page.
     fn option_rows(&self, page: OptionsPageId) -> Vec<MenuRow> {
+        // Format each option sub-page's rows from `self.settings`.
         match page {
             OptionsPageId::Game => vec![
                 MenuRow::enabled(
@@ -783,6 +629,7 @@ impl ShellApp {
                 ),
                 MenuRow::enabled("reset", "RESET TO DEFAULTS"),
             ],
+            // Video quality preset rows (`src/menus/options.js`).
             OptionsPageId::Video => vec![
                 MenuRow::enabled("resolution", "RESOLUTION: NATIVE"),
                 MenuRow::enabled("antialiasing", "ANTIALIASING: HIGH"),
@@ -790,6 +637,7 @@ impl ShellApp {
                 MenuRow::enabled("water", "WATER QUALITY: ULTRA"),
                 MenuRow::enabled("reset", "RESET TO DEFAULTS"),
             ],
+            // Audio volume rows (`0%..=100%`) for master, music, effects, and interface.
             OptionsPageId::Audio => vec![
                 MenuRow::enabled(
                     "masterVolume",
@@ -821,6 +669,7 @@ impl ShellApp {
                 ),
                 MenuRow::enabled("reset", "RESET TO DEFAULTS"),
             ],
+            // Mouse sensitivity (`10%..=100%`) and Y-axis inversion toggle.
             OptionsPageId::Controls => vec![
                 MenuRow::enabled(
                     "sensitivity",
@@ -841,6 +690,7 @@ impl ShellApp {
         }
     }
 
+    /// Returns the stable `row_cursor` map key for a [`ScreenId`].
     fn screen_key(screen: ScreenId) -> &'static str {
         match screen {
             ScreenId::Gate => "gate",
@@ -866,6 +716,7 @@ impl ShellApp {
     /// Returns the currently highlighted row index for `screen`, ensuring it
     /// points at an enabled row when possible.
     pub fn selected_row_index(&self, screen: ScreenId) -> usize {
+        // Fast path: reuse `cached_rows` when querying the active top-of-stack screen.
         if self.stack.last().copied() == Some(screen) && !self.cached_rows.is_empty() {
             return self.selected_cached_row_index(screen);
         }
@@ -886,6 +737,7 @@ impl ShellApp {
         let rows = self.rows_for(screen);
         if index < rows.len() && !rows[index].disabled {
             let key = Self::screen_key(screen);
+            // Queue `"shell_select_change"` whenever the highlighted row changes.
             let prev = self.row_cursor.insert(key, index);
             if prev != Some(index) {
                 self.sound_queue.push("shell_select_change");
@@ -902,6 +754,7 @@ impl ShellApp {
             .unwrap_or("start");
         self.stack.push(screen);
         self.rebuild_cached_rows();
+        // Initialize this screen's cursor to its first enabled row on first visit.
         let key = Self::screen_key(screen);
         if !self.row_cursor.contains_key(key) {
             let first_enabled = self
@@ -911,6 +764,8 @@ impl ShellApp {
                 .unwrap_or(0);
             self.row_cursor.insert(key, first_enabled);
         }
+        // Entering `INSTANT ACTION` ensures `ia_available_selected` points at an
+        // extracted map and triggers `media.preview(map.id)` (`onEnter` in `screens.js`).
         if screen == ScreenId::InstantAction {
             if let Some(first_idx) = self
                 .data
@@ -930,6 +785,8 @@ impl ShellApp {
             let ev = self.media.preview(&self.data, map_id.as_deref());
             self.media_events.push(ev);
         }
+        // Transition background movie and music when entering a screen with a
+        // different `media_id` (or when first arriving on `Main` from `Gate`).
         let new_media = screen.media_id();
         if new_media != prev_media || self.stack.len() == 2 {
             let evs = self.media.enter_immediate(&self.data, new_media, false);
@@ -940,11 +797,15 @@ impl ShellApp {
     /// Pops the current screen (or invokes `Main`'s `backAction` which pushes
     /// `Profile`, matching `screen.backAction = push(profile)` in `src/shell/screens.js`).
     pub fn back(&mut self) {
+        // Dismissing a modal popup (`Notice` or `ConfirmExit`) plays
+        // `"shell_menu_cancel"` without popping the underlying screen.
         if self.popup.is_some() {
             self.popup = None;
             self.sound_queue.push("shell_menu_cancel");
             return;
         }
+        // Cancelling the profile callsign editor discards any pending
+        // multiplayer host/join action (`requireProfile` returning `false`).
         if self.profile.editing {
             self.profile.cancel();
             self.pending_mp_after_profile = None;
@@ -959,6 +820,8 @@ impl ShellApp {
                 self.push_screen(ScreenId::Profile);
             }
             _ => {
+                // Pop the current screen and notify `ShellMedia` with `back = true`
+                // so returning to a screen triggers its camera return move.
                 if self.stack.len() > 1 {
                     self.stack.pop();
                     self.rebuild_cached_rows();
@@ -998,6 +861,8 @@ impl ShellApp {
             return;
         }
         let screen = self.current_screen();
+        // In `INSTANT ACTION`, Up/Down scrolls whichever listbox (`Available`
+        // or `Selected`) is focused, or returns focus to `Available`.
         if screen == ScreenId::InstantAction {
             match self.ia_focus {
                 IaFocus::Available => {
@@ -1005,6 +870,8 @@ impl ShellApp {
                         let len = self.data.maps.len() as isize;
                         let next = (self.ia_available_selected as isize + delta).clamp(0, len - 1)
                             as usize;
+                        // Updating the `AVAILABLE MAPS` selection plays
+                        // `"shell_select_change"` and updates the lower-right map preview.
                         if next != self.ia_available_selected {
                             self.ia_available_selected = next;
                             self.sound_queue.push("shell_select_change");
@@ -1032,6 +899,7 @@ impl ShellApp {
             return;
         }
 
+        // Wrap-around vertical navigation across enabled rows on row-based screens.
         let rows = self.rows_for(screen);
         let enabled_indices: Vec<usize> = rows
             .iter()
@@ -1056,16 +924,20 @@ impl ShellApp {
     /// Moves focus horizontally (`delta = -1` or `1`) on screens with multiple
     /// columns or buttons (`InstantAction`, `ConfirmExit` popup, `OptionsPage` sliders).
     pub fn move_horizontal(&mut self, delta: isize) {
+        // Left/Right on `EXIT TO WINDOWS?` toggles focus between `YES` and `NO`.
         if let Some(PopupState::ConfirmExit { selected_yes, .. }) = &mut self.popup {
             *selected_yes = !*selected_yes;
             self.sound_queue.push("shell_select_change");
             return;
         }
         let screen = self.current_screen();
+        // Left/Right on an options sub-page steps the selected slider or toggle.
         if let ScreenId::OptionsPage(page) = screen {
             self.adjust_option(page, delta);
             return;
         }
+        // Left/Right in `INSTANT ACTION` cycles focus across the two listboxes,
+        // `ADD`/`REMOVE`, and the three bottom buttons.
         if screen == ScreenId::InstantAction {
             let order = [
                 IaFocus::Available,
@@ -1087,7 +959,11 @@ impl ShellApp {
         }
     }
 
-    fn adjust_option(&mut self, page: OptionsPageId, delta: isize) {
+    /// Steps the currently selected option on `page` left (`delta = -1`) or
+    /// right (`delta = 1`), clamping volumes to `0.0..=1.0`, cycling
+    /// `menu_theme` across `["eternal", "bf1", "bf2"]`, and queuing
+    /// `"shell_select_change"`.
+    pub(super) fn adjust_option(&mut self, page: OptionsPageId, delta: isize) {
         let rows = self.rows_for(ScreenId::OptionsPage(page));
         let idx = self.selected_row_index(ScreenId::OptionsPage(page));
         let Some(row) = rows.get(idx) else {
@@ -1113,6 +989,7 @@ impl ShellApp {
                     (self.settings.interface_volume + step).clamp(0.0, 1.0);
                 self.sound_queue.push("shell_select_change");
             }
+            // Cycle the front-end look across `"eternal"`, `"bf1"`, and `"bf2"`.
             (OptionsPageId::Game, "menuTheme") => {
                 let themes = ["eternal", "bf1", "bf2"];
                 let cur = themes
@@ -1137,590 +1014,16 @@ impl ShellApp {
         self.rebuild_cached_rows();
     }
 
-    /// Adds the currently highlighted map in `AVAILABLE MAPS` to `SELECTED MAPS`
-    /// (or pushes the era picker popup when the map has both `cw` and `gcw`).
-    ///
-    /// Mirrors `add(screen)` in `instantAction()` in `src/shell/screens.js`.
-    pub fn ia_add(&mut self) {
-        let Some(map) = self.data.maps.get(self.ia_available_selected).cloned() else {
-            self.sound_queue.push("shell_menu_error");
-            return;
-        };
-        let choices = Self::map_choices(&map);
-        if map.extracted == Some(false) || choices.is_empty() {
-            self.sound_queue.push("shell_menu_error");
-            return;
-        }
-        if self.ia_entries.len() >= MAX_PLAYLIST {
-            self.sound_queue.push("shell_menu_error");
-            self.popup = Some(PopupState::Notice {
-                message: "SELECTED MAPLIST IS FULL.".to_string(),
-            });
-            return;
-        }
-        if choices.len() == 1 {
-            self.ia_append_with_family(map.family, &map.id, &choices[0]);
-            self.sound_queue.push("shell_menu_accept");
-        } else {
-            self.ia_era_choices = Some((map.id.clone(), map.name.clone(), choices, 0));
-            self.sound_queue.push("shell_menu_enter");
-            self.push_screen(ScreenId::InstantActionEra);
-        }
-    }
-
-    fn map_choices(map: &ShellMap) -> Vec<String> {
-        let playable = map.playable_eras();
-        if !playable.is_empty() {
-            return playable.into_iter().map(str::to_string).collect();
-        }
-        map.eras
-            .keys()
-            .filter(|e| *e == "cw" || *e == "gcw")
-            .cloned()
-            .collect()
-    }
-
-    fn ia_append_with_family(&mut self, family: GameFamily, map_id: &str, era: &str) {
-        if self.ia_entries.len() < MAX_PLAYLIST {
-            self.ia_entries.push(PlaylistEntry::with_family_and_mode(
-                family,
-                map_id,
-                Some(era),
-                DEFAULT_MODE,
-            ));
-            self.ia_selected_cursor = self.ia_entries.len() - 1;
-        }
-    }
-
-    /// Removes the highlighted entry in `SELECTED MAPS`.
-    /// Mirrors `remove()` in `instantAction()` in `src/shell/screens.js`.
-    pub fn ia_remove(&mut self) {
-        if self.ia_entries.is_empty() {
-            return;
-        }
-        let idx = self.ia_selected_cursor.min(self.ia_entries.len() - 1);
-        self.ia_entries.remove(idx);
-        self.ia_selected_cursor = if self.ia_entries.is_empty() {
-            0
-        } else {
-            self.ia_selected_cursor.min(self.ia_entries.len() - 1)
-        };
-        self.sound_queue.push("shell_menu_accept");
-    }
-
-    /// Toggles Instant Action's `PLAY IN ORDER` / `RANDOM ORDER` button.
-    pub fn ia_toggle_order(&mut self) {
-        self.ia_random = !self.ia_random;
-        self.sound_queue.push("shell_menu_accept");
-    }
-
-    /// Launches the current Instant Action playlist if non-empty, setting
-    /// `self.pending_action = Some(ShellAction::LaunchBattle(req))`.
-    pub fn ia_launch<F>(&mut self, rand: F) -> Option<BattleRequest>
-    where
-        F: FnMut() -> f64,
-    {
-        if self.ia_entries.is_empty() {
-            self.sound_queue.push("shell_menu_error");
-            return None;
-        }
-        let req = BattleRequest::launch(&self.ia_entries, self.ia_random, rand).ok()?;
-        self.sound_queue.push("shell_menu_accept");
-        self.pending_action = Some(ShellAction::LaunchBattle(req.clone()));
-        Some(req)
-    }
-
-    /// Synchronizes `mp_servers`, `mp_status`, and `mp_needs_notice` from a
-    /// [`ServerBrowserService`] implementation (`bfe_online::browser::ServerBrowser`).
-    pub fn sync_from_browser(&mut self, browser: &dyn ServerBrowserService) {
-        match browser.state() {
-            BrowserState::Notice => {
-                self.mp_needs_notice = true;
-                self.mp_status = None;
-                self.mp_servers.clear();
-            }
-            BrowserState::Error(msg) => {
-                self.mp_needs_notice = false;
-                self.mp_status = Some(msg.clone());
-                self.mp_servers.clear();
-            }
-            BrowserState::Loading | BrowserState::Idle | BrowserState::Ready => {
-                self.mp_needs_notice = false;
-                self.mp_status = None;
-                self.mp_servers = browser.rows().into_iter().cloned().collect();
-            }
-        }
-        self.rebuild_cached_rows();
-    }
-
-    /// Activates the currently highlighted item on the active screen (`Enter` or
-    /// primary click), driving `browser` (`ServerBrowserService`) for multiplayer
-    /// screens.
-    pub fn accept(&mut self, browser: &mut dyn ServerBrowserService) {
-        if let Some(popup) = self.popup.clone() {
-            match popup {
-                PopupState::Notice { .. } => {
-                    self.popup = None;
-                    self.sound_queue.push("shell_menu_accept");
-                }
-                PopupState::ConfirmExit { selected_yes, .. } => {
-                    self.popup = None;
-                    if selected_yes {
-                        self.sound_queue.push("shell_menu_exit");
-                        self.pending_action = Some(ShellAction::ExitToWindows);
-                    } else {
-                        self.sound_queue.push("shell_menu_cancel");
-                    }
-                }
-            }
-            return;
-        }
-
-        if self.profile.editing {
-            self.profile.submit();
-            self.rebuild_cached_rows();
-            self.sound_queue.push("shell_menu_accept");
-            if let Some(pending) = self.pending_mp_after_profile.take() {
-                if self.profile.has_profile() {
-                    match pending {
-                        PendingMpAction::Host => self.execute_host(),
-                        PendingMpAction::Join(server, kind) => {
-                            let launch = resolve_server_join(&server, kind, &self.profile.name);
-                            self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
-                        }
-                    }
-                }
-            }
-            return;
-        }
-
-        let screen = self.current_screen();
-        match screen {
-            ScreenId::Gate => {
-                self.unlock_gate();
-            }
-            ScreenId::Main => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                let Some(row) = rows.get(idx) else { return };
-                match row.id.as_str() {
-                    "sp" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::Singleplayer);
-                    }
-                    "mp" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::Multiplayer);
-                    }
-                    "options" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::Options);
-                    }
-                    "profile" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::Profile);
-                    }
-                    "export-content" | "import-content" => {
-                        self.sound_queue.push("shell_menu_accept");
-                        self.popup = Some(PopupState::Notice {
-                            message: "CONTENT TRANSFER REQUIRES THE DESKTOP CLIENT.".to_string(),
-                        });
-                    }
-                    "quit" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.popup = Some(PopupState::ConfirmExit {
-                            message: "EXIT TO WINDOWS?".to_string(),
-                            selected_yes: true,
-                        });
-                    }
-                    _ => {}
-                }
-            }
-            ScreenId::Singleplayer => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                if let Some(row) = rows.get(idx) {
-                    if row.id == "instant" && !row.disabled {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::InstantAction);
-                    }
-                }
-            }
-            ScreenId::InstantAction => match self.ia_focus {
-                IaFocus::Available | IaFocus::Add => self.ia_add(),
-                IaFocus::Selected | IaFocus::Remove => self.ia_remove(),
-                IaFocus::Back => self.back(),
-                IaFocus::Order => self.ia_toggle_order(),
-                IaFocus::Launch => {
-                    let mut seed = 0x1234_5678u32;
-                    self.ia_launch(|| {
-                        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
-                        (seed as f64) / ((1u64 << 32) as f64)
-                    });
-                }
-            },
-            ScreenId::InstantActionEra => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                if let (Some((map_id, _, _, _)), Some(row)) =
-                    (self.ia_era_choices.clone(), rows.get(idx))
-                {
-                    let family = self
-                        .data
-                        .maps
-                        .iter()
-                        .find(|m| m.id == map_id)
-                        .map(|m| m.family)
-                        .unwrap_or(self.ia_family);
-                    self.ia_append_with_family(family, &map_id, &row.id);
-                    self.ia_era_choices = None;
-                    self.stack.pop();
-                    self.rebuild_cached_rows();
-                    self.sound_queue.push("shell_menu_accept");
-                }
-            }
-            ScreenId::Options => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                let Some(row) = rows.get(idx) else { return };
-                match row.id.as_str() {
-                    "game" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::OptionsPage(OptionsPageId::Game));
-                    }
-                    "video" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::OptionsPage(OptionsPageId::Video));
-                    }
-                    "audio" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::OptionsPage(OptionsPageId::Audio));
-                    }
-                    "controls" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::OptionsPage(OptionsPageId::Controls));
-                    }
-                    "online" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.open_multiplayer_list(MultiplayerKind::Online, browser);
-                    }
-                    "credits" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.popup = Some(PopupState::Notice {
-                            message: "BATTLEFRONT ETERNAL\nA fan-made mod for the Steam versions of\nStar Wars: Battlefront (2004) and Battlefront II (2005).\nBattlefront II support is planned.".to_string(),
-                        });
-                    }
-                    _ => {}
-                }
-            }
-            ScreenId::OptionsPage(page) => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                if let Some(row) = rows.get(idx) {
-                    if row.id == "reset" {
-                        self.settings = ShellSettings::default();
-                        self.rebuild_cached_rows();
-                        self.sound_queue.push("shell_menu_accept");
-                    } else {
-                        self.adjust_option(page, 1);
-                    }
-                }
-            }
-            ScreenId::Profile => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                let Some(row) = rows.get(idx) else { return };
-                match row.id.as_str() {
-                    "new" => {
-                        self.profile.begin_edit("");
-                        self.sound_queue.push("shell_menu_enter");
-                    }
-                    "delete" => {
-                        self.profile.delete_profile();
-                        self.rebuild_cached_rows();
-                        self.sound_queue.push("shell_menu_accept");
-                    }
-                    _ => {}
-                }
-            }
-            ScreenId::Multiplayer => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                let Some(row) = rows.get(idx) else { return };
-                match row.id.as_str() {
-                    "host" => {
-                        if !self.require_profile_for(PendingMpAction::Host) {
-                            return;
-                        }
-                        self.execute_host();
-                    }
-                    "lan" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.open_multiplayer_list(MultiplayerKind::Lan, browser);
-                    }
-                    "online" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.open_multiplayer_list(MultiplayerKind::Online, browser);
-                    }
-                    _ => {}
-                }
-            }
-            ScreenId::MultiplayerList(kind) => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                let Some(row) = rows.get(idx) else { return };
-                match row.id.as_str() {
-                    "notice" => {
-                        self.mp_needs_notice = false;
-                        self.sync_from_browser(browser);
-                        if self.mp_needs_notice {
-                            // When the caller uses a `ServerBrowser` still in `Notice`
-                            // state, clear `mp_needs_notice` and populate visible rows.
-                            self.mp_needs_notice = false;
-                            self.mp_servers = browser.rows().into_iter().cloned().collect();
-                            self.rebuild_cached_rows();
-                        }
-                        self.sound_queue.push("shell_menu_accept");
-                    }
-                    "refresh" => {
-                        self.refresh_multiplayer_list(kind, browser);
-                        self.sound_queue.push("shell_menu_accept");
-                    }
-                    "direct" => {
-                        self.sound_queue.push("shell_menu_enter");
-                        self.push_screen(ScreenId::DirectConnect);
-                    }
-                    server_id => {
-                        if let Some(server) =
-                            self.mp_servers.iter().find(|s| s.id == server_id).cloned()
-                        {
-                            browser.select(Some(&server.id));
-                            if !self
-                                .require_profile_for(PendingMpAction::Join(Box::new(server.clone()), kind))
-                            {
-                                return;
-                            }
-                            let launch = resolve_server_join(&server, kind, &self.profile.name);
-                            self.sound_queue.push("shell_menu_accept");
-                            self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
-                        }
-                    }
-                }
-            }
-            ScreenId::DirectConnect => {
-                let addr = self.direct_connect_draft.clone();
-                match direct_connect_entry(&addr) {
-                    Ok(server) => {
-                        self.stack.pop();
-                        self.rebuild_cached_rows();
-                        if !self.require_profile_for(PendingMpAction::Join(
-                            Box::new(server.clone()),
-                            MultiplayerKind::Lan,
-                        )) {
-                            return;
-                        }
-                        let launch =
-                            resolve_server_join(&server, MultiplayerKind::Lan, &self.profile.name);
-                        self.sound_queue.push("shell_menu_accept");
-                        self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
-                    }
-                    Err(msg) => {
-                        self.sound_queue.push("shell_menu_error");
-                        self.popup = Some(PopupState::Notice { message: msg });
-                    }
-                }
-            }
-            ScreenId::HostDialog => {
-                self.execute_host();
-            }
-            ScreenId::Popup => {}
-        }
-    }
-
-    fn require_profile_for(&mut self, action: PendingMpAction) -> bool {
-        if has_profile(&self.profile.name) {
-            return true;
-        }
-        self.pending_mp_after_profile = Some(action);
-        self.profile.begin_edit(
-            "Create a profile before playing multiplayer. Other players will see this name.",
-        );
-        self.sound_queue.push("shell_menu_enter");
-        false
-    }
-
-    fn execute_host(&mut self) {
-        let first_map = self
-            .data
-            .maps
-            .iter()
-            .find(|m| m.extracted != Some(false))
-            .map(|m| (m.family, m.id.clone()))
-            .unwrap_or_else(|| (GameFamily::Swbf1, "nab2".to_string()));
-        let cfg = HostConfig {
-            server_name: format!("{}'S GAME", self.profile.name),
-            family: first_map.0,
-            map: first_map.1,
-            era: "cw".to_string(),
-            mode: DEFAULT_MODE.to_string(),
-            max_players: 32,
-            bots: 16,
-            lan_only: false,
-        };
-        let server = hosted_server_entry(&cfg);
-        let launch = resolve_server_join(&server, MultiplayerKind::Lan, &self.profile.name);
-        self.sound_queue.push("shell_menu_accept");
-        self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
-    }
-
-    fn open_multiplayer_list(
-        &mut self,
-        kind: MultiplayerKind,
-        browser: &mut dyn ServerBrowserService,
-    ) {
-        self.refresh_multiplayer_list(kind, browser);
-        self.push_screen(ScreenId::MultiplayerList(kind));
-    }
-
-    /// Synchronizes the multiplayer server list for `kind` from `browser`.
-    pub fn refresh_multiplayer_list(
-        &mut self,
-        kind: MultiplayerKind,
-        browser: &mut dyn ServerBrowserService,
-    ) {
-        let target_source = kind.to_source();
-        if browser.source() != target_source {
-            browser.set_source(target_source);
-        }
-        self.sync_from_browser(browser);
-    }
-
-    /// Handles a keyboard key event (`"Enter"`, `"Escape"`, `"ArrowUp"`,
-    /// `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `"Delete"`, `"Backspace"`,
-    /// or printable characters when editing a profile or direct-connect address).
-    pub fn handle_key(
-        &mut self,
-        key: &str,
-        ctrl: bool,
-        meta: bool,
-        alt: bool,
-        browser: &mut dyn ServerBrowserService,
-    ) -> bool {
-        if self.current_screen() == ScreenId::Gate {
-            if crate::gate::counts_as_press("keydown", key, ctrl, meta, alt) {
-                self.unlock_gate();
-                return true;
-            }
-            return false;
-        }
-
-        if self.profile.editing {
-            match key {
-                "Enter" => {
-                    self.accept(browser);
-                    return true;
-                }
-                "Escape" => {
-                    self.back();
-                    return true;
-                }
-                "Backspace" => {
-                    self.profile.backspace();
-                    self.sound_queue.push("shell_keyboard_backspace");
-                    return true;
-                }
-                _ => {
-                    if key.chars().count() == 1 && !ctrl && !meta && !alt {
-                        if let Some(ch) = key.chars().next() {
-                            self.profile.push_char(ch);
-                            self.sound_queue.push("shell_keyboard_key");
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            }
-        }
-
-        if self.current_screen() == ScreenId::DirectConnect {
-            match key {
-                "Enter" => {
-                    self.accept(browser);
-                    return true;
-                }
-                "Escape" => {
-                    self.back();
-                    return true;
-                }
-                "Backspace" => {
-                    self.direct_connect_draft.pop();
-                    self.sound_queue.push("shell_keyboard_backspace");
-                    return true;
-                }
-                _ => {
-                    if key.chars().count() == 1 && !ctrl && !meta && !alt {
-                        if let Some(ch) = key.chars().next() {
-                            self.direct_connect_draft.push(ch);
-                            self.sound_queue.push("shell_keyboard_key");
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            }
-        }
-
-        match key {
-            "ArrowUp" | "w" | "W" => {
-                self.move_vertical(-1);
-                true
-            }
-            "ArrowDown" | "s" | "S" => {
-                self.move_vertical(1);
-                true
-            }
-            "ArrowLeft" | "a" | "A" => {
-                self.move_horizontal(-1);
-                true
-            }
-            "ArrowRight" | "d" | "D" => {
-                self.move_horizontal(1);
-                true
-            }
-            "Enter" | " " => {
-                self.accept(browser);
-                true
-            }
-            "Escape" | "Backspace" => {
-                self.back();
-                true
-            }
-            "Delete" if self.current_screen() == ScreenId::InstantAction => {
-                self.ia_remove();
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Resets the player profile to `DEFAULT_PLAYER_NAME` (`"PLAYER 1"`).
-    pub fn reset_profile(&mut self) {
-        self.profile.name = DEFAULT_PLAYER_NAME.to_string();
-        self.rebuild_cached_rows();
-    }
-}
-
-/// Convenience helper returning a default [`ServerBrowser`] for callers that do
-/// not need custom contract settings.
-pub fn default_server_browser() -> ServerBrowser {
-    ServerBrowser::default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bfe_online::browser::{RotationItem, ServerBrowser};
     use serde_json::json;
 
+    // Builds minimal `ShellData` with one single-era map (`geo1`: `cw`) and
+    // one dual-era map (`bes2`: `cw` + `gcw`) for navigation tests.
     fn test_shell_data() -> ShellData {
         let shell = json!({
             "maps": [
@@ -1744,6 +1047,9 @@ mod tests {
         crate::data::read_shell_data(Some(&shell), None, None)
     }
 
+    // Verifies that Instant Action's `AVAILABLE MAPS` game picker defaults to
+    // `BATTLEFRONT (2004)` (`Swbf1`) and lists `BATTLEFRONT II (2005), PLANNED`
+    // (`Swbf2`) as disabled (`gamePicker()` in `src/shell/index.js`).
     #[test]
     fn game_picker_lists_swbf1_selected_and_swbf2_planned_disabled() {
         let mut app = ShellApp::new(test_shell_data(), None);
@@ -1761,8 +1067,12 @@ mod tests {
         assert_eq!(app.ia_family, GameFamily::Swbf1);
     }
 
+    // Verifies the end-to-end singleplayer flow: unlocking `Gate`, opening
+    // `Singleplayer` -> `InstantAction`, adding a single-era map (`geo1:cw`)
+    // and a dual-era map (`bes2:gcw` via `InstantActionEra`), and launching.
     #[test]
-    fn gate_unlocks_to_main_menu_and_navigates_to_instant_action_and_launches() {
+    fn gate_unlocks_to_main_menu_and_navigates_to_instant_action_and_launches()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut browser = ServerBrowser::default();
         let mut app = ShellApp::new(test_shell_data(), None);
         assert_eq!(app.current_screen(), ScreenId::Gate);
@@ -1815,16 +1125,21 @@ mod tests {
                 assert_eq!(req.map, "geo1");
                 assert_eq!(req.era.as_deref(), Some("cw"));
                 assert_eq!(req.mode, "conquest");
-                assert_eq!(req.playlist.unwrap().entries.len(), 2);
+                assert_eq!(req.playlist.ok_or("missing playlist")?.entries.len(), 2);
             }
-            other => panic!("expected LaunchBattle, got {other:?}"),
+            other => return Err(format!("expected LaunchBattle, got {other:?}").into()),
         }
+        Ok(())
     }
 
+    // Verifies that `ONLINE` requires accepting the privacy notice when
+    // `ServerBrowser` is in `BrowserState::Notice`, and that joining a server
+    // while still named `PLAYER 1` prompts for a custom profile callsign first.
     #[test]
-    fn multiplayer_requires_profile_and_online_requires_privacy_notice() {
+    fn multiplayer_requires_profile_and_online_requires_privacy_notice()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut browser = ServerBrowser::default();
-        let token = browser.begin_refresh(false).unwrap();
+        let token = browser.begin_refresh(false).ok_or("missing refresh token")?;
         browser.finish_refresh_notice(token);
 
         let mut app = ShellApp::new(test_shell_data(), None);
@@ -1848,7 +1163,7 @@ mod tests {
         assert_eq!(rows[0].id, "notice");
 
         // Transition the browser to Ready with one server and accept the notice row.
-        let tok2 = browser.begin_refresh(false).unwrap();
+        let tok2 = browser.begin_refresh(false).ok_or("missing refresh token")?;
         browser.finish_refresh_ok(
             tok2,
             vec![ServerEntry {
@@ -1891,7 +1206,8 @@ mod tests {
                 assert!(mp.relay_always);
                 assert_eq!(mp.player_name, "JOSH");
             }
-            other => panic!("expected LaunchMultiplayer, got {other:?}"),
+            other => return Err(format!("expected LaunchMultiplayer, got {other:?}").into()),
         }
+        Ok(())
     }
 }

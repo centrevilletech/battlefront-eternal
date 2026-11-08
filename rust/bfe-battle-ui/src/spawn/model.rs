@@ -102,23 +102,31 @@ pub fn queue_human_command(queue: &mut Vec<HumanCommand>, entry: &HumanCommand) 
 /// `CLOSED`, `CHOOSING`, `COMMITTED`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpawnState {
+    /// The spawn screen is not active.
     Closed,
+    /// State 1 in `ifs_spawndisplay`: the player is picking a team, class, and command post.
     Choosing,
+    /// State 2 in `ifs_spawndisplay`: `SPAWN` was pressed and sent to the world, awaiting unit creation.
     Committed,
 }
 
 /// Reason the spawn screen opened (`"start"` vs `"death"` in `SpawnModel.open`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpenReason {
+    /// Opened at initial map load (`"start"`).
     Start,
+    /// Opened four seconds after a death (`"death"`, when entering `"awaiting"` phase).
     Death,
 }
 
 /// Source of a team change (`"key"`, `"mouse"`, `"world"` in `SpawnModel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TeamSwitchSource {
+    /// Triggered by `ArrowLeft` or `ArrowRight`.
     Key,
+    /// Triggered by clicking the team logo hotspot (also flips the HUD reinforcement counter).
     Mouse,
+    /// Triggered by an authoritative server/world team assignment (`follow_team`).
     World,
 }
 
@@ -126,10 +134,15 @@ pub enum TeamSwitchSource {
 /// `"click"`, `"check"` in `SpawnModel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PostChangeReason {
+    /// Selected or re-validated when the spawn screen opened.
     Open,
+    /// Randomized when switching teams.
     Team,
+    /// Advanced via `Tab` (`cycle_post`).
     Cycle,
+    /// Clicked directly on the tactical spawn map (`select_post`).
     Click,
+    /// Replaced automatically during per-frame `check` after the previous post was lost.
     Check,
 }
 
@@ -137,8 +150,11 @@ pub enum PostChangeReason {
 /// [`SpawnPort::request`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnRequest {
+    /// Chosen team number (`1` or `2`).
     pub team: u8,
+    /// Chosen unit class identifier (e.g. `"rep_inf_clone_trooper"`).
     pub class_name: String,
+    /// Chosen command post identifier (e.g. `"cp_2"`).
     pub post: String,
 }
 
@@ -207,9 +223,13 @@ pub struct SpawnTeamFacts {
 /// Playable soldier class entry in a team's spawn roster (`port.roster(team)`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpawnClassEntry {
+    /// Internal ODF class name (e.g. `"rep_inf_clone_trooper"`).
     pub class_name: String,
+    /// Localized uppercase display title shown in the class window header.
     pub display_name: String,
+    /// Localized weapon names listed inside the class window.
     pub weapons: Vec<String>,
+    /// Whether the player currently meets the point requirement to pick this class.
     pub eligible: bool,
 }
 
@@ -227,24 +247,36 @@ pub struct SpawnPostEntry {
 /// Overview camera shot from the mission's `cameraShots` (`AddCameraShot`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CameraShot {
+    /// World-space `[x, y, z]` camera position from `AddCameraShot`.
     pub position: [f64; 3],
+    /// World-space `[x, y, z, w]` camera orientation quaternion.
     pub quaternion: [f64; 4],
 }
 
 /// Port between the spawn screen and the battle world (`docs/human-spawn.md`
 /// "The spawn port" and `tests/spawn-screen-fake-port.js`).
 pub trait SpawnPort {
+    /// Current phase, team, class, post, and permission flags for the local human player.
     fn human_state(&self) -> HumanSpawnFacts;
+    /// Faction side, display name, hologram logo name, objectives, and tickets for `team`.
     fn team_facts(&self, team: u8) -> Option<SpawnTeamFacts>;
+    /// Playable non-hero soldier classes for `team` in mission roster order.
     fn roster(&self, team: u8) -> Vec<SpawnClassEntry>;
+    /// All command posts on the map with ownership and spawn eligibility for `team`.
     fn posts(&self, team: u8) -> Vec<SpawnPostEntry>;
+    /// Picks the default or fallback command post for `team` given optional `previous` post name.
     fn choose_post(&self, team: u8, previous: Option<&str>) -> Option<String> {
         choose_frontline_post(&self.posts(team), team, previous)
     }
+    /// Submits a committed [`SpawnRequest`] (`team`, `class_name`, `post`) to the battle world.
     fn request(&mut self, choice: &SpawnRequest);
+    /// Triggers pause-menu `RESPAWN` (kills the living player character).
     fn suicide(&mut self);
+    /// Withdraws a committed spawn request when the screen closes early or times out.
     fn cancel(&mut self);
+    /// Returns the mission's `AddCameraShot` overview camera placements.
     fn camera_shots(&self) -> Vec<CameraShot>;
+    /// Overrides the world camera with `shot` while the spawn screen is open, or `None` on close.
     fn set_view_shot(&mut self, shot: Option<CameraShot>);
 }
 
@@ -275,6 +307,7 @@ pub fn choose_frontline_post(
         }
         best.map(|(p, _)| p.name.clone())
     };
+    // Step 1 & 2: preserve `previous` if still eligible, or fall back to the nearest eligible post in XZ.
     if let Some(prev_name) = previous {
         if let Some(old) = posts.iter().find(|p| p.name == prev_name) {
             if old.eligible {
@@ -283,6 +316,7 @@ pub fn choose_frontline_post(
             return nearest_to(old.position);
         }
     }
+    // Step 3: find the eligible post closest in XZ to any enemy-controlled command post (the front line).
     let enemy: Vec<&SpawnPostEntry> = posts
         .iter()
         .filter(|p| p.owner != 0 && p.owner != team)
@@ -305,13 +339,21 @@ pub fn choose_frontline_post(
 
 /// The spawn screen's pure state machine (`src/spawn-screen/model.js` `SpawnModel`).
 pub struct SpawnModel {
+    /// Current lifecycle state (`Closed`, `Choosing`, or `Committed`).
     pub state: SpawnState,
+    /// Currently selected faction team number (`1` or `2`).
     pub team: u8,
+    /// Selected soldier class index within `port.roster(self.team)`.
     pub class_index: usize,
+    /// Currently selected command post identifier (`None` if no post is eligible).
     pub post: Option<String>,
+    /// Whether `open` has been called at least once in this battle.
     pub opened_once: bool,
+    /// Per-team (`[unused, team1, team2]`) last selected command post name.
     last_post: [Option<String>; 3],
+    /// Per-team (`[unused, team1, team2]`) `Tab` cycle index into `eligible_posts`.
     post_cycle: [usize; 3],
+    /// Queued model events drained by `SpawnScreenController::sync_model_events`.
     events: Vec<SpawnEvent>,
 }
 
@@ -322,6 +364,7 @@ impl Default for SpawnModel {
 }
 
 impl SpawnModel {
+    /// Creates a new closed `SpawnModel` defaulting to team `1` and class index `0`.
     pub fn new() -> Self {
         Self {
             state: SpawnState::Closed,
@@ -335,6 +378,7 @@ impl SpawnModel {
         }
     }
 
+    /// Returns `true` when the screen is in `Choosing` or `Committed` state.
     #[inline]
     pub fn is_open(&self) -> bool {
         self.state != SpawnState::Closed
@@ -485,6 +529,8 @@ impl SpawnModel {
         self.apply_team(port, team, TeamSwitchSource::World, random_01)
     }
 
+    /// Applies a team change (`1` or `2`), resetting `class_index` to `0`, choosing a
+    /// random eligible command post on the new team, and emitting `Team`, `Class`, and `Post` events.
     fn apply_team(
         &mut self,
         port: &dyn SpawnPort,
@@ -600,6 +646,8 @@ impl SpawnModel {
         Some(req)
     }
 
+    /// Updates `self.post`, records the per-team remembered post in `self.last_post`,
+    /// and optionally pushes a [`SpawnEvent::Post`] when the selection changes.
     fn set_post(
         &mut self,
         name: Option<String>,

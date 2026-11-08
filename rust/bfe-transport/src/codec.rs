@@ -10,7 +10,7 @@ use crate::layout::limits as lim;
 // Validation happens before a writer can publish any part of that integer.
 pub fn varint_size(value:u64)->Result<usize>{
     if value<64{Ok(1)}else if value<16384{Ok(2)}else if value<1073741824{Ok(4)}
-    else if value<=lim::MAX_SAFE_INTEGER as u64{Ok(8)}else{Err(Error("varint too large"))}
+    else if value<=lim::MAX_SAFE_INTEGER{Ok(8)}else{Err(Error("varint too large"))}
 }
 // Cursor advances only after the complete span is known. A truncated field
 // cannot leave its caller with a partially consumed length prefix.
@@ -22,10 +22,8 @@ impl<'a> Reader<'a>{
         let end=self.at.checked_add(n).filter(|&end|end<=self.bytes.len()).ok_or(Error("truncated frame"))?;
         let bytes=&self.bytes[self.at..end];self.at=end;Ok(bytes)
     }
-    // Keep wire lengths wide until they fit the actual datagram. This also
-    // makes the same parser safe on hosts whose usize is narrower than u64.
-    // Narrow only after comparing with the available byte prefix. A forged
-    // wire length must not wrap when converted to the platform index width.
+    // Keep wire lengths wide until they fit the actual datagram. Narrow only
+    // after comparing with the available byte prefix so widths cannot wrap.
     pub fn wide_span(&mut self,n:u64)->Result<&'a[u8]>{
         if n>self.remaining()as u64{return Err(Error("truncated frame"));}self.span(n as usize)
     }
@@ -35,7 +33,7 @@ impl<'a> Reader<'a>{
     pub fn varint(&mut self)->Result<u64>{
         let first=self.byte()?;let length=1usize<<(first>>6);let mut value=(first&63)as u64;
         for &byte in self.span(length-1)?{value=(value<<8)|byte as u64;}
-        if value>lim::MAX_SAFE_INTEGER as u64{return Err(Error("varint too large"));}Ok(value)
+        if value>lim::MAX_SAFE_INTEGER{return Err(Error("varint too large"));}Ok(value)
     }
 }
 // Packet assembly borrows its destination. No temporary field buffer can
@@ -90,7 +88,9 @@ impl Ranges{
     pub fn remove(&mut self,a:u64,b:u64)->bool{
         if b<=a{return true;}let mut i=0;
         while i<self.len{
-            let [lo,hi]=self.rows[i];if lo>=b{break;}if hi<=a{i+=1;continue;}
+            let [lo,hi]=self.rows[i];
+            if lo>=b{break;}
+            if hi<=a{i+=1;continue;}
             if lo<a&&hi>b{
                 if self.len==self.rows.len(){return false;}
                 self.rows.copy_within(i+1..self.len,i+2);self.rows[i]=[lo,a];self.rows[i+1]=[b,hi];self.len+=1;break;
@@ -99,10 +99,8 @@ impl Ranges{
             else{self.rows.copy_within(i+1..self.len,i);self.len-=1;}
         }true
     }
-    // Trimming old history changes only the visible prefix. Hidden slots
-    // contain inert numbers and never retain another peer's payload bytes.
-    // ACK history may forget old prefixes, but cannot manufacture receipt
-    // of a hole. Trim boundaries retain their half-open interval meaning.
+    // Trimming old history changes only the visible prefix. ACK history may
+    // forget old prefixes, but cannot manufacture receipt of a hole.
     pub fn trim(&mut self,before:u64){
         let count=self.rows().iter().take_while(|r|r[1]<=before).count();
         self.rows.copy_within(count..self.len,0);self.len-=count;
@@ -140,13 +138,13 @@ impl Replay{
 // replay horizon; ordinary in-order traffic cannot expose these edges.
 #[cfg(test)]mod tests{
     use super::*;
-    #[test]fn varints_pin_boundaries_and_reject_truncation(){
+    #[test]fn varints_pin_boundaries_and_reject_truncation()->std::result::Result<(),Box<dyn std::error::Error>>{
         for n in [0,63,64,16383,16384,1073741823,1073741824,9007199254740991]{
-            let mut bytes=[0;8];let mut out=Writer::new(&mut bytes);out.varint(n).unwrap();let len=out.at;
-            assert_eq!(Reader::new(&bytes[..len]).varint().unwrap(),n);
+            let mut bytes=[0;8];let mut out=Writer::new(&mut bytes);out.varint(n)?;let len=out.at;
+            assert_eq!(Reader::new(&bytes[..len]).varint()?,n);
             for short in 0..len{assert!(Reader::new(&bytes[..short]).varint().is_err());}
         }
-        assert!(varint_size(9007199254740992).is_err());
+        assert!(varint_size(9007199254740992).is_err());Ok(())
     }
     #[test]fn ranges_merge_split_and_retain_bounds(){
         let mut r=Ranges::new(4);assert!(r.add(5,9));assert!(r.add(1,3));assert!(r.add(3,5));assert_eq!(r.rows(),&[[1,9]]);

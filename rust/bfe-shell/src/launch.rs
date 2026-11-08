@@ -104,9 +104,13 @@ impl fmt::Display for GameFamily {
 /// `MULTIPLAYER.md` (`swbf1/nab2:cw:conquest`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaylistEntry {
+    /// Game family (`swbf1` or `swbf2`) that owns the map and mode rules.
     pub family: GameFamily,
+    /// Lowercase map identifier (`"geo1"`, `"hot1"`, `"nab2"`, etc.).
     pub map: String,
+    /// Optional era identifier (`Some("cw")` or `Some("gcw")`), or `None` when omitted.
     pub era: Option<String>,
+    /// Lowercase game mode identifier (defaults to `"conquest"` for 2004 content).
     pub mode: String,
 }
 
@@ -161,8 +165,11 @@ impl PlaylistEntry {
 /// `src/launch.js` (`readPlaylist`, `launchUrl`, `nextUrl`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Playlist {
+    /// Ordered or shuffled mission queue entries for the current lap (up to 64).
     pub entries: Vec<PlaylistEntry>,
+    /// Zero-based index of the current battle within `entries`.
     pub round: usize,
+    /// Whether `entries` should be reshuffled via [`shuffle`] each time `round` wraps to `0`.
     pub random: bool,
 }
 
@@ -199,12 +206,23 @@ impl Playlist {
 /// consumed by [`BattleOptions`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BattleRequest {
+    /// Which game family (`swbf1` or `swbf2`) owns the battle.
     pub family: GameFamily,
+    /// Lowercase map identifier (`"geo1"`, `"nab2"`, etc.).
     pub map: String,
+    /// Era identifier (`"cw"` or `"gcw"`), if specified by the caller or playlist entry.
     pub era: Option<String>,
+    /// Game mode identifier (`"conquest"` by default).
     pub mode: String,
+    /// Explicit mission sub-level name (used for historical campaign battles;
+    /// dropped when advancing to the next playlist round, matching `PICK_KEYS`
+    /// in `src/launch.js`).
     pub mission: Option<String>,
+    /// Explicit faction/side pick (`"rep"`, `"cis"`, `"all"`, `"imp"`, or a local side;
+    /// dropped when advancing to the next playlist round, matching `PICK_KEYS`
+    /// in `src/launch.js`).
     pub side: Option<String>,
+    /// Active Instant Action mission queue carried across rounds, if any.
     pub playlist: Option<Playlist>,
 }
 
@@ -251,6 +269,8 @@ impl BattleRequest {
             },
             None => (None, None),
         };
+        // Mirror `battleUrl` in `src/launch.js`: `map` defaults to `entry.map`,
+        // and `era` only falls back to `entry.era` when `map == entry.map`.
         let resolved_map = override_map
             .or_else(|| entry.map(|e| e.map.clone()))
             .ok_or_else(|| "battle request needs a map or a rotation".to_string())?;
@@ -363,6 +383,9 @@ impl BattleRequest {
     }
 }
 
+/// Splits a `"<family>/<map>"` string (such as `"swbf1/nab2"` or `"swbf2/hot1"`)
+/// into its parsed [`GameFamily`] and bare map slice, returning `None` when no
+/// `'/'` separator is present or the prefix is not `"swbf1"` / `"swbf2"`.
 fn split_family_prefix(raw: &str) -> Option<(GameFamily, &str)> {
     let (prefix, rest) = raw.split_once('/')?;
     let family = GameFamily::parse(prefix)?;
@@ -489,6 +512,8 @@ where
     list
 }
 
+/// Checks whether `s` matches `/^[a-z0-9_]+$/` as required for map, era, and
+/// mode tokens in `parseRotation` (`src/launch.js`).
 fn is_ident(s: &str) -> bool {
     !s.is_empty()
         && s.bytes()
@@ -562,17 +587,19 @@ mod tests {
     }
 
     #[test]
-    fn battle_request_resolves_playlist_entry_and_wraps_out_of_range_rounds() {
+    fn battle_request_resolves_playlist_entry_and_wraps_out_of_range_rounds()
+    -> Result<(), Box<dyn std::error::Error>> {
         let entries = parse_rotation(Some("geo1:cw,swbf2/hot1:gcw:ctf"));
-        let req = BattleRequest::from_rotation(None, None, entries, 1, true).unwrap();
+        let req = BattleRequest::from_rotation(None, None, entries, 1, true)?;
         assert_eq!(req.family, GameFamily::Swbf2);
         assert_eq!(req.map, "hot1");
         assert_eq!(req.era.as_deref(), Some("gcw"));
         assert_eq!(req.mode, "ctf");
-        assert_eq!(req.playlist.as_ref().unwrap().round, 1);
-        assert!(req.playlist.as_ref().unwrap().random);
+        let req_pl = req.playlist.as_ref().ok_or("missing playlist")?;
+        assert_eq!(req_pl.round, 1);
+        assert!(req_pl.random);
 
-        let single = BattleRequest::single("nab2", Some("cw")).unwrap();
+        let single = BattleRequest::single("nab2", Some("cw"))?;
         assert_eq!(single.family, GameFamily::Swbf1);
         assert_eq!(single.map, "nab2");
         assert_eq!(single.era.as_deref(), Some("cw"));
@@ -585,10 +612,12 @@ mod tests {
             vec![PlaylistEntry::new("kam1", Some("cw"))],
             5,
             false,
-        )
-        .unwrap();
+        )?;
         assert_eq!(wrapped.map, "kam1");
-        assert_eq!(wrapped.playlist.as_ref().unwrap().round, 0);
+        assert_eq!(
+            wrapped.playlist.as_ref().ok_or("missing playlist")?.round,
+            0
+        );
 
         // Negative rounds wrap via Euclidean remainder (`round -1` is the last entry).
         let neg = BattleRequest::from_rotation(
@@ -597,33 +626,38 @@ mod tests {
             parse_rotation(Some("geo1:cw,hot1:gcw")),
             -1,
             false,
-        )
-        .unwrap();
-        assert_eq!(neg.playlist.as_ref().unwrap().round, 1);
+        )?;
+        assert_eq!(neg.playlist.as_ref().ok_or("missing playlist")?.round, 1);
         assert_eq!(neg.map, "hot1");
         assert_eq!(neg.next(seeded(1)).map, "geo1");
+        Ok(())
     }
 
     #[test]
-    fn launch_and_shuffle_match_js_7_times_n_swaps_and_clamping() {
+    fn launch_and_shuffle_match_js_7_times_n_swaps_and_clamping()
+    -> Result<(), Box<dyn std::error::Error>> {
         let entries = parse_rotation(Some("geo1:cw,hot1:gcw,rhn1:cw,tat2:gcw"));
-        let ordered = BattleRequest::launch(&entries, false, seeded(1)).unwrap();
+        let ordered = BattleRequest::launch(&entries, false, seeded(1))?;
         assert_eq!(ordered.map, "geo1");
         assert_eq!(ordered.era.as_deref(), Some("cw"));
         assert_eq!(
-            format_rotation(&ordered.playlist.as_ref().unwrap().entries),
+            format_rotation(
+                &ordered
+                    .playlist
+                    .as_ref()
+                    .ok_or("missing playlist")?
+                    .entries
+            ),
             "geo1:cw,hot1:gcw,rhn1:cw,tat2:gcw"
         );
 
-        let launched = BattleRequest::launch(&entries, true, seeded(7)).unwrap();
+        let launched = BattleRequest::launch(&entries, true, seeded(7))?;
         let expected_shuffled = shuffle(&entries, seeded(7));
-        assert_eq!(
-            launched.playlist.as_ref().unwrap().entries,
-            expected_shuffled
-        );
+        let launched_pl = launched.playlist.as_ref().ok_or("missing playlist")?;
+        assert_eq!(launched_pl.entries, expected_shuffled);
         assert_eq!(launched.map, expected_shuffled[0].map);
-        assert!(launched.playlist.as_ref().unwrap().random);
-        assert_eq!(launched.playlist.as_ref().unwrap().round, 0);
+        assert!(launched_pl.random);
+        assert_eq!(launched_pl.round, 0);
 
         // 7 * 4 swaps, two random draws each, even for n == 1 (7 * 1 * 2 = 14 draws).
         let mut draws = 0;
@@ -646,12 +680,16 @@ mod tests {
         assert_eq!(clamped, entries);
 
         assert!(BattleRequest::launch(&[], false, seeded(1)).is_err());
+        Ok(())
     }
 
+    // Verifies that in PLAY IN ORDER mode (`random == false`), `next` steps
+    // through each entry in sequence and wraps from the last entry back to 0
+    // without reordering the playlist (`nextUrl` in `src/launch.js`).
     #[test]
-    fn next_advances_round_in_order_and_wraps_forever() {
+    fn next_advances_round_in_order_and_wraps_forever() -> Result<(), Box<dyn std::error::Error>> {
         let entries = parse_rotation(Some("geo1:cw,hot1:gcw,nab2:cw"));
-        let mut req = BattleRequest::launch(&entries, false, seeded(1)).unwrap();
+        let mut req = BattleRequest::launch(&entries, false, seeded(1))?;
         let mut maps = Vec::new();
         for _ in 0..7 {
             maps.push(req.map.clone());
@@ -661,26 +699,34 @@ mod tests {
             maps,
             vec!["geo1", "hot1", "nab2", "geo1", "hot1", "nab2", "geo1"]
         );
-        assert_eq!(
-            format_rotation(&req.playlist.as_ref().unwrap().entries),
-            "geo1:cw,hot1:gcw,nab2:cw"
-        );
+        let req_pl = req.playlist.as_ref().ok_or("missing playlist")?;
+        assert_eq!(format_rotation(&req_pl.entries), "geo1:cw,hot1:gcw,nab2:cw");
         assert_eq!(req.era.as_deref(), Some("gcw"));
-        assert!(!req.playlist.as_ref().unwrap().random);
+        assert!(!req_pl.random);
+        Ok(())
     }
 
+    // Verifies that in RANDOM ORDER mode (`random == true`), `next` preserves
+    // the current lap's shuffled order across all `entries.len()` rounds and
+    // only reshuffles when `round` wraps back to 0 (`nextUrl` in `src/launch.js`).
     #[test]
-    fn next_in_random_order_keeps_lap_order_then_reshuffles_on_wrap() {
+    fn next_in_random_order_keeps_lap_order_then_reshuffles_on_wrap()
+    -> Result<(), Box<dyn std::error::Error>> {
         let entries = parse_rotation(Some("bes1:cw,end1:gcw,geo1:cw,hot1:gcw,kam1:cw,nab2:cw"));
         let mut rand = seeded(11);
-        let mut req = BattleRequest::launch(&entries, true, &mut rand).unwrap();
+        let mut req = BattleRequest::launch(&entries, true, &mut rand)?;
         let mut laps = Vec::new();
 
         for _ in 0..4 {
-            let lap_rotation = format_rotation(&req.playlist.as_ref().unwrap().entries);
+            let lap_rotation = format_rotation(
+                &req.playlist
+                    .as_ref()
+                    .ok_or("missing playlist")?
+                    .entries,
+            );
             let mut played = Vec::new();
             for i in 0..entries.len() {
-                let pl = req.playlist.as_ref().unwrap();
+                let pl = req.playlist.as_ref().ok_or("missing playlist")?;
                 assert_eq!(format_rotation(&pl.entries), lap_rotation);
                 assert_eq!(pl.round, i);
                 played.push(format!("{}:{}", req.map, req.era.as_deref().unwrap_or("")));
@@ -701,12 +747,14 @@ mod tests {
         // At least two of the 4 laps must have different shuffled orders.
         let unique: std::collections::BTreeSet<_> = laps.iter().collect();
         assert!(unique.len() > 1);
-        assert!(req.playlist.as_ref().unwrap().random);
+        assert!(req.playlist.as_ref().ok_or("missing playlist")?.random);
+        Ok(())
     }
 
     #[test]
-    fn next_without_playlist_restarts_same_battle_and_converts_to_battle_options() {
-        let mut single = BattleRequest::single("nab2", Some("cw")).unwrap();
+    fn next_without_playlist_restarts_same_battle_and_converts_to_battle_options()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut single = BattleRequest::single("nab2", Some("cw"))?;
         single.side = Some("rep".to_string());
         assert_eq!(single.next(seeded(1)), single);
 
@@ -714,5 +762,6 @@ mod tests {
         assert_eq!(opts.map, "nab2");
         assert_eq!(opts.era(), "cw");
         assert_eq!(opts.side, "rep");
+        Ok(())
     }
 }

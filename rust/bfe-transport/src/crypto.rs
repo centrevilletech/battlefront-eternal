@@ -9,10 +9,13 @@ use hmac::{Hmac, Mac};
 use sha2::{Sha256,Digest};
 use crate::{Error,Result};
 use crate::layout::limits as lim;
+// ASN.1 SubjectPublicKeyInfo (SPKI) prefix for a 32-byte Ed25519 public key (RFC 8410).
 const ED_PREFIX:[u8;12]=[0x30,0x2a,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x03,0x21,0x00];
+// ASN.1 PKCS#8 v1 prefix wrapping a 32-byte Ed25519 private seed (RFC 8410).
 const PKCS8_PREFIX: [u8; 16] = [
     0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
 ];
+// Version header sent on signed master HTTP requests (`x-bfe-notice`).
 const NOTICE_VERSION: &str = "2026-10-11";
 type HmacSha256 = Hmac<Sha256>;
 // Entropy failure is a failed connection, never a deterministic replacement
@@ -21,6 +24,7 @@ pub fn random<const N:usize>()->Result<[u8;N]>{let mut bytes=[0;N];getrandom::ge
 // Transcript parts concatenate without a separator. Labels and fixed wire
 // spans provide the domain and boundaries that both implementations sign.
 pub fn hash(parts:&[&[u8]])->[u8;32]{let mut h=Sha256::new();for part in parts{h.update(part);}h.finalize().into()}
+// Format a byte slice as lowercase hexadecimal without per-byte heap allocations.
 pub fn hex_lower(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -40,6 +44,7 @@ pub fn expand<const N:usize>(secret:&[u8;32],label:&[u8])->Result<[u8;N]>{
     let mut out=[0;N];Hkdf::<Sha256>::from_prk(secret).map_err(|_|Error("invalid traffic secret"))?
         .expand(&info[..prefix.len()+label.len()],&mut out).map_err(|_|Error("invalid key expansion"))?;Ok(out)
 }
+// Long-term Ed25519 transport identity with its 44-byte SPKI DER and 32-byte SHA-256 id.
 #[derive(Clone)]
 pub struct Identity{key:SigningKey,pub der:[u8;44],pub id:[u8;32]}
 impl Identity{
@@ -80,11 +85,15 @@ impl Identity{
         }
         Ok(id)
     }
+    // Generate a fresh random Ed25519 identity from OS entropy.
     pub fn generate()->Result<Self>{Ok(Self::from_seed(random()?))}
+    // Return the raw 32-byte Ed25519 private seed for local persistence.
     pub fn seed(&self)->[u8;32]{self.key.to_bytes()}
+    // Encode the 44-byte SPKI DER public key as standard base64 (`identity.json` `publicKey`).
     pub fn public_key_base64(&self) -> String {
         STANDARD.encode(self.der)
     }
+    // Encode the 32-byte seed in a PKCS#8 PEM block (`identity.json` `privateKey`).
     pub fn private_key_pem(&self) -> String {
         let mut pkcs8 = [0u8; 48];
         pkcs8[..16].copy_from_slice(&PKCS8_PREFIX);
@@ -94,6 +103,7 @@ impl Identity{
             STANDARD.encode(pkcs8)
         )
     }
+    // Lowercase 64-character hex string of `self.id`, matching `crypto.js` `identityId`.
     pub fn id_hex(&self) -> String {
         hex_lower(&self.id)
     }
@@ -167,6 +177,8 @@ pub fn verify_spki_base64(public_key_b64: &str, message: &[u8], signature_b64: &
     vk.verify_strict(message, &Signature::from_bytes(&sig_arr))
         .is_ok()
 }
+// Validate a 44-byte Ed25519 SPKI DER encoding, rejecting non-canonical y coordinates
+// and small-order torsion points just as `crypto.js` `publicIdentity` / `weakEd25519` do.
 pub fn public_identity(der:&[u8])->Result<([u8;32],VerifyingKey)>{
     if der.len()!=44||der[..12]!=ED_PREFIX{return Err(Error("invalid identity"));}
     let raw:[u8;32]=der[12..].try_into().map_err(|_|Error("invalid identity"))?;
@@ -196,12 +208,16 @@ pub struct RetryTokens {
     pub lifetime_ms: f64,
 }
 impl RetryTokens {
+    // Create a retry token minter/verifier with a fresh random 32-byte secret and 10 s lifetime.
     pub fn new() -> Result<Self> {
         Ok(Self::from_secret(random()?, 10_000.0))
     }
+    // Construct a retry token minter/verifier from an explicit secret and lifetime in ms.
     pub fn from_secret(secret: [u8; 32], lifetime_ms: f64) -> Self {
         Self { secret, lifetime_ms }
     }
+    // Compute the keyed HMAC over `${String(time)}|${source}|${session}` followed by the
+    // 32-byte ephemeral public key, matching `crypto.js` `RetryTokens.mac`.
     fn mac(&self, time: f64, source: &str, session: u32, ephemeral: &[u8; 32]) -> HmacSha256 {
         let time_text = if time == 0.0 {
             "0".to_string()
@@ -211,12 +227,14 @@ impl RetryTokens {
             format!("{time}")
         };
         let prefix = format!("{time_text}|{source}|{session}");
+        // Invariant: self.secret is a fixed [u8; 32] array and HMAC-SHA256 accepts keys of any length.
         let mut mac =
             <HmacSha256 as Mac>::new_from_slice(&self.secret).expect("32-byte HMAC key");
         mac.update(prefix.as_bytes());
         mac.update(ephemeral);
         mac
     }
+    // Mint a 24-byte stateless retry cookie: 8-byte LE timestamp + 16-byte truncated HMAC tag.
     pub fn mint(
         &self,
         source: &str,
@@ -233,6 +251,8 @@ impl RetryTokens {
         out[8..24].copy_from_slice(&digest[..16]);
         out
     }
+    // Verify that `token` is 24 bytes, within `[now - lifetime_ms, now + 1000]`, and authentic
+    // in constant time for `(source, session, ephemeral)`.
     pub fn check(
         &self,
         token: &[u8],
@@ -244,7 +264,10 @@ impl RetryTokens {
         if token.len() != 24 {
             return false;
         }
-        let time = f64::from_le_bytes(token[..8].try_into().unwrap());
+        let Ok(time_bytes) = token[..8].try_into() else {
+            return false;
+        };
+        let time = f64::from_le_bytes(time_bytes);
         if !time.is_finite() || time > now + 1000.0 || now - time > self.lifetime_ms {
             return false;
         }
@@ -253,9 +276,11 @@ impl RetryTokens {
             .is_ok()
     }
 }
+// Per-direction AES-256-GCM traffic cipher with HKDF-expanded key and 12-byte static IV.
 #[derive(Clone)]
 pub struct Aead{secret:[u8;32],cipher:Aes256Gcm,iv:[u8;lim::IV_BYTES]}
 impl Aead{
+    // Derive the 32-byte AES-256 key (`bfe-udp1 key`) and 12-byte IV (`bfe-udp1 iv`) from `secret`.
     pub fn new(secret:[u8;32])->Result<Self>{
         let key=expand::<32>(&secret,b"key")?;let iv=expand(&secret,b"iv")?;
         Ok(Self{secret,cipher:Aes256Gcm::new_from_slice(&key).map_err(|_|Error("invalid encryption key"))?,iv})
@@ -266,9 +291,10 @@ impl Aead{
     // Only the last network-order word changes. Packet numbers never repeat
     // for one key, even when its plaintext is retransmitted in a newer packet.
     fn nonce(&self,number:u32)->[u8;lim::IV_BYTES]{
-        let mut out=self.iv;let tail=u32::from_be_bytes(self.iv[8..].try_into().unwrap())^number;
+        let mut out=self.iv;let tail=u32::from_be_bytes([self.iv[8],self.iv[9],self.iv[10],self.iv[11]])^number;
         out[8..].copy_from_slice(&tail.to_be_bytes());out
     }
+    // Encrypt `body` in place with `header` as AAD, returning the 16-byte authentication tag.
     pub fn seal(&self,header:&[u8],number:u32,body:&mut[u8])->Result<[u8;lim::TAG]>{
         self.cipher.encrypt_in_place_detached(Nonce::from_slice(&self.nonce(number)),header,body)
             .map(Into::into).map_err(|_|Error("packet encryption failed"))

@@ -26,7 +26,10 @@ use bfe_content::value::{Object, Value};
 use std::rc::Rc;
 
 /// Converts a `serde_json::Value` into a `bfe_content::Value` so JSON manifests
-/// loaded by `serde_json` can be queried with `bfe_content::mission`.
+/// (`map.json` / `world.json` and `ai-mission.json`) loaded by `serde_json` can
+/// be queried with `bfe_content::mission` without re-parsing raw JSON text.
+/// Numbers that cannot be represented as finite `f64` fall back to `0.0`, and
+/// arrays/objects are wrapped in reference-counted `bfe_content` containers.
 pub fn to_content_value(json: &serde_json::Value) -> Value {
     match json {
         serde_json::Value::Null => Value::Null,
@@ -46,8 +49,12 @@ pub fn to_content_value(json: &serde_json::Value) -> Value {
     }
 }
 
-/// Builds a [`Query`] from a [`BattleRequest`]'s `mission`, `era`, and `side`
-/// fields.
+/// Builds a [`Query`] from a [`BattleRequest`]'s non-empty `mission`, `era`,
+/// and `side` fields, matching the `reader(query)` key lookup in `src/mission.js`:
+/// - `mission=<name>` selects an explicit sub-level (including historical campaigns).
+/// - `era=cw` or `era=gcw` selects that era's regular battle on the map.
+/// - `side=<id>` selects the era of that army (`rep`/`cis` -> `cw`, `all`/`imp` -> `gcw`)
+///   or, for a local faction, the regular battle whose `sides` list includes it.
 pub fn query_for_request(request: &BattleRequest) -> Query {
     let mut parts = Vec::new();
     if let Some(m) = request.mission.as_deref().filter(|s| !s.is_empty()) {
@@ -62,21 +69,24 @@ pub fn query_for_request(request: &BattleRequest) -> Query {
     Query::parse(&parts.join("&"))
 }
 
-/// Lists the battles on a map from a `serde_json::Value` (`world.json` / `map.json`).
+/// Lists the battles on a map from a `serde_json::Value` (`world.json` / `map.json`),
+/// sorted in UTF-16 code-unit order of sub-level name with `playable = !mission.world`.
 /// Mirrors `battlesOf(world)` in `src/mission.js`.
 pub fn battles_of_json(world: &serde_json::Value) -> Vec<BattleInfo> {
     let val = to_content_value(world);
     battles_of(&val)
 }
 
-/// Picks which mission sub-level a [`BattleRequest`] plays on `world`.
+/// Picks which mission sub-level a [`BattleRequest`] plays on `world`, ordering
+/// `DEFAULT_ERA` (`"cw"`) ahead of other eras when no explicit override matches.
 /// Mirrors `pickMission(world, query)` in `src/mission.js`.
 pub fn pick_mission_for_request(world: &Value, request: &BattleRequest) -> Option<String> {
     let query = query_for_request(request);
     pick_mission(world, &query)
 }
 
-/// Picks which mission sub-level a [`Query`] plays on a `serde_json::Value` world.
+/// Picks which mission sub-level a [`Query`] plays on a `serde_json::Value` world,
+/// returning `world.mission.name` for single-mission legacy imports without `missions`.
 /// Mirrors `pickMission(world, query)` in `src/mission.js`.
 pub fn pick_mission_json(world: &serde_json::Value, query: &Query) -> Option<String> {
     let val = to_content_value(world);
@@ -135,7 +145,8 @@ mod tests {
     }
 
     #[test]
-    fn pick_mission_defaults_to_clone_wars_and_never_picks_historical_unless_named() {
+    fn pick_mission_defaults_to_clone_wars_and_never_picks_historical_unless_named()
+    -> Result<(), Box<dyn std::error::Error>> {
         let world = to_content_value(&sample_world());
 
         // Default query chooses Clone Wars (bes2r).
@@ -163,7 +174,7 @@ mod tests {
         );
 
         // BattleRequest helper resolves the same mission.
-        let mut req = BattleRequest::single("bes2", Some("gcw")).unwrap();
+        let mut req = BattleRequest::single("bes2", Some("gcw"))?;
         assert_eq!(
             pick_mission_for_request(&world, &req).as_deref(),
             Some("bes2a")
@@ -173,5 +184,6 @@ mod tests {
             pick_mission_for_request(&world, &req).as_deref(),
             Some("bes2a_h")
         );
+        Ok(())
     }
 }

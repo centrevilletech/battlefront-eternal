@@ -1,4 +1,13 @@
 //! High-level Classic spawn screen controller (`src/spawn-screen/index.js` `createSpawnScreen`).
+//!
+//! Coordinates the spawn screen's lifecycle between the battle world (`SpawnPort`),
+//! the pure state machine (`SpawnModel`), keyboard/mouse input (`SpawnInput`), and
+//! the 2004 `ifs_spawndisplay` view (`ClassicSpawnView`).
+//!
+//! While the screen is open, player movement controls are disabled (`controls_enabled = false`)
+//! and cleared, and the world camera views the battlefield from the mission's overview
+//! camera shots (`AddCameraShot`). When the player commits a spawn choice, a 1-second
+//! watchdog (`COMMIT_WAIT`) withdraws the request if the world fails to spawn the unit.
 
 use crate::shapes::{GameFamily, GameFamilyError};
 use crate::spawn::input::{SpawnInput, SpawnInputAction};
@@ -15,9 +24,13 @@ use crate::spawn::view::{ClassicSpawnView, SpawnSound};
 /// - Spectator and battle-over guards
 /// - Sound event queue (`SpawnDisplaySpawnPointChange`, `SpawnDisplaySpawnPointAccept`)
 pub struct SpawnScreenController {
+    /// Active game family (`Swbf1` in 2004 Classic mode).
     pub family: GameFamily,
+    /// Pure spawn selection state machine (`Closed`, `Choosing`, `Committed`).
     pub model: SpawnModel,
+    /// Keyboard, mouse wheel, and software cursor input state.
     pub input: SpawnInput,
+    /// 2004 `ifs_spawndisplay` view state and animation clocks.
     pub view: ClassicSpawnView,
     pub controls_enabled: bool,
     pub controls_cleared: u32,
@@ -34,6 +47,8 @@ impl Default for SpawnScreenController {
 }
 
 impl SpawnScreenController {
+    /// Creates a new controller for the 2004 Classic game family (`Swbf1`) at
+    /// interface height `height`.
     pub fn new(height: f64) -> Self {
         Self {
             family: GameFamily::Swbf1,
@@ -77,12 +92,17 @@ impl SpawnScreenController {
         }
     }
 
+    /// Whether the spawn screen is currently in the `Choosing` or `Committed` state.
     #[inline]
     pub fn is_open(&self) -> bool {
         self.model.is_open()
     }
 
     /// Opens the spawn screen (`open(reason)` in `src/spawn-screen/index.js`).
+    ///
+    /// Resets per-open input state (warping the software cursor back to `(512, H / 2)`
+    /// while preserving held keys), disables in-battle player controls, and switches
+    /// the camera to the next mission overview shot.
     pub fn open(&mut self, port: &mut dyn SpawnPort, reason: OpenReason, height: f64) {
         let state = port.human_state();
         if state.spectator || state.over {
@@ -115,6 +135,10 @@ impl SpawnScreenController {
 
     /// Commits the current choice and sends it to `port` (`spawn()` in
     /// `src/spawn-screen/index.js`).
+    ///
+    /// Increments `controls_locks` so the host can re-lock the pointer inside the
+    /// user gesture, queues `SpawnDisplaySpawnPointAccept`, and sends the request
+    /// to `port.request(&choice)`.
     pub fn spawn(&mut self, port: &mut dyn SpawnPort) -> Option<SpawnRequest> {
         if port.human_state().spectator {
             return None;
@@ -146,6 +170,11 @@ impl SpawnScreenController {
 
     /// Steps the spawn screen by `dt` seconds (`update(dt)` in
     /// `src/spawn-screen/index.js`).
+    ///
+    /// Withdraws any pending committed request if the player enters spectator mode,
+    /// the battle ends, or `COMMIT_WAIT` (1.0 s) elapses without the world spawning
+    /// the unit; otherwise re-validates the picked command post, steps input and
+    /// hit-testing, and advances the view's flashy title and logo animations.
     pub fn update(
         &mut self,
         dt: f64,
@@ -198,6 +227,8 @@ impl SpawnScreenController {
         self.view.update(dt, &self.model);
     }
 
+    /// Rotates through the mission's `AddCameraShot` overview camera placements
+    /// each time the spawn screen opens.
     fn pick_camera_shot(&mut self, port: &mut dyn SpawnPort) {
         let shots = port.camera_shots();
         let shot = if !shots.is_empty() {
@@ -210,6 +241,8 @@ impl SpawnScreenController {
         port.set_view_shot(shot);
     }
 
+    /// Drains [`SpawnEvent`]s emitted by [`SpawnModel`] and forwards them to
+    /// [`ClassicSpawnView`] animations and the controller's sound effect queue.
     fn sync_model_events(&mut self) {
         for ev in self.model.drain_events() {
             match ev {

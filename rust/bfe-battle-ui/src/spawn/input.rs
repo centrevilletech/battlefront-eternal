@@ -43,14 +43,22 @@ pub enum SpawnHitTarget {
 pub struct SpawnKeyMask(u8);
 
 impl SpawnKeyMask {
+    /// `ArrowUp` key bit (previous soldier class).
     pub const UP: u8 = 1 << 0;
+    /// `ArrowDown` key bit (next soldier class).
     pub const DOWN: u8 = 1 << 1;
+    /// `ArrowLeft` key bit (switch team).
     pub const LEFT: u8 = 1 << 2;
+    /// `ArrowRight` key bit (switch team).
     pub const RIGHT: u8 = 1 << 3;
+    /// `Tab` key bit (cycle eligible command posts).
     pub const TAB: u8 = 1 << 4;
+    /// `Space` key bit (commit spawn selection).
     pub const SPACE: u8 = 1 << 5;
+    /// Combined mask of class and team navigation keys subject to the 1-frame `skip_nav` cooldown.
     pub const NAV: u8 = Self::UP | Self::DOWN | Self::LEFT | Self::RIGHT;
 
+    /// Maps a DOM `KeyboardEvent.code` string to its bit in [`SpawnKeyMask`].
     #[inline]
     pub fn from_code(code: &str) -> Option<u8> {
         match code {
@@ -64,11 +72,13 @@ impl SpawnKeyMask {
         }
     }
 
+    /// Sets `bit` in the key mask.
     #[inline]
     pub fn insert(&mut self, bit: u8) {
         self.0 |= bit;
     }
 
+    /// Clears `bit` from the key mask.
     #[inline]
     pub fn remove(&mut self, bit: u8) {
         self.0 &= !bit;
@@ -107,12 +117,19 @@ pub struct SpawnInput {
     /// Currently held keys (persists across `reset()` so `Space` held before
     /// opening still spawns).
     pub held: SpawnKeyMask,
+    /// Keys pressed down during the current frame before `update(dt)` runs.
     pressed: SpawnKeyMask,
+    /// Mouse wheel step direction queued for this frame (`-1` up, `0` none, `+1` down).
     wheel_dir: i32,
+    /// Interface coordinates `[x, y]` of a left-click or `Enter` press queued for `update(dt)`.
     clicked: Option<[f64; 2]>,
+    /// Whether `Enter` / `NumpadEnter` was pressed on this frame.
     enter_pressed: bool,
+    /// Whether the pointer has moved since `reset()`, enabling `Enter`-to-click.
     cursor_moved: bool,
+    /// Countdown timer (in seconds) until held `Tab` cycles to the next command post.
     tab_timer: Option<f64>,
+    /// Cooldown flag that suppresses class/team navigation on the frame after a nav step.
     skip_nav: bool,
 }
 
@@ -123,6 +140,7 @@ impl Default for SpawnInput {
 }
 
 impl SpawnInput {
+    /// Creates a new `SpawnInput` with the cursor centered at `(512, height / 2)`.
     pub fn new(height: f64) -> Self {
         let mut s = Self {
             cursor: [512.0, height * 0.5],
@@ -140,6 +158,9 @@ impl SpawnInput {
     }
 
     /// Resets per-open state while preserving `self.held` (`SpawnInput.reset`).
+    ///
+    /// Warps the cursor back to `(512, height / 2)` as the 2004 PC game does on open,
+    /// and clears `cursor_moved` so pressing `Enter` without moving the mouse is a no-op.
     pub fn reset(&mut self, height: f64) {
         self.cursor = [512.0, height * 0.5];
         self.cursor_moved = false;
@@ -148,6 +169,7 @@ impl SpawnInput {
         self.clear_frame();
     }
 
+    /// Clears transient per-frame key presses, wheel delta, and queued click coordinates.
     fn clear_frame(&mut self) {
         self.pressed.clear();
         self.wheel_dir = 0;
@@ -172,6 +194,8 @@ impl SpawnInput {
     where
         F: FnMut(f64, f64) -> Option<SpawnHitTarget>,
     {
+        // Track held keys even while inactive so holding Space during the death camera
+        // spawns on the first frame the screen opens.
         if let Some(bit) = SpawnKeyMask::from_code(code) {
             if down {
                 self.held.insert(bit);
@@ -294,10 +318,12 @@ impl SpawnInput {
         }
         let mut action = SpawnInputAction::None;
 
+        // Enter acts as a left-click at the cursor, provided the cursor has moved off center.
         if self.enter_pressed && self.cursor_moved {
             self.clicked = Some(self.cursor);
         }
 
+        // Dispatch any queued hotspot click to the model.
         if let Some([cx, cy]) = self.clicked {
             if let Some(target) = hit(model, cx, cy) {
                 match target {
@@ -321,6 +347,7 @@ impl SpawnInput {
             action = SpawnInputAction::Spawn;
         }
 
+        // Tab cycles command posts immediately on press, then repeats every TAB_REPEAT (0.2 s).
         if self.pressed.contains(SpawnKeyMask::TAB) {
             model.cycle_post(port);
             self.tab_timer = Some(TAB_REPEAT);
@@ -335,6 +362,7 @@ impl SpawnInput {
             }
         }
 
+        // Enforce the 1-frame navigation cooldown (`skip_nav`) from `ifs_spawndisplay`.
         let had_nav = self.pressed.contains(SpawnKeyMask::NAV) || self.wheel_dir != 0;
         if self.skip_nav {
             self.skip_nav = had_nav;

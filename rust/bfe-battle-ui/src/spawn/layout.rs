@@ -75,6 +75,10 @@ pub struct LogoHitBox {
 }
 
 /// Positions, scales, and hotspot of the two spinning team logos.
+///
+/// The original game's hotspot is a 38.4-unit square between the logos that only
+/// reaches their inner halves; this layout uses a wider box covering both logos
+/// (`half_x = 0.05 * sw + 60`, `half_y = 55`) while staying clear of the windows.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LogosLayout {
     pub own: [f64; 2],
@@ -86,6 +90,9 @@ pub struct LogosLayout {
 
 /// Complete Classic spawn screen layout (`src/spawn-screen/classic/layout.js`
 /// `classicLayout`).
+///
+/// Every vertical coordinate scales with interface height `h` (`768` at 4:3,
+/// `576` at 16:9) so widescreen aspect ratios preserve the 90% safe-area framing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClassicSpawnLayout {
     pub h: f64,

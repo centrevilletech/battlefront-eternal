@@ -1,4 +1,11 @@
 //! Classic spawn screen module (`src/spawn-screen/`).
+//!
+//! Groups the pure state machine (`model`), startup URL/mission policy (`policy`),
+//! keyboard/mouse input state (`input`), 2004 `ifs_spawndisplay` 9-slice and
+//! tilted-window geometry (`layout`), HUD quad and 3D hologram/preview view
+//! (`view`), and top-level controller (`controller`).
+//! All submodules re-export their public types and constants at the `spawn`
+//! root so callers can import from `bfe_battle_ui::spawn::*` or the crate root.
 
 pub mod controller;
 pub mod input;

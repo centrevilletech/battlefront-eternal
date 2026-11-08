@@ -1,4 +1,23 @@
 // Classic scoreboard view (`ClassicView` in `src/scoreboard/classic/view.js`).
+//
+// Owns the visual presentation state of the 2004 Classic scoreboard (`ifs_teamstats`,
+// `ifs_personalstats`, and `ifs_awardstats`):
+// - `intros`: a `2 x MAX_VISIBLE_ROWS x 5` table of `TitleIntro` instances for every visible
+//   cell (`[name, kills, deaths, points, ping]`) on both team sides, restarted with a deterministic
+//   `0.0..=0.15s` delay whenever the main `Table` page opens or returns from `DETAILS`/`AWARDS`.
+// - `logos` and `icons`: 3D command-post hologram slots (`com_icon_republic`, `com_icon_cis`,
+//   `com_icon_imperial`, `com_icon_alliance`) driven by linear [`Flight`] trajectories.
+//   On `Table`, the two team logos grow from half size (`alpha = 0.0 -> 0.2`) over `0.4s` and spin
+//   at `0.3` (left) and `0.25` (right) `OmegaY` (`30 deg/s` per unit). Entering `DETAILS` flies
+//   the inspected team's logo at `20 OmegaY` (`600 deg/s`) to the top corner at half size
+//   (`alpha = 0.4`), and returning to `Table` flies it back from `(at.x +- 0.15 * safe.w, at.y - 0.3 * safe.h)`.
+//   Entering `AWARDS` spawns up to 8 mini team logos (`size = 0.2`, `alpha = 0.3`) that fly from
+//   each winner's team logo position to the center gap at `+-20 OmegaY` before settling to a
+//   deterministic per-row spin in `[-0.45, +0.45]`.
+// - Hover animations (`hover_alpha`): hovered column sort icons and scroll arrows blink
+//   asymmetrically (`0.4 -> 1.0` over `0.4s`, back to `0.4` over `0.2s`, matching `IFObj_UpdateBlinkyAnim`),
+//   while hovered action buttons (`DONE`, `BACK`, `DETAILS`, `AWARDS`) pulse with a symmetric
+//   triangle wave between `0.3` and `1.0` at `2.0` units/sec.
 
 use super::input::ScoreboardHitTarget;
 use super::layout::{
@@ -16,35 +35,80 @@ use crate::shapes::{
 pub use super::controller::ScoreboardController;
 pub use super::pages::LogoPlacement;
 
+/// Row text color for AI bots (`rgba(128, 128, 128)` in `src/scoreboard/classic/view.js`).
 pub(crate) const BOT_COLOR: [f64; 4] = [128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0];
+
+/// Row text color for non-local human players (`rgba(223, 255, 32)` yellow in `src/scoreboard/classic/view.js`; local player uses `WHITE`).
 pub(crate) const HUMAN_COLOR: [f64; 4] = [223.0 / 255.0, 223.0 / 255.0, 32.0 / 255.0, 1.0];
+
+/// Friendly team 3D hologram tint (`GREEN` in `src/scoreboard/classic/view.js`).
 const GREEN_RGB: [f32; 3] = [32.0 / 255.0, 223.0 / 255.0, 32.0 / 255.0];
+
+/// Enemy team 3D hologram tint (`RED` in `src/scoreboard/classic/view.js`).
 const RED_RGB: [f32; 3] = [223.0 / 255.0, 32.0 / 255.0, 32.0 / 255.0];
+
+/// Neutral team 3D hologram tint (`GREY` in `src/scoreboard/classic/view.js`).
 const GREY_RGB: [f32; 3] = [192.0 / 255.0, 192.0 / 255.0, 192.0 / 255.0];
 
+/// Horizontal glyph scale (`HScale = 0.8`) applied to player names and numeric columns on `Table`.
 pub(crate) const ROW_SCALE: f64 = 0.8;
+
+/// Maximum stagger delay in seconds before a table cell starts its `TitleIntro` (`INTRO_DELAY = 0.15`).
 const INTRO_DELAY: f64 = 0.15;
+
+/// Shell entry transition duration in seconds (`gShellAnimTime = 0.4s`, `ENTRY` in `src/scoreboard/classic/view.js`).
 pub(crate) const ENTRY: f64 = 0.4;
+
+/// Resting opacity of the two main team hologram logos on `Table` (`LOGO_ALPHA = 0.2`).
 const LOGO_ALPHA: f64 = 0.2;
+
+/// Resting spin rate (`0.3 * 30 deg/s = 9 deg/s`) for Team 1's left logo (`REST[1]` in `src/scoreboard/classic/view.js`).
 const REST_LEFT: f64 = 0.3;
+
+/// Resting spin rate (`0.25 * 30 deg/s = 7.5 deg/s`) for Team 2's right logo (`REST[2]` in `src/scoreboard/classic/view.js`).
 const REST_RIGHT: f64 = 0.25;
+
+/// Minimum opacity of the pulsing selection frame (`listbox_cursor`) on the right-hand list (`PULSE_LOW = 0.5`).
 pub(crate) const PULSE_LOW: f64 = 0.5;
+
+/// Minimum opacity of a hovered sort icon or scroll arrow (`BLINK.low = 0.4`).
 const BLINK_LOW: f64 = 0.4;
+
+/// Ramp-up duration in seconds (`0.4 -> 1.0`) for hovered sort icons and scroll arrows (`BLINK.up = 0.4`).
 const BLINK_UP: f64 = 0.4;
+
+/// Ramp-down duration in seconds (`1.0 -> 0.4`) for hovered sort icons and scroll arrows (`BLINK.down = 0.2`).
 const BLINK_DOWN: f64 = 0.2;
+
+/// Minimum opacity of a hovered bottom action button (`BUTTON_LOW = 0.3`).
 const BUTTON_LOW: f64 = 0.3;
+
+/// Triangle-wave rate in opacity units per second for a hovered button (`BUTTON_RATE = 2.0`).
 const BUTTON_RATE: f64 = 2.0;
+
+/// Side length in interface units of the `mousecursor` sprite (`POINTER = 32.0`).
 pub(crate) const POINTER_SIZE: f64 = 32.0;
+
+/// Multiplier narrowing `list.name_w` (`0.65 * inner` -> `0.50 * inner`) when the network `PING` column is shown.
 pub(crate) const PING_NAME_SHARE: f64 = 0.5 / 0.65;
+
+/// Landed scale multiplier for the 8 mini team logos on `AWARDS` (`AWARD_ICON = 0.2`).
 const AWARD_ICON_SIZE: f64 = 0.2;
+
+/// Maximum visible rows supported per team side in the pre-allocated `intros` table (`16` at 768p, `13` at 624p).
 pub(crate) const MAX_VISIBLE_ROWS: usize = 24;
 
+/// Texture names and sort modes for the three column header icons (`HEADERS` in `src/scoreboard/classic/view.js`).
 pub(crate) const HEADERS: [(&str, SortMode); 3] = [
     ("stats_kills", SortMode::Kills),
     ("stats_deaths", SortMode::Deaths),
     ("stats_cpp", SortMode::Points),
 ];
 
+/// Asymmetric hover blink waveform (`IFObj_UpdateBlinkyAnim`, `blink` in `src/scoreboard/classic/view.js`).
+///
+/// Ramps linearly from `0.4` to `1.0` over the first `0.4s` (`BLINK_UP`), then drops from `1.0`
+/// back to `0.4` over `0.2s` (`BLINK_DOWN`), repeating every `0.6s`.
 pub(crate) fn blink(t: f64) -> f64 {
     let period = BLINK_UP + BLINK_DOWN;
     let u = t.rem_euclid(period);
@@ -55,6 +119,10 @@ pub(crate) fn blink(t: f64) -> f64 {
     }
 }
 
+/// Symmetric triangle-wave pulse between `1.0` and `low` starting at `1.0` (`pulse` in `src/scoreboard/classic/view.js`).
+///
+/// Used both for Team 2's `listbox_cursor` selection frame (`low = 0.5`, `rate = 1.0`) and for
+/// hovered bottom buttons (`low = 0.3`, `rate = 2.0`).
 pub(crate) fn pulse(t: f64, low: f64, rate: f64) -> f64 {
     let span = 1.0 - low;
     let u = (t * rate).rem_euclid(2.0 * span);
@@ -66,36 +134,59 @@ pub(crate) fn pulse(t: f64, low: f64, rate: f64) -> f64 {
 }
 
 /// Button bounding box and label returned by `ClassicScoreboardView::button_box`.
+/// Button bounding box and label returned by `ClassicScoreboardView::button_box`
+/// (`buttonBox` in `src/scoreboard/classic/view.js`).
 #[derive(Clone, Debug)]
 pub struct ScoreButtonBox {
+    /// Hotspot target emitted when this button is hovered or clicked (`Details`, `Awards`, `Done`, or `Back`).
     pub kind: ScoreboardHitTarget,
+    /// Localized uppercase label string (`"DETAILS"`, `"AWARDS"`, `"DONE"`, or `"BACK"`).
     pub text: String,
+    /// Left X coordinate of the button's text and hit box in `1024xH` interface units.
     pub x0: f64,
+    /// Top Y coordinate of the button's text and hit box (`center_y - line_height / 2.0`).
     pub top: f64,
+    /// Measured text width in interface units.
     pub width: f64,
+    /// Font line height in interface units (`gamefont_small` for `DETAILS`, `gamefont_medium` for others).
     pub height: f64,
 }
 
+/// Internal 3D hologram model slot for a team logo (`self.logos`) or award icon (`self.icons`).
 #[derive(Clone, Debug)]
 pub(crate) struct LogoSlot {
+    /// Hologram model asset name (`"com_icon_republic"`, `"com_icon_cis"`, etc.).
     pub name: String,
+    /// Owning team number (`1` or `2`), used to resolve friendly/enemy/neutral hologram tint.
     pub team: i32,
+    /// Linear position/scale/opacity interpolation and Y-axis spin state (`Flight`).
     pub flight: Flight,
 }
 
 /// Classic scoreboard view (`ClassicView` in `src/scoreboard/classic/view.js`).
 pub struct ClassicScoreboardView {
+    /// Game family (`Swbf1` 2004 layout; `Swbf2` returns `GameFamilyError`).
     pub family: GameFamily,
+    /// Total elapsed seconds since `open()` was called on the view.
     pub time: f64,
+    /// Elapsed seconds since `enter_table()` last transitioned onto `BoardPage::Table`
+    /// (drives the `0.4s` `ENTRY` fade-in of sort headers and scroll arrows).
     pub entered: f64,
     /// `[side_idx][row_idx][col_idx]` flashy text intros (`intros` in `src/scoreboard/classic/view.js`).
     pub(crate) intros: [[[TitleIntro; 5]; MAX_VISIBLE_ROWS]; 2],
+    /// Compact hover key (`ScoreboardHitTarget::hover_key`) of the element currently under the cursor.
     pub(crate) hovered: Option<&'static str>,
+    /// Timestamp (`self.time`) when `self.hovered` last changed, anchoring the [`blink`] / [`pulse`] wave.
     pub(crate) hovered_at: f64,
+    /// Team 1 (`logos[0]`) and Team 2 (`logos[1]`) 3D hologram slots.
     pub(crate) logos: [Option<LogoSlot>; 2],
+    /// Up to 8 mini 3D team hologram slots displayed in the center gap on `BoardPage::Awards`.
     pub(crate) icons: Vec<LogoSlot>,
+    /// `DETAILS` (`ifs_personalstats`) sub-page renderer.
     pub details_page: StatsPage,
+    /// `AWARDS` (`ifs_awardstats`) sub-page renderer.
     pub awards_page: StatsPage,
+    /// True while the pause menu is open over the scoreboard, suppressing the scoreboard's `mousecursor`.
     pub hide_pointer: bool,
 }
 
@@ -130,6 +221,8 @@ impl ClassicScoreboardView {
         Ok(Self::new())
     }
 
+    /// Maps a faction key (`"rep"`, `"cis"`, `"imp"`, `"all"`) to its default command-post
+    /// hologram model name when `TeamHeader::logo` is `None` (`FALLBACK` in `src/scoreboard/classic/view.js`).
     fn fallback_logo(side: Option<&str>) -> Option<&'static str> {
         match side {
             Some("rep") => Some("com_icon_republic"),
@@ -142,6 +235,9 @@ impl ClassicScoreboardView {
 
     /// Initializes the view when the scoreboard opens (`open` in `src/scoreboard/classic/view.js`).
     pub fn open(&mut self, model: &mut ScoreboardModel, port: &dyn ScoreboardPort, height: f64) {
+        // Synchronize `model.shown` with the current resolution's visible row count (`16` at 768p,
+        // `13` at 624p) before ensuring the two 3D team hologram slots (`self.logos`) and starting
+        // the table cell `TitleIntro` and hologram fade-in flights.
         let layout = team_stats_layout_for_family(self.family, height)
             .unwrap_or_else(|_| team_stats_layout(height));
         model.shown = layout.shown;
@@ -150,6 +246,9 @@ impl ClassicScoreboardView {
         self.enter_table(None, height);
     }
 
+    /// Ensures `self.logos[0..2]` hold the current hologram model names for Team 1 and Team 2
+    /// (`ensureLogos` in `src/scoreboard/classic/view.js`), preserving an existing `LogoSlot`
+    /// (and its accumulated `spin`) when the model name has not changed.
     fn ensure_logos(&mut self, port: &dyn ScoreboardPort) {
         let teams = port.teams();
         for (idx, team_num) in [1i32, 2i32].into_iter().enumerate() {
@@ -176,6 +275,13 @@ impl ClassicScoreboardView {
         }
     }
 
+    /// Rebuilds the 8 mini award hologram slots (`self.icons`) when entering `AWARDS`
+    /// (`ensureIcons` in `src/scoreboard/classic/view.js`).
+    ///
+    /// For each award with a winning `team` (`1` or `2`), starts a `Flight` from that team's
+    /// table logo position (`size = table.logo_size`, `alpha = 0.2`) to `page_layout.icons[k]`
+    /// (`size = 0.2`, `alpha = 0.3`) over `ENTRY` (`0.4s`), spinning at `+-20 OmegaY` (`+-600 deg/s`)
+    /// with `rest = None` until the flights land.
     fn ensure_icons(&mut self, awards: &[AwardRow], port: &dyn ScoreboardPort, height: f64) {
         self.icons.clear();
         let teams = port.teams();
@@ -221,6 +327,10 @@ impl ClassicScoreboardView {
 
     /// Replays row intros and starts logo flights when entering `Table` (`enterTable` in `src/scoreboard/classic/view.js`).
     pub fn enter_table(&mut self, returning_side: Option<usize>, height: f64) {
+        // Reset `self.entered = 0.0` so column sort headers and scroll arrows fade in over
+        // `ENTRY` (`0.4s`), and start every visible cell's `TitleIntro` (`side_idx` 0..2,
+        // row `k` 0..shown, column `col` 0..5 for `[name, kills, deaths, points, ping]`)
+        // with a deterministic pseudo-random delay in `[0.0, INTRO_DELAY]` (`0.0..=0.15s`).
         self.entered = 0.0;
         let layout = team_stats_layout(height);
         let shown = layout.shown.min(MAX_VISIBLE_ROWS);
@@ -232,6 +342,11 @@ impl ClassicScoreboardView {
                 }
             }
         }
+        // Launch the two team hologram flights (`enterTable` in `src/scoreboard/classic/view.js`):
+        // - If returning from `DETAILS` on `returning_side == Some(side)`, that side's logo flies
+        //   back from `(at.x +- 0.15 * safe.w, at.y - 0.3 * safe.h)` at half size, `alpha = 0.4`,
+        //   and fast spin (`omega = 20.0`).
+        // - Otherwise the logo grows in place at `at` from half size and `alpha = 0.0` (`omega = 1.0`).
         let full = layout.logo_size;
         for (idx, side) in [1usize, 2usize].into_iter().enumerate() {
             if let Some(logo) = &mut self.logos[idx] {
@@ -289,6 +404,10 @@ impl ClassicScoreboardView {
             self.enter_table(returning, height);
             return;
         }
+        // Transitioning to `DETAILS`: open `self.details_page` with the inspected character's
+        // personal stat rows and fly that character's team hologram logo from its table center
+        // (`at`) to the top window corner (`corner`) at half size (`table.logo_size / 2.0`),
+        // `alpha = 0.4`, fast transit spin (`omega = 20.0`), and resting spin `0.3`.
         if page == BoardPage::Details {
             let slot = model.subject.as_ref().map(|s| s.slot).unwrap_or(0);
             let rows = port
@@ -328,6 +447,8 @@ impl ClassicScoreboardView {
             }
             return;
         }
+        // Transitioning to `AWARDS`: open `self.awards_page` with the 8 formatted award rows
+        // and launch the mini team-logo flights from each winner's side to `page_layout.icons[k]`.
         if page == BoardPage::Awards {
             let award_rows = port.awards();
             let rows = award_rows
@@ -352,6 +473,9 @@ impl ClassicScoreboardView {
         surface: &dyn BattleUiSurface,
         cursor: [f64; 2],
     ) {
+        // Step the view's master clock `time` and table-entry clock `entered`, refresh
+        // `model.shown` from the current interface height, and advance all active table-cell
+        // `TitleIntro` animations and 3D team logo `Flight` state machines by `dt` seconds.
         self.time += dt;
         self.entered += dt;
         let layout = team_stats_layout(surface.height());
@@ -367,6 +491,8 @@ impl ClassicScoreboardView {
         for logo in self.logos.iter_mut().flatten() {
             logo.flight.update(dt);
         }
+        // Once the first award icon finishes its 0.4s flight (`!flying()`), assign each icon a
+        // deterministic resting spin rate in `[-0.45, +0.45]` (`update` in `src/scoreboard/classic/view.js`).
         let landed = self
             .icons
             .first()
@@ -400,6 +526,9 @@ impl ClassicScoreboardView {
             BoardPage::Table => {}
         }
 
+        // Hit-test the current cursor position to update `self.hovered`. Whenever the hovered
+        // element's key changes, record `self.hovered_at = self.time` so `hover_alpha` starts
+        // its blink or pulse waveform cleanly from `t = 0.0` (`1.0` initial opacity).
         let target = self.hit(cursor[0], cursor[1], model, port, surface);
         let key = target.map(|t| t.hover_key());
         if key != self.hovered {
@@ -408,6 +537,10 @@ impl ClassicScoreboardView {
         }
     }
 
+    /// Returns the opacity multiplier for hotspot `key` (`hoverAlpha` in `src/scoreboard/classic/view.js`).
+    ///
+    /// Non-hovered elements render at `1.0`; hovered buttons pulse via [`pulse`] (`0.3..=1.0`),
+    /// and hovered sort icons / scroll arrows blink via [`blink`] (`0.4..=1.0`).
     pub(crate) fn hover_alpha(&self, key: &str, is_button: bool) -> f64 {
         if self.hovered != Some(key) {
             return 1.0;
@@ -427,6 +560,11 @@ impl ClassicScoreboardView {
         port: &dyn ScoreboardPort,
         surface: &dyn BattleUiSurface,
     ) -> Vec<LogoPlacement> {
+        // Map each hologram's `team` to its relation color relative to the local player's
+        // `model.team`: `GREEN_RGB` for friendly (`rel > 0`), `RED_RGB` for enemy (`rel < 0`),
+        // and `GREY_RGB` for neutral (`rel == 0`).
+        // Team logos are visible on `Table` and (for the inspected team only) on `Details`;
+        // mini award icons are visible only on `Awards`.
         let mut out = Vec::with_capacity(10);
         let team_color = |team: i32| -> [f32; 3] {
             let rel = port.relation(model.team, team);
@@ -439,6 +577,11 @@ impl ClassicScoreboardView {
             }
         };
 
+        // Emit 3D placement transforms for the two main team hologram logos (`self.logos[0..2]`):
+        // - Each logo's 2D plane coordinates `(st.x, st.y)` are projected into 3D interface-camera
+        //   space via `surface.place_on_plane(st.x, st.y)`.
+        // - World scale is `st.size.max(1e-3) * LOGO_UNITS` (`LOGO_UNITS = 14.0`), and `rotation_y`
+        //   is the accumulated `logo.flight.spin` in radians.
         for (idx, side) in [1usize, 2usize].into_iter().enumerate() {
             if let Some(logo) = &self.logos[idx] {
                 let visible = model.page == BoardPage::Table
@@ -459,6 +602,8 @@ impl ClassicScoreboardView {
             }
         }
 
+        // Emit 3D placement transforms for the up to 8 mini award hologram icons (`self.icons`),
+        // which spin in the center gap between each award's label and winner on `BoardPage::Awards`.
         for icon in &self.icons {
             let visible = model.page == BoardPage::Awards;
             let st = icon.flight.state();
@@ -485,6 +630,12 @@ impl ClassicScoreboardView {
         model: &ScoreboardModel,
         surface: &dyn BattleUiSurface,
     ) -> ScoreButtonBox {
+        // - `"details"`: centered horizontally at `layout.details[0]` using `FONT_NAME_SMALL`
+        //   with `DISPLAY_PAD` (`8.0` units) added to the centered box width.
+        // - `"awards"`: right-aligned in `FONT_NAME_MEDIUM` ending `STRING_PAD` (`5.0` units)
+        //   left of `layout.awards_right`.
+        // - `"done"` / `"back"`: left-aligned in `FONT_NAME_MEDIUM` at `layout.done[0]`, reading
+        //   `"DONE"` on the end-of-match `Table` page and `"BACK"` everywhere else.
         if kind == "details" {
             let text = surface.string("ifs.Stats.details", "DETAILS").to_string();
             let width = surface.text_width(FONT_NAME_SMALL, &text, 1.0);
@@ -559,10 +710,19 @@ impl ClassicScoreboardView {
             }
         };
 
+        // On `DETAILS` and `AWARDS`, only the bottom-left `"BACK"` button is interactive.
+        // On `Table`, test both teams' column sort headers, scroll arrows, and visible player rows
+        // before testing the bottom action buttons (`DONE`/`BACK`, `AWARDS`, `DETAILS`).
         if model.page != BoardPage::Table {
             return check_button("back");
         }
 
+        // Check each team side (`1` = left, `2` = right) in order:
+        // 1. The three `30x30` column sort icons (`stats_kills`, `stats_deaths`, `stats_cpp`).
+        // 2. The `30x30` up/down scroll arrows centered at `list.up` and `list.down` (active only
+        //    when `model.can_scroll_up()` / `model.can_scroll_down()` is true).
+        // 3. The visible player rows via `row_at(&layout, side, x, y)` (active only when a
+        //    non-blank `ScoreRow` exists at `model.first + k`).
         for side in [1usize, 2usize] {
             let list = layout.side(side);
             for (j, &(_, mode)) in HEADERS.iter().enumerate() {
@@ -602,6 +762,12 @@ impl ClassicScoreboardView {
             }
         }
 
+        // Test the bottom action buttons (`"done"`/`"back"`, `"awards"`, `"details"`):
+        // - `"awards"` is only present on the end-of-match table (`BoardState::End`).
+        // - `"done"` on the end-of-match table is skipped when `!port.can_restart()` (e.g. an
+        //   online client waiting for the server's next map launch).
+        // - `"done"` and `"awards"` include a 5-unit right-edge hit padding (`pad = 5.0`), whereas
+        //   `"details"` uses its exact `button_box` width (`pad = 0.0`).
         let buttons: &[&str] = if model.state == BoardState::End {
             &["done", "awards", "details"]
         } else {

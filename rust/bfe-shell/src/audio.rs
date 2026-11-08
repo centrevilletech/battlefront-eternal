@@ -7,6 +7,19 @@
 //! `audio/shell` is absent) through `audio_decode::Decoder` and mixes them on
 //! `audio::frontend::Frontend` (`fx` bus 0 at `0.3 * interface_volume`, `music`
 //! bus 1 at `0.6 * music_volume`).
+//!
+//! Key rules ported from `src/shell/audio.js` and `src/shell/loading-audio.js`:
+//! - `INTERFACE_SOUNDS` preloads the 8 core menu sound effects (`shell_select_change`,
+//!   `shell_menu_accept`, `shell_menu_enter`, `shell_menu_cancel`, `shell_menu_error`,
+//!   `shell_menu_exit`, `shell_keyboard_key`, `shell_keyboard_backspace`) on `shellfx`.
+//! - `CoreSounds` resolves `SoundProperties` inheritance (`Inherit`) in `sound.json`
+//!   and reads 16-bit little-endian PCM slices from `bank.bin` by byte range,
+//!   clamping playback sample rates below `8000 Hz` to `8000 Hz` while scaling
+//!   `pitch *= rate / max(rate, 8000)` to preserve duration and pitch.
+//! - `ShellAudioMixer` drives `Frontend` in `128`-frame stereo quantums at `48 kHz`,
+//!   Cycling through `shell_transition1..10` on `whoosh()`, ramping `shellmusic`
+//!   via `FRONT_DIP`, and scheduling loading screen `PlannedSound` cues with the
+//!   `AV = 1 / 30` s frame-to-speaker offset and `LATE = 0.05` s one-shot window.
 
 use crate::{
     data::{ShellData, ShellSoundDef},
@@ -52,17 +65,27 @@ pub const INTERFACE_SOUNDS: [&str; 8] = [
 /// loading sound.
 #[derive(Clone, Debug)]
 pub struct DecodedSound {
+    /// Normalized mono `f32` PCM samples (`[-1.0, 1.0)`).
     pub pcm: Vec<f32>,
+    /// Effective sample rate in Hz (`>= 8000.0` for `core.lvl` bank samples, or `48000.0` for decoded files).
     pub rate: f64,
+    /// Linear amplitude gain from `SoundProperties.Gain` or `shell.json` (`1.0` default).
     pub gain: f32,
+    /// Playback pitch multiplier from `SoundProperties.Pitch` (adjusted by `rate / max(rate, 8000)`).
     pub pitch: f32,
+    /// Minimum cooldown in seconds (`SoundProperties.PlayInterval`) between consecutive triggers.
     pub interval: f64,
+    /// Whether the sample loops continuously until stopped (`SoundProperties.Looping != 0`).
     pub looping: bool,
+    /// Mixer timestamp (`current_time()`) when this sound was last triggered (`-inf` initially).
     pub last_played: f64,
 }
 
 impl DecodedSound {
     /// Duration of the sample in seconds (`pcm.len() / rate`).
+    /// Duration of the sample in seconds (`pcm.len() / rate`), or `0.0` if
+    /// `rate <= 0.0`. Used when computing loop phase offsets for late-joined
+    /// loading pulses (`LoadingSound.play` in `src/shell/loading-audio.js`).
     pub fn duration(&self) -> f64 {
         if self.rate > 0.0 {
             (self.pcm.len() as f64) / self.rate
@@ -103,12 +126,60 @@ pub fn normalize_pcm16(src: &[i16], dst: &mut [f32]) {
 ///
 /// Ports `SoundData` (`src/audio/data.js`) and `coreSounds` (`src/shell/audio.js`).
 pub struct CoreSounds {
+    /// Filesystem path to the binary sample bank (`audio/<sublevel>/bank.bin`).
     bank_path: PathBuf,
+    /// Resolved `SoundProperties` objects keyed by `0x`-prefixed FNV-1a hex hash or name.
     properties: BTreeMap<String, Value>,
+    /// Sample byte ranges `(byte_offset, frame_count, sample_rate_hz)` keyed by sample hash.
     samples: BTreeMap<String, (u64, usize, u32)>,
 }
 
 impl CoreSounds {
+    /// Opens `audio/shell/sound.json` (or falls back to the first battle in
+    /// `audio/index.json`) under `content_dir`, returning an error naming the
+    /// file or field if reading or parsing fails.
+    pub fn try_load_from_dir(content_dir: &Path) -> Result<Self, String> {
+        let mut sublevel = "shell".to_string();
+        let shell_sound_path = content_dir.join("audio/shell/sound.json");
+        // Prefer the dedicated front-end sound sub-level (`audio/shell/sound.json`)
+        // written by `tools/zero_shell.py`; if absent, fall back to the first battle
+        // sub-level listed in `audio/index.json` (`maps` or `missions`), matching
+        // `coreSounds()` in `src/shell/audio.js`.
+        let manifest_bytes = match std::fs::read(&shell_sound_path) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                let index_path = content_dir.join("audio/index.json");
+                let index_bytes = std::fs::read(&index_path)
+                    .map_err(|e| format!("{}: {e}", index_path.display()))?;
+                let index: Value = serde_json::from_slice(&index_bytes)
+                    .map_err(|e| format!("{}: {e}", index_path.display()))?;
+                // Read the first sub-level name from `index.maps` or `index.missions`
+                // (`Object.values(index?.maps || index?.missions || {})[0]` in `src/shell/audio.js`).
+                sublevel = index
+                    .get("maps")
+                    .or_else(|| index.get("missions"))
+                    .and_then(Value::as_object)
+                    .and_then(|m| m.values().next())
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        format!(
+                            "{} (`audio/index.json`): missing or invalid `maps`/`missions` field",
+                            index_path.display()
+                        )
+                    })?
+                    .to_string();
+                let sub_path = content_dir.join(format!("audio/{sublevel}/sound.json"));
+                std::fs::read(&sub_path)
+                    .map_err(|e| format!("{}: {e}", sub_path.display()))?
+            }
+        };
+        let manifest_path = content_dir.join(format!("audio/{sublevel}/sound.json"));
+        let manifest: Value = serde_json::from_slice(&manifest_bytes)
+            .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+        let bank_path = content_dir.join(format!("audio/{sublevel}/bank.bin"));
+        Ok(Self::from_manifest(&manifest, bank_path))
+    }
+
     /// Opens `audio/shell/sound.json` (or falls back to the first battle in
     /// `audio/index.json`) under `content_dir`.
     ///
@@ -117,6 +188,7 @@ impl CoreSounds {
         let mut sublevel = "shell".to_string();
         let mut manifest_bytes =
             std::fs::read(content_dir.join(format!("audio/{sublevel}/sound.json"))).ok();
+        // Fall back to `audio/index.json` when `audio/shell/sound.json` is not present.
         if manifest_bytes.is_none() {
             let index_bytes = std::fs::read(content_dir.join("audio/index.json")).ok()?;
             let index: Value = serde_json::from_slice(&index_bytes).ok()?;
@@ -141,6 +213,9 @@ impl CoreSounds {
         let mut properties: BTreeMap<String, Value> = BTreeMap::new();
         let mut own_table: BTreeMap<String, Value> = BTreeMap::new();
 
+        // Walk `manifest.objects` in declaration order, resolving `SoundProperties`
+        // inheritance (`Inherit`) and indexing each entry under its `Name` (which
+        // may be a single key string or an array of alias keys).
         if let Some(objects) = manifest.get("objects").and_then(Value::as_array) {
             for obj in objects {
                 let Some(kind) = obj.get("type").and_then(Value::as_str) else {
@@ -166,6 +241,9 @@ impl CoreSounds {
             }
         }
 
+        // Index `manifest.samples` entries `sample_id -> [byte_offset, frame_count, sample_rate]`
+        // so individual `core.lvl` sound effects can be read by byte range from `bank.bin`
+        // without loading the entire sound bank into memory.
         let mut samples = BTreeMap::new();
         if let Some(s_obj) = manifest.get("samples").and_then(Value::as_object) {
             for (id, arr_val) in s_obj {
@@ -193,6 +271,8 @@ impl CoreSounds {
     pub fn load_sound(&self, name: &str) -> Option<DecodedSound> {
         let key = key_of(name)?;
         let sound = self.properties.get(&key)?;
+        // Extract the primary sample hash from `sound.SampleList[0][0]` and look up
+        // its `[offset, frames, rate]` tuple in `self.samples`.
         let sample_id = sound
             .get("SampleList")?
             .as_array()?
@@ -204,11 +284,16 @@ impl CoreSounds {
         if frames == 0 {
             return None;
         }
+        // Read only the `frames * 2` byte slice for this sample from `bank.bin`
+        // (matching the HTTP `Range: bytes=offset-(offset + frames * 2 - 1)` fetch
+        // in `coreSounds().load` in `src/shell/audio.js`).
         let mut file = File::open(&self.bank_path).ok()?;
         file.seek(SeekFrom::Start(offset)).ok()?;
         let mut bytes = vec![0u8; frames * 2];
         file.read_exact(&mut bytes).ok()?;
 
+        // Decode 16-bit little-endian signed PCM frames and normalize into `[-1.0, 1.0)`
+        // `f32` samples (`sample / 32768.0`), matching `normalizePcm16` in `src/audio/pcm.js`.
         let pcm_i16: Vec<i16> = bytes
             .as_chunks::<2>().0.iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
@@ -223,6 +308,9 @@ impl CoreSounds {
             .and_then(Value::as_f64)
             .unwrap_or(0.0);
         let looping = sound.get("Looping").and_then(Value::as_f64).unwrap_or(0.0) != 0.0;
+        // Web Audio `AudioContext.createBuffer` enforces an 8 kHz floor; clamping
+        // `effective_rate` to `rate.max(8000)` and scaling `pitch` by `rate / effective_rate`
+        // matches `coreSounds().load` in `src/shell/audio.js`.
         let effective_rate = rate.max(8000) as f64;
         let pitch = base_pitch * ((rate as f32) / (effective_rate as f32));
 
@@ -238,6 +326,12 @@ impl CoreSounds {
     }
 }
 
+/// Resolves `SoundProperties` inheritance (`Inherit`) in declaration order,
+/// copying inherited scalar properties from `table[parent_key]` and only copying
+/// `SampleList` / `SegmentList` when declared directly on `own_table[parent_key]`,
+/// while preserving the child's own `type`, `Name`, and `Group`.
+///
+/// Mirrors `inherit(object, table, ownTable)` in `src/audio/data.js`.
 fn inherit_sound_properties(
     object: &Value,
     table: &BTreeMap<String, Value>,
@@ -258,6 +352,9 @@ fn inherit_sound_properties(
         .unwrap_or(parent);
 
     let mut out = serde_json::Map::new();
+    // When `Inherit` is encountered, splice in inherited scalar fields from the
+    // resolved parent (`table[parent_key]`) while taking `SampleList` and
+    // `SegmentList` only from the parent's own declaration (`own_table[parent_key]`).
     for (k, v) in obj_map {
         if k == "Inherit" {
             for (pk, pv) in parent {
@@ -280,6 +377,8 @@ fn inherit_sound_properties(
         }
         out.insert(k.clone(), v.clone());
     }
+    // Restore the child object's identity fields (`type`, `Name`, and optional
+    // `Group`) so parent metadata never overwrites the derived sound's name or group.
     if let Some(t) = obj_map.get("type") {
         out.insert("type".to_string(), t.clone());
     }
@@ -295,7 +394,54 @@ fn inherit_sound_properties(
 }
 
 /// Decodes an audio file (`.opus`, `.flac`, `.wav`) from disk into 48kHz
-/// mono `f32` PCM using `audio_decode::Decoder`.
+/// mono `f32` PCM using `audio_decode::Decoder`, returning an error naming
+/// the file if reading or decoding fails.
+pub fn try_decode_audio_file(path: &Path) -> Result<Vec<f32>, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut decoder = Decoder::new(TARGET_RATE, 0.0, false);
+    decoder
+        .push(&bytes, true)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut out = Vec::new();
+    let mut channels = 1usize;
+    loop {
+        let step = decoder
+            .step(4096)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        match step {
+            Step::Metadata => {
+                if let Some(info) = &decoder.info {
+                    channels = info.channels.max(1);
+                }
+            }
+            Step::Output(frames) => {
+                // `decoder.output` is channel-major (`channels * frames`); take
+                // channel 0 (or average stereo into mono).
+                if channels == 1 {
+                    out.extend_from_slice(&decoder.output[..frames]);
+                } else {
+                    for i in 0..frames {
+                        let l = decoder.output[i];
+                        let r = decoder.output[frames + i];
+                        out.push(0.5 * (l + r));
+                    }
+                }
+            }
+            Step::Done | Step::NeedInput => break,
+        }
+    }
+    if out.is_empty() {
+        Err(format!("{}: decoded 0 audio frames", path.display()))
+    } else {
+        Ok(out)
+    }
+}
+
+/// Decodes an audio file (`.opus`, `.flac`, `.wav`) from disk into 48kHz
+/// mono `f32` PCM using `audio_decode::Decoder`, returning `None` if the file
+/// cannot be read, fails to decode, or produces zero output frames.
+///
+/// Mirrors `loadAudioPcm(bytes, { rate: ctx.sampleRate })` in `src/shell/audio.js`.
 pub fn decode_audio_file(path: &Path) -> Option<Vec<f32>> {
     let bytes = std::fs::read(path).ok()?;
     let mut decoder = Decoder::new(TARGET_RATE, 0.0, false);
@@ -335,7 +481,9 @@ pub fn decode_audio_file(path: &Path) -> Option<Vec<f32>> {
 /// Active voice slot allocation in [`ShellAudioMixer`].
 #[derive(Clone, Copy, Debug)]
 struct ActiveSlot {
+    /// Monotonic generation tag paired with the `Frontend` voice slot to ignore stale endings.
     generation: u32,
+    /// Optional [`TrackHandle`] when this slot is playing a `ShellMusic` track on bus 1.
     music_handle: Option<TrackHandle>,
 }
 
@@ -344,27 +492,46 @@ struct ActiveSlot {
 ///
 /// Ports `ShellAudio` (`src/shell/audio.js`) and `FrontendAudio` (`src/audio/frontend.js`).
 pub struct ShellAudioMixer {
+    /// Low-level 2-bus (`shellfx` = 0, `shellmusic` = 1) DSP voice mixer from the `audio` crate.
     frontend: Frontend,
+    /// Metadata for each of the `frontend::SLOTS` voice slots (`None` when free).
     slots: [Option<ActiveSlot>; frontend::SLOTS],
+    /// Next non-zero generation counter assigned by [`Self::alloc_slot`].
     next_generation: u32,
+    /// Total output sample frames rendered so far (`current_time() = current_frame / 48000`).
     current_frame: u64,
+    /// Root directory of extracted game content on disk (`None` in unit tests without files).
     content_dir: Option<PathBuf>,
+    /// Reader for `core.lvl` sound properties and `bank.bin` PCM slices.
     core: Option<CoreSounds>,
+    /// Transition whoosh URLs (`shell_transition1..10`) paired with lazily decoded mono PCM.
     whooshes: Vec<(String, Option<Vec<f32>>)>,
+    /// Round-robin index into `whooshes` advanced on each [`Self::whoosh`] call.
     whoosh_index: usize,
+    /// Cache of preloaded interface and loading sounds keyed by sound name.
     sounds: BTreeMap<String, Option<DecodedSound>>,
+    /// Sound overrides from `shell.json`'s `"sounds"` table (`url`, `gain`, `pitch`).
     sound_defs: BTreeMap<String, ShellSoundDef>,
+    /// Decoded mono `f32` PCM cache for `.opus` shell music tracks keyed by URL.
     music_cache: BTreeMap<String, Vec<f32>>,
+    /// Currently playing music `(slot_index, generation, track_handle)` on bus 1, if any.
     active_music_slot: Option<(usize, u32, TrackHandle)>,
+    /// Pre-allocated buffer of music handles that finished during [`Self::render_interleaved`].
     ended_music_handles: Vec<TrackHandle>,
+    /// Master volume setting (`0.0..=1.0`, default `1.0`).
     pub master_volume: f32,
+    /// Music volume setting (`0.0..=1.0`, scaled by `buses::SHELL_MUSIC = 0.6`).
     pub music_volume: f32,
+    /// Interface volume setting (`0.0..=1.0`, scaled by `buses::SHELL_FX = 0.3`).
     pub interface_volume: f32,
 }
 
 impl ShellAudioMixer {
     /// Creates a new `ShellAudioMixer` for `data` and optional `content_dir`.
     pub fn new(data: &ShellData, content_dir: Option<&Path>) -> Self {
+        // Initialize the 2-bus `Frontend` DSP mixer at 48 kHz with default unit
+        // volumes (`master = 1.0`, `music = 0.6`, `fx = 0.3`), matching `BUSES`
+        // in `src/shell/audio.js`.
         let mut frontend = Frontend::new(TARGET_RATE as f64);
         let master = 1.0f64;
         let music = buses::SHELL_MUSIC * 1.0;
@@ -404,12 +571,17 @@ impl ShellAudioMixer {
             interface_volume: 1.0,
         };
 
+        // Eagerly preload all 8 menu interface sounds (`shell_select_change`,
+        // `shell_menu_accept`, etc.) so the first menu click or highlight move
+        // plays with zero disk I/O latency.
         for name in INTERFACE_SOUNDS {
             mixer.preload_sound(name);
         }
         mixer
     }
 
+    /// Applies any queued `FRONT_*` commands in `self.frontend.commands` to the
+    /// underlying DSP state and clears the command buffer.
     fn flush_commands(&mut self) {
         if !self.frontend.commands.is_empty() {
             self.frontend.apply();
@@ -448,11 +620,15 @@ impl ShellAudioMixer {
         self.flush_commands();
     }
 
+    /// Maps a content-root-relative URL (such as `"/common/shell/audio/whoosh1.flac"`)
+    /// to a filesystem path inside `self.content_dir`.
     fn resolve_content_path(&self, url: &str) -> Option<PathBuf> {
         let dir = self.content_dir.as_ref()?;
         Some(dir.join(url.trim_start_matches('/')))
     }
 
+    /// Allocates the first free voice slot in `self.slots` (or steals slot `0`
+    /// if all `frontend::SLOTS` voices are active) and assigns a fresh generation tag.
     fn alloc_slot(&mut self, music_handle: Option<TrackHandle>) -> (usize, u32) {
         let slot = self
             .slots
@@ -468,6 +644,8 @@ impl ShellAudioMixer {
         (slot, gen)
     }
 
+    /// Copies mono `pcm` samples into a `Frontend` voice slot and queues a
+    /// `FRONT_START` command (`bus = 0` for `shellfx`, `bus = 1` for `shellmusic`).
     #[allow(clippy::too_many_arguments)]
     fn start_pcm(
         &mut self,
@@ -483,7 +661,9 @@ impl ShellAudioMixer {
     ) -> (usize, u32) {
         let (slot, gen) = self.alloc_slot(music_handle);
         let ptr = self.frontend.sample(slot, pcm.len(), 1, rate);
-        // SAFETY: `sample()` just allocated `pcm.len()` floats in `self.frontend.samples[slot]`.
+        // SAFETY: `self.frontend.sample(slot, pcm.len(), 1, rate)` allocates and returns a
+        // valid, aligned `*mut f32` pointing to `pcm.len()` contiguous elements inside
+        // `self.frontend.samples[slot]`, which is disjoint from the caller-borrowed `pcm` slice.
         unsafe {
             std::ptr::copy_nonoverlapping(pcm.as_ptr(), ptr, pcm.len());
         }
@@ -504,7 +684,9 @@ impl ShellAudioMixer {
         (slot, gen)
     }
 
-    /// Preloads a named sound into `self.sounds`.
+    /// Preloads a named sound into `self.sounds`, checking `shell.json`'s own
+    /// `"sounds"` overrides first and falling back to `core.lvl` (`CoreSounds::load_sound`),
+    /// matching `ShellAudio.sound(name)` in `src/shell/audio.js`.
     pub fn preload_sound(&mut self, name: &str) {
         if self.sounds.contains_key(name) {
             return;
@@ -536,6 +718,8 @@ impl ShellAudioMixer {
         self.preload_sound(name);
         let now = self.current_time();
         let sound = self.sounds.get_mut(name)?.as_mut()?;
+        // Enforce `SoundProperties.PlayInterval` cooldown so rapid hover or key
+        // events do not re-trigger the sound before its minimum interval elapses.
         if now - sound.last_played < sound.interval {
             return None;
         }
@@ -554,6 +738,8 @@ impl ShellAudioMixer {
         if self.whooshes.is_empty() {
             return None;
         }
+        // Advance round-robin through `shell_transition1..10`, lazily decoding
+        // each `.flac` whoosh clip on first use and caching its 48 kHz PCM buffer.
         let idx = self.whoosh_index;
         self.whoosh_index = (self.whoosh_index + 1) % self.whooshes.len();
         if self.whooshes[idx].1.is_none() {
@@ -579,7 +765,12 @@ impl ShellAudioMixer {
 
     /// Applies a [`MusicStep`] (stopping any previous track and starting any
     /// newly selected track on `shellmusic` bus 1).
+    /// Applies a [`MusicStep`] returned by [`crate::music::ShellMusic`] (stopping
+    /// any previous track via `FRONT_STOP` and starting any newly selected track
+    /// on `shellmusic` bus 1, caching decoded `.opus` PCM by track URL).
+    /// Mirrors `startTrack` and `stopTrack` in `src/shell/audio.js`.
     pub fn apply_music_step(&mut self, step: &MusicStep, data: &ShellData) {
+        // Stop the currently active music voice slot if its handle matches `step.stopped`.
         if let Some((stopped_handle, _)) = step.stopped {
             if let Some((slot, _gen, active_handle)) = self.active_music_slot {
                 if active_handle == stopped_handle {
@@ -593,6 +784,7 @@ impl ShellAudioMixer {
                 }
             }
         }
+        // Decode (if not yet cached) and start the newly selected music track on bus 1.
         if let Some((handle, track_idx)) = step.started {
             if let Some(track) = data.music.get(track_idx) {
                 if !self.music_cache.contains_key(&track.url) {
@@ -621,7 +813,9 @@ impl ShellAudioMixer {
         }
     }
 
-    /// Applies a slice of [`MediaEvent`]s emitted by [`crate::media::ShellMedia`].
+    /// Applies a slice of [`MediaEvent`]s emitted by [`crate::media::ShellMedia`]
+    /// during screen transitions (`FadeBus` -> `fade_bus`, `Whoosh` -> `whoosh`,
+    /// `Music` -> `apply_music_step`; movie events are handled by the video/backdrop player).
     pub fn apply_media_events(&mut self, events: &[MediaEvent], data: &ShellData) {
         for ev in events {
             match ev {
@@ -645,6 +839,9 @@ impl ShellAudioMixer {
     /// Mirrors `LoadingSound.schedule` and `LoadingSound.apply` in
     /// `src/shell/loading-audio.js`.
     pub fn schedule_loading_plan(&mut self, plan: &[PlannedSound], start_sec: f64) -> usize {
+        // Ensure all four loading screen cues (`load_ytracking`, `load_xtracking`,
+        // `load_zoom`, `load_transition`) have been resolved from `CoreSounds`
+        // before scheduling their start/stop times on the mixer clock.
         for cue in [
             LoadingCue::YTrack,
             LoadingCue::XTrack,
@@ -662,6 +859,11 @@ impl ShellAudioMixer {
             };
             let at = start_sec + ev.at + audio_constants::AV;
             let until = ev.until.map(|u| start_sec + u + audio_constants::AV);
+            // Looping pulse (`load_ytracking` or `load_xtracking`): if joining
+            // late (`now > at`), compute the phase offset within the loop cycle
+            // `((begin - at) * pitch) % duration` and schedule a `STOP` (`0.01s`)
+            // fade-out ending at `end`, matching `LoadingSound.play` in
+            // `src/shell/loading-audio.js`.
             if let Some(end) = until {
                 if end <= now {
                     continue;
@@ -691,6 +893,8 @@ impl ShellAudioMixer {
                 self.flush_commands();
                 scheduled += 1;
             } else {
+                // One-shot cue (`load_zoom` or `load_transition`): drop if more
+                // than `LATE` (`0.05s`) past its scheduled moment.
                 if now - at > audio_constants::LATE {
                     continue;
                 }
@@ -720,17 +924,25 @@ impl ShellAudioMixer {
         let total_frames = out_stereo.len() / 2;
         let mut offset = 0;
 
+        // Step the `Frontend` DSP in fixed 128-frame (`FRAMES`) quantums and
+        // interleave its planar left (`output[0..FRAMES]`) and right
+        // (`output[FRAMES..2*FRAMES]`) buses into `out_stereo`.
         while offset < total_frames {
             let chunk = (total_frames - offset).min(FRAMES);
             let ended_count = self.frontend.process(self.current_frame);
             self.current_frame += FRAMES as u64;
 
+            // Copy planar left (`output[0..chunk]`) and right (`output[FRAMES..FRAMES+chunk]`)
+            // samples into interleaved `[L, R, L, R, ...]` order in `out_stereo`.
             for i in 0..chunk {
                 let dst = (offset + i) * 2;
                 out_stereo[dst] = self.frontend.output[i];
                 out_stereo[dst + 1] = self.frontend.output[FRAMES + i];
             }
 
+            // Reclaim any voice slots that finished during this 128-frame quantum
+            // and record completed music track handles so `ShellMusic::ended`
+            // can start the 10-second inter-track silence gap.
             if ended_count > 0 {
                 for k in 0..ended_count {
                     let slot = self.frontend.ended[k * FRONT_END_STRIDE + FRONT_END_SLOT] as usize;
@@ -760,12 +972,19 @@ impl ShellAudioMixer {
     /// Drains any [`TrackHandle`]s that finished playing during recent
     /// [`Self::render_interleaved`] calls so the caller can pass them to
     /// [`crate::music::ShellMusic::ended`].
+    /// Returns and clears the list of music [`TrackHandle`]s that reached end-of-stream
+    /// during [`Self::render_interleaved`] quantums since the last call, preserving
+    /// completion order so the caller can notify [`crate::music::ShellMusic::ended`].
+    /// Mirrors the `source.onended = () => this.music.ended(handle)` callback in
+    /// `ShellAudio.retry()` (`src/shell/audio.js`).
     pub fn take_ended_music(&mut self) -> Vec<TrackHandle> {
         let out = self.ended_music_handles.clone();
         self.ended_music_handles.clear();
         out
     }
 
+    /// Returns the mixer's current audio clock time in seconds
+    /// (`current_frame / 48_000.0`).
     pub fn current_time(&self) -> f64 {
         (self.current_frame as f64) / (TARGET_RATE as f64)
     }
@@ -776,6 +995,9 @@ mod tests {
     use super::*;
     use crate::data::read_shell_data;
 
+    // Verifies that `key_of` passes through pre-hashed `0x`-prefixed 8-digit
+    // lowercase hex keys and hashes ASCII sound names with the 2004 engine's
+    // lowercase FNV-1a (`src/audio/hash.js`).
     #[test]
     fn key_of_hashes_sound_names_with_engine_fnv1a() {
         assert_eq!(key_of(""), None);
@@ -787,6 +1009,9 @@ mod tests {
         );
     }
 
+    // Verifies that `ShellAudioMixer::render_interleaved` mixes a voice on
+    // `shellmusic` bus 1 into interleaved stereo output and reports its
+    // `TrackHandle` via `take_ended_music()` once the 64-frame buffer ends.
     #[test]
     fn mixer_renders_quantums_and_reports_ended_music_handles() {
         let data = read_shell_data(None, None, None);
@@ -805,6 +1030,8 @@ mod tests {
             Some(77),
         );
 
+        // Render one 128-frame quantum (`FRAMES = 128`): the 64-sample buffer
+        // finishes mid-quantum and queues handle `77` in `ended_music_handles`.
         let mut stereo = vec![0.0f32; 128 * 2];
         mixer.render_interleaved(&mut stereo);
         assert!(stereo.iter().any(|&s| s > 0.0));

@@ -1,6 +1,8 @@
 //! Menu sound cues (`src/menus/sounds.js`).
 //!
-//! Ports `SOUNDS` and `menuSound(kind)` from `src/menus/sounds.js`.
+//! Ports `SOUNDS` and `menuSound(kind)` from `src/menus/sounds.js`: maps short interaction
+//! kinds (`"select"`, `"accept"`, `"enter"`, `"cancel"`, `"error"`, `"exit"`) to `core.lvl`
+//! sound bank names on the `shellfx` audio bus.
 
 /// Menu sound cues (`SOUNDS` in `src/menus/sounds.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -60,7 +62,8 @@ impl SoundCue {
     }
 }
 
-/// Resolves a kind key (`"select"`, `"accept"`, etc.) to its `core.lvl` cue name (`menuSound` in `sounds.js`).
+/// Resolves a kind key (`"select"`, `"accept"`, etc.) or direct cue name to its `core.lvl`
+/// cue name (`menuSound` in `src/menus/sounds.js`).
 #[inline]
 pub fn sound_asset(kind: &str) -> &'static str {
     for &(k, cue) in &SOUNDS {
@@ -78,20 +81,24 @@ pub struct SoundEvents {
 }
 
 impl SoundEvents {
+    /// Creates an empty [`SoundEvents`] queue.
     pub fn new() -> Self {
         Self { queue: Vec::new() }
     }
 
+    /// Enqueues `cue` to be played by the shell or battle audio bus on the next frame.
     #[inline]
     pub fn play(&mut self, cue: SoundCue) {
         self.queue.push(cue);
     }
 
+    /// Takes and returns all queued sound cues in emission order, leaving the queue empty.
     #[inline]
     pub fn drain(&mut self) -> Vec<SoundCue> {
         std::mem::take(&mut self.queue)
     }
 
+    /// Returns `true` if no sound cues are waiting to be played.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()

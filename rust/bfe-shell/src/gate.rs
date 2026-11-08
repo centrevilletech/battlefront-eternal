@@ -1,32 +1,21 @@
 //! Click/key gate (`PRESS ANY KEY OR CLICK TO BEGIN`, `src/shell/gate.js`).
 //!
-//! Ports `src/shell/gate.js`:
-//! - `GATE_TEXT = "PRESS ANY KEY OR CLICK TO BEGIN"`, `IW = 1024`, `PULSE = 0.7`,
-//!   `LOW = 0.3`, `AT = 0.82`.
-//! - `countsAsPress`: non-keydown events (pointerdown, touchstart) always count;
-//!   keydown events with `ctrlKey`, `metaKey`, or `altKey` held do not count,
-//!   nor do keys matching `/^(F\d+|Tab|Unidentified|Control|Meta|Alt|OS)$/`.
-//! - `pulse(t)`: triangle wave over `PULSE = 0.7` seconds from `1.0` down to
-//!   `LOW = 0.3` at `t = 0.35` and back to `1.0` at `t = 0.7`.
+//! Ports `GATE_TEXT`, `IW = 1024`, `PULSE = 0.7`, `LOW = 0.3`, `AT = 0.82`,
+//! `countsAsPress(event)`, and `pulse(t)` from `src/shell/gate.js`.
 
-/// Interface coordinate width (`1024`).
-/// Mirrors `IW` in `src/shell/gate.js`.
+/// Interface coordinate width (`1024`) from `src/shell/gate.js`.
 pub const IW: f64 = 1024.0;
 
-/// Prompt text displayed on the gate screen.
-/// Mirrors `GATE_TEXT` in `src/shell/gate.js`.
+/// Prompt text displayed on the gate screen (`src/shell/gate.js`).
 pub const GATE_TEXT: &str = "PRESS ANY KEY OR CLICK TO BEGIN";
 
-/// Period in seconds (`0.7s`) of one full alpha pulse cycle.
-/// Mirrors `PULSE` in `src/shell/gate.js`.
+/// Period in seconds (`0.7s`) of one full alpha pulse cycle (`src/shell/gate.js`).
 pub const PULSE: f64 = 0.7;
 
-/// Minimum alpha reached halfway through the pulse (`0.3`).
-/// Mirrors `LOW` in `src/shell/gate.js`.
+/// Minimum alpha reached halfway through the pulse (`0.3`, `src/shell/gate.js`).
 pub const LOW: f64 = 0.3;
 
-/// Vertical fraction (`0.82`) within the safe area (`0.05..0.95` of `H`).
-/// Mirrors `AT` in `src/shell/gate.js`.
+/// Vertical fraction (`0.82`) within the safe area (`0.05..0.95` of `H`, `src/shell/gate.js`).
 pub const AT: f64 = 0.82;
 
 /// Checks whether an input event unlocks the click gate.
@@ -51,6 +40,7 @@ pub fn counts_as_press(
     !is_ignored_key(key)
 }
 
+/// Returns `true` for keys matched by `/^(F\d+|Tab|Unidentified|Control|Meta|Alt|OS)$/`.
 fn is_ignored_key(key: &str) -> bool {
     if matches!(
         key,

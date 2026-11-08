@@ -2,6 +2,18 @@
 //
 // Ports `src/scoreboard/classic/layout.js` (`teamStatsLayout`, `rowAt`,
 // `statsPageLayout`, `DETAILS_ROWS`, `AWARDS_ROWS`).
+//
+// Layout structure from the 2004 game's `ifs_teamstats`, `ifs_personalstats`, and `ifs_awardstats`
+// Lua scripts, calibrated against retail Geonosis end-of-match captures:
+// - All coordinates live in the 1024xH interface plane (`H = 768` at 4:3, `H = 624` at 16:9),
+//   bounded by the 90% safe area (`SAFE = 0.05`, `SAFE_SCALE = 0.9`).
+// - The main nine-sliced window (`border_3_pieces`) spans the full safe width and `0.82` of
+//   the safe height, centered at `0.48` down the safe area.
+// - Two side-by-side team lists (Team 1 on the left, Team 2 on the right) sit centered at `0.53`
+//   down the safe area with rows spaced `PITCH = 27.0` units apart (`16` rows at 4:3, `13` at 16:9).
+// - Inside each row, the player name occupies `0.65` of `inner` width starting `2.0` units from
+//   `left`, while `KILLS`, `DEATHS`, and `CP POINTS` are right-aligned in three columns each
+//   occupying `COLUMN = 0.133` of `inner` width at the right end of the row.
 
 use crate::shapes::{GameFamily, GameFamilyError, SAFE, SAFE_SCALE, W};
 
@@ -15,12 +27,15 @@ pub const ICON: f64 = 30.0;
 pub const COLUMN: f64 = 0.133;
 
 /// Fractional horizontal offsets for the three column header icons (`HEADER` in `src/scoreboard/classic/layout.js`).
+///
+/// Positions the centers of `stats_kills` (`0.2`), `stats_deaths` (`0.32`), and `stats_cpp` (`0.44`)
+/// across each team's half of the safe area.
 pub const HEADER: [f64; 3] = [0.2, 0.32, 0.44];
 
-/// Extra label width padding for `AWARDS` (`STRING_PAD` in `src/scoreboard/classic/layout.js`).
+/// Extra label width padding (5 units) shifting `AWARDS` left of `awards_right` (`STRING_PAD` in `src/scoreboard/classic/layout.js`).
 pub const STRING_PAD: f64 = 5.0;
 
-/// Extra display box padding for `DETAILS` (`DISPLAY_PAD` in `src/scoreboard/classic/layout.js`).
+/// Extra display box padding (8 units) centering `DETAILS` on its bottom tab (`DISPLAY_PAD` in `src/scoreboard/classic/layout.js`).
 pub const DISPLAY_PAD: f64 = 8.0;
 
 /// Rectangular box `{ x, y, w, h }` in interface coordinates.
@@ -35,20 +50,35 @@ pub struct ScoreRect {
 /// Layout geometry for one team side (`sides[1]` or `sides[2]` in `src/scoreboard/classic/layout.js`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TeamSideLayout {
+    /// Horizontal center of this team's list column.
     pub x: f64,
+    /// Left edge of the rows in this team's list (`x - inner / 2.0`).
     pub left: f64,
+    /// Right edge of the row hotspot (`left + width`).
     pub right: f64,
+    /// Bounding box for the team title (`"REPUBLIC : 150"`).
     pub title: ScoreRect,
+    /// Left X coordinate where player names start (`left + 2.0`).
     pub name_x: f64,
+    /// Maximum width available for player names (`0.65 * inner`, narrowed when `PING` is shown).
     pub name_w: f64,
+    /// Right-aligned X coordinates for the `[KILLS, DEATHS, POINTS]` columns.
     pub columns: [f64; 3],
+    /// Top-left `[x, y]` positions of the three `30x30` column sort icons.
     pub headers: [[f64; 2]; 3],
+    /// Center `[x, y]` of the up-scroll arrow.
     pub up: [f64; 2],
+    /// Center `[x, y]` of the down-scroll arrow.
     pub down: [f64; 2],
+    /// Center `[x, y]` of the 3D spinning team hologram logo (`0.25` or `0.75` across the safe area).
     pub logo: [f64; 2],
 }
 
 /// Complete Classic team stats table layout (`teamStatsLayout` in `src/scoreboard/classic/layout.js`).
+///
+/// Includes the 90% safe area (`safe`), nine-sliced `window`, per-team list geometries (`sides`),
+/// `ListManager` selection cursor metrics (`cursor_w`, `cursor_h = PITCH + 10`, `cursor_dy = 4`),
+/// 3D hologram `logo_size` (`W / 800.0`), and bottom button anchors (`details`, `done`, `awards_*`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TeamStatsLayout {
     pub h: f64,
@@ -119,6 +149,7 @@ pub fn team_stats_layout(h: f64) -> TeamStatsLayout {
     let shown = (((0.85 * height) / PITCH).floor() as isize - 1).max(1) as usize;
     let top = lists[1] - (shown as f64 * PITCH) / 2.0 + PITCH / 2.0;
 
+    // Build symmetrical left (`sign = -1.0`) and right (`sign = 1.0`) team list columns.
     let build_side = |side: usize, sign: f64| -> TeamSideLayout {
         let x = lists[0] + (sign * half) / 2.0;
         let left = x - inner / 2.0;
@@ -210,6 +241,10 @@ pub fn row_at(layout: &TeamStatsLayout, side: usize, x: f64, y: f64) -> Option<u
 }
 
 /// Row configuration for `DETAILS` or `AWARDS` (`DETAILS_ROWS`, `AWARDS_ROWS` in `src/scoreboard/classic/layout.js`).
+///
+/// Both sub-pages render a two-column key/value list inside the main scoreboard window:
+/// labels end right-aligned at `win.x - gap`, values start left-aligned at `win.x + gap`,
+/// and the first `blank` rows under the title are left empty.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StatsPageRowsConfig {
     pub height: f64,
@@ -220,6 +255,9 @@ pub struct StatsPageRowsConfig {
 }
 
 /// Row metrics for `DETAILS` (`ifs_personalstats` in `src/scoreboard/classic/layout.js`).
+///
+/// Uses `gamefont_small` with 3 blank rows at the top so both the `"PERSONAL STATS"` title
+/// and the inspected player's uppercase name fit above the 9 stat rows (+ optional `CONNECTION`).
 pub const DETAILS_ROWS: StatsPageRowsConfig = StatsPageRowsConfig {
     height: 26.0,
     pitch: 31.0,
@@ -229,6 +267,10 @@ pub const DETAILS_ROWS: StatsPageRowsConfig = StatsPageRowsConfig {
 };
 
 /// Row metrics for `AWARDS` (`ifs_awardstats` in `src/scoreboard/classic/layout.js`).
+///
+/// Uses `gamefont_medium` with 2 blank rows under `"PLAYER AWARDS"` and a wider `25.0`-unit
+/// center gap (`50.0` units total between label and value) so the 8 mini team-logo holograms
+/// can spin between each award's title and winner name.
 pub const AWARDS_ROWS: StatsPageRowsConfig = StatsPageRowsConfig {
     height: 28.0,
     pitch: 34.0,
@@ -253,6 +295,9 @@ pub struct StatsPageLayout {
 
 impl StatsPageLayout {
     /// Target corner position where the inspected team's logo flies on `DETAILS` (`corner` in `src/scoreboard/classic/layout.js`).
+    ///
+    /// Team 1's logo flies to the top-left corner (`W/2 - 0.4 * safe.w`) and Team 2's to the
+    /// top-right corner (`W/2 + 0.4 * safe.w`) at `H/2 - 0.3 * safe.h` and half size.
     #[inline]
     pub fn corner(&self, side: usize) -> [f64; 2] {
         let sign = if side == 1 { -1.0 } else { 1.0 };
@@ -276,6 +321,9 @@ pub fn stats_page_layout_for_family(
 }
 
 /// Computes the `DETAILS` or `AWARDS` page layout (`statsPageLayout` in `src/scoreboard/classic/layout.js`).
+///
+/// Replicates the original `ifs_awardstats` Lua formula for the 8 centered award icon positions
+/// (`icons[0..8]`), including the `+10.0` vertical offset applied specifically at `h == 768.0`.
 pub fn stats_page_layout(h: f64, rows: StatsPageRowsConfig) -> StatsPageLayout {
     let table = team_stats_layout(h);
     let win = table.window;

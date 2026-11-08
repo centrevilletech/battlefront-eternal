@@ -29,7 +29,13 @@ pub const PREVIEW_DELAY: f64 = 0.5;
 /// Mirrors an entry of `SCREEN_MEDIA` in `src/shell/media.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScreenMediaSpec {
+    /// Key in `ShellData::movies` (`"start"`, `"main"`, `"sp"`, `"options"`,
+    /// `"briefing"`, `"meta"`, `"galaxy"`), or `None` when the screen uses a
+    /// static backdrop (`"ia"` and `"mp"`).
     pub movie: Option<&'static str>,
+    /// Music cue to set on entry (`Some(SOUNDTRACK)` for the three-track
+    /// soundtrack cycle, `Some("shell_galacticconquest")` for Galactic Conquest,
+    /// or `None` to leave whatever music is currently playing untouched).
     pub music: Option<&'static str>,
 }
 
@@ -201,19 +207,31 @@ impl Default for BackdropState {
 }
 
 /// Coordinates screen movies, transition whooshes, music bus dips, and
-/// [`ShellMusic`].
+/// [`ShellMusic`] across front-end navigation (`ifs_movietrans` behavior).
 ///
 /// Mirrors `ShellMedia` in `src/shell/media.js`.
 pub struct ShellMedia {
+    /// Identifier of the currently active screen (`"start"`, `"main"`, `"sp"`, etc.).
     pub screen: Option<String>,
+    /// Count of forward transitions into screens that played an intro clip.
     pub moves: usize,
+    /// Soundtrack and screen-specific music state machine (`src/shell/audio.js`).
     pub music: ShellMusic,
+    /// Current movie clip URL, resolved poster still texture, and IA preview state.
     pub backdrop: BackdropState,
+    /// In-flight intro transition `(token, screen_id, target_music, loop_clip)`
+    /// waiting for [`Self::finish_intro`] before restoring `shellmusic` to `1.0`.
     pending_intro: Option<(u64, String, Option<&'static str>, MovieClip)>,
+    /// Monotonic transition counter incremented on every [`Self::begin_enter`] call
+    /// so superseded intros are ignored if a second screen move happens mid-intro.
     token: u64,
 }
 
 impl ShellMedia {
+    /// Creates a new [`ShellMedia`] state machine initialized with `data.music`
+    /// and the `10.0s` inter-track silence interval (`crate::music::INTERVAL`),
+    /// starting with no active screen (`screen = None`, `moves = 0`).
+    /// Mirrors `new ShellMedia({ data })` in `src/shell/media.js`.
     pub fn new(data: &ShellData) -> Self {
         Self {
             screen: None,
@@ -257,6 +275,8 @@ impl ShellMedia {
         let intro_clip = movie.as_ref().and_then(|m| m.intro.clone());
         let loop_clip = movie.as_ref().and_then(|m| m.loop_clip.clone());
 
+        // Returning (`back == true`) or entering a screen whose movie has no
+        // intro clip skips the transition whoosh and starts the loop immediately.
         let Some(intro) = intro_clip.as_ref().filter(|_| !back).cloned() else {
             events.push(MediaEvent::PlayMovie {
                 intro_url: intro_clip.as_ref().map(|c| c.url.clone()),
@@ -284,6 +304,9 @@ impl ShellMedia {
             return events;
         };
 
+        // Forward transition into a screen with an intro clip: dip `shellmusic`
+        // to `0.0` over `1.0s` when the screen's music isn't already playing,
+        // start the intro clip, and fire the next transition whoosh.
         self.moves += 1;
         if !self.music.playing(spec.music) {
             events.push(MediaEvent::FadeBus {
@@ -382,6 +405,9 @@ impl ShellMedia {
         }
     }
 
+    /// Returns the monotonic transition token assigned by the most recent
+    /// [`Self::begin_enter`] call so callers can pass `Some(token)` to
+    /// [`Self::finish_intro`] when an intro clip finishes playing.
     pub fn current_token(&self) -> u64 {
         self.token
     }
@@ -392,6 +418,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // Builds a minimal `ShellData` fixture with `start` (loop only), `main`,
+    // `sp`, and `options` (intro + loop), one `geo1` map flyover, and 3
+    // soundtrack tracks plus `shell_galacticconquest`.
     fn sample_data() -> ShellData {
         let shell = json!({
             "movies": {
@@ -465,6 +494,9 @@ mod tests {
         assert_eq!(media.moves, 1);
     }
 
+    // Entering `options` (`music: None`) when `SOUNDTRACK` is playing dips
+    // `shellmusic` to 0 over 1s during `coreship_in.webm`, then fades back to 1
+    // while keeping `SOUNDTRACK` active (`music.set(None)` is a no-op).
     #[test]
     fn forward_into_options_dips_music_over_intro_and_restores_after() {
         let data = sample_data();
@@ -501,6 +533,11 @@ mod tests {
         assert!(media.music.playing(Some(SOUNDTRACK)));
     }
 
+    // Verifies two `ShellMedia.enter` invariants from `src/shell/media.js`:
+    // 1. Navigating back (`back == true`) starts the destination screen's loop
+    //    without playing its intro, dipping `shellmusic`, or triggering a whoosh.
+    // 2. Starting a second screen transition before an in-flight intro finishes
+    //    invalidates the earlier intro's token so `finish_intro` is a no-op.
     #[test]
     fn back_plays_loop_only_without_whoosh_or_dip_and_second_move_cancels_first_intro() {
         let data = sample_data();
@@ -526,6 +563,8 @@ mod tests {
         assert_eq!(media.screen.as_deref(), Some("sp"));
     }
 
+    // Verifies `previewRect(1024, 768)` against the 4:3 formula in `src/shell/media.js`
+    // (`w = 530 * (1024 / 800) = 678.4`, `h = 400 * (768 / 600) = 512.0`).
     #[test]
     fn preview_rect_matches_1024x768_lower_right_box() {
         let [x, y, w, h] = preview_rect(1024.0, 768.0);

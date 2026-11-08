@@ -8,6 +8,17 @@
 //! through a 60-degree horizontal (`46.8` deg vertical) perspective camera.
 //! Tilted containers rotate around Y or X in local anchor space and project
 //! back onto the `1024xH` interface plane via [`plane_point`] and [`inside_quad`].
+//!
+//! ### Coordinate Systems and Safe Area
+//! - The interface canvas spans `0..1024` horizontally (`x` right) and `0..H` vertically
+//!   (`y` down), where `H = floor(768 + (h / w - 0.75) * 768)` adapts to the window
+//!   aspect ratio (`768` at 4:3, `576` at 16:9).
+//! - A 5% border on all four sides (`SAFE = 0.05`, `SAFE_SCALE = 0.9`) defines the
+//!   90% safe area inside which `ifs_spawndisplay`, `ifs_teamstats`, and `ifs_pausemenu`
+//!   position their 9-slice panels.
+//! - Every tilted panel is anchored on the `z = -PLANE` plane and rotated in 3D before
+//!   perspective projection, so both rendering and mouse hit-testing (`projected_corners`
+//!   + `inside_quad`) share the exact same camera-space foreshortening.
 
 use std::fmt;
 
@@ -64,6 +75,7 @@ impl GameFamily {
     }
 }
 
+// Formats the game family as its canonical lowercase identifier (`"swbf1"` or `"swbf2"`).
 impl fmt::Display for GameFamily {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -73,6 +85,7 @@ impl fmt::Display for GameFamily {
 /// Error returned when a caller requests an unimplemented [`GameFamily`] (such as [`GameFamily::Swbf2`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GameFamilyError {
+    /// The unimplemented game family that was requested by the caller.
     pub family: GameFamily,
 }
 
@@ -84,6 +97,7 @@ impl GameFamilyError {
     }
 }
 
+// Formats the error message expected by `MULTIPLAYER.md` selector tests.
 impl fmt::Display for GameFamilyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "game family {} is not available", self.family.as_str())
@@ -111,6 +125,7 @@ pub const PLANE: f64 = 886.810_013_475_265_1;
 /// Safe-area inset fraction (`0.05` on each side, leaving `0.9` in the middle;
 /// `src/interface/space.js` `SAFE`, `SAFE_SCALE`).
 pub const SAFE: f64 = 0.05;
+/// Fraction of the screen inside the 5% safe-area margins (`1.0 - 2.0 * SAFE = 0.9`).
 pub const SAFE_SCALE: f64 = 0.9;
 
 /// Scale factor of the `shell_cube` hologram room (`1.6 / 0.009`,
@@ -136,9 +151,13 @@ pub const PREVIEW_UNITS: f64 = BODY_UNITS;
 pub const DROIDEKA_UNITS: f64 = 0.9 * BODY_UNITS;
 
 /// Standard RGBA color constants (`src/menus/themes/classic/draw.js`).
+/// Opaque pure white `[1.0, 1.0, 1.0, 1.0]`.
 pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
+/// Opaque pure black `[0.0, 0.0, 0.0, 1.0]`.
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
+/// Mid-grey `[128/255, 128/255, 128/255, 1.0]`.
 pub const GREY: Color = [128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0];
+/// Dimmed alpha multiplier (`150 / 255`) for inactive menu and table elements.
 pub const DIMMED: f64 = 150.0 / 255.0;
 
 /// Converts 0..255 RGBA bytes to `[f64; 4]` (`rgba` in `src/menus/themes/classic/draw.js`).
@@ -236,6 +255,10 @@ pub fn scale_xyz(a: Matrix, sx: f64, sy: f64, sz: f64) -> Matrix {
 
 /// Projects a local point `(x, y, z)` under matrix `m` onto the `1024xH` interface
 /// plane (`src/interface/space.js` `planePoint`).
+///
+/// Transforms `(x, y, z)` into camera space (where the unrotated interface plane sits
+/// at `z = -PLANE`), divides by `-pz` to apply perspective foreshortening, and converts
+/// back to top-left `(0..1024, 0..height)` coordinates.
 #[inline]
 pub fn plane_point(m: Matrix, x: f64, y: f64, z: f64, height: f64) -> [f64; 2] {
     let px = m[0] * x + m[4] * y + m[8] * z + m[12];
@@ -272,6 +295,9 @@ pub fn projected_corners(
 
 /// Point-in-quad test for a convex quad `corners` in either winding order
 /// (`src/interface/shapes.js` `insideQuad`).
+///
+/// Checks that the 2D cross product of each directed edge `a -> b` with `a -> (x, y)`
+/// has the same non-zero sign around all four edges of the projected quad.
 #[inline]
 pub fn inside_quad(x: f64, y: f64, corners: &[[f64; 2]; 4]) -> bool {
     let mut sign = 0.0;
@@ -294,6 +320,10 @@ pub fn inside_quad(x: f64, y: f64, corners: &[[f64; 2]; 4]) -> bool {
 
 /// Places a 3D interface model at interface point `(x, y)` in the `InterfaceCamera`'s
 /// world space (`src/interface/models.js` `InterfaceCamera.place`).
+///
+/// Because `InterfaceCamera` uses a fixed vertical FOV (`2 * atan(0.75 * tan(PI/6))`)
+/// and adapts horizontally to `aspect`, the X coordinate scales by `0.75 * aspect`
+/// while Y scales by `768 / height` at `z = -PLANE`.
 #[inline]
 pub fn place_interface_model(x: f64, y: f64, aspect: f64, height: f64) -> [f64; 3] {
     [
@@ -312,6 +342,7 @@ pub fn place_interface_model(x: f64, y: f64, aspect: f64, height: f64) -> [f64; 
 pub fn nine_slice_pieces(w: f64, h: f64, corner: f64) -> ([[f64; 8]; 9], usize) {
     let mut xs = [-w * 0.5, -w * 0.5 + corner, w * 0.5 - corner, w * 0.5];
     let mut ys = [-h * 0.5, -h * 0.5 + corner, h * 0.5 - corner, h * 0.5];
+    // Collapse the center column or row if the box is narrower or shorter than two corners.
     if xs[2] < xs[1] {
         xs[1] = 0.0;
         xs[2] = 0.0;
@@ -320,7 +351,10 @@ pub fn nine_slice_pieces(w: f64, h: f64, corner: f64) -> ([[f64; 8]; 9], usize) 
         ys[1] = 0.0;
         ys[2] = 0.0;
     }
+    // 9-slice textures (`border_3_pieces`, `opaque_rect`) split UV space at 25% and 75%.
     let us = [0.0, 0.25, 0.75, 1.0];
+    // Emit up to 9 non-degenerate `[x0, y0, x1, y1, u0, v0, u1, v1]` pieces
+    // in row-major `(j, i)` order, skipping any collapsed row or column.
     let mut out = [[0.0; 8]; 9];
     let mut len = 0usize;
     for j in 0..3 {
@@ -392,6 +426,8 @@ pub fn draw_nine_slice_window(
     solid_texture: u32,
     color: Color,
 ) {
+    // Stand-in fallback when `border_3_pieces` or `opaque_rect` is not loaded:
+    // draw an inset translucent navy quad (`rgba(0, 43, 97, 0.7 * alpha)`).
     if texture == 0 {
         batch.quad(
             m,
@@ -479,6 +515,7 @@ pub fn wrap_lines_ranges(
         if para_end >= text.len() {
             break;
         }
+        // Advance past `\r\n` as a single line break or `\n` / `\r` individually.
         if text[para_end] == b'\r' as u16
             && para_end + 1 < text.len()
             && text[para_end + 1] == b'\n' as u16
@@ -490,6 +527,8 @@ pub fn wrap_lines_ranges(
     }
 }
 
+/// Greedy word-wrapper over a single paragraph slice `text[start..end]`, pushing
+/// `(line_start, line_end)` index pairs into `out_ranges`.
 fn wrap_paragraph(
     font: &Font,
     text: &[u16],
@@ -503,6 +542,8 @@ fn wrap_paragraph(
     let mut line_end = 0usize;
     let mut has_line = false;
     let mut i = start;
+    // Scan whitespace-delimited words within the paragraph and pack as many
+    // words onto the current line as fit within `max_width`.
     while i < end {
         while i < end && (text[i] == b' ' as u16 || text[i] == b'\t' as u16) {
             i += 1;
@@ -515,6 +556,7 @@ fn wrap_paragraph(
             i += 1;
         }
         let word_end = i;
+        // The first word on a line is always accepted even if wider than `max_width`.
         if !has_line {
             line_start = word_start;
             line_end = word_end;
@@ -538,28 +580,42 @@ fn wrap_paragraph(
 }
 
 /// Stage durations of the 2004 interface's flashy text intro (`src/interface/flashy.js`
-/// `INTRO = [0.1, 0.05, 0.05, 0.15, 0.15]`, total `0.5s`).
+/// `INTRO = [0.1, 0.05, 0.05, 0.15, 0.15]`, total `0.5s`):
+/// 1. `0.10s`: backing bar grows left to right (`bar: 0..1`).
+/// 2. `0.05s`: white cursor block fades in at the text's left edge (`block.alpha: 0..1`).
+/// 3. `0.05s`: white cursor block sweeps across the text width (`block.x: 0..1`).
+/// 4. `0.15s`: text unfolds vertically from its center line at full opacity (`text: 0..1`).
+/// 5. `0.15s`: text blinks out and fades back in (`alpha: 0..1`).
 pub const INTRO: [f64; 5] = [0.1, 0.05, 0.05, 0.15, 0.15];
+/// Cumulative end timestamps `[0.1, 0.15, 0.2, 0.35, 0.5]` for the 5 stages in [`INTRO`].
 pub const ENDS: [f64; 5] = [0.1, 0.15, 0.2, 0.35, 0.5];
+/// Total duration (`0.5s`) of the 5-stage [`TitleIntro`] animation.
 pub const INTRO_LENGTH: f64 = 0.5;
 
 /// Sweeping white cursor block state during stages 2 and 3 of [`TitleIntro`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlashyBlock {
+    /// Normalized horizontal progress (`0.0..=1.0`) across the label width.
     pub x: f64,
+    /// Opacity (`0.0..=1.0`) of the white cursor quad during fade-in and sweep.
     pub alpha: f64,
 }
 
 /// Instantaneous frame state of a [`TitleIntro`] (`TitleIntro.frame` in `src/interface/flashy.js`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlashyFrame {
+    /// Fraction (`0.0..=1.0`) of the backing bar width currently revealed from left to right.
     pub bar: f64,
+    /// Sweeping white cursor block state during stages 2 (`0.10..0.15s`) and 3 (`0.15..0.20s`).
     pub block: Option<FlashyBlock>,
+    /// Vertical unfold scale (`0.0..=1.0`) of the text around its midline during stage 4.
     pub text: f64,
+    /// Opacity (`0.0..=1.0`) of the unfolded text during stage 5 (`0.35..0.50s`).
     pub alpha: f64,
 }
 
 impl Default for FlashyFrame {
+    /// Returns the resting state after the 0.5s intro has completed (`bar = 1`, `text = 1`, `alpha = 1`).
     fn default() -> Self {
         Self {
             bar: 1.0,
@@ -576,9 +632,11 @@ pub type IntroFrame = FlashyFrame;
 /// The 5-stage flashy text/bar intro (`src/interface/flashy.js` `TitleIntro`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TitleIntro {
+    /// Elapsed time in seconds relative to the intro start (`< 0.0` while waiting on `delay`).
     pub time: f64,
 }
 
+// Defaults a `TitleIntro` to its completed state (`time = INTRO_LENGTH`).
 impl Default for TitleIntro {
     fn default() -> Self {
         Self::new()
@@ -586,6 +644,7 @@ impl Default for TitleIntro {
 }
 
 impl TitleIntro {
+    /// Creates a `TitleIntro` in its completed state (`time = INTRO_LENGTH`).
     #[inline]
     pub const fn new() -> Self {
         Self { time: INTRO_LENGTH }
@@ -612,6 +671,14 @@ impl TitleIntro {
     }
 
     /// Computes the current bar, block, vertical text scale, and text alpha (`TitleIntro.frame`).
+    ///
+    /// Evaluates which of the five `INTRO` stages `self.time` falls into:
+    /// - `t < 0.0`: waiting for the per-slot start delay (`bar = 0`, `text = 0`).
+    /// - `0.00..0.10s`: stage 0, backing bar expands horizontally from `0` to `1`.
+    /// - `0.10..0.15s`: stage 1, white cursor block fades in at `x = 0`.
+    /// - `0.15..0.20s`: stage 2, white cursor block sweeps from `x = 0` to `x = 1`.
+    /// - `0.20..0.35s`: stage 3, text unfolds vertically (`text = 0..1`) at `alpha = 1`.
+    /// - `0.35..0.50s`: stage 4, text blinks from `alpha = 0` back to `alpha = 1`.
     pub fn frame(&self) -> FlashyFrame {
         let t = self.time;
         let at = |stage: usize| -> f64 {
@@ -702,11 +769,15 @@ pub fn draw_flashy_text(
     let fh = font.height;
     let width = font.width(text, scale, 1.0);
     let st = intro.map_or(FlashyFrame::default(), TitleIntro::frame);
+    // Resolve the left X edge of the rendered text span from the alignment mode
+    // (`0` = left, `1` = right, `2` = horizontal center) so the stage 2/3 cursor
+    // block sweeps across the exact glyph bounds regardless of alignment.
     let left = match align {
         1 => x - width,
         2 => x - width * 0.5,
         _ => x,
     };
+    // Stages 2 & 3: draw the sweeping white cursor quad across the label's span.
     if let Some(block) = st.block {
         let bx = left + block.x * (width - fh * scale).max(0.0);
         batch.quad(
@@ -722,6 +793,8 @@ pub fn draw_flashy_text(
     if st.text <= 0.01 || st.alpha <= 0.0 {
         return;
     }
+    // Stages 4 & 5: scale vertically around the line's midpoint `mid` by `st.text / scale`
+    // so `font.draw(..., scale)` narrows glyphs horizontally while preserving full height.
     let mid = y + fh * 0.5;
     let at = translate(
         scale_xyz(translate(m, x, mid, 0.0), 1.0, st.text / scale, 1.0),
@@ -760,6 +833,10 @@ pub fn encode_utf16_into(s: &str, uppercase: bool, out: &mut Vec<u16>) {
 }
 
 /// Formats a signed integer `n` as UTF-16 digits into `out` without heap allocation.
+///
+/// Extracts base-10 digits in reverse into a 20-element stack array (`u64::MAX` is
+/// 20 digits) and pushes an optional `'-'` followed by the most-significant digits
+/// first into `out`.
 pub fn format_i64_utf16_into(n: i64, out: &mut Vec<u16>) {
     out.clear();
     if n == 0 {
@@ -772,6 +849,8 @@ pub fn format_i64_utf16_into(n: i64, out: &mut Vec<u16>) {
     } else {
         n as u64
     };
+    // Extract base-10 digits least-significant first into a fixed stack buffer,
+    // then reverse them into `out` after an optional leading minus sign.
     let mut digits = [0u16; 20];
     let mut len = 0usize;
     while mag > 0 {

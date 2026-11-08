@@ -71,30 +71,46 @@ pub const LOAD_CAP: u64 = 60_000;
 /// and 28-LED ring in `1024x768` interface units.
 /// Mirrors `DISK` in `src/shell/loading.js`.
 pub mod disk {
+    /// Horizontal offset (`252.0` units) of the disk center from the right screen edge.
     pub const RIGHT: f64 = 252.0;
+    /// Vertical offset (`223.0` units) of the disk center from the bottom screen edge.
     pub const BOTTOM: f64 = 223.0;
+    /// Horizontal perspective foreshortening factor (`0.866`, i.e. `cos(30 deg)`).
     pub const TURN: f64 = 0.866;
+    /// Radius (`52.0` units) of the 28-LED ring around the disk center.
     pub const RING: f64 = 52.0;
+    /// Number of LED squares (`28`) arranged evenly around the ring.
     pub const LEDS: usize = 28;
+    /// Counter-clockwise tilt (`-14.0` degrees) of the `LOADING` label across the disk.
     pub const TEXT_DEG: f64 = -14.0;
-    /// `[size, turn_rad_per_sec, alpha]` for the two counter-rotating disk layers.
+    /// `[size, turn_rad_per_sec, alpha]` for the two counter-rotating disk layers;
+    /// each layer's thin ring (at a quarter of its size) lands at `60` and `44` units,
+    /// outside and inside the `52`-unit LED ring.
     pub const LAYERS: [[f64; 3]; 2] = [[240.0, 0.25, 0.85], [176.0, -0.4, 0.75]];
 }
 
-/// Top-left planet name coordinates in `1024xH` interface units.
+/// Top-left planet name coordinates in `1024xH` interface units (`5` units into
+/// the safe area's top-left corner).
 /// Mirrors `NAME` in `src/shell/loading.js`.
 pub mod name_pos {
+    /// Left X anchor (`51.2` units, `0.05 * 1024`) at the safe area's left margin.
     pub const X: f64 = 51.2;
+    /// Top safe-area fraction (`0.05`) of interface height `H`.
     pub const TOP: f64 = 0.05;
+    /// Vertical offset (`5.0` units) below the top safe-area boundary.
     pub const Y: f64 = 5.0;
 }
 
 /// Parameters of the 28-LED lit arc chasing around the loading ring.
 /// Mirrors `LIGHTS` in `src/shell/loading.js`.
 pub mod lights {
+    /// Angular speed of the lit arc's head in full turns per second (`0.6`).
     pub const SPEED: f64 = 0.6;
+    /// Smoothstep lead-in ramp (`1 / 28` of a turn, one LED spacing) ahead of the head.
     pub const RAMP: f64 = 1.0 / 28.0;
+    /// Fraction of the ring (`0.75` turns) over which the trailing tail decays to off.
     pub const TAIL: f64 = 0.75;
+    /// Power-law exponent (`2.0`) shaping the tail decay (`(1 - b / tail) ^ ease`).
     pub const EASE: f64 = 2.0;
 }
 
@@ -130,13 +146,17 @@ pub mod audio_constants {
 /// Mirrors the keys of `LOOKS` in `src/shell/loading.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LookId {
+    /// Original 2004 look (`"bf1"`): grey lights on cyan disk, bitmap fonts.
     Bf1,
+    /// Battlefront Eternal look (`"eternal"`): amber/ember lights on black glass.
     #[default]
     Eternal,
+    /// Battlefront II 2005 look (`"bf2"`): red lights with dark rim on navy glass.
     Bf2,
 }
 
 impl LookId {
+    /// Returns the lowercase theme identifier (`"bf1"`, `"eternal"`, or `"bf2"`).
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Bf1 => "bf1",
@@ -145,6 +165,8 @@ impl LookId {
         }
     }
 
+    /// Normalizes an optional `menuTheme` setting into a [`LookId`], defaulting
+    /// any unrecognized or absent value to [`LookId::Eternal`] (`themeOf` in JS).
     pub fn from_theme(theme: Option<&str>) -> Self {
         match theme {
             Some("bf1") => Self::Bf1,
@@ -195,6 +217,9 @@ pub fn loading_look(classic_menus: bool, theme: Option<&str>) -> LookId {
     }
 }
 
+/// Three-letter map prefix table `(prefix, localization_slug, fallback_display_name)`
+/// used by [`planet_name`] when `shell.json`'s `load.planet` does not supply a name.
+/// Mirrors `PLANETS` in `src/shell/loading.js`.
 const PLANETS: [(&str, &str, &str); 10] = [
     ("bes", "bespin", "BESPIN"),
     ("end", "endor", "ENDOR"),
@@ -277,9 +302,13 @@ pub fn pulse(travel: f64, h: f64, step: f64, still: f64) -> Option<[f64; 2]> {
 /// Phase of the loading sequence at time `t`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LoadingPhase {
+    /// Initial state before `go(start)` starts the clock (`TimelineAt::WAIT`).
     Wait,
+    /// Crosshair tracking phase (`3.5s` default: horizontal in first half, vertical in second).
     Track,
+    /// Exponential zoom transition (`1.0s` default) into the next stage's target crop.
     Zoom,
+    /// Final stage reached after the last zoom finishes (`done` once `hold` elapses).
     Hold,
 }
 
@@ -299,18 +328,26 @@ impl LoadingPhase {
 /// and `Zoom`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrackingLines {
+    /// Horizontal crosshair progress (`0.0` at top/bottom screen edges to `1.0` on target box).
     pub y: f64,
+    /// Vertical crosshair progress (`None` during the first half of `track`, then `0.0..=1.0`).
     pub x: Option<f64>,
 }
 
 /// Snapshot of [`LoadingTimeline::at`] at `t` seconds into the sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TimelineAt {
+    /// Zero-based index of the current stage picture (`0..stages`).
     pub stage: usize,
+    /// Active phase (`Wait`, `Track`, `Zoom`, or `Hold`) at time `t`.
     pub phase: LoadingPhase,
+    /// Elapsed time in seconds within the current phase.
     pub time: f64,
+    /// Normalized crosshair positions (`0.0..=1.0`) during `Track` and `Zoom`, or `None` in `Wait`/`Hold`.
     pub lines: Option<TrackingLines>,
+    /// Normalized zoom progress (`0.0..=1.0`) during `Zoom`, or `None` in other phases.
     pub zoom: Option<f64>,
+    /// Whether the entire sequence (including `hold` after the final zoom) has completed.
     pub done: bool,
 }
 
@@ -330,9 +367,13 @@ impl TimelineAt {
 /// Sound cue kind in [`LoadingTimeline::sounds`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LoadingCue {
+    /// Horizontal crosshair tracking loop (`"ytrack"` -> `"load_ytracking"`).
     YTrack,
+    /// Vertical crosshair tracking loop (`"xtrack"` -> `"load_xtracking"`).
     XTrack,
+    /// One-shot zoom start sound (`"zoom"` -> `"load_zoom"`).
     Zoom,
+    /// End-of-zoom transition marker (`"transition"` -> `"load_transition"`).
     Transition,
 }
 
@@ -352,8 +393,11 @@ impl LoadingCue {
 /// Mirrors the entries returned by `LoadingTimeline.sounds()` in `src/shell/loading.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlannedSound {
+    /// Which loading sound cue (`YTrack`, `XTrack`, `Zoom`, or `Transition`) is scheduled.
     pub cue: LoadingCue,
+    /// Start offset in seconds from the beginning of the loading sequence.
     pub at: f64,
+    /// End offset in seconds for looping tracking pulses (`None` for one-shot `Zoom`/`Transition`).
     pub until: Option<f64>,
 }
 
@@ -573,8 +617,11 @@ pub fn on_screen(rect: [f64; 4], view: [f64; 4], w: f64, h: f64) -> [f64; 4] {
 /// Mirrors the object returned by `diskPlace(w, h)` in `src/shell/loading.js`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DiskPlace {
+    /// Horizontal center of the disk in viewport pixels (`w - 252 * unit`).
     pub x: f64,
+    /// Vertical center of the disk in viewport pixels (`h - 223 * unit`).
     pub y: f64,
+    /// Uniform pixels-per-interface-unit scale factor (`min(w / 1024, h / 768)`).
     pub unit: f64,
 }
 
@@ -687,14 +734,19 @@ pub fn handover_ready(
 mod tests {
     use super::*;
 
+    // Floating-point comparison helper for timeline and geometry assertions.
     fn close(a: f64, b: f64, eps: f64) -> bool {
         (a - b).abs() < eps
     }
 
+    // Converts a pixel `[x, y, w, h]` box on a `1024x1024` stage picture into
+    // fractional `[x0, y0, x1, y1]` coordinates for `LoadingTimeline`.
     fn fraction([x, y, w, h]: [f64; 4]) -> Option<[f64; 4]> {
         Some([x / 1024.0, y / 1024.0, (x + w) / 1024.0, (y + h) / 1024.0])
     }
 
+    // Target rectangles from Geonosis (`geo1`) across its four stage pictures
+    // (galaxy -> locale -> landsat -> hologram grid).
     fn geo1_targets() -> Vec<Option<[f64; 4]>> {
         vec![
             fraction([390.0, 737.0, 37.0, 43.0]),
@@ -704,6 +756,8 @@ mod tests {
         ]
     }
 
+    // Evaluates the 2004 executable's discrete 50ms step product `(1 - k * STEP / half)`
+    // so `approach` and `pulse` can be checked against the retail recurrence.
     fn exe_left(half: f64, steps: usize) -> Vec<f64> {
         let mut left = vec![1.0];
         for k in 1..=steps {
@@ -713,6 +767,9 @@ mod tests {
         left
     }
 
+    // Verifies that the continuous log-integral `approach(t, h, STEP)` matches
+    // the 2004 executable's discrete 50ms step product within 2% at every step
+    // and decreases monotonically from `1.0` at `t = 0` to `0.0` at `t = half`.
     #[test]
     fn approach_matches_stepwise_product_and_is_monotonic() {
         let half = 1.75;
@@ -742,8 +799,12 @@ mod tests {
         }
     }
 
+    // Verifies that `pulse(travel, half, STEP, STILL)` starts on the exact 50ms
+    // step where the leading crosshair line moves more than `STILL` (`0.001`) of
+    // the screen and stops within one step of the discrete recurrence, returning
+    // `None` when total travel is too small (`0.0005`) to exceed `STILL`.
     #[test]
-    fn pulse_matches_stepwise_movement_threshold() {
+    fn pulse_matches_stepwise_movement_threshold() -> Result<(), Box<dyn std::error::Error>> {
         let half = 1.75;
         let left = exe_left(half, 35);
         let exe = |travel: f64| -> Option<[f64; 2]> {
@@ -763,18 +824,27 @@ mod tests {
         };
 
         for travel in [0.72, 0.54, 0.38, 0.35, 0.2, 0.1] {
-            let [from, to] = pulse(travel, half, STEP, STILL).unwrap();
-            let [exe_from, exe_to] = exe(travel).unwrap();
+            let [from, to] = pulse(travel, half, STEP, STILL).ok_or("expected pulse")?;
+            let [exe_from, exe_to] = exe(travel).ok_or("expected exe pulse")?;
             assert!(close(from, exe_from, 1e-6));
             assert!((to - exe_to).abs() <= STEP + 1e-9);
             assert!(to > 0.6 && to < 1.1);
         }
-        assert!(close(pulse(0.03, half, STEP, STILL).unwrap()[0], STEP, 1e-6));
+        assert!(close(
+            pulse(0.03, half, STEP, STILL).ok_or("expected pulse")?[0],
+            STEP,
+            1e-6
+        ));
         assert_eq!(pulse(0.0005, half, STEP, STILL), None);
+        Ok(())
     }
 
+    // Verifies `LoadingTimeline` stage progression across 4 pictures (`geo1`):
+    // 3 transitions of `3.5s` track + `1.0s` zoom = `13.5s` total duration,
+    // plus optional `hold` time on the final stage before `done` becomes `true`.
     #[test]
-    fn timeline_tracks_3_5s_zooms_1s_and_finishes_at_end_of_last_zoom() {
+    fn timeline_tracks_3_5s_zooms_1s_and_finishes_at_end_of_last_zoom(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let timeline = LoadingTimeline::new(3.5, 1.0, 0.0, geo1_targets());
         assert_eq!(timeline.stages(), 4);
         assert_eq!(timeline.duration(), 13.5);
@@ -785,7 +855,8 @@ mod tests {
         assert_eq!(at0.lines, Some(TrackingLines { y: 0.0, x: None }));
 
         let at1 = timeline.at(1.0);
-        assert!(at1.lines.unwrap().y > 0.999 && at1.lines.unwrap().x.is_none());
+        let lines1 = at1.lines.ok_or("expected lines at 1.0s")?;
+        assert!(lines1.y > 0.999 && lines1.x.is_none());
 
         let at_half = timeline.at(1.75);
         assert_eq!(
@@ -795,13 +866,18 @@ mod tests {
                 x: Some(0.0)
             })
         );
-        assert!(timeline.at(3.49).lines.unwrap().x.unwrap() > 0.999);
+        let lines_end = timeline.at(3.49).lines.ok_or("expected lines at 3.49s")?;
+        assert!(lines_end.x.ok_or("expected x line at 3.49s")? > 0.999);
 
         let at_zoom = timeline.at(3.5);
         assert_eq!(at_zoom.stage, 0);
         assert_eq!(at_zoom.phase, LoadingPhase::Zoom);
         assert_eq!(at_zoom.zoom, Some(0.0));
-        assert!(close(timeline.at(4.0).zoom.unwrap(), 0.5, 1e-6));
+        assert!(close(
+            timeline.at(4.0).zoom.ok_or("expected zoom at 4.0s")?,
+            0.5,
+            1e-6
+        ));
 
         let at_stage1 = timeline.at(4.5);
         assert_eq!(at_stage1.stage, 1);
@@ -819,6 +895,7 @@ mod tests {
         assert_eq!(held.duration(), 15.5);
         assert!(!held.at(15.0).done);
         assert!(held.at(15.5).done);
+        Ok(())
     }
 
     #[test]

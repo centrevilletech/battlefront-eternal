@@ -1,9 +1,10 @@
 // Direct Connect IPv4/IPv6 address and port validation.
 //
-// Ports `DEFAULT_DIRECT_PORT`, `parseDirectTarget`, `validIpAddress`,
-// `validIpv4`, and `validIpv6` from `src/shell/direct-connect.js`, plus the
-// `directInfo` validation in `electron/network.js` and `HOST:PORT` CLI target
-// parsing for `online-tool ping`.
+// Ports the direct connection dialog validation in `src/shell/direct-connect.js`
+// (`address.value.trim().replace(/^\[|\]$/g, '')`, port `1..=65535` defaulting
+// to `18451`) and the `directInfo` IPC guard in `electron/network.js`
+// (`isIP(value.address) && Number.isInteger(value.port)`), plus `HOST:PORT`
+// CLI target resolution for `online-tool ping`.
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
@@ -11,6 +12,8 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 // matching `DEFAULT_DIRECT_PORT` in `src/shell/direct-connect.js`.
 pub const DEFAULT_DIRECT_PORT: u16 = 18451;
 
+// Validated Direct Connect endpoint containing the unbracketed address string,
+// parsed `IpAddr` (`V4` or `V6`), and non-zero TCP/UDP game port (`1..=65535`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectTarget {
     pub address: String,
@@ -19,6 +22,7 @@ pub struct DirectTarget {
 }
 
 impl DirectTarget {
+    // Converts the validated IP and port into a `std::net::SocketAddr` for TCP/UDP I/O.
     pub fn socket_addr(&self) -> SocketAddr {
         SocketAddr::new(self.ip, self.port)
     }
@@ -33,6 +37,9 @@ impl DirectTarget {
     }
 }
 
+// Structured validation failure returned by `parse_direct_target` when a user
+// enters an empty host, a hostname / malformed IP literal, or an out-of-range
+// port in the Direct Connect modal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectConnectError {
     EmptyAddress,
@@ -51,7 +58,8 @@ impl DirectConnectError {
         }
     }
 
-    // Error text matching `directInfo` in `electron/network.js`.
+    // Descriptive sentence returned across the desktop network bridge when
+    // `validate_direct_endpoint` rejects an invalid IP literal or port range.
     pub fn bridge_text(self) -> &'static str {
         match self {
             Self::EmptyAddress | Self::InvalidIpAddress => {
@@ -62,11 +70,16 @@ impl DirectConnectError {
     }
 }
 
+// Formats `DirectConnectError` using its uppercase UI banner text so `?` and
+// `to_string()` produce human-readable messages in tests and CLI diagnostics.
 impl std::fmt::Display for DirectConnectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.ui_text())
     }
 }
+
+// Allows `DirectConnectError` to convert into `Box<dyn std::error::Error>` with `?`.
+impl std::error::Error for DirectConnectError {}
 
 // Strips surrounding whitespace and a single pair of outer `[` / `]` brackets,
 // matching `String(address ?? '').trim().replace(/^\[|\]$/g, '')` in
@@ -77,8 +90,11 @@ pub fn strip_host_brackets(raw: &str) -> &str {
     without_open.strip_suffix(']').unwrap_or(without_open)
 }
 
-// Validates a Direct Connect dialog `(address, port)` pair exactly as
-// `parseDirectTarget` in `src/shell/direct-connect.js` does.
+// Validates a Direct Connect dialog `(address, port)` string pair:
+// 1. Strips outer whitespace and optional `[` / `]` brackets around IPv6 literals.
+// 2. Requires a strict numeric IPv4 or IPv6 literal (DNS hostnames are rejected
+//    in Direct Connect so connection attempts do not leak or block on DNS).
+// 3. Parses the port as an integer in `1..=65535`.
 pub fn parse_direct_target(address: &str, port: &str) -> Result<DirectTarget, DirectConnectError> {
     let host = strip_host_brackets(address);
     if host.is_empty() {
@@ -102,8 +118,10 @@ pub fn parse_direct_target(address: &str, port: &str) -> Result<DirectTarget, Di
     })
 }
 
-// Validates a numeric `(address, port)` pair for the network bridge, matching
-// `directInfo(address, port)` in `electron/network.js`.
+// Validates a `(address, port)` pair where `port` is already a numeric integer
+// (`typeof value.port === 'number'` in `electron/network.js::dispatch('directInfo')`).
+// Strips optional IPv6 brackets and verifies `1 <= port <= 65535` before any
+// TCP connection is attempted by `direct_info`.
 pub fn validate_direct_endpoint(address: &str, port: i64) -> Result<DirectTarget, String> {
     let host = strip_host_brackets(address);
     let Some(ip) = parse_strict_ip(host) else {
@@ -121,8 +139,10 @@ pub fn validate_direct_endpoint(address: &str, port: i64) -> Result<DirectTarget
     })
 }
 
-// Matches `validIpAddress` in `src/shell/direct-connect.js` (strict decimal
-// IPv4 without leading zeros and standard IPv6).
+// Parses a strict numeric IPv4 or IPv6 address literal, matching Node's
+// `net.isIP(address)` check in `electron/network.js`.
+// Rejects leading zeros on multi-digit IPv4 octets (e.g. `.01.`) so ambiguous
+// octal-style notation is never accepted.
 pub fn parse_strict_ip(host: &str) -> Option<IpAddr> {
     if valid_ipv4(host) {
         return host.parse::<IpAddr>().ok();
@@ -133,6 +153,8 @@ pub fn parse_strict_ip(host: &str) -> Option<IpAddr> {
     None
 }
 
+// Checks that `host` consists of exactly four dot-separated decimal octets in
+// `0..=255` with no leading zeros on multi-digit segments.
 fn valid_ipv4(host: &str) -> bool {
     let parts: Vec<&str> = host.split('.').collect();
     if parts.len() != 4 {
@@ -149,6 +171,8 @@ fn valid_ipv4(host: &str) -> bool {
     })
 }
 
+// Checks that `host` contains at least one colon and parses as a standard
+// RFC 4291 IPv6 address via `std::net::Ipv6Addr`.
 fn valid_ipv6(host: &str) -> bool {
     if !host.contains(':') {
         return false;
@@ -157,7 +181,11 @@ fn valid_ipv6(host: &str) -> bool {
 }
 
 // Parses a `HOST:PORT` or `[IPv6]:PORT` string for CLI tools (`online-tool ping`
-// and `--join`). Accepts literal IPv4, bracketed IPv6, or DNS hostnames.
+// and `--join`).
+// Fast-paths socket address literals (`SocketAddr::from_str`) and strict IP
+// literals before falling back to OS `ToSocketAddrs` DNS resolution for named
+// hosts, returning both the normalized host string (for HTTP `Host` headers)
+// and the resolved `SocketAddr`.
 pub fn resolve_host_port(target: &str) -> Result<(String, SocketAddr), String> {
     let trimmed = target.trim();
     if let Ok(addr) = trimmed.parse::<SocketAddr>() {
@@ -191,25 +219,35 @@ pub fn resolve_host_port(target: &str) -> Result<(String, SocketAddr), String> {
 mod tests {
     use super::*;
 
+    // Verifies that `parse_direct_target` accepts padded IPv4 literals,
+    // bracketed IPv6 literals (`[2001:db8::1]`), and bare IPv6 loopback (`::1`),
+    // and that `host_port_string()` re-brackets IPv6 addresses for HTTP `Host`
+    // headers while leaving IPv4 addresses unbracketed.
     #[test]
-    fn parses_valid_ipv4_and_ipv6_direct_targets() {
+    fn parses_valid_ipv4_and_ipv6_direct_targets() -> Result<(), Box<dyn std::error::Error>> {
         let sample_v4 = format!("{}.{}.{}.{}", 192, 168, 1, 40);
         let padded_v4 = format!(" {sample_v4} ");
-        let v4 = parse_direct_target(&padded_v4, "18451").expect("valid v4");
+        let v4 = parse_direct_target(&padded_v4, "18451")?;
         assert_eq!(v4.address, sample_v4);
         assert_eq!(v4.port, 18451);
         assert_eq!(v4.host_port_string(), format!("{sample_v4}:18451"));
 
-        let v6 = parse_direct_target("[2001:db8::1]", "18451").expect("valid bracketed v6");
+        let v6 = parse_direct_target("[2001:db8::1]", "18451")?;
         assert_eq!(v6.address, "2001:db8::1");
         assert_eq!(v6.port, 18451);
         assert_eq!(v6.host_port_string(), "[2001:db8::1]:18451");
 
-        let loopback = parse_direct_target("::1", "65535").expect("valid ::1");
+        // Bare IPv6 loopback without surrounding brackets is also accepted at max port 65535.
+        let loopback = parse_direct_target("::1", "65535")?;
         assert_eq!(loopback.address, "::1");
         assert_eq!(loopback.port, 65535);
+        Ok(())
     }
 
+    // Verifies that empty strings, empty brackets (`[]`), DNS hostnames,
+    // leading-zero IPv4 octets, out-of-range IPv4 octets (`256`), and invalid
+    // ports (`0`, `65536`, non-numeric) return the exact `DirectConnectError`
+    // variant expected by the UI.
     #[test]
     fn rejects_invalid_addresses_and_ports_with_exact_messages() {
         assert_eq!(

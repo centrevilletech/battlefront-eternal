@@ -33,14 +33,14 @@ pub use direct::{
     validate_direct_endpoint, DirectConnectError, DirectTarget, DEFAULT_DIRECT_PORT,
 };
 pub use identity::{
-    default_consent_path, default_identity_path, read_online_consent, write_online_consent,
-    write_online_consent_at, PlayerIdentity, SignedMasterHeaders, ED25519_SPKI_PREFIX,
-    ONLINE_NOTICE_VERSION,
+    default_consent_path, default_identity_path, read_online_consent, try_read_online_consent,
+    write_online_consent, write_online_consent_at, PlayerIdentity, SignedMasterHeaders,
+    ED25519_SPKI_PREFIX, ONLINE_NOTICE_VERSION,
 };
 pub use lan::{
     default_lan_targets, discover_lan, encode_discover_packet, parse_server_packet,
-    LanDiscoveryOptions, DEFAULT_LAN_TIMEOUT, LAN_MAGIC, LAN_MULTICAST_V6, LAN_PORT,
-    MAX_LAN_PACKET, MAX_LAN_SERVERS,
+    try_encode_discover_packet, LanDiscoveryOptions, DEFAULT_LAN_TIMEOUT, LAN_MAGIC,
+    LAN_MULTICAST_V6, LAN_PORT, MAX_LAN_PACKET, MAX_LAN_SERVERS,
 };
 pub use master::{
     master_host, normalize_base_url, resolve_master_url, unreachable_error, MasterClient,

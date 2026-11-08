@@ -31,6 +31,9 @@ pub const MASTER_RETRY_DELAY: Duration = Duration::from_millis(750);
 // `fetchJson` in `electron/network.js`).
 const MAX_MASTER_RESPONSE_BYTES: u64 = 128 * 1024;
 
+// IP address family preference for outbound master HTTP/HTTPS connections.
+// Defaults to dual-stack (`Any`), while allowing CLI diagnostics (`--ipv4` /
+// `--ipv6`) and loopback unit tests to pin `Ipv4Only` or `Ipv6Only`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MasterIpFamily {
     #[default]
@@ -40,6 +43,7 @@ pub enum MasterIpFamily {
 }
 
 impl MasterIpFamily {
+    // Converts this crate's family selector into `ureq::config::IpFamily`.
     fn into_ureq(self) -> IpFamily {
         match self {
             Self::Any => IpFamily::Any,
@@ -49,32 +53,52 @@ impl MasterIpFamily {
     }
 }
 
+// Short-lived TURN relay credentials returned by `POST /v1/relay-credentials`
+// (`dispatch('credentials')` in `electron/network.js`).
+// - `urls`: `turn:` / `turns:` server URIs accepted by the ICE/TURN client.
+// - `username` and `credential`: time-limited HMAC TURN credentials scoped to
+//   the player's identity and the target `serverId`.
+// - `ttl`: credential validity window in seconds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelayCredentials {
+    // TURN/STUN server URI list (`["turn:turn.battlefronteternal.com:3478?transport=udp", ...]`).
     #[serde(default)]
     pub urls: Vec<String>,
+    // Ephemeral coturn REST API username (`"<expiry_unix>:<peer_id>"`).
     pub username: String,
+    // Base64 HMAC-SHA1 TURN credential paired with `username`.
     pub credential: String,
+    // Time-to-live of the credentials in seconds.
     pub ttl: u64,
 }
 
+// One-time WebSocket signaling ticket returned by `POST /v1/signal-ticket`
+// (`dispatch('connect')` in `electron/network.js`), redeemed on
+// `wss://<master>/v1/signal?ticket=<ticket>` to exchange WebRTC/UDP offers,
+// answers, ICE candidates, and match readiness probes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignalTicket {
+    // Hex/opaque single-use ticket passed as `?ticket=` on `/v1/signal`.
     pub ticket: String,
+    // Expiration timestamp in milliseconds since `UNIX_EPOCH`.
     pub expires: u64,
 }
 
+// JSON envelope returned by `GET /v1/servers` (`{ "servers": [...] }`).
 #[derive(Debug, Deserialize)]
 struct ServersEnvelope {
     #[serde(default)]
     servers: Vec<ServerEntry>,
 }
 
+// JSON envelope returned by `GET /v1/servers/:id` (`{ "server": { ... } }`).
 #[derive(Debug, Deserialize)]
 struct SingleServerEnvelope {
     server: ServerEntry,
 }
 
+// Error JSON body returned by the master on HTTP 4xx/5xx (`{ "error": "..." }`
+// in `electron/network.js`: `result.error || ...`).
 #[derive(Debug, Deserialize)]
 struct ErrorEnvelope {
     error: Option<String>,
@@ -82,6 +106,9 @@ struct ErrorEnvelope {
 
 // Resolves the active master server URL from `BFE_MASTER_URL` or falls back to
 // `DEFAULT_MASTER_URL`, stripping trailing slashes.
+// Resolves the active master server URL from `BFE_MASTER_URL` when set to a
+// non-empty string, or falls back to `DEFAULT_MASTER_URL`
+// (`https://online.battlefronteternal.com`), stripping any trailing `/`.
 pub fn resolve_master_url() -> String {
     let raw = env::var("BFE_MASTER_URL")
         .ok()
@@ -90,6 +117,8 @@ pub fn resolve_master_url() -> String {
     normalize_base_url(&raw)
 }
 
+// Trims surrounding whitespace and trailing `/` characters from a master base
+// URL so concatenating routes like `"/v1/servers"` never produces `"//v1/servers"`.
 pub fn normalize_base_url(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
 }
@@ -111,6 +140,10 @@ pub fn master_host(base_url: &str) -> &str {
 
 // Formats a transport/connection failure into the exact user-facing message
 // produced by `unreachableError(baseUrl, err)` in `electron/network.js`.
+// Formats a socket/DNS/TLS connection failure into a concise user-facing error
+// message naming the target master `host[:port]` authority and distinguishing
+// request timeouts (`"timed out"`) from connection errors (`unreachable` in
+// `electron/network.js`).
 pub fn unreachable_error(base_url: &str, detail: &str) -> String {
     let host = master_host(base_url);
     let lower = detail.to_ascii_lowercase();
@@ -128,15 +161,30 @@ pub fn unreachable_error(base_url: &str, detail: &str) -> String {
     }
 }
 
+// Signed HTTP/HTTPS client for the Battlefront Eternal master service
+// (`request(route, method, value)` in `electron/network.js`).
+//
+// Signs every request with the player's Ed25519 `PlayerIdentity` (`x-bfe-key`,
+// `x-bfe-time`, `x-bfe-nonce`, `x-bfe-signature`, `x-bfe-notice`), enforces a
+// 128 KiB response body cap, and retries idempotent `GET` requests once with a
+// freshly generated timestamp and nonce if the first attempt fails at the
+// transport layer (`if (method === 'GET' && attempt === 0)` in `electron/network.js`).
 pub struct MasterClient {
+    // Normalized base URL of the master service (without trailing slash).
     base_url: String,
+    // Persistent Ed25519 player identity used to sign every outbound request.
     identity: PlayerIdentity,
+    // Configured `ureq::Agent` connection pool and TLS client.
     agent: Agent,
+    // Delay between the 1st and 2nd attempt of a failed idempotent `GET` request.
     retry_delay: Duration,
+    // Per-endpoint TCP handshake timeout used by `list_servers`.
     ping_timeout: Duration,
 }
 
 impl MasterClient {
+    // Creates a `MasterClient` with standard 10s request timeout, 750ms GET
+    // retry delay, and dual-stack IP resolution.
     pub fn new(base_url: impl Into<String>, identity: PlayerIdentity) -> Self {
         Self::with_options(
             base_url,
@@ -147,10 +195,14 @@ impl MasterClient {
         )
     }
 
+    // Creates a `MasterClient` targeting `BFE_MASTER_URL` (or `DEFAULT_MASTER_URL`).
     pub fn from_env(identity: PlayerIdentity) -> Self {
         Self::new(resolve_master_url(), identity)
     }
 
+    // Configures the underlying `ureq::Agent` with `http_status_as_error(false)`
+    // so HTTP 4xx/5xx responses can be inspected for structured `{ "error": "..." }`
+    // JSON bodies instead of being conflated with transport-level failures.
     pub fn with_options(
         base_url: impl Into<String>,
         identity: PlayerIdentity,
@@ -173,14 +225,17 @@ impl MasterClient {
         }
     }
 
+    // Overrides the per-endpoint TCP connect timeout used by `list_servers`.
     pub fn set_ping_timeout(&mut self, timeout: Duration) {
         self.ping_timeout = timeout;
     }
 
+    // Returns the normalized master server base URL (without trailing slash).
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
 
+    // Returns a reference to the player's Ed25519 signing identity.
     pub fn identity(&self) -> &PlayerIdentity {
         &self.identity
     }
@@ -231,6 +286,10 @@ impl MasterClient {
         self.request_master("POST", "/v1/signal-ticket", Some("{}"))
     }
 
+    // Executes a signed master HTTP request, retrying idempotent `GET` requests
+    // once after `self.retry_delay` (750ms) when a transport error occurs.
+    // Non-idempotent `POST` requests and explicit HTTP 4xx/5xx responses fail
+    // immediately without retrying, matching `request()` in `electron/network.js`.
     fn request_master<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
@@ -258,6 +317,9 @@ impl MasterClient {
         Err(last_err)
     }
 
+    // Sends a single HTTP attempt with a freshly generated timestamp and 16-byte
+    // random nonce (`sign_master_request`), ensuring a retried `GET` never trips
+    // the master server's replay-protection nonce cache.
     fn send_once<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
@@ -271,6 +333,9 @@ impl MasterClient {
             .map_err(RequestOutcome::HttpError)?;
         let url = format!("{}{}", self.base_url, route);
 
+        // Attach the 5 signed `x-bfe-*` headers (`x-bfe-key`, `x-bfe-time`,
+        // `x-bfe-nonce`, `x-bfe-signature`, `x-bfe-notice`) and dispatch either
+        // a bodyless `GET` or a JSON `POST` (`electron/network.js::request`).
         let mut response = if method.eq_ignore_ascii_case("GET") {
             let mut req = self.agent.get(&url).header("accept", "application/json");
             for (k, v) in signed.as_pairs() {
@@ -291,6 +356,9 @@ impl MasterClient {
                 .map_err(|e| RequestOutcome::TransportError(unreachable_error(&self.base_url, &e.to_string())))?
         };
 
+        // Read the response body with a strict 128 KiB cap (`MAX_MASTER_RESPONSE_BYTES`)
+        // so an oversized or runaway upstream response is rejected immediately
+        // as a non-retryable `HttpError("Master response was too large")`.
         let status = response.status().as_u16();
         let text = response
             .body_mut()
@@ -305,6 +373,9 @@ impl MasterClient {
                 }
             })?;
 
+        // On HTTP 4xx/5xx, prefer the master's structured `{ "error": "..." }`
+        // message (`result.error || ...` in `electron/network.js`), falling back
+        // to `"Request failed (<status>)"` when the body is not a JSON error object.
         if status >= 400 {
             if let Ok(env) = serde_json::from_str::<ErrorEnvelope>(&text) {
                 if let Some(msg) = env.error.filter(|s| !s.is_empty()) {
@@ -316,11 +387,14 @@ impl MasterClient {
             )));
         }
 
+        // Parse the 2xx response body into the caller's envelope type `T`.
         serde_json::from_str::<T>(&text)
             .map_err(|_| RequestOutcome::HttpError("Master returned an invalid response".to_string()))
     }
 }
 
+// Distinguishes authoritative HTTP/application errors (which must not be retried)
+// from transient socket/TLS transport failures (which `GET` retries once).
 enum RequestOutcome {
     HttpError(String),
     TransportError(String),
@@ -338,7 +412,12 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
-    fn read_http_request(stream: &mut std::net::TcpStream) -> (String, String, HashMap<String, String>, Vec<u8>) {
+    // Minimal HTTP/1.1 request reader for loopback mock master tests: reads
+    // until `\r\n\r\n`, parses the request line and lowercase header map, and
+    // reads the exact `Content-Length` body bytes.
+    type ParsedHttpRequest = (String, String, HashMap<String, String>, Vec<u8>);
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> Result<ParsedHttpRequest, String> {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
         let mut raw = Vec::new();
         let mut buf = [0u8; 1024];
@@ -346,85 +425,122 @@ mod tests {
             if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
                 break pos;
             }
-            let n = stream.read(&mut buf).expect("read request");
+            let n = stream
+                .read(&mut buf)
+                .map_err(|e| format!("read request: {e}"))?;
             assert!(n > 0, "unexpected EOF reading headers");
             raw.extend_from_slice(&buf[..n]);
         };
-        let header_str = std::str::from_utf8(&raw[..header_end]).unwrap();
+        // Parse the HTTP/1.1 request line (`<METHOD> <route> HTTP/1.1`) and
+        // normalize header names to lowercase so `verify_master_headers` can
+        // look up `x-bfe-*` and `content-length` case-insensitively.
+        let header_str =
+            std::str::from_utf8(&raw[..header_end]).map_err(|e| format!("header utf8: {e}"))?;
         let mut lines = header_str.split("\r\n");
-        let req_line = lines.next().unwrap();
+        let req_line = lines.next().ok_or("missing request line")?;
         let mut parts = req_line.split_whitespace();
-        let method = parts.next().unwrap().to_string();
-        let route = parts.next().unwrap().to_string();
+        let method = parts.next().ok_or("missing method")?.to_string();
+        let route = parts.next().ok_or("missing route")?.to_string();
         let mut headers = HashMap::new();
         for line in lines {
             if let Some((k, v)) = line.split_once(':') {
                 headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
             }
         }
+        // Read the remaining request body bytes advertised by `Content-Length`
+        // so `POST /v1/relay-credentials` and `POST /v1/signal-ticket` payloads
+        // can be hash-checked by `verify_master_headers`.
         let content_len: usize = headers
             .get("content-length")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
         let body_start = header_end + 4;
         while raw.len() - body_start < content_len {
-            let n = stream.read(&mut buf).expect("read body");
+            let n = stream
+                .read(&mut buf)
+                .map_err(|e| format!("read body: {e}"))?;
             if n == 0 {
                 break;
             }
             raw.extend_from_slice(&buf[..n]);
         }
         let body = raw[body_start..body_start + content_len].to_vec();
-        (method, route, headers, body)
+        Ok((method, route, headers, body))
     }
 
+    // Reconstructs the master server's authentication check from
+    // `battlefront-eternal-master/src/auth.js`:
+    // 1. Verifies `x-bfe-notice == ONLINE_NOTICE_VERSION`.
+    // 2. Decodes the 44-byte SPKI DER `x-bfe-key` and checks `ED25519_SPKI_PREFIX`.
+    // 3. Recomputes `{method}\n{route}\n{time}\n{nonce}\n{sha256_hex(body)}` and
+    //    verifies the Ed25519 `x-bfe-signature` against the extracted public key.
     fn verify_master_headers(
         method: &str,
         route: &str,
         headers: &HashMap<String, String>,
         body: &[u8],
-    ) {
+    ) -> Result<(), String> {
         assert_eq!(
             headers.get("x-bfe-notice").map(String::as_str),
             Some(ONLINE_NOTICE_VERSION)
         );
-        let key_b64 = headers.get("x-bfe-key").expect("x-bfe-key");
-        let time = headers.get("x-bfe-time").expect("x-bfe-time");
-        let nonce = headers.get("x-bfe-nonce").expect("x-bfe-nonce");
-        let sig_b64 = headers.get("x-bfe-signature").expect("x-bfe-signature");
+        let key_b64 = headers.get("x-bfe-key").ok_or("missing x-bfe-key")?;
+        let time = headers.get("x-bfe-time").ok_or("missing x-bfe-time")?;
+        let nonce = headers.get("x-bfe-nonce").ok_or("missing x-bfe-nonce")?;
+        let sig_b64 = headers
+            .get("x-bfe-signature")
+            .ok_or("missing x-bfe-signature")?;
         assert_eq!(nonce.len(), 32);
 
-        let spki = BASE64.decode(key_b64).expect("decode spki");
+        let spki = BASE64
+            .decode(key_b64)
+            .map_err(|e| format!("decode spki: {e}"))?;
         assert_eq!(spki.len(), 44);
         assert_eq!(&spki[..12], &ED25519_SPKI_PREFIX);
         let mut pub_bytes = [0u8; 32];
         pub_bytes.copy_from_slice(&spki[12..]);
-        let verifying = VerifyingKey::from_bytes(&pub_bytes).expect("valid verifying key");
+        let verifying = VerifyingKey::from_bytes(&pub_bytes)
+            .map_err(|e| format!("valid verifying key: {e}"))?;
 
+        // Reconstruct the canonical newline-delimited signing preimage
+        // (`{method}\n{route}\n{time}\n{nonce}\n{sha256_hex(body)}`) and verify
+        // the Base64 Ed25519 signature against the SPKI public key.
         let body_hash = crate::identity::hex_lower(&Sha256::digest(body));
         let msg = format!("{method}\n{route}\n{time}\n{nonce}\n{body_hash}");
-        let sig_bytes = BASE64.decode(sig_b64).expect("decode signature");
-        let sig = Signature::from_slice(&sig_bytes).expect("signature length");
+        let sig_bytes = BASE64
+            .decode(sig_b64)
+            .map_err(|e| format!("decode signature: {e}"))?;
+        let sig = Signature::from_slice(&sig_bytes)
+            .map_err(|e| format!("signature length: {e}"))?;
         verifying
             .verify(msg.as_bytes(), &sig)
-            .expect("master signature must verify");
+            .map_err(|e| format!("master signature must verify: {e}"))?;
+        Ok(())
     }
 
+    // End-to-end test against a local TCP mock master verifying signed
+    // `GET /v1/servers`, `POST /v1/relay-credentials`, and `POST /v1/signal-ticket`
+    // requests, SPKI + Ed25519 signature verification, and JSON response parsing.
     #[test]
-    fn signs_and_executes_list_servers_relay_credentials_and_signal_ticket() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock master");
-        let addr = listener.local_addr().unwrap();
+    fn signs_and_executes_list_servers_relay_credentials_and_signal_ticket(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let addr = listener.local_addr()?;
         let server_id = "cd".repeat(32);
         let expected_server_id = server_id.clone();
 
-        let handle = std::thread::spawn(move || {
-            // 1. GET /v1/servers
+        // Spawn a sequential 3-request mock master server on `127.0.0.1:0`
+        // handling `GET /v1/servers`, `POST /v1/relay-credentials`, and
+        // `POST /v1/signal-ticket` in order while verifying Ed25519 signatures.
+        let handle = std::thread::spawn(move || -> Result<(), String> {
+            // 1. GET /v1/servers: verify signed headers over an empty body and
+            // return a single-server directory listing.
             {
-                let (mut stream, _) = listener.accept().unwrap();
-                let (method, route, headers, body) = read_http_request(&mut stream);
+                let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+                let (method, route, headers, body) = read_http_request(&mut stream)?;
                 assert_eq!(method, "GET");
                 assert_eq!(route, "/v1/servers");
-                verify_master_headers(&method, &route, &headers, &body);
+                verify_master_headers(&method, &route, &headers, &body)?;
                 let json = serde_json::json!({
                     "servers": [{
                         "id": expected_server_id,
@@ -449,16 +565,20 @@ mod tests {
                     json.len(),
                     json
                 );
-                stream.write_all(resp.as_bytes()).unwrap();
+                stream
+                    .write_all(resp.as_bytes())
+                    .map_err(|e| e.to_string())?;
             }
-            // 2. POST /v1/relay-credentials
+            // 2. POST /v1/relay-credentials: verify signed headers over the JSON
+            // `{"serverId": ...}` body and return coturn HMAC credentials.
             {
-                let (mut stream, _) = listener.accept().unwrap();
-                let (method, route, headers, body) = read_http_request(&mut stream);
+                let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+                let (method, route, headers, body) = read_http_request(&mut stream)?;
                 assert_eq!(method, "POST");
                 assert_eq!(route, "/v1/relay-credentials");
-                verify_master_headers(&method, &route, &headers, &body);
-                let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                verify_master_headers(&method, &route, &headers, &body)?;
+                let parsed: serde_json::Value =
+                    serde_json::from_slice(&body).map_err(|e| e.to_string())?;
                 assert_eq!(
                     parsed.get("serverId").and_then(|v| v.as_str()),
                     Some(expected_server_id.as_str())
@@ -475,15 +595,18 @@ mod tests {
                     json.len(),
                     json
                 );
-                stream.write_all(resp.as_bytes()).unwrap();
+                stream
+                    .write_all(resp.as_bytes())
+                    .map_err(|e| e.to_string())?;
             }
-            // 3. POST /v1/signal-ticket
+            // 3. POST /v1/signal-ticket: verify signed headers over `{}` and
+            // return a short-lived WebSocket signaling ticket.
             {
-                let (mut stream, _) = listener.accept().unwrap();
-                let (method, route, headers, body) = read_http_request(&mut stream);
+                let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+                let (method, route, headers, body) = read_http_request(&mut stream)?;
                 assert_eq!(method, "POST");
                 assert_eq!(route, "/v1/signal-ticket");
-                verify_master_headers(&method, &route, &headers, &body);
+                verify_master_headers(&method, &route, &headers, &body)?;
                 let json = serde_json::json!({
                     "ticket": "ef".repeat(24),
                     "expires": 1_760_000_060_000u64
@@ -494,8 +617,11 @@ mod tests {
                     json.len(),
                     json
                 );
-                stream.write_all(resp.as_bytes()).unwrap();
+                stream
+                    .write_all(resp.as_bytes())
+                    .map_err(|e| e.to_string())?;
             }
+            Ok(())
         });
 
         let id = PlayerIdentity::from_seed([7u8; 32]);
@@ -507,15 +633,17 @@ mod tests {
             MasterIpFamily::Ipv4Only,
         );
 
-        let servers = client.list_servers().expect("list_servers");
+        // 1. Verify `list_servers` returns the mock server and leaves `latency_ms`
+        // as `None` because `endpoints` is empty (relay-capable server).
+        let servers = client.list_servers()?;
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].id, server_id);
         assert_eq!(servers[0].name, "Official Cloud City");
         assert_eq!(servers[0].latency_ms, None);
 
-        let creds = client
-            .relay_credentials(Some(&server_id))
-            .expect("relay_credentials");
+        // 2. Verify `relay_credentials` posts `{"serverId": ...}` and parses the
+        // returned TURN URLs, username, HMAC credential, and TTL.
+        let creds = client.relay_credentials(Some(&server_id))?;
         assert_eq!(
             creds.urls,
             vec!["turn:turn.battlefronteternal.com:3478?transport=udp"]
@@ -524,41 +652,65 @@ mod tests {
         assert_eq!(creds.credential, "hmac-secret");
         assert_eq!(creds.ttl, 3600);
 
-        let ticket = client.signal_ticket().expect("signal_ticket");
+        // 3. Verify `signal_ticket` posts `{}` and parses the one-time ticket.
+        let ticket = client.signal_ticket()?;
         assert_eq!(ticket.ticket, "ef".repeat(24));
 
-        handle.join().unwrap();
+        // Ensure the background mock server thread completed all 3 assertions cleanly.
+        handle
+            .join()
+            .map_err(|_| "mock master thread panicked")??;
+        Ok(())
     }
 
+    // Verifies that when the first `GET /v1/servers` connection drops before
+    // sending an HTTP response, `MasterClient` waits `retry_delay` and issues a
+    // second `GET` signed with a fresh `x-bfe-nonce`.
     #[test]
-    fn retries_get_once_with_fresh_nonce_after_connection_drop() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock master");
-        let addr = listener.local_addr().unwrap();
+    fn retries_get_once_with_fresh_nonce_after_connection_drop(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let addr = listener.local_addr()?;
 
-        let handle = std::thread::spawn(move || {
-            // 1st attempt: read request and immediately close socket without replying.
+        let handle = std::thread::spawn(move || -> Result<(), String> {
+            // 1st attempt: accept the TCP connection, read the signed `GET`
+            // headers to capture the first `x-bfe-nonce`, and drop the socket
+            // without writing any HTTP status line so `ureq` sees an EOF error.
             let first_nonce = {
-                let (mut stream, _) = listener.accept().unwrap();
-                let (_, _, headers, _) = read_http_request(&mut stream);
-                headers.get("x-bfe-nonce").unwrap().clone()
+                let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+                let (_, _, headers, _) = read_http_request(&mut stream)?;
+                headers
+                    .get("x-bfe-nonce")
+                    .ok_or("missing x-bfe-nonce")?
+                    .clone()
             };
-            // 2nd attempt: verify nonce is fresh and return 200 OK.
+            // 2nd attempt: accept the retried `GET`, verify the Ed25519 signature,
+            // and assert that `MasterClient` generated a fresh `x-bfe-nonce`
+            // rather than re-sending the first attempt's nonce.
             {
-                let (mut stream, _) = listener.accept().unwrap();
-                let (method, route, headers, body) = read_http_request(&mut stream);
-                verify_master_headers(&method, &route, &headers, &body);
-                let second_nonce = headers.get("x-bfe-nonce").unwrap();
-                assert_ne!(&first_nonce, second_nonce, "retry must generate a fresh nonce");
+                let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+                let (method, route, headers, body) = read_http_request(&mut stream)?;
+                verify_master_headers(&method, &route, &headers, &body)?;
+                let second_nonce = headers.get("x-bfe-nonce").ok_or("missing x-bfe-nonce")?;
+                assert_ne!(
+                    &first_nonce, second_nonce,
+                    "retry must generate a fresh nonce"
+                );
                 let json = r#"{"servers":[]}"#;
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     json.len(),
                     json
                 );
-                stream.write_all(resp.as_bytes()).unwrap();
+                stream
+                    .write_all(resp.as_bytes())
+                    .map_err(|e| e.to_string())?;
             }
+            Ok(())
         });
 
+        // Configure a short 20ms `retry_delay` so the GET retry completes quickly
+        // after the 1st connection is dropped by the mock listener.
         let id = PlayerIdentity::from_seed([9u8; 32]);
         let client = MasterClient::with_options(
             format!("http://{addr}"),
@@ -567,8 +719,11 @@ mod tests {
             Duration::from_millis(20),
             MasterIpFamily::Ipv4Only,
         );
-        let servers = client.list_servers().expect("retry should succeed");
+        let servers = client.list_servers()?;
         assert!(servers.is_empty());
-        handle.join().unwrap();
+        handle
+            .join()
+            .map_err(|_| "mock master thread panicked")??;
+        Ok(())
     }
 }

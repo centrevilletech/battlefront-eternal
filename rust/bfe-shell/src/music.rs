@@ -33,7 +33,9 @@ pub const INTERVAL: f64 = 10.0;
 /// Bus gains (`shellmusic = 0.6`, `shellfx = 0.3`).
 /// Mirrors `BUSES` in `src/shell/audio.js`.
 pub mod buses {
+    /// Shell music bus gain (`0.6` of `musicVolume`).
     pub const SHELL_MUSIC: f64 = 0.6;
+    /// Shell interface/whoosh sound-effects bus gain (`0.3` of `interfaceVolume`).
     pub const SHELL_FX: f64 = 0.3;
 }
 
@@ -41,12 +43,17 @@ pub mod buses {
 /// Mirrors `PHASES = ["stopped", "playing", "gap"]` in `src/shell/audio.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MusicPhase {
+    /// No cue is active (`"stopped"`).
     Stopped,
+    /// A track is actively playing (`"playing"`).
     Playing,
+    /// Silence interval between tracks in a cycle (`"gap"`).
     Gap,
 }
 
 impl MusicPhase {
+    /// Returns the string label (`"stopped"`, `"playing"`, or `"gap"`).
+    /// Mirrors `PHASES[row[M.PHASE]]` in `src/shell/audio.js`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Stopped => "stopped",
@@ -72,13 +79,21 @@ pub struct MusicStep {
 /// Pure shell music timeline controller wrapping `audio_control::shell_music::Music`.
 /// Mirrors `ShellMusic` in `src/shell/audio.js`.
 pub struct ShellMusic {
+    /// Authored shell music tracks loaded from `shell.json`.
     tracks: Vec<MusicTrack>,
+    /// Silence duration in seconds between consecutive tracks (`INTERVAL = 10.0`).
     pub interval: f64,
+    /// Maps cue/group names (`"shell_soundtrack"`, etc.) to `kernel` group indices.
     groups: BTreeMap<String, usize>,
+    /// Out-of-range group index passed to `kernel` when a cue name is unknown.
     missing: usize,
+    /// Underlying `audio_control::shell_music::Music` state machine.
     kernel: MusicKernel,
+    /// Currently requested music cue name, if any.
     current: Option<String>,
+    /// Active playback handle token and track index (`0..tracks.len()`), if playing.
     handle: Option<(TrackHandle, usize)>,
+    /// Monotonic counter used to mint unique [`TrackHandle`] tokens.
     next_handle: TrackHandle,
 }
 
@@ -102,6 +117,8 @@ impl ShellMusic {
             members[id].push(index);
         };
 
+        // Resolve authored string membership while loading so runtime frames
+        // operate on stable group and track indices (`src/shell/audio.js`).
         for (i, t) in tracks.iter().enumerate() {
             if let Some(props) = &t.properties {
                 let mut seen = Vec::new();
@@ -112,6 +129,8 @@ impl ShellMusic {
                     }
                 }
             } else {
+                // Legacy fallback when `properties` is absent: `soundtrack` tracks
+                // join `SOUNDTRACK`, and every track is also addressable by `name`.
                 if t.soundtrack {
                     add(SOUNDTRACK, i);
                 }
@@ -183,6 +202,9 @@ impl ShellMusic {
         self.current.as_deref() == Some(name)
     }
 
+    /// Writes a command into the [`MusicKernel`] row, steps `kernel.frame()`,
+    /// and translates `STOP` / `START` outputs into a [`MusicStep`].
+    /// Mirrors `ShellMusic.command(op, dt, group, name)` in `src/shell/audio.js`.
     fn command(&mut self, op_code: u32, dt: f64, group: usize, name: Option<String>) -> MusicStep {
         self.kernel.row[r::ENABLED] = if name.as_ref().is_some_and(|s| !s.is_empty()) {
             1.0
@@ -195,6 +217,7 @@ impl ShellMusic {
         self.kernel.row[r::GROUP] = group as f64;
         self.kernel.frame();
 
+        // Read kernel output decisions (`r::STOP` and 1-based `r::START` track index).
         let stop = self.kernel.row[r::STOP] != 0.0;
         let track = self.kernel.row[r::START] as usize;
         let mut step = MusicStep::default();
@@ -204,6 +227,8 @@ impl ShellMusic {
             step.stopped = old;
         }
         self.current = name;
+        // A non-zero `r::START` index (`1..=tracks.len()`) starts a new track
+        // and assigns it a fresh `TrackHandle`.
         if track > 0 {
             let idx = track - 1;
             let h = self.next_handle;
@@ -262,6 +287,7 @@ impl ShellMusic {
         }
         let name = self.current.clone();
         let step = self.command(op::END, 0.0, 0, name);
+        // Clear the active handle once the kernel transitions into the `Gap` phase.
         if self.phase() == MusicPhase::Gap {
             self.handle = None;
         }
@@ -282,6 +308,8 @@ impl ShellMusic {
 mod tests {
     use super::*;
 
+    // Sample track list with three `shell_soundtrack` tracks (`a`, `b`, `c`)
+    // and one standalone screen cue (`shell_galacticconquest`).
     fn sample_tracks() -> Vec<MusicTrack> {
         vec![
             MusicTrack {
@@ -311,11 +339,14 @@ mod tests {
         ]
     }
 
+    // Verifies that `SOUNDTRACK` cycles through `a -> b -> c -> a` with `INTERVAL`
+    // seconds of `Gap` between tracks while skipping non-soundtrack cues.
     #[test]
-    fn soundtrack_plays_tracks_in_turn_with_10s_silence_and_skips_non_soundtrack() {
+    fn soundtrack_plays_tracks_in_turn_with_10s_silence_and_skips_non_soundtrack()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut m = ShellMusic::new(sample_tracks(), INTERVAL);
         let s0 = m.set(Some(SOUNDTRACK));
-        assert_eq!(m.tracks()[s0.started.unwrap().1].name, "a");
+        assert_eq!(m.tracks()[s0.started.ok_or("not started")?.1].name, "a");
         assert!(m.playing(Some(SOUNDTRACK)));
 
         m.ended(None);
@@ -326,33 +357,41 @@ mod tests {
         assert!(m.playing(Some(SOUNDTRACK)));
 
         let s2 = m.update(0.02);
-        assert_eq!(m.tracks()[s2.started.unwrap().1].name, "b");
+        assert_eq!(m.tracks()[s2.started.ok_or("not started")?.1].name, "b");
 
         for expected in ["c", "a"] {
             m.ended(None);
             let step = m.update(INTERVAL);
-            assert_eq!(m.tracks()[step.started.unwrap().1].name, expected);
+            assert_eq!(
+                m.tracks()[step.started.ok_or("not started")?.1].name,
+                expected
+            );
         }
+        Ok(())
     }
 
+    // Verifies that `set(None)` and `set(same)` keep the current track,
+    // `set(Some(STOP))` halts without resetting the cycle, and resuming
+    // `SOUNDTRACK` advances to the next track (`b`).
     #[test]
-    fn screen_music_keeps_same_ignores_none_stops_on_stop_and_resumes_cycle() {
+    fn screen_music_keeps_same_ignores_none_stops_on_stop_and_resumes_cycle()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut m = ShellMusic::new(sample_tracks(), INTERVAL);
         let s0 = m.set(Some(SOUNDTRACK));
-        assert_eq!(m.tracks()[s0.started.unwrap().1].name, "a");
+        assert_eq!(m.tracks()[s0.started.ok_or("not started")?.1].name, "a");
         assert_eq!(m.set(Some(SOUNDTRACK)), MusicStep::default());
         assert_eq!(m.set(None), MusicStep::default());
 
         let s_gc = m.set(Some("shell_galacticconquest"));
-        assert_eq!(m.tracks()[s_gc.stopped.unwrap().1].name, "a");
+        assert_eq!(m.tracks()[s_gc.stopped.ok_or("not stopped")?.1].name, "a");
         assert_eq!(
-            m.tracks()[s_gc.started.unwrap().1].name,
+            m.tracks()[s_gc.started.ok_or("not started")?.1].name,
             "shell_galacticconquest"
         );
 
         let s_stop = m.set(Some(STOP));
         assert_eq!(
-            m.tracks()[s_stop.stopped.unwrap().1].name,
+            m.tracks()[s_stop.stopped.ok_or("not stopped")?.1].name,
             "shell_galacticconquest"
         );
         assert!(!m.playing(Some(SOUNDTRACK)));
@@ -360,31 +399,42 @@ mod tests {
         assert_eq!(m.update(100.0), MusicStep::default());
 
         let s_resume = m.set(Some(SOUNDTRACK));
-        assert_eq!(m.tracks()[s_resume.started.unwrap().1].name, "b");
+        assert_eq!(
+            m.tracks()[s_resume.started.ok_or("not started")?.1].name,
+            "b"
+        );
+        Ok(())
     }
 
+    // Verifies that lowering `interval` during a silence `Gap` starts the next
+    // track immediately, and that a stale `TrackHandle` is ignored by `ended`.
     #[test]
-    fn shorter_interval_cuts_silence_short_and_stale_handle_cannot_end_replacement() {
+    fn shorter_interval_cuts_silence_short_and_stale_handle_cannot_end_replacement()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut m = ShellMusic::new(sample_tracks(), INTERVAL);
         let s0 = m.set(Some(SOUNDTRACK));
-        let old_handle = s0.started.unwrap().0;
+        let old_handle = s0.started.ok_or("not started")?.0;
         m.ended(None);
         assert_eq!(m.update(4.0), MusicStep::default());
         m.interval = 0.0;
         let s1 = m.update(0.0);
-        assert_eq!(m.tracks()[s1.started.unwrap().1].name, "b");
+        assert_eq!(m.tracks()[s1.started.ok_or("not started")?.1].name, "b");
 
         // Replacing the track invalidates the old handle so a late ended(old_handle) is a no-op.
         let s_gc = m.set(Some("shell_galacticconquest"));
-        let new_handle = s_gc.started.unwrap().0;
+        let new_handle = s_gc.started.ok_or("not started")?.0;
         assert_ne!(old_handle, new_handle);
         m.ended(Some(old_handle));
         assert_eq!(m.phase(), MusicPhase::Playing);
-        assert_eq!(m.handle().unwrap().0, new_handle);
+        assert_eq!(m.handle().ok_or("missing handle")?.0, new_handle);
+        Ok(())
     }
 
+    // Verifies that tracks with explicit `properties` group lists are indexed
+    // under each named group in declaration order.
     #[test]
-    fn tracks_with_properties_play_under_each_named_group_in_order() {
+    fn tracks_with_properties_play_under_each_named_group_in_order()
+    -> Result<(), Box<dyn std::error::Error>> {
         let tracks = vec![
             MusicTrack {
                 name: "shell_soundtrack_1".to_string(),
@@ -420,11 +470,15 @@ mod tests {
         let mut m = ShellMusic::new(tracks, INTERVAL);
         let mut played = Vec::new();
         let s0 = m.set(Some(SOUNDTRACK));
-        played.push(m.tracks()[s0.started.unwrap().1].name.clone());
+        played.push(m.tracks()[s0.started.ok_or("not started")?.1].name.clone());
         for _ in 0..3 {
             m.ended(None);
             let step = m.update(INTERVAL);
-            played.push(m.tracks()[step.started.unwrap().1].name.clone());
+            played.push(
+                m.tracks()[step.started.ok_or("not started")?.1]
+                    .name
+                    .clone(),
+            );
         }
         assert_eq!(
             played,
@@ -437,8 +491,9 @@ mod tests {
         );
         let gc = m.set(Some("shell_galacticconquest"));
         assert_eq!(
-            m.tracks()[gc.started.unwrap().1].name,
+            m.tracks()[gc.started.ok_or("not started")?.1].name,
             "shell_droidinvasion"
         );
+        Ok(())
     }
 }

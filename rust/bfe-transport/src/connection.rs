@@ -2,12 +2,16 @@
 //! supplies a monotonic millisecond clock and borrowed transmit/delivery hooks.
 //! No socket, JSON policy or service admission is called by a packet decoder.
 use std::net::SocketAddr;
-use crate::{Error,Result,crypto::{self,Aead},handshake::Keys,codec::{Reader,Writer,Ranges,Replay},streams::{SendStream,ReceiveStream,Span},state::{Queue,Fragments}};
+use crate::{Error,Result,crypto::{self,Aead},handshake::Keys,codec::{Reader,Writer,Ranges,Replay},streams::{SendStream,ReceiveStream,Span},state::{FragmentPart,Fragments,Queue}};
 use crate::layout::{data as d,frame as f,packet as p,limits as l,close_code as close,stream as stream_id};
 const PLAIN:usize=l::MAX_DATAGRAM-d::BYTES-l::TAG;
+// Recent loss is tracked in 21 rolling 50 ms buckets covering a 1000 ms window,
+// matching connection.js LOSS_WINDOW / LOSS_BUCKET_MS / LOSS_BUCKETS.
 const LOSS_WINDOW_MS: f64 = 1000.0;
 const LOSS_BUCKET_MS: f64 = 50.0;
 const LOSS_BUCKETS: usize = (LOSS_WINDOW_MS as usize) / (LOSS_BUCKET_MS as usize) + 1;
+// Three independent lanes prevent head-of-line blocking between unreliable state
+// snapshots, ordered game events, and bulk transfers.
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum Lane{State,Events,Bulk}
 // Both callbacks are synchronous loans. A device may copy into its own
@@ -16,15 +20,20 @@ pub trait Sink{
     fn packet(&mut self,bytes:&[u8],path:SocketAddr);
     fn message(&mut self,lane:Lane,text:bool,bytes:&[u8]);
 }
+// Fixed-size close record storing up to 200 UTF-8 reason bytes without heap allocation.
 #[derive(Clone,Copy)]
 pub struct Closed{pub code:u64,pub reason:[u8;200],pub length:usize,pub remote:bool}
 impl Closed{pub fn reason(&self)->&[u8]{&self.reason[..self.length]}}
+// Cumulative packet, byte, loss, and authentication counters matching connection.js counters.
 #[derive(Clone,Copy,Default)]
 pub struct Stats{pub sent:u64,pub received:u64,pub sent_bytes:u64,pub received_bytes:u64,pub datagrams_sent:u64,pub datagrams_received:u64,pub datagram_packets_lost:u64,pub datagram_packets_acked:u64,pub lost:u64,pub spurious:u64,pub retransmitted:u64,pub duplicates:u64,pub auth_failures:u64,pub probes:u64}
+// Associates a transmitted STREAM frame span with its lane index (0 = Events, 1 = Bulk).
 #[derive(Clone,Copy,Default)]
 struct SentSpan{lane:usize,span:Span}
+// Per-packet in-flight record in the fixed MAX_SENT_PACKETS ring buffer.
 #[derive(Clone,Copy,Default)]
 struct Meta{active:bool,number:u32,at:f64,reliable:bool,state:usize,streams:[SentSpan;2],count:usize}
+// Active RFC 9000 path challenge awaiting an 8-byte PATH_RESPONSE from `path`.
 #[derive(Clone,Copy)]
 struct Challenge{path:SocketAddr,bytes:[u8;8],sent:f64}
 // ACK ranges descend on the wire and stay half-open internally. Decoding
@@ -44,6 +53,7 @@ impl Ack{
         let mut lo=0;let mut hi=self.count;while lo<hi{let mid=(lo+hi)/2;let [a,b]=self.rows[mid];if n>=b{hi=mid;}else if n<a{lo=mid+1;}else{return true;}}false
     }
 }
+// Established BFE-UDP/1 session owner with preallocated stream rings, fragment bank, and sent-packet table.
 pub struct Connection{
     pub local:u32,pub remote:u32,send:Aead,receive:Aead,previous:Option<Aead>,next:Option<Aead>,send_phase:u8,receive_phase:u8,phase_start:u32,key_interval:u32,
     number:u32,floor:u32,sent:Vec<Meta>,lost_history:[Option<(u32,f64)>;256],lost_head:usize,reliable:usize,stream_flight:usize,last_reliable:f64,
@@ -82,7 +92,9 @@ impl Connection{
         let result=match lane{Lane::State=>self.state.push(bytes,text),Lane::Events=>self.tx[0].write(bytes,text),Lane::Bulk=>self.tx[1].write(bytes,text)};
         if let Err(error)=result{self.close(close::PROTOCOL as u64,error.0.as_bytes());return Err(error);}Ok(true)
     }
+    // Total unacknowledged or unsent reliable bytes queued across Events and Bulk streams.
     pub fn backlog(&self)->usize{self.tx.iter().map(SendStream::pending).sum()}
+    // Request an ACK-eliciting PING frame on the next flush.
     pub fn ping(&mut self){self.ping=true;}
     /// `src/net/connection.js` `Connection.confirmHandshake`: queues a
     /// `HANDSHAKE_DONE` frame to confirm session establishment to the client.
@@ -107,6 +119,8 @@ impl Connection{
             0.0
         }
     }
+    // Record one state-carrying packet outcome into the current 50 ms loss bucket,
+    // resetting the slot whenever the monotonic clock advances into a new bucket id.
     fn loss_sample(&mut self, now: f64, lost_packet: bool) {
         let bucket = (now / LOSS_BUCKET_MS).floor() as i64;
         let slot = bucket.rem_euclid(LOSS_BUCKETS as i64) as usize;
@@ -124,20 +138,24 @@ impl Connection{
     // can request a close without borrowing a socket inside an input callback.
     pub fn close(&mut self,code:u64,reason:&[u8]){
         if self.closed.is_some()||self.pending_close.is_some(){return;}let mut why=[0;200];let n=reason.len().min(why.len());why[..n].copy_from_slice(&reason[..n]);
-        self.pending_close=Some(Closed{code:code.min(l::MAX_SAFE_INTEGER as u64),reason:why,length:n,remote:false});
+        self.pending_close=Some(Closed{code:code.min(l::MAX_SAFE_INTEGER),reason:why,length:n,remote:false});
     }
+    // Encode a CLOSE frame carrying the varint close code and bounded UTF-8 reason slice.
     fn write_close(info:Closed,out:&mut Writer<'_>)->Result<()>{out.byte(f::CLOSE as u8)?;out.varint(info.code)?;out.varint(info.length as u64)?;out.span(info.reason())}
     // Authenticate before committing either the replay horizon or key phase.
     // The caller may immediately reuse its UDP read buffer after this returns.
     pub fn receive(&mut self,packet:&[u8],path:SocketAddr,now:f64,sink:&mut impl Sink)->bool{
+        // Re-echo a local CLOSE frame at most every 100 ms while draining stray peer packets.
         if let Some(info)=self.closed{
             if !info.remote&&now<self.close_at+1000_f64.max(3.*self.pto())&&now-self.last_echo>100.{
                 self.last_echo=now;let mut bytes=[0;PLAIN];let mut w=Writer::new(&mut bytes);if Self::write_close(info,&mut w).is_ok(){let n=w.at;let _=self.emit(&bytes[..n],Meta::default(),self.path,now,sink);}
             }return false;
         }
         if packet.len()<d::BYTES+l::TAG+1||packet.len()>l::MAX_DATAGRAM||!matches!(packet[d::TYPE]as usize,p::DATA|p::DATA_PHASE){return false;}
-        if u32::from_le_bytes(packet[d::RECEIVER..d::RECEIVER+4].try_into().unwrap())!=self.local{return false;}
-        let number=u32::from_le_bytes(packet[d::NUMBER..d::NUMBER+4].try_into().unwrap());if self.replay.seen(number){self.stats.duplicates+=1;return false;}
+        let Ok(recv_bytes) = packet[d::RECEIVER..d::RECEIVER+4].try_into() else { return false; };
+        if u32::from_le_bytes(recv_bytes)!=self.local{return false;}
+        let Ok(num_bytes) = packet[d::NUMBER..d::NUMBER+4].try_into() else { return false; };
+        let number=u32::from_le_bytes(num_bytes);if self.replay.seen(number){self.stats.duplicates+=1;return false;}
         let phase=if packet[d::TYPE]as usize==p::DATA_PHASE{1}else{0};let n=packet.len()-d::BYTES-l::TAG;
         let mut clear=[0;PLAIN];clear[..n].copy_from_slice(&packet[d::BYTES..d::BYTES+n]);let tag=&packet[d::BYTES+n..];let header=&packet[..d::BYTES];let mut rotated=false;
         // Previous-phase stragglers are legitimate below phase_start. Recopy
@@ -170,7 +188,9 @@ impl Connection{
     fn frames(&mut self,bytes:&[u8],path:SocketAddr,now:f64,sink:&mut impl Sink)->Result<bool>{
         let mut r=Reader::new(bytes);let mut probing=true;let mut acked=false;let mut answered=false;let mut elicit=0;
         while r.remaining()>0{
-            let kind=r.byte()?as usize;if kind==f::PADDING{continue;}if kind!=f::PATH_CHALLENGE&&kind!=f::PATH_RESPONSE{probing=false;}
+            let kind=r.byte()?as usize;
+            if kind==f::PADDING{continue;}
+            if kind!=f::PATH_CHALLENGE&&kind!=f::PATH_RESPONSE{probing=false;}
             match kind{
                 f::PING=>elicit=2,
                 f::HANDSHAKE_DONE=>{elicit=2;self.handshake_confirmed=true;},
@@ -179,7 +199,7 @@ impl Connection{
                 f::ACK=>{if acked{return Err(Error("repeated ack frame"));}let ack=Ack::read(&mut r)?;if ack.largest>=self.number as u64{return Err(Error("ack of an unsent packet"));}acked=true;self.ack(&ack,now)?;},
                 f::DATAGRAM=>{let text=r.byte()?&1!=0;let n=r.varint()?;let bytes=r.wide_span(n)?;sink.message(Lane::State,text,bytes);self.stats.datagrams_received+=1;elicit=elicit.max(1);},
                 f::FRAGMENT=>{let text=r.byte()?&1!=0;let id=r.varint()?;let index=r.byte()?as usize;let count=r.byte()?as usize;let n=r.varint()?;let bytes=r.wide_span(n)?;
-                    if self.fragments.receive(id,index,count,text,bytes,now,&mut|text,bytes|sink.message(Lane::State,text,bytes))?{self.stats.datagrams_received+=1;}elicit=elicit.max(1);},
+                    if self.fragments.receive(FragmentPart{id,index,count,text,bytes},now,&mut|text,bytes|sink.message(Lane::State,text,bytes))?{self.stats.datagrams_received+=1;}elicit=elicit.max(1);},
                 // Each ordered lane has its own delivery cursor. Loss on bulk
                 // cannot hold an event that fits the shared congestion window.
                 f::STREAM=>{let id=r.byte()?;let at=r.varint()?;let n=r.varint()?;let bytes=r.wide_span(n)?;
@@ -231,6 +251,7 @@ impl Connection{
         }
         for row in &meta.streams[..meta.count]{self.tx[row.lane].loss(row.span)?;}Ok(Some(meta))
     }
+    // Advance the lower bound of unacknowledged packet numbers past inactive ring slots.
     fn trim_sent(&mut self){while self.floor<self.number{let row=self.sent[self.floor as usize%self.sent.len()];if row.active&&row.number==self.floor{break;}self.floor+=1;}}
     // An ACK releases delivered byte ranges independently from packet order.
     // The largest newly ACKed eliciting packet supplies the RTT sample.
@@ -238,7 +259,8 @@ impl Connection{
         for row in &mut self.lost_history{if let Some((n,at))=*row{if now-at>2000.{*row=None;}else if ack.has(n as u64){*row=None;self.stats.spurious+=1;self.reorder=(self.reorder+1).min(16);self.time_threshold=(self.time_threshold+0.125).min(2.);}}}
         let mut newly=false;let mut largest_time=None;let mut stream_bytes=0;
         for number in self.floor..self.number{
-            if number as u64>ack.largest{break;}if !ack.has(number as u64){continue;}
+            if number as u64>ack.largest{break;}
+            if !ack.has(number as u64){continue;}
             let Some(meta)=self.forget(number)else{continue;};newly=true;
             if number as u64==ack.largest&&(meta.reliable||meta.state>0){largest_time=Some(meta.at);}
             for row in &meta.streams[..meta.count]{self.tx[row.lane].ack(row.span)?;stream_bytes+=row.span.length;}
@@ -259,7 +281,9 @@ impl Connection{
         if !self.has_rtt{self.rtt=adjusted;self.rtt_var=adjusted/2.;self.has_rtt=true;}
         else{self.rtt_var=0.75*self.rtt_var+0.25*(self.rtt-adjusted).abs();self.rtt=0.875*self.rtt+0.125*adjusted;}
     }
+    // RFC 9002 probe timeout (PTO) duration including 25 ms maximum ACK delay.
     fn pto(&self)->f64{self.rtt+(4.*self.rtt_var).max(1.)+25.}
+    // Exponentially backed-off PTO deadline when reliable frames remain in flight.
     fn pto_deadline(&self)->f64{if self.reliable>0{self.last_reliable+self.pto()*2_f64.powi(self.pto_count.min(6)as i32)}else{f64::INFINITY}}
     // Packet and time thresholds both follow the peer's newest ACK. NewReno
     // halves the window only once per recovery interval, not once per packet.
@@ -273,7 +297,8 @@ impl Connection{
     // The device owns timer scheduling. Poll computes only due work, keeping
     // a paused display or long receive burst from creating timer allocations.
     pub fn poll(&mut self,now:f64,sink:&mut impl Sink)->Result<()>{
-        if self.closed.is_some(){return Ok(());}if now-self.last_received>=l::IDLE_MS as f64{self.close(close::IDLE as u64,b"idle timeout");}
+        if self.closed.is_some(){return Ok(());}
+        if now-self.last_received>=l::IDLE_MS as f64{self.close(close::IDLE as u64,b"idle timeout");}
         if now>=self.loss_time{self.detect_loss(now)?;}
         if now>=self.pto_deadline(){self.pto_count+=1;self.stats.probes+=1;let mut found=false;
             for n in self.floor..self.number{let meta=self.sent[n as usize%self.sent.len()];if meta.active&&meta.number==n&&meta.count>0{for row in &meta.streams[..meta.count]{self.tx[row.lane].loss(row.span)?;}found=true;break;}}
@@ -288,6 +313,7 @@ impl Connection{
         out.varint(count as u64-1)?;out.varint(largest-rows[top][0])?;
         for i in (top+1-count..top).rev(){out.varint(rows[i+1][0]-rows[i][1]-1)?;out.varint(rows[i][1]-rows[i][0]-1)?;}Ok(())
     }
+    // Clear pending ACK deadline state once an outgoing packet includes an ACK frame.
     fn ack_sent(&mut self){self.ack_needed=false;self.ack_deadline=f64::INFINITY;}
     // One bounded batch gathers state, control and the two ordered lanes.
     // Reliable congestion limits never hold a replaceable state datagram.
@@ -322,8 +348,9 @@ impl Connection{
     // Packet numbers never wrap under a key. Sealing writes into one stack
     // datagram; sent metadata retains ranges, not copies of payload ciphertext.
     fn emit(&mut self,bytes:&[u8],mut meta:Meta,path:SocketAddr,now:f64,sink:&mut impl Sink)->Result<()>{
-        if bytes.len()>PLAIN{return Err(Error("packet exceeds bounds"));}if self.number>=l::MAX_PACKET_NUMBER as u32{self.close(close::PROTOCOL as u64,b"packet numbers exhausted");return Err(Error("packet numbers exhausted"));}
-        if self.number>0&&self.number%self.key_interval==0{self.send=self.send.next()?;self.send_phase^=1;}
+        if bytes.len()>PLAIN{return Err(Error("packet exceeds bounds"));}
+        if self.number>=l::MAX_PACKET_NUMBER as u32{self.close(close::PROTOCOL as u64,b"packet numbers exhausted");return Err(Error("packet numbers exhausted"));}
+        if self.number>0&&self.number.is_multiple_of(self.key_interval){self.send=self.send.next()?;self.send_phase^=1;}
         let n=self.number;self.number+=1;let mut packet=[0;l::MAX_DATAGRAM];packet[d::TYPE]=if self.send_phase==0{p::DATA}else{p::DATA_PHASE}as u8;
         packet[d::RECEIVER..d::RECEIVER+4].copy_from_slice(&self.remote.to_le_bytes());packet[d::NUMBER..d::NUMBER+4].copy_from_slice(&n.to_le_bytes());
         packet[d::BYTES..d::BYTES+bytes.len()].copy_from_slice(bytes);let (header,tail)=packet.split_at_mut(d::BYTES);let tag=self.send.seal(header,n,&mut tail[..bytes.len()])?;tail[bytes.len()..bytes.len()+l::TAG].copy_from_slice(&tag);

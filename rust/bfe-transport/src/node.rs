@@ -4,7 +4,9 @@ use napi::{bindgen_prelude::*,Error as NodeError};
 use napi_derive::napi;
 use crate::{connection::{Connection,Sink,Lane},crypto::Identity,handshake::{ClientHandshake,Event},layout::limits as lim};
 use std::net::SocketAddr;
+// Convert transport protocol errors into Node N-API exceptions for test assertions.
 fn error(e:crate::Error)->NodeError{NodeError::from_reason(e.0)}
+// Default synthetic loopback socket address for in-memory packet exchange fixtures.
 fn address()->SocketAddr{SocketAddr::from(([127,0,0,1],18451))}
 // Message and packet copies below belong solely to explicit test observers.
 // They make ownership visible to JS assertions without lending live scratch.
@@ -18,6 +20,7 @@ impl Sink for Observations{
     fn packet(&mut self,bytes:&[u8],path:SocketAddr){self.packets.push(Packet{bytes:bytes.to_vec().into(),path:path.to_string()});}
     fn message(&mut self,lane:Lane,text:bool,bytes:&[u8]){self.messages.push(Delivery{lane:match lane{Lane::State=>"state",Lane::Events=>"events",Lane::Bulk=>"bulk"}.into(),text,bytes:bytes.to_vec().into()});}
 }
+// In-memory client handshake and connection peer driven deterministically by Node tests.
 #[napi]
 pub struct NativePeer{handshake:ClientHandshake,connection:Option<Connection>,observed:Observations,id:String}
 #[napi]
@@ -36,6 +39,7 @@ impl NativePeer{
     // The fixture controls retry delivery while the production handshake
     // owner retains session randomness and the original transcript bytes.
     pub fn initiation(&self,token:Option<Buffer>)->napi::Result<Buffer>{let mut bytes=[0;lim::INITIATION_BYTES];self.handshake.initiation(token.as_ref().map_or(&[],|b|b.as_ref()),&mut bytes).map_err(error)?;Ok(bytes.to_vec().into())}
+    // Feed a handshake datagram and instantiate the Connection when RESPONSE succeeds.
     #[napi]
     pub fn handshake(&mut self,bytes:Buffer,now:f64,rtt:f64)->String{
         let event=self.handshake.receive(&bytes);if event==Event::Established{if let Some(keys)=self.handshake.take_keys(){self.connection=Some(Connection::new(keys,address(),now,rtt));}}
@@ -54,6 +58,7 @@ impl NativePeer{
         let path=match path{Some(p)=>p.parse().map_err(|_|NodeError::from_reason("invalid path"))?,None=>address()};
         let c=self.connection.as_mut().ok_or_else(||NodeError::from_reason("handshake is incomplete"))?;Ok(c.receive(&bytes,path,now,&mut self.observed))
     }
+    // Queue an application message onto the named transport lane before flushing.
     #[napi]
     pub fn send(&mut self,lane:String,text:bool,bytes:Buffer)->napi::Result<bool>{
         let lane=match lane.as_str(){"state"=>Lane::State,"events"=>Lane::Events,"bulk"=>Lane::Bulk,_=>return Err(NodeError::from_reason("invalid lane"))};
@@ -96,6 +101,7 @@ impl NativeSocket{
         let endpoint=crate::endpoint::Endpoint::connect(&address,Identity::from_seed(seed),id,hello.as_bytes()).map_err(error)?;
         Ok(Self{endpoint:Some(endpoint),observed:Observations::default()})
     }
+    // Non-blocking poll turn that drains OS UDP sockets and collects delivered messages.
     #[napi]
     pub fn poll(&mut self)->napi::Result<bool>{
         let endpoint=self.endpoint.as_mut().ok_or_else(||NodeError::from_reason("socket is closed"))?;let observed=&mut self.observed;
@@ -123,6 +129,7 @@ pub struct NativeSnapshot{owner:bfe_presentation::network::Session}
 impl NativeSnapshot{
     #[napi(constructor)]
     pub fn new()->Self{let mut owner=bfe_presentation::network::Session::new();owner.reserve_receive();owner.reset(0.);Self{owner}}
+    // Decode a binary snapshot/delta datagram against the caller's world bounds.
     #[napi]
     pub fn receive(&mut self,bytes:Buffer,bounds:Float64Array)->napi::Result<Float64Array>{
         let bounds:[f64;6]=bounds.as_ref().try_into().map_err(|_|NodeError::from_reason("invalid snapshot bounds"))?;
@@ -149,6 +156,7 @@ impl NativeTimeline{
     pub fn reset(&mut self,epoch:f64){self.owner.reset(epoch);}
     #[napi]
     pub fn remove(&mut self,id:f64){self.owner.remove(id);}
+    // Copy a packed timeline frame into the native pose ring and advance its cursor.
     #[napi]
     pub fn push(&mut self,rows:Float64Array)->napi::Result<Float64Array>{
         if rows.len()!=self.owner.input.len(){return Err(NodeError::from_reason("invalid timeline rows"));}

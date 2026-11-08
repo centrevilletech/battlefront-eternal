@@ -49,6 +49,11 @@ pub fn default_consent_path() -> Option<PathBuf> {
     default_data_dir().map(|dir| dir.join("online-consent.json"))
 }
 
+// Resolves the per-user `battlefront-eternal` application data directory across
+// platforms:
+// 1. `$XDG_DATA_HOME/battlefront-eternal` when `XDG_DATA_HOME` is non-empty on Unix.
+// 2. `%APPDATA%/battlefront-eternal` on Windows when `APPDATA` is set.
+// 3. `$HOME/.local/share/battlefront-eternal` as the standard freedesktop fallback.
 fn default_data_dir() -> Option<PathBuf> {
     if let Some(dir) = env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(dir).join("battlefront-eternal"));
@@ -65,14 +70,24 @@ fn default_data_dir() -> Option<PathBuf> {
     )
 }
 
+// In-memory Ed25519 player identity (`loadNetworkIdentity` in `electron/network.js`).
+// Holds the 32-byte secret seed and `ed25519_dalek::SigningKey` alongside the
+// precomputed Base64 SPKI DER public key (`x-bfe-key`) and 64-char hex player ID
+// (`sha256(publicKeyBase64)`).
 #[derive(Clone)]
 pub struct PlayerIdentity {
+    // Raw 32-byte Ed25519 secret seed persisted in `identity.key`.
     seed: [u8; 32],
+    // Pre-expanded Ed25519 signing keypair derived from `seed`.
     signing: SigningKey,
+    // Standard Base64 of the 44-byte SPKI DER public key (`x-bfe-key`).
     public_key_b64: String,
+    // 64-character lowercase hex SHA-256 of `public_key_b64`.
     id_hex: String,
 }
 
+// Custom `Debug` implementation that intentionally omits `seed` and `signing`
+// so secret key material is never printed in logs or panic/test output.
 impl std::fmt::Debug for PlayerIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PlayerIdentity")
@@ -82,12 +97,19 @@ impl std::fmt::Debug for PlayerIdentity {
     }
 }
 
+// Complete set of `x-bfe-*` authentication and privacy-notice headers attached
+// to every master HTTP request in `electron/network.js::request`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedMasterHeaders {
+    // Base64-encoded 44-byte SPKI DER Ed25519 public key (`x-bfe-key`).
     pub key: String,
+    // Unix timestamp in seconds as an ASCII decimal string (`x-bfe-time`).
     pub time: String,
+    // 32-character lowercase hex random request nonce (`x-bfe-nonce`).
     pub nonce: String,
+    // Base64-encoded 64-byte Ed25519 signature over `{METHOD}\n{route}\n{time}\n{nonce}\n{sha256_hex(body)}`.
     pub signature: String,
+    // Accepted online privacy notice version (`x-bfe-notice = ONLINE_NOTICE_VERSION`).
     pub notice: &'static str,
 }
 
@@ -105,6 +127,8 @@ impl SignedMasterHeaders {
     }
 }
 
+// JSON schema written by Electron's `loadNetworkIdentity` (`{ publicKey, privateKey }`)
+// where `publicKey` is Base64 SPKI DER and `privateKey` is Base64 PKCS#8 v1 DER.
 #[derive(Deserialize)]
 struct StoredJsonIdentity {
     #[serde(rename = "publicKey")]
@@ -138,6 +162,9 @@ impl PlayerIdentity {
     }
 
     // Generates a new random Ed25519 player identity using OS CSPRNG bytes.
+    // Generates a new random Ed25519 player identity using OS CSPRNG bytes.
+    // The 32-byte seed is never transmitted over the network; only the derived
+    // SPKI public key (`x-bfe-key`) and per-request signatures leave the client.
     pub fn generate() -> Result<Self, String> {
         let mut seed = [0u8; 32];
         getrandom::getrandom(&mut seed).map_err(|err| format!("random failed: {err}"))?;
@@ -159,6 +186,10 @@ impl PlayerIdentity {
                             .map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
                 }
+                // Use `create_new(true)` (`flag: 'wx'` in `electron/network.js`) and
+                // mode `0o600` on Unix so concurrent processes race safely: if another
+                // process created the identity file first (`AlreadyExists` / `EEXIST`),
+                // reload and adopt the winner's persisted key instead of overwriting it.
                 let mut options = OpenOptions::new();
                 options.write(true).create_new(true);
                 #[cfg(unix)]
@@ -184,6 +215,9 @@ impl PlayerIdentity {
         }
     }
 
+    // Parses either a raw 32-byte Ed25519 seed (`identity.key`) or a JSON
+    // `{ publicKey, privateKey }` file with a 48-byte PKCS#8 v1 DER private key,
+    // verifying that the derived SPKI public key matches `stored.publicKey`.
     fn from_file_bytes(bytes: &[u8], path: &Path) -> Result<Self, String> {
         if bytes.len() == 32 {
             let mut seed = [0u8; 32];
@@ -214,14 +248,18 @@ impl PlayerIdentity {
         ))
     }
 
+    // Returns the raw 32-byte Ed25519 private seed.
     pub fn seed(&self) -> &[u8; 32] {
         &self.seed
     }
 
+    // Returns the raw 32-byte Ed25519 verifying (public) key bytes.
     pub fn public_key_bytes(&self) -> [u8; 32] {
         self.signing.verifying_key().to_bytes()
     }
 
+    // Returns the 44-byte ASN.1 SubjectPublicKeyInfo (SPKI) DER encoding of the
+    // Ed25519 public key (`12-byte OID prefix || 32-byte raw public key`).
     pub fn public_key_spki_der(&self) -> [u8; 44] {
         let mut out = [0u8; 44];
         out[..12].copy_from_slice(&ED25519_SPKI_PREFIX);
@@ -307,27 +345,35 @@ impl PlayerIdentity {
     }
 }
 
+// On-disk JSON record for `online-consent.json`, storing the accepted notice
+// date string (`ONLINE_NOTICE_VERSION`) and Unix timestamp in milliseconds.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct ConsentRecord {
+    // Accepted privacy notice version string (`ONLINE_NOTICE_VERSION`).
     version: String,
+    // Acceptance timestamp in milliseconds since `UNIX_EPOCH`.
     #[serde(rename = "acceptedAt")]
     accepted_at: u64,
+}
+
+// Fallible reader for the online notice consent file that reports path and
+// schema errors.
+pub fn try_read_online_consent(path: &Path) -> Result<bool, String> {
+    let raw = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let parsed = serde_json::from_str::<ConsentRecord>(&raw)
+        .map_err(|e| format!("{}: version: {e}", path.display()))?;
+    Ok(parsed.version == ONLINE_NOTICE_VERSION)
 }
 
 // Ports `readOnlineConsent` in `electron/network.js`: returns true only when
 // the consent file exists and records `version == ONLINE_NOTICE_VERSION`.
 pub fn read_online_consent(path: &Path) -> bool {
-    let Ok(raw) = fs::read_to_string(path) else {
-        return false;
-    };
-    let Ok(parsed) = serde_json::from_str::<ConsentRecord>(&raw) else {
-        return false;
-    };
-    parsed.version == ONLINE_NOTICE_VERSION
+    try_read_online_consent(path).unwrap_or(false)
 }
 
-// Ports `writeOnlineConsent` in `electron/network.js`: writes the accepted
-// notice version atomically via a `.tmp` sibling file with 0o600 permissions.
+// Ports the `'accept'` action in `electron/network.js`: records the player's
+// acceptance of `ONLINE_NOTICE_VERSION` at the current system clock timestamp
+// so subsequent master directory and signaling requests are permitted.
 pub fn write_online_consent(path: &Path) -> Result<bool, String> {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -336,6 +382,10 @@ pub fn write_online_consent(path: &Path) -> Result<bool, String> {
     write_online_consent_at(path, now_ms)
 }
 
+// Writes `online-consent.json` atomically via a per-PID `.tmp` sibling file
+// with `0o600` permissions on Unix followed by `fs::rename`, matching the
+// `writeFileSync(temporary, ..., { mode: 0o600 }); renameSync(temporary, consentFile)`
+// pattern in `electron/network.js`.
 pub fn write_online_consent_at(path: &Path, accepted_at_ms: u64) -> Result<bool, String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -347,8 +397,8 @@ pub fn write_online_consent_at(path: &Path, accepted_at_ms: u64) -> Result<bool,
         version: ONLINE_NOTICE_VERSION.to_string(),
         accepted_at: accepted_at_ms,
     };
-    let payload =
-        serde_json::to_vec(&record).map_err(|e| format!("serialize consent failed: {e}"))?;
+    let payload = serde_json::to_vec(&record)
+        .map_err(|e| format!("{}: serialize consent failed: {e}", path.display()))?;
     {
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
@@ -367,6 +417,7 @@ pub fn write_online_consent_at(path: &Path, accepted_at_ms: u64) -> Result<bool,
     Ok(true)
 }
 
+// Encodes a byte slice as lowercase hexadecimal without allocations per byte.
 pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -377,6 +428,8 @@ pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     out
 }
 
+// Validates that `value` is a 64-character lowercase hex SHA-256 digest
+// (`/^[a-f0-9]{64}$/` in `electron/network.js` and `electron/lan.js`).
 pub(crate) fn is_lower_hex_64(value: &str) -> bool {
     value.len() == 64
         && value
@@ -388,6 +441,10 @@ pub(crate) fn is_lower_hex_64(value: &str) -> bool {
 mod tests {
     use super::*;
 
+    // Cross-language test vector verifying that `PlayerIdentity::from_seed([1..=32])`
+    // produces the exact SPKI DER Base64 `publicKey`, SHA-256 `id_hex`, uppercase
+    // colon-separated `fingerprint`, and Ed25519 `x-bfe-signature` produced by
+    // Node's `node:crypto` in `electron/network.js` and `battlefront-eternal-master`.
     #[test]
     fn matches_node_ed25519_spki_id_fingerprint_and_master_signature() {
         let mut seed = [0u8; 32];
@@ -426,21 +483,23 @@ mod tests {
         );
     }
 
+    // Verifies atomic creation and reload of a 32-byte `identity.key` seed file,
+    // compatibility with Electron's JSON PKCS#8 `player-identity.json` format,
+    // and atomic persistence of `online-consent.json`.
     #[test]
-    fn loads_and_persists_32_byte_seed_and_json_pkcs8() {
+    fn loads_and_persists_32_byte_seed_and_json_pkcs8() -> Result<(), Box<dyn std::error::Error>> {
         let dir = std::env::temp_dir().join(format!(
             "bfe-online-id-test-{}-{}",
             std::process::id(),
             SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .duration_since(UNIX_EPOCH)?
                 .as_nanos()
         ));
         let key_path = dir.join("identity.key");
-        let created = PlayerIdentity::load_or_create(&key_path).expect("create identity");
-        let raw = fs::read(&key_path).expect("read seed file");
+        let created = PlayerIdentity::load_or_create(&key_path)?;
+        let raw = fs::read(&key_path)?;
         assert_eq!(raw.len(), 32);
-        let loaded = PlayerIdentity::load_or_create(&key_path).expect("reload identity");
+        let loaded = PlayerIdentity::load_or_create(&key_path)?;
         assert_eq!(created.id_hex(), loaded.id_hex());
         assert_eq!(created.public_key_base64(), loaded.public_key_base64());
 
@@ -453,16 +512,19 @@ mod tests {
             "publicKey": created.public_key_base64(),
             "privateKey": BASE64.encode(&pkcs8),
         });
-        fs::write(&json_path, serde_json::to_vec(&json).unwrap()).unwrap();
-        let from_json = PlayerIdentity::load_or_create(&json_path).expect("load json identity");
+        fs::write(&json_path, serde_json::to_vec(&json)?)?;
+        let from_json = PlayerIdentity::load_or_create(&json_path)?;
         assert_eq!(from_json.id_hex(), created.id_hex());
 
-        // Online consent round-trip.
+        // Verify `read_online_consent` returns `false` before the file exists,
+        // `write_online_consent_at` writes the current `ONLINE_NOTICE_VERSION`
+        // atomically, and `read_online_consent` returns `true` afterward.
         let consent_path = dir.join("online-consent.json");
         assert!(!read_online_consent(&consent_path));
-        write_online_consent_at(&consent_path, 1_760_000_000_000).expect("write consent");
+        write_online_consent_at(&consent_path, 1_760_000_000_000)?;
         assert!(read_online_consent(&consent_path));
 
         let _ = fs::remove_dir_all(&dir);
+        Ok(())
     }
 }

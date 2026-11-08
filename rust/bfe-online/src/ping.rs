@@ -36,6 +36,12 @@ const MAX_DIRECT_INFO_BYTES: usize = 32 * 1024;
 // Measures TCP connect handshake time to `(address, port)` in milliseconds,
 // returning `Some(max(1, round(elapsed_ms)))` on success or `None` on timeout
 // or connection error. Ports `measureLatency` in `electron/network.js`.
+// Ports `measureLatency(address, port, timeoutMs = 1000)` in `electron/network.js`:
+//   socket.once('connect', () =>
+//     done(Math.max(1, Math.round(Number(process.hrtime.bigint() - started) / 1e6))));
+// Clamps sub-millisecond loopback connects to `1` ms so `Some(0)` is never
+// confused with a missing latency measurement, and immediately shuts down the
+// TCP socket in both directions once the SYN/SYN-ACK handshake completes.
 pub fn measure_latency(address: IpAddr, port: u16, timeout: Duration) -> Option<u32> {
     if port == 0 {
         return None;
@@ -48,8 +54,9 @@ pub fn measure_latency(address: IpAddr, port: u16, timeout: Duration) -> Option<
     Some(elapsed_ms)
 }
 
-// Measures latency to an `EndpointAddr` by parsing its IP address and probing
-// TCP connect time.
+// Measures latency to a single `EndpointAddr` by stripping optional IPv6
+// brackets, parsing the numeric IP literal (`!isIP(address)` returns `null` in
+// `electron/network.js::measureLatency`), and timing a TCP 3-way handshake.
 pub fn measure_endpoint_latency(endpoint: &EndpointAddr, timeout: Duration) -> Option<u32> {
     if endpoint.port == 0 {
         return None;
@@ -59,15 +66,21 @@ pub fn measure_endpoint_latency(endpoint: &EndpointAddr, timeout: Duration) -> O
     measure_latency(ip, endpoint.port, timeout)
 }
 
-// Measures latency for a single server across up to `MAX_PING_ENDPOINTS`
-// advertised endpoints in parallel, returning the minimum answered latency or
-// `None` if no endpoints are listed or none answer.
+// Measures latency for a single server across up to `MAX_PING_ENDPOINTS` (4)
+// advertised endpoints in parallel (`server.endpoints.slice(0, 4)` in
+// `electron/network.js::withLatency`), returning the lowest answered latency
+// (`Math.min(...answered)`) or `None` when the server lists no direct endpoints
+// (e.g. relay-only servers that keep their IP private) or none respond in time.
+// Falls back to `(server.address, server.port)` for LAN/Direct Connect entries.
 pub fn measure_server_latency(server: &ServerEntry, timeout: Duration) -> Option<u32> {
     let slice: &[EndpointAddr] = if server.endpoints.len() > MAX_PING_ENDPOINTS {
         &server.endpoints[..MAX_PING_ENDPOINTS]
     } else {
         &server.endpoints[..]
     };
+    // LAN beacons and Direct Connect entries store their address in
+    // `(server.address, server.port)` rather than `server.endpoints`; probe
+    // that single address when `endpoints` is empty.
     if slice.is_empty() {
         if let (Some(addr), Some(port)) = (server.address.as_deref(), server.port) {
             let ep = EndpointAddr {
@@ -79,9 +92,13 @@ pub fn measure_server_latency(server: &ServerEntry, timeout: Duration) -> Option
         }
         return None;
     }
+    // Fast-path the common single-endpoint case on the calling worker thread
+    // without spawning scoped sub-threads.
     if slice.len() == 1 {
         return measure_endpoint_latency(&slice[0], timeout);
     }
+    // When a dual-stack server advertises multiple endpoints (e.g. IPv4 + IPv6),
+    // probe up to 4 concurrently and take the minimum answered RTT.
     std::thread::scope(|s| {
         let handles: Vec<_> = slice
             .iter()
@@ -94,9 +111,12 @@ pub fn measure_server_latency(server: &ServerEntry, timeout: Duration) -> Option
     })
 }
 
-// Populates `latency_ms` on every server in `servers` using up to
-// `PING_CONCURRENCY` (16) concurrent workers. Ports `withLatency` in
-// `electron/network.js`.
+// Populates `latency_ms` on every server in `servers` using a bounded pool of
+// up to `PING_CONCURRENCY` (16) worker threads pulling indices from an atomic
+// work queue (`Array.from({ length: Math.min(16, queue.length) })` in
+// `electron/network.js::withLatency`).
+// Preserves the input `servers` ordering while avoiding spawning unbounded OS
+// threads when the master listing contains many servers.
 pub fn with_latency(mut servers: Vec<ServerEntry>, timeout: Duration) -> Vec<ServerEntry> {
     if servers.is_empty() {
         return servers;
@@ -166,9 +186,11 @@ pub fn ping_host_port(target: &str, timeout: Duration) -> Result<(ServerEntry, u
     Ok((info, latency))
 }
 
-// Performs a minimal HTTP/1.1 `GET /info` request over a `TcpStream` with a
-// bounded body limit, supporting both `Content-Length` and chunked transfer
-// encoding.
+// Performs a minimal HTTP/1.1 `GET /info` request over a raw `TcpStream` with a
+// strict `MAX_DIRECT_INFO_BYTES` (32 KiB) cap (`if (size > 32768)` in
+// `electron/network.js::directInfo`), supporting both `Content-Length` and
+// `Transfer-Encoding: chunked` responses and verifying that the returned JSON
+// carries a valid 64-char lowercase hex server `id`.
 pub fn fetch_server_info(
     addr: SocketAddr,
     host_header: &str,
@@ -181,6 +203,10 @@ pub fn fetch_server_info(
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
 
+    // Send a minimal HTTP/1.1 `GET /info` request with `Connection: close` so
+    // the server flushes and closes the TCP stream as soon as the JSON body is
+    // written (`httpGet({ hostname, port, path: '/info', timeout: 5000 })` in
+    // `electron/network.js::directInfo`).
     let request = format!(
         "GET /info HTTP/1.1\r\nHost: {host_header}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
@@ -188,6 +214,9 @@ pub fn fetch_server_info(
         .write_all(request.as_bytes())
         .map_err(|_| format!("Server at {host_header} did not respond"))?;
 
+    // Read response bytes until the `\r\n\r\n` HTTP header terminator is found,
+    // enforcing both `MAX_DIRECT_INFO_BYTES` and the overall request `deadline`
+    // so a slowloris or oversized responder cannot stall the client.
     let mut raw = Vec::with_capacity(2048);
     let mut buf = [0u8; 2048];
     let header_end = loop {
@@ -214,6 +243,8 @@ pub fn fetch_server_info(
     let header_str = std::str::from_utf8(&raw[..header_end])
         .map_err(|_| "Server returned an invalid response".to_string())?;
     let mut lines = header_str.split("\r\n");
+    // Parse the HTTP/1.1 status code (`HTTP/1.1 200 OK` -> `200`) from the
+    // first response line, rejecting malformed status lines.
     let status_line = lines
         .next()
         .ok_or_else(|| "Server returned an invalid response".to_string())?;
@@ -223,6 +254,9 @@ pub fn fetch_server_info(
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(|| "Server returned an invalid response".to_string())?;
 
+    // Inspect response headers case-insensitively for `Content-Length` (rejecting
+    // values above `MAX_DIRECT_INFO_BYTES` up front) and `Transfer-Encoding: chunked`
+    // (`node:http` in `electron/network.js` decodes chunked `/info` bodies transparently).
     let mut content_length: Option<usize> = None;
     let mut chunked = false;
     for line in lines {
@@ -244,6 +278,8 @@ pub fn fetch_server_info(
         }
     }
 
+    // Read the remaining HTTP response body bytes up to `Content-Length` (when
+    // specified) or EOF (`Connection: close`), rejecting bodies over 32 KiB.
     let body_start = header_end + 4;
     loop {
         if let Some(expected) = content_length {
@@ -268,6 +304,8 @@ pub fn fetch_server_info(
         raw.extend_from_slice(&buf[..n]);
     }
 
+    // Reassemble the response body from chunked framing, exact `Content-Length`
+    // slice, or connection-close EOF bytes.
     let body_bytes = if chunked {
         decode_chunked(&raw[body_start..])?
     } else if let Some(expected) = content_length {
@@ -279,6 +317,8 @@ pub fn fetch_server_info(
         raw[body_start..].to_vec()
     };
 
+    // Extract an operator/server `{ "error": "..." }` message on HTTP 4xx/5xx
+    // responses or fall back to `"Request failed (<status_code>)"`.
     if status_code >= 400 {
         if let Ok(err_obj) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
             if let Some(msg) = err_obj.get("error").and_then(|v| v.as_str()) {
@@ -288,6 +328,9 @@ pub fn fetch_server_info(
         return Err(format!("Request failed ({status_code})"));
     }
 
+    // Deserialize the `/info` JSON into `ServerEntry` and verify that `info.id`
+    // is a valid 64-character lowercase hex SHA-256 server identity before
+    // returning it to the Direct Connect caller.
     let info: ServerEntry = serde_json::from_slice(&body_bytes)
         .map_err(|_| "Server returned an invalid response".to_string())?;
     if !is_lower_hex_64(&info.id) {
@@ -296,10 +339,13 @@ pub fn fetch_server_info(
     Ok(info)
 }
 
+// Returns the byte offset of the first occurrence of `needle` in `haystack`.
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+// Decodes an HTTP/1.1 `Transfer-Encoding: chunked` body (`<hex-len>[;ext]\r\n<data>\r\n...0\r\n`),
+// enforcing `MAX_DIRECT_INFO_BYTES` across the reassembled payload.
 fn decode_chunked(mut input: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     loop {
@@ -311,6 +357,9 @@ fn decode_chunked(mut input: &[u8]) -> Result<Vec<u8>, String> {
             .next()
             .unwrap_or("")
             .trim();
+        // Each chunk header begins with its hexadecimal byte length (ignoring
+        // optional `;name=val` chunk extensions); a `0`-length chunk terminates
+        // the chunked body.
         let chunk_len = usize::from_str_radix(size_str, 16)
             .map_err(|_| "Server returned an invalid response".to_string())?;
         input = &input[line_end + 2..];
@@ -320,6 +369,8 @@ fn decode_chunked(mut input: &[u8]) -> Result<Vec<u8>, String> {
         if out.len().saturating_add(chunk_len) > MAX_DIRECT_INFO_BYTES {
             return Err("Server response was too large".to_string());
         }
+        // Every non-zero chunk payload must be followed by a `\r\n` trailer
+        // before the next chunk size line begins.
         if input.len() < chunk_len + 2 || &input[chunk_len..chunk_len + 2] != b"\r\n" {
             return Err("Server returned an invalid response".to_string());
         }
@@ -333,10 +384,15 @@ mod tests {
     use super::*;
     use std::net::TcpListener;
 
+    // Verifies that `measure_latency` records a positive (>= 1 ms) TCP connect
+    // time against a local loopback listener and that `with_latency` populates
+    // `latency_ms` for reachable servers while leaving endpoint-less servers as `None`.
     #[test]
-    fn measures_tcp_latency_and_populates_with_latency() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-        let addr = listener.local_addr().unwrap();
+    fn measures_tcp_latency_and_populates_with_latency() -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let addr = listener.local_addr()?;
+        // Accept two sequential TCP handshakes on loopback: the first for the
+        // direct `measure_latency` call and the second for `with_latency`.
         let accept_handle = std::thread::spawn(move || {
             for _ in 0..2 {
                 if let Ok((stream, _)) = listener.accept() {
@@ -345,10 +401,12 @@ mod tests {
             }
         });
 
-        let ms = measure_latency(addr.ip(), addr.port(), Duration::from_millis(500));
-        assert!(ms.is_some());
-        assert!(ms.unwrap() >= 1);
+        let ms = measure_latency(addr.ip(), addr.port(), Duration::from_millis(500))
+            .ok_or("expected latency measurement")?;
+        assert!(ms >= 1);
 
+        // Build a two-server list: one with the reachable loopback endpoint and
+        // one with an empty `endpoints` list (which must remain `latency_ms: None`).
         let servers = vec![
             ServerEntry {
                 id: "a".repeat(64),
@@ -372,12 +430,17 @@ mod tests {
         assert_eq!(updated[1].latency_ms, None);
 
         let _ = accept_handle.join();
+        Ok(())
     }
 
+    // Verifies that `direct_info` validates the target IP/port, fetches and
+    // parses `GET /info` over HTTP/1.1, attaches `address` and `port`, and
+    // populates `latency_ms` via a follow-up TCP handshake probe.
     #[test]
-    fn direct_info_fetches_and_validates_server_info_over_ipv4() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-        let addr = listener.local_addr().unwrap();
+    fn direct_info_fetches_and_validates_server_info_over_ipv4(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let addr = listener.local_addr()?;
         let body = serde_json::json!({
             "id": "ab".repeat(32),
             "name": "Local Direct Server",
@@ -393,6 +456,9 @@ mod tests {
         })
         .to_string();
 
+        // Spawn a mock TCP listener that serves the JSON `/info` response on
+        // the 1st connection and accepts the follow-up `measure_latency` TCP
+        // handshake on the 2nd connection.
         let server_thread = std::thread::spawn(move || {
             // 1st connection: GET /info, 2nd connection: measure_latency TCP probe.
             if let Ok((mut stream, _)) = listener.accept() {
@@ -410,8 +476,9 @@ mod tests {
             }
         });
 
-        let info = direct_info("127.0.0.1", i64::from(addr.port()), Duration::from_secs(2))
-            .expect("direct_info should succeed");
+        // Query the mock `/info` server via `direct_info` and verify that the
+        // returned `ServerEntry` has its `address`, `port`, and `latency_ms` populated.
+        let info = direct_info("127.0.0.1", i64::from(addr.port()), Duration::from_secs(2))?;
         assert_eq!(info.id, "ab".repeat(32));
         assert_eq!(info.name, "Local Direct Server");
         assert_eq!(info.address.as_deref(), Some("127.0.0.1"));
@@ -419,5 +486,6 @@ mod tests {
         assert!(info.latency_ms.is_some());
 
         let _ = server_thread.join();
+        Ok(())
     }
 }

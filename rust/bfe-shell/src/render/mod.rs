@@ -1,6 +1,20 @@
 //! Zero-allocation per-frame rendering of the click gate, shell menus, and
 //! loading screen onto [`bfe_render::interface::Batch`].
 //!
+//! In the Classic theme (`src/menus/themes/classic/index.js` and
+//! `src/menus/themes/classic/draw.js`), all interface geometry is laid out in a
+//! virtual `1024 x height` coordinate space (`height = 768 + (h / w - 0.75) * 768`)
+//! with a 90% safe area (`anchor(ax, ay, safe, height)`).
+//! - Menu row stacks (`draw_rows`) sit under an orange 3-piece header bar
+//!   (`headerbuttonleft`, `headerbuttonmid`, `headerbuttonright`) and draw one
+//!   3-piece blue button bar (`buttonleft`, `buttonmid`, `buttonright`) per row,
+//!   shifted left by `rows_shift` and rotated in 3D (`rotation_euler`).
+//! - Windows and listboxes (`draw_frame`) use 9-slice `border_3_pieces` frames
+//!   with 16-unit corners (`nineSlice`).
+//! - When optional UI textures have not yet been extracted, `fallback_color`
+//!   and `piece_quad` render flat stand-in quads (and 6-sliver right-end
+//!   triangles) matching `FALLBACK` and `triangle` in `draw.js`.
+//!
 //! Mirrors the geometry and colours of:
 //! - `src/shell/gate.js` (`showGate`: `IW = 1024`, `AT = 0.82`, `pulse(t)`),
 //! - `src/menus/themes/classic/index.js` and `src/menus/themes/classic/draw.js`
@@ -13,17 +27,16 @@
 
 use crate::{
     gate::{self, GATE_TEXT},
-    loading::{
-        self, disk, disk_place, light_level, mix_color_rgb, name_pos, on_screen, zoom_view, LookId,
-        TimelineAt,
-    },
-    media::preview_rect,
-    screens::{IaFocus, MenuRow, PopupState, ScreenId, ShellApp},
+    // `LookId` and `TimelineAt` are consumed by `render::screens::draw_loading`.
+    screens::{MenuRow, PopupState, ScreenId, ShellApp},
 };
 use bfe_render::interface::{
     anchor, mul, rotate_y, rotate_z, translate, Batch, Color, Font, Matrix, IDENTITY, UV,
 };
 use std::collections::HashMap;
+mod screens;
+pub use self::screens::draw_loading;
+use self::screens::draw_instant_action;
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE` in `src/menus/themes/classic/draw.js`.
@@ -45,22 +58,34 @@ pub const DIMMED: f64 = 150.0 / 255.0;
 /// Mirrors `LINE` in `src/shell/loading.js`.
 pub const TRACK_LINE_COLOR: Color = [40.0 / 255.0, 190.0 / 255.0, 1.0, 0.95];
 
+/// Horizontal offset of a menu row's bar relative to the row origin (`-4.7` units).
+/// Calibrated on the retail pause menu (`BAR_X` in `src/menus/themes/classic/index.js`).
 const BAR_X: f64 = -4.7;
+/// Horizontal offset of a menu row's text relative to the row origin (`0.8` units).
+/// Mirrors `TEXT_X` in `src/menus/themes/classic/index.js`.
 const TEXT_X: f64 = 0.8;
+/// Inset in interface units from the safe-area left/right edge to a bottom button
+/// (`BUTTON_INSET = 21` in `src/menus/themes/classic/index.js`).
 const BUTTON_INSET: f64 = 21.0;
 
 /// Bitmap font set used by the shell (`gamefont_large`, `gamefont_medium`,
 /// `gamefont_small`, `gamefont_tiny`).
 #[derive(Default)]
 pub struct ShellFonts {
+    /// `gamefont_large` (screen titles and `SINGLEPLAYER` rows).
     pub large: Font,
+    /// `gamefont_medium` (`MAIN MENU` rows, popups, buttons, and `LOADING` text).
     pub medium: Font,
+    /// `gamefont_small` (column headings and main-menu version line).
     pub small: Font,
+    /// `gamefont_tiny` (Instant Action list rows and loading screen planet name).
     pub tiny: Font,
 }
 
 impl ShellFonts {
     /// Returns the font matching `name`, falling back to `medium`.
+    /// Looks up ``gamefont_large``, ``gamefont_medium``, ``gamefont_small``,
+    /// or ``gamefont_tiny`` by name, defaulting to `self.medium`.
     pub fn get(&self, name: &str) -> &Font {
         match name {
             "gamefont_large" => &self.large,
@@ -76,9 +101,13 @@ impl ShellFonts {
 /// pixel dimensions and optional zoom target `[x, y, w, h]` in pixels.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StageTexture {
+    /// GL texture handle (`0` when not loaded).
     pub texture: u32,
+    /// Image width in pixels (`iw` in `zoomView`).
     pub width: f64,
+    /// Image height in pixels (`ih` in `zoomView`).
     pub height: f64,
+    /// Optional pixel rectangle `[x, y, w, h]` into which the next stage zooms.
     pub target: Option<[f64; 4]>,
 }
 
@@ -96,6 +125,7 @@ pub struct ShellTextures {
 }
 
 impl Default for ShellTextures {
+    /// Creates a default texture table with `solid = 1` for headless tests.
     fn default() -> Self {
         Self {
             solid: 1,
@@ -115,6 +145,9 @@ impl ShellTextures {
     /// [`ScreenId`] (`main`, `atat_screen`, `atte_screen`, `hoth_screen`,
     /// `coreship_screen`, `generic2_screen`, `generic3_screen`).
     pub fn backdrop_for(&self, screen: ScreenId) -> u32 {
+        // Candidate poster texture names in priority order for each screen,
+        // matching `SCREEN_MEDIA` (`src/shell/media.js`) and `instantAction`
+        // (`his_brief_bg` in `src/shell/screens.js`).
         let candidates: &[&str] = match screen {
             ScreenId::Gate => &["atat_screen", "main", "iface_bgmeta_space"],
             ScreenId::Main | ScreenId::Popup => &["atat_screen", "main", "iface_bgmeta_space"],
@@ -131,6 +164,7 @@ impl ShellTextures {
             | ScreenId::DirectConnect
             | ScreenId::HostDialog => &["hoth_screen", "generic3_screen", "main"],
         };
+        // Return the first candidate texture that has a non-zero GL handle.
         for &name in candidates {
             let tex = self.get(name);
             if tex != 0 {
@@ -141,7 +175,10 @@ impl ShellTextures {
     }
 
     /// Resolves the map preview still texture (`map_<id>` or `map_unk`).
+    /// Looks up the per-map preview texture (`map_<id>` in lowercase ASCII)
+    /// without heap allocation, falling back to `map_unk` or `his_brief_bg`.
     pub fn map_preview_for(&self, map_id: &str) -> u32 {
+        // Format `"map_<lowercase_id>"` on the stack without heap allocation.
         let mut buf = [0u8; 32];
         let prefix = b"map_";
         let id_bytes = map_id.as_bytes();
@@ -157,6 +194,8 @@ impl ShellTextures {
                 }
             }
         }
+        // Fall back to `map_unk` (or `his_brief_bg` if `map_unk` is absent)
+        // when the per-map preview still texture is not loaded.
         let unk = self.get("map_unk");
         if unk != 0 {
             unk
@@ -196,7 +235,9 @@ pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
 }
 
 /// Computes `(bar_width, flipped)` for row `k` (`0..n`) in a stack of `n`
-/// visible rows.
+/// visible rows: the bar width grows by `pitch` per row above `n / 2` and
+/// shrinks by `pitch` per row below `n / 2`, flipping the right triangle cap
+/// vertically once `i > n / 2` (`ShowHideVerticalButtons`).
 ///
 /// Mirrors `rowBars(width, pitch, n)` in `src/menus/themes/classic/index.js`.
 pub fn row_bar_at(width: f64, pitch: f64, n: usize, k: usize) -> (f64, bool) {
@@ -225,7 +266,8 @@ pub fn selected_color(a: f64) -> Color {
     [1.0, g / 255.0, 100.0 / 255.0, a]
 }
 
-/// Pulse factor (`0.3..1.0`) for focused buttons and bars.
+/// Pulse factor (`0.3..1.0`) for focused buttons and bars, using the same
+/// cosine pulse curve as the click gate (`gate::pulse(elapsed)`).
 pub fn menu_pulse(elapsed: f64) -> f64 {
     gate::pulse(elapsed)
 }
@@ -250,10 +292,16 @@ pub fn rotate_x(a: Matrix, angle: f64) -> Matrix {
     )
 }
 
+/// Builds a 4x4 Euler rotation matrix in degrees.
+/// Uses `"XYZ"` order when `xyz_order` is `true` (`MAIN MENU` in
+/// `src/shell/screens.js`), or the default `"YXZ"` order from
+/// `rotation(layout)` in `src/menus/themes/classic/index.js`.
 fn rotation_euler(rot_x_deg: f64, rot_y_deg: f64, rot_z_deg: f64, xyz_order: bool) -> Matrix {
     let rx = rot_x_deg.to_radians();
     let ry = rot_y_deg.to_radians();
     let rz = rot_z_deg.to_radians();
+    // `MAIN MENU` specifies `order: "XYZ"`; all other row screens use the
+    // Classic theme's default `"YXZ"` Euler rotation order.
     if xyz_order {
         rotate_z(rotate_y(rotate_x(IDENTITY, rx), ry), rz)
     } else {
@@ -262,19 +310,30 @@ fn rotation_euler(rot_x_deg: f64, rot_y_deg: f64, rot_z_deg: f64, xyz_order: boo
     }
 }
 
-fn tint_color(c: Color, a: f64) -> Color {
+/// Multiplies `c`'s alpha channel by `a`.
+/// Mirrors `tint(color, a)` in `src/menus/themes/classic/draw.js`.
+pub(super) fn tint_color(c: Color, a: f64) -> Color {
     [c[0], c[1], c[2], c[3] * a]
 }
 
+/// Scales `c`'s RGB channels by `k` and its alpha channel by `a`.
+/// Mirrors `tint(scaled(color, k), a)` in `src/menus/themes/classic/draw.js`.
 fn scaled_color(c: Color, k: f64, a: f64) -> Color {
     [c[0] * k, c[1] * k, c[2] * k, c[3] * a]
 }
 
+/// Component-wise RGBA multiplication of two colours.
 fn mul_color(a: Color, b: Color) -> Color {
     [a[0] * b[0], a[1] * b[1], a[2] * b[2], a[3] * b[3]]
 }
 
+/// Flat RGBA stand-in colour when a UI piece texture has not been extracted.
+/// Mirrors `FALLBACK` in `src/menus/themes/classic/draw.js`.
 fn fallback_color(name: &str) -> Color {
+    // Steel-blue button bars (`button*`), orange header bars (`headerbutton*`),
+    // translucent navy panel frame (`border_3_pieces`), orange selection cursor
+    // (`listbox_cursor`), slider track/thumb (`slider_bg`/`slider_fg`), and
+    // era faction icon stand-ins (`rep_icon`, `cis_icon`, `imp_icon`, `all_icon`).
     match name {
         "buttonleft" => [57.0 / 255.0, 125.0 / 255.0, 180.0 / 255.0, 1.0],
         "buttonmid" => [40.0 / 255.0, 95.0 / 255.0, 150.0 / 255.0, 1.0],
@@ -295,7 +354,8 @@ fn fallback_color(name: &str) -> Color {
     }
 }
 
-/// Encodes `s` into a stack UTF-16 buffer without heap allocation.
+/// Encodes `s` into a fixed 160-code-unit stack UTF-16 buffer without heap
+/// allocation so [`Font::draw`] and [`Font::width`] can run at 0 allocations/frame.
 fn encode_utf16_stack<'a>(s: &str, buf: &'a mut [u16; 160]) -> &'a [u16] {
     let mut len = 0;
     for ch in s.encode_utf16() {
@@ -308,8 +368,10 @@ fn encode_utf16_stack<'a>(s: &str, buf: &'a mut [u16; 160]) -> &'a [u16] {
     &buf[..len]
 }
 
+/// Draws `text` with `font` at `(x, y)` under transform `m` using a stack
+/// UTF-16 buffer (zero heap allocations).
 #[allow(clippy::too_many_arguments)]
-fn draw_str(
+pub(super) fn draw_str(
     font: &Font,
     batch: &mut Batch,
     m: Matrix,
@@ -324,14 +386,18 @@ fn draw_str(
     font.draw(batch, m, x, y, slice, tint, align, 1.0, 0.0, 0.0);
 }
 
-fn str_width(font: &Font, text: &str) -> f64 {
+/// Measures the advance width of `text` in `font` using a stack UTF-16 buffer.
+pub(super) fn str_width(font: &Font, text: &str) -> f64 {
     let mut buf = [0u16; 160];
     let slice = encode_utf16_stack(text, &mut buf);
     font.width(slice, 1.0, 0.0)
 }
 
+/// Draws a UI piece quad (`name`) or its untextured stand-in (`FALLBACK` in
+/// `src/menus/themes/classic/draw.js`, including the 6-sliver diagonal
+/// triangle fallback for `buttonright` and `headerbuttonright`).
 #[allow(clippy::too_many_arguments)]
-fn piece_quad(
+pub(super) fn piece_quad(
     batch: &mut Batch,
     textures: &ShellTextures,
     m: Matrix,
@@ -343,13 +409,19 @@ fn piece_quad(
     uv: [f64; 4],
     color: Color,
 ) {
+    // When the named UI piece texture is loaded, emit a single textured quad;
+    // otherwise emit the untextured fallback shape onto `textures.solid`.
     let tex = textures.get(name);
     if tex != 0 {
         batch.quad(m, [x0, y0, x1, y1], tex, uv, color, 0.0, 0);
     } else if name == "buttonright" || name == "headerbuttonright" {
+        // Approximate the triangular right cap with 6 horizontal slivers
+        // (`triangle` in `src/menus/themes/classic/draw.js`).
         let fb = mul_color(fallback_color(name), color);
         let steps = 6;
         let flipped = uv[1] > uv[3];
+        // Step through the 6 vertical bands from `y0` to `y1`, widening or
+        // narrowing each sliver according to whether the cap is vertically flipped.
         for i in 0..steps {
             let a = y0 + ((y1 - y0) * (i as f64)) / (steps as f64);
             let b = y0 + ((y1 - y0) * ((i + 1) as f64)) / (steps as f64);
@@ -369,6 +441,7 @@ fn piece_quad(
             );
         }
     } else {
+        // Solid rectangular stand-in tinted by `fallback_color(name) * color`.
         let fb = mul_color(fallback_color(name), color);
         batch.quad(m, [x0, y0, x1, y1], textures.solid, UV, fb, 0.0, 0);
     }
@@ -389,6 +462,8 @@ fn draw_bar(
     flipped: bool,
     color: Color,
 ) {
+    // Left cap is `[x0, x0 + h]`, stretched middle is `[x0 + h, x0 + max(width, h)]`,
+    // and right cap is `[mid_end, mid_end + h]` (vertically flipped when `flipped`).
     let h = y1 - y0;
     let mid_end = x0 + width.max(h);
     let end = mid_end + h;
@@ -397,6 +472,8 @@ fn draw_bar(
         (x0 + h, mid_end, names[1], false),
         (mid_end, end, names[2], true),
     ];
+    // Emit each non-empty piece (`left`, `mid`, `right`), flipping the right
+    // cap's V coordinates (`[0, 1, 1, 0]`) for rows below the stack midpoint.
     for (a, b, name, is_right) in pieces {
         if b <= a {
             continue;
@@ -414,7 +491,7 @@ fn draw_bar(
 /// Mirrors `frame` in `src/menus/themes/classic/draw.js` and `nineSlice` in
 /// `src/interface/shapes.js`.
 #[allow(clippy::too_many_arguments)]
-fn draw_frame(
+pub(super) fn draw_frame(
     batch: &mut Batch,
     textures: &ShellTextures,
     m: Matrix,
@@ -425,6 +502,8 @@ fn draw_frame(
     name: &str,
     color: Color,
 ) {
+    // When `border_3_pieces` (or `listbox_cursor`) is not yet loaded, draw a
+    // single inset solid quad with `fallback_color(name)` (`frame` in `draw.js`).
     let tex = textures.get(name);
     if tex == 0 {
         let fb = fallback_color(name);
@@ -444,9 +523,13 @@ fn draw_frame(
         );
         return;
     }
+    // 9-slice grid with 16-unit corners and UV splits `[0.0, 0.25, 0.75, 1.0]`
+    // (`nineSlice` in `src/interface/shapes.js`).
     let corner = 16.0;
     let mut xs = [-w * 0.5, -w * 0.5 + corner, w * 0.5 - corner, w * 0.5];
     let mut ys = [-h * 0.5, -h * 0.5 + corner, h * 0.5 - corner, h * 0.5];
+    // Collapse the inner 9-slice splits to `0.0` if the box is narrower or
+    // shorter than two 16-unit corners (`32.0` units).
     if xs[2] < xs[1] {
         xs[1] = 0.0;
         xs[2] = 0.0;
@@ -455,9 +538,11 @@ fn draw_frame(
         ys[1] = 0.0;
         ys[2] = 0.0;
     }
+    // Emit the 3x3 grid of 9-slice patches with UV splits `[0.0, 0.25, 0.75, 1.0]`.
     let us = [0.0, 0.25, 0.75, 1.0];
     for j in 0..3 {
         for i in 0..3 {
+            // Skip degenerate patches when the frame is smaller than its corners.
             if xs[i + 1] <= xs[i] || ys[j + 1] <= ys[j] {
                 continue;
             }
@@ -474,21 +559,36 @@ fn draw_frame(
     }
 }
 
+/// Layout parameters for [`draw_rows`], mirroring the `Rows` widget layout in
+/// `src/menus/themes/classic/index.js` and `src/shell/screens.js`.
 #[derive(Clone, Copy)]
 struct RowsLayout<'a> {
+    /// Safe-area anchor `[ax, ay]` (default `[0.5, 0.5]`).
     at: [f64; 2],
+    /// Horizontal offset in interface units added to `rows_shift`.
     x: f64,
+    /// Vertical offset in interface units from the anchor (default `20.0`).
     y: f64,
+    /// Base bar width in interface units (default `350.0`).
     width: f64,
+    /// X-axis tilt in degrees (default `0.0`; `-20.0` on `MAIN MENU`).
     rot_x: f64,
+    /// Y-axis turn in degrees (default `35.0`; `-30.0` on `MAIN MENU`).
     rot_y: f64,
+    /// Z-axis roll in degrees (default `0.0`; `1.0` on `MAIN MENU`).
     rot_z: f64,
+    /// Whether to apply Euler angles in `XYZ` order (`true` on `MAIN MENU`)
+    /// instead of the Classic theme's default `YXZ` order.
     xyz_order: bool,
+    /// Bitmap font name (`"gamefont_medium"` or `"gamefont_large"`).
     font: &'a str,
+    /// Optional fixed row count (`Some(7)` on `MAIN MENU`) passed to [`rows_shift`].
     list_count: Option<usize>,
 }
 
 impl<'a> Default for RowsLayout<'a> {
+    /// Returns the default `rowScreen` layout from `src/shell/screens.js`:
+    /// `at: [0.5, 0.5]`, `y: 20`, `width: 350`, `rotY: 35`, `"gamefont_medium"`.
     fn default() -> Self {
         Self {
             at: [0.5, 0.5],
@@ -519,6 +619,8 @@ fn draw_rows(
     pulse: f64,
     layout: RowsLayout<'_>,
 ) {
+    // Row pitch `p = yh + 5.0` and container horizontal shift `rows_shift`
+    // (`paintRows` in `src/menus/themes/classic/index.js`).
     let font = fonts.get(layout.font);
     let yh = font.height;
     let y_spacing = 5.0;
@@ -527,6 +629,8 @@ fn draw_rows(
     if n == 0 {
         return;
     }
+    // Anchor at `layout.at` in the safe area, translate by `(shift + x, y)`,
+    // and apply the 3D Euler rotation matrix (`paintRows`).
     let shift = rows_shift(layout.width, p, layout.list_count.unwrap_or(n));
     let base = anchor(layout.at[0], layout.at[1], true, height);
     let moved = translate(base, shift + layout.x, layout.y, 0.0);
@@ -536,6 +640,8 @@ fn draw_rows(
     );
     let y0 = -(n as f64 * p) * 0.5;
 
+    // Orange title bar (`headerbuttonleft`/`mid`/`right`): positioned `1.75 * p`
+    // above the first row, with black title text inset by `0.5 * p + TEXT_X`.
     if !title.is_empty() {
         let ty = y0 - 1.75 * p;
         let width = layout.width - 1.25 * (yh - y_spacing) - 0.65 * p;
@@ -553,6 +659,8 @@ fn draw_rows(
             false,
             WHITE,
         );
+        // Draw the title string in `BLACK` centered vertically inside the
+        // orange header bar (`(by + ty + gh + 0.25 * p) / 2 - capsMiddle`).
         draw_str(
             font,
             batch,
@@ -565,8 +673,13 @@ fn draw_rows(
         );
     }
 
+    // Draw each visible row's 3-piece blue button bar (`buttonleft`/`mid`/`right`)
+    // and label (`WHITE` when enabled, `GREY` when disabled; unfocused bars dimmed
+    // by `DIMMED = 150 / 255`).
     for (k, row) in rows.iter().enumerate() {
         let cy = y0 + (k as f64) * p;
+        // Only the selected enabled row pulses with `pulse`; all other rows
+        // use alpha `1.0` and a bar dimmed by `DIMMED` (`150 / 255`).
         let focused = k == selected && !row.disabled;
         let a = if focused { pulse } else { 1.0 };
         let bar_color = if focused {
@@ -574,6 +687,8 @@ fn draw_rows(
         } else {
             scaled_color(WHITE, DIMMED, a)
         };
+        // Compute this row's bar width (`bar_w + 5.0`) and whether its right
+        // triangular end piece is flipped (`k >= n / 2`).
         let (bar_w, flipped) = row_bar_at(layout.width, p, n, k);
         draw_bar(
             batch,
@@ -587,6 +702,7 @@ fn draw_rows(
             flipped,
             bar_color,
         );
+        // Enabled row labels render in `WHITE`; disabled rows render in `GREY`.
         let text_color = if !row.disabled {
             tint_color(WHITE, a)
         } else {
@@ -608,7 +724,7 @@ fn draw_rows(
 /// Draws a bottom-edge button (`BACK` on left, `middle` in center, `accept` on right).
 /// Mirrors `paintButton` in `src/menus/themes/classic/index.js`.
 #[allow(clippy::too_many_arguments)]
-fn draw_bottom_button(
+pub(super) fn draw_bottom_button(
     batch: &mut Batch,
     fonts: &ShellFonts,
     height: f64,
@@ -618,12 +734,16 @@ fn draw_bottom_button(
     enabled: bool,
     pulse: f64,
 ) {
+    // Resolve safe-area bottom anchor `(ax, ay)` and text alignment (`0` left,
+    // `1` right, `2` center) from `BUTTON_PLACES` (`src/menus/themes/classic/index.js`).
     let (ax, ay, align) = match place {
         "accept" => (1.0, 1.0, 1),
         "middle" => (0.5, 1.0, 2),
         _ => (0.0, 1.0, 0),
     };
     let m = anchor(ax, ay, true, height);
+    // Offset left/right buttons by `BUTTON_INSET = 21` units from the safe edge
+    // and place the capital-letter midline 12 units above the safe bottom.
     let x = if align == 0 {
         BUTTON_INSET
     } else if align == 1 {
@@ -632,6 +752,8 @@ fn draw_bottom_button(
         0.0
     };
     let y = -12.0 - fonts.medium.caps_middle();
+    // Focused bottom buttons pulse yellow (`selected_color(pulse)`); disabled
+    // buttons (`LAUNCH` with an empty playlist) render in `GREY`.
     let color = if !enabled {
         GREY
     } else if focused {
@@ -642,348 +764,11 @@ fn draw_bottom_button(
     draw_str(&fonts.medium, batch, m, x, y, label, color, align);
 }
 
-/// Draws the Instant Action dual-list playlist screen.
-/// Mirrors `instantAction` in `src/shell/screens.js`, `gamePicker` in
-/// `src/shell/index.js`, and `paintList` in `src/menus/themes/classic/index.js`.
+/// Draws a vertical list scrollbar (`slider_bg` track at `0.5` alpha and
+/// `slider_fg` thumb at `0.33` alpha, minimum 6 units tall).
+/// Mirrors `scrollBar` in `src/menus/themes/classic/index.js`.
 #[allow(clippy::too_many_arguments)]
-fn draw_instant_action(
-    batch: &mut Batch,
-    fonts: &ShellFonts,
-    textures: &ShellTextures,
-    app: &ShellApp,
-    viewport_w: f64,
-    viewport_h: f64,
-    height: f64,
-    pulse: f64,
-) {
-    // Top title: INSTANT ACTION
-    let top_m = anchor(0.5, 0.0, true, height);
-    draw_str(
-        &fonts.large,
-        batch,
-        top_m,
-        0.0,
-        10.0,
-        "INSTANT ACTION",
-        WHITE,
-        2,
-    );
-
-    // Column headings: AVAILABLE MAPS: + game picker (`BATTLEFRONT (2004)`
-    // selected, `BATTLEFRONT II (2005), PLANNED` disabled) and SELECTED MAPS:
-    let avail_hdr = anchor(0.25, 0.0, true, height);
-    draw_str(
-        &fonts.small,
-        batch,
-        avail_hdr,
-        0.0,
-        36.0,
-        "AVAILABLE MAPS:",
-        WHITE,
-        2,
-    );
-    draw_str(
-        &fonts.tiny,
-        batch,
-        avail_hdr,
-        0.0,
-        54.0,
-        app.ia_selected_game_label(),
-        WHITE,
-        2,
-    );
-    let sel_hdr = anchor(0.75, 0.0, true, height);
-    draw_str(
-        &fonts.small,
-        batch,
-        sel_hdr,
-        0.0,
-        45.0,
-        "SELECTED MAPS:",
-        WHITE,
-        2,
-    );
-
-    let box_w = 442.0;
-    let box_h = (height - 210.0).clamp(160.0, 398.0);
-    let box_y = -10.0;
-    let pitch = 26.0;
-    let inset = 15.0;
-    let shown = (((box_h - 2.0 * inset) / pitch).floor() as usize).max(1);
-
-    // Left list: AVAILABLE MAPS (side = -1, x = -227, rotY = 35)
-    {
-        let base = anchor(0.5, 0.5, true, height);
-        let m = rotate_y(translate(base, -227.0, 0.0, 0.0), 35.0_f64.to_radians());
-        draw_frame(
-            batch,
-            textures,
-            m,
-            0.0,
-            box_y,
-            box_w,
-            box_h,
-            "border_3_pieces",
-            WHITE,
-        );
-        let count = app.data.maps.len();
-        let scroll = count > shown;
-        let first = if count > shown && app.ia_available_selected >= shown {
-            (app.ia_available_selected + 1 - shown).min(count - shown)
-        } else {
-            0
-        };
-        let top = box_y - box_h * 0.5 + inset;
-        let left = -box_w * 0.5 + 15.0;
-        let inner = box_w - 30.0 - if scroll { 26.0 } else { 0.0 };
-        let focused = app.ia_focus == IaFocus::Available;
-        for k in 0..shown {
-            let idx = first + k;
-            let Some(map) = app.data.maps.get(idx) else {
-                break;
-            };
-            let cy = top + (k as f64) * pitch + pitch * 0.5;
-            if idx == app.ia_available_selected {
-                let a = if focused {
-                    cursor_pulse(app.pulse_elapsed)
-                } else {
-                    1.0
-                };
-                draw_frame(
-                    batch,
-                    textures,
-                    m,
-                    left + inner * 0.5,
-                    cy,
-                    inner + 6.0,
-                    pitch + 10.0,
-                    "listbox_cursor",
-                    tint_color(WHITE, a),
-                );
-            }
-            let disabled = map.extracted == Some(false);
-            draw_str(
-                &fonts.tiny,
-                batch,
-                m,
-                left + 8.0,
-                cy - fonts.tiny.caps_middle(),
-                &map.name,
-                if disabled { GREY } else { WHITE },
-                0,
-            );
-        }
-        if scroll {
-            draw_scroll_bar(
-                batch,
-                textures,
-                m,
-                box_w * 0.5 - 34.0,
-                top,
-                (shown as f64) * pitch,
-                first,
-                shown,
-                count,
-            );
-        }
-    }
-
-    // Right list: SELECTED MAPS (side = 1, x = 227, rotY = -35)
-    {
-        let base = anchor(0.5, 0.5, true, height);
-        let m = rotate_y(translate(base, 227.0, 0.0, 0.0), (-35.0_f64).to_radians());
-        draw_frame(
-            batch,
-            textures,
-            m,
-            0.0,
-            box_y,
-            box_w,
-            box_h,
-            "border_3_pieces",
-            WHITE,
-        );
-        let count = app.ia_entries.len();
-        let scroll = count > shown;
-        let first = if count > shown && app.ia_selected_cursor >= shown {
-            (app.ia_selected_cursor + 1 - shown).min(count - shown)
-        } else {
-            0
-        };
-        let top = box_y - box_h * 0.5 + inset;
-        let left = -box_w * 0.5 + 15.0;
-        let inner = box_w - 30.0 - if scroll { 26.0 } else { 0.0 };
-        let focused = app.ia_focus == IaFocus::Selected;
-        for k in 0..shown {
-            let idx = first + k;
-            let Some(entry) = app.ia_entries.get(idx) else {
-                break;
-            };
-            let cy = top + (k as f64) * pitch + pitch * 0.5;
-            if idx == app.ia_selected_cursor {
-                let a = if focused {
-                    cursor_pulse(app.pulse_elapsed)
-                } else {
-                    1.0
-                };
-                draw_frame(
-                    batch,
-                    textures,
-                    m,
-                    left + inner * 0.5,
-                    cy,
-                    inner + 6.0,
-                    pitch + 10.0,
-                    "listbox_cursor",
-                    tint_color(WHITE, a),
-                );
-            }
-            let map_name = app
-                .data
-                .maps
-                .iter()
-                .find(|m| m.id == entry.map)
-                .map(|m| m.name.as_str())
-                .unwrap_or(&entry.map);
-            draw_str(
-                &fonts.tiny,
-                batch,
-                m,
-                left + 8.0,
-                cy - fonts.tiny.caps_middle(),
-                map_name,
-                WHITE,
-                0,
-            );
-            let icons = if entry.era.as_deref() == Some("cw") {
-                ["rep_icon", "cis_icon"]
-            } else {
-                ["imp_icon", "all_icon"]
-            };
-            let size = 16.9;
-            for (icon_i, icon_name) in icons.iter().enumerate() {
-                let right = left + inner - ((icons.len() - icon_i - 1) as f64) * (size + 3.0);
-                piece_quad(
-                    batch,
-                    textures,
-                    m,
-                    icon_name,
-                    right - size,
-                    cy - size * 0.5,
-                    right,
-                    cy + size * 0.5,
-                    UV,
-                    WHITE,
-                );
-            }
-        }
-        if scroll {
-            draw_scroll_bar(
-                batch,
-                textures,
-                m,
-                box_w * 0.5 - 34.0,
-                top,
-                (shown as f64) * pitch,
-                first,
-                shown,
-                count,
-            );
-        }
-    }
-
-    // Lower-right map preview still (`preview_rect` in `src/shell/media.js`)
-    if let Some(map) = app.data.maps.get(app.ia_available_selected) {
-        let preview_tex = textures.map_preview_for(&map.id);
-        if preview_tex != 0 {
-            let [px, py, pw, ph] = preview_rect(viewport_w, viewport_h);
-            let sx = 1024.0 / viewport_w.max(1.0);
-            let sy = height / viewport_h.max(1.0);
-            let m = anchor(0.0, 0.0, false, height);
-            let x0 = px * sx;
-            let y0 = py * sy;
-            let x1 = (px + pw) * sx;
-            let y1 = (py + ph) * sy;
-            draw_frame(
-                batch,
-                textures,
-                m,
-                (x0 + x1) * 0.5,
-                (y0 + y1) * 0.5,
-                (x1 - x0) + 12.0,
-                (y1 - y0) + 12.0,
-                "border_3_pieces",
-                WHITE,
-            );
-            batch.quad(m, [x0, y0, x1, y1], preview_tex, UV, WHITE, 0.0, 0);
-        }
-    }
-
-    // Horizontal buttons: ADD and REMOVE at y = 220 from center
-    let mid_m = anchor(0.5, 0.5, false, height);
-    let y_edit = 220.0 - fonts.medium.caps_middle();
-    let add_color = if app.ia_focus == IaFocus::Add {
-        selected_color(pulse)
-    } else {
-        WHITE
-    };
-    let rem_color = if app.ia_focus == IaFocus::Remove {
-        selected_color(pulse)
-    } else {
-        WHITE
-    };
-    draw_str(&fonts.medium, batch, mid_m, -40.0, y_edit, "ADD", add_color, 2);
-    draw_str(
-        &fonts.medium,
-        batch,
-        mid_m,
-        45.0,
-        y_edit,
-        "REMOVE",
-        rem_color,
-        2,
-    );
-
-    // Bottom buttons: BACK, PLAY IN ORDER / RANDOM ORDER, LAUNCH
-    draw_bottom_button(
-        batch,
-        fonts,
-        height,
-        "back",
-        app.say("common.back", "BACK"),
-        app.ia_focus == IaFocus::Back,
-        true,
-        pulse,
-    );
-    let order_label = if app.ia_random {
-        "RANDOM ORDER"
-    } else {
-        "PLAY IN ORDER"
-    };
-    draw_bottom_button(
-        batch,
-        fonts,
-        height,
-        "middle",
-        order_label,
-        app.ia_focus == IaFocus::Order,
-        true,
-        pulse,
-    );
-    draw_bottom_button(
-        batch,
-        fonts,
-        height,
-        "accept",
-        "LAUNCH",
-        app.ia_focus == IaFocus::Launch,
-        !app.ia_entries.is_empty(),
-        pulse,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_scroll_bar(
+pub(super) fn draw_scroll_bar(
     batch: &mut Batch,
     textures: &ShellTextures,
     m: Matrix,
@@ -994,6 +779,7 @@ fn draw_scroll_bar(
     shown: usize,
     count: usize,
 ) {
+    // Full-height scrollbar track (`slider_bg` at `TRACK_ALPHA = 0.5`).
     piece_quad(
         batch,
         textures,
@@ -1006,10 +792,13 @@ fn draw_scroll_bar(
         UV,
         tint_color(WHITE, 0.5),
     );
+    // Thumb span `[t0, t1]` proportional to `first .. first + shown` out of
+    // `count`, clamped to at least 6 interface units high.
     let t0 = top + (first as f64 / count.max(1) as f64) * height;
     let t1 = (top + ((first + shown) as f64 / count.max(1) as f64) * height)
         .max(t0 + 6.0)
         .min(top + height);
+    // Visible-window scrollbar thumb (`slider_fg` at `THUMB_ALPHA = 0.33`).
     piece_quad(
         batch,
         textures,
@@ -1037,6 +826,7 @@ fn draw_popup_box(
     buttons: &[(&str, bool)],
     pulse: f64,
 ) {
+    // Centered `360 x 190` 9-slice popup window frame (`border_3_pieces`).
     let m = anchor(0.5, 0.5, false, height);
     draw_frame(
         batch,
@@ -1050,18 +840,26 @@ fn draw_popup_box(
         WHITE,
     );
 
+    // Draw centered prompt lines (`gamefont_medium`) inside the popup frame,
+    // followed by the optional draft input line (`extra_line`).
     let mut y = -68.0;
     for line in message.lines() {
         draw_str(&fonts.medium, batch, m, 0.0, y, line, WHITE, 2);
         y += fonts.medium.height;
     }
+    // When an input draft (`profile.draft` or `direct_connect_draft`) is active,
+    // draw it centered on the line immediately below the prompt text.
     if let Some(extra) = extra_line {
         draw_str(&fonts.medium, batch, m, 0.0, y, extra, WHITE, 2);
     }
 
+    // Horizontal popup buttons (`paintHorizontal` in `src/menus/themes/classic/index.js`):
+    // centered at `x = 0` when `count == 1`, or spaced 85 units apart (`-40` and `45`)
+    // at `y = 63` below center.
     let count = buttons.len();
     let by = 63.0 - fonts.medium.caps_middle();
     for (i, &(label, focused)) in buttons.iter().enumerate() {
+        // Place a single button at `x = 0`, or pair buttons at `-40` and `45`.
         let x = if count == 1 {
             0.0
         } else {
@@ -1077,7 +875,16 @@ fn draw_popup_box(
 }
 
 /// Populates `batch` with the current shell screen's geometry for a viewport of
-/// `(viewport_w, viewport_h)` pixels.
+/// `(viewport_w, viewport_h)` pixels:
+/// 1. Full-screen poster backdrop (`textures.backdrop_for(base_screen)`) or
+///    dark space-blue fallback quad.
+/// 2. Initial click/key gate (`ScreenId::Gate`: pulsing `GATE_TEXT` at
+///    `AT = 0.82` of interface height).
+/// 3. Active base screen (`Main`, `Singleplayer`, `InstantAction`,
+///    `InstantActionEra`, `Options`, `OptionsPage`, `Profile`, `Multiplayer`,
+///    `MultiplayerList`, `DirectConnect`, or `HostDialog`).
+/// 4. Modal overlay (`profile.editing` callsign editor or `PopupState` notice /
+///    `EXIT TO WINDOWS?` confirmation) over a dimmed backdrop.
 ///
 /// Performs zero heap allocations per frame.
 pub fn draw_shell(
@@ -1088,6 +895,8 @@ pub fn draw_shell(
     viewport_w: f64,
     viewport_h: f64,
 ) {
+    // Reset the vertex/index batch for the new frame and compute the virtual
+    // interface height and gate text vertical position (`gate_layout`).
     batch.begin();
     let (_, gate_y, height) = gate::gate_layout(viewport_w, viewport_h);
     let active = app.current_screen();
@@ -1096,6 +905,8 @@ pub fn draw_shell(
     // 1. Full-screen poster backdrop (`1024 x height`).
     let bg_tex = textures.backdrop_for(base_screen);
     let full_m = anchor(0.0, 0.0, false, height);
+    // Draw the screen's full-bleed background texture if available, or a
+    // deep space-navy solid quad (`[0.04, 0.06, 0.10, 1.0]`) as fallback.
     if bg_tex != 0 {
         batch.quad(full_m, [0.0, 0.0, 1024.0, height], bg_tex, UV, WHITE, 0.0, 0);
     } else {
@@ -1111,6 +922,8 @@ pub fn draw_shell(
     }
 
     // 2. Click/key gate (`ScreenId::Gate`).
+    // On the initial click/key gate, draw only the backdrop and the pulsing
+    // centered `PRESS ANY KEY OR CLICK TO BEGIN` prompt (`src/shell/gate.js`).
     if active == ScreenId::Gate {
         let a = gate::pulse(app.gate_elapsed);
         let y = gate_y - fonts.medium.caps_middle();
@@ -1131,6 +944,9 @@ pub fn draw_shell(
 
     // 3. Active screen content.
     match base_screen {
+        // `MAIN MENU`: 7-row angled stack at `at = [0.5, 0.65]`, `y = 30`,
+        // `width = 250`, `rotX = -20`, `rotY = -30`, `rotZ = 1` (`XYZ` Euler
+        // order), plus the bottom-right version string (`src/shell/screens.js`).
         ScreenId::Main => {
             let rows = app.active_rows();
             let sel = app.selected_cached_row_index(ScreenId::Main);
@@ -1169,6 +985,8 @@ pub fn draw_shell(
                 1,
             );
         }
+        // `SINGLEPLAYER`: 3 rows in `gamefont_large` with `width = 650` and a
+        // bottom-left `BACK` button (`src/shell/screens.js`).
         ScreenId::Singleplayer => {
             let rows = app.active_rows();
             let sel = app.selected_cached_row_index(ScreenId::Singleplayer);
@@ -1198,6 +1016,7 @@ pub fn draw_shell(
                 pulse,
             );
         }
+        // `INSTANT ACTION`: dual-list playlist builder (`draw_instant_action`).
         ScreenId::InstantAction => {
             draw_instant_action(
                 batch,
@@ -1210,6 +1029,9 @@ pub fn draw_shell(
                 pulse,
             );
         }
+        // `InstantActionEra`: draws the underlying Instant Action screen, dims
+        // it with a half-alpha black quad, and overlays the `CLONE WARS` /
+        // `GALACTIC CIVIL WAR` picker rows at `at = [0.25, 0.5]`.
         ScreenId::InstantActionEra => {
             draw_instant_action(
                 batch,
@@ -1258,6 +1080,8 @@ pub fn draw_shell(
                 pulse,
             );
         }
+        // Standard angled row screens (`OPTIONS`, `OptionsPage`, `PROFILE
+        // MANAGEMENT`, `MULTIPLAYER`, and `LAN`/`ONLINE` server lists).
         ScreenId::Options
         | ScreenId::OptionsPage(_)
         | ScreenId::Profile
@@ -1265,6 +1089,9 @@ pub fn draw_shell(
         | ScreenId::MultiplayerList(_) => {
             let rows = app.active_rows();
             let sel = app.selected_cached_row_index(base_screen);
+            // Server lists (`LAN`/`ONLINE`) and option sub-pages use a wider
+            // `620`-unit bar stack so server names, player counts, and option
+            // values fit on one line; top-level menus use `350` units.
             let width = match base_screen {
                 ScreenId::MultiplayerList(_) | ScreenId::OptionsPage(_) => 620.0,
                 _ => 350.0,
@@ -1294,6 +1121,7 @@ pub fn draw_shell(
                 pulse,
             );
         }
+        // `DIRECT CONNECTION`: address entry modal with `CONNECT` / `CANCEL`.
         ScreenId::DirectConnect => {
             draw_popup_box(
                 batch,
@@ -1306,6 +1134,7 @@ pub fn draw_shell(
                 pulse,
             );
         }
+        // `HOST GAME`: host confirmation modal with `LAUNCH` / `CANCEL`.
         ScreenId::HostDialog => {
             draw_popup_box(
                 batch,
@@ -1321,7 +1150,8 @@ pub fn draw_shell(
         ScreenId::Gate | ScreenId::Popup => {}
     }
 
-    // 4. Profile editing modal or active popup over the current screen.
+    // 4. Profile editing modal or active popup over the current screen:
+    //    dims the screen with a `[0, 0, 0, 0.55]` quad and draws `draw_popup_box`.
     if app.profile.editing {
         batch.quad(
             full_m,
@@ -1332,6 +1162,9 @@ pub fn draw_shell(
             0.0,
             0,
         );
+        // Default to `"ENTER PROFILE CALLSIGN:"` when opened from `PROFILE
+        // MANAGEMENT`, or show the multiplayer gate message when opened by
+        // `require_profile_for`.
         let prompt = if app.profile.message.is_empty() {
             "ENTER PROFILE CALLSIGN:"
         } else {
@@ -1357,6 +1190,7 @@ pub fn draw_shell(
             0.0,
             0,
         );
+        // Single-button `Notice` (`OK`) or two-button `ConfirmExit` (`YES` / `NO`).
         match popup {
             PopupState::Notice { message } => {
                 draw_popup_box(
@@ -1389,304 +1223,10 @@ pub fn draw_shell(
     }
 }
 
-/// Populates `batch` with the loading screen's stage picture, zoom crop,
-/// tracking crosshairs, top-left planet name, rotating `LOADING` disk, and
-/// 28-LED ring (`src/shell/loading.js` `LoadingView.prototype.draw`).
-///
-/// Performs zero heap allocations per frame.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_loading(
-    batch: &mut Batch,
-    fonts: &ShellFonts,
-    textures: &ShellTextures,
-    state: &TimelineAt,
-    spin: f64,
-    planet: &str,
-    loading_text: &str,
-    look: LookId,
-    viewport_w: f64,
-    viewport_h: f64,
-) {
-    batch.begin();
-    let w = viewport_w.max(1.0);
-    let h = viewport_h.max(1.0);
-    let height = 768.0 + (h / w - 0.75) * 768.0;
-    let full_m = anchor(0.0, 0.0, false, height);
-    let sx = 1024.0 / w;
-    let sy = height / h;
-
-    // 1. Black clear quad + stage picture (zooming if in `Zoom` phase) +
-    //    next stage picture growing out of its target rectangle + tracking lines.
-    batch.quad(
-        full_m,
-        [0.0, 0.0, 1024.0, height],
-        textures.solid,
-        UV,
-        BLACK,
-        0.0,
-        0,
-    );
-
-    let shown = textures.loading_stages.get(state.stage).copied();
-    let next = textures.loading_stages.get(state.stage + 1).copied();
-
-    if let Some(stage_pic) = shown.filter(|s| s.texture != 0) {
-        let iw = stage_pic.width.max(1.0);
-        let ih = stage_pic.height.max(1.0);
-        let view = match (state.zoom, stage_pic.target) {
-            (Some(u), Some(target)) => zoom_view(u, iw, ih, target),
-            _ => [0.0, 0.0, iw, ih],
-        };
-        let uv = [
-            view[0] / iw,
-            view[1] / ih,
-            (view[0] + view[2]) / iw,
-            (view[1] + view[3]) / ih,
-        ];
-        batch.quad(
-            full_m,
-            [0.0, 0.0, 1024.0, height],
-            stage_pic.texture,
-            uv,
-            WHITE,
-            0.0,
-            0,
-        );
-
-        if let (Some(target), Some(lines)) = (stage_pic.target, state.lines) {
-            let [x, y, rw, rh] = on_screen(target, view, w, h);
-            if let (Some(u), Some(next_pic)) = (state.zoom, next.filter(|s| s.texture != 0)) {
-                let a = (u / 0.2).clamp(0.0, 1.0);
-                batch.quad(
-                    full_m,
-                    [x * sx, y * sy, (x + rw) * sx, (y + rh) * sy],
-                    next_pic.texture,
-                    UV,
-                    tint_color(WHITE, a),
-                    0.0,
-                    0,
-                );
-            }
-
-            // Tracking lines: 2 interface units thick (`src/shell/loading.js`).
-            let line_w = (2.0 * w / loading::IW).max(1.5);
-            let y_top = y * lines.y;
-            let y_bot = h - (h - (y + rh)) * lines.y;
-            draw_tracking_line(batch, textures, full_m, true, y_top, line_w, w, h, sx, sy);
-            draw_tracking_line(batch, textures, full_m, true, y_bot, line_w, w, h, sx, sy);
-
-            if let Some(lx) = lines.x {
-                let x_left = x * lx;
-                let x_right = w - (w - (x + rw)) * lx;
-                draw_tracking_line(batch, textures, full_m, false, x_left, line_w, w, h, sx, sy);
-                draw_tracking_line(
-                    batch, textures, full_m, false, x_right, line_w, w, h, sx, sy,
-                );
-            }
-        }
-    } else {
-        let backdrop = textures.get("iface_bgmeta_space");
-        if backdrop != 0 {
-            batch.quad(
-                full_m,
-                [0.0, 0.0, 1024.0, height],
-                backdrop,
-                UV,
-                WHITE,
-                0.0,
-                0,
-            );
-        }
-    }
-
-    // 2. Top-left planet name (`NAME.x = 51.2`, `top = NAME.top * H + NAME.y`).
-    if state.phase != loading::LoadingPhase::Hold || shown.is_none() {
-        let top = name_pos::TOP * height + name_pos::Y;
-        draw_str(
-            &fonts.tiny,
-            batch,
-            full_m,
-            name_pos::X,
-            top,
-            planet,
-            WHITE,
-            0,
-        );
-    }
-
-    // 3. Lower-right rotating disk, 28-LED ring, and tilted `LOADING` text
-    //    (`drawDisk` in `src/shell/loading.js`).
-    let dp = disk_place(w, h);
-    let cx = dp.x * sx;
-    let cy = dp.y * sy;
-    let disk_base = translate(full_m, cx, cy, 0.0);
-    // Horizontal squash `DISK.turn = 0.866`.
-    let mut squash = IDENTITY;
-    squash[0] = disk::TURN;
-    let disk_m = mul(disk_base, squash);
-
-    let disk_tex = textures.get("load_rotating_disk");
-    let disk_tint = match look {
-        LookId::Bf1 => [0.15, 0.72, 0.96, 1.0],
-        LookId::Eternal => [0.77, 0.80, 0.85, 0.85],
-        LookId::Bf2 => [0.22, 0.45, 0.78, 0.90],
-    };
-    for &[size, speed, alpha] in &disk::LAYERS {
-        let layer_m = rotate_z(disk_m, spin * speed);
-        let half = size * 0.5;
-        let tex = if disk_tex != 0 {
-            disk_tex
-        } else {
-            textures.solid
-        };
-        let c = tint_color(disk_tint, alpha);
-        batch.quad(layer_m, [-half, -half, half, half], tex, UV, c, 0.0, 0);
-    }
-
-    // 28 LEDs around the ring at radius `DISK.ring = 52`.
-    let stops: &[&str] = match look {
-        LookId::Bf1 => &["#0b0d0f", "#5c6166", "#b9bcbe"],
-        LookId::Eternal => &["#15100c", "#4a2407", "#b5560b", "#ff9a1f", "#ffd27a"],
-        LookId::Bf2 => &["#101826", "#3d0c08", "#a5180e", "#e0362a", "#ff6450"],
-    };
-    let led_tex = {
-        let t = textures.get("load_led_0");
-        if t != 0 {
-            t
-        } else {
-            textures.solid
-        }
-    };
-    let head = spin * loading::lights::SPEED;
-    for i in 0..disk::LEDS {
-        let angle = (i as f64 / disk::LEDS as f64) * std::f64::consts::TAU;
-        let led_m = translate(rotate_z(disk_m, angle), disk::RING, 0.0, 0.0);
-        if look == LookId::Bf2 {
-            batch.quad(
-                led_m,
-                [-4.5, -4.5, 4.5, 4.5],
-                textures.solid,
-                UV,
-                [6.0 / 255.0, 8.0 / 255.0, 12.0 / 255.0, 1.0],
-                0.0,
-                0,
-            );
-        }
-        let level = light_level(head - (i as f64 / disk::LEDS as f64));
-        let [r, g, b] = mix_color_rgb(stops, level);
-        batch.quad(
-            led_m,
-            [-3.5, -3.5, 3.5, 3.5],
-            led_tex,
-            UV,
-            [r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0, 1.0],
-            0.0,
-            0,
-        );
-    }
-
-    // Tilted `LOADING` text across the center (`DISK.text_deg = -14.0`).
-    let text_m = rotate_z(disk_m, disk::TEXT_DEG.to_radians());
-    let text_w = str_width(&fonts.medium, loading_text);
-    let _ = text_w;
-    draw_str(
-        &fonts.medium,
-        batch,
-        text_m,
-        0.0,
-        -12.0,
-        loading_text,
-        [220.0 / 255.0, 220.0 / 255.0, 1.0, 1.0],
-        2,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_tracking_line(
-    batch: &mut Batch,
-    textures: &ShellTextures,
-    m: Matrix,
-    across: bool,
-    at: f64,
-    width: f64,
-    w: f64,
-    h: f64,
-    sx: f64,
-    sy: f64,
-) {
-    let edge_tex = if across {
-        textures.get("load_edge_horz")
-    } else {
-        textures.get("load_edge_vert")
-    };
-    if edge_tex != 0 {
-        if across {
-            batch.quad(
-                m,
-                [
-                    0.0,
-                    (at - width * 4.0) * sy,
-                    w * sx,
-                    (at + width * 4.0) * sy,
-                ],
-                edge_tex,
-                UV,
-                WHITE,
-                0.0,
-                0,
-            );
-        } else {
-            batch.quad(
-                m,
-                [
-                    (at - width * 4.0) * sx,
-                    0.0,
-                    (at + width * 4.0) * sx,
-                    h * sy,
-                ],
-                edge_tex,
-                UV,
-                WHITE,
-                0.0,
-                0,
-            );
-        }
-    } else if across {
-        batch.quad(
-            m,
-            [
-                0.0,
-                (at - width * 0.5) * sy,
-                w * sx,
-                (at + width * 0.5) * sy,
-            ],
-            textures.solid,
-            UV,
-            TRACK_LINE_COLOR,
-            0.0,
-            0,
-        );
-    } else {
-        batch.quad(
-            m,
-            [
-                (at - width * 0.5) * sx,
-                0.0,
-                (at + width * 0.5) * sx,
-                h * sy,
-            ],
-            textures.solid,
-            UV,
-            TRACK_LINE_COLOR,
-            0.0,
-            0,
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::loading::LookId;
     use crate::data::ShellData;
     use crate::launch::GameFamily;
     use crate::loading::LoadingTimeline;
@@ -1697,6 +1237,8 @@ mod tests {
         let s = rows_shift(250.0, 29.0, 7);
         assert!((s - (-168.5)).abs() < 1e-6);
 
+        // Verify top row (`k = 0`), widest row before midpoint (`k = 2`),
+        // and flipped bottom row (`k = 6`).
         let (w0, f0) = row_bar_at(250.0, 29.0, 7, 0);
         let (w2, f2) = row_bar_at(250.0, 29.0, 7, 2);
         let (w6, f6) = row_bar_at(250.0, 29.0, 7, 6);
@@ -1722,6 +1264,8 @@ mod tests {
             fonts.small.glyphs.insert(ch, g);
             fonts.tiny.glyphs.insert(ch, g);
         }
+        // Configure two loading stage textures (stage 0 with a zoom target box,
+        // stage 1 full-frame) so both `Track` and `Zoom` phases emit quads.
         let mut textures = ShellTextures::default();
         textures.loading_stages.push(StageTexture {
             texture: 3,
@@ -1736,6 +1280,8 @@ mod tests {
             target: None,
         });
 
+        // Add one extracted Clone Wars map (`nab2`) so Instant Action can add
+        // and render a playlist entry with faction icons.
         let mut data = ShellData::default();
         data.maps.push(crate::data::ShellMap {
             family: GameFamily::Swbf1,
@@ -1792,6 +1338,8 @@ mod tests {
         );
         assert!(batch.count > 35);
 
+        // At `t = 3.8s` (`3.5s` track + `0.3s` into zoom), `draw_loading`
+        // renders the zoomed stage 0 crop, stage 1 preview, and disk in `Eternal` look.
         let state_zoom = tl.at(3.8);
         draw_loading(
             &mut batch,

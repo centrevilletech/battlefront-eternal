@@ -34,27 +34,48 @@ use crate::spawn::layout::{
 };
 use crate::spawn::model::{SpawnClassEntry, SpawnModel, SpawnPort, TeamSwitchSource};
 
+/// Opaque white tint `[1.0, 1.0, 1.0, 1.0]` for active windows, icons, and labels.
 const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
+/// Opaque black tint `[0.0, 0.0, 0.0, 1.0]` for title bar text over orange headers.
 const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
+/// Hologram RGB color `[32/255, 223/255, 32/255]` for the currently selected team's logo (`GREEN`).
 pub const LOGO_GREEN: [f64; 3] = [32.0 / 255.0, 223.0 / 255.0, 32.0 / 255.0];
+/// Hologram RGB color `[223/255, 32/255, 32/255]` for the opposing team's logo (`RED`).
 pub const LOGO_RED: [f64; 3] = [223.0 / 255.0, 32.0 / 255.0, 32.0 / 255.0];
+/// Alpha multiplier (`128 / 255`) for unpicked soldier class windows (`UNPICKED` in `view.js`).
 const UNPICKED_ALPHA: f64 = 128.0 / 255.0;
+/// Stagger delay (`0.05s`) between consecutive soldier class window `TitleIntro` animations.
 const SLOT_DELAY: f64 = 0.05;
+/// Vertical gap (`5.0` units) between a window's top edge and the bottom of its title text line.
 const TITLE_GAP: f64 = 5.0;
+/// Horizontal inset (`18.0` units) from a window's left edge to the start of its title text.
 const TITLE_X: f64 = 18.0;
+/// Distance (`6.3` units) the orange `headerbutton*` bar extends above the title text line top.
 const BAR_OVER: f64 = 6.3;
+/// Distance (`0.3` units) between the bottom of the orange `headerbutton*` bar and the window top.
 const BAR_UNDER: f64 = 0.3;
+/// Left inset (`1.75` units) of the orange `headerbutton*` bar from the window's left edge.
 const BAR_LEFT: f64 = 1.75;
+/// Right inset (`3.9` units) of the orange `headerbutton*` bar from the window's right edge.
 const BAR_RIGHT: f64 = 3.9;
+/// Duration (`0.25s`) of the linear position/size/opacity swap between the two faction logos.
 pub const LOGO_SWAP: f64 = 0.25;
+/// Opacity (`0.35`) of the opposing (non-picked) faction logo on the right (`LOGO_DIM`).
 pub const LOGO_DIM: f64 = 0.35;
+/// Fast Y-axis spin rate (`-600 deg/s`, `OmegaY = -20`) while the faction logos are swapping places.
 const SPIN_SWAP: f64 = -600.0 * PI / 180.0;
+/// Steady Y-axis spin rate (`-9 deg/s`, `OmegaY = -0.3`) after the logo swap completes.
 const SPIN_REST: f64 = -9.0 * PI / 180.0;
+/// Initial Y-axis spin rate (`6 deg/s`, `OmegaY = 0.2`) before the first logo swap.
 const SPIN_START: f64 = 6.0 * PI / 180.0;
+/// Angular return rate (`15.0 rad/s`) of the HUD reinforcement counter flip after a mouse team switch.
 pub const FLIP_RATE: f64 = 15.0;
+/// Fade-out rate (`10.0 / s`) for deselected command post rings on the tactical spawn map.
 pub const RING_FADE: f64 = 10.0;
+/// Width and height (`32.0` interface units) of the `mousecursor` quad.
 const POINTER_SIZE: f64 = 32.0;
 
+/// Linearly interpolates between `a` and `b` by factor `t`.
 #[inline]
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
@@ -62,6 +83,10 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 
 /// Returns the fallback hologram model name for a faction side
 /// (`src/spawn-screen/classic/view.js` `FALLBACK`).
+///
+/// Maps `"cis"` and `"geo"` to `"com_icon_cis"`, `"imp"` to `"com_icon_imperial"`,
+/// `"all"` to `"com_icon_alliance"`, and Republic/native allies (`"rep"`, `"gar"`,
+/// `"gun"`, `"wok"`) to `"com_icon_republic"`.
 pub fn fallback_logo_for_side(side: &str) -> &'static str {
     match side {
         "cis" | "geo" => "com_icon_cis",
@@ -75,11 +100,19 @@ pub fn fallback_logo_for_side(side: &str) -> &'static str {
 /// (`src/hud.js` `spawnMapPlace` and `bfe_render::hud_model::map::spawn_map`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpawnMapPlacement {
+    /// Horizontal center of the tactical spawn map in `1024xH` interface units.
     pub x: f64,
+    /// Vertical center of the tactical spawn map (`height * 0.5`).
     pub y: f64,
+    /// Width and height of the square tactical spawn map (`328 * 1024 / 800 = 419.84`).
     pub size: f64,
 }
 
+/// Computes the center `(x, y)` and side length `size` (`419.84` units) of the tactical
+/// minimap square on the spawn screen (`src/hud.js` `spawnMapPlace`).
+///
+/// Sits inside the right edge of the 90% safe area (`0.95 * 1024 - 128 * (1024 / 800)`)
+/// and vertically centered at `height * 0.5` between the objectives and post windows.
 #[inline]
 pub fn spawn_map_place(height: f64) -> SpawnMapPlacement {
     SpawnMapPlacement {
@@ -93,9 +126,13 @@ pub fn spawn_map_place(height: f64) -> SpawnMapPlacement {
 /// and `postIconSize` (`6.0 * MAP_SCALE`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MapProjection {
+    /// World-space X center of the tactical minimap (`HudFrame::MAP_X`).
     pub map_x: f64,
+    /// World-space Z center of the tactical minimap (`HudFrame::MAP_Z`).
     pub map_z: f64,
+    /// World-space half-extent of the tactical minimap square (`HudFrame::MAP_HALF`).
     pub map_half: f64,
+    /// Side length of a command post flag icon in interface units (`15.0` at 4:3).
     pub post_icon_size: f64,
 }
 
@@ -124,30 +161,54 @@ impl MapProjection {
 }
 
 /// 3D placement of a single spinning team logo on the spawn screen.
+///
+/// Holds the resolved hologram asset name (`com_icon_*`), world-space position on the
+/// interface camera plane, uniform scale (`size * LOGO_UNITS`), Y rotation angle,
+/// green/red RGB tint, opacity, and UV scroll timestamp.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpawnLogoPlacement {
+    /// Team number (`1` or `2`) represented by this hologram.
     pub team: u8,
+    /// Resolved `.msh` model name (`"com_icon_republic"`, `"com_icon_cis"`, etc.).
     pub model_name: String,
+    /// Whether the logo should be drawn (`can_switch_teams && !covered`).
     pub visible: bool,
+    /// World-space position in the `InterfaceCamera` scene at `z = -PLANE`.
     pub position: [f64; 3],
+    /// Uniform model scale (`size * LOGO_UNITS`).
     pub scale: f64,
+    /// Y-axis rotation angle in radians (`self.spin`).
     pub rot_y: f64,
+    /// RGB hologram tint (`LOGO_GREEN` when picked, `LOGO_RED` when opposing).
     pub color: [f64; 3],
+    /// Hologram opacity (`1.0` when picked, `LOGO_DIM = 0.35` when opposing).
     pub opacity: f64,
+    /// Elapsed view time in seconds for hologram scanline UV scrolling.
     pub time: f64,
 }
 
 /// 3D placement of the `shell_cube` room, team logos, and standing soldier
 /// preview body for the current frame (`renderRoom` and `renderModels` in
 /// `src/spawn-screen/classic/view.js`).
+///
+/// The soldier preview stands with its feet at `(W / 2, H / 1.2)` facing the camera
+/// without a turntable (`src/spawn-screen/classic/preview.js`), scaled to `BODY_UNITS`
+/// (`199.68` units/m) or `DROIDEKA_UNITS` (`0.9 * BODY_UNITS`) for droidekas.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn3dPlacement {
+    /// World-space center of the `shell_cube` background grid room.
     pub room_position: [f64; 3],
+    /// Uniform scale of the `shell_cube` room (`ROOM_SCALE = 1.6 / 0.009`).
     pub room_scale: f64,
+    /// Elapsed view time in seconds written to `LOOK.TIME` on room and logo materials.
     pub time: f64,
+    /// Placements for team 1 and team 2 spinning faction logos.
     pub logos: [SpawnLogoPlacement; 2],
+    /// Selected soldier class ODF name to display in the center preview (`None` if empty).
     pub preview_class: Option<String>,
+    /// World-space feet position of the standing soldier preview (`(W/2, H/1.2)` on the plane).
     pub preview_position: [f64; 3],
+    /// Uniform scale of the soldier preview (`DROIDEKA_UNITS` or `BODY_UNITS`).
     pub preview_scale: f64,
 }
 
@@ -161,19 +222,37 @@ pub enum SpawnSound {
 }
 
 /// Classic spawn screen view (`src/spawn-screen/classic/view.js` `ClassicView`).
+///
+/// Owns all visual animation clocks (`slots`, `objectives_title`, `post_title`,
+/// logo `swap`/`spin`, reinforcement `flip`, and command post highlight `rings`)
+/// plus pre-allocated UTF-16 and line-range scratch buffers so `draw` performs
+/// zero heap allocations per frame once initialized.
 pub struct ClassicSpawnView {
+    /// Game family (`Swbf1` for 2004 Classic layout).
     pub family: GameFamily,
+    /// Cumulative time in seconds since the view was created (drives hologram shaders).
     pub time: f64,
+    /// Five staggered `TitleIntro` animations for the left-hand soldier class windows.
     pub slots: [TitleIntro; SLOTS],
+    /// `TitleIntro` animation for the top-right `OBJECTIVES:` window header.
     pub objectives_title: TitleIntro,
+    /// `TitleIntro` animation for the bottom-right command-post window header.
     pub post_title: TitleIntro,
+    /// Remaining angle in radians (`PI -> 0`) for the HUD reinforcement counter flip.
     pub flip: f64,
+    /// Elapsed time (`0.0..=LOGO_SWAP`) in the current team logo swap animation.
     pub swap: f64,
+    /// Current Y-axis rotation angle in radians of both spinning faction logos.
     pub spin: f64,
+    /// Current Y-axis angular velocity (`SPIN_START`, `SPIN_SWAP`, or `SPIN_REST`).
     pub spin_rate: f64,
+    /// True while the pause menu covers the spawn screen so the software pointer hides.
     pub hide_pointer: bool,
+    /// World-to-minimap projection parameters for command post hit-testing and ring sizing.
     pub map_proj: MapProjection,
+    /// Resolved texture asset handles (`border_3_pieces`, `headerbutton*`, `opaque_rect`, etc.).
     pub assets: BattleUiAssets,
+    /// Cached layout for the most recent `(height, fh)` pair.
     cached_layout: Option<ClassicSpawnLayout>,
     /// Retained post highlight rings (`(post_name, alpha)`), updated in place
     /// so frame updates never allocate.
@@ -193,6 +272,8 @@ impl Default for ClassicSpawnView {
 }
 
 impl ClassicSpawnView {
+    /// Creates a new `ClassicSpawnView` with finished title intros and pre-allocated
+    /// scratch buffers for rings, UTF-16 text, and wrapped line ranges.
     pub fn new() -> Self {
         Self {
             family: GameFamily::Swbf1,
@@ -237,6 +318,10 @@ impl ClassicSpawnView {
     }
 
     /// Reacts to the spawn screen opening (`ClassicView.open`).
+    ///
+    /// Staggers the five class title intros by `SLOT_DELAY` (`0.05s`) per slot,
+    /// restarts the objectives and command-post title intros immediately, triggers
+    /// the initial logo swap when `first` is true, and zeroes any prior ring highlights.
     pub fn on_open(&mut self, first: bool) {
         for (i, intro) in self.slots.iter_mut().enumerate() {
             intro.start(SLOT_DELAY * (i as f64));
@@ -253,6 +338,10 @@ impl ClassicSpawnView {
     }
 
     /// Reacts to a team switch (`ClassicView.teamChanged`).
+    ///
+    /// Replays the staggered class title intros, starts a 0.25s logo swap at `-600 deg/s`,
+    /// and if triggered by a mouse click on the logos, sets `flip = PI` so the HUD
+    /// reinforcement counter flips over at `FLIP_RATE` (`15 rad/s`).
     pub fn on_team_changed(&mut self, source: TeamSwitchSource) {
         for (i, intro) in self.slots.iter_mut().enumerate() {
             intro.start(SLOT_DELAY * (i as f64));
@@ -268,12 +357,18 @@ impl ClassicSpawnView {
         self.post_title.start(0.0);
     }
 
+    /// Starts the `0.25s` faction logo swap animation at `SPIN_SWAP` (`-600 deg/s`).
     pub fn swap_logos(&mut self) {
         self.swap = 0.0;
         self.spin_rate = SPIN_SWAP;
     }
 
     /// Steps animations and ring highlights by `dt` seconds (`ClassicView.update`).
+    ///
+    /// Advances all seven `TitleIntro` timers, transitions `spin_rate` from `SPIN_SWAP`
+    /// (`-600 deg/s`) back to `SPIN_REST` (`-9 deg/s`) once `swap >= LOGO_SWAP`, decays
+    /// `flip` toward `0`, and fades unselected post rings at `RING_FADE` (`10/s`) while
+    /// pinning the currently selected command post's ring alpha to `1.0`.
     pub fn update(&mut self, dt: f64, model: &SpawnModel) {
         self.time += dt;
         for intro in &mut self.slots {
@@ -303,6 +398,11 @@ impl ClassicSpawnView {
     /// Writes the spawn screen's HUD layer facts (`LAYER`, `SPAWN_MAP`, `VIEW_TEAMS`,
     /// `OWN`, `FOE`, `FLIP`, and `MAP_DRAW` selection rings) into `hud_input`
     /// (`HudModel::input`).
+    ///
+    /// Instructs `bfe-render`'s HUD pipeline to switch from the in-play corner minimap
+    /// to the large spawn-screen map (`SPAWN_MAP = 1`), display reinforcement bars from
+    /// the picked team's perspective (`VIEW_TEAMS = 1`, `OWN`, `FOE`, `FLIP`), and draw
+    /// pulsing/fading selection rings at each highlighted command post's world `(x, z)`.
     pub fn sync_hud_inputs(
         &self,
         model: &SpawnModel,
@@ -321,6 +421,8 @@ impl ClassicSpawnView {
         hud_input[H::FOE] = foe as f64;
         hud_input[H::FLIP] = self.flip;
 
+        // Emit up to 128 active selection rings into the HUD shared-memory `RINGS` table
+        // so the picked command post glows at alpha 1.0 and previously picked posts fade out.
         let posts = port.posts(own);
         let mut ring_count = 0usize;
         for (name, ring_alpha) in &self.rings {
@@ -344,6 +446,10 @@ impl ClassicSpawnView {
     /// Computes the 3D placements for the `shell_cube` room, the two spinning
     /// faction logos, and the standing soldier preview (`renderRoom` and
     /// `renderModels` in `src/spawn-screen/classic/view.js`).
+    ///
+    /// When the pause menu covers the spawn screen (`covered == true`) or team
+    /// switching is disabled by the server, both faction logos hide while the
+    /// standing soldier preview body remains visible in the center.
     pub fn compute_3d_placement(
         &mut self,
         model: &SpawnModel,
@@ -358,6 +464,9 @@ impl ClassicSpawnView {
         let t = (self.swap / LOGO_SWAP).clamp(0.0, 1.0);
         let can_switch = model.can_switch_teams(port) && !covered;
 
+        // Interpolate each team logo linearly between its `from` and `to` slot,
+        // growing the newly picked team logo to `big` (`1.0` alpha, green) while
+        // shrinking the other to `small` (`0.35` alpha, red) over `LOGO_SWAP` (0.25s).
         let make_logo = |team: u8| -> SpawnLogoPlacement {
             let facts = port.team_facts(team).unwrap_or_default();
             let model_name = if !facts.logo.is_empty() {
@@ -401,6 +510,8 @@ impl ClassicSpawnView {
             }
         };
 
+        // Place the standing soldier preview at `(W / 2, H / 1.2)`; droideka bodies
+        // scale by `0.9 * BODY_UNITS` (`DROIDEKA_UNITS`) so their wider frame fits.
         let preview_class = model.class_name(port);
         let is_droideka = preview_class
             .as_deref()
@@ -445,12 +556,15 @@ impl ClassicSpawnView {
         model: &SpawnModel,
         port: &dyn SpawnPort,
     ) {
+        // Lazily resolve named texture handles from the surface on the first draw pass.
         if self.assets.border_3_pieces == 0 {
             self.assets = BattleUiAssets::from_surface(surface);
         }
         let h = surface.height();
         let fh = surface.font_height(FONT_TINY);
         let layout = self.layout(h, fh);
+        // Draw up to 5 tilted soldier class windows; the picked class draws at
+        // full opacity (`1.0`) and unpicked classes draw at half strength (`128/255`).
         let roster = model.roster(port);
         for i in 0..SLOTS {
             let Some(entry) = roster.get(i) else {
@@ -466,6 +580,14 @@ impl ClassicSpawnView {
         self.draw_spawn(surface, &layout);
     }
 
+    /// Draws the 3-piece orange header bar (`headerbuttonleft`, `headerbuttonmid`,
+    /// `headerbuttonright`), sweeping white cursor block, and vertically unfolding
+    /// black title label above a tilted window (`ClassicView.drawTitle`).
+    ///
+    /// Bar offsets (`BAR_OVER = 6.3`, `BAR_UNDER = 0.3`, `BAR_LEFT = 1.75`,
+    /// `BAR_RIGHT = 3.9`, `TITLE_GAP = 5.0`, `TITLE_X = 18.0`) match the retail
+    /// `ifs_spawndisplay` screenshots where the orange header bar sits wider and
+    /// slightly lower than the Lua text box.
     #[allow(clippy::too_many_arguments)]
     fn draw_title(
         &mut self,
@@ -489,6 +611,7 @@ impl ClassicSpawnView {
         let bar_tint = alpha(WHITE, strength);
         let assets = self.assets;
 
+        // Stage 1+: draw the left cap, middle span, and right cap clipped to `visible`.
         if state.bar > 0.0 {
             let pieces = [
                 (x0, x0 + cap, assets.headerbuttonleft),
@@ -525,6 +648,7 @@ impl ClassicSpawnView {
             }
         }
 
+        // Stages 2 & 3: draw the sweeping white cursor block across the title text span.
         encode_utf16_into(text_str, true, &mut self.scratch_utf16);
         let tx = -w * 0.5 + TITLE_X;
         let (batch, font) = surface.batch_and_font(FONT_TINY);
@@ -546,6 +670,7 @@ impl ClassicSpawnView {
                 0,
             );
         }
+        // Stages 4 & 5: draw the black title text unfolding vertically from `mid`.
         if state.text > 0.01 && state.alpha > 0.0 {
             let mid = top + fh * 0.5;
             let grown = translate(
@@ -569,6 +694,13 @@ impl ClassicSpawnView {
         }
     }
 
+    /// Draws one of the five 35-degree tilted soldier class windows (`ClassicView.drawClassWindow`).
+    ///
+    /// Renders the 9-slice `border_3_pieces` frame, the class display name in the
+    /// orange header bar, and the uppercase weapon list centered inside `slot.text_h`
+    /// at `layout.info_scale` (`0.13 * H / 135`). Because the 2004 game's weapon list
+    /// string ends with a trailing newline, `count` adds one virtual line when the box
+    /// height permits (`clamp(n, n + 1)`), shifting the visible weapon lines slightly upward.
     fn draw_class_window(
         &mut self,
         surface: &mut dyn BattleUiSurface,
@@ -614,6 +746,11 @@ impl ClassicSpawnView {
         }
     }
 
+    /// Draws the top-right `-20 deg` tilted `OBJECTIVES:` window (`ClassicView.drawObjectives`).
+    ///
+    /// Word-wraps each mission objective string to `box_l.w - 16.0` in uppercase
+    /// `gamefont_tiny` and left-aligns the lines at `-width * 0.5`, accounting for
+    /// the original game's trailing newline via `clamp(n, n + 1)`.
     fn draw_objectives(
         &mut self,
         surface: &mut dyn BattleUiSurface,
@@ -650,6 +787,8 @@ impl ClassicSpawnView {
             .team_facts(model.team)
             .map(|t| t.objectives)
             .unwrap_or_default();
+        // Uppercase all objective paragraphs into `scratch_utf16` and wrap each
+        // paragraph into `(start, end)` slice ranges without per-word heap allocations.
         let width = box_l.w - 16.0;
         self.scratch_utf16.clear();
         self.scratch_paragraphs.clear();
@@ -709,6 +848,11 @@ impl ClassicSpawnView {
         }
     }
 
+    /// Draws the bottom-right `-20 deg` tilted command-post window (`ClassicView.drawPostWindow`).
+    ///
+    /// Displays the selected command post's localized title in the orange header bar
+    /// and centers the comma-separated list of vehicles spawned by that post (or
+    /// `"NONE"` when the post spawns no vehicles) inside the 9-slice panel.
     fn draw_post_window(
         &mut self,
         surface: &mut dyn BattleUiSurface,
@@ -774,6 +918,9 @@ impl ClassicSpawnView {
 
     /// Draws the tipped `SPAWN` button background and flat `"SPAWN"` label
     /// (`ClassicView.drawSpawn`).
+    /// Note that while the `opaque_rect` button background tips backward by `45 deg`
+    /// around the X axis (`tipped`), the `"SPAWN"` label itself is drawn on an
+    /// unrotated frame (`flat`) at the same anchor point, matching the 2004 game.
     pub fn draw_spawn(&mut self, surface: &mut dyn BattleUiSurface, layout: &ClassicSpawnLayout) {
         let box_l: TiltedBoxLayout = layout.spawn;
         let tipped = Self::frame(layout.h, box_l.x, box_l.y, box_l.tilt, 'x');
@@ -807,6 +954,9 @@ impl ClassicSpawnView {
     }
 
     /// Draws the mouse pointer over the 3D models (`ClassicView.drawPointer`).
+    ///
+    /// Uses the `32x32` `mousecursor` texture when loaded, or an `8x8` solid white
+    /// stand-in quad at `(cursor.x, cursor.y)` in headless/fallback environments.
     pub fn draw_pointer(&self, batch: &mut Batch, height: f64, cursor: [f64; 2]) {
         if self.hide_pointer {
             return;
@@ -839,6 +989,11 @@ impl ClassicSpawnView {
     /// Hit-tests an interface point `(x, y)` against the `SPAWN` button, the
     /// team logo hotspot, the five class windows, and the team's eligible
     /// command posts on the map (`ClassicView.hit`).
+    ///
+    /// Both the 45-degree X-tipped `SPAWN` button and the five 35-degree Y-tilted
+    /// class windows project their local 3D bounds onto the `1024xH` interface plane
+    /// via [`projected_corners`] and test membership with [`inside_quad`] so clicks
+    /// on perspective-foreshortened edges match the rendered geometry.
     pub fn hit(
         &mut self,
         x: f64,
@@ -850,6 +1005,7 @@ impl ClassicSpawnView {
     ) -> Option<SpawnHitTarget> {
         let layout = self.layout(height, fh);
         let spawn = layout.spawn;
+        // 1. Test the perspective-projected 45-degree X-tilted SPAWN button quad.
         let spawn_m = Self::frame(height, spawn.x, spawn.y, spawn.tilt, 'x');
         let spawn_quad = projected_corners(
             spawn_m,
@@ -863,6 +1019,7 @@ impl ClassicSpawnView {
             return Some(SpawnHitTarget::Spawn);
         }
 
+        // 2. Test the top-center team logo switch hotspot (when team switching is allowed).
         let logos = layout.logos.hit;
         if model.can_switch_teams(port)
             && (x - logos.x).abs() <= logos.half_x
@@ -871,6 +1028,7 @@ impl ClassicSpawnView {
             return Some(SpawnHitTarget::Team);
         }
 
+        // 3. Test each populated 35-degree Y-tilted soldier class window (including its title bar).
         let roster = model.roster(port);
         for i in 0..SLOTS {
             if i >= roster.len() {
@@ -885,6 +1043,7 @@ impl ClassicSpawnView {
             }
         }
 
+        // 4. Test eligible command post icons owned by the picked team on the tactical spawn map.
         let place = spawn_map_place(height);
         let half = self.map_proj.post_icon_size * 0.5;
         for post in port.posts(model.team) {

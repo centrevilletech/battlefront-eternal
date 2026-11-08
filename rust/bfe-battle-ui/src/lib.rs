@@ -1,28 +1,56 @@
-// Battlefront Eternal in-battle UI crate (`bfe-battle-ui`).
-//
-// Ports the Classic spawn screen (`src/spawn-screen/`), Classic scoreboard and
-// battle statistics (`src/scoreboard/`, `src/battle-stats.js`), in-battle pause menu
-// (`src/pause/`), and HUD input/chat publication (`src/hud-input.js`, `src/chat.js`).
+//! Battlefront Eternal in-battle UI crate (`bfe-battle-ui`).
+//!
+//! Ports the Classic spawn screen (`src/spawn-screen/`), Classic scoreboard and
+//! battle statistics (`src/scoreboard/`, `src/battle-stats.js`), in-battle pause menu
+//! (`src/pause/`), and HUD input/chat publication (`src/hud-input.js`, `src/chat.js`).
+//!
+//! ### Architecture
+//! - [`shapes`] and [`surface`]: The 2004 `1024xH` perspective interface plane
+//!   (`z = -886.81`, 60-degree horizontal FOV, 90% safe area), 9-slice containers,
+//!   5-stage `TitleIntro` flashy text/bar animations, and the [`BattleUiSurface`]
+//!   drawing trait that decouples all views from WebGL/OpenGL.
+//! - [`spawn`]: The 2004 `ifs_spawndisplay` screen — startup URL/mission policy
+//!   (`spawn_policy`), pure selection state machine (`SpawnModel`), keyboard/mouse
+//!   input with 1-frame nav cooldown and `Tab` post cycling (`SpawnInput`), tilted
+//!   35/-20/45-degree window geometry (`ClassicSpawnLayout`), HUD/3D view
+//!   (`ClassicSpawnView`), and controller (`SpawnScreenController`).
+//! - [`scoreboard`]: The 2004 `ifs_teamstats`, `ifs_personalstats`, and `ifs_awardstats`
+//!   screens, per-slot battle statistics (`CharacterRecord`), `TabHold` tap-vs-hold
+//!   state machine, and spiral award-medallion flight paths.
+//! - [`pause`]: The in-battle `ifs_pausemenu` screen stack, confirmation popups
+//!   (`RESPAWN`, `RESTART MISSION`, `ABORT MISSION`), and pointer-unlock grace period.
+//! - [`hud_input`] and [`chat`]: Shared-memory HUD Float64Array publication
+//!   (`HudInputPublisher`) with unit-row hysteresis and in-battle chat routing.
 
+/// In-battle text chat log, channel state (`ALL` / `TEAM`), and key routing (`src/chat.js`).
 pub mod chat;
+/// Shared-memory HUD Float64Array state/event publisher (`src/hud-input.js`).
 pub mod hud_input;
+/// In-battle `ifs_pausemenu` state stack, layout, and confirmation popups (`src/pause/`).
 pub mod pause;
+/// Classic `ifs_teamstats` / `ifs_personalstats` / `ifs_awardstats` scoreboard (`src/scoreboard/`).
 pub mod scoreboard;
+/// Classic `1024xH` interface plane geometry, 9-slice cutting, and `TitleIntro` (`src/interface/`).
 pub mod shapes;
+/// Classic `ifs_spawndisplay` spawn screen model, policy, input, layout, and view (`src/spawn-screen/`).
 pub mod spawn;
+/// `BattleUiSurface` trait, `HudBatchSurface` adapter, and `OwnedUiSurface` test surface.
 pub mod surface;
 
+// Re-export HUD input shared-memory publisher, asset/ring limits, and chat types.
 pub use hud_input::{
     relation_code, route_battle_key, BattleKeyAction, ChatChannel, ChatController, ChatLog,
     ChatMessage, HudAssetSlot, HudDefinitionFacts, HudInputPublisher, HudPostFact, HudTeamFact,
     HudUnitFact, HudWeaponFact, CHAT_LIMIT, HUD_ART_NAMES, MAX_ASSETS, MAX_RINGS, WORDS,
 };
+// Re-export pause menu controller, layout config, confirmation dialogs, and URL helper.
 pub use pause::{
     pause_layout_for_family, row_bars, rows_shift, still_command, with_settings, ConfirmKind,
     LeavingRecord, PauseHitTarget, PauseHotspot, PauseLayoutConfig, PauseMenu, PauseRespawnConfig,
     PauseRestartMode, PauseRowId, PauseScreenState, PauseSettingsLookup, RowBarSpec, StillCommand,
     LAYOUT as PAUSE_LAYOUT, LIST_COUNT, LOCK_GRACE, PROMPT_DELAY,
 };
+// Re-export Classic scoreboard model, view, input, battle stats, and award calculators.
 pub use scoreboard::{
     awards, clock, compare_rows, link_label, personal_stats, row_at, slot_of, stats_page_layout,
     stats_page_layout_for_family, team_stats_layout, team_stats_layout_for_family, AwardRow,
@@ -36,6 +64,7 @@ pub use scoreboard::{
     DETAILS_ROWS, DISPLAY_PAD, DOUBLE_CLICK, HEADER, HOLD, ICON, IDLE_QUIT, IDLE_STEP, PERSONAL,
     PITCH, RING_SIZE, STRING_PAD,
 };
+// Re-export `1024xH` interface plane geometry, 9-slice helpers, `TitleIntro`, and surface types.
 pub use shapes::{
     draw_nine_slice, draw_nine_slice_window, encode_utf16_into, font_index_by_name,
     format_i64_utf16_into, glyph_height, identity_matrix, inside_quad, interface_height,
@@ -48,6 +77,7 @@ pub use shapes::{
     FONT_TINY, FOV_DEG, GREY, H_4_3, IW, LOGO_UNITS, PLANE, PREVIEW_UNITS, ROOM_SCALE, SAFE,
     SAFE_SCALE, W, WHITE,
 };
+// Re-export Classic spawn screen controller, model, policy, input, layout, and view types.
 pub use spawn::{
     choose_frontline_post, classic_layout, fallback_logo_for_side, human_entry, playable_classes,
     queue_human_command, side_of_class, spawn_layout_for_family, spawn_map_place, spawn_policy,
@@ -60,6 +90,20 @@ pub use spawn::{
     COMMIT_WAIT, DEFAULT_UNIT, HUMAN_COMMAND_LIMIT, NAME_LIMIT, SLOTS, TAB_REPEAT,
 };
 
+// ============================================================================
+// Unit tests for `bfe-battle-ui`
+//
+// Covers:
+// - `GameFamily` selector validation (`Swbf1` vs. `Swbf2` error rejection)
+// - `spawn_policy` URL query resolution and `queue_human_command` deduplication
+// - `SpawnModel` frontline post selection, team switching, and request commit
+// - `SpawnInput` pre-held `Space` spawn and `Tab` 0.2s command-post cycling
+// - `ClassicSpawnView` perspective-projected 3D quad hit-testing
+// - `WorldScoreboardPort` personal stats, end-of-match awards, and sorting
+// - `TabHold` tap-vs-hold state machine and double-click row inspection
+// - `PauseMenu` Escape handling, 250ms pointer-unlock grace, and confirm popups
+// - `HudInputPublisher` retained state, 3-frame unit hysteresis, and chat routing
+// ============================================================================
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,20 +115,36 @@ mod tests {
 
     // ------------------------------------------------------------------------
     // Fake SpawnPort for unit tests (ports `tests/spawn-screen-fake-port.js`)
+    //
+    // Simulates a two-team battle (Republic vs. CIS) with 5 playable classes
+    // per faction and 4 command posts (`cp_1`..`cp_4`) arranged along the
+    // diagonal from `(-100, -100)` to `(100, 100)` so front-line post selection
+    // (`choose_frontline_post`) deterministically picks `cp_2` for Team 1 and
+    // `cp_3` for Team 2.
     // ------------------------------------------------------------------------
     struct TestSpawnPort {
+        /// Current human spawn state returned by `human_state()`.
         human: HumanSpawnFacts,
+        /// Per-team metadata (`[team1, team2]`) returned by `team_facts(team)`.
         teams: [SpawnTeamFacts; 2],
+        /// Per-team 5-class rosters (`[team1, team2]`) returned by `roster(team)`.
         rosters: [Vec<SpawnClassEntry>; 2],
+        /// Per-team command post lists (`[team1, team2]`) returned by `posts(team)`.
         posts: [Vec<SpawnPostEntry>; 2],
+        /// Log of `SpawnRequest`s submitted via `request(&choice)`.
         requested: Vec<SpawnRequest>,
+        /// Count of `suicide()` calls from pause menu respawn.
         suicides: usize,
+        /// Count of `cancel()` calls when a committed spawn is withdrawn.
         cancels: usize,
+        /// Mission overview camera shots returned by `camera_shots()`.
         shots: Vec<CameraShot>,
+        /// Currently active overview camera shot set via `set_view_shot(shot)`.
         active_shot: Option<CameraShot>,
     }
 
     impl TestSpawnPort {
+        /// Constructs a default 2-team test port with 5 classes per side and 4 diagonal posts.
         fn new() -> Self {
             let make_classes = |prefix: &str, label_prefix: &str| -> Vec<SpawnClassEntry> {
                 (0..5)
@@ -130,6 +190,8 @@ mod tests {
                     vehicles: Vec::new(),
                 },
             ];
+            // Team 2 sees the same 4 command posts, but only posts owned by team 2 (`cp_3`, `cp_4`)
+            // are marked `eligible` for spawning.
             let posts_t2: Vec<SpawnPostEntry> = posts_t1
                 .iter()
                 .map(|p| {
@@ -171,10 +233,13 @@ mod tests {
         }
     }
 
+    // Implements the `SpawnPort` trait over `TestSpawnPort`'s in-memory fixtures.
     impl SpawnPort for TestSpawnPort {
+        /// Returns a snapshot of the simulated local human player's spawn state.
         fn human_state(&self) -> HumanSpawnFacts {
             self.human.clone()
         }
+        /// Returns team metadata for Team 1 (Republic) or Team 2 (CIS).
         fn team_facts(&self, team: u8) -> Option<SpawnTeamFacts> {
             match team {
                 1 => Some(self.teams[0].clone()),
@@ -182,35 +247,45 @@ mod tests {
                 _ => None,
             }
         }
+        /// Returns the 5-class playable roster for `team`.
         fn roster(&self, team: u8) -> Vec<SpawnClassEntry> {
             match team {
                 2 => self.rosters[1].clone(),
                 _ => self.rosters[0].clone(),
             }
         }
+        /// Returns the 4 command posts with `eligible` flags for `team`.
         fn posts(&self, team: u8) -> Vec<SpawnPostEntry> {
             match team {
                 2 => self.posts[1].clone(),
                 _ => self.posts[0].clone(),
             }
         }
+        /// Appends a committed `SpawnRequest` to `self.requested`.
         fn request(&mut self, choice: &SpawnRequest) {
             self.requested.push(choice.clone());
         }
+        /// Increments the pause-menu `RESPAWN` suicide counter.
         fn suicide(&mut self) {
             self.suicides += 1;
         }
+        /// Increments the withdrawn-commit cancel counter.
         fn cancel(&mut self) {
             self.cancels += 1;
         }
+        /// Returns the simulated mission overview camera shots.
         fn camera_shots(&self) -> Vec<CameraShot> {
             self.shots.clone()
         }
+        /// Records the active overview camera shot (or `None` when released).
         fn set_view_shot(&mut self, shot: Option<CameraShot>) {
             self.active_shot = shot;
         }
     }
 
+    /// Builds a sample Theed (`Swbf1`) mission fixture where Team 1 is CIS (with
+    /// Darth Maul as non-playable hero) and Team 2 is Republic (with Mace Windu
+    /// as non-playable hero and `rep_inf_clone_trooper` as `DEFAULT_UNIT`).
     fn sample_mission() -> MissionSpec {
         MissionSpec {
             family: GameFamily::Swbf1,
@@ -238,9 +313,14 @@ mod tests {
 
     // ------------------------------------------------------------------------
     // GameFamily selector tests (`MULTIPLAYER.md` lines 106-183)
+    //
+    // Verifies that `GameFamily::Swbf1` succeeds across all layout and controller
+    // constructors while `GameFamily::Swbf2` returns an explicit `GameFamilyError`
+    // instead of silently falling back to the 2004 Classic layout.
     // ------------------------------------------------------------------------
     #[test]
     fn test_game_family_selectors_swbf1_and_swbf2_error() {
+        // `GameFamily::parse` accepts bare family IDs and `<family>/<mapId>` prefixes.
         assert_eq!(GameFamily::parse("swbf1"), Some(GameFamily::Swbf1));
         assert_eq!(GameFamily::parse("swbf2/hot1"), Some(GameFamily::Swbf2));
         assert!(GameFamily::Swbf1.require_available().is_ok());
@@ -249,6 +329,7 @@ mod tests {
         assert_eq!(err.family, GameFamily::Swbf2);
         assert_eq!(err.to_string(), "game family swbf2 is not available");
 
+        // Every layout and controller constructor must reject `Swbf2` with `GameFamilyError`.
         assert!(spawn_layout_for_family(GameFamily::Swbf1, 768.0, 15.0).is_ok());
         assert_eq!(
             spawn_layout_for_family(GameFamily::Swbf2, 768.0, 15.0),
@@ -280,10 +361,16 @@ mod tests {
 
     // ------------------------------------------------------------------------
     // Spawn policy tests (ports `tests/spawn-policy.test.js`)
+    //
+    // Checks URL query resolution for default map load (opens screen on
+    // `DEFAULT_UNIT`), `?spawnscreen=1` forced screen, `?network=1` online
+    // mode (ignoring stale `unit=` and `spawn=`), and offline `?side=cis&spawn=cp_3`
+    // auto-spawn bypass.
     // ------------------------------------------------------------------------
     #[test]
     fn test_spawn_policy_defaults_and_query_overrides() {
         let mission = sample_mission();
+        // Default empty query opens the spawn screen on `DEFAULT_UNIT` (Republic, team 2).
         let p = spawn_policy_from_query("", Some(&mission));
         assert!(p.screen);
         assert_eq!(p.class_name, DEFAULT_UNIT);
@@ -291,11 +378,13 @@ mod tests {
         assert_eq!(p.side, "rep");
         assert!(p.auto.is_none());
 
+        // `spawnscreen=1` forces the interactive spawn screen even when `unit=` is set.
         let p_forced =
             spawn_policy_from_query("?unit=cis_inf_battledroid&spawnscreen=1", Some(&mission));
         assert!(p_forced.screen, "spawnscreen=1 forces the screen open");
         assert!(p_forced.auto.is_none());
 
+        // `network=1` ignores stale `unit=` and `spawn=` parameters from offline URLs.
         let p_net = spawn_policy_from_query(
             "?network=1&unit=cis_inf_battledroid&spawn=cp_3",
             Some(&mission),
@@ -304,6 +393,7 @@ mod tests {
         assert_eq!(p_net.class_name, DEFAULT_UNIT);
         assert_eq!(p_net.post, None);
 
+        // Offline `side=cis&spawn=cp_3` bypasses the screen and populates `AutoSpawnPick`.
         let p_auto = spawn_policy_from_query("?side=cis&spawn=cp_3", Some(&mission));
         assert!(!p_auto.screen);
         assert_eq!(p_auto.team, 1);
@@ -318,6 +408,9 @@ mod tests {
         );
     }
 
+    // Verifies that `playable_classes` filters out each team's hero unit while
+    // `team_of_class` still recognizes heroes, and tests `queue_human_command`
+    // deduplication semantics.
     #[test]
     fn test_playable_classes_and_human_commands() {
         let mission = sample_mission();
@@ -357,6 +450,8 @@ mod tests {
     // Spawn model, input, layout, view, and hit tests
     // (ports `tests/spawn-screen-model.test.js`, `input.test.js`, `hit.test.js`, `index.test.js`)
     // ------------------------------------------------------------------------
+    // Verifies `SpawnModel` opening on the frontline command post (`cp_2`),
+    // stepping classes, switching teams (`cp_3`), and committing a `SpawnRequest`.
     #[test]
     fn test_spawn_model_team_class_post_and_commit() {
         let port = TestSpawnPort::new();
@@ -368,20 +463,29 @@ mod tests {
         // Frontline post for team 1 is cp_2 (closest to enemy cp_3/cp_4).
         assert_eq!(model.post.as_deref(), Some("cp_2"));
 
+        // Stepping to the next class updates `class_index` to slot 1.
         assert!(model.next_class(&port));
         assert_eq!(model.class_index, 1);
 
+        // Switching to team 2 resets `class_index` to 0 and picks team 2's first eligible post (`cp_3`).
         assert!(model.switch_team(&port, TeamSwitchSource::Key, 0.0));
         assert_eq!(model.team, 2);
         assert_eq!(model.post.as_deref(), Some("cp_3"));
 
-        let req = model.commit(&port).unwrap();
+        // Committing transitions `model.state` to `Committed` and returns the `SpawnRequest`.
+        let Some(req) = model.commit(&port) else {
+            panic!("commit on valid spawn selection must return Some(SpawnRequest)");
+        };
         assert_eq!(model.state, SpawnState::Committed);
         assert_eq!(req.team, 2);
         assert_eq!(req.class_name, "cis_class_0");
         assert_eq!(req.post, "cp_3");
     }
 
+    // Verifies two subtle 2004 `ifs_spawndisplay` input rules:
+    // 1. Holding `Space` before `open()` survives `input.reset()` and triggers
+    //    an immediate spawn on the first `update()` frame.
+    // 2. Holding `Tab` repeats command post cycling every `TAB_REPEAT` (0.2s).
     #[test]
     fn test_spawn_input_space_held_before_open_and_tab_repeat() {
         let port = TestSpawnPort::new();
@@ -405,10 +509,15 @@ mod tests {
         assert_eq!(model.post.as_deref(), Some("cp_1"));
     }
 
+    // Verifies perspective-projected quad hit-testing (`ClassicSpawnView::hit`)
+    // against both the 45-degree X-tipped `SPAWN` button and the 35-degree
+    // Y-tilted soldier class slots.
     #[test]
     fn test_spawn_classic_layout_and_hit_testing() {
         let mut port = TestSpawnPort::new();
         let mut surface = OwnedUiSurface::new(1024, 768);
+        // Open the controller at 4:3 (`768.0`) and run a full draw pass into `OwnedUiSurface`
+        // so `ClassicSpawnView` caches the layout and resolves surface assets.
         let mut ctrl = SpawnScreenController::new(768.0);
         ctrl.open(&mut port, OpenReason::Start, 768.0);
         ctrl.view.draw(&mut surface, &ctrl.model, &port);
@@ -441,9 +550,13 @@ mod tests {
     // (ports `tests/scoreboard-model.test.js`, `scoreboard-input.test.js`,
     //  `scoreboard-port.test.js`, `scoreboard-index.test.js`, `battle-stats.test.js`)
     // ------------------------------------------------------------------------
+    /// Builds a 3-character scoreboard fixture (`Alpha` local human on Team 1,
+    /// `Droid-1` AI bot on Team 2, `Bravo` remote human on Team 1) with headshots,
+    /// vehicles destroyed, living streak, nemesis/bait counts, and network link kinds.
     fn sample_scoreboard_port() -> WorldScoreboardPort {
         let mut port = WorldScoreboardPort::new();
         port.network = true;
+        // Slot 0 (`Alpha`): local human player on Team 1 with direct IPv4 connection.
         let mut c0 = CharacterStatsEntry {
             slot: 0,
             team: 1,
@@ -472,6 +585,7 @@ mod tests {
             65.0,
         );
 
+        // Slot 1 (`Droid-1`): AI unit on Team 2 with 9 deaths (`BANTHA FODDER`) and 3 kills on Alpha (`NEMESIS`).
         let mut c1 = CharacterStatsEntry {
             slot: 1,
             team: 2,
@@ -489,6 +603,7 @@ mod tests {
         c1.record.slots[1].deaths = 9;
         c1.record.slots[1].victims.insert(0, 3);
 
+        // Slot 2 (`Bravo`): remote human player on Team 1 with 15 points and relay IPv6 link.
         let c2 = CharacterStatsEntry {
             slot: 2,
             team: 1,
@@ -508,6 +623,9 @@ mod tests {
         port
     }
 
+    // Verifies `clock()` formatting, the 10-row personal stats list (including
+    // the network `CONNECTION` row and leading space on `LONGEST LIVING STREAK`),
+    // and the 8 end-of-battle award rows (`TANK BUSTER`, `KILLING SPREE`, etc.).
     #[test]
     fn test_battle_stats_personal_and_awards() {
         let port = sample_scoreboard_port();
@@ -528,6 +646,7 @@ mod tests {
         assert_eq!(personal[9].label, "CONNECTION");
         assert_eq!(personal[9].value, "DIRECT IPV4");
 
+        // Verify all 8 end-of-match awards resolve to the expected winners and counts.
         let aw = port.awards();
         assert_eq!(aw.len(), 8);
         assert_eq!(aw[0].label, "TANK BUSTER");
@@ -540,6 +659,9 @@ mod tests {
         assert_eq!(aw[7].text, "Alpha (5)");
     }
 
+    // Verifies `ScoreboardModel` row sorting (accounting for `-2 * team_kills`),
+    // initial focus on the local human player, sorting by `Points`, flipping sides,
+    // navigating between `Table` / `Details` / `Awards`, and the 30s idle auto-close.
     #[test]
     fn test_scoreboard_model_sort_flip_pages_and_idle_quit() {
         let port = sample_scoreboard_port();
@@ -566,7 +688,7 @@ mod tests {
         // Show DETAILS then back.
         assert!(model.show_details());
         assert_eq!(model.page, BoardPage::Details);
-        assert_eq!(model.subject.as_ref().unwrap().name, "Droid-1");
+        assert_eq!(model.subject.as_ref().map(|s| s.name.as_str()), Some("Droid-1"));
         assert!(model.back(&port));
         assert_eq!(model.page, BoardPage::Table);
 
@@ -582,6 +704,8 @@ mod tests {
         assert!(model.update(0.5));
     }
 
+    // Verifies `TabHold` tap-to-latch (`< 0.5s` stays open until the next `Tab`
+    // release) and double-clicking a player row within `0.4s` to open `Details`.
     #[test]
     fn test_scoreboard_tab_hold_and_double_click() {
         let mut tab = TabHold::default();
@@ -618,6 +742,9 @@ mod tests {
     // ------------------------------------------------------------------------
     // Pause menu tests (ports `tests/pause-menu.test.js`)
     // ------------------------------------------------------------------------
+    // Verifies `with_settings` URL query rewriting (`tier=`, `heroes=`, `size=`),
+    // `Escape` keydown/keyup open and resume-on-release, the 250ms pointer-unlock
+    // grace window (`LOCK_GRACE`), and `confirm-suicide` `YES`/`NO` dialog navigation.
     #[test]
     fn test_pause_menu_escape_confirm_popups_and_with_settings() {
         let surface = OwnedUiSurface::new(1024, 768);
@@ -686,8 +813,13 @@ mod tests {
     // ------------------------------------------------------------------------
     // HUD input and chat tests (ports `tests/hud-input.test.js`)
     // ------------------------------------------------------------------------
+    // Verifies that `HudInputPublisher` retains the latest state values across
+    // 10,000 rapid updates without overflowing the shared-memory buffer, and
+    // flushes them cleanly into the target slice on `publish_to_slice`.
     #[test]
     fn test_hud_input_retained_state_and_immediate_events() {
+        // Allocate a simulated shared-memory Float64 buffer covering all HUD sections
+        // through the 128-entry `RINGS` table.
         let mut input = HudInputPublisher::new();
         let mut memory = vec![0.0; RINGS + 128 * R::WORDS];
 
@@ -706,12 +838,16 @@ mod tests {
         assert_eq!(memory[H::STATES], 0.0, "no frame has published yet");
         assert!((input.f[STATES + (C::SECOND as usize) * S::WORDS + 1] - 0.9999).abs() < 1e-9);
 
+        // Flushing to the shared slice writes all retained states and resets the dirty mask.
         input.publish_to_slice(&mut memory);
         assert_eq!(memory[STATES + (C::STATS as usize) * S::WORDS], 9999.0);
         assert!((memory[STATES + (C::SECOND as usize) * S::WORDS + 1] - 0.9999).abs() < 1e-9);
         assert_eq!(input.f[H::STATES], 0.0);
     }
 
+    // Verifies `HudInputPublisher` unit-row hysteresis (requiring 3 consecutive
+    // frames of unit-set change before rebuilding rows and bumping `GENERATION`),
+    // `MAX_UNITS` / `MAX_POSTS` clamping, and the 4096-entry asset table cap.
     #[test]
     fn test_hud_input_unit_churn_and_asset_caps() {
         let mut input = HudInputPublisher::new();
@@ -734,6 +870,7 @@ mod tests {
         assert_eq!(input.f[TEAMS + 2 * T::WORDS + T::TICKETS], 9.0);
         assert_eq!(input.f[TEAMS + 2 * T::WORDS + T::LIVING], 7.0);
 
+        // Seed an initial 1-unit frame so `GENERATION` is initialized.
         let old_unit = HudUnitFact {
             entity_key: 1,
             def: def.clone(),
@@ -749,6 +886,8 @@ mod tests {
         );
         let first_gen = input.f[UNITS + U::GENERATION];
 
+        // Feed an oversized unit list (`MAX_UNITS + 100`) for 3 frames to cross the
+        // 3-frame hysteresis threshold and verify clamping to `MAX_UNITS`.
         let big_list: Vec<HudUnitFact> = (0..(MAX_UNITS + 100))
             .map(|i| HudUnitFact {
                 entity_key: (i + 100) as u64,
@@ -761,6 +900,8 @@ mod tests {
         }
         assert_eq!(input.row_count, MAX_UNITS);
 
+        // Returning to the 1-unit list for 3 consecutive frames shrinks `row_count`
+        // back to 1 and advances the unit table `GENERATION` counter.
         for _ in 0..3 {
             input.set_units(
                 true,
@@ -774,6 +915,7 @@ mod tests {
         assert_eq!(input.row_count, 1);
         assert_ne!(input.f[UNITS + U::GENERATION], first_gen);
 
+        // Feed an oversized command-post list (`MAX_POSTS + 30`) and verify clamping to `MAX_POSTS`.
         let big_posts: Vec<HudPostFact> = (0..(MAX_POSTS + 30))
             .map(|_| HudPostFact {
                 counts: (0..(MAX_TEAMS + 5)).map(|t| (t as i32, 1, 0.0)).collect(),
@@ -783,6 +925,8 @@ mod tests {
         input.set_posts(&big_posts, None);
         assert_eq!(input.f[H::POSTS] as usize, MAX_POSTS);
 
+        // Attempting to register 5,000 dynamic HUD assets caps the table at `MAX_ASSETS` (4096)
+        // and returns slot `0` for overflow entries.
         for i in 0..5000 {
             input.asset(&format!("extra-{i}"));
         }
@@ -790,6 +934,9 @@ mod tests {
         assert_eq!(input.asset("extra-4999"), 0);
     }
 
+    // Verifies that `set_player` only records health transition samples when
+    // the player health ratio actually changes, and tests `route_battle_key`
+    // opening team chat on `KeyY`, swallowing `Tab`, and sanitizing control characters.
     #[test]
     fn test_hud_input_transition_feedback_and_chat_routing() {
         let mut input = HudInputPublisher::new();
@@ -797,6 +944,8 @@ mod tests {
         input.set_player(0.35, None);
         input.set_player(1.0, None);
         input.set_player(0.35, None);
+        // Repeating the identical player health (`0.35`) across 1,000 frames must
+        // not emit duplicate `C::HEALTH` transition samples.
         for i in 0..1000 {
             input.set_player(0.35, None);
             input.set_second_bar(1.0, i as f64 / 1000.0, None);
@@ -822,6 +971,7 @@ mod tests {
             route_battle_key("Tab", false, false, &mut chat, false, false, false, 1000.0),
             BattleKeyAction::ChatHandled
         );
+        // ASCII control characters (`\x07`) in the draft are replaced with spaces on submit.
         chat.draft = "Roger\x07 that".to_string();
         assert_eq!(
             route_battle_key("Enter", false, false, &mut chat, false, false, false, 1050.0),

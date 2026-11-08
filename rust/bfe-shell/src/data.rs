@@ -8,6 +8,18 @@
 //! extracted yet, or an older extraction); the reader runs on what is present
 //! and fills in the movie config fades (`shell.lvl` `mcfg`) where `shell.json`
 //! leaves them out.
+//!
+//! Key rules ported from `src/shell/data.js`:
+//! - `FADES`: base `[fadeIn, fadeOut]` pairs for `intro` (`[0.0, 0.2]`),
+//!   `loop` (`[0.1, 0.5]`), and `fly` (`[1.0, 1.0]`), plus `OWN_FADES`
+//!   overrides for `main` (`intro: [0, 0]`, `loop: [0, 0.5]`), `briefing`
+//!   (`intro: [1, 1]`), and `meta` (`intro: [1, 1]`).
+//! - `MOVIE_SCREENS`: indexes each movie under both its own lowercased key in
+//!   `shell.json` and the port's canonical screen id (`start`, `main`, `sp`,
+//!   `options`, `briefing`, `meta`, `galaxy`).
+//! - `textureFiles` / `readFonts`: resolves `common.json` texture names to
+//!   their 4x upscales in `/common/raster-hud/` when `manifest.json` has an
+//!   entry, falling back to `/common/<path>`.
 
 use crate::launch::GameFamily;
 use serde::{Deserialize, Serialize};
@@ -22,8 +34,11 @@ pub const SHELL_ROOT: &str = "/common/shell";
 /// intros and one-shots, screen loops, and map flyovers.
 /// Mirrors `FADES` in `src/shell/data.js`.
 pub mod fades {
+    /// Base `[fade_in, fade_out]` in seconds (`[0.0, 0.2]`) for screen intro clips.
     pub const INTRO: [f64; 2] = [0.0, 0.2];
+    /// Base `[fade_in, fade_out]` in seconds (`[0.1, 0.5]`) for looping screen backdrops.
     pub const LOOP: [f64; 2] = [0.1, 0.5];
+    /// Base `[fade_in, fade_out]` in seconds (`[1.0, 1.0]`) for Instant Action map flyovers.
     pub const FLY: [f64; 2] = [1.0, 1.0];
 }
 
@@ -65,8 +80,11 @@ pub const MOVIE_SCREENS: [(&str, &[&str]); 7] = [
 /// `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MovieClip {
+    /// Resolved content URL (e.g. `"/common/shell/movies/main.webm"`).
     pub url: String,
+    /// Fade-in duration in seconds (`fadeIn` in `src/shell/data.js`).
     pub fade_in: f64,
+    /// Fade-out duration in seconds (`fadeOut` in `src/shell/data.js`).
     pub fade_out: f64,
 }
 
@@ -74,7 +92,9 @@ pub struct MovieClip {
 /// Mirrors the `{ intro, loop }` entry in `readMovies` in `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScreenMovie {
+    /// Optional transition intro clip played when entering the screen moving forward.
     pub intro: Option<MovieClip>,
+    /// Looping background clip played while the screen remains open (`"loop"` in JSON).
     #[serde(rename = "loop")]
     pub loop_clip: Option<MovieClip>,
 }
@@ -94,6 +114,11 @@ impl ScreenMovie {
 
 /// Maps a movie path (`"/common/shell/movies/atat_screen.webm"`) to the
 /// corresponding poster still texture key in `common.json`.
+/// Maps a movie path (`"/common/shell/movies/atat_screen.webm"`) to the
+/// corresponding poster still texture key in `common.json` (`"main"`,
+/// `"atat_screen"`, `"coreship_screen"`, `"atte_screen"`, `"hoth_screen"`,
+/// `"generic2_screen"`, `"generic3_screen"`, `"gc_screen"`, or `"map_<id>"`
+/// for Instant Action map flyovers; `"tat3fly"` maps to `"map_unk"`).
 pub fn poster_still_for_movie(url: &str) -> Option<&'static str> {
     let stem = url
         .rsplit('/')
@@ -136,7 +161,9 @@ pub fn poster_still_for_movie(url: &str) -> Option<&'static str> {
 /// `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadStage {
+    /// Resolved content URL of the stage picture (`"/common/shell/load/..."`).
     pub url: String,
+    /// Target crop box `[x, y, w, h]` in pixels for zooming into the next stage (`None` on last stage).
     pub target: Option<[f64; 4]>,
 }
 
@@ -144,17 +171,24 @@ pub struct LoadStage {
 /// Mirrors `readMapLoad` in `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct MapLoad {
+    /// Localized or direct display name of the planet (`"GEONOSIS"`, `"NABOO"`, etc.).
     pub planet: Option<String>,
+    /// Localization string key (`"planets.geonosis.name"`, etc.) when specified.
     pub planet_key: Option<String>,
+    /// Ordered sequence of loading stage pictures (galaxy -> locale -> landsat -> hologram grid).
     pub stages: Vec<LoadStage>,
 }
 
 /// Metadata for one era (`"cw"` or `"gcw"`) on a map in `shell.json`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct MapEraInfo {
+    /// Whether this era's sub-level was extracted (`Some(false)` marks an unextracted era).
     pub extracted: Option<bool>,
+    /// Faction identifiers (`["rep", "cis"]` or `["all", "imp"]`) fighting in this era.
     pub teams: Vec<String>,
+    /// Attacking team index (`1` or `2`) from the mission configuration, if present.
     pub attacker: Option<u32>,
+    /// Unmodified JSON value of the era entry from `shell.json`.
     pub raw: Value,
 }
 
@@ -172,14 +206,22 @@ impl MapEraInfo {
 /// or parsed from `"swbf1/hot1"` / `"swbf2/hot1"` per `MULTIPLAYER.md`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellMap {
+    /// Game family (`swbf1` by default, or `swbf2` when prefixed with `"swbf2/"`).
     #[serde(default)]
     pub family: GameFamily,
+    /// Bare lowercase map identifier (`"bes1"`, `"geo1"`, `"nab2"`, etc.).
     pub id: String,
+    /// Localized display title (`"NABOO: THEED"`, etc.), falling back to `id.to_ascii_uppercase()`.
     pub name: String,
+    /// Optional localization key (`"mapname.name.nab2"`, etc.) in `common.json` / `shell.json`.
     pub name_key: Option<String>,
+    /// Top-level extraction flag (`None` when `shell.json` did not specify a boolean).
     pub extracted: Option<bool>,
+    /// Per-era (`"cw"`, `"gcw"`) availability and team metadata.
     pub eras: BTreeMap<String, MapEraInfo>,
+    /// Optional Instant Action flyover preview movie clip (`fades::FLY = [1.0, 1.0]`).
     pub fly: Option<MovieClip>,
+    /// Optional loading screen planet and stage zoom sequence (`readMapLoad`).
     pub load: Option<MapLoad>,
 }
 
@@ -214,8 +256,11 @@ impl ShellMap {
 /// Mirrors `edges` in `readLoad` in `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct LoadEdges {
+    /// Horizontal crosshair line texture path (`load_edge_horz`).
     pub horz: Option<String>,
+    /// Vertical crosshair line texture path (`load_edge_vert`).
     pub vert: Option<String>,
+    /// Optional crosshair corner texture path.
     pub corner: Option<String>,
 }
 
@@ -224,13 +269,21 @@ pub struct LoadEdges {
 /// Mirrors `readLoad` in `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadChrome {
+    /// Fallback backdrop texture path shown when a map has no stage pictures.
     pub backdrop: Option<String>,
+    /// Rotating `LOADING` disk texture path (`load_rotating_disk`).
     pub disk: Option<String>,
+    /// LED square texture paths (`load_led_0`, etc.).
     pub leds: Vec<String>,
+    /// Crosshair tracking line textures (`horz`, `vert`, `corner`).
     pub edges: LoadEdges,
+    /// Localization string key for the `"LOADING"` label (`"common.loading"` by default).
     pub text: String,
+    /// Duration in seconds (`3.5` default) of the horizontal + vertical crosshair tracking phase.
     pub track: f64,
+    /// Duration in seconds (`1.0` default) of each stage zoom transition.
     pub zoom: f64,
+    /// Duration in seconds (`0.0` default) to hold the final stage after the last zoom finishes.
     pub hold: f64,
 }
 
@@ -254,9 +307,13 @@ impl Default for LoadChrome {
 /// Mirrors the `music` array entries in `readShellData` in `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MusicTrack {
+    /// Cue identifier (`"shell_clonewars"`, `"shell_galacticconquest"`, or `"track1"`).
     pub name: String,
+    /// Resolved content URL of the `.opus` / `.ogg` music file.
     pub url: String,
+    /// Optional list of `SoundProperties` group names this track belongs to (`"shell_soundtrack"`, etc.).
     pub properties: Option<Vec<String>>,
+    /// Whether this track participates in the default `shell_soundtrack` rotation (`soundtrack !== false`).
     pub soundtrack: bool,
 }
 
@@ -265,20 +322,28 @@ pub struct MusicTrack {
 /// Mirrors the `sounds` object entries in `readShellData` in `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellSoundDef {
+    /// Resolved content URL of the sound file.
     pub url: String,
+    /// Linear amplitude multiplier (`1.0` default).
     pub gain: f64,
+    /// Playback pitch multiplier (`1.0` default).
     pub pitch: f64,
 }
 
 /// Bitmap font descriptor from `common.json`'s `"fonts"`.
-///Each glyph row has up to 11 numbers:
+/// Each glyph row has up to 11 numbers:
 /// `[code, page, advance, x0, x1, y0, y1, u0, v0, u1, v1]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellFont {
+    /// Vertical distance in pixels between baselines (`16.0` default).
     pub line_height: f64,
+    /// Distance in pixels from the top of the line box to the alphabetic baseline.
     pub baseline: f64,
+    /// Horizontal and vertical glyph scale factors (`[1.0, 1.0]` default).
     pub scale: [f64; 2],
+    /// Texture names in `common.json` for each atlas page of this bitmap font.
     pub pages: Vec<String>,
+    /// Glyph metric and UV rows `[code, page, advance, x0, x1, y0, y1, u0, v0, u1, v1]`.
     pub glyphs: Vec<Vec<f64>>,
 }
 
@@ -288,7 +353,9 @@ pub struct ShellFont {
 /// Mirrors `textureFiles(common, raster)` in `src/shell/data.js`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextureFiles {
+    /// Map from `common.json` texture name (`"load_rotating_disk"`) to relative path (`"textures/load_rotating_disk.png"`).
     common_textures: BTreeMap<String, String>,
+    /// Map from `common.json` relative texture path to its 4x upscaled filename in `raster-hud/manifest.json`.
     raster_files: BTreeMap<String, String>,
 }
 
@@ -304,6 +371,8 @@ impl TextureFiles {
         }
     }
 
+    /// Returns the raw `common.json` texture map (`name -> relative_path`)
+    /// for callers that inspect available HUD and shell textures directly.
     pub fn common_textures(&self) -> &BTreeMap<String, String> {
         &self.common_textures
     }
@@ -314,16 +383,27 @@ impl TextureFiles {
 /// `src/shell/data.js`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShellData {
+    /// `true` when `shell.json` was absent or `null` (`missing: !shell` in JS).
     pub missing: bool,
+    /// Resolver mapping `common.json` texture names to `/common/raster-hud/` or `/common/` paths.
     pub textures: TextureFiles,
+    /// Screen movies indexed by both raw lowercased `shell.json` keys and canonical screen ids.
     pub movies: BTreeMap<String, ScreenMovie>,
+    /// Extracted map entries with per-era metadata, flyover clips, and loading stage sequences.
     pub maps: Vec<ShellMap>,
+    /// Shell music tracks (`shell_soundtrack` and screen-specific cues like `shell_galacticconquest`).
     pub music: Vec<MusicTrack>,
+    /// Transition whoosh sound URLs (`shell_transition1..10`).
     pub whooshes: Vec<String>,
+    /// Sound overrides declared directly in `shell.json`'s `"sounds"` table.
     pub sounds: BTreeMap<String, ShellSoundDef>,
+    /// Loading screen disk, LED, crosshair edge textures, and `track`/`zoom`/`hold` timing.
     pub load: LoadChrome,
+    /// Merged localization string table (`common.strings` overlaid with `shell.strings`).
     pub strings: BTreeMap<String, String>,
+    /// Bitmap font descriptors (`gamefont_tiny`, `gamefont_small`, `gamefont_medium`, `gamefont_large`).
     pub fonts: BTreeMap<String, ShellFont>,
+    /// Resolved texture URLs for every atlas page referenced by `fonts`.
     pub pages: BTreeMap<String, String>,
 }
 
@@ -343,6 +423,8 @@ pub fn resolve_url(path: Option<&str>, root: &str) -> Option<String> {
     Some(format!("{root}/{stripped}"))
 }
 
+/// Checks whether `path` begins with an RFC 3986 URI scheme (`^[a-zA-Z][a-zA-Z0-9+.-]*:`).
+/// Mirrors `/^[a-z][a-z0-9+.-]*:/i.test(path)` in `resolveUrl` (`src/shell/data.js`).
 fn has_scheme(path: &str) -> bool {
     let Some((scheme, _)) = path.split_once(':') else {
         return false;
@@ -355,6 +437,9 @@ fn has_scheme(path: &str) -> bool {
         && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'.' || b == b'-')
 }
 
+/// Coerces an optional JSON number or non-empty numeric string into a finite `f64`,
+/// returning `fallback` for `None`, `null`, `""`, or `NaN`/`±inf`.
+/// Mirrors `const number = (value, fallback) => ...` in `src/shell/data.js`.
 fn number(value: Option<&Value>, fallback: f64) -> f64 {
     let Some(v) = value else {
         return fallback;
@@ -383,6 +468,11 @@ fn number(value: Option<&Value>, fallback: f64) -> f64 {
 /// defaults where omitted.
 ///
 /// Mirrors `readClip(value, [fadeIn, fadeOut], own)` in `src/shell/data.js`.
+/// Normalizes one movie clip `{ url, fade_in, fade_out }` from a path string or
+/// `{ file | url | movie, fadeIn, fadeOut }`, resolving `fadeIn` and `fadeOut`
+/// in priority order: explicit clip field -> `own_fades` override (`OWN_FADES`)
+/// -> `default_fades` (`FADES.intro`, `FADES.loop`, or `FADES.fly`).
+/// Returns `None` if `value` has no non-empty movie path.
 pub fn read_clip(
     value: Option<&Value>,
     default_fades: [f64; 2],
@@ -412,6 +502,10 @@ pub fn read_clip(
     })
 }
 
+/// Returns per-screen `(intro_fades, loop_fades)` overrides from `OWN_FADES` in
+/// `src/shell/data.js`:
+/// - `"main"`: intro cuts straight into loop (`[0, 0]`), loop fades `[0, 0.5]`.
+/// - `"briefing"` and `"meta"`: intro fades both ways over 1 second (`[1, 1]`).
 fn own_screen_fades(id: &str) -> (Option<[f64; 2]>, Option<[f64; 2]>) {
     match id {
         "main" => (Some([0.0, 0.0]), Some([0.0, 0.5])),
@@ -421,6 +515,9 @@ fn own_screen_fades(id: &str) -> (Option<[f64; 2]>, Option<[f64; 2]>) {
     }
 }
 
+/// Parses a single `shell.json` movie entry (`{ intro, loop | background, fadeIn,
+/// fadeOut, introFadeIn, introFadeOut }` or a bare loop path string) into a
+/// [`ScreenMovie`], applying `own_intro` / `own_loop` overrides before [`fades`].
 fn read_screen_movie(
     entry: &Value,
     own_intro: Option<[f64; 2]>,
@@ -473,6 +570,8 @@ pub fn read_movies(movies: Option<&Value>) -> BTreeMap<String, ScreenMovie> {
             }
         }
     }
+    // First preserve every entry under its own lowercased name (`ifs_meta_load`, etc.)
+    // using the base `FADES` defaults.
     for (name, entry) in &by_name {
         if !entry.is_null() {
             if let Some(movie) = read_screen_movie(entry, None, None) {
@@ -480,6 +579,9 @@ pub fn read_movies(movies: Option<&Value>) -> BTreeMap<String, ScreenMovie> {
             }
         }
     }
+    // Then bind each canonical screen id (`start`, `main`, `sp`, `options`,
+    // `briefing`, `meta`, `galaxy`) to the first matching alias in `MOVIE_SCREENS`,
+    // applying `own_screen_fades(id)`.
     for (id, aliases) in MOVIE_SCREENS {
         let found = std::iter::once(id)
             .chain(aliases.iter().copied())
@@ -550,6 +652,9 @@ pub fn read_map_load(load: Option<&Value>, strings: &BTreeMap<String, String>) -
         None
     };
 
+    // Extract each stage's image URL (`image`, `texture`, `file`, `url`, or a
+    // bare string) and optional 4-number zoom target rectangle (`target` or `rect`),
+    // dropping stages whose URL is missing or empty.
     let mut stages = Vec::new();
     if let Some(arr) = list {
         for stage in arr {
@@ -574,6 +679,9 @@ pub fn read_map_load(load: Option<&Value>, strings: &BTreeMap<String, String>) -
         }
     }
 
+    // Resolve the planet's display name: strings starting with `"planets."` are
+    // treated as localization keys into `strings`, while any other string in
+    // `planet` or `name` is used as a direct fallback label.
     let is_key = |v: &str| v.starts_with("planets.");
     let planet_str = obj.and_then(|o| o.get("planet")).and_then(Value::as_str);
     let name_str = obj.and_then(|o| o.get("name")).and_then(Value::as_str);
@@ -607,6 +715,8 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
     let Some(maps) = maps else {
         return Vec::new();
     };
+    // Accept `maps` either as an array of `{ id, ... }` objects or as an
+    // `{ [id]: { ... } }` map object, matching `readMaps` in `src/shell/data.js`.
     let mut entries: Vec<(String, &Value)> = Vec::new();
     if let Some(arr) = maps.as_array() {
         for item in arr {
@@ -626,6 +736,8 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
         .into_iter()
         .map(|(raw_id, map)| {
             let obj = map.as_object();
+            // Lowercase the map id and split any `"swbf1/"` or `"swbf2/"` family
+            // prefix; an explicit `"family"` field on the map object overrides the prefix.
             let lower_id = raw_id.to_ascii_lowercase();
             let (id_family, bare_id) = match lower_id.split_once('/') {
                 Some((f, rest)) => (GameFamily::parse(f).unwrap_or(GameFamily::Swbf1), rest.to_string()),
@@ -640,6 +752,8 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
                 .and_then(|o| o.get("nameKey"))
                 .and_then(Value::as_str)
                 .map(str::to_string);
+            // Resolve the map's display title: explicit `map.name` first, then
+            // `strings[map.nameKey]`, falling back to `bare_id.to_ascii_uppercase()`.
             let name = obj
                 .and_then(|o| o.get("name"))
                 .and_then(Value::as_str)
@@ -647,6 +761,8 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
                 .or_else(|| name_key.as_deref().and_then(|k| strings.get(k)).cloned())
                 .unwrap_or_else(|| bare_id.to_ascii_uppercase());
             let extracted = obj.and_then(|o| o.get("extracted")).and_then(Value::as_bool);
+            // Copy per-era (`"cw"`, `"gcw"`) extraction status, faction `teams`,
+            // and `attacker` index from `map.eras`.
             let mut eras = BTreeMap::new();
             if let Some(eras_obj) = obj.and_then(|o| o.get("eras")).and_then(Value::as_object) {
                 for (era_id, era_val) in eras_obj {
@@ -704,6 +820,11 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
 /// Mirrors `readLoad(load, texture)` in `src/shell/data.js`.
 pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
     let obj = load.and_then(Value::as_object);
+    // Resolve a loading art reference: bare identifiers without `'/'` or `'.'`
+    // are looked up in `common.json` via `textures.get(s)` (preferring 4x
+    // upscales in `/common/raster-hud/`), while file paths are resolved relative
+    // to `SHELL_ROOT` (`/common/shell`), matching `art(value)` in `readLoad`
+    // (`src/shell/data.js`).
     let art = |val: Option<&Value>| -> Option<String> {
         let s = val?.as_str()?;
         if s.is_empty() {
@@ -716,6 +837,9 @@ pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
         }
     };
 
+    // Read `load.targetTime` / `load.timing` (`[track, zoom, hold]` array or
+    // `{ track | stage, zoom, hold }` object); defaults are `track = 3.5s`,
+    // `zoom = 1.0s`, and `hold = 0.0s` (`LoadDisplay`'s `TargetTime` pair).
     let pair = obj.and_then(|o| o.get("targetTime").or_else(|| o.get("timing")));
     let (track_val, zoom_val, hold_val) = if let Some(arr) = pair.and_then(Value::as_array) {
         (arr.first(), arr.get(1), arr.get(2))
@@ -729,6 +853,8 @@ pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
         (None, None, None)
     };
 
+    // Resolve the horizontal, vertical, and corner crosshair textures from
+    // `load.crosshair` or `load.edges` (`horz`/`horizontal`, `vert`/`vertical`, `corner`).
     let edges_obj = obj
         .and_then(|o| o.get("crosshair").or_else(|| o.get("edges")))
         .and_then(Value::as_object);
@@ -822,6 +948,9 @@ pub fn read_fonts(
             let Some(f_obj) = font_val.as_object() else {
                 continue;
             };
+            // Read bitmap font metrics (`lineHeight`, `baseline`, `scale`), resolve
+            // each atlas page texture name through `TextureFiles`, and collect
+            // numeric glyph rows (`[code, page, advance, x0, x1, y0, y1, u0, v0, u1, v1]`).
             let line_height = number(f_obj.get("lineHeight"), 16.0);
             let baseline = number(f_obj.get("baseline"), line_height);
             let scale = f_obj
@@ -875,6 +1004,8 @@ pub fn read_shell_data(
     common: Option<&Value>,
     raster: Option<&Value>,
 ) -> ShellData {
+    // Merge localization strings with `shell.strings` taking precedence over
+    // `common.strings` (`{ ...common.strings, ...shell.strings }` in JS).
     let mut strings = BTreeMap::new();
     if let Some(c_strings) = common
         .and_then(|c| c.get("strings"))
@@ -897,6 +1028,8 @@ pub fn read_shell_data(
         }
     }
 
+    // Normalize `shell.sounds` overrides (`name -> { url, gain, pitch }`),
+    // defaulting `gain` and `pitch` to `1.0` when omitted.
     let mut sounds = BTreeMap::new();
     if let Some(s_sounds) = shell
         .and_then(|s| s.get("sounds"))
@@ -923,6 +1056,9 @@ pub fn read_shell_data(
     let movies = read_movies(shell.and_then(|s| s.get("movies")));
     let maps = read_maps(shell.and_then(|s| s.get("maps")), &strings);
 
+    // Normalize `shell.music`: each entry may be a path string or an object
+    // `{ name, file | url, properties, soundtrack }`, defaulting `name` to
+    // `"track1"`, `"track2"`, ... and `soundtrack` to `true` unless explicitly `false`.
     let mut music = Vec::new();
     if let Some(m_arr) = shell
         .and_then(|s| s.get("music"))
@@ -967,6 +1103,8 @@ pub fn read_shell_data(
         }
     }
 
+    // Normalize `shell.whooshes` (`shell_transition1..10` camera flight sounds),
+    // accepting either path strings or `{ file | url }` objects.
     let mut whooshes = Vec::new();
     if let Some(w_arr) = shell
         .and_then(|s| s.get("whooshes"))
@@ -1005,7 +1143,32 @@ pub fn read_shell_data(
 }
 
 /// Loads `common/shell/shell.json`, `common/common.json`, and
+/// `common/raster-hud/manifest.json` from a native `content_dir` on disk,
+/// returning an error naming the exact file if reading or JSON parsing fails.
+/// Strict filesystem loader for native callers that require all three extracted
+/// manifests (`common/shell/shell.json`, `common/common.json`, and
+/// `common/raster-hud/manifest.json`) to exist and parse cleanly under `content_dir`.
+/// Returns an `Err` naming the exact file path and I/O or JSON error on failure.
+pub fn try_load_shell_data_from_dir(content_dir: &Path) -> Result<ShellData, String> {
+    let read_json = |rel: &str| -> Result<Value, String> {
+        let file_path = content_dir.join(rel);
+        let bytes = std::fs::read(&file_path)
+            .map_err(|e| format!("{}: {e}", file_path.display()))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| format!("{}: {e}", file_path.display()))
+    };
+    let shell = read_json("common/shell/shell.json")?;
+    let common = read_json("common/common.json")?;
+    let raster = read_json("common/raster-hud/manifest.json")?;
+    Ok(read_shell_data(Some(&shell), Some(&common), Some(&raster)))
+}
+
+/// Loads `common/shell/shell.json`, `common/common.json`, and
 /// `common/raster-hud/manifest.json` from a native `content_dir` on disk.
+/// Mirrors `loadShellData` in `src/shell/data.js`.
+/// Permissive filesystem loader that treats missing or unparseable manifests as
+/// `None` (setting `ShellData::missing = true` when `shell.json` is absent) so
+/// the shell can still boot with fallback defaults before extraction completes.
 /// Mirrors `loadShellData` in `src/shell/data.js`.
 pub fn load_shell_data_from_dir(content_dir: &Path) -> ShellData {
     let read_json = |rel: &str| -> Option<Value> {
@@ -1023,8 +1186,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // Verifies that `resolve_url` prefixes relative paths with `SHELL_ROOT`
+    // (`/common/shell`), strips leading `./`, preserves root-relative paths,
+    // and that `read_clip` fills in `fades::LOOP` (`[0.1, 0.5]`) when omitted.
     #[test]
-    fn resolve_url_and_read_clip_normalize_paths_and_fades() {
+    fn resolve_url_and_read_clip_normalize_paths_and_fades() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
             resolve_url(Some("movies/main.webm"), SHELL_ROOT).as_deref(),
             Some("/common/shell/movies/main.webm")
@@ -1039,14 +1205,25 @@ mod tests {
         );
         assert_eq!(resolve_url(None, SHELL_ROOT), None);
 
-        let clip = read_clip(Some(&json!("movies/atat.webm")), fades::LOOP, [None, None]).unwrap();
+        // Bare string movie entry resolves under `SHELL_ROOT` and inherits `fades::LOOP`
+        // (`fadeIn = 0.1`, `fadeOut = 0.5`).
+        let clip = read_clip(Some(&json!("movies/atat.webm")), fades::LOOP, [None, None])
+            .ok_or("expected clip")?;
         assert_eq!(clip.url, "/common/shell/movies/atat.webm");
         assert_eq!(clip.fade_in, 0.1);
         assert_eq!(clip.fade_out, 0.5);
+        Ok(())
     }
 
+    // Verifies end-to-end normalization of `shell.json`, `common.json`, and
+    // `raster-hud/manifest.json`: map localization, playable era filtering,
+    // `OWN_FADES` on `main`, poster still resolution, 4x upscaled HUD textures,
+    // and 11-column bitmap font glyph rows.
     #[test]
-    fn read_shell_data_populates_maps_movies_load_and_upscaled_textures() {
+    fn read_shell_data_populates_maps_movies_load_and_upscaled_textures() -> Result<(), Box<dyn std::error::Error>> {
+        // Construct synthetic `shell.json`, `common.json`, and `raster-hud/manifest.json`
+        // fixtures covering screen movies, map eras, loading stages, music, whooshes,
+        // 4x upscaled HUD textures, and bitmap font glyph metrics.
         let shell = json!({
             "movies": {
                 "ifs_main": { "intro": "movies/main_trans.webm", "loop": "movies/atat_screen.webm" }
@@ -1106,6 +1283,13 @@ mod tests {
             }
         });
 
+        // Normalize the three manifests and verify every section of `ShellData`:
+        // 1. `maps[0]` resolves its localized name (`"NABOO: THEED"`), playable
+        //    Clone Wars era (`["cw"]`), and 2-stage loading sequence on `"NABOO"`.
+        // 2. `movies["main"]` applies `OWN_FADES.main` (`intro: [0, 0]`, `loop: [0, 0.5]`)
+        //    and maps `"atat_screen.webm"` to the `"atat_screen"` poster still.
+        // 3. `load.disk` resolves to the 4x upscale in `/common/raster-hud/`, while
+        //    non-upscaled textures (`load_edge_horz`, `font_p0`) resolve under `/common/textures/`.
         let data = read_shell_data(Some(&shell), Some(&common), Some(&raster));
         assert!(!data.missing);
         assert_eq!(data.maps.len(), 1);
@@ -1113,17 +1297,17 @@ mod tests {
         assert_eq!(data.maps[0].family, GameFamily::Swbf1);
         assert_eq!(data.maps[0].name, "NABOO: THEED");
         assert_eq!(data.maps[0].playable_eras(), vec!["cw"]);
-        assert_eq!(
-            data.maps[0].load.as_ref().unwrap().planet.as_deref(),
-            Some("NABOO")
-        );
-        assert_eq!(data.maps[0].load.as_ref().unwrap().stages.len(), 2);
+        let map_load = data.maps[0].load.as_ref().ok_or("missing map load")?;
+        assert_eq!(map_load.planet.as_deref(), Some("NABOO"));
+        assert_eq!(map_load.stages.len(), 2);
 
-        let main_movie = data.movies.get("main").unwrap();
-        assert_eq!(main_movie.intro.as_ref().unwrap().fade_in, 0.0);
-        assert_eq!(main_movie.intro.as_ref().unwrap().fade_out, 0.0);
-        assert_eq!(main_movie.loop_clip.as_ref().unwrap().fade_in, 0.0);
-        assert_eq!(main_movie.loop_clip.as_ref().unwrap().fade_out, 0.5);
+        let main_movie = data.movies.get("main").ok_or("missing main movie")?;
+        let main_intro = main_movie.intro.as_ref().ok_or("missing main intro")?;
+        let main_loop = main_movie.loop_clip.as_ref().ok_or("missing main loop")?;
+        assert_eq!(main_intro.fade_in, 0.0);
+        assert_eq!(main_intro.fade_out, 0.0);
+        assert_eq!(main_loop.fade_in, 0.0);
+        assert_eq!(main_loop.fade_out, 0.5);
         assert_eq!(main_movie.poster_still(), Some("atat_screen"));
 
         assert_eq!(
@@ -1140,5 +1324,6 @@ mod tests {
             Some("/common/textures/font_p0.png")
         );
         assert_eq!(data.fonts["gamefont_medium"].glyphs[0].len(), 11);
+        Ok(())
     }
 }

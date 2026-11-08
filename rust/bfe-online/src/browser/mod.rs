@@ -6,7 +6,7 @@
 // `src/runtime/battle-query.js`.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+// `BTreeMap` is imported inside `mod tests` for deterministic query maps.
 
 use bfe_transport::layout::{network_contract, VERSION as TRANSPORT_LAYOUT_VERSION};
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,11 @@ pub const REFRESH_EVERY_MS: u64 = 30_000;
 // matching `RETRY_EVERY` in `src/shell/server-browser.js`.
 pub const RETRY_EVERY_MS: u64 = 10_000;
 
-// Browser listing sources (`SOURCES` in `src/shell/server-browser.js`).
+// Browser listing sources (`SOURCES = [["internet", "INTERNET"], ["lan", "LAN"]]`
+// in `src/shell/server-browser.js`).
+// Selecting `Internet` queries the signed HTTPS master directory
+// (`GET /v1/servers`), whereas `Lan` broadcasts a UDP `BFE-LAN/1` beacon on
+// port 18452 to discover local servers without touching the internet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
@@ -28,8 +32,12 @@ pub enum Source {
 }
 
 impl Source {
+    // Ordered list of source selector options for toolbar dropdown rendering.
     pub const ALL: [Source; 2] = [Source::Internet, Source::Lan];
 
+    // Canonical lowercase wire/config identifier (`"internet"` or `"lan"`).
+    // Option value string (`"any"`, `"50"`, `"100"`, `"150"`) matching `PINGS` in JS.
+    // Column identifier used in CSS class `.c-{id}` and `COLUMNS[i].id` in JS.
     pub fn id(self) -> &'static str {
         match self {
             Self::Internet => "internet",
@@ -37,6 +45,10 @@ impl Source {
         }
     }
 
+    // Uppercase UI label displayed in `.bfe-browser-source` (`"INTERNET"` / `"LAN"`).
+    // Uppercase display text shown in the ping filter dropdown.
+    // Uppercase display label for the era dropdown and `GAME INFO` chips.
+    // Uppercase column header text rendered in `.bfe-browser-col`.
     pub fn label(self) -> &'static str {
         match self {
             Self::Internet => "INTERNET",
@@ -44,6 +56,10 @@ impl Source {
         }
     }
 
+    // Parses a source identifier from a UI control or CLI flag, returning `None`
+    // for unknown strings (`!SOURCES.some(([id]) => id === source)` in JS).
+    // Parses a toolbar `<select>` option value back into a `PingFilter`.
+    // Resolves a column identifier string into its `SortColumn` variant.
     pub fn from_id(id: &str) -> Option<Self> {
         match id {
             "internet" => Some(Self::Internet),
@@ -53,7 +69,10 @@ impl Source {
     }
 }
 
-// Ping filter choices (`PINGS` in `src/shell/server-browser.js`).
+// Ping filter choices (`PINGS` in `src/shell/server-browser.js`):
+// `[["any", "ANY PING"], ["50", "UNDER 50 MS"], ["100", "UNDER 100 MS"], ["150", "UNDER 150 MS"]]`.
+// When a numeric threshold is active, both high-latency servers (`latency_ms >= threshold`)
+// and unanswered servers (`latency_ms == None`, mapped to `Infinity` in JS) are excluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PingFilter {
     #[default]
@@ -64,6 +83,7 @@ pub enum PingFilter {
 }
 
 impl PingFilter {
+    // Ordered choices rendered in the toolbar ping `<select>` control.
     pub const ALL: [PingFilter; 4] = [
         PingFilter::Any,
         PingFilter::Under50,
@@ -89,6 +109,8 @@ impl PingFilter {
         }
     }
 
+    // Strict upper bound in milliseconds (`finite(s.latencyMs) < Number(f.ping)`
+    // in `src/shell/server-browser.js`), or `None` when `PingFilter::Any` is selected.
     pub fn threshold_ms(self) -> Option<u32> {
         match self {
             Self::Any => None,
@@ -109,7 +131,8 @@ impl PingFilter {
     }
 }
 
-// Era filter choices (`ERAS` in `src/shell/server-browser.js`).
+// Era filter choices (`[["all", "ALL ERAS"], ...Object.entries(ERAS)]` in
+// `src/shell/server-browser-view.js` and `ERAS` in `src/shell/server-browser.js`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EraOption {
     All,
@@ -118,8 +141,10 @@ pub enum EraOption {
 }
 
 impl EraOption {
+    // Ordered era filter options for the toolbar `<select>` control.
     pub const ALL: [EraOption; 3] = [EraOption::All, EraOption::Cw, EraOption::Gcw];
 
+    // Canonical filter key (`"all"`, `"cw"`, `"gcw"`) stored in `Filters::era`.
     pub fn id(self) -> &'static str {
         match self {
             Self::All => "all",
@@ -138,6 +163,8 @@ impl EraOption {
 }
 
 // Sortable table columns (`COLUMNS` in `src/shell/server-browser.js`).
+// Clicking a column header sorts by that column or reverses the current sort
+// direction when already active (`sortBy(key)` in `src/shell/server-browser.js`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortColumn {
     Name,
@@ -150,6 +177,7 @@ pub enum SortColumn {
 }
 
 impl SortColumn {
+    // Left-to-right column order in `.bfe-browser-head` (`src/shell/server-browser-view.js`).
     pub const ALL: [SortColumn; 7] = [
         SortColumn::Name,
         SortColumn::Players,
@@ -198,6 +226,8 @@ impl SortColumn {
     }
 }
 
+// Active sort column and direction (`+1` ascending, `-1` descending),
+// corresponding to `this.sort = { key, dir }` in `src/shell/server-browser.js`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SortSpec {
     pub column: SortColumn,
@@ -214,6 +244,10 @@ impl Default for SortSpec {
     }
 }
 
+// Active toolbar filter state (`FILTERS` in `src/shell/server-browser.js`).
+// `name` performs a case-insensitive substring match across `server.name`,
+// `server.battle.map_name`, and `server.location`; `map` and `era` default to
+// `"all"`; `hide_full` and `hide_empty` toggle capacity filtering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filters {
     pub name: String,
@@ -225,6 +259,8 @@ pub struct Filters {
 }
 
 impl Default for Filters {
+    // Matches `FILTERS = { name: "", map: "all", era: "all", ping: "any", hideFull: false, hideEmpty: false }`
+    // in `src/shell/server-browser.js`.
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -238,6 +274,8 @@ impl Default for Filters {
 }
 
 impl Filters {
+    // Returns true when any filter diverges from `FILTERS` defaults so the UI
+    // can distinguish `"NO SERVERS MATCH THESE FILTERS"` from `"NO SERVERS ONLINE"`.
     pub fn is_filtered(&self) -> bool {
         !self.name.trim().is_empty()
             || self.map != "all"
@@ -248,6 +286,8 @@ impl Filters {
     }
 }
 
+// Single-field mutation passed to `ServerBrowserService::set_filter`, mirroring
+// `setFilter(key, value)` in `src/shell/server-browser.js`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilterUpdate {
     Name(String),
@@ -258,6 +298,9 @@ pub enum FilterUpdate {
     HideEmpty(bool),
 }
 
+// High-level lifecycle state of the server browser table (`this.state` in
+// `src/shell/server-browser.js`: `"idle"`, `"loading"`, `"notice"`, `"ready"`,
+// or `"error"` with an uppercase failure message).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BrowserState {
     #[default]
@@ -269,6 +312,8 @@ pub enum BrowserState {
 }
 
 impl BrowserState {
+    // Lowercase state discriminator matching `w.state` in `src/shell/server-browser-view.js`
+    // (used for placeholder CSS classes `.bfe-browser-empty.{state}`).
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Idle => "idle",
@@ -279,6 +324,7 @@ impl BrowserState {
         }
     }
 
+    // Returns the uppercase error message when the browser is in `BrowserState::Error`.
     pub fn error_message(&self) -> Option<&str> {
         match self {
             Self::Error(msg) => Some(msg.as_str()),
@@ -287,12 +333,17 @@ impl BrowserState {
     }
 }
 
+// Distinguishes an initial foreground load (which transitions `state` to
+// `Loading` and shows `"SEARCHING FOR SERVERS…"`) from a background periodic
+// or retry refresh (`refresh({ quiet: true })` in `src/shell/server-browser.js`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshKind {
     Initial,
     Quiet,
 }
 
+// Keyboard navigation keys handled while the server table has focus (`key(code)`
+// in `src/shell/server-browser.js`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserKey {
     ArrowUp,
@@ -304,6 +355,8 @@ pub enum BrowserKey {
 }
 
 impl BrowserKey {
+    // Maps a DOM `KeyboardEvent.key` string (`"ArrowUp"`, `"ArrowDown"`,
+    // `"PageUp"`, `"PageDown"`, `"Home"`, `"End"`) to its `BrowserKey` variant.
     pub fn from_key_name(key: &str) -> Option<Self> {
         match key {
             "ArrowUp" => Some(Self::ArrowUp),
@@ -317,26 +370,41 @@ impl BrowserKey {
     }
 }
 
+// Advertised server IPv4/IPv6 endpoint from the master listing or `/info`
+// (`endpoints` array in `electron/network.js::withLatency`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct EndpointAddr {
+    // Numeric IPv4 or IPv6 literal (`"203.0.113.10"` or `"2001:db8::1"`).
     pub address: String,
+    // Game / `/info` port on the dedicated server (`1..=65535`).
     pub port: u16,
+    // Optional transport label advertised by the master (`"udp"` / `"webrtc"`).
     #[serde(default)]
     pub transport: Option<String>,
+    // Whether the master server verified reachability of this endpoint.
     #[serde(default)]
     pub verified: Option<bool>,
 }
 
+// Wire and simulation compatibility contract (`NETWORK_CONTRACT` in
+// `src/runtime/network-contract.js` and `bfe_transport::layout::network_contract`).
+// Two peers can play together iff both `sim` (`simulation`) and `protocol` match.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerContract {
+    // Wire framing version string (`"BFE-UDP/4"`).
     #[serde(default)]
     pub version: String,
+    // Numeric network protocol revision (`network_contract::PROTOCOL`).
     #[serde(default)]
     pub protocol: u32,
+    // Active rules/content profile identifier (`network_contract::PROFILE`).
     #[serde(default)]
     pub profile: String,
+    // Deterministic simulation contract identifier (`network_contract::SIMULATION`).
+    // Accepts both `"sim"` and `"simulation"` in JSON payloads via `serde(alias)`.
     #[serde(alias = "simulation", default)]
     pub sim: String,
+    // Server simulation tick rate in Hz (30 Hz in standard Battlefront Eternal).
     #[serde(rename = "tickRate", default)]
     pub tick_rate: u32,
 }
@@ -361,38 +429,57 @@ impl Default for ServerContract {
     }
 }
 
+// Current battle summary nested under `server.battle` in master and LAN server
+// payloads (`src/shell/server-browser.js` and `src/shell/server-browser-view.js`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BattleSummary {
+    // Short map slug (`"nab2"`, `"hot1"`, `"bes2"`, ...).
     #[serde(default)]
     pub map: String,
+    // Human-readable map title (`"NABOO: THEED"`, `"HOTH: ECHO BASE"`, ...).
     #[serde(rename = "mapName", default)]
     pub map_name: String,
+    // Default faction/side slug (`"rep"`, `"cis"`, `"all"`, `"imp"`).
     #[serde(default)]
     pub side: String,
+    // Era code (`"cw"` for Clone Wars, `"gcw"` for Galactic Civil War).
     #[serde(default)]
     pub era: String,
+    // Game mode slug (`"conquest"`).
     #[serde(default)]
     pub mode: String,
+    // Whether AI bots fill open team slots in this battle.
     #[serde(default)]
     pub bots: Option<bool>,
+    // Whether joining players are auto-assigned to balance teams.
     #[serde(rename = "autoAssignTeams", default)]
     pub auto_assign_teams: Option<bool>,
+    // Target AI bot count per team (`aiPerTeam` in host/server config).
     #[serde(rename = "aiPerTeam", default)]
     pub ai_per_team: Option<u32>,
+    // Hero unit rule setting for the battle, if advertised.
     #[serde(default)]
     pub heroes: Option<String>,
+    // Whether friendly fire damage is enabled on this server.
     #[serde(rename = "friendlyFire", default)]
     pub friendly_fire: Option<bool>,
+    // AI difficulty tier when bots are enabled.
     #[serde(default)]
     pub difficulty: Option<String>,
+    // Starting reinforcement ticket multiplier or count.
     #[serde(default)]
     pub reinforcements: Option<f64>,
+    // Target score required for victory in score-based modes.
     #[serde(rename = "victoryScore", default)]
     pub victory_score: Option<f64>,
+    // Minimum human players required before the match begins.
     #[serde(rename = "minPlayers", default)]
     pub min_players: Option<u32>,
 }
 
+// Entry in `server.rotation`: either a compact battle slug string such as
+// `"swbf1/nab2:cw:conquest"` (used by `src/shell/server-browser-view.js`) or a
+// structured `{ map, era, mode }` object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RotationItem {
@@ -422,70 +509,106 @@ impl RotationItem {
     }
 }
 
+// Untrusted sponsor object received in a server's listing (`server.sponsor` in
+// `src/shell/server-browser-view.js`), sanitized via `clean_sponsor` before display.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RawSponsor {
+    // Raw sponsor organization name (trimmed and capped to 60 chars by `clean_sponsor`).
     #[serde(default)]
     pub name: String,
+    // Optional sponsor landing page URL (accepted only when `https://`).
     #[serde(default)]
     pub url: Option<String>,
+    // Optional sponsor banner image URL (accepted only when `https://`).
     #[serde(default)]
     pub logo: Option<String>,
 }
 
+// Deserialized server listing entry from the master server (`GET /v1/servers`),
+// LAN discovery (`BFE-LAN/1`), or direct `/info` query (`electron/network.js`).
+// Uses `#[serde(default)]` across fields so partial LAN or mock entries parse
+// cleanly without rejecting unknown optional fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServerEntry {
+    // 64-char lowercase hex SHA-256 of the server's SPKI DER Base64 public key.
     #[serde(default)]
     pub id: String,
+    // Operator-configured server title (`"UNNAMED SERVER"` fallback in UI).
     #[serde(default)]
     pub name: String,
+    // Two-line operator description shown in `GAME INFO`.
     #[serde(default)]
     pub description: String,
+    // Responder IP populated for LAN discovery and Direct Connect `/info` results.
     #[serde(default)]
     pub address: Option<String>,
+    // Responder UDP/HTTP game port (`18451` by default).
     #[serde(default)]
     pub port: Option<u16>,
+    // Active human player count currently connected (`c-players` column).
     #[serde(default)]
     pub players: u32,
+    // Maximum player capacity (`maxPlayers` in JSON, up to 64).
     #[serde(rename = "maxPlayers", default)]
     pub max_players: u32,
+    // Operator-supplied region text (`"Alabama, US"`, `"Frankfurt, DE"`).
     #[serde(default)]
     pub location: String,
+    // Optional explicit ISO 3166-1 alpha-2 country code (`"US"`, `"DE"`).
     #[serde(default)]
     pub country: String,
+    // Public IPv4/IPv6 endpoints probed concurrently by `with_latency`.
     #[serde(default)]
     pub endpoints: Vec<EndpointAddr>,
+    // TURN relay policy (`"auto"`, `"always"`, or `"never"`).
     #[serde(rename = "relayPolicy", default)]
     pub relay_policy: Option<String>,
+    // Optional raw battle query string sanitized by `battle_params`.
     #[serde(default)]
     pub query: Option<String>,
+    // Content pack identifier (`"swbf1"` by default).
     #[serde(default)]
     pub content: Option<String>,
+    // Structured current battle metadata (`map`, `mapName`, `era`, `mode`, ...).
     #[serde(default)]
     pub battle: Option<BattleSummary>,
+    // Server-level bot fill override (`BOTS FILL TEAMS` vs `NO BOTS` chip).
     #[serde(default)]
     pub bots: Option<bool>,
+    // Server-level team assignment override (`TEAMS ASSIGNED` vs `PICK YOUR TEAM`).
     #[serde(rename = "autoAssignTeams", default)]
     pub auto_assign_teams: Option<bool>,
+    // Map rotation queue (`rotation[1]` is displayed as `NEXT` in `GAME INFO`).
     #[serde(default)]
     pub rotation: Vec<RotationItem>,
+    // Top-level simulation contract version (`"bfe-sim-..."`).
     #[serde(default)]
     pub simulation: Option<String>,
+    // Top-level wire protocol version number.
     #[serde(default)]
     pub protocol: Option<u32>,
+    // Nested wire/simulation contract object from `/info`.
     #[serde(default)]
     pub contract: Option<ServerContract>,
+    // Server process uptime in seconds, formatted by `uptime_text`.
     #[serde(default)]
     pub uptime: Option<u64>,
+    // Optional hosting sponsor attribution (`Hosting Generously Donated By`).
     #[serde(default)]
     pub sponsor: Option<RawSponsor>,
+    // Optional `sha-256 XX:XX:...` server key fingerprint.
     #[serde(default)]
     pub fingerprint: Option<String>,
+    // Base64-encoded 44-byte SPKI DER Ed25519 public key of the server.
     #[serde(rename = "publicKey", default)]
     pub public_key: Option<String>,
+    // Lowest measured TCP connect latency in milliseconds (`None` if unreachable).
     #[serde(rename = "latencyMs", default)]
     pub latency_ms: Option<u32>,
 }
 
+// Known map catalog entry (`{ id, name }` in `src/shell/server-browser-view.js`)
+// used to populate the map filter dropdown and resolve map slugs in `GAME INFO`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapCatalogEntry {
     pub id: String,
@@ -501,6 +624,8 @@ impl MapCatalogEntry {
     }
 }
 
+// Signal bar tier (`q0`..`q4` in `.bfe-bars`) computed from a server's TCP
+// handshake latency in `src/shell/server-browser-view.js::quality`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PingQuality {
     Good,
@@ -525,484 +650,95 @@ impl PingQuality {
     }
 }
 
+// Sanitized sponsor attribution ready for rendering in `.bfe-sponsor` inside
+// the `GAME INFO` panel (`src/shell/server-browser-view.js`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SponsorInfo {
+    // Sanitized sponsor display name (1..=60 characters).
     pub name: String,
+    // Validated `https://` sponsor link href, if any.
     pub url: Option<String>,
+    // Validated `https://` sponsor logo URL, if any.
     pub logo: Option<String>,
+    // Human-readable link label (`"outerrim.example/servers ↗"`), if `url` is valid.
     pub display_link: Option<String>,
 }
 
+// Complete `GAME INFO` inspector view model returned by `describe_server` /
+// `ServerBrowserService::describe` (`ServersView.describe` in
+// `src/shell/server-browser-view.js`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameInfo {
+    // Active map slug (`"nab2"`, `"hot1"`, ...) for `MapPreview` lookup.
     pub map_id: String,
+    // Caption shown underneath the map flyover preview frame.
     pub preview_caption: String,
+    // Whether the server's simulation and wire protocol match the client's contract.
     pub compatible: bool,
+    // Two-letter uppercase ISO country code (`"US"`, `"DE"`, or `""`).
     pub country: String,
+    // Regional-indicator flag emoji pair (`"🇺🇸"`, `"🇩🇪"`, or `""`).
     pub flag: String,
+    // Uppercase rule badges (`CONQUEST`, `CLONE WARS`, `BOTS FILL TEAMS`, ...).
     pub chips: Vec<String>,
+    // Ordered `(label, value)` pairs for `<dl class="bfe-facts">`.
     pub facts: Vec<(&'static str, String)>,
+    // Validated hosting sponsor attribution, if present.
     pub sponsor: Option<SponsorInfo>,
 }
 
 // Trait contract published for the `shell` lane so the server browser UI can
 // drive either the live `ServerBrowser` or a test fixture.
 pub trait ServerBrowserService {
+    // Returns the active listing source (`Source::Internet` or `Source::Lan`).
     fn source(&self) -> Source;
+    // Switches the active source, clearing current rows and returning `true` when
+    // the source changed so the caller can start a fresh load.
     fn set_source(&mut self, source: Source) -> bool;
+    // Returns the current toolbar filter settings.
     fn filters(&self) -> &Filters;
+    // Applies a single filter update and returns `true` if the filter value changed.
     fn set_filter(&mut self, update: FilterUpdate) -> bool;
+    // Resets all filters to `Filters::default()` and reconciles selection.
     fn clear_filters(&mut self);
+    // Returns the active sort column and direction (`+1` asc, `-1` desc).
     fn sort_spec(&self) -> SortSpec;
+    // Sorts by `column`, or reverses direction if `column` is already active.
     fn sort_by(&mut self, column: SortColumn);
+    // Returns the filtered and sorted slice of visible server rows.
     fn rows(&self) -> Vec<&ServerEntry>;
+    // Returns the currently selected server if it is present in `rows()`.
     fn selected(&self) -> Option<&ServerEntry>;
+    // Selects a server by ID (or clears selection when `None` or empty).
     fn select(&mut self, id: Option<&str>);
+    // Handles keyboard navigation (`ArrowUp`/`Down`, `PageUp`/`Down`, `Home`/`End`).
     fn key(&mut self, key: BrowserKey, shown_rows: usize) -> bool;
+    // Builds the `GAME INFO` inspector model for `server` against `maps`.
     fn describe(&self, server: &ServerEntry, maps: &[MapCatalogEntry]) -> GameInfo;
+    // Returns the current browser lifecycle state (`Idle`, `Loading`, `Notice`, `Ready`, `Error`).
     fn state(&self) -> &BrowserState;
+    // Checks whether an initial or periodic/retry refresh should be triggered at `now_ms`.
     fn needs_refresh(&self, now_ms: u64) -> Option<RefreshKind>;
 }
 
-// Ports `compatible(server, contract)` in `src/shell/server-browser.js`:
-//   (server?.simulation ?? contract.simulation) === contract.simulation &&
-//   (server?.protocol ?? contract.protocol) === contract.protocol
-// Also checks `server.contract` when populated.
-pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
-    let sim = server
-        .simulation
-        .as_deref()
-        .or_else(|| {
-            server
-                .contract
-                .as_ref()
-                .map(|c| c.sim.as_str())
-                .filter(|s| !s.is_empty())
-        })
-        .unwrap_or(contract.sim.as_str());
-    let proto = server
-        .protocol
-        .or_else(|| {
-            server
-                .contract
-                .as_ref()
-                .map(|c| c.protocol)
-                .filter(|&p| p != 0)
-        })
-        .unwrap_or(contract.protocol);
-    sim == contract.sim && proto == contract.protocol
-}
+mod info;
+pub use info::*;
 
-// Ports `battleParams(query)` from `src/runtime/battle-query.js`: filters a
-// raw query string down to the first valid occurrence of each allowed battle
-// key (`map`, `side`, `mission`, `era`, `ai`, `seed`, `match`).
-pub fn battle_params(query: Option<&str>) -> String {
-    let Some(raw) = query else {
-        return String::new();
-    };
-    let trimmed = raw.strip_prefix('?').unwrap_or(raw);
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    let mut seen = Vec::<String>::new();
-    let mut pairs = Vec::<(String, String)>::new();
-    for part in trimmed.split('&') {
-        if part.is_empty() {
-            continue;
-        }
-        let (k, v) = match part.split_once('=') {
-            Some((k, v)) => (k, v),
-            None => (part, ""),
-        };
-        if seen.iter().any(|existing| existing == k) {
-            continue;
-        }
-        if valid_battle_param(k, v) {
-            seen.push(k.to_string());
-            pairs.push((k.to_string(), v.to_string()));
-        }
-    }
-    pairs
-        .into_iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn valid_battle_param(key: &str, value: &str) -> bool {
-    match key {
-        "map" | "side" | "mission" => {
-            (1..=64).contains(&value.len())
-                && value
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-        }
-        "era" => matches!(value, "cw" | "gcw"),
-        "ai" => matches!(value, "classic" | "off"),
-        "seed" => (1..=10).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_digit()),
-        "match" => {
-            value.len() == 32
-                && value
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        }
-        _ => false,
-    }
-}
-
-// Builds a key/value map of battle parameters from a structured `BattleSummary`.
-pub fn battle_summary_params(battle: Option<&BattleSummary>) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    let b = battle.cloned().unwrap_or_default();
-    if !b.map.is_empty() && valid_battle_param("map", &b.map) {
-        out.insert("map".to_string(), b.map);
-    }
-    if !b.side.is_empty() && valid_battle_param("side", &b.side) {
-        out.insert("side".to_string(), b.side);
-    }
-    if !b.era.is_empty() && valid_battle_param("era", &b.era) {
-        out.insert("era".to_string(), b.era);
-    }
-    if !b.mode.is_empty() {
-        out.insert("mode".to_string(), b.mode);
-    }
-    if let Some(bots) = b.bots {
-        out.insert("ai".to_string(), if bots { "classic" } else { "off" }.to_string());
-    }
-    out
-}
-
-// Ports `errorText(error)` in `src/shell/server-browser.js`: strips Electron's
-// `"Error invoking remote method '...': "` prefix and leading `"*Error: "`
-// prefix.
-pub fn error_text(raw: &str) -> String {
-    let mut s = raw.trim();
-    if let Some(rest) = s.strip_prefix("Error invoking remote method '") {
-        if let Some((_, after_quote)) = rest.split_once("': ") {
-            s = after_quote.trim();
-        }
-    }
-    if let Some((prefix, rest)) = s.split_once(": ") {
-        if prefix.ends_with("Error") && prefix.bytes().all(|b| b.is_ascii_alphabetic()) {
-            s = rest.trim();
-        }
-    }
-    s.to_string()
-}
-
-// Ports `ERAS` lookup in `src/shell/server-browser.js`.
-pub fn era_label(era: &str) -> String {
-    match era {
-        "cw" => "CLONE WARS".to_string(),
-        "gcw" => "GALACTIC CIVIL WAR".to_string(),
-        "" => String::new(),
-        other => other.to_ascii_uppercase(),
-    }
-}
-
-// Ports `MODES` lookup in `src/shell/server-browser.js`.
-pub fn mode_label(mode: &str) -> String {
-    match mode {
-        "conquest" | "" => "CONQUEST".to_string(),
-        other => other.to_ascii_uppercase(),
-    }
-}
-
-// Resolves a map slug against the map catalog or uppercases the slug.
-pub fn map_name(id: &str, maps: &[MapCatalogEntry]) -> String {
-    if let Some(found) = maps.iter().find(|m| m.id == id) {
-        return found.name.clone();
-    }
-    if !id.is_empty() {
-        id.to_ascii_uppercase()
-    } else {
-        "UNKNOWN".to_string()
-    }
-}
-
-// Ports `uptimeText(seconds)` in `src/shell/server-browser-view.js`.
-pub fn uptime_text(seconds: Option<u64>) -> String {
-    let Some(secs) = seconds else {
-        return String::new();
-    };
-    let days = secs / 86_400;
-    let hours = (secs % 86_400) / 3_600;
-    let minutes = (secs % 3_600) / 60;
-    if days > 0 {
-        format!("{days}D {hours}H")
-    } else if hours > 0 {
-        format!("{hours}H {minutes}M")
-    } else {
-        format!("{}M", minutes.max(1))
-    }
-}
-
-// Ports `countryOf(location)` in `src/shell/server-browser-view.js`
-// (`"Alabama, US"` -> `"US"`), also checking `server.country` as fallback.
-pub fn country_of(server: &ServerEntry) -> String {
-    let loc = server.location.trim();
-    if let Some((_, tail)) = loc.rsplit_once(',') {
-        let code = tail.trim();
-        if is_two_ascii_upper(code) {
-            return code.to_string();
-        }
-    }
-    let direct = server.country.trim();
-    if is_two_ascii_upper(direct) {
-        return direct.to_string();
-    }
-    String::new()
-}
-
-// Ports `flagOf(location)` in `src/shell/server-browser-view.js`.
-pub fn flag_of(country_or_location: &str) -> String {
-    let code = if is_two_ascii_upper(country_or_location.trim()) {
-        country_or_location.trim()
-    } else if let Some((_, tail)) = country_or_location.trim().rsplit_once(',') {
-        let trimmed = tail.trim();
-        if is_two_ascii_upper(trimmed) {
-            trimmed
-        } else {
-            return String::new();
-        }
-    } else {
-        return String::new();
-    };
-    let bytes = code.as_bytes();
-    let first = char::from_u32(0x1F1E6 + u32::from(bytes[0] - b'A')).unwrap();
-    let second = char::from_u32(0x1F1E6 + u32::from(bytes[1] - b'A')).unwrap();
-    let mut out = String::with_capacity(8);
-    out.push(first);
-    out.push(second);
-    out
-}
-
-fn is_two_ascii_upper(s: &str) -> bool {
-    s.len() == 2 && s.bytes().all(|b| b.is_ascii_uppercase())
-}
-
-// Ports `quality(ms)` signal bar levels in `src/shell/server-browser-view.js`:
-// 4 bars under 60ms, 3 under 100ms, 2 under 160ms, 1 otherwise, 0 when None.
-pub fn ping_quality(latency_ms: Option<u32>) -> (PingQuality, String) {
-    match latency_ms {
-        None => (PingQuality::Dead, "-".to_string()),
-        Some(ms) if ms < 60 => (PingQuality::Good, format!("{ms} MS")),
-        Some(ms) if ms < 100 => (PingQuality::Fair, format!("{ms} MS")),
-        Some(ms) if ms < 160 => (PingQuality::Slow, format!("{ms} MS")),
-        Some(ms) => (PingQuality::Poor, format!("{ms} MS")),
-    }
-}
-
-// Validates and formats sponsor attribution for GAME INFO, matching
-// `src/shell/server-browser-view.js`.
-pub fn clean_sponsor(raw: Option<&RawSponsor>) -> Option<SponsorInfo> {
-    let raw = raw?;
-    let trimmed_name = raw.name.trim();
-    if trimmed_name.is_empty() {
-        return None;
-    }
-    let name: String = trimmed_name.chars().take(60).collect();
-    let url_parts = raw.url.as_deref().and_then(clean_https_url);
-    let logo = raw
-        .logo
-        .as_deref()
-        .and_then(clean_https_url)
-        .map(|(href, _)| href);
-    let (url, display_link) = match url_parts {
-        Some((href, display)) => (Some(href), Some(display)),
-        None => (None, None),
-    };
-    Some(SponsorInfo {
-        name,
-        url,
-        logo,
-        display_link,
-    })
-}
-
-fn clean_https_url(value: &str) -> Option<(String, String)> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() || trimmed.len() > 240 {
-        return None;
-    }
-    let rest = trimmed
-        .strip_prefix("https://")
-        .or_else(|| trimmed.strip_prefix("HTTPS://"))?;
-    let (authority, path_and_more) = match rest.find(['/', '?', '#']) {
-        Some(idx) => (&rest[..idx], &rest[idx..]),
-        None => (rest, ""),
-    };
-    if authority.is_empty() || authority.contains('@') || authority.contains(char::is_whitespace) {
-        return None;
-    }
-    let host_port = authority.to_ascii_lowercase();
-    let host_only = if host_port.starts_with('[') {
-        host_port.split(']').next()?.to_string() + "]"
-    } else {
-        host_port.split(':').next()?.to_string()
-    };
-    if host_only.is_empty() {
-        return None;
-    }
-    let normalized_path = if path_and_more.is_empty() {
-        "/".to_string()
-    } else if path_and_more.starts_with('/') {
-        path_and_more.to_string()
-    } else {
-        format!("/{path_and_more}")
-    };
-    let href = format!("https://{host_port}{normalized_path}");
-    let pathname = normalized_path
-        .split(['?', '#'])
-        .next()
-        .unwrap_or("/")
-        .trim_end_matches('/');
-    let display_host = host_only.strip_prefix("www.").unwrap_or(&host_only);
-    let display = format!("{display_host}{pathname} \u{2197}");
-    Some((href, display))
-}
-
-// Ports `describe(server)` in `src/shell/server-browser-view.js`.
-pub fn describe_server(
-    server: &ServerEntry,
-    maps: &[MapCatalogEntry],
-    contract: &ServerContract,
-) -> GameInfo {
-    let ok = compatible(server, contract);
-    let battle = server.battle.as_ref();
-    let map_id = battle.map(|b| b.map.as_str()).unwrap_or("");
-    let preview_caption = battle
-        .and_then(|b| {
-            let trimmed = b.map_name.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
-        })
-        .or_else(|| {
-            maps.iter()
-                .find(|m| m.id == map_id)
-                .map(|m| m.name.clone())
-        })
-        .unwrap_or_default();
-
-    let mut chips = Vec::with_capacity(4);
-    let mode_str = battle.map(|b| b.mode.as_str()).unwrap_or("");
-    if !mode_str.is_empty() {
-        chips.push(mode_label(mode_str));
-    }
-    let era_str = battle.map(|b| b.era.as_str()).unwrap_or("");
-    let era_chip = era_label(era_str);
-    if !era_chip.is_empty() {
-        chips.push(era_chip);
-    }
-    let bots_flag = server.bots.or_else(|| battle.and_then(|b| b.bots));
-    if let Some(bots) = bots_flag {
-        chips.push(if bots {
-            "BOTS FILL TEAMS".to_string()
-        } else {
-            "NO BOTS".to_string()
-        });
-    }
-    let auto_teams_flag = server
-        .auto_assign_teams
-        .or_else(|| battle.and_then(|b| b.auto_assign_teams));
-    if let Some(auto_teams) = auto_teams_flag {
-        chips.push(if auto_teams {
-            "TEAMS ASSIGNED".to_string()
-        } else {
-            "PICK YOUR TEAM".to_string()
-        });
-    }
-
-    let country = country_of(server);
-    let flag = flag_of(&country);
-
-    let next_battle = if let Some(second) = server.rotation.get(1) {
-        if let Some(next_id) = second.map_id() {
-            map_name(next_id, maps)
-        } else {
-            "-".to_string()
-        }
-    } else if server.rotation.len() == 1 {
-        "SAME BATTLE".to_string()
-    } else {
-        "-".to_string()
-    };
-
-    let rotation_len = server.rotation.len();
-    let rotation_text = if rotation_len > 0 {
-        format!(
-            "{rotation_len} {}",
-            if rotation_len == 1 {
-                "BATTLE"
-            } else {
-                "BATTLES"
-            }
-        )
-    } else {
-        "-".to_string()
-    };
-
-    let up = uptime_text(server.uptime);
-    let up_text = if up.is_empty() { "-".to_string() } else { up };
-
-    let sim_source = server
-        .simulation
-        .as_deref()
-        .or_else(|| server.contract.as_ref().map(|c| c.sim.as_str()))
-        .unwrap_or(contract.sim.as_str());
-    let version_text = if ok {
-        let digits: String = sim_source.chars().filter(|ch| ch.is_ascii_digit()).collect();
-        let sim_num = if digits.is_empty() { "?" } else { &digits };
-        format!("SIM {sim_num} \u{2713}")
-    } else {
-        "UPDATE TO JOIN".to_string()
-    };
-
-    let link_text = match server.relay_policy.as_deref() {
-        Some("always") => "RELAYED",
-        Some("never") => "DIRECT",
-        _ if server.address.is_some() => "LAN",
-        _ => "DIRECT OR RELAY",
-    }
-    .to_string();
-
-    let ping_fact = match server.latency_ms {
-        Some(ms) => format!("{ms} MS"),
-        None => "NO ANSWER".to_string(),
-    };
-
-    let loc_trimmed = server.location.trim();
-    let location_fact = if loc_trimmed.is_empty() {
-        "UNKNOWN".to_string()
-    } else {
-        loc_trimmed.to_string()
-    };
-
-    let facts = vec![
-        (
-            "PLAYERS",
-            format!("{} OF {}", server.players, server.max_players),
-        ),
-        ("PING", ping_fact),
-        ("LOCATION", location_fact),
-        ("NEXT", next_battle),
-        ("ROTATION", rotation_text),
-        ("UP FOR", up_text),
-        ("VERSION", version_text),
-        ("LINK", link_text),
-    ];
-
-    GameInfo {
-        map_id: map_id.to_string(),
-        preview_caption,
-        compatible: ok,
-        country,
-        flag,
-        chips,
-        facts,
-        sponsor: clean_sponsor(server.sponsor.as_ref()),
-    }
-}
-
+// Stateful server browser model porting `class ServerList` in
+// `src/shell/server-browser.js`.
+//
+// Owns:
+// - `source`: active directory (`Internet` master list vs `Lan` UDP broadcast).
+// - `filters` and `sort`: toolbar filter predicates and active sort column/dir.
+// - `servers`: latest completed server list for the current `source`.
+// - `selected_id`: ID of the highlighted row, preserved across refreshes and
+//   filter edits via `keep_selection` (`keep()` in `src/shell/server-browser.js`).
+// - `state`, `stale`, `refreshed_at`, `failed_at`: lifecycle state and timestamps
+//   used by `needs_refresh` (`tick()` in `src/shell/server-browser.js`) to
+//   schedule 30s periodic renewals and 10s quiet retries while preserving rows.
+// - `loads` and `busy`: monotonically increasing request token (`++this.loads`)
+//   that discards out-of-order responses when the user switches source or triggers
+//   a manual refresh while a previous fetch is still in flight.
 pub struct ServerBrowser {
     source: Source,
     filters: Filters,
@@ -1019,12 +755,16 @@ pub struct ServerBrowser {
 }
 
 impl Default for ServerBrowser {
+    // Constructs a `ServerBrowser` bound to the active `ServerContract::current()`
+    // wire and simulation constants.
     fn default() -> Self {
         Self::new(ServerContract::current())
     }
 }
 
 impl ServerBrowser {
+    // Initializes an idle `ServerBrowser` on the `"internet"` source sorted
+    // ascending by `Ping`, matching `new ServerList()` in `src/shell/server-browser.js`.
     pub fn new(contract: ServerContract) -> Self {
         Self {
             source: Source::Internet,
@@ -1042,41 +782,56 @@ impl ServerBrowser {
         }
     }
 
+    // Returns the active compatibility contract checked by `compatible` and `describe`.
     pub fn contract(&self) -> &ServerContract {
         &self.contract
     }
 
+    // Returns the unfiltered server slice from the most recent completed refresh.
     pub fn servers(&self) -> &[ServerEntry] {
         &self.servers
     }
 
+    // Returns the currently highlighted server ID, if any (`this.selectedId` in JS).
     pub fn selected_id(&self) -> Option<&str> {
         self.selected_id.as_deref()
     }
 
+    // Non-empty when the last quiet background renewal failed while `state == Ready`;
+    // holds the uppercase reason shown as the tooltip on `"CAN'T UPDATE, RETRYING…"`.
     pub fn stale(&self) -> &str {
         &self.stale
     }
 
+    // Timestamp (ms) when `finish_refresh_ok` last updated `servers` (`this.updatedAt`).
     pub fn refreshed_at(&self) -> u64 {
         self.refreshed_at
     }
 
+    // Timestamp (ms) when a quiet renewal last failed (`this.failedAt`), used to
+    // schedule `RETRY_EVERY_MS` (10s) retries instead of `REFRESH_EVERY_MS` (30s).
     pub fn failed_at(&self) -> u64 {
         self.failed_at
     }
 
+    // True while an async master or LAN discovery request is in flight (`this.busy`).
     pub fn is_busy(&self) -> bool {
         self.busy
     }
 
+    // Monotonic token of the latest `begin_refresh` call (`this.loads` in JS).
     pub fn active_load_token(&self) -> u64 {
         self.loads
     }
 
-    // Begins a refresh operation and returns `Some(token)` (`loads` in
-    // `src/shell/server-browser.js`), or `None` if `quiet` is true while a
+    // Begins a refresh operation and returns `Some(token)` (`const token = ++this.loads`
+    // in `src/shell/server-browser.js`), or `None` if `quiet` is true while a
     // load is already busy (`if (quiet && this.busy) return`).
+    //
+    // Foreground refreshes (`!quiet`) and initial refreshes when not yet `Ready`
+    // transition `state` to `BrowserState::Loading` (`"SEARCHING FOR SERVERS…"`),
+    // whereas quiet renewals in `BrowserState::Ready` keep the existing table
+    // visible while the background probe runs.
     pub fn begin_refresh(&mut self, quiet: bool) -> Option<u64> {
         if quiet && self.busy {
             return None;
@@ -1089,7 +844,11 @@ impl ServerBrowser {
         Some(self.loads)
     }
 
-    // Applies a completed server list if `token` matches the latest request.
+    // Applies a completed server list if `token` matches `self.loads`
+    // (`if (token !== this.loads) return` in `src/shell/server-browser.js`).
+    // Clears any stale warning, records `refreshed_at = now_ms`, transitions
+    // `state` to `BrowserState::Ready`, and runs `keep_selection()` so the
+    // player's highlighted server stays selected if still present.
     pub fn finish_refresh_ok(&mut self, token: u64, list: Vec<ServerEntry>, now_ms: u64) -> bool {
         if token != self.loads {
             return false;
@@ -1104,7 +863,9 @@ impl ServerBrowser {
         true
     }
 
-    // Transitions to the privacy notice state if `token` matches.
+    // Transitions to `BrowserState::Notice` (`"ONLINE PLAY NEEDS YOUR OK FIRST"`
+    // in `src/shell/server-browser-view.js`) when the master bridge reports that
+    // the player has not yet accepted `ONLINE_NOTICE_VERSION`.
     pub fn finish_refresh_notice(&mut self, token: u64) -> bool {
         if token != self.loads {
             return false;
@@ -1117,9 +878,12 @@ impl ServerBrowser {
         true
     }
 
-    // Applies a failed refresh if `token` matches the latest request. When a
-    // quiet refresh fails while `Ready`, preserves the current rows and records
-    // `stale` and `failed_at`.
+    // Applies a failed refresh if `token` matches `self.loads`.
+    // Strips IPC prefixes via `error_text`, uppercases the message (defaulting to
+    // `"THE SERVER LIST COULD NOT BE LOADED"`), and either:
+    // - preserves `self.servers` and records `self.stale` + `self.failed_at` when
+    //   a `quiet` background renewal fails in `BrowserState::Ready`, or
+    // - clears `self.servers` and transitions to `BrowserState::Error(msg)`.
     pub fn finish_refresh_err(&mut self, token: u64, quiet: bool, err: &str, now_ms: u64) -> bool {
         if token != self.loads {
             return false;
@@ -1142,7 +906,15 @@ impl ServerBrowser {
         true
     }
 
-    // Ports filter predicate in `ServerList.rows()` in `src/shell/server-browser.js`.
+    // Ports the six-clause filter predicate in `ServerList.rows()` in
+    // `src/shell/server-browser.js`:
+    // 1. `name`: case-insensitive substring match against `server.name`,
+    //    `server.battle.map_name`, or `server.location`.
+    // 2. `map`: exact match on `server.battle.map` unless `"all"`.
+    // 3. `era`: exact match on `server.battle.era` unless `"all"`.
+    // 4. `ping`: requires a finite `latency_ms < threshold` unless `PingFilter::Any`.
+    // 5. `hide_full`: excludes servers where `players >= max_players` (for `max_players > 0`).
+    // 6. `hide_empty`: excludes servers where `players == 0`.
     pub fn matches_filters(&self, server: &ServerEntry) -> bool {
         let q = self.filters.name.trim().to_ascii_lowercase();
         if !q.is_empty() {
@@ -1191,6 +963,15 @@ impl ServerBrowser {
 
     // Ports `compare(column.value(a), column.value(b)) * this.sort.dir || i - j`
     // in `src/shell/server-browser.js`.
+    //
+    // Key behaviors preserved from the JS implementation:
+    // - `SortColumn::Ping` maps `None` (`!Number.isFinite(s.latencyMs)`) to
+    //   `u64::MAX` (`Infinity` in JS) so unanswered servers sort after answered
+    //   ones under ascending ping sort.
+    // - `SortColumn::Map` compares `battle.map_name` when non-empty and falls
+    //   back to the raw `battle.map` slug (`s.battle?.mapName || s.battle?.map`).
+    // - Ties after applying `self.sort.dir` always break by the original listing
+    //   index `a.0.cmp(&b.0)` (`|| i - j` in JS), independent of `sort.dir`.
     fn compare_entries(&self, a: (usize, &ServerEntry), b: (usize, &ServerEntry)) -> Ordering {
         let ord = match self.sort.column {
             SortColumn::Players => a.1.players.cmp(&b.1.players),
@@ -1285,9 +1066,11 @@ impl ServerBrowser {
         }
     }
 
-    // Ports `keep()` in `src/shell/server-browser.js`: preserves `selected_id`
-    // if it still appears in the filtered rows, otherwise selects the first
-    // visible row.
+    // Ports `keep()` in `src/shell/server-browser.js`:
+    //   if (!rows.some(server => server.id === this.selectedId))
+    //     this.selectedId = rows[0]?.id ?? null;
+    // Ensures the `GAME INFO` inspector and keyboard cursor always point to a
+    // visible row whenever the filtered list is non-empty, or `None` when empty.
     pub fn keep_selection(&mut self) {
         let visible_ids: Vec<String> = self.rows().into_iter().map(|s| s.id.clone()).collect();
         if let Some(current) = &self.selected_id {
@@ -1321,6 +1104,9 @@ impl ServerBrowserService for ServerBrowser {
         &self.filters
     }
 
+    // Ports `setFilter(key, value)` in `src/shell/server-browser.js`: mutates
+    // the targeted filter field and, when the value actually changed, re-runs
+    // `keep_selection()` so a newly filtered-out selection snaps to `rows()[0]`.
     fn set_filter(&mut self, update: FilterUpdate) -> bool {
         let changed = match update {
             FilterUpdate::Name(v) => {
@@ -1360,6 +1146,8 @@ impl ServerBrowserService for ServerBrowser {
         changed
     }
 
+    // Resets all toolbar filters to `Filters::default()` (`FILTERS` in JS) and
+    // reconciles `selected_id` against the newly unfiltered row order.
     fn clear_filters(&mut self) {
         self.filters = Filters::default();
         self.keep_selection();
@@ -1369,7 +1157,12 @@ impl ServerBrowserService for ServerBrowser {
         self.sort
     }
 
-    // Ports `sortBy(key)` in `src/shell/server-browser.js`.
+    // Ports `sortBy(key)` in `src/shell/server-browser.js`:
+    //   this.sort = this.sort.key === key
+    //     ? { key, dir: -this.sort.dir }
+    //     : { key, dir: column.first ?? 1 };
+    // Selecting `SortColumn::Players` for the first time starts descending (`-1`,
+    // fullest servers first), whereas all other columns start ascending (`+1`).
     fn sort_by(&mut self, column: SortColumn) {
         if self.sort.column == column {
             self.sort.dir = -self.sort.dir;
@@ -1379,7 +1172,9 @@ impl ServerBrowserService for ServerBrowser {
         }
     }
 
-    // Ports `rows()` in `src/shell/server-browser.js`.
+    // Ports `rows()` in `src/shell/server-browser.js`: filters `self.servers`
+    // with `matches_filters`, pairs each surviving entry with its original
+    // listing index for stable tie-breaking, and sorts via `compare_entries`.
     fn rows(&self) -> Vec<&ServerEntry> {
         let mut indexed: Vec<(usize, &ServerEntry)> = self
             .servers
@@ -1391,19 +1186,27 @@ impl ServerBrowserService for ServerBrowser {
         indexed.into_iter().map(|(_, s)| s).collect()
     }
 
-    // Ports `selected()` in `src/shell/server-browser.js`.
+    // Ports `selected()` in `src/shell/server-browser.js`: looks up `selected_id`
+    // within the currently visible `rows()` slice so a hidden server is never
+    // returned as selected.
     fn selected(&self) -> Option<&ServerEntry> {
         let id = self.selected_id.as_deref()?;
         self.rows().into_iter().find(|s| s.id == id)
     }
 
+    // Explicitly sets `selected_id` from a row click or programmatic selection,
+    // normalizing empty strings to `None`.
     fn select(&mut self, id: Option<&str>) {
         self.selected_id = id.filter(|s| !s.is_empty()).map(str::to_string);
     }
 
-    // Ports `key(code)` in `src/shell/server-browser.js`. Returns false at
-    // the top (`ArrowUp` at 0) and bottom (`ArrowDown` at last row) so focus
-    // passes naturally to the toolbar above or footer below.
+    // Ports `key(code)` in `src/shell/server-browser.js`:
+    // - `ArrowUp` at row 0 and `ArrowDown` at `rows.len() - 1` return `false` so
+    //   the menu screen can hand focus off to the filter bar above or the action
+    //   buttons (`BACK`, `REFRESH`, `DIRECT CONNECT`, `JOIN`) below.
+    // - `PageUp` and `PageDown` step by `max(shown_rows - 1, 1)` (`const page =
+    //   Math.max(this.shown - 1, 1)` in JS), clamped to `0..=last`.
+    // - `Home` and `End` jump to the first and last visible rows.
     fn key(&mut self, key: BrowserKey, shown_rows: usize) -> bool {
         let visible_ids: Vec<String> = self.rows().into_iter().map(|s| s.id.clone()).collect();
         if visible_ids.is_empty() {
@@ -1446,7 +1249,13 @@ impl ServerBrowserService for ServerBrowser {
         &self.state
     }
 
-    // Ports `tick()` in `src/shell/server-browser.js` (`since > (stale ? 10 : 30) * 1000`).
+    // Ports `tick()` and `onEnter` in `src/shell/server-browser.js`:
+    // - Returns `None` while a load is already in flight (`busy` or `Loading`).
+    // - Returns `Some(RefreshKind::Initial)` when `Idle` so entering the screen
+    //   kicks off the initial fetch.
+    // - When `Ready`, returns `Some(RefreshKind::Quiet)` after `RETRY_EVERY_MS`
+    //   (10s) if the previous quiet renewal failed (`!stale.is_empty()`), or
+    //   after `REFRESH_EVERY_MS` (30s) following a clean refresh.
     fn needs_refresh(&self, now_ms: u64) -> Option<RefreshKind> {
         if self.busy || self.state == BrowserState::Loading {
             return None;
@@ -1472,6 +1281,13 @@ impl ServerBrowserService for ServerBrowser {
 mod tests {
     use super::*;
 
+    // Builds a 4-server fixture covering the browser's sorting, filtering, and
+    // compatibility cases:
+    // - `"a"` (`Alpha`): 12/64 players, 90ms ping, US, Clone Wars on `nab2`,
+    //   2-battle rotation, uptime 2h32m, bots + auto-teams enabled, sponsored.
+    // - `"b"` (`Bravo`): 64/64 full, 20ms lowest ping, US, GCW on `hot1`.
+    // - `"c"` (`Charlie`): 0/64 empty, `None` ping (unanswered), DE, Clone Wars.
+    // - `"d"` (`Delta`): 3/64 players, 140ms ping, incompatible `simulation`.
     fn test_servers() -> Vec<ServerEntry> {
         let contract = ServerContract::current();
         vec![
@@ -1562,54 +1378,73 @@ mod tests {
         ]
     }
 
+    // Verifies default ascending ping order (`20ms`, `90ms`, `140ms`, `None`),
+    // auto-selection of the first visible row (`"b"`), `SortColumn::Players`
+    // starting descending (`first: -1` in `src/shell/server-browser.js`) before
+    // toggling to ascending on a second click, and case-insensitive `Name` sort.
     #[test]
-    fn sorts_by_ping_by_default_unknown_last_and_players_starts_fullest() {
+    fn sorts_by_ping_by_default_unknown_last_and_players_starts_fullest(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut browser = ServerBrowser::default();
-        let token = browser.begin_refresh(false).unwrap();
+        let token = browser.begin_refresh(false).ok_or("expected refresh token")?;
         browser.finish_refresh_ok(token, test_servers(), 1_000);
 
+        // Default sort is ascending `Ping` (`b=20ms`, `a=90ms`, `d=140ms`, `c=None/MAX`),
+        // and `keep_selection()` selects the first visible row (`"b"`).
         assert_eq!(browser.state(), &BrowserState::Ready);
         let ids: Vec<&str> = browser.rows().into_iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, vec!["b", "a", "d", "c"]);
         assert_eq!(browser.selected().map(|s| s.id.as_str()), Some("b"));
 
+        // First click on `PLAYERS` sorts descending (`first: -1` -> 64, 12, 3, 0).
         browser.sort_by(SortColumn::Players);
         assert_eq!(
             browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["b", "a", "d", "c"]
         );
 
+        // Second click on `PLAYERS` reverses direction to ascending (0, 3, 12, 64).
         browser.sort_by(SortColumn::Players);
         assert_eq!(
             browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["c", "d", "a", "b"]
         );
 
+        // Clicking `GAME NAME` sorts alphabetically (`Alpha`, `Bravo`, `Charlie`, `Delta`).
         browser.sort_by(SortColumn::Name);
         assert_eq!(
             browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["a", "b", "c", "d"]
         );
+        Ok(())
     }
 
+    // Verifies every filter predicate (`Name` matching map title and location,
+    // `Era`, `PingFilter::Under100` excluding both 140ms and `None`, `HideFull`,
+    // `HideEmpty`, and `Map`) and checks that `keep_selection()` advances the
+    // selection when the previously selected server is filtered out.
     #[test]
-    fn filters_by_name_map_era_ping_full_and_empty_and_preserves_selection() {
+    fn filters_by_name_map_era_ping_full_and_empty_and_preserves_selection(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut browser = ServerBrowser::default();
-        let token = browser.begin_refresh(false).unwrap();
+        let token = browser.begin_refresh(false).ok_or("expected refresh token")?;
         browser.finish_refresh_ok(token, test_servers(), 1_000);
 
+        // Search query matches `battle.map_name` (`"HOTH: ECHO BASE"` on `"b"`).
         browser.set_filter(FilterUpdate::Name("hoth".to_string()));
         assert_eq!(
             browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["b"]
         );
 
+        // Search query also matches `server.location` (`"Frankfurt, DE"` on `"c"`).
         browser.set_filter(FilterUpdate::Name("frankfurt".to_string()));
         assert_eq!(
             browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["c"]
         );
 
+        // Clearing the search query and filtering by `era = "gcw"` isolates `"b"`.
         browser.set_filter(FilterUpdate::Name(String::new()));
         browser.set_filter(FilterUpdate::Era("gcw".to_string()));
         assert_eq!(
@@ -1617,6 +1452,7 @@ mod tests {
             vec!["b"]
         );
 
+        // `PingFilter::Under100` keeps 20ms (`"b"`) and 90ms (`"a"`), dropping 140ms and `None`.
         browser.set_filter(FilterUpdate::Era("all".to_string()));
         browser.set_filter(FilterUpdate::Ping(PingFilter::Under100));
         assert_eq!(
@@ -1624,26 +1460,35 @@ mod tests {
             vec!["b", "a"]
         );
 
+        // `HideFull(true)` hides `"b"` (64/64) and `keep_selection()` snaps to `"a"`.
         browser.set_filter(FilterUpdate::Ping(PingFilter::Any));
         browser.set_filter(FilterUpdate::HideFull(true));
         assert!(!browser.rows().iter().any(|s| s.id == "b"));
         assert_eq!(browser.selected().map(|s| s.id.as_str()), Some("a"));
 
+        // Adding `HideEmpty(true)` also hides `"c"` (0/64), leaving `"a"` and `"d"`.
         browser.set_filter(FilterUpdate::HideEmpty(true));
         assert_eq!(
             browser.rows().into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["a", "d"]
         );
 
+        // Filtering by `"hot1"` while `HideFull` is active leaves zero matching rows.
         browser.set_filter(FilterUpdate::Map("hot1".to_string()));
         assert!(browser.rows().is_empty());
         assert!(browser.selected().is_none());
+        Ok(())
     }
 
+    // Verifies keyboard navigation (`ArrowUp`, `ArrowDown`, `End`, `Home`,
+    // `PageDown` with `shown_rows = 3` -> step of 2) and confirms that pressing
+    // `ArrowUp` on the first row or `ArrowDown` on the last row returns `false`
+    // to hand focus off to surrounding screen widgets.
     #[test]
-    fn navigates_rows_with_keys_and_hands_off_focus_at_ends() {
+    fn navigates_rows_with_keys_and_hands_off_focus_at_ends(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut browser = ServerBrowser::default();
-        let token = browser.begin_refresh(false).unwrap();
+        let token = browser.begin_refresh(false).ok_or("expected refresh token")?;
         browser.finish_refresh_ok(token, test_servers(), 1_000);
 
         assert_eq!(browser.selected_id(), Some("b"));
@@ -1656,8 +1501,12 @@ mod tests {
         assert!(browser.key(BrowserKey::Home, 3));
         assert!(browser.key(BrowserKey::PageDown, 3));
         assert_eq!(browser.selected_id(), Some("d"));
+        Ok(())
     }
 
+    // Verifies `describe_server` (`GAME INFO` chips, US regional-indicator flag,
+    // rotation next-map lookup, uptime formatting, version compatibility badge,
+    // and link classification) along with `battle_params` query allowlisting.
     #[test]
     fn describes_game_info_facts_chips_flags_sponsor_and_battle_params() {
         let browser = ServerBrowser::default();
@@ -1713,17 +1562,22 @@ mod tests {
         assert_eq!(battle_params(None), "");
     }
 
+    // Verifies the refresh state machine (`Initial` when idle, `Quiet` after
+    // 30s when healthy, concurrent quiet refresh suppression while `busy`,
+    // stale-row preservation + 10s retry cadence on quiet failure, and Electron
+    // IPC prefix stripping in `error_text`).
     #[test]
-    fn schedules_periodic_refresh_and_quiet_retry_and_formats_errors() {
+    fn schedules_periodic_refresh_and_quiet_retry_and_formats_errors(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut browser = ServerBrowser::default();
         assert_eq!(browser.needs_refresh(0), Some(RefreshKind::Initial));
 
-        let token = browser.begin_refresh(false).unwrap();
+        let token = browser.begin_refresh(false).ok_or("expected refresh token")?;
         browser.finish_refresh_ok(token, test_servers(), 0);
         assert_eq!(browser.needs_refresh(30_000), None);
         assert_eq!(browser.needs_refresh(31_000), Some(RefreshKind::Quiet));
 
-        let token2 = browser.begin_refresh(true).unwrap();
+        let token2 = browser.begin_refresh(true).ok_or("expected refresh token")?;
         // While busy, another quiet refresh is not started.
         assert_eq!(browser.begin_refresh(true), None);
         browser.finish_refresh_err(
@@ -1749,5 +1603,6 @@ mod tests {
             error_text("Error: Accept the online privacy notice first."),
             "Accept the online privacy notice first."
         );
+        Ok(())
     }
 }

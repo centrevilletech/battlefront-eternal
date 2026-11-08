@@ -1,12 +1,9 @@
 #![deny(warnings, clippy::all)]
 
-//! Front-end shell (`MAIN MENU`, `SINGLEPLAYER`, `INSTANT ACTION`, `OPTIONS`,
-//! `PROFILE MANAGEMENT`, `MULTIPLAYER`, `EXIT TO WINDOWS`), click gate,
-//! screen media transitions, shell audio/music, loading timeline, and
-//! battle/playlist launch state for Battlefront Eternal.
-//!
-//! Ports `src/shell/*.js`, `src/launch.js`, and `src/mission.js` into native
-//! Rust with zero browser/URL dependencies.
+//! Front-end shell menus (`MAIN MENU`, `SINGLEPLAYER`, `INSTANT ACTION`,
+//! `OPTIONS`, `PROFILE MANAGEMENT`, `MULTIPLAYER`, `EXIT TO WINDOWS`), click gate,
+//! screen media transitions, shell audio/music, loading timeline, and launch state.
+//! Ports `src/shell/*.js`, `src/launch.js`, and `src/mission.js` to native Rust.
 
 pub mod audio;
 pub mod data;

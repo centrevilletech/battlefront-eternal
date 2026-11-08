@@ -78,12 +78,14 @@ pub struct ProfileState {
 }
 
 impl Default for ProfileState {
+    /// Initializes profile state with [`DEFAULT_PLAYER_NAME`] (`"PLAYER 1"`).
     fn default() -> Self {
         Self::new(DEFAULT_PLAYER_NAME)
     }
 }
 
 impl ProfileState {
+    /// Creates a profile state with `initial` cleaned via [`clean_player_name`].
     pub fn new(initial: &str) -> Self {
         let name = clean_player_name(initial);
         Self {
@@ -115,6 +117,7 @@ impl ProfileState {
         self.editing = false;
     }
 
+    /// Appends a printable character to `draft` if under [`PLAYER_NAME_LIMIT`].
     pub fn push_char(&mut self, ch: char) {
         let code = ch as u32;
         if !(code <= 0x1f || code == 0x7f) && self.draft.chars().count() < PLAYER_NAME_LIMIT {
@@ -122,6 +125,7 @@ impl ProfileState {
         }
     }
 
+    /// Removes the last character from `draft`.
     pub fn backspace(&mut self) {
         self.draft.pop();
     }
@@ -135,12 +139,14 @@ impl ProfileState {
         &self.name
     }
 
+    /// Discards `draft` changes, restores `name`, and closes the editor.
     pub fn cancel(&mut self) {
         self.draft = self.name.clone();
         self.message.clear();
         self.editing = false;
     }
 
+    /// Returns whether `self.name` is a non-default multiplayer profile.
     pub fn has_profile(&self) -> bool {
         has_profile(&self.name)
     }

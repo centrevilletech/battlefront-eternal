@@ -1,10 +1,22 @@
 //! Bounded 8-message chat log, interactive chat input controller, and in-battle key routing
 //! (`src/chat.js`, `ChatLog`, `CHAT_COLORS`, `CHAT_LIMIT`).
+//!
+//! Mirrors the local and transport-facing chat architecture from `src/chat.js`:
+//! - `ChatLog` retains at most 8 sanitized messages, stripping ASCII control characters
+//!   (`0x00..=0x1F` and `0x7F`) so untrusted peer strings cannot inject newlines or control codes
+//!   into the HUD overlay.
+//! - `ChatController` owns the modal typing state (`KeyT` for global, `KeyY` for team) and
+//!   swallows all keys while open, including `Tab`, so typing never triggers the scoreboard underneath.
+//! - `route_battle_key` arbitrates in-battle hotkeys across chat, map overlay, scoreboard peek,
+//!   pause menu, camera viewpoint, developer console, and squad commands.
 
 /// Maximum chat message length in characters (`CHAT_LIMIT` in `src/chat.js`).
 pub const CHAT_LIMIT: usize = 240;
 
 /// Chat channel (`global`, `team`, or `server` in `src/chat.js`).
+///
+/// Determines both the HUD text color (`CHAT_COLORS`) and the prefix tag prepended to rendered
+/// lines (`[TEAM] ` or `[SERVER] `, with `Global` omitting any channel tag).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChatChannel {
     Global,
@@ -13,7 +25,10 @@ pub enum ChatChannel {
 }
 
 impl ChatChannel {
-    /// Parses a channel name (`"global"`, `"team"`, `"server"`).
+    /// Parses a wire or caller channel name (`"global"`, `"team"`, `"server"`).
+    ///
+    /// Mirrors the `Object.hasOwn(CHAT_COLORS, channel)` guard in `ChatLog.receive` (`src/chat.js`),
+    /// rejecting unknown channel identifiers before any message allocation occurs.
     pub fn from_str_name(s: &str) -> Option<Self> {
         match s {
             "global" => Some(ChatChannel::Global),
@@ -24,6 +39,9 @@ impl ChatChannel {
     }
 
     /// CSS hex color for the channel (`CHAT_COLORS` in `src/chat.js`).
+    ///
+    /// Global chat renders in yellow (`#ffff40`), team chat in green (`#50ff70`),
+    /// and server announcements in light blue (`#60b8ff`).
     pub fn hex_color(self) -> &'static str {
         match self {
             ChatChannel::Global => "#ffff40",
@@ -52,6 +70,9 @@ pub struct ChatMessage {
 
 impl ChatMessage {
     /// Formats the chat line as rendered in the HUD chat feed (`src/chat.js`).
+    ///
+    /// Server messages suppress the speaker name even if one was supplied (`[SERVER] <text>`),
+    /// whereas player messages prepend `name: ` when `name` is non-empty.
     pub fn formatted_line(&self) -> String {
         let prefix = match self.channel {
             ChatChannel::Server => "[SERVER] ",
@@ -74,7 +95,7 @@ pub struct ChatLog {
 }
 
 impl ChatLog {
-    /// Creates an empty `ChatLog`.
+    /// Creates an empty `ChatLog` pre-sized for the 8-message ring capacity.
     pub fn new() -> Self {
         Self {
             messages: Vec::with_capacity(8),
@@ -82,6 +103,10 @@ impl ChatLog {
     }
 
     /// Sanitizes and appends a message if valid, keeping at most 8 messages (`receive` in `src/chat.js`).
+    ///
+    /// Control characters (`<= 0x1F` and `0x7F`) in `text` are replaced with spaces before trimming
+    /// and truncating to [`CHAT_LIMIT`] (`240`) characters, while control characters in `name` are
+    /// stripped outright and capped at 48 characters. Empty post-trim messages are dropped.
     pub fn receive(
         &mut self,
         channel_name: &str,
@@ -90,6 +115,7 @@ impl ChatLog {
         now_ms: f64,
     ) -> Option<ChatMessage> {
         let channel = ChatChannel::from_str_name(channel_name)?;
+        // Replace ASCII control characters in message text with spaces (`replace(/[\x00-\x1f\x7f]/g, ' ')`).
         let clean_text: String = text
             .chars()
             .map(|c| {
@@ -104,6 +130,7 @@ impl ChatLog {
         if trimmed.is_empty() {
             return None;
         }
+        // Strip ASCII control characters from speaker names (`replace(/[\x00-\x1f\x7f]/g, '')`).
         let clean_name: String = name
             .chars()
             .filter(|&c| (c as u32) > 0x1f && (c as u32) != 0x7f)
@@ -115,6 +142,7 @@ impl ChatLog {
             text: trimmed,
             time: now_ms,
         };
+        // Evict the oldest message once the 8-line feed is full.
         if self.messages.len() >= 8 {
             self.messages.remove(0);
         }
@@ -124,6 +152,8 @@ impl ChatLog {
 
     /// Returns messages visible at `now_ms` (all messages while `chat_open` is `true`,
     /// or those within 12,000 ms otherwise; `src/chat.js`).
+    ///
+    /// Opening the chat box reveals the full 8-message history even if older lines had faded out.
     pub fn visible_messages(&self, chat_open: bool, now_ms: f64) -> Vec<&ChatMessage> {
         self.messages
             .iter()
@@ -133,6 +163,9 @@ impl ChatLog {
 }
 
 /// Interactive chat input state (`createChat` in `src/chat.js`).
+///
+/// Tracks the currently open channel (`Some(Global)` or `Some(Team)`), the in-progress `draft`
+/// buffer, and the local `player_name` echoed when submitting messages locally.
 #[derive(Clone, Debug, Default)]
 pub struct ChatController {
     pub log: ChatLog,
@@ -159,6 +192,11 @@ impl ChatController {
     }
 
     /// Processes a keydown event (`key` in `src/chat.js`); returns `true` when swallowed by chat.
+    ///
+    /// When closed, only unmodified non-repeat `KeyT` (global) or `KeyY` (team) presses while
+    /// `can_open` is `true` open the input line. When open, `Enter`/`NumpadEnter` commits any
+    /// non-empty draft to `self.log` and closes, `Escape` cancels, and all other keys are
+    /// swallowed (`stopImmediatePropagation` in JS) so gameplay/menu listeners never fire.
     pub fn handle_key(
         &mut self,
         code: &str,
@@ -234,6 +272,11 @@ pub enum BattleKeyAction {
 
 /// Routes an in-battle key press across chat, map overlay (`M`), scoreboard (`Tab`),
 /// pause (`Escape`), viewpoint (`Q`/`V`), console (`Backquote`), and squad commands (`F1`..`F4`).
+///
+/// Chat runs first and may open even while the spawn screen or scoreboard is up (`can_open_chat = !pause_open`),
+/// matching `canOpen` in `src/chat.js`. Remaining bindings respect modal screen ownership:
+/// `Escape`, `Tab`, `Q`/`V`, and `F1`..`F4` require both spawn and scoreboard to be closed,
+/// while `KeyM` (map overlay) is only blocked by the scoreboard.
 #[allow(clippy::too_many_arguments)]
 pub fn route_battle_key(
     code: &str,

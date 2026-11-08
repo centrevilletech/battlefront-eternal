@@ -1,19 +1,29 @@
 //! Nine-slice frame decomposition, greedy word wrapping, and convex quad hit-testing (`src/interface/shapes.js`).
 //!
-//! Ports `nineSlice`, `wrapLines`, and `insideQuad` from `src/interface/shapes.js`.
+//! Ports `nineSlice`, `wrapLines`, and `insideQuad` from `src/interface/shapes.js`
+//! for decomposing 9-slice window borders (`border_3_pieces`, `listbox_cursor`), wrapping popup
+//! text into fixed-width columns, and testing pointer hits against perspective-projected quads.
 
 use crate::space::Point;
 
 /// A single textured quad piece from a 3x3 nine-slice grid (`nineSlice` in `src/interface/shapes.js`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NineSlicePiece {
+    /// Left X coordinate in local widget space (centered around `0.0`).
     pub x0: f64,
+    /// Top Y coordinate in local widget space (centered around `0.0`).
     pub y0: f64,
+    /// Right X coordinate in local widget space.
     pub x1: f64,
+    /// Bottom Y coordinate in local widget space.
     pub y1: f64,
+    /// Left texture U coordinate (`0.0`, `0.25`, or `0.75`).
     pub u0: f64,
+    /// Top texture V coordinate (`0.0`, `0.25`, or `0.75`).
     pub v0: f64,
+    /// Right texture U coordinate (`0.25`, `0.75`, or `1.0`).
     pub u1: f64,
+    /// Bottom texture V coordinate (`0.25`, `0.75`, or `1.0`).
     pub v1: f64,
 }
 
@@ -24,6 +34,8 @@ pub fn nine_slice_fixed(w: f64, h: f64, corner: f64) -> ([NineSlicePiece; 9], us
     if w <= 0.0 || h <= 0.0 {
         return (out, 0);
     }
+    // Clamp the corner size to half of `w` and `h` so rectangles narrower or shorter than
+    // `2 * corner` collapse their middle column or row cleanly (`xs[1] == xs[2]` / `ys[1] == ys[2]`).
     let cx = corner.max(0.0).min(w * 0.5);
     let cy = corner.max(0.0).min(h * 0.5);
     let x0 = -w * 0.5;
@@ -32,6 +44,8 @@ pub fn nine_slice_fixed(w: f64, h: f64, corner: f64) -> ([NineSlicePiece; 9], us
     let y3 = h * 0.5;
     let xs = [x0, x0 + cx, x3 - cx, x3];
     let ys = [y0, y0 + cy, y3 - cy, y3];
+    // The 2004 `border_3_pieces` and `listbox_cursor` textures reserve the outer 25% on each
+    // axis for the 16-unit corner caps and stretch the middle 50% (`0.25..0.75`) across the body.
     let us = [0.0, 0.25, 0.75, 1.0];
     let vs = [0.0, 0.25, 0.75, 1.0];
 
@@ -40,6 +54,7 @@ pub fn nine_slice_fixed(w: f64, h: f64, corner: f64) -> ([NineSlicePiece; 9], us
         for c in 0..3 {
             let (xa, xb) = (xs[c], xs[c + 1]);
             let (ya, yb) = (ys[r], ys[r + 1]);
+            // Skip zero-area middle strips when `w <= 2 * corner` or `h <= 2 * corner`.
             if xb > xa && yb > ya {
                 out[count] = NineSlicePiece {
                     x0: xa,
@@ -66,7 +81,7 @@ pub fn nine_slice(w: f64, h: f64, corner: f64) -> Vec<NineSlicePiece> {
 }
 
 /// Wraps `text` so each line fits within `max_width` as measured by `measure`
-/// (`wrapLines(text, maxWidth, measure)` in `src/interface/shapes.js`).
+/// (`wrapLines(text, width, measure)` in `src/interface/shapes.js`).
 ///
 /// Preserves explicit `\n` line breaks and never splits inside a single word.
 pub fn wrap_lines<F>(text: &str, max_width: f64, mut measure: F) -> Vec<String>
@@ -82,6 +97,8 @@ where
     }
     let mut lines = Vec::new();
     for para in paragraphs {
+        // Split each paragraph on whitespace runs, preserving blank lines when a paragraph
+        // contains no words, and greedily append words until `measure` exceeds `max_width`.
         let words: Vec<&str> = para
             .split(|c: char| c.is_whitespace())
             .filter(|s| !s.is_empty())
@@ -90,6 +107,7 @@ where
             lines.push(String::new());
             continue;
         }
+        // A single word longer than `max_width` stands alone on its own line (`shapes.js`).
         let mut current = words[0].to_owned();
         for &w in &words[1..] {
             let candidate = format!("{current} {w}");
@@ -106,8 +124,10 @@ where
 }
 
 /// Tests whether `(px, py)` lies inside or on the boundary of a 4-corner convex quad
-/// (`insideQuad(px, py, corners)` in `src/interface/shapes.js`).
+/// (`insideQuad(x, y, corners)` in `src/interface/shapes.js`).
 pub fn inside_quad(px: f64, py: f64, corners: &[Point; 4]) -> bool {
+    // A point is inside a convex quad (with either clockwise or counter-clockwise winding)
+    // iff the 2D cross product `edge x (p - a)` has the same non-zero sign for all four edges.
     let mut sign = 0i32;
     for i in 0..4 {
         let [ax, ay] = corners[i];

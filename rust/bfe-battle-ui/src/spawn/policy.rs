@@ -4,6 +4,8 @@
 //! an immediate spawn (`unit=`, `side=`, `spawn=`, `spawnscreen=0|1`), and picks
 //! the initial faction side, team number (`1` or `2`), and soldier class name so
 //! the first character body can be preloaded before the world starts ticking.
+//! Both the client page and the world simulation read the same query parameters
+//! through [`spawn_policy`] so they agree on the initial team and unit class.
 
 use crate::shapes::GameFamily;
 
@@ -12,6 +14,9 @@ use crate::shapes::GameFamily;
 pub const DEFAULT_UNIT: &str = "rep_inf_clone_trooper";
 
 /// A team's roster definition from `map.json` (`teams[1]`, `teams[2]`).
+///
+/// Contains the faction display name, optional hero unit class (excluded from
+/// normal spawn selection), and the ordered list of soldier classes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MissionTeamSpec {
     pub name: String,
@@ -20,6 +25,9 @@ pub struct MissionTeamSpec {
 }
 
 /// Mission roster metadata read by [`spawn_policy`] (`src/spawn-screen/policy.js`).
+///
+/// Captures the game family (`Swbf1` or `Swbf2`), the faction prefixes present
+/// on the map (`"rep"`, `"cis"`, `"all"`, `"imp"`), and the two team specs.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MissionSpec {
     pub family: GameFamily,
@@ -42,6 +50,9 @@ impl MissionSpec {
 
 /// Immediate auto-spawn choice when the spawn screen is bypassed (`auto` in
 /// `src/spawn-screen/policy.js`).
+///
+/// When present on [`SpawnPolicy`], the world confirms this team, class, and
+/// command post automatically at map load and after every death.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoSpawnPick {
     pub team: u8,
@@ -67,6 +78,8 @@ pub struct SpawnPolicy {
 }
 
 /// Parsed URL query or parameter bag passed to [`spawn_policy`].
+///
+/// Supports `unit=`, `side=`, `spawn=`, `spawnscreen=`, and `network=` query keys.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpawnParams {
     pub unit: Option<String>,
@@ -206,6 +219,7 @@ fn mission_has_side(mission: Option<&MissionSpec>, side: &str) -> bool {
     false
 }
 
+/// Filters an `Option<String>` to `Some(&str)` only when non-empty.
 #[inline]
 fn non_empty(opt: &Option<String>) -> Option<&str> {
     opt.as_deref().filter(|s| !s.is_empty())
@@ -248,9 +262,12 @@ pub fn spawn_policy(params: &SpawnParams, mission: Option<&MissionSpec>) -> Spaw
         Some("0" | "false") => Some(false),
         _ => None,
     };
+    // Open the spawn screen unless a URL parameter (`unit=`, `side=`, `spawn=`)
+    // requests an offline bypass or `spawnscreen=0` forces it off.
     let screen =
         forced.unwrap_or_else(|| online || (unit.is_none() && side_param.is_none() && post.is_none()));
 
+    // Finds the first playable class in `mission` whose name starts with `<s_>_`.
     let first_of_side = |s: &str| -> Option<String> {
         let m = mission?;
         let prefix = format!("{s}_");
@@ -264,6 +281,7 @@ pub fn spawn_policy(params: &SpawnParams, mission: Option<&MissionSpec>) -> Spaw
         None
     };
 
+    // Picks the fallback class when neither `unit=` nor a matching `side=` is provided.
     let default_class = || -> String {
         if !screen {
             return DEFAULT_UNIT.to_string();
@@ -296,6 +314,7 @@ pub fn spawn_policy(params: &SpawnParams, mission: Option<&MissionSpec>) -> Spaw
         default_class()
     };
 
+    // Resolve the owning team and the faction side whose assets should preload first.
     let team = team_of_class(mission, &class_name);
     let side = if let Some(sp) = side_param {
         if !online || mission_has_side(mission, sp) {

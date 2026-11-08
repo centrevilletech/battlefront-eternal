@@ -4,6 +4,11 @@
 //! `PROFILE_KEYS`, `THEME_KEYS`, `optionsFor`, `optionEntry`, `applies`, `NOTES`,
 //! `renderResolution`, `soundNote`, `enhancedSoundNote`, `optionRow`, and `resetPage`
 //! from `src/menus/options.js`.
+//!
+//! Every setting in [`crate::settings::DEFAULTS`] is accounted for either in [`OPTIONS`]
+//! (57 entries across `game`, `video`, `audio`, and `controls`), [`PROFILE_KEYS`]
+//! (`playerName`), or [`THEME_KEYS`] (`menuTheme`), verified at test time against
+//! `src/settings.js` and `src/menus/options.js`.
 
 use crate::settings::{SettingValue, Settings, PERFORMANCE_PRESETS};
 use std::collections::HashMap;
@@ -11,28 +16,35 @@ use std::collections::HashMap;
 /// Option page descriptor (`PAGES` in `src/menus/options.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageDef {
+    /// Internal page identifier (`"game"`, `"video"`, `"audio"`, or `"controls"`).
     pub id: &'static str,
+    /// Fallback uppercase English page title.
     pub title: &'static str,
+    /// Localization string key looked up in `common.json` (`strings`).
     pub title_key: &'static str,
 }
 
 /// The four option sub-pages (`PAGES` in `src/menus/options.js`).
 pub const PAGES: [PageDef; 4] = [
+    // Gameplay rules, bot difficulty/mode/size, HUD stats line, and 60 Hz simulation rate.
     PageDef {
         id: "game",
         title: "GAME OPTIONS",
         title_key: "ifs.GameOpt.title",
     },
+    // Rendering preset, frame pacing, upscaling, shadows, water, terrain, and visual effects.
     PageDef {
         id: "video",
         title: "VIDEO OPTIONS",
         title_key: "ifs.VideoOpt.title",
     },
+    // Master/category volume sliders and sound stage/output/dynamics settings.
     PageDef {
         id: "audio",
         title: "AUDIO OPTIONS",
         title_key: "ifs.SoundOpt.title",
     },
+    // Mouse/starfighter sensitivity, Y-axis inversion, and key binding tables.
     PageDef {
         id: "controls",
         title: "CONTROL OPTIONS",
@@ -43,10 +55,15 @@ pub const PAGES: [PageDef; 4] = [
 /// Widget control kind for an entry in [`OPTIONS`] (`kind` in `src/menus/options.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptionKind {
+    /// Multi-value selector cycled with Left/Right arrows or mouse clicks (`"choice"`).
     Choice,
+    /// Boolean two-state selector (`"toggle"`, displaying `OFF`/`ON` or `NO`/`YES`).
     Toggle,
+    /// Numeric range bar stepped with arrows or dragged with the mouse (`"slider"`).
     Slider,
+    /// Non-interactive informational or externally edited setting (`"fixed"`).
     Fixed,
+    /// Clickable command row such as `RESET TO DEFAULTS` or `SPEAKER TEST` (`"action"`).
     Action,
 }
 
@@ -93,7 +110,9 @@ impl ApplyMode {
 /// Value stored in a [`ChoiceItem`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChoiceVal {
+    /// String setting value (used by most `choice` options).
     Text(&'static str),
+    /// Integer setting value (used by `anisotropy`: `1`, `2`, `4`, `8`, `16`).
     Int(i64),
 }
 
@@ -107,7 +126,7 @@ impl ChoiceVal {
         }
     }
 
-    /// Returns true if `val` matches this choice literal.
+    /// Returns true if `val` matches this choice literal (comparing `Int` and whole `Number` values).
     #[inline]
     pub fn matches(self, val: &SettingValue) -> bool {
         match (self, val) {
@@ -122,12 +141,16 @@ impl ChoiceVal {
 /// One selectable value in a `Choice` option (`choices` in `src/menus/options.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChoiceItem {
+    /// Stored setting value when this choice is selected.
     pub value: ChoiceVal,
+    /// Fallback uppercase English label displayed for this choice.
     pub label: &'static str,
+    /// Optional localization key in `common.json` (`strings`).
     pub label_key: Option<&'static str>,
 }
 
 impl ChoiceItem {
+    /// Constructs a string choice item without a localization key.
     const fn s(value: &'static str, label: &'static str) -> Self {
         Self {
             value: ChoiceVal::Text(value),
@@ -136,6 +159,7 @@ impl ChoiceItem {
         }
     }
 
+    /// Constructs a string choice item with a `common.json` localization key.
     const fn sk(value: &'static str, label: &'static str, label_key: &'static str) -> Self {
         Self {
             value: ChoiceVal::Text(value),
@@ -144,6 +168,7 @@ impl ChoiceItem {
         }
     }
 
+    /// Constructs an integer choice item without a localization key.
     const fn i(value: i64, label: &'static str) -> Self {
         Self {
             value: ChoiceVal::Int(value),
@@ -178,62 +203,110 @@ impl SliderFormat {
 /// Schema specification for one entry in [`OPTIONS`] (`src/menus/options.js`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OptionSpec {
+    /// Setting key in [`crate::settings::DEFAULTS`].
     pub key: &'static str,
+    /// Owning sub-page id (`"game"`, `"video"`, `"audio"`, or `"controls"`).
     pub page: &'static str,
+    /// Fallback uppercase English label shown on the left side of the row.
     pub label: &'static str,
+    /// Optional localization key in `common.json` (`strings`).
     pub label_key: Option<&'static str>,
+    /// Interactive control kind (`Choice`, `Toggle`, `Slider`, `Fixed`, `Action`).
     pub kind: OptionKind,
+    /// When changes to this setting take effect (`Live`, `Map`, `Battle`, `Fixed`).
     pub apply: ApplyMode,
+    /// Optional URL query parameter name that overrides this setting for a single session.
     pub url: Option<&'static str>,
+    /// Allowed choice items when `kind == OptionKind::Choice`.
     pub choices: &'static [ChoiceItem],
+    /// Fallback `[false_label, true_label]` strings when `kind == OptionKind::Toggle`.
     pub toggle_labels: [&'static str; 2],
+    /// Optional `[false_key, true_key]` localization keys for toggle labels.
     pub toggle_label_keys: [Option<&'static str>; 2],
+    /// Minimum slider value when `kind == OptionKind::Slider`.
     pub min: f64,
+    /// Maximum slider value when `kind == OptionKind::Slider`.
     pub max: f64,
+    /// Discrete arrow-key step increment when `kind == OptionKind::Slider`.
     pub step: f64,
+    /// Display formatting rule for slider values.
     pub format: SliderFormat,
+    /// Optional static display string for `OptionKind::Fixed` rows (such as `"60 HZ"`).
     pub display: Option<&'static str>,
 }
 
+/// Empty choice slice used by non-`Choice` option specs.
 const CHOICES_EMPTY: [ChoiceItem; 0] = [];
 
+/// `CLASSIC` (`[["classic", "CLASSIC"], ["enhanced", "ENHANCED"]]` in `src/menus/options.js`).
+///
+/// Used by visual effect options (`environmentEffects`, `oceanEffects`, `rainEffects`,
+/// `boltEffects`, `arcCasterEffects`, `sniperEffects`, `jetpackEffects`, `droidekaEffects`,
+/// `destructionEffects`, `deathCamera`).
 const CHOICES_CLASSIC: [ChoiceItem; 2] = [
+    // 2004 Battlefront visual representation.
     ChoiceItem::s("classic", "CLASSIC"),
+    // Rebuilt shader/particle visual representation.
     ChoiceItem::s("enhanced", "ENHANCED"),
 ];
 
+/// `ORIGINAL` (`[["original", "CLASSIC"], ["enhanced", "ENHANCED"]]` in `src/menus/options.js`).
+///
+/// Used by `terrainDetail` and `treeDetail`, whose classic setting value is `"original"`.
 const CHOICES_ORIGINAL: [ChoiceItem; 2] = [
+    // Original 2004 terrain/foliage detail (`"original"` displayed as `"CLASSIC"`).
     ChoiceItem::s("original", "CLASSIC"),
+    // Enhanced slope shading and foliage detail (`"enhanced"`).
     ChoiceItem::s("enhanced", "ENHANCED"),
 ];
 
+/// Bot difficulty choices (`aiDifficulty` in `src/menus/options.js`).
 const CHOICES_DIFFICULTY: [ChoiceItem; 3] = [
+    // Easy difficulty (`ifs.difficulty.easy`).
     ChoiceItem::sk("easy", "EASY", "ifs.difficulty.easy"),
+    // Default balanced difficulty (`"medium"` -> `"NORMAL"`).
     ChoiceItem::s("medium", "NORMAL"),
+    // Highest bot difficulty (`"hard"` -> `"ELITE"`).
     ChoiceItem::s("hard", "ELITE"),
 ];
 
+/// Battle bot mode choices (`aiMode` in `src/menus/options.js`).
 const CHOICES_AI_MODE: [ChoiceItem; 3] = [
+    // No autonomous bot combat (`"off"`).
     ChoiceItem::sk("off", "OFF", "common.off"),
+    // Recovered 2004 bot behavior (`"classic"`).
     ChoiceItem::s("classic", "CLASSIC"),
+    // Rebalanced objective focus and fairer aim (`"enhanced"`).
     ChoiceItem::s("enhanced", "ENHANCED"),
 ];
 
+/// Single-player team unit count scale choices (`battleSize` in `src/menus/options.js`).
 const CHOICES_BATTLE_SIZE: [ChoiceItem; 3] = [
+    // Full 2004 unit count (scale `1.0`, up to 32 per team).
     ChoiceItem::s("full", "FULL"),
+    // Reduced 3/4 unit count (`"large"` displayed as `"REDUCED"`).
     ChoiceItem::s("large", "REDUCED"),
+    // Half unit count for older CPUs (`"small"`).
     ChoiceItem::s("small", "SMALL"),
 ];
 
+/// Rendering quality preset choices (`performancePreset` in `src/menus/options.js`).
 const CHOICES_PERFORMANCE_PRESET: [ChoiceItem; 5] = [
+    // Selected automatically whenever an individual `PRESET_KEYS` setting is customized.
     ChoiceItem::s("custom", "CUSTOM"),
+    // Half-resolution preset for legacy integrated GPUs (`"minimum"`).
     ChoiceItem::s("minimum", "MINIMUM"),
+    // 0.75x scale + fast FXAA preset for older PCs (`"performance"`).
     ChoiceItem::s("performance", "PERFORMANCE"),
+    // 1.0x temporal + medium shadows preset (`"balanced"`).
     ChoiceItem::s("balanced", "BALANCED"),
+    // High-quality 4x MSAA + high shadows preset (`"quality"`).
     ChoiceItem::s("quality", "HIGH QUALITY"),
 ];
 
+/// Frame rate cap choices (`frameLimit` / `FPS("DISPLAY")` in `src/menus/options.js`).
 const CHOICES_FRAME_LIMIT: [ChoiceItem; 6] = [
+    // Paced to the display's native refresh rate (`"0"` -> `"DISPLAY"`).
     ChoiceItem::s("0", "DISPLAY"),
     ChoiceItem::s("30", "30 FPS"),
     ChoiceItem::s("60", "60 FPS"),
@@ -242,7 +315,9 @@ const CHOICES_FRAME_LIMIT: [ChoiceItem; 6] = [
     ChoiceItem::s("240", "240 FPS"),
 ];
 
+/// Adaptive resolution target frame rate choices (`dynamicResolution` / `FPS("OFF")` in `src/menus/options.js`).
 const CHOICES_DYNAMIC_RESOLUTION: [ChoiceItem; 6] = [
+    // Adaptive resolution disabled (`"0"` -> `"OFF"`).
     ChoiceItem::s("0", "OFF"),
     ChoiceItem::s("30", "30 FPS"),
     ChoiceItem::s("60", "60 FPS"),
@@ -251,22 +326,32 @@ const CHOICES_DYNAMIC_RESOLUTION: [ChoiceItem; 6] = [
     ChoiceItem::s("240", "240 FPS"),
 ];
 
+/// 3D frame upscaler mode choices (`upscaler` in `src/menus/options.js`).
 const CHOICES_UPSCALER: [ChoiceItem; 4] = [
+    // Browser canvas stretch (`"off"`).
     ChoiceItem::s("off", "OFF"),
+    // Linear texture stretch keeping the 2D HUD at native resolution (`"bilinear"`).
     ChoiceItem::s("bilinear", "BILINEAR"),
+    // Single-pass spatial upscale + sharpening (`"spatial"`).
     ChoiceItem::s("spatial", "SPATIAL"),
+    // Multi-frame jittered temporal reconstruction (`"temporal"`).
     ChoiceItem::s("temporal", "TEMPORAL"),
 ];
 
+/// Edge antialiasing choices (`antialiasing` in `src/menus/options.js`).
 const CHOICES_ANTIALIASING: [ChoiceItem; 6] = [
     ChoiceItem::s("off", "OFF"),
+    // FXAA 3.11 console path for older GPUs (`"fxaa-fast"`).
     ChoiceItem::s("fxaa-fast", "FXAA (FAST)"),
+    // Full FXAA 3.11 quality path (`"fxaa"`).
     ChoiceItem::s("fxaa", "FXAA"),
+    // Hardware multisampling + FXAA (`"2x"`, `"4x"`, `"8x"`).
     ChoiceItem::s("2x", "2X MSAA"),
     ChoiceItem::s("4x", "4X MSAA"),
     ChoiceItem::s("8x", "8X MSAA"),
 ];
 
+/// Cascaded shadow map quality choices (`shadows` in `src/menus/options.js`).
 const CHOICES_SHADOWS: [ChoiceItem; 5] = [
     ChoiceItem::s("off", "OFF"),
     ChoiceItem::s("low", "LOW"),
@@ -275,7 +360,9 @@ const CHOICES_SHADOWS: [ChoiceItem; 5] = [
     ChoiceItem::s("ultra", "ULTRA"),
 ];
 
+/// Texture filtering anisotropy choices (`anisotropy` in `src/menus/options.js`).
 const CHOICES_ANISOTROPY: [ChoiceItem; 5] = [
+    // Isotropic mipmapped trilinear filtering (`1`).
     ChoiceItem::i(1, "TRILINEAR"),
     ChoiceItem::i(2, "2X ANISOTROPIC"),
     ChoiceItem::i(4, "4X ANISOTROPIC"),
@@ -283,44 +370,68 @@ const CHOICES_ANISOTROPY: [ChoiceItem; 5] = [
     ChoiceItem::i(16, "16X ANISOTROPIC"),
 ];
 
+/// Water reflection quality choices (`waterQuality` in `src/menus/options.js`).
 const CHOICES_WATER_QUALITY: [ChoiceItem; 3] = [
+    // Original 2004 water without scene reflections (`"low"`).
     ChoiceItem::s("low", "LOW"),
+    // Half-resolution screen-space reflections (`"high"`).
     ChoiceItem::s("high", "HIGH"),
+    // Full-resolution planar reflections (`"ultra"`).
     ChoiceItem::s("ultra", "ULTRA"),
 ];
 
+/// Near-scene full-detail view distance multiplier choices (`viewDistance` in `src/menus/options.js`).
 const CHOICES_VIEW_DISTANCE: [ChoiceItem; 3] = [
+    // Map's native 2004 near-scene range (`"original"`).
     ChoiceItem::s("original", "ORIGINAL"),
+    // Twice the map's near-scene range (`"far"`).
     ChoiceItem::s("far", "FAR (2X)"),
+    // Four times the map's near-scene range (`"max"`).
     ChoiceItem::s("max", "MAXIMUM (4X)"),
 ];
 
+/// Far-scene terrain mesh density choices (`farTerrain` in `src/menus/options.js`).
 const CHOICES_FAR_TERRAIN: [ChoiceItem; 2] = [
+    // Every distant terrain triangle (`"full"`).
     ChoiceItem::s("full", "FULL"),
+    // Quarter triangle count for weak GPUs (`"reduced"`).
     ChoiceItem::s("reduced", "REDUCED"),
 ];
 
+/// Sound stage engine quality choices (`audioQuality` in `src/menus/options.js`).
 const CHOICES_AUDIO_QUALITY: [ChoiceItem; 2] = [
+    // 3D positional sound stage with distance and room acoustics (`"enhanced"`).
     ChoiceItem::s("enhanced", "ENHANCED"),
+    // Lightweight 2004 stereo mix (`"original"` displayed as `"CLASSIC"`).
     ChoiceItem::s("original", "CLASSIC"),
 ];
 
+/// Speaker/headphone channel layout choices (`audioOutput` in `src/menus/options.js`).
 const CHOICES_AUDIO_OUTPUT: [ChoiceItem; 6] = [
+    // Queries the output device layout automatically (`"auto"`).
     ChoiceItem::s("auto", "AUTOMATIC"),
+    // Binaural headphone panning (`"headphones"`).
     ChoiceItem::s("headphones", "HEADPHONES"),
+    // 2.0 stereo speakers (`"stereo"`).
     ChoiceItem::s("stereo", "STEREO"),
+    // Multichannel surround speaker layouts (`"5.1"`, `"7.1"`, `"7.1.4"`).
     ChoiceItem::s("5.1", "5.1"),
     ChoiceItem::s("7.1", "7.1"),
     ChoiceItem::s("7.1.4", "7.1.4"),
 ];
 
+/// Dynamic range compression profile choices (`audioDynamics` in `src/menus/options.js`).
 const CHOICES_AUDIO_DYNAMICS: [ChoiceItem; 3] = [
+    // Wide dynamic range for home theater speakers (`"home"`).
     ChoiceItem::s("home", "HOME THEATER"),
+    // Balanced desktop dynamic range (`"normal"`).
     ChoiceItem::s("normal", "NORMAL"),
+    // Compressed dynamic range for quiet listening (`"night"`).
     ChoiceItem::s("night", "NIGHT"),
 ];
 
 impl OptionSpec {
+    /// Constructs a boolean `OFF` / `ON` toggle row in the 57-entry [`OPTIONS`] schema table.
     const fn toggle(
         key: &'static str,
         page: &'static str,
@@ -348,6 +459,7 @@ impl OptionSpec {
         }
     }
 
+    /// Constructs a boolean `NO` / `YES` toggle row (used by `invertMouse`).
     const fn toggle_yes_no(
         key: &'static str,
         page: &'static str,
@@ -375,6 +487,7 @@ impl OptionSpec {
         }
     }
 
+    /// Constructs a multi-value `Choice` row in the 57-entry [`OPTIONS`] schema table.
     const fn choice(
         key: &'static str,
         page: &'static str,
@@ -403,6 +516,7 @@ impl OptionSpec {
         }
     }
 
+    // Constructs `Slider` rows of the 57-entry `OPTIONS` schema table with range, step, and format metadata.
     #[allow(clippy::too_many_arguments)]
     const fn slider(
         key: &'static str,
@@ -435,6 +549,7 @@ impl OptionSpec {
         }
     }
 
+    /// Constructs a read-only or externally bound `Fixed` row in the 57-entry [`OPTIONS`] schema table.
     const fn fixed(
         key: &'static str,
         page: &'static str,
@@ -465,6 +580,9 @@ impl OptionSpec {
 /// All 57 option specifications in exact `src/menus/options.js` order.
 pub const OPTIONS: [OptionSpec; 57] = [
     // 1..6: Starfighter & key bindings
+    // 1. `flightFirstPerson`: starfighter cockpit camera preference (`game` page, live toggle).
+    // Default: `false` (3rd-person chase camera); toggles cockpit view in starfighters.
+    // Displayed as the first row on `GAME OPTIONS` (`page: "game"`, `apply: "live"`).
     OptionSpec::toggle(
         "flightFirstPerson",
         "game",
@@ -473,7 +591,13 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 2. `keyBindings`: infantry and vehicle custom key map (`controls` page, edited via `hotkey_rows`).
+    // Default: `{}` (uses `flat_bindings()`); stores custom ground/vehicle key bindings.
+    // Edited via the `INFANTRY` and `VEHICLE` tabs on `CONTROL OPTIONS`.
     OptionSpec::fixed("keyBindings", "controls", "KEY BINDINGS", ApplyMode::Live, None),
+    // 3. `flightBindings`: starfighter custom key map (`controls` page, edited on `STARFIGHTER` tab).
+    // Default: `{}` (uses `default_flight_bindings()`); stores custom starfighter bindings.
+    // Edited via the `STARFIGHTER` tab on `CONTROL OPTIONS`.
     OptionSpec::fixed(
         "flightBindings",
         "controls",
@@ -481,6 +605,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 4. `flightSensitivity`: starfighter pitch/yaw turn sensitivity multiplier (`0.2..3.0`).
+    // Default: `1.0`, range `0.2..3.0` in `0.1` steps (`SliderFormat::OneDecimal`).
+    // Displayed at the top of `CONTROL OPTIONS` when the `STARFIGHTER` tab is active.
     OptionSpec::slider(
         "flightSensitivity",
         "controls",
@@ -493,6 +620,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.1,
         SliderFormat::OneDecimal,
     ),
+    // 5. `flightInvertY`: inverts vertical pitch mouse/stick input when piloting a starfighter.
+    // Default: `false` (`OFF` / `ON`); flips vertical pitch steering in starfighters.
+    // Displayed as the second top row on the `STARFIGHTER` tab of `CONTROL OPTIONS`.
     OptionSpec::toggle(
         "flightInvertY",
         "controls",
@@ -501,6 +631,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 6. `flightResponseCurve`: exponent shaping small vs. large starfighter steering inputs (`1.0..3.0`).
+    // Default: `1.35`, range `1.0..3.0` in `0.1` steps (`SliderFormat::OneDecimal`).
+    // Displayed as the third top row on the `STARFIGHTER` tab of `CONTROL OPTIONS`.
     OptionSpec::slider(
         "flightResponseCurve",
         "controls",
@@ -514,6 +647,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         SliderFormat::OneDecimal,
     ),
     // 7..13: Game options
+    // 7. `friendlyFire`: whether weapons damage human teammates (`WORLD_SETTINGS`, live toggle).
+    // Default: `true` (`ON`, matching the 2004 game); belongs to `WORLD_SETTINGS`.
+    // Controls whether friendly human fire and self-splash deal damage.
     OptionSpec::toggle(
         "friendlyFire",
         "game",
@@ -522,6 +658,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 8. `aiHeroes`: spawns faction hero NPCs in Instant Action battles (applies on next battle, `?heroes=`).
+    // Default: `false` (`OFF`); spawns faction hero NPCs (such as Luke or Vader) in Instant Action.
+    // Takes effect when a battle starts (`ApplyMode::Battle`, URL override `?heroes=`).
     OptionSpec::toggle(
         "aiHeroes",
         "game",
@@ -530,6 +669,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Battle,
         Some("heroes"),
     ),
+    // 9. `aiDifficulty`: bot skill tier (`easy`, `medium`, `hard`; applies on next battle, `?tier=`).
+    // Default: `"medium"` (`NORMAL`); chooses between `EASY`, `NORMAL`, and `ELITE`.
+    // Takes effect when a battle starts (`ApplyMode::Battle`, URL override `?tier=`).
     OptionSpec::choice(
         "aiDifficulty",
         "game",
@@ -539,6 +681,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         Some("tier"),
         &CHOICES_DIFFICULTY,
     ),
+    // 10. `aiMode`: bot behavior mode (`off`, `classic`, `enhanced`; applies on next battle, `?ai=`).
+    // Default: `"off"`; selects `OFF`, `CLASSIC` (2004 AI), or `ENHANCED` (objective/fair-aim AI).
+    // Takes effect when a battle starts (`ApplyMode::Battle`, URL override `?ai=`).
     OptionSpec::choice(
         "aiMode",
         "game",
@@ -548,6 +693,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         Some("ai"),
         &CHOICES_AI_MODE,
     ),
+    // 11. `battleSize`: active unit count per team (`full` 32, `large` reduced, `small`; `?size=`).
+    // Default: `"full"` (32 units per team); scales team unit caps (`FULL`, `REDUCED`, `SMALL`).
+    // Takes effect when a battle starts (`ApplyMode::Battle`, URL override `?size=`).
     OptionSpec::choice(
         "battleSize",
         "game",
@@ -557,7 +705,13 @@ pub const OPTIONS: [OptionSpec; 57] = [
         Some("size"),
         &CHOICES_BATTLE_SIZE,
     ),
+    // 12. `showStats`: toggles the top-right FPS / frame-timing telemetry line.
+    // Default: `true` (`ON`); shows or hides the live performance telemetry line.
+    // Applies immediately (`ApplyMode::Live`) on the `GAME OPTIONS` page.
     OptionSpec::toggle("showStats", "game", "STATS LINE", None, ApplyMode::Live, None),
+    // 13. `physicsRate`: simulation tick rate locked at `"60 HZ"`.
+    // Default: `"60"` (`60 HZ`); read-only fixed row indicating the 60 Hz world simulation tick.
+    // Cannot be modified (`OptionKind::Fixed`, `ApplyMode::Fixed`).
     OptionSpec::fixed(
         "physicsRate",
         "game",
@@ -566,6 +720,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         Some("60 HZ"),
     ),
     // 14..44: Video options
+    // 14. `performancePreset`: master quality preset (`custom`, `minimum`, `performance`, `balanced`, `quality`).
+    // Default: `"custom"`; cascades across all 27 `PRESET_KEYS` when a named preset is chosen.
+    // Automatically reverts to `"custom"` when any individual preset key is modified.
     OptionSpec::choice(
         "performancePreset",
         "video",
@@ -575,6 +732,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_PERFORMANCE_PRESET,
     ),
+    // 15. `frameLimit`: frame pacing cap (`0` display refresh, `30`, `60`, `120`, `144`, `240` FPS).
+    // Default: `"0"` (`DISPLAY`); caps frame presentation rate or follows display refresh.
+    // Applies immediately (`ApplyMode::Live`) on `VIDEO OPTIONS`.
     OptionSpec::choice(
         "frameLimit",
         "video",
@@ -584,6 +744,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_FRAME_LIMIT,
     ),
+    // 16. `dynamicResolution`: target frame rate for automatic render scale adjustment.
+    // Default: `"0"` (`OFF`); dynamically lowers 3D render scale to maintain target FPS.
+    // Applies immediately (`ApplyMode::Live`) on `VIDEO OPTIONS`.
     OptionSpec::choice(
         "dynamicResolution",
         "video",
@@ -593,6 +756,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_DYNAMIC_RESOLUTION,
     ),
+    // 17. `renderScale`: 3D viewport resolution multiplier (`0.25X..2.00X` in `0.05` steps, `?scale=`).
+    // Default: `1.0` (`1.00X`), range `0.25..2.0` in `0.05` steps (URL override `?scale=`).
+    // Footer note displays the resulting pixel dimensions (`render_resolution`).
     OptionSpec::slider(
         "renderScale",
         "video",
@@ -605,6 +771,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::ScaleX,
     ),
+    // 18. `upscaler`: reconstruction pass used when `renderScale < 1.0` (`off`, `bilinear`, `spatial`, `temporal`).
+    // Default: `"temporal"`; selects how sub-native 3D frames are reconstructed to window size.
+    // Keeps the 2D HUD at native window resolution whenever an upscaler is active.
     OptionSpec::choice(
         "upscaler",
         "video",
@@ -614,6 +783,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_UPSCALER,
     ),
+    // 19. `upscaleSharpness`: contrast-adaptive sharpening strength (`0%..100%`).
+    // Default: `0.4` (`40%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Adjusts sharpening pass strength for the `spatial` and `temporal` upscalers.
     OptionSpec::slider(
         "upscaleSharpness",
         "video",
@@ -626,6 +798,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 20. `antialiasing`: edge smoothing mode (`off`, `fxaa-fast`, `fxaa`, `2x`, `4x`, `8x` MSAA).
+    // Default: `"4x"` (`4X MSAA`); chooses `OFF`, `FXAA (FAST)`, `FXAA`, or `2X`/`4X`/`8X` MSAA.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "antialiasing",
         "video",
@@ -635,6 +810,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_ANTIALIASING,
     ),
+    // 21. `shadows`: cascaded shadow map preset (`off`, `low`, `medium`, `high`, `ultra`, `?shadows=`).
+    // Default: `"high"`; configures cascaded shadow map resolution and cascade distance (`?shadows=`).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "shadows",
         "video",
@@ -644,6 +822,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         Some("shadows"),
         &CHOICES_SHADOWS,
     ),
+    // 22. `anisotropy`: texture filtering sample count (`1` trilinear up to `16`x anisotropic).
+    // Default: `16` (`16X ANISOTROPIC`); selects texture filtering sample count (`1..16`).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "anisotropy",
         "video",
@@ -653,6 +834,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_ANISOTROPY,
     ),
+    // 23. `textureCompression`: GPU-compressed KTX2/Basis textures (applies on next map load).
+    // Default: `true` (`ON`); uploads KTX2/Basis GPU-compressed textures to save VRAM bandwidth.
+    // Takes effect on the next map load (`ApplyMode::Map`).
     OptionSpec::toggle(
         "textureCompression",
         "video",
@@ -661,6 +845,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Map,
         None,
     ),
+    // 24. `waterQuality`: water surface reflection tier (`low`, `high` screen-space, `ultra` planar).
+    // Default: `"high"` (screen-space reflections); chooses `LOW`, `HIGH`, or `ULTRA` (planar).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "waterQuality",
         "video",
@@ -670,6 +857,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_WATER_QUALITY,
     ),
+    // 25. `viewDistance`: near-scene full-detail draw distance multiplier (`original`, `far` 2x, `max` 4x).
+    // Default: `"original"` (1x near-scene range); chooses `ORIGINAL`, `FAR (2X)`, or `MAXIMUM (4X)`.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "viewDistance",
         "video",
@@ -679,6 +869,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_VIEW_DISTANCE,
     ),
+    // 26. `farTerrain`: distant terrain mesh density (`full` or `reduced` quarter-triangle LOD).
+    // Default: `"full"`; selects `FULL` or `REDUCED` (quarter-triangle) distant terrain patches.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "farTerrain",
         "video",
@@ -688,6 +881,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_FAR_TERRAIN,
     ),
+    // 27. `bumpMapping`: normal-mapped surface detail on models and terrain.
+    // Default: `true` (`ON`); enables normal-map surface relief on characters, vehicles, and ground.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::toggle(
         "bumpMapping",
         "video",
@@ -696,7 +892,13 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 28. `softFocus`: original 2004 map-configured soft-focus post-process blur.
+    // Default: `true` (`ON`); preserves the 2004 map-authored soft-focus glow pass.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::toggle("softFocus", "video", "SOFT FOCUS", None, ApplyMode::Live, None),
+    // 29. `bloom`: emissive bloom and weapon/explosion glow post-processing.
+    // Default: `true` (`ON`); enables HDR emissive bloom around blaster fire, sabers, and lamps.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::toggle(
         "bloom",
         "video",
@@ -705,6 +907,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 30. `vehicleMotionBlur`: high-speed radial blur when boosting in vehicles/starfighters.
+    // Default: `true` (`ON`); enables speed-dependent motion blur while piloting vehicles.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::toggle(
         "vehicleMotionBlur",
         "video",
@@ -713,6 +918,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 31. `softParticles`: depth-feathered particle billboards against scene geometry.
+    // Default: `true` (`ON`); softens particle intersections against depth buffer geometry.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::toggle(
         "softParticles",
         "video",
@@ -721,6 +929,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 32. `lampLighting`: dynamic point-light illumination on characters from nearby lamps/ordnance.
+    // Default: `true` (`ON`); illuminates nearby soldiers and droids with dynamic point lights.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::toggle(
         "lampLighting",
         "video",
@@ -729,6 +940,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 33. `terrainDetail`: sun-and-slope terrain shading (`original` vs. `enhanced`).
+    // Default: `"enhanced"`; switches between `CLASSIC` (`"original"`) and `ENHANCED` slope shading.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "terrainDetail",
         "video",
@@ -738,6 +952,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_ORIGINAL,
     ),
+    // 34. `treeDetail`: foliage and canopy rendering fidelity (`original` vs. `enhanced`).
+    // Default: `"enhanced"`; switches between `CLASSIC` (`"original"`) and `ENHANCED` foliage.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "treeDetail",
         "video",
@@ -747,6 +964,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_ORIGINAL,
     ),
+    // 35. `environmentEffects`: water splashes, mist, and steam emitters (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches water splashes and steam between `CLASSIC` and `ENHANCED`.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "environmentEffects",
         "video",
@@ -756,6 +976,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 36. `oceanEffects`: ocean wave and sky horizon shaders (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches Kamino/Naboo ocean and sky shaders (`CLASSIC` vs. `ENHANCED`).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "oceanEffects",
         "video",
@@ -765,6 +988,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 37. `rainEffects`: Kamino/weather rain streaks and ripples (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches weather rain streaks and splashes (`CLASSIC` vs. `ENHANCED`).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "rainEffects",
         "video",
@@ -774,6 +1000,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 38. `boltEffects`: blaster bolt rendering (`classic` strips vs. `enhanced` lit plasma bolts).
+    // Default: `"enhanced"`; switches blaster bolts between 2004 strips and lit plasma bolts.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "boltEffects",
         "video",
@@ -783,6 +1012,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 39. `arcCasterEffects`: Dark Trooper arc caster lightning (`classic` ribbons vs. `enhanced` arcs).
+    // Default: `"enhanced"`; switches DN bolt caster arcs between 2004 ribbons and chaining lightning.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "arcCasterEffects",
         "video",
@@ -792,6 +1024,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 40. `sniperEffects`: sniper beam trails and impact sparks (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches sniper trails between 2004 streaks and ion rail traces.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "sniperEffects",
         "video",
@@ -801,6 +1036,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 41. `jetpackEffects`: jetpack thruster plumes and exhaust lighting (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches jetpack exhaust plumes (`CLASSIC` vs. `ENHANCED`).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "jetpackEffects",
         "video",
@@ -810,6 +1048,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 42. `droidekaEffects`: droideka bubble shield refraction and shimmer (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches droideka personal shield envelopes (`CLASSIC` vs. `ENHANCED`).
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "droidekaEffects",
         "video",
@@ -819,6 +1060,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 43. `destructionEffects`: droid/vehicle debris and electrical shorting (`classic` vs. `enhanced`).
+    // Default: `"enhanced"`; switches droid/vehicle destruction sparks and hot debris.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "destructionEffects",
         "video",
@@ -828,6 +1072,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_CLASSIC,
     ),
+    // 44. `deathCamera`: post-death camera framing (`classic` vs. `enhanced` kill-shot replay).
+    // Default: `"enhanced"`; switches post-death camera between 2004 framing and kill-shot replay.
+    // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
     OptionSpec::choice(
         "deathCamera",
         "video",
@@ -838,6 +1085,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         &CHOICES_CLASSIC,
     ),
     // 45..55: Audio options
+    // 45. `masterVolume`: overall audio output gain (`0%..100%`, default `80%`).
+    // Default: `0.8` (`80%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Scales overall audio output across all buses (`ifs.soundopt.mastervol`).
     OptionSpec::slider(
         "masterVolume",
         "audio",
@@ -850,6 +1100,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 46. `musicVolume`: battle and menu soundtrack gain (`0%..100%`).
+    // Default: `1.0` (`100%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Controls John Williams soundtrack gain (`ifs.soundopt.musicvol`).
     OptionSpec::slider(
         "musicVolume",
         "audio",
@@ -862,6 +1115,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 47. `effectsVolume`: weapon, explosion, and vehicle SFX gain (`0%..100%`).
+    // Default: `1.0` (`100%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Controls blasters, explosions, footsteps, and vehicle engines (`ifs.soundopt.sfxvol`).
     OptionSpec::slider(
         "effectsVolume",
         "audio",
@@ -874,6 +1130,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 48. `voiceVolume`: unit command chatter and announcer speech gain (`0%..100%`).
+    // Default: `1.0` (`100%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Controls faction command post announcements and soldier chatter (`ifs.soundopt.speechvol`).
     OptionSpec::slider(
         "voiceVolume",
         "audio",
@@ -886,6 +1145,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 49. `ambienceVolume`: environmental background beds and wind/crowd gain (`0%..100%`).
+    // Default: `1.0` (`100%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Controls environmental wind, wildlife, and distant battle ambience.
     OptionSpec::slider(
         "ambienceVolume",
         "audio",
@@ -898,6 +1160,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 50. `interfaceVolume`: menu navigation and HUD beep gain (`0%..100%`).
+    // Default: `1.0` (`100%`), range `0.0..1.0` in `0.05` steps (`SliderFormat::Percent`).
+    // Controls front-end and pause menu button/selection sound effects.
     OptionSpec::slider(
         "interfaceVolume",
         "audio",
@@ -910,6 +1175,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.05,
         SliderFormat::Percent,
     ),
+    // 51. `audioQuality`: sound engine mode (`enhanced` 3D acoustics vs. `original` 2004 stereo mix).
+    // Default: `"enhanced"` (or `"original"` on low-end CPUs via `adopt_hardware_defaults`).
+    // Footer note explains the active sound stage (`sound_note`).
     OptionSpec::choice(
         "audioQuality",
         "audio",
@@ -919,6 +1187,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_AUDIO_QUALITY,
     ),
+    // 52. `audioOutput`: speaker/headphone layout (`auto`, `headphones`, `stereo`, `5.1`, `7.1`, `7.1.4`).
+    // Default: `"auto"` (`AUTOMATIC`); selects speaker/headphone channel layout.
+    // Footer note warns when `audioQuality` is set to `"original"` (`enhanced_sound_note`).
     OptionSpec::choice(
         "audioOutput",
         "audio",
@@ -928,6 +1199,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_AUDIO_OUTPUT,
     ),
+    // 53. `audioDynamics`: dynamic range profile (`home` theater, `normal`, `night`).
+    // Default: `"normal"` (`NORMAL`); selects `HOME THEATER`, `NORMAL`, or `NIGHT` dynamics.
+    // Footer note warns when `audioQuality` is set to `"original"` (`enhanced_sound_note`).
     OptionSpec::choice(
         "audioDynamics",
         "audio",
@@ -937,6 +1211,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         None,
         &CHOICES_AUDIO_DYNAMICS,
     ),
+    // 54. `audioMono`: folds all output channels down to mono.
+    // Default: `false` (`OFF`); downmixes stereo/surround output to a single mono channel.
+    // Applies immediately (`ApplyMode::Live`, `ifs.soundopt.outputmode.mono`).
     OptionSpec::toggle(
         "audioMono",
         "audio",
@@ -945,8 +1222,14 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
     ),
+    // 55. `audioClarity`: enables the high-frequency clarity stage in enhanced sound mode.
+    // Default: `true` (`ON`); enables high-frequency clarity processing in enhanced audio.
+    // Footer note warns when `audioQuality` is set to `"original"` (`enhanced_sound_note`).
     OptionSpec::toggle("audioClarity", "audio", "CLARITY", None, ApplyMode::Live, None),
     // 56..57: Controls options
+    // 56. `mouseSensitivity`: ground/vehicle mouse turn sensitivity (`0.5..10.0` in tenths, `?sens=`).
+    // Default: `5.0`, range `0.5..10.0` in `0.1` steps (`Settings::mouse_scale`, `?sens=`).
+    // Each `0.1` step changes turn rate by `2^(0.1/5) - 1` (~1.4%).
     OptionSpec::slider(
         "mouseSensitivity",
         "controls",
@@ -959,6 +1242,9 @@ pub const OPTIONS: [OptionSpec; 57] = [
         0.1,
         SliderFormat::OneDecimal,
     ),
+    // 57. `invertMouse`: inverts vertical mouse look on foot and in ground vehicles (`NO`/`YES`, `?invert=`).
+    // Default: `false` (`NO`); toggles `NO` / `YES` (`common.no` / `common.yes`, `?invert=`).
+    // Inverts vertical mouse look on foot and in ground vehicles.
     OptionSpec::toggle_yes_no(
         "invertMouse",
         "controls",
@@ -969,14 +1255,16 @@ pub const OPTIONS: [OptionSpec; 57] = [
     ),
 ];
 
-/// Keys in [`OPTIONS`] (`OPTION_KEYS` in `src/menus/options.js`).
+/// Keys in [`OPTIONS`] (`OPTION_KEYS` in `src/menus/options.js`), in exact table order.
 pub const OPTION_KEYS: [&str; 57] = [
+    // 1..6: Starfighter camera, key binding maps, and flight controls.
     "flightFirstPerson",
     "keyBindings",
     "flightBindings",
     "flightSensitivity",
     "flightInvertY",
     "flightResponseCurve",
+    // 7..13: Game rules, Instant Action bots, battle size, stats line, and 60 Hz tick rate.
     "friendlyFire",
     "aiHeroes",
     "aiDifficulty",
@@ -984,6 +1272,7 @@ pub const OPTION_KEYS: [&str; 57] = [
     "battleSize",
     "showStats",
     "physicsRate",
+    // 14..26: Video quality preset, frame pacing, upscaling, shadows, textures, water, and distance.
     "performancePreset",
     "frameLimit",
     "dynamicResolution",
@@ -997,12 +1286,14 @@ pub const OPTION_KEYS: [&str; 57] = [
     "waterQuality",
     "viewDistance",
     "farTerrain",
+    // 27..32: Surface shading, post-processing, particles, and dynamic character lamp lighting.
     "bumpMapping",
     "softFocus",
     "bloom",
     "vehicleMotionBlur",
     "softParticles",
     "lampLighting",
+    // 33..44: Classic vs. Enhanced terrain, foliage, weather, weapons, shields, and death camera.
     "terrainDetail",
     "treeDetail",
     "environmentEffects",
@@ -1015,6 +1306,7 @@ pub const OPTION_KEYS: [&str; 57] = [
     "droidekaEffects",
     "destructionEffects",
     "deathCamera",
+    // 45..55: Master and category volume sliders plus sound engine, output, dynamics, mono, clarity.
     "masterVolume",
     "musicVolume",
     "effectsVolume",
@@ -1026,6 +1318,7 @@ pub const OPTION_KEYS: [&str; 57] = [
     "audioDynamics",
     "audioMono",
     "audioClarity",
+    // 56..57: Ground/vehicle mouse sensitivity and Y-axis inversion.
     "mouseSensitivity",
     "invertMouse",
 ];
@@ -1037,6 +1330,8 @@ pub const PROFILE_KEYS: [&str; 1] = ["playerName"];
 pub const THEME_KEYS: [&str; 1] = ["menuTheme"];
 
 /// Returns all [`OptionSpec`]s belonging to `page` (`optionsFor(page)` in `src/menus/options.js`).
+///
+/// Preserves the declaration order in [`OPTIONS`] for `"game"`, `"video"`, `"audio"`, and `"controls"`.
 pub fn options_for(page: &str) -> Vec<&'static OptionSpec> {
     OPTIONS.iter().filter(|o| o.page == page).collect()
 }
@@ -1054,6 +1349,8 @@ pub fn applies(key: &str) -> Option<ApplyMode> {
 }
 
 /// Resolves a localized string from `strings`, collapsing newlines (`say` in `src/menus/options.js`).
+///
+/// Falls back to `fallback` when `key` is `None` or absent from `strings`.
 pub fn say(strings: &HashMap<String, String>, key: Option<&str>, fallback: &str) -> String {
     let raw = key
         .and_then(|k| strings.get(k))
@@ -1064,6 +1361,9 @@ pub fn say(strings: &HashMap<String, String>, key: Option<&str>, fallback: &str)
 
 /// Computes the scaled render resolution string (`"WIDTHxHEIGHT"`, e.g. `"1024x768"`)
 /// for `renderScale` (`renderResolution` in `src/menus/options.js`).
+///
+/// Multiplies the viewport dimensions `[vw, vh]` by the current `renderScale` setting,
+/// clamping each dimension to at least `1` pixel.
 pub fn render_resolution(settings: &Settings, viewport: Option<[u32; 2]>) -> Option<String> {
     let [vw, vh] = viewport?;
     if vw == 0 || vh == 0 {
@@ -1077,6 +1377,8 @@ pub fn render_resolution(settings: &Settings, viewport: Option<[u32; 2]>) -> Opt
 }
 
 /// Note shown under `audioQuality` (`soundNote` in `src/menus/options.js`).
+///
+/// Describes either the classic 2004 stereo mix or the 3D positional sound stage.
 pub fn sound_note(settings: &Settings, strings: &HashMap<String, String>, in_battle: bool) -> String {
     let restart = if in_battle {
         "RESTART MISSION"
@@ -1113,6 +1415,10 @@ pub fn enhanced_sound_note(settings: &Settings, strings: &HashMap<String, String
 }
 
 /// Evaluates the footer note for `key` (`note` and `NOTES` in `src/menus/options.js`).
+///
+/// Checks option-specific dynamic notes first (`renderScale`, `upscaler`, `upscaleSharpness`,
+/// `audioQuality`, `audioOutput`, `audioDynamics`, `audioClarity`) and falls back to the
+/// [`ApplyMode`] timing note (`Map` or `Battle`) when empty.
 pub fn option_note(
     key: &str,
     settings: &Settings,
@@ -1123,6 +1429,7 @@ pub fn option_note(
     let Some(spec) = option_entry(key) else {
         return String::new();
     };
+    // Option-specific dynamic notes take precedence over generic `ApplyMode` timing notes.
     let custom = match key {
         "renderScale" => render_resolution(settings, viewport).unwrap_or_default(),
         "upscaler" => {
@@ -1147,6 +1454,7 @@ pub fn option_note(
     if !custom.is_empty() {
         return custom;
     }
+    // Generic timing note based on whether the option applies on map load or battle start.
     match spec.apply {
         ApplyMode::Map => {
             if in_battle {
@@ -1175,6 +1483,7 @@ pub fn format_option_value(
 ) -> String {
     let val = settings.get(spec.key);
     match spec.kind {
+        // Look up the matching choice item's localized label, or format raw value as fallback.
         OptionKind::Choice => {
             if let Some(choice) = spec.choices.iter().find(|c| c.value.matches(&val)) {
                 say(strings, choice.label_key, choice.label)
@@ -1188,11 +1497,14 @@ pub fn format_option_value(
                 }
             }
         }
+        // Index `0` (`false`) or `1` (`true`) into the spec's toggle labels (`OFF`/`ON` or `NO`/`YES`).
         OptionKind::Toggle => {
             let idx = usize::from(val.as_bool().unwrap_or(false));
             say(strings, spec.toggle_label_keys[idx], spec.toggle_labels[idx])
         }
+        // Format numeric slider values via `Percent`, `ScaleX`, or `OneDecimal`.
         OptionKind::Slider => spec.format.format(val.as_f64().unwrap_or(spec.min)),
+        // Fixed rows use their static `display` text (e.g. `"60 HZ"`) when provided.
         OptionKind::Fixed => spec
             .display
             .map(str::to_string)
@@ -1207,6 +1519,11 @@ pub fn format_option_value(
 }
 
 /// Steps `spec` in `settings` by `dir` (`-1` or `+1`), matching `optionRow.step` in `src/menus/options.js`.
+///
+/// - `Choice`: wraps around `spec.choices` modulo `choices.len()`.
+/// - `Toggle`: negates the current boolean value.
+/// - `Slider`: increments by `dir * spec.step`, rounds to the nearest step, and clamps to `[min, max]`.
+/// - `Fixed` / `Action`: no-op (`returns false`).
 pub fn step_option(spec: &OptionSpec, settings: &mut Settings, dir: i32) -> bool {
     let step_dir = if dir < 0 { -1 } else { 1 };
     match spec.kind {
@@ -1271,7 +1588,7 @@ mod tests {
     // in `bfe_interface::settings::DEFAULTS` with its exact default value and in
     // `bfe_interface::options::OPTIONS` (or `PROFILE_KEYS` / `THEME_KEYS`) with its exact page and order.
     #[test]
-    fn every_settings_js_key_is_present_with_default_and_page() {
+    fn every_settings_js_key_is_present_with_default_and_page() -> Result<(), Box<dyn std::error::Error>> {
         let js_settings = include_str!("../../../src/settings.js");
         let js_options = include_str!("../../../src/menus/options.js");
 
@@ -1279,10 +1596,10 @@ mod tests {
         let defaults_body = js_settings
             .split("export const DEFAULTS = {")
             .nth(1)
-            .expect("DEFAULTS block in src/settings.js")
+            .ok_or("src/settings.js: missing DEFAULTS block")?
             .split("};")
             .next()
-            .expect("end of DEFAULTS block");
+            .ok_or("src/settings.js: missing end of DEFAULTS block")?;
 
         let mut js_keys_and_vals: Vec<(&str, &str)> = Vec::new();
         for raw_line in defaults_body.lines() {
@@ -1308,7 +1625,7 @@ mod tests {
                 DEFAULTS[idx].key, js_key,
                 "DEFAULTS key order mismatch at index {idx}"
             );
-            let rust_def = default_for(js_key).expect("key must exist in Rust DEFAULTS");
+            let rust_def = default_for(js_key).ok_or_else(|| format!("src/settings.js: key {js_key} missing in Rust DEFAULTS"))?;
             match rust_def {
                 DefaultVal::Bool(b) => {
                     assert_eq!(if b { "true" } else { "false" }, js_val, "mismatch for {js_key}");
@@ -1317,7 +1634,7 @@ mod tests {
                     assert_eq!(i.to_string(), js_val, "mismatch for {js_key}");
                 }
                 DefaultVal::Number(n) => {
-                    let parsed: f64 = js_val.parse().expect("numeric default in settings.js");
+                    let parsed: f64 = js_val.parse().map_err(|e| format!("src/settings.js: invalid numeric default for {js_key}: {e}"))?;
                     assert!((n - parsed).abs() <= 1e-9, "mismatch for {js_key}");
                 }
                 DefaultVal::Text(s) => {
@@ -1344,10 +1661,10 @@ mod tests {
         let options_body = js_options
             .split("export const OPTIONS = [")
             .nth(1)
-            .expect("OPTIONS block in src/menus/options.js")
+            .ok_or("src/menus/options.js: missing OPTIONS block")?
             .split("\n];")
             .next()
-            .expect("end of OPTIONS block");
+            .ok_or("src/menus/options.js: missing end of OPTIONS block")?;
 
         let mut js_option_entries: Vec<(&str, &str, &str, &str)> = Vec::new();
         for chunk in options_body.split("{ key:").skip(1) {
@@ -1390,5 +1707,6 @@ mod tests {
         }
 
         assert!(all_performance_presets_in_choices());
+        Ok(())
     }
 }

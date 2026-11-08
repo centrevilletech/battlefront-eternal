@@ -115,6 +115,7 @@ impl Endpoint{
             if let Err(error)=c.poll(now,&mut out){c.close(close_code::PROTOCOL as u64,error.0.as_bytes());let _=c.flush(now,&mut out);return Err(error);}
             if c.closed.is_some(){return Err(Error("connection to server closed"));}
         }
+        // Release handshake state once the first authenticated DATA packet arrives.
         if self.ready{self.handshake=None;}Ok(())
     }
 }
@@ -124,6 +125,7 @@ impl Endpoint{
 fn datagram_drop(error:&std::io::Error)->bool{
     matches!(error.kind(),std::io::ErrorKind::Interrupted|std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionRefused)
 }
+// Verify that transient per-datagram socket errors are classified as drops rather than fatal failures.
 #[cfg(test)]mod tests{
     #[test]fn per_datagram_errors_do_not_end_a_session(){
         use std::io::{Error,ErrorKind};

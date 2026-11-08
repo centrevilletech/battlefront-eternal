@@ -1,6 +1,18 @@
 // Scoreboard keyboard and mouse input, `TabHold` hold-or-tap rule, and double-click details.
 //
 // Ports `src/scoreboard/input.js` (`HOLD`, `DOUBLE_CLICK`, `TabHold`, `ScoreboardInput`).
+//
+// Key input rules from the 2004 PC game (`ScriptCB_CheckPlayerListDone` and `ifs_teamstats`):
+// - `Tab` in play (`TabHold`): during the first `0.5s` (`HOLD`), any frame where `Tab` is not
+//   held marks the scoreboard as tapped (`tapped = true`). After `0.5s`, a held scoreboard
+//   closes on the first frame without `Tab`, whereas a tapped scoreboard stays pinned until
+//   `Tab` is pressed again (returning to held mode) and subsequently released.
+// - Keyboard navigation (`ArrowUp`/`ArrowDown`, `PageUp`/`PageDown`, `ArrowLeft`/`ArrowRight`)
+//   and table clicks (`Sort`, `Scroll`, `Row`) are queued in `self.pending` and applied once
+//   per frame in `ScoreboardInput::update`, whereas button clicks (`Done`, `Back`, `Details`,
+//   `Awards`) and double-clicking a row within `0.4s` (`DOUBLE_CLICK`) push immediate
+//   `ScoreboardAction` entries.
+// - `Enter` / `NumpadEnter` triggers a synthetic left-click at the current scoreboard cursor.
 
 use std::collections::HashSet;
 
@@ -15,6 +27,9 @@ pub const HOLD: f64 = 0.5;
 pub const DOUBLE_CLICK: f64 = 0.4;
 
 /// Hotspot target under the scoreboard cursor (`src/scoreboard/input.js`).
+///
+/// Returned by [`ClassicScoreboardView::hit`](super::view::ClassicScoreboardView::hit) for
+/// column sort icons, scroll arrows, player rows, and bottom action buttons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScoreboardHitTarget {
     Sort { mode: SortMode, side: usize },
@@ -28,6 +43,9 @@ pub enum ScoreboardHitTarget {
 
 impl ScoreboardHitTarget {
     /// Returns a compact hover key matching `ClassicView.update` (`"${kind}:${mode ?? step ?? ""}:${side ?? ""}"`).
+    ///
+    /// `ClassicScoreboardView` compares this key across frames to reset `hovered_at` whenever the
+    /// pointer moves onto a new sort icon, scroll arrow, or button, driving the blink/pulse wave.
     pub fn hover_key(self) -> &'static str {
         match self {
             ScoreboardHitTarget::Sort {
@@ -77,6 +95,10 @@ impl ScoreboardHitTarget {
 }
 
 /// Immediate button action triggered inside `click` (`act(kind, detail)` in `src/scoreboard/input.js`).
+///
+/// Unlike row selection, column sorting, and arrow scrolling—which queue into `self.pending`
+/// and execute on the next `update(dt)` tick—buttons and row double-clicks record a
+/// `ScoreboardAction` immediately so `ScoreboardController` can trigger sounds or `port.restart()`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScoreboardAction {
     Done,
@@ -112,12 +134,17 @@ impl TabHold {
     /// Evaluates one frame with whether `Tab` is currently `held` at `now`;
     /// returns `true` when the peek table should close this frame (`step` in `src/scoreboard/input.js`).
     pub fn step(&mut self, held: bool, now: f64) -> bool {
+        // Within the initial 0.5-second window (`HOLD`), releasing `Tab` latches `tapped = true`
+        // so the scoreboard stays pinned open instead of closing on key release.
         if now < self.opened_at + HOLD {
             if !held {
                 self.tapped = true;
             }
             return false;
         }
+        // Past 0.5 seconds, a continuously held `Tab` closes on the first frame `held` is false,
+        // whereas a tapped scoreboard waits for `Tab` to be pressed again (`tapped = false`)
+        // so the subsequent release closes it.
         if !self.tapped {
             return !held;
         }
@@ -128,14 +155,25 @@ impl TabHold {
     }
 }
 
+/// Queued keyboard navigation or table hotspot interaction applied on the next `ScoreboardInput::update`.
+/// Queued keyboard navigation or table hotspot interaction applied on the next `ScoreboardInput::update`.
+///
+/// Deferring table navigation (`Move`, `TurnPage`, `Flip`) and table clicks (`Target`) until
+/// `ScoreboardInput::update` ensures all inputs within a frame are processed deterministically
+/// in arrival order before recomputing `model.hover`.
 #[derive(Clone, Copy, Debug)]
 enum PendingScoreInput {
+    /// Up (`-1`) or Down (`+1`) arrow key movement within the active team list.
     Move(isize),
+    /// PageUp (`-1`) or PageDown (`+1`) jump across the visible window.
     TurnPage(isize),
+    /// Left or Right arrow key switch to the opposing team's list at the same row.
     Flip,
+    /// Deferred mouse click on a column sort header, scroll arrow, or player row.
     Target(ScoreboardHitTarget),
 }
 
+/// Record of the previous row click used to detect a second click within [`DOUBLE_CLICK`] (`0.4s`).
 #[derive(Clone, Copy, Debug)]
 struct LastClick {
     side: usize,
@@ -147,12 +185,15 @@ struct LastClick {
 pub struct ScoreboardInput {
     pub width: f64,
     pub height: f64,
+    /// Currently depressed key codes (`"Tab"`, etc.), tracked even while the scoreboard is closed.
     pub held: HashSet<String>,
     pending: Vec<PendingScoreInput>,
     pub time: f64,
     pub tab: TabHold,
+    /// Cursor position in `1024xH` interface coordinates (warped to center on `reset()`).
     pub cursor: [f64; 2],
     last_click: Option<LastClick>,
+    /// Immediate button actions queued by `click()` for `ScoreboardController` to execute.
     pub actions: Vec<ScoreboardAction>,
 }
 
@@ -185,6 +226,9 @@ impl ScoreboardInput {
     }
 
     /// Resets pending inputs and centers the cursor when the scoreboard opens (`reset` in `src/scoreboard/input.js`).
+    ///
+    /// Note that `self.held` is intentionally preserved across `reset()` so the `Tab` key press
+    /// that opened the peek scoreboard remains recorded as held for `TabHold::step`.
     pub fn reset(&mut self) {
         self.pending.clear();
         self.actions.clear();
@@ -195,7 +239,8 @@ impl ScoreboardInput {
     /// Processes a key press or release (`key` in `src/scoreboard/input.js`).
     ///
     /// Keys are tracked in `self.held` even while `active` or `act` is `false` so `Tab` held
-    /// as the board opens is known. Returns `true` when the key is swallowed by the scoreboard.
+    /// as the board opens is known. Returns `true` when the key is in `SWALLOW` (`Tab`, arrows,
+    /// `PageUp`/`PageDown`, `Enter`/`NumpadEnter`) and swallowed by the scoreboard.
     pub fn key<F>(
         &mut self,
         code: &str,
@@ -222,6 +267,7 @@ impl ScoreboardInput {
             "PageUp" => self.pending.push(PendingScoreInput::TurnPage(-1)),
             "PageDown" => self.pending.push(PendingScoreInput::TurnPage(1)),
             "ArrowLeft" | "ArrowRight" => self.pending.push(PendingScoreInput::Flip),
+            // Non-repeat `Enter` synthesizes a left click at the current pointer position.
             "Enter" | "NumpadEnter" if !repeat => {
                 let (cx, cy) = (self.cursor[0], self.cursor[1]);
                 self.click(cx, cy, hit_fn);
@@ -251,12 +297,17 @@ impl ScoreboardInput {
     }
 
     /// Nudges the cursor by `(dx, dy)` in interface units (`nudge` in `src/scoreboard/input.js`).
+    ///
+    /// Used when the browser pointer stays pointer-locked over the canvas and supplies relative
+    /// `movementX` / `movementY` deltas scaled to interface units.
     #[inline]
     pub fn nudge(&mut self, dx: f64, dy: f64) {
         self.move_cursor(self.cursor[0] + dx, self.cursor[1] + dy);
     }
 
     /// Handles a mouse button press (`button` in `src/scoreboard/input.js`).
+    ///
+    /// Only the primary mouse button (`index == 0` on mousedown while `active`) triggers a click.
     pub fn button<F>(&mut self, index: u8, down: bool, active: bool, hit_fn: F) -> bool
     where
         F: FnMut(f64, f64) -> Option<ScoreboardHitTarget>,
@@ -270,6 +321,9 @@ impl ScoreboardInput {
     }
 
     /// Performs a left click at `(x, y)` against `hit_fn` (`click` in `src/scoreboard/input.js`).
+    ///
+    /// Clicking a row queues row selection and, if the same `(side, index)` was clicked less than
+    /// [`DOUBLE_CLICK`] (`0.4s`) ago, clears `last_click` and pushes [`ScoreboardAction::Details`].
     pub fn click<F>(
         &mut self,
         x: f64,
@@ -281,6 +335,8 @@ impl ScoreboardInput {
     {
         let target = hit_fn(x, y)?;
         match target {
+            // Clicking a player row selects it on the next frame and checks whether it completes
+            // a 0.4-second (`DOUBLE_CLICK`) double-click on the identical `(side, index)` row.
             ScoreboardHitTarget::Row { side, index } => {
                 let again = self
                     .last_click
@@ -304,6 +360,7 @@ impl ScoreboardInput {
                     self.actions.push(ScoreboardAction::Details);
                 }
             }
+            // Column header sort icons and up/down scroll arrows defer to `update(dt)` in FIFO order.
             ScoreboardHitTarget::Sort { .. } | ScoreboardHitTarget::Scroll { .. } => {
                 self.pending.push(PendingScoreInput::Target(target));
             }
@@ -316,6 +373,9 @@ impl ScoreboardInput {
     }
 
     /// Applies queued presses and updates `model.hover` once per frame (`update` in `src/scoreboard/input.js`).
+    ///
+    /// Drains `self.pending` in FIFO order (calling `model.touch()` on each input to reset the
+    /// 30s end-of-match idle timer) and then refreshes `model.hover` from the cursor position.
     pub fn update<F>(
         &mut self,
         dt: f64,
@@ -355,6 +415,8 @@ impl ScoreboardInput {
         }
         self.pending.clear();
 
+        // Re-evaluate the hotspot under the cursor after applying queued scroll/sort changes
+        // so `model.hover` (`listbox_hilight`) tracks the row currently beneath the pointer.
         let under = if model.is_open() {
             hit_fn(model, self.cursor[0], self.cursor[1])
         } else {
