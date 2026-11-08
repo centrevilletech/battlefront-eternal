@@ -8,6 +8,8 @@ pub mod streams;
 pub mod state;
 pub mod connection;
 pub mod endpoint;
+pub mod stun;
+pub mod server;
 #[cfg(feature="node")]
 mod node;
 

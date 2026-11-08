@@ -5,6 +5,9 @@ use std::net::SocketAddr;
 use crate::{Error,Result,crypto::{self,Aead},handshake::Keys,codec::{Reader,Writer,Ranges,Replay},streams::{SendStream,ReceiveStream,Span},state::{Queue,Fragments}};
 use crate::layout::{data as d,frame as f,packet as p,limits as l,close_code as close,stream as stream_id};
 const PLAIN:usize=l::MAX_DATAGRAM-d::BYTES-l::TAG;
+const LOSS_WINDOW_MS: f64 = 1000.0;
+const LOSS_BUCKET_MS: f64 = 50.0;
+const LOSS_BUCKETS: usize = (LOSS_WINDOW_MS as usize) / (LOSS_BUCKET_MS as usize) + 1;
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum Lane{State,Events,Bulk}
 // Both callbacks are synchronous loans. A device may copy into its own
@@ -17,7 +20,7 @@ pub trait Sink{
 pub struct Closed{pub code:u64,pub reason:[u8;200],pub length:usize,pub remote:bool}
 impl Closed{pub fn reason(&self)->&[u8]{&self.reason[..self.length]}}
 #[derive(Clone,Copy,Default)]
-pub struct Stats{pub sent:u64,pub received:u64,pub sent_bytes:u64,pub received_bytes:u64,pub datagrams_sent:u64,pub datagrams_received:u64,pub lost:u64,pub spurious:u64,pub retransmitted:u64,pub duplicates:u64,pub auth_failures:u64,pub probes:u64}
+pub struct Stats{pub sent:u64,pub received:u64,pub sent_bytes:u64,pub received_bytes:u64,pub datagrams_sent:u64,pub datagrams_received:u64,pub datagram_packets_lost:u64,pub datagram_packets_acked:u64,pub lost:u64,pub spurious:u64,pub retransmitted:u64,pub duplicates:u64,pub auth_failures:u64,pub probes:u64}
 #[derive(Clone,Copy,Default)]
 struct SentSpan{lane:usize,span:Span}
 #[derive(Clone,Copy,Default)]
@@ -42,14 +45,17 @@ impl Ack{
     }
 }
 pub struct Connection{
-    local:u32,remote:u32,send:Aead,receive:Aead,previous:Option<Aead>,next:Option<Aead>,send_phase:u8,receive_phase:u8,phase_start:u32,key_interval:u32,
+    pub local:u32,pub remote:u32,send:Aead,receive:Aead,previous:Option<Aead>,next:Option<Aead>,send_phase:u8,receive_phase:u8,phase_start:u32,key_interval:u32,
     number:u32,floor:u32,sent:Vec<Meta>,lost_history:[Option<(u32,f64)>;256],lost_head:usize,reliable:usize,stream_flight:usize,last_reliable:f64,
     tx:[SendStream;2],rx:[ReceiveStream;2],state:Queue,fragments:Fragments,received:Ranges,replay:Replay,
     largest_at:f64,ack_needed:bool,ack_deadline:f64,largest_acked:Option<u32>,loss_time:f64,pto_count:u32,
-    pub rtt:f64,rtt_var:f64,latest_rtt:f64,min_rtt:f64,has_rtt:bool,window:usize,threshold:usize,recovery:f64,reorder:u32,time_threshold:f64,
-    control:[[u8;9];l::MAX_CONTROL_FRAMES],control_count:usize,ping:bool,pub handshake_confirmed:bool,
+    pub rtt:f64,pub rtt_var:f64,pub latest_rtt:f64,pub min_rtt:f64,has_rtt:bool,pub window:usize,threshold:usize,recovery:f64,reorder:u32,time_threshold:f64,
+    control:[[u8;9];l::MAX_CONTROL_FRAMES],control_count:usize,ping:bool,handshake_done:bool,pub handshake_confirmed:bool,
     pub path:SocketAddr,challenge:Option<Challenge>,last_challenge:f64,probe_tokens:f64,probe_at:f64,
     last_received:f64,last_sent:f64,pending_close:Option<Closed>,pub closed:Option<Closed>,close_at:f64,last_echo:f64,
+    loss_bucket_id: [i64; LOSS_BUCKETS],
+    loss_bucket_lost: [u32; LOSS_BUCKETS],
+    loss_bucket_total: [u32; LOSS_BUCKETS],
     pub stats:Stats,
 }
 impl Connection{
@@ -62,8 +68,12 @@ impl Connection{
             tx:[SendStream::new(),SendStream::new()],rx:[ReceiveStream::new(),ReceiveStream::new()],state:Queue::new(),fragments:Fragments::new(),received:Ranges::new(l::MAX_RECEIVED_RANGES+1),replay:Replay::default(),
             largest_at:f64::NEG_INFINITY,ack_needed:false,ack_deadline:f64::INFINITY,largest_acked:None,loss_time:f64::INFINITY,pto_count:0,
             rtt,rtt_var:rtt/2.,latest_rtt:rtt,min_rtt:f64::INFINITY,has_rtt:false,window:32*l::MAX_DATAGRAM,threshold:usize::MAX,recovery:f64::NEG_INFINITY,reorder:3,time_threshold:9./8.,
-            control:[[0;9];l::MAX_CONTROL_FRAMES],control_count:0,ping:false,handshake_confirmed:false,path,challenge:None,last_challenge:f64::NEG_INFINITY,probe_tokens:64.,probe_at:now,
-            last_received:now,last_sent:now,pending_close:None,closed:None,close_at:f64::NEG_INFINITY,last_echo:f64::NEG_INFINITY,stats:Stats::default()}
+            control:[[0;9];l::MAX_CONTROL_FRAMES],control_count:0,ping:false,handshake_done:false,handshake_confirmed:false,path,challenge:None,last_challenge:f64::NEG_INFINITY,probe_tokens:64.,probe_at:now,
+            last_received:now,last_sent:now,pending_close:None,closed:None,close_at:f64::NEG_INFINITY,last_echo:f64::NEG_INFINITY,
+            loss_bucket_id: [-1; LOSS_BUCKETS],
+            loss_bucket_lost: [0; LOSS_BUCKETS],
+            loss_bucket_total: [0; LOSS_BUCKETS],
+            stats:Stats::default()}
     }
     // Replaceable state evicts older state. A reliable byte-budget violation
     // instead closes explicitly; silently losing an ordered byte is invalid.
@@ -74,6 +84,42 @@ impl Connection{
     }
     pub fn backlog(&self)->usize{self.tx.iter().map(SendStream::pending).sum()}
     pub fn ping(&mut self){self.ping=true;}
+    /// `src/net/connection.js` `Connection.confirmHandshake`: queues a
+    /// `HANDSHAKE_DONE` frame to confirm session establishment to the client.
+    pub fn confirm_handshake(&mut self) {
+        self.handshake_done = true;
+    }
+    /// `src/net/connection.js` `Connection.recentLoss`: fraction of
+    /// state-carrying packets lost over the 1000 ms sliding bucket window.
+    pub fn recent_loss(&self, now: f64) -> f64 {
+        let oldest = ((now - LOSS_WINDOW_MS) / LOSS_BUCKET_MS).floor() as i64;
+        let mut lost_count = 0u64;
+        let mut count = 0u64;
+        for slot in 0..LOSS_BUCKETS {
+            if self.loss_bucket_id[slot] >= oldest {
+                lost_count += self.loss_bucket_lost[slot] as u64;
+                count += self.loss_bucket_total[slot] as u64;
+            }
+        }
+        if count > 0 {
+            lost_count as f64 / count as f64
+        } else {
+            0.0
+        }
+    }
+    fn loss_sample(&mut self, now: f64, lost_packet: bool) {
+        let bucket = (now / LOSS_BUCKET_MS).floor() as i64;
+        let slot = bucket.rem_euclid(LOSS_BUCKETS as i64) as usize;
+        if self.loss_bucket_id[slot] != bucket {
+            self.loss_bucket_id[slot] = bucket;
+            self.loss_bucket_lost[slot] = 0;
+            self.loss_bucket_total[slot] = 0;
+        }
+        self.loss_bucket_total[slot] += 1;
+        if lost_packet {
+            self.loss_bucket_lost[slot] += 1;
+        }
+    }
     // Store a bounded reason until the next flush can send it. Device code
     // can request a close without borrowing a socket inside an input callback.
     pub fn close(&mut self,code:u64,reason:&[u8]){
@@ -117,7 +163,7 @@ impl Connection{
             Ok(probing)=>if newest&&!probing&&path!=self.path{self.challenge_path(path,now,sink);},
             Err(error)=>self.close(close::PROTOCOL as u64,error.0.as_bytes()),
         }
-        if self.closed.is_none()&&((self.ack_needed&&now>=self.ack_deadline)||self.control_count>0||self.pending_close.is_some()){let _=self.flush(now,sink);}true
+        if self.closed.is_none()&&((self.ack_needed&&now>=self.ack_deadline)||self.control_count>0||self.handshake_done||self.pending_close.is_some()){let _=self.flush(now,sink);}true
     }
     // ACK-only packets never elicit another ACK. Reliable control and stream
     // data use the shorter deadline; state can piggyback its acknowledgement.
@@ -179,6 +225,10 @@ impl Connection{
     // ranges, rather than packet ciphertext, are what recovery retransmits.
     fn loss(&mut self,number:u32,now:f64)->Result<Option<Meta>>{
         let Some(meta)=self.forget(number)else{return Ok(None);};self.lost_history[self.lost_head]=Some((number,now));self.lost_head=(self.lost_head+1)%self.lost_history.len();self.stats.lost+=1;
+        if meta.state > 0 {
+            self.stats.datagram_packets_lost += 1;
+            self.loss_sample(now, true);
+        }
         for row in &meta.streams[..meta.count]{self.tx[row.lane].loss(row.span)?;}Ok(Some(meta))
     }
     fn trim_sent(&mut self){while self.floor<self.number{let row=self.sent[self.floor as usize%self.sent.len()];if row.active&&row.number==self.floor{break;}self.floor+=1;}}
@@ -192,6 +242,10 @@ impl Connection{
             let Some(meta)=self.forget(number)else{continue;};newly=true;
             if number as u64==ack.largest&&(meta.reliable||meta.state>0){largest_time=Some(meta.at);}
             for row in &meta.streams[..meta.count]{self.tx[row.lane].ack(row.span)?;stream_bytes+=row.span.length;}
+            if meta.state > 0 {
+                self.stats.datagram_packets_acked += 1;
+                self.loss_sample(now, false);
+            }
         }
         self.trim_sent();if !newly{return Ok(());}self.largest_acked=Some(self.largest_acked.map_or(ack.largest as u32,|n|n.max(ack.largest as u32)));
         if let Some(time)=largest_time{self.rtt_sample(now-time,ack.delay.min(40.));}
@@ -244,6 +298,11 @@ impl Connection{
             let mut bytes=[0;PLAIN];let mut w=Writer::new(&mut bytes);let mut meta=Meta::default();let ack=guard==0&&!self.received.is_empty()&&(self.ack_needed||now-self.largest_at<2000.);
             if ack{self.ack_frame(now,&mut w)?;}
             while self.control_count>0&&w.remaining()>=9{w.span(&self.control[0])?;self.control.copy_within(1..self.control_count,0);self.control_count-=1;meta.reliable=true;}
+            if self.handshake_done && w.remaining() > 0 {
+                w.byte(f::HANDSHAKE_DONE as u8)?;
+                self.handshake_done = false;
+                meta.reliable = true;
+            }
             if self.ping&&w.remaining()>0{w.byte(f::PING as u8)?;self.ping=false;meta.reliable=true;}
             while w.remaining()>4{let Some(done)=self.state.frame(&mut w)?else{break;};meta.state+=1;if done{self.stats.datagrams_sent+=1;}}
             let mut pending=0;
@@ -257,7 +316,7 @@ impl Connection{
                 if ack&&((self.ack_needed&&now>=self.ack_deadline)||!self.state.is_empty()){self.emit(&bytes[..n],meta,self.path,now,sink)?;self.ack_sent();if !self.state.is_empty(){continue;}}break;
             }
             self.emit(&bytes[..n],meta,self.path,now,sink)?;if ack{self.ack_sent();}
-            if self.state.is_empty()&&self.control_count==0&&!self.tx.iter().any(|t|t.lost_bytes>0||(t.sent<t.written&&self.stream_flight<self.window)){break;}
+            if self.state.is_empty()&&self.control_count==0&&!self.handshake_done&&!self.tx.iter().any(|t|t.lost_bytes>0||(t.sent<t.written&&self.stream_flight<self.window)){break;}
         }Ok(())
     }
     // Packet numbers never wrap under a key. Sealing writes into one stack
