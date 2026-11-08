@@ -9,6 +9,7 @@ description = "Window, input and audio device host for the native renderer"
 
 [dependencies]
 bfe-render = { path = "../bfe-render" }
+bfe-battle-ui = { path = "../bfe-battle-ui" }
 audio = { path = "../audio" }
 glow = "0.18"
 glutin = { version = "0.32", default-features = false, features = ["egl", "glx", "x11", "wgl"] }

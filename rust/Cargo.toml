@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bfe-transport", "bfe-online", "bfe-shell", "glbench", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-native", "bfe-client", "bfe-content-native", "bfe-node", "sim", "sim-replay", "content", "v8math", "v8math-check", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "texture-codec", "image-codec", "bfe-environment", "audio-control", "bfe-desktop"]
+members = ["bfe-transport", "bfe-online", "bfe-shell", "glbench", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-native", "bfe-client", "bfe-content-native", "bfe-node", "bfe-battle-ui", "sim", "sim-replay", "content", "v8math", "v8math-check", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "texture-codec", "image-codec", "bfe-environment", "audio-control", "bfe-desktop"]
 
 [profile.release]
 opt-level = 3

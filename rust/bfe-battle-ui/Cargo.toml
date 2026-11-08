@@ -1,0 +1,10 @@
+[package]
+name = "bfe-battle-ui"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Classic battle UI screens (spawn screen, scoreboard, pause menu) and HUD input"
+
+[dependencies]
+bfe-render = { path = "../bfe-render" }

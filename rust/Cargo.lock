@@ -178,12 +178,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-battle-ui"
+version = "0.1.0"
+dependencies = [
+ "bfe-render",
+]
+
+[[package]]
 name = "bfe-client"
 version = "0.1.0"
 dependencies = [
  "audio",
  "audio-control",
  "base64 0.22.1",
+ "bfe-battle-ui",
  "bfe-content-native",
  "bfe-desktop",
  "bfe-environment",
