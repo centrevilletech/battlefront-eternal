@@ -40,17 +40,17 @@ pub struct Replicas {
     pub first_person: super::first_person::Views,
     pub descriptor: serde_json::Value,
     pub turns: Vec<(f64, [f64; 2])>,
-    pub units: Units,
-    pub hud: super::hud::Hud,
-    pub cameras: super::cameras::Cameras,
-    pub combat: super::combat::Combat,
-    pub sound: super::sound::Sound,
+    pub units: Box<Units>,
+    pub hud: Box<super::hud::Hud>,
+    pub cameras: Box<super::cameras::Cameras>,
+    pub combat: Box<super::combat::Combat>,
+    pub sound: Box<super::sound::Sound>,
     held: Vec<Option<super::models::Model>>,
     weapon_classes: Vec<Option<usize>>,
     pub replay: Option<super::replay::Replay>,
-    pub hulls: super::hulls::Hulls,
-    pub turrets: super::turrets::Turrets,
-    pub items: super::items::Views,
+    pub hulls: Box<super::hulls::Hulls>,
+    pub turrets: Box<super::turrets::Turrets>,
+    pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
     slots: Vec<Slot>,
@@ -77,7 +77,7 @@ impl Replicas {
         let registry = &defs.registry;
         let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();
         let descriptor = serde_json::json!({"contentEpoch":1,"combatDefinitions":registry.combat.iter().map(|(p,_)|p).collect::<Vec<_>>(),"classes":table(&registry.classes),"weapons":table(&registry.weapons),"posts":table(&registry.posts),"inputCodes":&INPUT_CODES[..],"bindingProfiles":[[0,{}]]});
-        let mut units = Units::new();
+        let mut units = Box::new(Units::new());
         let mut models = Vec::new();
         let mut names = Vec::new();
         // Actor geometry and programs are immutable resources. Model variants
@@ -233,14 +233,14 @@ impl Replicas {
         }
         let replay = Some(super::replay::Replay::new(content)?);
         let resources = replay.as_ref().unwrap();
-        let hulls = super::hulls::Hulls::new(content, bridge, textures, resources.collision.clone(), resources.world)?;
-        let cameras = super::cameras::Cameras::new(content, resources.collision.clone(), resources.world)?;
-        let combat = super::combat::Combat::new(content, particles, bridge, textures, renderer)?;
-        let sound = super::sound::Sound::new(super::sound_data::Prepared::new(content)?, resources.collision.clone(), resources.world);
-        let items = super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?;
-        let turrets = super::turrets::Turrets::new(content, bridge, textures)?;
+        let hulls = Box::new(super::hulls::Hulls::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        let cameras = Box::new(super::cameras::Cameras::new(content, resources.collision.clone(), resources.world)?);
+        let combat = Box::new(super::combat::Combat::new(content, particles, bridge, textures, renderer)?);
+        let sound = Box::new(super::sound::Sound::new(super::sound_data::Prepared::new(content)?, resources.collision.clone(), resources.world));
+        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
-        let hud = hud.admit(bridge, textures, solid, size)?;
+        let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
         Ok(Self {
             first_person,
             descriptor,

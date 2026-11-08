@@ -530,7 +530,7 @@ fn context_key(meta: &Value) -> Result<String, String> {
         .to_string())
 }
 pub struct Session {
-    pub renderer: Bridge,
+    pub renderer: Box<Bridge>,
     pub canvas: crate::canvas::Canvas,
     resources: Vec<Resources>,
     presentation: Vec<PresentationOwner>,
@@ -658,7 +658,7 @@ impl Session {
         ];
         let mut result = Self {
             canvas: crate::canvas::Canvas::new(load(), size)?,
-            renderer: Bridge::new(gl, crate::resources::Ranges::new(load())),
+            renderer: Bridge::new_boxed(gl, crate::resources::Ranges::new(load())),
             resources: Vec::new(),
             presentation: Vec::new(),
             draws: [0; bfe_render::core::PASSES],

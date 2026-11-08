@@ -11,7 +11,12 @@ use bfe_sim::{
 };
 use std::{cell::RefCell, rc::Rc};
 pub const COMMANDS: usize = 128;
-pub type Collision = Rc<RefCell<CollisionOwner>>;
+pub type Collision = Rc<RefCell<Box<CollisionOwner>>>;
+
+#[inline(never)]
+fn alloc_collision() -> Collision {
+    Rc::new(RefCell::new(Box::new(CollisionOwner::new())))
+}
 
 // Retain the original command/relative-look pair until an applied checkpoint
 // acknowledges it. Transport receipt alone cannot discard replay history.
@@ -119,23 +124,23 @@ impl History {
 pub struct Replay {
     pub collision: Collision,
     pub world: u32,
-    owner: ClientPrediction,
+    owner: Box<ClientPrediction>,
     classes: Vec<Option<[f64; Soldier::WORDS]>>,
     words: Vec<f64>,
     class: usize,
     pub body: Option<Soldier>,
-    pub fleet: super::hull_replay::Fleet,
+    pub fleet: Box<super::hull_replay::Fleet>,
     pub ticks: u64,
     weapon_at: usize,
     weapon_count: usize,
-    arsenal: super::checkpoint::Arsenal,
-    mounted: super::checkpoint::Mounted,
+    arsenal: Box<super::checkpoint::Arsenal>,
+    mounted: Box<super::checkpoint::Mounted>,
 }
 impl Replay {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
-        let mut collision = CollisionOwner::new();
+        let collision = alloc_collision();
         let installed = bfe_content::install::install(
-            &mut collision,
+            &mut **collision.borrow_mut(),
             &content.content.collision,
             &content.buildings_bvh,
             content.terrain_bvh.as_ref(),
@@ -164,19 +169,19 @@ impl Replay {
             s.put(&mut row, &mut Vec::new());
             classes[id as usize] = Some(row);
         }
-        let mut owner = ClientPrediction::default();
-        owner.configure_actor(&[0.], &mut collision.state).map_err(str::to_string)?;
-        let fleet = super::hull_replay::Fleet::new(content, &mut collision, installed.world)?;
-        owner.configure_actor(&[0.], &mut collision.state).map_err(str::to_string)?;
-        owner.prepare_actor_collision(&collision.state, installed.world);
-        let arsenal = super::checkpoint::Arsenal::new(&defs, &mut owner)?;
-        let mounted = super::checkpoint::Mounted::new(&defs, &mut owner, None)?;
+        let mut owner = Box::new(ClientPrediction::default());
+        owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
+        let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
+        owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
+        owner.prepare_actor_collision(&collision.borrow().state, installed.world);
+        let arsenal = Box::new(super::checkpoint::Arsenal::new(&defs, &mut owner)?);
+        let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None)?);
         owner.reserve_native(4096, 32);
         Ok(Self {
             fleet,
             arsenal,
             mounted,
-            collision: Rc::new(RefCell::new(collision)),
+            collision,
             world: installed.world,
             owner,
             classes,
@@ -216,7 +221,7 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.weapon_count = 0;
-        self.fleet.frame(r, sender, &mut self.words, &mut self.collision.borrow_mut())?;
+        self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
         if r.own.alive
             && r.checkpoint_length != 0
             && bfe_sim::prediction::corrections::own_mounted(&r.checkpoint[..r.checkpoint_length])?.is_some()
@@ -355,4 +360,8 @@ impl Replay {
         }
         Ok(())
     }
+}
+
+fn collision_mut(c: &Collision) -> std::cell::RefMut<'_, Box<CollisionOwner>> {
+    c.borrow_mut()
 }

@@ -205,7 +205,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         audio_status,
         audio_router,
         _audio_device: audio_device,
-        headless_scratch: [0.0; ::audio::FRAMES * 2],
+        headless_scratch: vec![0.0; ::audio::FRAMES * 2].into_boxed_slice().try_into().unwrap(),
         state: AppState::StartupLoader(startup_content),
         shell: None,
         window: None,
@@ -235,9 +235,9 @@ struct StandaloneWindowApp {
     audio_status: Arc<AudioStatus>,
     audio_router: Arc<SharedAudioRouter>,
     _audio_device: Option<AudioDevice>,
-    headless_scratch: [f32; ::audio::FRAMES * 2],
+    headless_scratch: Box<[f32; ::audio::FRAMES * 2]>,
     state: AppState,
-    shell: Option<ShellHost>,
+    shell: Option<Box<ShellHost>>,
     window: Option<Window>,
     surface: Option<Surface<WindowSurface>>,
     context: Option<PossiblyCurrentContext>,
@@ -486,12 +486,12 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
-            let shell = ShellHost::new(
+            let shell = Box::new(ShellHost::new(
                 self.opts.size,
                 &self.settings,
                 self.opts.server_target.clone(),
                 make_gl,
-            )?;
+            )?);
 
             self.window = Some(window);
             self.surface = Some(surface);

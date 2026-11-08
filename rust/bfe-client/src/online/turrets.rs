@@ -33,11 +33,11 @@ struct Turret {
     aim: super::seat_view::View,
 }
 pub struct Turrets {
-    pub owner: Props,
+    pub owner: Box<Props>,
     rows: Vec<Turret>,
     pub visible: usize,
     pub hidden: Option<usize>,
-    preview: bfe_presentation::network::preview::Phase,
+    preview: Box<bfe_presentation::network::preview::Phase>,
 }
 fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
     let id = out.len();
@@ -69,7 +69,7 @@ impl Turrets {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32]) -> Result<Self, String> {
         let placed = bfe_content_native::placed::admit_turrets(content)?;
         let props = content.content.battle.props.as_ref();
-        let mut owner = Props::new();
+        let mut owner = Box::new(Props::new());
         let mut rows = Vec::new();
         for (instance, desc) in
             props.and_then(|p| p.get("instances")).and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate()
@@ -243,7 +243,7 @@ impl Turrets {
                 aim: super::seat_view::View::new(&view),
             });
         }
-        Ok(Self { owner, rows, visible: 0, hidden: None, preview: Default::default() })
+        Ok(Self { owner, rows, visible: 0, hidden: None, preview: Box::new(Default::default()) })
     }
     pub fn source(&self, id: f64, generation: f64) -> Option<usize> {
         self.rows.iter().position(|t| t.id == id && t.generation == generation && t.shown)

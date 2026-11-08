@@ -24,8 +24,17 @@ pub struct Water {
     pub(super) key: &'static str,
     sun: Option<usize>,
     sun_from: usize,
-    ocean: Option<(bfe_environment::surfaces::Phase, usize, f64)>,
+    ocean: Option<Box<(bfe_environment::surfaces::Phase, usize, f64)>>,
     uniforms: Vec<(usize, usize, usize)>,
+}
+#[inline(never)]
+fn new_ocean_phase(
+    model: usize,
+    height: f64,
+) -> Box<(bfe_environment::surfaces::Phase, usize, f64)> {
+    let mut phase = bfe_environment::surfaces::Phase::new(false);
+    phase.frame[bfe_environment::layout::surface_frame::OCEAN] = 1.;
+    Box::new((phase, model, height))
 }
 // These are cold bind-pose templates, independent of the visible command
 // prefix. Selection owns two reserved index lists, so changing camera views
@@ -447,7 +456,8 @@ pub fn update(a: &mut Admission, bridge: &mut Bridge, view: &[f64]) {
         if let Some(at) = w.sun {
             bridge.r.water.input[at..at + 3].copy_from_slice(&[sun.x, sun.y, sun.z]);
         }
-        if let Some((phase, model, height)) = &mut w.ocean {
+        if let Some(ocean) = &mut w.ocean {
+            let (phase, model, height) = &mut **ocean;
             use bfe_environment::layout::{surface_frame as F, surface_result as R};
             phase.frame[F::EYE..F::EYE + 3].copy_from_slice(&view[eye..eye + 3]);
             phase.update::<bfe_environment::surface_math::V8, _>(&mut NoShore);
@@ -627,10 +637,7 @@ pub fn water(
         sun,
         sun_from: frame("sunDirection").unwrap().0,
         ocean: if classic_ocean {
-            let mut phase = bfe_environment::surfaces::Phase::new(false);
-            phase.frame[bfe_environment::layout::surface_frame::OCEAN] = 1.;
-            Some((
-                phase,
+            Some(new_ocean_phase(
                 model,
                 data["height"].as_f64().ok_or("ocean height missing")?,
             ))

@@ -62,10 +62,10 @@ struct Slot {
     dying_since: Option<f64>,
 }
 pub struct Hulls {
-    pub owner: Vehicles,
+    pub owner: Box<Vehicles>,
     pub hidden: Option<usize>,
-    mounts: bfe_presentation::network::mounts::Phase,
-    preview: bfe_presentation::network::preview::Phase,
+    mounts: Box<bfe_presentation::network::mounts::Phase>,
+    preview: Box<bfe_presentation::network::preview::Phase>,
     epoch: f64,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
@@ -79,7 +79,7 @@ pub struct Hulls {
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
         let defs = bfe_content::defs::Defs::build(&content.content)?;
-        let mut owner = Vehicles::new();
+        let mut owner = Box::new(Vehicles::new());
         let mut models = Vec::new();
         let mut descriptors = Vec::new();
         let mut classes = vec![None; defs.registry.classes.len() + 1];
@@ -304,8 +304,8 @@ impl Hulls {
         Ok(Self {
             owner,
             hidden: None,
-            mounts: Default::default(),
-            preview: Default::default(),
+            mounts: Box::new(Default::default()),
+            preview: Box::new(Default::default()),
             epoch: 0.,
             models,
             classes,

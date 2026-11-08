@@ -1,6 +1,12 @@
 use crate::render_bridge::Bridge;
 
 impl Bridge {
+    /// Allocates [`Bridge`] on the heap without placing multiple copies on the caller's stack.
+    #[inline(never)]
+    pub fn new_boxed(gl: glow::Context, multi: crate::resources::Ranges) -> Box<Self> {
+        Box::new(Self::new(gl, multi))
+    }
+
     /// Copies the built [`bfe_render::hud_model::HudModel`] quad batch and texture
     /// groups into the native [`bfe_render::hud::HudPass`] GPU staging buffers.
     pub fn hud_sync_batch(&mut self, full: bool) -> u32 {

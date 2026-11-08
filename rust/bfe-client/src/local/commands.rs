@@ -59,7 +59,7 @@ impl Names {
 }
 
 pub struct Commands {
-    owner: Outbound,
+    owner: Box<Outbound>,
     names: Names,
     pub mailbox: InputMailboxCall,
     pub actions: IaEntry,
@@ -74,7 +74,7 @@ impl Commands {
         // never carries the mailbox's queue back into a separate host store.
         let entry = ImEntry { codes: Vec::with_capacity(16), look: Vec::with_capacity(1), view: Vec::with_capacity(7),
             actions: Vec::new(), human: Vec::new(), fire: Vec::new(), ..Default::default() };
-        Self { owner: Outbound::default(), names, mailbox: InputMailboxCall { op: ImOperation::Push,
+        Self { owner: Box::new(Outbound::default()), names, mailbox: InputMailboxCall { op: ImOperation::Push,
             entry: Some(entry), epoch_matches: true, ..Default::default() },
             actions: IaEntry { actions: Vec::with_capacity(32), ..Default::default() },
             fires: Vec::with_capacity(128), fire_id: 0, refused: 0 }

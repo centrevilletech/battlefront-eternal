@@ -11,11 +11,11 @@ use bfe_presentation::{aim::View as AimView, cameras::math::V8};
 use bfe_transport::{connection::Lane, endpoint::Endpoint};
 use std::time::Duration;
 pub struct Client {
-    pub receiver: Receiver,
-    pub sender: Sender,
-    pub replay: super::replay::Replay,
-    pub endpoint: Endpoint,
-    pub camera: MapCamera,
+    pub receiver: Box<Receiver>,
+    pub sender: Box<Sender>,
+    pub replay: Box<super::replay::Replay>,
+    pub endpoint: Box<Endpoint>,
+    pub camera: Box<MapCamera>,
     dt: f64,
     started: bool,
     authenticated: bool,
@@ -25,16 +25,16 @@ pub struct Client {
 impl Client {
     // Discovery, identity and DNS finish before the window event loop starts.
     // Handshake retries belong to receive(), so close and paint remain live.
-    pub fn connect(endpoint: Endpoint, resources: &mut Replicas, camera: MapCamera) -> Result<Self, String> {
-        let receiver = Receiver::new(resources.descriptor.clone());
-        let replay = resources.replay.take().ok_or("native prediction resources already admitted")?;
+    pub fn connect(endpoint: Box<Endpoint>, resources: &mut Replicas, camera: MapCamera) -> Result<Self, String> {
+        let receiver = Box::new(Receiver::new(resources.descriptor.clone()));
+        let replay = Box::new(resources.replay.take().ok_or("native prediction resources already admitted")?);
         let connecting_at = endpoint.now();
         Ok(Self {
             receiver,
             replay,
-            sender: Sender::new(&resources.turns),
+            sender: Box::new(Sender::new(&resources.turns)),
             endpoint,
-            camera,
+            camera: Box::new(camera),
             dt: 0.,
             started: false,
             authenticated: false,
@@ -46,7 +46,7 @@ impl Client {
     // Poll even when focus pauses generated input, so the lease stays alive.
     pub fn receive(&mut self, dt: f64) -> Result<(), String> {
         self.dt = dt.clamp(0., 8. / 60.);
-        let receiver = &mut self.receiver;
+        let receiver = &mut *self.receiver;
         self.endpoint
             .pump(&mut |lane, text, bytes, now| {
                 if text || lane == Lane::State {

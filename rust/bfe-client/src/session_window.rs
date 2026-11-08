@@ -31,7 +31,7 @@ struct Options {
     dir: PathBuf,
     map: Option<String>,
     join: Option<String>,
-    admission: Option<(crate::online::info::Server,bfe_transport::endpoint::Endpoint)>,
+    admission: Option<(crate::online::info::Server,Box<bfe_transport::endpoint::Endpoint>)>,
     seconds: Option<Duration>,
     root: PathBuf,
     audio: bool,
@@ -122,18 +122,18 @@ impl Options {
 // World frame type stays on its own side of this enum; device input is shared.
 enum SceneDriver {
     Recorded {
-        session: Session,
-        host: Host<RecordedWorld>,
+        session: Box<Session>,
+        host: Box<Host<RecordedWorld>>,
         frame: usize,
     },
     Online {
-        scene:crate::scene::Scene,
-        host:Host<crate::online::client::Client>,
+        scene: Box<crate::scene::Scene>,
+        host: Box<Host<crate::online::client::Client>>,
         last:Instant,start:Option<Instant>,seconds:Option<Duration>,initial:Option<String>,
     },
     Native {
-        scene: crate::scene::Scene,
-        host: Host<crate::scene::MapCamera>,
+        scene: Box<crate::scene::Scene>,
+        host: Box<Host<crate::scene::MapCamera>>,
         last: Instant,
         start: Option<Instant>,
         seconds: Option<Duration>,
@@ -143,6 +143,58 @@ enum SceneDriver {
     },
 }
 impl SceneDriver {
+    #[inline(never)]
+    fn new_online(
+        options: &mut Options,
+        viewport: [i32; 2],
+        load: impl FnMut() -> glow::Context,
+    ) -> Result<Self, String> {
+        let (server, endpoint) = options.admission.take().ok_or("missing join admission")?;
+        let (mut scene, camera) =
+            crate::scene::Scene::load_online(&options.root, &server.query, viewport, load)?;
+        let resources = scene.online.as_mut().ok_or("missing online resources")?;
+        let client = crate::online::client::Client::connect(endpoint, resources, camera)?;
+        Ok(Self::Online {
+            scene: Box::new(scene),
+            host: Box::new(Host::new(client)),
+            last: Instant::now(),
+            start: None,
+            seconds: options.seconds,
+            initial: None,
+        })
+    }
+    #[inline(never)]
+    fn new_native(
+        options: &Options,
+        map: &str,
+        viewport: [i32; 2],
+        load: impl FnMut() -> glow::Context,
+    ) -> Result<Self, String> {
+        let (scene, camera) = crate::scene::Scene::load(&options.root, map, viewport, load)?;
+        Ok(Self::Native {
+            scene: Box::new(scene),
+            origin: camera.position,
+            host: Box::new(Host::new(camera)),
+            last: Instant::now(),
+            start: None,
+            seconds: options.seconds,
+            initial: None,
+            frames: 0,
+        })
+    }
+    #[inline(never)]
+    fn new_recorded(
+        options: &Options,
+        load: impl Fn() -> glow::Context,
+    ) -> Result<Self, String> {
+        let session = Box::new(Session::load(&options.dir, &options.root, load)?);
+        let host = Box::new(Host::new(session.world()));
+        Ok(Self::Recorded {
+            session,
+            host,
+            frame: 0,
+        })
+    }
     fn input(&mut self) -> &mut crate::input::Input {
         match self {
             Self::Recorded { host, .. } => &mut host.input,
@@ -251,7 +303,7 @@ struct Running {
     focused: bool,
 }
 impl Running {
-    fn new(el: &ActiveEventLoop, options: &mut Options) -> Result<Self, String> {
+    fn new(el: &ActiveEventLoop, options: &mut Options) -> Result<Box<Self>, String> {
         let meta: serde_json::Value = if options.map.is_some() || options.join.is_some() {
             serde_json::json!({"size":[1280,720]})
         } else {
@@ -320,37 +372,13 @@ impl Running {
                 display.get_proc_address(name) as *const _
             })
         };
-        let mut scene = if options.join.is_some(){
-            let (server,endpoint)=options.admission.take().ok_or("missing join admission")?;
-            let (mut scene,camera)=crate::scene::Scene::load_online(&options.root,&server.query,[size(0)?as i32,size(1)?as i32],load)?;
-            let resources=scene.online.as_mut().ok_or("missing online resources")?;
-            let client=crate::online::client::Client::connect(endpoint,resources,camera)?;
-            SceneDriver::Online{scene,host:Host::new(client),last:Instant::now(),start:None,seconds:options.seconds,initial:None}
-        }else if let Some(map) = &options.map {
-            let (scene, camera) = crate::scene::Scene::load(
-                &options.root,
-                map,
-                [size(0)? as i32, size(1)? as i32],
-                load,
-            )?;
-            SceneDriver::Native {
-                scene,
-                origin: camera.position,
-                host: Host::new(camera),
-                last: Instant::now(),
-                start: None,
-                seconds: options.seconds,
-                initial: None,
-                frames: 0,
-            }
+        let viewport = [size(0)? as i32, size(1)? as i32];
+        let mut scene = if options.join.is_some() {
+            SceneDriver::new_online(options, viewport, load)?
+        } else if let Some(map) = options.map.clone() {
+            SceneDriver::new_native(options, &map, viewport, load)?
         } else {
-            let session = Session::load(&options.dir, &options.root, load)?;
-            let host = Host::new(session.world());
-            SceneDriver::Recorded {
-                session,
-                host,
-                frame: 0,
-            }
+            SceneDriver::new_recorded(options, load)?
         };
         let audio = if options.audio {
             Some(if let SceneDriver::Online{scene,..}=&mut scene{AudioDevice::open_live(scene.online.as_mut().and_then(|s|s.sound.output.take()).ok_or("missing native battle output")?)?}else if let Some(dir) = &options.sound {
@@ -374,7 +402,7 @@ impl Running {
         if options.audio {
             window.focus_window();
         }
-        Ok(Self {
+        Ok(Box::new(Self {
             scene,
             audio,
             surface,
@@ -384,7 +412,7 @@ impl Running {
             refresh,
             captured: false,
             focused: true,
-        })
+        }))
     }
     fn grab(&mut self, on: bool) -> Result<(), String> {
         if on {
@@ -417,7 +445,7 @@ impl Running {
 }
 struct App {
     options: Options,
-    running: Option<Running>,
+    running: Option<Box<Running>>,
     error: Option<String>,
 }
 impl App {

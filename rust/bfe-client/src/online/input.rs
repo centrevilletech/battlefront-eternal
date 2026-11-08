@@ -33,8 +33,8 @@ struct Pointer {
     zoom: f64,
 }
 pub struct Sender {
-    pub history: super::replay::History,
-    owner: Outbound,
+    pub history: Box<super::replay::History>,
+    owner: Box<Outbound>,
     life: [f64; 2],
     sequence: u32,
     edge_id: u32,
@@ -74,8 +74,8 @@ impl Default for Sender {
         let actions =
             ACTIONS.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).unwrap_or(if name == "firePrimary" { 21 } else { 22 }));
         Self {
-            history: Default::default(),
-            owner: Outbound::default(),
+            history: Box::new(Default::default()),
+            owner: Box::new(Outbound::default()),
             life: [0.; 2],
             sequence: 0,
             edge_id: 0,

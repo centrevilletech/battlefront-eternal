@@ -99,10 +99,10 @@ pub fn identity(path:&Path)->Result<Identity,String>{
 
 // Resolve discovery, content identity and transport candidates before creating
 // a visible window. The endpoint remains nonblocking during window admission.
-pub fn prepare(address:&str,root:&Path,path:&Path,name:&str)->Result<(Server,bfe_transport::endpoint::Endpoint),String>{
+pub fn prepare(address:&str,root:&Path,path:&Path,name:&str)->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
     let server=Server::read(address)?;
     let files=bfe_content::files::DirFiles::new(root);
     let hash=bfe_content_native::fingerprint::hash(&files,&server.query)?;
-    let endpoint=bfe_transport::endpoint::Endpoint::connect(address,identity(path)?,server.identity()?,&Server::hello(&hash,name)).map_err(|e|e.to_string())?;
+    let endpoint=Box::new(bfe_transport::endpoint::Endpoint::connect(address,identity(path)?,server.identity()?,&Server::hello(&hash,name)).map_err(|e|e.to_string())?);
     Ok((server,endpoint))
 }

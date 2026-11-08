@@ -544,10 +544,10 @@ pub enum BattleAuthority {
         era: String,
         world: WorldThread,
         _prepared: Option<crate::local::launch::Prepared>,
-        receiver: Receiver,
-        sender: Sender,
-        replay: Replay,
-        camera: MapCamera,
+        receiver: Box<Receiver>,
+        sender: Box<Sender>,
+        replay: Box<Replay>,
+        camera: Box<MapCamera>,
         now_ms: f64,
     },
     /// Online multiplayer battle connected to a remote or LAN `bfeserver`.
@@ -555,7 +555,7 @@ pub enum BattleAuthority {
         launch: MultiplayerLaunch,
         map_id: String,
         era: String,
-        client: OnlineClient,
+        client: Box<OnlineClient>,
     },
 }
 
@@ -619,12 +619,14 @@ impl BattleController {
         audio_router.set_shell(None);
         audio_router.set_live(replicas.sound.output.take());
 
-        let receiver = Receiver::new(replicas.descriptor.clone());
-        let replay = replicas
-            .replay
-            .take()
-            .ok_or("native prediction resources already admitted")?;
-        let mut sender = Sender::new(&replicas.turns);
+        let receiver = Box::new(Receiver::new(replicas.descriptor.clone()));
+        let replay = Box::new(
+            replicas
+                .replay
+                .take()
+                .ok_or("native prediction resources already admitted")?,
+        );
+        let mut sender = Box::new(Sender::new(&replicas.turns));
         sender.auto_spawn = false;
 
         let spawn_port = LiveSpawnPort::from_hud_meta(
@@ -700,7 +702,7 @@ impl BattleController {
                 receiver,
                 sender,
                 replay,
-                camera,
+                camera: Box::new(camera),
                 now_ms: 0.0,
             },
             scene,
@@ -785,7 +787,7 @@ impl BattleController {
             &era,
         );
 
-        let mut client = OnlineClient::connect(endpoint, replicas, camera)?;
+        let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
         client.sender.auto_spawn = false;
 
         Self::finish_init(
@@ -944,7 +946,7 @@ impl BattleController {
             ..
         } = &mut self.authority
         {
-            if let Some(mut snap) = world.latest_fallback {
+            if let Some(mut snap) = world.latest_fallback.take() {
                 snap.teams_tickets[1] = 0;
                 snap.game_over = true;
                 snap.winner = 1;
@@ -959,7 +961,7 @@ impl BattleController {
                 &[[0.0; 4]; 8],
                 true,
                 receiver,
-                world.latest_fallback.as_ref(),
+                world.latest_fallback.as_deref(),
             );
         }
     }
@@ -1239,7 +1241,7 @@ impl BattleController {
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
                 if let (Some(snap), Some(replicas)) =
-                    (world.latest_fallback.as_ref(), self.scene.online.as_mut())
+                    (world.latest_fallback.as_deref(), self.scene.online.as_mut())
                 {
                     replicas.hud.apply_fallback(&mut self.scene.bridge, snap);
                 }
@@ -1353,7 +1355,7 @@ impl BattleController {
                     &replicas.hud.teams,
                     replicas.hud.game_over,
                     receiver,
-                    world.latest_fallback.as_ref(),
+                    world.latest_fallback.as_deref(),
                 );
             }
             BattleAuthority::Online { client, .. } => {

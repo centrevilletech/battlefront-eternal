@@ -169,7 +169,7 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
 }
 
 pub struct Scene {
-    pub bridge: Bridge,
+    pub bridge: Box<Bridge>,
     pub resources: Resources,
     far_target: u32,
     image_step: [f64; bfe_render::post::STEP],
@@ -183,7 +183,7 @@ pub struct Scene {
     far_projection: [f64; 16],
     far_world_slots: Vec<usize>,
     near_world_ids: Vec<u32>,
-    pub online: Option<crate::online::replicas::Replicas>,
+    pub online: Option<Box<crate::online::replicas::Replicas>>,
 }
 impl Scene {
     pub fn load(
@@ -388,7 +388,7 @@ impl Scene {
         let canvas = Canvas::new(load(), size)?;
         let mut resources = Resources::new(load());
         resources.canvas = Some(canvas.framebuffer);
-        let mut bridge = Bridge::new(load(), Ranges::new(load()));
+        let mut bridge = Bridge::new_boxed(load(), Ranges::new(load()));
         bridge.r.core.canvas_framebuffer = Some(canvas.framebuffer);
         let sampling = r#"{"wrapS":1000,"wrapT":1000,"wrapR":1000,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":true,"compare":null}"#;
         let mut textures = vec![u32::MAX; content.textures.images.len()];
@@ -645,7 +645,21 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
-        let online=if live{Some(crate::online::replicas::Replicas::new(&mut content,&mut bridge,&textures,prepared_views.ok_or("missing first-person resources")?,prepared_hud.ok_or("missing battle HUD resources")?,prepared_particles.ok_or("missing battle particle resources")?,&mut resources,empty,size)?)}else{None};
+        let online = if live {
+            Some(Box::new(crate::online::replicas::Replicas::new(
+                &mut content,
+                &mut bridge,
+                &textures,
+                prepared_views.ok_or("missing first-person resources")?,
+                prepared_hud.ok_or("missing battle HUD resources")?,
+                prepared_particles.ok_or("missing battle particle resources")?,
+                &mut resources,
+                empty,
+                size,
+            )?))
+        } else {
+            None
+        };
         bridge.frame_reserve_frame();
         Ok((
             Self {

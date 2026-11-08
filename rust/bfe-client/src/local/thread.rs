@@ -89,7 +89,7 @@ impl Default for WorldMessage {
 /// Pre-allocated once when the battle starts so neither sending nor receiving
 /// ever allocates on the heap.
 struct CommandRing {
-    entries: [WorldMessage; COMMAND_CAPACITY],
+    entries: Box<[WorldMessage; COMMAND_CAPACITY]>,
     head: usize,
     len: usize,
     refused: u64,
@@ -98,7 +98,12 @@ struct CommandRing {
 impl CommandRing {
     fn new() -> Self {
         Self {
-            entries: std::array::from_fn(|_| WorldMessage::default()),
+            entries: (0..COMMAND_CAPACITY)
+                .map(|_| WorldMessage::default())
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             head: 0,
             len: 0,
             refused: 0,
@@ -286,7 +291,7 @@ pub struct PublicationSlot {
     pub is_native: bool,
     pub block: Block,
     pub bytes: Vec<u8>,
-    pub fallback: FallbackSnapshot,
+    pub fallback: Box<FallbackSnapshot>,
 }
 
 impl PublicationSlot {
@@ -301,7 +306,7 @@ impl PublicationSlot {
                 heap: Vec::new(),
             },
             bytes: Vec::with_capacity(policy.bytes.capacity().max(65536)),
-            fallback: FallbackSnapshot::default(),
+            fallback: Box::new(FallbackSnapshot::default()),
         }
     }
 }
@@ -467,7 +472,7 @@ impl Default for FallbackMissionConfig {
 /// and `PublicationQueue` boundary as `Runtime<Native>`.
 pub struct FallbackAuthority {
     config: FallbackMissionConfig,
-    state: FallbackSnapshot,
+    state: Box<FallbackSnapshot>,
     rng: u32,
 }
 
@@ -476,7 +481,7 @@ impl FallbackAuthority {
         let mut authority = Self {
             rng: config.seed.max(1),
             config,
-            state: FallbackSnapshot::default(),
+            state: Box::new(FallbackSnapshot::default()),
         };
         authority.reset_mission();
         authority
@@ -492,12 +497,12 @@ impl FallbackAuthority {
     }
 
     pub fn reset_mission(&mut self) {
-        let mut snap = FallbackSnapshot {
+        let mut snap = Box::new(FallbackSnapshot {
             teams_tickets: self.config.tickets,
             teams_start: self.config.tickets,
             post_count: self.config.posts.len().min(MAX_FALLBACK_POSTS),
             ..FallbackSnapshot::default()
-        };
+        });
         for (i, post) in self
             .config
             .posts
@@ -773,10 +778,9 @@ impl FallbackAuthority {
 }
 
 /// Internal authority stepped at 60 Hz on the world thread.
-#[allow(clippy::large_enum_variant)]
 enum ThreadAuthority<E: Engine> {
-    Native(Runtime<E>),
-    Fallback(FallbackAuthority),
+    Native(Box<Runtime<E>>),
+    Fallback(Box<FallbackAuthority>),
 }
 
 /// Handle held by the render/window thread to communicate with the 60 Hz world thread.
@@ -786,7 +790,7 @@ enum ThreadAuthority<E: Engine> {
 pub struct WorldThread {
     shared: Arc<SharedState>,
     join: Option<JoinHandle<()>>,
-    pub latest_fallback: Option<FallbackSnapshot>,
+    pub latest_fallback: Option<Box<FallbackSnapshot>>,
     pub delivered: u64,
     pub native_admitted: bool,
 }
@@ -808,7 +812,7 @@ impl WorldThread {
                     thread_shared
                         .latest_tick_bits
                         .store(runtime.tick().to_bits(), Ordering::Release);
-                    run_world_loop(ThreadAuthority::Native(runtime), thread_shared);
+                    run_world_loop(ThreadAuthority::Native(Box::new(runtime)), thread_shared);
                 }
                 Err(err) => {
                     if let Ok(mut fg) = thread_shared.fault.lock() {
@@ -828,7 +832,7 @@ impl WorldThread {
 
     /// Spawns a dedicated 60 Hz world thread driving [`FallbackAuthority`].
     pub fn spawn_fallback(authority: FallbackAuthority) -> Self {
-        let initial = authority.state;
+        let initial = authority.state.clone();
         let shared = Arc::new(SharedState::new());
         shared
             .latest_tick_bits
@@ -838,7 +842,7 @@ impl WorldThread {
             .name("bfe-world-60hz".to_string())
             .spawn(move || {
                 run_world_loop::<super::context::Native>(
-                    ThreadAuthority::Fallback(authority),
+                    ThreadAuthority::Fallback(Box::new(authority)),
                     thread_shared,
                 )
             })
@@ -938,7 +942,11 @@ impl WorldThread {
                     .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms))
             } else {
                 apply_fallback_snapshot(&slot.fallback, receiver);
-                self.latest_fallback = Some(slot.fallback);
+                if let Some(existing) = &mut self.latest_fallback {
+                    **existing = *slot.fallback;
+                } else {
+                    self.latest_fallback = Some(slot.fallback.clone());
+                }
                 Ok(())
             };
             queue.release_slot(slot);
@@ -1183,7 +1191,7 @@ fn run_world_loop<E: Engine>(mut authority: ThreadAuthority<E>, shared: Arc<Shar
                     let mut slot = q.acquire_slot();
                     slot.tick = tick;
                     slot.is_native = false;
-                    slot.fallback = fb.state;
+                    *slot.fallback = *fb.state;
                     q.publish_slot(slot);
                 }
             }

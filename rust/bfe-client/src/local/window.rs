@@ -25,15 +25,15 @@ pub trait Observer {
 }
 impl Observer for () {}
 
-pub struct Admitted<E: Engine> { pub scene: Scene, pub battle: Battle<E> }
+pub struct Admitted<E: Engine> { pub scene: Box<Scene>, pub battle: Battle<E> }
 
 // Audio drops before its producer and GL resources drop before the current
 // context. This declaration order is intentional: the callback must be stopped
 // before decoder teardown, and every GL destructor needs its creating context.
 struct Running<E: Engine> {
     audio: Option<AudioDevice>,
-    scene: Scene,
-    host: Host<Battle<E>>,
+    scene: Box<Scene>,
+    host: Box<Host<Battle<E>>>,
     surface: Surface<WindowSurface>,
     context: PossiblyCurrentContext,
     window: Window,
@@ -47,7 +47,7 @@ struct Running<E: Engine> {
 
 impl<E: Engine> Running<E> {
     fn new(el: &ActiveEventLoop, audio: bool,
-        factory: impl FnOnce([i32; 2], &mut dyn FnMut() -> glow::Context) -> Result<Admitted<E>, String>) -> Result<Self, String> {
+        factory: impl FnOnce([i32; 2], &mut dyn FnMut() -> glow::Context) -> Result<Admitted<E>, String>) -> Result<Box<Self>, String> {
         let size = [1280u32, 720u32];
         // Match session_window's initial lens and render target. Resizing is
         // disabled because the existing native scene admits size-dependent
@@ -90,8 +90,8 @@ impl<E: Engine> Running<E> {
         // sixty-Hz authority clock. Monitor rate cannot change physics dt.
         let now = Instant::now();
         window.set_visible(true); window.focus_window();
-        Ok(Self { audio, scene, host: Host::new(battle), surface, context, window,
-            last: now, start: now, next: now, refresh: Duration::from_secs_f64(1000. / hz as f64), focused: true, captured: false })
+        Ok(Box::new(Self { audio, scene, host: Box::new(Host::new(battle)), surface, context, window,
+            last: now, start: now, next: now, refresh: Duration::from_secs_f64(1000. / hz as f64), focused: true, captured: false }))
     }
 
     fn capture(&mut self, on: bool) -> Result<(), String> {
@@ -148,7 +148,7 @@ impl<E: Engine> Running<E> {
 
 struct App<E: Engine, F, O> {
     factory: Option<F>,
-    running: Option<Running<E>>,
+    running: Option<Box<Running<E>>>,
     observer: O,
     audio: bool,
     duration: Option<Duration>,
