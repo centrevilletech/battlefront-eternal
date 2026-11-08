@@ -197,7 +197,7 @@ fn make_content(root: &Path, maps: &[&str], current: bool, game: Option<&Path>) 
         "muzzleVersion": ver.sides,
         "commonVersion": ver.common,
         "complete": true,
-        "game": game.map(|g| g.join("GameData/Data/_LVL_PC").to_string_lossy().into_owned()),
+        "game": game.map(|g| g.join("GameData").join("Data").join("_LVL_PC").to_string_lossy().into_owned()),
         "addOns": [],
         "failed": [],
         "skipped": [],
@@ -286,8 +286,8 @@ fn discover_validates_prepared_content_and_prefers_richest_map_set() {
 #[test]
 fn discover_searches_home_folder_within_depth_and_skips_heavy_dirs() {
     let tmp = TempDir::new("discover-search");
-    let nested = tmp.path().join("Projects/bf1/content");
-    let ignored = tmp.path().join("node_modules/bf1/content");
+    let nested = tmp.path().join("Projects").join("bf1").join("content");
+    let ignored = tmp.path().join("node_modules").join("bf1").join("content");
     // Create a 2-map folder under `Projects/` and a 4-map folder inside `node_modules/`.
     make_content(&nested, &["bes2a", "kam1c"], true, None);
     make_content(&ignored, &["bes1a", "bes2a", "End1a", "tat1i"], true, None);
@@ -604,16 +604,18 @@ fn content_version_loads_from_shared_file_and_errors_when_missing_or_corrupt() {
 fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
     let tmp = TempDir::new("tool-env");
     let bin = tmp.path().join("bin");
-    let ktx_bin = tmp.path().join("ktx/bin");
-    let ktx_lib = tmp.path().join("ktx/lib");
-    let python_bin = tmp.path().join("python/bin");
-    // Create synthetic bundled `bin`, `ktx/bin/ktx`, `ktx/lib`, and `python/bin/python3` paths.
+    let ktx_bin = tmp.path().join("ktx").join("bin");
+    let ktx_lib = tmp.path().join("ktx").join("lib");
+    let python_bin = tmp.path().join("python").join("bin");
+    // Create synthetic bundled `bin`, `ktx/bin/ktx` (plus `ktx.exe`), `ktx/lib`, and `python` paths.
     fs::create_dir_all(&bin).unwrap();
     fs::create_dir_all(&ktx_bin).unwrap();
     fs::create_dir_all(&ktx_lib).unwrap();
     fs::create_dir_all(&python_bin).unwrap();
     fs::write(ktx_bin.join("ktx"), "").unwrap();
+    fs::write(ktx_bin.join("ktx.exe"), "").unwrap();
     fs::write(python_bin.join("python3"), "").unwrap();
+    fs::write(tmp.path().join("python").join("python.exe"), "").unwrap();
 
     // Packaged builds look for `tools` under `resources_path`.
     let paths = toolchain_paths(&ToolchainOptions {
@@ -625,41 +627,77 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
                 .to_path_buf(),
         ),
         project_root: tmp.path().to_path_buf(),
-        platform: "linux".to_string(),
+        platform: if cfg!(windows) {
+            "win32".to_string()
+        } else {
+            "linux".to_string()
+        },
         arch: "x64".to_string(),
     });
     assert_eq!(paths.tools.file_name().unwrap().to_str().unwrap(), "tools");
 
-    let mut base_env = BTreeMap::new();
-    base_env.insert("PATH".to_string(), "/usr/bin".to_string());
-    base_env.insert("PYTHONHOME".to_string(), "/bad".to_string());
-    base_env.insert("PYTHONPATH".to_string(), "/bad".to_string());
+    // Verify Unix (`":"`-joined `PATH`, `ktx`, and `LD_LIBRARY_PATH`) when running on Unix.
+    #[cfg(unix)]
+    {
+        let mut base_env = BTreeMap::new();
+        base_env.insert("PATH".to_string(), "/usr/bin".to_string());
+        base_env.insert("PYTHONHOME".to_string(), "/bad".to_string());
+        base_env.insert("PYTHONPATH".to_string(), "/bad".to_string());
 
-    // `tool_env` must prepend `bin` and `ktx/bin` to `PATH` and strip ambient Python variables.
-    let env_out = tool_env(&ToolEnvOptions {
-        toolchain: tmp.path().to_path_buf(),
-        game: Some(PathBuf::from("/games/swbf1")),
-        content: Some(PathBuf::from("/data/content")),
-        env: base_env,
-        platform: "linux".to_string(),
-    });
-    assert!(env_out["PATH"].starts_with(&format!(
-        "{}:{}",
-        bin.display(),
-        ktx_bin.display()
-    )));
-    assert_eq!(env_out["BFE_GAME_DIR"], "/games/swbf1");
-    assert_eq!(env_out["BFE_CONTENT_DIR"], "/data/content");
-    assert_eq!(
-        env_out["KTX2_ENCODER"],
-        ktx_bin.join("ktx").to_string_lossy().as_ref()
-    );
-    assert_eq!(
-        env_out["LD_LIBRARY_PATH"],
-        ktx_lib.to_string_lossy().as_ref()
-    );
-    assert!(!env_out.contains_key("PYTHONHOME"));
-    assert!(!env_out.contains_key("PYTHONPATH"));
+        let env_out = tool_env(&ToolEnvOptions {
+            toolchain: tmp.path().to_path_buf(),
+            game: Some(PathBuf::from("/games/swbf1")),
+            content: Some(PathBuf::from("/data/content")),
+            env: base_env,
+            platform: "linux".to_string(),
+        });
+        assert!(env_out["PATH"].starts_with(&format!(
+            "{}:{}",
+            bin.display(),
+            ktx_bin.display()
+        )));
+        assert_eq!(env_out["BFE_GAME_DIR"], "/games/swbf1");
+        assert_eq!(env_out["BFE_CONTENT_DIR"], "/data/content");
+        assert_eq!(
+            env_out["KTX2_ENCODER"],
+            ktx_bin.join("ktx").to_string_lossy().as_ref()
+        );
+        assert_eq!(
+            env_out["LD_LIBRARY_PATH"],
+            ktx_lib.to_string_lossy().as_ref()
+        );
+        assert!(!env_out.contains_key("PYTHONHOME"));
+        assert!(!env_out.contains_key("PYTHONPATH"));
+    }
+
+    // Verify Windows (`";"`-joined `PATH` and `ktx.exe`) across platforms.
+    {
+        let mut win_base_env = BTreeMap::new();
+        win_base_env.insert("PATH".to_string(), r"C:\Windows\System32".to_string());
+        win_base_env.insert("PYTHONHOME".to_string(), r"C:\bad".to_string());
+        win_base_env.insert("PYTHONPATH".to_string(), r"C:\bad".to_string());
+
+        let win_out = tool_env(&ToolEnvOptions {
+            toolchain: tmp.path().to_path_buf(),
+            game: Some(PathBuf::from(r"C:\games\swbf1")),
+            content: Some(PathBuf::from(r"C:\data\content")),
+            env: win_base_env,
+            platform: "win32".to_string(),
+        });
+        assert!(win_out["PATH"].starts_with(&format!(
+            "{};{}",
+            bin.display(),
+            ktx_bin.display()
+        )));
+        assert_eq!(win_out["BFE_GAME_DIR"], r"C:\games\swbf1");
+        assert_eq!(win_out["BFE_CONTENT_DIR"], r"C:\data\content");
+        assert_eq!(
+            win_out["KTX2_ENCODER"],
+            ktx_bin.join("ktx.exe").to_string_lossy().as_ref()
+        );
+        assert!(!win_out.contains_key("PYTHONHOME"));
+        assert!(!win_out.contains_key("PYTHONPATH"));
+    }
 }
 
 /// Verifies `prepared_content_current`, `prepared_from`, and `prepared_for` against `ContentVersion`.
@@ -956,7 +994,11 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
     let tmp = TempDir::new("startup-content");
     let home = tmp.path().join("home");
     let content_dir = tmp.path().join("content");
-    let steam_game = home.join(".local/share/Steam/steamapps/common/Star Wars Battlefront (Classic, 2004)");
+    let steam_game = home
+        .join(".local/share/Steam")
+        .join("steamapps")
+        .join("common")
+        .join("Star Wars Battlefront (Classic, 2004)");
     fs::create_dir_all(home.join(".local/share/Steam/steamapps")).unwrap();
     fs::write(
         home.join(".local/share/Steam/steamapps")
@@ -1035,44 +1077,95 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
 /// Mirrors `tests/desktop-content.test.js`.
 #[test]
 fn paths_parses_content_arg_and_orders_candidates() {
-    // Both `--content <dir>` and `--content=<dir>` must resolve relative to `cwd`.
-    let cwd = Path::new("/work/app");
-    assert_eq!(
-        parse_content_arg(&["--content".to_string(), "./data".to_string()], cwd),
-        Some(PathBuf::from("/work/app/data"))
-    );
-    assert_eq!(
-        parse_content_arg(&["--content=/srv/bfe".to_string()], cwd),
-        Some(PathBuf::from("/srv/bfe"))
-    );
+    // On Unix hosts, verify POSIX absolute paths and forward-slash joining.
+    #[cfg(unix)]
+    {
+        // Both `--content <dir>` and `--content=<dir>` must resolve relative to `cwd`.
+        let cwd = Path::new("/work/app");
+        assert_eq!(
+            parse_content_arg(&["--content".to_string(), "./data".to_string()], cwd),
+            Some(PathBuf::from("/work/app/data"))
+        );
+        assert_eq!(
+            parse_content_arg(&["--content=/srv/bfe".to_string()], cwd),
+            Some(PathBuf::from("/srv/bfe"))
+        );
 
-    // Priority order: CLI `--content` -> `BFE_CONTENT_DIR` -> `<userData>/content`.
-    let mut env = BTreeMap::new();
-    env.insert("BFE_CONTENT_DIR".to_string(), "/env/content".to_string());
-    let list = content_candidates(&ContentCandidateEnv {
-        argv: vec!["--content=/cli/content".to_string()],
-        env,
-        cwd: PathBuf::from("/work/repo/electron"),
-        project_root: PathBuf::from("/work/repo"),
-        user_data: Some(PathBuf::from("/opt/example/player/.config/battlefront-eternal")),
-        exec_dir: Some(PathBuf::from("/opt/BattlefrontEternal")),
-        resources_path: Some(PathBuf::from("/opt/BattlefrontEternal/resources")),
-        packaged: true,
-    });
-    assert_eq!(list[0], PathBuf::from("/cli/content"));
-    assert_eq!(list[1], PathBuf::from("/env/content"));
-    assert_eq!(
-        list[2],
-        PathBuf::from("/opt/example/player/.config/battlefront-eternal/content")
-    );
-    assert_eq!(
-        default_prepared_dir(
-            Some(Path::new("/opt/example/player/.config/battlefront-eternal")),
-            Path::new("/work/repo"),
-            true
-        ),
-        PathBuf::from("/opt/example/player/.config/battlefront-eternal/content")
-    );
+        // Priority order: CLI `--content` -> `BFE_CONTENT_DIR` -> `<userData>/content`.
+        let mut env = BTreeMap::new();
+        env.insert("BFE_CONTENT_DIR".to_string(), "/env/content".to_string());
+        let list = content_candidates(&ContentCandidateEnv {
+            argv: vec!["--content=/cli/content".to_string()],
+            env,
+            cwd: PathBuf::from("/work/repo/electron"),
+            project_root: PathBuf::from("/work/repo"),
+            user_data: Some(PathBuf::from(
+                "/opt/example/player/.config/battlefront-eternal",
+            )),
+            exec_dir: Some(PathBuf::from("/opt/BattlefrontEternal")),
+            resources_path: Some(PathBuf::from("/opt/BattlefrontEternal/resources")),
+            packaged: true,
+        });
+        assert_eq!(list[0], PathBuf::from("/cli/content"));
+        assert_eq!(list[1], PathBuf::from("/env/content"));
+        assert_eq!(
+            list[2],
+            PathBuf::from("/opt/example/player/.config/battlefront-eternal/content")
+        );
+        assert_eq!(
+            default_prepared_dir(
+                Some(Path::new("/opt/example/player/.config/battlefront-eternal")),
+                Path::new("/work/repo"),
+                true
+            ),
+            PathBuf::from("/opt/example/player/.config/battlefront-eternal/content")
+        );
+    }
+
+    // On Windows hosts, verify drive-prefixed paths and backslash joining.
+    #[cfg(windows)]
+    {
+        let cwd = Path::new(r"C:\work\app");
+        assert_eq!(
+            parse_content_arg(&["--content".to_string(), r".\data".to_string()], cwd),
+            Some(PathBuf::from(r"C:\work\app\data"))
+        );
+        assert_eq!(
+            parse_content_arg(&[r"--content=C:\srv\bfe".to_string()], cwd),
+            Some(PathBuf::from(r"C:\srv\bfe"))
+        );
+
+        let mut env = BTreeMap::new();
+        env.insert("BFE_CONTENT_DIR".to_string(), r"C:\env\content".to_string());
+        let list = content_candidates(&ContentCandidateEnv {
+            argv: vec![r"--content=C:\cli\content".to_string()],
+            env,
+            cwd: PathBuf::from(r"C:\work\repo\electron"),
+            project_root: PathBuf::from(r"C:\work\repo"),
+            user_data: Some(PathBuf::from(
+                r"C:\opt\example\player\AppData\Roaming\Battlefront Eternal",
+            )),
+            exec_dir: Some(PathBuf::from(r"C:\opt\BattlefrontEternal")),
+            resources_path: Some(PathBuf::from(r"C:\opt\BattlefrontEternal\resources")),
+            packaged: true,
+        });
+        assert_eq!(list[0], PathBuf::from(r"C:\cli\content"));
+        assert_eq!(list[1], PathBuf::from(r"C:\env\content"));
+        assert_eq!(
+            list[2],
+            PathBuf::from(r"C:\opt\example\player\AppData\Roaming\Battlefront Eternal\content")
+        );
+        assert_eq!(
+            default_prepared_dir(
+                Some(Path::new(
+                    r"C:\opt\example\player\AppData\Roaming\Battlefront Eternal"
+                )),
+                Path::new(r"C:\work\repo"),
+                true
+            ),
+            PathBuf::from(r"C:\opt\example\player\AppData\Roaming\Battlefront Eternal\content")
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1323,16 +1416,25 @@ fn discord_ipc_frame_encoding_and_decoding_handles_partial_and_oversized_frames(
     bad[4..8].copy_from_slice(&((MAX_FRAME_BYTES as u32) + 10).to_le_bytes());
     assert!(decode_frames(&bad).is_err());
 
+    // Windows IPC discovery probes named pipes `\\.\pipe\discord-ipc-0..9`.
+    let win_paths = candidate_ipc_paths("win32", &BTreeMap::new(), None);
+    assert_eq!(win_paths.len(), 10);
+    assert!(win_paths.contains(&r"\\.\pipe\discord-ipc-0".to_string()));
+    assert!(win_paths.contains(&r"\\.\pipe\discord-ipc-9".to_string()));
+
     // Linux IPC discovery probes standard, Flatpak, and Snap runtime directories.
-    let linux_paths = candidate_ipc_paths(
-        "linux",
-        &BTreeMap::from([("XDG_RUNTIME_DIR".to_string(), "/run/user/1000".to_string())]),
-        Some(1000),
-    );
-    assert!(linux_paths.contains(&"/run/user/1000/discord-ipc-0".to_string()));
-    assert!(linux_paths.contains(
-        &"/run/user/1000/app/com.discordapp.Discord/discord-ipc-0".to_string()
-    ));
+    #[cfg(unix)]
+    {
+        let linux_paths = candidate_ipc_paths(
+            "linux",
+            &BTreeMap::from([("XDG_RUNTIME_DIR".to_string(), "/run/user/1000".to_string())]),
+            Some(1000),
+        );
+        assert!(linux_paths.contains(&"/run/user/1000/discord-ipc-0".to_string()));
+        assert!(linux_paths.contains(
+            &"/run/user/1000/app/com.discordapp.Discord/discord-ipc-0".to_string()
+        ));
+    }
 }
 
 // ---------------------------------------------------------------------------

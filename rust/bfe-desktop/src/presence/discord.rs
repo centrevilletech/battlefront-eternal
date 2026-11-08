@@ -178,10 +178,11 @@ pub fn candidate_ipc_paths(
                 dir.join(sub)
             };
             for i in 0..10 {
+                // Format Unix domain socket paths with forward slashes regardless of host OS.
                 let candidate = base
                     .join(format!("discord-ipc-{}", i))
                     .to_string_lossy()
-                    .into_owned();
+                    .replace('\\', "/");
                 if seen_out.insert(candidate.clone()) {
                     candidates.push(candidate);
                 }
