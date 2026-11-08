@@ -217,7 +217,13 @@ def check_deb(deb_path: Path, platform: str, install_deb: bool = False) -> None:
 
     if install_deb:
         cmd_prefix = [] if os.geteuid() == 0 else ['sudo']
-        subprocess.run([*cmd_prefix, 'dpkg', '-i', str(deb_path)], check=True)
+        # apt installs the package's declared dependencies from the system's
+        # repositories, as a player's package manager would; a bare dpkg -i
+        # stops on any library the build machine happens to lack.
+        # (sudo resets the environment, so the frontend is set through env.)
+        apt = [*cmd_prefix, 'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get']
+        subprocess.run([*apt, 'update', '-q'], check=True)
+        subprocess.run([*apt, 'install', '-y', '-q', '--no-install-recommends', str(deb_path.resolve())], check=True)
         try:
             installed_app = Path('/opt/Battlefront Eternal')
             manifest = verify_tree_manifest(installed_app, installed_app / 'resources' / 'bfe-tree.json', allow_extra_root=set())
@@ -384,7 +390,7 @@ def main() -> None:
     parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64)')
     parser.add_argument('--staged-dir', type=Path, help='Staged unpacked directory to check')
     parser.add_argument('--deb', type=Path, help='Debian .deb package to check')
-    parser.add_argument('--install-deb', action='store_true', help='Also dpkg -i / dpkg -r the .deb package')
+    parser.add_argument('--install-deb', action='store_true', help='Also install (apt) and remove (dpkg -r) the .deb package')
     parser.add_argument('--appimage', type=Path, help='Linux .AppImage package to check')
     parser.add_argument('--server-archive', type=Path, help='Dedicated server .tar.xz archive to check')
     parser.add_argument('--windows-installer', type=Path, help='Windows NSIS .exe installer to check')
