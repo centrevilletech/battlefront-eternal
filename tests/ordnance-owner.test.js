@@ -1,9 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {Vector3} from 'three';
 import {captureOrdnanceOwner,resolveOrdnanceOwner} from '../src/ordnance-owner.js';import {OrdnanceWorld} from '../src/ordnance-world.js';
+// The query runs in the native ordnance owner. A reused source object is
+// excluded only while its generation still names the launching life.
 test('shared cast excludes launch life but permits reused Unit new life',()=>{
- const owner={id:4,generation:1,team:1,human:true},frozen=captureOrdnanceOwner(owner);let excluded;
- const world=new OrdnanceWorld({units:{raycast(origin,dir,far,exclude){excluded=exclude;return null;}},unitHit:{}});
- world.raycastUnits(new Vector3(),new Vector3(1,0,0),10,frozen,null,null,null);assert.equal(excluded,owner);owner.generation++;world.raycastUnits(new Vector3(),new Vector3(1,0,0),10,frozen,null,null,null);assert.equal(excluded,null);assert.equal(captureOrdnanceOwner(frozen),frozen);
+ const owner={id:4,generation:1,team:1,human:true,alive:true,sphere:{center:new Vector3(3,0,0),radius:1},hitShapes:()=>[{type:'sphere',part:'body',center:new Vector3(3,0,0),radius:1}]};
+ const frozen=captureOrdnanceOwner(owner),unitHit={point:new Vector3(),normal:new Vector3()};
+ const world=new OrdnanceWorld({units:{list:[owner]},unitHit});
+ assert.equal(world.raycastUnits(new Vector3(),new Vector3(1,0,0),10,owner,null,null,null),null);
+ assert.equal(world.raycastUnits(new Vector3(),new Vector3(1,0,0),10,frozen,null,null,null),null);
+ owner.generation++;
+ const hit=world.raycastUnits(new Vector3(),new Vector3(1,0,0),10,frozen,null,null,null);
+ assert.equal(hit.unit,owner);assert.equal(hit.distance,2);assert.deepEqual(hit.point.toArray(),[2,0,0]);
+ assert.equal(captureOrdnanceOwner(frozen),frozen);
 });
 
 test('a native creation notice restores sampled metadata before identity references are decoded',async()=>{

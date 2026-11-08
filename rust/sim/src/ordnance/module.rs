@@ -28,9 +28,9 @@ use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, S
 /// Ordnance and Items retain independent water bits beside their definition
 /// bank. A Cx borrows definitions only for its invocation; no sibling field
 /// address becomes an identity or a retained link between owners.
-pub(crate) struct OrdnanceOwnerState { defs: Option<Defs>, water: [bool; 2] }
+pub(crate) struct OrdnanceOwnerState { defs: Option<Defs>, water: [bool; 2], pub(crate) host:Option<Box<super::control::Bridge>> }
 impl OrdnanceOwnerState {
-    pub(crate) const fn new() -> Self { Self { defs: None, water: [false; 2] } }
+    pub(crate) const fn new() -> Self { Self { defs: None, water: [false; 2], host:None } }
 }
 
 /// Whether the rounds' and the items' battle has water (ordnance.water,

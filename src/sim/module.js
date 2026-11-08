@@ -46,7 +46,10 @@ export function simImports(holder) {
     camera_pow: Math.pow, camera_hypot2: Math.hypot, camera_hypot: Math.hypot, camera_random: () => holder.cameraRandom(),
   };
   holder.cameraRandom = Math.random;
-  return { bfe, camera_math: cameraMath };
+  const resource = name => (a,b,c,d,e,f) => holder.ordnanceResources[name](a,b,c,d,e,f);
+  const ordnance_resources = {};
+  for (const name of ['resource_kind','reference','number','boolean','index','numeric_index','dynamic','read_vector','read_matrix','write_vector','property','invoke','construct','text','intern','publish','clock','stable','scratch_vector','scratch_hit','refresh','unit']) ordnance_resources[name]=resource(name);
+  return { bfe, camera_math: cameraMath, ordnance_resources };
 }
 export async function loadSim() {
   const holder = { bridge: null };

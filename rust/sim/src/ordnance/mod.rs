@@ -23,6 +23,8 @@ pub mod math;
 // The module's exports and the world its imports make (WebAssembly only).
 pub mod module;
 pub mod world;
+pub mod resources;
+pub mod control;
 
 use std::f64::consts::PI;
 

@@ -3278,6 +3278,258 @@ impl BlockHeader {
     }
 }
 
+impl ClientShotInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientShotInput {
+            op: { let p = format!("{path}.op"); ClientShotOp::from_u8(name_of(v.get("op"), &ClientShotOp::NAMES, &p)?).unwrap() },
+            now: { let p = format!("{path}.now"); num(v.get("now"), &p)? },
+            epoch: { let p = format!("{path}.epoch"); num(v.get("epoch"), &p)? },
+            player_id: { let p = format!("{path}.playerId"); num(v.get("playerId"), &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            channel: { let p = format!("{path}.channel"); num(v.get("channel"), &p)? },
+            fire_id: { let p = format!("{path}.fireId"); num(v.get("fireId"), &p)? },
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            weapon: { let p = format!("{path}.weapon"); (int(v.get("weapon"), &p, 0.0, u32::MAX as f64)? as u32) },
+            pressed: { let p = format!("{path}.pressed"); boolean(v.get("pressed"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            mounted: { let p = format!("{path}.mounted"); boolean(v.get("mounted"), &p)? },
+            flight_blocked: { let p = format!("{path}.flightBlocked"); boolean(v.get("flightBlocked"), &p)? },
+            replayed: { let p = format!("{path}.replayed"); boolean(v.get("replayed"), &p)? },
+            held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
+            underwater: { let p = format!("{path}.underwater"); boolean(v.get("underwater"), &p)? },
+            air_blocked: { let p = format!("{path}.airBlocked"); boolean(v.get("airBlocked"), &p)? },
+            dive: { let p = format!("{path}.dive"); boolean(v.get("dive"), &p)? },
+            lock: { let p = format!("{path}.lock"); num(v.get("lock"), &p)? },
+            rolled: { let p = format!("{path}.rolled"); boolean(v.get("rolled"), &p)? },
+            prone: { let p = format!("{path}.prone"); boolean(v.get("prone"), &p)? },
+            forward: { let p = format!("{path}.forward"); num(v.get("forward"), &p)? },
+            right: { let p = format!("{path}.right"); num(v.get("right"), &p)? },
+            has_ordnance: { let p = format!("{path}.hasOrdnance"); boolean(v.get("hasOrdnance"), &p)? },
+            thrown: { let p = format!("{path}.thrown"); boolean(v.get("thrown"), &p)? },
+            charging: { let p = format!("{path}.charging"); boolean(v.get("charging"), &p)? },
+            levels: { let p = format!("{path}.levels"); (int(v.get("levels"), &p, 0.0, u32::MAX as f64)? as u32) },
+            busy: { let p = format!("{path}.busy"); boolean(v.get("busy"), &p)? },
+            reloading: { let p = format!("{path}.reloading"); boolean(v.get("reloading"), &p)? },
+            can_shoot: { let p = format!("{path}.canShoot"); boolean(v.get("canShoot"), &p)? },
+            wait: { let p = format!("{path}.wait"); num(v.get("wait"), &p)? },
+            single: { let p = format!("{path}.single"); num(v.get("single"), &p)? },
+            salvo: { let p = format!("{path}.salvo"); num(v.get("salvo"), &p)? },
+            excluded: { let p = format!("{path}.excluded"); boolean(v.get("excluded"), &p)? },
+            straight: { let p = format!("{path}.straight"); boolean(v.get("straight"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            spread_yaw: { let p = format!("{path}.spreadYaw"); num(v.get("spreadYaw"), &p)? },
+            spread_pitch: { let p = format!("{path}.spreadPitch"); num(v.get("spreadPitch"), &p)? },
+            elevate: { let p = format!("{path}.elevate"); num(v.get("elevate"), &p)? },
+            velocity: { let p = format!("{path}.velocity"); num(v.get("velocity"), &p)? },
+            span: { let p = format!("{path}.span"); num(v.get("span"), &p)? },
+            fade_time: { let p = format!("{path}.fadeTime"); num(v.get("fadeTime"), &p)? },
+            laser: { let p = format!("{path}.laser"); num(v.get("laser"), &p)? },
+            glow: { let p = format!("{path}.glow"); num(v.get("glow"), &p)? },
+            blur: { let p = format!("{path}.blur"); num(v.get("blur"), &p)? },
+            delay: { let p = format!("{path}.delay"); num(v.get("delay"), &p)? },
+            origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            muzzle: { let p = format!("{path}.muzzle"); vec3(v.get("muzzle"), &p)? },
+            has_muzzle: { let p = format!("{path}.hasMuzzle"); boolean(v.get("hasMuzzle"), &p)? },
+            target: { let p = format!("{path}.target"); vec3(v.get("target"), &p)? },
+            target_distance: { let p = format!("{path}.targetDistance"); num(v.get("targetDistance"), &p)? },
+            converge: { let p = format!("{path}.converge"); boolean(v.get("converge"), &p)? },
+            contact: { let p = format!("{path}.contact"); num(v.get("contact"), &p)? },
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(57);
+        { let x = Value::Str(ClientShotOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.now); fields.push(("now", x)); }
+        { let x = Value::Num(self.epoch); fields.push(("epoch", x)); }
+        { let x = Value::Num(self.player_id); fields.push(("playerId", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Num(self.channel); fields.push(("channel", x)); }
+        { let x = Value::Num(self.fire_id); fields.push(("fireId", x)); }
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.weapon as f64); fields.push(("weapon", x)); }
+        { let x = Value::Bool(self.pressed); fields.push(("pressed", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.mounted); fields.push(("mounted", x)); }
+        { let x = Value::Bool(self.flight_blocked); fields.push(("flightBlocked", x)); }
+        { let x = Value::Bool(self.replayed); fields.push(("replayed", x)); }
+        { let x = Value::Bool(self.held); fields.push(("held", x)); }
+        { let x = Value::Bool(self.underwater); fields.push(("underwater", x)); }
+        { let x = Value::Bool(self.air_blocked); fields.push(("airBlocked", x)); }
+        { let x = Value::Bool(self.dive); fields.push(("dive", x)); }
+        { let x = Value::Num(self.lock); fields.push(("lock", x)); }
+        { let x = Value::Bool(self.rolled); fields.push(("rolled", x)); }
+        { let x = Value::Bool(self.prone); fields.push(("prone", x)); }
+        { let x = Value::Num(self.forward); fields.push(("forward", x)); }
+        { let x = Value::Num(self.right); fields.push(("right", x)); }
+        { let x = Value::Bool(self.has_ordnance); fields.push(("hasOrdnance", x)); }
+        { let x = Value::Bool(self.thrown); fields.push(("thrown", x)); }
+        { let x = Value::Bool(self.charging); fields.push(("charging", x)); }
+        { let x = Value::Num(self.levels as f64); fields.push(("levels", x)); }
+        { let x = Value::Bool(self.busy); fields.push(("busy", x)); }
+        { let x = Value::Bool(self.reloading); fields.push(("reloading", x)); }
+        { let x = Value::Bool(self.can_shoot); fields.push(("canShoot", x)); }
+        { let x = Value::Num(self.wait); fields.push(("wait", x)); }
+        { let x = Value::Num(self.single); fields.push(("single", x)); }
+        { let x = Value::Num(self.salvo); fields.push(("salvo", x)); }
+        { let x = Value::Bool(self.excluded); fields.push(("excluded", x)); }
+        { let x = Value::Bool(self.straight); fields.push(("straight", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = Value::Num(self.spread_yaw); fields.push(("spreadYaw", x)); }
+        { let x = Value::Num(self.spread_pitch); fields.push(("spreadPitch", x)); }
+        { let x = Value::Num(self.elevate); fields.push(("elevate", x)); }
+        { let x = Value::Num(self.velocity); fields.push(("velocity", x)); }
+        { let x = Value::Num(self.span); fields.push(("span", x)); }
+        { let x = Value::Num(self.fade_time); fields.push(("fadeTime", x)); }
+        { let x = Value::Num(self.laser); fields.push(("laser", x)); }
+        { let x = Value::Num(self.glow); fields.push(("glow", x)); }
+        { let x = Value::Num(self.blur); fields.push(("blur", x)); }
+        { let x = Value::Num(self.delay); fields.push(("delay", x)); }
+        { let x = a.vec3(self.origin); fields.push(("origin", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = a.vec3(self.muzzle); fields.push(("muzzle", x)); }
+        { let x = Value::Bool(self.has_muzzle); fields.push(("hasMuzzle", x)); }
+        { let x = a.vec3(self.target); fields.push(("target", x)); }
+        { let x = Value::Num(self.target_distance); fields.push(("targetDistance", x)); }
+        { let x = Value::Bool(self.converge); fields.push(("converge", x)); }
+        { let x = Value::Num(self.contact); fields.push(("contact", x)); }
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientShotRecord {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientShotRecord {
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            player_id: { let p = format!("{path}.playerId"); num(v.get("playerId"), &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            channel: { let p = format!("{path}.channel"); num(v.get("channel"), &p)? },
+            fire_id: { let p = format!("{path}.fireId"); num(v.get("fireId"), &p)? },
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            confirmed: { let p = format!("{path}.confirmed"); num(v.get("confirmed"), &p)? },
+            straight: { let p = format!("{path}.straight"); boolean(v.get("straight"), &p)? },
+            held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
+            origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            offset: { let p = format!("{path}.offset"); vec3(v.get("offset"), &p)? },
+            has_offset: { let p = format!("{path}.hasOffset"); boolean(v.get("hasOffset"), &p)? },
+            speed: { let p = format!("{path}.speed"); num(v.get("speed"), &p)? },
+            life: { let p = format!("{path}.life"); num(v.get("life"), &p)? },
+            born: { let p = format!("{path}.born"); num(v.get("born"), &p)? },
+            until: { let p = format!("{path}.until"); num(v.get("until"), &p)? },
+            merge: { let p = format!("{path}.merge"); num(v.get("merge"), &p)? },
+            flown: { let p = format!("{path}.flown"); num(v.get("flown"), &p)? },
+            drawn: { let p = format!("{path}.drawn"); num(v.get("drawn"), &p)? },
+            ended: { let p = format!("{path}.ended"); boolean(v.get("ended"), &p)? },
+            fade: { let p = format!("{path}.fade"); num(v.get("fade"), &p)? },
+            flying: { let p = format!("{path}.flying"); boolean(v.get("flying"), &p)? },
+            struck: { let p = format!("{path}.struck"); boolean(v.get("struck"), &p)? },
+            notify: { let p = format!("{path}.notify"); boolean(v.get("notify"), &p)? },
+            cast_from: { let p = format!("{path}.castFrom"); vec3(v.get("castFrom"), &p)? },
+            cast_far: { let p = format!("{path}.castFar"); num(v.get("castFar"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(28);
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = Value::Num(self.player_id); fields.push(("playerId", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Num(self.channel); fields.push(("channel", x)); }
+        { let x = Value::Num(self.fire_id); fields.push(("fireId", x)); }
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.confirmed); fields.push(("confirmed", x)); }
+        { let x = Value::Bool(self.straight); fields.push(("straight", x)); }
+        { let x = Value::Bool(self.held); fields.push(("held", x)); }
+        { let x = a.vec3(self.origin); fields.push(("origin", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.offset); fields.push(("offset", x)); }
+        { let x = Value::Bool(self.has_offset); fields.push(("hasOffset", x)); }
+        { let x = Value::Num(self.speed); fields.push(("speed", x)); }
+        { let x = Value::Num(self.life); fields.push(("life", x)); }
+        { let x = Value::Num(self.born); fields.push(("born", x)); }
+        { let x = Value::Num(self.until); fields.push(("until", x)); }
+        { let x = Value::Num(self.merge); fields.push(("merge", x)); }
+        { let x = Value::Num(self.flown); fields.push(("flown", x)); }
+        { let x = Value::Num(self.drawn); fields.push(("drawn", x)); }
+        { let x = Value::Bool(self.ended); fields.push(("ended", x)); }
+        { let x = Value::Num(self.fade); fields.push(("fade", x)); }
+        { let x = Value::Bool(self.flying); fields.push(("flying", x)); }
+        { let x = Value::Bool(self.struck); fields.push(("struck", x)); }
+        { let x = Value::Bool(self.notify); fields.push(("notify", x)); }
+        { let x = a.vec3(self.cast_from); fields.push(("castFrom", x)); }
+        { let x = Value::Num(self.cast_far); fields.push(("castFar", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientShotReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientShotReply {
+            accepted: { let p = format!("{path}.accepted"); boolean(v.get("accepted"), &p)? },
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            first: { let p = format!("{path}.first"); boolean(v.get("first"), &p)? },
+            reset: { let p = format!("{path}.reset"); boolean(v.get("reset"), &p)? },
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+            slots: { let p = format!("{path}.slots"); (int(v.get("slots"), &p, 0.0, u32::MAX as f64)? as u32) },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            speed: { let p = format!("{path}.speed"); num(v.get("speed"), &p)? },
+            span: { let p = format!("{path}.span"); num(v.get("span"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(9);
+        { let x = Value::Bool(self.accepted); fields.push(("accepted", x)); }
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = Value::Bool(self.first); fields.push(("first", x)); }
+        { let x = Value::Bool(self.reset); fields.push(("reset", x)); }
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = Value::Num(self.slots as f64); fields.push(("slots", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = Value::Num(self.speed); fields.push(("speed", x)); }
+        { let x = Value::Num(self.span); fields.push(("span", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientShotContact {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientShotContact {
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            distance: { let p = format!("{path}.distance"); num(v.get("distance"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = Value::Num(self.distance); fields.push(("distance", x)); }
+        a.object("", fields)
+    }
+}
+
 impl ClientTiming {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -10484,6 +10736,149 @@ impl NetworkSeatsReply {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
         { let x = Value::Bool(self.ok); fields.push(("ok", x)); }
         { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        a.object("", fields)
+    }
+}
+
+impl OrdnanceHostValue {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(OrdnanceHostValue {
+            kind: { let p = format!("{path}.kind"); OrdnanceHostKind::from_u8(name_of(v.get("kind"), &OrdnanceHostKind::NAMES, &p)?).unwrap() },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(OrdnanceHostKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        a.object("", fields)
+    }
+}
+
+impl OrdnanceHostInvoke {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(OrdnanceHostInvoke {
+            owner: { let p = format!("{path}.owner"); OrdnanceHostOwner::from_u8(name_of(v.get("owner"), &OrdnanceHostOwner::NAMES, &p)?).unwrap() },
+            op: { let p = format!("{path}.op"); (int(v.get("op"), &p, 0.0, u32::MAX as f64)? as u32) },
+            root: { let p = format!("{path}.root"); (int(v.get("root"), &p, 0.0, u32::MAX as f64)? as u32) },
+            a0: { let p = format!("{path}.a0"); OrdnanceHostValue::from_value(v.get("a0"), cx, &p)? },
+            a1: { let p = format!("{path}.a1"); OrdnanceHostValue::from_value(v.get("a1"), cx, &p)? },
+            a2: { let p = format!("{path}.a2"); OrdnanceHostValue::from_value(v.get("a2"), cx, &p)? },
+            a3: { let p = format!("{path}.a3"); OrdnanceHostValue::from_value(v.get("a3"), cx, &p)? },
+            a4: { let p = format!("{path}.a4"); OrdnanceHostValue::from_value(v.get("a4"), cx, &p)? },
+            a5: { let p = format!("{path}.a5"); OrdnanceHostValue::from_value(v.get("a5"), cx, &p)? },
+            a6: { let p = format!("{path}.a6"); OrdnanceHostValue::from_value(v.get("a6"), cx, &p)? },
+            a7: { let p = format!("{path}.a7"); OrdnanceHostValue::from_value(v.get("a7"), cx, &p)? },
+            a8: { let p = format!("{path}.a8"); OrdnanceHostValue::from_value(v.get("a8"), cx, &p)? },
+            a9: { let p = format!("{path}.a9"); OrdnanceHostValue::from_value(v.get("a9"), cx, &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(13);
+        { let x = Value::Str(OrdnanceHostOwner::NAMES[self.owner as usize].to_string()); fields.push(("owner", x)); }
+        { let x = Value::Num(self.op as f64); fields.push(("op", x)); }
+        { let x = Value::Num(self.root as f64); fields.push(("root", x)); }
+        { let x = self.a0.to_value(cx, a); fields.push(("a0", x)); }
+        { let x = self.a1.to_value(cx, a); fields.push(("a1", x)); }
+        { let x = self.a2.to_value(cx, a); fields.push(("a2", x)); }
+        { let x = self.a3.to_value(cx, a); fields.push(("a3", x)); }
+        { let x = self.a4.to_value(cx, a); fields.push(("a4", x)); }
+        { let x = self.a5.to_value(cx, a); fields.push(("a5", x)); }
+        { let x = self.a6.to_value(cx, a); fields.push(("a6", x)); }
+        { let x = self.a7.to_value(cx, a); fields.push(("a7", x)); }
+        { let x = self.a8.to_value(cx, a); fields.push(("a8", x)); }
+        { let x = self.a9.to_value(cx, a); fields.push(("a9", x)); }
+        a.object("", fields)
+    }
+}
+
+impl OrdnanceHostUnit {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(OrdnanceHostUnit {
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            removed: { let p = format!("{path}.removed"); boolean(v.get("removed"), &p)? },
+            shapes: { let p = format!("{path}.shapes"); (int(v.get("shapes"), &p, 0.0, u32::MAX as f64)? as u32) },
+            seat: { let p = format!("{path}.seat"); (int(v.get("seat"), &p, 0.0, u32::MAX as f64)? as u32) },
+            exposed: { let p = format!("{path}.exposed"); boolean(v.get("exposed"), &p)? },
+            vehicle: { let p = format!("{path}.vehicle"); (int(v.get("vehicle"), &p, 0.0, u32::MAX as f64)? as u32) },
+            vehicle_body: { let p = format!("{path}.vehicleBody"); (int(v.get("vehicleBody"), &p, 0.0, u32::MAX as f64)? as u32) },
+            turret_body: { let p = format!("{path}.turretBody"); (int(v.get("turretBody"), &p, 0.0, u32::MAX as f64)? as u32) },
+            center: { let p = format!("{path}.center"); vec3(v.get("center"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(11);
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.removed); fields.push(("removed", x)); }
+        { let x = Value::Num(self.shapes as f64); fields.push(("shapes", x)); }
+        { let x = Value::Num(self.seat as f64); fields.push(("seat", x)); }
+        { let x = Value::Bool(self.exposed); fields.push(("exposed", x)); }
+        { let x = Value::Num(self.vehicle as f64); fields.push(("vehicle", x)); }
+        { let x = Value::Num(self.vehicle_body as f64); fields.push(("vehicleBody", x)); }
+        { let x = Value::Num(self.turret_body as f64); fields.push(("turretBody", x)); }
+        { let x = a.vec3(self.center); fields.push(("center", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        a.object("", fields)
+    }
+}
+
+impl OrdnanceHostArgument {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(OrdnanceHostArgument {
+            kind: { let p = format!("{path}.kind"); OrdnanceHostKind::from_u8(name_of(v.get("kind"), &OrdnanceHostKind::NAMES, &p)?).unwrap() },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(OrdnanceHostKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        a.object("", fields)
+    }
+}
+
+impl OrdnanceHostShot {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(OrdnanceHostShot {
+            action: { let p = format!("{path}.action"); OrdnanceHostPublication::from_u8(name_of(v.get("action"), &OrdnanceHostPublication::NAMES, &p)?).unwrap() },
+            key: { let p = format!("{path}.key"); (int(v.get("key"), &p, 0.0, u32::MAX as f64)? as u32) },
+            def: { let p = format!("{path}.def"); (int(v.get("def"), &p, 0.0, u32::MAX as f64)? as u32) },
+            owner: { let p = format!("{path}.owner"); (int(v.get("owner"), &p, 0.0, u32::MAX as f64)? as u32) },
+            ignore: { let p = format!("{path}.ignore"); (int(v.get("ignore"), &p, 0.0, u32::MAX as f64)? as u32) },
+            record: { let p = format!("{path}.record"); ClientShotRecord::from_value(v.get("record"), cx, &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        { let x = Value::Str(OrdnanceHostPublication::NAMES[self.action as usize].to_string()); fields.push(("action", x)); }
+        { let x = Value::Num(self.key as f64); fields.push(("key", x)); }
+        { let x = Value::Num(self.def as f64); fields.push(("def", x)); }
+        { let x = Value::Num(self.owner as f64); fields.push(("owner", x)); }
+        { let x = Value::Num(self.ignore as f64); fields.push(("ignore", x)); }
+        { let x = self.record.to_value(cx, a); fields.push(("record", x)); }
         a.object("", fields)
     }
 }

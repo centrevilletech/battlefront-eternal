@@ -4,7 +4,8 @@
 use crate::store::handles::Pool;
 pub struct Resources {
     pub prediction:Pool<super::ClientPrediction>,
+    pub shots:Pool<super::shots::Shots>,
     pub sound:Pool<::audio_control::runtime::Runtime>,
 }
 impl Default for Resources {fn default()->Self {Self::new()}}
-impl Resources {pub const fn new()->Self {Self {prediction:Pool::new(13),sound:Pool::new(14)}}}
+impl Resources {pub const fn new()->Self {Self {prediction:Pool::new(13),shots:Pool::new(17),sound:Pool::new(14)}}}

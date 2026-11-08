@@ -1,0 +1,17 @@
+// Cosmetic shot state and its host-query continuation. Resource identities are
+// opaque numbers; all timing, matching and flight decisions stay native.
+export default {
+  constants: { CLIENT_SHOTS_CAPACITY: 32, CLIENT_SHOTS_CLAIMS: 256, CLIENT_SHOTS_WEAPONS: 1024 },
+  enums: { ClientShotOp: ['prepare', 'launch', 'confirm', 'claim', 'stop', 'advance', 'settle', 'clear', 'slots', 'remove'] },
+  records: {
+    ClientShotInput: { $layout: true, op: 'enum:ClientShotOp', now: 'f64', epoch: 'f64', playerId: 'f64', generation: 'f64', channel: 'f64', fireId: 'f64', tick: 'f64', weapon: 'u32',
+      pressed: 'bool', alive: 'bool', dead: 'bool', mounted: 'bool', flightBlocked: 'bool', replayed: 'bool', held: 'bool', underwater: 'bool', airBlocked: 'bool', dive: 'bool', lock: 'f64', rolled: 'bool', prone: 'bool', forward: 'f64', right: 'f64',
+      hasOrdnance: 'bool', thrown: 'bool', charging: 'bool', levels: 'u32', busy: 'bool', reloading: 'bool', canShoot: 'bool', wait: 'f64', single: 'f64', salvo: 'f64', excluded: 'bool', straight: 'bool',
+      yaw: 'f64', pitch: 'f64', spreadYaw: 'f64', spreadPitch: 'f64', elevate: 'f64', velocity: 'f64', span: 'f64', fadeTime: 'f64', laser: 'f64', glow: 'f64', blur: 'f64', delay: 'f64',
+      origin: 'vec3', direction: 'vec3', muzzle: 'vec3', hasMuzzle: 'bool', target: 'vec3', targetDistance: 'f64', converge: 'bool', contact: 'f64', id: 'u32' },
+    ClientShotRecord: { $layout: true, id: 'u32', playerId: 'f64', generation: 'f64', channel: 'f64', fireId: 'f64', tick: 'f64', confirmed: 'f64', straight: 'bool', held: 'bool',
+      origin: 'vec3', direction: 'vec3', position: 'vec3', offset: 'vec3', hasOffset: 'bool', speed: 'f64', life: 'f64', born: 'f64', until: 'f64', merge: 'f64', flown: 'f64', drawn: 'f64', ended: 'bool', fade: 'f64', flying: 'bool', struck: 'bool', notify: 'bool', castFrom: 'vec3', castFar: 'f64' },
+    ClientShotReply: { $layout: true, accepted: 'bool', id: 'u32', first: 'bool', reset: 'bool', count: 'u32', slots: 'u32', direction: 'vec3', speed: 'f64', span: 'f64' },
+    ClientShotContact: { $layout: true, id: 'u32', distance: 'f64' },
+  },
+};
