@@ -36,7 +36,7 @@ world's ends, charge and hold. Nothing new travels between world and page.
   `MaxBranches` (more with charge, one more past 12 m) forks leave the middle
   of the channel along it, turned by `BranchSpreadFactor`, `BranchLength` long
   at most, some forking again. Both are redrawn with each strike.
-- **The ends.** A held bolt (the first link) starts at the shooter's gun as
+- **The ends.** A held bolt (the initial link) starts at the shooter's gun as
   drawn (the fire point of the gun in his hands, or in first person the
   arms' gun), not at the aimer's gun origin that the world uses. A bolt that
   ends on a soldier ends on his ribcage as drawn and follows him; the next
@@ -44,7 +44,7 @@ world's ends, charge and hold. Nothing new travels between world and page.
 - **Light.** The frame's point lights (`LightPool`): at the gun, where it
   lands, and halfway along a bolt longer than 10 m, all flickering with the
   strikes, and a flash where it lands. They light the ground, walls and
-  soldiers about it, and the first-person arms.
+  soldiers about it, and the player's first-person arms.
 - **Sparks** where it lands: 10 to 26 by charge, thrown back toward the
   shooter and up, falling, skipping once off the floor (the struck soldier's
   feet, or the collision below), and a few more with later strikes.
@@ -77,7 +77,7 @@ strike extends it):
 
 Struck in first person, the bolt ends on the player's own hands (his eye is
 just above his chest), throws no sparks, and arcs crawl along his gun, drawn
-over it in the first-person weapon's own scene.
+over it in the player's first-person weapon's own scene.
 
 ## A droideka with its shield up
 
@@ -110,7 +110,7 @@ is drawn over the gun, in the weapon's own scene.
 ## How it is drawn
 
 Everything is glowing capsules, one instance a segment, in one instanced
-draw (plus one in the first-person scene when it has something): the
+draw (plus one in the player's first-person scene when it has something): the
 fragment shader finds the closest distance between the view ray and the
 segment, as `blaster-bolts.js` draws plasma, so a bolt reads the same side
 on and end on (the shooter's own view down it). Where two segments of a line
@@ -124,25 +124,18 @@ metre of the eye fades. Fragments write the depth of their closest point, so
 walls hide what is behind them, and fade against the scene's depth (soft
 particles) where they meet it.
 
-The batch and a stand-in for the shock glow are shown while a battle loads,
-so `graphics.warmup()` builds both programs then rather than at the first
-bolt. For its first 90 drawn frames the empty batch draws one dark capsule
-(zero brightness, let go by the fragment shader) and the stand-in one small
-triangle at intensity 0: a program is linked by `warmup()`, but the driver
-builds its pipeline at the first real draw (ANGLE on Vulkan and Metal,
-SwiftShader), and with no instance three issues no draw, so the first bolt
-still stalled its frame. The stand-in is dropped after those frames.
+Arc and shock programs register from the Rust effects and actor catalogs during
+resource admission. Shock overlays use native actor descriptors rather than a
+temporary skinned mesh compiled by Three.js. Their scene anchors retain the
+current view and endpoint facts; the Rust passes own program, geometry and
+raster submission.
 
 ### Cost
 
-- One interleaved instance buffer (20 floats a capsule), uploaded once a
-  frame over the range drawn, through a single kept range record. It is made
-  for 4096 capsules, enough for a dozen guns firing at once; three or four
-  full-charge chains already pass 1024. When it grows, three's recorded
-  instance limit is cleared: three keeps the count of the buffers it first
-  bound until the geometry is disposed, so before this a batch grown past its
-  first 1024 capsules silently stopped drawing the rest (the sparks and
-  muzzle crackle, pushed last, went first).
+- One retained interleaved buffer stores 20 floats per capsule and uploads the
+  drawn prefix. Admission reserves at least 16,384 capsules. Excess segments
+  clip rather than grow the buffer during a frame. Native descriptors carry
+  the geometry and attribute layout; no Three.js geometry cache sets the limit.
 - A line's segments, its hot loop, and the sparks are written straight into
   the buffer instead of through `push()`; the displacement settings are one
   reused object; bolts and sparks are kept in place, the spent left out;
@@ -151,9 +144,9 @@ still stalled its frame. The stand-in is dropped after those frames.
   worked out once. A sustained fight makes little garbage for the collector
   to stop the page over.
 - Its lights are requests to the frame's fixed `LightPool` (eight point
-  lights always in the scene, unused ones at intensity 0), so firing never
-  changes the light count three compiles lit programs for. The pool picks
-  the heaviest requests without sorting or new arrays.
+  light slots, unused ones at intensity 0). Rust ranks the requests and
+  advances their lifetimes in retained storage; firing does not compile
+  another lit program.
 - A pixel already too faint to draw is let go before the scene's depth is
   read for the soft edge. The fragment's depth comes from the projection's
   z and w rows alone.
@@ -185,7 +178,7 @@ starts clean; it never stops the battle.
   shooter and struck soldier found and followed; a chain's delay and anchor;
   a droideka's shield stopping the bolt (and a link leaving it);
   the twitch over a new pose and put back, the glow's layer and skeleton; a
-  new life ends a shock; the fizzle; the first-person arcs in the weapon's
+  new life ends a shock; the fizzle; the player's first-person arcs in the weapon's
   scene; the charge crackle; the setting, presets and Classic switch; the
   batch's growth (every instance drawn, one upload range), a line written
   straight into the batch as `push()` lays it out, and spent sparks reused.

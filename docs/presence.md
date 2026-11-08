@@ -48,7 +48,7 @@ Steam lets any program be added to its library as a non-Steam game
 it as a game: friends see the entry's name, play time is counted, and the
 library shows its artwork.
 
-The first time the main menu opens with Steam installed and the game not in
+The initial time the main menu opens with Steam installed and the game not in
 its library, the client asks once (`offerSteam`, after the Discord question):
 ADD TO STEAM or NOT NOW.
 OPTIONS > STEAM & DISCORD adds or removes it later. The entry:
@@ -85,7 +85,7 @@ Steam keeps its library in memory and writes `shortcuts.vdf` back whenever
 it changes, so the file is only written while Steam is closed. With Steam
 open, adding or removing closes Steam (`steam -shutdown`), writes, and starts
 it again (`steam -silent`), after the player agrees to that. Every write is a
-complete file renamed into place; the first time, the previous file is kept
+complete file renamed into place; the initial time, the previous file is kept
 as `shortcuts.vdf.bfe-backup`. Other programs' entries are written back with
 exactly the bytes they were read with, and a file that does not parse is
 never written. An entry the player deletes in Steam stays deleted.
@@ -119,7 +119,7 @@ dialog, a broken entry), this copy carries on by itself, and so do the
 versions it hands off to (`BFE_NO_STEAM`) and every start of the next half
 hour (`launches/steam-relaunch-failed`); nothing about Steam can stop the
 game from starting. A second click on the launcher during the round trip
-exits and leaves it to the first; a request left by a start that died is
+exits and leaves it to the existing process; a request left by a start that died is
 ignored. Already running, the game comes to the front without a round trip.
 OPTIONS > STEAM & DISCORD > START THROUGH STEAM turns this off;
 `BFE_NO_STEAM=1` skips it for one start.
@@ -241,7 +241,7 @@ against arRPC 3.6.0, the server Vesktop and browser Discord use.
 ### What friends see
 
 Nothing goes to Discord until the player chooses: the client does not even
-connect to it. The first time the main menu opens, it asks once
+connect to it. The initial time the main menu opens, it asks once
 (`offerDiscord`): "Show Discord friends what you play?", with MAP AND SERVER,
 GAME ONLY or NO THANKS, and says the answer can be changed any time in
 Options, Steam & Discord. Closing the question counts as no. Any answer is
@@ -346,7 +346,7 @@ game decides for itself as above.
 - **Starting outside Steam** with Steam closed is not seen by Steam: the game
   does not start Steam for itself.
 - **Steam Input:** for controllers other than Valve's, Chromium sees the
-  physical pad and Steam's virtual one. The game reads the first pad, only
+  physical pad and Steam's virtual one. The game reads the initial pad, only
   when flying, so the two do not add up.
 - **Discord Join** (Ask to Join, party invites) is not used: it needs a launch
   protocol registration and a join path into the server browser, and

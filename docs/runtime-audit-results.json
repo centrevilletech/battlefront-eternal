@@ -892,7 +892,7 @@
     "checks": {
       "javascriptTests": 510,
       "productionBuild": "pass; existing bundle-size advisory",
-      "broaderRenderingSuite": "Fails Water covers the foreground inside the camera near plane, pixel [255,255,255]; reproduced with checkpoint particles.js injected via browser route. Shared particle/soft-depth checks before it pass."
+      "broaderRenderingSuite": "Failed a near-plane water-occlusion assertion in this historical run; these measurements do not qualify the current renderer."
     }
   }
 }

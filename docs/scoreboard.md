@@ -92,8 +92,8 @@ mission's armies, and the roster drops them
 That is the original's own check (`ScriptCB_CheckPlayerListDone`, every
 frame with whether Tab is held, measured from the opening):
 
-- In the first half second, a frame without Tab marks a tap.
-- After it, a held list closes on the first frame Tab is up.
+- In the initial half second, a frame without Tab marks a tap.
+- After it, a held list closes on the initial frame Tab is up.
 - A tapped one turns into a held one as soon as Tab is down again.
 
 **When Tab works.** Not while:
@@ -238,7 +238,7 @@ from 5% in).
 | Titles | text from (66.2, 121.3) and (527.0, 121.3) | y 98.6 | "REPUBLIC : 147", the team's reinforcements left; `gamefont_medium`, white |
 | Column icons | 30 × 30 from x 358.8 / 414.1 / 469.4 and 819.6 / 874.9 / 930.2, y 123.6 | y 100.5 | `stats_kills`, `stats_deaths`, `stats_cpp` |
 | Arrows | centres (281.6, 165.6) up, (281.6, 637.4) down; 742.4 on the right | y 146.7 / 512.3 | `small_arrow`, 30 × 30, turned |
-| Rows | 16 a side, 27 apart, the first's centre at y 202.2 | 13, from 166.8 | |
+| Rows | 16 a side, 27 apart, the top row's centre at y 202.2 | 13, from 166.8 | |
 | Names | from x 68.2 / 529.0, 280 wide (215.4 with PING) | | `gamefont_medium` at 80% width, the line's top 10 above the row's centre |
 | Numbers | right-aligned at x 382.4 / 439.7 / 497.0 and 843.2 / 900.5 / 957.8 | | the same |
 | PING | right-aligned at x 325.1 / 785.9, one column before KILLS; its label centred on the icons | | the same; Tab's table in a network game |
@@ -406,7 +406,7 @@ The battle's eight awards (`ifs_awardstats`), from the end table.
 - **Icons:** each winner's team logo flies from his team's side of the
   table to its row, between label and value. It goes from size W / 800
   down to 0.2 and from alpha 0.2 to 0.3 over 0.4 s, spinning at ±600°/s.
-  After the first lands, each spins at a random −13.5 to 13.5°/s. Locals
+  After the leading logo lands, each spins at a random −13.5 to 13.5°/s. Locals
   have no logo.
 
 | Award | Goes to the most |
@@ -470,7 +470,7 @@ over.
 | A friend's death, his own included | His killer: a kill and a team kill, so KILLS −1 |
 | A neutral's death | Nothing |
 | Any death | The dead: a death, killer or not |
-| A neutral post captured | A CP point for each living Character in its capture region, the first 64 |
+| A neutral post captured | A CP point for each living Character in its capture region, the initial 64 |
 | A command post destroyed | A CP point for its last damager, unless he is its owner's friend |
 
 `postDestroyed()` is called for the destructible posts

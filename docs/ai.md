@@ -30,7 +30,7 @@ documents describe the data each operation reads and writes.
 
 | Area | Document | Code |
 | --- | --- | --- |
-| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `src/units.js`, `src/registry.js`, `src/battle.js`, `src/sim-events.js`, `src/ai-world-load.js`, `rust/sim/src/ai/owned/`, `rust/sim/src/ai/random.rs` |
+| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `src/units.js`, `src/registry.js`, `src/battle.js`, `src/sim-events.js`, `src/sim/wasm/ai-world-load.js`, `rust/sim/src/ai/owned/`, `rust/sim/src/ai/random.rs` |
 | Navigation data and runtime | [ai-nav.md](ai-nav.md) | `rust/sim/src/ai/nav/`, `tools/zero_ai.py` |
 | Perception, aim, firing, attack patterns, weapon AI, class and weapon AI extraction | [ai-combat.md](ai-combat.md) | `rust/sim/src/ai/combat/` (`perception.rs`, `aim.rs`, `agent.rs`, `weapons_ai.rs`), `tools/zero_ai_classes.py` |
 | Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/battle/spawning.rs`, `rust/sim/src/ai/control/goals.rs`, `tools/zero_ai_mission.py` |
@@ -49,17 +49,21 @@ The original keeps a fixed set of **Characters** per team (team slots, from
 `SetUnitCount`); each Character spawns **entities** of a chosen class. The
 port mirrors that split:
 
-- `Character` (`src/battle.js`): `{ index, team, human, classIndex, unit,
+- `Character` (canonical battle rows in `rust/sim/src/battle/`, with a
+  `src/battle.js` observer facade): `{ index, team, human, classIndex, unit,
   controller, spawn: { wave: S, ordinal: J, post }, kills, deaths, teamKills, captures }`. Persists for
   the match. `human` is true for the local player's Character. `unit` is the
   current living entity or `null`.
-- `Unit` (`src/units.js`): one living (or dying) entity. It owns physics,
-  combat, body, animation and presentation. Units are pooled per class and
+- `Unit` (canonical rows in `rust/sim/src/units/`, with a `src/units.js`
+  observer facade): one living or dying entity. Rust owns its physics, combat
+  and gameplay rig; displayed poses belong to the presentation owner. Units are pooled per class and
   reused across spawns; `generation` increments on every spawn so stale
   references can be detected.
 
-AI code reads units through this interface (fields are live; vectors are
-shared, never mutate them):
+The following object-shaped examples describe the behavioral data contract.
+Native AI resolves canonical rows through borrowed services; these are not
+JavaScript callbacks used to make each bot decision. Host facade vectors remain
+shared and must not be mutated by observers:
 
 ```js
 unit.id            // stable integer for the pooled unit
@@ -167,10 +171,10 @@ world.factory             // UnitFactory: sideOf(className), prepared(className)
 world.classesFor(team)    // the team's [[className, count], ...] that a loaded side has
 ```
 
-`createNativeAI(mode, world, options)` (`src/ai-world-load.js`) loads
+`createNativeAI(mode, world, options)` (`src/sim/wasm/ai-world-load.js`) loads
 `ai-nav.json`, `ai-mission.json` and each side's `ai.json` (`src/ai-data.js`
 `loadAIData`), hands that cold content and the mission calls to the native
-owner (`src/ai-world.js`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
+owner (`src/sim/wasm/ai-world.js`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
 builds the initial roster, and returns an object whose `prepare(dt, tick)`
 writes the AI's inputs for the next tick (for `enhanced` the native owner runs
 the Enhanced pieces, [ai-enhanced.md](ai-enhanced.md)). Each simulation step,
@@ -356,10 +360,10 @@ extraction (`tools/extract.py`) writes them too.
 - `node --test tests/ai-*.test.js`: the host boundary and native owner
   with synthetic fixtures (tracked); checks against optional local reference
   data skip when it is absent.
-- `cargo test` in `rust/sim`: the AI's native tests (`tests/ai_phase.rs`,
-  `ai_native_phase.rs`, `ai_combat_control.rs`, `ai_control_twin.rs`,
+- `cargo test` in `rust/sim`: the AI's native tests (`rust/sim/src/ai/owned/tests/phase.rs`,
+  `rust/sim/src/ai/owned/tests/native_phase.rs`, `ai_combat_control.rs`, `ai_control_twin.rs`,
   `ai_combat_twin.rs`, `vehicle_ai_twin.rs`, the replay suites, and
-  `src/ai/nav/tests.rs`).
+  `rust/sim/src/ai/nav/tests.rs`).
 - Whole battles between bots (`tests/ai-browser.mjs`) run headless under
   Node (`tools/headless-world.mjs`), the world the world worker runs, and
   read `game.ai` there.

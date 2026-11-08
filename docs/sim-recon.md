@@ -31,7 +31,7 @@ captured owner, including after a context rebind or while a dead droid owns a
 detached strike. They must not recover attribution from the current Unit life.
 
 Reserve admission before consuming a remote weapon's shot. Launch commits the
-reservation; failure must cancel it. Network identities use the first reusable
+reservation; failure must cancel it. Network identities use the earliest reusable
 slot, with a generation that advances only on commit. A dead droid with a salvo
 keeps its slot until the detached strike finishes. Cancelled reservation tokens
 cannot act on a later reservation of the same slot.

@@ -428,7 +428,7 @@ table. DONE and the 30 s idle still go on to the next battle.
   communications macros.
 - **The hover skin** (`border_3a_pieces`, orange) isn't drawn: the
   captures never show it.
-- **Measured against the captures** (every capture from the first
+- **Measured against the captures** (every capture from the initial
   level load on, the pause and options screens included, is 12 px low),
   the stacks' rows sit within 1 to 3 pixels of the layout's places (the
   captures' row pitch is about 2% under the layout's); the layout's numbers

@@ -134,7 +134,7 @@ player. The droid's own blaster bolts were drawn.
   droid's view (48 degrees across, pitching up 50 at most) never reaches
   that high, so the pilot sees each bolt only in its last few metres; a
   bystander sees each one for the last 0.1 s or so (docs/formats.md, "The
-  strike's bolts"). The first blast destroys the droid, so the pilot is back
+  strike's bolts"). The initial blast destroys the droid, so the pilot is back
   in his body for the rest of the salvo, and the page measures each later
   shake to his body.
 - **Checks.** `tests/recon-network.test.js` flies a strike through the world

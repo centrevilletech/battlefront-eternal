@@ -67,7 +67,7 @@ the old one waits for the new window and, under Steam, stays until the
 game ends. A second process gets an empty, in-memory localStorage, so the
 new version used to start as PLAYER 1 with default options and lose
 whatever it saved. The boot hand-off has no such problem: its parent
-waits before Electron is ready and holds no lock. The first version with
+waits before Electron is ready and holds no lock. The initial version with
 the file moves localStorage's settings into it. If that version was
 itself started by an update, it writes only the player's own changes
 until the next launch can read localStorage again.
@@ -113,7 +113,7 @@ execution.
 - The channel file `downloads/updates/<channel>.json` is an envelope: the
   release JSON (version, release id, content generations and, per
   platform, the manifest's path and SHA-256), its Ed25519 signature and
-  the key id (the first 16 hex digits of the SHA-256 of the public key's
+  the key id (the initial 16 hex digits of the SHA-256 of the public key's
   SubjectPublicKeyInfo).
 - Each platform's manifest (`downloads/<release>/update-<platform>.json.zst`)
   lists every file with its size, SHA-256, compressed size and mode, plus
@@ -168,7 +168,7 @@ host then signs and publishes that release. The scripts involved:
   `linux-arm64-unpacked`, `win-unpacked`) into `update-<platform>.tar`:
   the manifest plus the files the store does not hold yet. The store's
   `blobs.json` lists what it holds. Files are zstd level 19, told their
-  size; files over 32 MB use level 12. The first payload of a platform
+  size; files over 32 MB use level 12. The initial payload of a platform
   carries everything (about 250 MB, 1.5 minutes on an 8-core machine);
   later ones carry only what changed. zstd's own worker threads are not
   used: Node 22's asynchronous zstd writes empty frames with them, and
@@ -188,7 +188,7 @@ host then signs and publishes that release. The scripts involved:
 
 On Ubuntu 24.04 under a userns profile like the Debian package's, an update
 between two packaged Linux builds one version apart reused 6,444 of 6,446
-files and downloaded 2.2 MB; it installed in 11.5 s (mostly the first copy out
+files and downloaded 2.2 MB; it installed in 11.5 s (mostly the initial copy out
 of the system package's folder, later updates hard-link), and the next launch
 of the installed package handed off to it within 10 s, sandboxed under the
 inherited profile.

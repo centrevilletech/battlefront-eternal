@@ -115,7 +115,7 @@ choose from) and on a selected one removes it; ADD and REMOVE do the same
 with the pointer, and Delete removes the selected entry. Maps that are not
 extracted stay in the list, dimmed, and cannot be added. The playlist holds
 64 entries at most. PLAY IN ORDER / RANDOM ORDER sets `order`, and LAUNCH,
-unavailable while the playlist is empty, opens the first battle with the
+unavailable while the playlist is empty, opens the initial battle with the
 dev flags kept.
 
 ## After a battle
@@ -141,10 +141,10 @@ MAIN MENU, not to the Instant Action screen, and so does the port.
   bottom, as a focused button's label does (alpha 1 to 0.3 and back in
   0.7 s), in `gamefont_medium`. The press, any but the browser's own keys,
   starts the sound and the soundtrack, then moves on to the main menu with
-  its intro and the first whoosh, as the original's profile OK does.
+  its intro and the initial whoosh, as the original's profile OK does.
 - **`?screen=main`** (the pause menu's QUIT) goes straight to the main menu
   with its intro. The sound starts then if the browser allows it after the
-  battle page's clicks, else at the first click or key.
+  battle page's clicks, else at the initial click or key.
 - **The page theme** (a design in progress) draws the front end's
   screens, popups and dialogs as a page over one backdrop, instead of the
   original's canvas over each screen's movie (`src/menus/themes/page`,
@@ -269,7 +269,7 @@ Audio, keeping the original's buses and rules:
   `shell_menu_exit`...) are asked for as in a battle,
   `emitSound("interface", name)`. They come from `shell.json`'s `sounds`
   when it has them; else from the front end's sound sub-level
-  (`public/audio/shell/`), or failing that the first battle's
+  (`public/audio/shell/`), or failing that the initial battle's
   (`public/audio/index.json`), whose `sound.json` has every core.lvl
   sound: each sample is fetched alone from its `bank.bin` by byte range,
   with the sound's own pitch, gain and PlayInterval.
@@ -293,12 +293,12 @@ The original's screen behaves like this:
   time since the last update, however long that was.
 - **The timing** is the config's `TargetTime` pair, 3.5 and 1 in
   load.lvl (2 and 0.5 when a config leaves it out): each picture's lines
-  track for the first number of seconds, then the view zooms for the
+  track for the initial number of seconds, then the view zooms for the
   second. A picture takes 4.5 s; the three moves from the galaxy to the
   level take 13.5 s. Nothing in it waits for the load.
 - **The lines.** Each picture's rectangle (`PlanetLevel`) is kept as
   fractions of the screen. At the start of a picture the crosshair is at
-  the screen's edges. In the first half of the tracking the horizontal
+  the screen's edges. In the initial half of the tracking the horizontal
   pair moves, in the second half the vertical pair. At every update each
   moving line covers a share of what is left of its way, the share being
   how far into the half the update falls (from almost nothing to all of
@@ -329,9 +329,9 @@ The original's screen behaves like this:
 
 - **Four pictures**, each filling the screen (stretched, as the original):
   the galaxy, the planet in space (locale), its surface (landsat), the
-  level under the blue hologram grid. On each of the first three a pair of
+  level under the blue hologram grid. On each of the initial three a pair of
   cyan lines tracks onto the next picture's rectangle on the original's
-  timeline (`LoadingTimeline`): the horizontal pair in the first 1.75 s,
+  timeline (`LoadingTimeline`): the horizontal pair in the initial 1.75 s,
   the vertical pair in the next, each line's approach the original's
   stepwise one made smooth (`approach()`: the same positions at every
   50 ms step, drawn every frame). Then the view zooms into the rectangle
@@ -343,7 +343,7 @@ The original's screen behaves like this:
   as the original cuts to the spawn screen. A third number in the timing
   (the port's) would hold the level that much longer.
 - **The planet's name** (`planets.<planet>.name`) top left, 5 units into
-  the safe area, in `gamefont_tiny`, over the first three pictures.
+  the safe area, in `gamefont_tiny`, over the initial three pictures.
 - **The LOADING disk** bottom right, 252 units from the right and 223 up
   from the bottom of a 4:3 screen. On other screens it keeps to that
   corner (`diskPlace()`): its offsets and size scale with the screen's
@@ -385,7 +385,7 @@ The original's screen behaves like this:
 - **The sound** (`src/shell/loading-audio.js`): the original's, from the
   same timeline. `LoadingTimeline.sounds()` gives each pulse's start and
   end by the original's rule (`pulse()`: from the 50 ms step in which the
-  leading line moves more than a thousandth of the screen to the first in
+  leading line moves more than a thousandth of the screen to the opening position in
   which it moves less), the zoom's one-shot as each zoom starts and the
   transition's as it ends. load_ytracking and load_xtracking loop one
   0.35 s ping sample (a tone that dies away in 0.2 s) at pitch 1.8 and
@@ -409,7 +409,7 @@ The original's screen behaves like this:
   page the sequence's plan. The page picks the start 0.1 s ahead and puts
   every sound of the sequence on the `AudioContext`'s own clock at once
   (its output timestamp ties that clock to the page's), each to be heard
-  1/30 s after its moment, about when the first frame drawn at that
+  1/30 s after its moment, about when the initial frame drawn at that
   moment reaches the screen; then it tells the worker the start, and the
   worker draws every frame from `performance.timeOrigin + now` against
   it. A busy page can only delay the start, sound and pictures together.
@@ -450,7 +450,7 @@ The original's screen behaves like this:
   its worst gap and its gaps over 50 ms, with when they fell.
 - `?loading=0` leaves it out. `window.__loading` has its progress, the
   sequence's `plan`, `start` and `endsAt`, the view's last state
-  (`sequence`: stage, phase, `done`, `cue`, and `shown`, the first frame
+  (`sequence`: stage, phase, `done`, `cue`, and `shown`, the initial frame
   drawn at each sound's moment), `frames` and `sound.state()` (the sounds
   put on the clock and when each is heard) for checks. The canvas takes
   no pointer events, so nothing under it is blocked.
@@ -472,7 +472,7 @@ pass:
 | | Before | After |
 | --- | --- | --- |
 | Screen gaps over 50 ms per load | 1 to 3, worst 169 to 391 ms | 0 in most loads (worst 17 to 50 ms); at most one of 67 to 100 ms on a cold shader cache with the machine busy |
-| Sounds against their frames | each started when its message reached the page: 0 to 21 ms late with the page free, 250 ms and 1.5 s late with it busy | each heard 1/30 s after its moment (0.0 ms off the plan), 18 to 33 ms after the first frame showing it, the page held for 2 s or not |
+| Sounds against their frames | each started when its message reached the page: 0 to 21 ms late with the page free, 250 ms and 1.5 s late with it busy | each heard 1/30 s after its moment (0.0 ms off the plan), 18 to 33 ms after the initial frame showing it, the page held for 2 s or not |
 | Pulse length | the whole phase (0.5 s and 2 s), on past still lines | while the lines move (0.9 and 0.85 s) |
 | Battle ready | 3.6 to 4.3 s | 4.1 to 6.7 s (the paced warm-up and uploads), inside the 13.5 s sequence |
 

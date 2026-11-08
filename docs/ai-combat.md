@@ -343,7 +343,7 @@ native owner at battle start.
   another candidate remains, the retained target included (it is drawn for
   but never skipped).
 - The cluster scan (grenade preference) runs at most every 5 s per target:
-  radius 9 around it, the first 10 non-neutral units, abort on any ally of
+  radius 9 around it, the initial 10 non-neutral units, abort on any ally of
   the attacker, three soldiers (the target included) flag it for 5 s.
 - A shot's spread draws its pitch pair before its yaw pair.
 
@@ -518,14 +518,14 @@ pace.
 
 ## Tests
 
-`cargo test` in `rust/sim`: `tests/ai_combat_twin.rs` compares the priority
+`cargo test` in `rust/sim`: `rust/sim/tests/ai_combat_twin.rs` compares the priority
 heaps, Classic aim and ballistic leads, weapon records, triggers and
 priorities, the Enhanced reaction and noise, attributed shot and damage
 alerts with crew alerts, and acoustic recipients with synthetic golden cases
-(`tests/fixtures/ai-combat-golden.json`);
-`tests/ai_combat_control.rs` and `tests/ai_phase.rs` cover the combat
+(`rust/sim/tests/fixtures/ai-combat-golden.json`);
+`rust/sim/tests/ai_combat_control.rs` and `rust/sim/src/ai/owned/tests/phase.rs` cover the combat
 services inside the native phase (Classic and Enhanced acceptance policies,
-the Enhanced aimer); `tests/replay_ai_combat.rs` replays captured combat
+the Enhanced aimer); `rust/sim/tests/replay_ai_combat.rs` replays captured combat
 service and agent calls with exact state and random-stream order when a
 capture corpus is supplied. Checks against optional local reference data
 skip when it is absent.

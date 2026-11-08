@@ -12,7 +12,8 @@ public GPL-3.0 repository,
 [battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server),
 and servers update themselves from the release channel
 ([docs/server-updates.md](docs/server-updates.md)). The browser development
-build cannot play online.
+build cannot play online. The separate native development client supports
+direct online joins; it is not the Electron launcher.
 
 Planned, not built yet: macOS releases (only an experimental manual build
 exists, and it does not self-update), SteamCMD game acquisition and
@@ -149,7 +150,7 @@ lot once servers and saved playlists exist.
    `swbf1/hot1` and `swbf2/hot1`. The two games use the same short codes for
    different maps (Hoth is `hot1` in both), so bare ids collide. A bare id
    keeps meaning `swbf1`, so today's URLs still work. Extracted data moves to
-   `public/<family>/{maps,sides,common,audio}/` before the first BF2
+   `public/<family>/{maps,sides,common,audio}/` before the initial BF2
    extraction.
 2. **Playlist entries name family, map, era and mode**: `swbf2/hot1:gcw:ctf`.
    BF1 multiplayer only has conquest, but the mode is in the format from the
@@ -198,7 +199,7 @@ lot once servers and saved playlists exist.
 The shipped front end is one MULTIPLAYER screen with JOIN and CREATE tabs. JOIN
 lists INTERNET or LAN servers with filters (name, map, era, ping, hide full,
 hide empty), sorting by column, measured ping, DIRECT CONNECT by address, and a
-privacy notice before the first online request. CREATE hosts a LAN or public
+privacy notice before the initial online request. CREATE hosts a LAN or public
 server from the app ([docs/shell.md](docs/shell.md),
 [docs/server-browser.md](docs/server-browser.md)). The design below is the
 fuller target; favorites, recent servers, QUICK JOIN, region filters and share
@@ -252,7 +253,7 @@ test (public IPv4 and IPv6, NAT behaviour, relay reachable).
 
 ### Online entry notice and optional location
 
-Before the first server-list request, probe, rendezvous or relay allocation,
+Before the initial server-list request, probe, rendezvous or relay allocation,
 show a bundled notice identifying the selected master/service operator, with
 **Continue to Online**, **Back**, **Privacy Policy** and **Terms** actions.
 Continuing acknowledges the notice and requests online connectivity; merely
@@ -401,9 +402,21 @@ flowchart LR
   owns game connections and LAN sockets; the renderer receives bounded data
   through a narrow IPC bridge.
 
-Running the client's simulation code is the main reason to write the server
-in Node: prediction and authority share rule implementations. Matching code still
-needs parity tests across runtimes and platforms.
+The Node server hosts the Rust simulation as WebAssembly, sharing gameplay
+cores with client prediction. Rust owns the world tick, AI, combat, vehicles,
+battle rules and snapshot publication. JavaScript provides cold assembly,
+transport sessions, input admission and server administration. Shared phase
+bodies also compile natively, and a development Node addon provides owned
+contexts and store arenas. The packaged host still selects WASM: a native
+store bridge is not a qualified native dedicated server. See
+[docs/node-host.md](docs/node-host.md) and
+[docs/host-qualification.md](docs/host-qualification.md).
+
+A separate development executable, `bfe-client`, can connect directly to a
+server with its Rust UDP implementation. It consumes authoritative snapshots
+without creating another authority. Its supported views and controls are
+listed in [docs/native-client.md](docs/native-client.md). This does not change
+the desktop app's hosting or service setup.
 
 ## Netcode
 
@@ -626,7 +639,7 @@ reached:
   relay policy to always. Such mappings cannot be assumed to traverse an
   upstream carrier NAT; relay fallback remains required.
 
-Then the native transport's connect tries, at once (the first authentic
+Then the native transport's connect tries, at once (the initial authentic
 handshake reply wins, direct paths given a 60 ms lead):
 
 1. **Direct**, over whichever address family both sides have. IPv6 often works
@@ -927,7 +940,7 @@ map, ports after a restart (which the menu offers).
   0  Leave the menu (the server keeps running)
 ```
 
-The first run goes straight through setup:
+The initial run goes straight through setup:
 
 1. **Sign in to Steam and download owned game data** (recommended), or import
    a client-exported bundle/existing installation. Extract, validate and install.
@@ -1249,13 +1262,13 @@ and frame times; do not promise that all math moves to the server.
   code or a secret shipped inside it. Enforce action rates, movement, inventory,
   team/seat access and command tick windows at the server; bound rewind history.
   Never trust client content claims or a build string as anti-cheat attestation.
-- The client is JavaScript anyone can change, so aim help and seeing through
+- A player can modify either client host, so aim help and seeing through
   walls stay possible. The limits: don't send units far outside relevance
   (distance first, map visibility later); flag statistical outliers; record
   demos that admins can review; VOTE TO BOOT.
 - Rate limits on chat, votes, spawns and team changes.
-- Clients authenticate servers by the certificate fingerprint in the listing
-  or the join code.
+- Clients authenticate the server's Ed25519 identity against the identity
+  supplied by the listing, direct-connect information or join data.
 - The menu is local only. No admin port faces the network.
 - Electron renderer: sandbox on, `contextIsolation: true`, `nodeIntegration: false`; narrow typed preload APIs, validated IPC sender and payload, no
   generic filesystem/shell/socket bridge. Treat names, chat, MOTD and logos as

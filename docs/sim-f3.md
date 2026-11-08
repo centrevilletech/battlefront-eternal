@@ -1,8 +1,8 @@
 # Unit phase ownership
 
 `units/f3.rs` owns adopted units, bodies, combat, weapons, factory pools and the
-mixed registry. `f3-sim.js` publishes ordinary pooled objects for existing AI,
-battle and network readers. Every headless battle uses this owner; the former
+mixed registry. `src/sim/wasm/f3-sim.js` publishes ordinary pooled objects for remaining
+host observers and network facades. Every headless battle uses this owner; the former
 unit/combat adapters and their query/environment selections are removed.
 
 ## State and identity
@@ -43,8 +43,8 @@ call. Unobserved weapon rows need no JavaScript decode; reading after several
 native updates observes the latest complete row. Structural reset initializes
 the new arsenal once and preserves its prepared child storage.
 
-The Unit.onMoved import carries the facing, position, velocity, posture and
-shape clock that the Classic and Enhanced aimers actually read. Remaining motion
+The post-movement observation barrier exposes facing, position, velocity,
+posture and shape clocks to the native Classic and Enhanced aimers. Remaining motion
 and correction fields arrive through the completed publication. The same barrier
 flushes immediate damage/lifecycle changes before foreign callbacks run.
 Unrelated completed weapon clocks have no aimer reader and publish together at
@@ -95,8 +95,8 @@ unread suffix; nested delivery resumes only after the outer observer returns.
 Building geometry, looks, collision bodies and repair keys are prepared once.
 Changed health, team, generation and trap clocks form a declared foreign block
 beside unit intents. Native building/trap kernels own incoming damage and repair;
-foreign callbacks cannot enter old combat or collision adapters. Props retain
-animation and world bookkeeping until their phase moves.
+foreign callbacks cannot enter old combat or collision adapters. Animated props and world bookkeeping belong to the native battle phase;
+the page consumes their completed presentation state.
 
 `AnimatedProp.seize/carry` submits a qualified command with a prepared clip and
 foreign node frame. Rust freezes motion, samples the soldier root, places the

@@ -131,7 +131,7 @@ a single-shot weapon out from when a late press was pressed
 
 Simulation `bfe-sim-28` uses the tick clock for barrel recoil and seeded
 streams for turret and network weapon spread and grenade spin. These rules
-also apply to the JavaScript simulation. Clients and servers on `bfe-sim-27`
+are shared by authoritative Rust simulation and client prediction. Clients and servers on `bfe-sim-27`
 must update together: a mixed join is refused with "Update required" rather
 than allowing prediction to disagree. The wire format remains protocol 3;
 no content generation changes.

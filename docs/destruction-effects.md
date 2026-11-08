@@ -44,7 +44,7 @@ death clip the five pieces rebuilt a complete, standing droideka over the
 collapsed body. Each launch direction runs from the body origin to the node
 origin, which is the same point for all five, so every piece went straight
 up. The droideka also explodes from `onExploded` with health exactly 0,
-which gives the speed factor 0.1 (0.8 m/s). The first touch is under the
+which gives the speed factor 0.1 (0.8 m/s). The initial touch is under the
 1 m/s rest threshold, so each piece rested at once and stood there for 10 s.
 Battle droids don't share a node per chunk, but their pieces only ever
 spun at a constant rate and rested in whatever attitude they landed in.
@@ -169,7 +169,7 @@ Switching to Classic clears everything Enhanced has out.
   0.3 ms, 95th percentile 4.3 ms) over 6 s. Of that, rigid pieces were the
   larger part: 2.8 ms at the 95th percentile while all 35 flew, nearly all
   of it in collision rays. A battle droid's blast and pieces cost ~2 ms in
-  the frame it dies. The first droideka to die costs ~10 ms once, when its
+  the frame it dies. The initial droideka to die costs ~10 ms once, when its
   pieces are matched to its bones; later ones reuse that.
 - Shader programs (the pools, the arcs, the heated piece and wreck
   materials) compile in `graphics.warmup()` before play. `prepare()` builds

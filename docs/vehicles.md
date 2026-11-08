@@ -368,7 +368,7 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   docs/ai-vehicles.md): a hull anyone holds, in any seat, takes only that
   crew's friends (team relation above 0). An empty hull of either team takes a
   person. A bot boards only its own team's hulls, and only a free seat. A
-  person takes his last seat when it is free, else the first seat that is free
+  person takes his last seat when it is free, else the earliest seat that is free
   or a bot holds; the bot moves on to the next free seat or gets out. Nobody
   takes a seat another person holds.
 - Seat keys (`switchSeat`): on to the next seat that way that no other person
@@ -429,7 +429,7 @@ stands on top of the droid starfighter on Bespin: Platforms).
 - What is struck (`Vehicle.exposedSeat`, `SeatLease.exposed`,
   `Unit.updateSpheres`): his body as his seat poses it, from the same clip
   and point in it that his seat draws (`riderSample`), carried down his
-  own skeleton at the tick (`src/rider-pose.js`): the head as a sphere (three
+  own skeleton at the tick (`rust/bfe-pose/src/rig/rider.rs`): the head as a sphere (three
   times the damage, as on foot), the torso from the pelvis up to the neck,
   each thigh and shin, and each upper arm and forearm to the middle of the
   hand as capsules (a gunner's arms reach out to the grips well clear of his
@@ -608,7 +608,7 @@ seat starts at its first weapon slot, `WEAPONSECTION n` selects slot n, and
 `WeaponName` fills the current slot. A second `WeaponName` without a section of
 its own renames that slot's weapon and its aimers carry on, so the gunship's
 `TURRET1` is a single wing laser firing from both wings (barrels taking turns),
-not one wing per trigger. A slot's trigger is its channel: the first slot fires
+not one wing per trigger. A slot's trigger is its channel: the initial slot fires
 with the left mouse button, the second with the right. No stock vehicle sets
 `WeaponChannel` or uses a third slot.
 
@@ -704,7 +704,7 @@ rounds, ShotDelay 3) whose ordnance is a `towcable` with `CableLength 60`
   AT-AT) and anchors on the nearest leg's column (the `bone_*_thigh`,
   `_calf` and `_foot` bones). A player's harpoon into the body glances off;
   a bot's is re-aimed at the nearest leg (`towAim` aims the bot's shot
-  there in the first place).
+  there at all).
 - The cable's state is plain on the speeder (`towTarget`, `towLocal`, `towLeg`,
   `towAngle`, `towWinding`), so a page showing the world's battle draws it
   (`Vehicles.drawTethers`: the anchor, a point on the legs' circle per quarter
@@ -715,7 +715,7 @@ rounds, ShotDelay 3) whose ordnance is a `towcable` with `CableLength 60`
   cable tests its run only against the walker it holds.
 - While the cable holds, the gun takes no trigger (`Vehicle.towHeld`; the
   original's tow-cable weapon answers its fire test no while its cable is
-  attached), so a second harpoon cannot let the first go and anchor again with
+  attached), so a second harpoon cannot release the existing cable and anchor again with
   the winding back at zero.
 - `emitSound("towAttach")` and `"towRelease"` play the sound bank's
   `all_weap_fly_snowspeeder_towcable_attach` and `_release`
@@ -752,7 +752,7 @@ prompts, names, colours, map range, death and layer display ordering.
 
 What a hull shows and plays beyond its model, at Classic:
 `src/vehicle-effects.js` (effects), `rust/audio-control/src/vehicles.rs` (sounds) and
-`src/vehicle-feet.js` (a walker's footfalls, for both). They run on the page
+`rust/bfe-presentation/src/feet.rs` (a walker's footfalls, for both). They run on the page
 only and read nothing but what every host gives a hull: whether it is alive,
 its health, flight state and velocity, who holds which seat, and the pose
 drawn this frame. A battle whose world runs in the local server worker or on
@@ -766,7 +766,7 @@ A new life of a hull (`aiTarget.generation`) starts both afresh.
 ### The data
 
 `tools/zero_vehicle.py` `vehicle_fx` reads the whole class into each class's
-`fx` in `vehicles.json`. The seat reader (`sections()`) stops at the first
+`fx` in `vehicles.json`. The seat reader (`sections()`) stops at the initial
 `CHUNKSECTION`, and the flyers keep their thrust, damage and blast keys after
 their chunk sections, which is why none of these reached the game before.
 
@@ -779,7 +779,7 @@ their chunk sections, which is why none of these reached the game before.
 | `deathDust` | `DeathDustEffect`, `DeathDustOffset`, `DeathDustDelay` | |
 | `explosionOffset` | `ExplosionOffset` | Where the blast goes off, in the hull's frame |
 | `chunks` | Each `CHUNKSECTION`'s `Chunk*` keys | `ChunkGeometryName` lower case, as the extras pack files it |
-| `dying` (walker) | `DeathAnimationExplosion` (the first four; `07fe74d0` before it was named), `DeathAnimationExplosionTime` (`871eb169`; 0.4 s unless set), `FinalExplosionOffset`; `span`: its `death01` clip's frames at 30 fps over its `AnimationSpeed` | Dropped for a walker without a death clip |
+| `dying` (walker) | `DeathAnimationExplosion` (the initial four; `07fe74d0` before it was named), `DeathAnimationExplosionTime` (`871eb169`; 0.4 s unless set), `FinalExplosionOffset`; `span`: its `death01` clip's frames at 30 fps over its `AnimationSpeed` | Dropped for a walker without a death clip |
 
 The death blast is `ExplosionName`, else `Explosion`, else `ExplosionDestruct`
 (the flyers' name for it after their chunk sections). A walker's
@@ -942,7 +942,7 @@ footstep, hydraulic and stomp moments are the original's
 
 ### Walkers' feet
 
-`src/vehicle-feet.js`, after the original's walker foot update (run while the
+`rust/bfe-presentation/src/feet.rs`, after the original's walker foot update (run while the
 walker walks or turns; the class keys and their defaults are the original's):
 
 - A foot is where its `TerrainCollision` primitive meets the ground: its
@@ -1010,7 +1010,7 @@ Hovers and flyers have none. `src/vehicle-water.js` follows the original:
   from `WaterDamageInterval`. Below zero, every update deals
   `WaterDamageAmount` through an empty damage record (no one credited). Leaving
   the water sets the clock back to the interval; nothing else does, so after
-  the first second the amount comes every update, 600 a second at the
+  the initial second the amount comes every update, 600 a second at the
   original's 60 updates (the port deals that per second at any step). An AT-ST
   (no MaxHealth: 1000) in deep water lasts under three seconds, an AT-AT
   (30000) under a minute.

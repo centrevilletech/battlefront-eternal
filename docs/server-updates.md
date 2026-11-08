@@ -48,7 +48,7 @@ after the last run ended, at idle CPU and disk priority:
    link, as the timer starts it; otherwise the running updater stays, so a
    broken one can never leave the server without updates.
 6. **Clean up**: versions and game data neither the running release nor
-   the one before it uses are deleted. The first release replaces a manual
+   the one before it uses are deleted. The initial release replaces a manual
    deploy's folders, which stay as `<name>.manual` until the release after
    it, to roll back to.
 
@@ -147,7 +147,7 @@ them while people play.
 
 A machine can run several servers on one installation, each with its own
 name, playlist, rules, ports and identity, all on the same release.
-`instances` lists them; the first, `main`, is the one the defaults above
+`instances` lists them; the default, `main`, is the one the defaults above
 describe:
 
 ```json
@@ -185,5 +185,5 @@ On a Linux server with systemd, `bfeserver.service` running from
    `bfeserver-update.service` and `.timer`, a configuration if there is
    none, and enables the timer.
 
-The first run installs the newest release, prepares its data, and takes
+The initial run installs the newest release, prepares its data, and takes
 over from the manual deploy once nobody plays.

@@ -5,8 +5,8 @@ with *Star Wars: Battlefront II* (2005) planned. It plays the original game's
 maps, armies, sounds and music from your own Steam or GOG copy, through a new
 renderer, a new audio engine, a rebuilt front end and new netcode.
 
-This repository holds the desktop app and the engine: the WebGL renderer
-(Rust/WebAssembly), the 60 Hz simulation and the bots, the audio engine,
+This repository holds the desktop app and the engine: the Rust renderer,
+60 Hz world simulation and bots, presentation and audio engines,
 the menus, the multiplayer client and the tools that prepare game data from
 your copy. No original game files are included or distributed.
 
@@ -14,6 +14,13 @@ Much of Battlefront Eternal's code and documentation was written with AI
 coding assistants, directed and play-tested by Josh Lambert.
 
 Website and downloads: <https://battlefronteternal.com>
+
+The Electron app runs the Rust engine as WebAssembly. Rust owns the ordered
+world tick, vehicles, combat, spawning, Classic and Enhanced AI, prediction
+and snapshot publication. It also owns battle drawing, shader sources,
+resource descriptors, textures and render targets, camera and light math,
+displayed body poses, effects, HUD geometry and audio processing. JavaScript
+connects those owners to browser input, loading, menus, devices and networking.
 
 ## What works today
 
@@ -29,7 +36,7 @@ ARM64), and update themselves.
   traps and the snowspeeder's tow cable.
 - **Graphics.** Classic and Enhanced looks: cascaded shadows, reflective
   water, weather, Enhanced destruction effects, upscaling, and presets from
-  Minimum (integrated graphics of about 2011) up to High. Gameplay always
+  Minimum up to High. Gameplay always
   runs at a fixed 60 Hz, whatever the frame rate.
 - **Sound.** Original (2004) and Enhanced (2026) modes, with 3D audio on
   headphones and speaker layouts up to 7.1.4, and a light stereo mix of the
@@ -39,7 +46,7 @@ ARM64), and update themselves.
   server browser with measured ping, LAN games, direct connect and hosting
   from the app. No account needed.
 - **Your copy stays yours.** The app finds the game in Steam, GOG Galaxy or
-  Heroic, prepares about 7 GB of data in your user folder once, and only
+  Heroic, prepares its data in your user folder, and only
   ever reads your installation.
 
 ## Planned
@@ -76,6 +83,13 @@ its data.
 The [development guide](docs/development.md) covers the browser development
 build, preparing data with the Python tools, controls and testing.
 
+The [native client](docs/native-client.md) can join an online server directly,
+inspect prepared maps and replay recorded battles in its own window. It is a
+development executable, separate from the Electron app. The
+[Node host guide](docs/node-host.md) describes the native server foundation
+and the production WASM host; shared native phase code does not by itself
+establish a qualified native dedicated server.
+
 ## Documentation
 
 - [Development and playtesting](docs/development.md)
@@ -85,6 +99,7 @@ build, preparing data with the Python tools, controls and testing.
 - [Architecture overview](docs/architecture.md) and [runtime architecture](docs/runtime-architecture.md)
 - [Multiplayer design](MULTIPLAYER.md) and the [UDP transport](docs/native-udp-transport.md)
 - [Rendering](docs/rendering.md) and [audio](docs/audio.md)
+- [Native client](docs/native-client.md) and [server host qualification](docs/host-qualification.md)
 - [Classic AI](docs/ai.md) and [Enhanced AI](docs/ai-enhanced.md)
 - [Vehicles](docs/vehicles.md) and [menus](docs/menus.md)
 

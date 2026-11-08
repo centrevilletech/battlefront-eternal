@@ -1,21 +1,16 @@
 # Proving the simulation's port: captures, replays and the world-hash gate
 
-The world's simulation is moving from JavaScript to Rust one group of
-subsystems at a time ([sim-store.md](sim-store.md)), and no tick may change
-on the way: the world worker, the page's replay of its own soldier and the
-dedicated server must keep agreeing with each other and with today's
-battles. Each part of the move is proven twice. Before it takes the battle
-over, its Rust is replayed against what the JavaScript did in real battles,
-phase by phase and call by call. When it takes the battle over, whole
-battles are fingerprinted tick by tick with it and without it. This note
-describes the tools for both.
+The authoritative simulation runs in Rust, shared by local worlds, the
+server and private client prediction ([sim-store.md](sim-store.md)). Phase
+captures retain the boundary facts needed to replay a core independently;
+whole-world input corpora reconstruct admission and tick input without using
+recorded authoritative output. Frozen fingerprints establish behavior across
+changes. Production has no JavaScript simulation selector.
 
-Everything here runs under the Node the port takes as its reference: Node
-24.22, whose V8 (13.6) is the production server's. Other V8 versions
-compute some Math functions differently in the last bit (the game's
-Electron already parts from the server at the second tick of a Naboo
-battle), so every capture and every fingerprint run records its Node and V8,
-and the tools refuse to compare across them.
+Capture and fingerprint runs record Node and V8 provenance. The reference
+runtime is Node 24.22 with V8 13.6, and the tools reject incompatible runtime
+comparisons. Simulation math uses the shared Rust compatibility libraries;
+raw host Math results are not an interchangeable gameplay reference.
 
 ## The phases of a tick
 
@@ -57,7 +52,7 @@ are written through the store's own exporters (`cap.export(kind, object)`),
 so a replay reads the shape the store holds. Anything a record names but
 does not hold is a handle: a unit by its registry id, a hull by its place in
 the battle's list, a collision body by its serial, a content definition by
-its class (written once, whole, the first time a record names it), and an
+its class (written once, whole, the initial time a record names it), and an
 instance of any other class numbered by its kind.
 
 Nothing in the game changes for a capture. The markers around each phase
@@ -89,7 +84,7 @@ a `Log` for each call and draw as the Rust makes it: the log hands back what
 the JavaScript got, provided the Rust asks for the same thing at the same
 point with the same arguments, and says where it parts otherwise. The state
 the Rust ends with is compared with the capture's by `diff`, bit for bit as
-`Object.is` compares numbers, identity included, and the first difference
+`Object.is` compares numbers, identity included, and the earliest difference
 comes back with its path:
 
     ordnance.stepBolt: 62955 frames from 32 captures, 62955 the same, 0 different, 0 not replayed
@@ -108,24 +103,24 @@ that reaches it.
 and compares them tick by tick on all three hashes (the replay state, a deep
 digest of every unit, hull and round, and the published bytes):
 
-    BFE_CONTENT_DIR=<game data> node tools/world-hash-matrix.mjs --out DIR --variants js,mv --jobs 8
+    BFE_CONTENT_DIR=CONTENT node tools/world-hash-matrix.mjs --out DIR --against REFERENCES --require-comparison --jobs 8
 
-A variant is world-hash options added to every battle (`mv` is
-`--movement wasm`; a flip names its own with `--variant NAME=OPTIONS`); the
-first is the reference. `--against DIR` compares with an earlier run, say
-one recorded before a change, `--shard K/N` shares the work among machines,
-and `--resume` keeps what a run already holds. The set is fifty-one battles
-over all seventeen maps, most with the player's shots judged in the past,
-with a droideka as the player, with the player manning a turret and then a
-hull's seat, with the Enhanced AI, and one battle fought twice in one
-process.
+`--against DIR` names frozen reference hashes, `--shard K/N` shares the work,
+and `--resume` keeps completed rows. The standing matrix has 61 configurations
+over 17 maps, including Enhanced AI, heroes, mounted players, rewind shots and
+sequential battles. Compare state, deep digest and published bytes; a matching
+final position alone is insufficient. Whole-world input capture and the
+native driver boundary are described in [world-replay.md](world-replay.md).
 
-## The ladder in one command
+## Running checks
 
-`tools/sim-verify.mjs` runs each rung that lives in the repository: `v1` the
-twin tests of the kernels and the Rust crates, `v2` the replays of a corpus,
-`v3` the in-battle shadow check, `v4` the world-hash matrix, `v5` the
-prediction checks run as they are and with a variant's environment, their
-digests compared, and `v6` a battle under this Node and under another (the
-game's Electron), reporting where each hash first parts. Timing on the
-emulated laptop and the laptop itself (`v7`) runs outside the repository.
+The Cargo workspace's native tests and replay feature exercise shared cores.
+`BFE_REPLAY_CORPUS` supplies external phase captures; it is not required by
+synthetic fixtures. Run the world-hash matrix against a frozen reference for
+whole-battle behavior, then use the own-player and ground-player correction
+tools for restoration and continuation. Renderer and native-session corpora
+check displayed output separately from authority hashes.
+
+The legacy `tools/sim-verify.mjs` groups several checks, but its historical
+variant names do not restore deleted JavaScript implementations. Use the
+current tools' arguments and the explicit frozen-reference command above.

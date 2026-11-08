@@ -12,8 +12,12 @@ A build service may stage an exact `git archive` using
 `BFE_HOST_ENGINE_REVISION` carries the source revision when Git worktree metadata
 is unavailable; the content-derived build identity still covers the engine.
 
-The addon currently supplies owned Context lifecycle and a checked numeric
-block boundary. Its handshake reports `nativeWorld: false` and
+The addon supplies owned Context lifecycle and checked store operations over
+caller-owned numeric arenas. `src/sim/native-backend.js` binds those arenas to
+the generated block readers and UTF-16 string identities. A short output reply
+is retained until capacity is supplied, so retry does not execute the command
+twice. Admission can grow buffers; sealed operation paths reuse their storage.
+World and publication operations remain unavailable. Its handshake reports `nativeWorld: false` and
 `nativePublication: false`. Battles use one Rust WASM instance each. Native
 world stepping and publication require the shared instance-owned world API.
 

@@ -4,11 +4,12 @@ The original gamma-space lighting, texture palette, baked lighting, near/far
 scene dissolve, map blur, and HUD ordering are preserved. Bloom, FXAA, and soft
 particle intersections are optional additions.
 
-Rust is the required battle drawer on the shared WebGL2 context. Three.js
-still provides unported shader compilation and scene/resource descriptors, but
-cannot submit battle draws. The runtime draw guard rejects accidental three.js
-render calls; only the explicitly listed menu, spawn-screen and scoreboard
-preview scenes retain their interface renderer. Module or shader-link failure
+Rust owns battle and interface drawing on the shared WebGL2 context. Its
+catalogs provide world, actor, effects, post/HUD and interface shader sources;
+its native resource families own geometry, material, sampler and target
+recipes. Three.js retains scene anchors, host readbacks and some cold utility
+program preparation, but submits no battle, menu, spawn or scoreboard draws.
+The runtime draw guard rejects accidental Three.js scene rendering. Module or shader-link failure
 stops the battle with the GPU name and error. Context loss suspends drawing;
 restoration rebuilds Rust's GPU resources and resumes the same battle.
 Tow cables and flight/navigation helpers also draw through Rust, preserving
@@ -28,16 +29,17 @@ CPU texture reads use the same PNG decoder with the original Canvas rounding.
 The Rust resource bank creates and uploads textures, applies filtering, wrap,
 flip, anisotropy and depth comparison, and owns framebuffer/renderbuffer storage.
 It binds far/near, shadow, post, temporal, particle-depth, mirror and probe targets,
-resolves MSAA and performs color/depth copies. Three Texture/RenderTarget objects
-remain CPU descriptors. The retained interface drawer borrows initialized Rust
-handles and cannot allocate their storage. Loading-screen canvas composition and
+resolves MSAA and performs color/depth copies. Battle actor, effect, world
+and interface resources use native descriptors. Shared image loading and
+remaining screen/UI consumers retain CPU image shells; those shells do not
+allocate GPU storage or issue draws. Loading-screen canvas composition and
 the frontend video's separate sharpening context remain host presentation.
 
 Sampler clones share source storage while their settings agree. A changed sampler
 can split without moving its logical draw id. PNG sources retain encoded bytes
 rather than a second full RGBA copy; compressed sources retain one block chain.
 The bank detaches consumed PNG transport buffers after retaining encoded bytes
-and after the first upload. Unused interface preloads keep their initial rows
+and after the initial upload. Unused interface preloads keep their initial rows
 until that upload; CPU discovery keeps its separate pixel arrays.
 Dynamic arrays use subimage updates. Restore reacquires context extensions, rebuilds
 source images and attachments, then replays draw registrations using stable ids.
@@ -50,7 +52,7 @@ No image decoding, upload or target allocation falls back to three.js.
 | Detached shadows | A normalized bias of -0.0004 across a 2999-unit depth range displaced the depth comparison by about 1.2 world units. | Bias now represents 0.015 world units; normal bias is zero. Front-facing caster surfaces restore contact. |
 | Animated self-shadow smudges | A constant normal offset did not correct depth across filter taps on sloping character faces. | Each PCF tap compares against the receiver triangle's depth plane. A deterministic 4×4 tent footprint avoids temporal noise; derivatives are evaluated outside cascade-selection branches. |
 | Animated normal maps | Normal-map tangent/binormal directions stayed in the bind pose. Normal transformation also mishandled nonuniform object scale. | Skin the tangent frame with the bones, and use the inverse-transpose normal transform. |
-| Moving shadow edges | FOV easing repeatedly changed cascade extents and texel size. Nearby characters shared the first cascade with substantial distant ground. Cascade selection had a hard boundary. | A conservative shadow FOV stays fixed through normal camera easing; texel snapping is retained. Splits favor nearby detail, and adjacent cascades overlap/blend over 10% of the preceding interval. |
+| Moving shadow edges | FOV easing repeatedly changed cascade extents and texel size. Nearby characters shared the initial cascade with substantial distant ground. Cascade selection had a hard boundary. | A conservative shadow FOV stays fixed through normal camera easing; texel snapping is retained. Splits favor nearby detail, and adjacent cascades overlap/blend over 10% of the preceding interval. |
 | First-person shadows | Three r170 tests casters against the view camera's layers, not the shadow camera's layers. | The shadow pass receives a camera copy with the hidden-body layer enabled. The normal view remains unchanged. |
 | Fence/foliage shadows | Custom material uniforms did not expose the alpha mask to Three's depth material. | Material `map` and `alphaTest` properties now match the visual cutout. |
 | Shadow quality changes | `CSM.dispose()` releases shader hooks but not the lights' render targets. | Dispose each light's shadow maps before replacing cascades. |
@@ -63,7 +65,7 @@ No image decoding, upload or target allocation falls back to three.js.
 | Small point lights | Per-vertex lighting could miss a light pool entirely when no triangle vertex fell inside it. The separate first-person scene also lacked point lights. | Evaluate dynamic-object point lights per fragment and mirror scene-level point lights into the view scene. |
 | Outdoor lamps | Extracts contain emissive fixture geometry but no corresponding placed light records. | Optional reconstructed lights illuminate nearby dynamic objects; up to four candidates per object, with cached collision-BVH visibility rays. |
 
-The first cascade at the tested 640×400 viewport used approximately 1.52 cm
+The initial cascade at the tested 640×400 viewport used approximately 1.52 cm
 texels on Naboo and 1.40 cm on Bespin at High. Resolution depends on aspect ratio,
 shadow preset, and view distance. This remains a shadow-map renderer: it cannot
 guarantee perfectly continuous subpixel motion at every distance or setting.
@@ -412,7 +414,7 @@ bounds. The original silhouette supplies approximate forest shadows; enhanced
 individual sprays do not add shadow draws. The native foliage textures remain
 the source-detail limit, and headless validation is not a hardware FPS claim.
 
-Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.mjs` and
+Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.test.js` and
 `python3 tests/test_foliage_export.py`. When the canopies were added, GPU pixel
 checks (since removed with the browser foliage material) verified a glow behind
 leaves is occluded, a glow in front remains visible, and transparent leaf holes
@@ -513,7 +515,7 @@ Classic ocean surface) was fogged to the fog's black.
   Islands keeps only the Enhanced waves without the storm's haze, they should
   take the map's far fog (`lighting.fogRange`, none there) as the Classic
   ocean surface does.
-- **Checks:** `tests/far-fog.test.js` (the rule; `setFog`; which stock maps
+- **Checks:** `tools/renderer-world-corpus.mjs` (the rule; `setFog`; which stock maps
   are fogged, against the prepared `map.json`), `tests/test_sky_export.py`
   (the alpha stretch as exported, and Kashyyyk: Islands' retail values), and
   `tests/far-scene-browser.mjs` (`tests/far-scene-checks.js`): the inverted
@@ -568,7 +570,7 @@ colour and the cloud panorama for reflections.
 `storm-sky.js` integrates a 3D noise volume into a 768×384 hemisphere panorama
 with 28 bounded ray steps, cached at 10 Hz; large camera translations invalidate
 it, while head rotation does not. Branching lightning uses one fixed vertex
-buffer, strikes every 7 to 18 seconds after the first, and briefly illuminates
+buffer, strikes every 7 to 18 seconds after its opening strike, and briefly illuminates
 the clouds, water and ambient scene lighting. Classic restores the imported sky
 and original water material, including during a flash. Mode switches reuse the
 allocated meshes/textures; disposal restores lighting and releases resources.
@@ -678,7 +680,7 @@ and the browser checks listed at the end.
 
 **Terrain layers (both looks).** Each terrain patch paints with its own one to
 three layers, listed in its `PTCH/INFO` (count, then LTEX indices in drawing
-order). The compact VBUF (kind 20770) holds the weights: byte 15 is the first
+order). The compact VBUF (kind 20770) holds the weights: byte 15 is the initial
 layer's, byte 11 the second's, and the third takes what is left of 255; the
 kind-290 colour alpha is only second / (first + second). The port had assumed
 "layer 0 blended into layer 1 by that alpha" everywhere. On Hoth, whose
@@ -771,488 +773,51 @@ the mirror's removal: basins must not re-render the scene),
 passes all 135 checks once the water's simulated and drawn bob agree (`level`
 now follows `physicsWave` while the surface is drawn at `wave`).
 
-## Smoothness pass: profiling and frame-time work
+## Frame scheduling, cameras and resources
 
-Stutter was reported on units and controls. `tools/profile-deep.mjs` drives a
-full Classic battle (Theed, about 40 bots) at a fixed 60 Hz cadence, one world
-tick per frame, and records the game's runtime phases, a V8 sampling profile,
-allocation sampling (collected objects included), GC pauses from a trace, and
-WebGL calls per frame. `PROFILE_DRAW=0` profiles simulation and presentation
-alone. On this shared Linux host the GPU is SwiftShader, which inflates drawn
-frame times; the numbers below compare runs with each other, not hardware FPS.
+`rust/bfe-render/src/frame_plan.rs` owns the loaded battle's pass schedule:
+cloud and probe cadence, held mirror views, shadow refresh, clears, copies,
+resolves, ordered lines, post-processing and temporal completion. The host
+publishes view facts and calls `battle_frame`; it does not dispatch those
+phases through a chain of JavaScript drawing callbacks.
 
-What it found, and what changed:
+`rust/bfe-render/src/cameras.rs` computes derived views, cascade windows,
+reflection clipping, probe faces and sky-follow transforms.
+`rust/bfe-render/src/lights.rs` supplies retained light publications. Shader
+blocks borrow the native results. Host camera shells expose readbacks to
+remaining scene, audio and input consumers without recomputing the matrices.
 
-| Finding | Change |
-| --- | --- |
-| Bots beyond 40 m re-posed every 2nd or 4th frame while their bodies glided: limbs stepped. | Everything in view to 120 m poses every frame; beyond, every 2nd; out of view, every 6th. |
-| Vehicles were posed only inside the 60 Hz world tick: at 144 Hz a moving tank's drawn position changed in 20 of 47 frames (stalls, then 8 cm jumps). The driver's camera followed it. | The hull and wheels are drawn between the last two ticks every frame (47 of 47 frames, even steps). Before each tick the exact tick pose is restored, so gameplay still reads what it did. |
-| 6 programs were compiled at load and 47 in the first drawn frame; more as new materials came into view (getProgramInfoLog stalls; tens of milliseconds each on Windows/ANGLE). | `graphics.warmup()` compiles every material in the scenes, hidden ones included, plus one depth proxy per shadow variant, before the first frame. Ordnance creates its bolt batch first (`prepare()`). |
-| Every soldier body had `frustumCulled = false`: drawn in the view, the reflection and all four cascades from anywhere on the map. | A fixed sphere around any pose; culled like everything else. |
-| Three r170 draws every shadow caster with one depth material, so alternating skinned/instanced and ordinary casters re-derived the program (parameters and cache key) on every switch, for every cascade (about 2.7 s of a 600-frame profile). | Skinned and instanced casters get depth materials of their own kind. |
-| Static culling re-copied and re-uploaded whole visible index ranges per material whenever the view crossed a cell edge (bursts while moving or turning), and the shadow proxies did the same per cascade. | Views draw the runs of a static index buffer that lie in visible cells, in one multi-draw call (one range from the first to the last without `WEBGL_multi_draw`); cascades draw one range (cells in Morton order). No per-frame copies or uploads. |
-| Shadows were about 700 of 941 draws: every static material bucket, small static mesh and soldier material group in every cascade. | Opaque static casters merge into one depth-only mesh per face side (cell-range culled). Soldiers cast through a one-draw proxy sharing the skeleton; soldiers and their guns beyond 70 m, live props beyond 70 m and vehicles beyond 110 m cast none. 701 → 198 shadow draws. |
-| High water rendered the whole near scene again from a mirrored camera (171 draws, about a third of the frame's submission). | High reflects the near scene by a 24-step screen-space march over the opaque colour/depth copy the water already takes, over the far scene's planar mirror. Ultra keeps the full planar near reflection. |
-| Every renderer.render() re-walked and recomposed the whole scene (3,654 objects, half of them hidden: pooled soldiers, unheld guns, idle effect meshes); the soldier aim code forced each body's matrices (about 300 bones per soldier) on top; three recomputed every bone's Euler angles on every quaternion change. | One matrix update per frame that skips hidden subtrees; static map meshes never recompose; the aim code reads parent chains on demand; bones skip the Euler sync. |
-| Allocation (42 MB/s simulation-only; about 80 MB/s drawn) drove minor GCs every frame and 50 to 260 ms major GCs. | Allocation-free animator hot paths, HUD quad batch, effect/particle lists, texture and batch lookups, lamp selection; `Math.sqrt` instead of four-argument `Math.hypot` in the pose sampler. Simulation-only allocation 42 → 31 MB/s. |
-| HUD atlas upgrades uploaded image elements synchronously (one long frame each). | They upload decoded ImageBitmaps. |
+Static world, actor, effect, water, ocean, line and interface families have
+native resource descriptors. Geometry and sampler identities survive draw
+republication and context recovery. Shared browser image loaders and scene
+anchors remain for actual host consumers; they do not provide a second drawer.
+[renderer-programs.md](renderer-programs.md) describes catalog keys, generated
+layouts, cold utility compilation and corpus checks.
 
-Results on this host (Theed, 42 soldiers): draw calls per frame 1,148 → 438
-(High water 1,110 → 438); drawn-frame CPU p50/p95/p99 88/170/220 ms →
-54/100/137 ms with the software GPU; simulation and presentation alone
-16.0/26.7/34.0 ms → 12.1/22.1/30.1 ms, worst frame 87 → 49 ms.
+The renderer retains static shadow windows while their view slices fit, copies
+cached static depth and draws dynamic casters at the defined cadence. Camera
+movement, shadow settings and admission of new resources invalidate only the
+relevant retained work. Point lights and skin/instance storage use bounded
+native banks; saturation clips or refuses records according to the owner.
 
-Still open, by size: draw submission is now about 8 WebGL calls per draw;
-instanced soldier crowds (one draw per model part, bones in one shared
-texture) would be the next large cut. The retained JS heap (about 36 MB,
-mostly parsed map/AI/effects JSON) sets the length of a major GC. World ticks
-(collision queries are the largest share, then AI and soldier movement) ran
-on the main thread when this was measured, so at high refresh rates a frame
-that carried a tick could miss its deadline; every battle now runs its world
-in a worker instead (runtime-architecture.md).
+## Validation and performance
 
-Checks: `node --test tests/*.test.js` (510), `tests/rendering.mjs` (138),
-`tests/environment-render.mjs`,
-`ocean-storm-browser`, `rain-enhanced-browser`, `weather-browser`,
-`visual-assets`, `bolt-render`, `effects-gpu-browser`,
-`runtime-cadence-browser`, `runtime-profiler-browser`, `theed-camera-browser`,
-`droideka-shield-render`, `jetpack-volume-render`, `vehicles-browser`,
-`vehicle-motion-render`, `tauntaun-browser`. Updated expectations: static culling
-keeps the source geometry; shadow culling goes through `finishStaticShadows()`;
-High water reflects in screen space and Ultra in its planar mirror.
+The content-free [renderer smoke](renderer-smoke.md) links every declared
+catalog variant and exercises representative draws, texture/target lifetime
+and context restoration. Browser and native-session corpora also compare
+actual loaded views, including reflection, first person, water and HUD.
+A synthetic smoke does not qualify every map or a physical GPU driver.
 
-```sh
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tools/profile-deep.mjs
-# PROFILE_MAP=nab2 PROFILE_WARMUP=25 PROFILE_FRAMES=600 PROFILE_DRAW=0|1
-# PROFILE_OUTPUT=/path/to/profile-output PROFILE_PORT=18474 PROFILE_SETTINGS='{"shadows":"high"}'
-```
-
-## Upscaling and compressed textures
-
-The render scale and adaptive resolution now shrink only the 3D frame. An
-upscaler rebuilds that frame at the canvas's full resolution (device pixel
-ratio capped at 2), and the HUD is drawn over the result at full resolution.
-Before, they shrank the canvas itself, and the browser stretched everything,
-HUD included. The far scene, near scene, soft focus and bloom run at the
-render size. Upscaler set to "off" restores the old behaviour.
-Rust selects the post programs and uniforms and owns temporal jitter, camera-cut
-resets and history commit. `src/upscaler.js` retains target/camera shells and
-applies the published native camera adjustment.
-
-- Settings:
-  - `upscaler`: `temporal` (default), `spatial`, `bilinear` or `off`.
-    Bilinear stretches the frame with the texture filter (one read a pixel,
-    the composite itself when nothing else is composited): the Performance
-    preset's choice (`docs/performance.md`, "Old GPUs at full screen").
-  - `upscaleSharpness`: 0 to 1, default 0.4.
-  - The render-scale slider now steps by 0.05, so 0.5 (4K from 1080p) and
-    0.65 to 0.7 (4K from about 1440p) are reachable.
-- **Spatial** (`rust/bfe-render/src/post_chain.rs`): one pass of Catmull-Rom (9 bilinear taps),
-  clamped to the range of the four nearest texels so edges don't ring.
-  Scales above 1 are box-filtered down.
-- **Temporal**: TAAU in the FSR 2 / UE TAAU family, written for this
-  pipeline.
-  - **Jitter:** each frame the far, near and first-person cameras are
-    shifted by a Halton(2,3) sub-pixel offset (8 to 32 phases, more when the
-    upscale is larger). The shift applies only while drawing; gameplay and
-    the HUD see unjittered matrices.
-  - **Current frame:** each output pixel takes its 3x3 nearest input texels.
-    Each is weighted by the distance from the point it sampled to the pixel
-    centre, as `exp(-2.29 d^2)` in output pixels. A wide kernel in input
-    pixels gives a smooth estimate from this frame alone. The less history
-    a pixel has, the more of the wide estimate it takes. That avoids
-    stipple, as FSR 2's kernel bias does.
-  - **History:** fetched where the pixel was last frame (5-tap Catmull-Rom)
-    and clipped into the neighbourhood's YCoCg box (mean ± σ, within
-    min/max). It is then trusted less in three cases:
-    - by how far it was clipped;
-    - where a pixel's dilated motion differs from its own, i.e. an edge whose
-      two sides move apart (this removed a halo around the gun);
-    - when bright new content rises from the box's bottom to its top (bolts,
-      muzzle flashes), or it would arrive dimmed.
-  - **Accumulation:** `(history × N + this frame) / (N + weight)`, with N
-    capped at 12 at full resolution and 4 at half. History is two RGBA16F
-    targets at output size, with N in alpha.
-  - **Output:** a contrast-adaptive sharpen draws to the screen; the history
-    keeps the unsharpened image. FXAA is skipped (TAAU antialiases), and MSAA
-    still applies as chosen (alpha-to-coverage foliage needs it). Without a
-    float colour buffer, temporal falls back to spatial.
-- **Motion** (`src/motion-vectors.js`):
-  - **Static scene:** taken from the scene depth (captured before the
-    first-person weapon clears it) and the last two unjittered
-    view-projections.
-  - **Bodies that move on their own:** every soldier body, the player's held
-    weapons and every vehicle batch get a proxy. It shares the source's
-    buffers and skeleton and draws, in a scene of its own, from last frame's
-    model matrix, bind inverse and bones (a float bone texture per skeleton).
-  - **Proxy depth test:** proxies draw without a depth buffer; a fragment
-    counts only where the scene depth shows that surface. Cut-out holes and
-    a hidden first-person body therefore drop out.
-  - **Range:** soldiers beyond 60 m and vehicles beyond 150 m rely on
-    clipping.
-  - **Fixed on screen:** the first-person weapon is marked as not moving.
-  - **Dilation:** a resolve pass at render size takes the motion of the
-    nearest surface in each 3x3, so edges travel with their object.
-- **Cost per frame:**
-  - at output size, the resolve (9 texels, 5 history taps, 1 motion) and
-    the sharpen (5);
-  - at render size, the motion resolve and the proxy draws (one per tracked
-    mesh in range: about 3 to 10 on Theed in third person).
-- **Related fixes:**
-  - The enhanced bolts' pixel-size floor now uses the height of the target
-    being drawn, not the canvas. Under an upscaler the canvas is twice the
-    3D frame, and bolts would thin to half a pixel and alias.
-  - Water reflections size from `graphics.renderSize`.
-- **Measured (SwiftShader, Theed, 640x400 canvas):**
-  - Static view at half resolution, against native MSAA+FXAA: temporal
-    31.9 dB, spatial 30.1 dB.
-  - Running, turning and firing, against the same frozen frame rendered
-    natively: temporal 31.6 dB, spatial 31.5 dB.
-  - The temporal soldier keeps belt and chest detail that spatial blurs. No
-    trail or halo remains after the fixes above; the first-person weapon is
-    clean.
-  - `rendering-checks.js` (synthetic scene, against 2x supersampling):
-    temporal 33.3 dB against spatial 25.9 dB at half resolution. A settled
-    image holds still (mean change 0.86/255). An untracked object moved
-    1.2 m leaves no ghost (32.9 dB six frames later).
-- **Limits:**
-  - Vertex-animated motion (foliage wind, banners, water) isn't in the
-    motion buffer; clipping handles it.
-  - Bots' guns aren't tracked; they are a few pixels.
-  - Particles get only the brightness rule.
-
-KTX2 textures from the import are described in `docs/textures-ktx2.md`:
-encoding in `tools/ktx2.py`, loading in `src/textures.js`. On Theed, 165 of
-172 world textures load as BC7 (normal maps stay PNG). That is a quarter of
-the RGBA8 video memory, and the frame matches the PNG run at 47.7 dB.
-
-## CPU-side frame pass: fewer draws, fewer uploads
-
-Another deep pass on the rendering pipeline, as performant as possible without
-losing fidelity, was split in two: the GPU side (shadows, terrain, water,
-particles, post passes, shaders; see "GPU-side pass" below) and this one, the
-CPU side of a frame: what the page submits, uploads and recomputes.
-
-### What a Theed frame submitted, by object
-
-Measured with `tools/cdp-frame-measure.mjs` (headless Chromium over the
-DevTools protocol, SwiftShader, 640x360, no Playwright) at the same point of
-the same seeded battle (`nab2`, Classic AI, medium, 47 units). Draws per
-frame, grouped by what drew them, before this pass:
-
-| Draws | What |
-| ---: | --- |
-| 105 | Shadow casters that were plain meshes: the power-up droids and build pads, six parts each (a mesh per part, in four cascades), and every held weapon within 70 m |
-| 30 | The bots' skinned shadow proxies (one per soldier per cascade) |
-| 39 | Near-scene `zero:dynamic` meshes: the same droid parts and weapons |
-| 10 to 25 | The bots' bodies (one per material group per soldier) |
-| 17 | The HUD (one per run of the same texture) |
-| ~100 | The static world: one bucket per material, near and far, already merged by the extractor; terrain cells; the merged static shadow meshes (4); alpha-cut static casters |
-| ~20 | Vehicles (skinned batches), canopies (1 instanced), foliage (instanced), command posts, sprites |
-
-So "static props as individual meshes" was not the case here: the map's
-placed objects and buildings are merged into one bucket per material by
-`tools/extract.py`, and `world.js` draws each bucket's runs in visible cells
-per view, in one multi-draw call (`render-culling.js`). `BatchedMesh` has nothing left to batch there. The
-individual meshes were the *live* objects (`props.js`) and the bots'
-shadows and guns.
-
-### Changes
-
-1. **Live-object rigs as skinned batches** (`props.js`, `vehicle-rig.js`).
-   A droid or turret rig is now one `SkinnedMesh` per material (texture,
-   flags, scroll), each vertex following its part's bone, the way vehicles
-   are packed; batches are built once per model and shared by its rigs. A
-   turret's drum and gun keep batches of their own, hung under those bones
-   with an identity bind matrix, so `Gunner.hideRig` still finds their
-   meshes by walking the bones. Six draws per droid per pass became one.
-   `vehicleBatches` gained `separate` and `dispose` options and
-   `attachVehicleBatches` `byName`, `motion` and `meshes`; vehicles use
-   neither, so their batches are what they were.
-2. **The crowd's shadows in one mesh** (`crowd-shadows.js`, hooks in
-   `units.js` and `game.js`). Every bot's body vertices and every model its
-   hand can hold go into one skinned mesh on the hidden layer, with one
-   skeleton whose entries are the bodies' own `Bone` objects (and the hand
-   bone again, once per weapon model). A body beyond shadow range, pooled,
-   or exploded, and a weapon not in the hand, has its bone inverses zeroed
-   and its index range left out of the packed index buffer (re-uploaded
-   only when the shown set changes). 60 skinned and plain shadow draws per
-   cascade became one. The mesh casts front faces, as the bodies'
-   materials do (`shadowSide`; three's default for a plain material is the
-   back faces, which moved contact shadows by a texel). The player's own
-   body and arms stay on their existing path.
-3. **HUD uploads only when the HUD changes** (`interface/batch.js`). The
-   quad batch re-uploaded four attributes (about 380 KB) every frame. Each
-   corner write now compares against what the buffer holds (the arrays are
-   exactly what the GPU has), marks its quad dirty, and `end()` uploads one
-   run per attribute from the first dirty quad to the last: nothing when
-   the HUD is static (menus, the spawn screen, dead), a part of it when a
-   widget changes. In battle the minimap blips move and the weapon panel's
-   fader changes its tint every frame, so most frames still upload most of
-   the panel; the gain is in the quiet frames and in bytes, not calls.
-   The turned minimap passes its corner UVs through `quad()` so its quad is
-   not dirtied by the plain UVs it used to overwrite.
-
-### Measured (600 frames, one world tick each, same seeded battle)
-
-Chromium with SwiftShader on the shared Linux host; frame times are CPU
-times on this host, not the player's. Counters are exact. "Before" is the
-tree without these files; everything else identical.
-
-| Per frame, p50 | Before | After |
-| --- | ---: | ---: |
-| Draw calls (`renderer.info`) | 416 | 285 |
-| `drawElements` | 438 | 306 |
-| Triangles submitted | 358k | 384k |
-| `bufferSubData` | 33 | 33 |
-| `texSubImage2D` | 24 | 26 |
-| `Object3D.updateMatrix` compositions | 3,594 | 3,569 |
-| Runtime profile: presentation | 0.9 ms | 0.6 ms |
-| Runtime profile: render (three submission, with SwiftShader stalls) | 9.5 ms | 6.4 ms |
-| Runtime profile: whole frame CPU | 17.0 ms | 12.8 ms |
-
-Triangles rise because the crowd mesh is drawn into all four cascades (a
-proxy was culled per cascade); that is about 25k extra depth-only triangles
-per frame on the GPU, against 130 fewer draws through ANGLE. The two extra
-`texSubImage2D` are the crowd skeleton's bone texture (one per render pass:
-the view and the reflection). The bots' own 24 bone-texture uploads remain;
-see "Left" below. `bufferSubData` stays at 33 because in battle the HUD is
-dirty nearly every frame; it is 0 for the HUD when it is static.
-
-Fidelity, pixel for pixel against the same frames (`tools/pixel-diff.mjs`,
-upscaler off so no temporal jitter): the mission's three camera shots are
-identical (0 of 174,720 pixels differ in each); the live third-person view
-differs in 4 pixels by at most 10 of 255, on a shadow edge, from the bind
-matrices being identity rather than a root transform times its inverse.
-With shadows off, or with the crowd mesh disabled, every view is identical,
-so the rig batching and the HUD change are exact.
-
-Checks: `node --test tests/*.test.js` (new `crowd-shadows.test.js`,
-`interface-batch.test.js`, `vehicle-rig-batches.test.js`).
-
-### Measuring without Playwright
-
-```sh
-# two trees on two ports (vite dev servers), then:
-BASE=http://127.0.0.1:18490 OUT=/path/to/out/base node tools/cdp-frame-measure.mjs
-BASE=http://127.0.0.1:18492 OUT=/path/to/out/after node tools/cdp-frame-measure.mjs
-node tools/pixel-diff.mjs /path/to/out/base /path/to/out/after
-```
-
-`MODE=det` (default) pauses the loop, runs a deterministic warmup, and
-drives one tick per frame with walking, strafing and firing, the world
-worker stepped in lockstep with the frames (`game.lockstep`); `Math.random`
-is seeded, with three's UUIDs on a separate stream so that creating more
-objects never shifts the battle. `MODE=worker` runs the live loop. On
-this host worker mode is not a useful CPU measurement: SwiftShader holds
-the page to about one frame a second, so each frame applies a second of
-packets.
-
-### Where the page's time goes now
-
-A V8 sampling profile (100 us) of 300 drawn frames on the after tree, one
-tick per frame: 90% of samples are idle (waiting for the next animation
-frame), 8% are one `getProgramInfoLog` (a first-use shader compile, present
-in the before tree too), and of the rest three's submission
-(`renderObject`, `setProgram`, uniform uploads) and `graphics.js` take
-about four fifths; the game's own presentation (`units.present`, the
-animator, lamp selection, soldier presentation) is under a tenth of the
-non-idle time. What remains on the page is three's per-draw state setting
-(285 draws at about 8 GL calls each), the bots' per-body skeleton update
-and bone texture upload, and the one pose per bot in view per frame that
-the smoothness pass set.
-
-### Not done, and why
-
-- **GPU-skinned, instanced crowd.** The animator's output is a blend of
-  layers (leg clips, a weapon bank on the upper body, a weapon action, aim
-  twists), not one clip at one time, so baking clips into a texture does
-  not reproduce it; the pose texture written once per frame for all bodies
-  does. The pieces are: one skeleton over every bot (as `crowd-shadows.js`
-  already builds, 25 bones per body), each body's skin indices offset by
-  its slot, and one instanced draw per class and material. What blocks it
-  is per-soldier lighting: `game.js` sets `sunScale`, `brightness` and
-  `ambientPull` on each body's materials from its light region and the
-  LUMI map, and `materials.js` selects four lamp slots per object in
-  `onBeforeRender`. Instancing needs those as per-instance attributes (one
-  `vec4` for the region light and the lamp slots as a per-instance texture
-  row or 4+4 attributes) read in the `zero:dynamic` shader, and
-  `motion-vectors.js` binds its proxy to the body's skeleton and geometry
-  at track time, so a shared skeleton needs its proxy rebound. Both files
-  are GPU-side code, outside this pass; with those changes, the win is the
-  24 bone-texture uploads and about 24 near draws (10 to 25 bodies and their
-  guns) per frame, plus one skeleton update instead of 24.
-- **Bones with `matrixAutoUpdate` off.** Bodies posed every 2nd or 6th
-  frame still recompose 25 matrices a frame (about 600 of the 3,569
-  compositions). Turning it off needs every writer of a bone (animator,
-  droideka, destruction, riders, gunner poses, player body) to call
-  `updateMatrix()`; the saving is about 0.05 ms and the risk a silently
-  stale limb, so it stays on.
-- **`Vehicle.present` forces its hierarchy** (about 75 objects per vehicle
-  per frame) because riders and the driver's camera read seat matrices
-  right after; `getWorldPosition` would refresh the parent chain itself,
-  but the camera code reads `matrixWorld` directly. Left as is.
-- **Bolt and particle buffers** (`blaster-bolts.js`, `particles.js`,
-  `effects-gpu.js`) are GPU-side code, outside this pass; their instanced
-  attributes upload on every frame they change, which in a firefight is every
-  frame.
-
-### Render worker: evaluation
-
-Moving rendering to an `OffscreenCanvas` in a worker would put three's
-submission (the "render" phase) on a thread that GC pauses, DOM layout,
-texture decodes and audio fetches on the main thread cannot delay. What it
-costs:
-
-- The whole presentation would move with it: the scene graph, actors,
-  animators, effects, water, foliage, the HUD batch and the upscaler all
-  live where the `WebGLRenderer` lives. The main thread would keep input,
-  audio, the DOM menus and the worker client, and would forward packets
-  and input to the render worker instead of applying them itself. With the
-  world in a worker, that is two hops for every tick (simulation worker to
-  page to render worker) unless the simulation worker posts packets straight
-  to the render worker through a `MessageChannel`, which is the right
-  shape: page = input, audio, DOM; worker A = world; worker B = scene and
-  draw.
-- `graphics.js`, `hud.js`, `textures.js`, `raster-hud.js`
-  and the menus read `window`, `document`, `localStorage`, `Image`
-  elements and `requestAnimationFrame`. Workers have `OffscreenCanvas`,
-  `createImageBitmap`, `fetch` and `requestAnimationFrame` (Chromium and
-  Firefox), but no `Image`, no DOM and no `localStorage`; resize events,
-  pointer lock and settings would be messages. The KTX2 transcoder already
-  runs in a worker.
-- GC: the retained heap (about 36 MB of parsed map, AI and effect JSON)
-  sets the length of a major GC. Splitting the heap three ways makes each
-  worker's major GC shorter, but the render worker still owns the scene
-  (the larger half of that heap) and still pauses on its own garbage.
-
-What would justify it, measured: the main thread missing its frame
-deadline for reasons other than its own frame work. The runtime profiler
-records `frameIntervalMs` and `cpuMs` per frame; frames where the interval
-exceeds the budget (16.7 ms at 60 Hz, 8.3 at 120) while `cpuMs` is under it
-are the ones a render worker would save. On this host, in the measured
-600 frames, the page's own frame CPU (presentation 0.6 ms, world 1.6 ms,
-HUD 0.0 ms, submission 6.4 ms with SwiftShader stalls) is under budget;
-the long frames are all frames whose own work was long (the occasional
-20 to 50 ms world phase, from effects and destruction; and the one
-shader-compile frame). A render worker does not shorten those. The
-recommendation: not yet. First take the world phase's spikes off the page
-(destruction effects and debris are presentation and could be stepped at
-a bounded cost per frame), measure the interval-over-budget-with-cpu-
-under-budget count on an Apple M1 laptop running Linux at 2560x1600 (the
-stats line could show it), and build the render worker if that count is a
-visible share of frames (above about 1 in 100 at 60 Hz).
-
-## GPU-side pass: cached cascades, hardware shadow sampling
-
-The frame's GPU work, biggest lever first, measured under SwiftShader (a CPU
-rasterizer, so its frame time stands in for fill and shading cost; draw,
-triangle and GL call counts are exact). Nothing here lowers a preset's
-quality; where an image can differ at all, the section says where and why.
-
-### Shadow maps are hardware depth textures
-
-Each cascade's map was an RGBA8 colour target holding a packed depth, written
-by three's depth material (which also sampled every caster's colour texture)
-and read back through sixteen `texture2D` fetches and sixteen unpacks a
-pixel. The cascades are now `DepthTexture`s in the GPU's comparison mode
-(`sampler2DShadow`): the caster pass writes the depth attachment alone, with
-a depth program of this port's own (now drawn by `rust/bfe-render`, with the
-static casters in `rust/bfe-render/src/static_depth.rs`) that does the transform and, for cut-outs, the alpha test and nothing else; the
-colour attachment is one byte a texel and never written.
-
-The receiver filter is the same 4x4 tent (texels base-1 to base+2 an axis,
-weights (1-f, 1, 1, f)/3, the receiver-plane offset per tap). A comparison
-fetch with bilinear filtering returns the blend of four texel comparisons,
-so two fetches an axis, weighted 2-f and 1+f and placed where their blends
-sum to the tent, make the same sixteen comparisons in four fetches; a
-numerical check over random maps agrees to 1e-15. The one approximation is
-that a fetch's four texels share its reference depth, so the plane offset
-is off by up to a texel's slope at them. On a wall nearly edge-on to the sun
-that offset is metres and its own back face is the nearest caster, and the
-four-fetch version darkened such walls (14 levels over a facade on Theed).
-So the filter is adaptive: where the plane's slope is under 6 cm a texel it
-takes the four fetches; steeper, the sixteen exact taps. At rest the result
-matches the old renderer within the capture noise (see the measurements).
-
-The shadow coordinates are no longer four `vec4` varyings a vertex: the
-fragment projects the world position for the one or two cascades it reads,
-and the receiver plane comes from the triangle's normal (the world position's
-derivatives, taken outside the cascade branches) carried into map space by
-each cascade's inverse-transpose matrix (`lighting.cascadePlanes`). That is
-the same plane the old screen-space derivatives estimated, without the
-interpolation of 16 floats a vertex and 24 derivatives a pixel.
-
-### Static casters are cached per cascade window
-
-The sun never moves and the map never moves. `shadow-cascades.js` holds
-each cascade's window (the square three's CSM fits round the cascade's slice
-of the view, snapped to its own texel grid) in place as long as the slice
-still fits inside it, and lands it afresh only when the slice leaves it (a
-held window and a re-landed one share the same texel grid, so holding is
-pixel-identical). The frame a window lands, the static casters (the merged
-map meshes and the partitioned alpha-cut proxies, now on layer 2) are drawn
-into that cascade's cache; every frame the cache's depth is copied into the
-live map in place of three's clear, and the moving casters (soldiers, the
-crowd mesh, vehicles, held guns, debris, banners) are drawn over it. The
-last cascade's moving casters (31 cm texels, 100 m and further) are redrawn
-every other frame. `diagnostics().shadowPasses` counts static and
-dynamic passes.
-
-On Theed at High, 600 driven frames: shadow draws 181 to 46 a frame and
-shadow triangles 481,000 to 150,000 to 190,000 (13 to 20 static passes in
-the whole run, the rest the moving casters); the map's triangles a frame
-692,000 to 385,000; GL calls 3,257 to 2,600.
-
-### Smaller things
-
-- The far scene's target has no multisampling while the temporal upscaler is
-  on: its jittered history antialiases the far scene's few silhouettes (the
-  horizon, roofs against the sky), and four samples a pixel cost that pass's
-  storage and a resolve every frame. With FXAA or no antialiasing the far
-  target keeps the near target's sample count. The far materials' coverage
-  test follows `lighting.farAaSamples`.
-- The water's far-scene mirror (Low and High quality) is held every other
-  frame while the eye stays within 0.3 m and 2 degrees of where it was drawn
-  from: the sky and the far buildings are 100 m and more away, so a frame's
-  parallax is a fraction of a texel, and at rest the image is the same one.
-  Ultra, which mirrors the near scene and its soldiers, draws every frame.
-- Lamp light on characters stops at the lit slots (`localLightCount`)
-  instead of evaluating four falloffs a pixel with zero colours.
-- The terrain's detail texture is neutral past 80 m and is no longer fetched
-  there (explicit gradients keep its mip level defined inside the branch).
-
-### What the measurements say
-
-Under SwiftShader at 640x400, High preset (4x MSAA, high shadows, temporal
-upscaler, bloom, soft focus, High water), the Theed benchmark of
-`tools/profile-deep.mjs` driven over CDP: walking, strafing, turning and
-firing for 600 frames after a 20 s warm-up, one tick a frame. Before this
-pass: completed-frame p50 779 ms, p95 923 ms, 368 draws, 692,000 triangles,
-3,257 GL calls a frame. After the cascade cache and hardware sampling alone:
-p50 484 ms over the uncontended part of the run (the host was shared with
-another benchmark for the rest), 286 draws, 342,000 triangles, 3,015 GL
-calls. Paired runs under the same contention put the whole pass at 15 to 38
-percent less frame time depending on the load at the time; the exact counters
-above are the stable evidence. The terrain's layer blend was also measured by
-forcing one layer and by hiding the ground: see `render-performance.md`.
-
-At rest, captures of the same frame before and after differ within the
-run-to-run noise of the capture itself (trees and flower beds sway on the
-wall clock; about 2 percent of pixels by more than 8 levels in two runs of
-the same code): the shadow change 2.3 percent, the whole pass 3.2 percent,
-and the regions the first four-fetch filter got wrong (the left facade, the
-pillar) now differ by under 0.5 levels on average.
-
-On an Apple M1 laptop running Linux (2560x1600, High), the receiver side is
-the larger saving: every lit pixel of the terrain and the buildings did
-sixteen RGBA fetches and unpacks per cascade, now four comparison fetches on
-open ground and the exact sixteen only on steep walls; the caster side saves
-the map's 300,000 to 450,000 triangles a frame and their depth-only fill, at
-the cost of one depth copy a cascade a frame.
+`tools/profile-deep.mjs` can record runtime phases and a CPU profile for a
+controlled battle. Keep CPU submission, GPU completion, authority ticks and
+memory separate when assessing performance. Historical renderer measurements
+are in [render-performance.md](render-performance.md); they do not establish
+this release's frame rate on another device. Current world profiling guidance
+is in [performance.md](performance.md).
 
 ## Renderer initialization errors
 
-Battle preparation requires the Rust renderer module. If fetching or
-initializing it fails, loading stops with the GPU renderer name and the
-original error. This is reported through the game loading error screen.
+Battle preparation requires the Rust renderer module and its declared program
+variants. Fetch, initialization and link failures stop loading with the GPU
+name and cause. Context loss suspends drawing; restoration rebuilds the same
+native resources and programs. It does not select another renderer.

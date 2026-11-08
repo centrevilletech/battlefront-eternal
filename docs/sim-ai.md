@@ -1,8 +1,8 @@
 # Native AI ownership
 
 Classic and Enhanced bot decisions run in the required simulation module.
-`src/ai-world-load.js` prepares authored content once and constructs the
-`AiWorld` host in `src/ai-world.js`. There is no JavaScript bot implementation
+`src/sim/wasm/ai-world-load.js` prepares authored content once and constructs the
+`AiWorld` host in `src/sim/wasm/ai-world.js`. There is no JavaScript bot implementation
 or AI backend switch. The mode setting still chooses Classic, Enhanced or no
 bots.
 
@@ -14,7 +14,7 @@ persist across battles live in the owner's process state.
 
 Before each tick the host writes one generated phase header, current camera
 facts and new journal records into the AI exchange (`ai.prepare`, which calls
-`AiWorld.prepare` in `src/ai-world.js`). The native world tick
+`AiWorld.prepare` in `src/sim/wasm/ai-world.js`). The native world tick
 (`world_step_run`, `rust/sim/src/world/step.rs`) then runs the AI phase
 (`ai_world_phase`) after squad commands and before the unit phase.
 Rust runs `Core::decide` followed by `Core::execute` and
@@ -133,10 +133,10 @@ again before accepting an omitted request, so a stale page cannot turn missing
 input into authority. Boundary counters count the words actually written.
 
 `tests/ai-world*.test.js` exercises the actual native owner with synthetic
-content. The native tests in `rust/sim/tests/` (`ai_phase.rs`,
-`ai_native_phase.rs`, `ai_control_twin.rs`, `vehicle_ai_twin.rs`,
-`ai_combat_twin.rs`, `ai_combat_control.rs`) cover policy, missing services
-and lifecycle ordering. External
+content. The native fixtures in `rust/sim/src/ai/owned/tests/phase.rs`,
+`rust/sim/src/ai/owned/tests/native_phase.rs` and the policy tests under
+`rust/sim/tests/` cover missing services, lifecycle ordering, control,
+vehicle and combat behavior. External
 capture replays and world hashes supplement these fixtures; retail content
 and captured battle data stay outside the repository.
 

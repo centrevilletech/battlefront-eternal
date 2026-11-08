@@ -211,7 +211,7 @@ Steam's own copy (the one its app manifest names) in any library, then GOG's
 game: another folder in a library's `steamapps/common` (a copy placed there
 by hand, perhaps modded), a Battlefront folder where GOG games usually go, or
 one found on a drive. So a hand-made copy in one library no longer wins over
-Steam's own copy in another. `findGameInstall` is still the first of them,
+Steam's own copy in another. `findGameInstall` is still checked before those other locations,
 found without looking further.
 
 Before anything is converted, the app runs `tools/prepare.py --check` on the
@@ -444,7 +444,7 @@ no look of its own.
 `electron/ui/theme.js`, a blocking script at the top of the page, reads the
 setting as the front end does (`src/settings.js`): the settings file the
 desktop keeps (`electron/player-settings.js`, through the preload's
-`settingsStore`), else localStorage. It sets the look before the first frame
+`settingsStore`), else localStorage. It sets the look before the initial frame
 is drawn and writes nothing. Without settings, as on a first run, the look
 is Eternal. A look changed in the menus applies the next time the loader
 opens.
@@ -574,7 +574,7 @@ the next ("happy eyeballs"). Over a congested link (round trips of 500 to
 800 ms were seen) the IPv4 attempt was dropped before it could
 answer, and with no IPv6 route every master request failed with "fetch
 failed" (ETIMEDOUT) while curl and browsers got through. `electron/
-slow-links.js` gives each attempt 2.5 s: it is the first import of the main
+slow-links.js` gives each attempt 2.5 s: it is the initial import of the main
 process (`boot.js`) and of the network process, and a hosted server gets the
 same as its first argument (`--network-family-autoselection-attempt-
 timeout`). A master read that still never gets an answer is tried once more,

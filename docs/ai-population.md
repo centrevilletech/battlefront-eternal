@@ -21,8 +21,8 @@ ownership. Further rules found while implementing are listed under
 | `rust/sim/src/battle/spawning.rs` | the roster (Characters), spawn manager clocks, class choice, post queues, spawn-post selection, spawning |
 | `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
 | `rust/sim/src/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
-| `src/post-data.js`, `src/mission-teams.js` | `attachPostAI` (post AI properties by name), the page's mission team table |
-| `rust/sim/tests/ai_phase.rs`, `ai_control_twin.rs`, `replay_battle.rs` | Rust tests |
+| `src/post-data.js`, `src/sim/wasm/mission-teams.js` | `attachPostAI` (post AI properties by name), the page's mission team table |
+| `rust/sim/src/ai/owned/tests/phase.rs`, `ai_control_twin.rs`, `replay_battle.rs` | Rust tests |
 | `tests/test_ai_mission_export.py` | `python3 -m unittest tests/test_ai_mission_export.py` |
 | `tests/ai-world-roster.test.js` | the native roster through the page boundary |
 
@@ -215,7 +215,7 @@ the mission sets them; the battle service must use the same default.
 
 ### What the update does
 
-- Clock: wave countdown `-= dt`; at `<= 0` add A (demo: the first three
+- Clock: wave countdown `-= dt`; at `<= 0` add A (demo: the initial three
   waves last 1.0 s), wave + 1, stagger and releases 0. Then stagger `-= dt`;
   at `<= 0` releases + 1, add B. One step each per update, float32.
 - Locals cap: the AllyCount of active posts whose owner is friendly to team 3,
@@ -265,7 +265,7 @@ The core reads the difficulty through `Core::curves_for(team)` and
 - Objective: candidates are the active posts the team can't spawn at, in
   world order; a vehicle driver also skips posts whose bans meet its
   vehicle's traversal mask (infantry are never ban-tested here). Weights add
-  in float32; one draw in [0, total); the first post whose running total
+  in float32; one draw in [0, total); the earliest post whose running total
   reaches it. No positive total: any active post uniformly (filters
   ignored), redrawing to avoid `previous` when asked; null with fewer than
   two. The weight is by team index, never by SetAttackingTeam.
@@ -298,7 +298,7 @@ gives it classes and a unit count, and sets how it stands with the armies
 enemies). The battle fields them through the same modules in single player,
 in a world worker, on a server and on a hosting desktop:
 
-- **Who fights whom:** `missionTeams` (`src/mission-teams.js`, over the
+- **Who fights whom:** `missionTeams` (`src/sim/wasm/mission-teams.js`, over the
   native `ai_mission_teams`, `rust/sim/src/ai/owned/entry.rs`) gives each
   team's relations, faction and capture team; `src/game.js` hands the table
   to the unit registry (`units.setTeams`), so
@@ -398,7 +398,7 @@ not by the `des_` prefix.
   points only at the team's own post; else the post's own transform. A path
   point is then settled with two ray casts (10 m up, then 20 m down); a class
   spawn point is brought back along a ray from the post's entity's collision
-  centre to the first terrain, building or prop (mask 0x48). Its yaw is the
+  centre to the nearest terrain, building or prop (mask 0x48). Its yaw is the
   post's plus the authored one (the class parser makes it a turn about the up
   axis, composed with the entity's transform), so the AT-AT's points (5 and
   355 degrees, 8 m out either side) face outward. Command vehicles are such

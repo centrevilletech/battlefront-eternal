@@ -93,7 +93,7 @@ projectiles coast between samples and end at the terminal tick.
 
 Accepted explosion events wait for the visual clock, independently of newer
 snapshot receipt. Once received within their wire lifetime, they display once
-on the first eligible rendered frame, including after a slow frame. Expired
+on the initial eligible rendered frame, including after a slow frame. Expired
 retransmissions are still rejected; they cannot restart an explosion.
 
 ### Sniper rounds online

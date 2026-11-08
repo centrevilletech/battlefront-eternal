@@ -48,7 +48,7 @@ each byte OR 0x20 (`tools/zero_hash.py`).
 graph: {
   info: [hubCount, arcCount, third],     // INFO: i16, i16, u16 as stored (third is 5 in stock data)
   hubs: [{
-    name: "Hub0",                         // char[16], up to the first NUL (latin-1)
+    name: "Hub0",                         // char[16], up to the initial NUL (latin-1)
     position: [x, y, z],
     radius: r,
     arcs: [a0, …, a7],                    // incident arc indices; 255 = unused slot
@@ -184,14 +184,14 @@ Semantic findings that do not stop extraction. Each is
 | `routeCapability` | A packed candidate's arc lacks the table's capability bit (`hub, table, destination, slot, arc, arcMask, word`), once per word and slot. Shipped data has ten (END/end1 4, KAS/kas2 3, KAS/kas2_h 3); they are preserved. |
 | `routeWeightSum` | Nonzero word whose weights do not sum to 30 or 31 (`hub, table, destination, word, sum`). |
 | `routeHang` | A word the original game's arc selector could never finish (`…, word, reason`): `zeroWeights`, or `singleSlot` (every candidate on one slot, first weight below 31, which loops when that slot is the previous arc). The runtime guards these. |
-| `hubSlotGap` | A hub lists an arc after an unused (255) slot (`hub, arcs`); the alternate-arc fallback stops counting at the first unused slot. |
+| `hubSlotGap` | A hub lists an arc after an unused (255) slot (`hub, arcs`); the alternate-arc fallback stops counting at the initial unused slot. |
 | `hubMaskDiffers` | The OR over the hub's slots differs from the OR over every arc touching the hub (`hub, slotMask, touchingMask`). |
 | `zeroLengthArc` | Coincident arc endpoints (`arc, hubs`); the corridor test would divide by zero, so the runtime skips these arcs. |
 | `hintType` | Unsupported hint TYPE (`hint, name, type`), dropped at load. |
 | `jetForward` | A jet hint forward vector that is not unit length (`hint, name, length`), kept as stored. |
 | `barrierBasis` | A barrier basis that is not orthonormal (`barrier, name, xLength, zLength, dot`), kept as stored. |
 | `boundaryPath` | A boundary Path reference with no matching PATH (`config, hash`). |
-| `duplicatePath` | Two PATH entries hash to the same name (`hash, paths: [first, later]`); lookups take the first. |
+| `duplicatePath` | Two PATH entries hash to the same name (`hash, paths: [first, later]`); lookups take the earlier entry. |
 
 Structural problems are fatal (the tool exits non-zero and writes nothing):
 INFO not 6 bytes, `NODE != N * (40 + 20N)`, `ARCS != 22A`, endpoint or slot
@@ -315,7 +315,7 @@ helper.aim_at(point) / aim_at_target(ref) / aim_along_path()   // controller.aim
                            //   (controller.look_at / aim_at / look_along_path when present)
 ```
 
-`goto` replans and stops the unit until the first local path arrives, as the
+`goto` replans and stops the unit until the initial local path arrives, as the
 original game's does: call it when the destination changes, not every tick.
 
 The helper's world (`GotoWorld`) supplies the AI generator A, the clock,
@@ -403,7 +403,7 @@ drive a kinematic soldier with the port's axes to its goal.
 
 ## Tests
 
-- `cargo test` in `rust/sim`: `src/ai/nav/tests.rs` checks the AI
+- `cargo test` in `rust/sim`: `rust/sim/src/ai/nav/tests.rs` checks the AI
   generator's draws, open-heap ties, a barrier search and graph attach and
   selection against the JavaScript's answers on the same inputs; the
   `nav-twin` binary (`rust/sim/src/bin/nav-twin.rs`) replays recorded
@@ -427,7 +427,7 @@ remaining limits.
 | `hints.rs` | Box query returns hints in load order | The original game's spatial order is unknown; only matters when `cap` truncates |
 | `cursor.rs` | No compatible arc anywhere: the cursor goes straight to the exact destination | The original game has no defined behavior there; not needed for stock data |
 | `goto.rs` | `follow(..., remembered)` needs the helper world's `remembered(target)` from Combat's memory | The remembered point lives in perception, which has to expose it |
-| `zero_ai.py` | Duplicate PATH names resolve to the first in source order | The original game's path list order is unknown; only yav2 has duplicates |
+| `zero_ai.py` | Duplicate PATH names resolve to the opening position in source order | The original game's path list order is unknown; only yav2 has duplicates |
 
 Safe-port divergences (unsupported input only; stock data never hits them):
 a routing word the selector could never finish returns no arc and reports
@@ -488,7 +488,7 @@ standing for good:
   use the AI generator. The GroundGoto jet attempt draws from a second,
   separate generator state (generator B, Integration 5).
 - **Shell direction draw order.** A hub-shell direction draws three uniforms;
-  the first becomes z, the second y, the third x, each `2 × (U − 0.5)`.
+  the leading value becomes z, the next y, the last x, each `2 × (U − 0.5)`.
 - **Search work counts depend on the broadphase.** A grid that culls far
   barriers counts fewer work units than feeding every barrier to the narrow
   phase (5 instead of 7 in the obstacle case) with the same path.
@@ -503,17 +503,17 @@ standing for good:
 - **BaseHint pool** capacity is 350. Hint TYPE strings are compared by FNV hash
   ("0" 350ca8af snipe … "6" 330ca589 land). Property formats are `%d` and
   `%f`; the CommandPost sentinel is the empty string. Radius copies sit at
-  (sin a, 0, cos a) × radius for a = 0, 90, 180, 270 degrees (the first along
+  (sin a, 0, cos a) × radius for a = 0, 90, 180, 270 degrees (0 degrees along
   +z), facing the center.
 - **GroundGotoHelper.** State 8 (straight) does not set the destination, so the
   jet attempt there measures against the previous one. Goto stops the unit
-  until the first local path arrives.
+  until the initial local path arrives.
 - **State-4 corner detour can stall.** For non-infantry direct moves the
   detour keeps one side for the whole move and takes, on that side, the
   corner at the widest angle from the heading. Standing on a corner, that is
   the corner underfoot, so the detour point stops changing, no new path is
   issued, and with no executor there is no stuck status either. Equal corner
-  distances at the first obstruction pick the second side, which can be the
+  distances at the initial obstruction pick the second side, which can be the
   one away from the goal. This is the original game's behavior and is kept
   in Classic; tests cover a geometry where the detour succeeds.
 - **Planner details.** The fast straight-segment answer needs the owner's

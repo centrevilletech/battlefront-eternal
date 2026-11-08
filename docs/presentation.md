@@ -93,7 +93,7 @@ The own body is placed (world matrices, skin and node records) in its phase,
 since the camera follows it. Other soldiers publish only their root place there;
 like the scene update that skips hidden and off-view subtrees, the page places
 the soldiers it will draw in one call before that update, and places any other
-soldier on the first matrix update asked of it.
+soldier on the initial matrix update asked of it.
 Foreign scene/interface parent matrices are records too. A paused class preview
 uses a small instance of the same kernel, with its interface parent supplied
 after the UI places it.
@@ -111,7 +111,7 @@ every output bit to match.
 A world's hulls spawned at load are seeded natively: their pose import
 (`veh_pull`) poses the spawn the way the hull's render does at a tick
 (walk pose, lifted legs, its own gear, posed seats, barrels at rest) before
-the first phase. The world keeps no JavaScript pose of its own.
+the initial phase. The world keeps no JavaScript pose of its own.
 
 Vehicle construction consumes model, class and clip records. Rust builds the
 bind skeleton, muzzle markers, aimers, seat views, wheel axes and tow-leg
@@ -176,7 +176,7 @@ retain their authored matrices and scene parents. Props publish the eased
 Float32 stand pose, including unweighted bones, rather than the sampler's
 unblended target. Mesh bind inverses follow their own attached-mode frames.
 A creature that seizes takes the world's latest state in the prop phase
-(the first stands at once, later ones ease in) and hangs whom it holds
+(the initial stands at once, later ones ease in) and hangs whom it holds
 from its posed grab node: his grab clip at his time into the hold, his
 root bone on the node. The host resolves who he is on its page, registers
 his class's skeleton once and copies the frame onto him for his body,
@@ -337,10 +337,12 @@ is published here. Dedicated-server water physics remains a separate clock.
 
 `Water.update`, `updateWaders`, `updateRings`, `WaterShore.update` and its
 sampling helpers, `EnvironmentWakes.update` and `StormSky.strike` have no
-JavaScript state implementation. The page retains geometry/material/texture
-shells, particle-resource birth and kill application, collision queries and
-mirror/probe/cloud draw hooks. This state phase does not schedule renderer
-passes. Separate native owners still advance destruction and particles.
+JavaScript state implementation. The page supplies remaining scene facts,
+particle-resource birth and kill transport and collision replies. Native resource
+families own the geometry/material/texture descriptors, and the renderer's
+`battle_frame` schedule owns mirror, probe and cloud drawing. The surface state
+phase does not schedule renderer passes. Separate native owners advance
+destruction and particles.
 
 Surface births use a 4,096-row circular command block. A paused overflow drops
 its oldest commands and reports the count; the water retains its original

@@ -27,7 +27,7 @@ contract. Further behavior details are under "Further behavior details".
 | `rust/sim/src/ai/control/mod.rs` | `Core`: binding, the per-service update, every state machine's entries, interrupts priorities 1 to 8, squad delivery, the scheduler and the AI input step |
 | `rust/sim/src/ai/control/world.rs` | `AiWorld`, what the core asks of the rest of the battle |
 | `rust/sim/src/ai/owned/runtime.rs` | the battle's AI entry points over the canonical stores |
-| `rust/sim/tests/ai_control_twin.rs`, `replay_ai.rs`, `ai_phase.rs`, `ai_native_phase.rs` | tests |
+| `rust/sim/tests/ai_control_twin.rs`, `replay_ai.rs`, `rust/sim/src/ai/owned/tests/phase.rs`, `rust/sim/src/ai/owned/tests/native_phase.rs` | tests |
 
 ## Using it
 
@@ -261,7 +261,7 @@ setup say. The native owner binds them all:
   → combat at the source's current position if within sensor range and
   engageable, else (soldier) evade to self plus a generator-B cube; 3 the
   deferred-LOS candidate → combat on it (droideka: within 10 m; flyer
-  target reservations); 4 acoustic refs in order → combat at the first
+  target reservations); 4 acoustic refs in order → combat at the initial
   accepted within the horizontal hearing range (half for droidekas), with
   HeardEnemySound; 5 squad command; 6 boarding (one generator-A pick among
   the notes); 7 crew wait window; 8 stagnation (executor status ≠ 0) →
@@ -377,7 +377,7 @@ setup say. The native owner binds them all:
   `sinf/cosf(i · 2π/2048)`, linear, truncated index); re-picked when
   A-integer(1, 9) is 2 each callback. A zero-speed owner with no target
   memory leaves after the stationary wait.
-- **Cube vectors:** three uniforms, the first becoming z, then y, then x,
+- **Cube vectors:** three uniforms, the leading value becoming z, then y, then x,
   each `2(u − 0.5)`.
 - **Follow state 100.** Ending a follow clears the leader (no combat target
   is cleared). Clearing the leader also drops the executor and the trail.
@@ -478,7 +478,7 @@ command posts whose bans match its AISizeType and republishes its selected
 post to AI passengers; AI passengers copy the current AI driver's post.
 Human occupants are never republished. Seat changes are read on each query.
 
-`rust/sim/tests/ai_phase.rs` checks follow handles across recycled actors
+`rust/sim/src/ai/owned/tests/phase.rs` checks follow handles across recycled actors
 and previous lives, and following humans; the per-phase replays
-(`tests/replay_ai.rs`) cover sampling, trails and objective propagation
+(`rust/sim/tests/replay_ai.rs`) cover sampling, trails and objective propagation
 against captured battles when a capture corpus is supplied.

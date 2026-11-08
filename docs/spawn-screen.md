@@ -62,7 +62,7 @@ As the original's `SpawnDisplay` makes it:
   the last life, checked again: kept while eligible, else the eligible post
   nearest it, else the front line (`port.choosePost`), else a random
   eligible post.
-- **Class:** Up wraps from the first class to the last; Down is
+- **Class:** Up wraps from the initial class to the last; Down is
   (index + 1) mod count. Heroes aren't offered.
 - **Team:** Left or Right, or a click on the logos, switches between teams 1
   and 2 if the mission allows it. The class goes back to 0, and the post is
@@ -169,7 +169,7 @@ lit by the interface's light, the picked team's green (32, 223, 32) and the
 other red (223, 32, 32) at 35% strength. A switch swaps them over 0.25 s:
 each slides to its new place, growing or shrinking between the size
 parameters 0.5 and 0.25 × sw/800, spinning at −600°/s; after that they spin
-at −9°/s. Before the first swap they turn at +6°/s. When the mission
+at −9°/s. Before the initial swap they turn at +6°/s. When the mission
 forbids switching, the logos and their hotspot are gone. The hotspot is this
 port's own size: the original's 38.4-unit square between the logos reaches
 only their inner halves, so a click anywhere on either logo, with a margin
@@ -186,7 +186,7 @@ layout:
 - the map through `map_mask`;
 - posts, vehicles and the radar's icons as the picked team sees them
   (relation colours; enemies only where a friend sees them);
-- a post being taken blinks toward the taker's colour for the first quarter
+- a post being taken blinks toward the taker's colour for the initial quarter
   of each second;
 - a command vehicle (Hoth's AT-ATs, Geonosis' AT-TEs) is a post while it
   lives ([human-spawn.md](human-spawn.md), "Command vehicles"): it shows as
@@ -249,7 +249,7 @@ aren't in the extracted banks, so it is silent.
 
 On every opening but the battle's first, the screen asks the port to show
 the world from one of the mission's camera shots, picked at random. On the
-first, where the original cuts nowhere, it shows the first shot: Kamino's
+first, where the original cuts nowhere, it shows the initial shot: Kamino's
 load.png, taken then, has shot 0's lit pillars and round platform behind
 the room, which shots 1 and 2 don't. Its pillars stand a little further
 apart than the port's shot 0 puts them, so the original may frame shots

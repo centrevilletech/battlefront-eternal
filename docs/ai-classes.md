@@ -146,7 +146,7 @@ churn the main cause of everyone else's.
 
 ## Validation
 
-`rust/sim/tests/ai_phase.rs` covers class jobs reading native ammo and
+`rust/sim/src/ai/owned/tests/phase.rs` covers class jobs reading native ammo and
 arsenals (mine weapon choice, owned items), building repair identity, and
 jet-hint jobs (random ties, authored vectors, launch position). The per-phase
 replays (`rust/sim/tests/replay_ai.rs`) run the control core, class jobs

@@ -253,7 +253,7 @@ The six segments of the `shell_music` stream, as Ogg Opus (48 kHz stereo,
   `SoundStreamProperties` that play it, so a screen's `music` finds its
   track; `duration` is in seconds.
 - How the original plays it: `shell_soundtrack` starts with
-  the profile screen and cycles the first five (CyclePlayback: in order,
+  the profile screen and cycles the initial five (CyclePlayback: in order,
   from a random first pick as `rust/audio-control/src/engine.rs` does it), 10 s of silence
   between tracks (0 while the audio options page is open). Galactic
   Conquest switches to `shell_galacticconquest`, each briefing to its
@@ -315,7 +315,7 @@ The loading screen, from `load.lvl`'s config (abridged; every sprite is a
 - `teams`, `light`: the config's team models and the rotating planet's
   light.
 - `timing`: the config's `TargetTime` (3.5, 1): the seconds each picture's
-  crosshair tracks (the horizontal pair in the first half, the vertical in
+  crosshair tracks (the horizontal pair in the initial half, the vertical in
   the second) and the zoom that follows, as the original reads them; it
   falls back to 2 and 0.5 without one
   ([shell.md](shell.md)).
@@ -491,6 +491,6 @@ Headless Chromium plays the WebMs at their size, and its pixels match a
 BT.601 limited-range decode of the same frames (mean error under 0.2 of 255;
 BT.709 would be off by 1 to 6). A loop's seam is as small as the source's:
 `main.webm` keeps all 900 frames (30.000 s), and its step from the last frame
-to the first is 41.6 dB PSNR against 42.0 dB for the same frames of the Bink,
+back to its opening frame is 41.6 dB PSNR against 42.0 dB for the same frames of the Bink,
 upscaled the same way. The encode is 42 to 50 dB from the source at those
 frames.

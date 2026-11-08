@@ -1,10 +1,13 @@
-# Render and client-controls performance pass
+# Renderer and client-controls measurements
 
-This pass changes runtime rendering and input handling. It retains the existing
-quality defaults, UI, model/import data, audio, leaf populations, light budget,
-shadow resolution, draw order, and effects.
+This document records earlier rendering and input measurements. Its before/after
+figures belong to the stated workloads and builds, not to the complete current
+release. Current battle drawing, resource lifetime, camera/light math and frame
+scheduling belong to Rust; see [rendering.md](rendering.md). CPU-side Three.js
+resource bookkeeping described in the historical changes has been replaced by
+native resource owners.
 
-## Changes
+## Historical changes
 
 - Canopy camera selection keeps its candidate storage and cached distances.
   Leaf instance attributes upload only when the group occupying a slot changes,
@@ -23,10 +26,9 @@ shadow resolution, draw order, and effects.
   and the same occlusion decisions, using reusable bounded insertion storage
   instead of allocating and sorting every source. Settled lamp discovery skips
   its empty texture-readback work.
-- Particle and water captures obtain framebuffer handles from Three r170's
-  existing target bookkeeping. This removes `FRAMEBUFFER_BINDING` reads inside
-  a draw. The helper supports single-sample targets, explicit MSAA buffers, and
-  multisampled render-to-texture. Recheck this adapter when upgrading Three.
+- At that checkpoint, particle and water captures read retained target handles
+  instead of querying `FRAMEBUFFER_BINDING` inside a draw. The current Rust
+  resource owner supplies target storage, binding, copies and resolves.
 - GPU timer queries remain asynchronous, with status polling reduced to the
   existing eight-frame sampling cadence. Disjoint samples are discarded.
 - Full-screen post passes omit redundant clears; their triangles already
@@ -61,7 +63,7 @@ do not translate directly into the same percentage improvement in total FPS.
 
 ## Complete render measurements
 
-Final code, SwiftShader Vulkan software renderer, 320×200, CP3 spawn, 4× MSAA
+The measured build, SwiftShader Vulkan software renderer, 320×200, CP3 spawn, 4× MSAA
 plus FXAA, low shadows, bloom/soft focus/enhanced water and foliage enabled,
 including HUD rendering. Each map/version measures three alternating 16-frame
 camera sweeps after warmup. Times below are milliseconds, including diagnostic
@@ -147,7 +149,7 @@ informational, with no brittle pass/fail threshold on this shared machine.
 ## Validation
 
 ```sh
-node --test tests/render-pipeline.test.js tests/tree-canopies.mjs tests/camera.test.js
+node --test tests/render-pipeline.test.js tests/tree-canopies.test.js tests/camera.test.js
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/rendering.mjs
 npm run build
 ```
@@ -177,7 +179,7 @@ depth capture when idle.
 The passes of `Graphics.render()` as they stand at High with the temporal
 upscaler: the cascade shadow passes, the far scene, the near scene (with the
 soft-particle depth copy and the water's colour/depth copy when water is in
-view), the first-person view, the motion-vector pass, the quarter-size
+view), the player's first-person view, the motion-vector pass, the quarter-size
 soft-focus copy, bloom (three quarter-size passes), the composite, and the
 upscaler's motion, resolve and sharpen passes. FXAA runs only without the
 temporal upscaler. What this pass changed is in `rendering.md` ("GPU-side
@@ -215,7 +217,7 @@ triangles by scene and target. Captures are compared pixel by pixel.
 The ranges on the after side span runs: the cascade windows land at
 different moments depending on the walk, and the dynamic pass count varies
 with how many bots are in shadow range. The uncontended times are from the
-first 300 frames of the first after run and the whole before run; for the
+first 300 frames of the initial after run and the whole before run; for the
 rest of the runs another benchmark shared the eight cores (load average 15 to
 30), which doubled every frame time on both sides. Treat the time as
 "a third less, measured once cleanly" and the counters as the record.
@@ -275,7 +277,7 @@ experiments such as forcing `TERRAIN_LAYERS`). For a before/after pair, copy `sr
 once so they share the host's load. The unit tests of the pure logic:
 
 ```sh
-node --test tests/shadow-cascades.test.js
+node --test tests/shadow-capacity.test.js
 node tools/render-bench-cdp.mjs
 node tools/pixel-diff.mjs /path/to/out/before-rest.rgba /path/to/out/run-rest.rgba diff.png
 ```

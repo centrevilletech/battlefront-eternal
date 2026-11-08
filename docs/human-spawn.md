@@ -45,7 +45,7 @@ The class played first:
 
 - `unit=` names it.
 - `side=` alone picks that side's first non-hero class in the mission.
-- With neither, the screen's default is the first class of the team that
+- With neither, the screen's default is the initial class of the team that
   fields the old default unit, `rep_inf_jet_trooper`. On Theed that is the
   clone trooper on the Republic; a mission without it uses team 1.
 - A bypass without either (`spawn=` alone, or `spawnscreen=0`) keeps the old
@@ -183,7 +183,7 @@ that throws is reported and doesn't stop the battle.
 - a bot's body (`buildBody`): the model re-skinned by `OverrideTexture`, a
   `Soldier` or a `Droideka`, and its animator;
 - what only the player's body has: `PlayerCombat` aimed from the world's
-  camera with the HUD, the first-person arms (the droideka's with its own
+  camera with the HUD, the player's first-person arms (the droideka's with its own
   clip set and offset), a droideka's shield bubble and dust, and a jet
   trooper's jetpack effects.
 
@@ -210,7 +210,7 @@ same object, keeping its id, generation, team and Character.
 What `adopt()` moves to the new body:
 
 - the old body is hidden; its bubble, dust and jet flames stop; its arms
-  leave the first-person scene;
+  leave the player's first-person scene;
 - the new body takes the old one's place and state: dead, at the same spot;
 - every game.js binding (soldier, actor, animator, combat, presentation,
   clips, def, walker, arms, bubble, jetpack, ribcage, health type, the
@@ -263,7 +263,7 @@ The screen reads the world only through `game.spawnPort` (and
 | Call | Notes |
 | --- | --- |
 | `humanState()` | `{ phase, team, className, classIndex, post, canSwitchTeams, over }`. `className` is the class of his current or next life; after a team switch it is clamped into the new roster, as the Character's index is. `post` is the last post he spawned at, by name. |
-| `teams()` | `{ 1: { side, logo, objectives }, 2: ... }`. `side` comes from map.json `spawnScreen`, else `SetTeamName`, else the first class's side. |
+| `teams()` | `{ 1: { side, logo, objectives }, 2: ... }`. `side` comes from map.json `spawnScreen`, else `SetTeamName`, else the initial class's side. |
 | `roster(team)` | Non-hero classes, in mission order, that loaded. `displayName` falls back to the class id. `weapons` are in slot order: `displayName`, else `label`, trimmed. |
 | `posts(team)` | Every post. `eligible` uses the Classic spawn manager's relations when it runs, else the registry's. `vehicles` comes from map.json `spawnScreen.postVehicles`. |
 | `choosePost(team, previous)` | A post name or null. Its random fallback uses `Math.random`: it runs on the screen's side, and its result goes into a command as a plain name. |

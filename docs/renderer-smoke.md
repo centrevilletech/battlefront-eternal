@@ -53,8 +53,8 @@ remain failures; the report can contain passing assertions alongside them.
 
 The catalog check covers every declared Rust-owned source variant, including
 families added later. Generated draws exercise a smaller set of material and
-phase contracts; they cannot enumerate unported game materials, shader define
-combinations, effects, texture formats or rendering configurations. The scene covers bump on/off, shadows, alpha
+phase contracts; they do not enumerate every loaded scene, combination of
+effects, texture format or rendering configuration. The scene covers bump on/off, shadows, alpha
 blending, skinned and rigid instances, bloom and soft focus, including settings changes, but does not qualify all game scenes. A renderer and its fixtures
 can share a shader bug: stable pixels alone cannot detect an
 unwanted texture fetch hoisted by a compiler. WARP exercises the Windows

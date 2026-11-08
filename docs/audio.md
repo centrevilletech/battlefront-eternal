@@ -224,7 +224,7 @@ light mix in `rust/audio/src/output.rs`. It keeps the same sound choices,
 distance curve, Doppler, pitch glides and voice ranking.
 
 - Rust mixes each voice through OpenAL Soft's first-order stereo gains.
-  Both gains ease over 15 ms, the first value applies immediately, and
+  Both gains ease over 15 ms, the initial value applies immediately, and
   changes of a thousandth or less are held.
 - Rust places stream channels at OpenAL Soft's angles: stereo hard left
   and right, mono ahead, and a quad bed's rear pair spread across both ears.
@@ -411,7 +411,7 @@ rendering. The enhanced mode's master chain opens with a clarity stage
   power, fast (1 ms up, 40 ms down) and slow (25 ms up, 250 ms down), linked
   across the channels so the image holds. Where the fast one stands over the
   slow one an attack is under way, and the gain rises by a quarter of the
-  difference past the first dB, up to +4 dB, easing back over 60 ms. Shots
+  difference past the initial dB, up to +4 dB, easing back over 60 ms. Shots
   and footsteps land harder; tails, beds and music pads stay where they
   were, so the range between them grows.
 - **A top octave**: per channel, the 2.5 to 7 kHz band full-wave rectified
@@ -469,7 +469,7 @@ The browser FFT uses WebAssembly SIMD for adjacent complex butterflies.
 The front end keeps an all-mono mix in one lane until the final stereo copy.
 
 Mono keeps the frozen routing, including its existing 7.1/7.1.4 behavior:
-the first channel is copied to every output. Stereo and 5.1 use their
+the initial channel is copied to every output. Stereo and 5.1 use their
 recorded downmix coefficients. Changing this is a separate audible change.
 
 The meter is an optional second thin host for Rust's BS.1770 meter.
@@ -560,7 +560,7 @@ Strict cases compare SHA-256 of the float32 bytes. Other cases require every
 sample's difference from the frozen native render to stay below −96 dBFS.
 Component goldens cover 3,289,466 samples and readings exactly. Separate
 recorded HRTF impulses cover 44.1 and 48 kHz, azimuth and elevation. Rust
-allocation tests count allocations from the first block, including stream,
+allocation tests count allocations from the initial block, including stream,
 convolution, front-end playback and meter report paths.
 
 `tests/audio-control.test.js` additionally drives the battle's complete sound
@@ -623,7 +623,7 @@ was both licensed for this and practical on a CPU. UniverSR (MIT code, CC
 BY 4.0 weights) took about 500 times a sound's length per mono channel here;
 AP-BWE (MIT) is for speech only; AudioSR needs an old NumPy and Python and
 6.2 GB; FlashSR has no license; Apollo is CC BY-SA and for MP3 restoration.
-`tools/models/` (gitignored) is where weights would go.
+No model weights are shipped or required by the current audio tools.
 
 ## Licenses
 
@@ -701,7 +701,7 @@ Things only a person with the hardware can check, in rough order:
    the original did on stereo before it (the same levels and placing); on a
    map whose original space has a reverb (Kamino, Bespin) it is dry. Moving
    sources should pan smoothly, and the loudest moments shouldn't crackle.
-10. **Menus and loading**: listen to the first track starting, rapid menu
+10. **Menus and loading**: listen to the initial track starting, rapid menu
     changes during a music dip, track endings and the loading pulses. Leave
     the loading screen during a pulse's end fade; it should end cleanly.
 

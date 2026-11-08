@@ -28,13 +28,13 @@ it did before Enhanced was added (checked by comparing whole headless battles).
 
 | File | What |
 | --- | --- |
-| `src/ai-world-load.js` | `createNativeAI("enhanced", ...)` sets the native owner's `enhanced` flag |
+| `src/sim/wasm/ai-world-load.js` | `createNativeAI("enhanced", ...)` sets the native owner's `enhanced` flag |
 | `rust/sim/src/ai/control/difficulty.rs` | the Enhanced flavor of `Difficulty`: one skill for both teams; decision cycle by tier |
 | `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | `Objectives` with `enhanced` set (the objective draw, defense, recruitment), `Core::enhanced_objectives_tick` |
 | `rust/sim/src/battle/spawning.rs` | the Enhanced spawn-post choice |
 | `rust/sim/src/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
 | `rust/sim/src/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
-| `rust/sim/tests/ai_phase.rs`, `ai_combat_twin.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
+| `rust/sim/src/ai/owned/tests/phase.rs`, `ai_combat_twin.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
 
 ## What Enhanced changes
 

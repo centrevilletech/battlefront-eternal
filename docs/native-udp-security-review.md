@@ -6,7 +6,7 @@ repositories, before its first release:
 desktop network process (`electron/net-service.js`, `net-process.js`,
 `net-host.js`, preload and main hand-off), the renderer transport
 (`src/runtime/udp-transport.js`), and bfeserver's game port, admission and
-rendezvous (`src/udp-server.js`, `udp-peer.js`, `online-server.js`).
+rendezvous ([game port](https://github.com/centrevilletech/battlefront-eternal-server/blob/f00544195217b05900bdb81b7e02e2ea455fa9f3/src/udp-server.js), [peer adapter](https://github.com/centrevilletech/battlefront-eternal-server/blob/f00544195217b05900bdb81b7e02e2ea455fa9f3/src/udp-peer.js), [online service](https://github.com/centrevilletech/battlefront-eternal-server/blob/f00544195217b05900bdb81b7e02e2ea455fa9f3/src/online-server.js)).
 
 ## Method
 
@@ -63,7 +63,7 @@ to drive the privileged network process without limits.
 | L10 | Info | A large packet-number jump cleared the replay bitmap one bit at a time | Up to 4,095 steps | A word at a time |
 
 Found while testing the fixes: a second connect on the same battle port
-cleared the network process's reference to the first one, so closing the
+cleared the network process's reference to the initial one, so closing the
 port could not cancel it. Fixed; closing a port now cancels its connect.
 
 ## What changed in the protocol

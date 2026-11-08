@@ -94,7 +94,7 @@ bot seats fire; tethers; bot bodies placed at their seats.
   steering); seat 0's aim is what the hull follows. Both are held inside the
   seat's limits (`Vehicle.clampAim`; docs/formats.md "Vehicle seats").
 - **Weapons**: each manned seat's aimers turn toward its aim target
-  (`Vehicle.aimSeats`): the point under the player's crosshair, or the first
+  (`Vehicle.aimSeats`): the point under the player's crosshair, or the initial
   thing along a bot's `intent.aim` (else the seat's aim) from the seat's eye.
   Rounds leave the weapon's real fire points, at that point once a barrel
   points there, else along the barrel; a weapon with no aimer nodes fires a
@@ -123,7 +123,7 @@ bot seats fire; tethers; bot bodies placed at their seats.
 Only when bots are aboard does anything differ for the player:
 
 - Entering: the seat he last used if free, else (as the original game seats a
-  player) the first seat that is free or held by a bot; that bot moves to the
+  player) the earliest seat that is free or held by a bot; that bot moves to the
   next free seat after its own, or gets out (no promotion).
 - F (next seat): a bot in the next seat trades places.
 - Getting out voluntarily hands his seat to the last bot aboard (promotion).
@@ -138,7 +138,7 @@ Only when bots are aboard does anything differ for the player:
 - `policy: "classic"` (bots, default): the original game's seat exit
   placement (`classicSeatExit`): nine candidates in the occupied seat's frame
   at R = bounding radius + 0.684 (behind, left, right, the four 0.7071 R
-  diagonals, in front, centre), 1 m up; the first eight need a clear line from
+  diagonals, in front, centre), 1 m up; the initial eight need a clear line from
   the vehicle's bounding centre (the vehicle left out); a candidate needs one
   of five world-axis support samples (±0.72) to find a floor (5 m up, then 10 m
   down); the X/Z of the candidate at the highest support; the vehicle's origin
@@ -214,7 +214,7 @@ page's seat adapter sets `gunner.turret` (`EntitySeats.setGunner`,
 `src/runtime/entity-seats.js`) without `enter()`. The page draws from that
 state:
 
-- The presentation camera (`src/presentation/cameras.js` `gunner`) hands
+- The presentation camera (`src/sim/wasm/presentation/cameras.js` `gunner`) hands
   the set turret's root, drum pivot, up and shown angles (or the seat
   owner's canonical aim and eye when the turret has a native seat) to the
   native camera phase, which makes the view; the native prop phase poses
@@ -252,7 +252,7 @@ every turret. Entries (`vehicle.aiTarget`, `turret.aiTarget`):
 | --- | --- | --- |
 | `kind` | 2 walker (creatures, command walkers), 5 flyer, 6 hover (the Hailfire too) | 8 armed building |
 | `category` | 3 vehicle (1 for creatures) | 4 building |
-| `team` | the first occupant's (pilot first), else the hull's own | the gunner's, else the building's (0) |
+| `team` | the initial occupant's (pilot first), else the hull's own | the gunner's, else the building's (0) |
 | `alive`, `dead`, `combat {health, maxHealth, dead, team, explode()}` | the hull's | built or not |
 | `sphere {center, radius}`, `aimPoint(out)` | collision bounds centre, half the box diagonal | the building sphere |
 | `origin(out)`, `forward(out)` | seat 0's eye and aim | the gun pivot, the drum's view |
@@ -396,7 +396,7 @@ Out of a hangar: the flyer's movement helper (FlyGotoHelper) lifts the craft
 off whenever it is moving it, along a path or a straight leg, and the craft is
 not flying; stopped, it leaves the craft on its pad. So a pilot waiting for his
 crew (WaitSecondary) or in state 3 stays down, and under a roof (Hoth's
-hangar) the first thing to move him is state 2's climb out: straight ahead
+hangar) the initial thing to move him is state 2's climb out: straight ahead
 along the craft's heading, which on Hoth faces the door, at the path's own
 heights, until nothing is within 100 m overhead. The flyer input (below) flies
 that path as laid.
@@ -617,7 +617,7 @@ Reads the vehicle AI's `dispatch`, `enter_pattern`, `tick_pattern`,
 - **Soldier boarding eligibility**: the candidate alive and an unexplained
   value of its own not positive (not modeled); a candidate whose team is above
   0 takes an AI soldier of that team only, a player when the relationship (> 0)
-  allows; then the first seat in the candidate's control list with PilotType 2
+  allows; then the earliest seat in the candidate's control list with PilotType 2
   that has no pilot, or (for a player) an AI pilot.
 - **Entering a seat**: the same choice; a displaced AI pilot first tries the
   next free seat and otherwise exits (no promotion, with placement); inputs
@@ -702,7 +702,7 @@ Reads the vehicle AI's `dispatch`, `enter_pattern`, `tick_pattern`,
 
 - `src/vehicles.js`: an empty hull keeps its spawn team (the original game can
   set it to 0 when its last pilot leaves, under a flag whose meaning is
-  unknown); the registry team is the first occupant's while occupied.
+  unknown); the registry team is the initial occupant's while occupied.
 - `src/vehicles.js`: `lastAttacker` keeps the last attributed damage
   (unattributed damage leaves it), so an environmental kill after a hit is
   credited to that attacker.
@@ -797,7 +797,7 @@ historical headless measurements, docs/ai.md "Stuck bots"; paths under
   does); asking with no exclusion drew the same post again.
 - **Posts out of a hull's reach** (`support.rs`; the Trooper approach in
   `rust/sim/src/ai/control/mod.rs`, `service.rs` `support_point` and
-  `patrol_mounted`; tests in `rust/sim/tests/ai_phase.rs`, support keys and
+  `patrol_mounted`; tests in `rust/sim/src/ai/owned/tests/phase.rs`, support keys and
   selection).
   On Kashyyyk: Docks every post the defenders start with (cp3, cp4, cp5)
   stands on a pier under planning barriers of every vehicle size
@@ -860,12 +860,12 @@ historical headless measurements, docs/ai.md "Stuck bots"; paths under
 `tools/tow-gunner-scenario.mjs` (a bot rear gunner while the player circles
 or passes an AT-AT) measures the tow-cable run.
 
-`cargo test` in `rust/sim`: `tests/vehicle_ai_twin.rs` compares the
+`cargo test` in `rust/sim`: `rust/sim/tests/vehicle_ai_twin.rs` compares the
 tow-cable orbit's steering, the mounted policies' goal tables and mounted
 states with the JavaScript's answers on generated cases
-(`tests/fixtures/vehicle-ai-golden.json`); `tests/replay_vehicle_ai.rs`
+(`rust/sim/tests/fixtures/vehicle-ai-golden.json`); `rust/sim/tests/replay_vehicle_ai.rs`
 replays captured vehicle AI frames when a capture corpus is supplied;
-`tests/ai_phase.rs` covers support keys and selection.
+`rust/sim/src/ai/owned/tests/phase.rs` covers support keys and selection.
 `tests/vehicles.test.js`, `tests/turret.test.js`,
 `tests/vehicle-assets.test.js` and `tests/vehicles-browser.mjs` (with
 `PLAYWRIGHT_MODULE` set) cover the player's paths.

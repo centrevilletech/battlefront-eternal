@@ -275,7 +275,7 @@ as wide as the inner basin. The old jet was about a quarter of that height,
 a single thin layer with none of the plume's mass.
 
 Two replacements followed; both won blind comparisons with Classic and were
-then reworked. The first, a plume of lit aerated-water sprites, won narrowly.
+then reworked. The initial, a plume of lit aerated-water sprites, won narrowly.
 Everything in it was shaded as the same overexposed white gauze that ignored
 the scene's light: up to 17% of its pixels were near white, its core read as
 a frosted icicle, and its drops as confetti. The second, ropes of water
@@ -380,7 +380,7 @@ Measured on the review views (`tests/environment-fountain-views.mjs`,
 | Close | 0.0% | 0.1% | 179-218 | 80-224 |
 | Basin | 0.0% | 0.2% | 110-242 | 68-218 |
 
-Near white means every channel is at least 240. The first replacement
+Near white means every channel is at least 240. The initial replacement
 reached 9-17% in the map-check, gameplay and basin views. The fountain's
 outline (pixels it changes by more than 6%) covers 68,487 px at the map-check
 view against Classic's 70,570, and 13,572 px at the far view against 12,271;

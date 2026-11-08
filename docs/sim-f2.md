@@ -109,10 +109,10 @@ records player life and pause/load/running flags, and rejects stopped clocks,
 lockstep, suspension and page or worker errors. Run interleaved control timings
 alongside it: a stopped world must never qualify as a cheaper page frame.
 
-The page's private hull prediction still uses JavaScript physics, flight control
-and walk/gear presentation. Its input decoder is separate from authoritative
-network seat commands and only mutates the private prediction clone. Scene
-construction, replicated lease views, cameras, rider drawing and muzzle/beam
-presentation readers also remain. They never run as a vehicle world phase.
-AI intents, unit combat hooks and building health/rebuild lifecycle are still
-foreign services; their later ownership reduces the remaining boundary further.
+The page's private hull, walker and flight prediction runs in the Rust
+`ClientPrediction` owner using the shared simulation cores. Prediction restores
+authoritative checkpoints and replays pending commands in a private world;
+it does not advance the authoritative fleet. Displayed hulls, gear, riders and
+turrets use Rust presentation. JavaScript retains authored resource admission,
+replicated lease facades and host input/query transport. AI, unit combat and
+building lifecycle are canonical native services in the same World.

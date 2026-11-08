@@ -53,7 +53,7 @@ over bright ground.
 - **The shooter's own view.** A shot whose muzzle is within 2.5 m of the
   camera is his own. Its bolt leaves his first-person gun as drawn each frame
   (it kicks and settles after the shot) and fades in over its first 1.2 m,
-  the first 0.6 m is left out, and his smoke starts 2.5 m out. Its muzzle
+  the initial 0.6 m is left out, and his smoke starts 2.5 m out. Its muzzle
   gets no flare, the gun having its own flash.
 
 The bolt, tracer, vapour and sparks are one instanced draw of capsules, shaded
@@ -71,7 +71,7 @@ that covers what is behind it; the rest adds light.
   first 90 frames each empty batch also draws one dark instance (zero
   brightness, let go by its fragment shader): the driver builds a program's
   pipeline at its first real draw, and with no instance three issues none,
-  so the first shot still stalled its frame.
+  so the initial shot still stalled its frame.
 - Each batch is one interleaved instance buffer, uploaded once a frame over
   the range drawn (a single kept range record). The streak buffer is sized
   for everything the trace keeps at its caps (48 shots, 25 puffs, 161

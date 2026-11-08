@@ -37,7 +37,7 @@ anyway.
 | `src/net/stun.js`, `src/net/turn.js` | STUN reflexive discovery and a TURN UDP allocation client |
 | `electron/net-service.js`, `electron/net-process.js`, `electron/net-host.js` | The desktop network utility process and its MessagePorts |
 | `src/runtime/udp-transport.js` | The renderer side, behind `NetworkSession` |
-| server `src/udp-server.js`, `src/udp-peer.js` | bfeserver's game port and the `GameSession` peer adapter |
+| server [game port](https://github.com/centrevilletech/battlefront-eternal-server/blob/f00544195217b05900bdb81b7e02e2ea455fa9f3/src/udp-server.js), [peer adapter](https://github.com/centrevilletech/battlefront-eternal-server/blob/f00544195217b05900bdb81b7e02e2ea455fa9f3/src/udp-peer.js) | bfeserver's game port and the `GameSession` peer adapter |
 
 Electron's Node uses BoringSSL, which has no ChaCha20-Poly1305 in
 `createCipheriv`; AES-256-GCM is used everywhere (hardware AES on x86-64 and
@@ -182,8 +182,8 @@ route; ICMP is hashed too and can land on any of them. A session from one
 random port therefore paid 6 ms on average and up to 12.
 
 - A desktop join sends its first initiations from six local ports at once
-  (internet candidates only, and only the first three sends of the
-  schedule). The first authentic RESPONSE picks the session's port.
+  (internet candidates only, and only the initial three sends of the
+  schedule). The initial authentic RESPONSE picks the session's port.
 - A handshake reply is a single sample, and verifying it delays the
   replies behind it, so when the server's hello lists `transport.probing`
   the client then times sixteen ports (the raced ones plus fresh ones) with
@@ -208,7 +208,7 @@ random port therefore paid 6 ms on average and up to 12.
   server in an `offer` through master rendezvous, and receives the server's
   `answer`: its public host and reflexive addresses, and its private ones
   last. The server punches toward the client's candidates at the same time.
-  The client tries every candidate at once and the first authentic RESPONSE
+  The client tries every candidate at once and the earliest authentic RESPONSE
   wins, with direct paths given a 60 ms lead over relayed ones. Payloads use
   the master's existing message types; the master needed no change.
 - **Online candidates:** the server answers with its public and reflexive
@@ -260,7 +260,7 @@ it is back within 50 ms), a skip on alternate snapshots; the next snapshot
 is still encoded against the acknowledged baseline.
 
 The game port runs on a network thread of its own (bfeserver's
-`network-worker.js`): sockets, encryption, acknowledgements, relays and every
+[network worker](https://github.com/centrevilletech/battlefront-eternal-server/blob/f00544195217b05900bdb81b7e02e2ea455fa9f3/src/network-worker.js)): sockets, encryption, acknowledgements, relays and every
 player's `UdpPeer` and `GameSession`. Inputs and snapshots cross between it
 and the world worker over a dedicated port, so no packet waits on the main
 thread, which keeps admission policy (bans are asked for across threads; the

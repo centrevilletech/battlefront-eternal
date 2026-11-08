@@ -8,7 +8,6 @@
       "local-lights.js": "3afcb106610a9999fa67ef5f355e04f7c3ddee689ae025c82833e2b5215b0ab8",
       "particle-depth.js": "acfe6b38fc1e9b6b4a866daf95c0cde8500b01745e228cd5d0365c870858b4b6",
       "render-profiler.js": "9075479533291a085ae63113cd9f3cafca7fcbabb4f36deb94ea47912e3aefe4",
-      "shadow-casters.js": "5a876f9367c72f1f6bc9346e5d849afda7eb4a44a13b004c90c840b0acf98188",
       "tree-canopies.js": "27abe2e729f5fe240ff6fcca125c5d133c411ff3588e7e8887f0bdc11b52b38f",
       "water.js": "4dc2f458f29d361b03362d5abe59ca36b6453e6be87c5de4cbae6e94687599c1"
     },
@@ -18,11 +17,9 @@
       "local-lights.js": "3e5ff2571bb262b782addafdd1f4eb5e85c158e7fe640b6e87db3a7bfc934bc1",
       "particle-depth.js": "25ab137831356519d5c1700d729d3d6a111f8b6606cff58238c3ab018403a947",
       "render-profiler.js": "0c547abc65790b00c61f7c50347beb870437454daf23222e2b70ceeee57cf628",
-      "shadow-casters.js": "bcc7c89621788f66cf72b68dfb6a912274f1a3595a97dfeeda02612e57eddd57",
       "tree-canopies.js": "1090a2803230f92d9b413a853d9f49a72f1b8645a51ba58129c59849f7a6e189",
       "water.js": "eed25521554b28a159333c57721e4d2906e7320670abc2264d1a1ff7bd1eb079",
-      "render-culling.js": "4d4f4aaf551e479bc2a53d6cc3a02bf84fe0c4be93de3aade45558502d323c61",
-      "render-targets.js": "d97d88386244444c8a180f13ad9f008197d34a497dda54f37273f08201380371"
+      "render-culling.js": "4d4f4aaf551e479bc2a53d6cc3a02bf84fe0c4be93de3aade45558502d323c61"
     }
   },
   "cpuWorkloads": [

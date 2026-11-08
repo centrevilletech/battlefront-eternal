@@ -1,74 +1,30 @@
-# The simulation's module and entity store
+# The simulation module and entity store
 
+`rust/sim` owns the authoritative world: collision, movement, units, combat,
+vehicles, recon, live objects, battle rules, AI and snapshot publication.
+Production browser, worker and Node hosts load its committed WebAssembly from
+`src/sim-wasm.js`. A required module that fails to load stops startup.
 
-Collision queries, soldier movement, world rounds and items require the Rust simulation module on the page, local world worker and dedicated server. Module failures stop startup or the query. The former `sim`, `rays` and `movement` query parameters and `BFE_SIM` / `BFE_RAYS` environment controls have been removed. Historical measurements below describe the builds measured at the time; compare current builds against recorded fingerprints with `world-hash-matrix.mjs --against`, rather than selecting an old implementation at runtime.
+`rust/sim/src/world/owner.rs` groups the battle's canonical state and phase
+owners. Internal services borrow that World instead of acquiring another
+subsystem singleton. The shared phase bodies compile for native targets too;
+that is separate from exposing a complete native server operation. The current
+server bundle still selects WASM; see [node-host.md](node-host.md).
 
-The world's simulation is moving from JavaScript to Rust, one group of
-subsystems at a time, without changing a bit of any tick: the world worker,
-the page's replay of its own soldier and the dedicated server must keep
-agreeing with each other and with today's battles. This note describes what
-that work builds on: one WebAssembly module a battle, an entity store in it,
-schemas that declare each kind of entity once, and the code generated from
-them on both sides of the boundary.
+## One provider for each world
 
-During the move each kind of entity is owned by one side at a time. While
-JavaScript owns a kind, its objects are the state and a Rust phase that reads
-them gets a copy of the fields it declared, written in before the phase.
-Once Rust owns a kind, the store is the state and JavaScript that still reads
-it reads mirror objects, refreshed after each Rust phase that changed them.
-Either way a phase runs on one copy, and what crosses is a few loops of
-numbers at phase boundaries rather than a call for every field read.
+`src/game.js` receives its simulation factory before attaching kernels or
+stores. `src/sim/wasm/backend.js` supplies the production provider. Its WASM
+memory bindings, including the collision, movement and pose adapters, live in
+`src/sim/wasm/`. `src/sim/bridge-core.js` owns shared identities and generated
+record I/O. `BlockView` supplies words, section base, length and generation.
+Native store arenas do not turn memory addresses into JavaScript numbers.
 
-## One module, one instance a battle
-
-`rust/sim` is one crate and one WebAssembly module, `bfe_sim`. It holds:
-
-- `collision`: the collision world's queries (casts, sphere gathers, overlaps,
-  the ground, `terrainNear`, a hull's wall probes), which `src/ray-kernel.js`
-  calls ([docs/performance.md](performance.md), "The collision's rays in
-  WebAssembly");
-- `movement`: the soldiers' movement (`Soldier.tick`), which
-  `src/movement-kernel.js` calls;
-- `pose`: the pose sampler of `src/anim.js`, which `src/anim-kernel.js` calls;
-- `store` and `gen`: the entity store and the code generated from the
-  schemas in `rust/sim/schema/`;
-- `abi`: the store's exports.
-
-The first three were the crates `rust/rays` and `rust/anim`; they are modules
-of one crate now, so a battle holds one instance with one memory instead of
-one per kind of query, and the parts ported later reach them without
-crossing into JavaScript. Their exports kept their names, so their bridges
-did not change. A subsystem ported later gets a module of its own beside
-them (`ordnance`, `vehicles`, ...), written against the store's types.
-
-`tools/build-rust.mjs sim` builds it and writes `src/sim-wasm.js`, the
-module's bytes as base64. It is committed, like the renderer's package, so
-building the game needs no Rust, and CI rebuilds it and fails on any byte
-that differs. `src/sim/module.js` compiles it once a thread (`simModule()`)
-and makes an instance for each battle (`loadSim()`): the world worker, a
-page and plain Node (the dedicated server, `tools/world-hash.mjs`) load it
-the same way, with no `.wasm` file to serve. `createGame` always loads one instance
-(`loadSimInstance`) and stops if it fails, on a page and in a headless world
-(the local worker, the dedicated server, the tools) alike. The instance holds
-the rounds in flight (below, "The rounds on the module"), and `createGame`
-hands it to each kernel (`loadRayKernel(instance)`, `loadAnimKernel(instance)`).
-
-The module was 141 KB of WebAssembly with the three kernels; the store and
-the first schema's code (four kinds of round and their records) make it
-181 KB. Code is generated row by row, so it grows with the fields declared:
-identical layouts share their code, and each row is taken as a fixed-length
-array so its fields need no bounds checks.
-
-Loading it costs each thread that does (the world worker, the page) a
-decode and a compile, once: in Node on one core of a fast desktop, atob
-0.9 ms and the copy into bytes 3.3 ms more, then 9 to 10 ms to compile
-(6.1 ms compiling a `.wasm` file's bytes as they stream in). Where the
-engine has `Uint8Array.fromBase64` the loader uses it instead of the copy.
-On the emulated laptop the instance a page makes for its pose sampler cost
-nothing measurable (interleaved 40-second runs, three of each: page CPU
-33.0 against 33.2 ms a frame, render 15.5 against 15.7 ms, with and without
-it). A `.wasm` asset would save the decode and some of the compile; it is
-worth it when the module is several times larger, measured then.
+The browser compiles the simulation module once per thread and instantiates
+it for each battle. Content, rigs, slabs and working buffers are admitted
+before gameplay. Views are refreshed after memory growth. A provider releases
+its resources on explicit close, failed construction or fatal tick errors;
+close requested from a synchronous observer completes after the active return.
 
 `sim_reset` is a store-only helper for tools: it finishes AI and replaces the
 canonical generated Store. Collision, movement, pose, fleet and the other
@@ -77,33 +33,21 @@ with a new World or WASM instance.
 
 ## The authoritative world tick
 
-`WorldTickInput` is a reserved generated command record. The host prepares
-external input facts in the owners' retained banks, enters `world_step_run`
-once, and reads `WorldTickOutput` after the native interval. Rust advances
-water, squad orders, the viewpoint clock and authority camera, then AI,
-units/fleet/recon/separation, live objects, ordnance, item targets/items,
-the battle tail and grenade dangers in that order. The phase entries share
-canonical stores and keep their synchronous shot, damage and death samples.
+`src/runtime/world-tick.js` prepares a generated `WorldTickInput` and invokes
+one backend world operation. `rust/sim/src/world/step.rs` advances water,
+squads, the viewpoint clock and camera, AI, units/fleet/recon/separation,
+live objects, ordnance, items, the battle tail and grenade dangers. It returns
+`WorldTickOutput`; JavaScript does not select the internal phase order.
 
-Mirror banks commit at the completed tick boundary. Dirty rows, retired
-leases and ordered notices survive intervening phases, so their deltas are
-always relative to the host's consumed baseline. Camera and other retained
-presentation readers consume that completed output; no `worldStep` host
-import dispatches simulation phases.
+Canonical rows remain available to synchronous native callbacks. Damage,
+shots, death and boarding retain their observation order. Mirror banks commit
+changed words at the completed outer boundary, relative to the host's consumed
+baseline. Snapshot publication has its own Rust wire owner and operation;
+it reads canonical state rather than rebuilding every actor in JavaScript.
 
-## Memory
-
-A battle's instance starts with the module's statics and stack, and its
-memory grows as the kernels copy the map's trees and the clips in (3 to 12
-MB a map) and as the store fills. Growing it detaches every view JavaScript
-holds of it. The kernels' bridges make their views again after any call
-that can grow it (each checks the view's `byteLength`, which a detached view
-reports as 0); the store's bridge (`SimBridge.views()`) does the same once a
-phase boundary, where it reads or writes rows, never in the middle of a
-phase, and counts how often it found the memory grown. The policy for the
-port: memory is sized once as a battle loads (content, the store's slabs at
-their pools' sizes, and a margin), so in play it does not grow and no view
-is made mid-phase; a debug run treats growth inside a phase as an error.
+JavaScript retains cold admission, external input and host notifications, plus
+facades used by page and network consumers. A facade does not own the world
+phase that writes its represented state.
 
 ## The entity store
 
@@ -236,13 +180,13 @@ kinds were made from other schemas than the JavaScript's.
   mirror has one hidden class, plus `simSlot` and `simGen`), `syncBolt` (an
   export row into a mirror), `syncFullBolt`, `putBolt` (an object into an
   import row), `putFullBolt`, `checkBolt` (the write detector), `sameBolt`
-  (the first field two objects differ in, by Object.is) and `exportBolt` (the
+  (the initial field two objects differ in, by Object.is) and `exportBolt` (the
   replay harness's value of a bolt).
 
 ### Sync blocks
 
 What crosses at a phase boundary is a kind's block: a row of f64 for each
-entity in the module's memory, `[rows, stride, heap start, heap length]`
+entity in the module's memory, `[rows, stride, heap start, heap length, retired rows]`
 and then rows of slot, generation and the fields in the schema's order (a
 boolean 0 or 1, an enum its index, a reference its slot and generation, a
 string or definition its index, a Vector3 three numbers, a nullable field a
@@ -285,8 +229,8 @@ go, so a later life of the slot gets a new one.
 - `read(kind)` gives every field of every entity as new objects;
 - `check(kind)` is the mirror write detector: after a JavaScript phase, any
   mirrored field that is not what the store holds, which is a write
-  JavaScript made to Rust's state without a command; a debug run fails on
-  the first. It leaves retired entities for the next sync.
+  JavaScript made to Rust's state without a command; a debug run stops at
+  its earliest mismatch. It leaves retired entities for the next sync.
 
 References go through each kind's identity on the JavaScript side
 (`bridge.refs[kind]`): an `Identity` while JavaScript owns the kind (a slot
@@ -353,7 +297,7 @@ store's structs and write them back: `Replay::read_value(KIND_ORDNANCE, v)`
 makes the singleton and every entity its lists hold, and
 `Replay::write_value` gives the same values back (`Replay::reset` starts a
 frame's state anew), which `sim_replay::diff`
-compares with a capture's, the first difference with its path. `Replay`
+compares with a capture's, the earliest difference with its path. `Replay`
 maps the harness's handles to slots (a keyed kind's key is its slot; any
 other key gets the next slot of its kind) and definition handles to
 indices, and back, so the values come out with the handles they went in
@@ -361,137 +305,37 @@ with. `rust/sim/tests/replay_values.rs` holds the store to that.
 
 ### Commands, events and imports
 
-What crosses outside a kind's rows is declared in a schema too, and each
-one's arguments, result or payload is a record, so it crosses as that
-record's words (the store's own schema, `rust/sim/schema/store.mjs`, has
-the `echo` command its tests and benchmarks use):
+Schemas also declare command arguments, results, events and remaining host
+imports. Generated encoders place those records in retained call blocks.
+Scalar commands validate qualified identities and update the touched owner;
+ordinary world phases call shared Rust services directly.
 
-- A command (`commands: { fire: { args: 'FireArgs', result: 'FireResult',
-  rust: 'ordnance::fire' } }`) is JavaScript writing into state Rust owns:
-  `bridge.command('fire', args)` writes the arguments into the call block,
-  the module runs `crate::ordnance::fire(sim, args)` at once (so writes keep
-  their order) and the result comes back as a new object. A caller that
-  reads the touched entity back syncs its kind.
-- An event (`events: { impact: 'ImpactEvent' }`) is Rust telling
-  JavaScript: `event.emit(&mut sim.events)` adds it to the phase's events,
-  and `bridge.drain({ impact: (e) => ... })` hands them over in the order
-  they were emitted at the end of the phase. An event whose handler
-  changes state the same phase reads back is an import instead.
-- An import (`imports: { raycastUnits: { args: 'RaycastArgs', result:
-  'RaycastHit' } }`) is Rust asking JavaScript while the state asked about
-  is still JavaScript's: `gen::import_raycast_units(&args)` calls out of the
-  module, the bridge serves it with `bridge.handlers.raycastUnits(args)`,
-  and the result comes back. Its arguments and result cross in a block of
-  their own, outside the store (a fixed stretch of the module's memory, so
-  JavaScript reads the arguments and writes the result there with no other
-  call: an import costs a call each way), reached only for a moment before
-  and after the call. The arguments object a handler gets is the bridge's
-  own, read into again at the import's next call: a handler keeps nothing
-  of it (it copies a vector it hands to code that might keep one) and
-  reads what it needs before it calls code that could come back into the
-  module. A port whose Rust holds no reference to the store across an
-  import (the rounds' and items' do not: `rust/sim/src/ordnance/module.rs`)
-  can take such calls back in; otherwise a handler must not call back. The
-  module's loader gives every instance the imports' functions, which reach
-  the bridge attached to it.
+Ordered events carry observations to the host after the owning boundary.
+State-sensitive callbacks borrow the active native service scope at the point
+of observation. An actual host import must not retain a row borrow across
+reentry. Native imports without an implementation report an explicit failure;
+compilation does not silently install a JavaScript world.
 
-One bridge an instance: the imports reach only the bridge attached to the
-instance, so every phase that goes onto the module joins the same one. A
-phase's attach takes it with `bridgeFor(instance, { classes, tests })`
-(made the first time; a later phase adds the tests and classes its kinds
-are told apart by, the first to give a kind's test setting it), owns its
-kinds (`bridge.own(kind)`) and serves its imports with
-`bridge.register({ name: handler, ... })`, which refuses an import no
-schema declares or one another phase serves already. Each phase's imports
-carry its own names in its schema (the rounds' `cast`, `raycastUnits`, ...;
-the items' `item*`), so two phases never share one. A second
-`new SimBridge(instance)` throws (a tool that empties the store and starts
-over passes `replace: true`). A port reaches other subsystems through a
-  trait of its own; on the module, its JavaScript side is these imports,
-  and in the replay tests the capture serves it.
+### Ordnance and items
 
-Still to come in this package: `sim_reserve` (the store's slabs and a
-margin made as a battle loads) and the measurements of what crossing
-costs on the emulated laptop.
+`rust/sim/src/ordnance/` owns bolts, beams, grenades and guided rounds.
+`rust/sim/src/items/` owns mines, power-ups and dispenser state. Their world
+services use the same canonical collision, unit, combat, fleet and battle
+owners. Definitions and geometry handles are prepared at admission. Launch,
+impact, pickup and retirement observations retain their original order.
+The WASM host adapters are `src/sim/wasm/ordnance-sim.js` and
+`src/sim/wasm/items-sim.js`; page drawing is a separate presentation concern.
 
-### The rounds and items on the module
+## Determinism and validation
 
-The first kinds Rust owns in a battle are the rounds in flight (bolts,
-beams, grenades and rounds: rockets, missiles, shells, fat rays, with the
-Ordnance that lists them; `rust/sim/src/ordnance`, `src/ordnance-sim.js`)
-and the things lying about (mines and power-ups, with the Items that lists
-them and each dispenser's own; `rust/sim/src/items`, `src/items-sim.js`). A
-world hands them over as it loads (`createGame`); from then on:
+Rows preserve floating-point values and qualified identity. Gameplay arithmetic
+uses `rust/v8math`, `rust/jsrt` and `rust/three` where reference behavior depends
+on number, collection or geometry semantics. Cosmetic randomness and device
+clocks are separate from authoritative gameplay streams and fixed ticks.
 
-- `Ordnance.fire`, `update` and `flightMissile` (a flyer's missile), and
-  `Items.update`, `spawn`, `dispense`, `dropFor`, `blast` and `hurt`, run in
-  Rust through the module's own exports (`ord_*`, `items_*`), not generated
-  commands: their arguments come in the call block, written by the
-  generated put functions of the schemas' argument records (`FireArgs`,
-  `SpawnArgs`, ...), and an answer that makes something is its row, so the
-  caller gets its mirror as it is.
-- The kinds' mirrors and the lists (the Ordnance's four with its `start`,
-  the Items' list and its dispensers' Map) are synced in place after each
-  update and command. Unported code reads them as it read the JavaScript
-  objects, and writes only the fields the schemas leave to JavaScript
-  (`skip`: a muzzle a page draws a round from, a grenade's `contactTime`
-  and `aiDanger`).
-- What they ask of the battle is `OrdnanceWorld`'s and `ItemsWorld`'s
-  calls (`src/ordnance-world.js`), as the schemas' imports, served by the
-  same objects. A round handed to the capture's observers (`projectile`,
-  `launch`, `impact`, `grenadeContact`) crosses with its row after the
-  import's words, so its mirror is current when JavaScript sees it; a
-  unit's hit hands JavaScript the very vector the JavaScript rounds handed
-  (`at`: a beam's end, the unit raycast's record, the Ordnance's `start`),
-  as a damage event keeps it. An item class's model is measured once and
-  not drawn: a world shows nothing.
-- Definitions go over the first time they are used (`ord_def`,
-  `ord_explosion`, `items_def`; the item pools when the items are handed
-  over), each field as a tag and a value, so the Rust reads a field as
-  JavaScript does (`??`, `||`, ToNumber).
-
-This is the first flip (F1). It lands on the simulation port's
-integration branch, which does not ship: nothing from it reaches players
-until a world's net step with the rounds and items on the module is no
-worse than with the JavaScript ones, measured on the emulated laptop or the
-laptop itself (world step p50 and p90, interleaved runs against
-a frozen reference build). Each call the rounds make into JavaScript costs a crossing, so
-the flip pays for itself as the code they call (hulls, then units and
-combat) moves to Rust and those calls stop crossing.
-
-The exports reach the store through pointers and hold no reference to it
-across an import, so a handler that comes back in (an explosion an item
-set off reaching the other items, a death dropping one) finds the store as
-the phase left it. A slot one entity left and another took before the next
-sync keeps the first one's mirror for its retired row (`MirrorPool.retire`).
-
-## Determinism
-
-Everything here moves bits, never computes them: a number crosses as the
-f64 it is, and the rows' integers (slots, generations, indices, tags) are
-whole numbers by construction. The ported code computes, and it computes as
-the reference does: the production server's V8 (Node 24.22, V8 13.6). The
-game client's Electron computes some Math functions differently in their
-last bit (sin, cos, tan, atan, atan2, acos, exp, log, cbrt, tanh), so client
-and server already part there today; Rust that computes with the reference's
-functions (`rust/v8math`) makes them agree. The movement kernel computes
-the sines and cosines of its yaw and pitch with `rust/v8math`, so a client's
-soldier ticks there come out as the server's do.
-
-The game receives a simulation provider before attaching collision, pose or
-store resources. Its cold `prepare` categories return the stable facades used
-by content loading and observers. World ticks and snapshot publication then use
-one operation each. Generated decoders accept a `BlockView` with words, section
-base, length and generation; only `src/sim/wasm` resolves linear-memory addresses.
-The shared identities and record I/O live in `src/sim/bridge-core.js`. WASM-only
-phase adapters retain their existing typed readbacks inside the concrete provider.
-Scalar store commands also use their generated argument/result blocks.
-
-A provider owns its admitted transport and prediction sessions. Explicit close,
-failed construction and fatal tick errors release them in reverse admission
-order, clear import handlers and invalidate boundary views. Close requested from
-an observer waits for the enclosing synchronous tick to return. Diagnostic owner
-counts use caller-owned typed storage, updated only on acquisition and release.
-The Node addon still advertises `native_world: false`: its Context cleanup hooks
-are exercised independently until the owned world coordinator and typed native
-preparation, step and publication operations are available.
+`tools/sim-schema.mjs` regenerates records, and `npm run rust:check` verifies
+schemas and committed WebAssembly. Native store fixtures cover layouts,
+retirement and bit preservation. `tools/world-hash-matrix.mjs` compares state,
+deep digest and published bytes with frozen reference hashes. See
+[sim-replay.md](sim-replay.md) and [world-replay.md](world-replay.md) for
+phase and whole-world input capture.
