@@ -380,7 +380,23 @@ Because the WebAssembly is committed, building, testing and packaging the browse
 cargo install wasm-bindgen-cli --version 0.2.130 --locked
 npm run rust:build    # all; node tools/build-rust.mjs sim (or audio, codec, presentation, or renderer) builds one
 npm run rust:check    # rebuild all and compare with the committed files
+
+# From rust/, the pure-Rust xtask workspace tool runs the same generators and builds:
+cd rust
+cargo xtask schema [--check]               # entity store, client input, and HUD layouts (tools/sim-schema.mjs)
+cargo xtask shaders [--check]              # shader catalog, selectors, and renderer layouts (tools/render-shaders.mjs)
+cargo xtask presentation-schema [--check]  # presentation frame layouts (tools/presentation-schema.mjs)
+cargo xtask environment-schema [--check]   # destruction and weather layouts (tools/environment-schema.mjs)
+cargo xtask transport-schema [--check]     # transport packet layouts (tools/transport-schema.mjs)
+cargo xtask audio-control-schema [--check] # audio control layouts (tools/audio-control-schema.mjs)
+cargo xtask audio-schema [--check]         # audio mixer layouts (tools/audio-schema.mjs)
+cargo xtask audio-codec-schema [--check]   # audio codec header layouts (tools/audio-codec-schema.mjs)
+cargo xtask host-contract [--check]        # host boundary fingerprint (tools/host-contract.mjs)
+cargo xtask build [sim] [audio] [environment] [codec] [presentation] [renderer] [images] [textures] [--check]
+cargo xtask check                          # rebuild all and compare with the committed files
 ```
+
+The simulation schema sources under `rust/sim/schema/*.mjs` and `rust/sim/schema-test/*.mjs` remain JavaScript-syntax declarative files read directly by the `xtask` schema evaluator (`rust/xtask/src/schema_eval.rs`) rather than being converted to `.json`. `HOST_SCHEMA` (`rust/xtask/src/host_contract.rs` / `tools/host-contract.mjs`) hashes the raw `rust/sim/schema/*.mjs` files into `HOST_CONTRACT_HASH`, so converting those files to JSON would change the wire compatibility hash (`0x952b2d5a`) and is a release-boundary decision for the lead.
 
 `tools/build-rust.mjs` builds with `Cargo.lock` as it is (`--locked`) and writes Cargo's home folder as `/cargo` in the file names that panic messages carry, so the bytes do not depend on where the repository or Cargo's downloads are. On Windows, Rust writes those names with backslashes, which changes the bytes: build in WSL there, or take the files CI rebuilt.
 
