@@ -195,6 +195,7 @@ dependencies = [
  "bfe-content-native",
  "bfe-desktop",
  "bfe-environment",
+ "bfe-interface",
  "bfe-online",
  "bfe-pose",
  "bfe-presentation",
@@ -260,6 +261,16 @@ dependencies = [
  "serde_json",
  "three",
  "v8math",
+]
+
+[[package]]
+name = "bfe-interface"
+version = "0.1.0"
+dependencies = [
+ "bfe-render",
+ "glow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

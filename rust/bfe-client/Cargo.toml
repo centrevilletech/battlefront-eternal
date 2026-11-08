@@ -10,6 +10,7 @@ description = "Window, input and audio device host for the native renderer"
 [dependencies]
 bfe-render = { path = "../bfe-render" }
 bfe-battle-ui = { path = "../bfe-battle-ui" }
+bfe-interface = { path = "../bfe-interface" }
 audio = { path = "../audio" }
 glow = "0.18"
 glutin = { version = "0.32", default-features = false, features = ["egl", "glx", "x11", "wgl"] }
@@ -18,7 +19,6 @@ winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06
 raw-window-handle = "0.6"
 cpal = "0.15"
 serde_json = "1"
-png = "0.18"
 
 serde = { version = "1", features = ["derive"] }
 bfe-content-native = { path = "../bfe-content-native" }
@@ -26,6 +26,7 @@ bfe-presentation = { path = "../bfe-presentation", default-features = false }
 bfe-pose = { path = "../bfe-pose" }
 bfe-shell = { path = "../bfe-shell" }
 sha2 = "0.10"
+png = "0.18"
 
 audio-control = { path = "../audio-control" }
 three = { path = "../three" }

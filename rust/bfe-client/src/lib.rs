@@ -15,7 +15,7 @@ pub mod session_assets;
 
 pub mod session_window;
 
-mod canvas;
+pub mod canvas;
 
 pub mod sound;
 pub mod scene;

@@ -1,0 +1,13 @@
+[package]
+name = "bfe-interface"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "2D/3D-tilted interface space, bitmap fonts, nine-slice shapes, menu screens, classic theme, options and settings"
+
+[dependencies]
+bfe-render = { path = "../bfe-render" }
+glow = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
