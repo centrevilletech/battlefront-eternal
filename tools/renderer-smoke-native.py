@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """Native software-OpenGL renderer smoke test over synthetic public fixtures.
 
-This script exercises the native Rust renderer, content loader, and window host
-on Linux without prepared retail game files, Node.js, or Electron:
+This script exercises the native Rust renderer, shader catalog, content loader,
+and window host on Linux without prepared retail game files or Electron:
 
-1. Reuses the public synthetic foliage (`grasspatch`, `leafpatch`), `water`,
+1. Cross-checks the shader manifest catalog (`rust/bfe-render/shaders/*/manifest.json`)
+   against `tools/renderer-smoke-manifests.mjs` across all 6 families (`world`: 536,
+   `actors`: 310, `effects`: 149, `interface`: 15, `post-hud`: 12, `utility`: 24;
+   total 1,046) and all sub-families, then runs `render-smoke` under software GL
+   (`LIBGL_ALWAYS_SOFTWARE=1`) to compile and link all 1,046 shader variants
+   through `bfe-render`'s own program builder and draw one representative scene
+   for each of the 6 families (`world`, `actors`, `effects`, `interface`,
+   `post-hud`, `utility`) with RGBA8 framebuffer readback verification.
+2. Reuses the public synthetic foliage (`grasspatch`, `leafpatch`), `water`,
    and `ocean` inputs from `tools/native-static-fixture.mjs` and verifies the
    `static-fixture` binary against `tests/fixtures/static-geometry-hashes.json`.
-2. Constructs a self-contained synthetic map directory (`maps/room/`) using
+3. Constructs a self-contained synthetic map directory (`maps/room/`) using
    those same foliage and water definitions plus a lit near-world mesh, a sky
    layer, and a 1-bone placed prop, then checks `fingerprint` admission.
-3. Runs `static-frame` over EGL surfaceless software OpenGL (`llvmpipe`) for
+4. Runs `static-frame` over EGL surfaceless software OpenGL (`llvmpipe`) for
    each static component (`sky`, `props`, `foliage`, `water`), writes a PNG image
    from the rendered RGBA framebuffer, and verifies the PNG header, dimensions,
    and non-blank pixel distribution.
-4. Runs `bfe-client --map room` under X11 (`xvfb-run` + `native-client-window.py`)
+5. Runs `bfe-client --map room` under X11 (`xvfb-run` + `native-client-window.py`)
    with `LIBGL_ALWAYS_SOFTWARE=1` to prove the windowed native client admits
    the synthetic map and completes its `battle_frame` redraw loop.
 """
@@ -38,6 +46,81 @@ import sys
 import tempfile
 import time
 import zlib
+
+# Expected shader family order, variant counts, and sub-family breakdown shared
+# with `tools/renderer-smoke-manifests.mjs`.
+EXPECTED_FAMILY_ORDER = ("world", "actors", "effects", "interface", "post-hud", "utility")
+EXPECTED_TOTAL_VARIANTS = 1046
+EXPECTED_FAMILY_COUNTS = {
+    "world": 536,
+    "actors": 310,
+    "effects": 149,
+    "interface": 15,
+    "post-hud": 12,
+    "utility": 24,
+}
+EXPECTED_SUB_FAMILIES = {
+    "world": {"canopies": 2, "foliage": 4, "static": 474, "terrain": 56},
+    "actors": {"depth": 6, "rigid": 144, "skinned": 160},
+    "effects": {
+        "arc": 2,
+        "basic": 8,
+        "blaster": 2,
+        "death": 2,
+        "destruction": 6,
+        "far": 2,
+        "flame": 2,
+        "fountain": 2,
+        "glow": 4,
+        "jet": 8,
+        "jets": 2,
+        "motion": 4,
+        "ocean": 12,
+        "particle": 6,
+        "rain": 6,
+        "shield": 4,
+        "shock": 2,
+        "sky": 14,
+        "sniper": 4,
+        "snow": 2,
+        "spray": 2,
+        "sprite": 2,
+        "square": 2,
+        "storm": 8,
+        "trail": 2,
+        "view": 3,
+        "volume": 4,
+        "wake": 4,
+        "water": 26,
+        "wisps": 2,
+    },
+    "interface": {
+        "basic": 2,
+        "beam": 1,
+        "column": 1,
+        "face": 1,
+        "floor": 1,
+        "metal": 1,
+        "model": 4,
+        "points": 1,
+        "quad": 1,
+        "room": 1,
+        "vignette": 1,
+    },
+    "post-hud": {
+        "bilinear": 1,
+        "bloom": 2,
+        "composite": 1,
+        "copy": 1,
+        "fxaa": 2,
+        "hud": 1,
+        "motion": 1,
+        "resolve": 1,
+        "sharpen": 1,
+        "spatial": 1,
+    },
+    "utility": {"line": 24},
+}
 
 # BfeFrame std140 uniform block layout from rust/bfe-render/src/shader.rs.
 # Offsets are in f64 elements; total length is FRAME_FLOATS (200).
@@ -147,6 +230,79 @@ STATIC_FIXTURE_WATER_DATA = {
         }
     ],
 }
+
+
+def sub_family_of(key: str) -> str:
+    """Extract the sub-family prefix from a shader key (`<family>/<sub-family>-...`)."""
+    rest = key.split("/", 1)[1] if "/" in key else key
+    return rest.split("-", 1)[0]
+
+
+def load_electron_shader_manifests(repo_root: Path) -> dict[str, list[str]]:
+    """Load the shader manifest list via `tools/renderer-smoke-manifests.mjs`.
+
+    When `node` is installed on PATH, executes `readShaderManifests()` directly
+    from `tools/renderer-smoke-manifests.mjs` and also verifies it against the
+    on-disk `rust/bfe-render/shaders/*/manifest.json` files. When `node` is
+    absent in a minimal container, verifies `tools/renderer-smoke-manifests.mjs`
+    on disk and applies its exact directory and key validation rules.
+    """
+    mjs_path = repo_root / "tools" / "renderer-smoke-manifests.mjs"
+    if not mjs_path.is_file():
+        raise RuntimeError(f"missing Electron manifest reader: {mjs_path}")
+    mjs_text = mjs_path.read_text(encoding="utf-8")
+    if "readShaderManifests" not in mjs_text or "manifest.json" not in mjs_text:
+        raise RuntimeError(f"unexpected contents in {mjs_path}")
+
+    shaders_dir = repo_root / "rust" / "bfe-render" / "shaders"
+    disk_families: dict[str, list[str]] = {}
+    seen_keys: set[str] = set()
+    for entry in sorted(shaders_dir.iterdir(), key=lambda p: p.name):
+        if not entry.is_dir():
+            continue
+        manifest_file = entry / "manifest.json"
+        if not manifest_file.is_file():
+            continue
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        if manifest.get("version") != 1 or not isinstance(manifest.get("programs"), list):
+            raise RuntimeError(f"invalid shader family manifest: {manifest_file}")
+        keys: list[str] = []
+        for prog in manifest["programs"]:
+            key = prog.get("key")
+            if not isinstance(key, str) or not key.startswith(f"{entry.name}/") or key in seen_keys:
+                raise RuntimeError(f"invalid or duplicate shader key in {manifest_file}: {key}")
+            seen_keys.add(key)
+            keys.append(key)
+        disk_families[entry.name] = keys
+
+    node_bin = shutil.which("node")
+    if node_bin:
+        proc = subprocess.run(
+            [
+                node_bin,
+                "--input-type=module",
+                "-e",
+                (
+                    "import { readShaderManifests } from './tools/renderer-smoke-manifests.mjs';"
+                    "const f = await readShaderManifests();"
+                    "console.log(JSON.stringify(f));"
+                ),
+            ],
+            cwd=str(repo_root),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        node_payload = json.loads(proc.stdout.strip())
+        node_families = {
+            item["family"]: [p["key"] for p in item["programs"]]
+            for item in node_payload
+        }
+        if node_families != disk_families:
+            raise RuntimeError(
+                "tools/renderer-smoke-manifests.mjs output diverged from on-disk manifests"
+            )
+    return disk_families
 
 
 def encode_png_rgba(width: int, height: int, rgba_bytes: bytes, flip_vertical: bool = False) -> bytes:
@@ -658,6 +814,203 @@ def compose_grid_rgba(width: int, height: int, panels: list[bytes]) -> tuple[int
     return out_w, out_h, bytes(out)
 
 
+def run_render_smoke(
+    repo_root: Path,
+    render_smoke_bin: Path,
+    content_dir: Path,
+    work_dir: Path,
+    width: int,
+    height: int,
+    backend: str,
+    env: dict[str, str],
+    stream_lines: list[str],
+    records: list[dict],
+) -> None:
+    """Run `render-smoke` to compile/link all 1,046 variants and draw all 6 families."""
+    t0 = time.monotonic()
+    electron_manifests = load_electron_shader_manifests(repo_root)
+
+    # Verify the Electron manifest catalog against EXPECTED_FAMILY_COUNTS and EXPECTED_SUB_FAMILIES.
+    electron_total = sum(len(keys) for keys in electron_manifests.values())
+    if electron_total != EXPECTED_TOTAL_VARIANTS:
+        raise RuntimeError(
+            f"Electron manifest total {electron_total} != expected {EXPECTED_TOTAL_VARIANTS}"
+        )
+
+    frame_json = work_dir / "frame.json"
+    frame_payload = {
+        "size": [width, height],
+        "values": build_frame_bank(width, height, [0.0, 2.0, 3.0]),
+        "foliageRandom": None,
+    }
+    frame_json.write_text(json.dumps(frame_payload), encoding="utf-8")
+
+    smoke_jsonl = work_dir / "render-smoke-events.jsonl"
+    families_png = work_dir / "render-smoke-families.png"
+    families_dir = work_dir / "families"
+
+    proc = subprocess.run(
+        [
+            str(render_smoke_bin),
+            "--content",
+            str(content_dir),
+            "--map",
+            "room",
+            "--frame-json",
+            str(frame_json),
+            "--width",
+            str(width),
+            "--height",
+            str(height),
+            "--backend",
+            backend,
+            "--output",
+            str(smoke_jsonl),
+            "--png",
+            str(families_png),
+            "--png-dir",
+            str(families_dir),
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"render-smoke failed (exit {proc.returncode}):\nstderr: {proc.stderr.strip()}"
+        )
+
+    raw_lines = [
+        line.strip()
+        for line in smoke_jsonl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not raw_lines:
+        raise RuntimeError("render-smoke wrote an empty JSONL file")
+    stream_lines.extend(raw_lines)
+
+    events = [json.loads(line) for line in raw_lines]
+    variant_starts = [e for e in events if e.get("stage") == "variant-start"]
+    variant_results = [e for e in events if e.get("stage") == "variant-result"]
+    family_results = [e for e in events if e.get("stage") == "family-result"]
+    family_draws = [e for e in events if e.get("stage") == "family-draw"]
+    final_report = next((e for e in reversed(events) if "runs" in e), None)
+    if final_report is None or not final_report.get("runs"):
+        raise RuntimeError("render-smoke did not emit a final `runs` summary record")
+
+    run_summary = final_report["runs"][0]
+    if not run_summary.get("ok"):
+        raise RuntimeError(f"render-smoke run reported failure: {run_summary}")
+
+    if len(variant_starts) != EXPECTED_TOTAL_VARIANTS or len(variant_results) != EXPECTED_TOTAL_VARIANTS:
+        raise RuntimeError(
+            f"expected {EXPECTED_TOTAL_VARIANTS} variant-start/result records, "
+            f"got {len(variant_starts)} / {len(variant_results)}"
+        )
+
+    rejected = [v for v in variant_results if not v.get("accepted") or v.get("cached") or v.get("shaders") != 2 or v.get("links") != 1]
+    if rejected:
+        raise RuntimeError(f"render-smoke had rejected or cached variants: {rejected[:5]}")
+
+    # Cross-check family and sub-family counts between `tools/renderer-smoke-manifests.mjs`
+    # and the native `render-smoke` execution, and print the comparison.
+    native_by_family = {f["family"]: f for f in family_results}
+    comparison_summary: dict[str, dict] = {}
+    print("=== Shader Manifest Cross-Check (tools/renderer-smoke-manifests.mjs vs native render-smoke) ===")
+    for family in EXPECTED_FAMILY_ORDER:
+        if family not in electron_manifests or family not in native_by_family:
+            raise RuntimeError(f"missing shader family '{family}' in cross-check")
+        e_keys = electron_manifests[family]
+        n_entry = native_by_family[family]
+        n_keys = [v["key"] for v in n_entry["variants"]]
+        expected_count = EXPECTED_FAMILY_COUNTS[family]
+        if len(e_keys) != expected_count or len(n_keys) != expected_count or e_keys != n_keys:
+            raise RuntimeError(
+                f"family '{family}' mismatch: electron={len(e_keys)}, native={len(n_keys)}, expected={expected_count}"
+            )
+
+        e_subs: dict[str, int] = {}
+        for key in e_keys:
+            sub = sub_family_of(key)
+            e_subs[sub] = e_subs.get(sub, 0) + 1
+        n_subs = dict(n_entry.get("subFamilies", {}))
+        expected_subs = EXPECTED_SUB_FAMILIES[family]
+        if e_subs != expected_subs or n_subs != expected_subs:
+            raise RuntimeError(
+                f"sub-family mismatch in '{family}': electron={e_subs}, native={n_subs}, expected={expected_subs}"
+            )
+
+        subs_formatted = ", ".join(f"{k}:{v}" for k, v in sorted(n_subs.items()))
+        print(
+            f"  {family:<10} electron={len(e_keys):>3}  native={len(n_keys):>3}  "
+            f"compileMs={n_entry['compileMs']:>7.2f}  subFamilies=[{subs_formatted}]"
+        )
+        comparison_summary[family] = {
+            "electron": len(e_keys),
+            "native": len(n_keys),
+            "compileMs": n_entry["compileMs"],
+            "subFamilies": n_subs,
+        }
+    print(
+        f"  {'TOTAL':<10} electron={electron_total:>3}  native={len(variant_results):>3}  "
+        f"compileMs={run_summary['compileMs']:>7.2f}"
+    )
+
+    # Verify all 6 representative family draws.
+    if len(family_draws) != len(EXPECTED_FAMILY_ORDER):
+        raise RuntimeError(f"expected {len(EXPECTED_FAMILY_ORDER)} family-draw records, got {len(family_draws)}")
+    draws_by_family = {d["family"]: d for d in family_draws}
+    for family in EXPECTED_FAMILY_ORDER:
+        draw = draws_by_family.get(family)
+        if not draw or not draw.get("ok"):
+            raise RuntimeError(f"family draw failed for '{family}': {draw}")
+        if draw.get("nonClearPixels", 0) <= 0 or draw.get("uniqueColors", 0) < 2:
+            raise RuntimeError(f"family '{family}' produced blank output: {draw}")
+        if draw.get("glError", 0) != 0 or draw.get("fault") is not None:
+            raise RuntimeError(f"family '{family}' reported GL error or renderer fault: {draw}")
+        family_png = families_dir / f"family-{family}.png"
+        verify_png_file(family_png, width, height)
+
+    sheet_meta = verify_png_file(families_png, width * 2, height * 3)
+    records.append(
+        {
+            "step": "manifest-crosscheck",
+            "ok": True,
+            "totalVariants": EXPECTED_TOTAL_VARIANTS,
+            "families": comparison_summary,
+        }
+    )
+    records.append(
+        {
+            "step": "render-smoke",
+            "ok": True,
+            "renderer": run_summary["renderer"],
+            "vendor": run_summary["vendor"],
+            "version": run_summary["version"],
+            "totalVariants": run_summary["totalVariants"],
+            "acceptedVariants": run_summary["acceptedVariants"],
+            "compiledShaders": run_summary["compiledShaders"],
+            "linkedPrograms": run_summary["linkedPrograms"],
+            "familiesDrawn": run_summary["familiesDrawn"],
+            "compileMs": run_summary["compileMs"],
+            "drawMs": run_summary["drawMs"],
+            "familyDraws": [
+                {
+                    "family": d["family"],
+                    "ms": d["ms"],
+                    "draws": d["draws"],
+                    "nonClearPixels": d["nonClearPixels"],
+                    "uniqueColors": d["uniqueColors"],
+                    "digest": d["digest"],
+                }
+                for d in family_draws
+            ],
+            "contactSheetPng": sheet_meta,
+            "elapsedMs": round((time.monotonic() - t0) * 1000.0, 1),
+        }
+    )
+
+
 def run_static_frame_components(
     static_frame_bin: Path,
     content_dir: Path,
@@ -812,10 +1165,21 @@ def resolve_binary(explicit: str | None, candidates: list[Path]) -> Path | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--render-smoke-bin", help="Path to render-smoke executable")
     parser.add_argument("--client-bin", help="Path to bfe-client executable")
     parser.add_argument("--static-frame-bin", help="Path to static-frame executable")
     parser.add_argument("--static-fixture-bin", help="Path to static-fixture example executable")
     parser.add_argument("--fingerprint-bin", help="Path to fingerprint example executable")
+    parser.add_argument(
+        "--backend",
+        default=os.environ.get("BFE_SMOKE_BACKEND", "llvmpipe"),
+        help="Backend tag recorded in JSONL output (default: llvmpipe)",
+    )
+    parser.add_argument(
+        "--hardware-gl",
+        action="store_true",
+        help="Do not force LIBGL_ALWAYS_SOFTWARE=1 (for hardware GPU comparison runs)",
+    )
     parser.add_argument(
         "--output",
         "--report",
@@ -839,6 +1203,7 @@ def main() -> int:
         repo_root / "rust" / "target" / "debug",
         repo_root / "rust" / "target" / "release",
     ]
+    render_smoke_bin = resolve_binary(args.render_smoke_bin, [d / "render-smoke" for d in target_dirs])
     client_bin = resolve_binary(args.client_bin, [d / "bfe-client" for d in target_dirs])
     static_frame_bin = resolve_binary(args.static_frame_bin, [d / "static-frame" for d in target_dirs])
     static_fixture_bin = resolve_binary(
@@ -850,10 +1215,10 @@ def main() -> int:
         [d / "examples" / "fingerprint" for d in target_dirs],
     )
 
-    if not client_bin or not static_frame_bin:
+    if not render_smoke_bin or not client_bin or not static_frame_bin:
         raise SystemExit(
-            "missing bfe-client or static-frame binary; build with: "
-            "cargo build --manifest-path rust/Cargo.toml -p bfe-client --bin bfe-client --bin static-frame"
+            "missing render-smoke, bfe-client, or static-frame binary; build with: "
+            "cargo build --manifest-path rust/Cargo.toml -p bfe-client --bin render-smoke --bin bfe-client --bin static-frame"
         )
 
     # Unoptimized debug builds of bfe-client place SceneDriver (Scene + Bridge)
@@ -870,9 +1235,11 @@ def main() -> int:
             pass
 
     env = dict(os.environ)
-    env["LIBGL_ALWAYS_SOFTWARE"] = "1"
-    env["GALLIUM_DRIVER"] = env.get("GALLIUM_DRIVER", "llvmpipe")
+    if not args.hardware_gl:
+        env["LIBGL_ALWAYS_SOFTWARE"] = "1"
+        env["GALLIUM_DRIVER"] = env.get("GALLIUM_DRIVER", "llvmpipe")
 
+    stream_lines: list[str] = []
     records: list[dict] = []
     output_path = Path(args.output)
     png_path = Path(args.png_out)
@@ -890,6 +1257,18 @@ def main() -> int:
             if fingerprint_bin:
                 check_fingerprint_probe(fingerprint_bin, content_dir, records)
 
+            run_render_smoke(
+                repo_root,
+                render_smoke_bin,
+                content_dir,
+                work_dir,
+                args.width,
+                args.height,
+                args.backend,
+                env,
+                stream_lines,
+                records,
+            )
             run_static_frame_components(
                 static_frame_bin,
                 content_dir,
@@ -903,14 +1282,16 @@ def main() -> int:
             run_windowed_client_smoke(repo_root, client_bin, content_dir, env, records)
     except Exception as exc:
         records.append({"step": "error", "ok": False, "error": str(exc)})
+        all_lines = stream_lines + [json.dumps(r) for r in records]
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+        output_path.write_text("\n".join(all_lines) + "\n", encoding="utf-8")
         for record in records:
             print(json.dumps(record), file=sys.stderr)
         return 1
 
+    all_lines = stream_lines + [json.dumps(r) for r in records]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+    output_path.write_text("\n".join(all_lines) + "\n", encoding="utf-8")
     for record in records:
         print(json.dumps(record))
     return 0

@@ -217,7 +217,7 @@ jobs:
       - name: Build native renderer smoke binaries
         run: |
           cargo build --manifest-path rust/Cargo.toml --locked \
-            -p bfe-client --bin bfe-client --bin static-frame \
+            -p bfe-client --bin render-smoke --bin bfe-client --bin static-frame \
             -p bfe-content-native --example static-fixture --example fingerprint
 
       - name: Run native software-OpenGL renderer smoke

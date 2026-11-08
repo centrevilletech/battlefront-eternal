@@ -82,16 +82,16 @@ Windows WARP job covers those later stages for the synthetic fixtures.
 
 ## Native software-OpenGL renderer smoke (`tools/renderer-smoke-native.py`)
 
-`python3 tools/renderer-smoke-native.py` tests the native Rust content loader,
-scene admission adapters, and OpenGL renderer (`bfe-client`, `static-frame`,
-`static-fixture`, and `fingerprint`) on Linux over Mesa software OpenGL
-(`LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe`) without prepared game
-files, Node.js, or Electron. The `renderer-smoke-native` job in
+`python3 tools/renderer-smoke-native.py` tests the native Rust shader catalog,
+content loader, scene admission adapters, and OpenGL renderer (`render-smoke`,
+`bfe-client`, `static-frame`, `static-fixture`, and `fingerprint`) on Linux over
+Mesa software OpenGL (`LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe`)
+without prepared game files or Electron. The `renderer-smoke-native` job in
 `.github/workflows/ci-native.yml` runs this check on `ubuntu-24.04` and uploads
 both `renderer-smoke-native.png` and `renderer-smoke-native.jsonl` as workflow
 artifacts.
 
-The script executes four verification stages in a temporary directory:
+The script executes five verification stages in a temporary directory:
 
 1. **Synthetic static geometry probe (`static-fixture`):** Reuses the six
    synthetic foliage definitions (`grasspatch` and `leafpatch`) and the
@@ -104,14 +104,28 @@ The script executes four verification stages in a temporary directory:
    the shared `grasspatch` and `leafpatch` foliage classes, a subdivided water
    patch, and minimal `common/` and `sides/rep/` definitions, then verifies
    content manifest hashing with `rust/bfe-content-native/examples/fingerprint`.
-3. **Surfaceless EGL component renders (`static-frame`):** Runs `static-frame`
+3. **Full shader catalog compile/link and 6-family draws (`render-smoke`):**
+   Cross-checks `rust/bfe-render/shaders/*/manifest.json` against
+   `tools/renderer-smoke-manifests.mjs` across all 6 families (`world`: 536,
+   `actors`: 310, `effects`: 149, `interface`: 15, `post-hud`: 12, `utility`:
+   24; total 1,046) and all sub-families, then runs `render-smoke` over
+   surfaceless EGL software OpenGL (`llvmpipe`). `render-smoke` compiles and
+   links all 1,046 variants uncached (`cached: false, shaders: 2, links: 1`)
+   through `bfe-render`'s own program builder (`Bridge::add_owned_program`),
+   emits `variant-start`, `variant-result`, `family-result`, `family-draw`, and
+   `runs` JSONL records matching `tools/renderer-smoke.mjs`, and draws one
+   representative scene per family (`world`, `actors`, `effects`, `interface`,
+   `post-hud`, `utility`) into an offscreen RGBA8 + depth/stencil framebuffer,
+   verifying non-clear pixels, unique colors >= 2, zero GL errors, and zero
+   renderer faults.
+4. **Surfaceless EGL component renders (`static-frame`):** Runs `static-frame`
    over EGL surfaceless `llvmpipe` for `sky`, `props`, `foliage`, and `water`,
    checking that each component admits its static world and records non-zero
    draws and non-clear pixels. The four 320x180 RGBA framebuffers are combined
    into a 640x360 2x2 contact sheet PNG (`renderer-smoke-native.png`), and the
    script verifies the PNG signature, `IHDR` dimensions, color type, and
    non-blank pixel coverage on disk.
-4. **Windowed X11 client frame loop (`bfe-client --map room`):** Launches
+5. **Windowed X11 client frame loop (`bfe-client --map room`):** Launches
    `bfe-client --map room` under `xvfb-run -a` via
    `tools/native-client-window.py`, exercising X11 window creation, GLES 3.0
    context initialization, synthetic input delivery (`KeyW`, mouse motion,
