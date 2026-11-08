@@ -54,6 +54,7 @@ pub struct Sender {
     pub refused: u64,
     pub fire_edges: u64,
     pub spawned: bool,
+    pub auto_spawn: bool,
     last_tick: f64,
     last_ack: f64,
     turns: Vec<(f64, [f64; 2])>,
@@ -94,6 +95,7 @@ impl Default for Sender {
             refused: 0,
             fire_edges: 0,
             spawned: false,
+            auto_spawn: true,
             last_tick: 0.,
             last_ack: f64::NEG_INFINITY,
             turns: Vec::new(),
@@ -303,7 +305,7 @@ impl Sender {
         self.pitch = body.aim_pitch;
     }
     pub fn spawn(&mut self, receiver: &Receiver) {
-        if self.spawned || !receiver.complete || receiver.corrections == 0 || receiver.spectator {
+        if !self.auto_spawn || self.spawned || !receiver.complete || receiver.corrections == 0 || receiver.spectator {
             return;
         }
         // The correction names the server-selected roster class. Choosing a
@@ -316,6 +318,32 @@ impl Sender {
         let edge = self.edge(3., tick);
         edge[e::CLASS_ID] = receiver.own.class as f64;
         edge[e::POST_ID] = 0.;
+    }
+    pub fn request_team(&mut self, receiver: &Receiver, team: u8) {
+        if !receiver.complete || receiver.corrections == 0 {
+            return;
+        }
+        let tick = self.last_tick.max(receiver.latest + 1.);
+        let edge = self.edge(2., tick);
+        edge[e::TEAM] = team as f64;
+        edge[e::TEAM_RANGE_VALID] = 1.;
+    }
+    pub fn request_spawn(&mut self, receiver: &Receiver, class_id: usize, post_id: usize) {
+        if !receiver.complete || receiver.corrections == 0 || receiver.spectator || receiver.own.alive {
+            return;
+        }
+        self.spawned = true;
+        let tick = self.last_tick.max(receiver.latest + 1.);
+        let edge = self.edge(3., tick);
+        edge[e::CLASS_ID] = if class_id != 0 { class_id } else { receiver.own.class.max(1) } as f64;
+        edge[e::POST_ID] = post_id as f64;
+    }
+    pub fn request_suicide(&mut self, receiver: &Receiver) {
+        if !receiver.complete || receiver.corrections == 0 || receiver.spectator || !receiver.own.alive {
+            return;
+        }
+        let tick = self.last_tick.max(receiver.latest + 1.);
+        let _ = self.edge(4., tick);
     }
     pub fn send(&mut self, endpoint: &mut Endpoint, receiver: &mut Receiver) -> Result<(), String> {
         let network = receiver.network.borrow();

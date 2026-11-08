@@ -1,134 +1,141 @@
-# Native battle client
+# Native game client (`bfe-client`)
 
-`bfe-client` opens a winit window, owns its GL context, maps desktop input to
-generated command records, and feeds the Rust audio master through cpal. A full
-recorded session runs the existing Rust presentation and renderer phases. It
-needs prepared game content; neither game files nor recordings belong in the
-repository.
+`bfe-client` is the standalone native Battlefront Eternal executable. Running
+`bfe-client` with no sub-mode arguments opens a single `winit` window, creates
+its OpenGL ES 3.0 (or `--desktop-gl` OpenGL 4.5) context and `cpal` audio stream,
+loads persisted settings and profiles through `bfe-desktop`, and drives the full
+game lifecycle without a browser or Electron runtime:
 
-Build with `cargo build --manifest-path rust/Cargo.toml -p bfe-client` and run
-`bfe-client SESSION_DIR CONTENT_DIR`. `BFE_CONTENT_DIR` can supply the content
-root. `--pcm STEREO_F32LE` supplies a looping 48 kHz stereo test signal.
-`--sound ARCHIVE_DIR` replays a recorded sound archive through the Rust audio
-master; choose either the archive or PCM input. `--desktop-gl` requests a
-desktop OpenGL 4.5 context instead of the default OpenGL ES 3.0 context. The
-`native-session` diagnostic uses the same window loop without opening an audio
-device and prints a framebuffer comparison before its last swap. Battle output
-lives in a fixed RGBA8 canvas target, then blits to the window. An overlapping
-window cannot discard replay fragments through X11 pixel ownership.
+```text
+Startup -> StartupLoader -> Gate -> Shell -> InstantAction / Online -> Shell -> Exit
+```
+
+Build and run with:
+
+```bash
+cargo build --manifest-path rust/Cargo.toml -p bfe-client --bin bfe-client
+./rust/target/debug/bfe-client [--content-dir /path/to/prepared/content]
+```
+
+## Command-line interface
+
+```text
+USAGE:
+    bfe-client [CONTENT_DIR] [OPTIONS]
+    bfe-client [CONTENT_DIR] --local [<MISSION>] [LOCAL_OPTIONS]
+    bfe-client [CONTENT_DIR] --join <TARGET> [ONLINE_OPTIONS]
+    bfe-client [CONTENT_DIR] --map <MAP> [INSPECT_OPTIONS]
+    bfe-client <SESSION_DIR> [REPLAY_OPTIONS]
+```
+
+- **Default (`bfe-client [CONTENT_DIR]`)**: Runs the standalone native game
+  through the startup loader, first-run content/update gate (when needed), main
+  menu shell, Instant Action playlists, and multiplayer server browser.
+- **`--local [<MISSION>]`**: Skips the shell menu and launches an Instant Action
+  battle directly (for example `--local nab2` or `--local "map=nab2&era=cw"`).
+  Pressing `Quit to Main Menu` from the in-battle pause menu returns to the
+  shell rather than exiting the process.
+- **`--join <TARGET>`**: Joins an online `bfeserver` directly (`HOST:PORT` or
+  `master:URL#ID`). When launched inside the standalone shell, disconnecting or
+  leaving an online match returns to the Multiplayer server browser.
+- **`--map <MAP>`**: Admits a static map inspection scene with a free camera
+  (`--seconds <S>`, `--screenshot <PNG>`).
+- **`<SESSION_DIR>`**: Replays a version-2 recorded native session archive
+  against prepared content (`--pcm STEREO_F32LE`, `--sound ARCHIVE_DIR`).
+- **Common flags**:
+  - `--content-dir <DIR>` (or `BFE_CONTENT_DIR`): Prepared content root.
+  - `--no-audio`: Disables `cpal` audio device initialization.
+  - `--desktop-gl`: Requests a desktop OpenGL 4.5 context instead of GLES 3.0.
+  - `--width <PX>`, `--height <PX>`, `--fullscreen`: Initial window geometry and
+    borderless fullscreen mode (`F11` or `Alt+Enter` toggles fullscreen at
+    runtime; `F12` saves a PNG screenshot to the user's screenshots directory).
+  - `--skip-update-check`: Skips the startup master-server version check.
+  - `--script gate` (`--shots-dir <DIR>`, `--server <HOST:PORT>`): Drives the
+    end-to-end automated verification sequence across all shell pages, a
+    three-mission Instant Action playlist (`nab2` -> `tat1` -> `bes1`), and a
+    live online battle, writing the 24 numbered PNG screenshots and
+    `gate-summary.json`.
+
+## Application state machine and host services
+
+`rust/bfe-client/src/app/` owns the top-level state machine:
+
+1. **`Startup` / `StartupLoader`**: Initializes platform directories, loads
+   `settings.json` via `bfe-desktop::settings`, starts non-blocking Steam/Discord
+   rich presence (`bfe-desktop::presence`) and the asynchronous update check
+   (`bfe-desktop::updater`), and renders the startup progress bar while scanning
+   prepared content (`bfe-desktop::content_gate::verify_content_dir`) and
+   loading `ui_common.font` + shell audio (`ui.loaded`).
+2. **`Gate`**: Shown when no valid prepared content directory is configured or
+   when a newer release is available. Allows selecting a content folder,
+   Triggering raw CD/ISO asset extraction via `bfe-desktop::extractor`, or
+   continuing to the main menu.
+3. **`Shell`**: Runs `bfe-shell::ShellApp` and `ShellRenderer` inside the shared
+   GL context, backed by `LiveServerBrowser` (`bfe-online::ServerBrowser` on
+   background worker threads for master HTTPS queries, LAN UDP broadcast
+   discovery on port `18452`, and concurrent TCP ping/info probes).
+   > **Swap point (`bfe-interface`)**: Option pages, hotkeys, and `Settings`
+   > persistence in `bfe-client/src/app/settings.rs` and `shell.rs` currently
+   > bridge `bfe-shell`'s option models and `bfe-desktop::settings`; `bfe-interface`
+   > provides the unified 59-key schema and `ClassicTheme` menu framework ready
+   > to replace the shell option page bridge in a follow-up swap.
+4. **`InstantAction` and `Online` (`BattleController`)**: Both battle modes run
+   through the same `BattleController` (`rust/bfe-client/src/app/battle.rs`),
+   `Scene` (`bfe-render` + `bfe-presentation`), and `bfe-battle-ui` overlays
+   (loading screen, classic spawn screen, 3-page Tab scoreboard, Esc pause menu
+   with live options and player list, and `T`/`Y` chat).
+
+One `cpal` output stream stays open for the lifetime of the window.
+`SharedAudioRouter` (`rust/bfe-client/src/audio.rs`) switches atomically between
+`Shell` (`bfe-shell` UI sound mixer), `Battle` (`audio::MasterProcessor` +
+`audio_control::Runtime`), and `Muted` (when unfocused with `mute_unfocused`
+enabled) without recreating the OS audio stream.
+
+## Local 60 Hz world thread (`InstantAction`)
+
+In `InstantAction`, `BattleController` spawns a dedicated 60 Hz simulation
+thread (`rust/bfe-client/src/local/thread.rs`, `WorldThread::spawn`) that owns
+the local battle authority behind the same command and publication boundary used
+by the online path:
+
+- **Render -> World (`CommandRing`)**: Pre-allocated 64-entry ring buffer of
+  `WorldMessage` (`Step`, `Pause`, `Suspend`, `Spawn`, `Respawn`, `Restart`,
+  `Shutdown`). If the ring fills, the oldest `Step` is evicted so control
+  messages are never dropped.
+- **World -> Render (`PublicationQueue`)**: Pre-allocated 4-slot pool of
+  `Publication` records recycled between the world thread and render thread. The
+  render thread drains published slots exclusively via `try_lock()`, guaranteeing
+  `worldRendererBlocks == 0`.
+- **Single swap point (`Context::world_admit`)**: `rust/bfe-client/src/local/runtime.rs`
+  attempts `bfe_sim::context::Context::world_admit` first and runs
+  `WorldAuthority` (`world_Frame` + `Publisher::capture_in` into `BlockView`
+  wire words) when admitted, falling back cleanly to the self-contained 60 Hz
+  `FallbackAuthority` when native map runtime tables are not yet populated.
+- **Zero steady-state render allocations**: After initial warmup frames, active
+  battle frames (without cold UI overlays open) perform zero heap allocations on
+  the render thread (`steadyFrameAllocationsAfterWarmup == 0`), tracked by the
+  counting `GlobalAlloc` wrapper in `rust/bfe-client/src/main.rs`.
+
+## Direct online sessions, map inspection, and recorded-session replay
 
 `bfe-client --join HOST:PORT CONTENT_DIR` reads the server's public battle
-information, loads that mission, and authenticates BFE-UDP/1 with a persistent
-Ed25519 identity. `--identity KEY_FILE` selects a separate profile and `--name
-NAME` supplies its roster name. The default key belongs to the user's application
-data directory. An invalid key is reported, never silently replaced. Close and
-join again with the same profile to reconnect under the server's grace policy.
-Discovery, DNS and identity checks finish before the event loop starts. Content
-and GPU resources load into a hidden window; the admitted window then pumps
-handshake retries during redraws, so close and focus events remain responsive.
-Server rejection text and authenticated close reasons are reported directly.
-Application heartbeat replies use the reliable event stream independently of
-transport keepalive packets.
+information, loads that mission, and authenticates `BFE-UDP/1` with a persistent
+Ed25519 identity (`bfe-online::PlayerIdentity`). Online sessions receive
+snapshots directly into the Rust network owner (`bfe_client::online::client::OnlineClient`)
+and sample its retained timeline from the presentation phases without creating a
+local authoritative world.
 
-Online sessions receive snapshots directly into the Rust network owner and
-sample its retained timeline from the presentation phases. They create no local
-authoritative world. The server-selected class spawns automatically; Space asks
-to spawn again after death. WASD moves, mouse motion aims, mouse buttons fire,
-and the existing generated desktop controls provide posture, jump and reload.
-E enters or leaves a nearby vehicle or turret. Own movement and mounted
-weapons replay pending input through ClientPrediction; remote actors, hulls,
-riders, items and projectiles sample the shared session and presentation owners.
-Held models and first-person arms use the existing unit rig publication. The
-battle HUD and audio control runtime consume those same generated gameplay facts.
-Map, rig, HUD, effect and sound resources are admitted before packet delivery;
-live frames retain bounded input, transport, snapshot and renderer storage.
-The server remains responsible for admission, teams, spawning and service policy.
-`--no-audio` permits a diagnostic run without an audio device.
-
-`bfe-content-native::Loader` reads the prepared maps, sides and common files.
-It uses the shared native definition, clip, model, collision and BVH loaders,
-then constructs visible geometry, material descriptors, texture resources and
-unit/first-person presentation content. PNG/lossless WebP and KTX2 use the same
-Rust decoders and device format policy as the browser. A declared compressed
-twin must load successfully. Paths remain inside the content directory.
-
-`World` receives generated commands at fixed authority steps and lends its
-presentation frame to the host. Its associated frame type permits a live native
-owner to supply retained phase inputs directly. `RecordedWorld` instead lends
-ranges of admitted session operations, preserving the recorded timestamps and
-ordering. Device clocks do not replace those timestamps.
-
-The recording tool is `tools/native-session/capture.mjs`, used with the existing
-renderer-corpus CDP battle loader. Run `session-schema` once and name its JSON
-output with `NATIVE_SCHEMA`. `CASE` selects a corpus case. For an Electron
-reference, `BFE_SETTINGS_FILE` names its active profile settings file. The
-recorder checks the applied graphics values and stores them in the archive. The tool instruments
-WASM exports and host GL state outside the application sources, records the
-snapshot timeline and presentation inputs, and rejects unhandled render calls.
-It records only host writes between phase calls; Rust output banks become the
-next baseline. Recorded collision answers feed the vehicle owner between placement and pose.
-Recorded bulk transfers and actor matrix/skin bindings consume
-native presentation outputs during playback. The window submits world, far,
-terrain, foliage, water, effects, actors, postprocessing and HUD through their
-existing Rust passes.
-
-Archives require version 2 and the shared `battle_frame` schedule. Version-1
-archives and per-pass commands are rejected before content admission. Re-record
-older sessions with the current recorder; their ABI is not translated.
-The archive stores a versioned API digest, stable owner ids, typed blob spans,
-phase calls, changed input ranges, output digests and a separate reference image.
-Matching geometry and image arguments resolve to the native loader's assets by
-content digest. Native unit and first-person descriptors must match registration
-before admission. Reference pixels are used only by the final comparison and
-never become a render texture or presentation input.
-
-`BFE_SESSION_VALIDATE=1` checks recorded renderer submissions;
-`BFE_SESSION_GL_CHECK=1` checks GL errors. Both are diagnostic work outside normal
-frame submission. The comparison prints both framebuffer hashes, changed pixels
-and channels, maximum error, RMS error, first/largest differences, spatial counts
-and presentation-output mismatches. Repeat a differing browser reference with
-`tools/native-session/control.mjs`. Remove archives after comparison and retain
-only summaries.
-
-The headless `bfe-native` regression tool retains its near-only capture format.
-The client uses one window host and requires a version-2 `session.json`;
-a failed full session never switches to the near renderer. Replay currently
-carries the recorded camera and pass schedule. It does not construct an
-interactive authoritative native battle or a menu service. Direct online joins
-use the snapshot host described above.
+`bfe-content-native::Loader` reads prepared maps, sides, and common files using
+the shared native definition, clip, model, collision, and BVH loaders, then
+constructs visible geometry, material descriptors, texture resources, and
+unit/first-person presentation content.
 
 `bfe-client --map MAP CONTENT_DIR --seconds 20` admits an inspection scene from
-prepared files. The free camera uses the generated input records. Admission
-includes opaque near/far world and terrain, sky layers following the camera,
-initial built/unbuilt prop rigs and grounded trap pads, placed foliage, and Low water
-or Classic ocean surfaces. Map lighting and fog come from prepared metadata. Prop vertex packing,
-skeleton binding, foliage packing/selection and drawing use the existing Rust
-owners. The frame loop retains its geometry, skeleton and input banks, publishes far,
-near, image and transparent packets, and calls `battle_frame`. GPU image and
-target lifetime belongs to `bfe_render::resources::GpuResources`; the client
-borrows that owner instead of maintaining a parallel bank.
+prepared files with a free camera, opaque near/far world and terrain, sky layers,
+initial built/unbuilt prop rigs, grounded trap pads, placed foliage, and Low
+water or Classic ocean surfaces.
 
-Inspection uses a deterministic cold random stream for grass and leaf tint.
-Recorded comparisons can supply the browser's cold draws to the same loader.
-Water retains its first mask frame and time zero; the shared surface owner
-positions the Classic ocean grid from the camera. Animated doors/props,
-flyer motion, world-driven effects, contact
-ripples, reflections and postprocessing require further host admission. Blended
-world buckets remain on the full recorded-session path. Inspection does not
-invent health changes, soldier state or authority ticks.
-
-`tools/native-static-fixture.mjs` compares foliage cards with the browser
-constructor and water/ocean construction with frozen constructor hashes on
-public synthetic inputs. Build its probe with
-`cargo build --manifest-path rust/Cargo.toml -p bfe-content-native --example static-fixture`.
-`tools/native-session/gate.sh` records the browser's complete native frame
-packets and replays them through the native client. This exercises the installed
-owners and pass schedule, including water, rather than isolated standalone
-component paths. Its temporary view/image files belong outside the repository.
-
-Near captures are validated before renderer registration: object ids must name
-earlier allocations, world bounds contain ten finite values, typed spans and
-frame/bone ranges must fit their banks. Malformed files return an admission
-error to the headless replay tool. The hosted Windows renderer job also builds the native
-executables for MSVC and runs their device-independent tests; its WARP renderer
-check remains a separate qualification from opening a native window.
+`bfe-client SESSION_DIR CONTENT_DIR` replays version-2 recorded session archives
+captured with `tools/native-session/capture.mjs`. `BFE_SESSION_VALIDATE=1`
+validates recorded renderer submissions and `BFE_SESSION_GL_CHECK=1` checks GL
+errors after each pass.

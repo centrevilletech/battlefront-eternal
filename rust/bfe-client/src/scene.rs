@@ -28,6 +28,7 @@ enum Component {
     Water,
     Sky,
 }
+#[derive(Clone, Copy)]
 pub struct View {
     pub values: [f64; shader::FRAME_FLOATS],
 }
@@ -168,8 +169,8 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
 }
 
 pub struct Scene {
-    bridge: Bridge,
-    resources: Resources,
+    pub bridge: Bridge,
+    pub resources: Resources,
     far_target: u32,
     image_step: [f64; bfe_render::post::STEP],
     image_state: [f64; bfe_render::post::STATE],
@@ -177,7 +178,7 @@ pub struct Scene {
     pub admitted: usize,
     pub deferred: usize,
     pub draws: u64,
-    size: [i32; 2],
+    pub size: [i32; 2],
     static_content: crate::static_scene::Admission,
     far_projection: [f64; 16],
     far_world_slots: Vec<usize>,

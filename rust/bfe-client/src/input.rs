@@ -28,7 +28,7 @@ pub struct Input {
 }
 /// Window/UI intentions have no simulation memory offsets. The native menu
 /// owner can consume these coalesced values alongside generated gameplay input.
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ViewActions {
     pub perspective: bool,
     pub map: bool,

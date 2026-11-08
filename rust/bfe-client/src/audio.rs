@@ -3,7 +3,7 @@
 //! the unused samples, so a short callback never advances or loses DSP time.
 use ::audio::{master::Master, FRAMES};
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, FromSample, SizedSample};
-use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering}};
 
 // Device diagnostics never take the render thread lock. Relaxed atomics are
 // sufficient because none of these counters publishes audio sample ownership.
@@ -67,12 +67,109 @@ impl MasterOutput {
     }
 }
 
+/// Shared audio router keeping one `cpal` stream open across the standalone
+/// application lifecycle (startup -> shell -> battle -> shell).
+#[derive(Default)]
+pub struct SharedAudioRouter {
+    pub shell: Mutex<Option<bfe_shell::audio::ShellAudioMixer>>,
+    pub live: Mutex<Option<crate::online::sound::LiveOutput>>,
+}
+
+impl SharedAudioRouter {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn set_shell(&self, mixer: Option<bfe_shell::audio::ShellAudioMixer>) {
+        if let Ok(mut guard) = self.shell.lock() {
+            *guard = mixer;
+        }
+    }
+
+    pub fn set_live(&self, live: Option<crate::online::sound::LiveOutput>) {
+        if let Ok(mut guard) = self.live.lock() {
+            *guard = live;
+        }
+    }
+
+    pub fn pump_headless(&self, status: &Status, scratch: &mut [f32; FRAMES * 2]) {
+        if let Ok(mut live_guard) = self.live.try_lock() {
+            if let Some(live) = live_guard.as_mut() {
+                live.fill(scratch, status);
+                return;
+            }
+        }
+        if let Ok(mut shell_guard) = self.shell.try_lock() {
+            if let Some(shell) = shell_guard.as_mut() {
+                shell.render_interleaved(scratch);
+                status.blocks.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+pub struct DynamicOutput {
+    router: Arc<SharedAudioRouter>,
+    shell_block: [f32; FRAMES * 2],
+    shell_pos: usize,
+}
+
+impl DynamicOutput {
+    pub fn new(router: Arc<SharedAudioRouter>) -> Self {
+        Self {
+            router,
+            shell_block: [0.0; FRAMES * 2],
+            shell_pos: FRAMES * 2,
+        }
+    }
+
+    pub fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
+        if let Ok(mut live_guard) = self.router.live.try_lock() {
+            if let Some(live) = live_guard.as_mut() {
+                live.fill(data, status);
+                return;
+            }
+        }
+        if let Ok(mut shell_guard) = self.router.shell.try_lock() {
+            if let Some(shell) = shell_guard.as_mut() {
+                let mut peak = 0.0f32;
+                for sample in data {
+                    if self.shell_pos >= self.shell_block.len() {
+                        shell.render_interleaved(&mut self.shell_block);
+                        status.blocks.fetch_add(1, Ordering::Relaxed);
+                        self.shell_pos = 0;
+                    }
+                    let val = self.shell_block[self.shell_pos];
+                    peak = peak.max(val.abs());
+                    *sample = T::from_sample(val);
+                    self.shell_pos += 1;
+                }
+                status.peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
+                return;
+            }
+        }
+        for sample in data {
+            *sample = T::from_sample(0.0);
+        }
+    }
+}
+
 // Both sources end in the existing Rust output chain. Selecting a source is
 // cold admission; each callback retains its processor and partial quantum.
-enum DeviceOutput { Pcm(MasterOutput), Sound(crate::sound::SoundOutput), Live(crate::online::sound::LiveOutput) }
+enum DeviceOutput {
+    Pcm(MasterOutput),
+    Sound(crate::sound::SoundOutput),
+    Live(crate::online::sound::LiveOutput),
+    Dynamic(DynamicOutput),
+}
 impl DeviceOutput {
     fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
-        match self { Self::Pcm(p) => p.fill(data,status), Self::Sound(s) => s.fill(data,status), Self::Live(s)=>s.fill(data,status) }
+        match self {
+            Self::Pcm(p) => p.fill(data, status),
+            Self::Sound(s) => s.fill(data, status),
+            Self::Live(s) => s.fill(data, status),
+            Self::Dynamic(d) => d.fill(data, status),
+        }
     }
 }
 // Keep the stream alive for the complete window lifetime. Dropping it stops
@@ -91,6 +188,9 @@ impl AudioDevice {
         Self::open_output(DeviceOutput::Sound(sound),48000)
     }
     pub fn open_live(output:crate::online::sound::LiveOutput)->Result<Self,String>{Self::open_output(DeviceOutput::Live(output),48000)}
+    pub fn open_dynamic(router: Arc<SharedAudioRouter>) -> Result<Self, String> {
+        Self::open_output(DeviceOutput::Dynamic(DynamicOutput::new(router)), 48000)
+    }
     fn open_output(output: DeviceOutput, rate: u32) -> Result<Self,String> {
         let device = cpal::default_host().default_output_device().ok_or("no audio output device")?;
         // Explicit rate and stereo prevent accidental speed or channel changes.

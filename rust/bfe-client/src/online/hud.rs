@@ -12,7 +12,7 @@ use bfe_render::{
     },
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use three::{CoordinateSystem, Matrix4};
 const ART: [&str; 15] = [
     "hud1",
@@ -31,6 +31,26 @@ const ART: [&str; 15] = [
     "stats_deaths",
     "stats_cpp",
 ];
+
+#[derive(Clone, Debug)]
+pub struct HudClassMeta {
+    pub registry_id: usize,
+    pub side: String,
+    pub class_name: String,
+    pub display_name: String,
+    pub weapons: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct HudPostMeta {
+    pub id: usize,
+    pub name: String,
+    pub display_name: String,
+    pub position: [f64; 3],
+    pub team: u8,
+    pub active: bool,
+}
+
 struct Asset {
     image: Option<usize>,
     width: f64,
@@ -57,15 +77,25 @@ pub struct Prepared {
     labels: Vec<String>,
     strings: Value,
     map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
+    class_meta: Vec<HudClassMeta>,
+    post_meta: Vec<HudPostMeta>,
 }
 pub struct Hud {
     weapons: Vec<Weapon>,
     size: [i32; 2],
     pub quads: usize,
     pub frames: u64,
-    teams: [[f64; 4]; 8],
+    pub teams: [[f64; 4]; 8],
     health: f64,
-    map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,countdown:f64,losing:bool,game_over:bool,
+    pub map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
+    pub countdown:f64,
+    pub losing:bool,
+    pub game_over:bool,
+    pub names: HashMap<String, u32>,
+    pub strings: HashMap<String, String>,
+    pub class_meta: Vec<HudClassMeta>,
+    pub post_meta: Vec<HudPostMeta>,
+    pub auto_build: bool,
 }
 impl Prepared {
     // Reserve the fixed art slots even if a map omits an image. Optional art
@@ -92,6 +122,8 @@ impl Prepared {
             weapons: vec![],
             labels: vec![String::new()],
             strings: common["strings"].clone(),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
+            class_meta: vec![],
+            post_meta: vec![],
         };
         let mut asset = |name: &str, result: &mut Self| -> Result<u32, String> {
             if name.is_empty() {
@@ -100,10 +132,20 @@ impl Prepared {
             if let Some(id) = result.names.get(name) {
                 return Ok(*id);
             }
+            let lower = name.to_ascii_lowercase();
+            if let Some(id) = result.names.get(&lower) {
+                return Ok(*id);
+            }
             let path = common["textures"][name]
                 .as_str()
+                .or_else(|| common["textures"][&lower].as_str())
                 .map(|s| format!("common/{s}"))
-                .or_else(|| world["textures"][name].as_str().map(|s| format!("maps/{map}/{s}")));
+                .or_else(|| {
+                    world["textures"][name]
+                        .as_str()
+                        .or_else(|| world["textures"][&lower].as_str())
+                        .map(|s| format!("maps/{map}/{s}"))
+                });
             let image = path.map(|s| content.textures.load(&s)).transpose()?;
             let (width, height) = image.map_or((0., 0.), |i| {
                 let im = &content.textures.images[i];
@@ -112,6 +154,7 @@ impl Prepared {
             let id = result.assets.len() as u32;
             result.assets.push(Asset { image, width, height });
             result.names.insert(name.into(), id);
+            result.names.insert(lower, id);
             Ok(id)
         };
         for name in ART {
@@ -122,6 +165,12 @@ impl Prepared {
             width: 1.,
             height: 1.,
         });
+        if let Some(tex_obj) = common["textures"].as_object() {
+            let keys: Vec<String> = tex_obj.keys().cloned().collect();
+            for k in keys {
+                let _ = asset(&k, &mut result);
+            }
+        }
         for name in ["gamefont_tiny", "gamefont_small", "gamefont_medium", "gamefont_large"] {
             let font = &common["fonts"][name];
             let mut pages = Vec::new();
@@ -145,8 +194,46 @@ impl Prepared {
         }
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         result.max_health=vec![300.;defs.registry.classes.len()+1];result.unit_defs=vec![[0.;U::WORDS];defs.registry.classes.len()+1];
+        for c in &defs.classes {
+            if let Some(reg_id) = c.registry_id {
+                let class_name = defs.names.text(c.name).to_string();
+                let side = defs.names.text(c.side).to_string();
+                let d = authored_json(&c.record);
+                let display_name = d["displayName"]
+                    .as_str()
+                    .or_else(|| d["label"].as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| class_name.replace('_', " ").to_ascii_uppercase());
+                let mut weapons = Vec::new();
+                for &w_idx in &c.weapons {
+                    if let Some(w_def) = defs.weapons.get(w_idx) {
+                        let wd = authored_json(&w_def.record);
+                        let w_label = wd["displayName"]
+                            .as_str()
+                            .or_else(|| wd["label"].as_str())
+                            .map(str::to_string)
+                            .unwrap_or_else(|| {
+                                w_def
+                                    .class
+                                    .map(|n| defs.names.text(n).to_ascii_uppercase())
+                                    .unwrap_or_default()
+                            });
+                        if !w_label.is_empty() && !weapons.contains(&w_label) {
+                            weapons.push(w_label);
+                        }
+                    }
+                }
+                result.class_meta.push(HudClassMeta {
+                    registry_id: reg_id as usize,
+                    side,
+                    class_name,
+                    display_name,
+                    weapons,
+                });
+            }
+        }
         for (id,definition,vehicle) in defs.classes.iter().filter_map(|c|c.registry_id.map(|id|(id,&c.record,false))).chain(defs.vehicles.iter().filter_map(|c|c.registry_id.map(|id|(id,&c.record,true)))){let id=id as usize;let d=if vehicle{definition.get("settings").unwrap_or(definition)}else{definition};result.max_health[id]=bfe_content::odf::num(d.get("MaxHealth"),if vehicle{1000.}else{300.});let row=&mut result.unit_defs[id];row[U::SOLDIER]=(!vehicle)as u8 as f64;row[U::KIND]=if vehicle{2.}else{0.};row[U::SCALE]=d.get("MapScale").and_then(bfe_content::Value::as_f64).unwrap_or(f64::NAN);row[U::SCAN]=bfe_content::odf::num(d.get("ScanningRange"),0.);row[U::TRANSMIT]=bfe_content::odf::num(d.get("TransmitRange"),0.);let texture=d.get("MapTexture").and_then(bfe_content::Value::as_str);let handle=asset(texture.unwrap_or(""),&mut result)?;let row=&mut result.unit_defs[id];row[U::TEXTURE]=handle as f64;row[U::HAS_MAP_TEXTURE]=texture.is_some()as u8 as f64;}
-        for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);result.posts.push(Post{id,row,label:d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into(),region,counts:[[0.;PC::WORDS];8],count:0});}
+        for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);let label:String=d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into();let y=d["matrix"][13].as_f64().unwrap_or(0.);result.post_meta.push(HudPostMeta{id,name:name.clone(),display_name:if label.is_empty(){format!("COMMAND POST {}",index+1)}else{label.clone()},position:[row[P::X],y,row[P::Z]],team:row[P::TEAM]as u8,active:true});result.posts.push(Post{id,row,label,region,counts:[[0.;PC::WORDS];8],count:0});}
         let definitions = defs
             .weapons
             .iter()
@@ -202,10 +289,11 @@ impl Prepared {
         for (id, a) in self.assets.iter().enumerate() {
             let texture = a
                 .image
-                .map_or(if id == A::SOLID as usize { solid as i32 } else { -1 }, |i| {
+                .map_or(if id == A::SOLID as usize || id == 0 { solid as i32 } else { -1 }, |i| {
                     textures[i] as i32
                 });
-            bridge.hud_model_asset(id as u32, texture, a.width, a.height, texture >= 0);
+            let ready = if id == 0 { true } else { texture >= 0 };
+            bridge.hud_model_asset(id as u32, texture, a.width.max(if id == 0 { 1.0 } else { 0.0 }), a.height.max(if id == 0 { 1.0 } else { 0.0 }), ready);
         }
         for (i, (height, rows)) in self.fonts.iter().enumerate() {
             bridge.hud_model_font(i as u32, *height, rows);
@@ -232,7 +320,7 @@ impl Prepared {
             bridge.hud_model.input[at] = id as f64;
         }
         let indices: Vec<u32> = (0..render::QUADS as u32)
-            .flat_map(|i| [i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3])
+            .flat_map(|i| [i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 2, i * 4 + 1, i * 4 + 3])
             .collect();
         bridge.hud_init(&indices);
         let program = bridge.add_owned_program("post-hud/hud")?;
@@ -252,6 +340,15 @@ impl Prepared {
         input[render::IN_SLOTS..render::IN_SLOTS + 3].copy_from_slice(&[2., 3., 4.]);
         input[render::IN_VIEWPORT..render::IN_VIEWPORT + 2].copy_from_slice(&[size[0] as f64, size[1] as f64]);
         let mut posts=self.posts;for post in &mut posts{post.row[P::LABEL]=bridge.hud_model_text(&post.label,true)as f64;}
+        let names: HashMap<String, u32> = self.names.into_iter().collect();
+        let mut strings = HashMap::new();
+        if let Some(obj) = self.strings.as_object() {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    strings.insert(k.clone(), s.to_string());
+                }
+            }
+        }
         Ok(Hud {
             weapons,
             size,
@@ -259,11 +356,121 @@ impl Prepared {
             frames: 0,
             teams: [[0.; 4]; 8],
             health: f64::NAN,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,game_over:false,
+            names,
+            strings,
+            class_meta: self.class_meta,
+            post_meta: self.post_meta,
+            auto_build: true,
         })
     }
 }
 impl Hud {
     pub fn audio_facts(&self)->([f64;4],bool){([self.teams[1][0],self.teams[2][0],self.teams[1][1],self.teams[2][1]],self.game_over)}
+    pub fn apply_fallback(&mut self, bridge: &mut Bridge, snap: &crate::local::thread::FallbackSnapshot) {
+        for team in 1..=2usize {
+            let idx = team - 1;
+            self.teams[team][0] = snap.teams_tickets[idx] as f64;
+            self.teams[team][1] = snap.teams_start[idx] as f64;
+            self.teams[team][2] = 16.0;
+            self.teams[team][3] = snap.teams_bleed[idx] as u8 as f64;
+        }
+        self.game_over = snap.game_over;
+        self.countdown = snap.countdown;
+        self.losing = snap.losing;
+        let relation = |team: f64| -> f64 {
+            if team == 0. {
+                0.
+            } else if team == snap.own.team as f64 {
+                1.
+            } else if team >= 5. {
+                3.
+            } else {
+                2.
+            }
+        };
+        let x = &mut bridge.hud_model.input;
+        for i in 0..snap.post_count.min(self.posts.len()) {
+            let fp = &snap.posts[i];
+            let post = &mut self.posts[i];
+            post.row[P::TEAM] = fp.team as f64;
+            post.row[P::TOWARD] = fp.toward as f64;
+            post.row[P::PROGRESS] = fp.progress;
+            post.row[P::NEUTRALIZE] = fp.neutralize;
+            post.row[P::CONTESTED] = fp.contested as u8 as f64;
+            post.row[P::ACTIVE] = fp.active as u8 as f64;
+            post.row[P::RELATION] = relation(post.row[P::TEAM]);
+            post.row[P::TOWARD_RELATION] = relation(post.row[P::TOWARD]);
+            let at = hud_model::POSTS + i * P::WORDS;
+            x[at..at + P::WORDS].copy_from_slice(&post.row);
+            if let Some(meta) = self.post_meta.get_mut(i) {
+                meta.team = fp.team;
+                meta.active = fp.active;
+            }
+        }
+        let own_team = snap.own.team.clamp(1, 2) as usize;
+        let foe_team = if own_team == 1 { 2 } else { 1 };
+        x[H::OWN] = self.teams[own_team][0];
+        x[H::OWN_START] = self.teams[own_team][1];
+        x[H::OWN_BLEED] = self.teams[own_team][3];
+        x[H::FOE] = self.teams[foe_team][0];
+        x[H::FOE_START] = self.teams[foe_team][1];
+        x[H::FOE_BLEED] = self.teams[foe_team][3];
+        x[H::COUNTDOWN] = self.countdown;
+        x[H::LOSING] = self.losing as u8 as f64;
+        x[H::GAME_OVER] = self.game_over as u8 as f64;
+        if snap.own.alive && !self.weapons.is_empty() {
+            x[hud_model::WEAPONS..hud_model::WEAPONS + W::WORDS * 4].fill(0.);
+            let mut row = self.weapons[0].row;
+            row[W::LOADED] = (snap.primary_clip * row[W::ROUNDS_PER_CLIP].max(30.)).round();
+            row[W::SPARE] = (snap.primary_reserve * row[W::ROUNDS_PER_CLIP].max(30.)).round();
+            row[W::RESERVE] = snap.primary_reserve;
+            row[W::HEAT] = snap.primary_heat;
+            row[W::RELOADING] = (snap.primary_reload_left > 0.0) as u8 as f64;
+            row[W::RELOAD_LEFT] = snap.primary_reload_left;
+            for panel in [0usize, 2usize] {
+                let at = hud_model::WEAPONS + panel * W::WORDS;
+                x[at..at + W::WORDS].copy_from_slice(&row);
+            }
+            if let Some(sec) = self.weapons.iter().find(|w| w.channel == 1) {
+                let mut srow = sec.row;
+                srow[W::LOADED] = 4.0;
+                srow[W::SPARE] = 4.0;
+                srow[W::RESERVE] = 4.0;
+                for panel in [1usize, 3usize] {
+                    let at = hud_model::WEAPONS + panel * W::WORDS;
+                    x[at..at + W::WORDS].copy_from_slice(&srow);
+                }
+            }
+            x[H::ARSENAL] = 1.;
+            x[H::RETICLE] = 1.;
+            x[H::RETICLE_X] = 512.;
+            x[H::RETICLE_Y] = x[H::HEIGHT] / 2.;
+        }
+        let mut units = 0usize;
+        for p in &snap.players[..snap.player_count] {
+            if units == hud_model::MAX_UNITS || !p.alive {
+                continue;
+            }
+            let Some(def) = self.unit_defs.get(p.class_id) else {
+                continue;
+            };
+            let at = hud_model::UNITS + units * U::WORDS;
+            let input = &mut x[at..at + U::WORDS];
+            input.copy_from_slice(def);
+            input[U::ID] = (p.slot + 1) as f64;
+            input[U::GENERATION] = 1.0;
+            input[U::X..U::X + 3].copy_from_slice(&p.position);
+            input[U::VISUAL_X] = p.position[0];
+            input[U::VISUAL_Z] = p.position[2];
+            input[U::YAW] = p.yaw;
+            input[U::TEAM] = p.team as f64;
+            input[U::ALIVE] = 1.0;
+            input[U::DEAD] = 0.0;
+            input[U::HAS_POSITION] = 1.0;
+            units += 1;
+        }
+        x[H::UNITS] = units as f64;
+    }
     // Hud.update contributes gameplay observations once per displayed frame.
     // Health notifications wake the existing faders; summary records supply
     // tickets and objective facts without an authoritative client world.
@@ -292,6 +499,12 @@ impl Hud {
             }
         }
         for field in receiver.publications.iter(){if field.row[r::KIND]!=k::SUMMARY as f64{continue;}let bytes=&field.bytes[..field.length];if field.row[r::SCHEMA]==1.{let mut at=1+bytes.first().copied().unwrap_or(0)as usize*33;if let Some(flags)=bytes.get(at..at+5){self.game_over=flags[1]!=0;self.losing=flags[3]!=0;at+=13;if let Some(&present)=bytes.get(at){at+=1+if present!=0{8}else{0};if let Some(&present)=bytes.get(at){at+=1;self.countdown=if present==0{f64::NAN}else{bytes.get(at..at+8).map_or(f64::NAN,|v|f64::from_le_bytes(v.try_into().unwrap()))};}}}}else if field.row[r::SCHEMA]==2.&&bytes.len()>=23{let id=u16::from_le_bytes([bytes[0],bytes[1]])as usize;if let Some(post)=self.posts.iter_mut().find(|p|p.id==id){post.row[P::TEAM]=bytes[2]as f64;post.row[P::TOWARD]=bytes[3]as f64;post.row[P::PROGRESS]=f64::from_le_bytes(bytes[4..12].try_into().unwrap());post.row[P::NEUTRALIZE]=f64::from_le_bytes(bytes[12..20].try_into().unwrap());post.row[P::CONTESTED]=bytes[20]as f64;post.row[P::ACTIVE]=bytes[21]as f64;post.count=(bytes[22]as usize).min(8).min(bytes.len().saturating_sub(23)/3);for i in 0..post.count{post.counts[i][PC::TEAM]=bytes[23+i*3]as f64;post.counts[i][PC::COUNT]=u16::from_le_bytes([bytes[24+i*3],bytes[25+i*3]])as f64;}}}}
+        for (i, post) in self.posts.iter().enumerate() {
+            if let Some(meta) = self.post_meta.get_mut(i) {
+                meta.team = post.row[P::TEAM] as u8;
+                meta.active = post.row[P::ACTIVE] != 0.;
+            }
+        }
         // Wire health is in authored damage units. HudModel's fill and blink
         // rules consume fractions, so retain class maximum health at admission.
         // A mounted hull has its own class and damage scale, independent of
@@ -411,9 +624,11 @@ impl Hud {
         x[H::RETICLE] = receiver.own.alive as u8 as f64;
         x[H::RETICLE_X] = 512.;
         x[H::RETICLE_Y] = x[H::HEIGHT] / 2.;
-        bridge.hud_model_update();
-        bridge.hud_model_build(0, true);
-        self.quads = bridge.hud_model.batch.count;
-        self.frames += 1;
+        if self.auto_build {
+            bridge.hud_model_update();
+            bridge.hud_model_build(0, true);
+            self.quads = bridge.hud_model.batch.count;
+            self.frames += 1;
+        }
     }
 }
