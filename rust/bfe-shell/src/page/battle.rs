@@ -64,7 +64,7 @@ impl BattleLook {
         }
     }
 }
-/// CSS grid from page/view.js, in framebuffer pixels. The caller converts only
+/// CSS grid from page/view.js, in compositor logical pixels. The caller converts only
 /// published hit rectangles to the existing 1024-wide input plane.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpawnLayout {

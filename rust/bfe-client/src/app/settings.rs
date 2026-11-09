@@ -574,6 +574,7 @@ impl AppSettingsStore {
             update_channel: Some(self.desktop.update_channel.clone()),
             auto_check_updates: Some(self.desktop.auto_check_updates),
             discord_presence: Some(self.desktop.discord_presence),
+            presence: self.desktop.presence.clone(),
             preparations: Some(self.desktop.preparations.clone()),
         };
         self.desktop = self.desktop_store.save(&patch)?;
@@ -731,6 +732,18 @@ mod tests {
         store.interface.set("spawnScreenView", "classic");
         store.interface.set("scoreboardView", "page");
         store.save_player().expect("save player settings");
+
+        // Each offer answer must survive the atomic store's read/patch/write,
+        // otherwise a fresh client shows the question again on every launch.
+        for detail in ["off", "game", "full"] {
+            store.desktop.presence.get_or_insert_with(Default::default).discord =
+                Some(detail.into());
+            store.desktop.discord_presence = detail != "off";
+            store.save_desktop().expect("save presence choice");
+            let saved = AppSettingsStore::load(paths.clone());
+            assert_eq!(saved.desktop.presence.unwrap().discord.as_deref(), Some(detail));
+            assert_eq!(saved.desktop.discord_presence, detail != "off");
+        }
 
         let reloaded = AppSettingsStore::load(paths);
         assert_eq!(reloaded.interface.get_string("spawnScreenView"), "classic");

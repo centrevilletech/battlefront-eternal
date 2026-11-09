@@ -407,7 +407,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 /// Top-level `winit` [`ApplicationHandler`] owning the OS window, EGL/GLX surface,
 /// OpenGL context, [`ShellHost`], [`HostController`], [`PresenceController`], and [`AppState`].
 struct StandaloneWindowApp {
-    // Physical window coordinates are mapped once into the active framebuffer.
+    // Physical window coordinates are mapped once into the active interface plane.
     cursor_physical: [f64; 2],
     text_input: text_input::TextInput,
     modifiers: ModifiersState,
@@ -462,13 +462,13 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
-    fn framebuffer_cursor(&self) -> [f64; 2] {
+    fn interface_cursor(&self) -> [f64; 2] {
         let size = match &self.state {
             AppState::Battle(battle) => battle.size,
             _ => self
                 .shell
                 .as_ref()
-                .map_or(self.opts.size, |shell| shell.size),
+                .map_or(self.opts.size, |shell| shell.layout_size),
         };
         [
             self.cursor_physical[0] * size[0] as f64 / self.opts.size[0].max(1) as f64,
@@ -1081,7 +1081,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_physical = [position.x, position.y];
-                let [x, y] = self.framebuffer_cursor();
+                let [x, y] = self.interface_cursor();
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
                 match &mut self.state {
@@ -1098,7 +1098,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let down = state == ElementState::Pressed;
-                let [x, y] = self.framebuffer_cursor();
+                let [x, y] = self.interface_cursor();
                 if down && matches!(&self.state, AppState::Shell)
                     && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
                 {
@@ -1153,7 +1153,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let [x,y] = self.framebuffer_cursor();
+                let [x,y] = self.interface_cursor();
                 // Convert line or pixel scroll deltas into scoreboard / spawn scroll offsets.
                 let dy = match delta {
                     MouseScrollDelta::LineDelta(_, y) => -y as f64 * 100.0,
@@ -1423,6 +1423,19 @@ impl StandaloneWindowApp {
         self.sync_pointer_lock();
 
         let frame_res: Result<(), String> = (|| {
+            if let (Some(shell), Some(context), Some(window)) =
+                (&mut self.shell, &self.context, &self.window)
+            {
+                let display = context.display();
+                shell.resize(self.opts.size, window.scale_factor(), || unsafe {
+                    glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
+                })?;
+            }
+            if let (AppState::Battle(battle), Some(window)) = (&mut self.state, &self.window) {
+                battle.page_size = battle.size.map(|v| {
+                    (v as f64 / window.scale_factor()).round().max(1.) as i32
+                });
+            }
             match &mut self.state {
                 AppState::StartupLoader(loader_state) => {
                     // Poll background `PrepareSession` progress and render the loader screen.
@@ -1625,6 +1638,12 @@ impl StandaloneWindowApp {
                             "battle loading: timeline and admission complete; entering battle"
                         );
                         self.state = AppState::Battle(battle);
+                        // The pointer may not move during admission; initialize the new
+                        // overlay's hover and cursor icon from its actual window position.
+                        let [x, y] = self.interface_cursor();
+                        if let AppState::Battle(battle) = &mut self.state {
+                            battle.handle_cursor_move(x, y);
+                        }
                     }
                 }
                 AppState::Battle(battle) => {

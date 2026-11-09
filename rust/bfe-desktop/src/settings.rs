@@ -217,6 +217,8 @@ pub struct SettingsPatch {
     pub auto_check_updates: Option<bool>,
     /// Optional replacement for `discord_presence`.
     pub discord_presence: Option<bool>,
+    /// Remember the one-time offer answer and its activity detail across launches.
+    pub presence: Option<PresenceSettingsRecord>,
     /// Optional replacement for `preparations`.
     pub preparations: Option<BTreeMap<String, PreparationRecord>>,
 }
@@ -261,6 +263,9 @@ impl SettingsStore {
         }
         if let Some(dp) = patch.discord_presence {
             current.discord_presence = dp;
+        }
+        if let Some(presence) = &patch.presence {
+            current.presence = Some(presence.clone());
         }
         if let Some(preps) = &patch.preparations {
             current.preparations = preps.clone();

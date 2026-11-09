@@ -477,7 +477,7 @@ pub struct ShellHost {
     pub app: ShellApp,
     pub page: bfe_shell::page::Page,
     blur: super::page_blur::PageBlur,
-    /// CSS pixels per framebuffer pixel, matching Electron on Retina displays.
+    /// Last rendered menu target, used to recognize a double click.
     last_page_click: Option<(bfe_shell::page::Hit, Instant)>,
     /// Non-blocking LAN and Internet server browser service.
     pub browser: LiveServerBrowser,
@@ -497,6 +497,8 @@ pub struct ShellHost {
     pub content_dir: Option<PathBuf>,
     /// Current viewport dimensions `[width, height]` in physical pixels.
     pub size: [i32; 2],
+    /// Compositor logical pixels used by menu geometry and pointer hit regions.
+    pub layout_size: [i32; 2],
     /// Count of frames rendered by `ShellHost`.
     pub frames: u64,
 }
@@ -613,6 +615,7 @@ impl ShellHost {
             loading_stage_maps: HashMap::new(),
             content_dir: None,
             size,
+            layout_size: size,
             frames: 0,
         })
     }
@@ -815,14 +818,14 @@ impl ShellHost {
         self.page.bold = bold;
         self.page.regular = regular;
         self.page.medium = medium;
-        let button_w = ((self.size[0] as f64 * 0.30).min(400.) - 16.)
+        let button_w = ((self.layout_size[0] as f64 * 0.30).min(400.) - 16.)
             .round()
             .max(28.) as usize;
-        let button_h = (self.size[1] as f64 * 0.056).clamp(38., 56.).round() as usize;
+        let button_h = (self.layout_size[1] as f64 * 0.056).clamp(38., 56.).round() as usize;
         self.page.button_source = [button_w as f64, button_h as f64];
         for look in 0..3 {
-            let w = (self.size[0] as f64).round() as usize;
-            let h = (self.size[1] as f64).round() as usize;
+            let w = (self.layout_size[0] as f64).round() as usize;
+            let h = (self.layout_size[1] as f64).round() as usize;
             let rgba = super::page_surfaces::pattern(w, h, look);
             let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
             self.page.patterns[look] = self.core.add_texture(texture);
@@ -838,7 +841,7 @@ impl ShellHost {
         }
 
         // Rebuild `bfe-interface` fonts, surface, and `OptionsController` with loaded localization strings.
-        self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.size);
+        self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.layout_size);
         let mut opt_ctx = OptionsContext::default();
         opt_ctx.has_integrations = true;
         opt_ctx.strings = data
@@ -847,7 +850,7 @@ impl ShellHost {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         opt_ctx.surface_height = self.interface_surface.height;
-        opt_ctx.viewport = Some([self.size[0].max(1) as u32, self.size[1].max(1) as u32]);
+        opt_ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.options_ctrl = OptionsController::new(settings.interface.clone(), opt_ctx);
 
         let about = AboutInfo::from_content_dir(content_dir, Some(env!("CARGO_PKG_VERSION")));
@@ -901,7 +904,7 @@ impl ShellHost {
         if self.options_ctrl.stack.is_empty() {
             let mut ctx = self.options_ctrl.context.clone();
             ctx.surface_height = self.interface_surface.height;
-            ctx.viewport = Some([self.size[0].max(1) as u32, self.size[1].max(1) as u32]);
+            ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
             self.options_ctrl = OptionsController::new(settings.interface.clone(), ctx);
         }
         if let ScreenId::OptionsPage(page) = self.app.current_screen() {
@@ -1142,8 +1145,8 @@ impl ShellHost {
         };
 
         let at = self.loading_timeline.at(timeline_time);
-        let w = self.size[0] as f64;
-        let h = self.size[1] as f64;
+        let w = self.layout_size[0] as f64;
+        let h = self.layout_size[1] as f64;
         draw_loading_with_typeface(
             &mut self.batch,
             &self.fonts,
@@ -1173,8 +1176,8 @@ impl ShellHost {
         self.loading_time = time;
         self.loading_frames += 1;
         let at = self.loading_timeline.at(self.loading_time);
-        let w = self.size[0] as f64;
-        let h = self.size[1] as f64;
+        let w = self.layout_size[0] as f64;
+        let h = self.layout_size[1] as f64;
         draw_loading_with_typeface(
             &mut self.batch,
             &self.fonts,
@@ -1196,8 +1199,8 @@ impl ShellHost {
     pub fn draw_host_starting(&mut self, dt: f64, server_name: &str) {
         self.loading_time += dt.clamp(0.0, 0.1);
         let at = self.loading_timeline.at(self.loading_time);
-        let w = self.size[0] as f64;
-        let h = self.size[1] as f64;
+        let w = self.layout_size[0] as f64;
+        let h = self.layout_size[1] as f64;
         let status = format!("STARTING HOSTED SERVER: {server_name}");
         draw_loading_with_typeface(
             &mut self.batch,
@@ -1266,7 +1269,7 @@ impl ShellHost {
         }
         self.movie_texture.draw(&self.movies,self.backdrop.output_size(0,self.size));
         self.right_texture.draw(&self.right_movies,self.backdrop.output_size(1,self.size));
-        let rect = bfe_shell::media::preview_rect(self.size[0] as f64, self.size[1] as f64);
+        let rect = bfe_shell::media::preview_rect(self.layout_size[0] as f64, self.layout_size[1] as f64);
         self.preview_texture.draw(
             &self.preview_movies,
             [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
@@ -1282,9 +1285,9 @@ impl ShellHost {
         if !self.page.input_matches(&self.app) && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
         {
             eprintln!(
-                "[menu paint] {:?} framebuffer={:?}",
+                "[menu paint] {:?} layout={:?}",
                 self.app.current_screen(),
-                self.size
+                self.layout_size
             );
         }
         if settings
@@ -1302,8 +1305,8 @@ impl ShellHost {
                 &mut self.batch,
                 &self.textures,
                 &self.app,
-                self.size[0] as f64,
-                self.size[1] as f64,
+                self.layout_size[0] as f64,
+                self.layout_size[1] as f64,
             );
         } else if self.is_interface_options_active() {
             // Paint the existing options stack in the selected page look.
@@ -1315,21 +1318,21 @@ impl ShellHost {
                 &mut self.batch,
                 &self.textures,
                 &self.app,
-                self.size[0] as f64,
-                self.size[1] as f64,
+                self.layout_size[0] as f64,
+                self.layout_size[1] as f64,
             );
             self.page.paint_widgets(
                 &mut self.batch,
                 &self.textures,
                 &mut self.options_ctrl.stack,
-                self.size[0] as f64,
-                self.size[1] as f64,
+                self.layout_size[0] as f64,
+                self.layout_size[1] as f64,
                 &self.app.settings.menu_theme,
                 &mut self.options_hits,
             );
         } else {
-            let w = self.size[0] as f64;
-            let h = self.size[1] as f64;
+            let w = self.layout_size[0] as f64;
+            let h = self.layout_size[1] as f64;
             draw_shell(
                 &mut self.batch,
                 &self.fonts,
@@ -1346,8 +1349,8 @@ impl ShellHost {
                 .then(|| {
                     bfe_shell::page::Page::options_panel_rect(
                         &self.options_ctrl.stack,
-                        self.size[0] as f64,
-                        self.size[1] as f64,
+                        self.layout_size[0] as f64,
+                        self.layout_size[1] as f64,
                     )
                 })
                 .flatten()
@@ -1655,8 +1658,8 @@ impl ShellHost {
             return;
         }
         if self.is_interface_options_active() {
-            let vw = self.size[0].max(1) as f64;
-            let vh = self.size[1].max(1) as f64;
+            let vw = self.layout_size[0].max(1) as f64;
+            let vh = self.layout_size[1].max(1) as f64;
             let ev = self.options_ctrl.input.on_pointer_move(
                 &mut self.options_ctrl.stack,
                 &self.options_hits,
@@ -1674,8 +1677,8 @@ impl ShellHost {
         if self.app.popup.is_some() || self.app.profile.editing {
             return;
         }
-        let w = self.size[0].max(1) as f64;
-        let h = self.size[1].max(1) as f64;
+        let w = self.layout_size[0].max(1) as f64;
+        let h = self.layout_size[1].max(1) as f64;
         let ix = (x_px / w) * 1024.0;
         let iy = (y_px / h) * 768.0;
 
@@ -1907,8 +1910,8 @@ impl ShellHost {
         }
         if self.is_interface_options_active() {
             self.sync_options_controller(settings);
-            let vw = self.size[0].max(1) as f64;
-            let vh = self.size[1].max(1) as f64;
+            let vw = self.layout_size[0].max(1) as f64;
+            let vh = self.layout_size[1].max(1) as f64;
             let ev = self.options_ctrl.input.on_pointer_down(
                 &mut self.options_ctrl.stack,
                 &self.options_hits,
@@ -1923,8 +1926,8 @@ impl ShellHost {
             return self.flush_events(settings, audio_router);
         }
         self.handle_cursor_move(x_px, y_px);
-        let w = self.size[0].max(1) as f64;
-        let h = self.size[1].max(1) as f64;
+        let w = self.layout_size[0].max(1) as f64;
+        let h = self.layout_size[1].max(1) as f64;
         let ix = (x_px / w) * 1024.0;
         let iy = (y_px / h) * 768.0;
 
@@ -2036,7 +2039,10 @@ impl ShellHost {
         self.draw_range(0, first, true);
         self.blur.apply(&self.core.gl, self.canvas.framebuffer, 10.);
         let [w, h] = self.size;
-        let [x0, y0, x1, y1] = rect.map(|v| v.round() as i32);
+        let [x0, y0, x1, y1] = std::array::from_fn(|i| {
+            let axis = i % 2;
+            (rect[i] * self.size[axis] as f64 / self.layout_size[axis] as f64).round() as i32
+        });
         for clip in [
             [0, 0, x0, h],
             [x1, 0, w - x1, h],
@@ -2164,22 +2170,32 @@ impl ShellHost {
     pub fn resize(
         &mut self,
         new_size: [i32; 2],
+        scale_factor: f64,
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<(), String> {
-        if new_size[0] <= 0 || new_size[1] <= 0 || new_size == self.size {
+        if new_size[0] <= 0 || new_size[1] <= 0 {
             return Ok(());
         }
-        self.size = new_size;
-        self.blur.resize(&self.core.gl, new_size);
-        self.core.state.reset();
-        self.canvas = Canvas::new(make_gl(), new_size)?;
-        self.core.canvas_framebuffer = Some(self.canvas.framebuffer);
-        self.hud.input[IN_VIEWPORT] = new_size[0] as f64;
-        self.hud.input[IN_VIEWPORT + 1] = new_size[1] as f64;
-        self.interface_surface = shell_textures_to_interface_surface(&self.textures, new_size);
+        // Wayland first configures a logical extent, then sends its buffer scale.
+        // Keep the render target physical while CSS-like menu layout stays logical.
+        let layout_size = new_size.map(|v| (v as f64 / scale_factor).round().max(1.) as i32);
+        if new_size == self.size && layout_size == self.layout_size {
+            return Ok(());
+        }
+        if new_size != self.size {
+            self.size = new_size;
+            self.blur.resize(&self.core.gl, new_size);
+            self.core.state.reset();
+            self.canvas = Canvas::new(make_gl(), new_size)?;
+            self.core.canvas_framebuffer = Some(self.canvas.framebuffer);
+            self.hud.input[IN_VIEWPORT] = new_size[0] as f64;
+            self.hud.input[IN_VIEWPORT + 1] = new_size[1] as f64;
+        }
+        self.layout_size = layout_size;
+        self.interface_surface = shell_textures_to_interface_surface(&self.textures, layout_size);
         self.options_ctrl.context.surface_height = self.interface_surface.height;
         self.options_ctrl.context.viewport =
-            Some([new_size[0].max(1) as u32, new_size[1].max(1) as u32]);
+            Some([layout_size[0] as u32, layout_size[1] as u32]);
         self.options_ctrl.refresh_active_screen();
         self.frames = 0;
         Ok(())
