@@ -115,6 +115,10 @@ pub struct StageTexture {
 /// stills, and loading screen art.
 #[derive(Clone, Debug)]
 pub struct ShellTextures {
+    /// Composited native movie texture; shared with page-theme backdrops.
+    pub movie: u32,
+    /// Delayed, composited Instant Action flyover texture.
+    pub movie_preview: u32,
     /// 1x1 solid white texture handle (always non-zero when uploaded; `1` in
     /// headless tests).
     pub solid: u32,
@@ -128,6 +132,8 @@ impl Default for ShellTextures {
     /// Creates a default texture table with `solid = 1` for headless tests.
     fn default() -> Self {
         Self {
+            movie: 0,
+            movie_preview: 0,
             solid: 1,
             by_name: HashMap::new(),
             loading_stages: Vec::new(),
@@ -141,67 +147,17 @@ impl ShellTextures {
         self.by_name.get(name).copied().unwrap_or(0)
     }
 
-    /// Resolves the best available poster still texture for the current
-    /// [`ScreenId`] (`main`, `atat_screen`, `atte_screen`, `hoth_screen`,
-    /// `coreship_screen`, `generic2_screen`, `generic3_screen`).
+    /// Returns the live composited movie, or Instant Action's static art.
     pub fn backdrop_for(&self, screen: ScreenId) -> u32 {
-        // Candidate poster texture names in priority order for each screen,
-        // matching `SCREEN_MEDIA` (`src/shell/media.js`) and `instantAction`
-        // (`his_brief_bg` in `src/shell/screens.js`).
-        let candidates: &[&str] = match screen {
-            ScreenId::Gate => &["atat_screen", "main", "iface_bgmeta_space"],
-            ScreenId::Main | ScreenId::Popup => &["atat_screen", "main", "iface_bgmeta_space"],
-            ScreenId::Singleplayer => &["atte_screen", "hoth_screen", "main"],
-            ScreenId::InstantAction | ScreenId::InstantActionEra => {
-                &["his_brief_bg", "generic2_screen", "main"]
-            }
-            ScreenId::Options | ScreenId::OptionsPage(_) => {
-                &["coreship_screen", "generic3_screen", "main"]
-            }
-            ScreenId::Profile => &["generic2_screen", "coreship_screen", "main"],
-            ScreenId::Multiplayer
-            | ScreenId::MultiplayerList(_)
-            | ScreenId::DirectConnect
-            | ScreenId::HostDialog => &["hoth_screen", "generic3_screen", "main"],
-        };
-        // Return the first candidate texture that has a non-zero GL handle.
-        for &name in candidates {
-            let tex = self.get(name);
-            if tex != 0 {
-                return tex;
-            }
+        match screen {
+            ScreenId::InstantAction | ScreenId::InstantActionEra => self.get("his_brief_bg"),
+            _ => self.movie,
         }
-        0
     }
 
-    /// Resolves the map preview still texture (`map_<id>` or `map_unk`).
-    /// Looks up the per-map preview texture (`map_<id>` in lowercase ASCII)
-    /// without heap allocation, falling back to `map_unk` or `his_brief_bg`.
-    pub fn map_preview_for(&self, map_id: &str) -> u32 {
-        // Format `"map_<lowercase_id>"` on the stack without heap allocation.
-        let mut buf = [0u8; 32];
-        let prefix = b"map_";
-        let id_bytes = map_id.as_bytes();
-        if prefix.len() + id_bytes.len() <= buf.len() {
-            buf[..prefix.len()].copy_from_slice(prefix);
-            for (i, &b) in id_bytes.iter().enumerate() {
-                buf[prefix.len() + i] = b.to_ascii_lowercase();
-            }
-            if let Ok(key) = std::str::from_utf8(&buf[..prefix.len() + id_bytes.len()]) {
-                let tex = self.get(key);
-                if tex != 0 {
-                    return tex;
-                }
-            }
-        }
-        // Fall back to `map_unk` (or `his_brief_bg` if `map_unk` is absent)
-        // when the per-map preview still texture is not loaded.
-        let unk = self.get("map_unk");
-        if unk != 0 {
-            unk
-        } else {
-            self.get("his_brief_bg")
-        }
+    /// Returns the delayed live flyover texture for the selected map.
+    pub fn map_preview_for(&self, _map_id: &str) -> u32 {
+        self.movie_preview
     }
 }
 
@@ -1000,7 +956,7 @@ fn draw_popup_box(
 
 /// Populates `batch` with the current shell screen's geometry for a viewport of
 /// `(viewport_w, viewport_h)` pixels:
-/// 1. Full-screen poster backdrop (`textures.backdrop_for(base_screen)`) or
+/// 1. Full-screen movie backdrop (`textures.backdrop_for(base_screen)`) or
 ///    dark space-blue fallback quad.
 /// 2. Initial click/key gate (`ScreenId::Gate`: pulsing `GATE_TEXT` at
 ///    `AT = 0.82` of interface height).
@@ -1026,7 +982,7 @@ pub fn draw_shell(
     let active = app.current_screen();
     let base_screen = app.stack.last().copied().unwrap_or(ScreenId::Main);
 
-    // 1. Full-screen poster backdrop (`1024 x height`).
+    // 1. Full-screen movie backdrop (`1024 x height`).
     let bg_tex = textures.backdrop_for(base_screen);
     let full_m = anchor(0.0, 0.0, false, height);
     // Draw the screen's full-bleed background texture if available, or a

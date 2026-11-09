@@ -340,7 +340,7 @@ impl ShellApp {
     /// matching `createShell` in `src/shell/index.js`.
     pub fn new(data: ShellData, about: Option<&AboutInfo>) -> Self {
         let mut media = ShellMedia::new(&data);
-        let media_events = media.enter_immediate(&data, "start", false);
+        let media_events = media.begin_enter(&data, "start", false);
         let version_text = version_line(about, None);
         let mut app = Self {
             data,
@@ -1061,7 +1061,7 @@ impl ShellApp {
         // different `media_id` (or when first arriving on `Main` from `Gate`).
         let new_media = screen.media_id();
         if new_media != prev_media || self.stack.len() == 2 {
-            let evs = self.media.enter_immediate(&self.data, new_media, false);
+            let evs = self.media.begin_enter(&self.data, new_media, false);
             self.media_events.extend(evs);
         }
     }
@@ -1101,7 +1101,7 @@ impl ShellApp {
                     self.rebuild_cached_rows();
                     self.sound_queue.push("shell_menu_cancel");
                     let top = self.current_screen();
-                    let evs = self.media.enter_immediate(&self.data, top.media_id(), true);
+                    let evs = self.media.begin_enter(&self.data, top.media_id(), true);
                     self.media_events.extend(evs);
                 }
             }
@@ -1123,7 +1123,7 @@ impl ShellApp {
             self.row_cursor
                 .insert(Self::screen_key(ScreenId::Main), first_enabled);
             self.sound_queue.push("shell_menu_enter");
-            let evs = self.media.enter_immediate(&self.data, "main", false);
+            let evs = self.media.begin_enter(&self.data, "main", false);
             self.media_events.extend(evs);
         }
     }

@@ -19,3 +19,5 @@ content = { path = "../content" }
 jsrt = { path = "../jsrt" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+bfe-video = { path = "../bfe-video" }
+glow = "0.18"

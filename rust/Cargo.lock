@@ -392,7 +392,9 @@ dependencies = [
  "bfe-interface",
  "bfe-online",
  "bfe-render",
+ "bfe-video",
  "content",
+ "glow",
  "jsrt",
  "serde",
  "serde_json",
@@ -412,6 +414,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "x25519-dalek",
+]
+
+[[package]]
+name = "bfe-video"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

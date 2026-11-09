@@ -490,6 +490,8 @@ impl ShellScene {
 
         // Upload UI pieces, poster stills, map previews, and loading screen chrome.
         let mut textures = ShellTextures {
+            movie: 0,
+            movie_preview: 0,
             solid: 1,
             by_name: HashMap::new(),
             loading_stages: Vec::new(),

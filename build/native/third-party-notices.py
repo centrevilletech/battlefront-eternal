@@ -292,6 +292,23 @@ def main() -> int:
     existing_text = args.output.read_text(encoding="utf-8")
     crate_block = render_crate_section(crates)
     updated_text = update_notices_document(existing_text, crate_block)
+    # The decoder is compiled from upstream C, so Cargo metadata cannot see it.
+    # Generate its full notices here alongside the resolved Rust inventory.
+    vpx_start = "<!-- BEGIN LIBVPX -->"
+    vpx_end = "<!-- END LIBVPX -->"
+    license_dir = Path(__file__).resolve().parent / "licenses"
+    vpx_block = (vpx_start + "\n## libvpx 1.17.0\n\n"
+                 "The native movie decoder statically links libvpx (BSD-3-Clause).\n"
+                 "Source: <https://github.com/webmproject/libvpx/tree/v1.17.0>.\n\n"
+                 + "\n\n".join("```text\n" + (license_dir / ("libvpx-" + name)).read_text().rstrip() + "\n```"
+                                  for name in ("LICENSE", "PATENTS"))
+                 + "\n" + vpx_end)
+    if vpx_start in updated_text:
+        begin = updated_text.index(vpx_start)
+        end = updated_text.index(vpx_end) + len(vpx_end)
+        updated_text = updated_text[:begin] + vpx_block + updated_text[end:]
+    else:
+        updated_text = updated_text.replace(INSERT_BEFORE_HEADING, vpx_block + "\n\n" + INSERT_BEFORE_HEADING)
 
     if args.check:
         if updated_text != existing_text:

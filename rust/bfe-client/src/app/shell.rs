@@ -70,9 +70,8 @@ use three::{CoordinateSystem, Matrix4};
 /// and [`bfe_interface::Surface`].
 ///
 /// ## Texture Categories
-/// - **Era & Mode Backdrops**: `atat_screen`, `atte_screen`, `coreship_screen`,
-///   `hoth_screen`, `generic2_screen`, `generic3_screen`, `gc_screen`, `his_brief_bg`,
-///   `iface_bgmeta_space`, `main`.
+/// - **Static Art**: `his_brief_bg` for Instant Action and
+///   `iface_bgmeta_space` for loading screens. Movies use their own textures.
 /// - **3-Piece Capsules & Borders**: `buttonleft`, `buttonmid`, `buttonright`,
 ///   `headerbuttonleft`, `headerbuttonmid`, `headerbuttonright`, `border_3_pieces`,
 ///   `border_3_pieces_Selected`.
@@ -82,16 +81,8 @@ use three::{CoordinateSystem, Matrix4};
 /// - **Loading Screen Widgets**: `load_rotating_disk`, `load_led_0..2`,
 ///   `load_edge_horz`, `load_edge_vert`, `load_edge_corner`, `map_unk`.
 const NAMED_TEXTURES: &[&str] = &[
-    "atat_screen",
-    "atte_screen",
-    "coreship_screen",
-    "hoth_screen",
-    "generic2_screen",
-    "generic3_screen",
-    "gc_screen",
     "his_brief_bg",
     "iface_bgmeta_space",
-    "main",
     "buttonleft",
     "buttonmid",
     "buttonright",
@@ -116,7 +107,6 @@ const NAMED_TEXTURES: &[&str] = &[
     "load_edge_horz",
     "load_edge_vert",
     "load_edge_corner",
-    "map_unk",
 ];
 
 /// Converts [`ShellTextures`] and viewport dimensions into [`bfe_interface::Surface`]
@@ -514,6 +504,12 @@ impl ServerBrowserService for LiveServerBrowser {
 /// Front-end renderer and controller for the startup loader, click gate, shell menus,
 /// and `bfe-interface` options pages.
 pub struct ShellHost {
+    pub movies: bfe_shell::movies::MoviePlayer,
+    pub preview_movies: bfe_shell::movies::MoviePlayer,
+    movie_clock: std::time::Instant,
+    pub movie_allocs_max: u64,
+    movie_texture: bfe_shell::movie_gpu::MovieTexture,
+    preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
     pub canvas: Canvas,
     /// `bfe-render` GL core owning compiled shader programs and textures.
@@ -590,7 +586,13 @@ impl ShellHost {
         let font_tex = Self::upload_rgba(&core.gl, fw as i32, fh as i32, &font_rgba)?;
         core.add_texture(font_tex);
 
+        let movie_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
+        let preview_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
+        let movie_handle = core.add_texture(movie_texture.texture);
+        let preview_handle = core.add_texture(preview_texture.texture);
         let textures = ShellTextures {
+            movie: movie_handle,
+            movie_preview: preview_handle,
             solid: 1,
             by_name: HashMap::new(),
             loading_stages: Vec::new(),
@@ -626,6 +628,12 @@ impl ShellHost {
         let blur = super::page_blur::PageBlur::new(&core.gl, size)?;
         core.state.reset();
         Ok(Self {
+            movies: Default::default(),
+            preview_movies: Default::default(),
+            movie_clock: std::time::Instant::now(),
+            movie_allocs_max: 0,
+            movie_texture,
+            preview_texture,
             blur,
             canvas,
             core,
@@ -697,6 +705,8 @@ impl ShellHost {
         }
 
         let mut textures = ShellTextures {
+            movie: self.textures.movie,
+            movie_preview: self.textures.movie_preview,
             solid: 1,
             by_name: HashMap::new(),
             loading_stages: Vec::new(),
@@ -707,15 +717,6 @@ impl ShellHost {
             if let Some(url) = data.textures.get(name) {
                 if let Some((handle, _, _)) = upload_path(&url) {
                     textures.by_name.insert(name.to_string(), handle);
-                }
-            }
-        }
-        // Upload per-map preview thumbnails (`map_<id>`).
-        for map in &data.maps {
-            let preview_name = format!("map_{}", map.id);
-            if let Some(url) = data.textures.get(preview_name.as_str()) {
-                if let Some((handle, _, _)) = upload_path(&url) {
-                    textures.by_name.insert(preview_name, handle);
                 }
             }
         }
@@ -877,6 +878,12 @@ impl ShellHost {
         shell_audio.apply_media_events(&media, &data);
         audio_router.set_shell(Some(shell_audio));
 
+        // Initial media cues have already reached audio; start the same movie
+        // here rather than dropping the gate's video event with that drain.
+        if let Some(movie) = app.media.movie_of(&data, "start").cloned() {
+            self.movies.play(content_dir, movie, false, 0.);
+        }
+        self.movie_clock = std::time::Instant::now();
         self.app = app;
         self.content_dir = Some(content_dir.to_path_buf());
         self.frames = 0;
@@ -1127,30 +1134,13 @@ impl ShellHost {
         self.upload_and_draw_batch();
     }
 
-    /// Default prepared-media source while the movie host is being integrated.
-    /// Decoded frame textures use the same Page inputs, including provider UVs.
+    /// Share the live composited movie with both Page side backdrops and
+    /// its live map flyover. Page owns each panel's crop and placement.
     fn page_media_textures(&self) -> bfe_shell::page::MediaTextures {
         use bfe_shell::page::{FrameTexture, MediaTextures};
-        let right = self.textures.backdrop_for(ScreenId::Main);
-        let left = self.textures.get("coreship_screen");
-        let preview = self
-            .app
-            .data
-            .maps
-            .get(self.app.ia_available_selected)
-            .and_then(|map| {
-                self.textures
-                    .by_name
-                    .iter()
-                    .find(|(name, _)| name.strip_prefix("map_") == Some(map.id.as_str()))
-                    .map(|(_, texture)| FrameTexture::new(*texture))
-            });
         MediaTextures {
-            backdrops: [
-                FrameTexture::new(if left == 0 { right } else { left }),
-                FrameTexture::new(right),
-            ],
-            preview,
+            backdrops: [FrameTexture::new(self.textures.movie); 2],
+            preview: Some(FrameTexture::new(self.textures.movie_preview)),
         }
     }
 
@@ -1178,7 +1168,33 @@ impl ShellHost {
             self.app.gate_elapsed += dt;
             self.app.pulse_elapsed += dt;
         }
-        // Movie integration bind point: replace the provider on this line.
+        let root = self
+            .content_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("."));
+        let movie_alloc_start = super::render_thread_alloc_count();
+        // Movie timestamps use wall time, independent of the simulation/UI dt clamp.
+        let now = std::time::Instant::now();
+        let movie_dt = now.duration_since(self.movie_clock).as_secs_f64();
+        self.movie_clock = now;
+        self.movies.update(root, movie_dt);
+        self.preview_movies.update(root, movie_dt);
+        if std::mem::take(&mut self.movies.intro_ended) {
+            let (_, events) = self.app.media.finish_intro(None);
+            self.app.media_events.extend(events);
+        }
+        self.movie_texture.draw(&self.movies, self.size);
+        let rect = bfe_shell::media::preview_rect(self.size[0] as f64, self.size[1] as f64);
+        self.preview_texture.draw(
+            &self.preview_movies,
+            [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
+        );
+        self.core.state.reset();
+        if self.frames > 120 {
+            self.movie_allocs_max = self
+                .movie_allocs_max
+                .max(super::render_thread_alloc_count().saturating_sub(movie_alloc_start));
+        }
         // Page consumes current textures/crops and never assumes a still image.
         self.page.media = self.page_media_textures();
         if !self.page.input_matches(&self.app) && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
@@ -1260,6 +1276,72 @@ impl ShellHost {
     ) -> Option<ShellTransition> {
         let sounds = self.app.drain_sounds();
         let media = self.app.drain_media_events();
+        let root = self
+            .content_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("."));
+        for event in &media {
+            use bfe_shell::{data::ScreenMovie, media::MediaEvent};
+            match event {
+                MediaEvent::PlayMovie {
+                    intro_url,
+                    loop_url,
+                    play_intro,
+                } => {
+                    let find = |url: &Option<String>| {
+                        url.as_ref()
+                            .and_then(|url| self.app.media.clip_for_url(&self.app.data, url))
+                            .cloned()
+                    };
+                    self.movies.play(
+                        root,
+                        ScreenMovie {
+                            intro: find(intro_url),
+                            loop_clip: find(loop_url),
+                        },
+                        *play_intro,
+                        0.,
+                    );
+                    // Instant Action queues its preview before the screen's
+                    // empty backdrop event. Keep that preview alive.
+                    if !matches!(
+                        self.app.current_screen(),
+                        ScreenId::InstantAction | ScreenId::InstantActionEra
+                    ) {
+                        self.preview_movies.play(
+                            root,
+                            ScreenMovie {
+                                intro: None,
+                                loop_clip: None,
+                            },
+                            false,
+                            0.,
+                        );
+                    }
+                }
+                MediaEvent::PreviewMovie { loop_url, delay } => {
+                    let clip = loop_url.as_ref().and_then(|url| {
+                        self.app
+                            .data
+                            .maps
+                            .iter()
+                            .filter_map(|m| m.fly.as_ref())
+                            .find(|c| c.url == *url)
+                            .cloned()
+                    });
+                    self.preview_movies.play(
+                        root,
+                        ScreenMovie {
+                            intro: None,
+                            loop_clip: clip,
+                        },
+                        false,
+                        *delay,
+                    );
+                }
+                _ => (),
+            }
+        }
         let _ = settings.capture_from_shell_app(&self.app);
 
         if !sounds.is_empty() || !media.is_empty() {
@@ -1469,7 +1551,12 @@ impl ShellHost {
             if let Some((left, row)) = bfe_shell::render::hit_ia_list(&self.app, w, h, x_px, y_px) {
                 if left {
                     self.app.ia_focus = IaFocus::Available;
-                    self.app.ia_available_selected = row;
+                    if self.app.ia_available_selected != row {
+                        self.app.ia_available_selected = row;
+                        let map_id = self.app.data.maps.get(row).map(|map| map.id.clone());
+                        let event = self.app.media.preview(&self.app.data, map_id.as_deref());
+                        self.app.media_events.push(event);
+                    }
                 } else {
                     self.app.ia_focus = IaFocus::Selected;
                     self.app.ia_selected_cursor = row;

@@ -148,8 +148,13 @@ pub enum GatePhase {
 /// world-thread tick-time distribution and host proof counts for every admitted
 /// Instant Action battle.
 pub struct GateDriver {
-    page_proof:Option<super::page_proof::PageProof>,
-    pub(super) page_capture_done:bool,
+    movie_verification: bool,
+    movie_short: bool,
+    movie_stage: usize,
+    movie_baseline: Option<(Instant, u64, u64, f64)>,
+    movie_measurement: Option<serde_json::Value>,
+    page_proof: Option<super::page_proof::PageProof>,
+    pub(super) page_capture_done: bool,
     online_duel: bool,
     duel_input_tick: u32,
     spawn_posts: std::collections::BTreeMap<u8, String>,
@@ -221,8 +226,13 @@ impl GateDriver {
         let dir =
             screenshot_dir.unwrap_or_else(|| std::env::temp_dir().join("bfe-gate-screenshots"));
         Self {
-            page_proof:(script_name=="page-parity").then(super::page_proof::PageProof::new),
-            page_capture_done:false,
+            movie_verification: matches!(script_name, "movies" | "movies-page"),
+            movie_short: script_name == "movies-page",
+            movie_stage: 0,
+            movie_baseline: None,
+            movie_measurement: None,
+            page_proof: (script_name == "page-parity").then(super::page_proof::PageProof::new),
+            page_capture_done: false,
             online_duel: script_name == "online-duel",
             spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
                 .ok()
@@ -593,20 +603,148 @@ impl GateDriver {
         }
     }
 
+    // Exercise the same ShellHost used by interactive menus, with enough time
+    // for a full intro and a 60-second loop measurement before navigating.
+    fn step_movies(&mut self, shell: &mut ShellHost) -> Result<Option<ShellTransition>, String> {
+        if self.movie_short {
+            let elapsed = self.phase_started.elapsed().as_secs_f64();
+            let delays = [1., 2., 1., 2.];
+            if self.movie_stage >= delays.len() || elapsed < delays[self.movie_stage] {
+                return Ok(None);
+            }
+            match self.movie_stage {
+                0 => shell.app.unlock_gate(),
+                1 => self.save_shell_shot(shell, "movie-page-main-a.png")?,
+                2 => {
+                    self.save_shell_shot(shell, "movie-page-main-b.png")?;
+                    shell.app.push_screen(ScreenId::InstantAction);
+                }
+                3 => {
+                    self.save_shell_shot(shell, "movie-page-flyover.png")?;
+                    let summary = serde_json::json!({"theme":shell.app.settings.menu_theme,
+                        "movieFrames":shell.movies.stats.decoded,"previewFrames":shell.preview_movies.stats.decoded,
+                        "glErrors":self.gl_errors});
+                    std::fs::write(
+                        self.screenshot_dir.join("movie-page-summary.json"),
+                        serde_json::to_vec_pretty(&summary).unwrap(),
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if shell.movies.stats.decoded < 30
+                        || shell.preview_movies.stats.decoded < 10
+                        || self.gl_errors != 0
+                    {
+                        return Err(
+                            "Page movie capture did not present decoded frames cleanly".into()
+                        );
+                    }
+                    self.movie_measurement = Some(summary);
+                    self.transition_to(GatePhase::Finished);
+                    return Ok(Some(ShellTransition::Exit));
+                }
+                _ => (),
+            }
+            self.movie_stage += 1;
+            self.phase_started = Instant::now();
+            return Ok(None);
+        }
+        let elapsed = self.phase_started.elapsed().as_secs_f64();
+        let deadlines = [1., 0.35, 2., 60., 0.2, 2.5, 0.2, 2., 3.];
+        if self.movie_stage >= deadlines.len() || elapsed < deadlines[self.movie_stage] {
+            return Ok(None);
+        }
+        match self.movie_stage {
+            0 => {
+                self.save_shell_shot(shell, "movie-gate.png")?;
+                shell.app.unlock_gate();
+            }
+            1 => {
+                self.save_shell_shot(shell, "movie-main-intro.png")?;
+            }
+            2 => {
+                self.save_shell_shot(shell, "movie-main-loop-start.png")?;
+                let stats = &shell.movies.stats;
+                self.movie_baseline = Some((
+                    Instant::now(),
+                    stats.decoded,
+                    stats.dropped,
+                    stats.decode_ms,
+                ));
+                shell.movie_allocs_max = 0;
+            }
+            3 => {
+                self.save_shell_shot(shell, "movie-main-loop.png")?;
+                let (start, decoded, dropped, decode_ms) = self.movie_baseline.take().unwrap();
+                let stats = &shell.movies.stats;
+                let frames = stats.decoded - decoded;
+                self.movie_measurement = Some(serde_json::json!({
+                    "seconds": start.elapsed().as_secs_f64(),
+                    "decodedFrames": frames, "droppedFrames": stats.dropped-dropped,
+                    "decodeMsPerFrame": (stats.decode_ms-decode_ms)/frames.max(1) as f64,
+                    "rustMovieAllocationsPerFrameMax": shell.movie_allocs_max,
+                }));
+                shell.app.push_screen(ScreenId::Singleplayer);
+            }
+            4 => {
+                self.save_shell_shot(shell, "movie-forward-crossfade.png")?;
+            }
+            5 => {
+                self.save_shell_shot(shell, "movie-singleplayer-loop.png")?;
+                shell.app.back();
+            }
+            6 => {
+                self.save_shell_shot(shell, "movie-back-crossfade.png")?;
+            }
+            7 => {
+                self.save_shell_shot(shell, "movie-back-loop.png")?;
+                shell.app.push_screen(ScreenId::InstantAction);
+            }
+            8 => {
+                self.save_shell_shot(shell, "movie-flyover.png")?;
+                let stats = &shell.movies.stats;
+                let preview = &shell.preview_movies.stats;
+                let summary = serde_json::json!({
+                    "mainLoopMeasurement": self.movie_measurement,
+                    "totalDecodedFrames": stats.decoded, "totalDroppedFrames": stats.dropped,
+                    "previewFrames": preview.decoded, "previewDropped": preview.dropped,
+                    "glErrors": self.gl_errors,
+                });
+                std::fs::write(
+                    self.screenshot_dir.join("movie-summary.json"),
+                    serde_json::to_vec_pretty(&summary).unwrap(),
+                )
+                .map_err(|e| e.to_string())?;
+                if stats.decoded < 1000 || preview.decoded < 10 {
+                    return Err("Movie verification did not present enough decoded frames".into());
+                }
+                self.transition_to(GatePhase::Finished);
+                return Ok(Some(ShellTransition::Exit));
+            }
+            _ => (),
+        }
+        self.movie_stage += 1;
+        self.phase_started = Instant::now();
+        Ok(None)
+    }
+
     /// Steps the gate choreography while in the front-end shell.
     pub fn step_shell(
         &mut self,
         shell: &mut ShellHost,
         settings: &mut AppSettingsStore,
     ) -> Result<Option<ShellTransition>, String> {
-        if self.phase!=GatePhase::StartupLoader {
-            if let Some(mut proof)=self.page_proof.take(){
-                let result=proof.step(self,shell,settings);
-                self.page_proof=Some(proof);return result;
+        if self.phase != GatePhase::StartupLoader {
+            if let Some(mut proof) = self.page_proof.take() {
+                let result = proof.step(self, shell, settings);
+                self.page_proof = Some(proof);
+                return result;
             }
         }
         self.phase_frames += 1;
         let elapsed = self.phase_started.elapsed().as_secs_f64();
+
+        if self.movie_verification {
+            return self.step_movies(shell);
+        }
 
         match self.phase {
             GatePhase::GateScreen => {
@@ -1023,7 +1161,9 @@ impl GateDriver {
         // An interrupted run must not leave a success receipt. Require the
         // completed choreography and actual world ticks before claiming proof.
         let expected_battles = if self.target_map.is_some() { 1 } else { 3 };
-        let choreography_complete = if self.online_duel {
+        let choreography_complete = if self.movie_verification {
+            self.phase == GatePhase::Finished
+        } else if self.online_duel {
             self.online_battle_completed
         } else {
             self.phase == GatePhase::Finished
@@ -1045,9 +1185,15 @@ impl GateDriver {
             && self.gl_errors == 0
             && self.world_renderer_blocks == 0
             && self.steady_frames_measured > 0;
+        // Movie captures prove presentation only; keep the battle gate's
+        // requirement for measured world frames intact.
+        let movie_captured = self.movie_verification
+            && choreography_complete
+            && self.movie_measurement.is_some()
+            && self.gl_errors == 0;
         let summary = serde_json::json!({
-            "status": if self.page_proof.is_some(){if self.gl_errors!=0{"FAIL"}else if self.page_capture_done{"CAPTURED"}else{"INCOMPLETE"}}else if passed { "PASS" } else { "FAIL" },
-            "captureOnly":self.page_proof.is_some(),
+            "status": if self.page_proof.is_some() { if self.gl_errors != 0 { "FAIL" } else if self.page_capture_done { "CAPTURED" } else { "INCOMPLETE" } } else if movie_captured { "CAPTURED" } else if passed { "PASS" } else { "FAIL" },
+            "captureOnly": self.page_proof.is_some() || self.movie_verification,
             "glErrors": self.gl_errors,
             "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
@@ -1176,13 +1322,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn screenshot_tour_never_claims_a_battle_gate_pass(){
-        let dir=std::env::temp_dir().join(format!("bfe-page-receipt-{}",std::process::id()));
-        let mut tour=GateDriver::new("page-parity",Some(dir.clone()));
-        assert_eq!(tour.write_summary_report().unwrap()["status"],"INCOMPLETE");
-        tour.page_capture_done=true;
-        let receipt=tour.write_summary_report().unwrap();
-        assert_eq!(receipt["status"],"CAPTURED");assert_eq!(receipt["steadyFramesMeasured"],0);
+    fn screenshot_tour_never_claims_a_battle_gate_pass() {
+        let dir = std::env::temp_dir().join(format!("bfe-page-receipt-{}", std::process::id()));
+        let mut tour = GateDriver::new("page-parity", Some(dir.clone()));
+        assert_eq!(tour.write_summary_report().unwrap()["status"], "INCOMPLETE");
+        tour.page_capture_done = true;
+        let receipt = tour.write_summary_report().unwrap();
+        assert_eq!(receipt["status"], "CAPTURED");
+        assert_eq!(receipt["steadyFramesMeasured"], 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
