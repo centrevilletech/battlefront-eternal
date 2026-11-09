@@ -577,6 +577,7 @@ pub struct ShellHost {
     pub movies: bfe_shell::movies::MoviePlayer,
     pub preview_movies: bfe_shell::movies::MoviePlayer,
     movie_clock: std::time::Instant,
+    pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
     preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
@@ -696,6 +697,7 @@ impl ShellHost {
             movies: Default::default(),
             preview_movies: Default::default(),
             movie_clock: std::time::Instant::now(),
+            movie_allocs_max: 0,
             movie_texture,
             preview_texture,
             canvas,
@@ -1170,6 +1172,7 @@ impl ShellHost {
             .content_dir
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
+        let movie_alloc_start = super::render_thread_alloc_count();
         // Movie timestamps use wall time, independent of the simulation/UI dt clamp.
         let now = std::time::Instant::now();
         let movie_dt = now.duration_since(self.movie_clock).as_secs_f64();
@@ -1187,6 +1190,11 @@ impl ShellHost {
             [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
         );
         self.core.state.reset();
+        if self.frames > 120 {
+            self.movie_allocs_max = self
+                .movie_allocs_max
+                .max(super::render_thread_alloc_count().saturating_sub(movie_alloc_start));
+        }
         if self.is_interface_options_active() {
             // Render `OPTIONS` and its sub-pages using `bfe_interface::ClassicTheme::paint_stack`.
             self.sync_options_controller(settings);

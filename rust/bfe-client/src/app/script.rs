@@ -150,6 +150,8 @@ pub enum GatePhase {
 pub struct GateDriver {
     movie_verification: bool,
     movie_stage: usize,
+    movie_baseline: Option<(Instant, u64, u64, f64)>,
+    movie_measurement: Option<serde_json::Value>,
     online_duel: bool,
     duel_input_tick: u32,
     spawn_posts: std::collections::BTreeMap<u8, String>,
@@ -223,6 +225,8 @@ impl GateDriver {
         Self {
             movie_verification: script_name == "movies",
             movie_stage: 0,
+            movie_baseline: None,
+            movie_measurement: None,
             online_duel: script_name == "online-duel",
             spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
                 .ok()
@@ -597,7 +601,7 @@ impl GateDriver {
     // for a full intro and a 60-second loop measurement before navigating.
     fn step_movies(&mut self, shell: &mut ShellHost) -> Result<Option<ShellTransition>, String> {
         let elapsed = self.phase_started.elapsed().as_secs_f64();
-        let deadlines = [1., 0.35, 63., 0.2, 2.5, 0.2, 2., 3.];
+        let deadlines = [1., 0.35, 2., 60., 0.2, 2.5, 0.2, 2., 3.];
         if self.movie_stage >= deadlines.len() || elapsed < deadlines[self.movie_stage] {
             return Ok(None);
         }
@@ -610,30 +614,50 @@ impl GateDriver {
                 self.save_shell_shot(shell, "movie-main-intro.png")?;
             }
             2 => {
-                self.save_shell_shot(shell, "movie-main-loop.png")?;
-                shell.app.push_screen(ScreenId::Singleplayer);
+                self.save_shell_shot(shell, "movie-main-loop-start.png")?;
+                let stats = &shell.movies.stats;
+                self.movie_baseline = Some((
+                    Instant::now(),
+                    stats.decoded,
+                    stats.dropped,
+                    stats.decode_ms,
+                ));
+                shell.movie_allocs_max = 0;
             }
             3 => {
-                self.save_shell_shot(shell, "movie-forward-crossfade.png")?;
+                self.save_shell_shot(shell, "movie-main-loop.png")?;
+                let (start, decoded, dropped, decode_ms) = self.movie_baseline.take().unwrap();
+                let stats = &shell.movies.stats;
+                let frames = stats.decoded - decoded;
+                self.movie_measurement = Some(serde_json::json!({
+                    "seconds": start.elapsed().as_secs_f64(),
+                    "decodedFrames": frames, "droppedFrames": stats.dropped-dropped,
+                    "decodeMsPerFrame": (stats.decode_ms-decode_ms)/frames.max(1) as f64,
+                    "rustMovieAllocationsPerFrameMax": shell.movie_allocs_max,
+                }));
+                shell.app.push_screen(ScreenId::Singleplayer);
             }
             4 => {
+                self.save_shell_shot(shell, "movie-forward-crossfade.png")?;
+            }
+            5 => {
                 self.save_shell_shot(shell, "movie-singleplayer-loop.png")?;
                 shell.app.back();
             }
-            5 => {
+            6 => {
                 self.save_shell_shot(shell, "movie-back-crossfade.png")?;
             }
-            6 => {
+            7 => {
                 self.save_shell_shot(shell, "movie-back-loop.png")?;
                 shell.app.push_screen(ScreenId::InstantAction);
             }
-            7 => {
+            8 => {
                 self.save_shell_shot(shell, "movie-flyover.png")?;
                 let stats = &shell.movies.stats;
                 let preview = &shell.preview_movies.stats;
                 let summary = serde_json::json!({
-                    "decodedFrames": stats.decoded, "droppedFrames": stats.dropped,
-                    "decodeMsPerFrame": stats.decode_ms / stats.decoded.max(1) as f64,
+                    "mainLoopMeasurement": self.movie_measurement,
+                    "totalDecodedFrames": stats.decoded, "totalDroppedFrames": stats.dropped,
                     "previewFrames": preview.decoded, "previewDropped": preview.dropped,
                     "glErrors": self.gl_errors,
                 });
