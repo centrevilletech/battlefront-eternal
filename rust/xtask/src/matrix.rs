@@ -892,14 +892,24 @@ pub fn format_thousands(n: usize) -> String {
 }
 
 // Splits `--against DIR[:VARIANT]` into `(against_dir, against_variant)`,
-// matching `const [againstDir, againstVariant = null] = against ? against.split(':') : [null]`
-// in the matrix runner.
+// Preserve the matrix runner's optional variant suffix, while accepting a
+// native Windows drive-absolute path before looking for its separator.
 fn split_against(against: Option<&str>) -> (Option<&str>, Option<&str>) {
     let Some(raw) = against else {
         return (None, None);
     };
-    match raw.split_once(':') {
-        Some((dir, var)) => (Some(dir), Some(var)),
+    let bytes = raw.as_bytes();
+    let start = if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+    {
+        2
+    } else {
+        0
+    };
+    match raw[start..].find(':').map(|index| start + index) {
+        Some(index) => (Some(&raw[..index]), Some(&raw[index + 1..])),
         None => (Some(raw), None),
     }
 }
@@ -1648,6 +1658,27 @@ mod tests {
     // Verifies that `parse_matrix_rows` parses all 61 rows of the committed
     // `tools/world-hash-matrix.txt`, doubles `ticks` for `--twice` rows, and
     // rejects duplicate labels.
+    #[test]
+    fn reference_variant_separator_preserves_windows_drive_paths() {
+        assert_eq!(split_against(None), (None, None));
+        assert_eq!(
+            split_against(Some("reference:rust")),
+            (Some("reference"), Some("rust"))
+        );
+        assert_eq!(
+            split_against(Some(r"C:\example\reference")),
+            (Some(r"C:\example\reference"), None)
+        );
+        assert_eq!(
+            split_against(Some(r"C:\example\reference:rust")),
+            (Some(r"C:\example\reference"), Some("rust"))
+        );
+        assert_eq!(
+            split_against(Some("C:/example/reference:rust")),
+            (Some("C:/example/reference"), Some("rust"))
+        );
+    }
+
     #[test]
     fn matrix_file_parses_all_61_rows_and_doubles_twice_ticks() {
         let root = crate::repo_root();

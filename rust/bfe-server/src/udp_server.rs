@@ -139,7 +139,7 @@ struct SendOnlySink<'a>(&'a UdpSocket);
 
 impl ServerSink for SendOnlySink<'_> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
-        let _ = self.0.send_to(bytes, to);
+        crate::sockets::send_to(self.0, bytes, to);
     }
 
     fn on_hello(&mut self) -> Value {
@@ -181,7 +181,7 @@ struct PollSink<'a, F: FnMut(&str) -> bool> {
 
 impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
-        let _ = self.socket.send_to(bytes, to);
+        crate::sockets::send_to(self.socket, bytes, to);
     }
 
     /// Builds the server handshake `hello` payload (`server.hello` in `startUdpServer` in `src/udp-server.js`).
@@ -337,6 +337,7 @@ impl UdpGameServer {
     ) -> Result<Self, String> {
         let (socket, family) = bind_dual_stack_udp(port, bind_host)?;
         let actual_port = socket.local_addr().map(|a| a.port()).unwrap_or(port);
+        eprintln!("server UDP bound local={:?} family={family}", socket.local_addr());
         let _ = socket.set_nonblocking(true);
         let retry = RetryTokens::new().map_err(|e| format!("failed to init retry tokens: {e}"))?;
         let max_sessions = (max_players * 2 + 32).max(32);
@@ -410,11 +411,11 @@ impl UdpGameServer {
     pub fn reflexive(&self, server: SocketAddr, timeout: Duration) -> Result<ReflexiveMap, String> {
         let tx = stun::new_transaction().map_err(|e| e.to_string())?;
         let req = stun::encode_binding_request(&tx);
-        let _ = self.socket.send_to(&req, server);
+        crate::sockets::send_to(&self.socket, &req, server);
         let deadline = Instant::now() + timeout;
         let mut buf = [0u8; 512];
         while Instant::now() < deadline {
-            match self.socket.recv_from(&mut buf) {
+            match crate::sockets::recv_from(&self.socket, &mut buf) {
                 Ok((n, _from)) => {
                     if let Some(msg) = stun::decode_message(&buf[..n]) {
                         if msg.klass == stun::class::SUCCESS && msg.transaction == tx {
@@ -554,7 +555,7 @@ impl UdpGameServer {
             };
 
             loop {
-                match self.socket.recv_from(&mut self.recv_buf) {
+                match crate::sockets::recv_from(&self.socket, &mut self.recv_buf) {
                     Ok((len, rinfo)) => {
                         // `BFE-UDP/1` datagrams are capped at 1200 bytes (`PACKET_MAX_BYTES`).
                         // Oversize or zero-length datagrams are dropped before touching the crypto or session tables.
@@ -992,28 +993,17 @@ fn bind_dual_stack_udp(
             .or_else(|_| format!("[{host}]:{port}").parse())
             .map_err(|e| format!("invalid bind address {host}:{port}: {e}"))?;
         let family = if addr.is_ipv6() { "IPv6" } else { "IPv4" };
-        let sock = UdpSocket::bind(addr)
+        let sock = crate::sockets::udp(addr, false)
             .map_err(|e| format!("failed to bind UDP {addr}: {e}"))?;
         return Ok((sock, family));
     }
-    if let Ok(sock6) = UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port)) {
-        #[cfg(unix)]
-        // SAFETY: `sock6.as_raw_fd()` is a valid open socket descriptor owned by `sock6`, and `off`
-        // is a stack-allocated `c_int` matching `socklen_t` for `IPV6_V6ONLY = 0` dual-stack mode.
-        unsafe {
-            use std::os::unix::io::AsRawFd;
-            let off: libc::c_int = 0;
-            let _ = libc::setsockopt(
-                sock6.as_raw_fd(),
-                libc::IPPROTO_IPV6,
-                libc::IPV6_V6ONLY,
-                (&off as *const libc::c_int).cast(),
-                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-            );
-        }
+    if let Ok(sock6) = crate::sockets::udp(
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port),
+        false,
+    ) {
         return Ok((sock6, "IPv6"));
     }
-    let sock4 = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port))
+    let sock4 = crate::sockets::udp(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port), false)
         .map_err(|e| format!("failed to bind UDP port {port}: {e}"))?;
     Ok((sock4, "IPv4"))
 }

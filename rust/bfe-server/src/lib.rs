@@ -29,6 +29,7 @@ pub mod net_metrics;
 pub mod network_contract;
 pub mod online_server;
 pub mod operator;
+mod sockets;
 pub mod udp_peer;
 pub mod udp_server;
 pub mod world_worker;
