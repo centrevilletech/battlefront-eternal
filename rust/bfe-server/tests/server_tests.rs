@@ -1864,6 +1864,9 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
         while !stop_clone.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    // Windows hands out accepted sockets in the listener's non-blocking mode (Linux does not), so
+                    // the peek below would return WouldBlock before the request arrives and drop the connection.
+                    let _ = stream.set_nonblocking(false);
                     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
                     let mut peek = [0u8; 2048];
                     let n = match stream.peek(&mut peek) {
@@ -1872,7 +1875,6 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
                     };
                     let head = String::from_utf8_lossy(&peek[..n]);
                     if head.contains("Upgrade: websocket") || head.contains("upgrade: websocket") {
-                        let _ = stream.set_nonblocking(false);
                         if let Ok(mut ws) = tungstenite::accept(stream) {
                             let client_peer = "ab".repeat(32);
                             let offer_payload = serde_json::to_string(&json!({

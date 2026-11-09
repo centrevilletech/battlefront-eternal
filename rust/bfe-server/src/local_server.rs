@@ -184,17 +184,41 @@ impl LocalDedicatedServer {
         let max_per_addr = config.max_players_per_address.unwrap_or(8);
         let game_port = config.game_port.unwrap_or(18451);
 
-        // Bind the authoritative `BFE-UDP/1` game socket first so ephemeral port `0` resolves to `actual_port`.
-        let udp_server = UdpGameServer::bind(
-            game_port,
-            config.bind.as_deref(),
-            identity.inner.clone(),
-            max_players,
-            max_per_addr,
-            state_bytes_per_second,
-            content_id.clone(),
-            fp.clone(),
-        )?;
+        // The game uses one port number for the authoritative `BFE-UDP/1` socket and the `/info` TCP listener.
+        let bind_udp = |port: u16| {
+            UdpGameServer::bind(
+                port,
+                config.bind.as_deref(),
+                identity.inner.clone(),
+                max_players,
+                max_per_addr,
+                state_bytes_per_second,
+                content_id.clone(),
+                fp.clone(),
+            )
+        };
+        let (udp_server, info_listener) = if game_port == 0 {
+            // Any port: take an ephemeral TCP port first and then the same UDP port, retrying when UDP refuses it.
+            // A UDP ephemeral port can fall in a range Windows reserves for TCP, which refuses the /info listener.
+            let mut attempt = 0;
+            loop {
+                attempt += 1;
+                let listener = bind_info_tcp(0, config.bind.as_deref())?;
+                let port = listener
+                    .local_addr()
+                    .map_err(|e| format!("/info listener address: {e}"))?
+                    .port();
+                match bind_udp(port) {
+                    Ok(udp) => break (udp, listener),
+                    Err(e) if attempt >= 20 => return Err(e),
+                    Err(_) => {}
+                }
+            }
+        } else {
+            let udp = bind_udp(game_port)?;
+            let listener = bind_info_tcp(udp.port, config.bind.as_deref())?;
+            (udp, listener)
+        };
         let actual_port = udp_server.port;
 
         // Build the initial `/info` and LAN discovery snapshot (`const info = () => ({ ... })` in `src/local-server.js`).
@@ -215,11 +239,10 @@ impl LocalDedicatedServer {
         // Start the `GET /info` HTTP listener on the same TCP port number (`actual_port`).
         let info_http_stop = Arc::new(AtomicBool::new(false));
         let info_http_thread = start_info_http_listener(
-            actual_port,
-            config.bind.as_deref(),
+            info_listener,
             Arc::clone(&info_snapshot),
             Arc::clone(&info_http_stop),
-        )?;
+        );
 
         // Start the `BFE-LAN/1` UDP broadcast/multicast responder on `discovery_port` (default `18452`).
         let lan = if config.discovery {
@@ -660,14 +683,12 @@ pub fn build_info_json(
 /// Spawns the non-blocking HTTP server serving `GET /info` on the TCP game port
 /// (`http.createServer` in `startLocalServer` in `src/local-server.js`).
 fn start_info_http_listener(
-    port: u16,
-    bind_host: Option<&str>,
+    listener: TcpListener,
     info: Arc<RwLock<Value>>,
     stop: Arc<AtomicBool>,
-) -> Result<JoinHandle<()>, String> {
-    let listener = bind_info_tcp(port, bind_host)?;
+) -> JoinHandle<()> {
     let _ = listener.set_nonblocking(true);
-    Ok(thread::spawn(move || {
+    thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
@@ -679,7 +700,7 @@ fn start_info_http_listener(
                 Err(_) => break,
             }
         }
-    }))
+    })
 }
 
 /// Binds the `/info` TCP listener on `config.bind ?? "::"` with IPv4 fallback (`0.0.0.0`) when IPv6
