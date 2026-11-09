@@ -82,7 +82,6 @@ struct Adapter {
     // Hold the surface until the UI renderer releases all graphics resources.
     _surface: Rc<Surface<WindowSurface>>,
     cursor: Cell<CursorIcon>,
-    ime: Cell<bool>,
     cursor_requests: Cell<u64>,
     ime_requests: Cell<u64>,
 }
@@ -122,8 +121,9 @@ impl WindowAdapterInternal for Adapter {
             },
             _ => CursorIcon::Default,
         };
+        // The host arbitrates this UI request with the battle's turntable/map
+        // cursor. Writing the OS cursor here would bypass its cached owner.
         self.cursor.set(icon);
-        self.window.set_cursor(icon);
     }
     // winit converts logical caret geometry for the active compositor scale.
     // Preedit and committed text return through the ordinary window event path.
@@ -131,11 +131,9 @@ impl WindowAdapterInternal for Adapter {
         self.ime_requests.set(self.ime_requests.get() + 1);
         match request {
             InputMethodRequest::Disable => {
-                self.ime.set(false);
                 self.window.set_ime_allowed(false);
             }
             InputMethodRequest::Enable(p) | InputMethodRequest::Update(p) => {
-                self.ime.set(true);
                 self.window.set_ime_allowed(true);
                 self.window.set_ime_cursor_area(
                     winit::dpi::LogicalPosition::new(
@@ -192,21 +190,52 @@ impl slint::platform::Platform for Platform {
             window: self.adapter.window.clone(),
         }))
     }
-    fn set_clipboard_text(&self, text: &str, _: slint::platform::Clipboard) {
+    fn set_clipboard_text(&self, text: &str, destination: slint::platform::Clipboard) {
         let mut c = self.clipboard.borrow_mut();
         if c.is_none() {
             *c = arboard::Clipboard::new().ok();
         }
         if let Some(c) = c.as_mut() {
-            let _ = c.set_text(text);
+            #[cfg(target_os = "linux")]
+            {
+                use arboard::{LinuxClipboardKind, SetExtLinux};
+                let kind = if destination == slint::platform::Clipboard::SelectionClipboard {
+                    LinuxClipboardKind::Primary
+                } else {
+                    LinuxClipboardKind::Clipboard
+                };
+                let _ = c.set().clipboard(kind).text(text);
+            }
+            #[cfg(not(target_os = "linux"))]
+            if destination == slint::platform::Clipboard::DefaultClipboard {
+                let _ = c.set_text(text);
+            }
         }
     }
-    fn clipboard_text(&self, _: slint::platform::Clipboard) -> Option<String> {
+    fn clipboard_text(&self, source: slint::platform::Clipboard) -> Option<String> {
         let mut c = self.clipboard.borrow_mut();
         if c.is_none() {
             *c = arboard::Clipboard::new().ok();
         }
-        c.as_mut()?.get_text().ok()
+        let c = c.as_mut()?;
+        #[cfg(target_os = "linux")]
+        {
+            use arboard::{GetExtLinux, LinuxClipboardKind};
+            let kind = if source == slint::platform::Clipboard::SelectionClipboard {
+                LinuxClipboardKind::Primary
+            } else {
+                LinuxClipboardKind::Clipboard
+            };
+            c.get().clipboard(kind).text().ok()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            if source == slint::platform::Clipboard::DefaultClipboard {
+                c.get_text().ok()
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -218,7 +247,6 @@ pub(super) struct SlintHost {
     quit: Arc<AtomicBool>,
     cursor_position: slint::LogicalPosition,
     pressed: u8,
-    preedit: bool,
     pub frames: Cell<u64>,
     gl: Rc<glow::Context>,
     context: Rc<PossiblyCurrentContext>,
@@ -241,7 +269,6 @@ impl SlintHost {
             window: window.clone(),
             _surface: surface,
             cursor: Cell::new(CursorIcon::Default),
-            ime: Cell::new(false),
             cursor_requests: Cell::new(0),
             ime_requests: Cell::new(0),
         });
@@ -317,7 +344,6 @@ impl SlintHost {
             quit,
             cursor_position: slint::LogicalPosition::default(),
             pressed: 0,
-            preedit: false,
             frames: Cell::new(0),
             gl: readback,
             context,
@@ -372,10 +398,8 @@ impl SlintHost {
         self.in_panel().then(|| self.adapter.cursor.get())
     }
     fn in_panel(&self) -> bool {
-        self.root.get_proof_controls()
-            && !self.root.get_gameplay()
-            && (16.0..316.0).contains(&self.cursor_position.x)
-            && (16.0..190.0).contains(&self.cursor_position.y)
+        self.root
+            .invoke_controls_at(self.cursor_position.x, self.cursor_position.y)
     }
     fn text_event(&mut self, event: InternalKeyEvent) {
         self.root.window().dispatch_event(UiEvent::internal(event));
@@ -387,7 +411,6 @@ impl SlintHost {
         match event {
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.resize(),
             WindowEvent::Focused(f) => {
-                if !f { self.preedit=false; }
                 self.root
                     .window()
                     .dispatch_event(UiEvent::WindowActiveChanged(*f));
@@ -438,8 +461,12 @@ impl SlintHost {
                     }
                 });
                 if !down && self.root.get_proof_controls() {
-                    eprintln!("[slint] activations={} text={:?} cursor={:?}",
-                        self.root.get_activations(), self.root.get_draft(), self.adapter.cursor.get());
+                    eprintln!(
+                        "[slint] activations={} text={:?} cursor={:?}",
+                        self.root.get_activations(),
+                        self.root.get_draft(),
+                        self.adapter.cursor.get()
+                    );
                 }
                 return true;
             }
@@ -461,7 +488,6 @@ impl SlintHost {
             WindowEvent::Ime(ime) if self.root.get_text_focused() && !locked => {
                 match ime {
                     Ime::Preedit(text, range) => {
-                        self.preedit = !text.is_empty();
                         self.text_event(InternalKeyEvent {
                             event_type: KeyEventType::UpdateComposition,
                             preedit_text: text.into(),
@@ -470,7 +496,6 @@ impl SlintHost {
                         });
                     }
                     Ime::Commit(text) => {
-                        self.preedit = false;
                         let mut ev = InternalKeyEvent {
                             event_type: KeyEventType::CommitComposition,
                             ..Default::default()
@@ -482,16 +507,31 @@ impl SlintHost {
                 }
                 return true;
             }
-            WindowEvent::KeyboardInput { event, .. } if self.root.get_text_focused() && !locked => {
-                if self.preedit {
-                    return true;
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } if !locked && (self.root.get_text_focused() || is_modifier(&event.logical_key)) => {
+                let focused = self.root.get_text_focused();
+                // Focus acquisition replays held keys. Only modifiers belong in
+                // the UI state; replayed character keys must not insert text.
+                if *is_synthetic && !is_modifier(&event.logical_key) {
+                    return focused;
                 }
-                let text = key_text(&event.logical_key);
+                #[allow(unused_mut)]
+                let mut text = key_text(&event.logical_key);
                 #[cfg(target_os = "windows")]
                 let text_without_modifiers = {
                     use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
                     key_text(&event.key_without_modifiers()).unwrap_or_default()
                 };
+                #[cfg(target_os = "windows")]
+                if text.is_none()
+                    && !text_without_modifiers.is_empty()
+                    && !matches!(event.logical_key, WinitKey::Dead(_))
+                {
+                    text = Some(text_without_modifiers.clone());
+                }
                 if let Some(text) = text {
                     let down = event.state == ElementState::Pressed;
                     let mut e = InternalKeyEvent {
@@ -509,8 +549,9 @@ impl SlintHost {
                         e.text_without_modifiers = text_without_modifiers;
                     }
                     self.text_event(e);
+                    return focused;
                 }
-                return true;
+                return false;
             }
             _ => (),
         }
@@ -559,10 +600,47 @@ impl SlintHost {
         if self.root.get_draft().as_str() != "入力é" {
             return Err("IME composition commit lost Unicode".into());
         }
-        self.root.window().dispatch_event(UiEvent::PointerMoved {
-            position: slint::LogicalPosition::new(40., 125.),
+        let mut shapes = Vec::new();
+        for (x, y, expected) in [
+            (40., 70., CursorIcon::Text),
+            (40., 125., CursorIcon::Pointer),
+            (200., 125., CursorIcon::Grab),
+        ] {
+            self.cursor_position = slint::LogicalPosition::new(x, y);
+            self.root.window().dispatch_event(UiEvent::PointerMoved {
+                position: self.cursor_position,
+            });
+            let cursor = self.cursor().ok_or("proof pointer outside UI controls")?;
+            if cursor != expected {
+                return Err(format!("UI requested {cursor:?}, expected {expected:?}"));
+            }
+            self.adapter.window.set_cursor(cursor);
+            shapes.push(format!("{cursor:?}"));
+        }
+        self.root.window().dispatch_event(UiEvent::PointerPressed {
+            position: self.cursor_position,
+            button: slint::platform::PointerEventButton::Left,
         });
-        let report = serde_json::json!({"imeText":self.root.get_draft().as_str(),"imeRequests":self.adapter.ime_requests.get(),"cursorRequests":self.adapter.cursor_requests.get(),"cursor":format!("{:?}",self.adapter.cursor.get()),"sharedContext":self.context.is_current(),"uiFrames":self.frames.get(),"compositedFrames":self.composited_frames.get()});
+        // Cursor bindings are sampled during pointer traversal. Exercise an
+        // actual drag motion after the press changes TouchArea.pressed.
+        self.root.window().dispatch_event(UiEvent::PointerMoved {
+            position: self.cursor_position,
+        });
+        if self.adapter.cursor.get() != CursorIcon::Grabbing {
+            return Err("pressed UI drag cursor missing".into());
+        }
+        shapes.push("Grabbing".to_string());
+        self.adapter.window.set_cursor(CursorIcon::Grabbing);
+        self.root.window().dispatch_event(UiEvent::PointerReleased {
+            position: self.cursor_position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+        self.cursor_position = slint::LogicalPosition::new(40., 125.);
+        self.root.window().dispatch_event(UiEvent::PointerMoved {
+            position: self.cursor_position,
+        });
+        self.adapter.window.set_cursor(self.adapter.cursor.get());
+        let report = serde_json::json!({"imeText":self.root.get_draft().as_str(),"imeRequests":self.adapter.ime_requests.get(),"cursorRequests":self.adapter.cursor_requests.get(),"cursorShapes":shapes,"cursor":format!("{:?}",self.adapter.cursor.get()),"sharedContext":self.context.is_current(),"uiFrames":self.frames.get(),"compositedFrames":self.composited_frames.get()});
         if self.adapter.ime_requests.get() == 0 || self.adapter.cursor.get() != CursorIcon::Pointer
         {
             return Err(format!("UI platform hooks not exercised: {report}"));
@@ -601,4 +679,17 @@ fn key_text(key: &WinitKey) -> Option<slint::SharedString> {
         },
         _ => return None,
     })
+}
+
+fn is_modifier(key: &WinitKey) -> bool {
+    matches!(
+        key,
+        WinitKey::Named(
+            NamedKey::Shift
+                | NamedKey::Control
+                | NamedKey::Alt
+                | NamedKey::AltGraph
+                | NamedKey::Super
+        )
+    )
 }

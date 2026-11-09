@@ -8,6 +8,9 @@ export component GameUi inherits Window {
     in-out property <string> draft;
     out property <bool> text-focused: edit.has-focus;
     out property <int> activations;
+    public function controls-at(x: length, y: length) -> bool {
+        return root.proof-controls && !root.gameplay && x >= panel.x && x < panel.x + panel.width && y >= panel.y && y < panel.y + panel.height;
+    }
     public function focus-editor() { edit.focus(); }
     public function release-editor() { keyboard.focus(); }
     keyboard := FocusScope {}
@@ -18,7 +21,7 @@ export component GameUi inherits Window {
         background: #080b10b0;
         Text { text: "BATTLEFRONT ETERNAL"; color: #e9edf2; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
     }
-    Rectangle {
+    panel := Rectangle {
         visible: root.proof-controls && !root.gameplay;
         x: 16px; y: 16px; width: 300px; height: 174px;
         background: #0c1119e8; border-color: #ffa51d; border-width: 1px;

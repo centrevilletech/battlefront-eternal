@@ -75,7 +75,8 @@ def main():
             raise RuntimeError(f"app did not render every required stage: {summary}")
         ui = summary["slint"]
         if (not ui["sharedContext"] or ui["uiFrames"] < 1 or ui["compositedFrames"] < 1
-                or ui["imeText"] != "入力é" or ui["imeRequests"] < 1 or ui["cursor"] != "Pointer"):
+                or ui["imeText"] != "入力é" or ui["imeRequests"] < 1 or ui["cursor"] != "Pointer"
+                or ui["cursorShapes"] != ["Text", "Pointer", "Grab", "Grabbing"]):
             raise RuntimeError(f"Slint shared-context/input smoke failed: {ui}")
         for frame in summary["frames"]:
             fixture.verify_png_file(output / (frame["stage"] + ".png"), *frame["size"])

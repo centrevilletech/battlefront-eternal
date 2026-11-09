@@ -1458,7 +1458,7 @@ impl StandaloneWindowApp {
 
         self.update_rich_presence();
         if let Some(ui) = &self.slint_ui {
-            ui.update(matches!(&self.state, AppState::Battle(battle) if battle.wants_pointer_lock()));
+            ui.update(matches!(&self.state, AppState::Battle(_)));
             if ui.wants_quit() {
                 self.request_app_close(event_loop);
             }
