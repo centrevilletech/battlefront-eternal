@@ -28,7 +28,7 @@ if not source.exists():
     with tarfile.open(archive) as tar:
         tar.extractall(out, filter="data")
 build.mkdir(exist_ok=True)
-if not (build / "libvpx_srcs.txt").exists():
+if not all((build / name).exists() for name in ("libvpx_srcs.txt", "vp9_rtcd.h", "vpx_scale_rtcd.h", "vpx_dsp_rtcd.h")):
     # Generic C has no OS-specific assembly or pthread ABI. cc-rs selects the
     # actual target compiler after configure has selected the decoder sources.
     # Relative paths work in both Git Bash and native Windows GNU make;
@@ -52,7 +52,7 @@ if not (build / "libvpx_srcs.txt").exists():
                     "--disable-vp8", "--disable-vp9-encoder", "--disable-multithread",
                     "--disable-runtime-cpu-detect", "--disable-webm-io",
                     "--disable-dependency-tracking"], cwd=build, check=True, env=configure_env)
-    subprocess.run(["make", "libvpx_srcs.txt"], cwd=build, check=True, env=configure_env)
+    subprocess.run(["make", "libvpx_srcs.txt", "vp9_rtcd.h", "vpx_scale_rtcd.h", "vpx_dsp_rtcd.h"], cwd=build, check=True, env=configure_env)
 
 if os.name == "nt":
     config = build / "vpx_config.h"
