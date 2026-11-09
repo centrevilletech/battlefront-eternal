@@ -291,6 +291,32 @@ class DistributionTest(unittest.TestCase):
             self.assertEqual(native_release['platforms']['win32-x64']['executable'], 'bfe-client.exe')
             self.assertEqual(native_release['platforms']['win32-x64']['server_executable'], 'bfeserver.exe')
 
+    def test_appimage_rejects_bundled_host_display_libraries(self):
+        repo = Path(__file__).parents[1]
+        spec = importlib.util.spec_from_file_location('check_packages', repo / 'build/native/check-packages.py')
+        checks = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checks)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            nested = root / 'resources' / 'lib'
+            nested.mkdir(parents=True)
+            (nested / 'libpython3.so').write_bytes(b'allowed runtime')
+            checks.check_host_display_libraries(root)
+            # Cover both ABI peers and arbitrary SONAME versions on either arch.
+            for name in ('libwayland-client.so.0', 'libwayland-cursor.so.0',
+                         'libwayland-egl.so.1', 'libxkbcommon.so.0',
+                         'libxkbcommon-x11.so.0', 'libffi.so.8', 'libffi.so.9'):
+                with self.subTest(name=name):
+                    library = nested / name
+                    library.write_bytes(b'incompatible host ABI')
+                    with self.assertRaisesRegex(RuntimeError, 'must use host display library'):
+                        checks.check_host_display_libraries(root)
+                    library.unlink()
+            link = root / 'libxkbcommon.so'
+            link.symlink_to('absent-display-library.so')
+            with self.assertRaisesRegex(RuntimeError, 'must use host display library'):
+                checks.check_host_display_libraries(root)
+
     def test_native_packaging_and_package_checks_end_to_end(self):
         """Exercise build/native/{stage,package-linux,server-archive,update-payload,check-packages}.py."""
         repo = Path(__file__).parents[1]
