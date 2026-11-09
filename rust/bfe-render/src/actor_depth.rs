@@ -41,7 +41,15 @@ impl Bank {
         for (id,skin) in self.skins.iter_mut().enumerate(){let serial=self.input[id];if !skin.alive||serial==skin.serial||serial.is_nan(){continue;}
             let words=skin.size*skin.size*4;let base=skin.base;if base.checked_add(words).is_none_or(|n|n>self.bones.len()){self.clipped=self.clipped.saturating_add(1);continue;}
             let gl=&core.gl;let texture=core.textures.get(skin.texture as usize).copied();
-            unsafe{gl.pixel_store_i32(crate::core::UNPACK_FLIP_Y_WEBGL,0);gl.pixel_store_i32(crate::core::UNPACK_PREMULTIPLY_ALPHA_WEBGL,0);gl.pixel_store_i32(glow::UNPACK_ALIGNMENT,1);gl.bind_texture(glow::TEXTURE_2D,texture);gl.tex_sub_image_2d(glow::TEXTURE_2D,0,0,0,skin.size as i32,skin.size as i32,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(Some(crate::core::bytes(&self.bones[base..base+words]))));}skin.serial=serial;
+            unsafe{
+                // These pixel-store enums belong to WebGL. Native GL rejects
+                // them; raw bone texels need neither browser conversion.
+                #[cfg(target_arch="wasm32")]
+                {
+                    gl.pixel_store_i32(crate::core::UNPACK_FLIP_Y_WEBGL,0);
+                    gl.pixel_store_i32(crate::core::UNPACK_PREMULTIPLY_ALPHA_WEBGL,0);
+                }
+                gl.pixel_store_i32(glow::UNPACK_ALIGNMENT,1);gl.bind_texture(glow::TEXTURE_2D,texture);gl.tex_sub_image_2d(glow::TEXTURE_2D,0,0,0,skin.size as i32,skin.size as i32,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(Some(crate::core::bytes(&self.bones[base..base+words]))));}skin.serial=serial;
         }core.state.reset();
     }
     // Called once while preparing each shadow view, before the frame owner

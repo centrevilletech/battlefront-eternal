@@ -93,7 +93,7 @@ impl Replicas {
             bump: None,
             record: serde_json::Value::Null,
         };
-        let key = crate::static_scene::actor_key(&material)?;
+        let key = crate::static_scene::actor_key(&material, crate::shadows::COUNT)?;
         let program = bridge.add_owned_program(&key)?;
         let inputs = std::mem::take(&mut content.units);
         for (name, input) in inputs {
@@ -227,7 +227,7 @@ impl Replicas {
                 continue;
             }
             let name = weapon.geometry.map(|name| defs.names.text(name)).unwrap_or("");
-            let model = super::models::Model::new(content, bridge, textures, name)?;
+            let model = super::models::Model::new(content, bridge, textures, name, crate::shadows::COUNT)?;
             weapon_classes[id as usize] = Some(held.len());
             held.push(model);
         }
@@ -241,6 +241,7 @@ impl Replicas {
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
+        eprintln!("native unit admission: models={} classes={} slots={} nodes={nodes}", models.len(), classes.iter().flatten().count(), slots.len());
         Ok(Self {
             first_person,
             descriptor,
@@ -474,6 +475,19 @@ impl Replicas {
         // Renderer submission below borrows that storage synchronously.
         self.first_person.frame(&mut self.units, receiver, prediction, camera);
         self.units.frame();
+        // Graphics.updateVisible places remote roots after the pose phase.
+        // Units.frame deliberately leaves those matrices stale until this
+        // draw boundary; both instance culling and rider attachments need
+        // the composed root and skin, not the preceding frame's bind pose.
+        let mut places = 0;
+        for slot in &self.slots {
+            if slot.active {
+                self.units.places[places] = slot.actor as u32;
+                places += 1;
+            }
+        }
+        self.units.place_actors(places);
+
     }
     // Static admission leaves room for every live recipe, including held
     // models and multipart hulls. Counting actors alone starves large seats.

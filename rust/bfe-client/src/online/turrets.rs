@@ -185,7 +185,7 @@ impl Turrets {
                     center: part.center,
                     radius: part.radius,
                 };
-                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 })?;
+                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, crate::shadows::COUNT)?;
                 for row in admission.records {
                     recipes.push(Part { row, node });
                 }

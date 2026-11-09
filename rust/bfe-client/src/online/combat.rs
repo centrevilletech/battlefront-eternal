@@ -205,7 +205,7 @@ impl Combat {
             ]
             .map(|name| name.and_then(effect));
             let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");
-            styles.push(Style { model: Model::new(content, bridge, textures, name)?, impact, explosion });
+            styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion });
         }
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,

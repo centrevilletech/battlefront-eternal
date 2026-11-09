@@ -105,9 +105,9 @@ fn geometry(positions: &[f32], normals: &[f32], uv: &[f32], index: &[u32]) -> Ge
         groups: vec![],
     }
 }
-pub(crate) fn actor_key(material: &bfe_content_native::loader::Material) -> Result<String, String> {
+pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascades: usize) -> Result<String, String> {
     // actorProgram's closed identity comes from the same source manifest.
-    // Native inspection fixes shadows and lamp mode off explicitly.
+    // The caller supplies cascades for world actors; view models use none.
     let mut defines = vec![
         (
             if material.flags & 1 == 0 {
@@ -132,7 +132,7 @@ pub(crate) fn actor_key(material: &bfe_content_native::loader::Material) -> Resu
     // The selector includes draw kind as well as material defines. A rigid
     // look and a skinned bind-pose look are different programs even when
     // they cover the same triangles at admission.
-    let wanted = json!({"defines":defines,"skin":true,"cascades":0,"mode":"skinned","lamps":false});
+    let wanted = json!({"defines":defines,"skin":true,"cascades":cascades,"mode":"skinned","lamps":false});
     static MANIFEST: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     let manifest = MANIFEST.get_or_init(|| {
         serde_json::from_str(include_str!(
@@ -154,6 +154,7 @@ pub fn props(
     content: &BattleContent,
     textures: &[u32],
     placed: bfe_content_native::placed::Placements,
+    cascades: usize,
 ) -> Result<Admission, String> {
     let mut a = Admission {
         records: vec![],
@@ -180,7 +181,7 @@ pub fn props(
             .find(|m| m.name == format!("{}/{}", part.model, part.source))
             .ok_or("missing placed model resource")?;
         let material = &mesh.material;
-        let key = actor_key(material)?;
+        let key = actor_key(material, cascades)?;
         let program = bridge.add_owned_program(&key)?;
         // The batch builder's representative source part fixes its material.
         // Texture names alone are not enough to share batches: flags, scroll

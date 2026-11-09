@@ -172,6 +172,7 @@ pub struct Scene {
     pub bridge: Box<Bridge>,
     pub resources: Resources,
     far_target: u32,
+    shadows: Option<crate::shadows::Shadows>,
     image_step: [f64; bfe_render::post::STEP],
     image_state: [f64; bfe_render::post::STATE],
     pub canvas: Canvas,
@@ -343,6 +344,8 @@ impl Scene {
             0
         };
         let mut features = [0; L::FEATURES_LENGTH];
+        features[L::FEATURES_SHADOWS] = if live { crate::shadows::COUNT as u32 } else { 0 };
+        features[L::FEATURES_CSM] = live as u32;
         features[L::FEATURES_POINTS] = (ORDNANCE_LIGHTS + posts) as u32;
         let prepared_views=if live{Some(crate::online::first_person::Prepared::new(&mut content)?)}else{None};
         let prepared_particles=if live{Some(crate::online::particles::Prepared::new(&mut content)?)}else{None};
@@ -456,12 +459,12 @@ impl Scene {
             ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
         }
         let mut static_content =
-            crate::static_scene::props(&mut bridge, &content, &textures, placed)?;
+            crate::static_scene::props(&mut bridge, &content, &textures, placed, if live { crate::shadows::COUNT } else { 0 })?;
         for (class, image) in foliage.iter().zip(foliage_images) {
             bridge.foliage_class(
                 textures[image],
                 class.grass,
-                false,
+                live,
                 &class.definition.to_string(),
                 &class.cards,
                 &class.rows,
@@ -529,6 +532,9 @@ impl Scene {
                 vertices,
                 mesh.geometry.indices.clone(),
             )?;
+            if live && !mesh.material.far {
+                bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
+            }
             if let Some(weights) = mesh.geometry.buffers.get(1) {
                 bridge.static_source_weights(source, weights)?;
             }
@@ -630,6 +636,20 @@ impl Scene {
             size,
         )?;
         environment(&mut camera.view, &content.map);
+        if live {
+            // Graphics.applyDistance uses the authored near fade, including
+            // the foliage cutoff. The inspector's wide diagnostic lens is
+            // not a battle view-distance setting.
+            let range = &content.map["distance"]["nearScene"];
+            let end = range[3].as_f64().filter(|v| v.is_finite() && *v > 0.3).unwrap_or(500.);
+            let start = range[1].as_f64().filter(|v| v.is_finite() && *v >= 0. && *v < end).unwrap_or(300.);
+            set(&mut camera.view, "fade", &[start, end]);
+            let mut projection = Matrix4::default();
+            let top = 0.3 * (60.0f64.to_radians() * 0.5).tan();
+            let right = top * size[0] as f64 / size[1] as f64;
+            projection.make_perspective(-right, right, top, -top, 0.3, end, CoordinateSystem::WebGL);
+            set(&mut camera.view, "projectionMatrix", &projection.elements);
+        }
         let mut projection = Matrix4::default();
         let top = 2. * (60.0f64.to_radians() * 0.5).tan();
         let right = top * size[0] as f64 / size[1] as f64;
@@ -660,6 +680,8 @@ impl Scene {
         } else {
             None
         };
+        let bones = content.content.actors.iter().map(|(_, actor)| actor.bones.len() + 3).chain(static_content.records.iter().map(|row| row[bfe_render::instances::REC_BONES] as usize)).max().unwrap_or(1).max(1);
+        let shadows = if live { Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones)?) } else { None };
         bridge.frame_reserve_frame();
         Ok((
             Self {
@@ -667,6 +689,7 @@ impl Scene {
                 bridge,
                 resources,
                 far_target,
+                shadows,
                 image_step,
                 image_state,
                 canvas,
@@ -712,6 +735,8 @@ impl Scene {
         use bfe_render::frame_plan::layout::{
             binding as b, facts as f, kind as k, meta as m, role as r, stats as t,
         };
+        let mut frame_view = *view;
+        let view = &mut frame_view;
         self.bridge.frame_begin_frame();
         self.bridge.r.frames.plan.facts.fill(0.);
         self.bridge.r.frames.plan.facts[f::MAIN] = 1.;
@@ -786,6 +811,8 @@ impl Scene {
             .max()
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        if let Some(shadows) = &mut self.shadows { shadows.publish(&mut self.bridge, view, records)?; }
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         self.publish(r::NEAR, k::SCENE, records, bones, 0);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
         self.bridge.r.post.states[..bfe_render::post::STATE].copy_from_slice(&self.image_state);
@@ -836,7 +863,7 @@ impl Scene {
             .copy_from_slice(&world.elements);
         input[bfe_render::foliage::IN_EYE..bfe_render::foliage::IN_EYE + 3]
             .copy_from_slice(&view.values[32..35]);
-        input[bfe_render::foliage::IN_END] = 20000.;
+        input[bfe_render::foliage::IN_END] = view.values[bfe_render::cameras::layout::shader_frame::FADE + 1];
         input[bfe_render::foliage::IN_TIME] = view.values[35];
         self.bridge.foliage_frame();
     }
@@ -941,6 +968,7 @@ fn environment(view: &mut View, map: &serde_json::Value) {
         sun.set(v[0], v[1], v[2]).normalize();
     }
     set(view, "sunDirection", &[sun.x, sun.y, sun.z]);
+    set(view, "shadowStrength", &[1.]);
     let low = &map["distance"]["lowRes"];
     if let Ok(fog) = serde_json::from_value::<[f64; 3]>(low["fog"].clone()) {
         set(view, "fogColor", &fog.map(|v| v / 255.));

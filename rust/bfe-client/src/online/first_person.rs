@@ -124,7 +124,7 @@ impl Prepared {
             units.weapon_input[id * w::STRIDE + w::SET] = set;
             units.weapon_input[id * w::STRIDE + w::MODEL] = id as f64;
             let name = def["HighResGeometry"].as_str().or_else(|| def["GeometryName"].as_str()).unwrap_or("");
-            weapons.push(Model::new(content, bridge, textures, name)?);
+            weapons.push(Model::new(content, bridge, textures, name, 0)?);
         }
         Ok(Views { views, weapons, active: None, frames: 0 })
     }

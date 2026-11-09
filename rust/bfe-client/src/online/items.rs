@@ -43,7 +43,7 @@ impl Views {
             let index = models.len();
             definitions[i + 1] = Some(index);
             let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");
-            let model = Model::new(content, bridge, textures, name)?;
+            let model = Model::new(content, bridge, textures, name, crate::shadows::COUNT)?;
             let at = index * d::STRIDE;
             let row = &mut owner.definitions[at..at + d::STRIDE];
             for (at, key, default) in [(d::GRAVITY, "Gravity", 1.), (d::REBOUND, "Rebound", 0.3), (d::FRICTION, "Friction", 0.5)] {
