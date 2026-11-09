@@ -177,6 +177,11 @@ impl Capture {
     /// Items are admitted in source insertion order into the first free wire
     /// slot. Reclaim absent refs before admitting replacements, as item_begin
     /// did, even when the generated slab reused a lower physical index.
+    /// The combat registry's id for an item definition, 0 for one the
+    /// registry lacks.
+    pub(crate) fn item_id(&self, def: u32) -> f64 {
+        self.items.get(def as usize).copied().filter(|&id| id != 0).map_or(0.0, f64::from)
+    }
     fn capture_items(&mut self, store: &Store) -> Result<()> {
         for slot in &mut self.item_slots {
             if slot.source.is_some_and(|r| !store.items.items.contains(&r)

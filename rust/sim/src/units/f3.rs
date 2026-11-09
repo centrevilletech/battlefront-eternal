@@ -1429,6 +1429,12 @@ pub fn use_ai_stream_in(world_ctx: &mut crate::world::owner::World, key:&F3UnitK
     if changed {self::changed_in(world_ctx, key.reference());}
 }
 
+/// The immutable spread binding shared by an owner's arsenal. F3Random's
+/// network and viewpoint weapons bind the same named callback per weapon.
+pub(crate) fn weapon_random_binding_in(units: &super::owner::Units, slot: u32) -> Option<u32> {
+    units.state.as_ref()?.random_bindings.get(slot as usize)?.iter().skip(1).copied().find(|id| *id != NO_STREAM)
+}
+
 /// ClassicRandom.uniform (ai/random.js). The numeric binding keeps the shared
 /// AI stream's draw order without an import for every spread or chunks draw.
 pub(crate) fn random_draw_in(units: &mut super::owner::Units, unit: Ref<Unit>, weapon: Option<u32>) -> f64 { units.state.as_mut().expect("prepared unit service").random_draw(unit, weapon) }

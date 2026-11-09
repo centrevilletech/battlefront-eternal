@@ -23,6 +23,14 @@ pub(super) struct Hulls {
 fn binding(hulls: &Hulls, r: Ref<Vehicle>) -> &F3HullSetup {
     hulls.rows[r.slot as usize].as_ref().filter(|row| row.hull == r).expect("prepared hull combat")
 }
+/// Each prepared hull's class explosions (`vehicle.def.explosion` and
+/// `finalExplosion || explosion`), by hull.
+pub(crate) fn hull_explosions_in(units: &super::owner::Units, mut each: impl FnMut(Ref<Vehicle>, Option<u32>, Option<u32>)) {
+    let Some(hulls) = units.hulls.as_ref() else { return };
+    for row in hulls.rows.iter().flatten() {
+        each(row.hull, row.explosion, row.final_explosion);
+    }
+}
 // Vehicles.variant supplies this row only after the ordinary fleet adopted
 // the object. Its member is already in Units' shared insertion sequence.
 // Body and member reverse indices grow here, never during a blast traversal.

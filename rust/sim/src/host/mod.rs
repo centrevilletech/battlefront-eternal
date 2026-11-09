@@ -26,12 +26,19 @@
 //! Publication stays the caller's (`world_publish_into`), as does input
 //! admission (mailbox, `players_input`, fire, acknowledgements).
 mod after;
+pub mod battles; // matrix-b
 mod before;
 mod capture;
 mod drain;
 mod edges;
+mod pads; // matrix-b
+#[cfg(test)]
+mod presentation_fault; // matrix-b
+mod vehicle_input; // matrix-b
 pub mod journal;
-pub mod json;
+pub mod mount; // matrix-b
+pub mod random; // matrix-b
+pub mod recon; // matrix-b
 
 pub use capture::Capture;
 
@@ -42,6 +49,15 @@ use crate::store::block::Block;
 use crate::store::StrId;
 use crate::world::admit::{Call, Returned};
 use journal::Journal;
+
+/// What the host's records name from the battle's content that the
+/// world's own tables do not keep, from whoever admitted the world.
+#[derive(Clone, Debug, Default)]
+pub struct Content {
+    /// Each ordnance definition's class (`def.class`), by definition
+    /// index: a grenade record's `def`.
+    pub ordnance_classes: Vec<Option<StrId>>,
+}
 
 /// One network client of the authority (`snapshot-host.js` `clients` and
 /// `multiplayer-world.js` `byHandle`, which the local server keeps as one):
@@ -58,6 +74,9 @@ struct Client {
 
 /// The authority host's state between ticks, owned by the Context.
 pub struct Authority {
+    pad_owners: pads::Owners, // matrix-b
+    vehicle_input: vehicle_input::Policy, // matrix-b
+    recon_definitions: recon::Definitions, // matrix-b
     /// Whether `world_host_start` took the admission's flags and lives.
     started: bool,
     /// `vs.water?.level`: the level the last step left (NaN before it).
@@ -85,9 +104,13 @@ pub struct Authority {
     toggles: Vec<(usize, u8)>,
     /// The combat capture's launched rounds awaiting their impact.
     projectiles: Vec<((u8, u32, u32), String)>,
+    /// The dynamic capture's rounds awaiting their impact.
+    dynamics: Vec<((u8, u32, u32), crate::gen::WireDynamicFact)>,
     /// The presentation capture over the wire's combat capture, when the
     /// host publishes one.
     capture: Option<Capture>,
+    /// The content names the records carry.
+    content: Content,
     clients: Vec<Client>,
     /// The clients' presses by body (store slot) for the drain.
     presses: Vec<(u32, [Option<f64>; 2])>,
@@ -100,8 +123,11 @@ pub struct Authority {
 impl Default for Authority {
     fn default() -> Self {
         Self {
+            recon_definitions: recon::Definitions::default(), // matrix-b
             started: false,
             water_level: f64::NAN,
+            pad_owners: pads::Owners::default(), // matrix-b
+            vehicle_input: vehicle_input::Policy::default(), // matrix-b
             journal: Journal::new(),
             journal_cursor: 0,
             event_epoch: 0,
@@ -112,7 +138,9 @@ impl Default for Authority {
             written: Vec::new(),
             toggles: Vec::new(),
             projectiles: Vec::new(),
+            dynamics: Vec::new(),
             capture: None,
+            content: Content::default(),
             clients: Vec::new(),
             presses: Vec::new(),
             views: Vec::new(),
@@ -130,13 +158,21 @@ impl Authority {
     /// last wrote into the movement kernel during admission (`bodiesIn`
     /// writes every body) and the lives the admission built, whose
     /// dispensers it bound; later changes bind theirs.
-    fn start(&mut self, context: &Context, capture: Option<Capture>) -> Result<(), String> {
+    fn start(
+        &mut self,
+        context: &Context,
+        capture: Option<Capture>,
+        content: Content,
+    ) -> Result<(), String> {
         self.enabled = match context.invoke_export("bank:MOVEMENT_FLAGS", &Call::default()) {
             Ok(Returned::Bytes(bytes)) => bytes,
             other => return Err(format!("bank:MOVEMENT_FLAGS: {other:?}")),
         };
+        self.pad_owners = pads::Owners::bind(context)?; // matrix-b
+        self.vehicle_input.admit(context)?; // matrix-b
         self.written = self.enabled.clone();
         self.capture = capture;
+        self.content = content;
         self.bind_dispensers(context)?;
         self.started = true;
         Ok(())
@@ -149,11 +185,11 @@ impl Authority {
         input: WorldTickInput,
     ) -> Result<WorldTickOutput, String> {
         if !self.started {
-            self.start(context, None)?;
+            self.start(context, None, Content::default())?;
         }
-        let (tick, dt, at) = (input.tick, input.dt, input.at);
+        let (tick, dt) = (input.tick, input.dt);
         self.advance_edges(context, tick)?;
-        self.before_step(context, tick, dt, at)?;
+        self.before_step(context, tick, dt)?;
         let output = context
             .world_step(input)
             .map_err(|e| e.message().to_string())?;
@@ -162,8 +198,10 @@ impl Authority {
             return Ok(output);
         }
         self.water_level = output.level;
-        self.acknowledge(context, tick, output.players_events as usize)?;
+        // `game.beforeWorldFinish` mirrors the players' presses before
+        // `worldTick.finish()` drains the notices that read them.
         self.mirror_shots(context)?;
+        self.acknowledge(context, tick, output.players_events as usize)?;
         self.mirror(context)?;
         self.consumed_edges(context, tick)?;
         Ok(output)
@@ -172,11 +210,22 @@ impl Authority {
 
 impl Context {
     /// The host's state at the first tick: the admission's body flags and
-    /// lives, and the wire's presentation capture when the host publishes
-    /// one. `world_tick` starts without a capture when this was not called.
-    pub fn world_host_start(&self, capture: Option<Capture>) -> Result<(), Error> {
-        self.host(|host| host.start(self, capture))?
+    /// lives, the wire's presentation capture when the host publishes one,
+    /// and the content names its records carry. `world_tick` starts without
+    /// a capture or names when this was not called.
+    pub fn world_host_start(
+        &self,
+        capture: Option<Capture>,
+        content: Content,
+    ) -> Result<(), Error> {
+        self.host(|host| host.start(self, capture, content))?
             .map_err(Error::host)
+    }
+
+    /// The fleet's flight assists (`vehicles.flightAssists = aiDifficulty
+    /// !== 'hard'`): on by default, as at the default difficulty.
+    pub fn world_host_flight_assists(&self, on: bool) -> Result<(), Error> {
+        self.host(|host| host.vehicle_input.set_assists(on))
     }
 
     /// A network client joins the authority (`snapshot-host.js` `add`): its

@@ -78,8 +78,10 @@ impl Authority {
             // before (worldTick.complete() follows the step): the capture's
             // records carry that tick.
             let mut drained = Drain {
+                recon_definitions: &self.recon_definitions, // matrix-b
                 tick: tick - 1.0,
                 capture: self.capture.as_ref(),
+                content: &self.content,
                 journal: &mut self.journal,
                 presses: &self.presses,
                 units: &units,
@@ -87,6 +89,7 @@ impl Authority {
                 toggles: &mut self.toggles,
                 prop_bodies: &prop_bodies,
                 projectiles: &mut self.projectiles,
+                dynamics: &mut self.dynamics,
             };
             self.event_offset = drained.run(context, &events, self.event_offset, |at| {
                 if at < players_events {
@@ -213,19 +216,18 @@ impl Authority {
         Ok(())
     }
 
-    /// `mirrorShots()` (src/runtime/multiplayer-world.js): each client's
-    /// presses this tick (`players_shots`), by button.
+    /// `mirrorShots()` (src/runtime/multiplayer-world.js): the presses of
+    /// each player the players' phase listed this tick (`players_shots`),
+    /// by button, onto his body (`u.networkShots`); a player it did not
+    /// list, or one without a body, keeps what his body had.
     pub(super) fn mirror_shots(&mut self, context: &Context) -> Result<(), String> {
-        for client in &mut self.clients {
-            client.presses = [None, None];
-        }
         match context.invoke_export("players_shots", &Call::default()) {
             Ok(Returned::Row(words)) if words.len() >= B::WORDS => {
                 let (row, heap) = block_row(&words);
                 let list = gen::PlayerShotList::take(row, heap);
                 for shots in &list.players {
-                    if let Some(client) = self.clients.iter_mut().find(|c| c.player == shots.handle)
-                    {
+                    let client = self.clients.iter_mut().find(|c| c.player == shots.handle);
+                    if let Some(client) = client.filter(|c| c.unit.is_some()) {
                         client.presses = [shots.fire0, shots.fire1];
                     }
                 }

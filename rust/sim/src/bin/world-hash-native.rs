@@ -23,12 +23,20 @@
 //! Node dump. Exit status 0 when every frame ran.
 #[path = "world-hash-native/admission.rs"]
 mod admission;
+#[path = "world-hash-native/random.rs"] mod random; // matrix-b
+#[path = "world-hash-native/mount.rs"] mod mount; // matrix-b
+#[path = "world-hash-native/recon.rs"] mod recon; // matrix-b
+#[path = "world-hash-native/battles.rs"] mod battles; // matrix-b
 #[path = "world-hash-native/host.rs"]
 mod host;
+#[path = "world-hash-native/json.rs"]
+mod json;
 #[path = "world-hash-native/observe.rs"]
 mod observe;
 #[path = "world-hash-native/published.rs"]
 mod published;
+#[path = "world-hash-native/registry.rs"]
+mod registry;
 
 use std::env;
 use std::fs;
@@ -39,7 +47,6 @@ use std::process;
 use bfe_sim::abi::context::Context;
 use bfe_sim::abi::context_step::bank;
 use bfe_sim::gen::{self, WorldTickInput};
-use bfe_sim::host::json::Json;
 use bfe_sim::world::admit::Options;
 use serde_json::Value;
 
@@ -163,20 +170,13 @@ fn tick_input(encoded: &str) -> Result<WorldTickInput, String> {
     Ok(WorldTickInput::take(&words, &[]))
 }
 
-fn run(args: &Args) -> Result<(), String> {
+fn run(args: &Args) -> Result<(), String> { battles::run(args) } // matrix-b
+
+fn run_battle(args: &Args, battle: usize) -> Result<(), String> { // matrix-b
     let frames = read_frames(&args.inputs, &args.label)?;
-    if args.battles > 1 && frames.iter().any(|f| f["battle"].as_u64().unwrap_or(0) > 0) {
-        return Err("a later battle in one process needs the native admission (its construction is not in the recording)".into());
-    }
     let mut context = Context::new();
     let started = std::time::Instant::now();
-    let handles = admission::admit_world(
-        &mut context,
-        &args.label,
-        &args.options,
-        &args.admissions,
-        &args.content,
-    )?;
+    let handles = battles::admit(&mut context, args, battle)?; // matrix-b
     eprintln!(
         "{}: admitted in {:.1} s (publication {}, host {}, mailbox {}, edges {}, player {})",
         args.label,
@@ -189,15 +189,22 @@ fn run(args: &Args) -> Result<(), String> {
     );
     let admitted = admission::Admitted { handles };
     let mut host = host::Host::new(context, admitted, args.options.seed)?;
-    host.learn_player()?;
+    let (explosions, content) = registry::content_tables(
+        &host.context,
+        &args.content,
+        &args.options,
+        host.admitted.handles.store_source,
+    )?;
+    host.learn_player(explosions, content)?;
     let mut step_ms = 0.0;
     let mut measured = 0u32;
-    let mut json = Json::new();
+    let mut json = json::Json::new();
     let mut events = Vec::new();
     let stdout = std::io::stdout();
     let mut out = std::io::BufWriter::new(stdout.lock());
+    let prefix = battles::prefix(battle); // matrix-b
     let limit = args.ticks.map_or(frames.len(), |n| n.min(frames.len()));
-    for frame in frames.iter().take(limit) {
+    for frame in frames.iter().filter(|f| battles::frame_battle(f) == battle).take(limit) { // matrix-b
         // world-hash.mjs: now += 1000 / 60 (the recorded value), the
         // clock's tick is the one before, the command is this tick's.
         let now = frame["now"].as_f64().ok_or("frame without now")?;
@@ -212,9 +219,7 @@ fn run(args: &Args) -> Result<(), String> {
         // game.worldClock.tick before the step is the tick before this one.
         let tick = input.tick;
         let world_tick = tick - 1.0;
-        if !frame["mount"].as_array().is_some_and(Vec::is_empty) {
-            return Err("recorded mount attempts are not replayed yet".into());
-        }
+        mount::replay(&mut host, &frame["mount"], tick)?; // matrix-b
         host.input(&frame["input"], world_tick, now)?;
         if !frame["fire"].is_null() {
             host.fire(&frame["fire"], world_tick, now)?;
@@ -263,6 +268,7 @@ fn run(args: &Args) -> Result<(), String> {
                 &published::sent_lines(&host.publication, host::LOCAL_CLIENT),
             )?;
         }
+        if let Some(dir) = &args.dump { random::dump(&host.context, dir, tick)?; } // matrix-b
         let snapshot = observe::Snapshot::read(&host)?;
         if tick == 1.0 && env::var_os("WORLD_HASH_NATIVE_PROBE").is_some() {
             observe::probe(&host);
@@ -277,7 +283,7 @@ fn run(args: &Args) -> Result<(), String> {
         if let Some(dir) = &args.dump {
             dump(dir, tick, "digest", json.text())?;
         }
-        writeln!(out, "{tick} {state} {digest} {published}").map_err(|e| e.to_string())?;
+        writeln!(out, "{}{tick} {state} {digest} {published}", prefix).map_err(|e| e.to_string())?; // matrix-b
         if let Some(dir) = &args.dump {
             // The notices this tick drained: from the cursor the drain had,
             // or from the start of a new journal epoch.
@@ -299,6 +305,7 @@ fn run(args: &Args) -> Result<(), String> {
             }
         }
     }
+    bfe_sim::host::battles::finish(&host.context).map_err(|e| e.message().to_string())?; // matrix-b
     out.flush().map_err(|e| e.to_string())?;
     eprintln!(
         "{} {} seed {}: {} ticks, world step {:.2} ms mean after tick 900",

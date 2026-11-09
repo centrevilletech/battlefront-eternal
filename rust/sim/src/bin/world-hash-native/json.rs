@@ -18,6 +18,7 @@ pub struct Json {
 }
 
 impl Json {
+    pub fn raw(&mut self, text: &str) { self.separate(); self.text.push_str(text); } // matrix-b
     pub fn new() -> Self {
         Self {
             text: String::with_capacity(1 << 16),
@@ -87,11 +88,6 @@ impl Json {
     pub fn string(&mut self, value: &str) {
         self.separate();
         quote(&mut self.text, value);
-    }
-    /// A value already written as JSON text.
-    pub fn raw(&mut self, text: &str) {
-        self.separate();
-        self.text.push_str(text);
     }
     /// A UTF-16 string as the store keeps it (`StrId` text), escaped as V8
     /// escapes a JS string: a lone surrogate becomes `\uXXXX`.

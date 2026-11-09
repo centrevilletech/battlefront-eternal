@@ -10,7 +10,6 @@
 //! published, before the first tick), which is where the Node tool's
 //! battle loop begins.
 use std::collections::BTreeMap;
-use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -221,10 +220,8 @@ pub fn admit_world(
     admissions_dir: &Path,
     content_dir: &Path,
 ) -> Result<Handles, String> {
-    // BFE_ADMISSION=recorded replays the recorded admission even where the
-    // native one exists, so both worlds' streams can be compared.
-    let recorded = env::var("BFE_ADMISSION").is_ok_and(|v| v == "recorded");
-    if bfe_sim::world::admit::provided() && !recorded {
+    if bfe_sim::world::admit::provided() {
+        eprintln!("{label}: world source: native admission");
         let files = DirFiles::new(content_dir.to_path_buf());
         let admitted = context
             .world_admit(&files, options)
@@ -241,7 +238,7 @@ pub fn admit_world(
             player: h.player,
         });
     }
-    replay_recorded(context, label, admissions_dir)
+    replay_recorded(context, label, admissions_dir, 0) // matrix-b
 }
 
 const HANDLES: &[&str] = &[
@@ -381,6 +378,29 @@ impl Memory {
         self.0.insert(offset, bytes);
     }
 
+    /// Fleet::veh_input only grows its retained Vec. A collider's smaller
+    /// request must keep pose words that a later sparse pull may not rewrite.
+    /// The other lifecycle buffers resize to exactly the requested length.
+    fn keep(&mut self, at: u64, len: usize, previous: Option<(u64, usize)>, grows: bool) -> usize {
+        if let Some((old_at, old_len)) = previous {
+            if old_at != at {
+                let moved = self.read(old_at, old_len.min(len));
+                self.write(at, moved);
+            }
+            if len > old_len {
+                self.write(at + old_len as u64, vec![0; len - old_len]);
+            }
+            if grows {
+                len.max(old_len)
+            } else {
+                len
+            }
+        } else {
+            self.write(at, vec![0; len]);
+            len
+        }
+    }
+
     fn read(&self, offset: u64, len: usize) -> Vec<u8> {
         let mut out = vec![0u8; len];
         let end = offset + len as u64;
@@ -404,11 +424,17 @@ impl Memory {
 
 /// The recorded admission, call by call (admit-replay.rs's loop without
 /// its comparisons): every export invoked with the memory the host wrote.
-fn replay_recorded(
+pub(super) fn replay_recorded(
     context: &mut Context,
     label: &str,
     admissions_dir: &Path,
+    battle: usize,
 ) -> Result<Handles, String> {
+    // matrix-b
+    eprintln!(
+        "{label}: world source: recorded admission (battle {})",
+        battle + 1
+    );
     let gz_path = admissions_dir.join(format!("{label}.jsonl.gz"));
     let plain_path = admissions_dir.join(format!("{label}.jsonl"));
     let path = if gz_path.exists() {
@@ -424,6 +450,7 @@ fn replay_recorded(
         .map(|l| serde_json::from_str(l).map_err(|e| format!("json parse error: {e}")))
         .collect::<Result<Vec<_>, _>>()?;
 
+    let lines = super::battles::admission_lines(lines, battle)?; // matrix-b
     let mut memory = Memory::default();
     let mut handles: BTreeMap<u64, f64> = BTreeMap::new();
     let mut admitted = Handles::default();
@@ -444,7 +471,8 @@ fn replay_recorded(
     for (index, line) in lines.iter().enumerate() {
         match line["type"].as_str().unwrap_or("") {
             "battle" => {
-                if line["battle"].as_u64() != Some(0) {
+                if line["battle"].as_u64() != Some(battle as u64) {
+                    // matrix-b
                     break;
                 }
                 *context = Context::new();
@@ -557,19 +585,13 @@ fn replay_recorded(
                         },
                     };
                     if KEPT_BUFFERS.contains(&export) {
-                        if let Some((old_addr, old_len)) = kept.get(export).copied() {
-                            if old_addr != returned_addr {
-                                let moved = memory.read(old_addr, old_len.min(len));
-                                memory.write(returned_addr, moved);
-                            }
-                            if len > old_len {
-                                memory
-                                    .write(returned_addr + old_len as u64, vec![0; len - old_len]);
-                            }
-                        } else {
-                            memory.write(returned_addr, vec![0; len]);
-                        }
-                        kept.insert(export.to_string(), (returned_addr, len));
+                        let retained = memory.keep(
+                            returned_addr,
+                            len,
+                            kept.get(export).copied(),
+                            export == "veh_input",
+                        );
+                        kept.insert(export.to_string(), (returned_addr, retained));
                     } else if !VIEW_BANKS.contains(&export) {
                         memory.write(returned_addr, vec![0; len]);
                     }
@@ -641,6 +663,7 @@ fn replay_recorded(
 
                 replayed += 1;
                 let answer = context.invoke_export(export, &call);
+                super::recon::admitted(context, export, &call)?; // matrix-b
                 match answer {
                     Err(error) => {
                         if error.kind() != ErrorKind::Unavailable {
@@ -690,4 +713,27 @@ fn replay_recorded(
         lines.len()
     );
     Ok(admitted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Memory;
+
+    #[test]
+    fn collider_request_preserves_sparse_pose_tail() {
+        let mut memory = Memory::default();
+        let at = 128;
+        let mut len = memory.keep(at, 80, None, true);
+        memory.write(at, vec![1; 80]);
+        len = memory.keep(at, 16, Some((at, len)), true);
+        memory.write(at, vec![2; 16]);
+        len = memory.keep(at, 80, Some((at, len)), true);
+        assert_eq!(len, 80);
+        assert_eq!(memory.read(at + 16, 64), vec![1; 64]);
+        let moved = 512;
+        assert_eq!(memory.keep(moved, 96, Some((at, len)), true), 96);
+        assert_eq!(memory.read(moved, 16), vec![2; 16]);
+        assert_eq!(memory.read(moved + 16, 64), vec![1; 64]);
+        assert_eq!(memory.read(moved + 80, 16), vec![0; 16]);
+    }
 }

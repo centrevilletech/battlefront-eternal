@@ -51,7 +51,9 @@ impl Context {
     /// recording's bytes) for `options`, then admits the local human and the
     /// publication host. One call a battle, before `world_step_init`.
     pub fn world_admit(&self, files: &dyn Files, options: &Options) -> Result<Admitted, Error> {
-        self.owned(|w| admit::admit(w, files, options))?.map_err(admit_error)
+        let admitted = self.owned(|w| admit::admit(w, files, options))?.map_err(admit_error)?;
+        self.world_host_admitted_random(options.seed, admitted.handles.player)?;
+        Ok(admitted)
     }
 }
 

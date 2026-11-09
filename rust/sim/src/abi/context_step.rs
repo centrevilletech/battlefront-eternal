@@ -41,7 +41,7 @@ mod replay;
 mod admit;
 #[path = "context_observe.rs"]
 mod observe;
-pub use observe::{PropTargetFacts, WeaponLevelFacts};
+pub use observe::{ExplosionField, ExplosionOwner, OwnedExplosion, PropTargetFacts, WeaponLevelFacts};
 
 use super::context::{Context, Error, ErrorKind};
 use crate::gen::{WorldTickInput, WorldTickOutput, WorldTickSetup};

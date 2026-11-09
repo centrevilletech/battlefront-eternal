@@ -15,7 +15,7 @@ use bfe_sim::gen::{
     self, BlockHeader as B, IfEdge, ImEntry, ImField, ImLook, ImOperation, ImResult, ImState,
     InputMailboxCall, PlayerFire, PlayerLanes, WiView, WirePublicationLink, WireWorldFacts,
 };
-use bfe_sim::host::Capture;
+use bfe_sim::host::{Capture, Content};
 use bfe_sim::store::block::Block;
 use bfe_sim::store::StrId;
 use bfe_sim::world::admit::{Call, Returned};
@@ -198,6 +198,7 @@ pub fn block_row(words: &[f64]) -> (&[f64], &[f64]) {
 }
 
 pub struct Host {
+    pub random_bindings: super::random::Bindings, // matrix-b
     pub context: Context,
     pub admitted: Admitted,
     args: Arguments,
@@ -216,6 +217,7 @@ impl Host {
     pub fn new(context: Context, admitted: Admitted, seed: u32) -> Result<Self, String> {
         let view_tick_key = intern(&context, "viewTick")?;
         Ok(Self {
+            random_bindings: super::random::Bindings::default(), // matrix-b
             context,
             admitted,
             args: Arguments {
@@ -548,19 +550,21 @@ impl Host {
     /// What the JavaScript host knows about the local player after admission
     /// and before the first tick, and the host duties' start: the page's
     /// one draw from its gameplay stream, the authority's flags, lives and
-    /// capture, the local client (his edge runtime) and his unit. His
+    /// capture with the explosions' registry ids, the local client (his
+    /// edge runtime) and his unit. His
     /// Character is the one human in the roster (`roster.reserve(team, id,
     /// name)`); its `unit` names his body.
-    pub fn learn_player(&mut self) -> Result<(), String> {
+    pub fn learn_player(&mut self, explosions: Vec<u32>, content: Content) -> Result<(), String> {
         self.materialize_gameplay_stream()?;
         let handles = &self.admitted.handles;
         let capture = Capture {
             combat: handles.combat,
             presentation: handles.presentation,
             store_source: handles.store_source,
+            explosions,
         };
         self.context
-            .world_host_start(Some(capture))
+            .world_host_start(Some(capture), content)
             .map_err(|e| e.message().to_string())?;
         self.context
             .world_host_client(handles.player, handles.edges)
@@ -582,6 +586,7 @@ impl Host {
                 self.player_unit = character.unit.map(|r| r.slot);
             }
         }
+        self.random_bindings = super::random::Bindings::from(self.context.world_host_random(self.seed, self.player_unit).map_err(|e| e.message().to_string())?); // matrix-b
         Ok(())
     }
 

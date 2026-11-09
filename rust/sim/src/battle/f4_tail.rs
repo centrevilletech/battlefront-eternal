@@ -35,6 +35,13 @@ pub(crate) fn reset(battle: &mut BattleOwner) {
 pub(crate) fn wire_roster_in(battle: &BattleOwner, team: usize) -> &[StrId] {
     battle.tail.as_ref().expect("prepared battle tail").human.human.prepared.rosters.get(team).map_or(&[], Vec::as_slice)
 }
+/// The same roster, or none before the battle's tail is prepared.
+pub(crate) fn human_roster_in(battle: &BattleOwner, team: usize) -> &[StrId] {
+    if battle.tail.is_none() {
+        return &[];
+    }
+    wire_roster_in(battle, team)
+}
 // The pre-AI boundary also replaces CommandPosts.all's former JS refresh.
 // State is lent out inside a tail; its World refreshes before its own hooks.
 pub(crate) fn refresh_mobile_views_in(w: &mut Root){

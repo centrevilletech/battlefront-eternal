@@ -44,6 +44,37 @@ pub(crate) fn ord_water_in(w: &mut crate::world::owner::World, which: u32, prese
     w.ordnance.water[(which & 1) as usize] = present != 0;
 }
 
+/// How many ordnance definitions the battle registered.
+pub(crate) fn ordnance_count_in(owner: &OrdnanceOwnerState) -> usize {
+    owner.defs.as_ref().map_or(0, |defs| defs.ordnance.len())
+}
+
+/// The explosions the ordnance and item definitions name (ordnance.js
+/// `writeFields` registered each with its definition): for each, whether
+/// the definition is an item's, its index, the field and the explosion's
+/// index. A read for the wire's registry ids, which name the object.
+pub(crate) fn explosion_fields_in(owner: &OrdnanceOwnerState, mut each: impl FnMut(bool, u32, &'static str, u32)) {
+    let Some(defs) = &owner.defs else { return };
+    for (index, def) in defs.ordnance.iter().enumerate() {
+        for (field, value) in [("ExplosionImpact", &def.explosion_impact), ("ExplosionExpire", &def.explosion_expire)] {
+            if let Field::Explosion(explosion) = value {
+                each(false, index as u32, field, explosion.0);
+            }
+        }
+    }
+    for (index, def) in defs.item.iter().enumerate() {
+        for (field, value) in [
+            ("ExplosionDeath", &def.explosion_death),
+            ("ExplosionTrigger", &def.explosion_trigger),
+            ("ExplosionExpire", &def.explosion_expire),
+        ] {
+            if let Field::Explosion(explosion) = value {
+                each(true, index as u32, field, explosion.0);
+            }
+        }
+    }
+}
+
 pub(crate) fn defs_in(owner: &mut OrdnanceOwnerState) -> &mut Defs {
     owner.defs.get_or_insert_with(Defs::default)
 }

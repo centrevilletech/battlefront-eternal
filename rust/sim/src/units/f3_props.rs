@@ -28,6 +28,25 @@ struct Entry {
     // Trap.sphere always observes the build pad, including while logs swing.
     trap_sphere: Option<(Vector3, f64)>,
 }
+/// Each building's explosion (`building.explosion`), by its index in
+/// LiveObjects.buildings.
+pub(crate) fn building_explosions_in(units: &super::owner::Units, mut each: impl FnMut(u32, u32)) {
+    for (index, entry) in f3::props_read(units).entries.iter().enumerate() {
+        if let Some(explosion) = entry.explosion {
+            each(index as u32, explosion.0);
+        }
+    }
+}
+/// The index in LiveObjects.buildings of the building an F4 handle names
+/// (`buildingsByKind[kind][slot]`).
+pub(crate) fn building_of_in(units: &super::owner::Units, station: &F4Handle) -> Option<usize> {
+    f3::props_read(units).entries.iter().position(|e| e.owner.kind == station.kind && e.owner.slot == station.slot)
+}
+/// A building's registry target id (`building.aiTarget.id`), none for a
+/// building that is no target.
+pub(crate) fn building_target_id_in(units: &super::owner::Units, index: usize) -> Option<u32> {
+    f3::props_read(units).entries.get(index)?.member.map(super::registry::target_id)
+}
 impl Entry {
     fn frame(&self, battle: &crate::battle::owner::BattleOwner) -> props::Building { f4::frame_in(battle, &self.owner) }
     fn attacker(&self, battle: &crate::battle::owner::BattleOwner) -> Attacker { f4::attacker_in(battle, &self.owner) }
@@ -224,7 +243,9 @@ pub(crate) fn target_facts_in(world_ctx: &crate::world::owner::World) -> Vec<(f6
         let frame = entry.frame(&world_ctx.battle);
         let mut position = Vector3::default();
         position.set_from_matrix_position(&entry.settings.matrix);
-        out.push((id as f64, frame.alive(), entry.target_team, [position.x, position.y, position.z], frame.target_generation.unwrap_or(0.0)));
+        // TurretTarget.team: its lease's team while manned, else its own.
+        let team = target_team(&world_ctx.fleet, &world_ctx.sim.store, entry);
+        out.push((id as f64, frame.alive(), team, [position.x, position.y, position.z], frame.target_generation.unwrap_or(0.0)));
     }
     out
 }

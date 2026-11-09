@@ -12,14 +12,15 @@
 //! the player's arsenal, the turret targets' rows, the event ring.
 use bfe_sim::abi::context::Context;
 use bfe_sim::gen::{
-    self, Air, Battle, BlockHeader as B, Bolt, Character, CommandPosts, FlightState, Grenade,
+    self, Air, Battle, F3WeaponAction, BlockHeader as B, Bolt, Character, CommandPosts, FlightState, Grenade,
     HumanPhase, HumanSpawn, Ordnance, Post, Posture, Round, SeatLease, Unit, UnitBody, Vehicle,
     Vehicles,
 };
 use bfe_sim::store::StrId;
 
 use super::host::Host;
-use bfe_sim::host::json::Json;
+use super::json::Json;
+use bfe_sim::host::journal::{Event, Journal, Life, Presentation, Presented};
 
 /// One kind's export: every row decoded, by store slot.
 struct Rows<T> {
@@ -187,19 +188,9 @@ pub fn state_json(
         }
         json.key("streams");
         json.begin_object();
-        const NAMES: [&str; 3] = ["gameplay", "grenade-spin", "seat-weapons"];
-        let mut named: Vec<(u32, usize)> = NAMES
-            .iter()
-            .enumerate()
-            .filter(|(id, _)| {
-                states.get(*id).is_some_and(|s| s.present) && !bindings.contains(&(*id as u32))
-            })
-            .map(|(id, _)| (states[id].sequence, id))
-            .collect();
-        named.sort();
-        for (_, id) in named {
-            json.key(NAMES[id]);
-            json.number(f64::from(states[id].state));
+        for (name, state) in host.random_bindings.present(&states) { // matrix-b
+            json.key(name);
+            json.number(f64::from(state.state));
         }
         json.end_object();
     }
@@ -376,8 +367,11 @@ pub fn state_json(
         json.number(team);
         json.key("className");
         string(json, context, Some(h.class_name));
+        // HumanSpawn.state(): the class's index in the team's roster, 0
+        // when the roster lacks it.
         json.key("classIndex");
-        json.number(0.0);
+        let roster = if team >= 0.0 { context.human_roster(team as usize).unwrap_or_default() } else { Vec::new() };
+        json.number(roster.iter().position(|c| *c == h.class_name).map_or(0.0, |i| i as f64));
         json.key("post");
         string(json, context, h.post);
         json.key("canSwitchTeams");
@@ -390,10 +384,397 @@ pub fn state_json(
     json.end_object();
     json.key("events");
     host.context
-        .world_host_journal(|journal| journal.state_events(json))
+        .world_host_journal_with_recon(|journal, definitions| events_json(json, context, journal, definitions)) // matrix-b
         .map_err(|e| e.message().to_string())?;
     json.end_object();
     Ok(())
+}
+
+/// `g.simEvents.ring.filter(Boolean).map(eventValue)`: each record as its
+/// emitter wrote it, `{seq, time, kind, ...fields}` in the emitter's key
+/// order (`Event`'s comments), a unit reference as `{"id","generation"}`
+/// and a store string as its text (`null` when the store has none).
+fn events_json(json: &mut Json, context: &Context, journal: &Journal, definitions: &bfe_sim::host::recon::Definitions) { // matrix-b
+    let life = |json: &mut Json, life: Option<Life>| match life {
+        Some(Life { id, generation }) => {
+            json.begin_object();
+            json.key("id");
+            json.number(f64::from(id));
+            json.key("generation");
+            json.number(generation);
+            json.end_object();
+        }
+        None => json.null(),
+    };
+    let string =
+        |json: &mut Json, id: Option<StrId>| match id.and_then(|id| context.string(id).ok()) {
+            Some(units) => json.string_utf16(&units),
+            None => json.null(),
+        };
+    json.begin_array();
+    for record in journal.records() {
+        json.begin_object();
+        json.key("seq");
+        json.number(record.seq as f64);
+        json.key("time");
+        json.number(record.time);
+        json.key("kind");
+        json.string(record.event.kind());
+        match record.event {
+            Event::Recon(r) => super::recon::event_fields(json, definitions, r), // matrix-b
+            Event::Spawn {
+                target,
+                team,
+                position,
+                class_name,
+                post,
+            } => {
+                json.key("target");
+                life(json, Some(target));
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("className");
+                string(json, Some(class_name));
+                json.key("post");
+                string(json, post);
+            }
+            Event::Vo {
+                source,
+                team,
+                position,
+                human,
+                event,
+                property,
+                command,
+                context: ctx,
+                positional,
+                notice,
+            } => {
+                json.key("source");
+                life(json, Some(source));
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("human");
+                json.boolean(human);
+                json.key("event");
+                string(json, Some(event));
+                json.key("property");
+                string(json, Some(property));
+                if let Some(command) = command {
+                    json.key("command");
+                    json.number(command);
+                }
+                if let Some(ctx) = ctx {
+                    json.key("context");
+                    json.number(ctx);
+                }
+                if let Some(positional) = positional {
+                    json.key("positional");
+                    json.boolean(positional);
+                }
+                if let Some(notice) = notice {
+                    json.key("notice");
+                    json.boolean(notice);
+                }
+            }
+            Event::Shot {
+                source,
+                team,
+                position,
+                direction,
+                weapon,
+                repair,
+                melee,
+                swing,
+            } => {
+                json.key("source");
+                life(json, Some(source));
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("direction");
+                json.vec3(&direction);
+                json.key("weapon");
+                string(json, weapon);
+                json.key("repair");
+                json.boolean(repair);
+                json.key("melee");
+                json.boolean(melee);
+                json.key("swing");
+                json.number(swing);
+            }
+            Event::MountedShot {
+                source,
+                mount,
+                seat,
+                team,
+                position,
+                direction,
+                weapon,
+                repair,
+                melee,
+                swing,
+            } => {
+                json.key("source");
+                life(json, source);
+                json.key("mount");
+                life(json, Some(mount));
+                json.key("seat");
+                json.number(seat);
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("direction");
+                json.vec3(&direction);
+                json.key("weapon");
+                string(json, weapon);
+                json.key("repair");
+                json.boolean(repair);
+                json.key("melee");
+                json.boolean(melee);
+                json.key("swing");
+                json.number(swing);
+            }
+            Event::Explosion {
+                position,
+                team,
+                source,
+                radius,
+            } => {
+                json.key("position");
+                json.vec3(&position);
+                json.key("team");
+                json.number(team);
+                json.key("source");
+                life(json, source);
+                json.key("radius");
+                json.number(radius);
+            }
+            Event::Damage { target, team, position, amount, typed, generic, known, point, source, health, attacker, attacker_team } => {
+                json.key("target");
+                life(json, Some(target));
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("amount");
+                json.number(amount);
+                json.key("typed");
+                json.number(typed);
+                json.key("generic");
+                json.number(generic);
+                json.key("known");
+                json.boolean(known);
+                json.key("point");
+                json.vec3_or_null(point.as_ref());
+                json.key("source");
+                json.vec3_or_null(source.as_ref());
+                json.key("health");
+                json.number(health);
+                json.key("attacker");
+                life(json, attacker);
+                json.key("attackerTeam");
+                json.number(attacker_team);
+            }
+            Event::Presentation(presentation) => {
+                json.key("event");
+                presentation_json(json, &string, presentation);
+            }
+            Event::Grenade { position, team, source, def } => {
+                json.key("position");
+                json.vec3(&position);
+                json.key("team");
+                json.number(team);
+                json.key("source");
+                life(json, source);
+                json.key("def");
+                string(json, def);
+            }
+            Event::Death { target, team, position, attacker, attacker_team } => {
+                json.key("target");
+                life(json, Some(target));
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("attacker");
+                life(json, attacker);
+                json.key("attackerTeam");
+                json.number(attacker_team);
+            }
+            Event::HullDamage { target, team, position, amount, attacker, attacker_team } => {
+                json.key("target");
+                life(json, Some(target));
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("amount");
+                json.number(amount);
+                json.key("typed");
+                json.number(1.0);
+                json.key("generic");
+                json.number(1.0);
+                json.key("known");
+                json.boolean(false);
+                json.key("point");
+                json.null();
+                json.key("health");
+                json.number(amount);
+                json.key("attacker");
+                life(json, attacker);
+                json.key("attackerTeam");
+                json.number(attacker_team);
+            }
+            Event::PropDamage { target, team, position, amount, typed, generic, point, health, attacker, attacker_team } => {
+                json.key("target");
+                match target {
+                    Some((id, generation)) => {
+                        json.begin_object();
+                        json.key("id");
+                        json.number(f64::from(id));
+                        json.key("generation");
+                        match generation {
+                            Some(g) => json.number(g),
+                            None => json.null(),
+                        }
+                        json.end_object();
+                    }
+                    None => json.null(),
+                }
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("amount");
+                json.number(amount);
+                json.key("typed");
+                json.number(typed);
+                json.key("generic");
+                json.number(generic);
+                json.key("known");
+                json.boolean(point.is_some());
+                json.key("point");
+                json.vec3_or_null(point.as_ref());
+                json.key("health");
+                json.number(health);
+                json.key("attacker");
+                life(json, attacker);
+                json.key("attackerTeam");
+                json.number(attacker_team);
+            }
+            Event::Seat {
+                source,
+                team,
+                position,
+                target,
+                seat,
+                ..
+            } => {
+                json.key("source");
+                life(json, source);
+                json.key("team");
+                json.number(team);
+                json.key("position");
+                json.vec3(&position);
+                json.key("target");
+                life(json, target);
+                json.key("seat");
+                json.number(seat);
+            }
+        }
+        json.end_object();
+    }
+    json.end_array();
+}
+
+/// A `presentation` record's event object in its key order; an undefined
+/// action or posture is left out, as JSON.stringify leaves it.
+fn presentation_json(json: &mut Json, string: &dyn Fn(&mut Json, Option<StrId>), presentation: Presentation) {
+    let owner = |json: &mut Json, owner: Life| {
+        json.key("ownerId");
+        json.number(f64::from(owner.id));
+        json.key("ownerGeneration");
+        json.number(owner.generation);
+    };
+    let action = |json: &mut Json, action: Option<F3WeaponAction>| {
+        if let Some(action) = action {
+            json.key("action");
+            json.string(F3WeaponAction::NAMES[action as usize]);
+        }
+    };
+    json.begin_object();
+    match presentation {
+        Presentation::WeaponAction { action: a, bank, posture, prepare, owner: o } => {
+            json.key("kind");
+            json.string("weaponAction");
+            action(json, a);
+            json.key("bank");
+            string(json, Some(bank));
+            if let Some(posture) = posture {
+                json.key("posture");
+                json.string(Posture::NAMES[posture as usize]);
+            }
+            json.key("prepare");
+            json.boolean(prepare);
+            owner(json, o);
+        }
+        Presentation::EndWeaponAction { action: a, owner: o } => {
+            json.key("kind");
+            json.string("endWeaponAction");
+            action(json, a);
+            owner(json, o);
+        }
+        Presentation::Effect { name, position, owner: o } => {
+            json.key("kind");
+            json.string("effect");
+            json.key("name");
+            string(json, Some(name));
+            json.key("position");
+            json.vec3(&position);
+            if let Some(o) = o {
+                owner(json, o);
+            }
+        }
+        Presentation::Presented { kind, owner: o, amount, source } => {
+            json.key("kind");
+            json.string(kind.name());
+            owner(json, o);
+            json.key("amount");
+            json.number(amount);
+            json.key("source");
+            json.vec3_or_null(source.as_ref());
+            json.key("hitKind");
+            match kind {
+                Presented::ShieldHitExplosion => json.string("explosion"),
+                Presented::ShieldHit | Presented::BlowApart | Presented::DeathBlast => json.null(),
+            }
+        }
+        Presentation::Lightning { name, from, to, charge, channel, owner: o } => {
+            json.key("kind");
+            json.string("lightning");
+            json.key("name");
+            string(json, Some(name));
+            json.key("from");
+            json.vec3(&from);
+            json.key("to");
+            json.vec3(&to);
+            json.key("charge");
+            json.number(charge);
+            if let Some(channel) = channel {
+                json.key("channel");
+                json.number(channel);
+            }
+            owner(json, o);
+        }
+    }
+    json.end_object();
 }
 
 /// `JSON.stringify(digest())`: `{units, hulls, rounds: [bolts, grenades, rounds]}`.

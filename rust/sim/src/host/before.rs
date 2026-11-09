@@ -6,29 +6,27 @@
 //! `F4Tail.prepareStep`), and the AI's header with the journal it hears
 //! (`ai.prepare`, after `simTime = tick / 60`). The native tick reads the
 //! banks; nothing in it writes them.
-use super::journal::{Heard, Hearing};
+use super::journal::{Event, Life};
 use super::{block_row, put, unit_generation, unit_rows, write_bank, Authority};
 use crate::abi::context::Context;
 use crate::gen::{
-    self, AiPhaseFacts, AiPhaseHeader, AiPhaseReticle, F2Input, F2PadTeam, F2PhaseFlag,
+    self, AiPhaseFacts, AiPhaseHeader, AiPhaseReticle, F2Input, F2PadTeam,
     F3Separation, F4LiveInput, F4TailInput, FfInputs, Vehicles,
 };
 use crate::world::admit::{Call, Returned};
 
 impl Authority {
-    /// The pre-step writes. `now` is the step's `performance.now()` (the
-    /// tick input's `at`), in milliseconds.
+    /// The pre-step writes for the tick being stepped.
     pub(super) fn before_step(
         &mut self,
         context: &Context,
         tick: f64,
         dt: f64,
-        now: f64,
     ) -> Result<(), String> {
-        // F2Sim.foreignIn(true): the clock is performance.now() in seconds,
-        // the level the water's (0 without water), the flags poses, flight
-        // and cosmetic; the pad rows name no post yet (the slot descriptors'
-        // posts are not in the store), and no member, flight or firing row.
+        // F2Sim.foreignIn(true): the clock is vs.clock(), bound to simTime
+        // (tick / 60) by src/game.js. Water supplies the level, or zero.
+        // Poses, flight and cosmetics are enabled. Each pad reads its bound
+        // post's current owner; the native phase owns the remaining inputs.
         let slots = {
             let words = context
                 .export(u32::from(gen::KIND_VEHICLES), 1)
@@ -41,15 +39,13 @@ impl Authority {
         let pads = slots.slots.len();
         let at = (F2Input::WORDS + pads * F2PadTeam::WORDS) as u32;
         let header = F2Input {
-            clock: now / 1000.0,
+            clock: tick / 60.0,
             level: if self.water_level.is_finite() {
                 self.water_level
             } else {
                 0.0
             },
-            flags: (1 << F2PhaseFlag::Poses as u32)
-                | (1 << F2PhaseFlag::Flight as u32)
-                | (1 << F2PhaseFlag::Cosmetic as u32),
+            flags: self.vehicle_input.flags(), // matrix-b
             pads: F2Input::WORDS as u32,
             occupant: slots.spawn_occupant,
             member_length: 0,
@@ -64,13 +60,7 @@ impl Authority {
             end: at + FfInputs::WORDS as u32,
         };
         let mut f2 = put::<{ F2Input::WORDS }>(|row, heap| header.put(row, heap));
-        for _ in 0..pads {
-            let pad = F2PadTeam {
-                has_team: false,
-                team: 0.0,
-            };
-            f2.extend(put::<{ F2PadTeam::WORDS }>(|row, heap| pad.put(row, heap)));
-        }
+        self.pad_owners.append(context, &mut f2)?; // matrix-b
         f2.push(0.0);
         write_bank(context, "F2_INPUT", &f2)?;
         // preparePhase -> bodiesIn: every body's enabled flag, for both
@@ -139,63 +129,130 @@ impl Authority {
         // reference being its store reference and the life the record named.
         let heard = {
             let units = unit_rows(context)?;
+            let reference = |heard: Option<Life>| match heard {
+                Some(h) => gen::AiJournalRef {
+                    member: Some(gen::Member::Unit(crate::store::Ref::new(
+                        h.id,
+                        unit_generation(&units, h.id),
+                    ))),
+                    generation: Some(h.generation),
+                    direct: false,
+                },
+                None => gen::AiJournalRef {
+                    member: None,
+                    generation: None,
+                    direct: false,
+                },
+            };
             let mut rows = Vec::new();
-            let records = self.journal.capture(&mut self.journal_cursor);
-            for record in records {
-                let reference = |heard: Option<Heard>| match heard {
-                    Some(h) => gen::AiJournalRef {
-                        member: Some(gen::Member::Unit(crate::store::Ref::new(
-                            h.slot,
-                            unit_generation(&units, h.slot),
-                        ))),
-                        generation: Some(h.generation),
-                        direct: false,
-                    },
-                    None => gen::AiJournalRef {
-                        member: None,
-                        generation: None,
-                        direct: false,
-                    },
-                };
-                let row = match &record.hearing {
-                    Hearing::Shot { source } => gen::AiJournalEvent {
-                        sequence: record.seq as f64,
-                        kind: gen::AiJournalKind::Shot,
-                        source: reference(*source),
-                        target: reference(None),
-                        attacker: reference(None),
-                        attacker_character: None,
-                        amount: None,
-                        generic: None,
-                        typed: None,
-                        known: false,
-                        point: None,
-                    },
-                    Hearing::Damage {
+            self.journal.capture(&mut self.journal_cursor, |record| {
+                // AiJournalFacts.capture: a shot's source (a mounted shot's
+                // may be null; its mount is not heard), a damage record's
+                // target, attacker and numbers.
+                let row = match record.event {
+                    Event::Shot { .. } | Event::MountedShot { .. } => {
+                        let source = match record.event {
+                            Event::Shot { source, .. } => Some(source),
+                            Event::MountedShot { source, .. } => source,
+                            _ => None,
+                        };
+                        gen::AiJournalEvent {
+                            sequence: record.seq as f64,
+                            kind: gen::AiJournalKind::Shot,
+                            source: reference(source),
+                            target: reference(None),
+                            attacker: reference(None),
+                            attacker_character: None,
+                            amount: None,
+                            generic: None,
+                            typed: None,
+                            known: false,
+                            point: None,
+                        }
+                    }
+                    Event::Damage {
                         target,
-                        attacker,
                         amount,
-                        generic,
                         typed,
+                        generic,
                         known,
                         point,
+                        attacker,
+                        ..
                     } => gen::AiJournalEvent {
                         sequence: record.seq as f64,
                         kind: gen::AiJournalKind::Damage,
                         source: reference(None),
-                        target: reference(*target),
-                        attacker: reference(*attacker),
+                        target: reference(Some(target)),
+                        attacker: reference(attacker),
                         attacker_character: None,
-                        amount: *amount,
-                        generic: *generic,
-                        typed: *typed,
-                        known: *known,
-                        point: *point,
+                        amount: Some(amount),
+                        generic: Some(generic),
+                        typed: Some(typed),
+                        known,
+                        point,
                     },
-                    Hearing::None => continue,
+                    // A turret's registry member is its TurretTarget.
+                    Event::PropDamage {
+                        target,
+                        amount,
+                        typed,
+                        generic,
+                        point,
+                        attacker,
+                        ..
+                    } => gen::AiJournalEvent {
+                        sequence: record.seq as f64,
+                        kind: gen::AiJournalKind::Damage,
+                        source: reference(None),
+                        target: match target {
+                            Some((id, generation)) => gen::AiJournalRef {
+                                member: Some(gen::Member::TurretTarget(crate::store::Ref::new(
+                                    id, 0,
+                                ))),
+                                generation,
+                                direct: false,
+                            },
+                            None => reference(None),
+                        },
+                        attacker: reference(attacker),
+                        attacker_character: None,
+                        amount: Some(amount),
+                        generic: Some(generic),
+                        typed: Some(typed),
+                        known: point.is_some(),
+                        point,
+                    },
+                    // `reference(row.target, {unit: vehicle.aiTarget})`:
+                    // the hull's registry member, its target life.
+                    Event::HullDamage {
+                        target,
+                        amount,
+                        attacker,
+                        ..
+                    } => gen::AiJournalEvent {
+                        sequence: record.seq as f64,
+                        kind: gen::AiJournalKind::Damage,
+                        source: reference(None),
+                        target: gen::AiJournalRef {
+                            member: Some(gen::Member::VehicleTarget(crate::store::Ref::new(
+                                target.id, 0,
+                            ))),
+                            generation: Some(target.generation),
+                            direct: false,
+                        },
+                        attacker: reference(attacker),
+                        attacker_character: None,
+                        amount: Some(amount),
+                        generic: Some(1.0),
+                        typed: Some(1.0),
+                        known: false,
+                        point: None,
+                    },
+                    _ => return,
                 };
                 rows.push(row);
-            }
+            });
             rows
         };
         let mut journal_words = Vec::with_capacity(heard.len() * gen::AiJournalEvent::WORDS);

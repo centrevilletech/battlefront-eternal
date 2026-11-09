@@ -161,6 +161,11 @@ pub(crate) fn take_hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Ve
 pub(crate) fn prepare_leg_store_in(fleet: &mut super::Fleet, hull: &Hull, vehicle: &mut Vehicle) { fleet.scheduler.prepare_leg_store(hull, vehicle) }
 pub(crate) fn recycle_in(world_ctx: &mut crate::world::owner::World, hull: Hull) { world_ctx.fleet.scheduler.recycle(hull) }
 
+/// Cold pad-to-post links used by F2Sim's host input writer.
+pub(crate) fn pad_post_names_in(fleet: &super::Fleet) -> impl Iterator<Item = Option<&str>> {
+    fleet.scheduler.descs.iter().map(|pad| pad.post.as_deref())
+}
+
 pub(crate) fn active_in(fleet: &super::Fleet) -> bool { fleet.scheduler.active }
 /// WaterState.step precedes the native fleet span. The enclosing world sets
 /// this generated scalar after advancing water, before F3 calls F2's entry.

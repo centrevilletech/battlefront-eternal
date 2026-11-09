@@ -8,7 +8,9 @@
 //! from the same tokens the page's `event()` wrote, then emitted as the
 //! page's `WireCombat.emit` did: a capture key, its expiry, its commit.
 use crate::abi::context::Context;
-use crate::gen::{WbCall, WbCommit, WbEncode, WbResult, WireJournalFact, WireOutput, WireSpan};
+use crate::gen::{
+    WbCall, WbCommit, WbEncode, WbResult, WireDynamicFact, WireJournalFact, WireOutput, WireSpan,
+};
 use crate::store::StrId;
 use crate::world::admit::{Call, Returned};
 
@@ -49,9 +51,30 @@ pub fn decode_view(tick: f64, schema: f64, payload: &[u8]) -> Result<View, Strin
     })
 }
 
+/// wire-presentation.js `ERRORS`: the message of each event writer error.
+const PRESENTATION_ERRORS: [&str; 15] = [
+    "",
+    "Invalid presentation exchange",
+    "Unit weapon count exceeds presentation limit",
+    "Repair identity too long",
+    "Invalid unit presentation number",
+    "Unknown unit weapon",
+    "World presentation record too large",
+    "Invalid presentation kind",
+    "Invalid presentation text",
+    "Invalid presentation vector",
+    "Invalid presentation channel",
+    "Invalid presentation identity",
+    "Invalid presentation number",
+    "Invalid presentation flag",
+    "Presentation event too large",
+];
+
 /// A value of the presentation event, as `eventValue` tokenizes it.
 pub enum Token<'a> {
     Null,
+    /// An entry whose value is undefined (`Object.entries` keeps it).
+    Undefined,
     Number(f64),
     Boolean(bool),
     Text(&'a str),
@@ -66,6 +89,11 @@ pub struct Capture {
     /// The wire store source whose registry names the weapons and the
     /// ordnance definitions (`registry.weaponIds`, `definitionId`).
     pub store_source: u32,
+    /// The combat registry's id for each of the battle's explosions, by
+    /// explosion index (`registry.combat.definitionId(def)`; 0 for one it
+    /// lacks). Whoever admitted the world knows which object each
+    /// explosion is; the store source's tables carry no explosions.
+    pub explosions: Vec<u32>,
 }
 
 /// What `decodeCombat(record)` gave the fact: the record's expiry, its
@@ -81,7 +109,7 @@ pub struct View {
 impl Capture {
     /// `eventValue` (src/sim/wasm/runtime/wire-presentation.js): null 0,
     /// number 1 v, boolean 2 b, string 3 id, array 4 n then up to three
-    /// children; the event's words are the kind, the blowApart amount, the
+    /// children, undefined 6; the event's words are the kind, the blowApart amount, the
     /// entry count, then key id and value for each entry.
     fn tokens(
         context: &Context,
@@ -93,6 +121,7 @@ impl Capture {
         let value = |words: &mut Vec<f64>, token: &Token<'_>| -> Result<(), String> {
             match token {
                 Token::Null => words.push(0.0),
+                Token::Undefined => words.push(6.0),
                 Token::Number(n) => words.extend([1.0, *n]),
                 Token::Boolean(b) => words.extend([2.0, f64::from(u8::from(*b))]),
                 Token::Text(s) => words.extend([3.0, f64::from(intern(context, s)?.0)]),
@@ -208,8 +237,40 @@ impl Capture {
             },
         ) {
             Ok(Returned::Scalar(0.0)) => {}
+            // `service.event(event)` threw (wire-presentation.js run's
+            // ERRORS) and attachPresentationCapture's guard handed the error
+            // to `capture.fault`: the id stays spent, the battle goes on.
             Ok(Returned::Scalar(error)) => {
-                return Err(format!("presentation event refused ({error})"))
+                let message = match error as usize {
+                    15 => {
+                        let field = match context.invoke_export(
+                            "wire_presentation_error_field",
+                            &Call {
+                                args: vec![f64::from(self.presentation)],
+                                ..Default::default()
+                            },
+                        ) {
+                            Ok(Returned::Scalar(field)) => field,
+                            other => {
+                                return Err(format!("wire_presentation_error_field: {other:?}"))
+                            }
+                        };
+                        let name = context
+                            .string(StrId(field as u32))
+                            .map_err(|e| e.message().to_string())?;
+                        format!(
+                            "Unknown presentation field: {}",
+                            String::from_utf16_lossy(&name)
+                        )
+                    }
+                    code => PRESENTATION_ERRORS
+                        .get(code)
+                        .copied()
+                        .unwrap_or(PRESENTATION_ERRORS[1])
+                        .to_string(),
+                };
+                self.fault(context, &message)?;
+                return Ok(false);
             }
             other => return Err(format!("wire_presentation_run: {other:?}")),
         }
@@ -259,6 +320,64 @@ impl Capture {
                 life: f64::NAN,
             },
         )
+    }
+
+    /// `WireCombat.dynamic(entry)`: a dynamic round's identity and sampled
+    /// owner into the wire's capture, which samples it at each publication.
+    pub fn dynamic(&self, context: &Context, fact: &WireDynamicFact) -> Result<(), String> {
+        let mut row = vec![0.0; WireDynamicFact::WORDS];
+        let mut heap = Vec::new();
+        fact.put(&mut row, &mut heap);
+        match context.invoke_export(
+            "wire_combat_dynamic",
+            &Call {
+                args: vec![f64::from(self.combat)],
+                row,
+                heap,
+                ..Default::default()
+            },
+        ) {
+            Ok(Returned::Scalar(_)) => Ok(()),
+            other => Err(format!("wire_combat_dynamic: {other:?}")),
+        }
+    }
+
+    /// `CombatCapture.event` for a damage or death record (schema 3 or 4,
+    /// `WireCombat.feedback`): an id, then the record's target and
+    /// attacker (0 for none), position, teams and hit source, expiring 18
+    /// ticks on.
+    #[allow(clippy::too_many_arguments)]
+    pub fn feedback(
+        &self,
+        context: &Context,
+        tick: f64,
+        schema: f64,
+        target: Option<super::journal::Life>,
+        attacker: Option<super::journal::Life>,
+        position: [f64; 3],
+        team: f64,
+        attacker_team: f64,
+        source: Option<[f64; 3]>,
+    ) -> Result<bool, String> {
+        let id = self.allocate(context)?;
+        let encode = WbEncode {
+            op: 1.0,
+            schema,
+            expiry_tick: tick + 18.0,
+            target_id: target.map_or(0.0, |t| f64::from(t.id)),
+            target_generation: target.map_or(0.0, |t| t.generation),
+            attacker_id: attacker.map_or(0.0, |a| f64::from(a.id)),
+            attacker_generation: attacker.map_or(0.0, |a| a.generation),
+            position: position.to_vec(),
+            team,
+            attacker_team,
+            has_source: source.is_some(),
+            source: source.map_or_else(Vec::new, |s| s.to_vec()),
+            ..WbEncode::default()
+        };
+        let payload = self.encode(context, &encode)?;
+        let view = decode_view(tick, schema, &payload)?;
+        self.emit_record(context, tick, id, schema, payload, &view)
     }
 
     /// `WireCombat.emit(capture, record, decode)` for a record whose id is
@@ -350,7 +469,27 @@ impl Capture {
         }
     }
 
-    fn run(&self, context: &Context, call: WbCall) -> Result<WbResult, String> {
+    /// `CombatCapture.fault(error)` -> `WireCombat.fault`: the error's
+    /// message into the capture's bounded fault journal (`run(6, {text})`).
+    pub fn fault(&self, context: &Context, message: &str) -> Result<(), String> {
+        let text = intern(context, message)?;
+        self.run(
+            context,
+            WbCall {
+                op: 6.0,
+                tick: 0.0,
+                capacity: 0.0,
+                key: 0.0,
+                id: 0.0,
+                schema: 0.0,
+                expiry_tick: 0.0,
+                text,
+            },
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn run(&self, context: &Context, call: WbCall) -> Result<WbResult, String> {
         let mut row = vec![0.0; WbCall::WORDS];
         let mut heap = Vec::new();
         call.put(&mut row, &mut heap);

@@ -102,6 +102,10 @@ impl Items {
     pub fn drops(&self, class: DefId) -> std::rc::Rc<Vec<crate::items::Drop>> {
         std::rc::Rc::clone(&self.drops[class.0 as usize])
     }
+    /// Each unit class's death explosion (`classDef.explosion`), by class.
+    pub fn class_explosions(&self) -> impl Iterator<Item = (DefId, DefId)> + '_ {
+        self.explosions.iter().enumerate().filter_map(|(class, explosion)| explosion.map(|e| (DefId(class as u32), e)))
+    }
     pub fn explosion(&self, class: DefId) -> Option<DefId> {
         self.explosions[class.0 as usize]
     }
