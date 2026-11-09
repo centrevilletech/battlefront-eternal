@@ -239,6 +239,16 @@ def check_deb(deb_path: Path, platform: str, install_deb: bool = False) -> None:
             subprocess.run([*cmd_prefix, 'dpkg', '-r', 'battlefront-eternal'], check=True)
 
 
+def check_host_display_libraries(root: Path) -> None:
+    # Mesa's EGL platforms and xkbcommon-x11 belong to the host. Loading older
+    # bundled peers can break Wayland startup or crash X11 keyboard handling.
+    # Inspect the whole image, including symlinks, rather than just lib/.
+    prefixes = ('libwayland-', 'libxkbcommon', 'libffi')
+    for path in root.rglob('*'):
+        if path.name.startswith(prefixes) and '.so' in path.name:
+            raise RuntimeError(f'AppImage must use host display library: {path.relative_to(root)}')
+
+
 def check_appimage(appimage_path: Path, platform: str) -> None:
     with tempfile.TemporaryDirectory(prefix='bfe-check-appimage-') as tmp:
         subprocess.run(
@@ -250,10 +260,7 @@ def check_appimage(appimage_path: Path, platform: str) -> None:
         sq = Path(tmp) / 'squashfs-root'
         extra = {'AppRun', 'battlefront-eternal.desktop', 'battlefront-eternal.png', '.DirIcon', 'usr', 'lib'}
         manifest = verify_tree_manifest(sq, sq / 'resources' / 'bfe-tree.json', allow_extra_root=extra)
-        for library in ('libwayland-client.so.0', 'libwayland-cursor.so.0',
-                        'libwayland-egl.so.1', 'libxkbcommon.so.0'):
-            if not (sq / 'lib' / library).is_file():
-                raise RuntimeError(f'Missing AppImage display runtime: {library}')
+        check_host_display_libraries(sq)
         smoke_binary(sq / 'AppRun', 'AppImage AppRun')
         if 'server_executable' in manifest:
             smoke_binary(sq / 'bfeserver', 'AppImage bfeserver')

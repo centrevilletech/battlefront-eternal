@@ -134,38 +134,6 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
     return out_path
 
 
-# These libraries are loaded at runtime by winit/glutin, so ldd on the client
-# alone cannot discover them. Resolve on the native packaging runner, which is
-# architecture-matched for both supported Linux release jobs.
-WAYLAND_LIBRARIES = (
-    'libwayland-client.so.0', 'libwayland-cursor.so.0',
-    'libwayland-egl.so.1', 'libxkbcommon.so.0',
-)
-
-
-def bundle_wayland_libraries(appdir: Path) -> None:
-    cache = subprocess.check_output(['ldconfig', '-p'], text=True)
-    libraries = {}
-    for line in cache.splitlines():
-        if ' => ' in line:
-            entry, path = line.strip().split(' => ', 1)
-            libraries.setdefault(entry.split()[0], Path(path))
-    destination = appdir / 'lib'
-    destination.mkdir(exist_ok=True)
-    for name in WAYLAND_LIBRARIES:
-        source = libraries.get(name)
-        if source is None:
-            raise RuntimeError(f'Missing native display runtime library: {name}')
-        shutil.copy2(source.resolve(), destination / name)
-        # libwayland-client uses libffi. Its SONAME varies with the distro;
-        # retain the runner's resolved SONAME rather than assuming a version.
-        linked = subprocess.check_output(['ldd', str(source)], text=True)
-        for line in linked.splitlines():
-            parts = line.split()
-            if parts and parts[0].startswith('libffi.so.') and len(parts) >= 3:
-                shutil.copy2(Path(parts[2]).resolve(), destination / parts[0])
-
-
 def build_appimage(
     staged_dir: Path,
     platform: str,
@@ -184,8 +152,6 @@ def build_appimage(
         Path(tmp).chmod(0o755)
         appdir = Path(tmp) / 'Battlefront-Eternal.AppDir'
         shutil.copytree(staged_dir, appdir, symlinks=True)
-
-        bundle_wayland_libraries(appdir)
 
         apprun_src = repo_root / 'build' / 'native' / 'AppRun'
         shutil.copy2(apprun_src, appdir / 'AppRun')
