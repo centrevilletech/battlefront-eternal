@@ -16,7 +16,7 @@ pub struct Layer {
     elapsed: f64,
     started: bool,
     intro: bool,
-    fading: Option<(f64, f64)>,
+    fading: Option<(f64, f64, f64)>,
     failed: bool,
     loading_elapsed: f64,
 }
@@ -94,9 +94,10 @@ impl Layer {
                 }
             }
         }
-        if let Some((ref mut elapsed, duration)) = self.fading {
+        if let Some((ref mut elapsed, duration, start_opacity)) = self.fading {
             *elapsed += dt;
-            self.opacity *= (1. - *elapsed / duration.max(f64::EPSILON)).clamp(0., 1.);
+            self.opacity =
+                start_opacity * (1. - *elapsed / duration.max(f64::EPSILON)).clamp(0., 1.);
             if *elapsed >= duration {
                 return true;
             }
@@ -185,7 +186,7 @@ impl MoviePlayer {
         } else {
             self.activating = None;
             for layer in self.layers.iter_mut().flatten() {
-                layer.fading = Some((0., layer.clip.fade_out));
+                layer.fading = Some((0., layer.clip.fade_out, layer.opacity));
             }
             self.intro_ended = true;
         }
@@ -216,7 +217,7 @@ impl MoviePlayer {
             let serial = self.activating.take().unwrap();
             for layer in self.layers.iter_mut().flatten() {
                 if layer.serial != serial && layer.fading.is_none() {
-                    layer.fading = Some((0., layer.clip.fade_out));
+                    layer.fading = Some((0., layer.clip.fade_out, layer.opacity));
                 }
             }
         }
@@ -345,6 +346,46 @@ mod tests {
         player.update(&root.0, 0.21);
         assert_eq!(player.layers.iter().flatten().count(), 1);
     }
+    #[test]
+    fn interrupting_fade_in_only_decreases_outgoing_opacity() {
+        let root = Fixture::new();
+        let slow = MovieClip {
+            fade_in: 1.,
+            ..clip()
+        };
+        let mut player = MoviePlayer::default();
+        player.play(
+            &root.0,
+            ScreenMovie {
+                intro: None,
+                loop_clip: Some(slow),
+            },
+            false,
+            0.,
+        );
+        ready(&mut player, &root.0);
+        player.update(&root.0, 0.1);
+        let old_serial = player.serial;
+        player.play(
+            &root.0,
+            ScreenMovie {
+                intro: None,
+                loop_clip: Some(clip()),
+            },
+            false,
+            0.,
+        );
+        ready(&mut player, &root.0);
+        player.update(&root.0, 0.05);
+        let old = player
+            .layers
+            .iter()
+            .flatten()
+            .find(|l| l.serial == old_serial)
+            .unwrap();
+        assert!((old.opacity - 0.075).abs() < 1e-9);
+    }
+
     #[test]
     fn preview_waits_half_a_second_and_missing_intro_continues() {
         let root = Fixture::new();

@@ -1256,16 +1256,9 @@ impl ShellHost {
                     play_intro,
                 } => {
                     let find = |url: &Option<String>| {
-                        url.as_ref().and_then(|url| {
-                            self.app
-                                .data
-                                .movies
-                                .values()
-                                .flat_map(|m| [m.intro.as_ref(), m.loop_clip.as_ref()])
-                                .flatten()
-                                .find(|clip| clip.url == *url)
-                                .cloned()
-                        })
+                        url.as_ref()
+                            .and_then(|url| self.app.media.clip_for_url(&self.app.data, url))
+                            .cloned()
                     };
                     self.movies.play(
                         root,

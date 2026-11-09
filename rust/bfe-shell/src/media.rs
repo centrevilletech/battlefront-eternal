@@ -239,6 +239,25 @@ impl ShellMedia {
         data.movies.get(movie_name)
     }
 
+    /// Resolve fades from the active canonical screen before the raw aliases.
+    /// `readMovies` keeps both, and the main screen overrides its intro fades
+    /// even when the raw alias points to exactly the same file.
+    pub fn clip_for_url<'a>(&self, data: &'a ShellData, url: &str) -> Option<&'a MovieClip> {
+        self.screen
+            .as_deref()
+            .and_then(|screen| self.movie_of(data, screen))
+            .into_iter()
+            .flat_map(|movie| [movie.intro.as_ref(), movie.loop_clip.as_ref()])
+            .flatten()
+            .chain(
+                data.movies
+                    .values()
+                    .flat_map(|movie| [movie.intro.as_ref(), movie.loop_clip.as_ref()])
+                    .flatten(),
+            )
+            .find(|clip| clip.url == url)
+    }
+
     /// Enters screen `id` (`back = true` when popping back to an earlier screen).
     ///
     /// Mirrors `ShellMedia.enter(id, { back })` in `src/shell/media.js`:
@@ -419,6 +438,19 @@ mod tests {
             ]
         });
         crate::data::read_shell_data(Some(&shell), None, None)
+    }
+
+    #[test]
+    fn canonical_main_intro_uses_its_zero_fade_override() {
+        let data = sample_data();
+        let mut media = ShellMedia::new(&data);
+        media.begin_enter(&data, "main", false);
+        let url = "/common/shell/movies/main_trans.webm";
+        assert_eq!(
+            data.movies["ifs_main"].intro.as_ref().unwrap().fade_out,
+            0.2
+        );
+        assert_eq!(media.clip_for_url(&data, url).unwrap().fade_out, 0.);
     }
 
     #[test]
