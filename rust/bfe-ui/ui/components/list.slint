@@ -10,6 +10,7 @@ export component PageListRow inherits Interaction {
     in property <string> badge;
     in property <bool> selected-row: false;
     in property <bool> end-aligned: false;
+    in property <bool> uppercase: true;
     preferred-height: Theme.list-row-height;
     height: self.preferred-height;
     opacity: root.visual-state == ControlState.disabled ? 0.4 : 1;
@@ -25,11 +26,11 @@ export component PageListRow inherits Interaction {
             for cell[index] in root.cells: Text {
                 min-width: 0px;
                 horizontal-stretch: index < root.columns.length ? root.columns[index] : 1;
-                text: cell.to-uppercase();
+                text: root.uppercase ? cell.to-uppercase() : cell;
                 font-family: Theme.font-family;
                 font-size: Theme.list-font-size;
                 font-weight: 700;
-                letter-spacing: 0.08 * self.font-size;
+                letter-spacing: (root.uppercase ? 0.08 : 0.04) * self.font-size;
                 color: root.selected-row && root.visual-state == ControlState.focused ? Theme.bfe-accent-ink : Theme.bfe-text;
                 vertical-alignment: center;
                 horizontal-alignment: root.end-aligned && index == root.cells.length - 1 ? right : left;

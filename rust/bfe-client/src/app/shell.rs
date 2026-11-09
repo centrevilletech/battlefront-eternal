@@ -444,6 +444,36 @@ fn scripted_run() -> bool {
 
 /// Front-end renderer and controller for the startup loader, click gate, shell menus,
 /// and `bfe-interface` options pages.
+#[derive(Debug, Clone)]
+pub struct SteamOfferState {
+    pub open: bool,
+    pub asked: bool,
+    pub cursor: usize,
+    pub paragraphs: Vec<String>,
+    pub accept_label: String,
+    pub status_text: String,
+    pub status_error: bool,
+    pub busy: bool,
+}
+
+impl Default for SteamOfferState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            asked: false,
+            cursor: 0,
+            paragraphs: vec![
+                "Battlefront Eternal is added to your Steam library as a non-Steam game. With Steam open, the game then starts through Steam, so your friends see “Playing Battlefront Eternal” and Steam counts your play time.".into(),
+                "You can remove it again in Options, Steam & Discord.".into(),
+            ],
+            accept_label: "Add to Steam".into(),
+            status_text: String::new(),
+            status_error: false,
+            busy: false,
+        }
+    }
+}
+
 pub struct ShellHost {
     pub movies: bfe_shell::movies::MoviePlayer,
     right_movies: bfe_shell::movies::MoviePlayer,
@@ -477,6 +507,7 @@ pub struct ShellHost {
     /// Front-end shell state machine (`Gate`, `Main`, `Singleplayer`, `InstantAction`, `Profile`, `Multiplayer`, `HostDialog`).
     pub app: ShellApp,
     pub page: bfe_shell::page::Page,
+    pub steam_offer: SteamOfferState,
     blur: super::page_blur::PageBlur,
     /// Last rendered menu target, used to recognize a double click.
     last_page_click: Option<(bfe_shell::page::Hit, Instant)>,
@@ -599,6 +630,7 @@ impl ShellHost {
             batch: Batch::new(),
             setup_hits: Vec::new(),
             page: bfe_shell::page::Page::new(Font::default(), Font::default()),
+            steam_offer: SteamOfferState::default(),
             last_page_click: None,
             fonts,
             textures,
@@ -1015,7 +1047,7 @@ impl ShellHost {
     }
 
     /// Records the answer to the one-time Discord offer ("off", "game" or "full") and saves it.
-    fn save_discord_offer(&mut self, settings: &mut AppSettingsStore, detail: &str) {
+    pub(super) fn save_discord_offer(&mut self, settings: &mut AppSettingsStore, detail: &str) {
         self.page.discord_offer = false;
         self.page.discord_asked = true;
         settings
@@ -1025,6 +1057,156 @@ impl ShellHost {
             .discord = Some(detail.into());
         settings.desktop.discord_presence = detail != "off";
         let _ = settings.save_desktop();
+    }
+
+    pub fn open_steam_offer(
+        &mut self,
+        account_name: Option<&str>,
+        running: bool,
+        needs_access: bool,
+    ) {
+        let mut paragraphs = vec![
+            "Battlefront Eternal is added to your Steam library as a non-Steam game. With Steam open, the game then starts through Steam, so your friends see “Playing Battlefront Eternal” and Steam counts your play time.".into(),
+        ];
+        if let Some(name) = account_name.filter(|s| !s.is_empty()) {
+            paragraphs.push(format!("Steam account: {name}."));
+        }
+        if running {
+            paragraphs.push(
+                "Steam closes and opens again to add it. Downloads in Steam pause for a moment."
+                    .into(),
+            );
+        }
+        if needs_access {
+            paragraphs.push(
+                "You use the Flatpak version of Steam. It can start Battlefront Eternal only with permission to start programs outside its sandbox, which applies to everything Steam starts. The game asks you for it next.".into(),
+            );
+        }
+        paragraphs.push("You can remove it again in Options, Steam & Discord.".into());
+        self.steam_offer = SteamOfferState {
+            open: true,
+            asked: true,
+            cursor: 0,
+            paragraphs,
+            accept_label: if running {
+                "Restart Steam and add".into()
+            } else {
+                "Add to Steam".into()
+            },
+            status_text: String::new(),
+            status_error: false,
+            busy: false,
+        };
+    }
+
+    fn steam_resolve_options(&self) -> (bfe_desktop::steam::shortcut::ResolveTargetOptions, Option<PathBuf>) {
+        let platform = if cfg!(target_os = "windows") {
+            "win32"
+        } else if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "linux"
+        };
+        let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from);
+        let exec_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bfe-client"));
+        let project_root = self
+            .content_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        (
+            bfe_desktop::steam::shortcut::ResolveTargetOptions {
+                platform: platform.into(),
+                env,
+                exec_path,
+                packaged: true,
+                project_root,
+                resources_path: None,
+            },
+            home,
+        )
+    }
+
+    pub fn maybe_open_steam_offer(&mut self, settings: &AppSettingsStore) {
+        if self.steam_offer.asked {
+            return;
+        }
+        if std::env::var_os("BFE_FORCE_STEAM_OFFER").is_some() {
+            let running = std::env::var("BFE_FORCE_STEAM_RUNNING").as_deref() == Ok("1");
+            let needs_access = std::env::var("BFE_FORCE_STEAM_FLATPAK").as_deref() == Ok("1");
+            let account = std::env::var("BFE_FORCE_STEAM_ACCOUNT").ok();
+            self.open_steam_offer(account.as_deref(), running, needs_access);
+            return;
+        }
+        if scripted_run()
+            || settings
+                .desktop
+                .steam
+                .as_ref()
+                .and_then(|s| s.declined)
+                .unwrap_or(false)
+        {
+            self.steam_offer.asked = true;
+            return;
+        }
+        let (opts, home) = self.steam_resolve_options();
+        let argv: Vec<String> = std::env::args().collect();
+        if bfe_desktop::steam::client::launched_under_steam(&opts.env, &argv) {
+            self.steam_offer.asked = true;
+            return;
+        }
+        let status = bfe_desktop::steam::shortcut::inspect_steam_shortcut(
+            &opts,
+            home.as_deref(),
+            &[],
+        );
+        if !status.steam_detected || status.registered {
+            self.steam_offer.asked = true;
+            return;
+        }
+        let running = bfe_desktop::steam::client::is_steam_client_running(
+            &opts.platform,
+            home.as_deref(),
+            &opts.env,
+        );
+        self.open_steam_offer(None, running, false);
+    }
+
+    pub(super) fn decline_steam_offer(&mut self, settings: &mut AppSettingsStore) {
+        self.steam_offer.open = false;
+        self.steam_offer.asked = true;
+        settings
+            .desktop
+            .steam
+            .get_or_insert_with(Default::default)
+            .declined = Some(true);
+        let _ = settings.save_desktop();
+    }
+
+    pub(super) fn accept_steam_offer(&mut self, settings: &mut AppSettingsStore) {
+        let (opts, home) = self.steam_resolve_options();
+        let summary = bfe_desktop::steam::shortcut::ensure_steam_shortcut(
+            &opts,
+            home.as_deref(),
+            &[],
+        );
+        if summary.ok {
+            self.steam_offer.open = false;
+            self.steam_offer.asked = true;
+            let record = settings.desktop.steam.get_or_insert_with(Default::default);
+            record.appid = Some(summary.app_id);
+            record.exe = Some(summary.exe);
+            record.declined = Some(false);
+            record.launch = Some(true);
+            let _ = settings.save_desktop();
+        } else {
+            self.steam_offer.status_text = summary
+                .reason
+                .unwrap_or_else(|| "Steam could not be changed.".into());
+            self.steam_offer.status_error = true;
+        }
     }
 
     /// Shows the 3-button hosted server close confirmation dialog from [`ClosePrompt`].
@@ -1343,13 +1525,14 @@ impl ShellHost {
                 self.layout_size
             );
         }
-        if settings
+        if (settings
             .desktop
             .presence
             .as_ref()
             .and_then(|p| p.discord.as_ref())
             .is_some()
-            || scripted_run()
+            || scripted_run())
+            && std::env::var_os("BFE_FORCE_DISCORD_OFFER").is_none()
         {
             self.page.discord_asked = true;
         }
@@ -1396,6 +1579,16 @@ impl ShellHost {
             );
         }
 
+        if self.app.current_screen() == ScreenId::Main
+            && self.page.discord_asked
+            && !self.page.discord_offer
+            && !self.steam_offer.asked
+            && (self.app.pulse_elapsed - self.page.entered) >= 1.5
+            && self.app.popup.is_none()
+            && !self.app.profile.editing
+        {
+            self.maybe_open_steam_offer(settings);
+        }
         if let Some(modal) = self.page.modal_start {
             if let Some(rect) = self
                 .is_interface_options_active()
@@ -1585,6 +1778,23 @@ impl ShellHost {
             }
             return self.flush_events(settings, audio_router);
         }
+        if self.steam_offer.open {
+            match key {
+                "ArrowRight" | "ArrowDown" | "End" => self.steam_offer.cursor = 1,
+                "ArrowLeft" | "ArrowUp" | "Home" => self.steam_offer.cursor = 0,
+                "Tab" => self.steam_offer.cursor = (self.steam_offer.cursor + 1) % 2,
+                "Enter" | " " => {
+                    if self.steam_offer.cursor == 1 {
+                        self.accept_steam_offer(settings);
+                    } else {
+                        self.decline_steam_offer(settings);
+                    }
+                }
+                "Escape" => self.decline_steam_offer(settings),
+                _ => {}
+            }
+            return self.flush_events(settings, audio_router);
+        }
         if let Some(selection) = self.page.dropdown_key(key) {
             if let Some(index) = selection {
                 self.app.settings.menu_theme = ["bf1", "bf2", "eternal"][index].into();
@@ -1697,7 +1907,6 @@ impl ShellHost {
     pub fn handle_cursor_move(&mut self, x_px: f64, y_px: f64) {
         if self.page_active() {
             match self.page.hit(x_px, y_px) {
-                Some(bfe_shell::page::Hit::Discord(i)) => self.page.discord_cursor = i,
                 Some(bfe_shell::page::Hit::Look(i)) => self.page.dropdown_cursor = i,
                 Some(bfe_shell::page::Hit::BrowserChoice(_, i)) => {
                     self.page.browser.choice_cursor = i
@@ -1736,7 +1945,7 @@ impl ShellHost {
         let iy = (y_px / h) * 768.0;
 
         let screen = self.app.current_screen();
-        if screen == ScreenId::Gate {
+        if matches!(screen, ScreenId::Gate | ScreenId::Main | ScreenId::Profile) {
             return;
         }
         if screen == ScreenId::InstantAction {
@@ -1818,12 +2027,6 @@ impl ShellHost {
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
         if !self.page.input_matches(&self.app) {
-            return self.flush_events(settings, audio_router);
-        }
-        if self.page.discord_offer {
-            if let Some(bfe_shell::page::Hit::Discord(i)) = self.page.hit(x_px, y_px) {
-                self.save_discord_offer(settings, ["off", "game", "full"][i]);
-            }
             return self.flush_events(settings, audio_router);
         }
         match self.page.hit(x_px, y_px) {
@@ -1911,15 +2114,6 @@ impl ShellHost {
                         _ => {}
                     }
                     self.app.accept(&mut self.browser);
-                }
-                Some(Hit::Profile(accept)) => {
-                    self.app.handle_key(
-                        if accept { "Enter" } else { "Escape" },
-                        false,
-                        false,
-                        false,
-                        &mut self.browser,
-                    );
                 }
                 Some(Hit::Map(i)) => {
                     self.app.ia_focus = IaFocus::Available;
@@ -2117,6 +2311,10 @@ impl ShellHost {
     ///   `uv`, `mask_uv`, `tint`) into `self.hud`.
     /// - Encodes up to `MAX_GROUPS` textured/masked draw groups into `self.hud.input`.
     /// - Binds `self.canvas.framebuffer`, clears color/depth, and invokes `self.hud.draw(&mut self.core)`.
+    pub fn apply_modal_blur(&mut self) {
+        self.blur.apply(&self.core.gl, self.canvas.framebuffer, 4.);
+        self.core.state.reset();
+    }
     pub fn upload_and_draw_batch(&mut self) {
         self.draw_range(0, self.batch.count, true);
     }

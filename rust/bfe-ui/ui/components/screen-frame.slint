@@ -8,6 +8,7 @@ export enum ScreenLayout { regular, options, rows, home, wide }
 export component ScreenFrame inherits Rectangle {
     in property <string> title;
     in property <ScreenLayout> layout: ScreenLayout.regular;
+    in property <length> body-content-height: 0px;
     in property <string> left-label: "BACK";
     in property <string> middle-label;
     in property <string> right-label;
@@ -16,17 +17,24 @@ export component ScreenFrame inherits Rectangle {
     callback middle-activated();
     callback right-activated();
     property <length> frame-width: root.layout == ScreenLayout.options ? Theme.options-frame : Theme.bfe-page-frame;
-    PageBrand { x: Theme.bfe-edge; y: 2.6 * Theme.vh; visible: root.brand-visible; }
+    property <length> pad-top: 7 * Theme.vh;
+    property <length> pad-bottom: 6 * Theme.vh + max(34px, min(46px, 4.6 * Theme.vh));
+    property <length> avail-height: root.height - root.pad-top - root.pad-bottom;
+    property <length> head-body-gap: root.layout == ScreenLayout.rows ? 5 * Theme.vh : Theme.head-gap;
+    property <bool> center-rows: root.layout == ScreenLayout.rows && root.body-content-height > 0px;
+    PageBrand { x: Theme.bfe-edge; y: 2.6 * Theme.vh + 9px; visible: root.brand-visible; }
     heading := PageTitle {
         x: (root.width - self.width) / 2;
-        y: 7 * Theme.vh;
+        y: root.center-rows
+            ? root.pad-top + (root.avail-height - (self.height + root.head-body-gap + root.body-content-height)) / 2
+            : root.pad-top;
         title: root.title;
     }
     body := Rectangle {
         x: (root.width - root.frame-width) / 2;
-        y: heading.y + heading.height + Theme.head-gap;
+        y: heading.y + heading.height + root.head-body-gap;
         width: root.frame-width;
-        height: root.height - self.y - 6 * Theme.vh - max(34px, min(46px, 4.6 * Theme.vh));
+        height: root.center-rows ? root.body-content-height : (root.height - self.y - root.pad-bottom);
         @children
     }
     if root.left-label != "": PageButton {

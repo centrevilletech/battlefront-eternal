@@ -239,12 +239,40 @@ impl slint::platform::Platform for Platform {
     }
 }
 
+use super::{
+    settings::AppSettingsStore,
+    shell::{ShellHost, ShellTransition},
+};
+use crate::audio::SharedAudioRouter;
+use bfe_shell::screens::{PopupState, ScreenId};
+
+enum UiAction {
+    GateUnlocked,
+    RowSelected(usize),
+    RowActivated(usize),
+    BackActivated,
+    ThemeChanged(usize),
+    ProfileEdited(String),
+    ProfileSaved(String),
+    ProfileCancelled,
+    DiscordChosen(String),
+    SteamDeclined,
+    SteamAccepted,
+    PopupButtonActivated(usize),
+    SoundRequested(&'static str),
+}
+
 pub(super) struct SlintHost {
     root: GameUi,
     adapter: Rc<Adapter>,
     underlay: Rc<Cell<Option<(glow::Framebuffer, [i32; 2])>>>,
     pending: Pending,
     quit: Arc<AtomicBool>,
+    actions: Rc<RefCell<Vec<UiAction>>>,
+    was_profile_editing: bool,
+    last_shell_dropdown: bool,
+    last_rows: Vec<MenuRowItem>,
+    last_steam_paragraphs: Vec<String>,
     cursor_position: slint::LogicalPosition,
     pressed: u8,
     pub frames: Cell<u64>,
@@ -283,6 +311,92 @@ impl SlintHost {
         .map_err(|e| e.to_string())?;
         let root = GameUi::new().map_err(|e| e.to_string())?;
         root.set_proof_controls(proof);
+        let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
+        {
+            let theme = root.global::<Theme>();
+            theme.on_format_label(|text, uppercase| bfe_ui::format_label(&text, uppercase).into());
+            let q = actions.clone();
+            theme.on_sound_requested(move |sound| {
+                let cue = match sound {
+                    MenuSound::Select => "shell_select_change",
+                    MenuSound::Accept => "shell_menu_accept",
+                    MenuSound::Back => "shell_menu_cancel",
+                    MenuSound::Error => "shell_menu_error",
+                };
+                q.borrow_mut().push(UiAction::SoundRequested(cue));
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_gate_unlocked(move || q.borrow_mut().push(UiAction::GateUnlocked));
+        }
+        {
+            let q = actions.clone();
+            root.on_row_selected(move |idx| {
+                if idx >= 0 {
+                    q.borrow_mut().push(UiAction::RowSelected(idx as usize));
+                }
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_row_activated(move |idx| {
+                if idx >= 0 {
+                    q.borrow_mut().push(UiAction::RowActivated(idx as usize));
+                }
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_back_activated(move || q.borrow_mut().push(UiAction::BackActivated));
+        }
+        {
+            let q = actions.clone();
+            root.on_theme_changed(move |idx| {
+                if idx >= 0 {
+                    q.borrow_mut().push(UiAction::ThemeChanged(idx as usize));
+                }
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_profile_edited(move |text| {
+                q.borrow_mut().push(UiAction::ProfileEdited(text.into()));
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_profile_saved(move |text| {
+                q.borrow_mut().push(UiAction::ProfileSaved(text.into()));
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_profile_cancelled(move || q.borrow_mut().push(UiAction::ProfileCancelled));
+        }
+        {
+            let q = actions.clone();
+            root.on_discord_chosen(move |detail| {
+                q.borrow_mut().push(UiAction::DiscordChosen(detail.into()));
+            });
+        }
+        {
+            let q = actions.clone();
+            root.on_steam_declined(move || q.borrow_mut().push(UiAction::SteamDeclined));
+        }
+        {
+            let q = actions.clone();
+            root.on_steam_accepted(move || q.borrow_mut().push(UiAction::SteamAccepted));
+        }
+        {
+            let q = actions.clone();
+            root.on_popup_button_activated(move |idx| {
+                if idx >= 0 {
+                    q.borrow_mut()
+                        .push(UiAction::PopupButtonActivated(idx as usize));
+                }
+            });
+        }
         let underlay: Rc<Cell<Option<(glow::Framebuffer, [i32; 2])>>> = Rc::new(Cell::new(None));
         let source = underlay.clone();
         let os = window.clone();
@@ -342,6 +456,11 @@ impl SlintHost {
             underlay,
             pending,
             quit,
+            actions,
+            was_profile_editing: false,
+            last_shell_dropdown: false,
+            last_rows: Vec::new(),
+            last_steam_paragraphs: Vec::new(),
             cursor_position: slint::LogicalPosition::default(),
             pressed: 0,
             frames: Cell::new(0),
@@ -384,14 +503,320 @@ impl SlintHost {
             size: slint::LogicalSize::new(s.width as f32 / scale, s.height as f32 / scale),
         });
     }
+    pub fn set_shell_visible(&mut self, visible: bool) {
+        if !visible && self.was_profile_editing {
+            self.root.invoke_release_editor();
+            self.was_profile_editing = false;
+        }
+        self.root.set_shell_visible(visible);
+    }
+
+    pub fn sync_shell(&mut self, shell: &mut ShellHost, visible: bool) {
+        self.set_shell_visible(visible);
+        if !visible {
+            return;
+        }
+        let (menu_theme, theme_idx) = match shell.app.settings.menu_theme.as_str() {
+            "bf1" => ("bf1", 0),
+            "bf2" => ("bf2", 1),
+            _ => ("eternal", 2),
+        };
+        self.root.global::<Theme>().set_menu_theme(menu_theme.into());
+        self.root.set_theme_index(theme_idx);
+
+        if shell.page.dropdown != self.last_shell_dropdown {
+            self.root.set_theme_picker_open(shell.page.dropdown);
+            self.last_shell_dropdown = shell.page.dropdown;
+        } else {
+            shell.page.dropdown = self.root.get_theme_picker_open();
+            self.last_shell_dropdown = shell.page.dropdown;
+        }
+
+        let id = if shell.app.current_screen() == ScreenId::Popup {
+            shell.app.stack.last().copied().unwrap_or(ScreenId::Main)
+        } else {
+            shell.app.current_screen()
+        };
+        let screen_str = match id {
+            ScreenId::Gate => "gate",
+            ScreenId::Main => "main",
+            ScreenId::Profile => "profile",
+            _ => "other",
+        };
+        self.root.set_active_screen(screen_str.into());
+
+        let pulse = 0.3
+            + 0.7 * ((shell.app.gate_elapsed / 1.4 * std::f64::consts::TAU).cos() + 1.0) / 2.0;
+        self.root.set_prompt_opacity(pulse as f32);
+        self.root
+            .set_version_text(shell.app.version_text.as_str().into());
+
+        if matches!(id, ScreenId::Main | ScreenId::Profile) {
+            let rows = shell.app.active_rows();
+            let model: Vec<MenuRowItem> = rows
+                .iter()
+                .map(|r| MenuRowItem {
+                    id: r.id.as_str().into(),
+                    label: r.label.as_str().into(),
+                    disabled: r.disabled,
+                })
+                .collect();
+            if self.last_rows != model {
+                self.root
+                    .set_rows(slint::ModelRc::new(slint::VecModel::from(model.clone())));
+                self.last_rows = model;
+            }
+            self.root
+                .set_selected_row(shell.app.selected_cached_row_index(id) as i32);
+        }
+
+        let editing = shell.app.profile.editing;
+        self.root.set_profile_editing(editing);
+        self.root
+            .set_profile_note(shell.app.profile.message.as_str().into());
+        if editing && !self.was_profile_editing {
+            self.root
+                .set_profile_draft(shell.app.profile.draft.as_str().into());
+            self.root.invoke_focus_profile_input();
+        } else if !editing && self.was_profile_editing {
+            self.root.invoke_release_editor();
+        } else if editing && self.root.get_profile_draft().as_str() != shell.app.profile.draft {
+            self.root
+                .set_profile_draft(shell.app.profile.draft.as_str().into());
+        }
+        self.was_profile_editing = editing;
+
+        self.root.set_discord_offer_open(shell.page.discord_offer);
+        self.root
+            .set_discord_selected_button(shell.page.discord_cursor as i32);
+
+        self.root.set_steam_offer_open(shell.steam_offer.open);
+        if shell.steam_offer.open {
+            if self.last_steam_paragraphs != shell.steam_offer.paragraphs {
+                let paras: Vec<slint::SharedString> = shell
+                    .steam_offer
+                    .paragraphs
+                    .iter()
+                    .map(|s| s.as_str().into())
+                    .collect();
+                self.root
+                    .set_steam_paragraphs(slint::ModelRc::new(slint::VecModel::from(paras)));
+                self.last_steam_paragraphs = shell.steam_offer.paragraphs.clone();
+            }
+            self.root
+                .set_steam_status_text(shell.steam_offer.status_text.as_str().into());
+            self.root
+                .set_steam_status_error(shell.steam_offer.status_error);
+            self.root
+                .set_steam_accept_label(shell.steam_offer.accept_label.as_str().into());
+            self.root.set_steam_busy(shell.steam_offer.busy);
+            self.root
+                .set_steam_selected_button(shell.steam_offer.cursor as i32);
+        }
+
+        match &shell.app.popup {
+            Some(PopupState::Notice { message }) => {
+                self.root.set_popup_open(true);
+                self.root.set_popup_message(message.as_str().into());
+                self.root.set_popup_accept_label("OK".into());
+                self.root.set_popup_middle_label("".into());
+                self.root.set_popup_cancel_label("".into());
+                self.root.set_popup_selected_button(0);
+            }
+            Some(PopupState::ConfirmExit {
+                message,
+                selected_yes,
+            }) => {
+                self.root.set_popup_open(true);
+                self.root.set_popup_message(message.as_str().into());
+                self.root.set_popup_accept_label("YES".into());
+                self.root.set_popup_middle_label("".into());
+                self.root.set_popup_cancel_label("NO".into());
+                self.root
+                    .set_popup_selected_button(i32::from(!*selected_yes));
+            }
+            Some(PopupState::HostClosePrompt {
+                message,
+                buttons,
+                selected,
+                ..
+            }) => {
+                self.root.set_popup_open(true);
+                self.root.set_popup_message(message.as_str().into());
+                self.root.set_popup_accept_label(buttons[0].as_str().into());
+                self.root.set_popup_middle_label(buttons[1].as_str().into());
+                self.root
+                    .set_popup_cancel_label(buttons[2].as_str().into());
+                self.root.set_popup_selected_button(*selected as i32);
+            }
+            _ => {
+                self.root.set_popup_open(false);
+            }
+        }
+    }
+
+    pub fn drain_actions(
+        &mut self,
+        shell: &mut ShellHost,
+        settings: &mut AppSettingsStore,
+        audio_router: &SharedAudioRouter,
+    ) -> Option<ShellTransition> {
+        let pending: Vec<UiAction> = self.actions.borrow_mut().drain(..).collect();
+        if pending.is_empty() {
+            return None;
+        }
+        let mut transition = None;
+        for action in pending {
+            let next = match action {
+                UiAction::GateUnlocked => {
+                    if shell.app.current_screen() == ScreenId::Gate {
+                        shell.app.unlock_gate();
+                    }
+                    shell.flush_events(settings, audio_router)
+                }
+                UiAction::RowSelected(index) => {
+                    let screen = shell.app.current_screen();
+                    shell.app.set_selected_row_index(screen, index);
+                    shell.flush_events(settings, audio_router)
+                }
+                UiAction::RowActivated(index) => {
+                    let screen = shell.app.current_screen();
+                    shell.app.set_selected_row_index(screen, index);
+                    shell.handle_key("Enter", settings, audio_router)
+                }
+                UiAction::BackActivated => shell.handle_key("Escape", settings, audio_router),
+                UiAction::ThemeChanged(index) => {
+                    let theme = ["bf1", "bf2", "eternal"][index.min(2)];
+                    shell.app.settings.menu_theme = theme.into();
+                    shell
+                        .options_ctrl
+                        .settings
+                        .set("menuTheme", shell.app.settings.menu_theme.clone());
+                    shell.page.dropdown = false;
+                    self.last_shell_dropdown = false;
+                    self.root.set_theme_picker_open(false);
+                    shell.flush_events(settings, audio_router)
+                }
+                UiAction::ProfileEdited(text) => {
+                    let clean: String =
+                        text.chars().filter(|c| !c.is_control()).take(32).collect();
+                    shell.app.profile.draft = clean.clone();
+                    shell.app.profile.caret = clean.chars().count();
+                    shell.app.profile.selected_all = false;
+                    if clean != text {
+                        self.root.set_profile_draft(clean.into());
+                    }
+                    None
+                }
+                UiAction::ProfileSaved(text) => {
+                    let clean: String =
+                        text.chars().filter(|c| !c.is_control()).take(32).collect();
+                    shell.app.profile.draft = clean;
+                    shell.handle_key("Enter", settings, audio_router)
+                }
+                UiAction::ProfileCancelled => shell.handle_key("Escape", settings, audio_router),
+                UiAction::DiscordChosen(detail) => {
+                    shell.save_discord_offer(settings, &detail);
+                    shell.flush_events(settings, audio_router)
+                }
+                UiAction::SteamDeclined => {
+                    shell.decline_steam_offer(settings);
+                    shell.flush_events(settings, audio_router)
+                }
+                UiAction::SteamAccepted => {
+                    shell.accept_steam_offer(settings);
+                    shell.flush_events(settings, audio_router)
+                }
+                UiAction::PopupButtonActivated(index) => {
+                    match shell.app.popup.as_mut() {
+                        Some(
+                            PopupState::ConfirmExit { selected_yes, .. }
+                            | PopupState::OnlineNotice {
+                                selected_accept: selected_yes,
+                                ..
+                            },
+                        ) => *selected_yes = index == 0,
+                        Some(PopupState::HostClosePrompt { selected, .. }) => *selected = index,
+                        _ => {}
+                    }
+                    shell.handle_key("Enter", settings, audio_router)
+                }
+                UiAction::SoundRequested(cue) => {
+                    if shell.app.sound_queue.last().copied() != Some(cue) {
+                        shell.app.sound_queue.push(cue);
+                    }
+                    shell.flush_events(settings, audio_router)
+                }
+            };
+            if next.is_some() {
+                transition = next;
+            }
+        }
+        transition
+    }
+
+    pub fn modal_open(&self) -> bool {
+        self.root.get_shell_visible()
+            && !self.root.get_gameplay()
+            && !self.root.get_proof_controls()
+            && self.root.get_modal_open()
+    }
     pub fn render(&self, fb: glow::Framebuffer, size: [i32; 2]) -> Result<(), String> {
+        self.render_pass(fb, size, 0)
+    }
+    pub fn render_pass(&self, fb: glow::Framebuffer, size: [i32; 2], pass: i32) -> Result<(), String> {
         if !self.context.is_current() {
             return Err("shared GL context is not current".into());
+        }
+        if self.root.get_render_pass() != pass {
+            self.root.set_render_pass(pass);
         }
         self.underlay.set(Some((fb, size)));
         self.root.window().request_redraw();
         self.adapter.renderer.render().map_err(|e| e.to_string())?;
-        self.frames.set(self.frames.get() + 1);
+        if pass != 0 {
+            self.root.set_render_pass(0);
+        }
+        if self.root.get_shell_visible()
+            && !self.root.get_gameplay()
+            && !self.root.get_proof_controls()
+        {
+            unsafe {
+                let read = self.gl.get_parameter_i32(glow::READ_FRAMEBUFFER_BINDING);
+                let draw = self.gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
+                let scissor = self.gl.is_enabled(glow::SCISSOR_TEST);
+                self.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+                self.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fb));
+                self.gl.disable(glow::SCISSOR_TEST);
+                let target = self.adapter.window.inner_size();
+                self.gl.blit_framebuffer(
+                    0,
+                    0,
+                    target.width as i32,
+                    target.height as i32,
+                    0,
+                    0,
+                    size[0],
+                    size[1],
+                    glow::COLOR_BUFFER_BIT,
+                    glow::LINEAR,
+                );
+                self.gl.bind_framebuffer(
+                    glow::READ_FRAMEBUFFER,
+                    NonZeroU32::new(read as u32).map(glow::NativeFramebuffer),
+                );
+                self.gl.bind_framebuffer(
+                    glow::DRAW_FRAMEBUFFER,
+                    NonZeroU32::new(draw as u32).map(glow::NativeFramebuffer),
+                );
+                if scissor {
+                    self.gl.enable(glow::SCISSOR_TEST);
+                }
+            }
+        }
+        if pass != 1 {
+            self.frames.set(self.frames.get() + 1);
+        }
         Ok(())
     }
     pub fn cursor(&self) -> Option<CursorIcon> {
@@ -511,8 +936,13 @@ impl SlintHost {
                 event,
                 is_synthetic,
                 ..
-            } if !locked && (self.root.get_text_focused() || is_modifier(&event.logical_key)) => {
-                let focused = self.root.get_text_focused();
+            } if !locked
+                && !(self.root.get_profile_editing()
+                    && matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)))
+                && (self.root.get_text_focused()
+                    || self.root.get_profile_editing()
+                    || is_modifier(&event.logical_key)) => {
+                let focused = self.root.get_text_focused() || self.root.get_profile_editing();
                 // Focus acquisition replays held keys. Only modifiers belong in
                 // the UI state; replayed character keys must not insert text.
                 if *is_synthetic && !is_modifier(&event.logical_key) {
@@ -586,6 +1016,7 @@ impl SlintHost {
     // preedit/commit protocol through the real adapter and a compiled TextInput.
     // Real keyboard, cursor and pointer-lock runs complement this smoke.
     pub fn prove_input(&mut self) -> Result<serde_json::Value, String> {
+        self.root.set_shell_visible(false);
         self.root.set_gameplay(false);
         self.root.set_proof_controls(true);
         self.root.invoke_focus_editor();

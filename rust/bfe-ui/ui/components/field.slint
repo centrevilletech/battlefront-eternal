@@ -2,8 +2,8 @@ import { Theme, ControlState, MenuSound } from "../theme.slint";
 import { Interaction } from "interaction.slint";
 import { PageListRow } from "list.slint";
 
-// TextInput owns text selection, caret movement and platform IME. A native
-// screen supplies strings and validation, never a parallel key-to-text path.
+// TextInput owns OS text composition, clipboard, selection and caret movement.
+// SelectField keeps the page look's closed value box and row-list popup.
 export component InputField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
@@ -13,43 +13,51 @@ export component InputField inherits Rectangle {
     out property <bool> focused: input.has-focus;
     callback edited(string);
     callback accepted(string);
+    public function focus-and-select() {
+        input.focus();
+        input.select-all();
+    }
+    public function release-focus() {
+        input.clear-focus();
+    }
     preferred-height: Theme.field-height;
     height: self.preferred-height;
     preferred-width: 260px;
-    background: rgba(0,0,0,0.35);
+    width: self.preferred-width;
+    background: Theme.dialog-input-bg;
     border-width: root.visual-state == ControlState.focused ? 2px : 1px;
-    border-color: root.visual-state == ControlState.focused ? Theme.bfe-accent : Theme.bfe-dialog-button-border;
-    border-radius: Theme.bfe-dialog-button-radius;
+    border-color: root.visual-state == ControlState.focused ? Theme.dialog-input-focus-border : Theme.bfe-dialog-button-border;
+    border-radius: Theme.dialog-input-radius;
     opacity: root.disabled ? 0.4 : 1;
     forward-focus: input;
     hit := TouchArea { mouse-cursor: root.disabled ? MouseCursor.default : MouseCursor.text; clicked => { if (!root.disabled) { input.focus(); } } }
     if root.text == "": Text {
-        x: 0.9 * Theme.field-font-size;
+        x: Theme.dialog-input-pad-x;
         y: 0px;
         height: parent.height;
         width: parent.width - 2 * self.x;
         text: root.placeholder;
         font-family: Theme.font-family;
-        font-size: Theme.field-font-size;
-        font-weight: 700;
-        letter-spacing: 0.1 * self.font-size;
+        font-size: Theme.dialog-input-font-size;
+        font-weight: 600;
         color: Theme.bfe-text-faint;
         vertical-alignment: center;
     }
     input := TextInput {
-        x: 0.9 * Theme.field-font-size;
-        y: (parent.height - self.height) / 2;
+        x: Theme.dialog-input-pad-x;
+        y: 0px;
         width: parent.width - 2 * self.x;
+        height: parent.height;
         text <=> root.text;
         read-only: root.disabled;
         input-type: root.secret ? InputType.password : InputType.text;
         font-family: Theme.font-family;
-        font-size: Theme.field-font-size;
-        font-weight: 700;
-        letter-spacing: 0.1 * self.font-size;
+        font-size: Theme.dialog-input-font-size;
+        font-weight: 600;
         color: Theme.bfe-text;
-        selection-background-color: Theme.bfe-accent;
-        selection-foreground-color: Theme.bfe-accent-ink;
+        selection-background-color: root.visual-state == ControlState.focused ? Theme.selection-bg : transparent;
+        selection-foreground-color: root.visual-state == ControlState.focused ? Theme.selection-ink : Theme.bfe-text;
+        vertical-alignment: center;
         single-line: true;
         edited => { root.edited(self.text); }
         accepted => { root.accepted(self.text); Theme.sound-requested(MenuSound.accept); }
@@ -59,12 +67,15 @@ export component InputField inherits Rectangle {
 export component SelectField inherits Interaction {
     in property <[string]> choices;
     in-out property <int> current-index: 0;
+    in property <bool> uppercase: true;
+    in-out property <bool> open: false;
     callback selection-changed(int);
     preferred-height: Theme.field-height;
     height: self.preferred-height;
     preferred-width: 230px;
+    width: self.preferred-width;
     opacity: root.visual-state == ControlState.disabled ? 0.4 : 1;
-    activated => { choices-popup.show(); }
+    activated => { root.open = !root.open; }
     stepped(delta) => {
         if (root.choices.length > 0) {
             root.current-index = mod(root.current-index + delta + root.choices.length, root.choices.length);
@@ -74,43 +85,58 @@ export component SelectField inherits Interaction {
     }
     Rectangle {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
-        background: rgba(0,0,0,0.35);
-        border-width: root.visual-state == ControlState.focused ? 2px : 1px;
-        border-color: root.visual-state == ControlState.focused ? Theme.bfe-accent : Theme.bfe-dialog-button-border;
-        border-radius: Theme.bfe-dialog-button-radius;
+        background: Theme.page-theme-select-bg;
+        border-width: root.visual-state == ControlState.focused || root.open ? 2px : 1px;
+        border-color: root.visual-state == ControlState.focused || root.open
+            ? Theme.dialog-input-focus-border
+            : root.visual-state == ControlState.hover
+            ? Theme.bfe-accent
+            : Theme.page-theme-select-border;
+        border-radius: Theme.page-theme-select-radius;
     }
     Text {
-        x: 0.9 * Theme.field-font-size;
+        x: 10px;
         y: 0px;
-        width: parent.width - 3.1 * Theme.field-font-size;
+        width: parent.width - 28px;
         height: parent.height;
-        text: root.current-index >= 0 && root.current-index < root.choices.length ? root.choices[root.current-index].to-uppercase() : "";
+        text: root.current-index >= 0 && root.current-index < root.choices.length
+            ? (root.uppercase ? root.choices[root.current-index].to-uppercase() : root.choices[root.current-index])
+            : "";
         font-family: Theme.font-family;
-        font-size: Theme.field-font-size;
-        font-weight: 700;
-        letter-spacing: 0.1 * self.font-size;
-        color: Theme.bfe-text;
+        font-size: Theme.page-theme-select-font-size;
+        font-weight: 600;
+        letter-spacing: (root.uppercase ? 0.1 : 0.04) * self.font-size;
+        color: Theme.page-theme-select-ink;
         vertical-alignment: center;
         overflow: elide;
     }
     Path {
-        x: root.width - 1.35 * Theme.field-font-size;
-        y: root.height / 2 - 3px;
-        width: 7px; height: 5px;
-        stroke: Theme.bfe-accent; stroke-width: 2px;
-        MoveTo { x: 0; y: 0; } LineTo { x: 3.5; y: 3.5; } LineTo { x: 7; y: 0; }
+        x: root.width - 17px;
+        y: root.height / 2 - 2px;
+        width: 8px; height: 5px;
+        stroke: Theme.page-theme-select-ink; stroke-width: 1.6px;
+        MoveTo { x: 0; y: 0; } LineTo { x: 4; y: 4; } LineTo { x: 8; y: 0; }
     }
-    choices-popup := PopupWindow {
+    if root.open: Rectangle {
         x: 0px; y: root.height;
         width: root.width;
         height: min(320px, root.choices.length * Theme.list-row-height + 8px);
-        Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.height; background: Theme.bfe-dialog-bg; border-width: 1px; border-color: Theme.bfe-accent; }
+        z: 100;
+        background: Theme.page-theme-option-bg;
+        border-width: 1px;
+        border-color: Theme.page-theme-select-border;
         VerticalLayout {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
             padding: 4px; spacing: 0px;
             for choice[index] in root.choices: PageListRow {
                 cells: [choice];
+                uppercase: root.uppercase;
                 selected-row: index == root.current-index;
-                activated => { root.current-index = index; root.selection-changed(index); choices-popup.close(); }
+                activated => {
+                    root.current-index = index;
+                    root.open = false;
+                    root.selection-changed(index);
+                }
             }
         }
     }

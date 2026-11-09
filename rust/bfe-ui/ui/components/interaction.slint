@@ -55,8 +55,9 @@ export component Interaction inherits FocusScope {
         mouse-cursor: root.disabled || !root.interactive ? default : root.cursor;
         changed has-hover => {
             if (self.has-hover && !root.disabled && root.interactive) {
-                root.focus();
                 root.keyboard-focus = false;
+                root.selected();
+                Theme.sound-requested(MenuSound.select);
             }
         }
         pointer-event(event) => {

@@ -1,0 +1,317 @@
+import { Theme, ControlState, MenuSound } from "../theme.slint";
+import { PageButton, ButtonVariant } from "../components/button.slint";
+import { InputField, SelectField } from "../components/field.slint";
+import { PageText, Wordmark, TextRole } from "../components/typography.slint";
+import { PopupBox, PageDialog, OfferDialog } from "../components/dialog.slint";
+import { BackdropMovies } from "../components/media.slint";
+import { PageScrim, PageDim, PagePattern } from "../components/scrim.slint";
+import { ScreenFrame, ScreenLayout } from "../components/screen-frame.slint";
+
+export struct MenuRowItem {
+    id: string,
+    label: string,
+    disabled: bool,
+}
+
+// Top-right look selector (src/menus/themes/page/index.js).
+export component ThemePicker inherits Rectangle {
+    in-out property <int> current-index: 2;
+    in-out property <bool> open: false;
+    callback theme-selected(int);
+    width: 243px;
+    height: 39px;
+    HorizontalLayout {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        spacing: 10px;
+        alignment: end;
+        PageText {
+            role: TextRole.label;
+            text: "THEME";
+            font-size: 12px;
+            letter-spacing: 0.24 * 12px;
+            color: Theme.page-theme-label;
+        }
+        field := SelectField {
+            width: 178px;
+            height: 39px;
+            uppercase: false;
+            choices: ["Battlefront (2004)", "Battlefront II (2005)", "Eternal"];
+            current-index <=> root.current-index;
+            open <=> root.open;
+            selection-changed(idx) => { root.theme-selected(idx); }
+        }
+    }
+}
+
+// Title gate screen (src/shell/gate.js).
+export component GateScreen inherits Rectangle {
+    in property <string> prompt-text: "PRESS ANY KEY OR CLICK TO BEGIN";
+    in property <float> prompt-opacity: 1.0;
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+    callback unlocked();
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    Wordmark {
+        x: (parent.width - self.width) / 2;
+        y: 16 * Theme.vh;
+    }
+    PageText {
+        x: 0px;
+        y: 74 * Theme.vh;
+        width: parent.width;
+        role: TextRole.prompt;
+        text: root.prompt-text;
+        opacity: root.prompt-opacity;
+    }
+    TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        mouse-cursor: pointer;
+        clicked => { root.unlocked(); }
+    }
+}
+
+// Main menu screen (src/shell/screens.js main()).
+export component MainMenuScreen inherits Rectangle {
+    in property <[MenuRowItem]> rows;
+    in property <int> selected-index: 0;
+    in property <string> version-text;
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+    callback row-selected(int);
+    callback row-activated(int);
+    property <length> button-width: min(400px, 30 * Theme.vw) - 16px;
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    logo := Wordmark {
+        x: (parent.width - self.width) / 2;
+        y: 16 * Theme.vh;
+    }
+    VerticalLayout {
+        x: (parent.width - root.button-width) / 2;
+        y: logo.y + logo.height + 6.5 * Theme.vh + 4px;
+        width: root.button-width;
+        spacing: Theme.bfe-gap;
+        for item[index] in root.rows: PageButton {
+            width: root.button-width;
+            label: item.label;
+            disabled: item.disabled;
+            highlighted: index == root.selected-index && !item.disabled;
+            selected => { root.row-selected(index); }
+            activated => { root.row-activated(index); }
+        }
+    }
+    if root.version-text != "": PageText {
+        x: parent.width - Theme.bfe-edge - self.preferred-width;
+        y: parent.height - 14px - self.preferred-height;
+        role: TextRole.corner;
+        text: root.version-text;
+        horizontal-alignment: right;
+    }
+}
+
+// Profile management screen (src/shell/screens.js profile()).
+export component ProfileScreen inherits Rectangle {
+    in property <string> title: "PROFILE MANAGEMENT";
+    in property <[MenuRowItem]> rows;
+    in property <int> selected-index: 1;
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+    callback row-selected(int);
+    callback row-activated(int);
+    callback back-activated();
+    property <length> button-width: min(400px, 30 * Theme.vw) - 16px;
+    property <length> rows-height: root.rows.length * Theme.button-height + max(0, root.rows.length - 1) * Theme.bfe-gap + 8px;
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageDim { x: 0px; y: 0px; width: parent.width; height: parent.height; dimmed: true; }
+    ScreenFrame {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        title: root.title;
+        layout: ScreenLayout.rows;
+        body-content-height: root.rows-height;
+        left-label: "BACK";
+        brand-visible: true;
+        left-activated => { root.back-activated(); }
+        VerticalLayout {
+            x: (parent.width - root.button-width) / 2;
+            y: 4px;
+            width: root.button-width;
+            spacing: Theme.bfe-gap;
+            for item[index] in root.rows: PageButton {
+                width: root.button-width;
+                label: item.label;
+                disabled: item.disabled;
+                highlighted: index == root.selected-index && !item.disabled;
+                selected => { root.row-selected(index); }
+                activated => { root.row-activated(index); }
+            }
+        }
+    }
+}
+
+// Profile editor modal (src/shell/profile-dialog.js).
+export component ProfileModal inherits Rectangle {
+    in-out property <string> draft;
+    in property <string> note;
+    out property <bool> text-focused: field.focused;
+    callback edited(string);
+    callback saved(string);
+    callback cancelled();
+    public function focus-input() {
+        field.focus-and-select();
+    }
+    public function release-input() {
+        field.release-focus();
+    }
+    background: Theme.dialog-backdrop;
+    TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    PageDialog {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        title: "PROFILE";
+        note: root.note;
+        message: "Player name ";
+        accept-label: "SAVE";
+        cancel-label: "CANCEL";
+        accepted => { root.saved(root.draft); }
+        cancelled => { root.cancelled(); }
+        field := InputField {
+            width: 217px;
+            height: 43px;
+            text <=> root.draft;
+            edited(val) => { root.edited(val); }
+            accepted(val) => { root.saved(val); }
+        }
+    }
+}
+
+// Discord Rich Presence offer modal (src/shell/integrations.js discordDialog).
+export component DiscordOfferModal inherits Rectangle {
+    in property <int> selected-button: 0;
+    callback chosen(string);
+    background: Theme.dialog-backdrop;
+    TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    OfferDialog {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        eyebrow: "DISCORD";
+        title: "SHOW DISCORD FRIENDS WHAT YOU PLAY?";
+        paragraphs: [
+            "Battlefront Eternal can show “Playing Battlefront Eternal” on your Discord profile while you play. With map and server, friends also see the battle you are in and the server's name.",
+            "Nothing is sent to Discord unless you say yes.",
+            "You can change this any time in Options, Steam & Discord."
+        ];
+        PageButton {
+            label: "No thanks";
+            variant: ButtonVariant.dialog;
+            width: 174px;
+            height: 48px;
+            highlighted: root.selected-button == 0;
+            accept-sound: MenuSound.back;
+            activated => { root.chosen("off"); }
+        }
+        PageButton {
+            label: "Game only";
+            variant: ButtonVariant.dialog;
+            width: 174px;
+            height: 48px;
+            highlighted: root.selected-button == 1;
+            activated => { root.chosen("game"); }
+        }
+        PageButton {
+            label: "Map and server";
+            variant: ButtonVariant.accept;
+            width: 199px;
+            height: 48px;
+            highlighted: root.selected-button == 2;
+            activated => { root.chosen("full"); }
+        }
+    }
+}
+
+// Steam non-Steam shortcut offer modal (src/shell/integrations.js steamDialog).
+export component SteamOfferModal inherits Rectangle {
+    in property <[string]> paragraphs: [
+        "Battlefront Eternal is added to your Steam library as a non-Steam game. With Steam open, the game then starts through Steam, so your friends see “Playing Battlefront Eternal” and Steam counts your play time.",
+        "You can remove it again in Options, Steam & Discord."
+    ];
+    in property <string> status-text;
+    in property <bool> status-error: false;
+    in property <string> accept-label: "Add to Steam";
+    in property <bool> busy: false;
+    in property <int> selected-button: 0;
+    callback declined();
+    callback accepted();
+    background: Theme.dialog-backdrop;
+    TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    OfferDialog {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        eyebrow: "STEAM";
+        title: "SHOW STEAM FRIENDS WHEN YOU PLAY";
+        paragraphs: root.paragraphs;
+        status-text: root.status-text;
+        status-error: root.status-error;
+        PageButton {
+            label: "Not now";
+            variant: ButtonVariant.dialog;
+            width: 283px;
+            height: 48px;
+            disabled: root.busy;
+            highlighted: root.selected-button == 0 && !root.busy;
+            accept-sound: MenuSound.back;
+            activated => { root.declined(); }
+        }
+        PageButton {
+            label: root.accept-label;
+            variant: ButtonVariant.accept;
+            width: 283px;
+            height: 48px;
+            disabled: root.busy;
+            highlighted: root.selected-button == 1 && !root.busy;
+            activated => { root.accepted(); }
+        }
+    }
+}
+
+// Confirmation / notice popup modal (src/menus/popup.js).
+export component ShellPopupModal inherits Rectangle {
+    in property <string> message;
+    in property <string> accept-label: "OK";
+    in property <string> middle-label;
+    in property <string> cancel-label;
+    in property <int> selected-button: 0;
+    callback accepted();
+    callback middle-activated();
+    callback cancelled();
+    background: Theme.popup-backdrop;
+    TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    PopupBox {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        message: root.message;
+        accept-label: root.accept-label;
+        middle-label: root.middle-label;
+        cancel-label: root.cancel-label;
+        selected-button: root.selected-button;
+        accepted => { root.accepted(); }
+        middle-activated => { root.middle-activated(); }
+        cancelled => { root.cancelled(); }
+    }
+}

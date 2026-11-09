@@ -11,20 +11,31 @@ export component PageButton inherits Interaction {
     in property <bool> highlighted: false;
     property <bool> small: root.variant == ButtonVariant.small;
     property <bool> dialog: root.variant == ButtonVariant.dialog || root.variant == ButtonVariant.accept;
-    property <bool> lit: (!root.dialog && root.active) || root.highlighted || root.variant == ButtonVariant.accept;
+    property <bool> lit: (!root.dialog && (root.active || root.highlighted)) || root.variant == ButtonVariant.accept;
     property <length> size: root.dialog ? 16px : root.small ? Theme.button-small-font-size : Theme.button-font-size;
-    preferred-height: root.dialog ? 44px : root.small ? Theme.button-small-height : Theme.button-height;
+    property <length> pad-x: root.dialog ? Theme.dialog-button-pad-x : 1.4 * root.size;
+    preferred-height: root.dialog ? 43px : root.small ? Theme.button-small-height : Theme.button-height;
     height: self.preferred-height;
-    min-width: root.small ? min(200px, max(120px, 11 * Theme.vw)) : 0px;
-    preferred-width: label-text.preferred-width + 2 * (root.dialog ? 18px : 1.4 * root.size);
+    property <length> min-btn-width: root.small ? Theme.button-small-min-width : 0px;
+    preferred-width: max(root.min-btn-width, label-text.preferred-width + 2 * root.pad-x);
+    width: self.preferred-width;
     opacity: root.visual-state == ControlState.disabled ? Theme.disabled-opacity : 1;
     accessible-role: button;
     accessible-label: root.label;
+    if root.dialog && (root.highlighted || root.focus-visible || root.visual-state == ControlState.focused): Rectangle {
+        x: -6px; y: -6px;
+        width: parent.width + 12px;
+        height: parent.height + 12px;
+        background: transparent;
+        border-width: 3px;
+        border-color: Theme.bfe-value-focus;
+        border-radius: Theme.bfe-dialog-button-radius + 3px;
+    }
     skin := Surface {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         fill: root.variant == ButtonVariant.ghost ? transparent : root.dialog ? (root.variant == ButtonVariant.accept ? Theme.bfe-accent-fill : Theme.bfe-dialog-button-bg) : root.lit ? Theme.button-active-bg : Theme.button-bg;
         edge: { width: root.variant == ButtonVariant.ghost ? 0px : root.dialog ? 1px : Theme.button-border.width,
-            color: root.variant == ButtonVariant.accept ? transparent : root.lit ? Theme.button-active-border : root.dialog ? Theme.bfe-dialog-button-border : Theme.button-border.color };
+            color: root.variant == ButtonVariant.accept ? transparent : (root.lit || (root.dialog && root.active)) ? Theme.button-active-border : root.dialog ? Theme.bfe-dialog-button-border : Theme.button-border.color };
         radius: root.dialog ? Theme.bfe-dialog-button-radius : Theme.button-radius;
         chamfer: root.dialog ? 0px : root.small ? Theme.button-small-chamfer : Theme.button-chamfer;
         animate fill { duration: Theme.hover-duration; }
@@ -38,9 +49,8 @@ export component PageButton inherits Interaction {
             background: Theme.bfe-accent; opacity: 0.55;
         }
         label-text := Text {
-            x: root.dialog ? 18px : 1.4 * root.size;
+            x: (parent.width - self.preferred-width) / 2;
             y: 0px;
-            width: parent.width - 2 * self.x;
             height: parent.height;
             text: Theme.format-label(root.label, root.dialog || !Theme.bf2);
             font-family: Theme.font-family;
@@ -50,7 +60,6 @@ export component PageButton inherits Interaction {
             color: root.lit ? Theme.bfe-accent-ink : Theme.bfe-text;
             horizontal-alignment: center;
             vertical-alignment: center;
-            overflow: elide;
             stroke: Theme.bf2 && !root.dialog ? #111 : transparent;
             stroke-width: Theme.bf2 && !root.dialog ? 1px : 0px;
             stroke-style: outside;

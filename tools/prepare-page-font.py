@@ -12,5 +12,10 @@ root = Path(__file__).resolve().parents[1] / "rust/bfe-client/assets/fonts"
 source = TTFont(root / "saira-latin.woff2", recalcTimestamp=False)
 for weight, width, name in ((700,100,"700"),(800,118,"800"),(900,125,"900"),(800,100,"800-normal"),(400,100,"400"),(600,100,"600"),(500,100,"500")):
     font = instantiateVariableFont(source, {"wght": weight, "wdth": width}, inplace=False)
+    # Slint queries fontdb with normal stretch (width class 5); keep the
+    # expanded glyph outlines while advertising normal width so 850/900 match.
+    font["OS/2"].usWidthClass = 5
+    if name == "800":
+        font["OS/2"].usWeightClass = 850
     font.flavor = None
     font.save(root / f"saira-{name}.ttf")

@@ -33,7 +33,6 @@ pub enum Hit {
     Entry(usize),
     Ia(IaFocus),
     Popup(usize),
-    Profile(bool),
     BrowserTab(usize),
     BrowserFilter(usize),
     BrowserChoice(usize, usize),
@@ -47,7 +46,6 @@ pub enum Hit {
     DirectField(usize),
     Host(crate::screens::HostControl),
     DirectButton(bool),
-    Discord(usize),
 }
 
 struct Paragraph {
@@ -91,7 +89,7 @@ pub struct Page {
     hits: Vec<([f64; 4], Hit)>,
     text: HashMap<String, Vec<u16>>,
     screen: ScreenId,
-    entered: f64,
+    pub entered: f64,
     row_spans: Vec<motion::RowSpan>,
     leaving: Vec<motion::LeavingQuad>,
     widget_screen: String,
@@ -1090,67 +1088,47 @@ impl Page {
             self.discord_offer = true;
             self.discord_cursor = 0;
         }
-        let home = matches!(id, ScreenId::Gate | ScreenId::Main);
-        if !home {
+        if !matches!(id, ScreenId::Gate | ScreenId::Main) {
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
         }
-        let flight = motion::ease(
-            (a.pulse_elapsed - self.brand_started) / 0.62,
-            0.7,
-            0.,
-            0.25,
-            1.,
-        );
-        let brand = self.brand_from + (self.brand_target - self.brand_from) * flight;
-        self.brand(b, m, solid, w, h, brand, &a.settings.menu_theme, ink);
-        motion::leaving(
-            b,
-            &self.leaving,
-            a.pulse_elapsed - self.entered,
-            self.forward,
-        );
-        if id == ScreenId::Gate {
-            let pulse =
-                0.3 + 0.7 * ((a.gate_elapsed / 1.4 * std::f64::consts::TAU).cos() + 1.) / 2.;
-            self.label(
-                b,
-                m,
-                w / 2.,
-                h * 0.74 + 15.,
-                crate::gate::GATE_TEXT,
-                (h * 0.021).clamp(14., 21.),
-                4.,
-                [white[0], white[1], white[2], pulse],
-                2,
-                false,
+        if !matches!(id, ScreenId::Gate | ScreenId::Main | ScreenId::Profile) {
+            let flight = motion::ease(
+                (a.pulse_elapsed - self.brand_started) / 0.62,
+                0.7,
+                0.,
+                0.25,
+                1.,
             );
-        } else if id == ScreenId::InstantAction {
-            self.instant_action(b, m, t, a, w, h, accent, ink, white);
-        } else if matches!(
-            id,
-            ScreenId::Multiplayer | ScreenId::MultiplayerList(_)
-                | ScreenId::HostDialog | ScreenId::DirectConnect
-        ) {
-            self.browser_draw(b, m, t, a, w, h, accent, ink, white);
-        } else if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
-            // Existing interface widgets are painted by paint_widgets.
-        } else {
-            let rows = a.active_rows();
-            let n = rows.len();
-            let look = match a.settings.menu_theme.as_str() {
-                "bf1" => 0,
-                "bf2" => 1,
-                _ => 2,
-            };
-            let (row_top, heading_y, bh, gap) = Self::row_layout(h, n, look);
-            let bw = (w * 0.30).min(400.).min(w * 0.86) - 16.;
-            let large = (w * 0.055).min(h * 0.10).min(104.);
-            let top = if id == ScreenId::Main {
-                h * 0.16 + large * (0.84 + 0.25 * (0.42 + 1.56)) + h * 0.065 + 4.
+            let brand = self.brand_from + (self.brand_target - self.brand_from) * flight;
+            self.brand(b, m, solid, w, h, brand, &a.settings.menu_theme, ink);
+            motion::leaving(
+                b,
+                &self.leaving,
+                a.pulse_elapsed - self.entered,
+                self.forward,
+            );
+            if id == ScreenId::InstantAction {
+                self.instant_action(b, m, t, a, w, h, accent, ink, white);
+            } else if matches!(
+                id,
+                ScreenId::Multiplayer
+                    | ScreenId::MultiplayerList(_)
+                    | ScreenId::HostDialog
+                    | ScreenId::DirectConnect
+            ) {
+                self.browser_draw(b, m, t, a, w, h, accent, ink, white);
+            } else if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
+                // Existing interface widgets are painted by paint_widgets.
             } else {
-                row_top
-            };
-            if id != ScreenId::Main {
+                let rows = a.active_rows();
+                let n = rows.len();
+                let look = match a.settings.menu_theme.as_str() {
+                    "bf1" => 0,
+                    "bf2" => 1,
+                    _ => 2,
+                };
+                let (top, heading_y, bh, gap) = Self::row_layout(h, n, look);
+                let bw = (w * 0.30).min(400.).min(w * 0.86) - 16.;
                 self.heading(
                     b,
                     m,
@@ -1161,437 +1139,64 @@ impl Page {
                     (h * 0.046).clamp(26., 50.),
                     look,
                 );
-            }
-            let selected = a.selected_cached_row_index(id);
-            for (i, row) in rows.iter().enumerate() {
-                let progress = ((a.pulse_elapsed - self.entered - 0.12 - i.min(10) as f64 * 0.038)
-                    / 0.42)
-                    .clamp(0., 1.);
-                let eased = motion::ease(progress, 0.2, 0.8, 0.2, 1.);
-                let x =
-                    (w - bw) / 2. + (1. - eased) * w * 0.06 * if self.forward { 1. } else { -1. };
-                let first = b.count;
-                let y = top + i as f64 * (bh + gap);
-                let r = [x, y, x + bw, y + bh];
-                let focused = i == selected && !row.disabled;
-                let look = match a.settings.menu_theme.as_str() {
-                    "bf1" => 0,
-                    "bf2" => 1,
-                    _ => 2,
-                };
-                let label = if look != 1 && row.label.bytes().any(|c| c.is_ascii_lowercase()) {
-                    std::borrow::Cow::Owned(row.label.to_uppercase())
-                } else {
-                    std::borrow::Cow::Borrowed(row.label.as_str())
-                };
-                self.widget_button(b, m, t, r, &label, look, focused, row.disabled);
-                self.row_spans.push(motion::RowSpan {
-                    first,
-                    end: b.count,
-                    index: i,
-                    selected: focused,
-                });
-                for quad in first..b.count {
-                    for vertex in 0..4 {
-                        b.tint[(quad * 4 + vertex) * 4 + 3] *= eased as f32;
+                let selected = a.selected_cached_row_index(id);
+                for (i, row) in rows.iter().enumerate() {
+                    let progress = ((a.pulse_elapsed - self.entered - 0.12 - i.min(10) as f64 * 0.038)
+                        / 0.42)
+                        .clamp(0., 1.);
+                    let eased = motion::ease(progress, 0.2, 0.8, 0.2, 1.);
+                    let x =
+                        (w - bw) / 2. + (1. - eased) * w * 0.06 * if self.forward { 1. } else { -1. };
+                    let first = b.count;
+                    let y = top + i as f64 * (bh + gap);
+                    let r = [x, y, x + bw, y + bh];
+                    let focused = i == selected && !row.disabled;
+                    let label = if look != 1 && row.label.bytes().any(|c| c.is_ascii_lowercase()) {
+                        std::borrow::Cow::Owned(row.label.to_uppercase())
+                    } else {
+                        std::borrow::Cow::Borrowed(row.label.as_str())
+                    };
+                    self.widget_button(b, m, t, r, &label, look, focused, row.disabled);
+                    self.row_spans.push(motion::RowSpan {
+                        first,
+                        end: b.count,
+                        index: i,
+                        selected: focused,
+                    });
+                    for quad in first..b.count {
+                        for vertex in 0..4 {
+                            b.tint[(quad * 4 + vertex) * 4 + 3] *= eased as f32;
+                        }
+                    }
+                    b.start = b.start.min(first * 4);
+                    b.end = b.end.max(b.count * 4);
+                    if !row.disabled && progress > 0.15 {
+                        self.hits.push((r, Hit::Row(i)));
                     }
                 }
-                b.start = b.start.min(first * 4);
-                b.end = b.end.max(b.count * 4);
-                if !row.disabled && progress > 0.15 {
-                    self.hits.push((r, Hit::Row(i)));
-                }
-            }
-            if id != ScreenId::Main {
                 let edge = (w * 0.03).clamp(20., 56.);
                 let r = [edge, h * 0.923, edge + 140., h * 0.97];
-                let look = match a.settings.menu_theme.as_str() {
-                    "bf1" => 0,
-                    "bf2" => 1,
-                    _ => 2,
-                };
                 self.widget_button(b, m, t, r, "BACK", look, false, false);
                 self.hits.push((r, Hit::Back));
             }
-        }
-        if id == ScreenId::Main {
-            self.label(
-                b,
-                m,
-                w - (w * 0.03).clamp(20., 56.),
-                h - 20.,
-                &a.version_text,
-                12.,
-                0.96,
-                [white[0], white[1], white[2], 0.4],
-                1,
-                false,
-            );
         }
         let look = match a.settings.menu_theme.as_str() {
             "bf1" => 0,
             "bf2" => 1,
             _ => 2,
         };
-        self.picker(b, m, solid, w, look, accent, ink, bg, white);
         if id == ScreenId::HostDialog {
             self.host_draw(b, m, t, a, w, h, accent, ink, white);
         }
-        if a.popup.is_some()
-            || a.profile.editing
-            || self.discord_offer
+        if matches!(a.popup, Some(PopupState::OnlineNotice { .. }))
             || a.current_screen() == ScreenId::DirectConnect
         {
             self.modal_start = Some(b.count);
         }
-        if let Some(PopupState::OnlineNotice {message,..}) = &a.popup {
+        if let Some(PopupState::OnlineNotice { message, .. }) = &a.popup {
             self.online_notice_form(b, m, t, a, w, h, message, ink, white);
-        } else if let Some(popup) = &a.popup {
-            self.hits.clear();
-            Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
-            let (message, selected) = match popup {
-                PopupState::Notice { message } => (message.as_str(), 0),
-                PopupState::ConfirmExit {
-                    message,
-                    selected_yes,
-                }
-                | PopupState::OnlineNotice {
-                    message,
-                    selected_accept: selected_yes,
-                } => (message.as_str(), usize::from(!selected_yes)),
-                PopupState::HostClosePrompt {
-                    message, selected, ..
-                } => (message.as_str(), *selected),
-            };
-            let size = (h * 0.021).clamp(15., 21.);
-            let padding = w * 0.03;
-            let measured = message
-                .lines()
-                .map(|line| self.text_width(line, size, size * 0.06))
-                .fold(0f64, f64::max);
-            let bw = (measured + 2. * padding)
-                .max(480f64.min(w * 0.86))
-                .min(700f64.min(w * 0.92));
-            let paragraph = self.paragraph_index(message, bw - 2. * padding, size, size * 0.06);
-            let bh = self.paragraphs[paragraph].lines.len() as f64 * size * 1.45
-                + h * (0.045 + 0.035 + 0.032)
-                + (h * 0.046).clamp(34., 46.)
-                + 2.;
-            let x = (w - bw) / 2.;
-            let y = (h - bh) / 2.;
-            Self::panel(b, m, t, [x, y, x + bw, y + bh], look);
-            self.paragraph(
-                b,
-                m,
-                w / 2.,
-                y + h * 0.045 + size,
-                message,
-                bw - 2. * padding,
-                size,
-                size * 0.06,
-                white,
-            );
-            let labels: &[&str] = match popup {
-                PopupState::Notice { .. } => &["OK"],
-                PopupState::ConfirmExit { .. } => &["YES", "NO"],
-                PopupState::OnlineNotice { .. } => &["ACCEPT AND CONTINUE", "NOT NOW"],
-                PopupState::HostClosePrompt { buttons, .. } => {
-                    &[&buttons[0], &buttons[1], &buttons[2]]
-                }
-            };
-            let small_size = (h * 0.017).clamp(13., 18.);
-            let gap = w * 0.012;
-            let mut widths = [0.; 3];
-            for (i, label) in labels.iter().enumerate() {
-                widths[i] = (w * 0.11)
-                    .clamp(120., 200.)
-                    .max(self.text_width(label, small_size, small_size * 0.2) + small_size * 2.8);
-            }
-            let total =
-                widths[..labels.len()].iter().sum::<f64>() + gap * (labels.len() - 1) as f64;
-            let mut bx = (w - total) / 2.;
-            for (i, label) in labels.iter().enumerate() {
-                let button_h = (h * 0.046).clamp(34., 46.);
-                let by = y + bh - h * 0.035 - button_h - 1.;
-                let r = [bx, by, bx + widths[i], by + button_h];
-                self.widget_button(b, m, t, r, label, look, i == selected, false);
-                self.hits.push((r, Hit::Popup(i)));
-                bx += widths[i] + gap;
-            }
         } else if a.current_screen() == ScreenId::DirectConnect {
             self.direct_form(b, m, t, a, w, h, look, accent, ink, white);
-        } else if a.profile.editing && !a.profile.message.is_empty() {
-            self.multiplayer_profile_form(b, m, t, a, w, h, accent, ink, white);
-        } else if a.profile.editing {
-            self.hits.clear();
-            Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
-            // profile-dialog.js plus electron/ui/theme.js: a desktop form,
-            // distinct from a menu popup. Its controls retain ProfileState ownership.
-            let bw = 588f64.min(w * 0.92);
-            let paragraph = self.paragraph_index(&a.profile.message, bw - 64., 16., 0.);
-            let note_h = if a.profile.message.is_empty() {
-                0.
-            } else {
-                self.paragraphs[paragraph].lines.len() as f64 * 23. + 16.
-            };
-            let bh = 196. + note_h;
-            let x = (w - bw) / 2.;
-            let y = (h - bh) / 2.;
-            let fill = match look {
-                0 => [0.04, 0.10, 0.23, 1.],
-                1 => [0.06, 0.13, 0.25, 1.],
-                _ => [0.047, 0.059, 0.082, 1.],
-            };
-            Self::rect(b, m, [x, y, x + bw, y + bh], solid, fill);
-            for r in [
-                [x, y, x + bw, y + 1.],
-                [x, y + bh - 1., x + bw, y + bh],
-                [x, y, x + 1., y + bh],
-                [x + bw - 1., y, x + bw, y + bh],
-            ] {
-                Self::rect(b, m, r, solid, [1., 1., 1., 0.16]);
-            }
-            self.form_label(
-                b,
-                m,
-                x + 32.,
-                y + 82.,
-                "PROFILE",
-                27.,
-                1.62,
-                white,
-                0,
-                forms::FormFace::Bold,
-            );
-            if note_h > 0. {
-                self.paragraph(
-                    b,
-                    m,
-                    w / 2.,
-                    y + 112.,
-                    &a.profile.message,
-                    bw - 64.,
-                    16.,
-                    0.,
-                    white,
-                );
-            }
-            let fy = y + 124. + note_h;
-            self.form_label(
-                b,
-                m,
-                x + 32.,
-                fy + 26.,
-                "Player name",
-                18.,
-                0.,
-                white,
-                0,
-                forms::FormFace::Regular,
-            );
-            let input = [x + 150., fy, x + bw - 220., fy + 44.];
-            Self::rect(b, m, input, solid, [0.025, 0.035, 0.05, 1.]);
-            for r in [
-                [input[0], input[1], input[2], input[1] + 2.],
-                [input[0], input[3] - 2., input[2], input[3]],
-                [input[0], input[1], input[0] + 2., input[3]],
-                [input[2] - 2., input[1], input[2], input[3]],
-            ] {
-                Self::rect(b, m, r, solid, accent);
-            }
-            if a.profile.selected_all {
-                let width = self.text_width(&a.profile.draft, 16., 0.);
-                Self::rect(
-                    b,
-                    m,
-                    [input[0] + 11., fy + 8., input[0] + 13. + width, fy + 34.],
-                    solid,
-                    [0.10, 0.28, 0.72, 1.],
-                );
-            }
-            self.form_label(
-                b,
-                m,
-                input[0] + 12.,
-                fy + 28.,
-                &a.profile.draft,
-                16.,
-                0.,
-                white,
-                0,
-                forms::FormFace::Medium,
-            );
-            let caret_x = input[0]
-                + 12.
-                + a.profile
-                    .draft
-                    .chars()
-                    .take(a.profile.caret)
-                    .filter_map(|ch| self.body.glyphs.get(&(ch as u16)))
-                    .map(|g| (g.advance * 16. / 64. + 0.5).floor())
-                    .sum::<f64>();
-            if (a.pulse_elapsed * 2.).fract() < 0.6 {
-                Self::rect(
-                    b,
-                    m,
-                    [caret_x, fy + 10., caret_x + 1., fy + 32.],
-                    solid,
-                    white,
-                );
-            }
-            for (accept, left, width, label) in [
-                (true, x + bw - 220., 78., "SAVE"),
-                (false, x + bw - 134., 94., "CANCEL"),
-            ] {
-                let r = [left, fy, left + width, fy + 44.];
-                Self::rect(
-                    b,
-                    m,
-                    r,
-                    solid,
-                    if accept { accent } else { [1., 1., 1., 0.06] },
-                );
-                if !accept {
-                    for line in [
-                        [r[0], r[1], r[2], r[1] + 1.],
-                        [r[0], r[3] - 1., r[2], r[3]],
-                        [r[0], r[1], r[0] + 1., r[3]],
-                        [r[2] - 1., r[1], r[2], r[3]],
-                    ] {
-                        Self::rect(b, m, line, solid, [1., 1., 1., 0.22]);
-                    }
-                }
-                self.label(
-                    b,
-                    m,
-                    left + width / 2.,
-                    fy + 27.,
-                    label,
-                    13.,
-                    1.3,
-                    if accept { ink } else { white },
-                    2,
-                    false,
-                );
-                self.hits.push((r, Hit::Profile(accept)));
-            }
-        } else if self.discord_offer {
-            self.hits.clear();
-            Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
-            let bw = 660f64.min(w - 32.);
-            let bh = 412.;
-            let x = (w - bw) / 2.;
-            let y = (h - bh) / 2.;
-            let fill = match look {
-                0 => [0.04, 0.10, 0.23, 1.],
-                1 => [0.06, 0.13, 0.25, 1.],
-                _ => [0.047, 0.059, 0.082, 1.],
-            };
-            Self::rect(b, m, [x, y, x + bw, y + bh], solid, fill);
-            for r in [
-                [x, y, x + bw, y + 1.],
-                [x, y + bh - 1., x + bw, y + bh],
-                [x, y, x + 1., y + bh],
-                [x + bw - 1., y, x + bw, y + bh],
-            ] {
-                Self::rect(b, m, r, solid, [1., 1., 1., 0.16]);
-            }
-            self.form_label(
-                b,
-                m,
-                x + 32.,
-                y + 41.,
-                "DISCORD",
-                13.,
-                1.8,
-                accent,
-                0,
-                forms::FormFace::Regular,
-            );
-            for (dy, line) in [(79., "SHOW DISCORD FRIENDS WHAT YOU"), (112., "PLAY?")] {
-                self.form_label(
-                    b,
-                    m,
-                    x + 32.,
-                    y + dy,
-                    line,
-                    27.,
-                    1.62,
-                    white,
-                    0,
-                    forms::FormFace::Bold,
-                );
-            }
-            // src/shell/integrations.js discordDialog, wrapped as the browser wraps it at 1280x720.
-            for (dy, line) in [
-                (161., "Battlefront Eternal can show “Playing Battlefront Eternal” on your Discord"),
-                (186., "profile while you play. With map and server, friends also see the battle you"),
-                (212., "are in and the server's name."),
-                (253., "Nothing is sent to Discord unless you say yes."),
-                (294., "You can change this any time in Options, Steam & Discord."),
-            ] {
-                self.form_label(
-                    b,
-                    m,
-                    x + 32.,
-                    y + dy,
-                    line,
-                    17.,
-                    0.,
-                    white,
-                    0,
-                    forms::FormFace::Regular,
-                );
-            }
-            let by = y + 335.;
-            for (i, left, width, label) in [
-                (0, x + 33., 174., "NO THANKS"),
-                (1, x + 227., 172., "GAME ONLY"),
-                (2, x + 420., 198., "MAP AND SERVER"),
-            ] {
-                let r = [left, by, left + width, by + 48.];
-                let primary = i == 2;
-                Self::rect(
-                    b,
-                    m,
-                    r,
-                    solid,
-                    if primary { accent } else { [1., 1., 1., 0.06] },
-                );
-                if !primary {
-                    for line in [
-                        [r[0], r[1], r[2], r[1] + 1.],
-                        [r[0], r[3] - 1., r[2], r[3]],
-                        [r[0], r[1], r[0] + 1., r[3]],
-                        [r[2] - 1., r[1], r[2], r[3]],
-                    ] {
-                        Self::rect(b, m, line, solid, [1., 1., 1., 0.22]);
-                    }
-                }
-                if i == self.discord_cursor {
-                    for line in [
-                        [r[0] - 3., r[1] - 3., r[2] + 3., r[1] - 1.],
-                        [r[0] - 3., r[3] + 1., r[2] + 3., r[3] + 3.],
-                        [r[0] - 3., r[1] - 3., r[0] - 1., r[3] + 3.],
-                        [r[2] + 1., r[1] - 3., r[2] + 3., r[3] + 3.],
-                    ] {
-                        Self::rect(b, m, line, solid, accent);
-                    }
-                }
-                self.label(
-                    b,
-                    m,
-                    left + width / 2.,
-                    by + 30.,
-                    label,
-                    15.,
-                    1.3,
-                    if primary { ink } else { white },
-                    2,
-                    false,
-                );
-                self.hits.push((r, Hit::Discord(i)));
-            }
         }
     }
 
@@ -2008,6 +1613,7 @@ mod tests {
     fn pointer_targets_follow_the_page_viewport() {
         let mut app = ShellApp::new(crate::data::ShellData::default(), None);
         app.unlock_gate();
+        app.push_screen(ScreenId::Singleplayer);
         let mut page = Page::new(Font::default(), Font::default());
         let textures = ShellTextures::default();
         let mut batch = Batch::default();
@@ -2015,11 +1621,8 @@ mod tests {
         app.pulse_elapsed += 1.;
         for (w, h) in [(1280., 720.), (1920., 1080.)] {
             page.draw(&mut batch, &textures, &app, w, h);
-            assert_eq!(page.hit(w * 0.5, h * 0.36 + 18.), Some(Hit::Row(0)));
-            assert_eq!(
-                page.hit(w - w * 0.03 - 20., h * 0.026 + 20.),
-                Some(Hit::Theme)
-            );
+            let (top, _, bh, gap) = Page::row_layout(h, app.active_rows().len(), 2);
+            assert_eq!(page.hit(w * 0.5, top + 2.0 * (bh + gap) + bh * 0.5), Some(Hit::Row(2)));
             assert_eq!(page.hit(1., h * 0.8), None);
         }
     }
@@ -2035,19 +1638,10 @@ mod tests {
         app.pulse_elapsed = 1.6;
         page.draw(&mut batch, &textures, &app, 1280., 720.);
         assert!(page.discord_offer);
-        assert_eq!(page.hit(450., 512.), Some(Hit::Discord(0)));
-        assert_eq!(page.hit(630., 512.), Some(Hit::Discord(1)));
-        assert_eq!(page.hit(820., 512.), Some(Hit::Discord(2)));
         assert_eq!(page.discord_key("ArrowRight"), Some(None));
         assert_eq!(page.discord_cursor, 1);
         assert_eq!(page.discord_key("Enter"), Some(Some("game")));
         assert!(!page.discord_offer);
-
-        app.profile.name = "fable".into();
-        app.push_screen(ScreenId::Profile);
-        app.pulse_elapsed = 3.0;
-        page.draw(&mut batch, &textures, &app, 1280., 720.);
-        assert!(page.text.contains_key("FABLE"));
 
         app.push_screen(ScreenId::InstantAction);
         app.ia_entries.push(crate::launch::PlaylistEntry {

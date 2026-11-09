@@ -1,4 +1,4 @@
-import { Theme, MenuSound } from "../theme.slint";
+import { Theme, ControlState, MenuSound } from "../theme.slint";
 import { Surface } from "surface.slint";
 import { PageButton, ButtonVariant } from "button.slint";
 import { PageText, TextRole } from "typography.slint";
@@ -6,9 +6,13 @@ import { PageText, TextRole } from "typography.slint";
 export component PopupBox inherits Surface {
     in property <string> message;
     in property <string> accept-label: "OK";
+    in property <string> middle-label;
     in property <string> cancel-label;
+    in property <int> selected-button: -1;
     callback accepted();
+    callback middle-activated();
     callback cancelled();
+    property <int> active-button: root.selected-button >= 0 ? root.selected-button : (root.cancel-label != "" ? 1 : 0);
     preferred-width: min(700px, min(92 * Theme.vw, max(480px, 48 * Theme.vw)));
     width: self.preferred-width;
     preferred-height: content.preferred-height + 8 * Theme.vh + Theme.popup-gap + Theme.button-small-height;
@@ -24,10 +28,19 @@ export component PopupBox inherits Surface {
         HorizontalLayout {
             alignment: center;
             spacing: 1.2 * Theme.vw;
-            PageButton { label: root.accept-label; variant: ButtonVariant.small; activated => { root.accepted(); } }
+            PageButton {
+                label: root.accept-label; variant: ButtonVariant.small;
+                highlighted: root.active-button == 0;
+                activated => { root.accepted(); }
+            }
+            if root.middle-label != "": PageButton {
+                label: root.middle-label; variant: ButtonVariant.small;
+                highlighted: root.active-button == 1;
+                activated => { root.middle-activated(); }
+            }
             if root.cancel-label != "": PageButton {
                 label: root.cancel-label; variant: ButtonVariant.small;
-                highlighted: true;
+                highlighted: root.active-button == (root.middle-label != "" ? 2 : 1);
                 accept-sound: MenuSound.back;
                 activated => { root.cancelled(); }
             }
@@ -39,32 +52,48 @@ export component PopupBox inherits Surface {
 // Their 28/32px padding is intentionally independent of viewport units.
 export component PageDialog inherits Surface {
     in property <string> title;
+    in property <string> note;
     in property <string> message;
     in property <string> accept-label: "SAVE";
     in property <string> cancel-label: "CANCEL";
+    in property <ControlState> accept-state: ControlState.idle;
+    in property <ControlState> cancel-state: ControlState.idle;
     callback accepted();
     callback cancelled();
-    preferred-width: 589px;
+    preferred-width: max(589px, dialog-layout.preferred-width);
     width: self.preferred-width;
-    preferred-height: 197px;
+    preferred-height: dialog-layout.preferred-height;
     height: self.preferred-height;
     fill: Theme.bfe-dialog-bg;
     chamfer: 0px;
-    VerticalLayout {
-        x: 0px; y: 0px; width: parent.width; height: parent.height;
-        padding-top: 28px; padding-bottom: 28px;
-        padding-left: 32px; padding-right: 32px;
-        spacing: 16px;
+    dialog-layout := VerticalLayout {
+        x: 0px; y: 0px; width: parent.width;
+        padding-top: 51px; padding-bottom: 31px;
+        padding-left: 33px; padding-right: 33px;
+        spacing: root.note != "" ? 18px : 29px;
         Text {
+            height: 43px;
             text: root.title.to-uppercase();
             font-family: Theme.font-family; font-size: 27px; font-weight: 800;
             letter-spacing: 0.06 * self.font-size;
             color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+        if root.note != "": note-text := Text {
+            text: root.note;
+            font-family: Theme.font-family;
+            font-size: 18px;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            wrap: word-wrap;
         }
         HorizontalLayout {
-            spacing: 8px;
+            height: 43px;
+            spacing: 0px;
             alignment: start;
             if root.message != "": Text {
+                width: 117px;
+                height: 43px;
                 text: root.message;
                 font-family: Theme.font-family;
                 font-size: 18px;
@@ -73,11 +102,94 @@ export component PageDialog inherits Surface {
                 vertical-alignment: center;
             }
             @children
-            PageButton { label: root.accept-label; variant: ButtonVariant.accept; activated => { root.accepted(); } }
-            if root.cancel-label != "": PageButton {
-                label: root.cancel-label; variant: ButtonVariant.dialog;
-                accept-sound: MenuSound.back; activated => { root.cancelled(); }
+            PageButton {
+                height: 43px;
+                horizontal-stretch: 0;
+                label: root.accept-label;
+                variant: ButtonVariant.accept;
+                visual-state: root.accept-state != ControlState.idle ? root.accept-state : self.pressed ? ControlState.pressed : self.focus-visible ? ControlState.focused : self.hovered ? ControlState.hover : ControlState.idle;
+                activated => { root.accepted(); }
             }
+            if root.cancel-label != "": Rectangle { width: 8px; height: 1px; background: transparent; }
+            if root.cancel-label != "": PageButton {
+                height: 43px;
+                horizontal-stretch: 0;
+                label: root.cancel-label;
+                variant: ButtonVariant.dialog;
+                visual-state: root.cancel-state != ControlState.idle ? root.cancel-state : self.pressed ? ControlState.pressed : self.focus-visible ? ControlState.focused : self.hovered ? ControlState.hover : ControlState.idle;
+                accept-sound: MenuSound.back;
+                activated => { root.cancelled(); }
+            }
+        }
+    }
+}
+
+// Desktop integration offer dialog (src/shell/integrations.js): eyebrow note,
+// heading, body paragraphs, optional status line, and dialog/accept footer buttons.
+export component OfferDialog inherits Surface {
+    in property <string> eyebrow;
+    in property <string> title;
+    in property <[string]> paragraphs;
+    in property <string> status-text;
+    in property <bool> status-error: false;
+    preferred-width: min(660px, Theme.viewport-width - 32px);
+    width: self.preferred-width;
+    preferred-height: body-layout.preferred-height;
+    height: self.preferred-height;
+    fill: Theme.bfe-dialog-bg;
+    chamfer: 0px;
+    body-layout := VerticalLayout {
+        x: 0px; y: 0px; width: parent.width;
+        padding-top: 29px; padding-bottom: 29px;
+        padding-left: 33px; padding-right: 33px;
+        spacing: 0px;
+        if root.eyebrow != "": Text {
+            height: 20px;
+            text: root.eyebrow.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: 13px;
+            font-weight: 400;
+            letter-spacing: 1.3px;
+            color: Theme.bfe-note;
+            horizontal-alignment: left;
+            vertical-alignment: center;
+        }
+        if root.eyebrow != "": Rectangle { height: 7px; background: transparent; }
+        Text {
+            text: root.title.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0.06 * self.font-size;
+            color: Theme.bfe-text;
+            wrap: word-wrap;
+        }
+        Rectangle { height: 20px; background: transparent; }
+        VerticalLayout {
+            spacing: 16px;
+            for para in root.paragraphs: Text {
+                text: para;
+                font-family: Theme.font-family;
+                font-size: 17px;
+                font-weight: 400;
+                color: Theme.bfe-text;
+                wrap: word-wrap;
+            }
+        }
+        if root.status-text != "": Rectangle { height: 14px; background: transparent; }
+        if root.status-text != "": Text {
+            text: root.status-text;
+            font-family: Theme.font-family;
+            font-size: 15px;
+            font-weight: 600;
+            color: root.status-error ? Theme.bfe-note : Theme.bfe-text-dim;
+            wrap: word-wrap;
+        }
+        Rectangle { height: 31px; background: transparent; }
+        HorizontalLayout {
+            padding-right: 8px;
+            spacing: 20px;
+            @children
         }
     }
 }

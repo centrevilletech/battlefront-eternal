@@ -10,6 +10,7 @@ pub(super) struct TextInput {
 
 impl TextInput {
     /// Byte positions for native field painters; editing stays in this owner.
+    #[allow(dead_code)]
     pub fn selection(&self) -> (usize, usize) {
         (self.cursor, self.anchor)
     }

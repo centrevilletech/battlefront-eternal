@@ -504,9 +504,6 @@ impl StandaloneWindowApp {
                 if app.popup.is_some() {
                     return None;
                 }
-                if app.profile.editing {
-                    return Some(("profile", &mut app.profile.draft, 32));
-                }
                 if app.current_screen() == ScreenId::DirectConnect {
                     return if app.direct_field == 1 {
                         Some(("direct-port", &mut app.direct_port_draft, 5))
@@ -548,14 +545,6 @@ impl StandaloneWindowApp {
         if let Some(shell) = &mut self.shell {
             if shell.browser_page() && shell.page.browser.search {
                 shell.refresh_page_search();
-            }
-            if shell.app.profile.editing {
-                // The shared editor owns selection; Page only paints its state.
-                let (cursor,anchor) = self.text_input.selection();
-                let profile = &mut shell.app.profile;
-                let cursor = cursor.min(profile.draft.len());
-                profile.caret = profile.draft[..cursor].chars().count();
-                profile.selected_all = cursor != anchor && cursor.max(anchor) == profile.draft.len() && cursor.min(anchor) == 0;
             }
             if shell.app.current_screen() == ScreenId::HostDialog {
                 shell.app.rebuild_cached_rows();
@@ -1146,6 +1135,18 @@ impl ApplicationHandler for StandaloneWindowApp {
         }
         let consumed = self.slint_ui.as_mut()
             .is_some_and(|ui| ui.event(&event, self.pointer_locked));
+        let transition = if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
+            ui.drain_actions(shell, &mut self.settings, &self.audio_router)
+        } else {
+            None
+        };
+        if transition.is_some() {
+            self.apply_shell_transition(transition, event_loop);
+        }
+        let in_shell = matches!(self.state, AppState::Shell);
+        if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
+            ui.sync_shell(shell, in_shell);
+        }
         if consumed {
             self.sync_pointer_lock();
             return;
@@ -1383,6 +1384,10 @@ impl ApplicationHandler for StandaloneWindowApp {
                                     &self.audio_router,
                                 );
                                 self.apply_shell_transition(transition, event_loop);
+                                let in_shell = matches!(self.state, AppState::Shell);
+                                if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
+                                    ui.sync_shell(shell, in_shell);
+                                }
                             }
                         }
                     }
@@ -1600,7 +1605,10 @@ impl StandaloneWindowApp {
             }
         }
         self.update_rich_presence();
-        if let Some(ui) = &self.slint_ui {
+        if let Some(ui) = &mut self.slint_ui {
+            if !matches!(&self.state, AppState::Shell) {
+                ui.set_shell_visible(false);
+            }
             ui.update(matches!(&self.state, AppState::Battle(_)));
             if ui.wants_quit() {
                 self.request_app_close(event_loop);
@@ -1680,10 +1688,39 @@ impl StandaloneWindowApp {
                 AppState::Shell => {
                     // Render the active shell or `bfe-interface` options screen and step `--script gate`.
                     let mut transition = if let Some(shell) = &mut self.shell {
-                        let t = shell.step_and_draw(dt, &mut self.settings, &self.audio_router);
+                        let mut t = shell.step_and_draw(dt, &mut self.settings, &self.audio_router);
+                        if let Some(ui) = &mut self.slint_ui {
+                            if let Some(ui_t) =
+                                ui.drain_actions(shell, &mut self.settings, &self.audio_router)
+                            {
+                                t = Some(ui_t);
+                            }
+                            ui.sync_shell(shell, true);
+                        }
                         let fb = shell.canvas.framebuffer;
                         let sz = shell.size;
-                        self.blit_framebuffer_to_window(fb, sz)?;
+                        let two_pass = self
+                            .slint_ui
+                            .as_ref()
+                            .map(|ui| ui.modal_open())
+                            .unwrap_or(false);
+                        if two_pass {
+                            if let Some(ui) = &self.slint_ui {
+                                ui.render_pass(fb, sz, 1)?;
+                            }
+                            shell.apply_modal_blur();
+                            let (Some(ui), Some(surface), Some(context)) =
+                                (&self.slint_ui, &self.surface, &self.context)
+                            else {
+                                return Err("window presentation resources missing".into());
+                            };
+                            ui.render_pass(fb, sz, 2)?;
+                            surface
+                                .swap_buffers(context)
+                                .map_err(|e| format!("window presentation failed: {e}"))?;
+                        } else {
+                            self.blit_framebuffer_to_window(fb, sz)?;
+                        }
                         t
                     } else {
                         None

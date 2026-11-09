@@ -1,20 +1,211 @@
-import "../assets/fonts/saira-400.ttf";
+import { Theme, ControlState, MenuSound } from "theme.slint";
+import {
+    MenuRowItem,
+    ThemePicker,
+    GateScreen,
+    MainMenuScreen,
+    ProfileScreen,
+    ProfileModal,
+    DiscordOfferModal,
+    SteamOfferModal,
+    ShellPopupModal
+} from "screens/main.slint";
+
+export { Theme, MenuSound, ControlState } from "theme.slint";
+export { MenuRowItem } from "screens/main.slint";
 
 export component GameUi inherits Window {
     background: transparent;
-    default-font-family: "Saira";
+    default-font-family: "Saira Thin";
+    changed width => { Theme.viewport-width = root.width; }
+    changed height => { Theme.viewport-height = root.height; }
+
     in property <bool> proof-controls: false;
     in property <bool> gameplay: false;
     in-out property <string> draft;
-    out property <bool> text-focused: edit.has-focus;
+    out property <bool> text-focused: edit.has-focus || (root.profile-editing && profile-modal.text-focused);
     out property <int> activations;
-    public function controls-at(x: length, y: length) -> bool {
-        return root.proof-controls && !root.gameplay && x >= panel.x && x < panel.x + panel.width && y >= panel.y && y < panel.y + panel.height;
+
+    // Front-end shell screen & modal state fed from ShellApp and AppSettingsStore.
+    in property <bool> shell-visible: false;
+    in property <int> render-pass: 0;
+    in property <string> active-screen: "gate";
+    in property <string> prompt-text: "PRESS ANY KEY OR CLICK TO BEGIN";
+    in property <float> prompt-opacity: 1.0;
+    in property <string> screen-title: "PROFILE MANAGEMENT";
+    in property <[MenuRowItem]> rows: [];
+    in property <int> selected-row: 0;
+    in property <string> version-text: "";
+
+    in-out property <int> theme-index: 2;
+    in-out property <bool> theme-picker-open: false;
+
+    in property <bool> profile-editing: false;
+    in-out property <string> profile-draft: "";
+    in property <string> profile-note: "";
+
+    in property <bool> discord-offer-open: false;
+    in property <int> discord-selected-button: 0;
+
+    in property <bool> steam-offer-open: false;
+    in property <[string]> steam-paragraphs: [];
+    in property <string> steam-status-text: "";
+    in property <bool> steam-status-error: false;
+    in property <string> steam-accept-label: "Add to Steam";
+    in property <bool> steam-busy: false;
+    in property <int> steam-selected-button: 0;
+
+    in property <bool> popup-open: false;
+    in property <string> popup-message: "";
+    in property <string> popup-accept-label: "OK";
+    in property <string> popup-middle-label: "";
+    in property <string> popup-cancel-label: "";
+    in property <int> popup-selected-button: 0;
+
+    out property <bool> modal-open: root.profile-editing || root.discord-offer-open || root.steam-offer-open || root.popup-open;
+    out property <bool> screen-ported: root.active-screen == "gate" || root.active-screen == "main" || root.active-screen == "profile";
+
+    callback gate-unlocked();
+    callback row-selected(int);
+    callback row-activated(int);
+    callback back-activated();
+    callback theme-changed(int);
+    callback profile-edited(string);
+    callback profile-saved(string);
+    callback profile-cancelled();
+    callback discord-chosen(string);
+    callback steam-declined();
+    callback steam-accepted();
+    callback popup-button-activated(int);
+
+    function theme-picker-at(x: length, y: length) -> bool {
+        return x >= theme-picker.x && x < theme-picker.x + theme-picker.width
+            && y >= theme-picker.y
+            && y < theme-picker.y + theme-picker.height + (root.theme-picker-open ? 3 * Theme.list-row-height + 8px : 0px);
     }
+
+    public function controls-at(x: length, y: length) -> bool {
+        if (root.gameplay) {
+            return false;
+        }
+        if (root.proof-controls && x >= panel.x && x < panel.x + panel.width && y >= panel.y && y < panel.y + panel.height) {
+            return true;
+        }
+        if (!root.shell-visible) {
+            return false;
+        }
+        return root.screen-ported || root.modal-open || root.theme-picker-open || root.theme-picker-at(x, y);
+    }
+
     public function focus-editor() { edit.focus(); }
-    public function release-editor() { keyboard.focus(); }
+    public function focus-profile-input() { profile-modal.focus-input(); }
+    public function release-editor() {
+        edit.clear-focus();
+        profile-modal.release-input();
+        keyboard.focus();
+    }
+
     keyboard := FocusScope {}
-    // Proof-only composition marker; normal runs draw no Slint content until screens are ported.
+
+    // Pass 1: base page + THEME picker (blurred into shell.canvas.framebuffer when a modal is open).
+    base-layer := Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: transparent;
+        opacity: root.render-pass == 2 ? 0.0 : 1.0;
+
+        if root.shell-visible && !root.gameplay && root.active-screen == "gate": GateScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            prompt-text: root.prompt-text;
+            prompt-opacity: root.prompt-opacity;
+            use-underlay: true;
+            unlocked => { root.gate-unlocked(); }
+        }
+
+        if root.shell-visible && !root.gameplay && root.active-screen == "main": MainMenuScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            rows: root.rows;
+            selected-index: root.selected-row;
+            version-text: root.version-text;
+            use-underlay: true;
+            row-selected(idx) => { root.row-selected(idx); }
+            row-activated(idx) => { root.row-activated(idx); }
+        }
+
+        if root.shell-visible && !root.gameplay && root.active-screen == "profile": ProfileScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            title: root.screen-title;
+            rows: root.rows;
+            selected-index: root.selected-row;
+            use-underlay: true;
+            row-selected(idx) => { root.row-selected(idx); }
+            row-activated(idx) => { root.row-activated(idx); }
+            back-activated => { root.back-activated(); }
+        }
+
+        if root.shell-visible && !root.gameplay && root.theme-picker-open: TouchArea {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            clicked => { root.theme-picker-open = false; }
+        }
+
+        theme-picker := ThemePicker {
+            visible: root.shell-visible && !root.gameplay;
+            x: parent.width - Theme.bfe-edge - self.width;
+            y: 18px;
+            current-index <=> root.theme-index;
+            open <=> root.theme-picker-open;
+            theme-selected(idx) => { root.theme-changed(idx); }
+        }
+    }
+
+    // Pass 2: modal / popup dialogs and their dimmed backdrop (drawn sharp after PageBlur).
+    modal-layer := Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: transparent;
+        opacity: root.render-pass == 1 ? 0.0 : 1.0;
+
+        if root.shell-visible && !root.gameplay && root.popup-open: ShellPopupModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            message: root.popup-message;
+            accept-label: root.popup-accept-label;
+            middle-label: root.popup-middle-label;
+            cancel-label: root.popup-cancel-label;
+            selected-button: root.popup-selected-button;
+            accepted => { root.popup-button-activated(0); }
+            middle-activated => { root.popup-button-activated(1); }
+            cancelled => { root.popup-button-activated(root.popup-middle-label != "" ? 2 : 1); }
+        }
+
+        // Profile callsign editor modal (always mounted so focus-profile-input() works when opened).
+        profile-modal := ProfileModal {
+            visible: root.shell-visible && !root.gameplay && root.profile-editing;
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            draft <=> root.profile-draft;
+            note: root.profile-note;
+            edited(val) => { root.profile-edited(val); }
+            saved(val) => { root.profile-saved(val); }
+            cancelled => { root.profile-cancelled(); }
+        }
+
+        if root.shell-visible && !root.gameplay && root.discord-offer-open: DiscordOfferModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            selected-button: root.discord-selected-button;
+            chosen(mode) => { root.discord-chosen(mode); }
+        }
+
+        if root.shell-visible && !root.gameplay && root.steam-offer-open: SteamOfferModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            paragraphs: root.steam-paragraphs;
+            status-text: root.steam-status-text;
+            status-error: root.steam-status-error;
+            accept-label: root.steam-accept-label;
+            busy: root.steam-busy;
+            selected-button: root.steam-selected-button;
+            declined => { root.steam-declined(); }
+            accepted => { root.steam-accepted(); }
+        }
+    }
+
+    // Proof-only composition marker; stays above shell views during --script slint-proof / platform-smoke.
     Rectangle {
         visible: root.proof-controls;
         x: parent.width - self.width - 16px;
