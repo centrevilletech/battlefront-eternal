@@ -463,6 +463,7 @@ pub struct ShellHost {
     pub hud: HudPass<glow::Context>,
     /// CPU-side quad batch populated each frame by `draw_shell`, `draw_loading`, or `ClassicTheme::paint_stack`.
     pub batch: Batch,
+    pub setup_hits: Vec<[f64;4]>,
     /// Bitmap fonts (`large`, `medium`, `small`, `tiny`) for `bfe-shell`.
     pub fonts: ShellFonts,
     /// Uploaded texture handles and map-loading zoom stages for `bfe-shell`.
@@ -580,7 +581,7 @@ impl ShellHost {
 
         let blur = super::page_blur::PageBlur::new(&core.gl, size)?;
         core.state.reset();
-        Ok(Self {
+        let mut host = Self {
             movies: Default::default(),
             right_movies: Default::default(),
             backdrop: Default::default(),
@@ -596,6 +597,7 @@ impl ShellHost {
             core,
             hud,
             batch: Batch::new(),
+            setup_hits: Vec::new(),
             page: bfe_shell::page::Page::new(Font::default(), Font::default()),
             last_page_click: None,
             fonts,
@@ -617,7 +619,88 @@ impl ShellHost {
             size,
             layout_size: size,
             frames: 0,
-        })
+        };
+        host.initialize_page_graphics()?;
+        Ok(host)
+    }
+
+    fn initialize_page_graphics(&mut self) -> Result<(), String> {
+        let mut page_fonts = Vec::with_capacity(7);
+        for bytes in [
+            include_bytes!("../../assets/fonts/saira-700.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-900.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-800.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-800-normal.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-400.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-600.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-500.ttf").as_slice(),
+        ] {
+            let (rgba, mut font) = super::page_font::atlas(bytes)?;
+            let texture = Self::upload_page_font(&self.core.gl, &rgba)?;
+            let handle = self.core.add_texture(texture);
+            for glyph in font.glyphs.values_mut() {
+                glyph.page = handle;
+            }
+            page_fonts.push(font);
+        }
+        let prose = page_fonts.pop().unwrap();
+        let medium = page_fonts.pop().unwrap();
+        let regular = page_fonts.pop().unwrap();
+        let bold = page_fonts.pop().unwrap();
+        let title = page_fonts.pop().unwrap();
+        let logo = page_fonts.pop().unwrap();
+        self.page = bfe_shell::page::Page::new(page_fonts.pop().unwrap(), logo);
+        self.page.title = title;
+        self.page.bold = bold;
+        self.page.regular = regular;
+        self.page.medium = medium;
+        self.page.prose = prose;
+        // CSS's monospace fallback is supplied by the desktop on both hosts.
+        #[cfg(target_os = "linux")]
+        let mono = Some(std::path::PathBuf::from(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        ));
+        #[cfg(target_os = "windows")]
+        let mono = std::env::var_os("WINDIR")
+            .map(|root| std::path::PathBuf::from(root).join("Fonts/consola.ttf"));
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        let mono: Option<std::path::PathBuf> = None;
+        if let Some(bytes) = mono.and_then(|p| std::fs::read(p).ok()) {
+            if let Ok((rgba, mut font)) = super::page_font::atlas(&bytes) {
+                let texture = Self::upload_page_font(&self.core.gl, &rgba)?;
+                let handle = self.core.add_texture(texture);
+                for glyph in font.glyphs.values_mut() {
+                    glyph.page = handle;
+                }
+                self.page.mono = font;
+            }
+        }
+        let button_w = ((self.layout_size[0] as f64 * 0.30).min(400.) - 16.)
+            .round()
+            .max(28.) as usize;
+        let button_h = (self.layout_size[1] as f64 * 0.056).clamp(38., 56.).round() as usize;
+        self.page.button_source = [button_w as f64, button_h as f64];
+        for look in 0..3 {
+            let w = (self.layout_size[0] as f64).round() as usize;
+            let h = (self.layout_size[1] as f64).round() as usize;
+            let rgba = super::page_surfaces::pattern(w, h, look);
+            let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
+            self.page.patterns[look] = self.core.add_texture(texture);
+            let rgba = super::page_surfaces::setup_backdrop(w, h, look);
+            let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
+            self.page.setup_backdrops[look] = self.core.add_texture(texture);
+        }
+        for look in 0..3 {
+            for selected in [false, true] {
+                let rgba = super::page_surfaces::button(button_w, button_h, look, selected);
+                let texture =
+                    Self::upload_rgba(&self.core.gl, button_w as i32, button_h as i32, &rgba)?;
+                self.page.buttons[look * 2 + usize::from(selected)] =
+                    self.core.add_texture(texture);
+            }
+        }
+
+        Ok(())
     }
 
     /// Loads `common.json` and `shell.json` from `content_dir`, uploading bitmap
@@ -791,54 +874,6 @@ impl ShellHost {
             .cloned()
             .unwrap_or_else(|| "LOADING".to_string());
         self.textures = textures;
-        let mut page_fonts = Vec::with_capacity(6);
-        for bytes in [
-            include_bytes!("../../assets/fonts/saira-700.ttf").as_slice(),
-            include_bytes!("../../assets/fonts/saira-900.ttf").as_slice(),
-            include_bytes!("../../assets/fonts/saira-800.ttf").as_slice(),
-            include_bytes!("../../assets/fonts/saira-800-normal.ttf").as_slice(),
-            include_bytes!("../../assets/fonts/saira-400.ttf").as_slice(),
-            include_bytes!("../../assets/fonts/saira-600.ttf").as_slice(),
-        ] {
-            let (rgba, mut font) = super::page_font::atlas(bytes)?;
-            let texture = Self::upload_page_font(&self.core.gl, &rgba)?;
-            let handle = self.core.add_texture(texture);
-            for glyph in font.glyphs.values_mut() {
-                glyph.page = handle;
-            }
-            page_fonts.push(font);
-        }
-        let medium = page_fonts.pop().unwrap();
-        let regular = page_fonts.pop().unwrap();
-        let bold = page_fonts.pop().unwrap();
-        let title = page_fonts.pop().unwrap();
-        let logo = page_fonts.pop().unwrap();
-        self.page = bfe_shell::page::Page::new(page_fonts.pop().unwrap(), logo);
-        self.page.title = title;
-        self.page.bold = bold;
-        self.page.regular = regular;
-        self.page.medium = medium;
-        let button_w = ((self.layout_size[0] as f64 * 0.30).min(400.) - 16.)
-            .round()
-            .max(28.) as usize;
-        let button_h = (self.layout_size[1] as f64 * 0.056).clamp(38., 56.).round() as usize;
-        self.page.button_source = [button_w as f64, button_h as f64];
-        for look in 0..3 {
-            let w = (self.layout_size[0] as f64).round() as usize;
-            let h = (self.layout_size[1] as f64).round() as usize;
-            let rgba = super::page_surfaces::pattern(w, h, look);
-            let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
-            self.page.patterns[look] = self.core.add_texture(texture);
-        }
-        for look in 0..3 {
-            for selected in [false, true] {
-                let rgba = super::page_surfaces::button(button_w, button_h, look, selected);
-                let texture =
-                    Self::upload_rgba(&self.core.gl, button_w as i32, button_h as i32, &rgba)?;
-                self.page.buttons[look * 2 + usize::from(selected)] =
-                    self.core.add_texture(texture);
-            }
-        }
 
         // Rebuild `bfe-interface` fonts, surface, and `OptionsController` with loaded localization strings.
         self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.layout_size);
@@ -1108,40 +1143,39 @@ impl ShellHost {
         );
     }
 
-    /// Renders the startup / preparation loader screen (`draw_loading`).
-    ///
-    /// ## Loader Variants
-    /// - `StartupContentState::Ready`: Renders the planet title and `"LOADING"` prompt
-    ///   at `self.loading_time`.
-    /// - `StartupContentState::Preparing`: Renders `"INSTALLING ASSETS"` and the current
-    ///   extraction phase label + integer percentage (`0%..100%`).
-    /// - `StartupContentState::WaitingForFolder`: Renders `"CONTENT REQUIRED"` and the
-    ///   `F9` folder-selection instructions.
+    /// Draws setup before content exists, then the planet loading timeline
+    /// while prepared content is loaded on the worker.
     pub fn draw_startup_loader(&mut self, dt: f64, state: &StartupContentState) {
         self.loading_time += dt.clamp(0.0, 0.1);
         let (planet, text, timeline_time) = match state {
+            StartupContentState::Searching(_) => {
+                let view = bfe_shell::page::SetupView {
+                    title: "SEARCHING FOR STAR WARS BATTLEFRONT".into(),
+                    detail: "Looking through your Steam and GOG libraries.".into(),
+                    busy: true,
+                    ..Default::default()
+                };
+                self.draw_first_run(&view, 0);
+                return;
+            }
             StartupContentState::Ready(_) => (
                 self.loading_planet.clone(),
                 self.loading_text.clone(),
                 self.loading_time,
             ),
             StartupContentState::Preparing { latest, .. } => {
-                let pct = (latest.percent * 100.0).round() as u32;
-                let phase = if latest.phase_label.is_empty() {
-                    "PREPARING GAME CONTENT".to_string()
-                } else {
-                    latest.phase_label.to_ascii_uppercase()
-                };
-                let status = format!("{phase} ({pct}%)");
-                let total_dur = self.loading_timeline.duration().max(1.0);
-                let t = (latest.percent * total_dur).clamp(0.0, total_dur);
-                ("INSTALLING ASSETS".to_string(), status, t)
+                self.draw_first_run(&super::first_run::progress_view(latest), 0);
+                return;
             }
-            StartupContentState::WaitingForFolder { message } => (
-                "CONTENT REQUIRED".to_string(),
-                message.clone(),
-                self.loading_time % 3.5,
-            ),
+            StartupContentState::Importing(work) => {
+                self.draw_first_run(&work.view(), 0);
+                return;
+            }
+            StartupContentState::FirstRun(model) => {
+                let view = model.view();
+                self.draw_first_run(&view, model.cursor);
+                return;
+            }
         };
 
         let at = self.loading_timeline.at(timeline_time);
@@ -1159,6 +1193,25 @@ impl ShellHost {
             w,
             h,
             Some((&self.page.body, &self.page.bold)),
+        );
+        self.upload_and_draw_batch();
+    }
+
+    pub fn draw_first_run(&mut self, view: &bfe_shell::page::SetupView, cursor: usize) {
+        let look = match self.app.settings.menu_theme.as_str() {
+            "bf1" => 0,
+            "bf2" => 1,
+            _ => 2,
+        };
+        self.setup_hits = self.page.draw_setup(
+            &mut self.batch,
+            &self.textures,
+            view,
+            self.layout_size[0] as f64,
+            self.layout_size[1] as f64,
+            look,
+            cursor,
+            self.loading_time,
         );
         self.upload_and_draw_batch();
     }

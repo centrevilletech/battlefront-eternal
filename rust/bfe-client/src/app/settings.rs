@@ -87,10 +87,23 @@ pub fn current_arch_str() -> &'static str {
 /// Resolves the repository or packaged root directory relative to the running binary
 /// or current working directory.
 ///
-/// Searches the current working directory and its parent for `tools/content-version.json`
-/// so running `cargo run` from either the repository root or `rust/` finds the shared
-/// `tools/` and `content/` directories.
+/// A packaged executable resolves resources beside itself, independently of cwd.
+pub fn application_resources() -> Option<PathBuf> {
+    let executable = env::current_exe().ok()?;
+    let resources = executable.parent()?.join("resources");
+    resources
+        .join("tools/prepare.py")
+        .is_file()
+        .then_some(resources)
+}
+
+/// Find packaged resources, a working-directory checkout, or the checkout
+/// this development binary was built from. Launching from a file manager must
+/// not change which preparation tools or content-version file the client uses.
 pub fn resolve_project_root() -> PathBuf {
+    if let Some(resources) = application_resources() {
+        return resources.parent().unwrap_or(&resources).to_path_buf();
+    }
     // Check whether the current working directory or its parent contains `tools/content-version.json`.
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if cwd.join("tools").join("content-version.json").exists() {
@@ -100,6 +113,12 @@ pub fn resolve_project_root() -> PathBuf {
         if parent.join("tools").join("content-version.json").exists() {
             return parent.to_path_buf();
         }
+    }
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent);
+    if let Some(root) = checkout.filter(|p| p.join("tools/content-version.json").is_file()) {
+        return root.to_path_buf();
     }
     cwd
 }
@@ -564,6 +583,7 @@ impl AppSettingsStore {
     /// Saves `DesktopSettings` (`desktop-settings.json`) atomically.
     pub fn save_desktop(&mut self) -> Result<(), String> {
         let patch = SettingsPatch {
+            enhanced_sound: self.desktop.enhanced_sound,
             content_dir: Some(
                 self.desktop
                     .chosen_content_dir
@@ -736,12 +756,18 @@ mod tests {
         // Each offer answer must survive the atomic store's read/patch/write,
         // otherwise a fresh client shows the question again on every launch.
         for detail in ["off", "game", "full"] {
-            store.desktop.presence.get_or_insert_with(Default::default).discord =
-                Some(detail.into());
+            store
+                .desktop
+                .presence
+                .get_or_insert_with(Default::default)
+                .discord = Some(detail.into());
             store.desktop.discord_presence = detail != "off";
             store.save_desktop().expect("save presence choice");
             let saved = AppSettingsStore::load(paths.clone());
-            assert_eq!(saved.desktop.presence.unwrap().discord.as_deref(), Some(detail));
+            assert_eq!(
+                saved.desktop.presence.unwrap().discord.as_deref(),
+                Some(detail)
+            );
             assert_eq!(saved.desktop.discord_presence, detail != "off");
         }
 

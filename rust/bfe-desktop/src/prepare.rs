@@ -1,5 +1,5 @@
 //! Prepared content version checks, toolchain paths, progress estimation, and
-//! subprocess driver (`tools/prepare_content.py`).
+//! subprocess driver (`tools/prepare.py`).
 //!
 //! Mirrors the desktop host and the desktop host.
 //!
@@ -36,8 +36,7 @@ use crate::settings::{PreparationRecord, SettingsStore};
 ///
 /// Using `include_str!` ensures that if `tools/content-version.json` is moved
 /// or removed, compilation fails rather than silently drifting.
-pub const CHECKOUT_CONTENT_VERSION_JSON: &str =
-    include_str!("../../../tools/content-version.json");
+pub const CHECKOUT_CONTENT_VERSION_JSON: &str = include_str!("../../../tools/content-version.json");
 
 /// Expected schema versions for prepared content outputs (`tools/content-version.json`).
 ///
@@ -95,7 +94,7 @@ pub fn checkout_content_version() -> Result<ContentVersion, String> {
     parse_content_version(CHECKOUT_CONTENT_VERSION_JSON, "tools/content-version.json")
 }
 
-/// Top-level output entries written by `prepare_content.py` into a content folder.
+/// Top-level output entries written by `prepare.py` into a content folder.
 ///
 /// Mirrors `PREPARED_OUTPUTS` in the desktop host.
 pub const PREPARED_OUTPUTS: &[&str] = &["maps", "sides", "common", "audio", ".prepare.json"];
@@ -142,7 +141,7 @@ pub struct ToolchainOptions {
     pub arch: String,
 }
 
-/// Resolved paths for the bundled toolchain, Python interpreter, and `prepare_content.py`.
+/// Resolved paths for the bundled toolchain, Python interpreter, and `prepare.py`.
 ///
 /// Mirrors the return object of `toolchainPaths` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,13 +152,13 @@ pub struct ToolchainPaths {
     pub tools: PathBuf,
     /// Python executable path or command name (`python3` / `python`).
     pub python: PathBuf,
-    /// Full path to `tools/prepare_content.py`.
+    /// Full path to `tools/prepare.py`.
     pub script: PathBuf,
     /// Full path to `tools/content-version.json`.
     pub content_version_file: PathBuf,
 }
 
-/// Resolves the toolchain root, `tools` directory, Python binary, and `prepare_content.py` script.
+/// Resolves the toolchain root, `tools` directory, Python binary, and `prepare.py` script.
 ///
 /// Mirrors `toolchainPaths` in the desktop host.
 pub fn toolchain_paths(opts: &ToolchainOptions) -> ToolchainPaths {
@@ -202,7 +201,7 @@ pub fn toolchain_paths(opts: &ToolchainOptions) -> ToolchainPaths {
         PathBuf::from("python3")
     };
 
-    let script = tools.join("prepare_content.py");
+    let script = tools.join("prepare.py");
     let content_version_file = tools.join("content-version.json");
 
     ToolchainPaths {
@@ -214,7 +213,7 @@ pub fn toolchain_paths(opts: &ToolchainOptions) -> ToolchainPaths {
     }
 }
 
-/// Options for constructing the environment variables passed to `prepare_content.py`.
+/// Options for constructing the environment variables passed to `prepare.py`.
 ///
 /// Mirrors the argument object of `toolEnv` in the desktop host.
 #[derive(Debug, Clone)]
@@ -231,7 +230,7 @@ pub struct ToolEnvOptions {
     pub platform: String,
 }
 
-/// Builds the environment variable map for running `prepare_content.py`.
+/// Builds the environment variable map for running `prepare.py`.
 ///
 /// Prepends existing `toolchain/bin` and `toolchain/ktx/bin` directories to `PATH`,
 /// configures `KTX2_ENCODER` and shared library search paths when bundled KTX tools
@@ -268,7 +267,10 @@ pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     next.insert("PATH".to_string(), bins.join(sep));
 
     if let Some(game) = &opts.game {
-        next.insert("BFE_GAME_DIR".to_string(), game.to_string_lossy().into_owned());
+        next.insert(
+            "BFE_GAME_DIR".to_string(),
+            game.to_string_lossy().into_owned(),
+        );
     }
     if let Some(content) = &opts.content {
         next.insert(
@@ -405,10 +407,12 @@ pub fn prepared_content_current(
 /// On Windows and macOS, paths are compared case-insensitively after resolution.
 /// Mirrors `comparablePath` in the desktop host.
 fn comparable_path(p: &Path, platform: &str) -> String {
-    let resolved = resolve_from(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), p);
+    let resolved = resolve_from(
+        &std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        p,
+    );
     let text = normalize_comparable_path(&resolved);
-    if platform == "win32" || platform == "windows" || platform == "darwin" || platform == "macos"
-    {
+    if platform == "win32" || platform == "windows" || platform == "darwin" || platform == "macos" {
         text.to_lowercase()
     } else {
         text
@@ -500,9 +504,7 @@ pub struct PreparedSummary {
 ///
 /// Mirrors `preparedSummary` in the desktop host.
 pub fn prepared_summary(state: Option<&PrepareState>) -> PreparedSummary {
-    let failures = state
-        .and_then(|s| s.failures.clone())
-        .unwrap_or_default();
+    let failures = state.and_then(|s| s.failures.clone()).unwrap_or_default();
     let add_on_failures = failures
         .iter()
         .filter(|f| f.id.starts_with("addon:"))
@@ -564,14 +566,17 @@ pub fn clear_prepared_for(content: Option<&Path>, game: Option<&Path>, platform:
 #[serde(rename_all = "camelCase")]
 pub struct PrepareStep {
     /// Step identifier (e.g. `"common"`, `"map:bes1a"`).
+    #[serde(alias = "key")]
     pub id: String,
     /// Step category (`"catalog"`, `"side"`, `"common"`, `"map"`, `"audio"`, etc.).
     #[serde(default)]
+    #[serde(alias = "phase")]
     pub kind: String,
     /// Human-readable step label.
     #[serde(default)]
     pub label: String,
     /// Current step status (`"pending"`, `"running"`, `"done"`, `"failed"`, `"skipped"`, etc.).
+    #[serde(default = "pending_status")]
     pub status: String,
     /// Optional detail string emitted by the preparer.
     #[serde(default)]
@@ -590,6 +595,10 @@ pub struct PrepareStep {
     pub progress: Option<f64>,
 }
 
+fn pending_status() -> String {
+    "pending".into()
+}
+
 /// Live snapshot of a running or completed content preparation job.
 ///
 /// Mirrors `createSnapshot()` in the desktop host.
@@ -598,6 +607,18 @@ pub struct PrepareStep {
 pub struct PrepareSnapshot {
     /// High-level phase (`"idle"`, `"starting"`, `"running"`, `"done"`, `"failed"`, `"cancelled"`).
     pub status: String,
+    /// Read-only --check report, emitted before asking the player to prepare.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_report: Option<Value>,
+    /// Rolling step-kind timings used by the first-run estimate.
+    #[serde(default)]
+    pub timings: StepTimings,
+    /// Most recently started step, falling back to the first still running.
+    #[serde(default)]
+    pub current_step: Option<String>,
+    /// Whether this run includes enhanced sound.
+    #[serde(default)]
+    pub enhanced_sound: bool,
     /// Game install directory path.
     pub game: Option<String>,
     /// Target content directory path.
@@ -606,7 +627,7 @@ pub struct PrepareSnapshot {
     pub started_at: Option<u64>,
     /// Timestamp (ms) when preparation finished.
     pub finished_at: Option<u64>,
-    /// Number of parallel worker processes scheduled by `prepare_content.py`.
+    /// Number of parallel worker processes scheduled by `prepare.py`.
     pub workers: u32,
     /// Ordered list of preparation steps.
     pub steps: Vec<PrepareStep>,
@@ -638,6 +659,10 @@ pub struct PrepareSnapshot {
 pub fn create_snapshot() -> PrepareSnapshot {
     PrepareSnapshot {
         status: "idle".to_string(),
+        check_report: None,
+        timings: StepTimings::new(),
+        current_step: None,
+        enhanced_sound: true,
         game: None,
         content: None,
         started_at: None,
@@ -703,7 +728,7 @@ pub fn recount(snapshot: &mut PrepareSnapshot) {
     };
 }
 
-/// Applies a JSON event emitted by `prepare_content.py` to a [`PrepareSnapshot`].
+/// Applies a JSON event emitted by `prepare.py` to a [`PrepareSnapshot`].
 ///
 /// Handles `"log"`, `"plan"`, `"step"`, `"playable"`, `"finished"`, `"busy"`,
 /// and `"error"` events identically to `applyEvent` in the desktop host.
@@ -713,9 +738,17 @@ pub fn apply_event(snapshot: &mut PrepareSnapshot, event: &Value, now_ms: u64) {
     };
 
     match event_type {
+        "check" => {
+            snapshot.check_report = Some(event.clone());
+            snapshot.status = "done".into();
+        }
         // Append diagnostic log lines emitted by the Python preparer.
         "log" => {
-            let msg = event.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            let msg = event
+                .get("line")
+                .or_else(|| event.get("message"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             push_log(snapshot, msg);
         }
         // Replace the step list and worker count when the initial execution plan arrives.
@@ -738,23 +771,39 @@ pub fn apply_event(snapshot: &mut PrepareSnapshot, event: &Value, now_ms: u64) {
                 .max(1) as u32;
             snapshot.workers = w;
             if let Some(arr) = event.get("steps").and_then(|v| v.as_array()) {
+                let old = std::mem::take(&mut snapshot.steps);
                 snapshot.steps = arr
                     .iter()
-                    .filter_map(|item| serde_json::from_value::<PrepareStep>(item.clone()).ok())
+                    .filter_map(|item| {
+                        let mut step: PrepareStep = serde_json::from_value(item.clone()).ok()?;
+                        if let Some(previous) = old.iter().find(|p| p.id == step.id) {
+                            step.status = previous.status.clone();
+                            step.started_at = previous.started_at;
+                            step.seconds = previous.seconds;
+                            step.cached = previous.cached;
+                        } else if item["available"] == false {
+                            step.status = "unavailable".into();
+                        }
+                        Some(step)
+                    })
                     .collect();
             }
             recount(snapshot);
         }
         // Update an existing step's status/progress or insert a dynamically discovered step.
         "step" => {
-            let Some(step_id) = event.get("id").and_then(|v| v.as_str()) else {
+            let Some(step_id) = event
+                .get("key")
+                .or_else(|| event.get("id"))
+                .and_then(|v| v.as_str())
+            else {
                 return;
             };
-            let new_status = event
-                .get("status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            if let Some(parallel) = event.get("parallel").and_then(Value::as_u64) {
+                snapshot.workers = parallel.max(1) as u32;
+            }
+            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let new_status = if status == "start" { "running" } else { status }.to_string();
             let detail = event
                 .get("detail")
                 .and_then(|v| v.as_str())
@@ -766,7 +815,8 @@ pub fn apply_event(snapshot: &mut PrepareSnapshot, event: &Value, now_ms: u64) {
             let seconds = event.get("seconds").and_then(|v| v.as_f64());
             let progress = event.get("progress").and_then(|v| v.as_f64());
             let kind = event
-                .get("kind")
+                .get("phase")
+                .or_else(|| event.get("kind"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -826,21 +876,21 @@ pub fn apply_event(snapshot: &mut PrepareSnapshot, event: &Value, now_ms: u64) {
                 });
             }
 
-            if new_status == "failed" {
-                let lbl = snapshot
+            if new_status == "running" {
+                snapshot.current_step = Some(step_id.into());
+            } else if snapshot.current_step.as_deref() == Some(step_id) {
+                snapshot.current_step = snapshot
                     .steps
                     .iter()
-                    .find(|s| s.id == step_id)
-                    .map(|s| {
-                        if s.label.is_empty() {
-                            s.id.as_str()
-                        } else {
-                            s.label.as_str()
-                        }
-                    })
-                    .unwrap_or(step_id);
-                let msg = format!("{}: {}", lbl, detail.as_deref().unwrap_or("failed"));
-                push_log(snapshot, &msg);
+                    .find(|s| s.status == "running")
+                    .map(|s| s.id.clone());
+            }
+            if let Some(seconds) = seconds {
+                if let Some(step) = snapshot.steps.iter().find(|s| s.id == step_id) {
+                    let mut timed = step.clone();
+                    timed.kind = step.id.split(':').next().unwrap_or("").into();
+                    snapshot.timings = record_timing(&snapshot.timings, &timed, seconds);
+                }
             }
             recount(snapshot);
         }
@@ -859,7 +909,12 @@ pub fn apply_event(snapshot: &mut PrepareSnapshot, event: &Value, now_ms: u64) {
             let complete = event
                 .get("complete")
                 .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+                .unwrap_or_else(|| {
+                    event
+                        .get("failed")
+                        .and_then(Value::as_array)
+                        .is_some_and(Vec::is_empty)
+                });
             snapshot.complete = complete;
             snapshot.playable = event
                 .get("playable")
@@ -926,18 +981,33 @@ pub fn expected_seconds_for_kind(kind: &str, timings: Option<&StepTimings>) -> f
 ///
 /// Mirrors `expectedSeconds(step, timings)` in the desktop host.
 pub fn expected_seconds(step: &PrepareStep, timings: Option<&StepTimings>) -> f64 {
-    expected_seconds_for_kind(&step.kind, timings)
+    let key = step.id.split(':').next().unwrap_or("");
+    let kind = if matches!(
+        key,
+        "catalog"
+            | "catalog-update"
+            | "side"
+            | "common"
+            | "shell"
+            | "map"
+            | "environment"
+            | "hud"
+            | "audio"
+            | "textures"
+            | "movies"
+    ) {
+        key
+    } else {
+        &step.kind
+    };
+    expected_seconds_for_kind(kind, timings)
 }
 
 /// Records a completed, non-cached step duration into the rolling timing history
 /// (retaining at most the last 8 samples per step kind).
 ///
 /// Mirrors `recordTiming` in the desktop host.
-pub fn record_timing(
-    timings: &StepTimings,
-    step: &PrepareStep,
-    seconds: f64,
-) -> StepTimings {
+pub fn record_timing(timings: &StepTimings, step: &PrepareStep, seconds: f64) -> StepTimings {
     if step.kind.is_empty()
         || !seconds.is_finite()
         || seconds <= 0.0
@@ -1043,9 +1113,7 @@ pub fn estimate(
             .progress
             .filter(|p| p.is_finite() && *p > 0.05)
             .map(|p| full * (1.0 - p.min(0.98)));
-        let left = by_progress
-            .unwrap_or(full - elapsed)
-            .max(full * 0.08);
+        let left = by_progress.unwrap_or(full - elapsed).max(full * 0.08);
         if step.kind == "map" {
             map_remaining += left;
         } else {
@@ -1065,16 +1133,14 @@ pub fn estimate(
 
     // Map steps execute across `snapshot.workers` processes in parallel; serial steps do not.
     let workers = snapshot.workers.max(1) as f64;
-    let eta = (serial_remaining + map_remaining / workers).round().max(1.0) as u64;
+    let eta = (serial_remaining + map_remaining / workers)
+        .round()
+        .max(1.0) as u64;
 
     let phase_label = if running.len() == 1 {
         format!("Preparing {}", running[0].label)
     } else if running.len() > 1 {
-        let preview: Vec<&str> = running
-            .iter()
-            .take(2)
-            .map(|s| s.label.as_str())
-            .collect();
+        let preview: Vec<&str> = running.iter().take(2).map(|s| s.label.as_str()).collect();
         let extra = if running.len() > 2 {
             format!(" +{}", running.len() - 2)
         } else {
@@ -1232,8 +1298,8 @@ pub fn resolve_startup_content(
     let prepare_state = raw_content
         .as_ref()
         .and_then(|c| read_prepare_state(Some(&c.dir)));
-    let current = raw_content.is_some()
-        && prepared_content_current(prepare_state.as_ref(), &content_version);
+    let current =
+        raw_content.is_some() && prepared_content_current(prepare_state.as_ref(), &content_version);
     let content = if current { raw_content.clone() } else { None };
     let stale_content = if raw_content.is_some() && !current {
         raw_content
@@ -1321,7 +1387,7 @@ pub fn resolve_startup_content(
     })
 }
 
-/// Options for spawning a live `prepare_content.py` subprocess via [`PrepareSession::start`].
+/// Options for spawning a live `prepare.py` subprocess via [`PrepareSession::start`].
 #[derive(Debug, Clone)]
 pub struct PrepareSpawnOptions {
     /// Resolved toolchain and script paths.
@@ -1334,15 +1400,15 @@ pub struct PrepareSpawnOptions {
     pub env: BTreeMap<String, String>,
     /// Target platform (`"linux"`, `"darwin"`, `"win32"`).
     pub platform: String,
-    /// Whether to include discovered add-on campaigns (`--no-addons` when `false`).
+    /// Whether to include discovered add-on campaigns (`BFE_SKIP_ADDONS` when `false`).
     pub include_add_ons: bool,
     /// Whether to build enhanced sound (`--no-enhanced-sound` when `false`).
     pub enhanced_sound: bool,
-    /// Whether to run in `--plan-only` mode.
+    /// Whether to run the read-only `--check` preflight.
     pub plan_only: bool,
 }
 
-/// Handle to a running `prepare_content.py` child process and its live [`PrepareSnapshot`].
+/// Handle to a running `prepare.py` child process and its live [`PrepareSnapshot`].
 pub struct PrepareSession {
     /// Shared live snapshot updated as JSON lines arrive from stdout.
     pub snapshot: Arc<Mutex<PrepareSnapshot>>,
@@ -1352,12 +1418,20 @@ pub struct PrepareSession {
 }
 
 impl PrepareSession {
-    /// Spawns `python prepare_content.py` with the configured arguments and begins
+    /// Spawns `python prepare.py` with the configured arguments and begins
     /// streaming JSON progress events on a background reader thread.
     ///
     /// First verifies that `<toolchain.tools>/content-version.json` is present and
     /// valid via [`read_content_version`].
     pub fn start(opts: PrepareSpawnOptions) -> Result<Self, String> {
+        Self::start_with_timings(opts, None)
+    }
+
+    /// Load and save measured tool durations alongside the desktop profile.
+    pub fn start_with_timings(
+        opts: PrepareSpawnOptions,
+        timings_file: Option<PathBuf>,
+    ) -> Result<Self, String> {
         // Validate the shared content-version.json before launching the Python preparer.
         let _version = read_content_version(&opts.toolchain.tools)?;
 
@@ -1368,11 +1442,13 @@ impl PrepareSession {
             );
         }
 
-        clear_prepared_for(
-            Some(&opts.content_dir),
-            Some(&opts.game_dir),
-            &opts.platform,
-        );
+        if !opts.plan_only {
+            clear_prepared_for(
+                Some(&opts.content_dir),
+                Some(&opts.game_dir),
+                &opts.platform,
+            );
+        }
 
         let child_env = tool_env(&ToolEnvOptions {
             toolchain: opts.toolchain.toolchain.clone(),
@@ -1382,19 +1458,22 @@ impl PrepareSession {
             platform: opts.platform.clone(),
         });
 
+        eprintln!(
+            "preparation tools: python={} script={} toolchain={}",
+            opts.toolchain.python.display(),
+            opts.toolchain.script.display(),
+            opts.toolchain.toolchain.display()
+        );
         let mut cmd = Command::new(&opts.toolchain.python);
-        cmd.arg(&opts.toolchain.script)
-            .arg("--game")
-            .arg(&opts.game_dir)
-            .arg("--content")
-            .arg(&opts.content_dir);
+        // prepare.py reads its input/output roots from tool_env and always
+        // emits @@-framed progress. Its only read-only mode is --check.
+        cmd.arg("-u").arg(&opts.toolchain.script).arg("--jobs").arg(
+            thread::available_parallelism()
+                .map_or(1, usize::from)
+                .to_string(),
+        );
         if opts.plan_only {
-            cmd.arg("--plan-only");
-        } else {
-            cmd.arg("--json-progress");
-        }
-        if !opts.include_add_ons {
-            cmd.arg("--no-addons");
+            cmd.arg("--check");
         }
         if !opts.enhanced_sound {
             cmd.arg("--no-enhanced-sound");
@@ -1403,19 +1482,42 @@ impl PrepareSession {
         for (k, v) in &child_env {
             cmd.env(k, v);
         }
+        if !opts.include_add_ons {
+            cmd.env("BFE_SKIP_ADDONS", "1");
+        }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
 
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!("Failed to spawn prepare_content.py: {}", e))?;
+            .map_err(|e| format!("Failed to spawn prepare.py: {}", e))?;
 
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or("Failed to capture preparation stderr")?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| "Failed to capture prepare_content.py stdout".to_string())?;
+            .ok_or_else(|| "Failed to capture prepare.py stdout".to_string())?;
 
         let mut initial = create_snapshot();
         initial.status = "starting".to_string();
+        initial.enhanced_sound = opts.enhanced_sound;
+        initial.timings = timings_file
+            .as_ref()
+            .and_then(|p| fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        initial.started_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+        );
         initial.game = Some(opts.game_dir.to_string_lossy().into_owned());
         initial.content = Some(opts.content_dir.to_string_lossy().into_owned());
 
@@ -1423,7 +1525,16 @@ impl PrepareSession {
         let child_arc = Arc::new(Mutex::new(Some(child)));
         let (tx, rx) = mpsc::channel();
 
+        let stderr_snapshot = Arc::clone(&snapshot);
+        let stderr_reader = thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Ok(mut snap) = stderr_snapshot.lock() {
+                    push_log(&mut snap, &line);
+                }
+            }
+        });
         let snap_clone = Arc::clone(&snapshot);
+        let child_wait = Arc::clone(&child_arc);
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
@@ -1436,16 +1547,54 @@ impl PrepareSession {
                     .map(|d| d.as_millis() as u64)
                     .unwrap_or(0);
                 if let Ok(mut guard) = snap_clone.lock() {
-                    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                    if let Ok(val) =
+                        serde_json::from_str::<Value>(trimmed.strip_prefix("@@").unwrap_or(trimmed))
+                    {
                         apply_event(&mut guard, &val, now_ms);
                     } else {
                         push_log(&mut guard, trimmed);
                     }
-                    let est = estimate(&guard, None, now_ms);
+                    if let Some(path) = timings_file.as_ref() {
+                        if let Ok(body) = serde_json::to_vec(&guard.timings) {
+                            let _ = fs::write(path, body);
+                        }
+                    }
+                    let est = estimate(&guard, Some(&guard.timings), now_ms);
                     guard.eta_seconds = est.eta_seconds;
                     guard.phase_label = est.phase_label;
                     let _ = tx.send(guard.clone());
                 }
+            }
+            // EOF alone is not success: a missing script, import error or
+            // crashed worker may never emit a terminal progress event.
+            let result = child_wait
+                .lock()
+                .ok()
+                .and_then(|mut c| c.as_mut().map(Child::wait));
+            // Preserve the final diagnostic lines before publishing failure.
+            let _ = stderr_reader.join();
+            if let Ok(mut snap) = snap_clone.lock() {
+                if let Some(Ok(status)) = result {
+                    if !status.success()
+                        && snap.check_report.is_none()
+                        && snap.status != "failed"
+                        && snap.status != "cancelled"
+                    {
+                        snap.status = "failed".into();
+                        snap.error = Some(format!(
+                            "Preparation failed (exit {}). See the log.",
+                            status
+                                .code()
+                                .map_or_else(|| "signal".into(), |n| n.to_string())
+                        ));
+                    } else if status.success() && snap.status != "done" && snap.status != "failed" {
+                        snap.status = "failed".into();
+                        snap.error = Some(
+                            "Preparation ended without a completion event. See the log.".into(),
+                        );
+                    }
+                }
+                let _ = tx.send(snap.clone());
             }
         });
 
@@ -1456,10 +1605,19 @@ impl PrepareSession {
         })
     }
 
-    /// Terminates the running `prepare_content.py` process if it is still active.
+    /// Terminates the running `prepare.py` process if it is still active.
     pub fn cancel(&self) {
         if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.as_mut() {
+                if !matches!(child.try_wait(), Ok(None)) {
+                    return;
+                }
+                #[cfg(unix)]
+                // SAFETY: this child started its own process group; its positive
+                // PID identifies only the preparation tree owned by this session.
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGTERM);
+                }
                 let _ = child.kill();
             }
         }
@@ -1496,4 +1654,197 @@ pub fn verify_prepared_outputs(
         platform,
         &version,
     ))
+}
+
+#[cfg(test)]
+mod tool_protocol_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn actual_tool_plan_and_keyed_step_events_advance_progress() {
+        let mut snap = create_snapshot();
+        apply_event(
+            &mut snap,
+            &json!({"event":"plan","steps":[
+                {"key":"map:nab2","phase":"maps","label":"Naboo","weight":120,"available":true}
+            ]}),
+            10,
+        );
+        assert_eq!(snap.steps[0].id, "map:nab2");
+        apply_event(
+            &mut snap,
+            &json!({"event":"step","key":"map:nab2","phase":"maps","label":"Naboo","status":"start"}),
+            20,
+        );
+        assert_eq!(snap.steps[0].status, "running");
+        assert_eq!(snap.steps[0].started_at, Some(20));
+        apply_event(
+            &mut snap,
+            &json!({"event":"step","key":"map:nab2","status":"done","seconds":1.5}),
+            30,
+        );
+        assert_eq!(snap.done, 1);
+        assert_eq!(snap.percent, 1.);
+    }
+
+    #[test]
+    fn finished_uses_the_tools_failure_list() {
+        let mut snap = create_snapshot();
+        apply_event(&mut snap, &json!({"event":"finished","failed":[]}), 10);
+        assert!(snap.complete);
+        assert_eq!(snap.status, "done");
+        apply_event(
+            &mut snap,
+            &json!({"event":"finished","failed":["common"]}),
+            20,
+        );
+        assert!(!snap.complete);
+        assert_eq!(snap.status, "failed");
+    }
+
+    #[test]
+    fn a_check_report_never_marks_content_prepared() {
+        let mut snap = create_snapshot();
+        apply_event(
+            &mut snap,
+            &json!({"event":"check","ok":false,"problems":[{"code":"program","message":"Missing program"}]}),
+            10,
+        );
+        assert_eq!(snap.status, "done");
+        assert!(!snap.complete);
+        assert!(!snap.playable);
+        assert_eq!(
+            snap.check_report.unwrap()["problems"][0]["message"],
+            "Missing program"
+        );
+    }
+}
+
+impl Drop for PrepareSession {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+#[cfg(test)]
+mod child_protocol_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    fn fixture() -> (PathBuf, PrepareSpawnOptions) {
+        let root = std::env::temp_dir().join(format!(
+            "bfe-prepare-child-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let game = root.join("game");
+        let tools = root.join("tools");
+        let content = root.join("content");
+        fs::create_dir_all(game.join("GameData/Data/_LVL_PC/SIDE")).unwrap();
+        fs::create_dir_all(game.join("GameData/Data/_LVL_PC/Common/ENG")).unwrap();
+        fs::write(
+            game.join("GameData/Data/_LVL_PC/Common/ENG/common.lvl"),
+            b"fixture",
+        )
+        .unwrap();
+        fs::create_dir_all(&tools).unwrap();
+        fs::write(
+            tools.join("content-version.json"),
+            include_str!("../../../tools/content-version.json"),
+        )
+        .unwrap();
+        let options = PrepareSpawnOptions {
+            toolchain: ToolchainPaths {
+                toolchain: root.join("toolchain"),
+                tools: tools.clone(),
+                python: if cfg!(windows) {
+                    "python".into()
+                } else {
+                    "python3".into()
+                },
+                script: tools.join("prepare.py"),
+                content_version_file: tools.join("content-version.json"),
+            },
+            game_dir: game,
+            content_dir: content,
+            env: std::env::vars().collect(),
+            platform: if cfg!(windows) {
+                "win32".into()
+            } else {
+                "linux".into()
+            },
+            include_add_ons: true,
+            enhanced_sound: true,
+            plan_only: false,
+        };
+        (root, options)
+    }
+    fn terminal(session: &PrepareSession) -> PrepareSnapshot {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let snap = session
+                .events
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .expect("preparer must publish progress or an exit failure");
+            if snap.status == "done" || snap.status == "failed" {
+                return snap;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "preparer remained pending"
+            );
+        }
+    }
+    #[test]
+    fn real_child_arguments_environment_and_framed_output_reach_the_snapshot() {
+        let (root, options) = fixture();
+        fs::write(&options.toolchain.script,r#"import argparse,json,os
+p=argparse.ArgumentParser();p.add_argument('--jobs');p.parse_args()
+assert os.environ['BFE_GAME_DIR'].endswith('game')
+assert os.environ['BFE_CONTENT_DIR'].endswith('content')
+for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':'Naboo','weight':120,'available':True}]},{'event':'step','key':'map:nab2','status':'start'},{'event':'step','key':'map:nab2','status':'done'},{'event':'finished','complete':True,'playable':True}]:
+ print('@@'+json.dumps(event),flush=True)
+"#).unwrap();
+        let session = PrepareSession::start(options).unwrap();
+        let snap = terminal(&session);
+        assert_eq!(snap.status, "done");
+        assert!(snap.complete);
+        assert_eq!(snap.done, 1);
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn a_nonzero_child_without_events_becomes_a_terminal_failure() {
+        let (root, options) = fixture();
+        // The Python process starts, but its missing script can emit no events.
+        let session = PrepareSession::start(options).unwrap();
+        let snap = terminal(&session);
+        assert_eq!(snap.status, "failed");
+        assert!(snap.error.unwrap().contains("Preparation failed (exit"));
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn a_read_only_check_preserves_existing_outputs_and_accepts_a_failed_check_report() {
+        let (root, mut options) = fixture();
+        options.plan_only = true;
+        fs::create_dir_all(options.content_dir.join("common")).unwrap();
+        let kept = options.content_dir.join("common/kept.json");
+        fs::write(&kept, b"keep").unwrap();
+        fs::write(&options.toolchain.script,r#"import argparse,json,sys
+p=argparse.ArgumentParser();p.add_argument('--jobs');p.add_argument('--check',action='store_true');a=p.parse_args();assert a.check
+print('@@'+json.dumps({'event':'check','ok':False,'problems':[{'code':'program','message':'Synthetic program'}]}),flush=True)
+sys.exit(1)
+"#).unwrap();
+        let session = PrepareSession::start(options).unwrap();
+        let snap = terminal(&session);
+        assert_eq!(snap.status, "done");
+        assert!(!snap.complete);
+        assert_eq!(snap.check_report.unwrap()["ok"], false);
+        assert_eq!(fs::read(&kept).unwrap(), b"keep");
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

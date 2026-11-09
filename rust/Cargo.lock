@@ -237,6 +237,7 @@ dependencies = [
  "glutin",
  "glutin-winit",
  "jsrt",
+ "libloading",
  "png",
  "raw-window-handle",
  "serde",

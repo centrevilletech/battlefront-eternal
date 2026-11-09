@@ -11,28 +11,14 @@
 //!    Resolves prepared content via [`bfe_desktop::prepare::resolve_startup_content`],
 //!    checking CLI overrides (`--content-dir`), persisted `DesktopSettings`, and
 //!    standard workspace/application directories (`likely_content_dirs`).
-//! 3. **Background Extraction Pipeline (`PrepareSession`)**:
-//!    When raw Star Wars Battlefront (2004) game files are discovered (`StartupMode::Prepare`
-//!    or `StartupMode::Confirm`), spawns [`bfe_desktop::prepare::PrepareSession`] on a
-//!    background worker thread and streams progress (`percent`, `phase_label`, `playable`,
-//!    `complete`) to the startup loader screen (`ShellHost::draw_startup_loader`).
-//! 4. **Built-in 5x7 ASCII Fallback Font**:
-//!    Generates a self-contained 128x64 RGBA8 bitmap font atlas ([`build_fallback_ascii_font`])
-//!    so the startup loader screen and diagnostic notices render legibly on frame 1
-//!    even before `common/common.json` has been prepared or loaded.
-//!
-//! ## Startup Timing Budget and Fallback Guarantees
-//! - **Offline / Unreachable Feed Budget**: `run_bounded_update_check` executes feed
-//!   verification on a worker thread with a hard `1500 ms` `recv_timeout`, guaranteeing
-//!   that an offline machine or unreachable release server never blocks window creation
-//!   beyond 5 seconds.
-//! - **Zero-Dependency Loader Rendering**: `build_fallback_ascii_font` synthesizes a
-//!   128x64 RGBA8 texture containing 5x7 uppercase/lowercase/numeric/punctuation glyphs
-//!   in memory so `ShellHost::new` can render progress percentages and folder-picker
-//!   instructions before any external game assets exist on disk.
-//! - **Non-Blocking Preparation**: `StartupContentState::poll` drains `PrepareSession`
-//!   events via `try_recv` once per rendered frame, smoothly advancing the planet zoom
-//!   timeline (`LoadingTimeline`) proportional to `latest.percent`.
+//! 3. **First-run Confirmation and Preparation**:
+//!    Before writing content, checks discovered installations with the pinned
+//!    toolchain and asks which copy and sound option to use. The native setup
+//!    page has its own public fonts and surfaces, so it needs no game data.
+//! 4. **Background Tool Events**:
+//!    Preparation streams framed events without blocking window input. A
+//!    completed run enters the menu only with a current preparation receipt;
+//!    failures retain the tool's repair message and diagnostics.
 
 use crate::app::settings::{current_arch_str, current_platform_str, AppSettingsStore};
 use bfe_desktop::{
@@ -137,7 +123,9 @@ fn check_local_feed_file(path: &Path, _channel: &str) -> UpdateCheckOutcome {
     };
     // Verify the Ed25519 envelope signature against `default_keys()` and compare versions.
     let Ok(payload) = verify_envelope(&val, &default_keys()) else {
-        return UpdateCheckOutcome::OfflineSkipped("feed signature verification failed".to_string());
+        return UpdateCheckOutcome::OfflineSkipped(
+            "feed signature verification failed".to_string(),
+        );
     };
     if is_newer(&payload.release.version, env!("CARGO_PKG_VERSION")) {
         UpdateCheckOutcome::UpdateAvailable {
@@ -160,11 +148,10 @@ fn fetch_and_check_feed(feed_url: &str, channel: &str) -> UpdateCheckOutcome {
     UpdateCheckOutcome::OfflineSkipped("offline or no local feed configured".to_string())
 }
 
-/// Checks whether `dir` looks like a usable prepared content directory (`common/common.json`
-/// or `maps/` exists).
+/// Checks for the common manifest required to load prepared content.
 pub fn is_usable_content_dir(dir: &Path) -> bool {
     // Prepared content always contains `common/common.json` and per-map directories under `maps/`.
-    dir.join("common").join("common.json").is_file() || dir.join("maps").is_dir()
+    dir.join("common").join("common.json").is_file()
 }
 
 /// High-level state of startup content resolution and background preparation.
@@ -173,6 +160,8 @@ pub fn is_usable_content_dir(dir: &Path) -> bool {
 /// is reached and `ShellHost::load_prepared_content` transitions into `AppState::Shell`.
 #[allow(clippy::large_enum_variant)]
 pub enum StartupContentState {
+    /// Discovery runs before any content exists, while the window paints.
+    Searching(mpsc::Receiver<(Box<StartupContentState>, AppSettingsStore)>),
     /// Prepared content is ready at the given directory path.
     Ready(PathBuf),
     /// `PrepareSession` is actively building prepared content on a background worker thread.
@@ -186,15 +175,24 @@ pub enum StartupContentState {
         /// Wall-clock timestamp when preparation started.
         started_at: Instant,
     },
-    /// No prepared content or game installation could be found; displays instructions
-    /// in the loader window (`F9` to pick a folder or `Escape` to exit).
-    WaitingForFolder {
-        /// Diagnostic message rendered on the startup loader screen.
-        message: String,
-    },
+    /// A checked content export is staged without blocking the window.
+    Importing(Box<super::first_run::ImportWork>),
+    /// Interactive first-run discovery, confirmation, validation or failure.
+    FirstRun(Box<super::first_run::Setup>),
 }
 
 impl StartupContentState {
+    pub fn begin(cli_content_dir: Option<&Path>, store: &AppSettingsStore) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let cli = cli_content_dir.map(Path::to_path_buf);
+        let mut snapshot = store.clone();
+        thread::spawn(move || {
+            let state = Self::resolve(cli.as_deref(), &mut snapshot);
+            let _ = tx.send((Box::new(state), snapshot));
+        });
+        Self::Searching(rx)
+    }
+
     /// Resolves startup content from CLI override, environment, `DesktopSettings`,
     /// or `bfe_desktop::prepare::resolve_startup_content`.
     pub fn resolve(cli_content_dir: Option<&Path>, store: &mut AppSettingsStore) -> Self {
@@ -256,47 +254,26 @@ impl StartupContentState {
                     let _ = store.save_desktop();
                     return Self::Ready(content.dir);
                 }
-                // Otherwise check if any candidate directory on disk already has `common/common.json`.
-                for cand in &likely {
-                    if is_usable_content_dir(cand) {
-                        store.desktop.found_content_dir =
-                            Some(cand.to_string_lossy().into_owned());
-                        let _ = store.save_desktop();
-                        return Self::Ready(cand.clone());
-                    }
+                if let Some(install) = res.install {
+                    // A newly detected copy is checked and shown first. Reading
+                    // its archives is allowed only after the player's PREPARE.
+                    let copies = if res.installs.is_empty() {
+                        vec![install]
+                    } else {
+                        res.installs
+                    };
+                    return Self::FirstRun(Box::new(super::first_run::Setup::confirm(
+                        copies, store,
+                    )));
                 }
-                // If a raw SWBF1 installation was detected, launch a background `PrepareSession`.
-                if matches!(res.mode, StartupMode::Prepare | StartupMode::Confirm) {
-                    if let Some(install) = res.install {
-                        let target_dir = store.paths.managed_content_dir.clone();
-                        if let Ok(state) = Self::start_prepare(&install.dir, &target_dir, store) {
-                            return state;
-                        }
-                    }
-                }
-                // Otherwise prompt the user on the loader screen (`F9` to select a folder).
-                let msg = match res.mode {
-                    StartupMode::Outdated => {
-                        "PREPARED CONTENT IS OUTDATED. PRESS F9 TO SELECT GAME INSTALL OR CONTENT FOLDER."
-                    }
-                    _ => {
-                        "NO PREPARED CONTENT FOUND. PRESS F9 TO SELECT CONTENT OR SWBF1 INSTALL FOLDER."
-                    }
-                };
-                Self::WaitingForFolder {
-                    message: msg.to_string(),
-                }
+                Self::FirstRun(Box::new(super::first_run::Setup::missing(
+                    res.mode == StartupMode::Outdated,
+                )))
             }
             Err(err) => {
-                // Fall back to any usable candidate directory before reporting the error.
-                for cand in &likely {
-                    if is_usable_content_dir(cand) {
-                        return Self::Ready(cand.clone());
-                    }
-                }
-                Self::WaitingForFolder {
-                    message: format!("CONTENT CHECK ERROR: {err}"),
-                }
+                let mut model = super::first_run::Setup::missing(false);
+                model.message = Some(format!("CONTENT CHECK ERROR: {err}"));
+                Self::FirstRun(Box::new(model))
             }
         }
     }
@@ -316,23 +293,26 @@ impl StartupContentState {
         let platform = current_platform_str().to_string();
         let arch = current_arch_str().to_string();
         let tc = toolchain_paths(&ToolchainOptions {
-            packaged: false,
-            resources_path: None,
+            packaged: super::settings::application_resources().is_some(),
+            resources_path: super::settings::application_resources(),
             project_root: store.paths.project_root.clone(),
             platform: platform.clone(),
             arch,
         });
         // Spawn the background preparation pipeline and record its initial snapshot.
-        let session = PrepareSession::start(PrepareSpawnOptions {
-            toolchain: tc,
-            game_dir: game_dir.to_path_buf(),
-            content_dir: target_dir.to_path_buf(),
-            env: env::vars().collect(),
-            platform,
-            include_add_ons: true,
-            enhanced_sound: store.desktop.enhanced_sound.unwrap_or(true),
-            plan_only: false,
-        })?;
+        let session = PrepareSession::start_with_timings(
+            PrepareSpawnOptions {
+                toolchain: tc,
+                game_dir: game_dir.to_path_buf(),
+                content_dir: target_dir.to_path_buf(),
+                env: env::vars().collect(),
+                platform,
+                include_add_ons: true,
+                enhanced_sound: store.desktop.enhanced_sound.unwrap_or(true),
+                plan_only: false,
+            },
+            Some(store.paths.timings_file.clone()),
+        )?;
         let latest = session
             .snapshot
             .lock()
@@ -360,6 +340,37 @@ impl StartupContentState {
             bfe_desktop::launch::schedule_settle();
         });
 
+        if let Self::Searching(rx) = self {
+            if let Ok((state, settings)) = rx.try_recv() {
+                *store = settings;
+                *self = *state;
+            }
+            return None;
+        }
+        if let Self::Importing(work) = self {
+            if let Some(result) = work.poll() {
+                match result {
+                    Ok(root) => {
+                        store.desktop.chosen_content_dir =
+                            Some(root.to_string_lossy().into_owned());
+                        let _ = store.save_desktop();
+                        *self = Self::Ready(root.clone());
+                        return Some(root);
+                    }
+                    Err(error) => {
+                        let mut setup = super::first_run::Setup::missing(false);
+                        setup.message = Some(error);
+                        setup.transfer_error = true;
+                        *self = Self::FirstRun(Box::new(setup));
+                    }
+                }
+            }
+            return None;
+        }
+        if let Self::FirstRun(model) = self {
+            model.poll();
+            return None;
+        }
         let Self::Preparing {
             session,
             latest,
@@ -376,7 +387,13 @@ impl StartupContentState {
         }
 
         // Transition to `Self::Ready` once preparation completes and `target_dir` is usable.
-        if latest.complete || (latest.status == "done" && is_usable_content_dir(target_dir)) {
+        let current = bfe_desktop::prepare::checkout_content_version().is_ok_and(|version| {
+            bfe_desktop::prepare::prepared_content_current(
+                bfe_desktop::prepare::read_prepare_state(Some(target_dir)).as_ref(),
+                &version,
+            )
+        });
+        if latest.complete && current && is_usable_content_dir(target_dir) {
             let ready = target_dir.clone();
             store.desktop.chosen_content_dir = Some(ready.to_string_lossy().into_owned());
             store.desktop.preparing_content_dir = None;
@@ -386,12 +403,12 @@ impl StartupContentState {
         }
 
         // Surface preparation failures or cancellations on the loader screen.
-        if latest.status == "failed" || latest.status == "cancelled" {
-            let msg = latest
-                .error
-                .clone()
-                .unwrap_or_else(|| "PREPARATION STOPPED. PRESS F9 TO CHOOSE FOLDER.".to_string());
-            *self = Self::WaitingForFolder { message: msg };
+        if latest.status == "failed" || latest.status == "cancelled" || latest.complete {
+            let msg = super::first_run::failure_message(target_dir, latest);
+            let game = latest.game.as_ref().map(PathBuf::from);
+            let mut setup = super::first_run::Setup::failure(msg, game, latest.logs.clone());
+            setup.failed_snapshot = Some(Box::new(latest.clone()));
+            *self = Self::FirstRun(Box::new(setup));
         }
         None
     }
@@ -485,51 +502,127 @@ pub fn build_fallback_ascii_font(page_handle: u32) -> (Vec<u8>, u32, u32, ShellF
 fn glyph_5x7(ch: char) -> [u8; 7] {
     match ch.to_ascii_uppercase() {
         // Uppercase Latin letters A..Z.
-        'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-        'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
-        'C' => [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
-        'D' => [0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100],
-        'E' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
-        'F' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
-        'G' => [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110],
-        'H' => [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-        'I' => [0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
-        'J' => [0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100],
-        'K' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
-        'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
-        'M' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
-        'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
-        'O' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-        'P' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
-        'Q' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
-        'R' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
-        'S' => [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
-        'T' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
-        'U' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-        'V' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
-        'W' => [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
-        'X' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
-        'Y' => [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
-        'Z' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
+        'A' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'B' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'C' => [
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+        'D' => [
+            0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100,
+        ],
+        'E' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'F' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'G' => [
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+        'H' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'I' => [
+            0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        'J' => [
+            0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100,
+        ],
+        'K' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'L' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'M' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'N' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        'O' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'P' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'Q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'R' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        'S' => [
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        'T' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'U' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'V' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'W' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010,
+        ],
+        'X' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'Y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'Z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
         // Decimal digits 0..9.
-        '0' => [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
-        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
-        '2' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
-        '3' => [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
-        '4' => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
-        '5' => [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110],
-        '6' => [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
-        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
-        '8' => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
-        '9' => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100],
+        '0' => [
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
+        ],
+        '3' => [
+            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110,
+        ],
+        '6' => [
+            0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100,
+        ],
         // Punctuation and status symbols.
         '.' => [0, 0, 0, 0, 0, 0b01100, 0b01100],
         ',' => [0, 0, 0, 0, 0b00100, 0b00100, 0b01000],
         ':' => [0, 0b00100, 0b00100, 0, 0b00100, 0b00100, 0],
         '-' => [0, 0, 0, 0b11111, 0, 0, 0],
         '/' => [0b00001, 0b00010, 0b00100, 0b00100, 0b01000, 0b10000, 0],
-        '(' => [0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010],
-        ')' => [0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000],
+        '(' => [
+            0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010,
+        ],
+        ')' => [
+            0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000,
+        ],
         '%' => [0b11001, 0b11010, 0b00100, 0b00100, 0b01011, 0b10011, 0],
         '?' => [0b01110, 0b10001, 0b00010, 0b00100, 0b00100, 0, 0b00100],
         '!' => [0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0, 0b00100],

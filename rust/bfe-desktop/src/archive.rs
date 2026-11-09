@@ -284,9 +284,7 @@ pub type ContentFileRecord = (String, PathBuf, u64, Option<(u64, u64)>);
 ///
 /// Rejects symlinks and verifies that every path passes [`safe_path`].
 /// Mirrors `walk` in the desktop host.
-pub fn list_content_files(
-    root: &Path,
-) -> Result<Vec<ContentFileRecord>, String> {
+pub fn list_content_files(root: &Path) -> Result<Vec<ContentFileRecord>, String> {
     let mut out = Vec::new();
     // Traverse each of the four allowed content subdirectories (`common`, `sides`, `maps`, `audio`).
     for top in CONTENT_ROOTS {
@@ -301,7 +299,9 @@ pub fn list_content_files(
         let meta = fs::symlink_metadata(&prep)
             .map_err(|e| format!("Failed to stat .prepare.json: {}", e))?;
         if meta.file_type().is_symlink() {
-            return Err("Prepared content cannot contain symbolic links: .prepare.json".to_string());
+            return Err(
+                "Prepared content cannot contain symbolic links: .prepare.json".to_string(),
+            );
         }
         if meta.is_file() {
             out.push((
@@ -695,8 +695,7 @@ impl ZipStoreWriter {
         }
         let central_size = self.offset - central_offset;
         let count = entries.len() as u64;
-        let zip64 =
-            count >= 0xffff || central_size >= 0xffff_ffff || central_offset >= 0xffff_ffff;
+        let zip64 = count >= 0xffff || central_size >= 0xffff_ffff || central_offset >= 0xffff_ffff;
         // When the archive exceeds 16-bit entry count or 32-bit offsets, write the
         // 56-byte ZIP64 EOCD record followed by the 20-byte ZIP64 EOCD Locator.
         if zip64 {
@@ -867,11 +866,21 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
         return Err("That file is not a valid content archive.".to_string());
     };
 
-    let mut count = read_u16(&tail, eocd + 10, "That file is not a valid content archive.")? as u64;
-    let mut central_size =
-        read_u32(&tail, eocd + 12, "That file is not a valid content archive.")? as u64;
-    let mut central_offset =
-        read_u32(&tail, eocd + 16, "That file is not a valid content archive.")? as u64;
+    let mut count = read_u16(
+        &tail,
+        eocd + 10,
+        "That file is not a valid content archive.",
+    )? as u64;
+    let mut central_size = read_u32(
+        &tail,
+        eocd + 12,
+        "That file is not a valid content archive.",
+    )? as u64;
+    let mut central_offset = read_u32(
+        &tail,
+        eocd + 16,
+        "That file is not a valid content archive.",
+    )? as u64;
 
     // Check for a preceding 20-byte ZIP64 EOCD Locator when the archive exceeds 32-bit limits.
     if let Some(loc_pos) = eocd.checked_sub(20) {
@@ -957,7 +966,8 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
             let mut ep = 0usize;
             while ep.checked_add(4).is_some_and(|end| end <= extra.len()) {
                 let id = read_u16(extra, ep, "Archive directory entry is truncated.")?;
-                let len = read_u16(extra, ep + 2, "Archive directory entry is truncated.")? as usize;
+                let len =
+                    read_u16(extra, ep + 2, "Archive directory entry is truncated.")? as usize;
                 let block_start = ep + 4;
                 let avail = extra.len().saturating_sub(block_start);
                 let block = slice_at(
@@ -1091,8 +1101,7 @@ fn extract_entry_to_file(
         if hex_encode(&hasher.finalize()) != expected_sha256 {
             return Err(format!("Content hash mismatch: {}", entry.name));
         }
-        fs::write(dest, &data)
-            .map_err(|e| format!("Failed to write {}: {}", dest.display(), e))?;
+        fs::write(dest, &data).map_err(|e| format!("Failed to write {}: {}", dest.display(), e))?;
         return Ok(());
     }
     if entry.method != 0 {
@@ -1161,7 +1170,9 @@ pub fn validate_manifest(
 ) -> Result<(), String> {
     // Reject archives with unknown format identifiers or incompatible schema versions.
     if manifest.format != ARCHIVE_FORMAT || manifest.version != ARCHIVE_VERSION {
-        return Err("That file is not a compatible Battlefront Eternal content archive.".to_string());
+        return Err(
+            "That file is not a compatible Battlefront Eternal content archive.".to_string(),
+        );
     }
     // Reject archives whose `contentVersion` does not match `tools/content-version.json`.
     if &manifest.content_version != expected_version {
@@ -1195,10 +1206,7 @@ pub fn validate_manifest(
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         {
-            return Err(format!(
-                "Content archive entry is invalid: {}",
-                item.path
-            ));
+            return Err(format!("Content archive entry is invalid: {}", item.path));
         }
         total = total.saturating_add(item.size);
         if total > MAX_BYTES {
@@ -1210,10 +1218,7 @@ pub fn validate_manifest(
                 return Err(format!("Content archive is missing {}", item.path));
             };
             if entry.size != item.size {
-                return Err(format!(
-                    "Content archive size mismatch for {}",
-                    item.path
-                ));
+                return Err(format!("Content archive size mismatch for {}", item.path));
             }
         }
         if item.path == "common/common.json" {
@@ -1241,10 +1246,7 @@ pub fn validate_manifest(
             ));
         };
         if target.size != item.size || target.sha256 != item.sha256 {
-            return Err(format!(
-                "Content archive link mismatch for {}",
-                item.path
-            ));
+            return Err(format!("Content archive link mismatch for {}", item.path));
         }
     }
 
@@ -1326,7 +1328,9 @@ pub fn export_content(
     let rand_suffix = random_hex_suffix();
     let temp_path = out.with_file_name(format!(
         ".{}.{}.part",
-        out.file_name().and_then(|n| n.to_str()).unwrap_or("archive"),
+        out.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("archive"),
         rand_suffix
     ));
 
@@ -1548,6 +1552,22 @@ pub fn import_content(
     destination_parent: &Path,
     tools_dir: Option<&Path>,
 ) -> Result<ImportSummary, String> {
+    import_content_with_progress(
+        archive_path,
+        destination_parent,
+        tools_dir,
+        |_, _, _| Ok(()),
+    )
+}
+
+/// Publishes verified-file progress and checks cancellation before committing
+/// the staging directory. Callback failures use the same rollback as bad data.
+pub fn import_content_with_progress(
+    archive_path: &Path,
+    destination_parent: &Path,
+    tools_dir: Option<&Path>,
+    mut progress: impl FnMut(&str, u64, u64) -> Result<(), String>,
+) -> Result<ImportSummary, String> {
     // Load the active `tools/content-version.json` before reading the archive.
     let content_version = match tools_dir {
         Some(dir) => read_content_version(dir)?,
@@ -1583,11 +1603,13 @@ pub fn import_content(
             .map_err(|_| "Content archive manifest is damaged.".to_string())?;
         validate_manifest(&manifest, &entries, &content_version)?;
 
-        fs::create_dir_all(&staging)
-            .map_err(|e| format!("Failed creating staging dir: {}", e))?;
+        fs::create_dir_all(&staging).map_err(|e| format!("Failed creating staging dir: {}", e))?;
 
         // Extract primary stored entries first and defer `linkTo` aliases until their targets exist.
         let mut linked = Vec::new();
+        let total = manifest.files.len() as u64;
+        let mut done = 0;
+        progress("", 0, total)?;
         for item in &manifest.files {
             if item.link_to.is_some() {
                 linked.push(item);
@@ -1601,11 +1623,15 @@ pub fn import_content(
             for p in parts {
                 dest.push(p);
             }
+            progress(&item.path, done, total)?;
             extract_entry_to_file(&mut file, entry, &dest, &item.sha256)?;
+            done += 1;
+            progress(&item.path, done, total)?;
         }
 
         // Restore hardlinked or case-folded alias entries after all primary files are on disk.
         for item in linked {
+            progress(&item.path, done, total)?;
             let Some(link_to) = item.link_to.as_ref() else {
                 continue;
             };
@@ -1626,9 +1652,14 @@ pub fn import_content(
                 // On case-insensitive filesystems (`APFS`, `NTFS`), a case-only alias resolves
                 // to the same underlying inode as `src` and requires no copy.
                 if same_file::is_same_file(&src, &dst).unwrap_or(false) {
+                    done += 1;
+                    progress(&item.path, done, total)?;
                     continue;
                 }
-                return Err(format!("Content archive link target collided: {}", item.path));
+                return Err(format!(
+                    "Content archive link target collided: {}",
+                    item.path
+                ));
             }
             if item.hardlink != Some(false) {
                 if fs::hard_link(&src, &dst).is_err() {
@@ -1640,8 +1671,11 @@ pub fn import_content(
                 fs::copy(&src, &dst)
                     .map_err(|e| format!("Failed copying alias file {}: {}", item.path, e))?;
             }
+            done += 1;
+            progress(&item.path, done, total)?;
         }
 
+        progress("", total, total)?;
         let inspected = inspect_content(&staging).ok_or_else(|| {
             "Imported archive did not produce a valid content folder.".to_string()
         })?;
@@ -1661,8 +1695,7 @@ pub fn import_content(
             "files": manifest.files.len(),
             "bytes": manifest.total_bytes,
         });
-        let mut receipt_bytes =
-            serde_json::to_vec_pretty(&receipt).map_err(|e| e.to_string())?;
+        let mut receipt_bytes = serde_json::to_vec_pretty(&receipt).map_err(|e| e.to_string())?;
         receipt_bytes.push(b'\n');
         fs::write(staging.join(RECEIPT_NAME), receipt_bytes)
             .map_err(|e| format!("Failed writing {}: {}", RECEIPT_NAME, e))?;
@@ -1759,17 +1792,13 @@ pub fn relocate_preparation(
     else {
         return Ok(RelocateResult {
             ok: false,
-            reason: Some(
-                "Imported content archive did not record source game hashes.".to_string(),
-            ),
+            reason: Some("Imported content archive did not record source game hashes.".to_string()),
         });
     };
     if source.base != "GameData" || source.files.is_empty() {
         return Ok(RelocateResult {
             ok: false,
-            reason: Some(
-                "Imported content archive did not record source game hashes.".to_string(),
-            ),
+            reason: Some("Imported content archive did not record source game hashes.".to_string()),
         });
     }
 

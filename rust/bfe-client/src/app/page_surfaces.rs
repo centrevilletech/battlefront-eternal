@@ -254,3 +254,62 @@ pub fn pause_backdrop(w: usize, h: usize, look: usize) -> Vec<u8> {
     }
     pixels
 }
+
+/// prepare.css's untextured backdrop: light, masked scan lines, scrim and
+/// vignette are composed once at viewport admission, before game art exists.
+pub fn setup_backdrop(w: usize, h: usize, look: usize) -> Vec<u8> {
+    let mut pixels = vec![0; w * h * 4];
+    let base = match look {
+        0 => [3., 8., 20.],
+        1 => [5., 10., 18.],
+        _ => [3., 4., 6.],
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let px = x as f64 + 0.5;
+            let py = y as f64 + 0.5;
+            let wf = w as f64;
+            let hf = h as f64;
+            let mut c = base;
+            let mut blend = |color: [f64; 3], alpha: f64| {
+                for i in 0..3 {
+                    c[i] = c[i] * (1. - alpha) + color[i] * alpha;
+                }
+            };
+            let light = (((px - wf * 0.5) / (wf * 0.6)).powi(2)
+                + ((py - hf * 0.4) / (hf * 0.55)).powi(2))
+            .sqrt();
+            blend([150., 170., 200.], 0.08 * (1. - light / 0.75).clamp(0., 1.));
+            let mask = (((px - wf * 0.5) / (wf * 0.6)).powi(2)
+                + ((py - hf * 0.46) / (hf * 0.72)).powi(2))
+            .sqrt();
+            let alpha = if mask < 0.6 {
+                1. - mask / 0.6 * 0.5
+            } else {
+                0.5 * (1. - (mask - 0.6) / 0.4).clamp(0., 1.)
+            };
+            if y % 4 == 0 {
+                blend([255.; 3], 0.035 * alpha);
+            }
+            let scrim = (((px - wf * 0.5) / (wf * 0.57)).powi(2)
+                + ((py - hf * 0.5) / (hf * 0.78)).powi(2))
+            .sqrt();
+            let a = if scrim < 0.5 {
+                0.93 + (0.78 - 0.93) * scrim / 0.5
+            } else {
+                0.78 * (1. - (scrim - 0.5) / 0.5).clamp(0., 1.)
+            };
+            blend([3., 4., 7.], a);
+            let vignette = (((px - wf * 0.5) / (wf * 0.5 * 2f64.sqrt())).powi(2)
+                + ((py - hf * 0.45) / (hf * 0.55 * 2f64.sqrt())).powi(2))
+            .sqrt();
+            blend([0.; 3], 0.55 * ((vignette - 0.52) / 0.48).clamp(0., 1.));
+            let at = (y * w + x) * 4;
+            for i in 0..3 {
+                pixels[at + i] = c[i].round().clamp(0., 255.) as u8;
+            }
+            pixels[at + 3] = 255;
+        }
+    }
+    pixels
+}

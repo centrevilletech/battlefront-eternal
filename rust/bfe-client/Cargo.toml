@@ -13,6 +13,7 @@ bfe-battle-ui = { path = "../bfe-battle-ui" }
 bfe-interface = { path = "../bfe-interface" }
 audio = { path = "../audio" }
 glow = "0.18"
+libloading = "0.8"
 glutin = { version = "0.32", default-features = false, features = ["egl", "glx", "x11", "wayland", "wgl"] }
 glutin-winit = { version = "0.5", default-features = false, features = ["egl", "glx", "x11", "wayland", "wgl"] }
 winit = { version = "0.30", default-features = false, features = ["x11", "wayland", "wayland-dlopen", "rwh_06"] }

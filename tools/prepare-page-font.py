@@ -10,7 +10,7 @@ from fontTools.varLib.instancer import instantiateVariableFont
 
 root = Path(__file__).resolve().parents[1] / "rust/bfe-client/assets/fonts"
 source = TTFont(root / "saira-latin.woff2", recalcTimestamp=False)
-for weight, width, name in ((700,100,"700"),(800,118,"800"),(900,125,"900"),(800,100,"800-normal"),(400,100,"400"),(600,100,"600")):
+for weight, width, name in ((700,100,"700"),(800,118,"800"),(900,125,"900"),(800,100,"800-normal"),(400,100,"400"),(600,100,"600"),(500,100,"500")):
     font = instantiateVariableFont(source, {"wght": weight, "wdth": width}, inplace=False)
     font.flavor = None
     font.save(root / f"saira-{name}.ttf")

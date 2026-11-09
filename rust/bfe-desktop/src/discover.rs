@@ -544,8 +544,8 @@ pub fn parse_gog_registry(text: &str, prefix: Option<&Path>) -> Vec<PathBuf> {
                         let raw_val = &val_part[..end_quote];
                         let value = raw_val.replace("\\\\", "\\");
                         if value.to_lowercase().contains("battlefront") {
-                            let resolved = wine_path(prefix, &value)
-                                .unwrap_or_else(|| PathBuf::from(&value));
+                            let resolved =
+                                wine_path(prefix, &value).unwrap_or_else(|| PathBuf::from(&value));
                             dirs.push(resolved);
                         }
                     }
@@ -807,7 +807,12 @@ pub fn gog_records(
                 .push(h.join("Library/Application Support/heroic/gog_store/installed.json"));
         }
     } else if let Some(h) = home {
-        heroic_files.push(h.join(".config/heroic/gog_store/installed.json"));
+        let config = env
+            .get("XDG_CONFIG_HOME")
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| h.join(".config"));
+        heroic_files.push(config.join("heroic/gog_store/installed.json"));
         heroic_files.push(
             h.join(".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json"),
         );
@@ -929,10 +934,7 @@ pub fn find_steam_install(opts: &FindGameOptions) -> Option<GameInstall> {
                 return Some(GameInstall {
                     dir: found.dir,
                     source: "folder".to_string(),
-                    how: format!(
-                        "a copy in {} that Steam didn't install",
-                        library.display()
-                    ),
+                    how: format!("a copy in {} that Steam didn't install", library.display()),
                     chosen: false,
                 });
             }
@@ -1093,10 +1095,7 @@ pub fn find_game_installs(opts: &FindGameOptions) -> Vec<GameInstall> {
             add(
                 &candidate,
                 "folder",
-                format!(
-                    "a copy in {} that Steam didn't install",
-                    library.display()
-                ),
+                format!("a copy in {} that Steam didn't install", library.display()),
             );
         }
     }

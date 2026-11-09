@@ -61,8 +61,8 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 
 use bfe_desktop::archive::{
-    export_content, import_content, inspect_archive, read_zip_entries, relocate_preparation,
-    safe_path, RECEIPT_NAME,
+    export_content, import_content, import_content_with_progress, inspect_archive,
+    read_zip_entries, relocate_preparation, safe_path, RECEIPT_NAME,
 };
 use bfe_desktop::discover::{
     find_content, find_game_install, find_game_installs, find_gog_install, find_steam_install,
@@ -71,6 +71,7 @@ use bfe_desktop::discover::{
     steam_libraries, FindContentOptions, FindGameOptions, SearchContentOptions, BF1_STEAM_APP,
 };
 use bfe_desktop::gpu::{gpu_report, gpu_switches, GpuDevice};
+use bfe_desktop::launch::{settle_with, SettleOptions};
 use bfe_desktop::linux::{
     adopt_installer_launcher, desktop_entry, integrate_linux_desktop, launcher_script,
     updating_launcher, IntegrateLinuxDesktopOptions, LauncherCommandStatus,
@@ -87,8 +88,7 @@ use bfe_desktop::prepare::{
     WantedPrepareOptions,
 };
 use bfe_desktop::presence::activity::{
-    format_discord_activity, format_steam_rich_presence, normalize_presence_state,
-    RawPresenceInput,
+    format_discord_activity, format_steam_rich_presence, normalize_presence_state, RawPresenceInput,
 };
 use bfe_desktop::presence::discord::{
     candidate_ipc_paths, decode_frames, encode_frame, MAX_FRAME_BYTES, OP_FRAME, OP_HANDSHAKE,
@@ -110,7 +110,6 @@ use bfe_desktop::steam::vdf::{
     compute_shortcut_app_id, compute_shortcut_game_id, parse_shortcuts_vdf,
     serialize_shortcuts_vdf, ShortcutEntry,
 };
-use bfe_desktop::launch::{settle_with, SettleOptions};
 use bfe_desktop::update::feed::{
     decode_and_validate_manifest, encode_zstd_store_frame, join_url, verify_envelope,
     ChannelPayload, ChannelPlatformEntry, ChannelRelease, ManifestFileEntry, PlatformManifest,
@@ -118,7 +117,9 @@ use bfe_desktop::update::feed::{
 };
 use bfe_desktop::update::handoff::{check_and_install, CheckOutcome, UpdaterContext};
 use bfe_desktop::update::install::InstallProgress;
-use bfe_desktop::update::keys::{encode_spki_pem, key_id_from_verifying_key, KEYS, PRODUCTION_KEY_ID};
+use bfe_desktop::update::keys::{
+    encode_spki_pem, key_id_from_verifying_key, KEYS, PRODUCTION_KEY_ID,
+};
 use bfe_desktop::update::state::{
     choose_launch, collect, installed_versions, read_state, record_attempt, record_healthy,
     versions_dir, INSTALL_RECORD, MAX_ATTEMPTS,
@@ -184,11 +185,7 @@ fn make_content(root: &Path, maps: &[&str], current: bool, game: Option<&Path>) 
     for map in maps {
         let mdir = root.join("maps").join(map);
         fs::create_dir_all(&mdir).unwrap();
-        fs::write(
-            mdir.join("scene.json"),
-            format!("{{\"id\":\"{}\"}}\n", map),
-        )
-        .unwrap();
+        fs::write(mdir.join("scene.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
     }
     // Write `.prepare.json` with either the current `ver.state` or an outdated `1`.
     let state = json!({
@@ -222,7 +219,11 @@ fn make_install(root: &Path, lowercase: bool) {
         root.join("GameData/Data/_LVL_PC")
     };
     let side = lvl.join(if lowercase { "side" } else { "SIDE" });
-    let common = lvl.join(if lowercase { "common/eng" } else { "Common/ENG" });
+    let common = lvl.join(if lowercase {
+        "common/eng"
+    } else {
+        "Common/ENG"
+    });
     fs::create_dir_all(&side).unwrap();
     fs::create_dir_all(&common).unwrap();
     fs::write(side.join("all.lvl"), "lvl").unwrap();
@@ -402,7 +403,10 @@ fn discover_finds_steam_install_across_secondary_libraries() {
     let escaped = secondary.to_string_lossy().replace('\\', "\\\\");
     fs::write(
         primary.join("steamapps/libraryfolders.vdf"),
-        format!("\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}\n", escaped),
+        format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}\n",
+            escaped
+        ),
     )
     .unwrap();
     fs::write(
@@ -620,12 +624,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
     // Packaged builds look for `tools` under `resources_path`.
     let paths = toolchain_paths(&ToolchainOptions {
         packaged: true,
-        resources_path: Some(
-            tmp.path()
-                .parent()
-                .unwrap_or(tmp.path())
-                .to_path_buf(),
-        ),
+        resources_path: Some(tmp.path().parent().unwrap_or(tmp.path()).to_path_buf()),
         project_root: tmp.path().to_path_buf(),
         platform: if cfg!(windows) {
             "win32".to_string()
@@ -651,11 +650,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
             env: base_env,
             platform: "linux".to_string(),
         });
-        assert!(env_out["PATH"].starts_with(&format!(
-            "{}:{}",
-            bin.display(),
-            ktx_bin.display()
-        )));
+        assert!(env_out["PATH"].starts_with(&format!("{}:{}", bin.display(), ktx_bin.display())));
         assert_eq!(env_out["BFE_GAME_DIR"], "/games/swbf1");
         assert_eq!(env_out["BFE_CONTENT_DIR"], "/data/content");
         assert_eq!(
@@ -684,11 +679,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
             env: win_base_env,
             platform: "win32".to_string(),
         });
-        assert!(win_out["PATH"].starts_with(&format!(
-            "{};{}",
-            bin.display(),
-            ktx_bin.display()
-        )));
+        assert!(win_out["PATH"].starts_with(&format!("{};{}", bin.display(), ktx_bin.display())));
         assert_eq!(win_out["BFE_GAME_DIR"], r"C:\games\swbf1");
         assert_eq!(win_out["BFE_CONTENT_DIR"], r"C:\data\content");
         assert_eq!(
@@ -1196,7 +1187,9 @@ fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js
     let adopted = fs::read_to_string(&bin_file).unwrap();
     assert_eq!(
         adopted,
-        updating_launcher("/opt/example/p/.local/share/battlefront-eternal/Battlefront-Eternal.AppImage")
+        updating_launcher(
+            "/opt/example/p/.local/share/battlefront-eternal/Battlefront-Eternal.AppImage"
+        )
     );
     assert_eq!(adopt_installer_launcher(home).unwrap(), "current");
     fs::write(&bin_file, "#!/bin/sh\nexec something-else\n").unwrap();
@@ -1236,7 +1229,10 @@ fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js
     assert!(gpu_switches("linux").is_empty());
     let raw_status = BTreeMap::from([
         ("webgl2".to_string(), "enabled_readback".to_string()),
-        ("gpu_compositing".to_string(), "disabled_software".to_string()),
+        (
+            "gpu_compositing".to_string(),
+            "disabled_software".to_string(),
+        ),
         ("video_decode".to_string(), "enabled".to_string()),
         ("2d_canvas".to_string(), "enabled".to_string()),
     ]);
@@ -1282,6 +1278,23 @@ fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js
 /// Mirrors the desktop host and the desktop host.
 #[test]
 fn settings_stores_persist_sanitize_and_merge_patches() {
+    let sound_profile = TempDir::new("sound-choice");
+    let desktop = SettingsStore::new(sound_profile.path().join("desktop-settings.json"));
+    desktop
+        .save(&SettingsPatch {
+            enhanced_sound: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(desktop.load().enhanced_sound, Some(false));
+    desktop
+        .save(&SettingsPatch {
+            auto_check_updates: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(desktop.load().enhanced_sound, Some(false));
+
     let tmp = TempDir::new("settings");
     let file = tmp.path().join("nested/player-settings.json");
     let store = PlayerSettingsStore::new(&file);
@@ -1431,9 +1444,8 @@ fn discord_ipc_frame_encoding_and_decoding_handles_partial_and_oversized_frames(
             Some(1000),
         );
         assert!(linux_paths.contains(&"/run/user/1000/discord-ipc-0".to_string()));
-        assert!(linux_paths.contains(
-            &"/run/user/1000/app/com.discordapp.Discord/discord-ipc-0".to_string()
-        ));
+        assert!(linux_paths
+            .contains(&"/run/user/1000/app/com.discordapp.Discord/discord-ipc-0".to_string()));
     }
 }
 
@@ -1537,14 +1549,8 @@ fn steam_vdf_roundtrips_and_manages_non_steam_shortcuts_and_overlay() {
     assert!(after.registered);
 
     // First auto-relaunch when already registered -> relaunch = true (`steam://rungameid/<gameId>`).
-    let relaunch = decide_steam_relaunch(
-        true,
-        true,
-        &target_opts,
-        Some(tmp.path()),
-        &[],
-        Some(true),
-    );
+    let relaunch =
+        decide_steam_relaunch(true, true, &target_opts, Some(tmp.path()), &[], Some(true));
     assert!(relaunch.relaunch);
     assert_eq!(
         relaunch.uri.as_deref(),
@@ -1556,8 +1562,7 @@ fn steam_vdf_roundtrips_and_manages_non_steam_shortcuts_and_overlay() {
         &BTreeMap::new(),
         &["--steam".to_string()]
     ));
-    let found_lib =
-        find_overlay_library("linux", "x64", Some(tmp.path()), &BTreeMap::new(), &[]);
+    let found_lib = find_overlay_library("linux", "x64", Some(tmp.path()), &BTreeMap::new(), &[]);
     assert_eq!(found_lib.as_deref(), Some(overlay_so.as_path()));
 
     let env_res = prepare_steam_environment(
@@ -1588,8 +1593,14 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
     let _ = Value::Null;
     // 1. Version ordering rules (`0.1.0-preview.9 < 0.1.0-preview.10 < 0.1.0`, Debian `~` == `-`).
     assert_eq!(parse_version("v1.2.3").unwrap().major, 1);
-    assert_eq!(compare_versions("0.1.0-preview.10", "0.1.0-preview.9"), Some(1));
-    assert_eq!(compare_versions("0.1.0~preview.262", "0.1.0-preview.262"), Some(0));
+    assert_eq!(
+        compare_versions("0.1.0-preview.10", "0.1.0-preview.9"),
+        Some(1)
+    );
+    assert_eq!(
+        compare_versions("0.1.0~preview.262", "0.1.0-preview.262"),
+        Some(0)
+    );
     assert_eq!(compare_versions("0.1.0", "0.1.0-preview.999"), Some(1));
     assert!(is_newer_version("0.1.0-preview.332", "0.1.0-preview.331"));
 
@@ -1598,12 +1609,19 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
     assert_eq!(KEYS[0].0, PRODUCTION_KEY_ID);
 
     // 3. Relative path and URL safety checks.
-    assert_eq!(safe_relative_path("resources/app.asar").as_deref(), Some("resources/app.asar"));
+    assert_eq!(
+        safe_relative_path("resources/app.asar").as_deref(),
+        Some("resources/app.asar")
+    );
     assert_eq!(safe_relative_path("../escape"), None);
     assert_eq!(safe_relative_path("/abs/path"), None);
     assert_eq!(safe_relative_path(r"win\path"), None);
     assert_eq!(
-        join_url("https://download.battlefronteternal.com/", "updates/development-preview.json").unwrap(),
+        join_url(
+            "https://download.battlefronteternal.com/",
+            "updates/development-preview.json"
+        )
+        .unwrap(),
         "https://download.battlefronteternal.com/updates/development-preview.json"
     );
     assert!(join_url("https://download.battlefronteternal.com", "../secret").is_err());
@@ -1718,9 +1736,17 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
     // Verify compressed manifest decoding and hash checking.
     let m_bytes = fs::read(http_root.join("preview-332/update-linux-x64.json.zst")).unwrap();
     let m_entry = &verified.release.platforms["linux-x64"];
-    let decoded = decode_and_validate_manifest(&m_bytes, &m_entry.sha256, "0.1.0-preview.332", "linux-x64").unwrap();
+    let decoded =
+        decode_and_validate_manifest(&m_bytes, &m_entry.sha256, "0.1.0-preview.332", "linux-x64")
+            .unwrap();
     assert_eq!(decoded.executable, "bfe-client");
-    assert!(decode_and_validate_manifest(&m_bytes, &"0".repeat(64), "0.1.0-preview.332", "linux-x64").is_err());
+    assert!(decode_and_validate_manifest(
+        &m_bytes,
+        &"0".repeat(64),
+        "0.1.0-preview.332",
+        "linux-x64"
+    )
+    .is_err());
 
     let ctx = UpdaterContext {
         own_dir: boot_dir,
@@ -1768,7 +1794,10 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
         home: tmp.path().to_path_buf(),
     });
     assert!(settle_out.settled);
-    assert_eq!(read_state(&update_root).healthy, vec!["0.1.0-preview.332".to_string()]);
+    assert_eq!(
+        read_state(&update_root).healthy,
+        vec!["0.1.0-preview.332".to_string()]
+    );
 
     // Install 0.1.0-preview.333, fail MAX_ATTEMPTS (2) times, and verify rollback to 0.1.0-preview.332.
     write_release("preview-333", "0.1.0-preview.333", b"#!/bin/sh\nexit 1\n");
@@ -1779,7 +1808,9 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
     for _ in 0..MAX_ATTEMPTS {
         record_attempt(&update_root, "0.1.0-preview.333").unwrap();
     }
-    assert!(read_state(&update_root).bad.contains(&"0.1.0-preview.333".to_string()));
+    assert!(read_state(&update_root)
+        .bad
+        .contains(&"0.1.0-preview.333".to_string()));
     assert_eq!(
         choose_launch(&update_root, "0.1.0-preview.331", Some("linux-x64"), None)
             .unwrap()
@@ -1826,6 +1857,18 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
     let info = inspect_archive(&archive, None).unwrap();
     assert_eq!(info.maps, vec!["bes1a", "tat1i"]);
     assert_eq!(info.total_bytes, exported.bytes);
+
+    // Cancelling after verified extraction must leave no installed or staging data.
+    let cancelled_dest = tmp.path().join("cancelled");
+    let result = import_content_with_progress(&archive, &cancelled_dest, None, |_, done, _| {
+        if done > 0 {
+            Err("cancelled".into())
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(result.unwrap_err(), "cancelled");
+    assert!(fs::read_dir(&cancelled_dest).unwrap().next().is_none());
 
     // Import the archive into a fresh parent directory and verify `.bfe-import.json`.
     let imported = import_content(&archive, &dest, None).unwrap();
@@ -1933,4 +1976,27 @@ fn content_archive_rejects_truncated_garbage_and_out_of_bounds_archives() {
     assert!(read_zip_entries(&mut File::open(&zip64_oob_file).unwrap()).is_err());
     assert!(inspect_archive(&zip64_oob_file, None).is_err());
     assert!(import_content(&zip64_oob_file, &dest, None).is_err());
+}
+
+#[test]
+fn discover_gog_honors_the_browser_xdg_config_manifest_location() {
+    let temp = TempDir::new("gog-xdg");
+    let home = temp.path().join("home");
+    let config = temp.path().join("custom-config");
+    let game = temp.path().join("GOG Games/Star Wars Battlefront");
+    make_install(&game, false);
+    let manifest = config.join("heroic/gog_store/installed.json");
+    fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::json!({"installed":[{"title":"Star Wars Battlefront","install_path":game}]})
+            .to_string(),
+    )
+    .unwrap();
+    let env = BTreeMap::from([(
+        "XDG_CONFIG_HOME".into(),
+        config.to_string_lossy().into_owned(),
+    )]);
+    let records = bfe_desktop::discover::gog_records("linux", Some(&home), &env);
+    assert_eq!(records, vec![game]);
 }

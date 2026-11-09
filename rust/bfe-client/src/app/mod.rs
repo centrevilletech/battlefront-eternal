@@ -73,6 +73,8 @@
 pub mod battle;
 pub mod cli;
 mod loading;
+mod folder_dialog;
+mod first_run;
 mod platform_smoke;
 pub mod script;
 pub mod settings;
@@ -304,7 +306,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
     //    and `PersistedPlayerSettings`.
     let paths = current_desktop_paths();
-    let mut settings = AppSettingsStore::load(paths);
+    let settings = AppSettingsStore::load(paths);
 
     // 2. Bounded startup update handoff/check before opening the window (<= 1.5s timeout).
     if let UpdateCheckOutcome::UpdateAvailable { version, kind } =
@@ -314,7 +316,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     }
 
     // 3. Resolve prepared content or start a background `PrepareSession`.
-    let startup_content = StartupContentState::resolve(opts.content_dir.as_deref(), &mut settings);
+    let startup_content = StartupContentState::begin(opts.content_dir.as_deref(), &settings);
 
     // 4. Wire `bfe_desktop::host::HostController` and re-attach to any surviving hosted
     //    server (`attach()`) at startup.
@@ -368,6 +370,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         .then(|| platform_smoke::Smoke::new(opts.shots_dir.clone()));
     let mut app = StandaloneWindowApp {
         platform_smoke,
+        folder_dialog: None,
+        folder_import:false,
         opts,
         settings,
         host_controller,
@@ -463,6 +467,8 @@ struct StandaloneWindowApp {
     /// Optional automated `--script gate` driver.
     gate: Option<GateDriver>,
     platform_smoke: Option<platform_smoke::Smoke>,
+    folder_dialog: Option<mpsc::Receiver<Result<Option<PathBuf>,String>>>,
+    folder_import:bool,
     /// Fatal error message captured during frame stepping or GL initialization.
     error: Option<String>,
 }
@@ -675,23 +681,107 @@ impl StandaloneWindowApp {
         }
     }
 
-    /// Re-runs startup content resolution when the user selects a content or SWBF1 install
-    /// folder (`F9` on the waiting-for-folder loader screen).
-    ///
-    /// Checks `BFE_CONTENT_SOURCE` or `settings.desktop.game_dir`, persists the chosen
-    /// directory to `desktop-settings.json`, and re-enters `AppState::StartupLoader`.
+    /// Open the platform chooser, keeping the setup page responsive while
+    /// the selected game or prepared-content directory is validated.
     fn choose_content_folder(&mut self) {
-        let picked = std::env::var("BFE_CONTENT_SOURCE")
-            .ok()
-            .map(PathBuf::from)
-            .or_else(|| self.settings.desktop.game_dir.as_ref().map(PathBuf::from));
-        if let Some(folder) = picked {
-            self.settings.desktop.game_dir = Some(folder.to_string_lossy().to_string());
+        if self.folder_dialog.is_none() {
+            self.folder_import = false;
+            self.folder_dialog = Some(folder_dialog::choose());
+        }
+    }
+
+    fn selected_content_folder(&mut self, folder: PathBuf) {
+        use bfe_desktop::discover::inspect_install;
+        let install =
+            inspect_install(&folder).or_else(|| folder.parent().and_then(inspect_install));
+        if let Some(install) = install {
+            let copy = bfe_desktop::discover::GameInstall {
+                dir: install.dir,
+                source: "chosen".into(),
+                how: "the folder you chose".into(),
+                chosen: true,
+            };
+            self.state = AppState::StartupLoader(StartupContentState::FirstRun(Box::new(
+                first_run::Setup::confirm(vec![copy], &self.settings),
+            )));
+        } else if folder.join("common/common.json").is_file() {
+            self.settings.desktop.chosen_content_dir = Some(folder.to_string_lossy().into_owned());
+            self.settings.desktop.preparing_content_dir = None;
             let _ = self.settings.save_desktop();
-            self.state = AppState::StartupLoader(StartupContentState::resolve(
-                Some(&folder),
-                &mut self.settings,
-            ));
+            self.state = AppState::StartupLoader(StartupContentState::begin(None, &self.settings));
+        } else {
+            self.folder_dialog = Some(folder_dialog::warning(folder));
+        }
+    }
+
+    fn first_run_action(&mut self, index: usize) {
+        if self.folder_dialog.is_some() {
+            return;
+        }
+        let AppState::StartupLoader(StartupContentState::FirstRun(model)) = &mut self.state else {
+            return;
+        };
+        let Some((_, action)) = model.actions().get(index).cloned() else {
+            return;
+        };
+        use first_run::Action;
+        match action {
+            Action::Choose => self.choose_content_folder(),
+            Action::Import => {
+                self.folder_import = true;
+                self.folder_dialog = Some(folder_dialog::choose_export());
+            }
+            Action::Search => {
+                self.state =
+                    AppState::StartupLoader(StartupContentState::begin(None, &self.settings))
+            }
+            Action::Check => model.recheck(&self.settings),
+            Action::Prepare | Action::Retry => {
+                let Some(copy) = model.copies.get(model.selected) else {
+                    return;
+                };
+                let game = copy.dir.clone();
+                let target = self.settings.paths.managed_content_dir.clone();
+                self.state = AppState::StartupLoader(
+                    match StartupContentState::start_prepare(&game, &target, &mut self.settings) {
+                        Ok(state) => state,
+                        Err(error) => StartupContentState::FirstRun(Box::new(
+                            first_run::Setup::failure(error, Some(game), Vec::new()),
+                        )),
+                    },
+                );
+            }
+            Action::Sound => {
+                model.enhanced_sound = !model.enhanced_sound;
+                self.settings.desktop.enhanced_sound = Some(model.enhanced_sound);
+                let _ = self.settings.save_desktop();
+            }
+            Action::Pick(i) => {
+                model.selected = i;
+                model.recheck(&self.settings);
+            }
+            Action::Details => model.show_details = !model.show_details,
+            Action::Dismiss => {
+                model.message = None;
+                model.cursor = 0;
+            }
+            Action::Steam | Action::Gog => {
+                let url = if matches!(action, Action::Steam) {
+                    "https://store.steampowered.com/app/1058020/"
+                } else {
+                    "https://www.gog.com/game/star_wars_battlefront"
+                };
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("rundll32.exe")
+                        .args(["url.dll,FileProtocolHandler", url])
+                        .spawn();
+                }
+            }
         }
     }
 
@@ -1098,6 +1188,24 @@ impl ApplicationHandler for StandaloneWindowApp {
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
                 match &mut self.state {
+                    AppState::StartupLoader(StartupContentState::FirstRun(model)) => {
+                        // Leaving the choices restores the primary action, as
+                        // prepare.js's actions pointerleave handler does.
+                        model.cursor = self
+                            .shell
+                            .as_ref()
+                            .and_then(|shell| {
+                                shell.setup_hits.iter().position(|r| {
+                                    x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]
+                                })
+                            })
+                            .filter(|&index| {
+                                !model.actions().get(index).is_some_and(|(_, action)| {
+                                    matches!(action, first_run::Action::Sound)
+                                })
+                            })
+                            .unwrap_or_else(|| model.primary_action());
+                    }
                     AppState::Shell => {
                         if let Some(shell) = &mut self.shell {
                             shell.handle_cursor_move(x, y);
@@ -1121,9 +1229,10 @@ impl ApplicationHandler for StandaloneWindowApp {
                         self.cursor_physical, [x,y], self.window.as_ref().map_or(1., |window| window.scale_factor()));
                 }
                 match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::WaitingForFolder { .. }) => {
-                        if down && button == MouseButton::Left {
-                            self.choose_content_folder();
+                    AppState::StartupLoader(StartupContentState::Importing(work))=>{if down&&button==MouseButton::Left{if self.shell.as_ref().is_some_and(|s|s.setup_hits.iter().any(|r|x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])){work.cancel();}}}
+                    AppState::StartupLoader(StartupContentState::FirstRun(_)) => {
+                        if down && button==MouseButton::Left {
+                            if let Some(index)=self.shell.as_ref().and_then(|s|s.setup_hits.iter().position(|r|x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])) { self.first_run_action(index); }
                         }
                     }
                     AppState::Shell => {
@@ -1210,9 +1319,16 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
 
                 match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::WaitingForFolder { .. }) => {
+                    AppState::StartupLoader(StartupContentState::Importing(work))=>{if down&&matches!(&event.logical_key,Key::Named(NamedKey::Escape|NamedKey::Enter|NamedKey::Space)){work.cancel();}}
+                    AppState::StartupLoader(StartupContentState::FirstRun(model)) => {
                         if down && !event.repeat {
-                            self.choose_content_folder();
+                            match &event.logical_key {
+                                Key::Named(NamedKey::Enter|NamedKey::Space)=>{let index=model.cursor;self.first_run_action(index);}
+                                Key::Named(NamedKey::Tab|NamedKey::ArrowRight|NamedKey::ArrowDown)=>model.move_focus(false),
+                                Key::Named(NamedKey::ArrowLeft|NamedKey::ArrowUp)=>model.move_focus(true),
+                                Key::Named(NamedKey::Escape)=>{model.message=None;model.cursor=0;}
+                                _=>{}
+                            }
                         }
                     }
                     AppState::Shell => {
@@ -1432,6 +1548,33 @@ impl StandaloneWindowApp {
             );
         }
 
+        if let Some(result) = self
+            .folder_dialog
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.folder_dialog = None;
+            match result {
+                Ok(Some(folder)) => {
+                    if self.folder_import {
+                        self.folder_import = false;
+                        self.state = AppState::StartupLoader(StartupContentState::Importing(
+                            Box::new(first_run::ImportWork::start(folder, &self.settings)),
+                        ));
+                    } else {
+                        self.selected_content_folder(folder);
+                    }
+                }
+                Err(error) => {
+                    if let AppState::StartupLoader(StartupContentState::FirstRun(model)) =
+                        &mut self.state
+                    {
+                        model.message = Some(error);
+                    }
+                }
+                Ok(None) => {}
+            }
+        }
         self.update_rich_presence();
         self.sync_pointer_lock();
 

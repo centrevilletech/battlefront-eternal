@@ -207,6 +207,8 @@ impl DesktopSettings {
 /// Patch object applied by [`SettingsStore::save`].
 #[derive(Debug, Clone, Default)]
 pub struct SettingsPatch {
+    /// Preserve the preparation sound choice across launches.
+    pub enhanced_sound: Option<bool>,
     /// Optional replacement for `content_dir` / `chosen_content_dir`.
     pub content_dir: Option<Option<String>>,
     /// Optional replacement for `game_dir`.
@@ -248,6 +250,9 @@ impl SettingsStore {
     /// Applies `patch` to the current settings on disk and writes the result atomically.
     pub fn save(&self, patch: &SettingsPatch) -> Result<DesktopSettings, String> {
         let mut current = self.load();
+        if let Some(sound) = patch.enhanced_sound {
+            current.enhanced_sound = Some(sound);
+        }
         if let Some(cd) = &patch.content_dir {
             current.content_dir = cd.clone();
             current.chosen_content_dir = cd.clone();
@@ -270,10 +275,7 @@ impl SettingsStore {
         if let Some(preps) = &patch.preparations {
             current.preparations = preps.clone();
         }
-        let dir = self
-            .file_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."));
+        let dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
         let name = self
             .file_path
             .file_name()
@@ -391,10 +393,7 @@ impl PlayerSettingsStore {
         if let Some(ts) = patch.updated_at {
             doc.updated_at = ts;
         }
-        let dir = self
-            .file_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."));
+        let dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
         let name = self
             .file_path
             .file_name()
