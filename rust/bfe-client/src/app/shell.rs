@@ -35,7 +35,7 @@
 //!   (`slider_bg`/`slider_fg`/`slider_sound`) pixel for pixel.
 //!
 //! ## `OPTIONS` Screen Integration (`bfe-interface`)
-//! When `ShellApp::current_screen()` is `ScreenId::Options` or `ScreenId::OptionsPage(_)`: 
+//! When `ShellApp::current_screen()` is `ScreenId::Options` or `ScreenId::OptionsPage(_)`:
 //! 1. [`ShellHost::is_interface_options_active`] returns `true` (unless a modal popup
 //!    is open).
 //! 2. [`ShellHost::sync_options_controller`] ensures `self.options_ctrl.stack` matches
@@ -688,7 +688,8 @@ impl ShellHost {
             ],
         );
 
-        let browser = LiveServerBrowser::new(server_target, settings.player.privacy_notice_accepted);
+        let browser =
+            LiveServerBrowser::new(server_target, settings.player.privacy_notice_accepted);
 
         Ok(Self {
             canvas,
@@ -832,12 +833,7 @@ impl ShellHost {
                             target,
                         });
                         stage_targets.push(target.map(|t| {
-                            [
-                                t[0] / wf,
-                                t[1] / hf,
-                                (t[0] + t[2]) / wf,
-                                (t[1] + t[3]) / hf,
-                            ]
+                            [t[0] / wf, t[1] / hf, (t[0] + t[2]) / wf, (t[1] + t[3]) / hf]
                         }));
                     }
                 }
@@ -871,7 +867,11 @@ impl ShellHost {
         self.interface_fonts = shell_fonts_to_interface(&self.fonts);
         self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.size);
         let mut opt_ctx = OptionsContext::default();
-        opt_ctx.strings = data.strings.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        opt_ctx.strings = data
+            .strings
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         opt_ctx.surface_height = self.interface_surface.height;
         opt_ctx.viewport = Some([self.size[0].max(1) as u32, self.size[1].max(1) as u32]);
         self.options_ctrl = OptionsController::new(settings.interface.clone(), opt_ctx);
@@ -968,7 +968,8 @@ impl ShellHost {
         for cue in self.options_ctrl.stack.sounds.drain() {
             self.app.sound_queue.push(cue.cue_name());
         }
-        let _ = settings.capture_from_interface_settings(&self.options_ctrl.settings, &mut self.app);
+        let _ =
+            settings.capture_from_interface_settings(&self.options_ctrl.settings, &mut self.app);
 
         if let Some(action) = self.options_ctrl.last_named_action.take() {
             if action == "online" {
@@ -1018,8 +1019,7 @@ impl ShellHost {
     /// screen sound effects (`loading_timeline.sounds()`) on `ShellAudioMixer`.
     pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
         if let Some(map) = self.app.data.maps.iter().find(|m| m.id == map_id) {
-            self.loading_planet =
-                planet_name(&map.id, &self.app.data.strings, map.load.as_ref());
+            self.loading_planet = planet_name(&map.id, &self.app.data.strings, map.load.as_ref());
         } else {
             self.loading_planet = map_id.to_ascii_uppercase();
         }
@@ -1343,18 +1343,10 @@ impl ShellHost {
             return;
         }
 
-        let rows = self.app.rows_for(screen);
-        if rows.is_empty() {
-            return;
-        }
-        let p = 25.0;
-        let n = rows.len() as f64;
-        let center_y = 768.0 * 0.5 + 20.0;
-        let y0 = center_y - (n * p) * 0.5;
-        if (240.0..=784.0).contains(&ix) && iy >= y0 - p * 0.5 && iy <= y0 + n * p {
-            let k = (((iy - (y0 - p * 0.5)) / p).floor() as isize).clamp(0, rows.len() as isize - 1)
-                as usize;
-            self.app.set_selected_row_index(screen, k);
+        if let Some(index) =
+            bfe_shell::render::hit_row(&self.app, &self.fonts, self.size, [x_px, y_px])
+        {
+            self.app.set_selected_row_index(screen, index);
         }
     }
 
@@ -1395,6 +1387,42 @@ impl ShellHost {
         let h = self.size[1].max(1) as f64;
         let ix = (x_px / w) * 1024.0;
         let iy = (y_px / h) * 768.0;
+
+        let (_, _, height) = bfe_shell::gate::gate_layout(w, h);
+        let local_x = ix - 512.0;
+        let local_y = (y_px / h - 0.5) * height;
+        if self.app.popup.is_some()
+            || self.app.profile.editing
+            || self.app.current_screen() == ScreenId::DirectConnect
+        {
+            // Input lines retain focus; only the visible action row submits/cancels.
+            if let Some(PopupState::HostClosePrompt { selected, .. }) = &mut self.app.popup {
+                let pitch = self.fonts.medium.height + 4.0;
+                let row = ((local_y - 10.0) / pitch).round() as isize;
+                if !(0..3).contains(&row) || local_x.abs() > 240.0 {
+                    return None;
+                }
+                *selected = row as usize;
+            } else if (local_y - 63.0).abs() > 24.0 || local_x.abs() > 180.0 {
+                return None;
+            }
+            if local_x > 5.0
+                && (self.app.profile.editing
+                    || self.app.current_screen() == ScreenId::DirectConnect)
+            {
+                self.app.back();
+                return self.flush_events(settings, audio_router);
+            }
+            if let Some(PopupState::ConfirmExit { selected_yes, .. }) = &mut self.app.popup {
+                *selected_yes = local_x < 5.0;
+            }
+        } else if self.app.current_screen() != ScreenId::Gate
+            && iy < 690.0
+            && self.app.current_screen() != ScreenId::InstantAction
+            && bfe_shell::render::hit_row(&self.app, &self.fonts, self.size, [x_px, y_px]).is_none()
+        {
+            return None;
+        }
 
         if self.app.popup.is_none()
             && !self.app.profile.editing
@@ -1447,11 +1475,9 @@ impl ShellHost {
                 (b.start.min(QUADS * 4), b.end.min(QUADS * 4))
             };
             if end > start {
-                hud.position[start * 3..end * 3]
-                    .copy_from_slice(&b.position[start * 3..end * 3]);
+                hud.position[start * 3..end * 3].copy_from_slice(&b.position[start * 3..end * 3]);
                 hud.uv[start * 2..end * 2].copy_from_slice(&b.uv[start * 2..end * 2]);
-                hud.mask_uv[start * 2..end * 2]
-                    .copy_from_slice(&b.mask_uv[start * 2..end * 2]);
+                hud.mask_uv[start * 2..end * 2].copy_from_slice(&b.mask_uv[start * 2..end * 2]);
                 hud.tint[start * 4..end * 4].copy_from_slice(&b.tint[start * 4..end * 4]);
             }
             hud.input[IN_UPLOAD] = start as f64;

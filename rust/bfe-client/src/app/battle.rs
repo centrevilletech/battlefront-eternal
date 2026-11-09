@@ -1034,23 +1034,11 @@ impl BattleController {
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
         // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
-        let raw_target = server_address
+        let raw_target = launch.direct_target().or(server_address)
             .or_else(|| {
-                if let (Some(addr), Some(port)) = (&launch.address, launch.port) {
-                    if !addr.trim().is_empty() {
-                        return Some(format!("{}:{port}", addr.trim()));
-                    }
-                }
-                if let Some(addr) = &launch.address {
-                    if !addr.trim().is_empty() {
-                        return Some(addr.trim().to_string());
-                    }
-                }
                 if launch.server_id.contains(':') && launch.server_id != "host:local" {
                     Some(launch.server_id.clone())
-                } else {
-                    std::env::var("BFE_SERVER_TARGET").ok()
-                }
+                } else { std::env::var("BFE_SERVER_TARGET").ok() }
             })
             .ok_or_else(|| "No server address specified for online join".to_string())?;
 

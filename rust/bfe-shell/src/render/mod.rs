@@ -35,8 +35,8 @@ use bfe_render::interface::{
 };
 use std::collections::HashMap;
 mod screens;
-pub use self::screens::draw_loading;
 use self::screens::draw_instant_action;
+pub use self::screens::draw_loading;
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE` in `src/menus/themes/classic/draw.js`.
@@ -605,6 +605,84 @@ impl<'a> Default for RowsLayout<'a> {
     }
 }
 
+// Rendering and pointer picking share both the stack transform and row pitch.
+fn rows_matrix(layout: RowsLayout<'_>, pitch: f64, count: usize, height: f64) -> Matrix {
+    let shift = rows_shift(layout.width, pitch, layout.list_count.unwrap_or(count));
+    let base = anchor(layout.at[0], layout.at[1], true, height);
+    mul(
+        translate(base, shift + layout.x, layout.y, 0.0),
+        rotation_euler(layout.rot_x, layout.rot_y, layout.rot_z, layout.xyz_order),
+    )
+}
+
+fn screen_rows_layout(screen: ScreenId) -> RowsLayout<'static> {
+    match screen {
+        ScreenId::Main => RowsLayout {
+            at: [0.5, 0.65],
+            y: 30.0,
+            width: 250.0,
+            rot_x: -20.0,
+            rot_y: -30.0,
+            rot_z: 1.0,
+            xyz_order: true,
+            list_count: Some(7),
+            ..RowsLayout::default()
+        },
+        ScreenId::Singleplayer => RowsLayout {
+            width: 650.0,
+            font: "gamefont_large",
+            ..RowsLayout::default()
+        },
+        ScreenId::MultiplayerList(_) | ScreenId::OptionsPage(_) | ScreenId::HostDialog => {
+            RowsLayout {
+                width: 620.0,
+                ..RowsLayout::default()
+            }
+        }
+        _ => RowsLayout::default(),
+    }
+}
+
+/// Picks the rendered row under a framebuffer pixel, including the menu's 3D tilt.
+/// The ray uses the same fixed perspective as the interface camera.
+pub fn hit_row(
+    app: &ShellApp,
+    fonts: &ShellFonts,
+    size: [i32; 2],
+    point: [f64; 2],
+) -> Option<usize> {
+    let screen = app.current_screen();
+    let rows = app.active_rows();
+    if rows.is_empty() {
+        return None;
+    }
+    let (_, _, height) = gate::gate_layout(size[0] as f64, size[1] as f64);
+    let layout = screen_rows_layout(screen);
+    let pitch = fonts.get(layout.font).height + 5.0;
+    let m = rows_matrix(layout, pitch, rows.len(), height);
+    // Intersect the camera ray with local z=0 by solving its two projected
+    // coordinate equations. This avoids an approximate flat rectangle hit box.
+    let tan = (std::f64::consts::PI / 6.0).tan();
+    let rx = (point[0] / size[0].max(1) as f64 * 2.0 - 1.0) * tan;
+    let ry = (1.0 - point[1] / size[1].max(1) as f64 * 2.0) * 0.75 * tan;
+    let (a, b, c) = (m[0] + rx * m[2], m[4] + rx * m[6], -m[12] - rx * m[14]);
+    let (d, e, f) = (m[1] + ry * m[2], m[5] + ry * m[6], -m[13] - ry * m[14]);
+    let determinant = a * e - b * d;
+    if determinant.abs() < 1e-10 {
+        return None;
+    }
+    let x = (c * e - b * f) / determinant;
+    let y = (a * f - c * d) / determinant;
+    let y0 = -(rows.len() as f64 * pitch) * 0.5;
+    let index = ((y - y0 + pitch * 0.5) / pitch).floor() as isize;
+    if index < 0 || index as usize >= rows.len() {
+        return None;
+    }
+    let index = index as usize;
+    let (width, _) = row_bar_at(layout.width, pitch, rows.len(), index);
+    (x >= BAR_X && x <= width + 5.0 && !rows[index].disabled).then_some(index)
+}
+
 /// Draws an angled stack of menu rows under an orange header bar.
 /// Mirrors `paintRows` in `src/menus/themes/classic/index.js`.
 #[allow(clippy::too_many_arguments)]
@@ -629,15 +707,7 @@ fn draw_rows(
     if n == 0 {
         return;
     }
-    // Anchor at `layout.at` in the safe area, translate by `(shift + x, y)`,
-    // and apply the 3D Euler rotation matrix (`paintRows`).
-    let shift = rows_shift(layout.width, p, layout.list_count.unwrap_or(n));
-    let base = anchor(layout.at[0], layout.at[1], true, height);
-    let moved = translate(base, shift + layout.x, layout.y, 0.0);
-    let m = mul(
-        moved,
-        rotation_euler(layout.rot_x, layout.rot_y, layout.rot_z, layout.xyz_order),
-    );
+    let m = rows_matrix(layout, p, n, height);
     let y0 = -(n as f64 * p) * 0.5;
 
     // Orange title bar (`headerbuttonleft`/`mid`/`right`): positioned `1.75 * p`
@@ -928,7 +998,15 @@ pub fn draw_shell(
     // Draw the screen's full-bleed background texture if available, or a
     // deep space-navy solid quad (`[0.04, 0.06, 0.10, 1.0]`) as fallback.
     if bg_tex != 0 {
-        batch.quad(full_m, [0.0, 0.0, 1024.0, height], bg_tex, UV, WHITE, 0.0, 0);
+        batch.quad(
+            full_m,
+            [0.0, 0.0, 1024.0, height],
+            bg_tex,
+            UV,
+            WHITE,
+            0.0,
+            0,
+        );
     } else {
         batch.quad(
             full_m,
@@ -979,18 +1057,7 @@ pub fn draw_shell(
                 rows,
                 sel,
                 pulse,
-                RowsLayout {
-                    at: [0.5, 0.65],
-                    x: 0.0,
-                    y: 30.0,
-                    width: 250.0,
-                    rot_x: -20.0,
-                    rot_y: -30.0,
-                    rot_z: 1.0,
-                    xyz_order: true,
-                    font: "gamefont_medium",
-                    list_count: Some(7),
-                },
+                screen_rows_layout(base_screen),
             );
             // Bottom-right version text (`src/shell/screens.js`: `at: [1, 1], x: -8, y: -18, align: 1, alpha: 0.7`).
             let ver_m = anchor(1.0, 1.0, true, height);
@@ -1019,11 +1086,7 @@ pub fn draw_shell(
                 rows,
                 sel,
                 pulse,
-                RowsLayout {
-                    width: 650.0,
-                    font: "gamefont_large",
-                    ..RowsLayout::default()
-                },
+                screen_rows_layout(base_screen),
             );
             draw_bottom_button(
                 batch,
@@ -1039,14 +1102,7 @@ pub fn draw_shell(
         // `INSTANT ACTION`: dual-list playlist builder (`draw_instant_action`).
         ScreenId::InstantAction => {
             draw_instant_action(
-                batch,
-                fonts,
-                textures,
-                app,
-                viewport_w,
-                viewport_h,
-                height,
-                pulse,
+                batch, fonts, textures, app, viewport_w, viewport_h, height, pulse,
             );
         }
         // `InstantActionEra`: draws the underlying Instant Action screen, dims
@@ -1054,14 +1110,7 @@ pub fn draw_shell(
         // `GALACTIC CIVIL WAR` picker rows at `at = [0.25, 0.5]`.
         ScreenId::InstantActionEra => {
             draw_instant_action(
-                batch,
-                fonts,
-                textures,
-                app,
-                viewport_w,
-                viewport_h,
-                height,
-                pulse,
+                batch, fonts, textures, app, viewport_w, viewport_h, height, pulse,
             );
             batch.quad(
                 full_m,
@@ -1110,15 +1159,6 @@ pub fn draw_shell(
         | ScreenId::HostDialog => {
             let rows = app.active_rows();
             let sel = app.selected_cached_row_index(base_screen);
-            // Server lists (`LAN`/`ONLINE`), option sub-pages, and `SET GAME OPTIONS`
-            // (`HostDialog`) use a wider `620`-unit bar stack so labels and values
-            // fit on one line; top-level menus use `350` units.
-            let width = match base_screen {
-                ScreenId::MultiplayerList(_)
-                | ScreenId::OptionsPage(_)
-                | ScreenId::HostDialog => 620.0,
-                _ => 350.0,
-            };
             draw_rows(
                 batch,
                 fonts,
@@ -1128,10 +1168,7 @@ pub fn draw_shell(
                 rows,
                 sel,
                 pulse,
-                RowsLayout {
-                    width,
-                    ..RowsLayout::default()
-                },
+                screen_rows_layout(base_screen),
             );
             draw_bottom_button(
                 batch,
@@ -1276,6 +1313,41 @@ mod tests {
     use crate::loading::LookId;
 
     #[test]
+    fn projected_row_centers_pick_same_row_at_each_pixel_density() {
+        let mut app = ShellApp::new(ShellData::default(), None);
+        app.unlock_gate();
+        let mut fonts = ShellFonts::default();
+        fonts.medium.height = 24.0;
+        for size in [[1280, 800], [2560, 1600], [1600, 900]] {
+            let (_, _, height) = gate::gate_layout(size[0] as f64, size[1] as f64);
+            for screen in [ScreenId::Main, ScreenId::Multiplayer, ScreenId::HostDialog] {
+                app.push_screen(screen);
+                let count = app.active_rows().len();
+                let layout = screen_rows_layout(screen);
+                let pitch = fonts.get(layout.font).height + 5.0;
+                let matrix = rows_matrix(layout, pitch, count, height);
+                for (index, row) in app.active_rows().iter().enumerate() {
+                    if row.disabled {
+                        continue;
+                    }
+                    let x = 80.0;
+                    let y = -(count as f64 * pitch) * 0.5 + index as f64 * pitch;
+                    let wx = matrix[0] * x + matrix[4] * y + matrix[12];
+                    let wy = matrix[1] * x + matrix[5] * y + matrix[13];
+                    let wz = matrix[2] * x + matrix[6] * y + matrix[14];
+                    let tan = (std::f64::consts::PI / 6.0).tan();
+                    let point = [
+                        (wx / (-wz * tan) + 1.0) * 0.5 * size[0] as f64,
+                        (1.0 - wy / (-wz * 0.75 * tan)) * 0.5 * size[1] as f64,
+                    ];
+                    assert_eq!(hit_row(&app, &fonts, size, point), Some(index));
+                }
+                assert_eq!(hit_row(&app, &fonts, size, [0.0, 0.0]), None);
+            }
+        }
+    }
+
+    #[test]
     fn rows_shift_and_row_bar_at_match_classic_theme() {
         // 7 rows on MAIN MENU with width 250, pitch 29:
         let s = rows_shift(250.0, 29.0, 7);
@@ -1361,12 +1433,7 @@ mod tests {
         assert!(batch.count > 40);
 
         // Loading screen in track and zoom phases
-        let tl = LoadingTimeline::new(
-            3.5,
-            1.0,
-            0.0,
-            vec![Some([0.25, 0.25, 0.75, 0.75]), None],
-        );
+        let tl = LoadingTimeline::new(3.5, 1.0, 0.0, vec![Some([0.25, 0.25, 0.75, 0.75]), None]);
         let state_track = tl.at(1.0);
         draw_loading(
             &mut batch,

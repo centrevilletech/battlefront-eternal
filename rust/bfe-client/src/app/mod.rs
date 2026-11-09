@@ -90,17 +90,18 @@ use crate::{
 };
 use bfe_desktop::{
     host::{
-        resolve_server_executable, ClosePrompt, HostController, HostControllerConfig,
-        HostJoinInfo, HostOptions,
+        resolve_server_executable, ClosePrompt, HostController, HostControllerConfig, HostJoinInfo,
+        HostOptions,
     },
     presence::{activity::RawPresenceInput, PresenceController},
 };
-use bfe_online::ServerBrowserService;
 use bfe_shell::{
     audio::ShellAudioMixer,
     launch::BattleRequest,
     screens::{MultiplayerLaunch, PopupState, ScreenId},
 };
+mod text_input;
+
 use glow::HasContext;
 use glutin::{
     config::ConfigTemplateBuilder,
@@ -122,9 +123,9 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
+    keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::{CursorGrabMode, Fullscreen, Window, WindowId},
 };
 
@@ -298,8 +299,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     }
 
     // 3. Resolve prepared content or start a background `PrepareSession`.
-    let startup_content =
-        StartupContentState::resolve(opts.content_dir.as_deref(), &mut settings);
+    let startup_content = StartupContentState::resolve(opts.content_dir.as_deref(), &mut settings);
 
     // 4. Wire `bfe_desktop::host::HostController` and re-attach to any surviving hosted
     //    server (`attach()`) at startup.
@@ -355,7 +355,10 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         audio_status,
         audio_router,
         _audio_device: audio_device,
-        headless_scratch: vec![0.0; ::audio::FRAMES * 2].into_boxed_slice().try_into().unwrap(),
+        headless_scratch: vec![0.0; ::audio::FRAMES * 2]
+            .into_boxed_slice()
+            .try_into()
+            .unwrap(),
         state: AppState::StartupLoader(startup_content),
         shell: None,
         window: None,
@@ -364,6 +367,11 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         gl: None,
         focused: true,
         pointer_locked: false,
+        cursor_physical: [0.0; 2],
+        text_input: text_input::TextInput::default(),
+        modifiers: ModifiersState::empty(),
+        ime_preedit: false,
+        clipboard: arboard::Clipboard::new().ok(),
         fullscreen: false,
         last_frame: Instant::now(),
         presence: PresenceController::default(),
@@ -382,6 +390,12 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 /// Top-level `winit` [`ApplicationHandler`] owning the OS window, EGL/GLX surface,
 /// OpenGL context, [`ShellHost`], [`HostController`], [`PresenceController`], and [`AppState`].
 struct StandaloneWindowApp {
+    // Physical window coordinates are mapped once into the active framebuffer.
+    cursor_physical: [f64; 2],
+    text_input: text_input::TextInput,
+    modifiers: ModifiersState,
+    ime_preedit: bool,
+    clipboard: Option<arboard::Clipboard>,
     /// Parsed command-line options (`--width`, `--height`, `--script`, `--server`, etc.).
     opts: StandaloneOptions,
     /// Persistent desktop, `bfe-interface`, and player settings store.
@@ -427,6 +441,118 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
+    fn framebuffer_cursor(&self) -> [f64; 2] {
+        let size = match &self.state {
+            AppState::Battle(battle) => battle.size,
+            _ => self
+                .shell
+                .as_ref()
+                .map_or(self.opts.size, |shell| shell.size),
+        };
+        [
+            self.cursor_physical[0] * size[0] as f64 / self.opts.size[0].max(1) as f64,
+            self.cursor_physical[1] * size[1] as f64 / self.opts.size[1].max(1) as f64,
+        ]
+    }
+
+    fn text_field(&mut self) -> Option<(&'static str, &mut String, usize)> {
+        match &mut self.state {
+            AppState::Shell => {
+                let app = &mut self.shell.as_mut()?.app;
+                if app.popup.is_some() {
+                    return None;
+                }
+                if app.profile.editing {
+                    return Some(("profile", &mut app.profile.draft, 32));
+                }
+                if app.current_screen() == ScreenId::DirectConnect {
+                    return Some(("direct", &mut app.direct_connect_draft, 255));
+                }
+                if app.current_screen() == ScreenId::HostDialog {
+                    let index = app.selected_row_index(ScreenId::HostDialog);
+                    if app
+                        .active_rows()
+                        .get(index)
+                        .is_some_and(|row| row.id == "serverName")
+                    {
+                        return Some(("host", &mut app.host_config.server_name, 80));
+                    }
+                }
+                None
+            }
+            AppState::Battle(battle) if battle.chat.is_open() => Some((
+                "chat",
+                &mut battle.chat.draft,
+                bfe_battle_ui::chat::CHAT_LIMIT,
+            )),
+            _ => None,
+        }
+    }
+
+    fn insert_text(&mut self, value: &str) {
+        let mut editor = std::mem::take(&mut self.text_input);
+        if let Some((field, text, limit)) = self.text_field() {
+            editor.focus(Some(field), text);
+            editor.insert(text, value, limit);
+        } else {
+            editor.focus(None, "");
+        }
+        self.text_input = editor;
+        self.refresh_text_field();
+    }
+
+    fn refresh_text_field(&mut self) {
+        if let Some(shell) = &mut self.shell {
+            if shell.app.current_screen() == ScreenId::HostDialog {
+                shell.app.rebuild_cached_rows();
+            }
+        }
+    }
+
+    fn edit_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        let Some(key) = map_shell_key(&event.logical_key) else {
+            return false;
+        };
+        let command = self.modifiers.control_key() || self.modifiers.super_key();
+        let shift = self.modifiers.shift_key();
+        let paste = if command && key.eq_ignore_ascii_case("v") {
+            self.clipboard
+                .as_mut()
+                .and_then(|clipboard| clipboard.get_text().ok())
+        } else {
+            None
+        };
+        let mut editor = std::mem::take(&mut self.text_input);
+        let preedit = self.ime_preedit;
+        let handled = if let Some((field, text, limit)) = self.text_field() {
+            editor.focus(Some(field), text);
+            if editor.key(text, &key, shift, command) {
+                true
+            } else if command && key.eq_ignore_ascii_case("v") {
+                if let Some(value) = paste {
+                    editor.insert(text, &value, limit);
+                }
+                true
+            } else if !command && !preedit && !matches!(key.as_str(), "Enter" | "Escape" | "Tab") {
+                if let Some(value) = &event.text {
+                    editor.insert(text, value, limit);
+                }
+                // Up/down remain host row navigation. Printable keys never reach WASD.
+                !matches!(key.as_str(), "ArrowUp" | "ArrowDown")
+            } else {
+                false
+            }
+        } else {
+            editor.focus(None, "");
+            false
+        };
+        self.text_input = editor;
+        if handled {
+            self.refresh_text_field();
+        }
+        handled
+    }
+
     /// Synchronizes OS cursor grab (`Locked` / `Confined` vs `None`) and cursor visibility
     /// with the active state: locked during 3D combat when no battle UI overlay is open,
     /// and unlocked whenever the shell, spawn screen, scoreboard, or pause menu is active.
@@ -470,10 +596,7 @@ impl StandaloneWindowApp {
     fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
         if let Some(window) = &self.window {
-            window.set_fullscreen(
-                self.fullscreen
-                    .then_some(Fullscreen::Borderless(None)),
-            );
+            window.set_fullscreen(self.fullscreen.then_some(Fullscreen::Borderless(None)));
         }
     }
 
@@ -486,13 +609,7 @@ impl StandaloneWindowApp {
         let picked = std::env::var("BFE_CONTENT_SOURCE")
             .ok()
             .map(PathBuf::from)
-            .or_else(|| {
-                self.settings
-                    .desktop
-                    .game_dir
-                    .as_ref()
-                    .map(PathBuf::from)
-            });
+            .or_else(|| self.settings.desktop.game_dir.as_ref().map(PathBuf::from));
         if let Some(folder) = picked {
             self.settings.desktop.game_dir = Some(folder.to_string_lossy().to_string());
             let _ = self.settings.save_desktop();
@@ -530,7 +647,7 @@ impl StandaloneWindowApp {
                     ..RawPresenceInput::default()
                 }
             }
-                        // Poll the background `"bfe-host-start"` worker thread (`rx.try_recv()`)
+            // Poll the background `"bfe-host-start"` worker thread (`rx.try_recv()`)
             // while rendering the animated planet loading screen (`draw_host_starting`).
             // Once `HostController::start` confirms `/admin` (`status == "running"`)
             // and `GET /info` on the game port, transition into `AppState::BattleLoading`
@@ -783,6 +900,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 make_gl,
             )?);
 
+            window.set_ime_allowed(true);
             self.window = Some(window);
             self.surface = Some(surface);
             self.context = Some(context);
@@ -867,32 +985,49 @@ impl ApplicationHandler for StandaloneWindowApp {
                     let new_size = [phys.width as i32, phys.height as i32];
                     self.opts.size = new_size;
                     if let (Some(surface), Some(context)) = (&self.surface, &self.context) {
-                        if let (Some(w), Some(h)) = (
-                            NonZeroU32::new(phys.width),
-                            NonZeroU32::new(phys.height),
-                        ) {
+                        if let (Some(w), Some(h)) =
+                            (NonZeroU32::new(phys.width), NonZeroU32::new(phys.height))
+                        {
                             surface.resize(context, w, h);
                         }
                     }
                 }
             }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                // Winit already expresses inner_size and CursorMoved in physical pixels.
+                // Query the current extent after a monitor scale change; never divide
+                // the pointer alone by scale_factor (that would apply scaling twice).
+                if let Some(window) = &self.window {
+                    let size = window.inner_size();
+                    self.opts.size = [size.width.max(1) as i32, size.height.max(1) as i32];
+                }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            WindowEvent::Ime(Ime::Preedit(text, _)) => self.ime_preedit = !text.is_empty(),
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                self.ime_preedit = false;
+                self.insert_text(&text);
+            }
             WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_physical = [position.x, position.y];
+                let [x, y] = self.framebuffer_cursor();
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
                 match &mut self.state {
                     AppState::Shell => {
                         if let Some(shell) = &mut self.shell {
-                            shell.handle_cursor_move(position.x, position.y);
+                            shell.handle_cursor_move(x, y);
                         }
                     }
                     AppState::Battle(battle) => {
-                        battle.handle_cursor_move(position.x, position.y);
+                        battle.handle_cursor_move(x, y);
                     }
                     _ => {}
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let down = state == ElementState::Pressed;
+                let [x, y] = self.framebuffer_cursor();
                 match &mut self.state {
                     AppState::StartupLoader(StartupContentState::WaitingForFolder { .. }) => {
                         if down && button == MouseButton::Left {
@@ -902,10 +1037,9 @@ impl ApplicationHandler for StandaloneWindowApp {
                     AppState::Shell => {
                         if down && button == MouseButton::Left {
                             if let Some(shell) = &mut self.shell {
-                                let [w, h] = shell.size;
                                 let transition = shell.handle_mouse_click(
-                                    w as f64 * 0.5,
-                                    h as f64 * 0.5,
+                                    x,
+                                    y,
                                     &mut self.settings,
                                     &self.audio_router,
                                 );
@@ -957,6 +1091,12 @@ impl ApplicationHandler for StandaloneWindowApp {
                     }
                 }
 
+                // Editing consumes navigation/deletion before menu or combat bindings.
+                // KeyEvent.text handles layout/compose output; IME commits arrive separately.
+                if down && self.edit_key(&event) {
+                    return;
+                }
+
                 match &mut self.state {
                     AppState::StartupLoader(StartupContentState::WaitingForFolder { .. }) => {
                         if down && !event.repeat {
@@ -980,12 +1120,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                     AppState::Battle(battle) => {
                         if let PhysicalKey::Code(code) = event.physical_key {
                             if let Some(dom_code) = keycode_to_dom_code(code) {
-                                battle.handle_key(
-                                    dom_code,
-                                    down,
-                                    event.repeat,
-                                    &mut self.settings,
-                                );
+                                battle.handle_key(dom_code, down, event.repeat, &mut self.settings);
                             }
                         }
                         self.sync_pointer_lock();
@@ -1367,19 +1502,11 @@ impl StandaloneWindowApp {
                             }
                             BattleLoadTarget::Online { launch } => {
                                 // Connect to the remote or locally hosted `bfeserver` via `BattleController::start_online`.
-                                let selected_addr = self.shell.as_ref().and_then(|s| {
-                                    s.browser.selected().and_then(|entry| {
-                                        entry.address.as_ref().map(|a| {
-                                            format!("{a}:{}", entry.port.unwrap_or(27015))
-                                        })
-                                    })
-                                });
+                                // A browser row selected earlier is not authoritative once a
+                                // launch exists: preserve that launch's advertised port.
                                 let target_override = launch
-                                    .address
-                                    .as_ref()
-                                    .map(|a| format!("{a}:{}", launch.port.unwrap_or(27015)))
-                                    .or_else(|| self.opts.server_target.clone())
-                                    .or(selected_addr);
+                                    .direct_target()
+                                    .or_else(|| self.opts.server_target.clone());
                                 match BattleController::start_online(
                                     &content_dir,
                                     launch,
@@ -1394,7 +1521,9 @@ impl StandaloneWindowApp {
                                     }
                                     Err(err) => {
                                         if self.gate.is_some() {
-                                            return Err(format!("Online join failed during gate: {err}"));
+                                            return Err(format!(
+                                                "Online join failed during gate: {err}"
+                                            ));
                                         }
                                         self.restore_shell_audio(&content_dir);
                                         if let Some(shell) = &mut self.shell {
@@ -1433,7 +1562,7 @@ impl StandaloneWindowApp {
                             .and_then(|s| s.content_dir.clone())
                             .unwrap_or_else(|| self.settings.paths.content_root.clone());
                         match t {
-                                                        // When the player activates `DONE` on the post-match scoreboard (`done_triggered`),
+                            // When the player activates `DONE` on the post-match scoreboard (`done_triggered`),
                             // advance to `next_index` in `request.playlist` if another mission remains,
                             // or return to `ScreenId::InstantAction` when the playlist finishes.
                             BattleTransition::NextPlaylistBattle {
@@ -1473,7 +1602,7 @@ impl StandaloneWindowApp {
                                     self.state = AppState::Shell;
                                 }
                             }
-                                                        // When the player confirms `RESTART MISSION` in the Escape pause menu,
+                            // When the player confirms `RESTART MISSION` in the Escape pause menu,
                             // re-enter `AppState::BattleLoading` for the same `playlist_index` so
                             // `BattleController::start_instant_action` re-admits the mission from tick 0.
                             BattleTransition::RestartMission {
@@ -1497,7 +1626,7 @@ impl StandaloneWindowApp {
                                     frames_drawn: 0,
                                 };
                             }
-                                                        // Restore front-end shell audio, reset the screen stack to `ScreenId::Main`,
+                            // Restore front-end shell audio, reset the screen stack to `ScreenId::Main`,
                             // and transition back to `AppState::Shell`.
                             BattleTransition::QuitToMainMenu => {
                                 self.restore_shell_audio(&content_dir);
@@ -1516,12 +1645,14 @@ impl StandaloneWindowApp {
                                     frames_drawn: 0,
                                 };
                             }
-                                                        // Restore front-end shell audio, return to `ScreenId::Multiplayer`, and
+                            // Restore front-end shell audio, return to `ScreenId::Multiplayer`, and
                             // display a `DISCONNECTED` notice popup if the session ended with a network fault.
                             BattleTransition::LeaveOnline { reason } => {
                                 if self.gate.is_some() {
                                     if let Some(message) = reason.as_ref() {
-                                        return Err(format!("Online battle failed during gate: {message}"));
+                                        return Err(format!(
+                                            "Online battle failed during gate: {message}"
+                                        ));
                                     }
                                 }
                                 self.restore_shell_audio(&content_dir);
@@ -1572,6 +1703,8 @@ fn map_shell_key(key: &Key) -> Option<String> {
         Key::Named(NamedKey::Enter) => Some("Enter".to_string()),
         Key::Named(NamedKey::Escape) => Some("Escape".to_string()),
         Key::Named(NamedKey::Backspace) => Some("Backspace".to_string()),
+        Key::Named(NamedKey::Home) => Some("Home".to_string()),
+        Key::Named(NamedKey::End) => Some("End".to_string()),
         Key::Named(NamedKey::Delete) => Some("Delete".to_string()),
         Key::Named(NamedKey::Tab) => Some("Tab".to_string()),
         Key::Named(NamedKey::Space) => Some(" ".to_string()),

@@ -184,6 +184,11 @@ def check_deb(deb_path: Path, platform: str, install_deb: bool = False) -> None:
         if 'Package: battlefront-eternal' not in control_text:
             raise RuntimeError(f'Unexpected DEBIAN/control in {deb_path}:\n{control_text}')
 
+        depends = next((line for line in control_text.splitlines() if line.startswith('Depends:')), '')
+        for library in ('libwayland-client0', 'libwayland-cursor0', 'libwayland-egl1', 'libxkbcommon0'):
+            if library not in depends.split(':', 1)[-1].replace(',', ' ').split():
+                raise RuntimeError(f'Missing Debian display dependency: {library}')
+
         opt_app = root / 'opt' / 'Battlefront Eternal'
         manifest = verify_tree_manifest(opt_app, opt_app / 'resources' / 'bfe-tree.json', allow_extra_root=set())
         has_server = 'server_executable' in manifest
@@ -243,8 +248,12 @@ def check_appimage(appimage_path: Path, platform: str) -> None:
             stdout=subprocess.DEVNULL,
         )
         sq = Path(tmp) / 'squashfs-root'
-        extra = {'AppRun', 'battlefront-eternal.desktop', 'battlefront-eternal.png', '.DirIcon', 'usr'}
+        extra = {'AppRun', 'battlefront-eternal.desktop', 'battlefront-eternal.png', '.DirIcon', 'usr', 'lib'}
         manifest = verify_tree_manifest(sq, sq / 'resources' / 'bfe-tree.json', allow_extra_root=extra)
+        for library in ('libwayland-client.so.0', 'libwayland-cursor.so.0',
+                        'libwayland-egl.so.1', 'libxkbcommon.so.0'):
+            if not (sq / 'lib' / library).is_file():
+                raise RuntimeError(f'Missing AppImage display runtime: {library}')
         smoke_binary(sq / 'AppRun', 'AppImage AppRun')
         if 'server_executable' in manifest:
             smoke_binary(sq / 'bfeserver', 'AppImage bfeserver')

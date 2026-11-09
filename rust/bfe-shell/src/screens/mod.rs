@@ -706,6 +706,7 @@ impl ShellApp {
                 "autoSpawn",
                 format!("AUTO-SPAWN: {}", if cfg.auto_spawn { "ON" } else { "OFF" }),
             ),
+            MenuRow::enabled("serverName", format!("SERVER NAME: {}", cfg.server_name)),
         ]
     }
 
