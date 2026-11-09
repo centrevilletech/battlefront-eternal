@@ -39,11 +39,18 @@ impl Context {
         }
     }
 
+    /// preparePhase's foreign-row count for the next tick
+    /// (`WorldTickInput.units`): the built bodies still in play that neither
+    /// a network player nor a native intent drives. A host reads it before
+    /// each tick, as the admission's `Admitted.units` gives the first.
+    pub fn world_foreign_units(&self) -> Result<u32, Error> {
+        self.owned(|w| w.foreign_unit_rows())
+    }
+
     /// Builds the battle's owners from `files` (the content folder, or the
     /// recording's bytes) for `options`, then admits the local human and the
     /// publication host. One call a battle, before `world_step_init`.
     pub fn world_admit(&self, files: &dyn Files, options: &Options) -> Result<Admitted, Error> {
-        if !admit::provided() { self.check()?; return Err(Error::new(ErrorKind::Unavailable, "world_admit")); }
         self.owned(|w| admit::admit(w, files, options))?.map_err(admit_error)
     }
 }

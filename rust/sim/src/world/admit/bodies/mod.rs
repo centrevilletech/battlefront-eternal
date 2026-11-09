@@ -1,12 +1,20 @@
-//! The bodies a battle can spawn, prepared from content as UnitFactory.build
-//! prepares them (units.js buildBody: the soldier's constants, the animator's
-//! clip set, the combat facade), one record list per class in roster order.
-//! Pure functions of the loaded content; the spawn stage stages them.
-use crate::world::admit::{AdmitError, Options, Stage};
-use bfe_content::battle::Battle;
+//! UnitFactory.build's immutable construction inputs (src/units.js). A
+//! body holds the generated Unit row, adoption and rig facts before they
+//! move into F3. There is no drawn actor or second movement/combat owner.
+mod build;
+mod count;
+mod context;
+mod riders;
+mod walker;
+mod seats;
+pub(crate) mod prepare;
+pub use context::{from_context, health_scale};
+pub use build::{build, from_parts, Bindings, Body, CombatInit};
+pub use riders::{hull_holder, rider_birth, Holder, Rider};
+pub use walker::Muzzles;
+pub use seats::{hull_facts, turret_geometry, turret_birth, TurretBinding, TurretGeometry};
 
-/// Every class's prepared body rows. Unavailable until the spawn piece lands.
-pub fn prepare(battle: &Battle, options: &Options) -> Result<Vec<super::rows::Call>, AdmitError> {
-    let _ = (battle, options);
-    Err(AdmitError::Unavailable(Stage::Player))
+use super::{AdmitError, Stage};
+fn error(message: impl Into<String>) -> AdmitError {
+    AdmitError::Content { stage: Stage::Player, message: message.into() }
 }

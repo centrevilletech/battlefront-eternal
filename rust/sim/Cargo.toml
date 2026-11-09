@@ -29,6 +29,9 @@ nav-twin = []
 world-twin = []
 # Replays a recorded admission call log through Context::invoke_export.
 admit-replay = []
+# Admits every battle of a rows file from the content folder and runs it
+# (src/bin/admit-run.rs): the native admission's acceptance sweep.
+admit-run = []
 # The world-hash matrix's per-row worker (src/bin/world-hash-native.rs, run
 # by `cargo xtask matrix`): the three per-tick hashes tools/world-hash.mjs
 # prints, from the native world.
@@ -48,6 +51,11 @@ required-features = ["world-twin"]
 name = "admit-replay"
 path = "src/bin/admit-replay.rs"
 required-features = ["admit-replay"]
+
+[[bin]]
+name = "admit-run"
+path = "src/bin/admit-run.rs"
+required-features = ["admit-run"]
 
 [[bin]]
 name = "world-hash-native"

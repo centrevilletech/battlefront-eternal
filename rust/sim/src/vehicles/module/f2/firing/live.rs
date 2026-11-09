@@ -811,6 +811,14 @@ pub(crate) fn supply_station_in(world_ctx: &mut crate::world::owner::World, hull
     if !world_ctx.sim.store.vehicle.get(hull).is_some_and(|v|v.target_generation==life){return false;}
     supply_in(world_ctx, hull,amount,false)
 }
+/// Every seat's mounted weapon definitions in seat and weapon order, as the
+/// page's `hull.seats[i].weapons[j].state.levels[0]` names them (the F4
+/// owners register each once). A hull without a craft answers no seats.
+pub(crate) fn seat_weapon_defs_in(world_ctx: &mut crate::world::owner::World, hull:Ref<Vehicle>)->Vec<Vec<crate::store::DefId>>{
+    let st=firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings);
+    let Some(craft)=st.crafts.get(hull.slot as usize).and_then(|c|c.as_ref()).filter(|c|c.id==hull) else {return Vec::new()};
+    craft.seats.iter().map(|seat|seat.iter().filter_map(|w|st.weapons.get(*w).map(|w|w.state.def)).collect()).collect()
+}
 /// Statistics observe the seat's first weapon, independently of selection.
 pub(crate) fn first_weapon_in(world_ctx: &mut crate::world::owner::World, hull:Ref<Vehicle>,seat:usize)->Option<(crate::store::DefId,f64)>{
     let st=firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings);let craft=st.crafts.get(hull.slot as usize)?.as_ref()?;

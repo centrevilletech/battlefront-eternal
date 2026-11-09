@@ -795,9 +795,9 @@ fn operator_sqlite_and_http_admin_and_healthz_round_trip() {
 }
 
 /// Verifies that:
-/// 1. `LocalDedicatedServer.ready` (and therefore `/healthz` `multiplayerReady`) equals
-///    `bfe_sim::world::admit::provided()`, so a server whose world was not admitted via
-///    `Context::world_admit` never falsely reports `multiplayerReady: true`.
+/// 1. `LocalDedicatedServer.ready` (and therefore `/healthz` `multiplayerReady`) is true only
+///    when `Context::world_admit` admitted the world, so a server whose world was not admitted
+///    (this test's synthetic content is refused) never falsely reports `multiplayerReady: true`.
 /// 2. `OperatorStore` (`operator.sqlite` via `rusqlite` bundled) preserves existing `bans`,
 ///    `scores`, and `audit` rows across database re-opens with the exact schema of `src/operator.js`.
 ///
@@ -860,11 +860,13 @@ fn local_dedicated_server_healthz_reports_multiplayer_ready_truth_and_sqlite_com
     )
     .expect("start local server");
 
-    let expected_ready = bfe_sim::world::admit::provided();
+    // Native admission exists, but it refuses this minimal synthetic content
+    // (no actor geometry), so the honest answer is a server that is not ready.
+    let expected_ready = false;
     assert_eq!(
         server.ready.load(Ordering::SeqCst),
         expected_ready,
-        "LocalDedicatedServer.ready must reflect Context::world_admit availability"
+        "LocalDedicatedServer.ready must reflect whether Context::world_admit admitted the world"
     );
 
     // Expose `server.ready` through `OperatorHttpServer` `/healthz` and assert `multiplayerReady` is truthful.
@@ -898,7 +900,7 @@ fn local_dedicated_server_healthz_reports_multiplayer_ready_truth_and_sqlite_com
     assert_eq!(
         health.get("multiplayerReady").and_then(Value::as_bool),
         Some(expected_ready),
-        "/healthz multiplayerReady must never be true when Context::world_admit is Unavailable"
+        "/healthz multiplayerReady must never be true when Context::world_admit did not admit the world"
     );
 
     http.close();

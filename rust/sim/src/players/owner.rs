@@ -5,7 +5,7 @@
 //! were, and outlive the player who set them exactly as the source's did.
 use super::controls::Controls;
 use crate::flight::model::FlightInput;
-use crate::gen::{F3PhaseInput, F3PhaseNetwork, F4Handle, HsCommand, IaState, IfResult, Intent, PlayerShots, PlayerView, Unit};
+use crate::gen::{F3PhaseInput, F3PhaseNetwork, F4Handle, HsCommand, IaEntry, IaHuman, IaState, IfResult, Intent, PlayerShots, PlayerView, Unit};
 use crate::store::{block::Block, handles::Pool, Ref, StrId, Strings};
 
 /// How many players a match admits at most (world-worker's 64 connections
@@ -151,6 +151,8 @@ pub struct Player {
     pub fire: IfResult,
     /// InputActions.
     pub actions: IaState,
+    pub action_entries: Vec<IaEntry>,
+    pub action_humans: Vec<IaHuman>,
     pub actions_taken: Vec<StrId>,
     pub human_taken: Vec<HsCommand>,
     /// This tick's mouse samples (command.look), copied out of the mailbox.
@@ -167,10 +169,15 @@ impl Player {
     /// `capacity`: his mailbox's, whose take yields at most 16 choices a
     /// queued packet (InputMailbox.take's humanEntry bound).
     pub fn new(mailbox: usize, at: f64, capacity: usize) -> Self {
+        let mut action_entries = Vec::with_capacity(128);
+        for _ in 0..128 {
+            action_entries.push(IaEntry { id: 0.0, tick: 0.0, generation: 0.0, actions: Vec::with_capacity(64), human: Vec::with_capacity(16) });
+        }
         Self {
             mailbox, character: None, spectator: false, reliable_fire: false, separate_actions: false, team_select: true,
             auto_respawn: false, ordinal: 0.0, team: 0.0, recon_key: None, disconnected_at: None, last_input_at: at,
             inputs_stale: false, input_lead_ticks: None, controls: Controls::new(), fire: Self::fire_lane(), actions: Self::actions_lane(),
+            action_entries, action_humans: Vec::with_capacity(16),
             actions_taken: Vec::with_capacity(64), human_taken: Vec::with_capacity(16 * capacity.max(1)), looks: Vec::with_capacity(2048), changed: true, applied: false, stopped: false,
         }
     }

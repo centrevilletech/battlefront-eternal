@@ -1050,7 +1050,10 @@ impl NativeWorldHost {
                 }
                 world_admitted = true;
             }
-            Err(err) if err.kind() == SimErrorKind::Unavailable => {
+            // Admission that cannot play the content (a placeholder or synthetic
+            // tree without actor geometry) leaves the server up but not ready,
+            // exactly as an unavailable admission does: /healthz stays honest.
+            Err(err) if matches!(err.kind(), SimErrorKind::Unavailable | SimErrorKind::Host) => {
                 let _ = context.players_init();
             }
             Err(err) => return Err(err.to_string()),

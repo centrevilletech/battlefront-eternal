@@ -277,7 +277,7 @@ fn battle_options() -> bfe_sim::world::admit::Options {
 
 fn fake_admission() -> bfe_sim::world::admit::Admitted {
     bfe_sim::world::admit::Admitted { handles: setup::Handles { mailbox: 19, player: 23,
-        publication: 29, host: 31, edges: 37, client: 41 }, player_id: 0., units: 73,
+        publication: 29, host: 31, edges: 37, client: 41, ..Default::default() }, player_id: 0., units: 73,
         registry: serde_json::json!({"protocol":1}), ..Default::default() }
 }
 

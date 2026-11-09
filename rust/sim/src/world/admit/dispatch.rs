@@ -96,6 +96,12 @@ fn scratch(w: &mut World, call: &Call) -> (*const u8, usize) {
     buffer.copy_from_slice(&call.scratch);
     (buffer.as_ptr(), call.scratch.len())
 }
+/// The F3 input bank the page writes rows straight into (f3-sim.js
+/// `layout.input`: F3BodyName rows before f3_body_names): the call's row.
+fn input(w: &mut World, call: &Call) {
+    let Some(bank) = crate::units::f3::input_bank_mut_in(w) else { return; };
+    for (slot, word) in bank.iter_mut().zip(call.row.iter()) { *slot = *word; }
+}
 /// The F3 command bank the page writes a direct row into (f3-sim.js
 /// `layout.command`: F3Change, F3Adoption, F3PoseCommand) before f3_command,
 /// f3_adopt and f3_pose: the call's row and heap, in that order.
@@ -165,7 +171,9 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "f2_turrets_idle" => { crate::vehicles::module::f2::live_seats::f2_turrets_idle_in(w, a(c,0)); N },
         "f3_adopt" => { direct(w, c); S(crate::units::f3::f3_adopt_in(w) as f64) },
         "f3_blast_binding" => { crate::units::f3::f3_blast_binding_in(w); N },
-        "f3_body_names" => { crate::units::f3::f3_body_names_in(w, u(c,0)); N },
+        // F3.bodiesIn writes the F3BodyName rows straight into the F3 input
+        // bank (f3-sim.js putF3BodyName at layout.input) before the call.
+        "f3_body_names" => { input(w, c); crate::units::f3::f3_body_names_in(w, u(c,0)); N },
         "f3_body_skeleton" => S(crate::units::live_pose::f3_body_skeleton_in(w) as f64),
         "f3_building" => { crate::units::f3_props::f3_building_in(w); N },
         "f3_command" => { direct(w, c); S(crate::units::f3::f3_command_in(w) as f64) },
@@ -237,6 +245,7 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "items_args_words" => S(crate::items::module::items_args_words(u(c,0)) as f64),
         "items_def" => { crate::items::module::items_def_in(w, u(c,0)); N },
         "items_pools" => { crate::items::module::items_pools_in(w, u(c,0)); N },
+        "items_spawn" => row(crate::items::module::items_spawn_in(w)),
         "mover_new" => S(w.movement.mover_new(u(c,0)) as f64),
         "mover_tick" => S(w.movement.tick(&mut w.collision.state, u(c,0)) as f64),
         "ord_args_words" => S(crate::ordnance::module::ord_args_words(u(c,0)) as f64),
@@ -254,9 +263,9 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "pose_construction_output" => B(crate::pose::pose_construction_output_in(&w.pose).to_vec()),
         "pose_new" => S(w.pose.pose_new(u(c,0), i(c,1)) as f64),
         "pose_out" => R(crate::pose::pose_out_in(&mut w.pose, u(c,0)).to_vec()),
-        "pose_q" => R(crate::pose::pose_q_in(&mut w.pose, u(c,0)).iter().map(|v| *v as f64).collect()),
-        "pose_t" => R(crate::pose::pose_t_in(&mut w.pose, u(c,0)).iter().map(|v| *v as f64).collect()),
-        "pose_w" => R(crate::pose::pose_w_in(&mut w.pose, u(c,0)).iter().map(|v| *v as f64).collect()),
+        "pose_q" => fill_f32(Some(crate::pose::pose_q_in(&mut w.pose, u(c,0))), c),
+        "pose_t" => fill_f32(Some(crate::pose::pose_t_in(&mut w.pose, u(c,0))), c),
+        "pose_w" => fill_f32(Some(crate::pose::pose_w_in(&mut w.pose, u(c,0))), c),
         "positions_at" => { let id = u(c,0) as usize; match w.collision.state.positions.get_mut(id) { Some(crate::collision::Corners::F32(v)) => fill_f32(Some(v.as_mut_slice()), c), Some(crate::collision::Corners::F64(v)) => fill_f64(Some(v.as_mut_slice()), c), None => X } },
         "positions_new" => S(w.collision.positions_new(u(c,0), u(c,1)) as f64),
         "push_walls_ray" => { w.collision.push_walls_ray(u(c,0)); N },
@@ -278,14 +287,20 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "units_muzzle_attach" => { crate::units::module::units_muzzle_attach_in(w, u(c,0), u(c,1)); N },
         "veh_bytes" => fill_u8(crate::vehicles::module::veh_bytes_in(w, u(c,0)), c),
         "veh_class" => { crate::vehicles::module::veh_class_in(w, u(c,0), u(c,1), a(c,2)); N },
-        "veh_collider" => { crate::vehicles::module::veh_collider_in(w, u(c,0), u(c,1)); N },
+        // A cold call carries the collider's words in its scratch; the host
+        // wrote them into the loan veh_input handed out just before.
+        "veh_collider" => { if !c.scratch.is_empty() { fill_f64(crate::vehicles::module::veh_input_in(w, (c.scratch.len() / 8) as u32), c); } crate::vehicles::module::veh_collider_in(w, u(c,0), u(c,1)); N },
         "veh_collision" => { crate::vehicles::module::veh_collision_in(w, i(c,0), i(c,1)); N },
         "veh_flight_env" => { crate::vehicles::module::veh_flight_env_in(w, u(c,0), a(c,1)); N },
         "veh_flight_tune" => S(crate::vehicles::module::veh_flight_tune_in(w, u(c,0), u(c,1), a(c,2)) as f64),
         "veh_input" => fill_f64(crate::vehicles::module::veh_input_in(w, u(c,0)), c),
         "veh_map" => { crate::vehicles::module::veh_map_in(w, u(c,0), a(c,1)); N },
-        "veh_pack" => { let ok = crate::vehicles::module::veh_pack_in(w, u(c,0), u(c,1), u(c,2), u(c,3)); if ok > 0 { S(ok as f64) } else { X } },
-        "veh_pull" => S(crate::vehicles::module::veh_pull_in(w, u(c,0), a(c,1), u(c,2), u(c,3)) as f64),
+        // A cold call carries the pack's bytes in its scratch (the host wrote
+        // them into veh_bytes' loan).
+        "veh_pack" => { if !c.scratch.is_empty() { fill_u8(crate::vehicles::module::veh_bytes_in(w, c.scratch.len() as u32), c); } S(if u(c,2) == 0 { 0 } else { crate::vehicles::module::veh_pack_in(w, u(c,0), u(c,1), u(c,2), u(c,3)) } as f64) },
+        // A cold call carries the pulled pose in its scratch (the host wrote
+        // it into veh_input's loan).
+        "veh_pull" => { if !c.scratch.is_empty() { fill_f64(crate::vehicles::module::veh_input_in(w, (c.scratch.len() / 8) as u32), c); } S(crate::vehicles::module::veh_pull_in(w, u(c,0), a(c,1), u(c,2), u(c,3)) as f64) },
         "wire_baselines" => row(crate::wire::host::wire_baselines_in(w)),
         "wire_bind_store" => { let capacity = w.wire.as_deref().and_then(|o| o.sources.get(u(c,1) as usize)).map(|s| s.capture.seat_capacity()); S(crate::wire::module::wire_bind_store_in(w, u(c,0) as usize, capacity) as f64) },
         "wire_budget_create" => S(crate::wire::host::wire_budget_create_in(w, a(c,0), a(c,1), a(c,2)) as f64),
@@ -462,7 +477,7 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "sim_import_capacity" => S(crate::abi::sim_import_capacity() as f64),
         "sim_import_result_room" => N,
         "sim_import_room" => { let block = crate::abi::sim_import_room_in(w, u(c,0), u(c,1), u(c,2), u(c,3)); let header = crate::store::block::HEADER; if c.scratch.is_empty() { R(block.words.clone()) } else if (block.words.len() - header) * 8 >= c.scratch.len() { for (word, x) in block.words[header..].iter_mut().zip(c.scratch.chunks_exact(8)) { *word = f64::from_le_bytes(x.try_into().unwrap()); } N } else { X } },
-        "sim_kind_hash" => S(crate::abi::sim_kind_hash(u(c,0)) as f64),
+        "sim_kind_hash" => S(crate::abi::sim_kind_hash(u(c,0)) as i32 as f64),
         "sim_kinds" => S(crate::abi::sim_kinds() as f64),
         "sim_memory_pages" => N,
         "sim_reserve" => S(crate::abi::sim_reserve(u(c,0)) as f64),

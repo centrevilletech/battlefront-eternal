@@ -282,7 +282,7 @@ pub fn stop(w: &mut World, players: &mut Players, key: usize) {
     if let Some(mailbox) = w.input.mailboxes.get_mut(p.mailbox) { mailbox.clear_command(&mut w.sim.strings); }
     p.controls.clear();
     if crate::input::fire::clear(&mut p.fire.state, &mut w.sim.strings).is_err() { players.faults = players.faults.wrapping_add(1); }
-    if crate::input::actions::clear(&mut p.actions, &mut w.sim.strings).is_err() { players.faults = players.faults.wrapping_add(1); }
+    if crate::input::actions::clear_reusing(&mut p.actions, &mut w.sim.strings, &mut p.action_entries).is_err() { players.faults = players.faults.wrapping_add(1); }
     p.stopped = true;
     let Some(unit) = super::step::body(w, p) else { return };
     let shadow = players.shadow(unit.slot);

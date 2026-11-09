@@ -29,6 +29,8 @@ pub(crate) fn reset_in(world_ctx: &mut crate::world::owner::World) {
 /// replace an existing member; counting them too keeps a conservative cold
 /// bound without reserving history shapes for every unused numeric slot.
 pub(crate) fn prepared_count_in(units: &super::owner::Units)->usize { units.factory.as_ref().expect("prepared unit service").resources.len() }
+/// The same count before attachF3 made the factory: no cookie handed out yet.
+pub(crate) fn cookies_so_far_in(units: &super::owner::Units)->usize { units.factory.as_ref().map_or(0, |f| f.resources.len()) }
 
 /// Future mixed ids include current hull/prop ids and all admitted bodies.
 /// Reserve arrays now; preparing an inactive body does not consume an id.

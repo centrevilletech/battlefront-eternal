@@ -259,7 +259,7 @@ pub(crate) fn veh_collider_in(world_ctx: &mut crate::world::owner::World, walls:
 pub(crate) fn prepare_collision_in(world_ctx: &mut crate::world::owner::World) {
     let Some(c) = world_ctx.fleet.collision.as_mut() else { return };
     let state = &mut world_ctx.collision.state;
-    c.prepare_with(state, &mut world_ctx.collision.gathers.caches);
+    c.prepare_with(state, Some(&mut world_ctx.collision.gathers.caches));
     let words = F2BodyHeader::WORDS + (state.worlds[c.world].order.len() + state.worlds[c.world].prepared.len())
         * (F2BodyToggle::WORDS + F2BodyPlaced::WORDS);
     let changes = &mut world_ctx.fleet.changes;
@@ -314,7 +314,7 @@ pub(crate) fn veh_pack_in(world_ctx: &mut crate::world::owner::World, def_len: u
 /// A hull's pose as the constructor makes it from its class and
 /// model (build.rs), with its seats' turn rates, or None where the pack
 /// lacks either.
-fn new_pose_in(world_ctx: &mut crate::world::owner::World, name: &str) -> Option<(HullPose, Vec<f64>)> { Fleet::new_pose(&mut world_ctx.fleet.defs, &mut world_ctx.fleet.templates, name) }
+pub(crate) fn new_pose_in(world_ctx: &mut crate::world::owner::World, name: &str) -> Option<(HullPose, Vec<f64>)> { Fleet::new_pose(&mut world_ctx.fleet.defs, &mut world_ctx.fleet.templates, name) }
 
 /// A hull's whole pose state from JavaScript (posing::pull), `count`
 /// numbers in the input, for the hull in store slot `slot` on life

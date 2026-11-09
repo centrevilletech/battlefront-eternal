@@ -27,35 +27,68 @@ fn outcome(s: &mut IaState, id: f64, status: StrId) -> Result<(), &'static str> 
     Ok(())
 }
 
-pub(crate) fn push(s: &mut IaState, entry: Option<IaEntry>, same_epoch: bool, same_generation: bool,
-    payload_valid: bool, humans_valid: bool, humans: Vec<IaHuman>, tick: f64, strings: &Strings) -> Result<bool, &'static str> {
+pub(crate) fn recycle_entry(entries: &mut Vec<IaEntry>, mut entry: IaEntry) {
+    entry.actions.clear();
+    entry.human.clear();
+    if entries.len() < entries.capacity() {
+        entries.push(entry);
+    }
+}
+
+pub(crate) fn push_reusing(s: &mut IaState, entry: Option<IaEntry>, same_epoch: bool, same_generation: bool,
+    payload_valid: bool, humans_valid: bool, humans: &[IaHuman], tick: f64, strings: &Strings,
+    entries: &mut Vec<IaEntry>) -> Result<bool, &'static str> {
     let Some(mut entry) = entry else { return Ok(false) };
     if !same_epoch || !same_generation || !safe_integer(entry.id) || entry.id <= s.received ||
-        !safe_integer(entry.tick) || entry.tick < 1.0 || entry.tick > tick + 120.0 { return Ok(false); }
+        !safe_integer(entry.tick) || entry.tick < 1.0 || entry.tick > tick + 120.0 {
+        recycle_entry(entries, entry);
+        return Ok(false);
+    }
     if !payload_valid || entry.actions.len() > 64 || entry.actions.iter().any(|id| {
         let value = strings.units(*id);
         value.len() > 64 || value.iter().copied().eq("firePrimary".encode_utf16()) || value.iter().copied().eq("fireSecondary".encode_utf16())
-    }) { return Err("invalid reliable actions"); }
-    if !humans_valid || humans.len() > 16 || humans.iter().any(|h| !human_valid(h, strings)) { return Err("invalid human input"); }
-    if s.queue.len() as f64 >= s.capacity { return Ok(false); }
-    if s.queue.last().is_some_and(|last| entry.tick < last.tick) { return Err("action tick moved backwards"); }
-    entry.human = humans.into_iter().map(|h| h.command).collect();
+    }) {
+        recycle_entry(entries, entry);
+        return Err("invalid reliable actions");
+    }
+    if !humans_valid || humans.len() > 16 || humans.iter().any(|h| !human_valid(h, strings)) {
+        recycle_entry(entries, entry);
+        return Err("invalid human input");
+    }
+    if s.queue.len() as f64 >= s.capacity {
+        recycle_entry(entries, entry);
+        return Ok(false);
+    }
+    if s.queue.last().is_some_and(|last| entry.tick < last.tick) {
+        recycle_entry(entries, entry);
+        return Err("action tick moved backwards");
+    }
+    entry.human.clear();
+    entry.human.extend(humans.iter().map(|h| h.command.clone()));
     s.received = entry.id;
     s.queue.push(entry);
     Ok(true)
 }
 
+pub(crate) fn push(s: &mut IaState, entry: Option<IaEntry>, same_epoch: bool, same_generation: bool,
+    payload_valid: bool, humans_valid: bool, humans: Vec<IaHuman>, tick: f64, strings: &Strings) -> Result<bool, &'static str> {
+    let mut entries = Vec::new();
+    push_reusing(s, entry, same_epoch, same_generation, payload_valid, humans_valid, &humans, tick, strings, &mut entries)
+}
+
 /// InputActions.take into the caller's retained lists: the first due
 /// message's distinct presses and its choices; repeated presses in one
 /// message remain separate ticks.
-pub(crate) fn take_into(s: &mut IaState, tick: f64, generation: f64, actions: &mut Vec<StrId>, human: &mut Vec<HsCommand>, strings: &mut Strings) -> Result<(), &'static str> {
+pub(crate) fn take_into_reusing(s: &mut IaState, tick: f64, generation: f64, actions: &mut Vec<StrId>,
+    human: &mut Vec<HsCommand>, strings: &mut Strings, entries: &mut Vec<IaEntry>) -> Result<(), &'static str> {
     while let Some(entry) = s.queue.first() {
         if entry.generation != generation || entry.tick < tick - 120.0 {
             let id = entry.id;
             let status = if entry.generation != generation { "life-cancelled" } else { "expired" };
             outcome(s, id, strings.intern_str(status))?;
             s.discarded = v8math::max(s.discarded, id);
-            s.queue.remove(0);
+            let removed = s.queue.remove(0);
+            recycle_entry(entries, removed);
             continue;
         }
         if entry.tick > tick { break; }
@@ -70,11 +103,17 @@ pub(crate) fn take_into(s: &mut IaState, tick: f64, generation: f64, actions: &m
             let id = entry.id;
             outcome(s, id, strings.intern_str("consumed"))?;
             s.ack = id;
-            s.queue.remove(0);
+            let removed = s.queue.remove(0);
+            recycle_entry(entries, removed);
         }
         return Ok(());
     }
     Ok(())
+}
+
+pub(crate) fn take_into(s: &mut IaState, tick: f64, generation: f64, actions: &mut Vec<StrId>, human: &mut Vec<HsCommand>, strings: &mut Strings) -> Result<(), &'static str> {
+    let mut entries = Vec::new();
+    take_into_reusing(s, tick, generation, actions, human, strings, &mut entries)
 }
 
 fn take(s: &mut IaState, tick: f64, generation: f64, strings: &mut Strings) -> Result<(Vec<StrId>, Vec<HsCommand>), &'static str> {
@@ -85,13 +124,21 @@ fn take(s: &mut IaState, tick: f64, generation: f64, strings: &mut Strings) -> R
 
 /// InputActions.clear: queued messages are receipted as cleared and the
 /// discard watermark moves past them.
-pub(crate) fn clear(s: &mut IaState, strings: &mut Strings) -> Result<(), &'static str> {
+pub(crate) fn clear_reusing(s: &mut IaState, strings: &mut Strings, entries: &mut Vec<IaEntry>) -> Result<(), &'static str> {
     for i in 0..s.queue.len() {
         let id = s.queue[i].id;
         outcome(s, id, strings.intern_str("cleared"))?;
     }
     s.discarded = v8math::max(s.discarded, s.queue.last().map_or(0.0, |e| e.id));
-    s.queue.clear(); Ok(())
+    for entry in s.queue.drain(..) {
+        recycle_entry(entries, entry);
+    }
+    Ok(())
+}
+
+pub(crate) fn clear(s: &mut IaState, strings: &mut Strings) -> Result<(), &'static str> {
+    let mut entries = Vec::new();
+    clear_reusing(s, strings, &mut entries)
 }
 
 pub fn run(input: IaInput, strings: &mut Strings) -> IaResult {

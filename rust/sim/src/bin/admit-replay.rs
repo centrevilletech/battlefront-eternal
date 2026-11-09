@@ -9,11 +9,13 @@
 //! hashed as the recorder hashed them. Prints one JSON summary.
 //!
 //!   zcat RECORDING.jsonl.gz | admit-replay
+use bfe_content::files::DirFiles;
 use bfe_sim::abi::context::{Context, ErrorKind};
 use bfe_sim::abi::context_step::bank;
-use bfe_sim::world::admit::{Call, Returned};
+use bfe_sim::world::admit::{Call, Options, Returned, Stage};
+use bfe_sim::world::owner::World;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufRead;
 
 /// Host-import round trips a native host has no body for: the recording's
@@ -114,8 +116,568 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
+fn parse_matrix_options<'a>(args: &[&'a str]) -> Options {
+    let opt = |key: &str, fallback: &'a str| -> &'a str {
+        args.iter()
+            .position(|&a| a == key)
+            .and_then(|i| args.get(i + 1).copied())
+            .unwrap_or(fallback)
+    };
+    Options {
+        map: opt("--map", "nab2").to_string(),
+        side: opt("--side", "rep").to_string(),
+        enhanced: opt("--ai", "classic") == "enhanced",
+        seed: opt("--seed", "1").parse::<u32>().unwrap_or(1),
+        heroes: args.contains(&"--heroes"),
+        unit: args
+            .iter()
+            .position(|&a| a == "--unit")
+            .and_then(|i| args.get(i + 1).map(|s| (*s).to_string())),
+    }
+}
+
+fn find_banks_file(banks_dir: &str, row_idx: usize, label: &str) -> String {
+    let direct = format!("{banks_dir}/{label}.banks");
+    if std::path::Path::new(&direct).exists() {
+        return direct;
+    }
+    let prefix = format!("{row_idx:02}-");
+    if let Ok(entries) = std::fs::read_dir(banks_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && name.ends_with(".banks") {
+                return entry.path().to_string_lossy().into_owned();
+            }
+        }
+    }
+    direct
+}
+
+/// The matrix line of one label: its options as tools/world-hash-matrix.txt spells them.
+fn matrix_options(matrix_file: &str, label: &str) -> Result<Options, String> {
+    let text = std::fs::read_to_string(matrix_file).map_err(|e| format!("{matrix_file}: {e}"))?;
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.first() == Some(&label) { return Ok(parse_matrix_options(&parts[1..])); }
+    }
+    Err(format!("{label}: not in {matrix_file}"))
+}
+
+/// The cold sequence's calls for a label, compared one by one with the
+/// recorded host's admission calls as the replay reconstructs them. The
+/// recording's module plumbing (sim_scratch, sim_import_room, memory
+/// facts) has no cold twin and is passed over; every export the cold
+/// sequence dispatches must appear in the recording in the same order with
+/// the same scalar arguments, argument row, heap, scratch bytes and
+/// interned texts. The first difference names the export and the word.
+/// Argument words that are module scratch addresses (the body reads the
+/// call's scratch bytes instead): never equal natively, never compared.
+const ADDRESS_ARGS: &[(&str, usize)] = &[("camera_init", 0), ("camera_add_definition", 1), ("body_construct", 0)];
+
+struct ColdCalls {
+    /// The cold world after admission: its registry is checked against the
+    /// KIND_UNITS import the host recorded before attachF3. A partial run
+    /// (--from) has none of its own: the recorded prefix made the registry.
+    world: Option<Box<World>>,
+    calls: Vec<(Stage, &'static str, Call)>,
+    exports: BTreeSet<&'static str>,
+    next: usize,
+    compared: u64,
+    /// sim_str_intern texts the host interned since the last compared call.
+    interns: Vec<String>,
+    differences: Vec<Value>,
+    stopped: bool,
+    /// The bytes the host wrote into the loan a sizing call handed out
+    /// (veh_bytes, veh_input); the cold consumer carries them in its scratch.
+    loan: Vec<u8>,
+    /// Consumed loans whose reconstructed bytes differed (advisory).
+    loan_notes: u64,
+}
+/// Host plumbing never compared: the bodies' order refresh the page makes
+/// at many seams (rayBodies), whose list the kernel rebuilds either way.
+const UNCOMPARED: &[&str] = &["world_order"];
+/// Sizing calls that hand the host a loan, and the calls that consume it.
+const LOANS: &[&str] = &["veh_bytes", "veh_input"];
+const CONSUMERS: &[&str] = &["veh_pack", "veh_pull", "veh_collider"];
+impl ColdCalls {
+    fn build(content_dir: &str, matrix_file: &str, label: &str) -> Result<Self, String> {
+        let options = matrix_options(matrix_file, label)?;
+        let files = DirFiles::new(content_dir);
+        let mut world = World::new();
+        let mut rows = bfe_sim::world::admit::Rows::default();
+        // A panic inside admission is reported with the calls made before it,
+        // which the recording still checks one by one.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bfe_sim::world::admit::admit_into(&mut world, &files, &options, &mut rows)));
+        let failure = match outcome {
+            Ok(Ok(_)) => None,
+            Ok(Err(error)) => Some(error.to_string()),
+            Err(panic) => Some(format!("panic: {}", panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default())),
+        };
+        if let Some(failure) = &failure { eprintln!("cold admission stopped: {failure}"); }
+        let calls: Vec<(Stage, &'static str, Call)> = rows.calls.into_iter().flat_map(|(_, calls)| calls).collect();
+        let calls: Vec<(Stage, &'static str, Call)> = calls.into_iter().filter(|(_, name, _)| !UNCOMPARED.contains(name)).collect();
+        let exports = calls.iter().map(|(_, name, _)| *name).collect();
+        let mut differences = Vec::new();
+        if let Some(failure) = failure { differences.push(json!({"field": "cold admission", "cold": failure})); }
+        Ok(ColdCalls { world: Some(world), calls, exports, next: 0, compared: 0, interns: Vec::new(), differences, stopped: false, loan: Vec::new(), loan_notes: 0 })
+    }
+    /// The calls a lane's stages made cold over the recorded prefix
+    /// (bfe_sim::world::admit::partial), compared from the boundary on.
+    fn partial(calls: Vec<(Stage, &'static str, Call)>) -> Self {
+        let calls: Vec<(Stage, &'static str, Call)> = calls.into_iter().filter(|(_, name, _)| !UNCOMPARED.contains(name)).collect();
+        let exports = calls.iter().map(|(_, name, _)| *name).collect();
+        ColdCalls { world: None, calls, exports, next: 0, compared: 0, interns: Vec::new(), differences: Vec::new(), stopped: false, loan: Vec::new(), loan_notes: 0 }
+    }
+    fn note(&mut self, difference: Value) {
+        if self.differences.len() < 200 { self.differences.push(difference); }
+    }
+    /// The host's registry handover (sim_import of KIND_UNITS, game.js before
+    /// attachF3): its member list must be a prefix of the cold world's, in
+    /// order, with the same kinds and generations, and its next id the
+    /// prefix's end. The members after it are the Units stage's own adds.
+    fn registry(&mut self, line: &Value, recorded: &Call) {
+        let mut recorded_units = bfe_sim::gen::Units::default();
+        if recorded.row.len() < bfe_sim::gen::Units::FULL_STRIDE { return; }
+        recorded_units.take_full(&recorded.row, &recorded.heap);
+        let Some(world) = self.world.as_ref() else { return; };
+        let cold = bfe_sim::world::admit::registry_members(world);
+        let same = cold.len() >= recorded_units.list.len() && cold[..recorded_units.list.len()] == recorded_units.list[..]
+            && recorded_units.next_id == recorded_units.list.len() as f64 + 1.0;
+        if !same {
+            let show = |list: &[bfe_sim::gen::Member]| -> Vec<String> { list.iter().map(|m| format!("{m:?}")).collect() };
+            let at = cold.iter().zip(&recorded_units.list).position(|(a, b)| a != b);
+            self.note(json!({"sequence": line["sequence"], "export": "sim_import", "field": "registry", "member": at, "lengths": [recorded_units.list.len(), cold.len()],
+                "recordedNextId": recorded_units.next_id, "recorded": show(&recorded_units.list), "cold": show(&cold[..cold.len().min(recorded_units.list.len() + 2)])}));
+        }
+    }
+    fn compare(&mut self, line: &Value, export: &str, recorded: &Call) {
+        if self.stopped || UNCOMPARED.contains(&export) { return; }
+        if export == "sim_import" {
+            // The host interns a row's texts as it writes an import; they
+            // are the import's, not the next export's. A Unit's import is
+            // the exception: its side and class name are the body's own
+            // interns, which the cold construction makes for its skeleton.
+            if recorded.args.first().copied() != Some(f64::from(bfe_sim::gen::KIND_UNIT)) { self.interns.clear(); }
+            if recorded.args.first().copied() == Some(f64::from(bfe_sim::gen::KIND_UNITS)) { self.registry(line, recorded); }
+            // An import the cold sequence makes itself (the host objects it
+            // constructs natively: posts, the battle, the human spawn) is
+            // compared row for row with the host's; any other is passed over.
+            let cold_import = matches!(self.calls.get(self.next), Some((_, "sim_import", cold)) if cold.args.first() == recorded.args.first());
+            if !cold_import { return; }
+        }
+        if export == "sim_str_intern" {
+            if let Some(text) = line["intern"]["text"].as_str() { self.interns.push(text.to_string()); }
+            return;
+        }
+        if !self.exports.contains(export) { return; }
+        let sequence = line["sequence"].clone();
+        // The kernel's body order refresh (collision.js rayBodies) is a call
+        // the fleet stage makes natively without recording one; only the
+        // page body's spawn records it (with the spawn row the recorder
+        // attributed to it), so a recorded one the cold side skipped passes.
+        if export == "world_order" && !matches!(self.calls.get(self.next), Some((_, "world_order", _))) { return; }
+        // The import rooms the other owners' imports size (their imports are
+        // passed over above) are not the cold sequence's either.
+        if export == "sim_import_room" && !matches!(self.calls.get(self.next), Some((_, "sim_import_room", _))) { return; }
+        let Some((stage, name, cold)) = self.calls.get(self.next) else {
+            self.note(json!({"sequence": sequence, "export": export, "field": "order", "recorded": export, "cold": "no call left"}));
+            self.stopped = true;
+            return;
+        };
+        if *name != export {
+            let upcoming: Vec<&str> = self.calls[self.next..].iter().take(10).map(|(_, name, _)| *name).collect();
+            self.note(json!({"sequence": sequence, "export": export, "field": "order", "stage": format!("{stage:?}"), "recorded": export, "cold": name, "coldNext": upcoming}));
+            self.stopped = true;
+            return;
+        }
+        self.next += 1;
+        self.compared += 1;
+        let stage = format!("{stage:?}");
+        let skip = ADDRESS_ARGS.iter().find(|(name, _)| *name == export).map(|(_, index)| *index);
+        let words = |field: &str, theirs: &[f64], ours: &[f64], differences: &mut Vec<Value>| {
+            let at = theirs.iter().zip(ours).enumerate().position(|(i, (a, b))| a.to_bits() != b.to_bits() && !(field == "args" && Some(i) == skip));
+            if theirs.len() != ours.len() || at.is_some() {
+                if differences.len() < 200 {
+                    differences.push(json!({"sequence": sequence, "export": export, "stage": stage, "field": field, "lengths": [theirs.len(), ours.len()],
+                        "word": at, "recorded": at.map(|i| format!("{:016x} ({})", theirs[i].to_bits(), theirs[i])), "cold": at.map(|i| format!("{:016x} ({})", ours[i].to_bits(), ours[i]))}));
+                }
+            }
+        };
+        let mut differences = std::mem::take(&mut self.differences);
+        // A firing birth differing anywhere is shown decoded, both sides.
+        if export == "f2_firing_adopt" && (recorded.row != cold.row || recorded.heap != cold.heap) && differences.len() < 12 {
+            let decode = |c: &Call| if c.row.len() >= bfe_sim::gen::FfBirth::WORDS { format!("{:?}", bfe_sim::gen::FfBirth::take(&c.row, &c.heap)) } else { String::new() };
+            differences.push(json!({"sequence": sequence, "export": export, "stage": stage, "field": "birth", "recorded": decode(recorded), "cold": decode(cold)}));
+        }
+        if export == "f2_turret_adopt" && (recorded.row != cold.row || recorded.heap != cold.heap) && differences.len() < 12 {
+            let decode = |c: &Call| if c.row.len() >= bfe_sim::gen::F2TurretBirth::WORDS { format!("{:?}", bfe_sim::gen::F2TurretBirth::take(&c.row, &c.heap)) } else { String::new() };
+            differences.push(json!({"sequence": sequence, "export": export, "stage": stage, "field": "birth", "recorded": decode(recorded), "cold": decode(cold)}));
+        }
+        words("args", &recorded.args, &cold.args, &mut differences);
+        // F3.bodiesIn's rows go straight into the F3 input bank; the
+        // recording has no row for them (only the count argument).
+        // spawnSoldier writes its row through sim_call_room; the recording
+        // keeps those words on the room's line, not the spawn's.
+        if !matches!(export, "f3_body_names" | "body_spawn") { words("row", &recorded.row, &cold.row, &mut differences); }
+        words("heap", &recorded.heap, &cold.heap, &mut differences);
+        // A loan's bytes belong to the consumer's scratch, not the sizing call's.
+        let (theirs_scratch, ours_scratch) = if LOANS.contains(&export) { self.loan = recorded.scratch.clone(); (Vec::new(), cold.scratch.clone()) }
+            else if CONSUMERS.contains(&export) { (std::mem::take(&mut self.loan), cold.scratch.clone()) }
+            else { (recorded.scratch.clone(), cold.scratch.clone()) };
+        // A consumed loan the host wrote into was often reallocated by the
+        // module; the recorder's memory diff never lists bytes equal to what
+        // the new block held, so its reconstruction is lossy there. Those
+        // differences are noted, not counted (the F2 banks cover the values).
+        // A buffer the host fills after the call (FILLS) is recorded as memory
+        // writes, not as the call's scratch: an empty recorded scratch there
+        // is the recorder's shape, not a difference.
+        let advisory = CONSUMERS.contains(&export) || (FILLS.contains(&export) && theirs_scratch.is_empty());
+        if theirs_scratch != ours_scratch && advisory {
+            self.loan_notes += 1;
+            // ADMIT_REPLAY_LOANS=1 shows them, as numbers from the first word.
+            if std::env::var("ADMIT_REPLAY_LOANS").is_ok() && differences.len() < 12 && CONSUMERS.contains(&export) {
+                let at = theirs_scratch.chunks_exact(8).zip(ours_scratch.chunks_exact(8)).position(|(a, b)| a != b);
+                let words = |bytes: &[u8]| -> Vec<f64> { bytes.chunks_exact(8).skip(at.unwrap_or(0)).take(12).map(|x| f64::from_le_bytes(x.try_into().unwrap_or([0; 8]))).collect() };
+                differences.push(json!({"sequence": sequence, "export": export, "field": "loan", "args": recorded.args, "lengths": [theirs_scratch.len(), ours_scratch.len()], "word": at, "recorded": words(&theirs_scratch), "cold": words(&ours_scratch)}));
+            }
+        }
+        if theirs_scratch != ours_scratch && !advisory && differences.len() < 200 {
+            let at = theirs_scratch.iter().zip(&ours_scratch).position(|(a, b)| a != b);
+            let show = |bytes: &[u8]| -> String { let from = at.unwrap_or(0).min(bytes.len()); bytes[from..bytes.len().min(from + 80)].iter().map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' }).collect() };
+            // Word-sized scratch (pulled poses, collider rows) is shown as numbers from the first differing word.
+            let words = |bytes: &[u8]| -> Vec<f64> { let from = at.unwrap_or(0) / 8 * 8; bytes[from.min(bytes.len())..].chunks_exact(8).take(10).map(|x| f64::from_le_bytes(x.try_into().unwrap_or([0; 8]))).collect() };
+            let numeric = theirs_scratch.len() % 8 == 0 && ours_scratch.len() % 8 == 0;
+            differences.push(json!({"sequence": sequence, "export": export, "stage": stage, "field": "scratch", "lengths": [theirs_scratch.len(), ours_scratch.len()], "byte": at, "word": at.map(|a| a / 8),
+                "recorded": show(&theirs_scratch), "cold": show(&ours_scratch),
+                "recordedWords": numeric.then(|| words(&theirs_scratch)), "coldWords": numeric.then(|| words(&ours_scratch))}));
+        }
+        let ours: Vec<String> = cold.strings.iter().map(|units| String::from_utf16_lossy(units)).collect();
+        // The page's own table lags the module's where a body interned a text
+        // itself: the host then interns it again (the module answers the old
+        // id). Such an intern is no difference when the cold world holds the
+        // text; a cold intern the host never made, or a missing one, is.
+        // A partial run has no cold world of its own: every host intern counts.
+        let table = self.world.as_deref().map(|world| bfe_sim::world::admit::string_table(world));
+        let theirs: Vec<String> = std::mem::take(&mut self.interns).into_iter()
+            .filter(|text| ours.contains(text) || !table.is_some_and(|t| t.list.iter().any(|units| String::from_utf16_lossy(units) == *text))).collect();
+        if theirs != ours && differences.len() < 200 {
+            differences.push(json!({"sequence": sequence, "export": export, "stage": stage, "field": "strings", "recorded": theirs, "cold": ours}));
+        }
+        self.differences = differences;
+    }
+    fn summary(&self) -> Value {
+        json!({"coldCalls": self.calls.len(), "coldCompared": self.compared, "coldLeft": self.calls.len() - self.next, "coldStopped": self.stopped, "coldLoanNotes": self.loan_notes, "coldDifferences": self.differences})
+    }
+}
+
+/// Where a partial run (--from) takes the recorded world over from the
+/// replay: at the first recorded call of an export only that stage makes,
+/// or right after the last call of the stage before it when the stage's own
+/// first exports (the viewpoint's skeleton and clips) also occur earlier.
+#[derive(Clone, Copy)]
+enum Boundary { Before(&'static str), After(&'static str) }
+fn first_export(stage: Stage) -> Option<Boundary> {
+    match stage {
+        Stage::Units => Some(Boundary::Before("f3_init")),
+        Stage::Policies => Some(Boundary::Before("ai_weapon_policies")),
+        // createWorldSim's last owner query precedes game.js's headless
+        // viewpoint adoption (rows/battle/stock.rs).
+        Stage::World => Some(Boundary::After("world_local_words")),
+        Stage::LiveTail => Some(Boundary::Before("f4_live_init")),
+        Stage::Session => Some(Boundary::Before("players_init")),
+        _ => None,
+    }
+}
+fn stage_named(name: &str) -> Option<Stage> {
+    [Stage::Units, Stage::Policies, Stage::Ai, Stage::World, Stage::LiveTail, Stage::Session].into_iter().find(|stage| format!("{stage:?}") == name)
+}
+
+/// The fleet's and props' bindings a partial run takes as fixtures, decoded
+/// from the recorded rows of the stages the other lanes derive live: f3_init's
+/// bodySerial, F3Props.prepare's building rows, F3Hulls.prepare's hull rows
+/// with their body names, and the kernel's full body list when sent.
+fn fixtures(lines: &[Value]) -> bfe_sim::world::admit::partial::Fixtures {
+    use bfe_sim::gen::{F3BodyName, F3BuildingSetup, F3HullSetup};
+    let mut out = bfe_sim::world::admit::partial::Fixtures::default();
+    let mut hull_group = false;
+    // The host writes F3BodyName rows straight into the F3 input bank, which
+    // the recording does not carry: the hulls' kernel slots come from the
+    // fleet's body_new answers (the last ones before the fleet's own calls)
+    // and the prepared variants' f2_prepare_body arguments; the body refs
+    // are the fleet lane's to number, so the kernel slot stands in for them.
+    let mut kernels: Vec<u32> = Vec::new();
+    let mut hull_kernels: Vec<u32> = Vec::new();
+    let mut fleet_started = false;
+    let mut ai_begun = false;
+    let name = |kernel: u32| F3BodyName { body: bfe_sim::store::Ref::new(kernel, 0), kernel };
+    for line in lines {
+        // A --twice recording holds a second battle: only the first is admitted here.
+        if line["type"].as_str() == Some("battle") && line["battle"].as_u64() != Some(0) { break; }
+        if line["type"].as_str() != Some("call") || line["phase"].as_str() != Some("admission") { continue; }
+        let export = line["export"].as_str().unwrap_or("");
+        if export == "sim_import" {
+            let arguments = words(&line["arguments"]);
+            let (row, heap) = (words(&line["args"]["words"]), words(&line["args"]["heap"]));
+            if arguments.first().copied() == Some(f64::from(bfe_sim::gen::KIND_UNITS)) && row.len() >= bfe_sim::gen::Units::FULL_STRIDE {
+                let mut units = bfe_sim::gen::Units::default(); units.take_full(&row, &heap); out.registry = Some(units);
+            }
+            continue;
+        }
+        if matches!(export, "sim_str_intern" | "sim_scratch" | "sim_call_room" | "sim_import_room" | "sim_import" | "io_ptr" | "enabled_ptr" | "candidates_ptr") { continue; }
+        let row = words(&line["args"]["words"]);
+        let heap = words(&line["args"]["heap"]);
+        if export == "ai_world_begin" && !ai_begun {
+            ai_begun = true;
+            if row.len() >= bfe_sim::gen::AiWorldSetup::WORDS { out.ai_setup = Some(bfe_sim::gen::AiWorldSetup::take(&row, &heap)); }
+        }
+        match export {
+            "body_new" => { if let Some(slot) = line["returned"]["scalar"].as_str().map(bits) { kernels.push(slot as u32); if fleet_started { hull_kernels.push(slot as u32); } } }
+            "pose_construct_vehicle" => { fleet_started = true; }
+            "f2_prepare_body" => { if let Some(slot) = words(&line["arguments"]).first() { hull_kernels.push(*slot as u32); } }
+            "f3_init" => { out.body_serial = words(&line["arguments"]).get(2).copied().unwrap_or(0.0) as u32; }
+            // F3Factory.reserve's bound (game.js: units.nextId + 512).
+            "f3_factory_reserve" => { out.construction_limit = words(&line["arguments"]).first().map(|v| *v as u32); }
+            "pose_new" => { if let Some(id) = line["returned"]["scalar"].as_str().map(bits) { out.poses.push(id as u32); } }
+            "f4_animated_birth" => { if row.len() >= bfe_sim::gen::F4AnimationSetup::WORDS { out.animated_bodies.push(bfe_sim::gen::F4AnimationSetup::take(&row, &heap).body); } }
+            // The viewpoint's spawnSoldier, before the fleet: its answer row.
+            "body_spawn" if out.viewpoint_spawn.is_empty() => { out.viewpoint_spawn = words(&line["returned"]["block"]["words"]); }
+            "f3_building" => { if row.len() >= F3BuildingSetup::WORDS { out.buildings.push(F3BuildingSetup::take(&row, &heap)); } }
+            "f3_hull" => {
+                if row.len() >= F3HullSetup::WORDS {
+                    let kernel = hull_kernels.get(out.hulls.len()).copied().unwrap_or(0);
+                    out.hulls.push((F3HullSetup::take(&row, &heap), name(kernel), None));
+                    hull_group = true;
+                }
+                continue;
+            }
+            "f3_body_names" => {
+                let count = words(&line["arguments"]).first().copied().unwrap_or(0.0) as usize;
+                if count != 1 {
+                    let names: Vec<F3BodyName> = kernels.iter().take(count).map(|kernel| name(*kernel)).collect();
+                    match out.hulls.last_mut().filter(|_| hull_group) {
+                        Some(hull) if hull.2.is_none() => { out.bodies = names.clone(); hull.2 = Some(names); }
+                        _ => { out.bodies = names; out.bodies_changed = true; }
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
+        hull_group = false;
+    }
+    out
+}
+
+/// ADMIT_REPLAY_BANK=N writes bank N's words (their bits) to stderr, one
+/// JSON line, for a word-level comparison of two runs.
+fn dump_bank(id: u32, words: &[f64]) {
+    if std::env::var("ADMIT_REPLAY_BANK").ok().and_then(|v| v.parse::<u32>().ok()) == Some(id) {
+        let bits: Vec<String> = words.iter().map(|w| format!("{:016x}", w.to_bits())).collect();
+        eprintln!("{}", json!({"bankDump": id, "words": bits}));
+    }
+}
+
+fn run_cold_matrix(args: &[String]) {
+    let content_dir = args.get(1).expect("content_dir");
+    let banks_dir = args.get(2).expect("banks_dir");
+    let matrix_file = args.get(3).expect("matrix_file");
+    let only = args.get(4).map(String::as_str);
+    let files = DirFiles::new(content_dir);
+    let text = std::fs::read_to_string(matrix_file).expect("read matrix file");
+    let mut rows = 0usize;
+    let mut exact = 0usize;
+    let mut failures = Vec::new();
+    let mut all_digests = Vec::new();
+    let mut row_idx = 0usize;
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let current_idx = row_idx;
+        row_idx += 1;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let label = parts[0];
+        if let Some(filter) = only {
+            if label != filter && format!("{current_idx:02}-{label}") != filter {
+                continue;
+            }
+        }
+        rows += 1;
+        let options = parse_matrix_options(&parts[1..]);
+        let context = Context::new();
+        let admitted = match context.world_admit(&files, &options) {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                eprintln!("[{current_idx:02}] {label}: world_admit failed: {}", error.message());
+                failures.push(json!({"label": label, "error": error.message()}));
+                let _ = context.dispose();
+                continue;
+            }
+        };
+        let _ = context.world_step_init(admitted.setup);
+        let bank_path = find_banks_file(banks_dir, current_idx, label);
+        let bank_lines: Vec<Value> = std::fs::read_to_string(&bank_path)
+            .expect("read .banks file")
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str::<Value>(l).expect("bank json"))
+            .filter(|v| v["battle"].as_u64().unwrap_or(0) == 0)
+            .collect();
+        let mut out = Vec::new();
+        let mut diffs = Vec::new();
+        // Every bank's digest, for a comparison with the recorded replay's
+        // own banks (the recorder's checkpoint cannot reproduce some banks).
+        let mut digests = Vec::new();
+        for (i, id) in bank::ALL.iter().enumerate() {
+            let recorded = &bank_lines[i];
+            let ok = context.read_bank(*id, &mut out).is_ok();
+            let bytes: Vec<u8> = out.iter().flat_map(|w| w.to_le_bytes()).collect();
+            let digest = hex(&sha256(&bytes));
+            digests.push(json!({"bank": id, "name": recorded["name"], "words": out.len(), "sha256": digest}));
+            dump_bank(*id, &out);
+            let same = ok
+                && (out.len() as u64) == recorded["words"].as_u64().unwrap_or(u64::MAX)
+                && digest == recorded["sha256"].as_str().unwrap_or("");
+            if !same {
+                diffs.push(json!({
+                    "bank": id,
+                    "name": recorded["name"],
+                    "words": out.len(),
+                    "recordedWords": recorded["words"],
+                    "sha256": digest,
+                    "recorded": recorded["sha256"],
+                }));
+            }
+        }
+        let _ = context.dispose();
+        if diffs.is_empty() {
+            exact += 1;
+            eprintln!("[{current_idx:02}] {label}: 28/28 banks match");
+        } else {
+            let names: Vec<&str> = diffs.iter().filter_map(|d| d["name"].as_str()).collect();
+            eprintln!("[{current_idx:02}] {label}: {} banks differ: {:?}", diffs.len(), names);
+            failures.push(json!({"label": label, "diffs": diffs}));
+        }
+        all_digests.push(json!({"label": label, "banks": digests}));
+    }
+    println!(
+        "{}",
+        json!({"rows": rows, "exact": exact, "differing": rows - exact, "failures": failures, "digests": all_digests})
+    );
+    if exact != rows {
+        std::process::exit(1);
+    }
+}
+
+/// --posts CONTENT_DIR MATRIX_FILE LABEL: admit the battle natively and
+/// compare the command vehicles' posts it imported before createNativeAI's
+/// first call (KIND_MOBILE_POST rows and the KIND_MOBILE_POSTS list) with the
+/// host's recorded imports on stdin, field by field, texts resolved through
+/// each side's own string table (ids may differ between the two tables).
+fn run_posts(args: &[String]) {
+    use bfe_sim::gen::{MobilePost, MobilePosts, KIND_MOBILE_POST, KIND_MOBILE_POSTS};
+    let [content_dir, matrix_file, label] = [1, 2, 3].map(|i| args.get(i).cloned().unwrap_or_default());
+    let options = match matrix_options(&matrix_file, &label) { Ok(o) => o, Err(e) => { eprintln!("{e}"); std::process::exit(2); } };
+    let files = DirFiles::new(&content_dir);
+    let mut world = World::new();
+    let (_, rows) = match bfe_sim::world::admit::admit_with_rows(&mut world, &files, &options) {
+        Ok(r) => r,
+        Err(e) => { println!("{}", json!({"label": label, "admitted": false, "error": e.to_string()})); std::process::exit(1); }
+    };
+    let cold_import = |kind: u16| rows.calls.iter().flat_map(|(_, c)| c.iter()).find(|(_, name, call)| *name == "sim_import" && call.args.first() == Some(&f64::from(kind))).map(|(_, _, c)| (c.row.clone(), c.heap.clone()));
+    // The recording's texts: every sim_str_intern's answer is the new id;
+    // the ids below the first one are the module's preset table, as ours.
+    let mut texts: BTreeMap<u32, String> = BTreeMap::new();
+    let mut recorded: BTreeMap<u16, (Vec<f64>, Vec<f64>)> = BTreeMap::new();
+    for l in std::io::stdin().lock().lines().map_while(Result::ok) {
+        let Ok(line) = serde_json::from_str::<Value>(&l) else { continue; };
+        if line["type"].as_str() == Some("battle") && line["battle"].as_u64() != Some(0) { break; }
+        let export = line["export"].as_str().unwrap_or("");
+        if export == "ai_world_begin" { break; }
+        if export == "sim_str_intern" {
+            if let (Some(id), Some(text)) = (line["returned"]["scalar"].as_str().map(bits), line["intern"]["text"].as_str()) { texts.insert(id as u32, text.to_string()); }
+        }
+        if export == "sim_import" {
+            let arguments = words(&line["arguments"]);
+            for kind in [KIND_MOBILE_POST, KIND_MOBILE_POSTS] {
+                if arguments.first() == Some(&f64::from(kind)) { recorded.insert(kind, (words(&line["args"]["words"]), words(&line["args"]["heap"]))); }
+            }
+        }
+    }
+    let ours = |id: bfe_sim::store::StrId| bfe_sim::world::admit::string_text(&world, id);
+    let theirs = |id: bfe_sim::store::StrId| texts.get(&id.0).cloned().unwrap_or_else(|| bfe_sim::world::admit::string_text(&world, id));
+    let show = |p: &MobilePost, text: &dyn Fn(bfe_sim::store::StrId) -> String| json!({
+        "index": p.index, "name": text(p.name), "label": text(p.label), "team": p.team, "active": p.active, "mobile": p.mobile,
+        "vehicle": format!("{:?}", p.vehicle), "life": p.life, "yaw": p.yaw.to_bits(), "radius": p.radius.to_bits(), "speed": p.speed.to_bits(),
+        "lastPosition": p.last_position.map(f64::to_bits), "desc": [text(p.desc.name), text(p.desc.display_name), p.desc.value_bleed.to_string(), p.desc.mobile.to_string()],
+        "ai": format!("{:?}", p.ai), "reported": format!("{:?}", p.reported) });
+    let decode = |(row, heap): &(Vec<f64>, Vec<f64>)| -> Vec<MobilePost> {
+        row.chunks_exact(MobilePost::FULL_STRIDE).map(|r| { let mut p = MobilePost::default(); p.take_full(r, heap); p }).collect()
+    };
+    let cold = cold_import(KIND_MOBILE_POST).map(|r| decode(&r)).unwrap_or_default();
+    let host = recorded.get(&KIND_MOBILE_POST).map(decode).unwrap_or_default();
+    let cold_shown: Vec<Value> = cold.iter().map(|p| show(p, &ours)).collect();
+    let host_shown: Vec<Value> = host.iter().map(|p| show(p, &theirs)).collect();
+    let list = |r: Option<(Vec<f64>, Vec<f64>)>| r.filter(|(row, _)| row.len() >= MobilePosts::FULL_STRIDE).map(|(row, heap)| { let mut m = MobilePosts::default(); m.take_full(&row, &heap); format!("{:?}", m.posts) });
+    let cold_list = list(cold_import(KIND_MOBILE_POSTS));
+    let host_list = list(recorded.get(&KIND_MOBILE_POSTS).cloned());
+    let same = cold_shown == host_shown && cold_list == host_list;
+    let differing: Vec<Value> = cold_shown.iter().zip(&host_shown).filter(|(a, b)| a != b).map(|(a, b)| json!({"cold": a, "host": b})).collect();
+    println!("{}", json!({"label": label, "admitted": true, "mobilePosts": [cold.len(), host.len()], "list": [cold_list, host_list], "same": same, "differing": differing,
+        "posts": cold_shown.iter().map(|p| json!([p["name"], p["label"], p["team"], p["active"], p["vehicle"]])).collect::<Vec<_>>()}));
+    if !same { std::process::exit(1); }
+}
+
 fn main() {
+    let cli_args: Vec<String> = std::env::args().skip(1).collect();
+    if cli_args.first().map(String::as_str) == Some("--cold") {
+        run_cold_matrix(&cli_args);
+        return;
+    }
+    if cli_args.first().map(String::as_str) == Some("--posts") {
+        run_posts(&cli_args);
+        return;
+    }
+    // --cold-calls CONTENT_DIR MATRIX_FILE LABEL: compare the cold sequence's calls with the recording on stdin.
+    // --cold-calls CONTENT_DIR MATRIX_FILE LABEL --from STAGE [--through STAGE]: replay the recording up to
+    // the stage's first call, run that stage through the last one named (default Player) cold on the replayed
+    // world (partial.rs), compare from there.
+    let mut cold: Option<ColdCalls> = None;
+    let mut partial: Option<(Stage, Boundary, String, bfe_sim::world::admit::Options, Stage)> = None;
+    // An After boundary arms at its export; the partial run starts at the
+    // next admission call, before that call is replayed.
+    let mut armed = false;
+    if cli_args.first().map(String::as_str) == Some("--cold-calls") {
+        let [content_dir, matrix_file, label] = [1, 2, 3].map(|i| cli_args.get(i).cloned().unwrap_or_default());
+        if cli_args.get(4).map(String::as_str) == Some("--from") {
+            let name = cli_args.get(5).cloned().unwrap_or_default();
+            let Some(stage) = stage_named(&name) else { eprintln!("--from: unknown stage {name}"); std::process::exit(2); };
+            let Some(boundary) = first_export(stage) else { eprintln!("--from {name}: no boundary export for that stage"); std::process::exit(2); };
+            let through = if cli_args.get(6).map(String::as_str) == Some("--through") {
+                let name = cli_args.get(7).cloned().unwrap_or_default();
+                let Some(through) = stage_named(&name) else { eprintln!("--through: unknown stage {name}"); std::process::exit(2); };
+                through
+            } else { Stage::Player };
+            match matrix_options(&matrix_file, &label) {
+                Ok(options) => partial = Some((stage, boundary, content_dir, options, through)),
+                Err(error) => { eprintln!("{error}"); std::process::exit(1); }
+            }
+        } else {
+            match ColdCalls::build(&content_dir, &matrix_file, &label) {
+                Ok(built) => cold = Some(built),
+                Err(error) => { eprintln!("cold admission failed: {error}"); std::process::exit(1); }
+            }
+        }
+    }
     let lines: Vec<Value> = std::io::stdin().lock().lines().filter_map(|l| l.ok()).filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(&l).expect("a recording line")).collect();
+    let partial_fixtures = partial.as_ref().map(|_| fixtures(&lines));
+    let mut partial_stopped: Option<String> = None;
+    // After the boundary the cold stages own the world: the recording is
+    // only compared, never replayed into it.
+    let mut comparing_only = false;
     let mut memory = Memory::default();
     let mut handles: BTreeMap<u64, f64> = BTreeMap::new();
     let mut context = Context::new();
@@ -147,7 +709,7 @@ fn main() {
                 for (i, id) in bank::ALL.iter().enumerate() {
                     let recorded = &line["banks"][i];
                     let digest = match context.read_bank(*id, &mut out) {
-                        Ok(_) => { let bytes: Vec<u8> = out.iter().flat_map(|w| w.to_le_bytes()).collect(); Some((out.len(), hex(&sha256(&bytes)))) }
+                        Ok(_) => { dump_bank(*id, &out); let bytes: Vec<u8> = out.iter().flat_map(|w| w.to_le_bytes()).collect(); Some((out.len(), hex(&sha256(&bytes)))) }
                         Err(error) => { failures.push(json!({"bank": id, "error": error.message()})); None }
                     };
                     let same = digest.as_ref().is_some_and(|(n, d)| Some(*n as u64) == recorded["words"].as_u64() && Some(d.as_str()) == recorded["sha256"].as_str());
@@ -164,6 +726,26 @@ fn main() {
                 for arg in call.args.iter_mut() { if let Some(key) = handles.get(&arg.to_bits()) { *arg = *key; } }
                 let returned_scalar = line["returned"]["scalar"].as_str().map(bits);
                 let returned_addr = returned_scalar.map(|v| v as u64).unwrap_or(0);
+                let admission = line["phase"].as_str() == Some("admission");
+                let takes_over = partial.as_ref().is_some_and(|p| admission && match p.1 {
+                    Boundary::Before(name) => name == export,
+                    Boundary::After(_) => armed,
+                });
+                if let Some((_, Boundary::After(name), _, _, _)) = partial.as_ref() { if admission && *name == export { armed = true; } }
+                if let Some((stage, _, content_dir, options, through)) = partial.as_ref().filter(|_| takes_over) {
+                    let files = DirFiles::new(content_dir);
+                    let fixtures = partial_fixtures.as_ref().expect("fixtures decoded");
+                    match context.owned(|world| bfe_sim::world::admit::partial::run(world, &files, options, *stage, *through, fixtures)) {
+                        Ok(Ok(run)) => {
+                            partial_stopped = run.stopped.map(|error| error.to_string());
+                            cold = Some(ColdCalls::partial(run.calls));
+                        }
+                        Ok(Err(error)) => { eprintln!("partial admission from {stage:?} failed: {error}"); std::process::exit(1); }
+                        Err(error) => { eprintln!("partial admission from {stage:?} poisoned the world: {}", error.message()); std::process::exit(1); }
+                    }
+                    partial = None;
+                    comparing_only = true;
+                }
                 if READS_SCRATCH.contains(&export) {
                     let (at, len) = match export {
                         "camera_init" => (call.args[0] as u64, call.args[1] as usize),
@@ -177,6 +759,26 @@ fn main() {
                     if enabled_at != 0 { scratch.extend(memory.read(enabled_at, MAX_BODIES)); }
                     if places_at != 0 { scratch.extend(memory.read(places_at, MAX_BODIES)); }
                     call.scratch = scratch;
+                } else if comparing_only && returned_addr != 0 && FILLS.contains(&export) {
+                    // The cold stages own the world now, so the bank's size is
+                    // not asked of a body: the recorded bytes at the returned
+                    // address, as long as the cold call's scratch, after the
+                    // writes the next line carries (the diff lists only the
+                    // bytes the host changed; a fresh buffer is zero).
+                    let len = cold.as_ref().and_then(|c| c.calls.get(c.next)).filter(|(_, name, _)| *name == export).map_or(0, |(_, _, call)| call.scratch.len());
+                    if len > 0 {
+                        if KEPT_BUFFERS.contains(&export) {
+                            if let Some((old_addr, old_len)) = kept.get(export).copied() {
+                                if old_addr != returned_addr { let moved = memory.read(old_addr, old_len.min(len)); memory.write(returned_addr, moved); }
+                                if len > old_len { memory.write(returned_addr + old_len as u64, vec![0; len - old_len]); }
+                            } else { memory.write(returned_addr, vec![0; len]); }
+                            kept.insert(export.to_string(), (returned_addr, len));
+                        } else if !VIEW_BANKS.contains(&export) { memory.write(returned_addr, vec![0; len]); }
+                        if let Some(next) = lines.get(index + 1) {
+                            for write in next["writes"].as_array().into_iter().flatten() { memory.write(write["offset"].as_u64().unwrap_or(0), base64(write["bytes"].as_str().unwrap_or(""))); }
+                        }
+                        call.scratch = memory.read(returned_addr, len);
+                    }
                 } else if returned_addr != 0 && FILLS.contains(&export) {
                     // A buffer the host fills after the call and the next export
                     // consumes. The recording is a memory diff, so unchanged
@@ -228,9 +830,24 @@ fn main() {
                 // The host interned through the module's scratch: the recording
                 // keeps the text itself, the exact bytes the body reads.
                 if export == "sim_str_intern" {
+                    // In the spawn phase, world.fire at tick 161 may intern "consumed"
+                    // through bridge.strings before the recorded spawn call runs.
+                    if line["phase"].as_str() == Some("spawn")
+                        && context.string_count().ok().is_some_and(|n| returned_addr == (n + 1) as u64)
+                    {
+                        let mut prior = Call::default();
+                        prior.strings.push("consumed".encode_utf16().collect());
+                        let _ = context.invoke_export("sim_call_room", &prior);
+                    }
                     let text = line["intern"]["text"].as_str().unwrap_or("");
                     call.scratch = text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
                 } else if let Some(intern) = line["intern"].as_object() { if let Some(text) = intern.get("text").and_then(|t| t.as_str()) { call.strings.push(text.encode_utf16().collect()); } }
+                if let Some(cold) = cold.as_mut() { if line["phase"].as_str() == Some("admission") { cold.compare(line, export, &call); } }
+                if comparing_only {
+                    // Every cold call matched: the partial proof is complete.
+                    if cold.as_ref().is_some_and(|c| c.next == c.calls.len() || c.stopped) { break; }
+                    continue;
+                }
                 // The events port's host round trip has a native twin: the
                 // events bank, drained by its read.
                 if export == "world_events_run" {
@@ -298,8 +915,24 @@ fn main() {
         }
     }
     let same = banks.iter().filter(|b| b["same"] == true).count();
-    println!("{}", json!({"calls": calls, "numericCompared": compared, "numericMismatches": mismatches, "blocksCompared": blocks_compared, "blockMismatches": block_mismatches, "firstDifferences": first, "mismatchesByExport": by_export, "notes": notes, "noBody": nobody, "failures": failures, "banksSame": same, "banks": banks}));
+    let mut summary = json!({"calls": calls, "numericCompared": compared, "numericMismatches": mismatches, "blocksCompared": blocks_compared, "blockMismatches": block_mismatches, "firstDifferences": first, "mismatchesByExport": by_export, "notes": notes, "noBody": nobody, "failures": failures, "banksSame": same, "banks": banks});
+    let mut cold_differs = false;
+    if let Some(cold) = &cold {
+        cold_differs = !cold.differences.is_empty() || cold.next != cold.calls.len();
+        if let (Some(all), Some(part)) = (summary.as_object_mut(), cold.summary().as_object()) { all.extend(part.clone()); }
+    }
+    if comparing_only || partial.is_some() {
+        if let Some(all) = summary.as_object_mut() {
+            all.insert("partialStopped".into(), json!(partial_stopped));
+            all.insert("partialReached".into(), json!(comparing_only));
+        }
+        // A partial proof is judged on its own calls alone.
+        println!("{summary}");
+        if cold_differs || partial_stopped.is_some() || !comparing_only { std::process::exit(1); }
+        return;
+    }
+    println!("{summary}");
     let _ = context.dispose();
     let unexpected = nobody.keys().any(|name| !SKIPPED.contains(&name.as_str()));
-    if mismatches != 0 || block_mismatches != 0 || !failures.is_empty() || same != bank::ALL.len() || unexpected { std::process::exit(1); }
+    if mismatches != 0 || block_mismatches != 0 || !failures.is_empty() || same != bank::ALL.len() || unexpected || cold_differs { std::process::exit(1); }
 }

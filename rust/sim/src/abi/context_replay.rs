@@ -13,7 +13,6 @@ impl Context {
     /// recording made for the battle.
     pub fn world_replay_admit(&self, admission: &Value) -> Result<WorldTickSetup, Error> {
         self.check()?;
-        if !crate::world::admit::provided() { return Err(unavailable("world_replay_admit")); }
         let (files, options) = super::admit::recorded(admission)?;
         Ok(self.world_admit(&files, &options)?.setup)
     }

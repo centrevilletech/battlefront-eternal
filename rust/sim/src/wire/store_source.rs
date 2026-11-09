@@ -97,6 +97,24 @@ impl Source {
         w.input.mailboxes.get(peer.mailbox as usize).ok_or("own input prerequisite missing")
     }
 
+    // Foreign callers pass an explicit WirePublicationLink list, while the
+    // native local session owns its player in w.input.players with an empty
+    // link heap. Resolve discarded_actions from either path.
+    fn link_discarded_actions(&self, w: &Read<'_>, id: u32, words: &[f64]) -> Option<f64> {
+        use crate::gen::WirePublicationLink;
+        if let Some(row) = words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64) {
+            return Some(row[WirePublicationLink::DISCARDED_ACTIONS]);
+        }
+        if words.is_empty() && w.input.players.active {
+            let peer = self.peers.iter().find(|p| p.id == id)?;
+            return w.input.players.order.iter()
+                .filter_map(|&k| w.input.players.pool.get(k))
+                .find(|p| p.mailbox == peer.mailbox as usize)
+                .map(|p| p.actions.discarded);
+        }
+        None
+    }
+
     // SnapshotHost.publish supplies clocks before entering the native borrow.
     // Copy the fixed header so output allocation cannot invalidate a view.
     // The full descriptor is validated before any list is decoded.
@@ -181,8 +199,7 @@ impl Source {
         use crate::gen::*;
         let header = WireWorldFacts::WORDS;
         let (tick, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
-        words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64)
-            .ok_or("own input prerequisite missing")?;
+        self.link_discarded_actions(w, id, words).ok_or("own input prerequisite missing")?;
         let foreign = self.mailbox(w,id)?.publication.spawn.clone();
         if !foreign.valid { return Err("spawn selection registry prerequisite missing"); }
         let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
@@ -214,8 +231,7 @@ impl Source {
         use crate::gen::*;
         let header = WireWorldFacts::WORDS;
         let (_, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
-        words.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == id as f64)
-            .ok_or("own input prerequisite missing")?;
+        self.link_discarded_actions(w, id, words).ok_or("own input prerequisite missing")?;
         let foreign = self.mailbox(w,id)?.publication.clone();
         let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
         let store = &w.sim.store;
@@ -476,7 +492,7 @@ impl super::publisher::World for PublicationWorld<'_> {
         use crate::gen::*;
         let source = &self.source; let header = WireWorldFacts::WORDS;
         let Some((_, rows)) = facts(&source.input[..header], &source.input[header..]) else { return Default::default() };
-        let Some(row) = rows.chunks_exact(WirePublicationLink::WORDS).find(|r| r[WirePublicationLink::ID] == peer as f64) else { return Default::default() };
+        let Some(discarded_actions) = source.link_discarded_actions(&self.w, peer, rows) else { return Default::default() };
         let Some(peer) = source.peers.iter().find(|p| p.id == peer) else { return Default::default() };
         let store = &self.w.sim.store;
         let unit = peer.character.as_ref().and_then(|h| crate::battle::f4_connections::wire_view_in(self.w.battle,store, h))
@@ -487,7 +503,7 @@ impl super::publisher::World for PublicationWorld<'_> {
         });
         super::publisher::Actor { present: true, spectator: peer.character.is_none(), unit: unit.map(|(r, u)| (r.slot as f64, u.generation)), position,
             ack: self.source.mailbox(&self.w,peer.id).map_or(0.,|m|m.state.ack), ack_tick: self.source.mailbox(&self.w,peer.id).map_or(0.,|m|m.state.ack_tick), discarded_input: self.source.mailbox(&self.w,peer.id).map_or(0.,|m|m.state.discarded),
-            discarded_actions: row[WirePublicationLink::DISCARDED_ACTIONS] }
+            discarded_actions }
     }
     fn summaries(&mut self, peer: u32, epoch: f64, fields: &mut super::publisher::Fields) -> super::codec::Result<()> {
         self.source.own_summaries(&mut self.w,peer,epoch)?;

@@ -1,7 +1,7 @@
 //! The native admission API's shape and refusals: signatures pinned by
 //! function-pointer coercions, options composing the same query as the
 //! page, the recorded admission line parsed into files and options, and
-//! every entry refusing Unavailable (naming itself) until the bodies land.
+//! invalid or missing content refused with Host/Content errors.
 #![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_content::files::{Files, MemFiles};
 use bfe_sim::abi::context::{Context, Error, ErrorKind};
@@ -33,23 +33,20 @@ fn options_compose_the_battle_query_as_the_page_does() {
 }
 
 #[test]
-fn entries_refuse_unavailable_and_name_themselves_until_the_bodies_land() {
-    assert!(!bfe_sim::world::admit::provided());
+fn entries_report_provided_and_refuse_missing_content() {
+    assert!(bfe_sim::world::admit::provided());
     let context = Context::new();
     let files = MemFiles::default();
     let error = context.world_admit(&files, &options()).unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::Unavailable);
-    assert_eq!(error.message(), "world_admit");
+    assert_eq!(error.kind(), ErrorKind::Host);
     let error = context.world_replay_admit(&Value::Null).unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::Unavailable);
-    assert_eq!(error.message(), "world_replay_admit");
-    // The world path itself refuses at its first stage, with the stage named.
+    assert_eq!(error.kind(), ErrorKind::Host);
     let mut world = World::new();
     let mut files = MemFiles::default();
     files.insert("/maps/nab2/map.json", b"{}".to_vec());
     match admit(&mut world, &files, &options()) {
-        Err(AdmitError::Content { stage: Stage::Content, .. }) | Err(AdmitError::Unavailable(Stage::Startup)) => {}
-        other => panic!("admission answered {other:?} without bodies"),
+        Err(AdmitError::Content { stage: Stage::Content, .. }) => {}
+        other => panic!("admission answered {other:?} with empty map.json"),
     }
     assert_eq!(AdmitError::Unavailable(Stage::Startup).to_string(), "native admission has no body for Startup");
     // Disposal still wins over everything.

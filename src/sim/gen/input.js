@@ -54,6 +54,10 @@ export function exportIaOutcome(o, cx) {
   return v;
 }
 
+export const IaEntryLayout = Object.freeze({ words: 7, id: 0, tick: 1, generation: 2, actions: 3, actionsLength: 4, human: 5, humanLength: 6 });
+export const IA_ENTRY_WORDS = IaEntryLayout.words;
+export const IA_ENTRY_OFFSETS = IaEntryLayout;
+
 export class IaEntryMirror {
   constructor() {
     this.id = NaN;

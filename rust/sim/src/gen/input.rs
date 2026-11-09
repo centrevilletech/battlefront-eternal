@@ -131,6 +131,13 @@ pub struct IaEntry {
 
 impl IaEntry {
     pub const WORDS: usize = 7;
+    pub const ID: usize = 0;
+    pub const TICK: usize = 1;
+    pub const GENERATION: usize = 2;
+    pub const ACTIONS: usize = 3;
+    pub const HUMAN: usize = 5;
+    pub fn actions_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[3] as usize; let length = row[4] as usize; heap[start..start + length * 1].chunks_exact(1) }
+    pub fn human_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[5] as usize; let length = row[6] as usize; heap[start..start + length * 6].chunks_exact(6) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();

@@ -52,6 +52,9 @@ pub fn players_link_in(w: &mut World, handle: u32) -> u32 {
     p.last_input_at = link.at;
     p.controls = super::controls::Controls::new();
     p.fire = Player::fire_lane();
+    for entry in p.actions.queue.drain(..) {
+        crate::input::actions::recycle_entry(&mut p.action_entries, entry);
+    }
     p.actions = Player::actions_lane();
     p.changed = true;
     1
@@ -116,24 +119,57 @@ pub fn players_fire_in(w: &mut World, handle: u32) -> u32 {
 /// world.actions: a reliable action message for a connected player with
 /// separate lanes. The admission's refusal or fault is read back.
 pub fn players_actions_in(w: &mut World, handle: u32) -> Option<&[f64]> {
+    let generation = alive_body(w, handle).and_then(|(generation, _)| generation);
     let (row, heap) = w.sim.calls.args();
     if row.len() < PlayerActions::WORDS { return None; }
-    let input = PlayerActions::take(row, heap);
+    let entry_row = &row[PlayerActions::ENTRY..PlayerActions::ENTRY + IaEntry::WORDS];
+    let actions_rows = IaEntry::actions_rows(entry_row, heap);
     // Action names arrive as string ids the host interned; refuse any the
     // table does not hold before the lane compares their text.
-    let strings = w.sim.strings.list.len();
-    if input.entry.actions.iter().any(|id| id.0 as usize >= strings) { return None; }
+    let strings_len = w.sim.strings.list.len();
+    for a in actions_rows.clone() {
+        if (a[0] as u32 as usize) >= strings_len { return None; }
+    }
+    let at = row[PlayerActions::AT];
+    let tick = row[PlayerActions::TICK];
+    let same_epoch = row[PlayerActions::SAME_EPOCH] == 1.0;
+    let payload_valid = row[PlayerActions::PAYLOAD_VALID] == 1.0;
+    let human_valid = row[PlayerActions::HUMAN_VALID] == 1.0;
+    let entry_id = entry_row[IaEntry::ID];
+    let entry_tick = entry_row[IaEntry::TICK];
+    let entry_generation = entry_row[IaEntry::GENERATION];
+    let human_rows = PlayerActions::human_rows(row, heap);
+
     let mut answer = PlayerAdmission::default();
-    let generation = alive_body(w, handle).and_then(|(generation, _)| generation);
     if let Some(p) = w.input.players.pool.get(handle as usize) {
         if p.separate_actions && !p.spectator && p.disconnected_at.is_none() {
-            let same_generation = generation == Some(input.entry.generation);
+            let same_generation = generation == Some(entry_generation);
             let strings = &w.sim.strings;
             let p = w.input.players.pool.get_mut(handle as usize).unwrap();
-            let outcome = crate::input::actions::push(&mut p.actions, Some(input.entry), input.same_epoch, same_generation,
-                input.payload_valid, input.human_valid, input.human, input.tick, strings);
+            let mut entry = p.action_entries.pop().unwrap_or_else(|| IaEntry {
+                id: 0.0, tick: 0.0, generation: 0.0, actions: Vec::with_capacity(64), human: Vec::with_capacity(16),
+            });
+            entry.id = entry_id;
+            entry.tick = entry_tick;
+            entry.generation = entry_generation;
+            entry.actions.clear();
+            if actions_rows.len() <= entry.actions.capacity() {
+                entry.actions.extend(actions_rows.map(|r| crate::store::StrId(r[0] as u32)));
+            } else {
+                entry.actions = actions_rows.map(|r| crate::store::StrId(r[0] as u32)).collect();
+            }
+            entry.human.clear();
+            p.action_humans.clear();
+            let human_count = human_rows.len();
+            if human_count <= p.action_humans.capacity() {
+                p.action_humans.extend(human_rows.map(|r| IaHuman::take(r, heap)));
+            } else {
+                p.action_humans = human_rows.map(|r| IaHuman::take(r, heap)).collect();
+            }
+            let outcome = crate::input::actions::push_reusing(&mut p.actions, Some(entry), same_epoch, same_generation,
+                payload_valid, human_valid, &p.action_humans, tick, strings, &mut p.action_entries);
             match outcome {
-                Ok(accepted) => { answer.accepted = accepted; if accepted { p.heard(input.at); } }
+                Ok(accepted) => { answer.accepted = accepted; if accepted { p.heard(at); } }
                 Err(error) => answer.error = Some(w.sim.strings.intern_str(error)),
             }
         }

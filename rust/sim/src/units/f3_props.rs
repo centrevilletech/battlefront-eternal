@@ -420,6 +420,8 @@ impl traps::HealthWorld for BuildingWorld<'_, '_> {
 /// Native LiveObjects construction and regeneration share combat's owner.
 /// A phase reads fixed copies, never an entry borrow spanning a crew callback.
 pub(crate) fn count_in(units: &super::owner::Units) -> usize { f3::props_read(units).entries.len() }
+/// LiveObjects.buildings.length: the buildings F3 prepared, for the F4 owners' handle binding.
+pub(crate) fn building_count_in(units: &super::owner::Units) -> usize { f3::props_read(units).entries.len() }
 pub(crate) fn owner_in(world_ctx: &mut crate::world::owner::World, index: usize) -> F4Handle {
     let handle = &f3::props_in(&mut world_ctx.units).entries[index].owner;
     match handle.kind {

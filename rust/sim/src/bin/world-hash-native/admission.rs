@@ -10,6 +10,7 @@
 //! published, before the first tick), which is where the Node tool's
 //! battle loop begins.
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -220,19 +221,24 @@ pub fn admit_world(
     admissions_dir: &Path,
     content_dir: &Path,
 ) -> Result<Handles, String> {
-    if bfe_sim::world::admit::provided() {
+    // BFE_ADMISSION=recorded replays the recorded admission even where the
+    // native one exists, so both worlds' streams can be compared.
+    let recorded = env::var("BFE_ADMISSION").is_ok_and(|v| v == "recorded");
+    if bfe_sim::world::admit::provided() && !recorded {
         let files = DirFiles::new(content_dir.to_path_buf());
         let admitted = context
             .world_admit(&files, options)
             .map_err(|e| format!("world_admit failed: {}", e.message()))?;
+        let h = admitted.handles;
         return Ok(Handles {
-            publication: admitted.handles.publication,
-            store_source: admitted.handles.client,
-            host: admitted.handles.host,
-            mailbox: admitted.handles.mailbox,
-            edges: admitted.handles.edges,
-            player: admitted.handles.player,
-            ..Default::default()
+            publication: h.publication,
+            store_source: h.store_source,
+            host: h.host,
+            combat: h.combat,
+            presentation: h.presentation,
+            mailbox: h.mailbox,
+            edges: h.edges,
+            player: h.player,
         });
     }
     replay_recorded(context, label, admissions_dir)

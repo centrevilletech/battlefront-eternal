@@ -260,17 +260,18 @@ impl Collision {
 
     /// CollisionWorld construction sizes native wall-query storage from the
     /// loaded level. A new part of the map must not allocate on first contact.
-    /// The page's prediction prepares through the module's cache bank.
+    /// The page's prediction prepares through the module's cache bank,
+    /// reached only for a collider that retains caches.
     pub fn prepare(&mut self, s: &State) {
         #[cfg(target_arch = "wasm32")]
-        self.prepare_with(s, spheres::caches());
+        self.prepare_with(s, None);
         // Native prediction owns its query scratch and gathers directly.
         #[cfg(not(target_arch = "wasm32"))]
-        self.prepare_with(s, &mut []);
+        self.prepare_with(s, Some(&mut []));
     }
     // The gather caches are the collision owner's bank, lent by the caller:
     // a native host has no process-global world to take them from.
-    pub fn prepare_with(&mut self, s: &State, caches: &mut [GatherCache]) {
+    pub fn prepare_with(&mut self, s: &State, mut caches: Option<&mut [GatherCache]>) {
         let w = &s.worlds[self.world];
         if self.prepared != Some(w.version) {
             self.gathered.prepare(s,self.world,self.blockers);
@@ -288,7 +289,8 @@ impl Collision {
             self.points.reserve(c.walls.len().saturating_sub(self.points.len()));
             for &id in c.walls.iter().chain(&c.springs) {
                 if id >= 0 {
-                    if let Some(cache) = retained_cache(caches, id) {
+                    let bank: &mut [GatherCache] = match caches.as_deref_mut() { Some(bank) => bank, None => spheres::caches() };
+                    if let Some(cache) = retained_cache(bank, id) {
                         cache.reserve(statics,blockers,w.order.len() + w.prepared.len());
                     }
                 }
@@ -818,7 +820,7 @@ mod native_query_owners {
         w.collision.gathers.caches.push(GatherCache::new(0.75));
         let mut collision = Collision::new(0, None);
         collision.add_collider(0, Collider { kernel: 0, local_bounds: [0.; 6], walls: vec![0], springs: vec![1] });
-        collision.prepare_with(&w.collision.state, &mut w.collision.gathers.caches);
+        collision.prepare_with(&w.collision.state, Some(&mut w.collision.gathers.caches));
         let mut position = Vector3::default(); let mut velocity = Vector3::default();
         let probes = [Vector3::default()]; let q = Quaternion::default();
         for _ in 0..100 {

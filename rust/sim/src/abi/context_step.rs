@@ -80,7 +80,7 @@ impl Context {
     /// of unwinding into a host: every later entry fails Poisoned and only
     /// `dispose` succeeds. Nothing here calls back into a host, so the only
     /// panics are Rust's own, and the hook has already reported them.
-    pub(crate) fn owned<T>(&self, run: impl FnOnce(&mut World) -> T) -> Result<T, Error> {
+    pub fn owned<T>(&self, run: impl FnOnce(&mut World) -> T) -> Result<T, Error> {
         let _flight = self.enter()?;
         match catch_unwind(AssertUnwindSafe(|| self.world(run))) {
             Ok(result) => result,

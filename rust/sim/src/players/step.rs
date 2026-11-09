@@ -90,7 +90,7 @@ fn take(w: &mut World, p: &mut Player, tick: f64, generation: f64, command: &mut
         // The reliable lane's presses and choices replace the mailbox's.
         p.actions_taken.clear();
         p.human_taken.clear();
-        let _ = crate::input::actions::take_into(&mut p.actions, tick, generation, &mut p.actions_taken, &mut p.human_taken, &mut w.sim.strings);
+        let _ = crate::input::actions::take_into_reusing(&mut p.actions, tick, generation, &mut p.actions_taken, &mut p.human_taken, &mut w.sim.strings, &mut p.action_entries);
         let mailbox = w.input.mailboxes.get(p.mailbox).unwrap();
         p.controls.accept(epoch, tick, generation, mailbox.down(), &p.actions_taken);
     } else {

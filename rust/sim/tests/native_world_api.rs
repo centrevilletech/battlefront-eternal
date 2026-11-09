@@ -81,8 +81,8 @@ fn refusals(context: &Context) -> Vec<ErrorKind> {
 #[test]
 fn entries_without_a_body_fail_unavailable_and_name_themselves() {
     let context = Context::new();
+    assert_eq!(context.world_replay_admit(&Value::Null).unwrap_err().kind(), ErrorKind::Host);
     for (entry, result) in [
-        ("world_replay_admit", context.world_replay_admit(&Value::Null).map(|_| ())),
         ("world_replay_prepare", context.world_replay_prepare(&Value::Null)),
         ("world_replay_publish", context.world_replay_publish(&Value::Null, &[]).map(|_| ())),
     ] {

@@ -15,10 +15,14 @@
 pub mod banks;
 pub mod bodies;
 pub mod dispatch;
+pub mod fleet;
 pub mod kernels;
 pub mod rows;
 pub mod sequence;
+pub mod session;
+pub mod partial;
 pub mod spawn;
+pub mod stock;
 pub use dispatch::Returned;
 pub use rows::{Call, Calls, Cx, Definitions, Ids, Rows};
 pub use sequence::Stage;
@@ -69,6 +73,14 @@ pub struct Handles {
     /// The entity edge queue (wire_edges_create) and the client's store source.
     pub edges: u32,
     pub client: u32,
+    /// What the per-tick host's presentation capture writes through
+    /// (sim::host::Capture): the wire's combat capture (wire_combat_create),
+    /// the presentation encoder (wire_presentation_create) and the store
+    /// source whose registry names weapons and definitions
+    /// (wire_store_source_create).
+    pub combat: u32,
+    pub presentation: u32,
+    pub store_source: u32,
 }
 
 /// An admitted battle: what createLocalServer's welcome tells the page and
@@ -84,6 +96,10 @@ pub struct Admitted {
     pub registry: serde_json::Value,
     /// preparePhase's foreign-row count for the first tick (WorldTickInput.units).
     pub units: u32,
+    /// createLocalServer.welcome's two text events (entity-registry, then
+    /// welcome) and the initial publication's packet bytes that follow them.
+    pub welcome: [String; 2],
+    pub publication: Vec<u8>,
 }
 
 /// Why admission did not produce a world. Every variant names the stage, so
@@ -110,19 +126,44 @@ impl std::fmt::Display for AdmitError {
     }
 }
 
-/// Whether the sequence has bodies. False until the owner construction
-/// lands: the context entries then refuse Unavailable before reading input,
-/// so a host's handshake can report it (abi::context_step::provided).
-pub const fn provided() -> bool { false }
+/// Whether the sequence has bodies. True now that owner construction is wired.
+pub const fn provided() -> bool { true }
+
+/// The unit registry's members (registry.js Units.list) as admission left
+/// them, for the replay driver's comparison with a recorded host's.
+pub fn registry_members(world: &World) -> &[crate::gen::Member] { &world.sim.store.units.list }
+
+/// A text of the world's string table, for the replay driver's comparison
+/// of admitted rows with a recorded host's (each side's ids are its own).
+pub fn string_text(world: &World, id: crate::store::StrId) -> String {
+    world.sim.strings.list.get(id.0 as usize).map(|units| String::from_utf16_lossy(units)).unwrap_or_default()
+}
+
+/// The world's string table as admission left it (the replay driver checks
+/// the host's interns against it).
+pub fn string_table(world: &World) -> &crate::store::Strings { &world.sim.strings }
 
 /// The whole path: load the battle's content as game.js fetches it, make the
 /// rows the JavaScript marshals, construct every owner in its order, admit the
 /// local human and the publication host. One call a battle, before any tick.
 pub fn admit(world: &mut World, files: &dyn Files, options: &Options) -> Result<Admitted, AdmitError> {
+    admit_with_rows(world, files, options).map(|(admitted, _)| admitted)
+}
+
+/// The same path, also answering every call the sequence dispatched: the
+/// replay driver compares them with a recorded host's calls one by one.
+pub fn admit_with_rows(world: &mut World, files: &dyn Files, options: &Options) -> Result<(Admitted, Rows), AdmitError> {
+    let mut rows = Rows::default();
+    admit_into(world, files, options, &mut rows).map(|admitted| (admitted, rows))
+}
+
+/// `admit_with_rows` keeping the rows in the caller's buffer, so a driver
+/// still has the calls dispatched before a failure.
+pub fn admit_into(world: &mut World, files: &dyn Files, options: &Options, rows: &mut Rows) -> Result<Admitted, AdmitError> {
     let loader = bfe_content::battle::Loader::new(files);
     let battle = bfe_content::battle::Battle::load(&loader, &options.map, &options.query())
         .map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;
     let content = bfe_content::content::Content::build(battle)
         .map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;
-    sequence::run(world, &content, files, options).map(|(admitted, _)| admitted)
+    sequence::run_into(world, &content, files, options, rows)
 }
