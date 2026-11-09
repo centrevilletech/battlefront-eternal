@@ -159,6 +159,10 @@ impl PagePause {
                 page.buttons[look * 2 + usize::from(selected)] = upload(scene, bw, bh, &rgba)?;
             }
         }
+        for look in 0..3 {
+            let rgba = page_surfaces::pause_backdrop(size[0] as usize, size[1] as usize, look);
+            page.pause_backdrops[look] = upload(scene, size[0] as usize, size[1] as usize, &rgba)?;
+        }
         let solid = upload(scene, 1, 1, &[255, 255, 255, 255])?;
         let blur = super::page_blur::PageBlur::new(&scene.bridge.r.core.gl, size)?;
         scene.bridge.r.core.state.reset();

@@ -412,7 +412,9 @@ impl LiveSpawnPort {
                 team: 1,
                 class_name: roster1.first().map(|c| c.class_name.clone()),
                 class_index: 0,
-                post: posts.first().map(|p| p.name.clone()),
+                // SpawnModel.open starts without a pick, as humanSpawn.state
+                // does before the first life. Let choosePost find the front.
+                post: None,
                 can_switch_teams: true,
                 spectator: false,
                 over: false,
@@ -2827,6 +2829,9 @@ mod tests {
         ];
         let port =
             LiveSpawnPort::from_hud_meta(&classes, &[], &std::collections::HashMap::new(), "cw");
+        // A fresh human has no remembered post. Seeding the first entry here
+        // bypasses the model's front-line choice on every map.
+        assert_eq!(port.human.post, None);
         assert_eq!(port.teams[0].side, "cis");
         assert_eq!(port.teams[1].side, "rep");
         assert_eq!(port.class_registry_ids[0], vec![7, 8]);

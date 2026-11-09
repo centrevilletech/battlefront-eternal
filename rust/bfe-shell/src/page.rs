@@ -1,6 +1,7 @@
 //! Native page layout over ShellApp's existing screen stack. Geometry follows
 //! src/menus/themes/page/style.js; looks follow electron/ui/looks.css.
 mod battle;
+mod battle_chrome;
 mod battle_motion;
 mod browser;
 mod forms;
@@ -57,6 +58,7 @@ pub struct Page {
     battle: battle_motion::BattlePaintState,
     pub browser: BrowserView,
     pub media: MediaTextures,
+    pub pause_backdrops: [u32; 3],
     pause_hits: Vec<bfe_battle_ui::pause::PauseHotspot>,
     pause_rows: Vec<(bfe_battle_ui::pause::PauseRowId, String)>,
     input_state: Option<(ScreenId, u8)>,
@@ -128,6 +130,7 @@ impl Page {
             button_text: HashMap::new(),
             browser: BrowserView::default(),
             media: MediaTextures::default(),
+            pause_backdrops: [0; 3],
             pause_hits: Vec::with_capacity(16),
             pause_rows: Vec::new(),
             input_state: None,

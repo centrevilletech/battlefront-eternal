@@ -58,13 +58,15 @@ pub fn prepare(content: &mut BattleContent) -> Result<Vec<Model>, String> {
                         s.get(1).and_then(bfe_content::Value::as_f64).unwrap_or(0.) as f32,
                     ]
                 });
-            let mut data = Vec::with_capacity(part.index.len() * 5);
+            let mut data = Vec::with_capacity(part.index.len() * 8);
             for index in &part.index {
                 let p = &part.data[*index as usize * 8..];
                 for k in 0..3 {
                     data.push(((p[k] as f64 - center[k]) / extent) as f32);
                 }
-                data.extend_from_slice(&p[6..8]);
+                // dressModel keeps the authored normals as well as UVs;
+                // recomputing flat triangle normals loses the emblem bevels.
+                data.extend_from_slice(&p[3..8]);
             }
             out.push(Model {
                 name: name.into(),

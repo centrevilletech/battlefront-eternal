@@ -62,7 +62,9 @@ impl Page {
             self.pause_hits = hits;
             return;
         }
-        Self::rect(b, m, [0., 0., w, h], t.solid, [0., 0., 0., 0.6]);
+        // The client admits the same scrim/pattern as PageTheme.overlay;
+        // the live battle has already gone through its six-pixel blur.
+        Self::rect(b, m, [0., 0., w, h], self.pause_backdrops[look], [1.; 4]);
         self.brand(b, m, t.solid, w, h, 0., theme, ink);
         let hotspot = |r: [f64; 4], target| PauseHotspot {
             target,

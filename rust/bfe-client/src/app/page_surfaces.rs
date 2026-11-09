@@ -183,3 +183,74 @@ pub fn pattern(w: usize, h: usize, look: usize) -> Vec<u8> {
     }
     out
 }
+
+/// PageTheme's battle overlay: looks.css scrim over overlay, then the masked
+/// pattern from page/style.js. Rasterize once at admission, like the buttons,
+/// so scanlines do not exhaust the shared HUD quad budget every paused frame.
+pub fn pause_backdrop(w: usize, h: usize, look: usize) -> Vec<u8> {
+    let (base, base_alpha, center, edge, alphas) = match look {
+        0 => (
+            [4., 16., 46.],
+            0.5,
+            [6., 26., 70.],
+            [4., 18., 52.],
+            [0.9, 0.74],
+        ),
+        1 => (
+            [8., 20., 42.],
+            0.5,
+            [16., 38., 74.],
+            [12., 30., 60.],
+            [0.92, 0.76],
+        ),
+        _ => ([3., 4., 7.], 0.52, [3., 4., 7.], [3., 4., 7.], [0.93, 0.78]),
+    };
+    let mut pixels = vec![0; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let nx = (x as f64 + 0.5) / w as f64 - 0.5;
+            let ny = (y as f64 + 0.5) / h as f64 - 0.5;
+            let r = (nx / 0.30).hypot(ny / 0.78);
+            let t = (r * 2.).min(1.);
+            let alpha = if r < 0.5 {
+                alphas[0] + (alphas[1] - alphas[0]) * t
+            } else {
+                alphas[1] * ((1. - r) * 2.).clamp(0., 1.)
+            };
+            let mut a = alpha + base_alpha * (1. - alpha);
+            let mut rgb: [f64; 3] = std::array::from_fn(|i| {
+                (center[i] + (edge[i] - center[i]) * t) * alpha
+                    + base[i] * base_alpha * (1. - alpha)
+            });
+            // Pattern mask: ellipse 30% 62%, black at 0, half at 60%,
+            // transparent at the edge. These are CSS pixels in this viewport.
+            let mask_r = (nx / 0.30).hypot(ny / 0.62);
+            let mask = if mask_r < 0.6 {
+                1. - mask_r / 0.6 * 0.5
+            } else {
+                ((1. - mask_r) / 0.4 * 0.5).clamp(0., 0.5)
+            };
+            let grid = |step| x % step == 0 || y % step == 0;
+            let (pattern, color) = match look {
+                0 => (if grid(46) { 0.16 * 0.55 } else { 0. }, [150., 205., 255.]),
+                1 => {
+                    let major = if grid(160) { 0.2 } else { 0. };
+                    let minor = if grid(32) { 0.09 } else { 0. };
+                    ((major + minor * (1. - major)) * 0.8, [190., 215., 255.])
+                }
+                _ => (if y % 4 == 0 { 0.035 } else { 0. }, [255.; 3]),
+            };
+            let pattern = pattern * mask;
+            for i in 0..3 {
+                rgb[i] = color[i] * pattern + rgb[i] * (1. - pattern);
+            }
+            a = pattern + a * (1. - pattern);
+            let at = (y * w + x) * 4;
+            for i in 0..3 {
+                pixels[at + i] = (rgb[i] / a).round().clamp(0., 255.) as u8;
+            }
+            pixels[at + 3] = (a * 255.).round() as u8;
+        }
+    }
+    pixels
+}

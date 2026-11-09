@@ -284,8 +284,8 @@ pub trait SpawnPort {
 /// `game.js`):
 /// 1. Keep `previous` if it is still eligible for `team`.
 /// 2. If `previous` exists in the post list (lost to the enemy), pick the
-///    eligible post nearest `previous` in XZ.
-/// 3. Otherwise pick the eligible post nearest any enemy-held post in XZ
+///    eligible post nearest `previous` in world space.
+/// 3. Otherwise pick the eligible post nearest any enemy-held post in world space
 ///    (the front line), or the first eligible post if no enemy holds a post.
 pub fn choose_frontline_post(
     posts: &[SpawnPostEntry],
@@ -296,18 +296,27 @@ pub fn choose_frontline_post(
     if eligible.is_empty() {
         return None;
     }
-    let dist_xz = |a: [f64; 3], b: [f64; 3]| (a[0] - b[0]).hypot(a[2] - b[2]);
+    // humanSpawnPost's distanceSq includes height. Horizontal distance can
+    // select a post on another floor even when another is closer in space.
+    let distance_sq = |a: [f64; 3], b: [f64; 3]| {
+        let dx = a[0] - b[0];
+        let dy = a[1] - b[1];
+        let dz = a[2] - b[2];
+        // goals.js rounds distanceSq through f32 before strict comparisons.
+        // Preserve the first post when two long distances round to a tie.
+        (dx * dx + dy * dy + dz * dz) as f32 as f64
+    };
     let nearest_to = |target: [f64; 3]| -> Option<String> {
         let mut best: Option<(&SpawnPostEntry, f64)> = None;
         for &post in &eligible {
-            let d = dist_xz(post.position, target);
+            let d = distance_sq(post.position, target);
             if best.is_none_or(|(_, bd)| d < bd) {
                 best = Some((post, d));
             }
         }
         best.map(|(p, _)| p.name.clone())
     };
-    // Step 1 & 2: preserve `previous` if still eligible, or fall back to the nearest eligible post in XZ.
+    // Step 1 & 2: preserve `previous` if still eligible, or fall back to the nearest eligible post in world space.
     if let Some(prev_name) = previous {
         if let Some(old) = posts.iter().find(|p| p.name == prev_name) {
             if old.eligible {
@@ -316,7 +325,7 @@ pub fn choose_frontline_post(
             return nearest_to(old.position);
         }
     }
-    // Step 3: find the eligible post closest in XZ to any enemy-controlled command post (the front line).
+    // Step 3: find the eligible post closest in world space to any enemy-controlled command post (the front line).
     let enemy: Vec<&SpawnPostEntry> = posts
         .iter()
         .filter(|p| p.owner != 0 && p.owner != team)
@@ -328,7 +337,7 @@ pub fn choose_frontline_post(
     for &post in &eligible {
         let d = enemy
             .iter()
-            .map(|e| dist_xz(e.position, post.position))
+            .map(|e| distance_sq(e.position, post.position))
             .fold(f64::INFINITY, f64::min);
         if best.is_none_or(|(_, bd)| d < bd) {
             best = Some((post, d));
@@ -648,12 +657,7 @@ impl SpawnModel {
 
     /// Updates `self.post`, records the per-team remembered post in `self.last_post`,
     /// and optionally pushes a [`SpawnEvent::Post`] when the selection changes.
-    fn set_post(
-        &mut self,
-        name: Option<String>,
-        reason: PostChangeReason,
-        emit: bool,
-    ) -> bool {
+    fn set_post(&mut self, name: Option<String>, reason: PostChangeReason, emit: bool) -> bool {
         let changed = name != self.post;
         self.post = name.clone();
         if let Some(n) = name {

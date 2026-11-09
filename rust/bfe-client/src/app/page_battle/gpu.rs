@@ -286,14 +286,15 @@ impl Gpu {
             bridge.r.interface.resources.descriptors[mote_appearance.handle].geometry;
         let mut logos = Vec::new();
         for model in models {
-            let mut style = additive("model");
+            // PageView.ensureLogos dresses each authored part with the
+            // interface's lit, normal-alpha material, including depth writes.
+            let mut style = appearance::style("model");
+            style.transparent = Some(true);
+            style.depth_test = Some(true);
+            style.depth_write = Some(true);
             style.scroll = Some(model.scroll.map(f64::from));
-            let appearance = Appearance::mesh(
-                bridge,
-                &expanded(&model.vertices, (0, (model.vertices.len() / 5) as i32)),
-                style,
-                &[model.texture as i32],
-            )?;
+            let appearance =
+                Appearance::mesh(bridge, &model.vertices, style, &[model.texture as i32])?;
             logos.push(Logo {
                 name: model.name.clone(),
                 appearance,
@@ -614,15 +615,26 @@ impl Gpu {
     ) {
         let mut count = 0;
         let mut projection = Matrix4::default();
-        projection.make_orthographic(
-            0.,
-            l.width,
-            0.,
-            l.height,
-            -1000.,
-            1000.,
+        // InterfaceCamera: its plane is 1024/(2*tan(pi/6)) out and
+        // 768 units tall. A perspective view also preserves the bevels
+        // and foreshortening of the original common models at the edges.
+        let fov_half = (0.75 * (std::f64::consts::PI / 6.).tan()).atan();
+        let near = 1.;
+        let top = near * fov_half.tan();
+        let aspect = l.width / l.height;
+        projection.make_perspective(
+            -top * aspect,
+            top * aspect,
+            top,
+            -top,
+            near,
+            20000.,
             three::CoordinateSystem::WebGL,
         );
+        unsafe {
+            bridge.r.core.gl.depth_mask(true);
+            bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
+        }
         for (i, side) in sides.iter().enumerate() {
             let name = match *side {
                 "cis" => "com_icon_cis",
@@ -641,9 +653,14 @@ impl Gpu {
             let y = (plate[1] + plate[3]) * 0.5;
             let mut model = Matrix4::default();
             model.make_rotation_y(spin * if picked { 1. } else { -0.6 });
+            let size = size * 768. / l.height;
             model
-                .scale(&V::new(size, -size, size))
-                .set_position_v3(&V::new(x, y, 0.));
+                .scale(&V::new(size, size, size))
+                .set_position_v3(&V::new(
+                    (x / l.width * 1024. - 512.) * 0.75 * aspect,
+                    (0.5 - y / l.height) * 768.,
+                    -1024. / (2. * (std::f64::consts::PI / 6.).tan()),
+                ));
             for logo in &self.logos {
                 if logo.name != name {
                     continue;

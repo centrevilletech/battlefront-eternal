@@ -37,3 +37,55 @@ fn themed_spawn_regions_select_class_post_and_commit() {
     assert_eq!(choice.class_name, "rep_class_1");
     assert_eq!(choice.post, "cp_1");
 }
+
+// humanSpawnPost compares squared 3D distances, retaining an eligible pick
+// and moving a lost pick to the nearest eligible post without flattening Y.
+#[test]
+fn front_line_and_lost_posts_include_height() {
+    let post = |name: &str, position, owner, eligible| SpawnPostEntry {
+        name: name.into(),
+        position,
+        owner,
+        eligible,
+        ..SpawnPostEntry::default()
+    };
+    let posts = [
+        post("low", [1., 0., 0.], 1, true),
+        post("high", [8., 100., 0.], 1, true),
+        post("foe", [0., 100., 0.], 2, false),
+    ];
+    assert_eq!(
+        choose_frontline_post(&posts, 1, None).as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        choose_frontline_post(&posts, 1, Some("foe")).as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        choose_frontline_post(&posts, 1, Some("low")).as_deref(),
+        Some("low")
+    );
+}
+
+#[test]
+fn post_distance_rounding_keeps_the_first_tied_choice() {
+    let post = |name: &str, position, owner, eligible| SpawnPostEntry {
+        name: name.into(),
+        position,
+        owner,
+        eligible,
+        ..SpawnPostEntry::default()
+    };
+    // 4096 squared plus one and 4096 squared are equal after f32 rounding.
+    // humanSpawnPost uses a strict comparison, so the first post must stay.
+    let posts = [
+        post("first", [4096., 0., 1.], 1, true),
+        post("second", [4096., 0., 0.], 1, true),
+        post("foe", [0., 0., 0.], 2, false),
+    ];
+    assert_eq!(
+        choose_frontline_post(&posts, 1, None).as_deref(),
+        Some("first")
+    );
+}

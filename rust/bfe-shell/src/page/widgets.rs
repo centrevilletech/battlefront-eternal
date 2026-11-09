@@ -132,7 +132,10 @@ impl Page {
             let size = if small {
                 (self.viewport[1] * 0.017).clamp(13., 18.)
             } else {
-                (self.viewport[1] * 0.02).clamp(14., 21.)
+                // page/style.js's .bfe-page button { font: inherit } wins
+                // over the full-size .bfe-btn clamp in Eternal and BF1.
+                // Small buttons and BF2 have more specific size rules.
+                16.
             };
             self.label(
                 b,

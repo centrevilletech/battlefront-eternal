@@ -25,7 +25,9 @@ impl Page {
             };
         let width = self.title.width(chars, font_size / 64., font_size * 0.06);
         let text_y = if look == 2 { y } else { y - 3. };
-        let white = [0.91, 0.93, 0.95, 1.];
+        // Eternal and BF2 title spans explicitly use white in looks.css,
+        // rather than the softer body-text color used by menu rows.
+        let white = [1.; 4];
         if look == 2 {
             let color = |a| [1., 0.60, 0.12, a];
             let r = [

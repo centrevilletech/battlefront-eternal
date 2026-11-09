@@ -393,6 +393,26 @@ impl Page {
                         l.accent,
                     );
                 }
+                if own {
+                    let text_width =
+                        self.body
+                            .width(&state.encode_utf16().collect::<Vec<_>>(), 9. / 64., 2.);
+                    let dot_x = if i == 0 { x - 7. } else { x - text_width - 7. };
+                    Self::battle_round(
+                        b,
+                        m,
+                        t,
+                        [
+                            dot_x - 2.,
+                            r[1] + h * 0.057 - 6.,
+                            dot_x + 2.,
+                            r[1] + h * 0.057 - 2.,
+                        ],
+                        2.,
+                        c,
+                        c,
+                    );
+                }
                 self.label(
                     b,
                     m,
@@ -418,22 +438,17 @@ impl Page {
             }
         }
         if model.can_switch_teams(port) {
-            let r = [w * 0.5 - 16., h * 0.04, w * 0.5 + 16., h * 0.083];
-            Self::battle_border(b, m, t, r, l.accent);
-            self.label(b, m, w * 0.5, h * 0.068, "<>", 16., 0., l.accent, 2, false);
+            let size = (h * 0.046).clamp(32., 46.);
+            let center = [w * 0.5, (layout.teams[0][1] + layout.teams[0][3]) * 0.5];
+            let r = [
+                center[0] - size * 0.5,
+                center[1] - size * 0.5,
+                center[0] + size * 0.5,
+                center[1] + size * 0.5,
+            ];
+            Self::battle_swap(b, m, t, r, l);
             regions.push(region(r, SpawnHitTarget::Team));
-            self.label(
-                b,
-                m,
-                w * 0.5,
-                h * 0.124,
-                "[<] [>] OR CLICK TO SWITCH TEAM",
-                9.,
-                1.5,
-                l.dim,
-                2,
-                false,
-            );
+            self.battle_team_keys(b, m, t, w, h, l);
         }
         self.battle.spawn.push(Span {
             first: head_start,
@@ -505,22 +520,26 @@ impl Page {
                 false,
             );
             for (j, weapon) in entry.weapons.iter().take(4).enumerate() {
-                let x = r[0] + w * 0.01 + (j % 2) as f64 * (r[2] - r[0]) * 0.49;
+                // Page's two equal columns subtract both padding edges and
+                // the one-em gap. The picked diamond consumes inline width.
+                let column = (r[2] - r[0] - w * 0.02 - 10.) * 0.5;
+                let x = r[0] + w * 0.01 + (j % 2) as f64 * (column + 10.);
+                let marker = if picked { 9.5 } else { 0. };
                 let y = r[1] + h * (0.066 + (j / 2) as f64 * 0.023);
                 let text = weapon.to_uppercase();
                 self.battle_clip(
                     b,
                     m,
-                    x,
+                    x + marker,
                     y,
                     &text,
                     10.,
-                    0.5,
+                    0.8,
                     if picked { l.text } else { l.faint },
-                    (r[2] - r[0]) * 0.46,
+                    column - marker,
                 );
                 if picked {
-                    Self::rect(b, m, [x - 5., y - 5., x - 2., y - 2.], t.solid, l.accent);
+                    Self::battle_diamond(b, m, t, [x + 2.25, y - 4.], 2.25, l.accent);
                 }
             }
             regions.push(region(r, SpawnHitTarget::Class(i)));
@@ -556,13 +575,7 @@ impl Page {
         if let Some(facts) = port.team_facts(model.team) {
             for (i, text) in facts.objectives.iter().enumerate() {
                 let y = r[1] + h * (0.063 + i as f64 * 0.031);
-                Self::rect(
-                    b,
-                    m,
-                    [r[0] + 12., y - 6., r[0] + 17., y - 1.],
-                    t.solid,
-                    l.accent,
-                );
+                Self::battle_diamond(b, m, t, [r[0] + 14.5, y - 3.5], 2.75, l.accent);
                 self.battle_clip(
                     b,
                     m,
@@ -583,18 +596,7 @@ impl Page {
             group: Group::Tactical,
         });
         if !turned {
-            self.label(
-                b,
-                m,
-                layout.figure[2],
-                layout.figure[1] + h * 0.029,
-                "DRAG TO TURN",
-                9.,
-                2.,
-                l.dim,
-                1,
-                false,
-            );
+            self.battle_turn_hint(b, m, t, layout.figure, h, l);
         }
         let caption_start = b.count;
         if let Some(entry) = roster.get(model.class_index) {
