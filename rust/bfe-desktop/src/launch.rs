@@ -320,16 +320,25 @@ pub fn launch_version(opts: &LaunchOptions) -> LaunchOutcome {
         cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
     }
 
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(err) => {
-            let _ = fs::remove_file(&ready_file);
-            return LaunchOutcome {
-                ok: false,
-                reason: "spawn-error".to_string(),
-                detail: Some(err.to_string()),
-                pid: None,
-            };
+    // An executable written moments ago can be reported busy (ETXTBSY) while another thread of this process is
+    // between fork and exec and still holds the write descriptor; that clears within milliseconds, so retry briefly.
+    let mut busy_retries = 0;
+    let mut child = loop {
+        match cmd.spawn() {
+            Ok(c) => break c,
+            Err(err) if err.kind() == std::io::ErrorKind::ExecutableFileBusy && busy_retries < 20 => {
+                busy_retries += 1;
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = fs::remove_file(&ready_file);
+                return LaunchOutcome {
+                    ok: false,
+                    reason: "spawn-error".to_string(),
+                    detail: Some(err.to_string()),
+                    pid: None,
+                };
+            }
         }
     };
 
@@ -817,7 +826,7 @@ mod tests {
             root: root.clone(),
             timeout_ms: 5000,
         });
-        assert!(res_ok.ok);
+        assert!(res_ok.ok, "{} {:?}", res_ok.reason, res_ok.detail);
         assert_eq!(res_ok.reason, "ready");
         assert!(res_ok.pid.is_some());
 
