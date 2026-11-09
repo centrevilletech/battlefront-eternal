@@ -24,7 +24,7 @@ def main():
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     # A repeated run cannot pass using an earlier process's captures or summary.
-    for name in ("startup.png", "main-menu.png", "scene.png", "summary.json", "stdout.log", "stderr.log"):
+    for name in ("startup.png", "main-menu.png", "scene.png", "slint.png", "summary.json", "stdout.log", "stderr.log"):
         (output / name).unlink(missing_ok=True)
     client = Path(args.client_bin).resolve()
     if not client.is_file():
@@ -71,8 +71,12 @@ def main():
         summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
         if not summary["ok"] or summary["glErrors"] != 0 or "llvmpipe" not in summary["renderer"].lower():
             raise RuntimeError(f"software GL smoke failed: {summary}")
-        if [f["stage"] for f in summary["frames"]] != ["startup", "main-menu", "scene"]:
+        if [f["stage"] for f in summary["frames"]] != ["startup", "main-menu", "scene", "slint"]:
             raise RuntimeError(f"app did not render every required stage: {summary}")
+        ui = summary["slint"]
+        if (not ui["sharedContext"] or ui["uiFrames"] < 1 or ui["compositedFrames"] < 1
+                or ui["imeText"] != "入力é" or ui["imeRequests"] < 1 or ui["cursor"] != "Pointer"):
+            raise RuntimeError(f"Slint shared-context/input smoke failed: {ui}")
         for frame in summary["frames"]:
             fixture.verify_png_file(output / (frame["stage"] + ".png"), *frame["size"])
         print(json.dumps(summary))

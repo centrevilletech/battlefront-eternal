@@ -45,6 +45,23 @@ impl Smoke {
         Ok(())
     }
 
+    pub fn record_ui(
+        &mut self,
+        size: [i32; 2],
+        pixels: &[u8],
+        input: serde_json::Value,
+    ) -> Result<(), String> {
+        self.capture("slint", size, pixels)?;
+        let path = self.directory.join("summary.json");
+        let mut report: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        report["frames"] = serde_json::json!(self.frames);
+        report["slint"] = input;
+        std::fs::write(path, report.to_string()).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn advance(
         &mut self,
         shell: &mut ShellHost,

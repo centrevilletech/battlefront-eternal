@@ -38,7 +38,7 @@ STANDALONE OPTIONS:
     --height <PX>             Initial window height in pixels (default: 720)
     --fullscreen              Start in borderless fullscreen mode
     --skip-update-check       Skip startup update check against master server
-    --script <MODE>           Run automated verification script (gate, ia:<MAP>, platform-smoke)
+    --script <MODE>           Run automated verification script (gate, ia:<MAP>, platform-smoke, slint-proof)
     --shots-dir <DIR>         Output directory for scripted screenshots
     --server <HOST:PORT>      Remote bfeserver address for scripted online join
 

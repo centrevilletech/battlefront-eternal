@@ -11,3 +11,8 @@ codegen-units = 1
 # the test harness unwinding and the bins aborting (the two builds collide
 # in one output file).
 debug = false
+
+[workspace.dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg"] }
+slint-build = "=1.18.1"
+i-slint-core = { version = "=1.18.1", default-features = false }
