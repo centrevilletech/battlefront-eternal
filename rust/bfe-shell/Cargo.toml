@@ -7,6 +7,7 @@ publish = false
 description = "Front-end shell screens, playlist/mission selection, loading timeline, and shell audio"
 
 [dependencies]
+bfe-battle-ui = { path = "../bfe-battle-ui" }
 audio = { path = "../audio" }
 audio-control = { path = "../audio-control" }
 audio-decode = { path = "../audio-decode" }

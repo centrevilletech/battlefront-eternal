@@ -9,6 +9,11 @@ pub(super) struct TextInput {
 }
 
 impl TextInput {
+    /// Byte positions for native field painters; editing stays in this owner.
+    pub fn selection(&self) -> (usize, usize) {
+        (self.cursor, self.anchor)
+    }
+
     pub fn focus(&mut self, field: Option<&'static str>, text: &str) {
         if self.field != field {
             self.field = field;

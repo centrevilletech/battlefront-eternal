@@ -75,6 +75,10 @@ pub struct ProfileState {
     pub draft: String,
     pub message: String,
     pub editing: bool,
+    #[serde(default)]
+    pub caret: usize,
+    #[serde(default)]
+    pub selected_all: bool,
 }
 
 impl Default for ProfileState {
@@ -88,10 +92,13 @@ impl ProfileState {
     /// Creates a profile state with `initial` cleaned via [`clean_player_name`].
     pub fn new(initial: &str) -> Self {
         let name = clean_player_name(initial);
+        let caret = name.chars().count();
         Self {
             draft: name.clone(),
             name,
             message: String::new(),
+            caret,
+            selected_all: false,
             editing: false,
         }
     }
@@ -99,11 +106,13 @@ impl ProfileState {
     /// Opens the profile name editor (`CREATE PROFILE` or multiplayer gate
     /// prompt).
     pub fn begin_edit(&mut self, prompt: &str) {
-        self.draft = if self.name == DEFAULT_PLAYER_NAME {
+        self.draft = if self.name == DEFAULT_PLAYER_NAME && !prompt.is_empty() {
             String::new()
         } else {
             self.name.clone()
         };
+        self.caret = self.draft.chars().count();
+        self.selected_all = !self.draft.is_empty();
         self.message = prompt.to_string();
         self.editing = true;
     }
@@ -119,15 +128,72 @@ impl ProfileState {
 
     /// Appends a printable character to `draft` if under [`PLAYER_NAME_LIMIT`].
     pub fn push_char(&mut self, ch: char) {
-        let code = ch as u32;
-        if !(code <= 0x1f || code == 0x7f) && self.draft.chars().count() < PLAYER_NAME_LIMIT {
-            self.draft.push(ch);
+        if ch.is_control() {
+            return;
+        }
+        if self.selected_all {
+            self.draft.clear();
+            self.caret = 0;
+            self.selected_all = false;
+        }
+        if self.draft.chars().count() >= PLAYER_NAME_LIMIT {
+            return;
+        }
+        let at = self
+            .draft
+            .char_indices()
+            .nth(self.caret)
+            .map(|(i, _)| i)
+            .unwrap_or(self.draft.len());
+        self.draft.insert(at, ch);
+        self.caret += 1;
+    }
+    pub fn backspace(&mut self) {
+        if self.selected_all {
+            self.draft.clear();
+            self.caret = 0;
+            self.selected_all = false;
+            return;
+        }
+        if self.caret == 0 {
+            return;
+        }
+        self.caret -= 1;
+        if let Some((at, _)) = self.draft.char_indices().nth(self.caret) {
+            self.draft.remove(at);
         }
     }
-
-    /// Removes the last character from `draft`.
-    pub fn backspace(&mut self) {
-        self.draft.pop();
+    pub fn edit_key(&mut self, key: &str) -> bool {
+        let len = self.draft.chars().count();
+        match key {
+            "ArrowLeft" => {
+                self.caret = if self.selected_all {
+                    0
+                } else {
+                    self.caret.saturating_sub(1)
+                }
+            }
+            "ArrowRight" => {
+                self.caret = if self.selected_all {
+                    len
+                } else {
+                    (self.caret + 1).min(len)
+                }
+            }
+            "Home" => self.caret = 0,
+            "End" => self.caret = len,
+            "Delete" => {
+                if self.selected_all {
+                    self.draft.clear();
+                    self.caret = 0;
+                } else if let Some((at, _)) = self.draft.char_indices().nth(self.caret) {
+                    self.draft.remove(at);
+                }
+            }
+            _ => return false,
+        }
+        self.selected_all = false;
+        true
     }
 
     /// Commits `draft` via [`clean_player_name`] and closes the editor.
@@ -155,6 +221,16 @@ impl ProfileState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_form_selects_existing_text_and_edits_unicode_at_the_caret(){
+        let mut profile=ProfileState::new("Wedge");profile.begin_edit("");
+        assert!(profile.selected_all);profile.push_char('é');profile.push_char('x');
+        assert_eq!(profile.draft,"éx");assert!(profile.edit_key("ArrowLeft"));profile.push_char('A');
+        assert_eq!(profile.draft,"éAx");profile.backspace();assert_eq!(profile.draft,"éx");
+        assert!(profile.edit_key("Delete"));assert_eq!(profile.draft,"é");
+        profile.cancel();assert_eq!(profile.name,"Wedge");
+    }
 
     #[test]
     fn clean_player_name_strips_control_chars_collapses_whitespace_and_clamps_to_32() {

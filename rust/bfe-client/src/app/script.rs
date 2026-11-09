@@ -148,6 +148,8 @@ pub enum GatePhase {
 /// world-thread tick-time distribution and host proof counts for every admitted
 /// Instant Action battle.
 pub struct GateDriver {
+    page_proof:Option<super::page_proof::PageProof>,
+    pub(super) page_capture_done:bool,
     online_duel: bool,
     duel_input_tick: u32,
     spawn_posts: std::collections::BTreeMap<u8, String>,
@@ -219,6 +221,8 @@ impl GateDriver {
         let dir =
             screenshot_dir.unwrap_or_else(|| std::env::temp_dir().join("bfe-gate-screenshots"));
         Self {
+            page_proof:(script_name=="page-parity").then(super::page_proof::PageProof::new),
+            page_capture_done:false,
             online_duel: script_name == "online-duel",
             spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
                 .ok()
@@ -595,6 +599,12 @@ impl GateDriver {
         shell: &mut ShellHost,
         settings: &mut AppSettingsStore,
     ) -> Result<Option<ShellTransition>, String> {
+        if self.phase!=GatePhase::StartupLoader {
+            if let Some(mut proof)=self.page_proof.take(){
+                let result=proof.step(self,shell,settings);
+                self.page_proof=Some(proof);return result;
+            }
+        }
         self.phase_frames += 1;
         let elapsed = self.phase_started.elapsed().as_secs_f64();
 
@@ -1036,7 +1046,8 @@ impl GateDriver {
             && self.world_renderer_blocks == 0
             && self.steady_frames_measured > 0;
         let summary = serde_json::json!({
-            "status": if passed { "PASS" } else { "FAIL" },
+            "status": if self.page_proof.is_some(){if self.gl_errors!=0{"FAIL"}else if self.page_capture_done{"CAPTURED"}else{"INCOMPLETE"}}else if passed { "PASS" } else { "FAIL" },
+            "captureOnly":self.page_proof.is_some(),
             "glErrors": self.gl_errors,
             "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
@@ -1163,6 +1174,17 @@ fn adler32(data: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screenshot_tour_never_claims_a_battle_gate_pass(){
+        let dir=std::env::temp_dir().join(format!("bfe-page-receipt-{}",std::process::id()));
+        let mut tour=GateDriver::new("page-parity",Some(dir.clone()));
+        assert_eq!(tour.write_summary_report().unwrap()["status"],"INCOMPLETE");
+        tour.page_capture_done=true;
+        let receipt=tour.write_summary_report().unwrap();
+        assert_eq!(receipt["status"],"CAPTURED");assert_eq!(receipt["steadyFramesMeasured"],0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn interrupted_gate_writes_failure_receipt() {

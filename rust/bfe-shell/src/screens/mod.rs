@@ -182,6 +182,8 @@ pub enum PopupState {
         /// Whether `YES` (`true`) or `NO` (`false`) currently has focus.
         selected_yes: bool,
     },
+    /// Online service consent; cancel is selected until the player accepts.
+    OnlineNotice { message: String, selected_accept: bool },
     /// Three-button close prompt when a hosted server is running (`bfe_desktop::host::ClosePrompt`).
     HostClosePrompt {
         /// Dialog title (`"Hosted server is running"`).
@@ -232,7 +234,7 @@ pub struct ShellSettings {
     pub effects_volume: f32,
     /// Active front-end look (`"eternal"`, `"bf1"`, or `"bf2"`).
     pub menu_theme: String,
-    /// AI unit count preset (`"normal"`).
+    /// AI unit count preset (`"full"`, `"large"`, or `"small"`).
     pub battle_size: String,
     /// AI difficulty preset (`"medium"`).
     pub difficulty: String,
@@ -251,7 +253,7 @@ impl Default for ShellSettings {
             interface_volume: 1.0,
             effects_volume: 1.0,
             menu_theme: "eternal".to_string(),
-            battle_size: "normal".to_string(),
+            battle_size: "full".to_string(),
             difficulty: "medium".to_string(),
             mouse_sensitivity: 0.5,
             invert_y: false,
@@ -303,6 +305,8 @@ pub struct ShellApp {
     pub mp_needs_notice: bool,
     /// Direct connect draft address (`"127.0.0.1:18451"`).
     pub direct_connect_draft: String,
+    pub direct_port_draft: String,
+    pub direct_field: usize,
     /// Host game configuration (`SET GAME OPTIONS` on `ScreenId::HostDialog`).
     pub host_config: HostConfig,
     /// Pending multiplayer action after the profile prompt finishes.
@@ -358,7 +362,9 @@ impl ShellApp {
             mp_servers: Vec::new(),
             mp_status: None,
             mp_needs_notice: false,
-            direct_connect_draft: format!("127.0.0.1:{DEFAULT_DIRECT_PORT}"),
+            direct_connect_draft: String::new(),
+            direct_port_draft: DEFAULT_DIRECT_PORT.to_string(),
+            direct_field:0,
             host_config: HostConfig::default(),
             pending_mp_after_profile: None,
             popup: None,
@@ -1200,7 +1206,7 @@ impl ShellApp {
     /// `OptionsPage` sliders, `HostDialog` options).
     pub fn move_horizontal(&mut self, delta: isize) {
         // Left/Right on `EXIT TO WINDOWS?` toggles focus between `YES` and `NO`.
-        if let Some(PopupState::ConfirmExit { selected_yes, .. }) = &mut self.popup {
+        if let Some(PopupState::ConfirmExit { selected_yes, .. } | PopupState::OnlineNotice {selected_accept:selected_yes,..}) = &mut self.popup {
             *selected_yes = !*selected_yes;
             self.sound_queue.push("shell_select_change");
             return;

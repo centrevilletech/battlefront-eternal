@@ -381,7 +381,16 @@ pub(super) fn draw_instant_action(
     } else {
         WHITE
     };
-    draw_str(&fonts.medium, batch, mid_m, -40.0, y_edit, "ADD", add_color, 2);
+    draw_str(
+        &fonts.medium,
+        batch,
+        mid_m,
+        -40.0,
+        y_edit,
+        "ADD",
+        add_color,
+        2,
+    );
     draw_str(
         &fonts.medium,
         batch,
@@ -461,6 +470,36 @@ pub fn draw_loading(
     look: LookId,
     viewport_w: f64,
     viewport_h: f64,
+) {
+    draw_loading_with_typeface(
+        batch,
+        fonts,
+        textures,
+        state,
+        spin,
+        planet,
+        loading_text,
+        look,
+        viewport_w,
+        viewport_h,
+        None,
+    );
+}
+
+/// Loading screen using the Page look's admitted Saira fonts. BF1 retains retail type.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_loading_with_typeface(
+    batch: &mut Batch,
+    fonts: &ShellFonts,
+    textures: &ShellTextures,
+    state: &TimelineAt,
+    spin: f64,
+    planet: &str,
+    loading_text: &str,
+    look: LookId,
+    viewport_w: f64,
+    viewport_h: f64,
+    page_fonts: Option<(&bfe_render::interface::Font, &bfe_render::interface::Font)>,
 ) {
     // Convert viewport pixel dimensions into the `1024 x height` interface space.
     batch.begin();
@@ -576,16 +615,29 @@ pub fn draw_loading(
     //    pictures are present (`src/shell/loading.js`).
     if state.phase != loading::LoadingPhase::Hold || shown.is_none() {
         let top = name_pos::TOP * height + name_pos::Y;
-        draw_str(
-            &fonts.tiny,
-            batch,
-            full_m,
-            name_pos::X,
-            top,
-            planet,
-            WHITE,
-            0,
-        );
+        if let Some(typefaces) = page_fonts.filter(|_| look != LookId::Bf1) {
+            loading_type(
+                batch,
+                full_m,
+                typefaces,
+                look,
+                name_pos::X,
+                top + if look == LookId::Eternal { 7.5 } else { 8. },
+                planet,
+                false,
+            );
+        } else {
+            draw_str(
+                &fonts.tiny,
+                batch,
+                full_m,
+                name_pos::X,
+                top,
+                planet,
+                WHITE,
+                0,
+            );
+        }
     }
 
     // 3. Lower-right rotating disk, 28-LED ring, and tilted `LOADING` text
@@ -676,18 +728,96 @@ pub fn draw_loading(
     // Tilted `LOADING` text across the center (`DISK.text_deg = -14.0`),
     // drawn in `#dcdcff` (`[220/255, 220/255, 1.0, 1.0]`) with centered alignment.
     let text_m = rotate_z(disk_m, disk::TEXT_DEG.to_radians());
-    let text_w = str_width(&fonts.medium, loading_text);
-    let _ = text_w;
-    draw_str(
-        &fonts.medium,
-        batch,
-        text_m,
-        0.0,
-        -12.0,
-        loading_text,
-        [220.0 / 255.0, 220.0 / 255.0, 1.0, 1.0],
-        2,
-    );
+    if let Some(typefaces) = page_fonts.filter(|_| look != LookId::Bf1) {
+        loading_type(
+            batch,
+            text_m,
+            typefaces,
+            look,
+            0.,
+            0.,
+            loading_text,
+            true,
+        );
+    } else {
+        let text_w = str_width(&fonts.medium, loading_text);
+        let _ = text_w;
+        draw_str(
+            &fonts.medium,
+            batch,
+            text_m,
+            0.0,
+            -12.0,
+            loading_text,
+            [220.0 / 255.0, 220.0 / 255.0, 1.0, 1.0],
+            2,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn loading_type(
+    batch: &mut Batch,
+    m: Matrix,
+    fonts: (&bfe_render::interface::Font, &bfe_render::interface::Font),
+    look: LookId,
+    x: f64,
+    y: f64,
+    text: &str,
+    centered: bool,
+) {
+    let (font, size, spacing, color) = if look == LookId::Eternal {
+        (
+            fonts.0,
+            if centered { 13. } else { 15. },
+            0.24,
+            [232. / 255., 236. / 255., 242. / 255., 1.],
+        )
+    } else {
+        (fonts.1, if centered { 15. } else { 16. }, 0.04, WHITE)
+    };
+    let chars: Vec<u16> = text.encode_utf16().collect();
+    let scale = size / font.height;
+    let (top, bottom) = chars
+        .iter()
+        .filter_map(|c| font.glyphs.get(c))
+        .fold((0_f64, 0_f64), |(a, z), g| {
+            (a.min(g.bounds[1]), z.max(g.bounds[3]))
+        });
+    let base = y - (top + bottom) * scale / 2.;
+    let align = if centered { 2 } else { 0 };
+    let spacing = size * spacing;
+    let black = [0., 0., 0., 0.85];
+    if look == LookId::Bf2 {
+        for (dx, dy) in [(-1., 0.), (1., 0.), (0., -1.), (0., 1.)] {
+            crate::page::Page::draw_text(
+                font,
+                batch,
+                m,
+                x + dx,
+                base + dy,
+                &chars,
+                black,
+                align,
+                size,
+                spacing,
+            );
+        }
+    } else {
+        crate::page::Page::draw_text(
+            font,
+            batch,
+            m,
+            x,
+            base + 1.,
+            &chars,
+            black,
+            align,
+            size,
+            spacing,
+        );
+    }
+    crate::page::Page::draw_text(font, batch, m, x, base, &chars, color, align, size, spacing);
 }
 
 /// Draws one horizontal (`across == true`) or vertical (`across == false`)
@@ -786,4 +916,3 @@ fn draw_tracking_line(
         );
     }
 }
-

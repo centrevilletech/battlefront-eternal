@@ -35,8 +35,8 @@ use bfe_render::interface::{
 };
 use std::collections::HashMap;
 mod screens;
+pub use self::screens::{draw_loading, draw_loading_with_typeface};
 use self::screens::draw_instant_action;
-pub use self::screens::draw_loading;
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE` in `src/menus/themes/classic/draw.js`.
@@ -1301,7 +1301,7 @@ pub fn draw_shell(
             PopupState::ConfirmExit {
                 message,
                 selected_yes,
-            } => {
+            } | PopupState::OnlineNotice {message,selected_accept:selected_yes} => {
                 draw_popup_box(
                     batch,
                     fonts,

@@ -75,6 +75,13 @@ pub mod cli;
 pub mod script;
 pub mod settings;
 pub mod shell;
+mod page_font;
+mod page_blur;
+mod page_integrations;
+mod page_proof;
+mod page_pause;
+mod page_browser;
+mod page_surfaces;
 pub mod startup;
 
 use crate::{
@@ -458,7 +465,11 @@ impl StandaloneWindowApp {
     fn text_field(&mut self) -> Option<(&'static str, &mut String, usize)> {
         match &mut self.state {
             AppState::Shell => {
-                let app = &mut self.shell.as_mut()?.app;
+                let shell = self.shell.as_mut()?;
+                if shell.browser_page() && shell.page.browser.search {
+                    return Some(("browser-search", &mut shell.page.browser.filters.name, 255));
+                }
+                let app = &mut shell.app;
                 if app.popup.is_some() {
                     return None;
                 }
@@ -466,7 +477,11 @@ impl StandaloneWindowApp {
                     return Some(("profile", &mut app.profile.draft, 32));
                 }
                 if app.current_screen() == ScreenId::DirectConnect {
-                    return Some(("direct", &mut app.direct_connect_draft, 255));
+                    return if app.direct_field == 1 {
+                        Some(("direct-port", &mut app.direct_port_draft, 5))
+                    } else {
+                        Some(("direct-address", &mut app.direct_connect_draft, 255))
+                    };
                 }
                 if app.current_screen() == ScreenId::HostDialog {
                     let index = app.selected_row_index(ScreenId::HostDialog);
@@ -503,6 +518,17 @@ impl StandaloneWindowApp {
 
     fn refresh_text_field(&mut self) {
         if let Some(shell) = &mut self.shell {
+            if shell.browser_page() && shell.page.browser.search {
+                shell.refresh_page_search();
+            }
+            if shell.app.profile.editing {
+                // The shared editor owns selection; Page only paints its state.
+                let (cursor,anchor) = self.text_input.selection();
+                let profile = &mut shell.app.profile;
+                let cursor = cursor.min(profile.draft.len());
+                profile.caret = profile.draft[..cursor].chars().count();
+                profile.selected_all = cursor != anchor && cursor.max(anchor) == profile.draft.len() && cursor.min(anchor) == 0;
+            }
             if shell.app.current_screen() == ScreenId::HostDialog {
                 shell.app.rebuild_cached_rows();
             }
@@ -893,6 +919,8 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
+            let physical = window.inner_size();
+            self.opts.size = [physical.width as i32, physical.height as i32];
             let shell = Box::new(ShellHost::new(
                 self.opts.size,
                 &self.settings,
@@ -1028,6 +1056,14 @@ impl ApplicationHandler for StandaloneWindowApp {
             WindowEvent::MouseInput { state, button, .. } => {
                 let down = state == ElementState::Pressed;
                 let [x, y] = self.framebuffer_cursor();
+                if down && matches!(&self.state, AppState::Shell)
+                    && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
+                {
+                    eprintln!("[menu pointer] screen={:?} window={:?} framebuffer={:?} physical={:?} mapped={:?} scale={}",
+                        self.shell.as_ref().map(|shell| shell.app.current_screen()),
+                        self.opts.size, self.shell.as_ref().map(|shell| shell.size),
+                        self.cursor_physical, [x,y], self.window.as_ref().map_or(1., |window| window.scale_factor()));
+                }
                 match &mut self.state {
                     AppState::StartupLoader(StartupContentState::WaitingForFolder { .. }) => {
                         if down && button == MouseButton::Left {
@@ -1063,16 +1099,19 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                let [x,y] = self.framebuffer_cursor();
                 // Convert line or pixel scroll deltas into scoreboard / spawn scroll offsets.
                 let dy = match delta {
                     MouseScrollDelta::LineDelta(_, y) => -y as f64 * 100.0,
                     MouseScrollDelta::PixelDelta(p) => p.y,
                 };
-                if let AppState::Battle(battle) = &mut self.state {
-                    battle.handle_wheel(dy);
+                match &mut self.state {
+                    AppState::Battle(battle)=>battle.handle_wheel(dy),
+                    AppState::Shell=>{if let Some(shell)=&mut self.shell{shell.handle_wheel(x,y,dy,&mut self.settings);}},
+                    _=>{},
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } => {
+            WindowEvent::KeyboardInput { event, is_synthetic, .. } => {
                 let down = event.state == ElementState::Pressed;
                 // Handle global function hotkeys (`F11` fullscreen toggle, `F9` folder picker).
                 if down && !event.repeat {
@@ -1104,7 +1143,9 @@ impl ApplicationHandler for StandaloneWindowApp {
                         }
                     }
                     AppState::Shell => {
-                        if down {
+                        // Focus recovery synthesizes held keys; those are not a
+                        // fresh press on the title gate or another menu row.
+                        if down && !is_synthetic {
                             if let Some(key_str) = map_shell_key(&event.logical_key) {
                                 if let Some(shell) = &mut self.shell {
                                     let transition = shell.handle_key(
@@ -1631,6 +1672,7 @@ impl StandaloneWindowApp {
                             BattleTransition::QuitToMainMenu => {
                                 self.restore_shell_audio(&content_dir);
                                 if let Some(shell) = &mut self.shell {
+                                    shell.app.settings.menu_theme=self.settings.player.shell.menu_theme.clone();
                                     shell.app.stack = vec![ScreenId::Main];
                                     shell.app.rebuild_cached_rows();
                                 }

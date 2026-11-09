@@ -849,6 +849,7 @@ pub struct BattleController {
     pub scoreboard_ctrl: ScoreboardController,
     /// `bfe-battle-ui` in-battle Escape pause menu (`Resume`, `Respawn`, `Restart`, `Quit`, etc.).
     pub pause_menu: PauseMenu,
+    pause_page: super::page_pause::PagePause,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
     // Retained UTF-16 storage for the native chat text field.
@@ -1188,6 +1189,7 @@ impl BattleController {
         };
 
         let chat = ChatController::new(&settings.player.profile_name);
+        let pause_page = super::page_pause::PagePause::admit(&mut scene,size,settings)?;
 
         Ok(Self {
             authority,
@@ -1200,6 +1202,7 @@ impl BattleController {
             scoreboard_port,
             scoreboard_ctrl,
             pause_menu,
+            pause_page,
             chat,
             chat_text: Vec::with_capacity(512),
             overlay_batch: Batch::new(),
@@ -1397,6 +1400,7 @@ impl BattleController {
     ///    `hud_model.build(0)`), then synchronizes vertex ranges via `bridge.hud_sync_batch`.
     /// 6. **Unified 3D + HUD Draw & Allocation Accounting**: Invokes `scene.draw(&view)`
     ///    and records steady-state render-thread heap allocations after warmup.
+
     pub fn step_and_draw(
         &mut self,
         dt: f64,
@@ -1405,6 +1409,7 @@ impl BattleController {
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
         let dt = dt.clamp(0.0, 0.1);
+        self.pause_page.save(settings);
         self.elapsed_s += dt;
 
         if let BattleAuthority::Online { client, launch, .. } = &mut self.authority {
@@ -1720,8 +1725,27 @@ impl BattleController {
         self.overlay_was_active = overlay_active;
         self.scene.bridge.hud_sync_batch(full_sync);
 
-        // 6. Render the unified 3D + HUD frame.
+        // PageTheme is a compositor over the finished battle, just as its
+        // CSS overlay is over the canvas. Defer only the pause UI until its
+        // backdrop has been filtered; the renderer still draws the world.
+        let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
+        if self.pause_menu.is_open{self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         self.scene.draw(&view)?;
+        if self.pause_menu.is_open {
+            self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,6.);
+            self.scene.bridge.r.core.state.reset();
+            self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
+            self.scene.bridge.r.hud.input[render_hud::IN_UPLOAD]=0.;
+            self.scene.bridge.r.hud.input[render_hud::IN_UPLOAD+1]=(self.scene.bridge.hud_model.batch.count*4)as f64;
+            if let Some(modal) = self.pause_page.page.modal_start {
+                super::page_pause::PagePause::draw_range(&mut self.scene,0,modal);
+                self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);
+                let end=self.scene.bridge.hud_model.batch.count;
+                super::page_pause::PagePause::draw_range(&mut self.scene,modal,end);
+            } else {
+                self.scene.bridge.r.hud.draw(&mut self.scene.bridge.r.core);
+            }
+        }
         if measure_steady_allocs && !overlay_active {
             let alloc_after = super::render_thread_alloc_count();
             self.steady_allocs_after_warmup += alloc_after.saturating_sub(alloc_before);
@@ -1816,17 +1840,7 @@ impl BattleController {
                     textures: Some(&replicas.hud.names),
                     strings: Some(&replicas.hud.strings),
                 };
-                let m = root_anchor(self.height);
-                surface.batch.quad(
-                    m,
-                    [0.0, 0.0, 1024.0, self.height],
-                    A::SOLID,
-                    UV,
-                    [0.0, 0.02, 0.06, 0.42],
-                    0.0,
-                    0,
-                );
-                self.pause_menu.draw(&surface, &mut self.overlay_batch);
+                self.pause_page.page.draw_pause(&mut self.overlay_batch,&self.pause_page.textures,&mut self.pause_menu,&surface,self.size[0] as f64,self.size[1] as f64,&self.pause_page.theme);
             }
             Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
             return;
@@ -1935,7 +1949,7 @@ impl BattleController {
                         textures: Some(&replicas.hud.names),
                         strings: Some(&replicas.hud.strings),
                     };
-                    self.pause_menu.draw(&surface, &mut self.overlay_batch);
+                    self.pause_page.page.draw_pause(&mut self.overlay_batch,&self.pause_page.textures,&mut self.pause_menu,&surface,self.size[0] as f64,self.size[1] as f64,&self.pause_page.theme);
                 }
                 Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
             }
@@ -2069,6 +2083,7 @@ impl BattleController {
         repeat: bool,
         settings: &mut AppSettingsStore,
     ) {
+        if self.pause_menu.is_open&&down&&self.pause_page.key(code){return;}
         // 1. Escape or open PauseMenu always gets priority.
         if self.pause_menu.is_open || code == "Escape" {
             self.sync_ports_cold(&settings.player.profile_name);
@@ -2257,6 +2272,7 @@ impl BattleController {
             self.height,
         );
         if self.pause_menu.is_open {
+            if button==0&&down&&self.pause_page.pointer(self.cursor_px[0],self.cursor_px[1]){return;}
             if button == 0 && down {
                 if let Some(replicas) = &self.scene.online {
                     let surface = HudBatchSurface {
@@ -2606,4 +2622,8 @@ mod tests {
             assert!((bottom - height * 0.95).abs() < 0.001);
         }
     }
+}
+
+impl Drop for BattleController {
+    fn drop(&mut self){self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
 }

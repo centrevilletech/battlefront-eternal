@@ -27,6 +27,7 @@ bfe-pose = { path = "../bfe-pose" }
 bfe-shell = { path = "../bfe-shell" }
 sha2 = "0.10"
 png = "0.18"
+fontdue = "0.9"
 
 audio-control = { path = "../audio-control" }
 three = { path = "../three" }

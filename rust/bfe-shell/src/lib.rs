@@ -14,6 +14,7 @@ pub mod media;
 pub mod mission;
 pub mod music;
 pub mod profile;
+pub mod page;
 pub mod render;
 pub mod screens;
 pub mod version;

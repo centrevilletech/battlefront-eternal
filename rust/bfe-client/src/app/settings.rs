@@ -172,17 +172,13 @@ impl Default for PersistedPlayerSettings {
         let snap = interface.to_desktop_snapshot();
         let pause_kv = Self::interface_to_pause_kv(&interface, &shell);
         Self {
-            profile_name: "Player 1".to_string(),
+            profile_name: bfe_shell::profile::DEFAULT_PLAYER_NAME.to_string(),
             privacy_notice_accepted: false,
             complete: snap.complete,
             values: snap.values,
             shell,
             pause_kv,
-            ia_playlist: vec![
-                PlaylistEntry::new("nab2", Some("cw".to_string())),
-                PlaylistEntry::new("tat1", Some("cw".to_string())),
-                PlaylistEntry::new("bes1", Some("cw".to_string())),
-            ],
+            ia_playlist: Vec::new(),
             ia_random: false,
         }
     }

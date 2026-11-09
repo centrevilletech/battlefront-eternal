@@ -502,12 +502,10 @@ impl ShellApp {
                 self.mp_servers.clear();
             }
             BrowserState::Error(msg) => {
-                self.mp_needs_notice = false;
                 self.mp_status = Some(msg.clone());
                 self.mp_servers.clear();
             }
             BrowserState::Loading | BrowserState::Idle | BrowserState::Ready => {
-                self.mp_needs_notice = false;
                 self.mp_status = None;
                 self.mp_servers = browser.rows().into_iter().cloned().collect();
             }
@@ -523,6 +521,19 @@ impl ShellApp {
         //    `HostClosePrompt` 3-button decision).
         if let Some(popup) = self.popup.clone() {
             match popup {
+                PopupState::OnlineNotice {
+                    selected_accept, ..
+                } => {
+                    self.popup = None;
+                    if selected_accept {
+                        self.mp_needs_notice = false;
+                    }
+                    self.sound_queue.push(if selected_accept {
+                        "shell_menu_accept"
+                    } else {
+                        "shell_menu_cancel"
+                    });
+                }
                 PopupState::Notice { .. } => {
                     self.popup = None;
                     self.sound_queue.push("shell_menu_accept");
@@ -620,7 +631,7 @@ impl ShellApp {
                         self.sound_queue.push("shell_menu_enter");
                         self.popup = Some(PopupState::ConfirmExit {
                             message: "EXIT TO WINDOWS?".to_string(),
-                            selected_yes: true,
+                            selected_yes: false,
                         });
                     }
                     _ => {}
@@ -819,16 +830,7 @@ impl ShellApp {
                         if let Some(server) =
                             self.mp_servers.iter().find(|s| s.id == server_id).cloned()
                         {
-                            browser.select(Some(&server.id));
-                            if !self.require_profile_for(PendingMpAction::Join(
-                                Box::new(server.clone()),
-                                kind,
-                            )) {
-                                return;
-                            }
-                            let launch = resolve_server_join(&server, kind, &self.profile.name);
-                            self.sound_queue.push("shell_menu_accept");
-                            self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
+                            self.join_browser_server(server, kind, browser);
                         }
                     }
                 }
@@ -836,7 +838,14 @@ impl ShellApp {
             // `DirectConnect`: validates `direct_connect_draft` via `direct_connect_entry`
             // and joins over `LAN` (or shows an error notice popup if invalid).
             ScreenId::DirectConnect => {
-                let addr = self.direct_connect_draft.clone();
+                let address = self.direct_connect_draft.trim();
+                let addr = if address.parse::<std::net::Ipv6Addr>().is_ok() {
+                    format!("[{address}]:{}", self.direct_port_draft)
+                } else if address.contains(':') {
+                    address.to_owned()
+                } else {
+                    format!("{address}:{}", self.direct_port_draft)
+                };
                 match direct_connect_entry(&addr) {
                     Ok(server) => {
                         self.stack.pop();
@@ -945,6 +954,22 @@ impl ShellApp {
 
     /// Refreshes `browser` for `kind` (`LAN` or `ONLINE`) and pushes
     /// `ScreenId::MultiplayerList(kind)`.
+    /// Both page and classic views dispatch through the same profile/join owner.
+    pub fn join_browser_server(
+        &mut self,
+        server: ServerEntry,
+        kind: MultiplayerKind,
+        browser: &mut dyn ServerBrowserService,
+    ) {
+        browser.select(Some(&server.id));
+        if !self.require_profile_for(PendingMpAction::Join(Box::new(server.clone()), kind)) {
+            return;
+        }
+        let launch = resolve_server_join(&server, kind, &self.profile.name);
+        self.sound_queue.push("shell_menu_accept");
+        self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
+    }
+
     fn open_multiplayer_list(
         &mut self,
         kind: MultiplayerKind,
@@ -993,6 +1018,9 @@ impl ShellApp {
         // 2. While editing a profile callsign, route `Enter`, `Escape`,
         //    `Backspace`, and printable characters to `self.profile`.
         if self.profile.editing {
+            if self.profile.edit_key(key) {
+                return true;
+            }
             match key {
                 "Enter" => {
                     self.accept(browser);
@@ -1024,6 +1052,10 @@ impl ShellApp {
         // 3. On `DirectConnect`, route `Enter`, `Escape`, `Backspace`, and
         //    printable address characters to `self.direct_connect_draft`.
         if self.current_screen() == ScreenId::DirectConnect {
+            if key == "Tab" {
+                self.direct_field = (self.direct_field + 1) % 2;
+                return true;
+            }
             match key {
                 "Enter" => {
                     self.accept(browser);
@@ -1034,7 +1066,11 @@ impl ShellApp {
                     return true;
                 }
                 "Backspace" => {
-                    self.direct_connect_draft.pop();
+                    if self.direct_field == 0 {
+                        self.direct_connect_draft.pop();
+                    } else {
+                        self.direct_port_draft.pop();
+                    }
                     self.sound_queue.push("shell_keyboard_backspace");
                     return true;
                 }
@@ -1042,7 +1078,11 @@ impl ShellApp {
                     // Append unmodified single-character keys to `direct_connect_draft`.
                     if key.chars().count() == 1 && !ctrl && !meta && !alt {
                         if let Some(ch) = key.chars().next() {
-                            self.direct_connect_draft.push(ch);
+                            if self.direct_field == 0 {
+                                self.direct_connect_draft.push(ch);
+                            } else if ch.is_ascii_digit() && self.direct_port_draft.len() < 5 {
+                                self.direct_port_draft.push(ch);
+                            }
                             self.sound_queue.push("shell_keyboard_key");
                             return true;
                         }

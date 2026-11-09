@@ -1,71 +1,15 @@
-//! Front-end shell host (`bfe-shell` + `bfe-interface` + `bfe-online`) and loading screen renderer.
+//! Native front-end host over the existing shell and options screen stacks.
 //!
-//! Owns the 2D/3D-anchored interface pass (`Core` + `HudPass` + `Batch`),
-//! `ShellApp`, `bfe_interface::OptionsController` (`OPTIONS` and its 4 sub-pages
-//! rendered via `bfe_interface::ClassicTheme`), `ShellFonts`, `ShellTextures`,
-//! `LoadingTimeline`, and the non-blocking background server browser (`LiveServerBrowser`).
+//! ShellApp owns front-end actions; OptionsController owns the option widgets,
+//! slider interaction, key capture and persistence. The page renderer paints
+//! their state and supplies viewport hit regions without duplicating actions.
 //!
-//! ## Architecture and Responsibilities
-//! - **Startup and Map Loading Screens**: Renders `draw_loading` with the animated
-//!   planet zoom timeline (`LoadingTimeline`), rotating disk, LEDs, and localized
-//!   status lines for content preparation, `HostController::start` readiness polling,
-//!   and mission loading.
-//! - **`bfe-interface` Options Integration**: Whenever `ScreenId::Options` or
-//!   `ScreenId::OptionsPage(_)` is active on `ShellApp`, delegates keyboard/mouse
-//!   events and 2D/3D rendering to `bfe_interface::OptionsController` and
-//!   `bfe_interface::ClassicTheme::paint_stack`, draining sound cues into `ShellAudioMixer`
-//!   and persisting modified keys into `AppSettingsStore`.
-//! - **Multiplayer Host & Browser Wiring**: Translates `SET GAME OPTIONS` (`HostConfig`)
-//!   into `bfe_desktop::host::HostOptions` via [`host_options_from_shell`], renders the
-//!   3-button `ClosePrompt` modal on exit, and runs master/LAN server discovery on
-//!   background threads via [`LiveServerBrowser`].
+//! Licensed Saira and look surfaces are admitted once with the GL resources.
+//! Page receives current media texture outputs from the host each frame.
+//! Loading screens retain their separate timeline.
 //!
-//! ## Coordinate Spaces and Layout Anchoring
-//! - **`bfe-shell` (`draw_shell` and `draw_loading`)**:
-//!   Uses the classic `1024 x 768` virtual 4:3 canvas anchored in 3D eye space via
-//!   `bfe_shell::render::root_matrix(width, height)` (`z = -768 / (2 * tan(15 deg))`).
-//!   Aspect ratios wider than 4:3 extend horizontally past `[0..1024]` while keeping
-//!   menus centered.
-//! - **`bfe-interface` (`ClassicTheme::paint_stack`)**:
-//!   Uses `bfe_interface::Surface::from_viewport(width, height)` with a 30-degree
-//!   vertical FOV (`root_anchor(surface.height)`), matching `bfe-shell`'s 3-piece
-//!   capsule buttons (`buttonleft`/`buttonmid`/`buttonright`), title banners
-//!   (`headerbuttonleft`/`headerbuttonmid`/`headerbuttonright`), 9-slice frames
-//!   (`border_3_pieces` / `border_3_pieces_Selected`), and sound/value sliders
-//!   (`slider_bg`/`slider_fg`/`slider_sound`) pixel for pixel.
-//!
-//! ## `OPTIONS` Screen Integration (`bfe-interface`)
-//! When `ShellApp::current_screen()` is `ScreenId::Options` or `ScreenId::OptionsPage(_)`:
-//! 1. [`ShellHost::is_interface_options_active`] returns `true` (unless a modal popup
-//!    is open).
-//! 2. [`ShellHost::sync_options_controller`] ensures `self.options_ctrl.stack` matches
-//!    the active options hub or sub-page (`"options"`, `"options-game"`, `"options-video"`,
-//!    `"options-audio"`, `"options-controls"`).
-//! 3. [`ShellHost::step_and_draw`] invokes [`ClassicTheme::paint_stack`] into `self.batch`
-//!    and populates `self.options_hits` with interactive pointer hit regions.
-//! 4. Keyboard and mouse events route through `self.options_ctrl`, and
-//!    [`ShellHost::flush_options_controller`] drains sound cues into `ShellAudioMixer`
-//!    and saves modified keys into `AppSettingsStore` (`player-settings.json`).
-//!
-//! ## Server Browser Threading Model (`LiveServerBrowser`)
-//! - Master directory queries (`MasterClient::list_servers`), LAN UDP broadcast probes
-//!   (`discover_lan`), and direct `GET /info` / UDP latency probes (`probe_direct_target`)
-//!   execute on background threads spawned by [`LiveServerBrowser::trigger_refresh`].
-//! - Each refresh is tagged with a monotonic token from `ServerBrowser::begin_refresh`
-//!   so stale responses from superseded refreshes are discarded.
-//! - [`LiveServerBrowser::poll`] drains completed results via `mpsc::Receiver::try_recv`
-//!   at the start of [`ShellHost::step_and_draw`], keeping the 60 Hz UI loop non-blocking.
-//!
-//! ## Loading Screen Timeline (`LoadingTimeline`)
-//! - Driven by `data.load.track` (total zoom duration), `data.load.zoom` (per-stage
-//!   zoom duration), `data.load.hold` (hold before crossfade), and the per-stage
-//!   normalized `[u0, v0, u1, v1]` target rectangles extracted from `map.load.stages`.
-//! - Used across three distinct states:
-//!   1. `ShellHost::draw_startup_loader`: Startup content check / `PrepareSession` progress.
-//!   2. `ShellHost::draw_host_starting`: Local `bfeserver` startup while waiting for `/info`.
-//!   3. `ShellHost::draw_battle_loading`: Planet zoom transition into Instant Action or Online.
-//! - Schedules loading audio cues (`loading_timeline.sounds()`) on `ShellAudioMixer`
-//!   at `t = 0.0` whenever `ShellHost::prepare_map_loading` is called.
+//! The host also owns server-browser polling, audio routing and the shell's
+//! framebuffer. Network discovery and content preparation stay off the UI thread.
 
 use crate::{
     app::{
@@ -81,8 +25,7 @@ use bfe_desktop::host::{
     AiDifficulty, ClosePrompt, HostMode, HostOptions, RelayPolicy, TeamAssignment,
 };
 use bfe_interface::{
-    ClassicTheme, Fonts as InterfaceFonts, HitRegion, OptionsContext, OptionsController,
-    Surface as InterfaceSurfaceState,
+    HitRegion, OptionsContext, OptionsController, Surface as InterfaceSurfaceState,
 };
 use bfe_online::{
     default_identity_path, discover_lan, ping_host_port, resolve_host_port, resolve_master_url,
@@ -105,7 +48,7 @@ use bfe_shell::{
     data::{load_shell_data_from_dir, ShellData},
     launch::{BattleRequest, PlaylistEntry},
     loading::{planet_name, LoadingTimeline, LookId},
-    render::{draw_loading, draw_shell, ShellFonts, ShellTextures, StageTexture},
+    render::{draw_loading_with_typeface, draw_shell, ShellFonts, ShellTextures, StageTexture},
     screens::{
         HostConfig, IaFocus, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
         ScreenId, ShellAction, ShellApp,
@@ -118,7 +61,7 @@ use std::{
     path::{Path, PathBuf},
     sync::mpsc,
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use three::{CoordinateSystem, Matrix4};
 
@@ -175,25 +118,6 @@ const NAMED_TEXTURES: &[&str] = &[
     "load_edge_corner",
     "map_unk",
 ];
-
-/// Clones a [`Font`] (`bfe_render::interface::Font` does not derive `Clone`) so
-/// [`ShellFonts`] and [`bfe_interface::Fonts`] can share glyph tables.
-fn clone_font(font: &Font) -> Font {
-    Font {
-        height: font.height,
-        glyphs: font.glyphs.clone(),
-    }
-}
-
-/// Converts [`ShellFonts`] into [`bfe_interface::Fonts`] (`large`, `medium`, `small`, `tiny`).
-fn shell_fonts_to_interface(fonts: &ShellFonts) -> InterfaceFonts {
-    InterfaceFonts {
-        large: clone_font(&fonts.large),
-        medium: clone_font(&fonts.medium),
-        small: clone_font(&fonts.small),
-        tiny: clone_font(&fonts.tiny),
-    }
-}
 
 /// Converts [`ShellTextures`] and viewport dimensions into [`bfe_interface::Surface`]
 /// so `ClassicTheme::paint_stack` uses the exact same GL texture handles as `draw_shell`.
@@ -339,9 +263,15 @@ pub struct LiveServerBrowser {
 
 impl LiveServerBrowser {
     /// Creates a new [`LiveServerBrowser`] with optional direct target override.
-    pub fn new(server_target: Option<String>, _privacy_accepted: bool) -> Self {
+    pub fn new(server_target: Option<String>, privacy_accepted: bool) -> Self {
+        let mut inner = ServerBrowser::default();
+        if !privacy_accepted {
+            if let Some(token) = inner.begin_refresh(false) {
+                inner.finish_refresh_notice(token);
+            }
+        }
         Self {
-            inner: ServerBrowser::default(),
+            inner,
             rx: None,
             server_target,
         }
@@ -596,8 +526,6 @@ pub struct ShellHost {
     pub fonts: ShellFonts,
     /// Uploaded texture handles and map-loading zoom stages for `bfe-shell`.
     pub textures: ShellTextures,
-    /// Bitmap fonts converted into [`bfe_interface::Fonts`] for `ClassicTheme::paint_stack`.
-    pub interface_fonts: InterfaceFonts,
     /// Viewport and texture handle table for `bfe_interface::ClassicTheme`.
     pub interface_surface: InterfaceSurfaceState,
     /// Stateful `bfe-interface` controller driving `OPTIONS` and its 4 sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`).
@@ -606,6 +534,10 @@ pub struct ShellHost {
     pub options_hits: Vec<HitRegion>,
     /// Front-end shell state machine (`Gate`, `Main`, `Singleplayer`, `InstantAction`, `Profile`, `Multiplayer`, `HostDialog`).
     pub app: ShellApp,
+    pub page: bfe_shell::page::Page,
+    blur: super::page_blur::PageBlur,
+    /// CSS pixels per framebuffer pixel, matching Electron on Retina displays.
+    last_page_click: Option<(bfe_shell::page::Hit, Instant)>,
     /// Non-blocking LAN and Internet server browser service.
     pub browser: LiveServerBrowser,
     /// Animated planet zoom and stage crossfade timeline for loading screens.
@@ -665,9 +597,9 @@ impl ShellHost {
         };
 
         // Initialize `bfe-interface` fonts, surface, and `OptionsController` from `settings.interface`.
-        let interface_fonts = shell_fonts_to_interface(&fonts);
         let interface_surface = shell_textures_to_interface_surface(&textures, size);
         let mut opt_ctx = OptionsContext::default();
+        opt_ctx.has_integrations = true;
         opt_ctx.surface_height = interface_surface.height;
         opt_ctx.viewport = Some([size[0].max(1) as u32, size[1].max(1) as u32]);
         let options_ctrl = OptionsController::new(settings.interface.clone(), opt_ctx);
@@ -691,14 +623,18 @@ impl ShellHost {
         let browser =
             LiveServerBrowser::new(server_target, settings.player.privacy_notice_accepted);
 
+        let blur = super::page_blur::PageBlur::new(&core.gl, size)?;
+        core.state.reset();
         Ok(Self {
+            blur,
             canvas,
             core,
             hud,
             batch: Batch::new(),
+            page: bfe_shell::page::Page::new(Font::default(), Font::default()),
+            last_page_click: None,
             fonts,
             textures,
-            interface_fonts,
             interface_surface,
             options_ctrl,
             options_hits: Vec::new(),
@@ -862,9 +798,56 @@ impl ShellHost {
             .cloned()
             .unwrap_or_else(|| "LOADING".to_string());
         self.textures = textures;
+        let mut page_fonts = Vec::with_capacity(6);
+        for bytes in [
+            include_bytes!("../../assets/fonts/saira-700.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-900.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-800.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-800-normal.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-400.ttf").as_slice(),
+            include_bytes!("../../assets/fonts/saira-600.ttf").as_slice(),
+        ] {
+            let (rgba, mut font) = super::page_font::atlas(bytes)?;
+            let texture = Self::upload_page_font(&self.core.gl, &rgba)?;
+            let handle = self.core.add_texture(texture);
+            for glyph in font.glyphs.values_mut() {
+                glyph.page = handle;
+            }
+            page_fonts.push(font);
+        }
+        let medium = page_fonts.pop().unwrap();
+        let regular = page_fonts.pop().unwrap();
+        let bold = page_fonts.pop().unwrap();
+        let title = page_fonts.pop().unwrap();
+        let logo = page_fonts.pop().unwrap();
+        self.page = bfe_shell::page::Page::new(page_fonts.pop().unwrap(), logo);
+        self.page.title = title;
+        self.page.bold = bold;
+        self.page.regular = regular;
+        self.page.medium = medium;
+        let button_w = ((self.size[0] as f64 * 0.30).min(400.) - 16.)
+            .round()
+            .max(28.) as usize;
+        let button_h = (self.size[1] as f64 * 0.056).clamp(38., 56.).round() as usize;
+        self.page.button_source = [button_w as f64, button_h as f64];
+        for look in 0..3 {
+            let w = (self.size[0] as f64).round() as usize;
+            let h = (self.size[1] as f64).round() as usize;
+            let rgba = super::page_surfaces::pattern(w, h, look);
+            let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
+            self.page.patterns[look] = self.core.add_texture(texture);
+        }
+        for look in 0..3 {
+            for selected in [false, true] {
+                let rgba = super::page_surfaces::button(button_w, button_h, look, selected);
+                let texture =
+                    Self::upload_rgba(&self.core.gl, button_w as i32, button_h as i32, &rgba)?;
+                self.page.buttons[look * 2 + usize::from(selected)] =
+                    self.core.add_texture(texture);
+            }
+        }
 
         // Rebuild `bfe-interface` fonts, surface, and `OptionsController` with loaded localization strings.
-        self.interface_fonts = shell_fonts_to_interface(&self.fonts);
         self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.size);
         let mut opt_ctx = OptionsContext::default();
         opt_ctx.strings = data
@@ -919,7 +902,7 @@ impl ShellHost {
     /// Ensures `self.options_ctrl.stack` is populated with the root `"options"` screen
     /// when `ScreenId::Options` is active, or pushes the matching `bfe-interface` sub-page
     /// (`"game"`, `"video"`, `"audio"`, `"controls"`) when `ScreenId::OptionsPage(_)` is active.
-    fn sync_options_controller(&mut self, settings: &AppSettingsStore) {
+    pub(super) fn sync_options_controller(&mut self, settings: &AppSettingsStore) {
         if self.options_ctrl.stack.is_empty() {
             let mut ctx = self.options_ctrl.context.clone();
             ctx.surface_height = self.interface_surface.height;
@@ -972,7 +955,11 @@ impl ShellHost {
             settings.capture_from_interface_settings(&self.options_ctrl.settings, &mut self.app);
 
         if let Some(action) = self.options_ctrl.last_named_action.take() {
-            if action == "online" {
+            if action == "integrations" {
+                self.open_integrations(settings);
+            } else if action == "discord-cycle" {
+                self.step_discord_detail(settings, false);
+            } else if action == "online" {
                 self.app
                     .refresh_multiplayer_list(MultiplayerKind::Online, &mut self.browser);
                 self.app
@@ -1078,7 +1065,7 @@ impl ShellHost {
         let at = self.loading_timeline.at(timeline_time);
         let w = self.size[0] as f64;
         let h = self.size[1] as f64;
-        draw_loading(
+        draw_loading_with_typeface(
             &mut self.batch,
             &self.fonts,
             &self.textures,
@@ -1086,9 +1073,10 @@ impl ShellHost {
             timeline_time,
             &planet,
             &text,
-            LookId::Bf1,
+            LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
+            Some((&self.page.body, &self.page.bold)),
         );
         self.upload_and_draw_batch();
     }
@@ -1099,7 +1087,7 @@ impl ShellHost {
         let at = self.loading_timeline.at(self.loading_time);
         let w = self.size[0] as f64;
         let h = self.size[1] as f64;
-        draw_loading(
+        draw_loading_with_typeface(
             &mut self.batch,
             &self.fonts,
             &self.textures,
@@ -1107,9 +1095,10 @@ impl ShellHost {
             self.loading_time,
             &self.loading_planet,
             &self.loading_text,
-            LookId::Bf1,
+            LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
+            Some((&self.page.body, &self.page.bold)),
         );
         self.upload_and_draw_batch();
     }
@@ -1122,7 +1111,7 @@ impl ShellHost {
         let w = self.size[0] as f64;
         let h = self.size[1] as f64;
         let status = format!("STARTING HOSTED SERVER: {server_name}");
-        draw_loading(
+        draw_loading_with_typeface(
             &mut self.batch,
             &self.fonts,
             &self.textures,
@@ -1130,11 +1119,39 @@ impl ShellHost {
             self.loading_time,
             &self.loading_planet,
             &status,
-            LookId::Bf1,
+            LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
+            Some((&self.page.body, &self.page.bold)),
         );
         self.upload_and_draw_batch();
+    }
+
+    /// Default prepared-media source while the movie host is being integrated.
+    /// Decoded frame textures use the same Page inputs, including provider UVs.
+    fn page_media_textures(&self) -> bfe_shell::page::MediaTextures {
+        use bfe_shell::page::{FrameTexture, MediaTextures};
+        let right = self.textures.backdrop_for(ScreenId::Main);
+        let left = self.textures.get("coreship_screen");
+        let preview = self
+            .app
+            .data
+            .maps
+            .get(self.app.ia_available_selected)
+            .and_then(|map| {
+                self.textures
+                    .by_name
+                    .iter()
+                    .find(|(name, _)| name.strip_prefix("map_") == Some(map.id.as_str()))
+                    .map(|(_, texture)| FrameTexture::new(*texture))
+            });
+        MediaTextures {
+            backdrops: [
+                FrameTexture::new(if left == 0 { right } else { left }),
+                FrameTexture::new(right),
+            ],
+            preview,
+        }
     }
 
     /// Updates and renders the active shell screen (`Gate`, `Main`, `InstantAction`,
@@ -1154,27 +1171,53 @@ impl ShellHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
-        if self.browser.poll() {
-            self.app.sync_from_browser(&self.browser);
+        if self.browser.poll() || (self.browser_page() && self.page.browser.source.is_none()) {
+            self.sync_page_browser();
         }
         if dt.is_finite() && dt > 0.0 {
             self.app.gate_elapsed += dt;
             self.app.pulse_elapsed += dt;
         }
-        if self.is_interface_options_active() {
-            // Render `OPTIONS` and its sub-pages using `bfe_interface::ClassicTheme::paint_stack`.
+        // Movie integration bind point: replace the provider on this line.
+        // Page consumes current textures/crops and never assumes a still image.
+        self.page.media = self.page_media_textures();
+        if !self.page.input_matches(&self.app) && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
+        {
+            eprintln!(
+                "[menu paint] {:?} framebuffer={:?}",
+                self.app.current_screen(),
+                self.size
+            );
+        }
+        if self.page_active() {
+            self.page.draw(
+                &mut self.batch,
+                &self.textures,
+                &self.app,
+                self.size[0] as f64,
+                self.size[1] as f64,
+            );
+        } else if self.is_interface_options_active() {
+            // Paint the existing options stack in the selected page look.
             self.sync_options_controller(settings);
             if dt.is_finite() && dt > 0.0 {
                 self.options_ctrl.stack.update(dt);
             }
-            let bg_tex = self.interface_surface.options_backdrop();
-            ClassicTheme::paint_stack(
+            self.page.draw(
                 &mut self.batch,
-                &self.interface_fonts,
-                &self.interface_surface,
-                &self.options_ctrl.stack,
-                bg_tex,
-                Some(&mut self.options_hits),
+                &self.textures,
+                &self.app,
+                self.size[0] as f64,
+                self.size[1] as f64,
+            );
+            self.page.paint_widgets(
+                &mut self.batch,
+                &self.textures,
+                &mut self.options_ctrl.stack,
+                self.size[0] as f64,
+                self.size[1] as f64,
+                &self.app.settings.menu_theme,
+                &mut self.options_hits,
             );
         } else {
             let w = self.size[0] as f64;
@@ -1188,7 +1231,15 @@ impl ShellHost {
                 h,
             );
         }
-        self.upload_and_draw_batch();
+
+        if let Some(modal) = self.page.modal_start {
+            self.draw_range(0, modal, true);
+            self.blur.apply(&self.core.gl, self.canvas.framebuffer, 4.);
+            self.core.state.reset();
+            self.draw_range(modal, self.batch.count, false);
+        } else {
+            self.upload_and_draw_batch();
+        }
         self.flush_events(settings, audio_router)
     }
 
@@ -1266,8 +1317,50 @@ impl ShellHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
+        if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+            eprintln!("[menu input] {:?} key={key:?}", self.app.current_screen());
+        }
+        if let Some(selection) = self.page.dropdown_key(key) {
+            if let Some(index) = selection {
+                self.app.settings.menu_theme = ["bf1", "bf2", "eternal"][index].into();
+                self.options_ctrl
+                    .settings
+                    .set("menuTheme", self.app.settings.menu_theme.clone());
+            }
+            return self.flush_events(settings, audio_router);
+        }
+        if self.page.game_dropdown {
+            if matches!(key, "Escape" | "Tab" | "Enter" | " ") {
+                self.page.game_dropdown = false;
+            }
+            return self.flush_events(settings, audio_router);
+        }
+        if key == "Tab"
+            && matches!(
+                self.app.current_screen(),
+                ScreenId::Main | ScreenId::Singleplayer | ScreenId::Profile
+            )
+            && !self.app.profile.editing
+            && self.app.popup.is_none()
+        {
+            self.page.dropdown = true;
+            return self.flush_events(settings, audio_router);
+        }
+        if self.browser_page() && self.page_browser_key(key) {
+            return self.flush_events(settings, audio_router);
+        }
         if self.is_interface_options_active() {
             self.sync_options_controller(settings);
+            if matches!(key, "ArrowLeft" | "ArrowRight")
+                && self
+                    .options_ctrl
+                    .stack
+                    .top()
+                    .is_some_and(|s| s.id == "options-integrations")
+            {
+                self.step_discord_detail(settings, key == "ArrowLeft");
+                return self.flush_events(settings, audio_router);
+            }
             self.options_ctrl.on_key_down(key, false);
             self.flush_options_controller(settings);
             return self.flush_events(settings, audio_router);
@@ -1299,7 +1392,7 @@ impl ShellHost {
             || (entered_list && self.browser.rx.is_none())
         {
             self.browser.trigger_refresh();
-            self.app.sync_from_browser(&self.browser);
+            self.sync_page_browser();
         }
         self.flush_events(settings, audio_router)
     }
@@ -1312,7 +1405,37 @@ impl ShellHost {
     ///   resulting hover sound cues.
     /// - Otherwise maps `(x_px, y_px)` into the `1024x768` logical shell coordinate space
     ///   and updates footer focus (`IaFocus`) or menu row selection.
+    fn page_active(&self) -> bool {
+        matches!(
+            self.app.stack.last().copied().unwrap_or(ScreenId::Gate),
+            ScreenId::Gate
+                | ScreenId::Main
+                | ScreenId::Singleplayer
+                | ScreenId::Profile
+                | ScreenId::InstantActionEra
+                | ScreenId::InstantAction
+                | ScreenId::Multiplayer
+                | ScreenId::MultiplayerList(_)
+                | ScreenId::HostDialog
+                | ScreenId::DirectConnect
+        )
+    }
+
     pub fn handle_cursor_move(&mut self, x_px: f64, y_px: f64) {
+        if self.page_active() {
+            match self.page.hit(x_px, y_px) {
+                Some(bfe_shell::page::Hit::Look(i)) => self.page.dropdown_cursor = i,
+                Some(bfe_shell::page::Hit::BrowserChoice(_, i)) => {
+                    self.page.browser.choice_cursor = i
+                }
+                _ => {}
+            }
+            if let Some(bfe_shell::page::Hit::Row(row)) = self.page.hit(x_px, y_px) {
+                self.app
+                    .set_selected_row_index(self.app.current_screen(), row);
+            }
+            return;
+        }
         if self.is_interface_options_active() {
             let vw = self.size[0].max(1) as f64;
             let vh = self.size[1].max(1) as f64;
@@ -1386,6 +1509,142 @@ impl ShellHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
+        if !self.page.input_matches(&self.app) {
+            return self.flush_events(settings, audio_router);
+        }
+        match self.page.hit(x_px, y_px) {
+            Some(bfe_shell::page::Hit::OptionBack(widget, item)) => {
+                if let Some(top) = self.options_ctrl.stack.top_mut() {
+                    top.focused = Some(widget);
+                    if let Some(bfe_interface::widgets::Widget::Options(options)) =
+                        top.widgets.get_mut(widget)
+                    {
+                        options.selected = item;
+                    }
+                }
+                self.options_ctrl.on_key_down("ArrowLeft", false);
+                self.flush_options_controller(settings);
+                return self.flush_events(settings, audio_router);
+            }
+            Some(bfe_shell::page::Hit::Theme) => {
+                self.page.dropdown = !self.page.dropdown;
+                self.page.dropdown_cursor = match self.app.settings.menu_theme.as_str() {
+                    "bf1" => 0,
+                    "bf2" => 1,
+                    _ => 2,
+                };
+                return self.flush_events(settings, audio_router);
+            }
+            Some(bfe_shell::page::Hit::Look(index)) => {
+                self.app.settings.menu_theme = ["bf1", "bf2", "eternal"][index].into();
+                self.options_ctrl
+                    .settings
+                    .set("menuTheme", self.app.settings.menu_theme.clone());
+                self.page.dropdown = false;
+                return self.flush_events(settings, audio_router);
+            }
+            _ => {}
+        }
+        self.page.dropdown = false;
+        let hit = self.page.hit(x_px, y_px);
+        let double = self.last_page_click.is_some_and(|(previous, time)| {
+            Some(previous) == hit && time.elapsed().as_secs_f64() < 0.35
+        });
+        self.last_page_click = hit.map(|hit| (hit, Instant::now()));
+        if self.browser_page() {
+            if let Some(hit) = self.page.hit(x_px, y_px) {
+                if self.page_browser_hit(hit) {
+                    if double && matches!(hit, bfe_shell::page::Hit::BrowserServer(_)) {
+                        self.page_browser_hit(bfe_shell::page::Hit::BrowserFooter(3));
+                    }
+                    return self.flush_events(settings, audio_router);
+                }
+            }
+        }
+        if self.page_active() {
+            let was_notice = self.app.mp_needs_notice;
+            use bfe_shell::page::Hit;
+            match self.page.hit(x_px, y_px) {
+                Some(Hit::Theme) => self.page.dropdown = !self.page.dropdown,
+                Some(Hit::Look(i)) => {
+                    self.app.settings.menu_theme = ["bf1", "bf2", "eternal"][i].into();
+                    self.page.dropdown = false;
+                }
+                Some(Hit::DirectField(index)) => self.app.direct_field = index,
+                Some(Hit::DirectButton(true)) => self.app.accept(&mut self.browser),
+                Some(Hit::DirectButton(false)) => self.app.back(),
+                Some(Hit::Game) => self.page.game_dropdown = !self.page.game_dropdown,
+                Some(Hit::GameChoice(index)) => {
+                    if let Some((family, _, _)) = self.app.ia_game_picker_options().get(index) {
+                        self.app.ia_select_family(*family);
+                    }
+                    self.page.game_dropdown = false;
+                }
+                Some(Hit::Back) => self.app.back(),
+                Some(Hit::Popup(index)) => {
+                    match self.app.popup.as_mut() {
+                        Some(
+                            bfe_shell::screens::PopupState::ConfirmExit { selected_yes, .. }
+                            | bfe_shell::screens::PopupState::OnlineNotice {
+                                selected_accept: selected_yes,
+                                ..
+                            },
+                        ) => *selected_yes = index == 0,
+                        Some(bfe_shell::screens::PopupState::HostClosePrompt {
+                            selected, ..
+                        }) => *selected = index,
+                        _ => {}
+                    }
+                    self.app.accept(&mut self.browser);
+                }
+                Some(Hit::Profile(accept)) => {
+                    self.app.handle_key(
+                        if accept { "Enter" } else { "Escape" },
+                        false,
+                        false,
+                        false,
+                        &mut self.browser,
+                    );
+                }
+                Some(Hit::Map(i)) => {
+                    self.app.ia_focus = IaFocus::Available;
+                    let delta = i as isize - self.app.ia_available_selected as isize;
+                    self.app.move_vertical(delta);
+                    if double {
+                        self.app.accept(&mut self.browser);
+                    }
+                }
+                Some(Hit::Entry(i)) => {
+                    self.app.ia_focus = IaFocus::Selected;
+                    let delta = i as isize - self.app.ia_selected_cursor as isize;
+                    self.app.move_vertical(delta);
+                    if double {
+                        self.app.accept(&mut self.browser);
+                    }
+                }
+                Some(Hit::Ia(focus)) => {
+                    self.app.ia_focus = focus;
+                    self.app.accept(&mut self.browser);
+                }
+                Some(Hit::Row(i)) => {
+                    self.app
+                        .set_selected_row_index(self.app.current_screen(), i);
+                    self.app.accept(&mut self.browser);
+                }
+                None if self.app.current_screen() == ScreenId::Gate => self.app.unlock_gate(),
+                _ => {}
+            }
+            if was_notice && !self.app.mp_needs_notice {
+                if let Some(token) = self.browser.inner.begin_refresh(false) {
+                    self.browser
+                        .inner
+                        .finish_refresh_ok(token, Vec::new(), 1000);
+                }
+                self.browser.trigger_refresh();
+                self.sync_page_browser();
+            }
+            return self.flush_events(settings, audio_router);
+        }
         if self.is_interface_options_active() {
             self.sync_options_controller(settings);
             let vw = self.size[0].max(1) as f64;
@@ -1485,9 +1744,25 @@ impl ShellHost {
             || (entered_list && self.browser.rx.is_none())
         {
             self.browser.trigger_refresh();
-            self.app.sync_from_browser(&self.browser);
+            self.sync_page_browser();
         }
         self.flush_events(settings, audio_router)
+    }
+
+    pub fn handle_wheel(&mut self, x_px: f64, y_px: f64, dy: f64, settings: &mut AppSettingsStore) {
+        if self.is_interface_options_active() {
+            let event = self
+                .options_ctrl
+                .input
+                .on_wheel(&mut self.options_ctrl.stack, if dy < 0. { -1 } else { 1 });
+            self.options_ctrl.apply_event(event);
+            self.flush_options_controller(settings);
+        } else if self.app.current_screen() == ScreenId::InstantAction {
+            self.page
+                .scroll_ia(x_px, y_px, if dy < 0. { -1 } else { 1 }, &self.app);
+        } else if self.browser_page() {
+            self.page_browser_key(if dy < 0. { "ArrowUp" } else { "ArrowDown" });
+        }
     }
 
     /// Uploads changed quads from `self.batch` to `self.hud` and renders them into
@@ -1499,14 +1774,16 @@ impl ShellHost {
     /// - Encodes up to `MAX_GROUPS` textured/masked draw groups into `self.hud.input`.
     /// - Binds `self.canvas.framebuffer`, clears color/depth, and invokes `self.hud.draw(&mut self.core)`.
     pub fn upload_and_draw_batch(&mut self) {
+        self.draw_range(0, self.batch.count, true);
+    }
+    fn draw_range(&mut self, first: usize, last: usize, clear: bool) {
         {
             let b = &self.batch;
             let hud = &mut self.hud;
-            let (start, end) = if self.frames == 0 {
-                (0, (b.count * 4).min(QUADS * 4))
-            } else {
-                (b.start.min(QUADS * 4), b.end.min(QUADS * 4))
-            };
+            // Page composites base and modal ranges and reuses animated row
+            // snapshots. Keep the small shell mirror complete across those
+            // passes; the battle HUD retains its independent dirty-span path.
+            let (start, end) = (0, (b.count * 4).min(QUADS * 4));
             if end > start {
                 hud.position[start * 3..end * 3].copy_from_slice(&b.position[start * 3..end * 3]);
                 hud.uv[start * 2..end * 2].copy_from_slice(&b.uv[start * 2..end * 2]);
@@ -1515,20 +1792,26 @@ impl ShellHost {
             }
             hud.input[IN_UPLOAD] = start as f64;
             hud.input[IN_UPLOAD + 1] = end as f64;
-            let groups = b.draws.len().min(MAX_GROUPS);
-            hud.input[IN_GROUPS] = groups as f64;
-            for (i, draw) in b.draws.iter().take(groups).enumerate() {
-                let o = IN_FIRST_GROUP + i * GROUP;
-                hud.input[o] = draw.first as f64;
-                hud.input[o + 1] = draw.count as f64;
+            let mut groups = 0;
+            for draw in &b.draws {
+                let lo = draw.first.max(first * 6);
+                let hi = (draw.first + draw.count).min(last * 6);
+                if hi <= lo || groups == MAX_GROUPS {
+                    continue;
+                }
+                let o = IN_FIRST_GROUP + groups * GROUP;
+                groups += 1;
+                hud.input[o] = lo as f64;
+                hud.input[o + 1] = (hi - lo) as f64;
                 hud.input[o + 2] = draw.texture as f64;
-                hud.input[o + 3] = (if draw.mask == 0 {
+                hud.input[o + 3] = if draw.mask == 0 {
                     draw.texture
                 } else {
                     draw.mask
-                }) as f64;
+                } as f64;
                 hud.input[o + 4] = u8::from(draw.mask != 0) as f64;
             }
+            hud.input[IN_GROUPS] = groups as f64;
         }
 
         unsafe {
@@ -1536,8 +1819,13 @@ impl ShellHost {
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.canvas.framebuffer));
             gl.disable(glow::SCISSOR_TEST);
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
-            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+            if clear {
+                gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+            }
         }
+        // The blur compositor and window presentation issue raw GL calls.
+        // Re-establish the HUD phase's state rather than trusting that cache.
+        self.core.state.reset();
         self.hud.draw(&mut self.core);
         self.frames += 1;
     }
@@ -1583,6 +1871,8 @@ impl ShellHost {
             return Ok(());
         }
         self.size = new_size;
+        self.blur.resize(&self.core.gl, new_size);
+        self.core.state.reset();
         self.canvas = Canvas::new(make_gl(), new_size)?;
         self.core.canvas_framebuffer = Some(self.canvas.framebuffer);
         self.hud.input[IN_VIEWPORT] = new_size[0] as f64;
@@ -1728,7 +2018,24 @@ impl ShellHost {
     }
 
     /// Creates a linear-filtered `CLAMP_TO_EDGE` 2D OpenGL texture from raw RGBA8 bytes.
-    fn upload_rgba(
+    pub(super) fn upload_page_font(
+        gl: &glow::Context,
+        rgba: &[u8],
+    ) -> Result<glow::Texture, String> {
+        let texture = Self::upload_rgba(gl, 1024, 1024, rgba)?;
+        unsafe {
+            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+            gl.generate_mipmap(glow::TEXTURE_2D);
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR_MIPMAP_LINEAR as i32,
+            );
+        }
+        Ok(texture)
+    }
+
+    pub(super) fn upload_rgba(
         gl: &glow::Context,
         width: i32,
         height: i32,
@@ -1784,5 +2091,11 @@ pub fn pump_headless_audio(
     // Advance 6 stereo 128-frame quantums per 60 Hz video frame (~46.08 kHz equivalent).
     for _ in 0..6 {
         router.pump_headless(status, scratch);
+    }
+}
+
+impl Drop for ShellHost {
+    fn drop(&mut self) {
+        self.blur.dispose(&self.core.gl);
     }
 }

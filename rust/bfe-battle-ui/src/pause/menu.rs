@@ -954,6 +954,11 @@ impl PauseMenu {
     /// Hit-tests interface point `(x, y)` against the most recently drawn hotspots (`ClassicTheme.hit`).
     ///
     /// Iterates in reverse draw order so topmost widgets win when bounding quads overlap.
+    /// A theme replaces the presentation's hit geometry; actions stay here.
+    pub fn set_theme_hotspots(&mut self, hotspots: &mut Vec<PauseHotspot>) {
+        std::mem::swap(&mut self.hotspots,hotspots);
+    }
+
     pub fn hit(&self, x: f64, y: f64) -> Option<PauseHitTarget> {
         for hotspot in self.hotspots.iter().rev() {
             if inside_quad(x, y, &hotspot.corners) {
