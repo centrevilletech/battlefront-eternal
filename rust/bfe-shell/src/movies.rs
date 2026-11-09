@@ -222,7 +222,10 @@ impl MoviePlayer {
         }
         if finish {
             self.intro_ended = true;
-            if let Some(next) = self.next.take() {
+            if let Some(mut next) = self.next.take() {
+                // Its first frame was decoded under the intro. Publish it in
+                // this draw too, so the main menu's zero-fade cut has no gap.
+                next.advance(0., &mut self.stats);
                 self.insert(next);
             }
         }
