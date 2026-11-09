@@ -1268,15 +1268,22 @@ impl ShellHost {
                         *play_intro,
                         0.,
                     );
-                    self.preview_movies.play(
-                        root,
-                        ScreenMovie {
-                            intro: None,
-                            loop_clip: None,
-                        },
-                        false,
-                        0.,
-                    );
+                    // Instant Action queues its preview before the screen's
+                    // empty backdrop event. Keep that preview alive.
+                    if !matches!(
+                        self.app.current_screen(),
+                        ScreenId::InstantAction | ScreenId::InstantActionEra
+                    ) {
+                        self.preview_movies.play(
+                            root,
+                            ScreenMovie {
+                                intro: None,
+                                loop_clip: None,
+                            },
+                            false,
+                            0.,
+                        );
+                    }
                 }
                 MediaEvent::PreviewMovie { loop_url, delay } => {
                     let clip = loop_url.as_ref().and_then(|url| {
@@ -1438,7 +1445,12 @@ impl ShellHost {
             if let Some((left, row)) = bfe_shell::render::hit_ia_list(&self.app, w, h, x_px, y_px) {
                 if left {
                     self.app.ia_focus = IaFocus::Available;
-                    self.app.ia_available_selected = row;
+                    if self.app.ia_available_selected != row {
+                        self.app.ia_available_selected = row;
+                        let map_id = self.app.data.maps.get(row).map(|map| map.id.clone());
+                        let event = self.app.media.preview(&self.app.data, map_id.as_deref());
+                        self.app.media_events.push(event);
+                    }
                 } else {
                     self.app.ia_focus = IaFocus::Selected;
                     self.app.ia_selected_cursor = row;

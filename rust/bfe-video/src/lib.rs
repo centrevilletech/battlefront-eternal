@@ -117,21 +117,26 @@ impl Movie {
                 let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
                 let movie = webm::Webm::parse(&bytes)?;
                 let mut base = 0.;
+                let mut decoder = Decoder::new()?;
+                let mut unused = None;
                 loop {
-                    let mut decoder = Decoder::new()?;
                     for packet in &movie.packets {
                         if stop.load(Ordering::Relaxed) {
                             return Ok(());
                         }
-                        let mut frame = loop {
-                            match free.recv_timeout(Duration::from_millis(50)) {
-                                Ok(frame) => break frame,
-                                Err(mpsc::RecvTimeoutError::Timeout)
-                                    if !stop.load(Ordering::Relaxed) =>
-                                {
-                                    continue
+                        let mut frame = if let Some(frame) = unused.take() {
+                            frame
+                        } else {
+                            loop {
+                                match free.recv_timeout(Duration::from_millis(50)) {
+                                    Ok(frame) => break frame,
+                                    Err(mpsc::RecvTimeoutError::Timeout)
+                                        if !stop.load(Ordering::Relaxed) =>
+                                    {
+                                        continue
+                                    }
+                                    _ => return Ok(()),
                                 }
-                                _ => return Ok(()),
                             }
                         };
                         if decoder.decode(&bytes[packet.range.clone()], &mut frame)? {
@@ -143,9 +148,9 @@ impl Movie {
                         } else if stop.load(Ordering::Relaxed) {
                             return Ok(());
                         } else {
-                            return Err(
-                                "Invisible VP9 frames are not supported in menu movies".into()
-                            );
+                            // Non-display reference packets do not consume a
+                            // presentation buffer or advance its timestamp.
+                            unused = Some(frame);
                         }
                     }
                     if !looping {

@@ -40,7 +40,10 @@ if not (build / "libvpx_srcs.txt").exists():
     if os.name == "nt":
         # Windows' system bash.exe starts WSL. Use Git for Windows' real
         # POSIX shell, including its sh/perl tools for upstream generators.
-        git_root = Path(shutil.which("git")).resolve().parent.parent
+        git_exe = Path(shutil.which("git")).resolve()
+        git_root = next(parent for parent in git_exe.parents
+                        if (parent / "bin" / "bash.exe").exists()
+                        and (parent / "usr" / "bin").exists())
         bash_program = str(git_root / "bin" / "bash.exe")
         configure_env["PATH"] = str(git_root / "usr" / "bin") + os.pathsep + configure_env["PATH"]
     if os.name == "nt":
