@@ -321,27 +321,10 @@ impl Drop for LanDiscoveryResponder {
 /// Binds a UDPv6 socket on `[::]:port` and sets `IPV6_V6ONLY = 1` so it can coexist with the
 /// IPv4 responder bound on `0.0.0.0:port` (`ipv6Only: true` in `src/lan.js`).
 fn bind_ipv6_only(port: u16) -> std::io::Result<UdpSocket> {
-    let sock = UdpSocket::bind(SocketAddr::V6(SocketAddrV6::new(
-        Ipv6Addr::UNSPECIFIED,
-        port,
-        0,
-        0,
-    )))?;
-    #[cfg(unix)]
-    // SAFETY: `sock.as_raw_fd()` is a valid open socket file descriptor owned by `sock`, and `on`
-    // is a properly aligned stack `c_int` whose size matches `socklen_t` for `IPV6_V6ONLY`.
-    unsafe {
-        use std::os::unix::io::AsRawFd;
-        let on: libc::c_int = 1;
-        let _ = libc::setsockopt(
-            sock.as_raw_fd(),
-            libc::IPPROTO_IPV6,
-            libc::IPV6_V6ONLY,
-            (&on as *const libc::c_int).cast(),
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
-    }
-    Ok(sock)
+    crate::sockets::udp(
+        SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0)),
+        true,
+    )
 }
 
 /// Per-socket receive loop for `LanDiscoveryResponder` (`onMessage` in `startLanDiscovery` in `src/lan.js`).
@@ -360,7 +343,7 @@ fn responder_loop<F>(
 {
     let mut buf = [0u8; MAX_PACKET + 1];
     while !stop.load(Ordering::Relaxed) {
-        let (len, rinfo) = match socket.recv_from(&mut buf) {
+        let (len, rinfo) = match crate::sockets::recv_from(&socket, &mut buf) {
             Ok(pair) => pair,
             Err(e)
                 if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut =>
@@ -483,7 +466,7 @@ pub fn discover_lan(timeout_ms: u64, port: u16) -> Vec<Value> {
     while Instant::now() < deadline {
         let mut received_any = false;
         for sock in [sock4.as_ref(), sock6.as_ref()].into_iter().flatten() {
-            while let Ok((len, rinfo)) = sock.recv_from(&mut buf) {
+            while let Ok((len, rinfo)) = crate::sockets::recv_from(sock, &mut buf) {
                 received_any = true;
                 if len == 0 || len > MAX_PACKET {
                     continue;

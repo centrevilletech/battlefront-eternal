@@ -691,13 +691,13 @@ fn bind_info_tcp(port: u16, bind_host: Option<&str>) -> Result<TcpListener, Stri
             .parse()
             .or_else(|_| format!("[{host}]:{port}").parse())
             .map_err(|e| format!("invalid bind address {host}:{port}: {e}"))?;
-        return TcpListener::bind(addr)
+        return crate::sockets::tcp(addr)
             .map_err(|e| format!("failed to bind /info HTTP listener on {addr}: {e}"));
     }
-    if let Ok(l6) = TcpListener::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port)) {
+    if let Ok(l6) = crate::sockets::tcp(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port)) {
         return Ok(l6);
     }
-    TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port))
+    crate::sockets::tcp(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port))
         .map_err(|e| format!("failed to bind /info HTTP listener on port {port}: {e}"))
 }
 
