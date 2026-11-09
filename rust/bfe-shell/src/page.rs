@@ -1,5 +1,7 @@
 //! Native page layout over ShellApp's existing screen stack. Geometry follows
 //! src/menus/themes/page/style.js; looks follow electron/ui/looks.css.
+mod battle;
+mod battle_motion;
 mod browser;
 mod forms;
 mod heading;
@@ -12,6 +14,7 @@ use crate::{
     render::ShellTextures,
     screens::{IaFocus, PopupState, ScreenId, ShellApp},
 };
+pub use battle::{BattleLook, SpawnLayout};
 use bfe_render::interface::{anchor, rotate_z, translate, Batch, Color, Font, Matrix, UV};
 pub use browser::BrowserView;
 pub use media::{FrameTexture, MediaTextures};
@@ -50,6 +53,7 @@ struct Paragraph {
     lines: Vec<Vec<u16>>,
 }
 pub struct Page {
+    battle: battle_motion::BattlePaintState,
     pub browser: BrowserView,
     pub media: MediaTextures,
     pause_hits: Vec<bfe_battle_ui::pause::PauseHotspot>,
@@ -112,6 +116,7 @@ impl Page {
             glyphs: body.glyphs.clone(),
         };
         Self {
+            battle: battle_motion::BattlePaintState::default(),
             regular,
             medium,
             bold,

@@ -497,6 +497,8 @@ mod tests {
         assert_eq!(req.post, "cp_3");
     }
 
+    include!("page_tests.rs");
+
     // Verifies two subtle 2004 `ifs_spawndisplay` input rules:
     // 1. Holding `Space` before `open()` survives `input.reset()` and triggers
     //    an immediate spawn on the first `update()` frame.

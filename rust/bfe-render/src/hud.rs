@@ -127,6 +127,20 @@ impl<C: HasContext> HudPass<C> {
 // uses reupload because the entire new GPU allocation starts uninitialised.
 // The shared input still selects current camera matrices and sampler slots.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+        #[cfg(target_arch = "wasm32")]
+        let target = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        let target = core.canvas_framebuffer;
+        self.draw_to(core, target);
+    }
+
+    /// Draw the same HUD batch into an explicit interface target. The Page
+    /// holomap uses this path before the ordinary canvas HUD is submitted.
+    pub fn draw_to<M: MultiDraw>(
+        &mut self,
+        core: &mut Core<C, M>,
+        target: Option<C::Framebuffer>,
+    ) {
         let Some(vao) = self.vao else { return };
         let input = &self.input;
         let groups = (input[IN_GROUPS] as usize).min(MAX_GROUPS);
@@ -157,7 +171,7 @@ impl<C: HasContext> HudPass<C> {
         {
             let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
             unsafe {
-                #[cfg(target_arch = "wasm32")] gl.bind_framebuffer(glow::FRAMEBUFFER, None); #[cfg(not(target_arch = "wasm32"))] gl.bind_framebuffer(glow::FRAMEBUFFER, core.canvas_framebuffer);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, target);
                 gl.viewport(0, 0, input[IN_VIEWPORT] as i32, input[IN_VIEWPORT + 1] as i32);
             }
             stats.gl_calls += 2;

@@ -177,6 +177,11 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
 /// accept filesystem paths, never an existing Rc or a renderer resource.
 /// No reference into this graph escapes before open_prepared consumes it.
 pub(crate) struct Prepared {
+    spawn_objectives: [Vec<String>; 2],
+    spawn_vehicles: std::collections::HashMap<String, [Vec<String>; 2]>,
+    menu_grid: Option<u32>,
+    menu_models: Vec<crate::menu_models::Model>,
+    spawn_shots: Vec<bfe_battle_ui::spawn::CameraShot>,
     content: bfe_content_native::BattleContent,
     layer_ids: Vec<Vec<usize>>,
     details: Vec<Option<usize>>,
@@ -202,6 +207,11 @@ pub(crate) struct Prepared {
 unsafe impl Send for Prepared {}
 
 pub struct Scene {
+    pub spawn_objectives: [Vec<String>;2],
+    pub spawn_vehicles: std::collections::HashMap<String,[Vec<String>;2]>,
+    pub menu_grid: Option<u32>,
+    pub menu_models: Vec<crate::menu_models::Model>,
+    pub spawn_shots: Vec<bfe_battle_ui::spawn::CameraShot>,
     pub bridge: Box<Bridge>,
     pub resources: Resources,
     far_target: u32,
@@ -286,6 +296,82 @@ impl Scene {
         random_values: Option<&[f64]>,
         live: bool,
     ) -> Result<Prepared, String> {
+        let spawn_screen = content.content.battle.world.get("spawnScreen");
+        let strings = |value: Option<&bfe_content::Value>| {
+            value
+                .and_then(bfe_content::Value::as_array)
+                .map_or_else(Vec::new, |rows| {
+                    rows.iter()
+                        .filter_map(bfe_content::Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+        };
+        let spawn_objectives = std::array::from_fn(|i| {
+            strings(
+                spawn_screen
+                    .and_then(|s| s.get("teams"))
+                    .and_then(|t| t.get(&(i + 1).to_string()))
+                    .and_then(|t| t.get("objectives")),
+            )
+        });
+        let spawn_vehicles = spawn_screen
+            .and_then(|s| s.get("postVehicles"))
+            .and_then(bfe_content::Value::as_object)
+            .map_or_else(std::collections::HashMap::new, |posts| {
+                posts
+                    .entries()
+                    .map(|(name, teams)| {
+                        (
+                            name.to_string(),
+                            std::array::from_fn(|i| strings(teams.get(&(i + 1).to_string()))),
+                        )
+                    })
+                    .collect()
+            });
+        let menu_grid = if live {
+            content
+                .texture_paths
+                .get("shell_cube")
+                .map(|p| content.textures.load(p))
+                .transpose()?
+                .map(|id| id as u32)
+        } else {
+            None
+        };
+        let menu_models = if live {
+            crate::menu_models::prepare(&mut content)?
+        } else {
+            Vec::new()
+        };
+        let spawn_shots = content
+            .content
+            .battle
+            .world
+            .get("spawnScreen")
+            .and_then(|s| s.get("cameraShots"))
+            .and_then(bfe_content::Value::as_array)
+            .map_or_else(Vec::new, |shots| {
+                shots
+                    .iter()
+                    .filter_map(|s| {
+                        let p = s.get("position")?.as_array()?;
+                        let q = s.get("quaternion")?.as_array()?;
+                        if p.len() != 3 || q.len() != 4 {
+                            return None;
+                        }
+                        Some(bfe_battle_ui::spawn::CameraShot {
+                            position: [p[0].as_f64()?, p[1].as_f64()?, p[2].as_f64()?],
+                            quaternion: [
+                                q[0].as_f64()?,
+                                q[1].as_f64()?,
+                                q[2].as_f64()?,
+                                q[3].as_f64()?,
+                            ],
+                        })
+                    })
+                    .collect()
+            });
         // Resolve terrain sampler identities through the authored map table,
         // before GPU admission freezes the texture bank and frame storage.
         let mut layers = std::collections::BTreeMap::new();
@@ -470,6 +556,11 @@ impl Scene {
             used.fill(true);
         }
         Ok(Prepared {
+            spawn_objectives,
+            spawn_vehicles,
+            menu_grid,
+            menu_models,
+            spawn_shots,
             content,
             layer_ids,
             details,
@@ -494,6 +585,11 @@ impl Scene {
         mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
         let Prepared {
+            spawn_objectives,
+            spawn_vehicles,
+            menu_grid,
+            mut menu_models,
+            spawn_shots,
             mut content,
             layer_ids,
             details,
@@ -538,6 +634,8 @@ impl Scene {
                 bridge.r.core.state.reset();
             }
         }
+        let menu_grid=menu_grid.map(|id|textures[id as usize]);
+        for model in &mut menu_models {model.texture=textures[model.texture as usize];}
         let empty = resources.world_fallback(false)?;
         let empty = bridge.r.core.add_texture(resources.texture(empty)?);
         let neutral = resources.world_fallback(true)?;
@@ -842,6 +940,11 @@ impl Scene {
                 image_step,
                 image_state,
                 canvas,
+                spawn_shots,
+                menu_models,
+                menu_grid,
+                spawn_objectives,
+                spawn_vehicles,
                 admitted,
                 deferred,
                 draws: 0,

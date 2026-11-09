@@ -80,6 +80,7 @@ mod page_font;
 mod page_blur;
 mod page_integrations;
 mod page_proof;
+pub(crate) mod page_battle;
 mod page_pause;
 mod page_browser;
 mod page_surfaces;
@@ -376,6 +377,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         gl: None,
         focused: true,
         pointer_locked: false,
+        pointer_icon: winit::window::CursorIcon::Default,
         cursor_physical: [0.0; 2],
         text_input: text_input::TextInput::default(),
         modifiers: ModifiersState::empty(),
@@ -435,6 +437,7 @@ struct StandaloneWindowApp {
     focused: bool,
     /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
+    pointer_icon: winit::window::CursorIcon,
     /// Whether borderless fullscreen mode is currently active (`F11`).
     fullscreen: bool,
     /// Timestamp of the previous rendered frame for computing `dt`.
@@ -596,6 +599,14 @@ impl StandaloneWindowApp {
         let Some(window) = &self.window else {
             return;
         };
+        let icon = match &self.state {
+            AppState::Battle(battle) => battle.cursor_icon(),
+            _ => winit::window::CursorIcon::Default,
+        };
+        if icon != self.pointer_icon {
+            window.set_cursor(icon);
+            self.pointer_icon = icon;
+        }
         let want_lock = match &self.state {
             AppState::Battle(battle) => self.focused && battle.wants_pointer_lock(),
             _ => false,

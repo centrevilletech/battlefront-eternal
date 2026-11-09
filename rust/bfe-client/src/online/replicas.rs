@@ -1,6 +1,7 @@
 //! Native resource admission and the remote-body display batch. Snapshot
 //! samples remain in the shared Rust ring; no scalar facade sits between the
 //! receiver, animation phase and renderer's existing instance/bone banks.
+mod preview;
 use super::index::Index;
 use crate::{online::receiver::Receiver, render_bridge::Bridge};
 use bfe_content_native::{
@@ -17,9 +18,16 @@ use bfe_presentation::{
 use bfe_render::instances as draw;
 use bfe_transport::layout::INPUT_CODES;
 use three::Matrix4;
+use crate::app::page_battle::appearance::{self,Appearance};
+use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
 struct Model {
     row: [f64; draw::REC_STRIDE],
+    // The preview borrows immutable GPU geometry, but owns animation clocks
+    // outside every authoritative or predicted body in the live battle.
+    preview: Box<Units>,
+    preview_parts: Vec<Appearance>,
+    preview_animation: preview::Animation,
     inverses: Vec<[f64; 16]>,
     content: usize,
     hand: Option<usize>,
@@ -53,6 +61,12 @@ pub struct Replicas {
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    preview_weapons: Vec<Option<usize>>,
+    preview_banks: Vec<usize>,
+    preview_class: usize,
+    preview_rng: jsrt::rng::ClassicRandom,
+    preview_skin: glow::Texture,
+    preview_held: Vec<Vec<Appearance>>,
     slots: Vec<Slot>,
     bound: Index,
     pub visible: usize,
@@ -96,6 +110,15 @@ impl Replicas {
         };
         let key = crate::static_scene::actor_key(&material, crate::shadows::COUNT)?;
         let program = bridge.add_owned_program(&key)?;
+        let preview_skin = unsafe {
+            use glow::HasContext;
+            let gl=&bridge.r.core.gl;let texture=gl.create_texture()?;
+            gl.bind_texture(glow::TEXTURE_2D,Some(texture));
+            gl.tex_image_2d(glow::TEXTURE_2D,0,glow::RGBA32F as i32,1024,4,0,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(None));
+            for key in [glow::TEXTURE_MIN_FILTER,glow::TEXTURE_MAG_FILTER]{gl.tex_parameter_i32(glow::TEXTURE_2D,key,glow::NEAREST as i32);}
+            texture
+        };
+        let preview_skin_sample=bridge.r.core.add_texture(preview_skin);
         let inputs = std::mem::take(&mut content.units);
         for (name, input) in inputs {
             crate::loading_work::frame().await;
@@ -138,6 +161,14 @@ impl Replicas {
                 grouped.groups.push(bfe_content_native::geometry::Group { first, count: grouped.indices.len() - first, material });
             }
             let geometry = grouped.register(&mut bridge.r, &key)?;
+            let preview_geometry=grouped.register(&mut bridge.r,"interface/model-skin")?;
+            let mut preview_parts=Vec::new();
+            for group in &grouped.groups {
+                let map=mesh.textures.get(group.material).copied().flatten().map_or(-1,|t|textures[t]as i32);
+                let mut style=appearance::style("model");style.depth_test=Some(true);style.depth_write=Some(true);style.cutoff=Some(-1.);
+                let mut part=Appearance::new(bridge,preview_geometry,grouped.indices.len(),style,true,&[map,-1,preview_skin_sample as i32])?;
+                part.first=group.first;part.count=group.count;preview_parts.push(part);
+            }
             let mut row = [0.; draw::REC_STRIDE];
             row[draw::REC_KIND] = 1.;
             row[draw::REC_PROGRAM] = program as f64;
@@ -155,11 +186,20 @@ impl Replicas {
             row[draw::REC_FLAGS] = 8.;
             row[draw::REC_LOOK] = 1.;
             row[draw::REC_LOOK + 3] = 1.;
-            let inverses = actor.bones.iter().map(|b| b.inverse.elements).collect();
+            let inverses: Vec<[f64;16]> = actor.bones.iter().map(|b| b.inverse.elements).collect();
+            let mut preview = Box::new(Units::preview());
+            let preview_content = preview.load(bfe_content_native::units::copy_input(&input));
+            preview.actor(preview_content, &inverses);
+            let emote=content.content.body_clips.iter().find(|(name,_)|name==body_key)
+                .and_then(|(_,clips)|clips.list.iter().position(|c|c.name=="human_rifle_stand_idle_emote"));
+            let preview_animation=preview::Animation::new(&input,emote);
             let id = units.load(input);
             names.push(name);
             models.push(Model {
                 row,
+                preview,
+                preview_parts,
+                preview_animation,
                 inverses,
                 content: id,
                 clips: content
@@ -241,6 +281,31 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let replay = Some(super::replay::Replay::new(content)?);
+        let mut preview_held=Vec::new();
+        for weapon in &defs.weapons {
+            let mut parts=Vec::new();
+            if let Some(name)=weapon.geometry.map(|n|defs.names.text(n)) {
+                let prefix=format!("{name}/");
+                for mesh in content.models.iter().filter(|m|m.name.starts_with(&prefix)) {
+                    let geometry=mesh.geometry.register(&mut bridge.r,"interface/model")?;
+                    let map=mesh.material.texture.map_or(-1,|t|textures[t]as i32);
+                    let mut style=appearance::style("model");style.depth_test=Some(true);style.depth_write=Some(true);style.cutoff=Some(-1.);
+                    parts.push(Appearance::new(bridge,geometry,mesh.geometry.indices.len(),style,false,&[map])?);
+                }
+            }
+            preview_held.push(parts);
+        }
+        let bank_names=content.content.battle.anim_meta.get("sets").and_then(|s|s.get("banks")).and_then(bfe_content::Value::as_object)
+            .map_or_else(Vec::new,|b|b.entries().filter(|(name,_)|*name!="rifle").map(|(name,_)|name.to_string()).collect::<Vec<_>>());
+        let mut preview_banks=vec![0;classes.len()];
+        let mut preview_weapons = vec![None; classes.len()];
+        for class in &defs.classes {
+            if let Some(id) = class.registry_id {
+                preview_weapons[id as usize] = class.weapons.first().copied();
+                let bank=class.weapons.first().and_then(|w|defs.weapons[*w].record.get("AnimationBank")).and_then(bfe_content::Value::as_str).unwrap_or("rifle");
+                preview_banks[id as usize]=bank_names.iter().position(|name|name==bank).map_or(0,|i|i+1);
+            }
+        }
         let resources = replay.as_ref().unwrap();
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -286,6 +351,12 @@ impl Replicas {
             items,
             models,
             classes,
+            preview_weapons,
+            preview_banks,
+            preview_class:usize::MAX,
+            preview_rng:jsrt::rng::ClassicRandom::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.,|t|t.as_nanos()as u32 as f64)),
+            preview_skin,
+            preview_held,
             slots,
             bound: Index::new(POOL),
             visible: 0,

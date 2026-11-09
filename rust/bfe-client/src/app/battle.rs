@@ -254,6 +254,7 @@ pub struct LiveSpawnPort {
     pub pending_spawn: Option<PendingSpawnChoice>,
     /// Suicide / respawn flag queued when the player triggers respawn.
     pub pending_suicide: bool,
+    post_vehicles:std::collections::HashMap<String,[Vec<String>;2]>,
 }
 
 impl LiveSpawnPort {
@@ -438,6 +439,7 @@ impl LiveSpawnPort {
             post_ids,
             pending_spawn: None,
             pending_suicide: false,
+            post_vehicles:std::collections::HashMap::new(),
         }
     }
 
@@ -520,6 +522,7 @@ impl SpawnPort for LiveSpawnPort {
             .map(|p| {
                 let mut e = p.clone();
                 e.eligible = p.owner == team;
+                if let Some(vehicles)=self.post_vehicles.get(&p.name) {e.vehicles.clone_from(&vehicles[usize::from(team==2)]);}
                 e
             })
             .collect()
@@ -873,6 +876,7 @@ pub struct BattleController {
     /// `bfe-battle-ui` in-battle Escape pause menu (`Resume`, `Respawn`, `Restart`, `Quit`, etc.).
     pub pause_menu: PauseMenu,
     pause_page: super::page_pause::PagePause,
+    page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
     // Retained UTF-16 storage for the native chat text field.
@@ -1232,6 +1236,8 @@ impl BattleController {
             };
             spawn_ctrl.view.assets = BattleUiAssets::from_surface(&surface);
         }
+        for (team,objectives) in spawn_port.teams.iter_mut().zip(&scene.spawn_objectives) {team.objectives.clone_from(objectives);}
+        spawn_port.post_vehicles=std::mem::take(&mut scene.spawn_vehicles);
         spawn_ctrl.open(&mut spawn_port, OpenReason::Start, height);
         eprintln!("spawn screen shown: initial class and post selection");
 
@@ -1241,7 +1247,7 @@ impl BattleController {
                 header.name=team.name.clone();header.side=Some(team.side.clone());header.logo=Some(team.logo.clone());
             }
         }
-        let scoreboard_ctrl =
+        let mut scoreboard_ctrl =
             ScoreboardController::try_with_family(GameFamily::Swbf1, height).map_err(|e| e.to_string())?;
 
         // Configure `PauseMenu` (`RESTART MISSION` enabled in Instant Action, `PLAYER LIST` in Online).
@@ -1265,6 +1271,9 @@ impl BattleController {
         let chat = ChatController::new(&settings.player.profile_name);
         let pause_page = super::page_pause::PagePause::admit(&mut scene,size,settings)?;
 
+        let page_battle = super::page_battle::PageBattle::new(&mut scene,size,settings)?;
+        if page_battle.spawn { spawn_ctrl.view.theme_hotspots=Some(Vec::with_capacity(64)); }
+        if page_battle.scoreboard { scoreboard_ctrl.view.theme_hotspots=Some(Vec::with_capacity(128)); }
         let mut ctrl = Self {
             authority,
             scene: Box::new(scene),
@@ -1277,6 +1286,7 @@ impl BattleController {
             scoreboard_ctrl,
             pause_menu,
             pause_page,
+            page_battle,
             chat,
             chat_text: Vec::with_capacity(512),
             stats_text: String::with_capacity(256),
@@ -1664,7 +1674,7 @@ impl BattleController {
             }
         }
 
-        let view: View = match &mut self.authority {
+        let mut view: View = match &mut self.authority {
             BattleAuthority::InstantAction {
                 world,
                 receiver,
@@ -1834,6 +1844,9 @@ impl BattleController {
         // updates only the dirty in-battle HUD quad ranges in place with zero heap
         // allocations, and `steady_frames` increments after frame 2.
         // 5. Build HUD + battle UI overlay batch before `scene.draw(&view)`.
+        if !self.spawn_ctrl.is_open() {
+            self.page_battle.closed();
+        }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
         if overlay_active {
@@ -1856,9 +1869,22 @@ impl BattleController {
         // PageTheme is a compositor over the finished battle, just as its
         // CSS overlay is over the canvas. Defer only the pause UI until its
         // backdrop has been filtered; the renderer still draws the world.
+        let page_spawn=self.page_battle.spawn&&self.spawn_ctrl.is_open()&&!self.pause_menu.is_open;
+        let page_score=self.page_battle.scoreboard&&self.scoreboard_ctrl.model.is_open()&&!self.pause_menu.is_open;
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
-        if self.pause_menu.is_open{self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
+        if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
+        if page_spawn {self.page_battle.direct(&mut view);}
         self.scene.draw(&view)?;
+        if page_spawn || page_score {
+            if page_spawn {
+                let class = self.page_battle.class_id;
+                self.page_battle.draw(&mut self.scene,class,&self.pause_page.theme,self.spawn_ctrl.view.map_proj,&self.spawn_ctrl.model,&self.spawn_port);
+            } else {self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);}
+            self.scene.bridge.r.core.state.reset();
+            self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
+            let end=self.scene.bridge.hud_model.batch.count;
+            super::page_pause::PagePause::draw_range(&mut self.scene,0,end);
+        }
         if self.pause_menu.is_open {
             self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,6.);
             self.scene.bridge.r.core.state.reset();
@@ -1991,7 +2017,28 @@ impl BattleController {
                 false,
                 &mut self.scene.bridge.hud_model.input,
             );
+            if self.page_battle.spawn {super::page_battle::PageBattle::map_team(&mut self.scene.bridge.hud_model,self.spawn_ctrl.model.team);}
             self.scene.bridge.hud_model_update();
+            if self.page_battle.spawn {
+                self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.size,&self.pause_page.theme);
+                self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
+                self.scene.bridge.hud_model.batch.begin();
+                let turned=self.page_battle.turned();
+                if self.page_battle.cache.spawn_changed(&self.spawn_ctrl.model,&self.spawn_port,self.size,&self.pause_page.theme,turned) {
+                    self.page_battle.cache.panels.begin();
+                    self.pause_page.page.draw_spawn(&mut self.page_battle.cache.panels,&self.pause_page.textures,
+                        &self.spawn_ctrl.model,&self.spawn_port,self.page_battle.layout,self.height,&self.pause_page.theme,turned,&mut self.page_battle.cache.hits);
+                }
+                Self::append_batch(&mut self.scene.bridge.hud_model.batch,&self.page_battle.cache.panels);
+                if let Some(regions)=&mut self.spawn_ctrl.view.theme_hotspots {
+                    regions.clone_from(&self.page_battle.cache.hits);
+                    self.pause_page.page.animate_spawn(&mut self.scene.bridge.hud_model.batch,regions,
+                        self.page_battle.age,self.page_battle.class_age,self.page_battle.team_age,
+                        self.size[0]as f64,self.size[1]as f64,self.height,self.spawn_ctrl.input.cursor);
+                    self.page_battle.post_regions(&self.spawn_ctrl.model,&self.spawn_port,self.spawn_ctrl.view.map_proj,self.height,regions);
+                }
+                return;
+            }
             self.scene.bridge.hud_model.build(0);
             self.draw_spawn_team_emblems();
             if let Some(replicas) = &self.scene.online {
@@ -2016,6 +2063,7 @@ impl BattleController {
             return;
         }
 
+        self.page_battle.closed();
         self.scene.bridge.hud_model_update();
         self.scene.bridge.hud_model.build(0);
 
@@ -2041,7 +2089,20 @@ impl BattleController {
             }
             if self.scoreboard_ctrl.model.is_open() {
                 self.overlay_batch.begin();
-                {
+                if self.page_battle.scoreboard {
+                    self.scene.bridge.hud_model.batch.begin();
+                    if self.page_battle.cache.score_changed(&self.scoreboard_ctrl.model,&self.scoreboard_ctrl.view,&self.scoreboard_port,self.size,&self.pause_page.theme) {
+                        self.page_battle.cache.scoreboard.begin();
+                        let mut regions=self.scoreboard_ctrl.view.theme_hotspots.take().unwrap_or_default();
+                        self.pause_page.page.draw_scoreboard(&mut self.page_battle.cache.scoreboard,&self.pause_page.textures,
+                            &self.scoreboard_ctrl.model,&self.scoreboard_port,&self.scoreboard_ctrl.view,
+                            self.size[0]as f64,self.size[1]as f64,self.height,&self.pause_page.theme,&mut regions);
+                        self.scoreboard_ctrl.view.theme_hotspots=Some(regions);
+                    }
+                    Self::append_batch(&mut self.overlay_batch,&self.page_battle.cache.scoreboard);
+                    let h=self.size[1]as f64;
+                    self.scoreboard_ctrl.model.shown=((h*0.90-(h*0.145+48.+64.+h*0.004))/((h*0.034).clamp(26.,38.)+2.)).floor().max(1.)as usize;
+                } else {
                     let surface = HudBatchSurface {
                         height: self.height,
                         aspect: self.aspect,
@@ -2463,11 +2524,28 @@ impl BattleController {
         }
     }
 
-    /// Updates 2D overlay cursor position on `CursorMoved`.
-    ///
-    /// Stores the raw window pixel coordinates in `self.cursor_px`, projects them
-    /// into the 1024-wide logical interface space via `to_interface`, and updates
-    /// pointer hover state on whichever overlay (`PauseMenu`, `SpawnScreen`, `Scoreboard`) is open.
+    /// Page uses the platform pointer over its panels and turntable.
+    /// Coordinates and hit regions also serve click dispatch.
+    pub fn cursor_icon(&self) -> winit::window::CursorIcon {
+        use winit::window::CursorIcon;
+        if self.page_battle.spawn && self.spawn_ctrl.is_open() && !self.pause_menu.is_open {
+            if self.page_battle.dragging() {
+                return CursorIcon::Grabbing;
+            }
+            let p = self.cursor_px;
+            let r = self.page_battle.layout.figure;
+            if p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3] {
+                return CursorIcon::Grab;
+            }
+            let p = to_interface(p[0], p[1], self.size[0] as f64, self.size[1] as f64, self.height);
+            if self.spawn_ctrl.view.themed_target(p[0], p[1]).is_some() {
+                return CursorIcon::Pointer;
+            }
+        }
+        CursorIcon::Default
+    }
+
+    /// Projects window pixels into the shared interface plane for overlay input.
     pub fn handle_cursor_move(&mut self, x_px: f64, y_px: f64) {
         self.cursor_px = [x_px, y_px];
         let pt = to_interface(
@@ -2480,6 +2558,7 @@ impl BattleController {
         if self.pause_menu.is_open {
             self.pause_menu.move_pointer(pt[0], pt[1], self.height);
         } else if self.spawn_ctrl.is_open() {
+            if self.page_battle.spawn {self.page_battle.pointer([x_px,y_px]);}
             self.spawn_ctrl.input.move_cursor(pt[0], pt[1], self.height);
         } else if self.scoreboard_ctrl.model.is_open() {
             self.scoreboard_ctrl.input.move_cursor(pt[0], pt[1]);
@@ -2528,6 +2607,7 @@ impl BattleController {
             return;
         }
         if self.spawn_ctrl.is_open() {
+            if self.page_battle.spawn && self.page_battle.button(self.cursor_px,button,down) {return;}
             if (button == 0 || button == 2) && down {
                 let fh = self.scene.bridge.hud_model.fonts[0].height;
                 let (height, model, view, port) = (
@@ -2832,7 +2912,7 @@ mod tests {
 }
 
 impl Drop for BattleController {
-    fn drop(&mut self){self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
+    fn drop(&mut self){self.page_battle.dispose(&self.scene);self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
 }
 
 #[cfg(test)]

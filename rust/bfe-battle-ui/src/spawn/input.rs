@@ -33,6 +33,9 @@ pub enum SpawnHitTarget {
     Class(usize),
     /// A command post icon on the spawn map.
     Post(String),
+    /// Retained index into the port's post order, used by a moving 3D map
+    /// without allocating a new command-post name every animation frame.
+    PostIndex(usize),
     /// The tilted `SPAWN` button at the bottom of the screen.
     Spawn,
 }
@@ -335,6 +338,11 @@ impl SpawnInput {
                     }
                     SpawnHitTarget::Post(name) => {
                         model.select_post(port, &name);
+                    }
+                    SpawnHitTarget::PostIndex(index) => {
+                        if let Some(post) = port.posts(model.team).get(index) {
+                            model.select_post(port, &post.name);
+                        }
                     }
                     SpawnHitTarget::Spawn => {
                         action = SpawnInputAction::Spawn;

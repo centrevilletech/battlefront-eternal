@@ -165,6 +165,9 @@ pub(crate) struct LogoSlot {
 
 /// Classic scoreboard view (`ClassicView` in `src/scoreboard/classic/view.js`).
 pub struct ClassicScoreboardView {
+    /// Regions published by a themed painter in the same interface coordinates
+    /// as Classic. All pointer and keyboard clicks keep using this view query.
+    pub theme_hotspots: Option<Vec<([f64; 4], ScoreboardHitTarget)>>,
     /// Game family (`Swbf1` 2004 layout; `Swbf2` returns `GameFamilyError`).
     pub family: GameFamily,
     /// Total elapsed seconds since `open()` was called on the view.
@@ -200,6 +203,7 @@ impl ClassicScoreboardView {
     /// Creates a new `ClassicScoreboardView`.
     pub fn new() -> Self {
         Self {
+            theme_hotspots: None,
             family: GameFamily::Swbf1,
             time: 0.0,
             entered: 0.0,
@@ -693,6 +697,12 @@ impl ClassicScoreboardView {
         port: &dyn ScoreboardPort,
         surface: &dyn BattleUiSurface,
     ) -> Option<ScoreboardHitTarget> {
+        if let Some(regions) = &self.theme_hotspots {
+            return regions.iter().rev().find_map(|(r, target)| {
+                (x >= r[0] && y >= r[1] && x <= r[2] && y <= r[3])
+                    .then_some(*target)
+            });
+        }
         let layout = team_stats_layout(surface.height());
         let inside = |x0: f64, y0: f64, x1: f64, y1: f64| x >= x0 && x <= x1 && y >= y0 && y <= y1;
         let check_button = |kind: &str| -> Option<ScoreboardHitTarget> {

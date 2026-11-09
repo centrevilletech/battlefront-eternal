@@ -228,6 +228,9 @@ pub enum SpawnSound {
 /// plus pre-allocated UTF-16 and line-range scratch buffers so `draw` performs
 /// zero heap allocations per frame once initialized.
 pub struct ClassicSpawnView {
+    /// Regions published by a themed painter in the same interface coordinates
+    /// as Classic. All pointer and keyboard clicks keep using this view query.
+    pub theme_hotspots: Option<Vec<([f64; 4], SpawnHitTarget)>>,
     /// Game family (`Swbf1` for 2004 Classic layout).
     pub family: GameFamily,
     /// Cumulative time in seconds since the view was created (drives hologram shaders).
@@ -276,6 +279,7 @@ impl ClassicSpawnView {
     /// scratch buffers for rings, UTF-16 text, and wrapped line ranges.
     pub fn new() -> Self {
         Self {
+            theme_hotspots: None,
             family: GameFamily::Swbf1,
             time: 0.0,
             slots: [TitleIntro::new(); SLOTS],
@@ -996,6 +1000,13 @@ impl ClassicSpawnView {
     /// class windows project their local 3D bounds onto the `1024xH` interface plane
     /// via [`projected_corners`] and test membership with [`inside_quad`] so clicks
     /// on perspective-foreshortened edges match the rendered geometry.
+    /// Read the current themed regions without recomputing Classic geometry.
+    /// Cursor feedback and click dispatch query this same rendered publication.
+    pub fn themed_target(&self,x:f64,y:f64)->Option<SpawnHitTarget>{
+        self.theme_hotspots.as_ref()?.iter().rev().find_map(|(r,target)|
+            (x>=r[0]&&y>=r[1]&&x<=r[2]&&y<=r[3]).then(||target.clone()))
+    }
+
     pub fn hit(
         &mut self,
         x: f64,
@@ -1005,6 +1016,9 @@ impl ClassicSpawnView {
         model: &SpawnModel,
         port: &dyn SpawnPort,
     ) -> Option<SpawnHitTarget> {
+        if self.theme_hotspots.is_some() {
+            return self.themed_target(x,y);
+        }
         let layout = self.layout(height, fh);
         let spawn = layout.spawn;
         // 1. Test the perspective-projected 45-degree X-tilted SPAWN button quad.

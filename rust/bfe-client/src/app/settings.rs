@@ -334,7 +334,21 @@ pub struct AppSettingsStore {
     pub player: PersistedPlayerSettings,
 }
 
+// Battle view selectors are optional interface extensions, rather than new
+// canonical graphics/control defaults. Keep their saved values beside those
+// defaults so a shell theme change cannot silently remove a Classic override.
+const BATTLE_VIEW_KEYS: [&str; 2] = ["spawnScreenView", "scoreboardView"];
+
 impl AppSettingsStore {
+    fn snapshot_with_battle_views(&self) -> DesktopSettingsSnapshot {
+        let mut snapshot = self.interface.to_desktop_snapshot();
+        for key in BATTLE_VIEW_KEYS {
+            if let Some(value) = self.interface.values.get(key) {
+                snapshot.values.insert(key.into(), value.to_json());
+            }
+        }
+        snapshot
+    }
     /// Loads `DesktopSettings`, `bfe_interface::Settings`, and `PersistedPlayerSettings`
     /// from `paths` (falling back to defaults when missing or corrupt).
     pub fn load(paths: DesktopPaths) -> Self {
@@ -366,7 +380,7 @@ impl AppSettingsStore {
             return (player, interface);
         };
         // Rehydrate `InterfaceSettings` from `parsed.values` when present, or seed from `parsed.shell`.
-        let interface = if !parsed.values.is_empty() {
+        let mut interface = if !parsed.values.is_empty() {
             let snapshot = DesktopSettingsSnapshot {
                 complete: parsed.complete,
                 values: parsed.values.clone(),
@@ -384,6 +398,13 @@ impl AppSettingsStore {
             parsed.values = snap.values;
             iface
         };
+        // The canonical loader intentionally accepts only DEFAULTS. Admit the
+        // two battle selectors explicitly; arbitrary saved keys stay excluded.
+        for key in BATTLE_VIEW_KEYS {
+            if let Some(value) = parsed.values.get(key).and_then(Value::as_str) {
+                interface.set(key, value.to_owned());
+            }
+        }
         if parsed.pause_kv.is_empty() {
             parsed.pause_kv =
                 PersistedPlayerSettings::interface_to_pause_kv(&interface, &parsed.shell);
@@ -396,7 +417,7 @@ impl AppSettingsStore {
         PersistedPlayerSettings::apply_shell_to_interface(&self.player.shell, &mut self.interface);
         self.interface
             .set("playerName", self.player.profile_name.clone());
-        let snap = self.interface.to_desktop_snapshot();
+        let snap = self.snapshot_with_battle_views();
         self.player.complete = snap.complete;
         self.player.values = snap.values;
         let fresh =
@@ -420,7 +441,7 @@ impl AppSettingsStore {
             return Ok(false);
         }
         self.interface = interface.clone();
-        let snap = self.interface.to_desktop_snapshot();
+        let snap = self.snapshot_with_battle_views();
         self.player.complete = snap.complete;
         self.player.values = snap.values;
         self.player.shell = PersistedPlayerSettings::extract_shell_from_interface(
@@ -542,9 +563,13 @@ mod tests {
         store.player.shell.master_volume = 0.6;
         store.player.shell.invert_y = true;
         store.player.sync_from_shell();
+        store.interface.set("spawnScreenView", "classic");
+        store.interface.set("scoreboardView", "page");
         store.save_player().expect("save player settings");
 
         let reloaded = AppSettingsStore::load(paths);
+        assert_eq!(reloaded.interface.get_string("spawnScreenView"), "classic");
+        assert_eq!(reloaded.interface.get_string("scoreboardView"), "page");
         assert_eq!(reloaded.player.profile_name, "Commander Cody");
         assert!(reloaded.player.privacy_notice_accepted);
         assert!((reloaded.player.shell.master_volume - 0.6).abs() < 1e-5);

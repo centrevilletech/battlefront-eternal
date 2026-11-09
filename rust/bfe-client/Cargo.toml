@@ -31,6 +31,7 @@ fontdue = "0.9"
 
 audio-control = { path = "../audio-control" }
 three = { path = "../three" }
+jsrt = { path = "../jsrt" }
 
 bfe-environment = { path = "../bfe-environment" }
 
