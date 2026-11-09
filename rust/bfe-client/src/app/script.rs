@@ -17,8 +17,9 @@
 //!    (`24-multiplayer-return.png`).
 //!
 //! When invoked as `--script ia:<MAP>` (for example `ia:nab2`, `ia:tat1`, `ia:bes1`,
-//! or `ia:hot1`), launches a single Instant Action battle on `<MAP>` for
-//! `BFE_GATE_BATTLE_SECONDS` (default 300 s), records pre-allocated per-frame
+//! or `ia:hot1`), repeats ordinary Instant Action rounds on `<MAP>` until
+//! `BFE_GATE_BATTLE_SECONDS` (default 300 s) of combat have elapsed. Loading
+//! and menu time do not consume that budget. Records pre-allocated per-frame
 //! intervals without steady-state heap allocations, and exits cleanly after writing
 //! `gate-summary.json` with mean FPS, 1% low FPS, frame-time percentiles, and host metrics.
 //!
@@ -177,6 +178,8 @@ pub struct GateDriver {
     pub battle_duration_s: f64,
     /// Optional single-map override when invoked as `--script ia:<MAP>`.
     pub target_map: Option<String>,
+    /// Combat seconds from completed rounds, excluding admission and shell time.
+    target_combat_seconds: f64,
     /// Output directory where PNG screenshots and `gate-summary.json` are written.
     pub screenshot_dir: PathBuf,
     /// Ordered list of screenshot filenames written so far.
@@ -253,6 +256,7 @@ impl GateDriver {
             phase_frames: 0,
             battle_duration_s,
             target_map,
+            target_combat_seconds: 0.0,
             screenshot_dir: dir,
             screenshots_written: Vec::new(),
             gl_errors: 0,
@@ -374,6 +378,15 @@ impl GateDriver {
             "frameMsP95": p50_ms.max(p95_ms),
             "frameMsP99": p99_ms,
         }));
+    }
+
+    /// A completed conquest round must not end a longer single-map soak.
+    /// The normal scoreboard auto-advances after thirty seconds; restart through
+    /// the native mission transition before it can strand the driver in menus.
+    fn repeat_target_round(&self, match_over: bool, elapsed: f64) -> bool {
+        self.target_map.is_some()
+            && match_over
+            && self.target_combat_seconds + elapsed < self.battle_duration_s
     }
 
     /// Captures the current front-end shell framebuffer and writes it as `filename`.
@@ -929,6 +942,17 @@ impl GateDriver {
                 }
             }
             GatePhase::IaNab2Combat => {
+                if self.repeat_target_round(battle.scoreboard_ctrl.ended, elapsed) {
+                    self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
+                    self.record_render_allocations(battle);
+                    self.target_combat_seconds += elapsed;
+                    self.ia_battles_completed += 1;
+                    self.record_world_tick_stats(battle);
+                    battle.input.clear();
+                    battle.pause_menu.custom_restart_triggered += 1;
+                    self.transition_to(GatePhase::IaNab2Spawn);
+                    return Ok(());
+                }
                 // Drive real combat on `nab2`, capturing `10-ia-nab2-battle.png` once spawned.
                 self.record_combat_frame_interval();
                 self.apply_generated_combat_input(battle);
@@ -945,7 +969,12 @@ impl GateDriver {
                     self.reset_combat_measurement_window();
                     return Ok(());
                 }
-                if elapsed >= self.battle_duration_s && self.phase_frames >= 60 {
+                if self.target_combat_seconds + elapsed >= self.battle_duration_s
+                    && self.phase_frames >= 60
+                {
+                    if self.target_map.is_some() {
+                        self.target_combat_seconds += elapsed;
+                    }
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
                     self.record_render_allocations(battle);
                     battle.input.clear();
@@ -1160,7 +1189,12 @@ impl GateDriver {
             .unwrap_or(serde_json::Value::Null);
         // An interrupted run must not leave a success receipt. Require the
         // completed choreography and actual world ticks before claiming proof.
-        let expected_battles = if self.target_map.is_some() { 1 } else { 3 };
+        let expected_battles = if self.target_map.is_some() {
+            self.ia_battles_completed.max(1)
+        } else {
+            3
+        };
+        let expected_maps = if self.target_map.is_some() { 1 } else { 3 };
         let choreography_complete = if self.movie_verification {
             self.phase == GatePhase::Finished
         } else if self.online_duel {
@@ -1169,13 +1203,20 @@ impl GateDriver {
             self.phase == GatePhase::Finished
                 && self.ia_battles_completed == expected_battles
                 && (self.target_map.is_some() || self.online_battle_completed)
-                && self.battles.len() == if self.target_map.is_some() { 1 } else { 4 }
+                && (self.target_map.is_none()
+                    || self.target_combat_seconds >= self.battle_duration_s)
+                && self.battles.len()
+                    == if self.target_map.is_some() {
+                        expected_battles
+                    } else {
+                        4
+                    }
                 && self.battles.iter().all(|battle| {
                     battle["playerSpawns"]
                         .as_u64()
                         .is_some_and(|count| count > 0)
                 })
-                && self.world_tick_stats.len() == expected_battles
+                && self.world_tick_stats.len() == expected_maps
                 && self
                     .world_tick_stats
                     .iter()
@@ -1203,6 +1244,7 @@ impl GateDriver {
             "iaBattlesCompleted": self.ia_battles_completed,
             "onlineBattleCompleted": self.online_battle_completed,
             "battleDurationSeconds": self.battle_duration_s,
+            "completedCombatSeconds": self.target_combat_seconds,
             "battles": self.battles,
             "lastBattle": last_battle,
             "screenshotsDir": self.screenshot_dir,
@@ -1373,6 +1415,38 @@ mod tests {
         gate.battles[3]["playerSpawns"] = 0.into();
         assert_eq!(gate.write_summary_report().unwrap()["status"], "FAIL");
         std::fs::remove_dir_all(dir).expect("remove receipt");
+    }
+
+    #[test]
+    fn single_map_soak_requires_combat_across_completed_rounds() {
+        let dir = std::env::temp_dir().join(format!("bfe-gate-soak-{}", std::process::id()));
+        let mut gate = GateDriver::new("ia:tat1", Some(dir.clone()));
+        gate.battle_duration_s = 1800.;
+        assert!(!gate.repeat_target_round(false, 120.));
+        assert!(gate.repeat_target_round(true, 120.));
+        gate.target_combat_seconds = 120.;
+        assert!(gate.repeat_target_round(true, 1679.));
+        assert!(!gate.repeat_target_round(true, 1680.));
+        gate.phase = GatePhase::Finished;
+        gate.ia_battles_completed = 2;
+        gate.steady_frames_measured = 100;
+        gate.battles = vec![serde_json::json!({"playerSpawns": 1}); 2];
+        gate.world_tick_stats.push((
+            "tat1".into(),
+            WorldTickStats {
+                count: 1,
+                ..Default::default()
+            },
+        ));
+        // A menu which continues painting after an early match must not pass.
+        assert_eq!(gate.write_summary_report().unwrap()["status"], "FAIL");
+        gate.target_combat_seconds += 1680.;
+        let summary = gate.write_summary_report().unwrap();
+        assert_eq!(summary["status"], "PASS");
+        assert_eq!(summary["completedCombatSeconds"], 1800.);
+        gate.battles.pop();
+        assert_eq!(gate.write_summary_report().unwrap()["status"], "FAIL");
+        std::fs::remove_dir_all(dir).expect("remove soak receipt");
     }
 
     /// Verifies that `write_png` writes a valid PNG file with the expected magic header and IEND chunk.
