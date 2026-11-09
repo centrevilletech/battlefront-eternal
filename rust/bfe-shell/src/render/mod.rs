@@ -35,8 +35,8 @@ use bfe_render::interface::{
 };
 use std::collections::HashMap;
 mod screens;
-pub use self::screens::draw_loading;
 use self::screens::draw_instant_action;
+pub use self::screens::draw_loading;
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE` in `src/menus/themes/classic/draw.js`.
@@ -605,7 +605,7 @@ impl<'a> Default for RowsLayout<'a> {
     }
 }
 
-/// Shared row geometry for the main and singleplayer menu input paths.
+/// Shared row geometry for rendering and pointer picking on shell row screens.
 fn player_menu_layout(screen: ScreenId) -> RowsLayout<'static> {
     match screen {
         ScreenId::Main => RowsLayout {
@@ -630,6 +630,12 @@ fn player_menu_layout(screen: ScreenId) -> RowsLayout<'static> {
             font: "gamefont_large",
             ..Default::default()
         },
+        ScreenId::MultiplayerList(_) | ScreenId::OptionsPage(_) | ScreenId::HostDialog => {
+            RowsLayout {
+                width: 620.0,
+                ..RowsLayout::default()
+            }
+        }
         _ => RowsLayout::default(),
     }
 }
@@ -679,12 +685,6 @@ pub fn hit_player_menu(
     y: f64,
 ) -> Option<usize> {
     let screen = app.current_screen();
-    if !matches!(
-        screen,
-        ScreenId::Main | ScreenId::Singleplayer | ScreenId::InstantActionEra
-    ) {
-        return None;
-    }
     let layout = player_menu_layout(screen);
     let n = app.active_rows().len();
     let p = fonts.get(layout.font).height + 5.0;
@@ -1032,7 +1032,15 @@ pub fn draw_shell(
     // Draw the screen's full-bleed background texture if available, or a
     // deep space-navy solid quad (`[0.04, 0.06, 0.10, 1.0]`) as fallback.
     if bg_tex != 0 {
-        batch.quad(full_m, [0.0, 0.0, 1024.0, height], bg_tex, UV, WHITE, 0.0, 0);
+        batch.quad(
+            full_m,
+            [0.0, 0.0, 1024.0, height],
+            bg_tex,
+            UV,
+            WHITE,
+            0.0,
+            0,
+        );
     } else {
         batch.quad(
             full_m,
@@ -1128,14 +1136,7 @@ pub fn draw_shell(
         // `INSTANT ACTION`: dual-list playlist builder (`draw_instant_action`).
         ScreenId::InstantAction => {
             draw_instant_action(
-                batch,
-                fonts,
-                textures,
-                app,
-                viewport_w,
-                viewport_h,
-                height,
-                pulse,
+                batch, fonts, textures, app, viewport_w, viewport_h, height, pulse,
             );
         }
         // `InstantActionEra`: draws the underlying Instant Action screen, dims
@@ -1143,14 +1144,7 @@ pub fn draw_shell(
         // `GALACTIC CIVIL WAR` picker rows at `at = [0.25, 0.5]`.
         ScreenId::InstantActionEra => {
             draw_instant_action(
-                batch,
-                fonts,
-                textures,
-                app,
-                viewport_w,
-                viewport_h,
-                height,
-                pulse,
+                batch, fonts, textures, app, viewport_w, viewport_h, height, pulse,
             );
             batch.quad(
                 full_m,
@@ -1199,15 +1193,6 @@ pub fn draw_shell(
         | ScreenId::HostDialog => {
             let rows = app.active_rows();
             let sel = app.selected_cached_row_index(base_screen);
-            // Server lists (`LAN`/`ONLINE`), option sub-pages, and `SET GAME OPTIONS`
-            // (`HostDialog`) use a wider `620`-unit bar stack so labels and values
-            // fit on one line; top-level menus use `350` units.
-            let width = match base_screen {
-                ScreenId::MultiplayerList(_)
-                | ScreenId::OptionsPage(_)
-                | ScreenId::HostDialog => 620.0,
-                _ => 350.0,
-            };
             draw_rows(
                 batch,
                 fonts,
@@ -1217,10 +1202,7 @@ pub fn draw_shell(
                 rows,
                 sel,
                 pulse,
-                RowsLayout {
-                    width,
-                    ..RowsLayout::default()
-                },
+                player_menu_layout(base_screen),
             );
             draw_bottom_button(
                 batch,
@@ -1368,21 +1350,40 @@ mod tests {
     fn pointer_hits_rendered_menu_rows_in_wide_and_standard_windows() {
         let mut app = ShellApp::new(ShellData::default(), None);
         let fonts = ShellFonts::default();
-        for screen in [ScreenId::Main, ScreenId::Singleplayer] {
+        for screen in [
+            ScreenId::Main,
+            ScreenId::Singleplayer,
+            ScreenId::Multiplayer,
+            ScreenId::HostDialog,
+        ] {
             app.stack = vec![screen];
             app.rebuild_cached_rows();
-            for (w, h) in [(1280.0, 720.0), (1024.0, 768.0)] {
+            for (w, h) in [
+                (1280.0, 720.0),
+                (1024.0, 768.0),
+                (1280.0, 800.0),
+                (2560.0, 1600.0),
+            ] {
                 let (_, _, height) = gate::gate_layout(w, h);
                 let layout = player_menu_layout(screen);
                 let p = fonts.get(layout.font).height + 5.0;
                 let n = app.active_rows().len();
-                let m = mul(translate(anchor(layout.at[0], layout.at[1], true, height),
-                    rows_shift(layout.width, p, layout.list_count.unwrap_or(n)) + layout.x, layout.y, 0.0),
-                    rotation_euler(layout.rot_x, layout.rot_y, layout.rot_z, layout.xyz_order));
+                let m = mul(
+                    translate(
+                        anchor(layout.at[0], layout.at[1], true, height),
+                        rows_shift(layout.width, p, layout.list_count.unwrap_or(n)) + layout.x,
+                        layout.y,
+                        0.0,
+                    ),
+                    rotation_euler(layout.rot_x, layout.rot_y, layout.rot_z, layout.xyz_order),
+                );
                 for k in 0..n {
-                    let cy = -(n as f64*p)*0.5 + k as f64*p;
+                    let cy = -(n as f64 * p) * 0.5 + k as f64 * p;
                     let [x, y] = bfe_interface::space::plane_point(&m, 50.0, cy, 0.0, height);
-                    assert_eq!(hit_player_menu(&app, &fonts, w, h, x*w/1024.0, y*h/height), Some(k));
+                    assert_eq!(
+                        hit_player_menu(&app, &fonts, w, h, x * w / 1024.0, y * h / height),
+                        Some(k)
+                    );
                 }
             }
         }
@@ -1474,12 +1475,7 @@ mod tests {
         assert!(batch.count > 40);
 
         // Loading screen in track and zoom phases
-        let tl = LoadingTimeline::new(
-            3.5,
-            1.0,
-            0.0,
-            vec![Some([0.25, 0.25, 0.75, 0.75]), None],
-        );
+        let tl = LoadingTimeline::new(3.5, 1.0, 0.0, vec![Some([0.25, 0.25, 0.75, 0.75]), None]);
         let state_track = tl.at(1.0);
         draw_loading(
             &mut batch,

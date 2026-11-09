@@ -159,6 +159,24 @@ pub struct MultiplayerLaunch {
     pub player_name: String,
 }
 
+impl MultiplayerLaunch {
+    /// Uses the selected server's advertised game port for both HTTP and gameplay.
+    /// Bracket IPv6 literals once so a LAN address is never parsed as a port.
+    pub fn direct_target(&self) -> Option<String> {
+        let address = self.address.as_deref()?.trim();
+        if address.is_empty() {
+            return None;
+        }
+        let host = address.trim_start_matches('[').trim_end_matches(']');
+        let port = self.port.unwrap_or(DEFAULT_DIRECT_PORT);
+        Some(if host.contains(':') {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        })
+    }
+}
+
 /// Resolves a server's battle target (`family`, `map`, `side`, `era`, `mode`,
 /// `address`, `port`, `relay_always`) from its [`ServerEntry`] `battle` summary
 /// or `<family>/<map>:<side>:<mode>` rotation entry.
@@ -1083,4 +1101,29 @@ impl ShellApp {
 /// the standard network contract (`bfe-sim-28`) for callers and tests.
 pub fn default_server_browser() -> ServerBrowser {
     ServerBrowser::default()
+}
+
+#[cfg(test)]
+mod endpoint_tests {
+    use super::*;
+    #[test]
+    fn lan_join_keeps_advertised_port_and_brackets_ipv6() {
+        for address in ["127.0.0.1", "::1", "[::1]"] {
+            let server = ServerEntry {
+                address: Some(address.into()),
+                port: Some(18461),
+                ..ServerEntry::default()
+            };
+            let launch = resolve_server_join(&server, MultiplayerKind::Lan, "PLAYER TWO");
+            assert_eq!(launch.port, Some(18461));
+            assert_eq!(
+                launch.direct_target().unwrap(),
+                if address.contains(':') {
+                    "[::1]:18461"
+                } else {
+                    "127.0.0.1:18461"
+                }
+            );
+        }
+    }
 }

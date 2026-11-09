@@ -851,6 +851,8 @@ pub struct BattleController {
     pub pause_menu: PauseMenu,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
+    // Retained UTF-16 storage for the native chat text field.
+    chat_text: Vec<u16>,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
     /// Current viewport dimensions `[width, height]` in physical pixels.
@@ -1036,23 +1038,11 @@ impl BattleController {
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
         // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
-        let raw_target = server_address
+        let raw_target = launch.direct_target().or(server_address)
             .or_else(|| {
-                if let (Some(addr), Some(port)) = (&launch.address, launch.port) {
-                    if !addr.trim().is_empty() {
-                        return Some(format!("{}:{port}", addr.trim()));
-                    }
-                }
-                if let Some(addr) = &launch.address {
-                    if !addr.trim().is_empty() {
-                        return Some(addr.trim().to_string());
-                    }
-                }
                 if launch.server_id.contains(':') && launch.server_id != "host:local" {
                     Some(launch.server_id.clone())
-                } else {
-                    std::env::var("BFE_SERVER_TARGET").ok()
-                }
+                } else { std::env::var("BFE_SERVER_TARGET").ok() }
             })
             .ok_or_else(|| "No server address specified for online join".to_string())?;
 
@@ -1211,6 +1201,7 @@ impl BattleController {
             scoreboard_ctrl,
             pause_menu,
             chat,
+            chat_text: Vec::with_capacity(512),
             overlay_batch: Batch::new(),
             size,
             height,
@@ -1949,6 +1940,19 @@ impl BattleController {
                 Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
             }
         }
+        if self.chat.is_open() {
+            // The controller previously swallowed keys without presenting its draft.
+            // Draw the native text field after other overlays so typed text stays visible.
+            self.chat_text.clear();
+            let prefix = if self.chat.active_channel == Some(bfe_battle_ui::ChatChannel::Team) {
+                "TEAM: "
+            } else { "ALL: " };
+            self.chat_text.extend(prefix.encode_utf16());
+            self.chat_text.extend(self.chat.draft.encode_utf16());
+            let hud = &mut self.scene.bridge.hud_model;
+            hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 24.0,
+                self.height - 70.0, &self.chat_text, [1.0; 4], 0, 1.0, 1.0, 0.0);
+        }
     }
 
     /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.
@@ -2095,12 +2099,12 @@ impl BattleController {
         if down && !repeat && (self.chat.is_open() || matches!(code, "KeyT" | "KeyY")) {
             let act = route_battle_key(
                 code,
-                false,
                 repeat,
+                false,
                 &mut self.chat,
-                self.pause_menu.is_open,
                 self.spawn_ctrl.is_open(),
                 self.scoreboard_ctrl.model.is_open(),
+                self.pause_menu.is_open,
                 self.elapsed_s * 1000.0,
             );
             if act == BattleKeyAction::ChatHandled {
