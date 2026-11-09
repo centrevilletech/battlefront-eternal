@@ -173,6 +173,34 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
     }
 }
 
+/// A sealed, exclusively owned graph of decoded CPU assets. Its constructors
+/// accept filesystem paths, never an existing Rc or a renderer resource.
+/// No reference into this graph escapes before open_prepared consumes it.
+pub(crate) struct Prepared {
+    content: bfe_content_native::BattleContent,
+    layer_ids: Vec<Vec<usize>>,
+    details: Vec<Option<usize>>,
+    foliage: Vec<bfe_content_native::foliage::Class>,
+    foliage_images: Vec<usize>,
+    placed: bfe_content_native::placed::Placements,
+    water_main: Option<usize>,
+    water_mask: Option<usize>,
+    water_foam: Option<usize>,
+    features: [u32; L::FEATURES_LENGTH],
+    prepared_views: Option<crate::online::first_person::Prepared>,
+    prepared_particles: Option<crate::online::particles::Prepared>,
+    prepared_hud: Option<crate::online::hud::Prepared>,
+    prepared_sound: Option<crate::online::sound_data::Prepared>,
+    used: Vec<bool>,
+    live: bool,
+}
+// SAFETY: Rc aliases exist only inside this sealed asset graph. Loader and
+// preparation temporaries are dropped before construction returns. There are
+// no GL objects, borrowed data, thread-local caches or callbacks in this type.
+// Moving its sole owner between threads cannot race a reference count; once
+// consumed by open_prepared, its ordinary Rc-bearing outputs are !Send again.
+unsafe impl Send for Prepared {}
+
 pub struct Scene {
     pub bridge: Box<Bridge>,
     pub resources: Resources,
@@ -221,14 +249,43 @@ impl Scene {
     }
     /// Online joins admit the advertised mission from local files. The server
     /// cannot supply asset paths or executable class definitions at runtime.
-    pub fn load_online(root:&Path,query:&str,size:[i32;2],load:impl FnMut()->glow::Context)->Result<(Self,MapCamera),String>{
-        let selection=bfe_content::mission::Query::parse(query);
-        let map=if selection.get("map").is_empty(){"nab2"}else{selection.get("map")};
-        let mut loader=Loader::new(root);loader.compressed=false;
-        let content=loader.load(map,query)?;
-        Self::admit(content,map,size,None,true,load)
+    pub fn load_online(
+        root: &Path,
+        query: &str,
+        size: [i32; 2],
+        load: impl FnMut() -> glow::Context,
+    ) -> Result<(Self, MapCamera), String> {
+        let prepared = Self::prepare_online(root, query)?;
+        crate::loading_work::finish(Self::open_prepared(prepared, size, load))
     }
-    fn admit(mut content:bfe_content_native::BattleContent,map:&str,size:[i32;2],random_values:Option<&[f64]>,live:bool,mut load:impl FnMut()->glow::Context)->Result<(Self,MapCamera),String>{
+    pub(crate) fn prepare_online(root: &Path, query: &str) -> Result<Prepared, String> {
+        let selection = bfe_content::mission::Query::parse(query);
+        let map = if selection.get("map").is_empty() {
+            "nab2"
+        } else {
+            selection.get("map")
+        };
+        let mut loader = Loader::new(root);
+        loader.compressed = false;
+        Self::prepare_scene(loader.load(map, query)?, map, None, true)
+    }
+    fn admit(
+        content: bfe_content_native::BattleContent,
+        map: &str,
+        size: [i32; 2],
+        random_values: Option<&[f64]>,
+        live: bool,
+        load: impl FnMut() -> glow::Context,
+    ) -> Result<(Self, MapCamera), String> {
+        let prepared = Self::prepare_scene(content, map, random_values, live)?;
+        crate::loading_work::finish(Self::open_prepared(prepared, size, load))
+    }
+    fn prepare_scene(
+        mut content: bfe_content_native::BattleContent,
+        map: &str,
+        random_values: Option<&[f64]>,
+        live: bool,
+    ) -> Result<Prepared, String> {
         // Resolve terrain sampler identities through the authored map table,
         // before GPU admission freezes the texture bank and frame storage.
         let mut layers = std::collections::BTreeMap::new();
@@ -352,9 +409,26 @@ impl Scene {
         features[L::FEATURES_SHADOWS] = if live { crate::shadows::COUNT as u32 } else { 0 };
         features[L::FEATURES_CSM] = live as u32;
         features[L::FEATURES_POINTS] = (ORDNANCE_LIGHTS + posts) as u32;
-        let prepared_views=if live{Some(crate::online::first_person::Prepared::new(&mut content)?)}else{None};
-        let prepared_particles=if live{Some(crate::online::particles::Prepared::new(&mut content)?)}else{None};
-        let prepared_hud=if live{Some(crate::online::hud::Prepared::new(&mut content)?)}else{None};
+        let prepared_views = if live {
+            Some(crate::online::first_person::Prepared::new(&mut content)?)
+        } else {
+            None
+        };
+        let prepared_particles = if live {
+            Some(crate::online::particles::Prepared::new(&mut content)?)
+        } else {
+            None
+        };
+        let prepared_hud = if live {
+            Some(crate::online::hud::Prepared::new(&mut content)?)
+        } else {
+            None
+        };
+        let prepared_sound = if live {
+            Some(crate::online::sound_data::Prepared::new(&content)?)
+        } else {
+            None
+        };
         let mut used = vec![false; content.textures.images.len()];
         for (i, mesh) in content
             .world
@@ -392,7 +466,52 @@ impl Scene {
                 used[id] = true;
             }
         }
-        if live{used.fill(true);}
+        if live {
+            used.fill(true);
+        }
+        Ok(Prepared {
+            content,
+            layer_ids,
+            details,
+            foliage,
+            foliage_images,
+            placed,
+            water_main,
+            water_mask,
+            water_foam,
+            features,
+            prepared_views,
+            prepared_particles,
+            prepared_hud,
+            prepared_sound,
+            used,
+            live,
+        })
+    }
+    pub(crate) async fn open_prepared(
+        prepared: Prepared,
+        size: [i32; 2],
+        mut load: impl FnMut() -> glow::Context,
+    ) -> Result<(Self, MapCamera), String> {
+        let Prepared {
+            mut content,
+            layer_ids,
+            details,
+            foliage,
+            foliage_images,
+            placed,
+            water_main,
+            water_mask,
+            water_foam,
+            features,
+            prepared_views,
+            prepared_particles,
+            prepared_hud,
+            prepared_sound,
+            used,
+            live,
+        } = prepared;
+        crate::loading_work::frame().await;
         let canvas = Canvas::new(load(), size)?;
         let mut resources = Resources::new(load());
         resources.canvas = Some(canvas.framebuffer);
@@ -414,6 +533,10 @@ impl Scene {
             let sample = resources.sample(source, sampling)?;
             resources.upload(sample)?;
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
+            if i % 8 == 7 {
+                crate::loading_work::frame().await;
+                bridge.r.core.state.reset();
+            }
         }
         let empty = resources.world_fallback(false)?;
         let empty = bridge.r.core.add_texture(resources.texture(empty)?);
@@ -465,6 +588,8 @@ impl Scene {
         }
         let mut static_content =
             crate::static_scene::props(&mut bridge, &content, &textures, placed, if live { crate::shadows::COUNT } else { 0 })?;
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         for (class, image) in foliage.iter().zip(foliage_images) {
             bridge.foliage_class(
                 textures[image],
@@ -499,6 +624,10 @@ impl Scene {
         let mut min = [f64::INFINITY; 3];
         let mut max = [f64::NEG_INFINITY; 3];
         for (mesh_index, (mesh, layer_ids)) in content.world.iter().zip(&layer_ids).enumerate() {
+            if mesh_index % 8 == 0 {
+                crate::loading_work::frame().await;
+                bridge.r.core.state.reset();
+            }
             if mesh.material.kind == MaterialKind::Sky {
                 let sky = crate::static_scene::sky(&mut bridge, mesh, &textures, far_slot, empty)?;
                 far_slot = crate::static_scene::sky_end(&sky);
@@ -670,26 +799,38 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let online = if live {
-            Some(Box::new(crate::online::replicas::Replicas::new(
-                &mut content,
-                &mut bridge,
-                &textures,
-                prepared_views.ok_or("missing first-person resources")?,
-                prepared_hud.ok_or("missing battle HUD resources")?,
-                prepared_particles.ok_or("missing battle particle resources")?,
-                &mut resources,
-                empty,
-                size,
-            )?))
+            Some(Box::new(
+                crate::online::replicas::Replicas::new(
+                    &mut content,
+                    &mut bridge,
+                    &textures,
+                    prepared_views.ok_or("missing first-person resources")?,
+                    prepared_hud.ok_or("missing battle HUD resources")?,
+                    prepared_particles.ok_or("missing battle particle resources")?,
+                    prepared_sound.ok_or("missing battle audio resources")?,
+                    &mut resources,
+                    empty,
+                    size,
+                )
+                .await?,
+            ))
         } else {
             None
         };
         let bones = static_content.records.iter()
             .map(|row| row[bfe_render::instances::REC_BONES] as usize)
             .chain([online.as_ref().map_or(1, |resources| resources.max_bones())])
-            .max().unwrap_or(1).max(1);
-        let shadows = if live { Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones)?) } else { None };
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let shadows = if live {
+            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones).await?)
+        } else {
+            None
+        };
         bridge.frame_reserve_frame();
         Ok((
             Self {

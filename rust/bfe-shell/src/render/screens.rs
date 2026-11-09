@@ -622,7 +622,7 @@ pub fn draw_loading_with_typeface(
                 typefaces,
                 look,
                 name_pos::X,
-                top + if look == LookId::Eternal { 7.5 } else { 8. },
+                top + 12.,
                 planet,
                 false,
             );
@@ -651,17 +651,32 @@ pub fn draw_loading_with_typeface(
     // Horizontal perspective squash `DISK.turn = 0.866` (`cos(30 deg)`),
     // matching `c.scale(DISK.turn, 1)` in `drawDisk` (`src/shell/loading.js`).
     let mut squash = IDENTITY;
-    squash[0] = disk::TURN;
+    squash[0] = disk::TURN * dp.unit * sx;
+    squash[5] = dp.unit * sy;
     let disk_m = mul(disk_base, squash);
 
     // Draw the two counter-rotating layers of `load_rotating_disk`
     // (`[[240, 0.25, 0.85], [176, -0.4, 0.75]]`), tinted per `LookId`.
-    let disk_tex = textures.get("load_rotating_disk");
-    let disk_tint = match look {
-        LookId::Bf1 => [0.15, 0.72, 0.96, 1.0],
-        LookId::Eternal => [0.77, 0.80, 0.85, 0.85],
-        LookId::Bf2 => [0.22, 0.45, 0.78, 0.90],
+    let themed = textures.get(match look {
+        LookId::Bf1 => "load_rotating_disk",
+        LookId::Eternal => "load_rotating_disk_eternal",
+        LookId::Bf2 => "load_rotating_disk_bf2",
+    });
+    let disk_tex = if themed != 0 {
+        themed
+    } else {
+        textures.get("load_rotating_disk")
     };
+    let disk_tint = [
+        1.,
+        1.,
+        1.,
+        match look {
+            LookId::Bf1 => 1.,
+            LookId::Eternal => 0.85,
+            LookId::Bf2 => 0.90,
+        },
+    ];
     // Each layer rotates around Z at `spin * speed` (`0.25` and `-0.4` rad/s)
     // and draws a centered `size x size` quad (`240` and `176` units).
     for &[size, speed, alpha] in &disk::LAYERS {
@@ -729,16 +744,7 @@ pub fn draw_loading_with_typeface(
     // drawn in `#dcdcff` (`[220/255, 220/255, 1.0, 1.0]`) with centered alignment.
     let text_m = rotate_z(disk_m, disk::TEXT_DEG.to_radians());
     if let Some(typefaces) = page_fonts.filter(|_| look != LookId::Bf1) {
-        loading_type(
-            batch,
-            text_m,
-            typefaces,
-            look,
-            0.,
-            0.,
-            loading_text,
-            true,
-        );
+        loading_type(batch, text_m, typefaces, look, 0., 0., loading_text, true);
     } else {
         let text_w = str_width(&fonts.medium, loading_text);
         let _ = text_w;

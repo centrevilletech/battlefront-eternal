@@ -541,6 +541,7 @@ impl WorldThread {
         let thread_shared = Arc::clone(&shared);
         let join = thread::Builder::new()
             .name("bfe-world-60hz".to_string())
+            .stack_size(8 << 20)
             .spawn(move || match build() {
                 Ok(runtime) => {
                     eprintln!("native world admission succeeded; starting world ticks");
@@ -586,6 +587,7 @@ impl WorldThread {
 
         let join = thread::Builder::new()
             .name("bfe-world-60hz".to_string())
+            .stack_size(8 << 20)
             .spawn(move || {
                 let build_res = (|| -> Result<
                     (Runtime<super::context::Native>, AdmittedWorldInfo),

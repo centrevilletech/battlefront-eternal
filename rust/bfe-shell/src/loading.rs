@@ -204,6 +204,31 @@ impl LookId {
     }
 }
 
+/// Replaces the disk's cyan RGB while preserving its authored alpha, as the
+/// browser's source-in tint followed by its source-atop annular highlight does.
+/// This is a cold asset preparation step, performed once per menu look.
+pub fn recolor_disk_rgba(rgba: &mut [u8], width: usize, height: usize, look: LookId) {
+    let (segments, ring) = match look {
+        LookId::Bf1 => return,
+        LookId::Eternal => ([5, 7, 11], [196, 204, 216]),
+        LookId::Bf2 => ([29, 63, 115], [201, 212, 226]),
+    };
+    if width == 0 || rgba.len() != width * height * 4 {
+        return;
+    }
+    let center = width as f64 / 2.;
+    for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let x = (index % width) as f64 + 0.5 - center;
+        let y = (index / width) as f64 + 0.5 - center;
+        let radius = x.hypot(y) / width as f64;
+        pixel[..3].copy_from_slice(if (0.243..0.258).contains(&radius) {
+            &ring
+        } else {
+            &segments
+        });
+    }
+}
+
 /// Resolves which loading screen look (`"bf1"`, `"eternal"`, `"bf2"`) applies.
 /// Under classic menus (`classic_menus == true`), always returns `LookId::Bf1`;
 /// otherwise normalizes `theme` (`"bf1"`, `"bf2"`, or default `"eternal"`).
@@ -243,7 +268,10 @@ pub fn planet_name(
     strings: &BTreeMap<String, String>,
     load: Option<&MapLoad>,
 ) -> String {
-    if let Some(p) = load.and_then(|l| l.planet.as_deref()).filter(|s| !s.is_empty()) {
+    if let Some(p) = load
+        .and_then(|l| l.planet.as_deref())
+        .filter(|s| !s.is_empty())
+    {
         return p.to_string();
     }
     let prefix: String = map.chars().take(3).collect();
@@ -930,7 +958,10 @@ mod tests {
     #[test]
     fn zoom_view_disk_place_light_level_mix_color_and_planet_name_match_js() {
         let target = [390.0, 737.0, 37.0, 43.0];
-        assert_eq!(zoom_view(0.0, 1024.0, 1024.0, target), [0.0, 0.0, 1024.0, 1024.0]);
+        assert_eq!(
+            zoom_view(0.0, 1024.0, 1024.0, target),
+            [0.0, 0.0, 1024.0, 1024.0]
+        );
         let end = zoom_view(1.0, 1024.0, 1024.0, target);
         for i in 0..4 {
             assert!(close(end[i], target[i], 1e-6));
@@ -939,7 +970,12 @@ mod tests {
         assert!(close(half[2], (1024.0_f64 * 37.0).sqrt(), 1e-6));
         assert!(close(half[3], (1024.0_f64 * 43.0).sqrt(), 1e-6));
 
-        let full = on_screen(target, zoom_view(1.0, 1024.0, 1024.0, target), 1280.0, 720.0);
+        let full = on_screen(
+            target,
+            zoom_view(1.0, 1024.0, 1024.0, target),
+            1280.0,
+            720.0,
+        );
         for (a, b) in full.into_iter().zip([0.0, 0.0, 1280.0, 720.0]) {
             assert!(close(a, b, 1e-6));
         }
@@ -959,7 +995,10 @@ mod tests {
         assert_eq!(light_level(lights::TAIL), 0.0);
 
         assert_eq!(mix_color(LookId::Bf1.light_stops(), 0.0), "rgb(11, 13, 15)");
-        assert_eq!(mix_color(LookId::Bf1.light_stops(), 0.5), "rgb(92, 97, 102)");
+        assert_eq!(
+            mix_color(LookId::Bf1.light_stops(), 0.5),
+            "rgb(92, 97, 102)"
+        );
         assert_eq!(
             mix_color(LookId::Bf1.light_stops(), 1.0),
             "rgb(185, 188, 190)"
@@ -982,5 +1021,18 @@ mod tests {
         assert_eq!(planet_name("rhn2", &with_rhn, None), "RHEN VAR");
         assert_eq!(planet_name("yav1", &empty, None), "YAVIN 4");
         assert_eq!(planet_name("zzz9", &empty, None), "ZZZ9");
+    }
+}
+
+#[cfg(test)]
+mod disk_tests {
+    use super::*;
+    #[test]
+    fn page_disk_replaces_cyan_and_preserves_shape_alpha() {
+        let mut pixels = [40, 190, 255, 79].repeat(100 * 100);
+        recolor_disk_rgba(&mut pixels, 100, 100, LookId::Eternal);
+        assert_eq!(&pixels[0..4], &[5, 7, 11, 79]);
+        let ring = (50 * 100 + 75) * 4;
+        assert_eq!(&pixels[ring..ring + 4], &[196, 204, 216, 79]);
     }
 }

@@ -152,6 +152,29 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
+fn initial_policy(source: &bfe_content::Value, era: &str) -> bfe_content::mission::Policy {
+    let query = bfe_content::mission::Query::parse(&format!("?era={era}"));
+    let world = bfe_content::mission::select_mission(source, &query);
+    bfe_content::mission::spawn_policy(&query, world.get("mission"))
+}
+
+/// Worker-owned admission results contain no GL objects or render-thread Rc values.
+pub struct InstantAdmission {
+    request: BattleRequest,
+    playlist_index: usize,
+    map_id: String,
+    era: String,
+    world: WorldThread,
+    admitted: crate::local::thread::AdmittedWorldInfo,
+    graphics: crate::scene::Prepared,
+}
+pub struct OnlineAdmission {
+    launch: MultiplayerLaunch,
+    server_info: crate::online::info::Server,
+    endpoint: Box<bfe_transport::endpoint::Endpoint>,
+    graphics: crate::scene::Prepared,
+}
+
 /// Transition out of the active battle.
 #[derive(Clone, Debug)]
 ///
@@ -897,26 +920,14 @@ impl BattleController {
     /// Admits and starts an Instant Action battle for `request.playlist[playlist_index]`
     /// exclusively through `Context::world_admit`.
     ///
-    /// ## Instant Action Admission Pipeline
-    /// 1. Resolves `(map_id, era)` from `request.playlist[playlist_index]` (or `request.map`).
-    /// 2. Constructs [`LocalOptions`] (`--map`, `--side`, `--seed`) and calls
-    ///    [`WorldThread::admit_instant_action`], which runs `Prepared::new` -> `Context::world_admit`
-    ///    and spawns the dedicated `"bfe-world-60hz"` simulation thread.
-    /// 3. Loads the 3D scene (`Scene::load_online`) for `admitted.query` and attaches
-    ///    the live battle audio stream to `audio_router`.
-    /// 4. Polls the initial tick-0 world publication so `replicas.hud` contains the
-    ///    mission's authoritative command posts, unit classes, and reinforcement counts.
-    /// 5. Unpauses the 60 Hz world thread and initializes `bfe-battle-ui` controllers
-    ///    via [`Self::finish_init`].
-    pub fn start_instant_action(
+    /// Resolves the selected mission and its canonical startup faction, then
+    /// admits a paused local World. The loading worker owns this cold call;
+    /// open_instant_action later creates display resources on the GL thread.
+    pub fn prepare_instant_action(
         content_dir: &Path,
         request: BattleRequest,
         playlist_index: usize,
-        size: [i32; 2],
-        settings: &AppSettingsStore,
-        audio_router: &SharedAudioRouter,
-        mut make_gl: impl FnMut() -> glow::Context,
-    ) -> Result<Self, String> {
+    ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
         let (map_id, era) = if let Some(entry) = request
@@ -933,18 +944,32 @@ impl BattleController {
         };
 
         // Build the mission CLI flags (`--map`, `--side`, `--seed`) for `Prepared::new`.
-        let side_flag = if era.eq_ignore_ascii_case("gcw") {
-            "all"
-        } else {
-            "rep"
-        };
+        // launchUrl carries map/era, not a faction pick. Use the canonical
+        // spawnPolicy over the selected mission, including team1's fallback
+        // when DEFAULT_UNIT is absent (Hoth's first team is Imperial).
+        use bfe_content::files::{DirFiles, Files};
+        if map_id.is_empty()
+            || !map_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return Err("invalid map name".into());
+        }
+        let files = DirFiles::new(content_dir);
+        let bytes = files
+            .read(&format!("maps/{map_id}/map.json"))
+            .ok_or("missing map mission metadata")?;
+        let source = bfe_content::json::parse_bytes(&bytes).map_err(|e| e.to_string())?;
+        let policy = initial_policy(&source, &era);
         let local_options = LocalOptions {
             root: content_dir.to_path_buf(),
             battle: vec![
                 "--map".to_string(),
                 map_id.clone(),
                 "--side".to_string(),
-                side_flag.to_string(),
+                policy.side,
+                "--unit".to_string(),
+                policy.class_name,
                 "--seed".to_string(),
                 ((playlist_index as u32) + 1).to_string(),
             ],
@@ -952,17 +977,40 @@ impl BattleController {
             duration: None,
         };
 
-        // Admit the mission exclusively through `Context::world_admit` on the 60 Hz world thread
-        // and load the 3D scene (`Scene::load_online`) for the admitted mission query.
-        let (mut world, admitted) = WorldThread::admit_instant_action(&local_options)?;
-        let (mut scene, camera) =
-            Scene::load_online(content_dir, &admitted.query, size, &mut make_gl)?;
+        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
+        let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
+        Ok(InstantAdmission {
+            request,
+            playlist_index,
+            map_id,
+            era,
+            world,
+            admitted,
+            graphics,
+        })
+    }
 
+    pub async fn open_instant_action(
+        _content_dir: &Path,
+        prepared: InstantAdmission,
+        size: [i32; 2],
+        settings: &AppSettingsStore,
+        _audio_router: &SharedAudioRouter,
+        mut make_gl: impl FnMut() -> glow::Context,
+    ) -> Result<Self, String> {
+        let InstantAdmission {
+            request,
+            playlist_index,
+            map_id,
+            era,
+            mut world,
+            admitted,
+            graphics,
+        } = prepared;
+        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
-        audio_router.set_shell(None);
-        audio_router.set_live(replicas.sound.output.take());
 
         // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
         let mut receiver = Box::new(Receiver::new(admitted.registry));
@@ -1003,8 +1051,6 @@ impl BattleController {
             receiver.own.team,
         );
 
-        world.set_paused(false);
-
         Self::finish_init(
             BattleAuthority::InstantAction {
                 request,
@@ -1027,26 +1073,26 @@ impl BattleController {
         )
     }
 
-    /// Connects to a remote or LAN server (`launch`) and starts an Online battle.
-    ///
-    /// ## Online Connection Pipeline
-    /// 1. Resolves the target `HOST:PORT` from `server_address`, `launch.address`,
-    ///    `launch.server_id`, or `BFE_SERVER_TARGET`.
-    /// 2. Queries `GET /info` and prepares the player identity and UDP/WebRTC endpoint
-    ///    via `crate::online::info::prepare`.
-    /// 3. Loads the 3D scene (`Scene::load_online`) for `server_info.query` and
-    ///    installs the live battle audio output stream into `audio_router`.
-    /// 4. Connects [`OnlineClient`] and initializes `bfe-battle-ui` controllers
-    ///    via [`Self::finish_init`].
-    pub fn start_online(
+    /// Handover owns both clocks: loading audio remains alive through the
+    /// final picture, and local gameplay cannot advance behind that picture.
+    pub fn activate(&mut self, audio_router: &SharedAudioRouter) {
+        audio_router.set_shell(None);
+        if let Some(replicas) = &mut self.scene.online {
+            audio_router.set_live(replicas.sound.output.take());
+        }
+        if let BattleAuthority::InstantAction { world, .. } = &self.authority {
+            world.set_paused(false);
+        }
+    }
+
+    /// Reads and verifies server metadata and content on the loading worker.
+    /// GL resource construction and connection presentation happen in open_online.
+    pub fn prepare_online(
         content_dir: &Path,
         launch: MultiplayerLaunch,
         server_address: Option<String>,
-        size: [i32; 2],
         settings: &AppSettingsStore,
-        audio_router: &SharedAudioRouter,
-        mut make_gl: impl FnMut() -> glow::Context,
-    ) -> Result<Self, String> {
+    ) -> Result<OnlineAdmission, String> {
         // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
         let raw_target = launch.direct_target().or(server_address)
             .or_else(|| {
@@ -1065,6 +1111,28 @@ impl BattleController {
             &settings.player.profile_name,
         )?;
 
+        let graphics = Scene::prepare_online(content_dir, &server_info.query)?;
+        Ok(OnlineAdmission {
+            launch,
+            server_info,
+            endpoint,
+            graphics,
+        })
+    }
+    pub async fn open_online(
+        _content_dir: &Path,
+        prepared: OnlineAdmission,
+        size: [i32; 2],
+        settings: &AppSettingsStore,
+        _audio_router: &SharedAudioRouter,
+        mut make_gl: impl FnMut() -> glow::Context,
+    ) -> Result<Self, String> {
+        let OnlineAdmission {
+            launch,
+            server_info,
+            endpoint,
+            graphics,
+        } = prepared;
         let selection = bfe_content::mission::Query::parse(&server_info.query);
         let map_id = if selection.get("map").is_empty() {
             if launch.map.is_empty() {
@@ -1086,13 +1154,10 @@ impl BattleController {
         };
 
         // Load the 3D scene and HUD replicas for the server's active mission query.
-        let (mut scene, camera) =
-            Scene::load_online(content_dir, &server_info.query, size, &mut make_gl)?;
+        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
 
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
-        audio_router.set_shell(None);
-        audio_router.set_live(replicas.sound.output.take());
 
         let spawn_port = LiveSpawnPort::from_hud_meta(
             &replicas.hud.class_meta,
@@ -2768,4 +2833,34 @@ mod tests {
 
 impl Drop for BattleController {
     fn drop(&mut self){self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
+}
+
+#[cfg(test)]
+mod startup_policy_tests {
+    use super::initial_policy;
+    #[test]
+    fn menu_launch_uses_the_selected_missions_roster_for_both_eras() {
+        let source = serde_json::json!({"missions": {
+            "battle_cw": {"mission": {"era": "cw", "sides": ["cis", "rep"], "teams": {
+                "1": {"classes": [["cis_soldier", 1]]},
+                "2": {"classes": [["rep_soldier", 1], [bfe_content::mission::DEFAULT_UNIT, 1]]}
+            }}},
+            "battle_gcw": {"mission": {"era": "gcw", "sides": ["imp", "all"], "teams": {
+                "1": {"classes": [["imp_soldier", 1]]},
+                "2": {"classes": [["all_soldier", 1]]}
+            }}}
+        }});
+        let source = bfe_content::json::parse(&source.to_string()).unwrap();
+        let cw = initial_policy(&source, "cw");
+        assert_eq!(
+            (cw.side.as_str(), cw.class_name.as_str(), cw.team),
+            ("rep", "rep_soldier", 2.)
+        );
+        let gcw = initial_policy(&source, "gcw");
+        assert_eq!(
+            (gcw.side.as_str(), gcw.class_name.as_str(), gcw.team),
+            ("imp", "imp_soldier", 1.)
+        );
+        assert!(cw.screen && gcw.screen);
+    }
 }

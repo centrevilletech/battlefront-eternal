@@ -60,13 +60,14 @@ pub struct Replicas {
     frame: u64,
 }
 impl Replicas {
-    pub fn new(
+    pub async fn new(
         content: &mut BattleContent,
         bridge: &mut Bridge,
         textures: &[u32],
         views: super::first_person::Prepared,
         hud: super::hud::Prepared,
         particles: super::particles::Prepared,
+        sound: super::sound_data::Prepared,
         renderer: &mut crate::resources::Resources,
         solid: u32,
         size: [i32; 2],
@@ -97,6 +98,8 @@ impl Replicas {
         let program = bridge.add_owned_program(&key)?;
         let inputs = std::mem::take(&mut content.units);
         for (name, input) in inputs {
+            crate::loading_work::frame().await;
+            bridge.r.core.state.reset();
             let body_key = defs.classes.iter().find_map(|c| {
                 let body = c.body?;
                 let source = &content.content.actors[body].0;
@@ -197,6 +200,8 @@ impl Replicas {
         // Resource creation is cold. A bounded pool lends existing skeletons
         // to later lives; packet bursts and class changes cannot allocate rigs.
         for (model, data) in models.iter().enumerate() {
+            crate::loading_work::frame().await;
+            bridge.r.core.state.reset();
             for _ in 0..per_model {
                 let count = data.inverses.len() + 3;
                 if nodes + count > lim::NODES || slots.len() == POOL {
@@ -220,6 +225,8 @@ impl Replicas {
         let mut held = Vec::new();
         let mut weapon_classes = vec![None; registry.weapons.len() + 1];
         for weapon in &defs.weapons {
+            crate::loading_work::frame().await;
+            bridge.r.core.state.reset();
             let Some(id) = weapon.registry_id else {
                 continue;
             };
@@ -231,15 +238,35 @@ impl Replicas {
             weapon_classes[id as usize] = Some(held.len());
             held.push(model);
         }
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let replay = Some(super::replay::Replay::new(content)?);
         let resources = replay.as_ref().unwrap();
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let hulls = Box::new(super::hulls::Hulls::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let cameras = Box::new(super::cameras::Cameras::new(content, resources.collision.clone(), resources.world)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let combat = Box::new(super::combat::Combat::new(content, particles, bridge, textures, renderer)?);
-        let sound = Box::new(super::sound::Sound::new(super::sound_data::Prepared::new(content)?, resources.collision.clone(), resources.world));
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
+        let sound = Box::new(super::sound::Sound::new(
+            sound,
+            resources.collision.clone(),
+            resources.world,
+        ));
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
         eprintln!("native unit admission: models={} classes={} slots={} nodes={nodes}", models.len(), classes.iter().flatten().count(), slots.len());
         Ok(Self {

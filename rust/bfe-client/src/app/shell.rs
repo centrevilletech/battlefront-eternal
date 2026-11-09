@@ -544,6 +544,10 @@ pub struct ShellHost {
     pub loading_text: String,
     /// Elapsed seconds within the current loading timeline animation.
     pub loading_time: f64,
+    pub loading_frames: u64,
+    pub loading_peak_ms: f64,
+    battle_loading_started: Instant,
+    loading_stage_maps: HashMap<String, Vec<StageTexture>>,
     /// Path to the prepared content directory once loaded.
     pub content_dir: Option<PathBuf>,
     /// Current viewport dimensions `[width, height]` in physical pixels.
@@ -652,6 +656,10 @@ impl ShellHost {
             loading_planet: "BATTLEFRONT ETERNAL".to_string(),
             loading_text: "PREPARING CONTENT".to_string(),
             loading_time: 0.0,
+            loading_frames: 0,
+            loading_peak_ms: 0.,
+            battle_loading_started: Instant::now(),
+            loading_stage_maps: HashMap::new(),
             content_dir: None,
             size,
             frames: 0,
@@ -677,6 +685,7 @@ impl ShellHost {
         settings: &AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Result<(), String> {
+        self.loading_stage_maps.clear();
         let data = load_shell_data_from_dir(content_dir);
         let mut lib = Library::new(content_dir, false, 4096, 0)?;
 
@@ -783,6 +792,35 @@ impl ShellHost {
                 Some([0.25, 0.35, 0.3, 0.4]),
                 None,
             ];
+        }
+        if let Some(url) = &data.load.disk {
+            if let Ok(index) = lib.load(url.trim_start_matches('/')) {
+                let image = &lib.images[index];
+                for (name, look) in [
+                    (
+                        "load_rotating_disk_eternal",
+                        bfe_shell::loading::LookId::Eternal,
+                    ),
+                    ("load_rotating_disk_bf2", bfe_shell::loading::LookId::Bf2),
+                ] {
+                    let mut rgba = image.data.clone();
+                    bfe_shell::loading::recolor_disk_rgba(
+                        &mut rgba,
+                        image.width as usize,
+                        image.height as usize,
+                        look,
+                    );
+                    let texture = Self::upload_rgba(
+                        &self.core.gl,
+                        image.width as i32,
+                        image.height as i32,
+                        &rgba,
+                    )?;
+                    textures
+                        .by_name
+                        .insert(name.into(), self.core.add_texture(texture));
+                }
+            }
         }
         self.loading_timeline = LoadingTimeline::new(
             data.load.track,
@@ -1014,6 +1052,62 @@ impl ShellHost {
     pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
         if let Some(map) = self.app.data.maps.iter().find(|m| m.id == map_id) {
             self.loading_planet = planet_name(&map.id, &self.app.data.strings, map.load.as_ref());
+            if !self.loading_stage_maps.contains_key(map_id) {
+                let mut stages = Vec::new();
+                if let (Some(root), Some(metadata)) = (&self.content_dir, &map.load) {
+                    if let Ok(mut images) = Library::new(root, false, 4096, 0) {
+                        for (index, stage) in metadata.stages.iter().enumerate() {
+                            if let Ok(id) = images.load(stage.url.trim_start_matches('/')) {
+                                let image = &images.images[id];
+                                if let Ok(texture) = Self::upload_rgba(
+                                    &self.core.gl,
+                                    image.width as i32,
+                                    image.height as i32,
+                                    &image.data,
+                                ) {
+                                    stages.push(StageTexture {
+                                        texture: self.core.add_texture(texture),
+                                        width: image.width as f64,
+                                        height: image.height as f64,
+                                        target: if index + 1 < metadata.stages.len() {
+                                            stage.target
+                                        } else {
+                                            None
+                                        },
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                self.loading_stage_maps.insert(map_id.into(), stages);
+            }
+            self.textures.loading_stages = self
+                .loading_stage_maps
+                .get(map_id)
+                .cloned()
+                .unwrap_or_default();
+            let targets = self
+                .textures
+                .loading_stages
+                .iter()
+                .map(|stage| {
+                    stage.target.map(|rect| {
+                        [
+                            rect[0] / stage.width,
+                            rect[1] / stage.height,
+                            (rect[0] + rect[2]) / stage.width,
+                            (rect[1] + rect[3]) / stage.height,
+                        ]
+                    })
+                })
+                .collect();
+            self.loading_timeline = LoadingTimeline::new(
+                self.app.data.load.track,
+                self.app.data.load.zoom,
+                self.app.data.load.hold,
+                targets,
+            );
         } else {
             self.loading_planet = map_id.to_ascii_uppercase();
         }
@@ -1025,12 +1119,25 @@ impl ShellHost {
             .cloned()
             .unwrap_or_else(|| "LOADING".to_string());
         self.loading_time = 0.0;
+        self.loading_frames = 0;
+        self.loading_peak_ms = 0.;
         let sounds = self.loading_timeline.sounds();
+        audio_router.set_live(None);
         if let Ok(mut guard) = audio_router.shell.lock() {
-            if let Some(mixer) = guard.as_mut() {
-                mixer.schedule_loading_plan(&sounds, 0.0);
-            }
+            let mixer = guard.get_or_insert_with(|| {
+                ShellAudioMixer::new(&self.app.data, self.content_dir.as_deref())
+            });
+            mixer.fade_bus("shellmusic", 0., 0.1);
+            let start = mixer.current_time() + bfe_shell::loading::LEAD;
+            mixer.schedule_loading_plan(&sounds, start);
         }
+        self.battle_loading_started = Instant::now();
+        eprintln!(
+            "battle loading: map={} stages={} duration={:.3}s",
+            map_id,
+            self.loading_timeline.stages(),
+            self.loading_timeline.duration()
+        );
     }
 
     /// Renders the startup / preparation loader screen (`draw_loading`).
@@ -1089,8 +1196,17 @@ impl ShellHost {
     }
 
     /// Renders a map-loading frame (`draw_loading`) while transitioning into a battle.
-    pub fn draw_battle_loading(&mut self, dt: f64) {
-        self.loading_time += dt.clamp(0.0, 0.1);
+    pub fn battle_loading_complete(&self) -> bool {
+        self.loading_time >= self.loading_timeline.duration()
+    }
+    pub fn draw_battle_loading(&mut self, _dt: f64) {
+        // Sound and pictures share wall time even if a shader upload delayed
+        // one display frame. Gameplay's dt clamp must not stretch the sequence.
+        let time = (self.battle_loading_started.elapsed().as_secs_f64() - bfe_shell::loading::LEAD)
+            .max(0.);
+        self.loading_peak_ms = self.loading_peak_ms.max((time - self.loading_time) * 1000.);
+        self.loading_time = time;
+        self.loading_frames += 1;
         let at = self.loading_timeline.at(self.loading_time);
         let w = self.size[0] as f64;
         let h = self.size[1] as f64;

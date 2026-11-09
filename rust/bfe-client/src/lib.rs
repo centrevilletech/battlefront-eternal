@@ -11,6 +11,7 @@ pub mod host;
 pub mod hud_sync;
 pub mod input;
 pub mod local;
+mod loading_work;
 pub mod online;
 pub mod presentation_bridge;
 pub mod render_bridge;

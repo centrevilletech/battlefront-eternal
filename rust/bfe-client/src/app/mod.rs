@@ -41,7 +41,7 @@
 //!   into `HostOptions` (`host_options_from_shell`) and transitions to `AppState::HostStarting`,
 //!   which spawns `bfeserver` and polls `/admin` and `/info` on `"bfe-host-start"` while
 //!   rendering the loading screen. Once `/info` answers, the local player joins through
-//!   the standard `BattleLoadTarget::Online` path (`BattleController::start_online`).
+//!   the standard `BattleLoadTarget::Online` path (`BattleController::prepare_online`).
 //! - **Close Prompt**: Closing the window while a hosted server is active opens the
 //!   3-button `ClosePrompt` modal (`KeepRunning`, `StopAndQuit`, `Cancel`).
 
@@ -72,6 +72,7 @@
 //!   and 3D movement (`Input`) share identical key identifiers with the web reference.
 pub mod battle;
 pub mod cli;
+mod loading;
 pub mod script;
 pub mod settings;
 pub mod shell;
@@ -219,6 +220,7 @@ pub enum AppState {
         target: BattleLoadTarget,
         /// Number of loading frames rendered so far.
         frames_drawn: u32,
+        work: Box<loading::Work>,
     },
     /// Active 3D battle with `bfe-battle-ui` overlays (`Spawn`, `HUD`, `Scoreboard`, `Pause`).
     Battle(Box<BattleController>),
@@ -678,7 +680,7 @@ impl StandaloneWindowApp {
             // Once `HostController::start` confirms `/admin` (`status == "running"`)
             // and `GET /info` on the game port, transition into `AppState::BattleLoading`
             // with `BattleLoadTarget::Online` so the local host player joins through
-            // the normal online multiplayer client path (`BattleController::start_online`).
+            // the normal online multiplayer client path (`BattleController::prepare_online`).
             AppState::HostStarting { options, .. } => RawPresenceInput {
                 phase: Some("loading".to_string()),
                 room_name: Some(options.name.clone()),
@@ -1263,6 +1265,7 @@ impl StandaloneWindowApp {
                         playlist_index: 0,
                     },
                     frames_drawn: 0,
+                    work: Box::default(),
                 };
             }
             ShellTransition::StartOnline(launch) => {
@@ -1278,6 +1281,7 @@ impl StandaloneWindowApp {
                 self.state = AppState::BattleLoading {
                     target: BattleLoadTarget::Online { launch },
                     frames_drawn: 0,
+                    work: Box::default(),
                 };
             }
             ShellTransition::StartHost(options, launch) => {
@@ -1478,6 +1482,7 @@ impl StandaloneWindowApp {
                                     launch: join_launch,
                                 },
                                 frames_drawn: 0,
+                                work: Box::default(),
                             };
                         }
                         Ok(Err(err)) => {
@@ -1506,14 +1511,37 @@ impl StandaloneWindowApp {
                 AppState::BattleLoading {
                     target,
                     frames_drawn,
+                    work,
                 } => {
-                    // Render the animated planet loading screen before admitting or joining the battle.
                     *frames_drawn += 1;
-                    let current_frames = *frames_drawn;
-                    let target_clone = target.clone();
-                    if let Some(shell) = &mut self.shell {
+                    let error_screen = if matches!(target, BattleLoadTarget::Online { .. }) {
+                        ScreenId::Multiplayer
+                    } else {
+                        ScreenId::InstantAction
+                    };
+                    let root = self
+                        .shell
+                        .as_ref()
+                        .and_then(|s| s.content_dir.clone())
+                        .unwrap_or_else(|| self.settings.paths.content_root.clone());
+                    let display = self.context.as_ref().ok_or("missing GL context")?.display();
+                    let result = work.advance(
+                        &root,
+                        target,
+                        self.opts.size,
+                        &self.settings,
+                        Arc::clone(&self.audio_router),
+                        &self.opts.server_target,
+                        move || unsafe {
+                            glow::Context::from_loader_function_cstr(|name| {
+                                display.get_proc_address(name)
+                            })
+                        },
+                    );
+                    let mut handover = None;
+                    let frame = if let Some(shell) = &mut self.shell {
                         shell.draw_battle_loading(dt);
-                        if current_frames == 6 {
+                        if *frames_drawn == 6 {
                             if let Some(gate) = &mut self.gate {
                                 if !gate
                                     .screenshots_written
@@ -1524,98 +1552,38 @@ impl StandaloneWindowApp {
                                 }
                             }
                         }
-                        let fb = shell.canvas.framebuffer;
-                        let sz = shell.size;
-                        self.blit_framebuffer_to_window(fb, sz);
-                    }
-                    if current_frames >= 10 {
-                        let content_dir = self
-                            .shell
-                            .as_ref()
-                            .and_then(|s| s.content_dir.clone())
-                            .unwrap_or_else(|| self.settings.paths.content_root.clone());
-                        let Some(context) = &self.context else {
-                            return Err("missing GL context".to_string());
-                        };
-                        let display = context.display();
-                        let make_gl = || unsafe {
-                            glow::Context::from_loader_function_cstr(|name| {
-                                display.get_proc_address(name)
-                            })
-                        };
-                        match target_clone {
-                            BattleLoadTarget::InstantAction {
-                                request,
-                                playlist_index,
-                            } => {
-                                // Admit the Instant Action battle exclusively via `Context::world_admit`.
-                                // If admission fails, surface the error directly to the player.
-                                match BattleController::start_instant_action(
-                                    &content_dir,
-                                    request,
-                                    playlist_index,
-                                    self.opts.size,
-                                    &self.settings,
-                                    &self.audio_router,
-                                    make_gl,
-                                ) {
-                                    Ok(battle) => {
-                                        self.state = AppState::Battle(Box::new(battle));
-                                    }
-                                    Err(err) => {
-                                        if self.gate.is_some() {
-                                            return Err(format!(
-                                                "Instant Action admission failed during gate: {err}"
-                                            ));
-                                        }
-                                        self.restore_shell_audio(&content_dir);
-                                        if let Some(shell) = &mut self.shell {
-                                            shell.app.push_screen(ScreenId::InstantAction);
-                                            shell.app.popup = Some(PopupState::Notice {
-                                                message: format!("ADMISSION FAILED: {err}"),
-                                            });
-                                        }
-                                        self.state = AppState::Shell;
-                                    }
-                                }
-                            }
-                            BattleLoadTarget::Online { launch } => {
-                                // Connect to the remote or locally hosted `bfeserver` via `BattleController::start_online`.
-                                // A browser row selected earlier is not authoritative once a
-                                // launch exists: preserve that launch's advertised port.
-                                let target_override = launch
-                                    .direct_target()
-                                    .or_else(|| self.opts.server_target.clone());
-                                match BattleController::start_online(
-                                    &content_dir,
-                                    launch,
-                                    target_override,
-                                    self.opts.size,
-                                    &self.settings,
-                                    &self.audio_router,
-                                    make_gl,
-                                ) {
-                                    Ok(battle) => {
-                                        self.state = AppState::Battle(Box::new(battle));
-                                    }
-                                    Err(err) => {
-                                        if self.gate.is_some() {
-                                            return Err(format!(
-                                                "Online join failed during gate: {err}"
-                                            ));
-                                        }
-                                        self.restore_shell_audio(&content_dir);
-                                        if let Some(shell) = &mut self.shell {
-                                            shell.app.push_screen(ScreenId::Multiplayer);
-                                            shell.app.popup = Some(PopupState::Notice {
-                                                message: format!("DISCONNECTED: {err}"),
-                                            });
-                                        }
-                                        self.state = AppState::Shell;
-                                    }
-                                }
-                            }
+                        handover =
+                            work.handover(shell.battle_loading_complete(), &self.audio_router);
+                        if handover.is_some() {
+                            eprintln!(
+                                "battle loading: frames={} peakFrameMs={:.3} elapsed={:.3}s",
+                                shell.loading_frames, shell.loading_peak_ms, shell.loading_time
+                            );
                         }
+                        Some((shell.canvas.framebuffer, shell.size))
+                    } else {
+                        None
+                    };
+                    if let Some((fb, size)) = frame {
+                        self.blit_framebuffer_to_window(fb, size);
+                    }
+                    if let Err(error) = result {
+                        if self.gate.is_some() {
+                            return Err(format!("battle admission failed: {error}"));
+                        }
+                        self.restore_shell_audio(&root);
+                        if let Some(shell) = &mut self.shell {
+                            shell.app.push_screen(error_screen);
+                            shell.app.popup = Some(PopupState::Notice {
+                                message: format!("ADMISSION FAILED: {error}"),
+                            });
+                        }
+                        self.state = AppState::Shell;
+                    } else if let Some(battle) = handover {
+                        eprintln!(
+                            "battle loading: timeline and admission complete; entering battle"
+                        );
+                        self.state = AppState::Battle(battle);
                     }
                 }
                 AppState::Battle(battle) => {
@@ -1672,6 +1640,7 @@ impl StandaloneWindowApp {
                                             playlist_index: next_index,
                                         },
                                         frames_drawn: 0,
+                                        work: Box::default(),
                                     };
                                 } else {
                                     self.restore_shell_audio(&content_dir);
@@ -1683,7 +1652,7 @@ impl StandaloneWindowApp {
                             }
                             // When the player confirms `RESTART MISSION` in the Escape pause menu,
                             // re-enter `AppState::BattleLoading` for the same `playlist_index` so
-                            // `BattleController::start_instant_action` re-admits the mission from tick 0.
+                            // `BattleController::prepare_instant_action` re-admits the mission from tick 0.
                             BattleTransition::RestartMission {
                                 request,
                                 playlist_index,
@@ -1703,6 +1672,7 @@ impl StandaloneWindowApp {
                                         playlist_index,
                                     },
                                     frames_drawn: 0,
+                                    work: Box::default(),
                                 };
                             }
                             // Restore front-end shell audio, reset the screen stack to `ScreenId::Main`,
@@ -1723,6 +1693,7 @@ impl StandaloneWindowApp {
                                 self.state = AppState::BattleLoading {
                                     target: BattleLoadTarget::Online { launch },
                                     frames_drawn: 0,
+                                    work: Box::default(),
                                 };
                             }
                             // Restore front-end shell audio, return to `ScreenId::Multiplayer`, and

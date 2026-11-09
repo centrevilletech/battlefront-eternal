@@ -15,7 +15,7 @@ pub struct Shadows {
     casters: bfe_render::native_casters::Casters,
 }
 impl Shadows {
-    pub fn new(
+    pub async fn new(
         bridge: &mut Bridge,
         resources: &mut Resources,
         bones: usize,
@@ -23,6 +23,8 @@ impl Shadows {
         let mut maps = [0; COUNT];
         let mut caches = [0; COUNT];
         for map in maps.iter_mut().chain(caches.iter_mut()) {
+            crate::loading_work::frame().await;
+            bridge.r.core.state.reset();
             // Graphics.shadowTarget uses unsigned depth with comparison
             // filtering. Resource admission reports unsupported storage as an
             // error rather than silently removing shadows on a driver.
@@ -33,7 +35,11 @@ impl Shadows {
         }
         let mut skins = Vec::with_capacity(bfe_render::instances::MAX_RECORDS);
         let size = bfe_render::actor_depth::skin_size(bones);
-        for _ in 0..bfe_render::instances::MAX_RECORDS {
+        for index in 0..bfe_render::instances::MAX_RECORDS {
+            if index % 32 == 0 {
+                crate::loading_work::frame().await;
+                bridge.r.core.state.reset();
+            }
             let source = resources.source(&serde_json::json!({"width":size,"height":size,"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1015,"srgb":false,"renderTarget":true}).to_string())?;
             let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":4,"mipmaps":false,"compare":null}"#)?;
             resources.upload(sample)?;
