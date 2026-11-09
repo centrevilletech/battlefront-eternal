@@ -17,7 +17,7 @@ fn text(v: Option<&Value>) -> &str {
 fn first(v: Option<&Value>) -> Option<&Value> {
     v.and_then(|v| if let Some(a) = v.as_array() { a.first() } else { Some(v) })
 }
-fn hash(s: &str) -> u32 {
+pub(super) fn hash(s: &str) -> u32 {
     s.encode_utf16().fold(0x811c9dc5u32, |h, c| (h ^ ((c as u32 & 255) | 32)).wrapping_mul(0x1000193))
 }
 fn key(s: &str) -> String {
@@ -224,6 +224,13 @@ impl Prepared {
         for (name, _) in data.table("Bus") {
             let id = buses.len();
             buses.insert(name.clone(), id);
+        }
+        // ControlResources.prepare registers bus names beside their ids.
+        // Pause and scoreboard fades address the authored bus by that key.
+        for (name, id) in &buses {
+            let key = u32::from_str_radix(name.trim_start_matches("0x"), 16)
+                .unwrap_or_else(|_| hash(name));
+            import(&mut runtime, import::BUS_NAME, &[key as f64, *id as f64])?;
         }
         for (name, id) in data.table("Bus") {
             let o = &data.objects[*id].data;

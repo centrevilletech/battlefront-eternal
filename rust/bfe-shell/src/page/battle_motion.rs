@@ -19,11 +19,13 @@ pub(super) struct Span {
 }
 pub(super) struct BattlePaintState {
     pub spawn: Vec<Span>,
+    pub blink: Vec<(usize, usize)>,
 }
 impl Default for BattlePaintState {
     fn default() -> Self {
         Self {
             spawn: Vec::with_capacity(16),
+            blink: Vec::with_capacity(3),
         }
     }
 }
@@ -41,6 +43,21 @@ impl Page {
         ih: f64,
         cursor: [f64; 2],
     ) {
+        // bfe-spawn-blink is a one-second two-step opacity animation.
+        // Work over the copied batch so the retained source never fades twice.
+        let blink = match age.fract() {
+            t if t < 0.25 => 0.675,
+            t if t < 0.5 => 0.35,
+            t if t < 0.75 => 0.675,
+            _ => 1.,
+        };
+        for &(first, end) in &self.battle.blink {
+            for q in first..end {
+                for vertex in 0..4 {
+                    b.tint[q * 16 + vertex * 4 + 3] *= blink;
+                }
+            }
+        }
         for span in &self.battle.spawn {
             let (delay, duration, from, clock) = match span.group {
                 Group::Head => (0.15, 0.6, [0., -h * 0.03], age),

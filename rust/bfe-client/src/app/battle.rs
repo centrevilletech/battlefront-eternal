@@ -182,12 +182,10 @@ pub struct OnlineAdmission {
 /// (via post-match scoreboard `DONE`), restarts (`PauseMenu` `RESTART MISSION`),
 /// returns to the front-end (`QUIT TO MAIN MENU` / `LEAVE GAME`), or exits to desktop.
 pub enum BattleTransition {
-    /// Advance to the next mission in the Instant Action playlist (or loop/return).
+    /// Advance to the next mission, wrapping an Instant Action playlist.
     NextPlaylistBattle {
         /// Launch parameters and playlist for the Instant Action session.
         request: BattleRequest,
-        /// Zero-based index of the next playlist entry to admit.
-        next_index: usize,
     },
     /// Restart the current Instant Action mission from tick 0.
     RestartMission {
@@ -653,17 +651,15 @@ impl LiveScoreboardPort {
     /// ## Scoreboard Row Construction
     /// - Updates `human_team`, `MatchStateFlags` (`over`, `game_over`, `finished`), and
     ///   team reinforcement counts (`hud.teams[1][0]`, `hud.teams[2][0]`).
-    /// - When `hud.roster_total > 0`, populates `self.inner.characters` from the authoritative
-    ///   replicated roster (`kills`, `deaths`, `team_kills`, `captures`, `points = kills*2 - team_kills*2 + captures*5`,
-    ///   `rtt`, and network link kind).
-    /// - Before the first roster packet arrives, synthesizes character rows from active
-    ///   soldier/droideka slots in `receiver.active_slots()`.
+    /// - Populates the table from the receiver's complete validated Character roster,
+    ///   including kills, deaths, team kills, captures, RTT and transport kind.
+    /// - Joins the local slot to its authoritative own team for offline publications.
     pub fn sync_from_state(&mut self, profile_name: &str, hud: &Hud, receiver: &Receiver) {
         self.inner.human_team = receiver.own.team.clamp(1, 2) as i32;
         self.inner.state = MatchStateFlags {
-            over: hud.game_over,
+            over: hud.over,
             game_over: hud.game_over,
-            finished: hud.game_over,
+            finished: hud.finished,
         };
         if let Some(t1) = &mut self.inner.teams[0] {
             t1.reinforcements = hud.teams[1][0].round() as i32;
@@ -672,84 +668,52 @@ impl LiveScoreboardPort {
             t2.reinforcements = hud.teams[2][0].round() as i32;
         }
 
-        // Populate character scoreboard rows from the authoritative HUD roster when present,
-        // or synthesize rows from active network slots prior to the first roster packet.
-        self.inner.characters.clear();
-        if hud.roster_total > 0 {
-            let own_slot = hud.own_summary.slot as usize;
-            for (slot, entry) in hud.roster[..hud.roster_total].iter().enumerate() {
-                let is_local = if own_slot > 0 {
-                    (slot + 1) == own_slot
-                } else {
-                    slot == 0 && entry.attached
-                };
-                let raw_name = entry.name_str();
-                let name = if is_local {
-                    profile_name.to_string()
-                } else if !raw_name.is_empty() {
-                    raw_name.to_string()
-                } else if entry.team == 1 {
-                    format!("Trooper {}", slot + 1)
-                } else {
-                    format!("Droid {}", slot + 1)
-                };
-                let mut rec = CharacterRecord::default();
-                rec.slots[0].deaths = entry.deaths;
-                rec.slots[0].life_kills = entry.kills;
-                rec.slots[0].life_kills_best = entry.kills.max(0);
-                let link_kind = match entry.link_code {
-                    1 => "direct4",
-                    2 => "direct6",
-                    3 => "relay",
-                    _ if entry.attached => "local",
-                    _ => "",
-                };
-                self.inner.characters.push(CharacterStatsEntry {
-                    slot,
-                    team: entry.team.clamp(1, 2) as i32,
-                    name,
-                    kills: entry.kills,
-                    team_kills: entry.team_kills,
-                    deaths: entry.deaths,
-                    points: entry.kills * 2 - entry.team_kills * 2 + entry.captures * 5,
-                    human: entry.attached,
-                    local: is_local,
-                    ping: if entry.attached {
-                        Some(entry.rtt as i32)
-                    } else {
-                        None
-                    },
-                    link_kind: link_kind.to_string(),
-                    record: rec,
-                });
-            }
-        } else {
-            self.sync_published_roster(receiver);
-        }
+        self.sync_published_roster(receiver, profile_name);
     }
 
-    fn sync_published_roster(&mut self, receiver: &Receiver) {
+    // The receiver retains the complete Character roster, including humans
+    // admitted after the AI stock. Visible units and a truncated HUD copy
+    // cannot identify a dead player or a Character beyond slot 63.
+    fn sync_published_roster(&mut self, receiver: &Receiver, profile_name: &str) {
         self.inner.characters.clear();
-        // scoreboardPort.roster reads the server's Character slots, not
-        // visible unit rows. Spawn schema 3 identifies the local slot even
-        // when that player's unit is dead or outside snapshot visibility.
         for (slot, c) in receiver.roster.rows() {
-            if c.team != 1 && c.team != 2 {
+            let local = receiver.roster.local == Some(slot);
+            // Local transport links are absent after admission. Its personal
+            // correction still supplies the qualified Character's actual team.
+            let team = if local && c.team == 0 {
+                receiver.own.team
+            } else {
+                c.team
+            };
+            if team != 1 && team != 2 {
                 continue;
             }
+            let mut record = CharacterRecord::default();
+            record.slots[0].deaths = c.deaths as i32;
+            record.slots[0].life_kills = c.kills as i32;
+            record.slots[0].life_kills_best = c.kills as i32;
             self.inner.characters.push(CharacterStatsEntry {
                 slot,
-                team: c.team as i32,
-                name: c.name().into_owned(),
+                team: team as i32,
+                name: if local {
+                    profile_name.to_owned()
+                } else {
+                    c.name().into_owned()
+                },
                 kills: c.kills as i32,
                 team_kills: c.team_kills as i32,
                 deaths: c.deaths as i32,
+                // shownStats.points is captures, not the weighted battle score.
                 points: c.captures as i32,
-                human: c.human,
-                local: receiver.roster.local == Some(slot),
+                human: c.human || local,
+                local,
                 ping: if c.human { c.ping.map(i32::from) } else { None },
-                link_kind: crate::online::roster::LINKS[c.link].into(),
-                record: CharacterRecord::default(),
+                link_kind: if local && c.link == 0 {
+                    "local".into()
+                } else {
+                    crate::online::roster::LINKS[c.link].into()
+                },
+                record,
             });
         }
     }
@@ -1383,7 +1347,9 @@ impl BattleController {
     pub fn force_victory_for_gate(&mut self) {
         if let BattleAuthority::InstantAction { receiver, .. } = &mut self.authority {
             if let Some(replicas) = &mut self.scene.online {
+                replicas.hud.over = true;
                 replicas.hud.game_over = true;
+                replicas.hud.finished = true;
                 self.scoreboard_port
                     .sync_from_state("Player 1", &replicas.hud, receiver);
             }
@@ -1547,6 +1513,27 @@ impl BattleController {
             self.scoreboard_port.next_ready = client.rotation_ready;
         }
 
+        // Controllers queue interface cues independently of the scene. Drain
+        // them before the next audio frame, including scoreboard DONE/idle.
+        let ui_sounds_queued = !self.scoreboard_ctrl.sounds.is_empty();
+        if let Some(replicas) = &mut self.scene.online {
+            for name in self.scoreboard_ctrl.sounds.drain(..) {
+                replicas.sound.interface(name);
+            }
+            for name in self.pause_menu.sounds.drain(..) {
+                replicas.sound.interface(name);
+            }
+            for sound in self.spawn_ctrl.sounds.drain(..) {
+                let name = match sound {
+                    bfe_battle_ui::spawn::SpawnSound::SpawnPointChange => "SpawnDisplaySpawnPointChange",
+                    bfe_battle_ui::spawn::SpawnSound::SpawnPointAccept => "SpawnDisplaySpawnPointAccept",
+                };
+                replicas.sound.interface(name);
+            }
+            replicas.sound.set_paused(self.pause_menu.is_open);
+            replicas.sound.set_board_open(self.scoreboard_ctrl.model.is_open());
+        }
+
         // 1. Flush any pending spawn/respawn requests from UI interactions.
         self.flush_spawn_requests();
 
@@ -1616,17 +1603,31 @@ impl BattleController {
                 return Ok(Some(BattleTransition::NextOnlineBattle { launch }));
             }
         }
-        if self.scoreboard_port.done_triggered {
+        // Let DONE's queued exit cue reach an audio frame before loading
+        // detaches the old battle mixer.
+        if self.scoreboard_port.done_triggered && !ui_sounds_queued {
             self.scoreboard_port.done_triggered = false;
             return match &self.authority {
                 BattleAuthority::InstantAction {
                     request,
                     playlist_index,
                     ..
-                } => Ok(Some(BattleTransition::NextPlaylistBattle {
-                    request: request.clone(),
-                    next_index: playlist_index + 1,
-                })),
+                } => {
+                    // The authority keeps its explicit active index for mission
+                    // restarts. Feed that index to the shared nextUrl rules so
+                    // the final entry wraps, and random playlists reshuffle.
+                    let mut current = request.clone();
+                    if let Some(playlist) = &mut current.playlist {
+                        playlist.round = *playlist_index;
+                    }
+                    let seed = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default().as_nanos() as u32;
+                    let mut random = jsrt::ClassicRandom::from_state(seed);
+                    Ok(Some(BattleTransition::NextPlaylistBattle {
+                        request: current.next(|| random.next_f64()),
+                    }))
+                },
                 BattleAuthority::Online { .. } => Ok(None),
             };
         }
@@ -1842,6 +1843,15 @@ impl BattleController {
             }
         };
 
+        // spawn-screen/index.js closes at battle.over, including when the
+        // player was dead or had never spawned. Otherwise an open spawn
+        // view would keep the end scoreboard from updating forever.
+        if self.scene.online.as_ref().is_some_and(|r| r.hud.over)
+            && self.spawn_ctrl.is_open()
+        {
+            self.spawn_ctrl.close(&mut self.spawn_port);
+        }
+
         // Admission may already publish a living first body before the user
         // commits the screen. A real click must close it even without a new
         // false-to-true alive edge (the scripted driver used to close it itself).
@@ -1855,7 +1865,7 @@ impl BattleController {
             if self.spawn_ctrl.is_open() && self.first_life_spawned {
                 self.spawn_ctrl.close(&mut self.spawn_port);
             }
-        } else if !own_alive && self.was_alive && !game_over {
+        } else if !own_alive && self.was_alive && !self.scene.online.as_ref().is_some_and(|r| r.hud.over) {
             self.was_alive = false;
             if !self.spawn_ctrl.is_open() {
                 self.sync_ports_cold(&settings.player.profile_name);
@@ -1906,7 +1916,9 @@ impl BattleController {
         let chat_visible = self.draw_chat();
         self.overlay_was_active = overlay_active || chat_visible;
         let show_stats = settings.interface.get_bool("showStats");
-        if show_stats { self.draw_stats_line(); }
+        // Page overlays cover the browser's statistics element. Keep the
+        // native diagnostic line below that same screen boundary.
+        if show_stats && !overlay_active { self.draw_stats_line(); }
         self.scene.bridge.hud_sync_batch(full_sync || show_stats || chat_visible);
 
         // PageTheme is a compositor over the finished battle, just as its
@@ -2063,14 +2075,22 @@ impl BattleController {
             if self.page_battle.spawn {super::page_battle::PageBattle::map_team(&mut self.scene.bridge.hud_model,self.spawn_ctrl.model.team);}
             self.scene.bridge.hud_model_update();
             if self.page_battle.spawn {
-                self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme);
+                let status = self.scene.online.as_ref().map_or_else(
+                    bfe_shell::page::SpawnBattleStatus::default,
+                    |r| bfe_shell::page::SpawnBattleStatus {
+                        countdown: r.hud.countdown.is_finite().then_some((r.hud.countdown.floor().max(0.) as u32, r.hud.losing)),
+                        start: [r.hud.teams[1][1], r.hud.teams[2][1]],
+                        bleeding: [r.hud.teams[1][3] > 0., r.hud.teams[2][3] > 0.],
+                    },
+                );
+                self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
                 self.scene.bridge.hud_model.batch.begin();
                 let turned=self.page_battle.turned();
-                if self.page_battle.cache.spawn_changed(&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,turned) {
+                if self.page_battle.cache.spawn_changed(&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,turned,status) {
                     self.page_battle.cache.panels.begin();
                     self.pause_page.page.draw_spawn(&mut self.page_battle.cache.panels,&self.pause_page.textures,
-                        &self.spawn_ctrl.model,&self.spawn_port,self.page_battle.layout,self.height,&self.pause_page.theme,turned,&mut self.page_battle.cache.hits);
+                        &self.spawn_ctrl.model,&self.spawn_port,self.page_battle.layout,self.height,&self.pause_page.theme,turned,status,&mut self.page_battle.cache.hits);
                 }
                 Self::append_batch(&mut self.scene.bridge.hud_model.batch,&self.page_battle.cache.panels);
                 if let Some(regions)=&mut self.spawn_ctrl.view.theme_hotspots {
@@ -2134,17 +2154,22 @@ impl BattleController {
                 self.overlay_batch.begin();
                 if self.page_battle.scoreboard {
                     self.scene.bridge.hud_model.batch.begin();
-                    if self.page_battle.cache.score_changed(&self.scoreboard_ctrl.model,&self.scoreboard_ctrl.view,&self.scoreboard_port,self.page_size,&self.pause_page.theme) {
+                    let cursor = self.scoreboard_ctrl.input.cursor;
+                    let hover = self.scoreboard_ctrl.view.theme_hotspots.as_ref()
+                        .and_then(|regions| regions.iter().position(|(r, _)|
+                            cursor[0] >= r[0] && cursor[0] <= r[2]
+                                && cursor[1] >= r[1] && cursor[1] <= r[3]));
+                    if self.page_battle.cache.score_changed(&self.scoreboard_ctrl.model,&self.scoreboard_ctrl.view,&self.scoreboard_port,self.page_size,&self.pause_page.theme,hover) {
                         self.page_battle.cache.scoreboard.begin();
                         let mut regions=self.scoreboard_ctrl.view.theme_hotspots.take().unwrap_or_default();
                         self.pause_page.page.draw_scoreboard(&mut self.page_battle.cache.scoreboard,&self.pause_page.textures,
                             &self.scoreboard_ctrl.model,&self.scoreboard_port,&self.scoreboard_ctrl.view,
-                            self.page_size[0]as f64,self.page_size[1]as f64,self.height,&self.pause_page.theme,&mut regions);
+                            self.page_size[0]as f64,self.page_size[1]as f64,self.height,&self.pause_page.theme,&mut regions,hover);
                         self.scoreboard_ctrl.view.theme_hotspots=Some(regions);
                     }
                     Self::append_batch(&mut self.overlay_batch,&self.page_battle.cache.scoreboard);
                     let h=self.page_size[1]as f64;
-                    self.scoreboard_ctrl.model.shown=((h*0.90-(h*0.145+48.+64.+h*0.004))/((h*0.034).clamp(26.,38.)+2.)).floor().max(1.)as usize;
+                    self.scoreboard_ctrl.model.shown=((h*0.94-(h*0.046).clamp(34.,46.)-(h*0.122+110.+h*0.029))/((h*0.034).clamp(26.,38.)+2.)).floor().max(1.)as usize;
                 } else {
                     let surface = HudBatchSurface {
                         height: self.height,
@@ -2428,6 +2453,25 @@ impl BattleController {
         );
         if let Some(replicas) = &self.scene.online {
             replicas.log_motion(receiver);
+        }
+        // Optional input traces expose published facts only. They let a real
+        // window-input driver aim and navigate without changing world state.
+        if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+            use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+            let targets: Vec<_> = receiver.active()
+                .filter(|row| matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA))
+                .map(|row| serde_json::json!({"id":row[r::ID], "team":row[r::TEAM],
+                    "health":row[r::HEALTH], "position":&row[r::POSITION..r::POSITION + 3]}))
+                .collect();
+            let posts: Vec<_> = self.scene.online.as_ref().into_iter()
+                .flat_map(|scene| scene.hud.post_meta.iter())
+                .map(|post| serde_json::json!({"name":post.name,"team":post.team,"position":post.position}))
+                .collect();
+            eprintln!("[battle-observation] {}", serde_json::json!({
+                "position":receiver.own.position,"yaw":receiver.own.yaw,"pitch":receiver.own.pitch,
+                "team":receiver.own.team,"health":receiver.own.health,"alive":receiver.own.alive,
+                "spawnScreen":self.spawn_ctrl.is_open(),"targets":targets,"posts":posts
+            }));
         }
     }
 
@@ -3016,7 +3060,7 @@ mod tests {
         receiver.roster.receive(4, 70000, &bytes).unwrap();
         receiver.roster.local = Some(0);
         let mut board = LiveScoreboardPort::new(true, "cw");
-        board.sync_published_roster(&receiver);
+        board.sync_published_roster(&receiver, "Player");
         let rows = board.roster();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].name, "Player");
@@ -3025,6 +3069,48 @@ mod tests {
         assert_eq!(rows[0].ping, Some(1));
         assert_eq!(board.players().unwrap().len(), 1);
         assert!(!rows[1].human);
+    }
+
+    #[test]
+    fn end_table_keeps_the_local_character_after_the_first_64_rows() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        // Character 70 follows the prepared AI stock. Its local transport has
+        // no link, while slot zero is an unrelated unassigned human.
+        for start in (0..72usize).step_by(12) {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&72u16.to_le_bytes());
+            bytes.extend_from_slice(&(start as u16).to_le_bytes());
+            bytes.push(12);
+            for slot in start..start + 12 {
+                bytes.extend_from_slice(&[if slot == 0 || slot == 70 { 0 } else { 1 }, 0]);
+                for n in if slot == 70 { [7u16, 1, 3, 4] } else { [0; 4] } {
+                    bytes.extend_from_slice(&n.to_le_bytes());
+                }
+                bytes.extend_from_slice(&u16::MAX.to_le_bytes());
+                bytes.extend_from_slice(&[0, 3, b'B', b'o', b't']);
+            }
+            receiver
+                .roster
+                .receive(4, 70000 + (start / 12) as u32, &bytes)
+                .unwrap();
+        }
+        receiver.roster.local = Some(70);
+        receiver.own.team = 2;
+        let mut board = LiveScoreboardPort::new(false, "cw");
+        board.sync_published_roster(&receiver, "Pilot");
+        let rows = board.roster();
+        assert_eq!(rows.len(), 71);
+        let human = rows.iter().find(|r| r.local).unwrap();
+        assert_eq!(
+            (human.slot, human.team, human.name.as_str()),
+            (70, 2, "Pilot")
+        );
+        assert!(human.human);
+        assert_eq!((human.kills, human.deaths, human.points), (5, 3, 4));
+        assert!(!rows.iter().any(|r| r.slot == 0));
+        receiver.roster.local = None;
+        board.sync_published_roster(&receiver, "Spectator");
+        assert!(!board.roster().iter().any(|r| r.local));
     }
 
     #[test]

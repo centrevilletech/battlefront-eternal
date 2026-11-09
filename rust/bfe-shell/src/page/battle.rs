@@ -64,6 +64,15 @@ impl BattleLook {
         }
     }
 }
+/// Retained header facts from page/view.js updateTeams. Whole seconds keep
+/// clock text rebuilding at display changes rather than every world tick.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SpawnBattleStatus {
+    pub countdown: Option<(u32, bool)>,
+    pub start: [f64; 2],
+    pub bleeding: [bool; 2],
+}
+
 /// CSS grid from page/view.js, in compositor logical pixels. The caller converts only
 /// published hit rectangles to the existing 1024-wide input plane.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -132,6 +141,19 @@ impl SpawnLayout {
                 ],
             ],
         }
+    }
+    /// The countdown is another flex line in page/view.js's header. Its
+    /// inherited 1.5 line height and .6vh gap consume real grid space.
+    pub fn with_countdown(mut self, shown: bool) -> Self {
+        if shown {
+            let extra = (self.height * 0.017).clamp(12., 16.) * 1.5 + self.height * 0.006;
+            self.roster[1] += extra;
+            self.figure[1] += extra;
+            self.objectives[1] += extra;
+            self.objectives[3] += extra;
+            self.map[1] += extra;
+        }
+        self
     }
     pub fn interface(&self, r: [f64; 4], ih: f64) -> [f64; 4] {
         [
@@ -321,6 +343,7 @@ impl Page {
         ih: f64,
         theme: &str,
         turned: bool,
+        status: SpawnBattleStatus,
         regions: &mut Vec<([f64; 4], SpawnHitTarget)>,
     ) {
         let (w, h) = (layout.width, layout.height);
@@ -328,6 +351,7 @@ impl Page {
         let l = BattleLook::new(theme);
         regions.clear();
         self.battle.spawn.clear();
+        self.battle.blink.clear();
         let head_start = b.count;
         let region = |r, target| (layout.interface(r, ih), target);
         for (i, r) in layout.teams.iter().copied().enumerate() {
@@ -340,7 +364,25 @@ impl Page {
             };
             Self::battle_panel(b, m, t, r, l);
             Self::battle_border(b, m, t, r, if own { c } else { [0.35, 0.39, 0.45, 0.3] });
-            Self::rect(b, m, [r[0], r[3] - 3., r[2], r[3]], t.solid, c);
+            // updateTeams uses the mission's starting count, not a fixed
+            // ticket budget. Team two's fill depletes from the left.
+            Self::rect(
+                b,
+                m,
+                [r[0], r[3] - 3., r[2], r[3]],
+                t.solid,
+                [1., 1., 1., 0.08],
+            );
+            let tickets = port.team_facts(team).map_or(0, |f| f.reinforcements);
+            let start = status.start[i].max(tickets.max(1) as f64);
+            let fill = (tickets as f64 / start).clamp(0., 1.);
+            let width = (r[2] - r[0]) * fill;
+            let bar = if i == 0 {
+                [r[0], r[3] - 3., r[0] + width, r[3]]
+            } else {
+                [r[2] - width, r[3] - 3., r[2], r[3]]
+            };
+            Self::rect(b, m, bar, t.solid, c);
             if let Some(facts) = port.team_facts(team) {
                 let (x, align, nx, na) = if i == 0 {
                     (r[0] + w * 0.012, 0, r[2] - w * 0.012, 1)
@@ -363,6 +405,7 @@ impl Page {
                     align,
                     true,
                 );
+                let count_first = b.count;
                 self.label(
                     b,
                     m,
@@ -371,10 +414,17 @@ impl Page {
                     &facts.reinforcements.to_string(),
                     (h * 0.028).clamp(18., 30.),
                     0.,
-                    l.text,
+                    if status.bleeding[i] {
+                        [1., 0.35, 0.29, 1.]
+                    } else {
+                        l.text
+                    },
                     na,
                     true,
                 );
+                if status.bleeding[i] {
+                    self.battle.blink.push((count_first, b.count));
+                }
                 let state = if own {
                     "YOUR TEAM"
                 } else if model.can_switch_teams(port) {
@@ -450,6 +500,34 @@ impl Page {
             regions.push(region(r, SpawnHitTarget::Team));
             self.battle_team_keys(b, m, t, w, h, l);
         }
+        if let Some((seconds, losing)) = status.countdown {
+            let clock = if seconds >= 60 {
+                format!("{}:{:02}", seconds / 60, seconds % 60)
+            } else {
+                seconds.to_string()
+            };
+            let label = if losing { "DEFEAT IN" } else { "VICTORY IN" };
+            let first = b.count;
+            self.label(
+                b,
+                m,
+                w * 0.5,
+                layout.roster[1] - h * 0.016,
+                &format!("{label} {clock}"),
+                (h * 0.017).clamp(12., 16.),
+                3.1,
+                if losing {
+                    [1., 0.35, 0.29, 1.]
+                } else {
+                    [0.31, 0.94, 0.48, 1.]
+                },
+                2,
+                true,
+            );
+            if losing {
+                self.battle.blink.push((first, b.count));
+            }
+        }
         self.battle.spawn.push(Span {
             first: head_start,
             end: b.count,
@@ -461,7 +539,7 @@ impl Page {
             b,
             m,
             layout.roster[0],
-            h * 0.158,
+            layout.roster[1] + h * 0.018,
             "SELECT SOLDIER",
             11.,
             2.6,
@@ -474,9 +552,9 @@ impl Page {
             m,
             [
                 layout.roster[0] + 138.,
-                h * 0.152,
+                layout.roster[1] + h * 0.012,
                 layout.roster[2],
-                h * 0.152 + 1.,
+                layout.roster[1] + h * 0.012 + 1.,
             ],
             t.solid,
             [1., 0.6, 0.12, 0.45],
@@ -770,11 +848,16 @@ impl Page {
         ih: f64,
         theme: &str,
         regions: &mut Vec<([f64; 4], ScoreboardHitTarget)>,
+        hover: Option<usize>,
     ) {
+        self.viewport = [w, h];
         let m = matrix(w, h, ih);
         let l = BattleLook::new(theme);
         regions.clear();
         let mut region = |r: [f64; 4], target| {
+            // The tab and footer can dispatch the same action, but each DOM
+            // button in page/view.js owns its own hover decoration.
+            let hovered = hover == Some(regions.len());
             regions.push((
                 [
                     r[0] * 1024. / w,
@@ -783,9 +866,38 @@ impl Page {
                     r[3] * ih / h,
                 ],
                 target,
-            ))
+            ));
+            hovered
         };
-        Self::rect(b, m, [0., 0., w, h], t.solid, [0., 0., 0., 0.58]);
+        // page/view.js's board overlay combines the look's glass with a
+        // separate top/bottom shade over the already blurred battle.
+        Self::rect(
+            b,
+            m,
+            [0., 0., w, h],
+            t.solid,
+            match l.index {
+                0 => [4. / 255., 16. / 255., 46. / 255., 0.5],
+                1 => [8. / 255., 20. / 255., 42. / 255., 0.5],
+                _ => [3. / 255., 4. / 255., 7. / 255., 0.52],
+            },
+        );
+        Self::gradient(
+            b,
+            m,
+            [0., 0., w, h * 0.22],
+            t.solid,
+            [0., 0., 1., 1.],
+            [[0., 0., 0., 0.3], [0.; 4], [0., 0., 0., 0.3], [0.; 4]],
+        );
+        Self::gradient(
+            b,
+            m,
+            [0., h * 0.8, w, h],
+            t.solid,
+            [0., 0., 1., 1.],
+            [[0.; 4], [0., 0., 0., 0.34], [0.; 4], [0., 0., 0., 0.34]],
+        );
         self.heading(
             b,
             m,
@@ -798,49 +910,64 @@ impl Page {
         );
         let edge = w * 0.03;
         let tab_y = h * 0.122;
-        for (i, (label, page, target)) in [
+        let mut tab_x = edge;
+        for (label, page, target) in [
             ("TABLE", BoardPage::Table, ScoreboardHitTarget::Back),
             ("DETAILS", BoardPage::Details, ScoreboardHitTarget::Details),
             ("AWARDS", BoardPage::Awards, ScoreboardHitTarget::Awards),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        ] {
             if page == BoardPage::Awards && model.state != BoardState::End {
                 continue;
             }
-            let r = [
-                edge + i as f64 * 130.,
-                tab_y,
-                edge + (i + 1) as f64 * 130.,
-                tab_y + h * 0.069,
-            ];
-            self.label(
+            // .bfe-board button's inherited 16px/400 font wins over the
+            // theme tab font. Padding is .75em by 1.8em; widths follow text.
+            let chars: Vec<u16> = label.encode_utf16().collect();
+            let width = chars
+                .iter()
+                .filter_map(|c| self.regular.glyphs.get(c))
+                .map(|g| g.advance * 0.25 + 2.56)
+                .sum::<f64>()
+                + 57.6;
+            let r = [tab_x, tab_y, tab_x + width, tab_y + 49.];
+            if model.page == page {
+                Self::score_tab(b, m, t, r, l.index);
+            } else {
+                if region(r, target) {
+                    Self::rect(b, m, [r[0], r[3] - 2., r[2], r[3]], t.solid, l.accent);
+                }
+            }
+            Self::draw_text(
+                &self.regular,
                 b,
                 m,
-                (r[0] + r[2]) * 0.5,
-                tab_y + h * 0.043,
-                label,
-                13.,
-                1.8,
-                if model.page == page { l.accent } else { l.dim },
+                tab_x + width * 0.5,
+                tab_y + 30.5,
+                &chars,
+                // .bfe-board button inherits the board text color; only
+                // the active tab overrides it with the look ink.
+                if model.page == page { l.ink } else { l.text },
                 2,
-                false,
+                16.,
+                2.56,
             );
-            if model.page == page {
-                self.widget_button(b, m, t, r, label, l.index, true, false);
-            } else {
-                region(r, target);
-            }
+            tab_x = r[2] + w * 0.005;
         }
+        Self::rect(
+            b,
+            m,
+            [edge, tab_y + 49., w - edge, tab_y + 51.],
+            t.solid,
+            [1., 1., 1., 0.12],
+        );
         if model.page == BoardPage::Table {
             let gap = w * 0.016;
             let pw = (w - 2. * edge - gap) * 0.5;
-            let top = tab_y + 68.;
-            let bottom = h * 0.90;
+            let top = tab_y + 51. + h * 0.016;
+            let panel_top = top + 28. + h * 0.009;
+            let bottom = h * 0.94 - (h * 0.046).clamp(34., 46.);
             let row_h = (h * 0.034).clamp(26., 38.);
             let pitch = row_h + 2.;
-            let list_top = top + 34. + 30. + h * 0.004;
+            let list_top = panel_top + 31. + h * 0.004;
             for side in 1..=2 {
                 let x = edge + (side - 1) as f64 * (pw + gap);
                 let relation = port.relation(side as i32, model.team);
@@ -890,50 +1017,86 @@ impl Page {
                     1,
                     false,
                 );
-                Self::battle_panel(b, m, t, [x, top + 30., x + pw, bottom], l);
-                Self::rect(
+                Self::battle_panel(b, m, t, [x, panel_top, x + pw, bottom], l);
+                let bar = [x + 1., panel_top + 1., x + pw - 1., panel_top + 31.];
+                if l.index == 2 {
+                    // .bfe-board-cols shares Eternal's three-stop accent fill.
+                    let middle = bar[0] + (bar[2] - bar[0]) * 0.6;
+                    let first = [1., 190. / 255., 85. / 255., 1.];
+                    let center = [1., 148. / 255., 25. / 255., 1.];
+                    let last = [245. / 255., 117. / 255., 0., 1.];
+                    Self::gradient(
+                        b,
+                        m,
+                        [bar[0], bar[1], middle, bar[3]],
+                        t.solid,
+                        [0., 0., 1., 1.],
+                        [first, first, center, center],
+                    );
+                    Self::gradient(
+                        b,
+                        m,
+                        [middle, bar[1], bar[2], bar[3]],
+                        t.solid,
+                        [0., 0., 1., 1.],
+                        [center, center, last, last],
+                    );
+                } else {
+                    Self::rect(b, m, bar, t.solid, l.accent);
+                }
+                let hs = (h * 0.0175).clamp(12., 16.);
+                let mark = hs * 1.2;
+                let right = x + pw - 2. - w * 0.014 - 10. - mark;
+                let numeric = [
+                    right - 12. * 15. - w * 0.02,
+                    right - 12. * 8.4 - w * 0.01,
+                    right,
+                ];
+                let header_y = panel_top + 21.;
+                Self::draw_text(
+                    &self.medium,
                     b,
                     m,
-                    [x + 1., top + 31., x + pw - 1., top + 60.],
-                    t.solid,
-                    l.accent,
+                    x + 1. + w * 0.014,
+                    header_y,
+                    &"NAME".encode_utf16().collect::<Vec<_>>(),
+                    l.ink,
+                    0,
+                    hs,
+                    hs * 0.14,
                 );
-                let numeric = [x + pw - 246., x + pw - 154., x + pw - 32.];
-                self.label(b, m, x + 18., top + 51., "NAME", 12., 1.6, l.ink, 0, false);
                 let sorted = [SortMode::Kills, SortMode::Deaths, SortMode::Points];
                 for (i, label) in ["KILLS", "DEATHS", "CP POINTS"].iter().enumerate() {
-                    self.label(
+                    Self::draw_text(
+                        &self.medium,
                         b,
                         m,
                         numeric[i],
-                        top + 51.,
-                        label,
-                        12.,
-                        1.4,
+                        header_y,
+                        &label.encode_utf16().collect::<Vec<_>>(),
                         l.ink,
                         1,
-                        false,
+                        hs,
+                        hs * 0.14,
                     );
                     if model.mode == sorted[i] {
-                        self.label(
+                        Self::score_arrow(
                             b,
                             m,
-                            numeric[i] + 14.,
-                            top + 51.,
-                            if (model.mode == SortMode::Deaths) != model.reverse {
-                                "^"
-                            } else {
-                                "v"
-                            },
-                            10.,
-                            0.,
-                            l.ink,
-                            2,
-                            false,
+                            t,
+                            [numeric[i] + mark - hs * 0.5, panel_top + 16.],
+                            hs,
+                            (model.mode != SortMode::Deaths) != model.reverse,
+                            [l.ink[0], l.ink[1], l.ink[2], 0.9],
                         );
                     }
                     region(
-                        [numeric[i] - 72., top + 30., numeric[i] + 20., top + 60.],
+                        [
+                            numeric[i] - 72.,
+                            panel_top,
+                            numeric[i] + 20.,
+                            panel_top + 31.,
+                        ],
                         ScoreboardHitTarget::Sort {
                             mode: sorted[i],
                             side,
@@ -960,7 +1123,12 @@ impl Page {
                     if y + row_h > bottom {
                         break;
                     }
-                    let r = [x + 4., y, x + pw - 4., y + row_h];
+                    let r = [
+                        x + 1. + w * 0.003,
+                        y,
+                        x + pw - 1. - w * 0.003 - 10.,
+                        y + row_h,
+                    ];
                     let selected = model.side == side && model.selected == i;
                     let hovered = model.hover.is_some_and(|v| v.side == side && v.index == i);
                     if row.local || selected || hovered {
@@ -990,11 +1158,11 @@ impl Page {
                     self.battle_clip(
                         b,
                         m,
-                        x + 18.,
+                        x + 2. + w * 0.014,
                         y + row_h * 0.70,
                         &row.name.to_uppercase(),
                         12.,
-                        0.55,
+                        0.48,
                         c,
                         (numeric[0] - x - 42.).max(30.),
                     );
@@ -1027,6 +1195,22 @@ impl Page {
                         );
                     }
                     region(r, ScoreboardHitTarget::Row { side, index: i });
+                }
+                let length = model.lists[side - 1].len();
+                let shown = ((bottom - list_top) / pitch).floor().max(1.) as usize;
+                if length > shown {
+                    let track = [x + pw - 10., list_top, x + pw - 3., bottom - 3.];
+                    let thumb_h = ((track[3] - track[1]) * shown as f64 / length as f64).max(20.);
+                    let first = model.first.min(length - shown);
+                    let y = track[1]
+                        + (track[3] - track[1] - thumb_h) * first as f64 / (length - shown) as f64;
+                    Self::rect(
+                        b,
+                        m,
+                        [track[0], y, track[2], y + thumb_h],
+                        t.solid,
+                        [l.accent[0], l.accent[1], l.accent[2], 0.45],
+                    );
                 }
             }
         } else {
@@ -1112,17 +1296,7 @@ impl Page {
         let bottom = h * 0.97;
         let r = [edge, bottom - bh, edge + 140., bottom];
         let done = model.state == BoardState::End && model.page == BoardPage::Table;
-        self.widget_button(
-            b,
-            m,
-            t,
-            r,
-            if done { "DONE" } else { "BACK" },
-            l.index,
-            false,
-            false,
-        );
-        region(
+        let hovered = region(
             r,
             if done {
                 ScoreboardHitTarget::Done
@@ -1130,14 +1304,24 @@ impl Page {
                 ScoreboardHitTarget::Back
             },
         );
+        self.widget_button(
+            b,
+            m,
+            t,
+            r,
+            if done { "DONE" } else { "BACK" },
+            l.index,
+            hovered,
+            false,
+        );
         if model.page == BoardPage::Table {
             let r = [w * 0.5 - 70., bottom - bh, w * 0.5 + 70., bottom];
-            self.widget_button(b, m, t, r, "DETAILS", l.index, false, false);
-            region(r, ScoreboardHitTarget::Details);
+            let hovered = region(r, ScoreboardHitTarget::Details);
+            self.widget_button(b, m, t, r, "DETAILS", l.index, hovered, false);
             if model.state == BoardState::End {
                 let r = [w - edge - 140., bottom - bh, w - edge, bottom];
-                self.widget_button(b, m, t, r, "AWARDS", l.index, false, false);
-                region(r, ScoreboardHitTarget::Awards);
+                let hovered = region(r, ScoreboardHitTarget::Awards);
+                self.widget_button(b, m, t, r, "AWARDS", l.index, hovered, false);
             }
         }
     }

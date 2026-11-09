@@ -1704,46 +1704,21 @@ impl StandaloneWindowApp {
                             .and_then(|s| s.content_dir.clone())
                             .unwrap_or_else(|| self.settings.paths.content_root.clone());
                         match t {
-                            // When the player activates `DONE` on the post-match scoreboard (`done_triggered`),
-                            // advance to `next_index` in `request.playlist` if another mission remains,
-                            // or return to `ScreenId::InstantAction` when the playlist finishes.
-                            BattleTransition::NextPlaylistBattle {
-                                request,
-                                next_index,
-                            } => {
-                                let playlist_len = request
-                                    .playlist
-                                    .as_ref()
-                                    .map(|p| p.entries.len())
-                                    .unwrap_or(0);
-                                if next_index < playlist_len {
-                                    if let Some(shell) = &mut self.shell {
-                                        if let Some(next_entry) = request
-                                            .playlist
-                                            .as_ref()
-                                            .and_then(|p| p.entries.get(next_index))
-                                        {
-                                            shell.prepare_map_loading(
-                                                &next_entry.map,
-                                                &self.audio_router,
-                                            );
-                                        }
-                                    }
-                                    self.state = AppState::BattleLoading {
-                                        target: BattleLoadTarget::InstantAction {
-                                            request,
-                                            playlist_index: next_index,
-                                        },
-                                        frames_drawn: 0,
-                                        work: Box::default(),
-                                    };
-                                } else {
-                                    self.restore_shell_audio(&content_dir);
-                                    if let Some(shell) = &mut self.shell {
-                                        shell.app.push_screen(ScreenId::InstantAction);
-                                    }
-                                    self.state = AppState::Shell;
+                            // src/launch.js nextUrl wraps and optionally reshuffles
+                            // an Instant Action playlist; quitting is a separate menu action.
+                            BattleTransition::NextPlaylistBattle { request } => {
+                                let playlist_index = request.playlist.as_ref().map_or(0, |p| p.round);
+                                if let Some(shell) = &mut self.shell {
+                                    shell.prepare_map_loading(&request.map, &self.audio_router);
                                 }
+                                self.state = AppState::BattleLoading {
+                                    target: BattleLoadTarget::InstantAction {
+                                        request,
+                                        playlist_index,
+                                    },
+                                    frames_drawn: 0,
+                                    work: Box::default(),
+                                };
                             }
                             // When the player confirms `RESTART MISSION` in the Escape pause menu,
                             // re-enter `AppState::BattleLoading` for the same `playlist_index` so

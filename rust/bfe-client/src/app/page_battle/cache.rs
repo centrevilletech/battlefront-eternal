@@ -17,6 +17,7 @@ struct SpawnKey {
     turned: bool,
     state: SpawnState,
     switch: bool,
+    battle: bfe_shell::page::SpawnBattleStatus,
 }
 pub(in crate::app) struct Cache {
     pub panels: Batch,
@@ -35,6 +36,7 @@ impl Cache {
             score: 0,
         }
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_changed(
         &mut self,
         model: &SpawnModel,
@@ -42,6 +44,7 @@ impl Cache {
         size: [i32; 2],
         theme: &str,
         turned: bool,
+        battle: bfe_shell::page::SpawnBattleStatus,
     ) -> bool {
         let tickets = [port.teams[0].reinforcements, port.teams[1].reinforcements];
         let switch = port.human.can_switch_teams;
@@ -55,6 +58,7 @@ impl Cache {
                 && old.turned == turned
                 && old.state == model.state
                 && old.switch == switch
+                && old.battle == battle
         }) {
             return false;
         }
@@ -68,9 +72,11 @@ impl Cache {
             turned,
             state: model.state,
             switch,
+            battle,
         });
         true
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn score_changed(
         &mut self,
         model: &ScoreboardModel,
@@ -78,8 +84,10 @@ impl Cache {
         port: &dyn ScoreboardPort,
         size: [i32; 2],
         theme: &str,
+        hover: Option<usize>,
     ) -> bool {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
+        hover.hash(&mut hash);
         (
             model.state as u8,
             model.page as u8,

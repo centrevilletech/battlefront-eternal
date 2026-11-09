@@ -14,6 +14,10 @@ use bfe_render::{
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use three::{CoordinateSystem, Matrix4};
+// store_summaries.rs battle payload: four booleans, loser team, then
+// overTime and the two nullable clocks. The preceding team table is variable.
+const BATTLE_FLAGS_BYTES: usize = 5;
+const BATTLE_TIME_BYTES: usize = 8;
 const ART: [&str; 15] = [
     "hud1",
     "hud2",
@@ -97,46 +101,6 @@ impl Default for HudOwnSummary {
     }
 }
 
-/// Decoded `Summaries::roster` (`SCHEMA == 4.`) entry for scoreboard display.
-///
-/// Uses a fixed 64-byte UTF-8 name buffer so decoding in `Hud::frame` performs zero heap allocations.
-#[derive(Clone, Copy, Debug)]
-pub struct HudRosterEntry {
-    pub team: u8,
-    pub attached: bool,
-    pub kills: i32,
-    pub team_kills: i32,
-    pub deaths: i32,
-    pub captures: i32,
-    pub rtt: u16,
-    pub link_code: u8,
-    pub name_len: usize,
-    pub name: [u8; 64],
-}
-
-impl Default for HudRosterEntry {
-    fn default() -> Self {
-        Self {
-            team: 1,
-            attached: false,
-            kills: 0,
-            team_kills: 0,
-            deaths: 0,
-            captures: 0,
-            rtt: 0,
-            link_code: 0,
-            name_len: 0,
-            name: [0; 64],
-        }
-    }
-}
-
-impl HudRosterEntry {
-    pub fn name_str(&self) -> &str {
-        std::str::from_utf8(&self.name[..self.name_len]).unwrap_or("")
-    }
-}
-
 struct Asset {
     image: Option<usize>,
     width: f64,
@@ -192,14 +156,16 @@ pub struct Hud {
     radar: super::radar::Teams,pub map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     pub countdown:f64,
     pub losing:bool,
+    pub over: bool,
     pub game_over:bool,
+    pub finished: bool,
+    pub loser: u8,
+    end_labels: [u32; 2],
     pub names: HashMap<String, u32>,
     pub strings: HashMap<String, String>,
     pub class_meta: Vec<HudClassMeta>,
     pub post_meta: Vec<HudPostMeta>,
     pub own_summary: HudOwnSummary,
-    pub roster_total: usize,
-    pub roster: [HudRosterEntry; 64],
     pub auto_build: bool,
     flight_key: String,
 }
@@ -567,6 +533,12 @@ impl Prepared {
                 }
             }
         }
+        // game.js onOver uses the two literal banner labels, not the
+        // localized "VICTORY IN" / "DEFEAT IN" countdown templates.
+        let end_labels = [
+            bridge.hud_model_text("VICTORY", false),
+            bridge.hud_model_text("DEFEAT", false),
+        ];
         let mut hud = Hud {
             weapons,
             mounts,
@@ -574,14 +546,17 @@ impl Prepared {
             quads: 0,
             frames: 0,
             teams: [[0.; 4]; 8],
-            health: f64::NAN,radar:self.radar,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,game_over:false,
+            health: f64::NAN,radar:self.radar,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,
+            over: false,
+            game_over: false,
+            finished: false,
+            loser: 0,
+            end_labels,
             names,
             strings,
             class_meta: self.class_meta,
             post_meta: self.post_meta,
             own_summary: HudOwnSummary::default(),
-            roster_total: 0,
-            roster: [HudRosterEntry::default(); 64],
             auto_build: true,
             flight_key: String::new(),
         };
@@ -617,7 +592,7 @@ impl Hud {
                 bridge.hud_model_text(&text, false) as f64;
         }
     }
-    pub fn audio_facts(&self)->([f64;4],bool){([self.teams[1][0],self.teams[2][0],self.teams[1][1],self.teams[2][1]],self.game_over)}
+    pub fn audio_facts(&self)->([f64;4],bool){([self.teams[1][0],self.teams[2][0],self.teams[1][1],self.teams[2][1]],self.over)}
     // Hud.update contributes gameplay observations once per displayed frame.
     // Health notifications wake the existing faders; summary records supply
     // tickets and objective facts without an authoritative client world.
@@ -652,14 +627,32 @@ impl Hud {
             let bytes = &field.bytes[..field.length];
             if field.row[r::SCHEMA] == 1. {
                 let mut at = 1 + bytes.first().copied().unwrap_or(0) as usize * 33;
-                if let Some(flags) = bytes.get(at..at + 5) {
-                    self.game_over = flags[1] != 0;
-                    self.losing = flags[3] != 0;
-                    at += 13;
+                if let Some(flags) = bytes.get(at..at + BATTLE_FLAGS_BYTES) {
+                    let [over, game_over, finished, losing, loser] =
+                        <[u8; BATTLE_FLAGS_BYTES]>::try_from(flags).unwrap();
+                    if (self.over, self.game_over, self.finished)
+                        != (over != 0, game_over != 0, finished != 0)
+                    {
+                        let elapsed = bytes.get(at + BATTLE_FLAGS_BYTES..at + BATTLE_FLAGS_BYTES + BATTLE_TIME_BYTES).map_or(f64::NAN, |v| {
+                            f64::from_le_bytes(v.try_into().unwrap())
+                        });
+                        eprintln!("battle end: over={} game_over={} finished={} loser={} tickets={},{} elapsed={elapsed:.3}",
+                            over != 0, game_over != 0, finished != 0, loser,
+                            self.teams[1][0], self.teams[2][0]);
+                    }
+                    // These are distinct authoritative phases (battle.js
+                    // update): tickets exhausted, scores stopped, board ready.
+                    self.over = over != 0;
+                    self.game_over = game_over != 0;
+                    self.finished = finished != 0;
+                    self.loser = loser;
+                    self.losing = losing != 0;
+                    at += BATTLE_FLAGS_BYTES + BATTLE_TIME_BYTES;
                     if let Some(&present) = bytes.get(at) {
                         at += 1 + if present != 0 { 8 } else { 0 };
                         if let Some(&present) = bytes.get(at) {
                             at += 1;
+                            let previous = self.countdown.floor();
                             self.countdown = if present == 0 {
                                 f64::NAN
                             } else {
@@ -667,6 +660,13 @@ impl Hud {
                                     .get(at..at + 8)
                                     .map_or(f64::NAN, |v| f64::from_le_bytes(v.try_into().unwrap()))
                             };
+                            if self.countdown.is_finite()
+                                && previous != self.countdown.floor()
+                                && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
+                            {
+                                eprintln!("battle countdown: seconds={} losing={}",
+                                    self.countdown.floor().max(0.), self.losing);
+                            }
                         }
                     }
                 }
@@ -726,37 +726,6 @@ impl Hud {
                 if let Some(&slot) = bytes.get(at) {
                     self.own_summary.slot = slot;
                 }
-            } else if field.row[r::SCHEMA] == 4. && bytes.len() >= 5 {
-                let total = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
-                let start = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
-                let count = bytes[4] as usize;
-                self.roster_total = total.min(64);
-                let mut at = 5usize;
-                for i in 0..count {
-                    let Some(head) = bytes.get(at..at + 14) else {
-                        break;
-                    };
-                    let name_len = head[13] as usize;
-                    let Some(name_bytes) = bytes.get(at + 14..at + 14 + name_len) else {
-                        break;
-                    };
-                    at += 14 + name_len;
-                    let slot = start + i;
-                    if slot < 64 {
-                        let entry = &mut self.roster[slot];
-                        entry.team = head[0];
-                        entry.attached = head[1] != 0;
-                        entry.kills = u16::from_le_bytes([head[2], head[3]]) as i16 as i32;
-                        entry.team_kills = u16::from_le_bytes([head[4], head[5]]) as i16 as i32;
-                        entry.deaths = u16::from_le_bytes([head[6], head[7]]) as i16 as i32;
-                        entry.captures = u16::from_le_bytes([head[8], head[9]]) as i16 as i32;
-                        entry.rtt = u16::from_le_bytes([head[10], head[11]]);
-                        entry.link_code = head[12];
-                        let copy_len = name_len.min(64);
-                        entry.name_len = copy_len;
-                        entry.name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
-                    }
-                }
             }
         }
         for (i, post) in self.posts.iter().enumerate() {
@@ -810,6 +779,23 @@ impl Hud {
         }
         x[H::BATTLE] = 1.;
         x[H::COUNTDOWN] = self.countdown;x[H::LOSING]=self.losing as u8 as f64;x[H::GAME_OVER]=self.game_over as u8 as f64;
+        // The banner starts at onOver and survives the seven-second end
+        // sequence. The board takes over only when finished is published.
+        let defeat = self.loser == receiver.own.team;
+        bridge.hud_model_observe(
+            bfe_render::hud_model::layout::HudCommand::BANNER,
+            if self.over && !self.finished {
+                self.end_labels[defeat as usize] as f64
+            } else {
+                0.
+            },
+            // HudModel color IDs differ from the signed team relation:
+            // enemy is 2 (red), friendly is 1 (green).
+            if defeat { 2. } else { 1. },
+            0.,
+            0.,
+        );
+        let x = &mut bridge.hud_model.input;
         x[H::CAPTURE_POST] = -1.;
         x[H::FOV] = 60.;
         x[H::ASPECT] = self.size[0] as f64 / self.size[1] as f64;

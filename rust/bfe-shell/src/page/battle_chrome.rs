@@ -5,6 +5,106 @@ use crate::render::ShellTextures;
 use bfe_render::interface::{rotate_z, translate, Batch, Color, Matrix};
 
 impl Page {
+    // .bfe-tab has its own clipped top corners, unlike .bfe-btn's two
+    // clipped corners. Strip geometry keeps the ordinary retained batch.
+    pub(super) fn score_tab(b: &mut Batch, m: Matrix, t: &ShellTextures, r: [f64; 4], look: usize) {
+        let height = r[3] - r[1];
+        for row in 0..height.ceil() as usize {
+            let y = row as f64;
+            let q = (y / height).clamp(0., 1.);
+            let inset = match look {
+                2 => (10. - y - 0.5).max(0.),
+                _ => {
+                    let radius: f64 = if look == 0 { 3. } else { 10. };
+                    let d = (radius - y - 0.5).max(0.);
+                    radius - (radius * radius - d * d).max(0.).sqrt()
+                }
+            };
+            let line = [
+                r[0] + inset,
+                r[1] + y,
+                r[2] - if look == 2 { 0. } else { inset },
+                (r[1] + y + 1.).min(r[3]),
+            ];
+            if look == 2 {
+                let split = r[0] + (r[2] - r[0]) * 0.6;
+                let first = [1., 190. / 255., 85. / 255., 1.];
+                let middle = [1., 148. / 255., 25. / 255., 1.];
+                let last = [245. / 255., 117. / 255., 0., 1.];
+                Self::gradient(
+                    b,
+                    m,
+                    [line[0], line[1], split, line[3]],
+                    t.solid,
+                    [0., 0., 1., 1.],
+                    [first, first, middle, middle],
+                );
+                Self::gradient(
+                    b,
+                    m,
+                    [split, line[1], line[2], line[3]],
+                    t.solid,
+                    [0., 0., 1., 1.],
+                    [middle, middle, last, last],
+                );
+            } else {
+                let (top, bottom) = if look == 0 {
+                    (
+                        [1., 210. / 255., 122. / 255., 1.],
+                        [245. / 255., 117. / 255., 0., 1.],
+                    )
+                } else {
+                    (
+                        [226. / 255., 74. / 255., 61. / 255., 1.],
+                        [165. / 255., 24. / 255., 14. / 255., 1.],
+                    )
+                };
+                let color = if look == 0 {
+                    let middle = [1., 164. / 255., 42. / 255., 1.];
+                    let (a, z, q) = if q < 0.45 {
+                        (top, middle, q / 0.45)
+                    } else {
+                        (middle, bottom, (q - 0.45) / 0.55)
+                    };
+                    std::array::from_fn(|i| a[i] + (z[i] - a[i]) * q)
+                } else {
+                    std::array::from_fn(|i| top[i] + (bottom[i] - top[i]) * q)
+                };
+                Self::rect(b, m, line, t.solid, color);
+            }
+        }
+    }
+
+    pub(super) fn score_arrow(
+        b: &mut Batch,
+        m: Matrix,
+        t: &ShellTextures,
+        center: [f64; 2],
+        size: f64,
+        down: bool,
+        color: Color,
+    ) {
+        let first = b.count;
+        Self::rect(
+            b,
+            m,
+            [
+                center[0] - size * 0.35,
+                center[1] - size * 0.225,
+                center[0] + size * 0.35,
+                center[1] + size * 0.225,
+            ],
+            t.solid,
+            color,
+        );
+        if b.count != first {
+            let at = first * 12;
+            let middle = (b.position[at] + b.position[at + 6]) * 0.5;
+            for vertex in if down { [1, 3] } else { [0, 2] } {
+                b.position[at + vertex * 3] = middle;
+            }
+        }
+    }
     /// A CSS rounded box, including the fully rounded swap and hint controls.
     /// The short horizontal strips retain the ordinary quad batch and atlas.
     pub(super) fn battle_round(

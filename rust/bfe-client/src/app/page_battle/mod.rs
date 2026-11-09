@@ -156,11 +156,17 @@ impl PageBattle {
         port: &super::battle::LiveSpawnPort,
         size: [i32; 2],
         theme: &str,
+        countdown: bool,
     ) {
         self.dt = dt;
-        let goals = port.teams[usize::from(model.team == 2)].objectives.len();
+        let goals = port.teams[usize::from(model.team == 2)]
+            .objectives
+            .iter()
+            .filter(|s| !s.is_empty())
+            .count();
         let previous_layout = self.layout;
-        self.layout = SpawnLayout::new(size[0] as f64, size[1] as f64, goals);
+        self.layout =
+            SpawnLayout::new(size[0] as f64, size[1] as f64, goals).with_countdown(countdown);
         let opening = !self.was_open;
         if opening {
             eprintln!(

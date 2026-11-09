@@ -195,6 +195,8 @@ pub struct Sound {
     last_clock: u64,
     music: Vec<[f64; music_slot::STRIDE]>,
     starts: [f64; 2],
+    ui_paused: bool,
+    ui_board: bool,
 }
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
@@ -230,6 +232,8 @@ impl Sound {
             last_clock: 0,
             music: prepared.music,
             starts: [f64::NAN; 2],
+            ui_paused: false,
+            ui_board: false,
         }
     }
     pub fn device_frames(&self) -> u64 {
@@ -238,6 +242,54 @@ impl Sound {
     pub fn peak(&self) -> f32 {
         f32::from_bits(self.mail.peak.load(Ordering::Relaxed))
     }
+    // Battle UI uses the same bounded event path as replicated effects.
+    // Core-bank names and bus names resolve in the shared control runtime.
+    pub fn interface(&mut self, name: &str) {
+        self.ui_event(event_kind::INTERFACE, name, 0., 0.);
+    }
+
+    fn fade_bus(&mut self, name: &str, value: f64, seconds: f64) {
+        self.ui_event(event_kind::BUS_FADE, name, value, seconds);
+    }
+
+    pub fn set_board_open(&mut self, open: bool) {
+        if open != self.ui_board {
+            self.ui_board = open;
+            self.fade_bus("ingame", if open { 0. } else { 1. }, 1.);
+        }
+    }
+
+    pub fn set_paused(&mut self, paused: bool) {
+        if paused != self.ui_paused {
+            self.ui_paused = paused;
+            self.ui_event(event_kind::PAUSE, "", paused as u8 as f64, 0.);
+        }
+    }
+
+    fn ui_event(&mut self, kind: usize, name: &str, value: f64, seconds: f64) {
+        if self.pending_effects.len() == self.pending_effects.capacity() {
+            self.refused += 1;
+            return;
+        }
+        if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+            let key = super::sound_data::hash(name);
+            let resolved = match kind {
+                event_kind::INTERFACE => self.runtime.phase.effects.iter()
+                    .find(|(k, _)| *k == key).map_or_else(
+                        || self.runtime.phase.named(key), |(_, id)| *id) != usize::MAX,
+                event_kind::BUS_FADE => self.runtime.phase.bus_names.iter().any(|(k, _)| *k == key),
+                _ => true,
+            };
+            eprintln!("battle audio UI: kind={kind} name={name} resolved={resolved} value={value} seconds={seconds}");
+        }
+        let mut row = [0.; event::STRIDE];
+        row[event::KIND] = kind as f64;
+        row[event::SOUND] = super::sound_data::hash(name) as f64;
+        row[event::VALUE] = value;
+        row[event::SECONDS] = seconds;
+        self.pending_effects.push(row);
+    }
+
     pub fn frame(
         &mut self,
         receiver: &Receiver,
