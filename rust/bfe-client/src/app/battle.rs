@@ -2271,9 +2271,20 @@ impl BattleController {
     // Pausing is a cold diagnostic boundary: record the actual displayed view
     // and input acknowledgement without formatting on the steady render path.
     fn log_control_snapshot(&self) {
-        let (receiver, sender, camera) = match &self.authority {
-            BattleAuthority::InstantAction { receiver, sender, camera, .. } => (receiver, sender, camera),
-            BattleAuthority::Online { client, .. } => (&client.receiver, &client.sender, &client.camera),
+        let (receiver, sender, camera, replay) = match &self.authority {
+            BattleAuthority::InstantAction {
+                receiver,
+                sender,
+                camera,
+                replay,
+                ..
+            } => (receiver, sender, camera, replay),
+            BattleAuthority::Online { client, .. } => (
+                &client.receiver,
+                &client.sender,
+                &client.camera,
+                &client.replay,
+            ),
         };
         eprintln!("battle controls: frames={} meanFrameMs={:.3} authorityPosition={:?} authorityAim={:?} cameraPosition={:?} displayAim={:?} firstPerson={} inputSequence={} appliedSequence={} pointerTotal={:?} mouseScale={} maxTurn={}",
             self.frames, 1000. * self.frame_seconds / self.frames.max(1) as f64,
@@ -2281,6 +2292,26 @@ impl BattleController {
             camera.aim(), camera.first_person, sender.command_sequence(), receiver.corrected_sequence,
             self.input.pointer_metrics().0, self.input.pointer_metrics().1,
             self.scene.online.as_ref().and_then(|scene| scene.turns.get(receiver.own.class)).map_or(0., |turn| turn.0));
+        eprintln!(
+            "motion view: fovY={} prediction={:?} displayed={:?} fault={:?}",
+            (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
+            replay.body.as_ref().map(|body| (
+                body.position,
+                body.velocity,
+                body.posture,
+                body.air,
+                body.dive,
+                body.dive_time
+            )),
+            replay
+                .displayed
+                .as_ref()
+                .map(|body| (body.position, body.velocity)),
+            receiver.fault
+        );
+        if let Some(replicas) = &self.scene.online {
+            replicas.log_motion(receiver);
+        }
     }
 
     /// Routes a keyboard key press/release through PauseMenu, Chat, SpawnScreen, Scoreboard,

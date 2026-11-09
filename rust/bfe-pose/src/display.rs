@@ -402,6 +402,14 @@ impl Animator {
         this
     }
 
+    /// Borrow the base blend's clip, seconds, weight and playback rate without
+    /// advancing a clock or allocating an inspection copy.
+    pub fn base_layers(&self) -> impl Iterator<Item = (usize, f64, f64, f64)> + '_ {
+        self.layers
+            .iter()
+            .map(|layer| (layer.clip, layer.time, layer.weight, layer.rate))
+    }
+
     /// SoldierAnimator.reset deliberately retains gunner and seated state.
     pub fn reset(&mut self, yaw: f64) {
         self.time = 0.0;

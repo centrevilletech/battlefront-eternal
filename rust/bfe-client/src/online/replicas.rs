@@ -61,6 +61,7 @@ pub struct Replicas {
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    dive_times: Vec<f64>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
     preview_class: usize,
@@ -215,12 +216,14 @@ impl Replicas {
         // controller. Class registry ids are sparse and cannot index models.
         let mut turns = vec![(2., [-0.8, 1.1]); registry.classes.len() + 1];
         let mut classes = vec![None; registry.classes.len() + 1];
+        let mut dive_times = vec![0.; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
                 continue;
             };
             let body_constants = bfe_sim::units::class::soldier_body(&class.record, 1e6, class.getup_time, class.dive_time);
             turns[id as usize] = (body_constants.max_turn, body_constants.pitch_limits);
+            dive_times[id as usize] = class.dive_time;
             let Some(body) = class.body else {
                 continue;
             };
@@ -351,6 +354,7 @@ impl Replicas {
             items,
             models,
             classes,
+            dive_times,
             preview_weapons,
             preview_banks,
             preview_class:usize::MAX,
@@ -515,6 +519,10 @@ impl Replicas {
                 0.
             };
             input[i::SEAT] = lease.is_some() as u8 as f64;
+            // SoldierAnimator scales its dive clip to the class's authored
+            // duration. Prediction can override this for the owned body;
+            // placement below must not replace either with a fixed duration.
+            input[i::DIVE_TIME] = self.dive_times[row[r::CLASS_ID] as usize];
             if let Some((id, generation, seat)) = lease {
                 let pick = self.slots[slot].rider;
                 input[i::MOUNT_ID] = id as f64;
@@ -561,7 +569,6 @@ impl Replicas {
             input[i::ACTOR] = slot.actor as f64;
             input[i::ALPHA] = 1.;
             input[i::HELD_CLIP] = -1.;
-            input[i::DIVE_TIME] = 0.6;
             input[i::ROOT_QUATERNION + 3] = 1.;
             input[i::POSE_PARENT..i::POSE_PARENT + 16].copy_from_slice(&identity);
             input[i::ATTACHMENT_PARENT..i::ATTACHMENT_PARENT + 16].copy_from_slice(&identity);
@@ -594,6 +601,38 @@ impl Replicas {
         self.units.place_actors(places);
 
     }
+    /// Pausing is a cold observation point; the canonical clocks and blend
+    /// layers stay in Units rather than a second client animation model.
+    pub fn log_motion(&self, receiver: &Receiver) {
+        let key = (receiver.own.id as u32, receiver.own.generation as u32);
+        let Some(slot) = self
+            .slots
+            .iter()
+            .find(|slot| slot.active && slot.identity == Some(key))
+        else {
+            return;
+        };
+        let Some(animation) = self.units.actor_animation(slot.actor) else {
+            return;
+        };
+        let clips = &self.models[slot.model].clips;
+        let layers: Vec<_> = animation
+            .base_layers()
+            .map(|(clip, time, weight, rate)| {
+                (
+                    clips.get(clip).map(|clip| clip.0.as_str()),
+                    time,
+                    weight,
+                    rate,
+                )
+            })
+            .collect();
+        eprintln!(
+            "motion pose: action={:?} gait={} time={} actionTime={} layers={:?}",
+            animation.action, animation.gait, animation.time, animation.action_time, layers
+        );
+    }
+
     // PlayerCombat.updateHud reads the displayed unit's existing aim basis.
     // Reusing it preserves posture, interpolation and the authored walker eye.
     pub fn reticle_point(&self, receiver: &Receiver) -> Option<[f64; 3]> {

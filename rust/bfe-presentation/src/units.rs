@@ -278,6 +278,11 @@ impl Units {
             "view node capacity"
         );
     }
+    /// Inspect the retained animator without sampling or advancing the rig.
+    pub fn actor_animation(&self, id: usize) -> Option<&Animator> {
+        self.actors.get(id).map(|actor| &actor.animator)
+    }
+
     pub fn actor_node_start(&self, id: usize) -> usize {
         self.actors[id].node_start
     }
