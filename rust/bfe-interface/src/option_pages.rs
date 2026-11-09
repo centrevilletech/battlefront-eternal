@@ -969,15 +969,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn options_root_can_leave_by_both_back_keys_and_back_button() {
-        for key in ["Escape", "Backspace"] {
-            let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
-            ctrl.open_page("game");
-            ctrl.on_key_down(key, false);
-            assert_eq!(ctrl.stack.top().unwrap().id, "options");
-            ctrl.on_key_down(key, false);
-            assert!(ctrl.stack.is_empty());
-        }
+    fn options_root_swallows_backspace_but_escape_and_back_button_leave() {
+        let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
+        ctrl.on_key_down("Backspace", false);
+        assert_eq!(ctrl.stack.top().unwrap().id, "options");
+        ctrl.open_page("game");
+        ctrl.on_key_down("Backspace", false);
+        assert_eq!(ctrl.stack.top().unwrap().id, "options-game");
+        ctrl.on_key_down("Escape", false);
+        assert_eq!(ctrl.stack.top().unwrap().id, "options");
+        ctrl.on_key_down("Escape", false);
+        assert!(ctrl.stack.is_empty());
         let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
         ctrl.apply_event(MenuInputEvent::Action(WidgetAction::Back));
         assert!(ctrl.stack.is_empty());

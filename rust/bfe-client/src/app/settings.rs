@@ -140,9 +140,14 @@ pub fn current_desktop_paths() -> DesktopPaths {
 #[serde(rename_all = "camelCase")]
 pub struct PersistedPlayerSettings {
     /// Active player profile display name (`"Player 1"` by default).
+    #[serde(default = "default_profile_name")]
     pub profile_name: String,
     /// Whether the player has accepted the online multiplayer privacy notice.
+    #[serde(default)]
     pub privacy_notice_accepted: bool,
+    /// Native projection revision; absent in browser records and older native files.
+    #[serde(default)]
+    pub native_settings_version: u32,
     /// Whether `values` holds a complete 59-key [`bfe_interface::DesktopSettingsSnapshot`].
     #[serde(default)]
     pub complete: bool,
@@ -163,6 +168,10 @@ pub struct PersistedPlayerSettings {
     pub ia_random: bool,
 }
 
+fn default_profile_name() -> String {
+    bfe_shell::profile::DEFAULT_PLAYER_NAME.to_string()
+}
+
 impl Default for PersistedPlayerSettings {
     /// Constructs default player settings with a 3-map Clone Wars playlist (`nab2`, `tat1`, `bes1`).
     fn default() -> Self {
@@ -174,6 +183,7 @@ impl Default for PersistedPlayerSettings {
         Self {
             profile_name: bfe_shell::profile::DEFAULT_PLAYER_NAME.to_string(),
             privacy_notice_accepted: false,
+            native_settings_version: 1,
             complete: snap.complete,
             values: snap.values,
             shell,
@@ -354,31 +364,65 @@ impl AppSettingsStore {
     pub fn load(paths: DesktopPaths) -> Self {
         let desktop_store = SettingsStore::new(&paths.settings_file);
         let desktop = desktop_store.load();
-        let (player, interface) = Self::load_player_file(&paths.player_settings_file);
-        Self {
+        let (player, interface, migrated) = Self::load_player_file(&paths.player_settings_file);
+        let mut store = Self {
             paths,
             desktop_store,
             desktop,
             interface,
             player,
+        };
+        // Persist the revision once so choosing 0.5 after upgrading stays a
+        // deliberate preference. A read-only file still uses the corrected value.
+        if migrated {
+            if let Err(error) = store.save_player() {
+                eprintln!("could not save migrated player settings: {error}");
+            }
         }
+        store
     }
 
     /// Reads `player-settings.json` and reconstructs both [`PersistedPlayerSettings`]
     /// and [`bfe_interface::Settings`].
-    fn load_player_file(path: &Path) -> (PersistedPlayerSettings, InterfaceSettings) {
+    fn load_player_file(path: &Path) -> (PersistedPlayerSettings, InterfaceSettings, bool) {
         let Ok(bytes) = fs::read(path) else {
             let mut interface = InterfaceSettings::new();
             let player = PersistedPlayerSettings::default();
             PersistedPlayerSettings::apply_shell_to_interface(&player.shell, &mut interface);
-            return (player, interface);
+            return (player, interface, false);
         };
-        let Ok(mut parsed) = serde_json::from_slice::<PersistedPlayerSettings>(&bytes) else {
+        let record = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+        let native_record = record.get("shell").is_some_and(Value::is_object);
+        let native_profile = record.get("profileName").is_some();
+        let Ok(mut parsed) = serde_json::from_value::<PersistedPlayerSettings>(record) else {
             let mut interface = InterfaceSettings::new();
             let player = PersistedPlayerSettings::default();
             PersistedPlayerSettings::apply_shell_to_interface(&player.shell, &mut interface);
-            return (player, interface);
+            return (player, interface, false);
         };
+        // Electron shares the complete/values record. Only files carrying an
+        // old native shell projection can contain the erroneous 0.5 default;
+        // browser-selected 0.5 and other saved slider values remain intentional.
+        let migrated = native_record && parsed.native_settings_version == 0;
+        if migrated {
+            let sensitivity = parsed
+                .values
+                .get("mouseSensitivity")
+                .and_then(Value::as_f64)
+                .unwrap_or(parsed.shell.mouse_sensitivity as f64);
+            if sensitivity == 0.5 {
+                parsed.shell.mouse_sensitivity = ShellSettings::default().mouse_sensitivity;
+                if !parsed.values.is_empty() {
+                    parsed.values.insert(
+                        "mouseSensitivity".into(),
+                        Value::from(parsed.shell.mouse_sensitivity),
+                    );
+                }
+            }
+        }
+        if parsed.native_settings_version == 0 {
+            parsed.native_settings_version = 1;
+        }
         // Rehydrate `InterfaceSettings` from `parsed.values` when present, or seed from `parsed.shell`.
         let mut interface = if !parsed.values.is_empty() {
             let snapshot = DesktopSettingsSnapshot {
@@ -398,6 +442,11 @@ impl AppSettingsStore {
             parsed.values = snap.values;
             iface
         };
+        // Browser records have no native profile field; playerName in the
+        // shared values is authoritative when importing that record.
+        if !native_profile {
+            parsed.profile_name = interface.get_string("playerName");
+        }
         // The canonical loader intentionally accepts only DEFAULTS. Admit the
         // two battle selectors explicitly; arbitrary saved keys stay excluded.
         for key in BATTLE_VIEW_KEYS {
@@ -405,11 +454,13 @@ impl AppSettingsStore {
                 interface.set(key, value.to_owned());
             }
         }
-        if parsed.pause_kv.is_empty() {
-            parsed.pause_kv =
-                PersistedPlayerSettings::interface_to_pause_kv(&interface, &parsed.shell);
-        }
-        (parsed, interface)
+        parsed
+            .pause_kv
+            .extend(PersistedPlayerSettings::interface_to_pause_kv(
+                &interface,
+                &parsed.shell,
+            ));
+        (parsed, interface, migrated)
     }
 
     /// Synchronizes `self.player` into `self.interface` when `self.player.shell` was mutated directly.
@@ -534,6 +585,120 @@ impl AppSettingsStore {
 mod tests {
     use super::*;
 
+    fn test_paths() -> DesktopPaths {
+        let dir = std::env::temp_dir().join(format!(
+            "bfe-player-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        DesktopPaths {
+            user_data_dir: dir.clone(),
+            user_data: dir.clone(),
+            managed_content_dir: dir.join("game-data"),
+            content_root: dir.join("game-data"),
+            settings_file: dir.join("desktop-settings.json"),
+            player_settings_file: dir.join("player-settings.json"),
+            timings_file: dir.join("prepare-timings.json"),
+            prepare_log_file: dir.join("logs/prepare.log"),
+            update_root: None,
+            project_root: dir,
+        }
+    }
+
+    #[test]
+    fn native_mouse_default_is_the_neutral_browser_slider_value() {
+        let player = PersistedPlayerSettings::default();
+        assert_eq!(player.shell.mouse_sensitivity, 5.);
+        assert_eq!(player.values["mouseSensitivity"], 5.);
+        let mut interface = InterfaceSettings::new();
+        PersistedPlayerSettings::apply_shell_to_interface(&player.shell, &mut interface);
+        assert_eq!(interface.mouse_scale(), 1.);
+    }
+
+    #[test]
+    fn old_native_mouse_default_migrates_once_without_losing_preferences() {
+        for shell_only in [false, true] {
+            let paths = test_paths();
+            let mut old = PersistedPlayerSettings::default();
+            old.shell.mouse_sensitivity = 0.5;
+            old.shell.invert_y = true;
+            old.profile_name = "SCOUT".into();
+            old.sync_from_shell();
+            let mut record = serde_json::to_value(old).unwrap();
+            record["values"]["spawnScreenView"] = Value::from("classic");
+            record["values"]["scoreboardView"] = Value::from("page");
+            record
+                .as_object_mut()
+                .unwrap()
+                .remove("nativeSettingsVersion");
+            if shell_only {
+                record.as_object_mut().unwrap().remove("values");
+            }
+            fs::write(
+                &paths.player_settings_file,
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+            let mut store = AppSettingsStore::load(paths.clone());
+            assert_eq!(store.interface.mouse_scale(), 1.);
+            assert_eq!(store.player.shell.mouse_sensitivity, 5.);
+            assert_eq!(store.player.profile_name, "SCOUT");
+            if !shell_only {
+                assert_eq!(store.interface.get_string("spawnScreenView"), "classic");
+                assert_eq!(store.interface.get_string("scoreboardView"), "page");
+            }
+            assert!(store.player.shell.invert_y);
+            assert_eq!(store.player.pause_kv["mouseSensitivity"], "5.00");
+            let saved: Value =
+                serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
+            assert_eq!(saved["nativeSettingsVersion"], 1);
+            assert_eq!(saved["values"]["mouseSensitivity"], 5.);
+            // A subsequent intentional minimum slider value must survive reload.
+            store.player.shell.mouse_sensitivity = 0.5;
+            store.save_player().unwrap();
+            let reloaded = AppSettingsStore::load(paths.clone());
+            assert_eq!(reloaded.player.shell.mouse_sensitivity, 0.5);
+            fs::remove_dir_all(paths.user_data).unwrap();
+        }
+    }
+
+    #[test]
+    fn browser_records_preserve_sensitivity_profile_and_binding_overrides() {
+        for sensitivity in [0.5, 3.2, 5.] {
+            let paths = test_paths();
+            let record = serde_json::json!({"complete": true, "values": {
+                "mouseSensitivity": sensitivity, "playerName": "PILOT", "masterVolume": 0.3,
+                "keyBindings": {"presses.jump": ["KeyJ"]}
+            }});
+            fs::write(
+                &paths.player_settings_file,
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+            let mut store = AppSettingsStore::load(paths.clone());
+            assert_eq!(store.interface.get_f64("mouseSensitivity"), sensitivity);
+            assert_eq!(store.player.profile_name, "PILOT");
+            assert_eq!(store.interface.get_f64("masterVolume"), 0.3);
+            assert_eq!(
+                store.interface.get_bindings_ref("keyBindings").unwrap()["presses.jump"],
+                ["KeyJ"]
+            );
+            store.save_player().unwrap();
+            // Electron reads only complete/values from the same file.
+            let saved: Value =
+                serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
+            assert!(
+                (saved["values"]["mouseSensitivity"].as_f64().unwrap() - sensitivity).abs() < 1e-6
+            );
+            assert_eq!(saved["values"]["playerName"], "PILOT");
+            fs::remove_dir_all(paths.user_data).unwrap();
+        }
+    }
+
     /// Verifies that `AppSettingsStore` persists and reloads `bfe_interface::Settings`,
     /// `ShellSettings`, and `pause_kv` across a round-trip to `player-settings.json`.
     #[test]
@@ -577,7 +742,11 @@ mod tests {
         assert!((reloaded.interface.get_f64("masterVolume") - 0.6).abs() < 1e-5);
         assert!(reloaded.interface.get_bool("invertMouse"));
         assert_eq!(
-            reloaded.player.pause_kv.get("masterVolume").map(String::as_str),
+            reloaded
+                .player
+                .pause_kv
+                .get("masterVolume")
+                .map(String::as_str),
             Some("60")
         );
         assert_eq!(

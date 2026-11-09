@@ -280,8 +280,9 @@ impl MenuInput {
                 }
                 MenuInputEvent::None
             }
-            // Escape and Backspace invoke the screen's back action (`MenuScreen.back` in `screen.js`).
-            "Escape" | "Backspace" => {
+            // MenuScreen.key handles Escape; ordinary Backspace is swallowed.
+            // Key capture above still admits Backspace as a gameplay binding.
+            "Escape" => {
                 if let Some(act) = top.back() {
                     stack.sounds.play(SoundCue::MenuBack);
                     MenuInputEvent::Action(act)

@@ -37,13 +37,13 @@ pub const TABS: [HotkeyTab; 3] = [
     HotkeyTab {
         id: "vehicle",
         label_key: "ifs.Controls.VehicleTab",
-        label: "VEHICLES",
+        label: "VEHICLE",
     },
     // Starfighter and gunship flight controls (`STARFIGHTERS`).
     HotkeyTab {
         id: "starfighter",
         label_key: "ifs.Controls.FlyerTab",
-        label: "STARFIGHTERS",
+        label: "STARFIGHTER",
     },
 ];
 
@@ -116,8 +116,7 @@ pub fn key_name(code: &str) -> String {
         "ControlLeft" | "ControlRight" => "CONTROL".to_string(),
         "AltLeft" | "AltRight" => "ALT".to_string(),
         // Lock & editing keys
-        "Backquote" => "TILDE".to_string(),
-        "CapsLock" => "CAPS LOCK".to_string(),
+        "Backquote" => "`".to_string(),
         "Backspace" => "BACKSPACE".to_string(),
         "Delete" => "DELETE".to_string(),
         "Insert" => "INSERT".to_string(),
@@ -126,10 +125,10 @@ pub fn key_name(code: &str) -> String {
         "PageUp" => "PAGE UP".to_string(),
         "PageDown" => "PAGE DOWN".to_string(),
         // Arrow keys
-        "ArrowUp" => "UP ARROW".to_string(),
-        "ArrowDown" => "DOWN ARROW".to_string(),
-        "ArrowLeft" => "LEFT ARROW".to_string(),
-        "ArrowRight" => "RIGHT ARROW".to_string(),
+        "ArrowUp" => "UP".to_string(),
+        "ArrowDown" => "DOWN".to_string(),
+        "ArrowLeft" => "LEFT".to_string(),
+        "ArrowRight" => "RIGHT".to_string(),
         // Punctuation keys
         "Minus" => "-".to_string(),
         "Equal" => "=".to_string(),
@@ -141,12 +140,6 @@ pub fn key_name(code: &str) -> String {
         "Comma" => ",".to_string(),
         "Period" => ".".to_string(),
         "Slash" => "/".to_string(),
-        // Numpad operators
-        "NumpadAdd" => "KP_PLUS".to_string(),
-        "NumpadSubtract" => "KP_MINUS".to_string(),
-        "NumpadMultiply" => "KP_MULTIPLY".to_string(),
-        "NumpadDivide" => "KP_DIVIDE".to_string(),
-        "NumpadDecimal" => "KP_DELETE".to_string(),
         // Mouse buttons, wheel, and fixed mouse look axes (`NAMES` in `src/menus/hotkeys.js`)
         "Mouse0" | "MouseLeft" => "MOUSE BUTTON 1".to_string(),
         "Mouse2" | "MouseRight" => "MOUSE BUTTON 2".to_string(),
@@ -155,8 +148,6 @@ pub fn key_name(code: &str) -> String {
         "Mouse4" | "MouseForward" => "MOUSE BUTTON 5".to_string(),
         "WheelUp" => "MOUSE WHEEL UP".to_string(),
         "WheelDown" => "MOUSE WHEEL DOWN".to_string(),
-        "MouseX" => "MOUSE X-AXIS".to_string(),
-        "MouseY" => "MOUSE Y-AXIS".to_string(),
         // Fallback: uppercase the raw code (`F1`..`F12`, etc.).
         other => other.to_ascii_uppercase(),
     }
@@ -530,318 +521,104 @@ impl HotkeyRowSpec {
 
 /// The 32 infantry binding rows (`ROWS.infantry` in `src/menus/hotkeys.js`).
 pub const INFANTRY_ROWS: [HotkeyRowSpec; 32] = [
-    // 1. Primary Fire (`holds.firePrimary`)
     HotkeyRowSpec::rebindable(
         "holds.firePrimary",
         "ifs.controls.General.Primary",
-        "Primary Fire",
+        "PRIMARY FIRE",
     ),
-    // 2. Secondary Fire (`holds.fireSecondary`)
     HotkeyRowSpec::rebindable(
         "holds.fireSecondary",
-        "ifs.controls.General.Secondary",
-        "Secondary Fire",
+        "bfe.controls.GrenadeSecondaryFire",
+        "GRENADE / SECONDARY FIRE",
     ),
-    // 3. Switch Primary (`presses.nextPrimary`)
-    HotkeyRowSpec::rebindable(
-        "presses.nextPrimary",
-        "ifs.controls.Soldier.NextPrimary",
-        "Switch Primary",
-    ),
-    // 4. Switch Secondary (`presses.nextSecondary`)
     HotkeyRowSpec::rebindable(
         "presses.nextSecondary",
-        "ifs.controls.Soldier.NextSecondary",
-        "Switch Secondary",
+        "ifs.controls.General.SecondaryNext",
+        "SECONDARY NEXT",
     ),
-    // 5. Zoom Scope (`presses.zoom`)
     HotkeyRowSpec::rebindable(
-        "presses.zoom",
-        "ifs.controls.General.Zoom",
-        "Zoom Scope",
+        "presses.nextPrimary",
+        "ifs.controls.General.PrimaryNext",
+        "PRIMARY NEXT",
     ),
-    // 6. Look Up (Fixed Mouse Y-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.LookUp",
-        "Look Up",
-        &["MOUSE Y-AXIS"],
-    ),
-    // 7. Look Down (Fixed Mouse Y-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.LookDown",
-        "Look Down",
-        &["MOUSE Y-AXIS"],
-    ),
-    // 8. Turn Left (Fixed Mouse X-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.TurnLeft",
-        "Turn Left",
-        &["MOUSE X-AXIS"],
-    ),
-    // 9. Turn Right (Fixed Mouse X-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.TurnRight",
-        "Turn Right",
-        &["MOUSE X-AXIS"],
-    ),
-    // 10. Move Forward (`axes.forward+`)
-    HotkeyRowSpec::rebindable(
-        "axes.forward+",
-        "ifs.controls.General.Forward",
-        "Move Forward",
-    ),
-    // 11. Move Backward (`axes.forward-`)
-    HotkeyRowSpec::rebindable(
-        "axes.forward-",
-        "ifs.controls.General.Back",
-        "Move Backward",
-    ),
-    // 12. Strafe Left (`axes.right-`)
-    HotkeyRowSpec::rebindable(
-        "axes.right-",
-        "ifs.controls.General.StrafeLeft",
-        "Strafe Left",
-    ),
-    // 13. Strafe Right (`axes.right+`)
-    HotkeyRowSpec::rebindable(
-        "axes.right+",
-        "ifs.controls.General.StrafeRight",
-        "Strafe Right",
-    ),
-    // 14. Jump / Jetpack (`presses.jump`)
-    HotkeyRowSpec::rebindable(
-        "presses.jump",
-        "ifs.controls.Soldier.Jump",
-        "Jump / Jetpack",
-    ),
-    // 15. Crouch / Roll (`presses.crouch`)
-    HotkeyRowSpec::rebindable(
-        "presses.crouch",
-        "ifs.controls.Soldier.Crouch",
-        "Crouch / Roll",
-    ),
-    // 16. Prone (`presses.prone`)
-    HotkeyRowSpec::rebindable(
-        "presses.prone",
-        "ifs.controls.Soldier.Prone",
-        "Prone",
-    ),
-    // 17. Reload (`presses.reload`)
-    HotkeyRowSpec::rebindable(
-        "presses.reload",
-        "ifs.controls.Soldier.Reload",
-        "Reload",
-    ),
-    // 18. Enter / Exit / Use (`presses.use`)
-    HotkeyRowSpec::rebindable(
-        "presses.use",
-        "ifs.controls.General.Action",
-        "Enter / Exit / Use",
-    ),
-    // 19. 1st / 3rd Person View (`presses.perspective`)
+    HotkeyRowSpec::rebindable("presses.previousPrimary", "", "PRIMARY PREVIOUS"),
+    HotkeyRowSpec::rebindable("presses.jump", "ifs.controls.General.Jump", "JUMP"),
+    HotkeyRowSpec::fixed("", "DIVE", &["SPACE WITH A OR D"]),
+    HotkeyRowSpec::fixed("", "JETPACK", &["SPACE IN THE AIR"]),
+    HotkeyRowSpec::rebindable("presses.crouch", "ifs.controls.General.Crouch", "CROUCH"),
+    HotkeyRowSpec::rebindable("presses.prone", "", "PRONE"),
+    HotkeyRowSpec::rebindable("presses.zoom", "ifs.controls.General.Zoom", "ZOOM"),
     HotkeyRowSpec::rebindable(
         "presses.perspective",
         "ifs.controls.General.FirstThirdPerson",
-        "1st / 3rd Person View",
+        "1ST/3RD VIEW",
     ),
-    // 20. Free Look (Fixed N/A)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.FreeLook",
-        "Free Look",
-        &["N/A"],
-    ),
-    // 21. View Tactical Map (`presses.map`)
-    HotkeyRowSpec::rebindable(
-        "presses.map",
-        "ifs.controls.General.Map",
-        "View Tactical Map",
-    ),
-    // 22.Menu / Cancel (Fixed ESC)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.BackMenu",
-        "Menu / Cancel",
-        &["ESC"],
-    ),
-    // 23. Say All (Fixed T)
-    HotkeyRowSpec::fixed("ifs.controls.General.Chat", "Say All", &["T"]),
-    // 24. Say Team (Fixed Y)
-    HotkeyRowSpec::fixed("ifs.controls.General.TeamChat", "Say Team", &["Y"]),
-    // 25. Squad Commands (Fixed F1 - F4)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Squad",
-        "Squad Commands",
-        &["F1 - F4"],
-    ),
-    // 26. Voice Commands (Fixed F5 - F10)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Voice",
-        "Voice Commands",
-        &["F5 - F10"],
-    ),
-    // 27. Select Spawn / Tooltips (Fixed TAB)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Scoreboard",
-        "Select Spawn / Tooltips",
-        &["TAB"],
-    ),
-    // 28. Accept (Fixed RETURN)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Accept",
-        "Accept",
-        &["RETURN"],
-    ),
-    // 29. Select 1st Choice (Fixed 1)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Choice1",
-        "Select 1st Choice",
-        &["1"],
-    ),
-    // 30. Select 2nd Choice (Fixed 2)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Choice2",
-        "Select 2nd Choice",
-        &["2"],
-    ),
-    // 31. Select 3rd Choice (Fixed 3)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Choice3",
-        "Select 3rd Choice",
-        &["3"],
-    ),
-    // 32. Select 4th Choice (Fixed 4)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.Choice4",
-        "Select 4th Choice",
-        &["4"],
-    ),
+    HotkeyRowSpec::rebindable("presses.reload", "ifs.controls.General.Reload", "RELOAD"),
+    HotkeyRowSpec::rebindable("presses.use", "", "ENTER/EXIT"),
+    HotkeyRowSpec::rebindable("presses.squadMoveOut", "", "SQUAD CMD-MOVE OUT"),
+    HotkeyRowSpec::rebindable("presses.squadHold", "", "SQUAD CMD-HOLD"),
+    HotkeyRowSpec::rebindable("presses.squadFollow", "", "SQUAD CMD-FOLLOW"),
+    HotkeyRowSpec::rebindable("presses.squadAtEase", "", "SQUAD CMD-AT EASE"),
+    HotkeyRowSpec::rebindable("axes.forward+", "", "MOVE FORWARD"),
+    HotkeyRowSpec::rebindable("axes.forward-", "", "MOVE BACK"),
+    HotkeyRowSpec::rebindable("axes.right-", "", "MOVE LEFT"),
+    HotkeyRowSpec::rebindable("axes.right+", "", "MOVE RIGHT"),
+    HotkeyRowSpec::rebindable("axes.turn-", "", "TURN LEFT"),
+    HotkeyRowSpec::rebindable("axes.turn+", "", "TURN RIGHT"),
+    HotkeyRowSpec::fixed("", "LOOK LEFT/RIGHT AXIS", &["MOUSE X AXIS"]),
+    HotkeyRowSpec::fixed("", "LOOK UP/DOWN AXIS", &["MOUSE Y AXIS"]),
+    HotkeyRowSpec::rebindable("presses.map", "", "SHOW MAP"),
+    HotkeyRowSpec::fixed("ifs.controls.playerlist", "PLAYER LIST", &["TAB"]),
+    HotkeyRowSpec::fixed("", "CHAT", &["T"]),
+    HotkeyRowSpec::fixed("", "TEAM CHAT", &["Y"]),
+    HotkeyRowSpec::fixed("ifs.controls.General.Pause", "PAUSE MENU", &["ESC"]),
+    HotkeyRowSpec::rebindable("presses.stats", "", "STATS LINE"),
 ];
 
 /// The 19 vehicle binding rows (`ROWS.vehicle` in `src/menus/hotkeys.js`).
 pub const VEHICLE_ROWS: [HotkeyRowSpec; 19] = [
-    // 1. Primary Fire (`holds.firePrimary`)
     HotkeyRowSpec::rebindable(
         "holds.firePrimary",
         "ifs.controls.General.Primary",
-        "Primary Fire",
+        "PRIMARY FIRE",
     ),
-    // 2. Secondary Fire (`holds.fireSecondary`)
     HotkeyRowSpec::rebindable(
         "holds.fireSecondary",
         "ifs.controls.General.Secondary",
-        "Secondary Fire",
+        "SECONDARY FIRE",
     ),
-    // 3. Boost (Fixed SHIFT)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.Flyer.Boost",
-        "Boost",
-        &["SHIFT"],
-    ),
-    // 4. Pitch Up (Fixed Mouse Y-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.LookUp",
-        "Pitch Up",
-        &["MOUSE Y-AXIS"],
-    ),
-    // 5. Pitch Down (Fixed Mouse Y-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.LookDown",
-        "Pitch Down",
-        &["MOUSE Y-AXIS"],
-    ),
-    // 6. Turn Left (Fixed Mouse X-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.TurnLeft",
-        "Turn Left",
-        &["MOUSE X-AXIS"],
-    ),
-    // 7. Turn Right (Fixed Mouse X-Axis)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.TurnRight",
-        "Turn Right",
-        &["MOUSE X-AXIS"],
-    ),
-    // 8. Throttle Up (`axes.forward+`)
+    HotkeyRowSpec::rebindable("axes.forward+", "", "ACCELERATE"),
+    HotkeyRowSpec::rebindable("axes.forward-", "", "REVERSE"),
+    HotkeyRowSpec::rebindable("axes.right-", "", "STRAFE LEFT"),
+    HotkeyRowSpec::rebindable("axes.right+", "", "STRAFE RIGHT"),
+    HotkeyRowSpec::rebindable("axes.turn-", "", "TURN LEFT"),
+    HotkeyRowSpec::rebindable("axes.turn+", "", "TURN RIGHT"),
+    HotkeyRowSpec::fixed("", "AIM", &["MOUSE"]),
+    HotkeyRowSpec::fixed("", "BRAKE", &["SPACE"]),
     HotkeyRowSpec::rebindable(
-        "axes.forward+",
-        "ifs.controls.General.ThrottleUp",
-        "Throttle Up",
+        "presses.nextPrimary",
+        "ifs.controls.General.NextPosition",
+        "NEXT POSITION",
     ),
-    // 9. Throttle Down / Reverse (`axes.forward-`)
-    HotkeyRowSpec::rebindable(
-        "axes.forward-",
-        "ifs.controls.General.ThrottleDown",
-        "Throttle Down / Reverse",
-    ),
-    // 10. Strafe Left (`axes.right-`)
-    HotkeyRowSpec::rebindable(
-        "axes.right-",
-        "ifs.controls.General.StrafeLeft",
-        "Strafe Left",
-    ),
-    // 11. Strafe Right (`axes.right+`)
-    HotkeyRowSpec::rebindable(
-        "axes.right+",
-        "ifs.controls.General.StrafeRight",
-        "Strafe Right",
-    ),
-    // 12. Change Position (Fixed 1 - 5)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.Vehicle.NextPosition",
-        "Change Position",
-        &["1 - 5"],
-    ),
-    // 13. Exit Vehicle (`presses.use`)
-    HotkeyRowSpec::rebindable(
-        "presses.use",
-        "ifs.controls.General.Action",
-        "Exit Vehicle",
-    ),
-    // 14. Take Off / Land (`presses.jump`)
-    HotkeyRowSpec::rebindable(
-        "presses.jump",
-        "ifs.controls.General.LandTakeoff",
-        "Take Off / Land",
-    ),
-    // 15. Change View Mode (`presses.zoom`)
-    HotkeyRowSpec::rebindable(
-        "presses.zoom",
-        "ifs.controls.General.Zoom",
-        "Change View Mode",
-    ),
-    // 16. 1st / 3rd Person View (`presses.perspective`)
+    HotkeyRowSpec::rebindable("presses.use", "", "ENTER/EXIT"),
+    HotkeyRowSpec::rebindable("presses.reload", "ifs.controls.General.Reload", "RELOAD"),
     HotkeyRowSpec::rebindable(
         "presses.perspective",
         "ifs.controls.General.FirstThirdPerson",
-        "1st / 3rd Person View",
+        "1ST/3RD VIEW",
     ),
-    // 17. View Tactical Map (`presses.map`)
-    HotkeyRowSpec::rebindable(
-        "presses.map",
-        "ifs.controls.General.Map",
-        "View Tactical Map",
-    ),
-    // 18. Free Look (Fixed N/A)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.General.FreeLook",
-        "Free Look",
-        &["N/A"],
-    ),
-    // 19. Droideka Transform (Fixed CONTROL)
-    HotkeyRowSpec::fixed(
-        "ifs.controls.Vehicle.Transform",
-        "Droideka Transform",
-        &["CONTROL"],
-    ),
+    HotkeyRowSpec::rebindable("presses.map", "", "SHOW MAP"),
+    HotkeyRowSpec::fixed("ifs.controls.playerlist", "PLAYER LIST", &["TAB"]),
+    HotkeyRowSpec::fixed("", "CHAT", &["T"]),
+    HotkeyRowSpec::fixed("", "TEAM CHAT", &["Y"]),
+    HotkeyRowSpec::fixed("ifs.controls.General.Pause", "PAUSE MENU", &["ESC"]),
 ];
 
 /// Returns the active key codes for `row` (`bindingCodes(row, bindings)` in `src/menus/hotkeys.js`).
 ///
 /// Fixed rows return their static `row.fixed` slice; rebindable rows look up
 /// `row.action` in `bindings` (or return an empty vector when unbound).
-pub fn binding_codes(
-    row: &HotkeyRowSpec,
-    bindings: &BTreeMap<String, Vec<String>>,
-) -> Vec<String> {
+pub fn binding_codes(row: &HotkeyRowSpec, bindings: &BTreeMap<String, Vec<String>>) -> Vec<String> {
     if let Some(action) = row.action {
         bindings.get(action).cloned().unwrap_or_default()
     } else {
@@ -874,7 +651,8 @@ pub fn hotkey_rows(
         return FLIGHT_BINDINGS
             .iter()
             .map(|entry| {
-                let raw_label = say(strings, Some(entry.label_key), entry.label).to_uppercase();
+                // Flight rows use action names, independent of localized ground labels.
+                let raw_label = entry.label.to_uppercase();
                 let label = format!("{}:", raw_label.trim_end_matches(':'));
                 let codes = bindings
                     .get(entry.id)
@@ -921,6 +699,35 @@ pub fn hotkey_rows(
 mod tests {
     use super::*;
 
+    // Frozen hotkeyRows output with default bindings and no localized strings.
+    // This covers order, fixed text and the action keys the input dispatcher uses.
+    #[test]
+    fn all_control_rows_match_the_reference_snapshot() {
+        let expected = include_str!("../tests/fixtures/control-rows.tsv");
+        let mut actual = String::new();
+        for tab in ["infantry", "vehicle", "starfighter"] {
+            let bindings = if tab == "starfighter" {
+                default_flight_bindings()
+            } else {
+                flat_bindings()
+            };
+            // Flight labels are action names even if ground localization has a
+            // colliding key; the browser deliberately does not translate them.
+            let strings =
+                HashMap::from([("ifs.controls.General.ThrottleUp".into(), "IGNORED".into())]);
+            for row in hotkey_rows(tab, &bindings, &strings) {
+                assert_eq!(row.disabled, row.action.is_none());
+                actual.push_str(&format!(
+                    "{tab}\t{}\t{}\t{}\n",
+                    row.label,
+                    row.keys,
+                    row.action.as_deref().unwrap_or("-")
+                ));
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+
     // Verifies tab counts, row counts, key label formatting, reserved keys, and exclusive rebinding.
     #[test]
     fn hotkeys_and_bindings_match_js() {
@@ -944,7 +751,7 @@ mod tests {
         assert_eq!(key_name("Mouse3"), "MOUSE BUTTON 4");
         assert_eq!(key_name("Mouse4"), "MOUSE BUTTON 5");
         assert_eq!(key_name("WheelUp"), "MOUSE WHEEL UP");
-        assert_eq!(keys_text(&["KeyW", "ArrowUp"]), "W, UP ARROW");
+        assert_eq!(keys_text(&["KeyW", "ArrowUp"]), "W, UP");
         assert_eq!(keys_text(&["ShiftLeft", "ShiftRight"]), "SHIFT");
         assert_eq!(keys_text::<&str>(&[]), "");
 

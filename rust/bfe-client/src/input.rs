@@ -448,6 +448,10 @@ pub struct Input {
     mouse_buttons: [bool; 5],
     actions: u32,
     look: [f64; 2],
+    // Lifetime admitted displacement survives sampling and overlay clears.
+    // The pause snapshot can compare real device counts with displayed turn.
+    pointer_total: [f64; 2],
+    mouse_scale: f64,
     fire: [u32; 2],
     fire_id: [u32; 2],
     sequence: u32,
@@ -468,6 +472,8 @@ impl Default for Input {
             mouse_buttons: [false; 5],
             actions: 0,
             look: [0.0; 2],
+            pointer_total: [0.; 2],
+            mouse_scale: 1.,
             fire: [0; 2],
             fire_id: [0; 2],
             sequence: 0,
@@ -528,10 +534,16 @@ impl Input {
         let (mut command, look) = self.take(tick, generation);
         command.aspect = aspect;
         command.has_aspect = true;
+        self.mouse_scale = mouse_scale;
         command.mouse_scale = mouse_scale;
         command.has_mouse_scale = true;
         command.invert = Some(invert);
         (command, look, self.take_flight(), self.take_view())
+    }
+
+    /// Pointer counts and the last sampled multiplier, for cold control snapshots.
+    pub fn pointer_metrics(&self) -> ([f64; 2], f64) {
+        (self.pointer_total, self.mouse_scale)
     }
 
     pub fn clear(&mut self) {
@@ -785,6 +797,7 @@ impl Input {
         for (at, delta) in [x, y].into_iter().enumerate() {
             if delta.is_finite() {
                 self.look[at] = (self.look[at] + delta).clamp(-1e6, 1e6);
+                self.pointer_total[at] += delta;
             }
         }
     }

@@ -1,0 +1,67 @@
+infantry	PRIMARY FIRE:	MOUSE BUTTON 1	holds.firePrimary
+infantry	GRENADE / SECONDARY FIRE:	MOUSE BUTTON 2, ALT	holds.fireSecondary
+infantry	SECONDARY NEXT:	G	presses.nextSecondary
+infantry	PRIMARY NEXT:	F, MOUSE WHEEL UP	presses.nextPrimary
+infantry	PRIMARY PREVIOUS:	MOUSE WHEEL DOWN	presses.previousPrimary
+infantry	JUMP:	SPACE	presses.jump
+infantry	DIVE:	SPACE WITH A OR D	-
+infantry	JETPACK:	SPACE IN THE AIR	-
+infantry	CROUCH:	C, CONTROL	presses.crouch
+infantry	PRONE:	X	presses.prone
+infantry	ZOOM:	Z, MOUSE BUTTON 3	presses.zoom
+infantry	1ST/3RD VIEW:	Q, MOUSE BUTTON 4	presses.perspective
+infantry	RELOAD:	R, RETURN	presses.reload
+infantry	ENTER/EXIT:	E, KP_INSERT	presses.use
+infantry	SQUAD CMD-MOVE OUT:	F3	presses.squadMoveOut
+infantry	SQUAD CMD-HOLD:	F4	presses.squadHold
+infantry	SQUAD CMD-FOLLOW:	F2	presses.squadFollow
+infantry	SQUAD CMD-AT EASE:	F1	presses.squadAtEase
+infantry	MOVE FORWARD:	W, UP	axes.forward+
+infantry	MOVE BACK:	S, DOWN	axes.forward-
+infantry	MOVE LEFT:	A, LEFT	axes.right-
+infantry	MOVE RIGHT:	D, RIGHT	axes.right+
+infantry	TURN LEFT:		axes.turn-
+infantry	TURN RIGHT:		axes.turn+
+infantry	LOOK LEFT/RIGHT AXIS:	MOUSE X AXIS	-
+infantry	LOOK UP/DOWN AXIS:	MOUSE Y AXIS	-
+infantry	SHOW MAP:	M	presses.map
+infantry	PLAYER LIST:	TAB	-
+infantry	CHAT:	T	-
+infantry	TEAM CHAT:	Y	-
+infantry	PAUSE MENU:	ESC	-
+infantry	STATS LINE:	`	presses.stats
+vehicle	PRIMARY FIRE:	MOUSE BUTTON 1	holds.firePrimary
+vehicle	SECONDARY FIRE:	MOUSE BUTTON 2, ALT	holds.fireSecondary
+vehicle	ACCELERATE:	W, UP	axes.forward+
+vehicle	REVERSE:	S, DOWN	axes.forward-
+vehicle	STRAFE LEFT:	A, LEFT	axes.right-
+vehicle	STRAFE RIGHT:	D, RIGHT	axes.right+
+vehicle	TURN LEFT:		axes.turn-
+vehicle	TURN RIGHT:		axes.turn+
+vehicle	AIM:	MOUSE	-
+vehicle	BRAKE:	SPACE	-
+vehicle	NEXT POSITION:	F, MOUSE WHEEL UP	presses.nextPrimary
+vehicle	ENTER/EXIT:	E, KP_INSERT	presses.use
+vehicle	RELOAD:	R, RETURN	presses.reload
+vehicle	1ST/3RD VIEW:	Q, MOUSE BUTTON 4	presses.perspective
+vehicle	SHOW MAP:	M	presses.map
+vehicle	PLAYER LIST:	TAB	-
+vehicle	CHAT:	T	-
+vehicle	TEAM CHAT:	Y	-
+vehicle	PAUSE MENU:	ESC	-
+starfighter	THROTTLE:	W	throttle
+starfighter	BRAKE:	S	brake
+starfighter	ROLL LEFT:	A	rollLeft
+starfighter	ROLL RIGHT:	D	rollRight
+starfighter	BOOST:	SHIFT	boost
+starfighter	TRICK:	ALT, CONTROL	trick
+starfighter	IMMELMANN:	CAPSLOCK	immelmann
+starfighter	ROLL LOCK:	Z, MOUSE BUTTON 3	rollLock
+starfighter	TAKE OFF / LAND:	SPACE	takeoff
+starfighter	TARGET LOCK:	Q, MOUSE BUTTON 4	targetLock
+starfighter	FIRE PRIMARY:	MOUSE BUTTON 1	firePrimary
+starfighter	FIRE SECONDARY:	MOUSE BUTTON 2	fireSecondary
+starfighter	PERSPECTIVE:	V	perspective
+starfighter	USE:	E	use
+starfighter	NEXT PRIMARY:	1, MOUSE WHEEL UP	nextPrimary
+starfighter	PREVIOUS PRIMARY:	2, MOUSE WHEEL DOWN	previousPrimary

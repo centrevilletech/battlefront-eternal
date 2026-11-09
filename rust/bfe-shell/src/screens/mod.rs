@@ -238,7 +238,7 @@ pub struct ShellSettings {
     pub battle_size: String,
     /// AI difficulty preset (`"medium"`).
     pub difficulty: String,
-    /// Look sensitivity (`0.1..=1.0`, default `0.5`).
+    /// Mouse slider (`0.5..=10.0`, neutral `5.0`), as in `src/settings.js`.
     pub mouse_sensitivity: f32,
     /// Whether vertical mouse look is inverted (`false` by default).
     pub invert_y: bool,
@@ -255,7 +255,7 @@ impl Default for ShellSettings {
             menu_theme: "eternal".to_string(),
             battle_size: "full".to_string(),
             difficulty: "medium".to_string(),
-            mouse_sensitivity: 0.5,
+            mouse_sensitivity: 5.0,
             invert_y: false,
         }
     }
@@ -944,14 +944,11 @@ impl ShellApp {
                 ),
                 MenuRow::enabled("reset", "RESET TO DEFAULTS"),
             ],
-            // Mouse sensitivity (`10%..=100%`) and Y-axis inversion toggle.
+            // Keep the shell projection in the same slider units as the interface.
             OptionsPageId::Controls => vec![
                 MenuRow::enabled(
                     "sensitivity",
-                    format!(
-                        "MOUSE SENSITIVITY: {}%",
-                        (self.settings.mouse_sensitivity * 100.0).round() as u32
-                    ),
+                    format!("MOUSE SENSITIVITY: {:.1}", self.settings.mouse_sensitivity),
                 ),
                 MenuRow::enabled(
                     "invertY",
@@ -1299,7 +1296,7 @@ impl ShellApp {
             }
             (OptionsPageId::Controls, "sensitivity") => {
                 self.settings.mouse_sensitivity =
-                    (self.settings.mouse_sensitivity + step).clamp(0.1, 1.0);
+                    (self.settings.mouse_sensitivity + step).clamp(0.5, 10.0);
                 self.sound_queue.push("shell_select_change");
             }
             (OptionsPageId::Controls, "invertY") => {

@@ -2275,10 +2275,12 @@ impl BattleController {
             BattleAuthority::InstantAction { receiver, sender, camera, .. } => (receiver, sender, camera),
             BattleAuthority::Online { client, .. } => (&client.receiver, &client.sender, &client.camera),
         };
-        eprintln!("battle controls: frames={} meanFrameMs={:.3} authorityPosition={:?} authorityAim={:?} cameraPosition={:?} displayAim={:?} firstPerson={} inputSequence={} appliedSequence={}",
+        eprintln!("battle controls: frames={} meanFrameMs={:.3} authorityPosition={:?} authorityAim={:?} cameraPosition={:?} displayAim={:?} firstPerson={} inputSequence={} appliedSequence={} pointerTotal={:?} mouseScale={} maxTurn={}",
             self.frames, 1000. * self.frame_seconds / self.frames.max(1) as f64,
             receiver.own.position, [receiver.own.yaw, receiver.own.pitch], camera.position,
-            camera.aim(), camera.first_person, sender.command_sequence(), receiver.corrected_sequence);
+            camera.aim(), camera.first_person, sender.command_sequence(), receiver.corrected_sequence,
+            self.input.pointer_metrics().0, self.input.pointer_metrics().1,
+            self.scene.online.as_ref().and_then(|scene| scene.turns.get(receiver.own.class)).map_or(0., |turn| turn.0));
     }
 
     /// Routes a keyboard key press/release through PauseMenu, Chat, SpawnScreen, Scoreboard,
