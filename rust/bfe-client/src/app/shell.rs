@@ -1274,6 +1274,13 @@ impl ShellHost {
         }
         let was_notice = self.app.mp_needs_notice;
         let prev_screen = self.app.current_screen();
+        let refresh_requested = matches!(key, "Enter" | " ")
+            && matches!(prev_screen, ScreenId::MultiplayerList(_))
+            && self
+                .app
+                .active_rows()
+                .get(self.app.selected_row_index(prev_screen))
+                .is_some_and(|row| row.id == "refresh");
         self.app
             .handle_key(key, false, false, false, &mut self.browser);
         if !matches!(prev_screen, ScreenId::Options | ScreenId::OptionsPage(_))
@@ -1285,7 +1292,12 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
-        if was_notice && !self.app.mp_needs_notice {
+        let entered_list = prev_screen != self.app.current_screen()
+            && matches!(self.app.current_screen(), ScreenId::MultiplayerList(_));
+        if (was_notice && !self.app.mp_needs_notice)
+            || refresh_requested
+            || (entered_list && self.browser.rx.is_none())
+        {
             self.browser.trigger_refresh();
             self.app.sync_from_browser(&self.browser);
         }
@@ -1436,6 +1448,12 @@ impl ShellHost {
 
         let was_notice = self.app.mp_needs_notice;
         let prev_screen = self.app.current_screen();
+        let refresh_requested = matches!(prev_screen, ScreenId::MultiplayerList(_))
+            && self
+                .app
+                .active_rows()
+                .get(self.app.selected_row_index(prev_screen))
+                .is_some_and(|row| row.id == "refresh");
         if self.app.current_screen() == ScreenId::Gate {
             self.app.unlock_gate();
         } else {
@@ -1450,7 +1468,12 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
-        if was_notice && !self.app.mp_needs_notice {
+        let entered_list = prev_screen != self.app.current_screen()
+            && matches!(self.app.current_screen(), ScreenId::MultiplayerList(_));
+        if (was_notice && !self.app.mp_needs_notice)
+            || refresh_requested
+            || (entered_list && self.browser.rx.is_none())
+        {
             self.browser.trigger_refresh();
             self.app.sync_from_browser(&self.browser);
         }
