@@ -1131,8 +1131,14 @@ impl GateDriver {
             && self.gl_errors == 0
             && self.world_renderer_blocks == 0
             && self.steady_frames_measured > 0;
+        // Movie captures prove presentation only; keep the battle gate's
+        // requirement for measured world frames intact.
+        let movie_captured = self.movie_verification
+            && choreography_complete
+            && self.movie_measurement.is_some()
+            && self.gl_errors == 0;
         let summary = serde_json::json!({
-            "status": if passed { "PASS" } else { "FAIL" },
+            "status": if movie_captured { "CAPTURED" } else if passed { "PASS" } else { "FAIL" },
             "glErrors": self.gl_errors,
             "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
