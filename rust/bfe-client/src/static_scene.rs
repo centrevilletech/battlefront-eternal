@@ -49,7 +49,6 @@ pub struct Admission {
     pub deferred: usize,
     eye: usize,
     selected: Vec<usize>,
-    next: Vec<usize>,
 }
 // Resolve the shader-owned std140 layout at admission. Padding between vec3
 // members is not a host guess; FRAME_OFFSETS remains the single authority.
@@ -106,9 +105,9 @@ fn geometry(positions: &[f32], normals: &[f32], uv: &[f32], index: &[u32]) -> Ge
         groups: vec![],
     }
 }
-pub(crate) fn actor_key(material: &bfe_content_native::loader::Material) -> Result<String, String> {
+pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascades: usize) -> Result<String, String> {
     // actorProgram's closed identity comes from the same source manifest.
-    // Native inspection fixes shadows and lamp mode off explicitly.
+    // The caller supplies cascades for world actors; view models use none.
     let mut defines = vec![
         (
             if material.flags & 1 == 0 {
@@ -133,7 +132,7 @@ pub(crate) fn actor_key(material: &bfe_content_native::loader::Material) -> Resu
     // The selector includes draw kind as well as material defines. A rigid
     // look and a skinned bind-pose look are different programs even when
     // they cover the same triangles at admission.
-    let wanted = json!({"defines":defines,"skin":true,"cascades":0,"mode":"skinned","lamps":false});
+    let wanted = json!({"defines":defines,"skin":true,"cascades":cascades,"mode":"skinned","lamps":false});
     static MANIFEST: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     let manifest = MANIFEST.get_or_init(|| {
         serde_json::from_str(include_str!(
@@ -155,6 +154,7 @@ pub fn props(
     content: &BattleContent,
     textures: &[u32],
     placed: bfe_content_native::placed::Placements,
+    cascades: usize,
 ) -> Result<Admission, String> {
     let mut a = Admission {
         records: vec![],
@@ -166,7 +166,6 @@ pub fn props(
         deferred: placed.deferred,
         eye: frame("cameraPosition").unwrap().0,
         selected: Vec::with_capacity(I::MAX_RECORDS),
-        next: Vec::with_capacity(I::MAX_RECORDS),
     };
     // Copies of one model share GPU geometry. Their skeletons and placements
     // remain independent, so moving or replacing a later host-owned look
@@ -182,7 +181,7 @@ pub fn props(
             .find(|m| m.name == format!("{}/{}", part.model, part.source))
             .ok_or("missing placed model resource")?;
         let material = &mesh.material;
-        let key = actor_key(material)?;
+        let key = actor_key(material, cascades)?;
         let program = bridge.add_owned_program(&key)?;
         // The batch builder's representative source part fixes its material.
         // Texture names alone are not enough to share batches: flags, scroll
@@ -656,26 +655,29 @@ impl Admission {
     // keeps a prop-dense map from starving every remote body of a draw record.
     pub fn select_limit(&mut self,bridge:&mut Bridge,maximum:usize)->usize{
         let camera = bridge.r.core.camera();
-        select_rows(&self.records, &camera.frustum, &mut self.next);
-        self.next.truncate(maximum.min(I::MAX_RECORDS));
-        // Bind-pose rows never change. Repack only when view selection changes;
-        // drawing reads the retained bank on all other frames without copies.
-        if self.next != self.selected {
-            let mut bone = 0;
-            for (to, &from) in self.next.iter().enumerate() {
-                let row = &self.records[from];
-                let at = I::IN_RECORDS + to * I::REC_STRIDE;
-                bridge.r.core.input[at..at + I::REC_STRIDE].copy_from_slice(row);
-                bridge.r.core.input[at + I::REC_BONE_AT] = (bone / 16) as f64;
-                let first = row[I::REC_BONE_AT] as usize * 16;
-                let count = row[I::REC_BONES] as usize * 16;
-                bridge.r.core.bones[bone..bone + count]
-                    .copy_from_slice(&self.bones[first..first + count]);
-                bone += count;
-            }
-            std::mem::swap(&mut self.next, &mut self.selected);
-        }
+        select_rows(&self.records, &camera.frustum, &mut self.selected);
+        self.selected.truncate(maximum.min(I::MAX_RECORDS));
+        // Frame packets restore shared instance and bone banks, including
+        // the first-person pass at index zero. Refill the static prefix even
+        // when culling selects the same props as the preceding frame.
+        pack_rows(&self.records, &self.bones, &self.selected,
+            &mut bridge.r.core.input, &mut bridge.r.core.bones);
         self.selected.len()
+    }
+}
+
+fn pack_rows(records: &[[f64; I::REC_STRIDE]], bones: &[f32], selected: &[usize],
+    input: &mut [f64], output_bones: &mut [f32]) {
+    let mut bone = 0;
+    for (to, &from) in selected.iter().enumerate() {
+        let row = &records[from];
+        let at = I::IN_RECORDS + to * I::REC_STRIDE;
+        input[at..at + I::REC_STRIDE].copy_from_slice(row);
+        input[at + I::REC_BONE_AT] = (bone / 16) as f64;
+        let first = row[I::REC_BONE_AT] as usize * 16;
+        let count = row[I::REC_BONES] as usize * 16;
+        output_bones[bone..bone + count].copy_from_slice(&bones[first..first + count]);
+        bone += count;
     }
 }
 
@@ -714,6 +716,26 @@ fn select_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn static_prefix_survives_a_view_packet_restoring_the_shared_bank() {
+        let mut row = [0.; I::REC_STRIDE];
+        row[I::REC_KIND] = 1.;
+        row[I::REC_BONES] = 2.;
+        row[I::REC_BONE_AT] = 1.;
+        row[I::REC_WORLD..I::REC_WORLD + 16].copy_from_slice(&Matrix4::default().elements);
+        let source_bones = vec![0.75; 48];
+        let mut input = vec![0.; I::IN_RECORDS + I::REC_STRIDE];
+        let mut bones = vec![0.; 32];
+        pack_rows(&[row], &source_bones, &[0], &mut input, &mut bones);
+        let expected = input.clone();
+        // The view pass has a different skeleton at the same bank offsets.
+        input[I::IN_RECORDS + I::REC_BONES] = I::MAX_BONES as f64;
+        bones.fill(-1.);
+        pack_rows(&[row], &source_bones, &[0], &mut input, &mut bones);
+        assert_eq!(input, expected);
+        assert_eq!(input[I::IN_RECORDS + I::REC_BONE_AT], 0.);
+        assert_eq!(bones, [0.75; 32]);
+    }
     #[test]
     fn camera_can_reach_late_props_and_bounded_bone_storage() {
         let mut row = [0.; I::REC_STRIDE];

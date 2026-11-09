@@ -22,3 +22,5 @@ pub mod session_format;
 pub mod session_window;
 pub mod sound;
 mod static_scene;
+
+mod shadows;

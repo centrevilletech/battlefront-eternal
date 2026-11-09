@@ -185,7 +185,7 @@ impl Turrets {
                     center: part.center,
                     radius: part.radius,
                 };
-                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 })?;
+                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, crate::shadows::COUNT)?;
                 for row in admission.records {
                     recipes.push(Part { row, node });
                 }
@@ -345,6 +345,11 @@ impl Turrets {
         x[f::TURRET_YAW] = input[t::YAW];
         x[f::TURRET_PITCH] = input[t::PITCH];
         Some(index)
+    }
+    // Shadow storage covers the largest admitted rig, including models that
+    // have not appeared in a snapshot yet.
+    pub fn max_bones(&self) -> usize {
+        self.rows.iter().map(|turret| turret.inverses.len()).max().unwrap_or(1)
     }
     pub fn record_budget(&self) -> usize {
         self.rows.iter().filter(|t| t.shown).map(|t| t.parts.len()).sum()

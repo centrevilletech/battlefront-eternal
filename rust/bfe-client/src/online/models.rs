@@ -18,7 +18,7 @@ fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
     serde_json::from_value(v.clone()).map_err(|e| e.to_string())
 }
 impl Model {
-    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], name: &str) -> Result<Option<Self>, String> {
+    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], name: &str, cascades: usize) -> Result<Option<Self>, String> {
         let Some(parts) = content.content.weapon_models.get(name) else {
             return Ok(None);
         };
@@ -60,7 +60,7 @@ impl Model {
                 radius: r,
             });
         }
-        let admitted = crate::static_scene::props(bridge, content, textures, placed)?;
+        let admitted = crate::static_scene::props(bridge, content, textures, placed, cascades)?;
         Ok(Some(Self { rows: admitted.records, radius }))
     }
     // A one-bone rigid model uses the same attached skin convention as all
@@ -139,7 +139,7 @@ impl Model {
             center: [0.; 3],
             radius: 2.,
         };
-        let admitted = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 })?;
+        let admitted = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, 0)?;
         Ok(Self { rows: admitted.records, radius: 2. })
     }
 }

@@ -70,3 +70,6 @@ pub mod interface_resources;
 pub mod scene_pose;
 pub mod scene_pose_layout;
 pub mod scene_transform_layout;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native_casters;

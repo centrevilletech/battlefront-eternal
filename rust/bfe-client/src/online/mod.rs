@@ -51,3 +51,5 @@ pub mod roster;
 pub mod rotation;
 
 mod sound_events;
+
+mod radar;

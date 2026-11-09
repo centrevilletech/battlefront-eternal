@@ -143,7 +143,7 @@ impl Hulls {
                     radius: array(&b["radius"])?,
                 });
             }
-            let admission = crate::static_scene::props(bridge, content, textures, placements)?;
+            let admission = crate::static_scene::props(bridge, content, textures, placements, crate::shadows::COUNT)?;
             let base = class.record.get("base").and_then(bfe_content::Value::as_str).unwrap_or("hover");
             let flying = base == "flyer";
             let walking = base == "walker" || base == "commandwalker";
@@ -621,6 +621,11 @@ impl Hulls {
                 }
             }
         }
+    }
+    // Shadow storage covers the largest admitted rig, including models that
+    // have not appeared in a snapshot yet.
+    pub fn max_bones(&self) -> usize {
+        self.models.iter().map(|model| model.inverses.len()).max().unwrap_or(1)
     }
     pub fn record_budget(&self) -> usize {
         self.slots.iter().filter(|s| s.active && self.hidden != Some(s.rig)).map(|s| self.models[s.model].rows.len()).sum()

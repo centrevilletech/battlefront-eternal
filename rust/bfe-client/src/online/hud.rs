@@ -162,7 +162,7 @@ pub struct Prepared {
     weapons: Vec<Weapon>,
     labels: Vec<String>,
     strings: Value,
-    map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
+    radar: super::radar::Teams,map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     class_meta: Vec<HudClassMeta>,
     post_meta: Vec<HudPostMeta>,
 }
@@ -173,7 +173,7 @@ pub struct Hud {
     pub frames: u64,
     pub teams: [[f64; 4]; 8],
     health: f64,
-    pub map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
+    radar: super::radar::Teams,pub map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     pub countdown:f64,
     pub losing:bool,
     pub game_over:bool,
@@ -210,7 +210,7 @@ impl Prepared {
             names: BTreeMap::new(),
             weapons: vec![],
             labels: vec![String::new()],
-            strings: common["strings"].clone(),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
+            strings: common["strings"].clone(),radar:super::radar::Teams::new(content),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
             class_meta: vec![],
             post_meta: vec![],
         };
@@ -472,7 +472,7 @@ impl Prepared {
             quads: 0,
             frames: 0,
             teams: [[0.; 4]; 8],
-            health: f64::NAN,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,game_over:false,
+            health: f64::NAN,radar:self.radar,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,game_over:false,
             names,
             strings,
             class_meta: self.class_meta,
@@ -680,8 +680,17 @@ impl Hud {
         x[H::PLAYER_X] = position[0];x[H::PLAYER_Z] = position[2];
         x[H::PLAYER_YAW] = prediction.body.as_ref().map_or_else(||if prediction.fleet.identity.is_some(){prediction.fleet.aim[0]}else{receiver.own.yaw},|b|b.aim_yaw);
         x[H::PLAYER_TEAM] = receiver.own.team as f64;
+        self.radar.publish(x, receiver, &self.teams);
+        // Radar sensors originate at the controlled body or mounted hull.
+        // The viewer identity remains the soldier even while driving.
+        x[H::HAS_VIEWER] = receiver.own.alive as u8 as f64;
+        x[H::HAS_CONTROL] = receiver.own.alive as u8 as f64;
+        let controlled = mount.or_else(|| receiver.active().find(|row| row[r::ID] == receiver.own.id && row[r::GENERATION] == receiver.own.generation));
+        x[H::CONTROLLABLE] = controlled.and_then(|row| receiver.active_slots().find(|(_, candidate)| candidate[r::ID] == row[r::ID] && candidate[r::GENERATION] == row[r::GENERATION])).map_or(0., |(slot, _)| (slot + 1) as f64);
+        x[H::CONTROL_X..H::CONTROL_Z + 1].copy_from_slice(&position);
+        x[H::CONTROL_SCAN] = controlled.and_then(|row| self.unit_defs.get(row[r::CLASS_ID] as usize)).map_or(0., |row| row[U::SCAN]);
         if let Some(map)=self.map{x[H::MAP]=1.;x[H::MAP_X..H::MAP_X+5].copy_from_slice(&map);}
-        let relation=|team:f64|->f64{if team==0.{0.}else if team==receiver.own.team as f64{1.}else if team>=5.{3.}else{2.}};
+        let relation=|team:f64| self.radar.color_relation(receiver.own.team, team as usize);
         x[H::POSTS]=self.posts.len()as f64;for(index,post)in self.posts.iter_mut().enumerate(){post.row[P::RELATION]=relation(post.row[P::TEAM]);post.row[P::TOWARD_RELATION]=relation(post.row[P::TOWARD]);post.row[P::COUNTS]=(hud_model::POST_COUNTS+index*hud_model::MAX_TEAMS*PC::WORDS)as f64;post.row[P::COUNTS_LENGTH]=post.count as f64;let at=hud_model::POSTS+index*P::WORDS;x[at..at+P::WORDS].copy_from_slice(&post.row);for i in 0..post.count{post.counts[i][PC::RELATION]=relation(post.counts[i][PC::TEAM]);let at=post.row[P::COUNTS]as usize+i*PC::WORDS;x[at..at+PC::WORDS].copy_from_slice(&post.counts[i]);}if receiver.own.mount.is_none()&&post.region.as_ref().is_some_and(|region|bfe_sim::vehicles::native::in_region(region,&three::Vector3::new(receiver.own.position[0],receiver.own.position[1],receiver.own.position[2]))){x[H::CAPTURE_POST]=index as f64;}}
         // Radar consumes qualified raw unit facts in a bounded generated bank.
         // Relation and map metadata are prerequisites, not already drawn icons.
