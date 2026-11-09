@@ -127,9 +127,8 @@ use three::{CoordinateSystem, Matrix4};
 /// and [`bfe_interface::Surface`].
 ///
 /// ## Texture Categories
-/// - **Era & Mode Backdrops**: `atat_screen`, `atte_screen`, `coreship_screen`,
-///   `hoth_screen`, `generic2_screen`, `generic3_screen`, `gc_screen`, `his_brief_bg`,
-///   `iface_bgmeta_space`, `main`.
+/// - **Static Art**: `his_brief_bg` for Instant Action and
+///   `iface_bgmeta_space` for loading screens. Movies use their own textures.
 /// - **3-Piece Capsules & Borders**: `buttonleft`, `buttonmid`, `buttonright`,
 ///   `headerbuttonleft`, `headerbuttonmid`, `headerbuttonright`, `border_3_pieces`,
 ///   `border_3_pieces_Selected`.
@@ -139,16 +138,8 @@ use three::{CoordinateSystem, Matrix4};
 /// - **Loading Screen Widgets**: `load_rotating_disk`, `load_led_0..2`,
 ///   `load_edge_horz`, `load_edge_vert`, `load_edge_corner`, `map_unk`.
 const NAMED_TEXTURES: &[&str] = &[
-    "atat_screen",
-    "atte_screen",
-    "coreship_screen",
-    "hoth_screen",
-    "generic2_screen",
-    "generic3_screen",
-    "gc_screen",
     "his_brief_bg",
     "iface_bgmeta_space",
-    "main",
     "buttonleft",
     "buttonmid",
     "buttonright",
@@ -173,7 +164,6 @@ const NAMED_TEXTURES: &[&str] = &[
     "load_edge_horz",
     "load_edge_vert",
     "load_edge_corner",
-    "map_unk",
 ];
 
 /// Clones a [`Font`] (`bfe_render::interface::Font` does not derive `Clone`) so
@@ -586,6 +576,7 @@ impl ServerBrowserService for LiveServerBrowser {
 pub struct ShellHost {
     pub movies: bfe_shell::movies::MoviePlayer,
     pub preview_movies: bfe_shell::movies::MoviePlayer,
+    movie_clock: std::time::Instant,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
     preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
@@ -704,6 +695,7 @@ impl ShellHost {
         Ok(Self {
             movies: Default::default(),
             preview_movies: Default::default(),
+            movie_clock: std::time::Instant::now(),
             movie_texture,
             preview_texture,
             canvas,
@@ -787,15 +779,6 @@ impl ShellHost {
             if let Some(url) = data.textures.get(name) {
                 if let Some((handle, _, _)) = upload_path(&url) {
                     textures.by_name.insert(name.to_string(), handle);
-                }
-            }
-        }
-        // Upload per-map preview thumbnails (`map_<id>`).
-        for map in &data.maps {
-            let preview_name = format!("map_{}", map.id);
-            if let Some(url) = data.textures.get(preview_name.as_str()) {
-                if let Some((handle, _, _)) = upload_path(&url) {
-                    textures.by_name.insert(preview_name, handle);
                 }
             }
         }
@@ -910,6 +893,12 @@ impl ShellHost {
         shell_audio.apply_media_events(&media, &data);
         audio_router.set_shell(Some(shell_audio));
 
+        // Initial media cues have already reached audio; start the same movie
+        // here rather than dropping the gate's video event with that drain.
+        if let Some(movie) = app.media.movie_of(&data, "start").cloned() {
+            self.movies.play(content_dir, movie, false, 0.);
+        }
+        self.movie_clock = std::time::Instant::now();
         self.app = app;
         self.content_dir = Some(content_dir.to_path_buf());
         self.frames = 0;
@@ -1181,8 +1170,12 @@ impl ShellHost {
             .content_dir
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
-        self.movies.update(root, dt);
-        self.preview_movies.update(root, dt);
+        // Movie timestamps use wall time, independent of the simulation/UI dt clamp.
+        let now = std::time::Instant::now();
+        let movie_dt = now.duration_since(self.movie_clock).as_secs_f64();
+        self.movie_clock = now;
+        self.movies.update(root, movie_dt);
+        self.preview_movies.update(root, movie_dt);
         if std::mem::take(&mut self.movies.intro_ended) {
             let (_, events) = self.app.media.finish_intro(None);
             self.app.media_events.extend(events);

@@ -14,7 +14,7 @@
 //! Native video decoding and compositing live in `movies` and `movie_gpu`.
 
 use crate::{
-    data::{poster_still_for_movie, MovieClip, ScreenMovie, ShellData},
+    data::{MovieClip, ScreenMovie, ShellData},
     music::{MusicStep, ShellMusic, SOUNDTRACK},
 };
 
@@ -169,22 +169,15 @@ pub enum MediaEvent {
     Music(MusicStep),
 }
 
-/// Active backdrop layer state for native rendering (poster still texture key +
-/// opacity).
+/// Active movie and preview selection for native rendering.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackdropState {
     /// Active full-screen movie clip URL, if any.
     pub clip_url: Option<String>,
-    /// Resolved `common.json` poster still texture key (`"main"`, `"atat_screen"`,
-    /// etc.), if any.
-    pub poster_still: Option<String>,
     /// Current opacity (`0.0..=1.0`) of the backdrop layer.
     pub opacity: f64,
     /// Highlighted map id in Instant Action (`"bes2"`, `"geo1"`, etc.).
     pub preview_map: Option<String>,
-    /// Resolved `common.json` texture key for the Instant Action preview frame
-    /// (`"map_bes2"`, etc.).
-    pub preview_still: Option<String>,
     /// Elapsed time in seconds since the Instant Action selection changed, used
     /// to honor [`PREVIEW_DELAY`].
     pub preview_elapsed: f64,
@@ -194,10 +187,8 @@ impl Default for BackdropState {
     fn default() -> Self {
         Self {
             clip_url: None,
-            poster_still: None,
             opacity: 1.0,
             preview_map: None,
-            preview_still: None,
             preview_elapsed: 0.0,
         }
     }
@@ -214,7 +205,7 @@ pub struct ShellMedia {
     pub moves: usize,
     /// Soundtrack and screen-specific music state machine (`src/shell/audio.js`).
     pub music: ShellMusic,
-    /// Current movie clip URL, resolved poster still texture, and IA preview state.
+    /// Current movie clip URL and Instant Action preview state.
     pub backdrop: BackdropState,
     /// In-flight intro transition `(token, screen_id, target_music, loop_clip)`
     /// waiting for [`Self::finish_intro`] before restoring `shellmusic` to `1.0`.
@@ -281,10 +272,6 @@ impl ShellMedia {
                 play_intro: false,
             });
             self.backdrop.clip_url = loop_clip.as_ref().map(|c| c.url.clone());
-            self.backdrop.poster_still = loop_clip
-                .as_ref()
-                .and_then(|c| poster_still_for_movie(&c.url))
-                .map(str::to_string);
             self.backdrop.opacity = 1.0;
 
             if !back {
@@ -321,9 +308,6 @@ impl ShellMedia {
 
         let active_clip = loop_clip.unwrap_or_else(|| intro.clone());
         self.backdrop.clip_url = Some(intro.url.clone());
-        self.backdrop.poster_still = poster_still_for_movie(&active_clip.url)
-            .or_else(|| poster_still_for_movie(&intro.url))
-            .map(str::to_string);
         self.backdrop.opacity = 1.0;
         self.pending_intro = Some((token, id.to_string(), spec.music, active_clip));
         events
@@ -349,7 +333,6 @@ impl ShellMedia {
             return (false, Vec::new());
         }
         self.backdrop.clip_url = Some(loop_clip.url.clone());
-        self.backdrop.poster_still = poster_still_for_movie(&loop_clip.url).map(str::to_string);
         let mut events = vec![MediaEvent::FadeBus {
             bus: "shellmusic",
             level: 1.0,
@@ -380,7 +363,6 @@ impl ShellMedia {
         let map = map_id.and_then(|id| data.maps.iter().find(|m| m.id == id));
         let fly_url = map.and_then(|m| m.fly.as_ref()).map(|c| c.url.clone());
         self.backdrop.preview_map = map.map(|m| m.id.clone());
-        self.backdrop.preview_still = map.map(|m| m.preview_still());
         self.backdrop.preview_elapsed = 0.0;
         MediaEvent::PreviewMovie {
             loop_url: fly_url,

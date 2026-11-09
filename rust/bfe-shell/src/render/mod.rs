@@ -147,9 +147,7 @@ impl ShellTextures {
         self.by_name.get(name).copied().unwrap_or(0)
     }
 
-    /// Resolves the best available poster still texture for the current
-    /// [`ScreenId`] (`main`, `atat_screen`, `atte_screen`, `hoth_screen`,
-    /// `coreship_screen`, `generic2_screen`, `generic3_screen`).
+    /// Returns the live composited movie, or Instant Action's static art.
     pub fn backdrop_for(&self, screen: ScreenId) -> u32 {
         match screen {
             ScreenId::InstantAction | ScreenId::InstantActionEra => self.get("his_brief_bg"),
@@ -157,11 +155,8 @@ impl ShellTextures {
         }
     }
 
-    /// Resolves the map preview still texture (`map_<id>` or `map_unk`).
-    /// Looks up the per-map preview texture (`map_<id>` in lowercase ASCII)
-    /// without heap allocation, falling back to `map_unk` or `his_brief_bg`.
-    pub fn map_preview_for(&self, map_id: &str) -> u32 {
-        let _ = map_id;
+    /// Returns the delayed live flyover texture for the selected map.
+    pub fn map_preview_for(&self, _map_id: &str) -> u32 {
         self.movie_preview
     }
 }
@@ -961,7 +956,7 @@ fn draw_popup_box(
 
 /// Populates `batch` with the current shell screen's geometry for a viewport of
 /// `(viewport_w, viewport_h)` pixels:
-/// 1. Full-screen poster backdrop (`textures.backdrop_for(base_screen)`) or
+/// 1. Full-screen movie backdrop (`textures.backdrop_for(base_screen)`) or
 ///    dark space-blue fallback quad.
 /// 2. Initial click/key gate (`ScreenId::Gate`: pulsing `GATE_TEXT` at
 ///    `AT = 0.82` of interface height).
@@ -987,7 +982,7 @@ pub fn draw_shell(
     let active = app.current_screen();
     let base_screen = app.stack.last().copied().unwrap_or(ScreenId::Main);
 
-    // 1. Full-screen poster backdrop (`1024 x height`).
+    // 1. Full-screen movie backdrop (`1024 x height`).
     let bg_tex = textures.backdrop_for(base_screen);
     let full_m = anchor(0.0, 0.0, false, height);
     // Draw the screen's full-bleed background texture if available, or a

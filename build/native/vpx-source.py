@@ -9,6 +9,7 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tarfile
 import urllib.request
@@ -35,9 +36,16 @@ if not (build / "libvpx_srcs.txt").exists():
     if os.name == "nt":
         path = "/" + path[0].lower() + path[2:]
     configure_env = os.environ.copy()
+    bash_program = "bash"
+    if os.name == "nt":
+        # Windows' system bash.exe starts WSL. Use Git for Windows' real
+        # POSIX shell, including its sh/perl tools for upstream generators.
+        git_root = Path(shutil.which("git")).resolve().parent.parent
+        bash_program = str(git_root / "bin" / "bash.exe")
+        configure_env["PATH"] = str(git_root / "usr" / "bin") + os.pathsep + configure_env["PATH"]
     if os.name == "nt":
         configure_env["CC"] = "clang"
-    subprocess.run(["bash", path, "--target=generic-gnu", "--disable-examples",
+    subprocess.run([bash_program, path, "--target=generic-gnu", "--disable-examples",
                     "--disable-tools", "--disable-docs", "--disable-unit-tests",
                     "--disable-vp8", "--disable-vp9-encoder", "--disable-multithread",
                     "--disable-runtime-cpu-detect", "--disable-webm-io"], cwd=build, check=True, env=configure_env)
