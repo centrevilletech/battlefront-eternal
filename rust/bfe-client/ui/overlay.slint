@@ -1,0 +1,50 @@
+import "../assets/fonts/saira-400.ttf";
+
+export component GameUi inherits Window {
+    background: transparent;
+    default-font-family: "Saira";
+    in property <bool> proof-controls: false;
+    in property <bool> gameplay: false;
+    in-out property <string> draft;
+    out property <bool> text-focused: edit.has-focus;
+    out property <int> activations;
+    public function controls-at(x: length, y: length) -> bool {
+        return root.proof-controls && !root.gameplay && x >= panel.x && x < panel.x + panel.width && y >= panel.y && y < panel.y + panel.height;
+    }
+    public function focus-editor() { edit.focus(); }
+    public function release-editor() { keyboard.focus(); }
+    keyboard := FocusScope {}
+    // Proof-only composition marker; normal runs draw no Slint content until screens are ported.
+    Rectangle {
+        visible: root.proof-controls;
+        x: parent.width - self.width - 16px;
+        y: parent.height - 38px;
+        width: 174px; height: 26px;
+        background: #080b10b0;
+        Text { text: "BATTLEFRONT ETERNAL"; color: #e9edf2; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    panel := Rectangle {
+        visible: root.proof-controls && !root.gameplay;
+        x: 16px; y: 16px; width: 300px; height: 174px;
+        background: #0c1119e8; border-color: #ffa51d; border-width: 1px;
+        Text { x: 12px; y: 10px; text: "INPUT AND COMPOSITING"; color: #e9edf2; font-size: 14px; }
+        Rectangle {
+            x: 12px; y: 40px; width: 276px; height: 40px;
+            border-width: 1px; border-color: edit.has-focus ? #ffa51d : #7a8290;
+            background: #040608;
+            edit := TextInput { x: 8px; width: parent.width - 16px; text <=> root.draft; color: white; font-size: 18px; vertical-alignment: center; }
+        }
+        Rectangle {
+            x: 12px; y: 94px; width: 130px; height: 32px;
+            background: button.pressed ? #cc7e10 : button.has-hover ? #ffd17a : #ffa51d;
+            Text { text: root.activations == 0 ? "ACTIVATE" : "ACTIVATED " + root.activations; color: #090b10; horizontal-alignment: center; vertical-alignment: center; }
+            button := TouchArea { mouse-cursor: pointer; clicked => { root.activations += 1; } }
+        }
+        Rectangle {
+            x: 158px; y: 94px; width: 130px; height: 32px; background: #273442;
+            Text { text: "DRAG"; color: white; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { mouse-cursor: self.pressed ? grabbing : grab; }
+        }
+        Text { x: 12px; y: 142px; text: "Input stays in this window"; color: #c1c8d0; font-size: 12px; }
+    }
+}

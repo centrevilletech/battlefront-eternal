@@ -8,6 +8,8 @@ default-run = "bfe-client"
 description = "Window, input and audio device host for the native renderer"
 
 [dependencies]
+slint.workspace = true
+i-slint-core.workspace = true
 bfe-render = { path = "../bfe-render" }
 bfe-battle-ui = { path = "../bfe-battle-ui" }
 bfe-interface = { path = "../bfe-interface" }
@@ -50,3 +52,6 @@ arboard = { version = "3", default-features = false, features = ["wayland-data-c
 [target.'cfg(target_os = "linux")'.dependencies]
 # Reuse the Xlib connection behind winit's X11 window; other backends do not load it.
 x11-dl = "2.21"
+
+[build-dependencies]
+slint-build.workspace = true

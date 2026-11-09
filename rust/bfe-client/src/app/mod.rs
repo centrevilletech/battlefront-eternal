@@ -76,6 +76,7 @@ mod loading;
 mod folder_dialog;
 mod first_run;
 mod platform_smoke;
+mod slint_ui;
 pub mod script;
 pub mod settings;
 pub mod shell;
@@ -130,6 +131,7 @@ use std::{
     collections::BTreeMap,
     num::NonZeroU32,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::{mpsc, Arc, Mutex},
     time::Instant,
 };
@@ -359,7 +361,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let gate = opts
         .script
         .as_deref()
-        .filter(|name| *name != "platform-smoke")
+        .filter(|name| !matches!(*name, "platform-smoke" | "slint-proof"))
         .map(|name| GateDriver::new(name, opts.shots_dir.clone()));
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
@@ -386,6 +388,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         shell: None,
         #[cfg(target_os = "linux")]
         x11_grab: None,
+        slint_ui: None,
         window: None,
         surface: None,
         context: None,
@@ -443,12 +446,14 @@ struct StandaloneWindowApp {
     /// Release the X11 device grab before dropping its borrowed window connection.
     #[cfg(target_os = "linux")]
     x11_grab: Option<x11_pointer::Grab>,
+    /// UI releases its graphics resources before the shared context and surface.
+    slint_ui: Option<slint_ui::SlintHost>,
     /// Native OS window handle.
-    window: Option<Window>,
+    window: Option<Arc<Window>>,
     /// `glutin` window surface for buffer swaps.
-    surface: Option<Surface<WindowSurface>>,
+    surface: Option<Rc<Surface<WindowSurface>>>,
     /// Current OpenGL / OpenGL ES context.
-    context: Option<PossiblyCurrentContext>,
+    context: Option<Rc<PossiblyCurrentContext>>,
     /// `glow` function pointer table bound to the current GL context.
     gl: Option<glow::Context>,
     /// Whether the OS window currently has input focus.
@@ -617,10 +622,12 @@ impl StandaloneWindowApp {
         let Some(window) = &self.window else {
             return;
         };
-        let icon = match &self.state {
-            AppState::Battle(battle) => battle.cursor_icon(),
-            _ => winit::window::CursorIcon::Default,
-        };
+        let icon = self.slint_ui.as_ref().and_then(|ui| ui.cursor()).unwrap_or_else(|| {
+            match &self.state {
+                AppState::Battle(battle) => battle.cursor_icon(),
+                _ => winit::window::CursorIcon::Default,
+            }
+        });
         if icon != self.pointer_icon {
             window.set_cursor(icon);
             self.pointer_icon = icon;
@@ -931,27 +938,13 @@ impl StandaloneWindowApp {
     /// to `DRAW_FRAMEBUFFER = 0` (the default window surface) and immediately swaps the
     /// window backbuffer via `glutin::surface::Surface::swap_buffers`.
     fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
-        let (Some(gl), Some(surface), Some(context)) = (&self.gl, &self.surface, &self.context)
+        let (Some(ui), Some(surface), Some(context)) = (&self.slint_ui, &self.surface, &self.context)
         else {
             return Err("window presentation resources missing".into());
         };
-        unsafe {
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(src_fb));
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
-            gl.disable(glow::SCISSOR_TEST);
-            gl.blit_framebuffer(
-                0,
-                0,
-                src_size[0],
-                src_size[1],
-                0,
-                0,
-                self.opts.size[0],
-                self.opts.size[1],
-                glow::COLOR_BUFFER_BIT,
-                glow::LINEAR,
-            );
-        }
+        // The Slint notifier copies this frame after its transparent clear and
+        // before its UI draw. Only this host swaps the shared window surface.
+        ui.render(src_fb, src_size)?;
         surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
     }
 
@@ -1071,6 +1064,15 @@ impl ApplicationHandler for StandaloneWindowApp {
             )?);
 
             window.set_ime_allowed(true);
+            let window = Arc::new(window);
+            let context = Rc::new(context);
+            let surface = Rc::new(surface);
+            self.slint_ui = Some(slint_ui::SlintHost::new(
+                window.clone(),
+                context.clone(),
+                surface.clone(),
+                self.opts.script.as_deref() == Some("slint-proof"),
+            )?);
             self.window = Some(window);
             self.surface = Some(surface);
             self.context = Some(context);
@@ -1100,6 +1102,9 @@ impl ApplicationHandler for StandaloneWindowApp {
             if self.pointer_locked && self.focused {
                 if let AppState::Battle(battle) = &mut self.state {
                     battle.input.motion(dx, dy);
+                    if self.opts.script.as_deref() == Some("slint-proof") {
+                        eprintln!("[input] locked raw motion {dx},{dy}");
+                    }
                 }
             }
         }
@@ -1126,6 +1131,25 @@ impl ApplicationHandler for StandaloneWindowApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        if self.opts.script.as_deref() == Some("slint-proof") {
+            match &event {
+                WindowEvent::KeyboardInput { event, .. } => eprintln!(
+                    "[input] physical={:?} logical={:?} state={:?}",
+                    event.physical_key, event.logical_key, event.state
+                ),
+                WindowEvent::MouseInput { button, state, .. } => {
+                    eprintln!("[input] button={button:?} state={state:?}");
+                }
+                WindowEvent::MouseWheel { delta, .. } => eprintln!("[input] wheel={delta:?}"),
+                _ => {}
+            }
+        }
+        let consumed = self.slint_ui.as_mut()
+            .is_some_and(|ui| ui.event(&event, self.pointer_locked));
+        if consumed {
+            self.sync_pointer_lock();
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => {
                 // Consult `HostController::close_prompt()` before exiting the event loop.
@@ -1576,7 +1600,20 @@ impl StandaloneWindowApp {
             }
         }
         self.update_rich_presence();
+        if let Some(ui) = &self.slint_ui {
+            ui.update(matches!(&self.state, AppState::Battle(_)));
+            if ui.wants_quit() {
+                self.request_app_close(event_loop);
+            }
+        }
         self.sync_pointer_lock();
+        // FemtoVG shares the context and changes its state between game frames.
+        if let Some(shell) = &mut self.shell {
+            shell.core.state.reset();
+        }
+        if let AppState::Battle(battle) = &mut self.state {
+            battle.scene.bridge.r.core.state.reset();
+        }
 
         let frame_res: Result<(), String> = (|| {
             if let (Some(shell), Some(context), Some(window)) =
@@ -1672,6 +1709,10 @@ impl StandaloneWindowApp {
                                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
                             },
                         )? {
+                            let ui = self.slint_ui.as_mut().ok_or("Slint host missing")?;
+                            let input = ui.prove_input()?;
+                            ui.render(scene.canvas.framebuffer, scene.size)?;
+                            smoke.record_ui(scene.size, &ui.pixels(), input)?;
                             self.blit_framebuffer_to_window(scene.canvas.framebuffer, scene.size)?;
                         }
                     }

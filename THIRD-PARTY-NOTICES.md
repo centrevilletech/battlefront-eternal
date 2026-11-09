@@ -26,6 +26,7 @@ the game, on the player's machine.
 
 | Component | Copyright | License |
 | --- | --- | --- |
+| [Slint](https://slint.dev) 1.18.1, compiled native menu components and FemtoVG renderer | Copyright SixtyFPS GmbH and the Slint contributors | GPL-3.0-only, selected from its offered license alternatives; full text in `licenses/Slint-GPL-3.0.txt` |
 | [Claxon](https://github.com/ruuda/claxon) 0.4.3, pure Rust FLAC decoder | Copyright 2014-2019 Ruud van Asseldonk and contributors | Apache-2.0 (full text in `rust/audio-decode/licenses/Claxon.txt`, installed as `legal/audio-codecs/Claxon.txt`) |
 | [opus-pure](https://github.com/stephenberry/opus-pure) 0.2.2, pure Rust Opus decoder | Copyright 2026 Stephen Berry; Copyright 2026 restsend.com; Copyright 2001-2023 Xiph.Org and contributors | BSD-3-Clause (full notices in `rust/audio-decode/licenses/Opus.txt`, installed as `legal/audio-codecs/Opus.txt`) |
 | [Basis Universal](https://github.com/BinomialLLC/basis_universal) 2.50 transcoder, vendored through `rust/basis-transcode` | Copyright Binomial LLC | Apache-2.0; `licenses/Basis-Universal.txt` |

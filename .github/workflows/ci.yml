@@ -34,7 +34,7 @@ jobs:
       - name: Install Linux audio headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev alsa-utils
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev libasound2-dev alsa-utils
 
       - name: Install Rust toolchain
         run: bash build/ci/install-rust.sh
@@ -70,7 +70,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 \
+            libfontconfig1-dev libasound2-dev libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1 \
             libxcb-xkb1 libxcursor1 libxi6 libxinerama1 libxkbcommon0 \
             libxkbcommon-x11-0 libxrandr2 xvfb xauth
@@ -177,7 +177,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev \
+            libfontconfig1-dev libasound2-dev \
             libegl1 \
             libegl-mesa0 \
             libgl1-mesa-dri \
