@@ -1166,6 +1166,7 @@ impl BattleController {
             spawn_ctrl.view.assets = BattleUiAssets::from_surface(&surface);
         }
         spawn_ctrl.open(&mut spawn_port, OpenReason::Start, height);
+        eprintln!("spawn screen shown: initial class and post selection");
 
         let mut scoreboard_port = LiveScoreboardPort::new(is_online, era);
         for (header, team) in scoreboard_port.inner.teams.iter_mut().zip(&spawn_port.teams) {
@@ -1304,6 +1305,7 @@ impl BattleController {
     ///   `request_spawn(class_reg_id, post_reg_id)` or `request_suicide` via `client.sender`.
     pub fn flush_spawn_requests(&mut self) {
         if let Some(choice) = self.spawn_port.pending_spawn.take() {
+            eprintln!("spawn requested: team={} class={} post={}", choice.team, choice.class_name, choice.post_name);
             self.first_life_spawned = true;
             match &mut self.authority {
                 BattleAuthority::InstantAction { world, .. } => {
@@ -1663,6 +1665,13 @@ impl BattleController {
             }
         };
 
+        // Admission may already publish a living first body before the user
+        // commits the screen. A real click must close it even without a new
+        // false-to-true alive edge (the scripted driver used to close it itself).
+        if own_alive && self.first_life_spawned && self.spawn_ctrl.is_open() {
+            eprintln!("spawn answer: authoritative player alive; closing spawn screen");
+            self.spawn_ctrl.close(&mut self.spawn_port);
+        }
         if own_alive && !self.was_alive {
             self.was_alive = true;
             self.player_spawns += 1;

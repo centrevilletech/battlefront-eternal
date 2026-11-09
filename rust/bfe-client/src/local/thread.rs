@@ -543,12 +543,14 @@ impl WorldThread {
             .name("bfe-world-60hz".to_string())
             .spawn(move || match build() {
                 Ok(runtime) => {
+                    eprintln!("native world admission succeeded; starting world ticks");
                     thread_shared
                         .latest_tick_bits
                         .store(runtime.tick().to_bits(), Ordering::Release);
                     run_world_loop(Box::new(runtime), thread_shared);
                 }
                 Err(err) => {
+                    eprintln!("native world admission failed: {err}");
                     if let Ok(mut fg) = thread_shared.fault.lock() {
                         *fg = Some(err);
                     }
@@ -831,7 +833,9 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         class_name,
                         post_name,
                     } => {
+                        eprintln!("world spawn request: team={team} class={class_name} post={post_name}");
                         if let Err(err) = runtime.spawn_human(team, &class_name, &post_name) {
+                            eprintln!("world spawn request refused: {err}");
                             if let Ok(mut fg) = shared.fault.lock() {
                                 *fg = Some(err);
                             }

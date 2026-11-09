@@ -33,7 +33,7 @@ pub struct Generations {
     /// `mapImportVersion`/`maps` in `.prepare.json`).
     pub maps: Option<u32>,
     /// Side archive generation (`sides` in `tools/content-version.json` or
-    /// `version`/`sides` in `.prepare.json`).
+    /// `muzzleVersion`/`sides` in `.prepare.json`).
     pub sides: Option<u32>,
     /// Common archive generation (`common` in `tools/content-version.json` or
     /// `commonVersion`/`common` in `.prepare.json`).
@@ -97,7 +97,7 @@ impl Generations {
             .map_err(|e| format!("{}: {e}", prepare_path.display()))?;
         let v: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|e| format!("{}: {e}", prepare_path.display()))?;
-        // Accept both `.prepare.json` keys (`mapImportVersion`, `version`,
+        // Accept both `.prepare.json` keys (`mapImportVersion`, `muzzleVersion`,
         // `commonVersion`) and normalized keys (`maps`, `sides`, `common`).
         let maps = v
             .get("mapImportVersion")
@@ -111,13 +111,13 @@ impl Generations {
                 )
             })?;
         let sides = v
-            .get("version")
+            .get("muzzleVersion")
             .or_else(|| v.get("sides"))
             .and_then(|n| n.as_u64())
             .map(|n| n as u32)
             .ok_or_else(|| {
                 format!(
-                    "{}: missing or invalid `version`/`sides`",
+                    "{}: missing or invalid `muzzleVersion`/`sides`",
                     prepare_path.display()
                 )
             })?;
@@ -156,7 +156,7 @@ impl Generations {
             .and_then(|n| n.as_u64())
             .map(|n| n as u32);
         let sides = v
-            .get("version")
+            .get("muzzleVersion")
             .or_else(|| v.get("sides"))
             .and_then(|n| n.as_u64())
             .map(|n| n as u32);
@@ -320,6 +320,21 @@ pub fn version_line(about: Option<&AboutInfo>, simulation: Option<&str>) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepared_side_generation_is_not_the_state_schema_version() {
+        let dir = std::env::temp_dir().join(format!("bfe-content-version-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".prepare.json"), br#"{"mapImportVersion":16,"muzzleVersion":3,"commonVersion":2,"version":2}"#).unwrap();
+        let wanted = Generations::wanted_from_repo();
+        let strict = Generations::try_from_prepare_json(&dir, Some(&wanted)).unwrap();
+        let relaxed = Generations::from_prepare_json(&dir, Some(&wanted)).unwrap();
+        assert_eq!(strict, relaxed);
+        assert_eq!(strict.current, Some(true));
+        let about = AboutInfo { prepared: Some(strict), wanted: Some(wanted), version: None };
+        assert_eq!(version_line(Some(&about), None), "WEB BUILD   SIMULATION 28   GAME DATA M16 S3 C2");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn formats_version_line_matching_js_exactly() {

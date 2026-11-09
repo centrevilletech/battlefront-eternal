@@ -346,6 +346,11 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::wayland::EventLoopExtWayland;
+        eprintln!("window backend: {}", if event_loop.is_wayland() { "Wayland" } else { "X11" });
+    }
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = StandaloneWindowApp {
@@ -362,6 +367,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         surface: None,
         context: None,
         gl: None,
+        cursor_px: [0.0, 0.0],
         focused: true,
         pointer_locked: false,
         fullscreen: false,
@@ -382,6 +388,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 /// Top-level `winit` [`ApplicationHandler`] owning the OS window, EGL/GLX surface,
 /// OpenGL context, [`ShellHost`], [`HostController`], [`PresenceController`], and [`AppState`].
 struct StandaloneWindowApp {
+    /// Last physical cursor position supplied by the window system.
+    cursor_px: [f64; 2],
     /// Parsed command-line options (`--width`, `--height`, `--script`, `--server`, etc.).
     opts: StandaloneOptions,
     /// Persistent desktop, `bfe-interface`, and player settings store.
@@ -877,6 +885,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_px = [position.x, position.y];
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
                 match &mut self.state {
@@ -902,10 +911,9 @@ impl ApplicationHandler for StandaloneWindowApp {
                     AppState::Shell => {
                         if down && button == MouseButton::Left {
                             if let Some(shell) = &mut self.shell {
-                                let [w, h] = shell.size;
                                 let transition = shell.handle_mouse_click(
-                                    w as f64 * 0.5,
-                                    h as f64 * 0.5,
+                                    self.cursor_px[0],
+                                    self.cursor_px[1],
                                     &mut self.settings,
                                     &self.audio_router,
                                 );
