@@ -73,6 +73,7 @@
 pub mod battle;
 pub mod cli;
 mod loading;
+mod platform_smoke;
 pub mod script;
 pub mod settings;
 pub mod shell;
@@ -356,13 +357,17 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let gate = opts
         .script
         .as_deref()
+        .filter(|name| *name != "platform-smoke")
         .map(|name| GateDriver::new(name, opts.shots_dir.clone()));
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
+    let platform_smoke = (opts.script.as_deref() == Some("platform-smoke"))
+        .then(|| platform_smoke::Smoke::new(opts.shots_dir.clone()));
     let mut app = StandaloneWindowApp {
+        platform_smoke,
         opts,
         settings,
         host_controller,
@@ -457,6 +462,7 @@ struct StandaloneWindowApp {
     last_presence_key: String,
     /// Optional automated `--script gate` driver.
     gate: Option<GateDriver>,
+    platform_smoke: Option<platform_smoke::Smoke>,
     /// Fatal error message captured during frame stepping or GL initialization.
     error: Option<String>,
 }
@@ -834,10 +840,10 @@ impl StandaloneWindowApp {
     /// Uses `glBlitFramebuffer` with `GL_LINEAR` filtering from `READ_FRAMEBUFFER = src_fb`
     /// to `DRAW_FRAMEBUFFER = 0` (the default window surface) and immediately swaps the
     /// window backbuffer via `glutin::surface::Surface::swap_buffers`.
-    fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) {
+    fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
         let (Some(gl), Some(surface), Some(context)) = (&self.gl, &self.surface, &self.context)
         else {
-            return;
+            return Err("window presentation resources missing".into());
         };
         unsafe {
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(src_fb));
@@ -856,7 +862,7 @@ impl StandaloneWindowApp {
                 glow::LINEAR,
             );
         }
-        let _ = surface.swap_buffers(context);
+        surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
     }
 
     /// Polls `glGetError()` after each frame and increments `gate.gl_errors` if non-zero.
@@ -870,6 +876,9 @@ impl StandaloneWindowApp {
             if err != glow::NO_ERROR {
                 if let Some(gate) = &mut self.gate {
                     gate.gl_errors += 1;
+                }
+                if self.platform_smoke.is_some() {
+                    self.error = Some(format!("platform smoke GL error {err}"));
                 }
             }
         }
@@ -1035,7 +1044,11 @@ impl ApplicationHandler for StandaloneWindowApp {
             WindowEvent::Focused(focused) => {
                 // Keep focus active during headless Xorg `--script gate` runs; otherwise
                 // clear held combat inputs and open the pause menu on focus loss.
-                let focused = if self.gate.is_some() { true } else { focused };
+                let focused = if self.gate.is_some() || self.platform_smoke.is_some() {
+                    true
+                } else {
+                    focused
+                };
                 self.focused = focused;
                 if !focused {
                     if let AppState::Battle(battle) = &mut self.state {
@@ -1451,7 +1464,7 @@ impl StandaloneWindowApp {
                         _ => None,
                     };
                     if let Some((fb, sz)) = blit_info {
-                        self.blit_framebuffer_to_window(fb, sz);
+                        self.blit_framebuffer_to_window(fb, sz)?;
                     }
                     // Once content is ready, load `common.json` / `shell.json` into `ShellHost`
                     // and transition into `AppState::Shell`.
@@ -1470,6 +1483,10 @@ impl StandaloneWindowApp {
                                 0.016,
                                 &StartupContentState::Ready(content_dir),
                             );
+                            if let Some(smoke) = &mut self.platform_smoke {
+                                smoke.capture("startup", shell.size, &shell.pixels()?)?;
+                                smoke.startup = true;
+                            }
                             if let Some(gate) = &mut self.gate {
                                 if gate.phase == GatePhase::StartupLoader {
                                     gate.save_shell_shot(shell, "01-startup-loader.png")?;
@@ -1486,7 +1503,7 @@ impl StandaloneWindowApp {
                         let t = shell.step_and_draw(dt, &mut self.settings, &self.audio_router);
                         let fb = shell.canvas.framebuffer;
                         let sz = shell.size;
-                        self.blit_framebuffer_to_window(fb, sz);
+                        self.blit_framebuffer_to_window(fb, sz)?;
                         t
                     } else {
                         None
@@ -1497,6 +1514,24 @@ impl StandaloneWindowApp {
                         }
                     }
                     self.apply_shell_transition(transition, event_loop);
+                    if let (Some(smoke), Some(shell), Some(context)) =
+                        (&mut self.platform_smoke, &mut self.shell, &self.context)
+                    {
+                        if !smoke.startup {
+                            return Err("platform smoke missed startup rendering".into());
+                        }
+                        let display = context.display();
+                        if let Some(scene) = smoke.advance(
+                            shell,
+                            &mut self.settings,
+                            &self.audio_router,
+                            || unsafe {
+                                glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
+                            },
+                        )? {
+                            self.blit_framebuffer_to_window(scene.canvas.framebuffer, scene.size)?;
+                        }
+                    }
                 }
                 AppState::HostStarting {
                     options,
@@ -1513,7 +1548,7 @@ impl StandaloneWindowApp {
                         shell.draw_host_starting(dt, &server_name);
                         let fb = shell.canvas.framebuffer;
                         let sz = shell.size;
-                        self.blit_framebuffer_to_window(fb, sz);
+                        self.blit_framebuffer_to_window(fb, sz)?;
                     }
                     match poll_res {
                         Ok(Ok(join_info)) => {
@@ -1619,7 +1654,7 @@ impl StandaloneWindowApp {
                         None
                     };
                     if let Some((fb, size)) = frame {
-                        self.blit_framebuffer_to_window(fb, size);
+                        self.blit_framebuffer_to_window(fb, size)?;
                     }
                     if let Err(error) = result {
                         if self.gate.is_some() {
@@ -1660,7 +1695,7 @@ impl StandaloneWindowApp {
                     )?;
                     let fb = battle.scene.canvas.framebuffer;
                     let sz = battle.size;
-                    self.blit_framebuffer_to_window(fb, sz);
+                    self.blit_framebuffer_to_window(fb, sz)?;
 
                     if let Some(t) = transition {
                         let content_dir = self
@@ -1788,6 +1823,9 @@ impl StandaloneWindowApp {
         })();
 
         self.check_gl_errors();
+        if self.error.is_some() || self.platform_smoke.as_ref().is_some_and(|s| s.done) {
+            event_loop.exit();
+        }
 
         if let Err(err) = frame_res {
             self.error = Some(err);

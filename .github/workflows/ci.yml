@@ -60,16 +60,20 @@ jobs:
   linux-arm64:
     name: Linux Native (arm64)
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Install Linux audio headers
+      - name: Install audio and software OpenGL dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+            libxcb-xkb1 libxcursor1 libxi6 libxinerama1 libxkbcommon0 \
+            libxkbcommon-x11-0 libxrandr2 xvfb xauth
 
       - name: Install Rust toolchain
         run: bash build/ci/install-rust.sh --minimal
@@ -89,10 +93,24 @@ jobs:
       - name: Run arm64 native determinism gate and workspace tests
         run: bash build/ci/linux-arm64.sh
 
+      - name: Build release client for the ARM64 app smoke
+        run: cargo build --manifest-path rust/Cargo.toml --locked --release -p bfe-client --bin bfe-client
+
+      - name: Run release app on ARM64 llvmpipe
+        run: python3 tools/platform-smoke-native.py --client-bin rust/target/release/bfe-client --output-dir platform-smoke-linux-arm64
+
+      - name: Upload ARM64 app smoke PNGs and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-smoke-linux-arm64
+          path: platform-smoke-linux-arm64/
+          if-no-files-found: error
+
   windows:
     name: Windows Native (x86_64 MSVC)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -125,6 +143,26 @@ jobs:
         env:
           CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
         run: bash build/ci/windows.sh
+
+      - name: Build release client for the Windows app smoke
+        shell: bash
+        run: cargo build --manifest-path rust/Cargo.toml --locked --release --target x86_64-pc-windows-msvc -p bfe-client --bin bfe-client
+
+      - name: Install pinned and hash-checked Mesa llvmpipe
+        shell: pwsh
+        run: ./build/ci/windows-mesa.ps1 -Destination rust/target/x86_64-pc-windows-msvc/release
+
+      - name: Run release app on Windows llvmpipe
+        shell: pwsh
+        run: python tools/platform-smoke-native.py --client-bin rust/target/x86_64-pc-windows-msvc/release/bfe-client.exe --output-dir platform-smoke-windows-x64
+
+      - name: Upload Windows app smoke PNGs and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-smoke-windows-x64
+          path: platform-smoke-windows-x64/
+          if-no-files-found: error
 
   renderer-smoke-native:
     name: Native Software-GL Renderer Smoke
