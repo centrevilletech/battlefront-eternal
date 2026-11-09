@@ -81,7 +81,7 @@ pub enum WorldCommand {
 ///
 /// The `match` token is appended to the battle query (`&match=<32-hex>`) so clients rotating into a
 /// new battle can probe `matchProbe` over WebSocket signaling and verify `matchReady` before joining.
-fn random_match_hex() -> String {
+pub fn random_match_hex() -> String {
     let bytes = random::<16>().unwrap_or([0xaa; 16]);
     let mut out = String::with_capacity(32);
     for b in bytes {
@@ -136,6 +136,9 @@ pub struct LocalDedicatedServer {
     pub ready: Arc<AtomicBool>,
     /// Current 60 Hz simulation tick (`tick` in `src/main.js`).
     pub tick: Arc<AtomicU64>,
+    /// The active battle has finished; the service keeps its end table alive
+    /// until the announced rotation deadline, then replaces this host.
+    pub finished: Arc<AtomicBool>,
     world_ticks: Arc<WorldTickCounters>,
     info_snapshot: Arc<RwLock<Value>>,
     pub udp: Arc<Mutex<UdpGameServer>>,
@@ -165,12 +168,30 @@ impl LocalDedicatedServer {
         B: Fn(&str) -> bool + Send + Sync + 'static,
         S: Fn(&str, &str, &str, i64, i64, i64) + Send + Sync + 'static,
     {
+        Self::start_with_match_token(config, identity, is_banned, on_score, None)
+    }
+
+    /// Admit the exact match previously announced by the service's `rotate`.
+    /// Readiness probes compare the complete query, including this token.
+    pub fn start_with_match_token<B, S>(
+        config: &ServerConfig,
+        identity: &ServerIdentity,
+        is_banned: B,
+        on_score: S,
+        match_token: Option<&str>,
+    ) -> Result<Self, String>
+    where
+        B: Fn(&str) -> bool + Send + Sync + 'static,
+        S: Fn(&str, &str, &str, i64, i64, i64) + Send + Sync + 'static,
+    {
         let _ = on_score;
         // Validate outbound per-peer state budget (`checkStateBudget` in `src/local-server.js`).
         let state_bytes_per_second = check_state_budget(Some(config.state_bytes_per_second))?;
         // Verify prepared content manifest and map rotation (`checkContent` in `src/local-server.js`).
         let checked = check_content(&config.data, &config.rotation, &config.ai)?;
-        let match_token = random_match_hex();
+        let match_token = match_token
+            .map(str::to_owned)
+            .unwrap_or_else(random_match_hex);
         let active_query = with_match_param(&checked.first_query, &match_token);
 
         // local-server.js info() includes the active battle, bot and team policy.
@@ -258,6 +279,7 @@ impl LocalDedicatedServer {
         let udp = Arc::new(Mutex::new(udp_server));
         let ready = Arc::new(AtomicBool::new(false));
         let tick = Arc::new(AtomicU64::new(0));
+        let finished = Arc::new(AtomicBool::new(false));
         let world_ticks = Arc::new(WorldTickCounters::default());
         let tick_stop = Arc::new(AtomicBool::new(false));
         let (world_tx, world_rx) = mpsc::channel::<WorldCommand>();
@@ -266,9 +288,9 @@ impl LocalDedicatedServer {
         let udp_c = Arc::clone(&udp);
         let info_c = Arc::clone(&info_snapshot);
         let tick_c = Arc::clone(&tick);
+        let finished_c = Arc::clone(&finished);
         let world_ticks_c = Arc::clone(&world_ticks);
         let stop_c = Arc::clone(&tick_stop);
-        let ready_c = Arc::clone(&ready);
         let server_id = identity.id.clone();
         let server_name = config.name.clone();
         let content_for_tick = content_id.clone();
@@ -327,20 +349,6 @@ impl LocalDedicatedServer {
 
                 let events = {
                     let mut u = udp_c.lock().unwrap();
-                    // Bots can finish a match while the server is empty. Replace
-                    // that finished authority before admitting the next visitor;
-                    // spawning into its game-over state is correctly refused.
-                    if u.peers.is_empty() {
-                        match w.restart_finished_empty() {
-                            Ok(true) => eprintln!("restarted finished empty battle at epoch {}", w.epoch),
-                            Ok(false) => {}
-                            Err(error) => {
-                                ready_c.store(false, Ordering::SeqCst);
-                                eprintln!("empty battle restart failed: {error}");
-                                break;
-                            }
-                        }
-                    }
                     let banned_fn = Arc::clone(&is_banned);
                     u.poll(|peer_id| banned_fn(peer_id))
                 };
@@ -418,7 +426,8 @@ impl LocalDedicatedServer {
                                     .peers
                                     .iter()
                                     .filter(|(peer, state)| {
-                                        state.session.started && (!team || w.player_team(peer) == Some(sender_team))
+                                        state.session.started
+                                            && (!team || w.player_team(peer) == Some(sender_team))
                                     })
                                     .map(|(peer, _)| peer.clone())
                                     .collect();
@@ -493,6 +502,7 @@ impl LocalDedicatedServer {
                     u.flush();
 
                     tick_c.store(w.tick as u64, Ordering::Relaxed);
+                    finished_c.store(w.ended, Ordering::Release);
                     let updated_info = build_info_json(
                         &server_id,
                         &server_name,
@@ -523,6 +533,7 @@ impl LocalDedicatedServer {
             fingerprint: fp,
             ready,
             tick,
+            finished,
             world_ticks,
             info_snapshot,
             udp,

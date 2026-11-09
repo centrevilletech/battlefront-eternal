@@ -43,10 +43,13 @@ use bfe_server::browser_info::{browser_info, map_names};
 use bfe_server::config::{state_dir, ServerConfig};
 use bfe_server::identity::ServerIdentity;
 use bfe_server::local_server::LocalDedicatedServer;
+
 use bfe_server::network_contract::NetworkContract;
 use bfe_server::online_server::OnlineServer;
 use bfe_server::operator::{operator_request, OperatorControl, OperatorHttpServer, OperatorStore};
 use serde_json::{json, Value};
+
+mod rotation;
 
 /// Process-wide shutdown flag set by `SIGINT`, `SIGTERM`, or `POST /admin {"action": "stop"}`
 /// (`shutdown()` in `src/main.js`).
@@ -70,6 +73,8 @@ struct ServiceControl {
     error: RwLock<Option<String>>,
     local: Mutex<Option<LocalDedicatedServer>>,
     online: Mutex<Option<Arc<OnlineServer>>>,
+    restart_requested: AtomicBool,
+    rotating: AtomicBool,
 }
 
 impl OperatorControl for ServiceControl {
@@ -163,6 +168,10 @@ impl OperatorControl for ServiceControl {
         if st != "running" || self.local.lock().unwrap().is_none() {
             return Err("No running match to restart".to_string());
         }
+        if self.rotating.swap(true, Ordering::AcqRel) {
+            return Err("No running match to restart".to_string());
+        }
+        self.restart_requested.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -421,6 +430,118 @@ fn menu(directory: &Path, operator_port: u16) {
     }
 }
 
+/// Launch each round through the same admission, LAN and online setup.
+/// main.js rotate closes the previous listeners before invoking launch again;
+/// the fresh host must advertise the token sent in the match notification.
+fn launch_match(
+    directory: &Path,
+    config: &ServerConfig,
+    operator: &Arc<OperatorStore>,
+    control: &Arc<ServiceControl>,
+    started_at: u64,
+    match_token: Option<&str>,
+) -> Result<(), String> {
+    *control.status.write().unwrap() = "loading".to_string();
+    let identity = ServerIdentity::load(directory)?;
+    let op_for_ban = Arc::clone(operator);
+    let online_for_ban = Arc::clone(control);
+    // Combined ban predicate (`isBanned(id)` in `src/main.js`): checks local `operator.sqlite` bans and global master bans.
+    let is_banned = move |peer_id: &str| -> bool {
+        if op_for_ban.banned(peer_id) {
+            return true;
+        }
+        if let Some(online) = online_for_ban.online.lock().unwrap().as_ref() {
+            if online.globally_banned(peer_id) {
+                return true;
+            }
+        }
+        false
+    };
+    let op_for_score = Arc::clone(operator);
+    let on_score =
+        move |match_id: &str, id: &str, name: &str, kills: i64, deaths: i64, points: i64| {
+            let _ = op_for_score.scores(
+                match_id,
+                &[bfe_server::operator::ScoreInput {
+                    id: id.to_string(),
+                    name: Some(name.to_string()),
+                    kills,
+                    deaths,
+                    points,
+                }],
+            );
+        };
+
+    match LocalDedicatedServer::start_with_match_token(
+        config,
+        &identity,
+        is_banned,
+        on_score,
+        match_token,
+    ) {
+        Ok(local) => {
+            let query = local.query.clone();
+            let content = local.content.clone();
+            let udp = Arc::clone(&local.udp);
+            *control.local.lock().unwrap() = Some(local);
+            *control.status.write().unwrap() = "running".to_string();
+
+            // When the operator has accepted the online processing notice, start `OnlineServer`
+            // directory heartbeats and WebSocket rendezvous signaling (`if (config.onlineNoticeAccepted)` in `src/main.js`).
+            if config.online_notice_accepted {
+                let mut active_cfg = config.clone();
+                active_cfg.content = Some(content);
+                let names = map_names(&config.data);
+                let cfg_for_browser = active_cfg.clone();
+                let query_for_browser = query.clone();
+                let browser_fn = Arc::new(move || {
+                    browser_info(
+                        &cfg_for_browser,
+                        &query_for_browser,
+                        started_at,
+                        &names,
+                        now_unix_ms(),
+                    )
+                });
+                let op_ban = Arc::clone(operator);
+                let is_local_banned = Arc::new(move |id: &str| op_ban.banned(id));
+                let contract_json = NetworkContract::current().to_json();
+                match OnlineServer::new(
+                    active_cfg,
+                    directory,
+                    &contract_json,
+                    query,
+                    Some(udp),
+                    browser_fn,
+                    is_local_banned,
+                ) {
+                    Ok(online_srv) => {
+                        let online_arc = Arc::new(online_srv);
+                        match online_arc.start() {
+                            Ok(()) => {
+                                println!("Online server identity: {}", online_arc.id);
+                                *control.online.lock().unwrap() = Some(online_arc);
+                            }
+                            Err(err) => {
+                                *control.error.write().unwrap() = Some(err.clone());
+                                eprintln!("Online registration: {err}");
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        *control.error.write().unwrap() = Some(err.clone());
+                        eprintln!("Online registration: {err}");
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
 /// Runs the dedicated server service (`async function serve()` in `src/main.js`).
 /// Runs the headless dedicated server (`bfeserver --serve` or menu option `1`), porting
 /// `serve(dir)` from `packages/bfe-server/src/main.js`.
@@ -464,6 +585,8 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         error: RwLock::new(None),
         local: Mutex::new(None),
         online: Mutex::new(None),
+        restart_requested: AtomicBool::new(false),
+        rotating: AtomicBool::new(false),
     });
 
     // Bind loopback `/admin` and `/healthz` before launching the world so health probes work during `"setup"` and `"loading"`.
@@ -474,107 +597,74 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         Arc::clone(&control) as Arc<dyn OperatorControl>,
     )?;
 
-    // When `config.data` is configured, transition from `"setup"` to `"loading"` and launch `LocalDedicatedServer`.
     if !config.data.trim().is_empty() {
-        *control.status.write().unwrap() = "loading".to_string();
-        let identity = ServerIdentity::load(directory)?;
-        let op_for_ban = Arc::clone(&operator);
-        let online_for_ban = Arc::clone(&control);
-        // Combined ban predicate (`isBanned(id)` in `src/main.js`): checks local `operator.sqlite` bans and global master bans.
-        let is_banned = move |peer_id: &str| -> bool {
-            if op_for_ban.banned(peer_id) {
-                return true;
-            }
-            if let Some(online) = online_for_ban.online.lock().unwrap().as_ref() {
-                if online.globally_banned(peer_id) {
-                    return true;
-                }
-            }
-            false
-        };
-        let op_for_score = Arc::clone(&operator);
-        let on_score = move |match_id: &str, id: &str, name: &str, kills: i64, deaths: i64, points: i64| {
-            let _ = op_for_score.scores(
-                match_id,
-                &[bfe_server::operator::ScoreInput {
-                    id: id.to_string(),
-                    name: Some(name.to_string()),
-                    kills,
-                    deaths,
-                    points,
-                }],
-            );
-        };
-
-        match LocalDedicatedServer::start(&config, &identity, is_banned, on_score) {
-            Ok(local) => {
-                let query = local.query.clone();
-                let content = local.content.clone();
-                let udp = Arc::clone(&local.udp);
-                *control.local.lock().unwrap() = Some(local);
-                *control.status.write().unwrap() = "running".to_string();
-
-                // When the operator has accepted the online processing notice, start `OnlineServer`
-                // directory heartbeats and WebSocket rendezvous signaling (`if (config.onlineNoticeAccepted)` in `src/main.js`).
-                if config.online_notice_accepted {
-                    let mut active_cfg = config.clone();
-                    active_cfg.content = Some(content);
-                    let names = map_names(&config.data);
-                    let cfg_for_browser = active_cfg.clone();
-                    let query_for_browser = query.clone();
-                    let browser_fn = Arc::new(move || {
-                        browser_info(
-                            &cfg_for_browser,
-                            &query_for_browser,
-                            started_at,
-                            &names,
-                            now_unix_ms(),
-                        )
-                    });
-                    let op_ban = Arc::clone(&operator);
-                    let is_local_banned = Arc::new(move |id: &str| op_ban.banned(id));
-                    let contract_json = NetworkContract::current().to_json();
-                    match OnlineServer::new(
-                        active_cfg,
-                        directory,
-                        &contract_json,
-                        query,
-                        Some(udp),
-                        browser_fn,
-                        is_local_banned,
-                    ) {
-                        Ok(online_srv) => {
-                            let online_arc = Arc::new(online_srv);
-                            match online_arc.start() {
-                                Ok(()) => {
-                                    println!("Online server identity: {}", online_arc.id);
-                                    *control.online.lock().unwrap() = Some(online_arc);
-                                }
-                                Err(err) => {
-                                    *control.error.write().unwrap() = Some(err.clone());
-                                    eprintln!("Online registration: {err}");
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            *control.error.write().unwrap() = Some(err.clone());
-                            eprintln!("Online registration: {err}");
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                *control.status.write().unwrap() = "fault".to_string();
-                *control.error.write().unwrap() = Some(err.clone());
-                eprintln!("{err}");
-            }
+        if let Err(err) = launch_match(directory, &config, &operator, &control, started_at, None) {
+            *control.status.write().unwrap() = "fault".to_string();
+            *control.error.write().unwrap() = Some(err.clone());
+            eprintln!("{err}");
         }
     }
 
     println!("bfeserver service started; control menu: bfeserver");
     let _ = io::stdout().flush();
 
+    let mut rotation = rotation::Rotation::default();
     while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+        let now = std::time::Instant::now();
+        let restart = control.restart_requested.swap(false, Ordering::AcqRel);
+        let finished = control
+            .local
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|local| local.finished.load(Ordering::Acquire));
+        if !rotation.pending() && (restart || finished) {
+            match rotation.schedule(&config, !restart, now) {
+                Ok(next) => {
+                    control.rotating.store(true, Ordering::Release);
+                    if let Some(local) = control.local.lock().unwrap().as_ref() {
+                        local.match_rotate(&next.query, next.delay_ms);
+                    }
+                    eprintln!(
+                        "battle rotation scheduled: query={} delayMs={}",
+                        next.query, next.delay_ms
+                    );
+                }
+                Err(err) => {
+                    *control.error.write().unwrap() = Some(err.clone());
+                    eprintln!("battle rotation failed: {err}");
+                }
+            }
+        }
+        if let Some(next) = rotation.take_ready(now) {
+            *control.status.write().unwrap() = "loading".to_string();
+            // Close the old registrations before admitting a new authority.
+            // No old snapshot baseline or own-player mapping crosses rounds.
+            let online = control.online.lock().unwrap().take();
+            if let Some(online) = online {
+                online.close();
+            }
+            let local = control.local.lock().unwrap().take();
+            if let Some(mut local) = local {
+                local.close();
+            }
+            match launch_match(
+                directory,
+                &next.config,
+                &operator,
+                &control,
+                started_at,
+                Some(&next.token),
+            ) {
+                Ok(()) => eprintln!("battle rotation ready: query={}", next.query),
+                Err(err) => {
+                    *control.status.write().unwrap() = "fault".to_string();
+                    *control.error.write().unwrap() = Some(err.clone());
+                    eprintln!("battle rotation admission failed: {err}");
+                }
+            }
+            control.rotating.store(false, Ordering::Release);
+        }
         thread::sleep(Duration::from_millis(50));
     }
 

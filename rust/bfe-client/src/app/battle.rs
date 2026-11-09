@@ -1601,6 +1601,21 @@ impl BattleController {
                 }
             };
         }
+        // NetworkSession.scheduleRotation navigates as soon as the announced
+        // match passes its readiness probe. DONE and the idle scoreboard clock
+        // must not gate a server restart or a notification preceding game-over.
+        if let BattleAuthority::Online { client, launch, .. } = &self.authority {
+            if client.rotation_ready {
+                let mut launch = launch.clone();
+                if let Some(next) = &client.receiver.next_match {
+                    let query = bfe_content::mission::Query::parse(&next.query);
+                    launch.map = query.get("map").into();
+                    launch.side = query.get("side").into();
+                }
+                eprintln!("online match ready: map={} side={}", launch.map, launch.side);
+                return Ok(Some(BattleTransition::NextOnlineBattle { launch }));
+            }
+        }
         if self.scoreboard_port.done_triggered {
             self.scoreboard_port.done_triggered = false;
             return match &self.authority {
@@ -1612,17 +1627,7 @@ impl BattleController {
                     request: request.clone(),
                     next_index: playlist_index + 1,
                 })),
-                BattleAuthority::Online { client, launch, .. } => {
-                    if client.rotation_ready {
-                        let mut launch = launch.clone();
-                        if let Some(next) = &client.receiver.next_match {
-                            let query = bfe_content::mission::Query::parse(&next.query);
-                            launch.map = query.get("map").into();
-                            launch.side = query.get("side").into();
-                        }
-                        Ok(Some(BattleTransition::NextOnlineBattle { launch }))
-                    } else { Ok(None) }
-                }
+                BattleAuthority::Online { .. } => Ok(None),
             };
         }
 

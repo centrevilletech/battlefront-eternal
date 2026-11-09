@@ -6,6 +6,13 @@ use std::net::{SocketAddr, TcpListener, UdpSocket};
 
 fn bound(addr: SocketAddr, kind: Type, protocol: Protocol, only_v6: bool) -> io::Result<Socket> {
     let socket = Socket::new(Domain::for_address(addr), kind, Some(protocol))?;
+    // libuv's Unix TCP listeners allow a new round to bind while completed
+    // /info connections remain in TIME_WAIT. Windows has different reuse
+    // semantics, so retain its default, as libuv's Windows backend does.
+    #[cfg(unix)]
+    if kind == Type::STREAM {
+        socket.set_reuse_address(true)?;
+    }
     // Configure before bind: some kernels reject changing this on a bound
     // socket. Failure must reach the caller's IPv4 fallback, never be ignored.
     if addr.is_ipv6() {
@@ -89,6 +96,30 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;
+
+    #[test]
+    fn tcp_listener_rebinds_after_a_completed_info_connection() {
+        let listener = tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut client = TcpStream::connect(address).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let (mut accepted, _) = listener.accept().unwrap();
+        accepted.write_all(b"info").unwrap();
+        accepted.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).unwrap();
+        assert_eq!(response, b"info");
+        drop(client);
+        drop(accepted);
+        drop(listener);
+        // A round transition can reuse TIME_WAIT, but cannot steal a live
+        // listener's port. Both sides of that distinction matter here.
+        let reopened = tcp(address).expect("reopen the next round's /info listener");
+        assert!(tcp(address).is_err());
+        drop(reopened);
+    }
 
     #[test]
     fn ipv6_game_listeners_also_accept_ipv4() {
