@@ -55,20 +55,18 @@ impl ScreenStack {
         self.sounds.play(SoundCue::MenuEnter);
     }
 
-    /// Pops the topmost screen if the stack has more than one screen (or if the top screen is modal),
-    /// matching `ScreenStack.pop` in `src/menus/stack.js`.
+    /// Pop even the last screen, as `ScreenStack.pop` in `src/menus/stack.js`
+    /// does before notifying its owner that navigation has left this stack.
     pub fn pop(&mut self) -> Option<MenuScreen> {
-        let can_pop = self.screens.len() > 1
-            || self.screens.last().is_some_and(|s| s.modal);
-        if !can_pop {
-            return None;
-        }
         let popped = self.screens.pop()?;
-        // Re-enter the underlying screen so its pulse/intro timers reset (`top.enter()` in `stack.js`).
-        if let Some(top) = self.screens.last_mut() {
-            top.enter();
+        // A modal never exited the screen beneath it. Only a normal return
+        // restarts that screen's intro and plays the stack's back cue.
+        if !popped.modal {
+            if let Some(top) = self.screens.last_mut() {
+                top.enter();
+                self.sounds.play(SoundCue::MenuBack);
+            }
         }
-        self.sounds.play(SoundCue::MenuBack);
         Some(popped)
     }
 

@@ -4,6 +4,7 @@ use super::Page;
 use crate::render::ShellTextures;
 use bfe_interface::{
     options::OptionKind,
+    screen::MenuScreen,
     stack::ScreenStack,
     theme::{HitRegion, HitTarget},
     widgets::{TextLook, Widget},
@@ -169,6 +170,50 @@ impl Page {
         }
         *used += 1;
     }
+    /// The options body is also the backdrop-filter clip. Keep the compositor
+    /// and widget layout on the same rectangle rather than duplicating offsets.
+    pub fn options_panel_rect(stack: &ScreenStack, w: f64, h: f64) -> Option<[f64; 4]> {
+        let screen = stack.top()?;
+        if screen.modal {
+            return None;
+        }
+        Self::options_body_rect(screen, w, h)
+    }
+    fn options_body_rect(screen: &MenuScreen, w: f64, h: f64) -> Option<[f64; 4]> {
+        if !screen
+            .widgets
+            .iter()
+            .any(|v| matches!(v, Widget::Options(_) | Widget::List(_)))
+        {
+            return None;
+        }
+        let width = (w - 2. * (w * 0.03).clamp(20., 56.)).min(1000.);
+        let rows = screen
+            .widgets
+            .iter()
+            .filter_map(|widget| {
+                if let Widget::Options(options) = widget {
+                    Some(options.items.iter().filter(|i| !i.hidden).count())
+                } else {
+                    None
+                }
+            })
+            .sum::<usize>();
+        // ScreenView's options body and note share the space between the
+        // title and footer. A bindings list flexes to fill that space.
+        let head = h * 0.07 + (h * 0.046).clamp(26., 50.) * 1.3 + h * 0.036;
+        let end = h - h * 0.06 - (h * 0.046).clamp(34., 46.);
+        let note = (h * 0.015).clamp(11., 15.) * 1.4 + h * 0.012;
+        let available = (end - head - note).max(1.);
+        let body_h = if screen.widgets.iter().any(|v| matches!(v, Widget::List(_))) {
+            available
+        } else {
+            (rows as f64 * (h * 0.048).clamp(36., 50.) + h * 0.048 + 2.).min(available)
+        };
+        let y = head + (available - body_h) / 2.;
+        Some([(w - width) / 2., y, (w + width) / 2., y + body_h])
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn paint_widgets(
         &mut self,
@@ -193,9 +238,15 @@ impl Page {
             1 => [0.82, 0.16, 0.11, 1.],
             _ => [1., 0.60, 0.12, 1.],
         };
+        // PageTheme's --bfe-scroll follows the selected look on both the
+        // options panel and its inner binding list.
+        let scroll = match look {
+            0 => [140. / 255., 200. / 255., 1., 0.5],
+            1 => [205. / 255., 214. / 255., 226. / 255., 0.55],
+            _ => [1., 154. / 255., 31. / 255., 0.45],
+        };
         let edge = (w * 0.03).clamp(20., 56.);
-        let width = (w - 2. * edge).min(1000.);
-        let left = (w - width) / 2.;
+        let page_width = (w - 2. * edge).min(1000.);
         let start = stack.screens.iter().rposition(|s| !s.modal).unwrap_or(0);
         let mut used = 0;
         let screen_count = stack.screens.len();
@@ -214,6 +265,43 @@ impl Page {
         for (si, screen) in stack.screens.iter_mut().enumerate().skip(start) {
             let active = si + 1 == screen_count;
             let modal = screen.modal;
+            let popup_size = (h * 0.021).clamp(15., 21.);
+            // CSS sizes popup boxes from their unwrapped text, constrained by
+            // its 480px minimum and 700px maximum, plus padding and borders.
+            let content_width = if modal {
+                screen
+                    .widgets
+                    .iter()
+                    .filter_map(|widget| {
+                        if let Widget::Text(text) = widget {
+                            Some(text)
+                        } else {
+                            None
+                        }
+                    })
+                    .flat_map(|text| text.text.lines())
+                    .map(|line| {
+                        // Paragraph wrapping uses Font::width's rounded advances
+                        // and trailing spacing, so intrinsic sizing must too.
+                        line.encode_utf16()
+                            .filter_map(|ch| self.body.glyphs.get(&ch))
+                            .map(|glyph| {
+                                (glyph.advance * popup_size / self.body.height + 0.5).floor()
+                                    + popup_size * 0.06
+                            })
+                            .sum::<f64>()
+                            .ceil()
+                    })
+                    .fold(0., f64::max)
+            } else {
+                0.
+            };
+            let width = if modal {
+                (content_width + w * 0.06 + 2.).clamp(480f64.min(w * 0.86), 700f64.min(w * 0.92))
+            } else {
+                page_width
+            };
+            let left = (w - width) / 2.;
             if modal {
                 self.modal_start = Some(b.count);
                 Self::rect(b, m, [0., 0., w, h], t.solid, [0., 0., 0., 0.5]);
@@ -224,41 +312,49 @@ impl Page {
                 .iter()
                 .any(|v| matches!(v, Widget::Options(_) | Widget::List(_)));
             let other = screen.widgets.iter().any(|v| matches!(v, Widget::List(_)));
-            let rh = (h * 0.048).clamp(36., 50.);
-            let rows = screen
-                .widgets
-                .iter()
-                .filter_map(|widget| {
-                    if let Widget::Options(options) = widget {
-                        Some(options.items.iter().filter(|i| !i.hidden).count())
-                    } else {
-                        None
+            let bounds = Self::options_body_rect(screen, w, h).unwrap_or([
+                left,
+                h * 0.20,
+                left + width,
+                h * 0.84,
+            ]);
+            let panel_y = bounds[1];
+            let body_h = bounds[3] - panel_y;
+            let mut popup_text_h = 0.;
+            if modal {
+                for widget in &screen.widgets {
+                    if let Widget::Text(text) = widget {
+                        let i = self.paragraph_index(
+                            &text.text,
+                            width - w * 0.06 - 2.,
+                            popup_size,
+                            popup_size * 0.06,
+                        );
+                        popup_text_h += self.paragraphs[i].lines.len() as f64 * popup_size * 1.45;
                     }
-                })
-                .sum::<usize>();
-            let body_h = if other {
-                h * 0.67
-            } else {
-                (rows as f64 * rh + h * 0.048 + 2.).min(h * 0.67)
-            };
-            let panel_y = (h * 0.07 + (h - h * 0.06 - (h * 0.046).clamp(34., 46.))) / 2.
-                + (h * 0.046 * 1.3 + h * 0.036) / 2.
-                - (body_h + 26.) / 2.;
+                }
+            }
+            let popup_button_h = (h * 0.046).clamp(34., 46.);
+            let popup_h = h * 0.08 + popup_text_h + h * 0.032 + popup_button_h + 2.;
+            let popup_y = (h - popup_h) / 2.;
             let top = if modal {
-                h * 0.36
+                popup_y + h * 0.045
             } else if has_panel {
-                panel_y + h * 0.024
+                panel_y + h * 0.024 + 1.
             } else {
                 h * 0.20
             };
             let bottom = if modal {
-                h * 0.66
+                popup_y + popup_h - h * 0.035
             } else if has_panel {
-                panel_y + body_h - h * 0.024
+                panel_y + body_h - h * 0.024 - 1.
             } else {
                 h * 0.84
             };
             let screen_first = b.count;
+            if has_panel && !modal {
+                self.modal_start = Some(screen_first);
+            }
             if has_panel || modal {
                 Self::panel(
                     b,
@@ -266,10 +362,10 @@ impl Page {
                     t,
                     [
                         left,
-                        if modal { top - 18. } else { panel_y },
+                        if modal { popup_y } else { panel_y },
                         left + width,
                         if modal {
-                            bottom + 18.
+                            popup_y + popup_h
                         } else {
                             panel_y + body_h
                         },
@@ -353,38 +449,68 @@ impl Page {
                         }
                     }
                     Widget::Text(text) => {
-                        let (y, size, spacing, ink) = match text.look {
-                            TextLook::Title => (h * 0.108, (h * 0.046).clamp(26., 50.), 2., white),
-                            TextLook::Note => (h * 0.89, 12., 1., accent),
-                            _ => (if modal { h * 0.46 } else { h * 0.15 }, 16., 0.5, white),
-                        };
-                        if modal && text.look != TextLook::Title {
+                        // ScreenView.buildPage keeps headings in body flow; only
+                        // title text belongs above the panel and receives side rules.
+                        if text.look == TextLook::Title {
+                            self.heading(
+                                b,
+                                m,
+                                t,
+                                w / 2.,
+                                h * 0.108,
+                                &text.text,
+                                (h * 0.046).clamp(26., 50.),
+                                look,
+                            );
+                        } else if modal {
                             self.paragraph(
                                 b,
                                 m,
                                 w / 2.,
-                                y,
+                                top + popup_size * 0.8,
                                 &text.text,
-                                width - 2. * w * 0.03,
-                                size,
-                                spacing,
-                                ink,
+                                width - w * 0.06 - 2.,
+                                popup_size,
+                                popup_size * 0.06,
+                                white,
                             );
-                            continue;
-                        }
-                        for (line, s) in text.text.lines().enumerate() {
+                        } else if text.look == TextLook::Heading {
                             self.label(
                                 b,
                                 m,
-                                w / 2.,
-                                y + line as f64 * (size * 1.5),
-                                s,
-                                size,
-                                spacing,
-                                ink,
-                                2,
-                                text.look == TextLook::Title,
+                                left + w * 0.022,
+                                flow + h * 0.014 + (h * 0.019).clamp(13., 19.),
+                                &text.text,
+                                (h * 0.019).clamp(13., 19.),
+                                3.,
+                                accent,
+                                0,
+                                true,
                             );
+                            flow += h * 0.014
+                                + (h * 0.019).clamp(13., 19.) * 1.6
+                                + h * 0.002
+                                + h * 0.01;
+                        } else {
+                            let (y, size, ink) = if text.look == TextLook::Note {
+                                (h * 0.89, 12., accent)
+                            } else {
+                                (h * 0.15, 16., white)
+                            };
+                            for (line, text) in text.text.lines().enumerate() {
+                                self.label(
+                                    b,
+                                    m,
+                                    w / 2.,
+                                    y + line as f64 * size * 1.5,
+                                    text,
+                                    size,
+                                    1.,
+                                    ink,
+                                    2,
+                                    false,
+                                );
+                            }
                         }
                     }
                     Widget::Button(button) => {
@@ -441,7 +567,23 @@ impl Page {
                             ((bottom - flow) / rh).floor() as usize
                         }
                         .max(1);
+                        let capacity_changed = options.shown != shown;
                         options.shown = shown;
+                        // Controller layouts use interface units. Re-reveal in
+                        // the actual Page viewport before emitting rows/hits.
+                        if let Some(selected) = options
+                            .items
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, item)| !item.hidden)
+                            .position(|(i, _)| i == options.selected)
+                        {
+                            if capacity_changed && selected < options.first {
+                                options.first = selected;
+                            } else if capacity_changed && selected >= options.first + shown {
+                                options.first = selected + 1 - shown;
+                            }
+                        }
                         let first = options.first.min(visible.saturating_sub(shown));
                         options.first = first;
                         for (display, (i, item)) in options
@@ -672,26 +814,54 @@ impl Page {
                                 );
                             }
                         }
+                        if !other && visible > shown {
+                            // The scroll thumb stays visible even when navigation
+                            // uses the keyboard instead of the wheel.
+                            let track = (shown as f64 * rh).min(bottom - flow);
+                            let thumb = (track * shown as f64 / visible as f64).max(16.);
+                            let y =
+                                flow + (track - thumb) * first as f64 / (visible - shown) as f64;
+                            Self::rect(
+                                b,
+                                m,
+                                [left + width - 7., y, left + width - 3., y + thumb],
+                                t.solid,
+                                scroll,
+                            );
+                        }
                         flow += (visible.min(shown) as f64) * rh + h * 0.01;
                     }
                     Widget::Tabs(tabs) => {
-                        let tw = width / tabs.tabs.len().max(1) as f64;
-                        let bh = 34.;
+                        // Flat, content-sized tabs and their hit rectangles share
+                        // the same geometry as the page theme's .bfe-tabs strip.
+                        let mut x = left + w * 0.022 + 1.;
+                        let bh = 49.;
+                        Self::rect(
+                            b,
+                            m,
+                            [x, flow + bh, left + width - w * 0.022, flow + bh + 2.],
+                            t.solid,
+                            [1., 1., 1., 0.14],
+                        );
                         for (i, tab) in tabs.tabs.iter().enumerate() {
-                            let r = [
-                                left + i as f64 * tw,
-                                flow,
-                                left + (i + 1) as f64 * tw,
-                                flow + bh,
-                            ];
-                            self.widget_button(
+                            let tw = self.text_width(&tab.label, 16., 2.56) + 16. * 3.6;
+                            let r = [x, flow, x + tw, flow + bh];
+                            let selected = tab.id == tabs.active;
+                            Self::rect(b, m, r, t.solid, if selected { accent } else { [0.; 4] });
+                            self.label(
                                 b,
                                 m,
-                                t,
-                                r,
+                                x + tw / 2.,
+                                flow + bh * 0.65,
                                 &tab.label,
-                                look,
-                                tab.id == tabs.active,
+                                16.,
+                                2.56,
+                                if selected {
+                                    [0.09, 0.05, 0.01, 1.]
+                                } else {
+                                    [white[0], white[1], white[2], 0.66]
+                                },
+                                2,
                                 false,
                             );
                             if active && !tabs.disabled {
@@ -706,49 +876,84 @@ impl Page {
                                     },
                                 );
                             }
+                            x += tw + w * 0.005;
                         }
-                        flow += bh + 8.;
+                        flow += bh + 2. + h * 0.01;
                     }
                     Widget::List(list) => {
                         let rh = (h * 0.04).clamp(30., 42.);
-                        let shown = ((bottom - flow) / rh).floor().max(1.) as usize;
+                        let list_left = left + w * 0.022 + 1.;
+                        let list_right = left + width - w * 0.022 - 1.;
+                        // ListView has an inset border and two left-aligned
+                        // columns (40% action, 60% binding), not a right edge value.
+                        Self::rect(
+                            b,
+                            m,
+                            [list_left, flow, list_right, bottom],
+                            t.solid,
+                            [0.02, 0.025, 0.035, 0.6],
+                        );
+                        for r in [
+                            [list_left, flow, list_right, flow + 1.],
+                            [list_left, bottom - 1., list_right, bottom],
+                            [list_left, flow, list_left + 1., bottom],
+                            [list_right - 1., flow, list_right, bottom],
+                        ] {
+                            Self::rect(b, m, r, t.solid, [1., 1., 1., 0.12]);
+                        }
+                        let shown = ((bottom - flow - 8.) / rh).floor().max(1.) as usize;
                         list.look.box_h = shown as f64 * list.look.pitch + list.look.inset * 2.;
+                        let capacity_changed = list.shown != shown;
                         list.shown = shown;
+                        if capacity_changed {
+                            list.reveal();
+                        }
                         let first = list.first.min(list.rows.len().saturating_sub(shown));
+                        list.first = first;
                         for (i, row) in list.rows.iter().enumerate().skip(first).take(shown) {
-                            let y = flow + (i - first) as f64 * rh;
-                            let r = [left + 16., y, left + width - 16., y + rh];
-                            if i == list.selected {
+                            let y = flow + 4. + (i - first) as f64 * rh;
+                            let r = [list_left + 4., y, list_right - 4., y + rh];
+                            let selected = i == list.selected;
+                            if selected {
                                 Self::rect(
                                     b,
                                     m,
                                     r,
                                     t.solid,
-                                    [accent[0], accent[1], accent[2], 0.20],
+                                    if focused {
+                                        accent
+                                    } else {
+                                        [accent[0], accent[1], accent[2], 0.20]
+                                    },
                                 );
                             }
+                            let ink = if focused && selected {
+                                [0.09, 0.05, 0.01, 1.]
+                            } else {
+                                white
+                            };
                             self.label(
                                 b,
                                 m,
-                                r[0] + 14.,
+                                r[0] + 10.8,
                                 y + rh * 0.68,
                                 &row.cells[0],
                                 12.,
                                 0.96,
-                                white,
+                                ink,
                                 0,
                                 false,
                             );
                             self.label(
                                 b,
                                 m,
-                                r[2] - 14.,
+                                r[0] + (r[2] - r[0]) * 0.4 + 10.8,
                                 y + rh * 0.68,
                                 &row.cells[1],
                                 12.,
                                 0.96,
-                                white,
-                                1,
+                                ink,
+                                0,
                                 false,
                             );
                             if active && !row.disabled {
@@ -765,12 +970,46 @@ impl Page {
                                 );
                             }
                         }
+                        if list.rows.len() > shown {
+                            let track = bottom - flow - 8.;
+                            let thumb = (track * shown as f64 / list.rows.len() as f64).max(16.);
+                            let y = flow
+                                + 4.
+                                + (track - thumb) * first as f64 / (list.rows.len() - shown) as f64;
+                            Self::rect(
+                                b,
+                                m,
+                                [list_right - 7., y, list_right - 3., y + thumb],
+                                t.solid,
+                                scroll,
+                            );
+                        }
                     }
                     Widget::HorizontalButtons(buttons) => {
+                        let size = (h * 0.017).clamp(13., 18.);
+                        let button_width = |label: &str| {
+                            (w * 0.11)
+                                .clamp(120., 200.)
+                                .max(self.text_width(label, size, size * 0.2) + size * 2.8)
+                        };
+                        let total = buttons
+                            .buttons
+                            .iter()
+                            .map(|button| button_width(&button.label))
+                            .sum::<f64>()
+                            + buttons.buttons.len().saturating_sub(1) as f64 * w * 0.012;
+                        let mut x = (w - total) / 2.;
                         for (i, button) in buttons.buttons.iter().enumerate() {
-                            let x = w / 2.
-                                + (i as f64 - (buttons.buttons.len() - 1) as f64 / 2.) * 180.;
-                            let r = [x - 80., h * 0.56, x + 80., h * 0.56 + 38.];
+                            let bw = (w * 0.11)
+                                .clamp(120., 200.)
+                                .max(self.text_width(&button.label, size, size * 0.2) + size * 2.8);
+                            let y = if modal {
+                                top + popup_text_h + h * 0.032
+                            } else {
+                                h * 0.56
+                            };
+                            let r = [x, y, x + bw, y + popup_button_h];
+                            x += bw + w * 0.012;
                             self.widget_button(
                                 b,
                                 m,
@@ -864,6 +1103,160 @@ mod tests {
     use super::*;
     use bfe_interface::{OptionsContext, OptionsController};
     use bfe_render::interface::Font;
+    #[test]
+    fn credits_intrinsic_width_fits_rounded_glyph_advances() {
+        use bfe_interface::{MenuInputEvent, WidgetAction};
+        use bfe_render::interface::Glyph;
+        let mut font = Font {
+            height: 16.,
+            ..Font::default()
+        };
+        for code in 32..127 {
+            font.glyphs.insert(
+                code,
+                Glyph {
+                    page: 1,
+                    advance: 8.3,
+                    bounds: [0., 0., 8., 16.],
+                    uv: [0., 0., 1., 1.],
+                },
+            );
+        }
+        let mut controller = OptionsController::new(Default::default(), OptionsContext::default());
+        controller.apply_event(MenuInputEvent::Action(WidgetAction::Named(
+            "credits".into(),
+        )));
+        let mut page = Page::new(font, Font::default());
+        page.paint_widgets(
+            &mut Batch::default(),
+            &ShellTextures::default(),
+            &mut controller.stack,
+            1280.,
+            720.,
+            "eternal",
+            &mut Vec::new(),
+        );
+        let paragraph = page.paragraphs.last().unwrap();
+        assert_eq!(paragraph.lines.len(), paragraph.source.lines().count());
+    }
+
+    #[test]
+    fn video_wheel_keeps_its_scrolled_view_without_moving_selection() {
+        let mut controller = OptionsController::new(Default::default(), OptionsContext::default());
+        controller.open_page("video");
+        let mut page = Page::new(Font::default(), Font::default());
+        let mut batch = Batch::default();
+        let mut hits = Vec::new();
+        page.paint_widgets(
+            &mut batch,
+            &ShellTextures::default(),
+            &mut controller.stack,
+            1280.,
+            720.,
+            "eternal",
+            &mut hits,
+        );
+        let event = controller.input.on_wheel(&mut controller.stack, 1);
+        controller.apply_event(event);
+        page.paint_widgets(
+            &mut batch,
+            &ShellTextures::default(),
+            &mut controller.stack,
+            1280.,
+            720.,
+            "eternal",
+            &mut hits,
+        );
+        let options = match controller.stack.top().unwrap().widget("rows").unwrap() {
+            Widget::Options(options) => options,
+            _ => panic!("missing options"),
+        };
+        assert_eq!(options.first, 1);
+        assert_eq!(options.selected, 0);
+    }
+
+    #[test]
+    fn video_page_reveals_the_last_selected_row_in_the_page_viewport() {
+        let mut controller = OptionsController::new(Default::default(), OptionsContext::default());
+        controller.open_page("video");
+        if let Some(Widget::Options(options)) =
+            controller.stack.top_mut().unwrap().widget_mut("rows")
+        {
+            options.selected = options.items.len() - 1;
+        }
+        let mut page = Page::new(Font::default(), Font::default());
+        let mut batch = Batch::default();
+        let mut hits = Vec::new();
+        page.paint_widgets(
+            &mut batch,
+            &ShellTextures::default(),
+            &mut controller.stack,
+            1280.,
+            720.,
+            "eternal",
+            &mut hits,
+        );
+        let options = match controller.stack.top().unwrap().widget("rows").unwrap() {
+            Widget::Options(options) => options,
+            _ => panic!("missing options"),
+        };
+        assert!(
+            options.selected >= options.first && options.selected < options.first + options.shown
+        );
+        assert!(hits.iter().any(|hit|matches!(hit.target,HitTarget::OptionsItem {item_index,..} if item_index==options.selected)));
+    }
+
+    #[test]
+    fn compact_control_tabs_hit_the_visible_vehicle_and_starfighter_labels() {
+        use bfe_render::interface::Glyph;
+        let font = || {
+            let mut font = Font {
+                height: 16.,
+                ..Font::default()
+            };
+            for code in 32..127 {
+                font.glyphs.insert(
+                    code,
+                    Glyph {
+                        page: 1,
+                        advance: 8.,
+                        bounds: [0., 0., 8., 16.],
+                        uv: [0., 0., 1., 1.],
+                    },
+                );
+            }
+            font
+        };
+        let mut controller = OptionsController::new(Default::default(), OptionsContext::default());
+        controller.open_page("controls");
+        let mut page = Page::new(font(), font());
+        let mut batch = Batch::default();
+        let mut hits = Vec::new();
+        // These clicks are the browser's visible tab positions from the
+        // comparison, previously swallowed by the full-width infantry button.
+        for (x, expected) in [(360., "vehicle"), (500., "starfighter")] {
+            page.paint_widgets(
+                &mut batch,
+                &ShellTextures::default(),
+                &mut controller.stack,
+                1280.,
+                720.,
+                "eternal",
+                &mut hits,
+            );
+            let event = controller.input.on_pointer_down(
+                &mut controller.stack,
+                &hits,
+                x,
+                161.,
+                1280.,
+                720.,
+            );
+            controller.apply_event(event);
+            assert_eq!(controller.controls_tab, expected);
+        }
+    }
+
     #[test]
     fn page_pointer_activates_the_existing_options_widget_action() {
         let mut controller = OptionsController::new(Default::default(), OptionsContext::default());

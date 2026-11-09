@@ -96,7 +96,12 @@ pub const CONTROLS_TABS: [(&str, f64, f64, bool); 3] = [
     // Middle tab: `VEHICLE` offset by `1/3` of `SAFE_W`.
     ("vehicle", 16.0 + (1.0 / 3.0) * SAFE_W, 0.30 * SAFE_W, false),
     // Right tab: `STARFIGHTER` offset by `2/3` of `SAFE_W`.
-    ("starfighter", 16.0 + (2.0 / 3.0) * SAFE_W, 0.30 * SAFE_W, false),
+    (
+        "starfighter",
+        16.0 + (2.0 / 3.0) * SAFE_W,
+        0.30 * SAFE_W,
+        false,
+    ),
 ];
 
 /// Configuration passed to [`options_menu`] and [`OptionsController`].
@@ -184,11 +189,7 @@ fn reset_button(page: &str, strings: &HashMap<String, String>) -> ButtonWidget {
 /// `ifs.SoundOpt.title`, or `ifs.GameOpt.pc_optionstitle`) and positions it at `y`.
 fn page_title(page: &str, strings: &HashMap<String, String>, y: f64) -> TextWidget {
     let entry = PAGES.iter().find(|p| p.id == page).unwrap_or(&PAGES[0]);
-    TextWidget::title(
-        "title",
-        say(strings, Some(entry.title_key), entry.title),
-        y,
-    )
+    TextWidget::title("title", say(strings, Some(entry.title_key), entry.title), y)
 }
 
 /// Builds the top-level `OPTIONS` [`MenuScreen`] (`optionsMenu` in `src/menus/option-pages.js`).
@@ -272,11 +273,7 @@ pub fn options_menu(ctx: &OptionsContext) -> MenuScreen {
 
 /// Builds the [`OptionsItem`] rows for `page` (`"game"`, `"video"`, or `"audio"`),
 /// mirroring `gamePage`, `videoPage`, and `audioPage` in `src/menus/option-pages.js`.
-fn build_option_items(
-    page: &str,
-    settings: &Settings,
-    ctx: &OptionsContext,
-) -> Vec<OptionsItem> {
+fn build_option_items(page: &str, settings: &Settings, ctx: &OptionsContext) -> Vec<OptionsItem> {
     let mut items = Vec::new();
     // When paused in a battle with a live camera viewpoint callback, prepend the `VIEWPOINT` row.
     if page == "game" {
@@ -385,12 +382,8 @@ fn build_option_items(
 /// the `GAME` option rows (with `RESET TO DEFAULTS` as the last row) and `BACK`.
 pub fn game_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     let items = build_option_items("game", settings, ctx);
-    let options = OptionsWidget::with_layout(
-        "rows",
-        OptionsLayoutKind::Game,
-        items,
-        ctx.surface_height,
-    );
+    let options =
+        OptionsWidget::with_layout("rows", OptionsLayoutKind::Game, items, ctx.surface_height);
     let mut screen = MenuScreen::new(
         "options-game",
         vec![
@@ -409,12 +402,8 @@ pub fn game_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
 /// of all 31 rendering settings along with `BACK` and a middle `RESET TO DEFAULTS` button.
 pub fn video_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     let items = build_option_items("video", settings, ctx);
-    let options = OptionsWidget::with_layout(
-        "rows",
-        OptionsLayoutKind::Video,
-        items,
-        ctx.surface_height,
-    );
+    let options =
+        OptionsWidget::with_layout("rows", OptionsLayoutKind::Video, items, ctx.surface_height);
     let mut screen = MenuScreen::new(
         "options-video",
         vec![
@@ -434,12 +423,8 @@ pub fn video_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
 /// sound engine/output/dynamics options, `BACK`, and `RESET TO DEFAULTS`.
 pub fn audio_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     let items = build_option_items("audio", settings, ctx);
-    let options = OptionsWidget::with_layout(
-        "rows",
-        OptionsLayoutKind::Audio,
-        items,
-        ctx.surface_height,
-    );
+    let options =
+        OptionsWidget::with_layout("rows", OptionsLayoutKind::Audio, items, ctx.surface_height);
     let mut screen = MenuScreen::new(
         "options-audio",
         vec![
@@ -611,11 +596,7 @@ fn build_controls_binding_entries(
 /// bar (`INFANTRY`, `VEHICLE`, `STARFIGHTER`), top sensitivity/invert rows,
 /// `"CONFIG BINDINGS"` heading, two-column scrollable bindings list, `BACK`, and
 /// `RESET TO DEFAULTS`.
-pub fn controls_page(
-    settings: &Settings,
-    ctx: &OptionsContext,
-    active_tab: &str,
-) -> MenuScreen {
+pub fn controls_page(settings: &Settings, ctx: &OptionsContext, active_tab: &str) -> MenuScreen {
     let flying = active_tab == "starfighter";
     let cw = controls_window_for_tab(ctx.surface_height, flying);
 
@@ -841,7 +822,9 @@ impl OptionsController {
         match event {
             MenuInputEvent::None => {}
             MenuInputEvent::SelectionChanged => {
-                self.refresh_active_screen();
+                // Selection and wheel handlers already updated their widgets.
+                // Rebuilding here would restore classic row capacity and undo
+                // wheel scrolling when its selected row stays off-screen.
             }
             // Left/Right arrow or click on a choice, toggle, or slider row.
             MenuInputEvent::StepOption { key, dir } => {
@@ -858,7 +841,8 @@ impl OptionsController {
                         let raw = spec.min + ratio.clamp(0.0, 1.0) * (spec.max - spec.min);
                         let stepped =
                             ((raw / spec.step).round() * spec.step * 1000.0).round() / 1000.0;
-                        self.settings.set(spec.key, stepped.clamp(spec.min, spec.max));
+                        self.settings
+                            .set(spec.key, stepped.clamp(spec.min, spec.max));
                         self.refresh_active_screen();
                     }
                 }
@@ -912,10 +896,13 @@ impl OptionsController {
                         }
                         self.refresh_active_screen();
                     } else if name == "credits" {
-                        let popup = ok_popup(
+                        let mut popup = ok_popup(
                             "BATTLEFRONT ETERNAL\nA fan-made mod for the Steam versions of\nStar Wars: Battlefront (2004) and Battlefront II (2005).\nBattlefront II support is planned.",
                             &self.context.strings,
                         );
+                        // Credits overlays the hub, as ScreenView.buildPopup
+                        // does, so its paragraph and OK button share a modal box.
+                        popup.modal = true;
                         self.stack.push(popup);
                     } else {
                         self.last_named_action = Some(name);
@@ -980,6 +967,34 @@ impl OptionsController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn options_root_can_leave_by_both_back_keys_and_back_button() {
+        for key in ["Escape", "Backspace"] {
+            let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
+            ctrl.open_page("game");
+            ctrl.on_key_down(key, false);
+            assert_eq!(ctrl.stack.top().unwrap().id, "options");
+            ctrl.on_key_down(key, false);
+            assert!(ctrl.stack.is_empty());
+        }
+        let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::Back));
+        assert!(ctrl.stack.is_empty());
+    }
+
+    #[test]
+    fn credits_is_modal_and_back_preserves_the_options_hub() {
+        let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
+        ctrl.stack.update(2.);
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::Named(
+            "credits".into(),
+        )));
+        assert!(ctrl.stack.top().unwrap().modal);
+        ctrl.on_key_down("Escape", false);
+        assert_eq!(ctrl.stack.top().unwrap().id, "options");
+        assert_eq!(ctrl.stack.top().unwrap().elapsed, 2.);
+    }
 
     // Verifies that all four option sub-pages build with expected row counts and navigate back with Escape.
     #[test]

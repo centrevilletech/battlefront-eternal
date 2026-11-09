@@ -889,6 +889,7 @@ impl ShellHost {
         // Rebuild `bfe-interface` fonts, surface, and `OptionsController` with loaded localization strings.
         self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.size);
         let mut opt_ctx = OptionsContext::default();
+        opt_ctx.has_integrations = true;
         opt_ctx.strings = data
             .strings
             .iter()
@@ -1018,7 +1019,9 @@ impl ShellHost {
                 Some(ScreenId::Options | ScreenId::OptionsPage(_))
             ) && self.app.stack.len() > 1
             {
-                self.app.stack.pop();
+                // Return through normal shell navigation so its backdrop and
+                // music also leave Options, just like the browser onEmpty hook.
+                self.app.back();
             }
             self.app.rebuild_cached_rows();
         }
@@ -1365,10 +1368,24 @@ impl ShellHost {
         }
 
         if let Some(modal) = self.page.modal_start {
-            self.draw_range(0, modal, true);
-            self.blur.apply(&self.core.gl, self.canvas.framebuffer, 4.);
-            self.core.state.reset();
-            self.draw_range(modal, self.batch.count, false);
+            if let Some(rect) = self
+                .is_interface_options_active()
+                .then(|| {
+                    bfe_shell::page::Page::options_panel_rect(
+                        &self.options_ctrl.stack,
+                        self.size[0] as f64,
+                        self.size[1] as f64,
+                    )
+                })
+                .flatten()
+            {
+                self.draw_options_backdrop(modal, rect);
+            } else {
+                self.draw_range(0, modal, true);
+                self.blur.apply(&self.core.gl, self.canvas.framebuffer, 4.);
+                self.core.state.reset();
+                self.draw_range(modal, self.batch.count, false);
+            }
         } else {
             self.upload_and_draw_batch();
         }
@@ -2019,6 +2036,26 @@ impl ShellHost {
         }
     }
 
+    /// CSS filters the options panel's background, not its text or the whole
+    /// page. Restore the sharp background outside that panel after filtering.
+    fn draw_options_backdrop(&mut self, first: usize, rect: [f64; 4]) {
+        self.draw_range(0, first, true);
+        self.blur.apply(&self.core.gl, self.canvas.framebuffer, 10.);
+        let [w, h] = self.size;
+        let [x0, y0, x1, y1] = rect.map(|v| v.round() as i32);
+        for clip in [
+            [0, 0, x0, h],
+            [x1, 0, w - x1, h],
+            [x0, 0, x1 - x0, h - y1],
+            [x0, h - y0, x1 - x0, y0],
+        ] {
+            if clip[2] > 0 && clip[3] > 0 {
+                self.draw_range_clipped(0, first, false, Some(clip));
+            }
+        }
+        self.draw_range(first, self.batch.count, false);
+    }
+
     /// Uploads changed quads from `self.batch` to `self.hud` and renders them into
     /// `self.canvas.framebuffer`.
     ///
@@ -2031,6 +2068,15 @@ impl ShellHost {
         self.draw_range(0, self.batch.count, true);
     }
     fn draw_range(&mut self, first: usize, last: usize, clear: bool) {
+        self.draw_range_clipped(first, last, clear, None);
+    }
+    fn draw_range_clipped(
+        &mut self,
+        first: usize,
+        last: usize,
+        clear: bool,
+        clip: Option<[i32; 4]>,
+    ) {
         {
             let b = &self.batch;
             let hud = &mut self.hud;
@@ -2071,7 +2117,12 @@ impl ShellHost {
         unsafe {
             let gl = &self.core.gl;
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.canvas.framebuffer));
-            gl.disable(glow::SCISSOR_TEST);
+            if let Some([x, y, w, h]) = clip {
+                gl.enable(glow::SCISSOR_TEST);
+                gl.scissor(x, y, w, h);
+            } else {
+                gl.disable(glow::SCISSOR_TEST);
+            }
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
             if clear {
                 gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
