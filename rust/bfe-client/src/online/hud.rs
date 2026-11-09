@@ -225,16 +225,10 @@ impl Prepared {
             if let Some(id) = result.names.get(&lower) {
                 return Ok(*id);
             }
-            let path = common["textures"][name]
-                .as_str()
-                .or_else(|| common["textures"][&lower].as_str())
-                .map(|s| format!("common/{s}"))
-                .or_else(|| {
-                    world["textures"][name]
-                        .as_str()
-                        .or_else(|| world["textures"][&lower].as_str())
-                        .map(|s| format!("maps/{map}/{s}"))
-                });
+            // BattleHud resolves weapon art through anyTexture: the active
+            // side, common, map, vehicles, then the other admitted sides.
+            // Icons and reticles often live only in a side's texture table.
+            let path = content.texture_paths.get(&lower).cloned();
             let image = path.map(|s| content.textures.load(&s)).transpose()?;
             let (width, height) = image.map_or((0., 0.), |i| {
                 let im = &content.textures.images[i];
@@ -759,13 +753,100 @@ impl Hud {
         x[H::VEHICLE] = (receiver.own.vehicle != 0.) as u8 as f64;
         x[H::ARSENAL] = any as u8 as f64;
         x[H::RETICLE] = receiver.own.alive as u8 as f64;
-        x[H::RETICLE_X] = 512.;
-        x[H::RETICLE_Y] = x[H::HEIGHT] / 2.;
+    }
+
+    // PlayerCombat.updateHud projects the point 1024 m along the displayed
+    // aim against the camera actually drawn, after its eye/chase phase.
+    pub fn aim(&mut self, bridge: &mut Bridge, view: &crate::scene::View, point: Option<[f64; 3]>) {
+        let x = &mut bridge.hud_model.input;
+        x[H::RETICLE_X] = 0.5;
+        x[H::RETICLE_Y] = 0.5;
+        if let Some(point) = point {
+            if let Some(y) = aim_anchor(view, point) {
+                x[H::RETICLE_Y] = y;
+            } else {
+                x[H::RETICLE] = 0.;
+            }
+        }
         if self.auto_build {
             bridge.hud_model_update();
             bridge.hud_model_build(0, true);
             self.quads = bridge.hud_model.batch.count;
             self.frames += 1;
+        }
+    }
+}
+
+// Anchors are screen fractions, independent of the HUD's virtual height.
+// A point behind the displayed camera hides the cursor in updateHud.
+fn aim_anchor(view: &crate::scene::View, point: [f64; 3]) -> Option<f64> {
+    let mut inverse = three::Matrix4::default();
+    inverse.elements.copy_from_slice(&view.values[16..32]);
+    let mut p = three::Vector3::new(point[0], point[1], point[2]);
+    p.apply_matrix4(&inverse);
+    if p.z >= 0. {
+        return None;
+    }
+    Some(0.5 - 0.5 * p.y * view.values[5] / -p.z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aim_anchor_projects_into_screen_fractions_and_hides_behind_camera() {
+        let mut view = crate::scene::View {
+            values: [0.; bfe_render::shader::FRAME_FLOATS],
+        };
+        view.values[5] = 2.;
+        view.values[16..32].copy_from_slice(&three::Matrix4::default().elements);
+        assert_eq!(aim_anchor(&view, [0., 0., -100.]), Some(0.5));
+        assert_eq!(aim_anchor(&view, [0., 25., -100.]), Some(0.25));
+        assert_eq!(aim_anchor(&view, [0., -25., -100.]), Some(0.75));
+        assert_eq!(aim_anchor(&view, [0., 0., 100.]), None);
+    }
+
+    #[test]
+    fn weapon_art_resolves_from_the_admitted_side_catalog() {
+        let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else {
+            return;
+        };
+        let mut loader = bfe_content_native::loader::Loader::new(root);
+        loader.compressed = false;
+        let mut content = loader.load("nab2", "map=nab2&side=rep&seed=1").unwrap();
+        let defs = bfe_content::defs::Defs::build(&content.content).unwrap();
+        let class = defs
+            .classes
+            .iter()
+            .find(|class| defs.names.text(class.name) == "rep_inf_clone_trooper")
+            .unwrap();
+        let weapon_ids = class.weapons.clone();
+        let prepared = Prepared::new(&mut content).unwrap();
+        // Exercise the complete cold path: definitions name HUD art, the
+        // side catalog resolves it, and decoded images back the weapon rows.
+        // Panels/ammo can work even when every art handle is unready.
+        for field in [W::ICON, W::RETICLE] {
+            let mut named = 0;
+            for &weapon_id in &weapon_ids {
+                let id = prepared.weapons[weapon_id].row[field] as usize;
+                if id == 0 {
+                    continue;
+                }
+                named += 1;
+                let asset = &prepared.assets[id];
+                assert!(
+                    asset.image.is_some(),
+                    "unresolved weapon HUD asset {id}: {:?}",
+                    prepared
+                        .names
+                        .iter()
+                        .find(|(_, value)| **value == id as u32)
+                        .map(|(name, _)| name)
+                );
+                assert!(asset.width > 0. && asset.height > 0.);
+            }
+            assert!(named > 0, "fixture did not exercise weapon art");
         }
     }
 }

@@ -730,6 +730,8 @@ impl Scene {
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
             resources.finish_frame(receiver, replay, &world.elements, cue);
+            let reticle = resources.reticle_point(receiver);
+            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }

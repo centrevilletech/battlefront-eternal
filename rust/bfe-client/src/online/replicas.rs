@@ -496,6 +496,28 @@ impl Replicas {
         self.units.place_actors(places);
 
     }
+    // PlayerCombat.updateHud reads the displayed unit's existing aim basis.
+    // Reusing it preserves posture, interpolation and the authored walker eye.
+    pub fn reticle_point(&self, receiver: &Receiver) -> Option<[f64; 3]> {
+        if !receiver.own.alive || receiver.own.mount.is_some() {
+            return None;
+        }
+        let identity = (receiver.own.id as u32, receiver.own.generation as u32);
+        let slot = self
+            .slots
+            .iter()
+            .find(|slot| slot.active && slot.identity == Some(identity))?;
+        let row = &self.units.output[slot.actor * o::STRIDE..];
+        let origin = if self.first_person.enabled {
+            o::COMBAT_EYE
+        } else {
+            o::COMBAT_BASIS
+        };
+        Some(std::array::from_fn(|k| {
+            row[origin + k] + 1024. * row[o::COMBAT_BASIS + 12 + k]
+        }))
+    }
+
     // Static admission leaves room for every live recipe, including held
     // models and multipart hulls. Counting actors alone starves large seats.
     pub fn max_bones(&self) -> usize {
