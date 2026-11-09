@@ -346,11 +346,6 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
-    #[cfg(target_os = "linux")]
-    {
-        use winit::platform::wayland::EventLoopExtWayland;
-        eprintln!("window backend: {}", if event_loop.is_wayland() { "Wayland" } else { "X11" });
-    }
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = StandaloneWindowApp {
