@@ -50,7 +50,6 @@ struct Model {
     max_speed: f64,
     camera_blend: f64,
     seats: usize,
-    aimers: usize,
     rider: Vec<(Option<String>, Option<String>, bool)>,
     hover: f64,
 }
@@ -160,14 +159,12 @@ impl Hulls {
                 .is_some_and(|s| s.eq_ignore_ascii_case("animal"));
             let mut seats = Vec::new();
             let mut rider = Vec::new();
-            let mut aimers = 0;
             for s in records["seats"].as_array().ok_or("invalid vehicle seats")? {
                 let v = &s["view"];
                 let mut weapons = Vec::new();
                 let mut muzzles = Vec::new();
                 for w in s["weapons"].as_array().unwrap() {
                     let mut a = w["aimers"].as_array().unwrap().clone();
-                    aimers += a.len();
                     for a in &mut a {
                         a["bone"] = json!(a["bone"].as_i64().unwrap_or(0) - 1);
                         a["yaw"] = json!(0);
@@ -296,7 +293,6 @@ impl Hulls {
                 inverses: inverses.into_iter().map(|elements| Matrix4 { elements }).collect(),
                 walk_length,
                 seats: seats.len(),
-                aimers,
                 rider,
                 hover,
             });
@@ -350,8 +346,8 @@ impl Hulls {
         let view = m.views.get(seat)?;
         let at = self.owner.slot_output(slot.rig, 0);
         let output = &self.owner.stream_out[at..];
-        let node = o::STRIDE + m.aimers * 6;
-        let matrix = &output[node + n::WORLD..node + n::WORLD + 16];
+        let nodes = self.owner.slot_nodes(slot.rig, 0)?;
+        let matrix = &nodes[n::WORLD..n::WORLD + 16];
         let q = &output[o::QUATERNION..o::QUATERNION + 4];
         let quaternion = three::Quaternion::new(q[0], q[1], q[2], q[3]);
         let mut angles = three::Euler::default();
@@ -643,12 +639,16 @@ impl Hulls {
                 continue;
             }
             let m = &self.models[s.model];
-            let start = self.owner.slot_output(s.rig, 0) + o::STRIDE + m.aimers * 6;
+            // Walkers publish leg-side values before aimers and nodes. The
+            // pose owner supplies the node block instead of host offset math.
+            let Some(nodes) = self.owner.slot_nodes(s.rig, 0) else {
+                continue;
+            };
             for (i, inverse) in m.inverses.iter().enumerate() {
                 let node = if i + 1 < m.inverses.len() { i + 1 } else { m.inverses.len() };
-                let at = start + node * n::STRIDE + n::WORLD;
+                let at = node * n::STRIDE + n::WORLD;
                 let mut world = Matrix4::default();
-                world.elements.copy_from_slice(&self.owner.stream_out[at..at + 16]);
+                world.elements.copy_from_slice(&nodes[at..at + 16]);
                 let mut skin = Matrix4::default();
                 skin.multiply_matrices(&world, inverse);
                 for (k, v) in skin.elements.iter().enumerate() {
@@ -695,8 +695,10 @@ impl Hulls {
                 continue;
             }
             let m = &self.models[s.model];
-            let output = self.owner.slot_output(s.rig, 0) + o::STRIDE + m.aimers * 6;
-            let root = &self.owner.stream_out[output + n::WORLD..output + n::WORLD + 16];
+            let Some(nodes) = self.owner.slot_nodes(s.rig, 0) else {
+                continue;
+            };
+            let root = &nodes[n::WORLD..n::WORLD + 16];
             for template in &m.rows {
                 let count = m.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {

@@ -1078,9 +1078,10 @@ impl Scene {
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
-        if component == Component::All {
+        if matches!(component, Component::All | Component::Sky) {
             // Far terrain shares the displayed lens. Its separate clipping
             // planes cannot replace a mounted or scoped camera's field of view.
+            // An isolated sky capture retains these far clipping planes too.
             let mut projection = self.far_projection;
             projection[0] = view.values[0];
             projection[5] = view.values[5];
@@ -1198,6 +1199,7 @@ impl Scene {
     /// Only admitted object prefixes change; no alternate pass order exists.
     pub fn draw_component(&mut self, view: &View, name: &str) -> Result<(), String> {
         let component = match name {
+            "all" => Component::All,
             "props" => Component::Props,
             "foliage" => Component::Foliage,
             "water" => Component::Water,

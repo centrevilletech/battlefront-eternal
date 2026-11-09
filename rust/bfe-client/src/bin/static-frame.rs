@@ -7,8 +7,9 @@ use glutin::{
 };
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 5 {
-        return Err("usage: static-frame CONTENT MAP FRAME_JSON OUTPUT_RGBA COMPONENT".into());
+    let battle = args.get(5).is_some_and(|arg| arg == "--battle");
+    if args.len() != 5 && !(args.len() == 6 && battle) {
+        return Err("usage: static-frame CONTENT MAP FRAME_JSON OUTPUT_RGBA COMPONENT [--battle]".into());
     }
     let input: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&args[2]).map_err(|e| e.to_string())?)
@@ -52,13 +53,24 @@ fn run() -> Result<(), String> {
     };
     let random: Option<Vec<f64>> =
         serde_json::from_value(input["foliageRandom"].clone()).map_err(|e| e.to_string())?;
-    let (mut scene, _) = bfe_client::scene::Scene::load_with_random(
-        std::path::Path::new(&args[0]),
-        &args[1],
-        size,
-        random.as_deref(),
-        &mut load,
-    )?;
+    // Battle admission retains the regular client's shadows and material
+    // variants. The default inspector still accepts recorded foliage draws.
+    let (mut scene, _) = if battle {
+        bfe_client::scene::Scene::load_online(
+            std::path::Path::new(&args[0]),
+            &format!("map={}", args[1]),
+            size,
+            &mut load,
+        )?
+    } else {
+        bfe_client::scene::Scene::load_with_random(
+            std::path::Path::new(&args[0]),
+            &args[1],
+            size,
+            random.as_deref(),
+            &mut load,
+        )?
+    };
     let mut view = bfe_client::scene::View {
         values: [0.; bfe_render::shader::FRAME_FLOATS],
     };

@@ -658,6 +658,15 @@ impl Vehicles {
         self.rigs.get(rig).map_or(0, |r| r.slots[slot.min(lim::SLOTS - 1)].1)
     }
 
+    /// Published node matrices, after the rig's variable leg-side and aimer
+    /// output. Native camera and skinning hosts must not reconstruct this
+    /// prefix: walkers can have leg pairs even when another hull has none.
+    pub fn slot_nodes(&self, rig: usize, slot: usize) -> Option<&[f64]> {
+        let rig = self.rigs.get(rig)?;
+        let start = rig.slots[slot.min(lim::SLOTS - 1)].1 + rig.out_nodes();
+        self.stream_out.get(start..start + rig.nodes.len() * vn::STRIDE)
+    }
+
     /// The entries the host wrote, clamped to the records; one whose rig or
     /// streams do not fit is skipped (counted in the header).
     fn entries(&self) -> usize {

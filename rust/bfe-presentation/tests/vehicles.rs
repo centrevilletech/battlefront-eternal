@@ -332,3 +332,45 @@ fn a_craft_drawn_from_its_records_follows_its_flight_state() {
     assert_eq!(gear(&mut v, r, dt, 0.3, 1.0, 2.0, fs::OTHER, f64::NAN), held);
     let _ = gear(&mut v, r, f64::NAN, f64::NAN, 1.0, f64::NAN, 99, f64::NAN);
 }
+
+#[test]
+fn published_nodes_follow_leg_sides_and_aimers_in_both_slots() {
+    for pairs in 0..=2 {
+        let mut v = Vehicles::new();
+        let c = clip(&mut v);
+        let _preceding_rig = add(&mut v, false, c);
+        let mut descriptor = rig(pairs != 0, c);
+        if pairs != 0 {
+            descriptor["legs"] = serde_json::json!({
+                "rayLength": 4.0,
+                "at": vec![[[1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]]; pairs],
+                "bones": vec![vec![1, 2]; pairs],
+            });
+        }
+        let rig = v.add_rig(serde_json::from_value(descriptor).unwrap());
+        entry(&mut v, 0, rig, mode::ALIVE, 1.0 / 60.0);
+        frame(&mut v, 1);
+        entry(&mut v, 0, rig, mode::ALIVE, 1.0 / 60.0);
+        let input = v.slot_input(rig, 1);
+        let output = v.slot_output(rig, 1);
+        let x = &mut v.input[vf::STRIDE..][..ve::STRIDE];
+        x[ve::INPUT] = input as f64;
+        x[ve::OUTPUT] = output as f64;
+        x[ve::POSITION..ve::POSITION + 3].copy_from_slice(&[17., 3., -4.]);
+        x[ve::TICK_FROM..ve::TICK_FROM + 3].copy_from_slice(&[17., 3., -4.]);
+        frame(&mut v, 1);
+        for (slot, position) in [[5., 1., -2.], [17., 3., -4.]].iter().enumerate() {
+            let nodes = v.slot_nodes(rig, slot).unwrap();
+            assert_eq!(nodes.len(), 6 * vn::STRIDE);
+            let root = &nodes[vn::WORLD..vn::WORLD + 16];
+            assert_eq!(&root[12..15], position, "{pairs} leg pairs, slot {slot}");
+            assert_eq!(root[15], 1., "the root remains an affine transform");
+            // The first bone starts at the root. Reading a leg-side or aimer
+            // value as matrix data would corrupt this skinning input too.
+            let bone = &nodes[vn::STRIDE + vn::WORLD..][..16];
+            assert_eq!(&bone[12..15], position);
+            assert_eq!(bone[15], 1.);
+        }
+        assert!(v.slot_nodes(usize::MAX, 0).is_none());
+    }
+}
