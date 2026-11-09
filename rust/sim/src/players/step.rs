@@ -38,15 +38,48 @@ fn connection(w: &mut World, p: &Player, op: F4ConnectionOp, class_name: Option<
 
 /// roster.release / roster.switchTeam (src/f4-roster.js command): true
 /// when the roster accepted the change.
-fn roster(w: &mut World, p: &Player, op: RoOperation, team: f64, empty: StrId) -> bool {
-    let Some(target) = p.character.clone() else { return false };
-    let command = F4RosterCommand { op, target: Some(target), team, player_id: PlayerId::Undefined, name: empty };
-    w.sim.calls.result(F4RosterCommand::WORDS, |row, heap| command.put(row, heap));
-    let Some(words) = crate::battle::f4_roster::f4_roster_command_in(w) else { return false };
+fn roster(w: &mut World, p: &mut Player, op: RoOperation, team: f64, empty: StrId) -> bool {
+    let Some(target) = p.character.clone() else {
+        return false;
+    };
+    let character =
+        crate::battle::f4_connections::wire_character_in(&w.battle, &w.sim.store, &target);
+    let command = F4RosterCommand {
+        op,
+        target: Some(target.clone()),
+        team,
+        player_id: PlayerId::Undefined,
+        name: empty,
+    };
+    w.sim
+        .calls
+        .result(F4RosterCommand::WORDS, |row, heap| command.put(row, heap));
+    let Some(words) = crate::battle::f4_roster::f4_roster_command_in(w) else {
+        return false;
+    };
     // The result block is read in place: its header names the row and heap.
     let stride = words[BlockHeader::STRIDE] as usize;
-    let (heap_at, heap_words) = (words[BlockHeader::HEAP] as usize, words[BlockHeader::HEAP_WORDS] as usize);
-    F4RosterResult::take(&words[HEADER..HEADER + stride], &words[heap_at..heap_at + heap_words]).flag
+    let (heap_at, heap_words) = (
+        words[BlockHeader::HEAP] as usize,
+        words[BlockHeader::HEAP_WORDS] as usize,
+    );
+    let result = F4RosterResult::take(
+        &words[HEADER..HEADER + stride],
+        &words[heap_at..heap_at + heap_words],
+    );
+    if result.flag && op == RoOperation::SwitchTeam {
+        // multiplayer-world keeps p.character and p.unit across switchTeam.
+        // The native roster advances the command life, so transfer both owned
+        // bindings explicitly before the subsequent Team/Spawn command.
+        let next = crate::battle::f4_core::character_handle_in(
+            &mut w.battle,
+            character.expect("accepted team transfer owns its previous character"),
+        )
+        .expect("accepted team transfer has a character");
+        crate::battle::f4_connections::reassign_in(&mut w.battle, &w.sim.store, &target, &next);
+        p.character = Some(next);
+    }
+    result.flag
 }
 
 /// remoteWorld.retire(p.id): his recon context retires with his place; a

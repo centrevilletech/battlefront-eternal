@@ -481,9 +481,39 @@ impl super::publisher::World for PublicationWorld<'_> {
         Ok(())
     }
 
-    fn capture(&mut self, tick: f64, epoch: f64, runtime: &mut super::Runtime) -> super::codec::Result<()> {
-        self.source.capture(&self.w,self.shots)?; self.source.world(&self.w,self.stagger,epoch)?;
-        runtime.capture_canonical(tick, epoch, self.source.capture.records(), self.stagger.entries.iter().filter_map(|e| e.field.as_ref()), &self.w.sim.strings)
+    fn capture(
+        &mut self,
+        tick: f64,
+        epoch: f64,
+        runtime: &mut super::Runtime,
+    ) -> super::codec::Result<()> {
+        // Native connections own Character lives. A team trade advances that
+        // life without disconnecting the mailbox; follow that exact owner,
+        // never a recycled Character slot or an unqualified stale handle.
+        if self.w.input.players.active {
+            for peer in &mut self.source.peers {
+                if let Some(player) = self
+                    .w
+                    .input
+                    .players
+                    .order
+                    .iter()
+                    .filter_map(|&key| self.w.input.players.pool.get(key))
+                    .find(|player| player.mailbox == peer.mailbox as usize)
+                {
+                    peer.character = player.character.clone();
+                }
+            }
+        }
+        self.source.capture(&self.w, self.shots)?;
+        self.source.world(&self.w, self.stagger, epoch)?;
+        runtime.capture_canonical(
+            tick,
+            epoch,
+            self.source.capture.records(),
+            self.stagger.entries.iter().filter_map(|e| e.field.as_ref()),
+            &self.w.sim.strings,
+        )
     }
     // SnapshotHost resolves recipients from native connection ownership.
     // Mounted actors use their hull position for cosmetic range selection.

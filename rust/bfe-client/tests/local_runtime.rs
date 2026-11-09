@@ -1241,3 +1241,60 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
         assert_eq!(runtime.receiver.own.yaw, moved.yaw, "heading must persist after look stops");
     }).unwrap().join().unwrap();
 }
+
+#[test]
+fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let options = options::Options {
+                root: root.into(),
+                battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
+                audio: false,
+                duration: None,
+            };
+            let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
+            let registry = prepared.admission.registry.clone();
+            let mut runtime = runtime::Runtime::new(
+                *prepared.engine,
+                *prepared.admission,
+                1000.,
+                1_700_000_000_000.,
+            )
+            .unwrap();
+            assert_eq!(runtime.receiver.own.team, 2);
+            assert!(!runtime.receiver.own.alive);
+            runtime
+                .spawn_human(1, "cis_inf_battledroid", "cp3")
+                .unwrap();
+            let mut device = bfe_client::input::Input::default();
+            for tick in 1..=12 {
+                let (command, look, flight, view) = device.sample(
+                    tick,
+                    runtime.receiver.own.generation as u32,
+                    true,
+                    16. / 9.,
+                    1.,
+                    false,
+                );
+                runtime.step(&command, &look, &flight, &view).unwrap();
+            }
+            assert_eq!(runtime.refusals(), 0);
+            assert_eq!(runtime.receiver.own.team, 1);
+            assert!(runtime.receiver.own.alive);
+            let class = registry["classes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row[0].as_u64() == Some(runtime.receiver.own.class as u64))
+                .unwrap();
+            assert_eq!(class[1], "cis_inf_battledroid");
+            runtime.close();
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

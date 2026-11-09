@@ -597,18 +597,19 @@ fn retained_cosmetic_delivery_preserves_order_replacements_and_acknowledgements_
 #[test]
 fn complete_native_publication_including_first_capture_and_fault_recovery_does_not_allocate() {
     use bfe_sim::wire::{publisher::{self, World}, Runtime, host::Host, journal};
-    struct Source { strings: Strings, body: Vec<u8>, fields: Vec<WireField>, tick: f64, fail: bool, burst: usize, edges:bfe_sim::store::handles::Pool<bfe_sim::wire::edges::Host> }
+    struct Source { strings: Strings, body: Vec<u8>, fields: Vec<WireField>, tick: f64, fail: bool, bodiless: bool, burst: usize, edges:bfe_sim::store::handles::Pool<bfe_sim::wire::edges::Host> }
     impl World for Source {
         fn capture(&mut self, tick: f64, epoch: f64, runtime: &mut Runtime) -> codec::Result<()> {
             runtime.capture_canonical(tick, epoch, &[], std::iter::empty(), &self.strings)
         }
         fn actor(&self, peer: u32) -> publisher::Actor {
-            publisher::Actor { present: true, spectator: peer == 2, unit: (peer != 2).then_some((1., 7.)), ack: self.tick + 4., ack_tick: self.tick, ..Default::default() }
+            publisher::Actor { present: true, spectator: peer == 2, unit: (peer != 2 && !self.bodiless).then_some((1., 7.)), ack: self.tick + 4., ack_tick: self.tick, ..Default::default() }
         }
         fn summaries(&mut self, _: u32, _: f64, out: &mut publisher::Fields) -> codec::Result<()> {
             out.clear(); for f in &self.fields { out.push(f)?; } Ok(())
         }
         fn own(&mut self, _: u32, _: f64) -> codec::Result<publisher::Correction<'_>> {
+            assert!(!self.bodiless, "an awaiting player has no correction body");
             if self.fail { return Err("invalid own-player number"); }
             Ok(publisher::Correction { id: 1., generation: 7., schema: 11., payload: &self.body })
         }
@@ -621,7 +622,7 @@ fn complete_native_publication_including_first_capture_and_fault_recovery_does_n
     }
     let fixture = bfe_content::json::parse(include_str!("../../../tests/fixtures/wire-own-fields.json")).unwrap();
     let mut source = Source { strings: Strings::default(), body: hex(fixture.as_array().unwrap()[0].get("payload").unwrap()),
-        fields: vec![WireField { id: 65536., schema: 3., generation: 3., payload: vec![0, 0, 1, 0, 2, 0, 3, 0, 4] }], tick: 1., fail: false, burst: 0, edges:bfe_sim::store::handles::Pool::new(5) };
+        fields: vec![WireField { id: 65536., schema: 3., generation: 3., payload: vec![0, 0, 1, 0, 2, 0, 3, 0, 4] }], tick: 1., fail: false, bodiless: false, burst: 0, edges:bfe_sim::store::handles::Pool::new(5) };
     let mut runtime = Runtime::default(); runtime.reserve_world(0, 0).unwrap();
     let mut host = Host::new(true, f64::INFINITY, f64::INFINITY, 3.);
     host.add(1, 0.); host.add(2, 0.);
@@ -649,12 +650,12 @@ fn complete_native_publication_including_first_capture_and_fault_recovery_does_n
     // invalid own input and following recovery all use the same native call.
     ALLOCATIONS.with(|n| n.set(0)); ACTIVE.with(|flag| flag.set(true));
     for tick in 2..2002 {
-        source.tick = tick as f64; source.fail = tick % 71 == 0;
+        source.tick = tick as f64; source.fail = tick % 71 == 0; source.bodiless = tick % 17 == 0;
         if tick % 3 == 0 { host.accept_ack(1, tick as f64 - 1., 3.); }
         if tick % 7 == 0 { host.accept_ack(2, tick as f64 - 1., 3.); }
         unsafe { publisher.run(&mut host, &mut runtime, &mut source, tick as f64, tick as f64 * 16., 1000., 0.); }
-        assert_eq!(publisher.output.faults.len(), source.fail as usize);
-        assert_eq!(publisher.output.own.len(), if source.fail { 1 } else { 2 });
+        assert_eq!(publisher.output.faults.len(), (source.fail && !source.bodiless) as usize);
+        assert_eq!(publisher.output.own.len(), if source.fail && !source.bodiless { 1 } else { 2 });
     }
     ACTIVE.with(|flag| flag.set(false)); assert_eq!(ALLOCATIONS.with(Cell::get), 0, "complete retained publication lifecycle");
     // A pause may drain more reliable bytes than the ordinary battle arena.

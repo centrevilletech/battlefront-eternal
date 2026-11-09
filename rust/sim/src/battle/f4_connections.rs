@@ -39,6 +39,27 @@ pub(crate) fn wire_view_in<'w>(battle: &'w BattleOwner, store: &Store, handle: &
     battle.connections.as_ref().expect("prepared connections").view(reference)
 }
 
+/// A successful team trade keeps the same player's connection and dead body.
+/// Only its owned command life advances; retired external handles stay stale.
+pub(crate) fn reassign_in(
+    battle: &mut BattleOwner,
+    store: &Store,
+    previous: &F4Handle,
+    next: &F4Handle,
+) {
+    let reference = super::f4_core::resolve_character_ref(battle, store, next)
+        .expect("accepted roster team transfer");
+    assert_eq!(
+        (previous.slot, previous.generation),
+        (next.slot, next.generation)
+    );
+    let entry = state(battle).rows[reference.slot as usize]
+        .as_mut()
+        .expect("connected player team transfer");
+    assert_eq!(entry.handle, *previous);
+    entry.handle = next.clone();
+}
+
 fn spawn(w: &mut Root, entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
     if w.sim.store.battle.game_over {return false;}
     if entry.view.unit.and_then(|r|w.sim.store.unit.get(r)).is_some_and(|u|!u.alive && u.dead_time+1e-6<4.) {return false;}

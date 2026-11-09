@@ -3533,6 +3533,79 @@ fn native_reliable_edges_spawn_suicide_and_respawn_on_the_assigned_team() {
     host.remove_player("human");
 }
 
+#[test]
+fn native_reliable_team_switch_publishes_and_spawns_the_other_side() {
+    let Ok(content) = std::env::var("BFE_CONTENT_DIR") else {
+        return;
+    };
+    let mut host = NativeWorldHost::load_from_content(
+        Path::new(&content),
+        "?map=nab2&side=rep&ai=off&seed=1",
+        1,
+    )
+    .unwrap();
+    let welcome = host
+        .add_player("human", "Human", false, false, true)
+        .unwrap();
+    let team = 3 - welcome.team;
+    let class_name = if team == 1 {
+        "cis_inf_battledroid"
+    } else {
+        "rep_inf_clone_trooper"
+    };
+    let class = host.registry_descriptor["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry[1].as_str() == Some(class_name))
+        .unwrap()[0]
+        .as_u64()
+        .unwrap() as u16;
+    // These are the actual reliable team/spawn packets, with the old dead
+    // body's generation. A team trade must not break the following publication.
+    let packet = |id: u32, tick: u32, spawn: bool| {
+        let mut bytes = INPUT_MAGIC.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&welcome.generation.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0, 1, 0]);
+        bytes.extend_from_slice(&id.to_le_bytes());
+        bytes.extend_from_slice(&tick.to_le_bytes());
+        bytes.push(if spawn { 3 } else { 2 });
+        if spawn {
+            bytes.extend_from_slice(&class.to_le_bytes());
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+        } else {
+            bytes.push(team);
+        }
+        bytes
+    };
+    host.handle_start("human", 1000.);
+    for tick in 1..=12 {
+        let now = 1000. + f64::from(tick) * 1000. / 60.;
+        if tick <= 2 {
+            host.handle_input("human", &packet(tick, tick, tick == 2), now - 1.);
+        }
+        if let Some(publication) = host
+            .step(now, 1_700_000_001_000 + u64::from(tick) * 17)
+            .unwrap()
+        {
+            assert!(
+                publication.faults.is_empty(),
+                "team transfer publication: {:?}",
+                publication.faults
+            );
+        }
+    }
+    let units = bfe_sim::host::unit_rows(&host.context).unwrap();
+    assert!(
+        units
+            .iter()
+            .any(|(_, _, unit)| unit.alive && unit.human && unit.team == f64::from(team)),
+        "reliable spawn must create the human's body on the new team"
+    );
+    host.remove_player("human");
+}
+
 // Keep the operator's startup contract covered by the actual service binary.
 // These fixtures contain no game files and never contact a master directory.
 struct StartupService {

@@ -292,7 +292,10 @@ impl Publisher {
                     if recipient.actor.spectator { p.fields.clear(); } else { world.summaries(p.peer, host.epoch, &mut p.fields)?; }
                     p.cached = true; c.summaries_due = tick + 6.;
                 }
-                let correction = if recipient.actor.spectator { None } else { Some(world.own(p.peer, host.epoch)?) };
+                // An awaiting player can publish spawn choices before a body
+                // exists. Keep those summaries, but never fabricate a physics
+                // checkpoint for a bodiless actor.
+                let correction = if recipient.actor.spectator || recipient.actor.unit.is_none() { None } else { Some(world.own(p.peer, host.epoch)?) };
                 // prepareOwn stores exactly the new personal field set, while
                 // a missing correction inherits its chosen baseline's body.
                 // It commits before cosmetic packing, as the prior host did.
